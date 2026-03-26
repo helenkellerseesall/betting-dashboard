@@ -1,0 +1,13906 @@
+require("dotenv").config()
+const express = require("express")
+const cors = require("cors")
+const axios = require("axios")
+
+const app = express()
+const fs = require("fs")
+const path = require("path")
+const MLScorer = require("./ml/scorer")
+const { buildMoneyMakerPortfolio } = require("./upside/builders")
+const { isFragileLeg, getFragileLegDiagnostics, resetFragileFilterAdjustedLogCount } = require("./pipeline/filters/fragile")
+const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline/selection/bestProps")
+
+// Initialize ML scorer (loads trained model if available)
+const modelPath = path.join(__dirname, "ml", "model.json")
+const mlScorer = new MLScorer(modelPath)
+
+
+app.use(cors())
+app.use(express.json())
+console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
+
+let snapshotLoadedFromDisk = false
+let lastSnapshotSource = "startup-empty"
+let lastSnapshotSavedAt = null
+let lastSnapshotAgeMinutes = null
+let lastForceRefreshAt = null
+
+let oddsSnapshot = {
+  updatedAt: null,
+  events: [],
+  rawProps: [],
+  props: [],
+  eliteProps: [],
+  strongProps: [],
+  playableProps: [],
+  bestProps: [],
+  diagnostics: {},
+  flexProps: [],
+  parlays: null,
+  dualParlays: null
+}
+
+const WATCHED_PLAYER_NAMES = [
+  "Luka Doncic",
+  "Luka Dončić"
+]
+
+const UNSTABLE_GAME_EVENT_IDS = [
+  "d17b632d984be98852b4bc409ae1d056",
+  "24a4d71edcffcb5584a61d2aa89c66d8"
+]
+
+try {
+  const snapshotPath = path.join(__dirname, "snapshot.json")
+  if (fs.existsSync(snapshotPath)) {
+    const raw = JSON.parse(fs.readFileSync(snapshotPath, "utf-8"))
+    oddsSnapshot = raw.data
+    if (!Array.isArray(oddsSnapshot.rawProps)) oddsSnapshot.rawProps = []
+    if (!Array.isArray(oddsSnapshot.flexProps)) oddsSnapshot.flexProps = []
+    if (!oddsSnapshot.diagnostics || typeof oddsSnapshot.diagnostics !== "object") oddsSnapshot.diagnostics = {}
+    snapshotLoadedFromDisk = true
+    lastSnapshotSource = "disk-cache"
+    lastSnapshotSavedAt = raw.savedAt || null
+    lastSnapshotAgeMinutes = Number.isFinite(raw.savedAt)
+      ? Math.round((Date.now() - raw.savedAt) / 60000)
+      : null
+    console.log("[SNAPSHOT-CACHE] loaded snapshot from disk", {
+      ageMinutes: lastSnapshotAgeMinutes
+    })
+  }
+} catch (e) {
+  lastSnapshotSource = "disk-cache-load-failed"
+  console.log("[SNAPSHOT-CACHE] failed to load snapshot", e.message)
+}
+
+function buildSnapshotMeta(overrides = {}) {
+  const updatedAtMs = oddsSnapshot?.updatedAt ? new Date(oddsSnapshot.updatedAt).getTime() : null
+  const ageMinutes = Number.isFinite(updatedAtMs)
+    ? Math.max(0, Math.round((Date.now() - updatedAtMs) / 60000))
+    : (Number.isFinite(lastSnapshotAgeMinutes) ? lastSnapshotAgeMinutes : null)
+
+  return {
+    source: overrides.source || lastSnapshotSource || "unknown",
+    loadedFromDisk: snapshotLoadedFromDisk,
+    updatedAt: oddsSnapshot?.updatedAt || null,
+    ageMinutes,
+    savedAt: lastSnapshotSavedAt || null,
+    lastForceRefreshAt,
+    bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+    flexProps: Array.isArray(oddsSnapshot?.flexProps) ? oddsSnapshot.flexProps.length : 0,
+    playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
+    strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
+    eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
+  }
+}
+
+function logSnapshotMeta(label, overrides = {}) {
+  const meta = buildSnapshotMeta(overrides)
+  console.log(`[SNAPSHOT-META] ${label}`, meta)
+  return meta
+}
+
+function parseHitRateInline(hitRate) {
+  if (typeof hitRate === "number") return hitRate
+  if (typeof hitRate !== "string") return 0
+  const parts = hitRate.split("/").map((part) => Number(part))
+  if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && parts[1] > 0) {
+    return parts[0] / parts[1]
+  }
+  const numeric = Number(hitRate)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
+function getDualExpandedEligibleRows() {
+  const rawRows = dedupeByLegSignature([
+    ...(Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []),
+    ...(Array.isArray(oddsSnapshot.eliteProps) ? oddsSnapshot.eliteProps : []),
+    ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
+    ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
+    ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+  ])
+
+  const eligibleRows = getAvailablePrimarySlateRows(rawRows)
+  const rawGames = [...new Set(rawRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const eligibleGames = [...new Set(eligibleRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  logPayloadDebugExclusions("dualExpandedEligibleRows", rawRows, eligibleRows)
+  console.log("[DUAL-EXPANDED-GAME-DEBUG]", {
+    rawRowCount: rawRows.length,
+    eligibleRowCount: eligibleRows.length,
+    rawGameCount: rawGames.length,
+    eligibleGameCount: eligibleGames.length,
+    rawGames,
+    eligibleGames
+  })
+
+  return eligibleRows
+}
+
+function buildDualPoolDiagnostics(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const statTypes = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+  const books = ["FanDuel", "DraftKings"]
+  const byBook = {}
+  const byStat = {}
+
+  for (const book of books) {
+    const bookRows = safeRows.filter((row) => row.book === book)
+    byBook[book] = {
+      total: bookRows.length,
+      points: bookRows.filter((row) => row.propType === "Points").length,
+      rebounds: bookRows.filter((row) => row.propType === "Rebounds").length,
+      assists: bookRows.filter((row) => row.propType === "Assists").length,
+      threes: bookRows.filter((row) => row.propType === "Threes").length,
+      pra: bookRows.filter((row) => row.propType === "PRA").length
+    }
+  }
+
+  for (const statType of statTypes) {
+    const statRows = safeRows.filter((row) => row.propType === statType)
+    byStat[statType] = {
+      total: statRows.length,
+      fanduel: statRows.filter((row) => row.book === "FanDuel").length,
+      draftkings: statRows.filter((row) => row.book === "DraftKings").length
+    }
+  }
+
+  return {
+    totalEligible: safeRows.length,
+    rawProps: Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props.length : 0,
+    byBook,
+    byStat
+  }
+}
+
+function buildDualStatLeaderboards(rows) {
+  const books = ["FanDuel", "DraftKings"]
+  const statTypes = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+  const result = {}
+
+  for (const book of books) {
+    result[book.toLowerCase()] = {}
+
+    for (const statType of statTypes) {
+      const statRows = dedupeByLegSignature(
+        rows.filter((row) => row.book === book && row.propType === statType)
+      )
+        .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+        .filter((row) => !isFragileLeg(row))
+        .sort((a, b) => {
+          const aHitRate = parseHitRateInline(a.hitRate)
+          const bHitRate = parseHitRateInline(b.hitRate)
+          const aEdge = Number(a.edge || a.projectedValue || 0)
+          const bEdge = Number(b.edge || b.projectedValue || 0)
+          const aScore = Number(a.score || 0)
+          const bScore = Number(b.score || 0)
+          const aMinutesRisk = String(a.minutesRisk || "").toLowerCase() === "low" ? 0.08 : 0
+          const bMinutesRisk = String(b.minutesRisk || "").toLowerCase() === "low" ? 0.08 : 0
+          const aInjuryRisk = String(a.injuryRisk || "").toLowerCase() === "low" ? 0.05 : 0
+          const bInjuryRisk = String(b.injuryRisk || "").toLowerCase() === "low" ? 0.05 : 0
+          const aTrendRisk = String(a.trendRisk || "").toLowerCase() === "high" ? -0.08 : 0
+          const bTrendRisk = String(b.trendRisk || "").toLowerCase() === "high" ? -0.08 : 0
+          const aComposite = (aHitRate * 0.55) + (aEdge / 12 * 0.2) + (aScore / 140 * 0.17) + aMinutesRisk + aInjuryRisk + aTrendRisk
+          const bComposite = (bHitRate * 0.55) + (bEdge / 12 * 0.2) + (bScore / 140 * 0.17) + bMinutesRisk + bInjuryRisk + bTrendRisk
+          return bComposite - aComposite
+        })
+        .slice(0, 3)
+        .map((row) => ({
+          eventId: row.eventId,
+          matchup: row.matchup,
+          gameTime: row.gameTime,
+          book: row.book,
+          player: row.player,
+          team: row.team,
+          propType: row.propType,
+          side: row.side,
+          line: row.line,
+          odds: row.odds,
+          hitRate: row.hitRate,
+          edge: row.edge,
+          score: row.score,
+          l10Avg: row.l10Avg,
+          recent5Avg: row.recent5Avg,
+          recent3Avg: row.recent3Avg,
+          avgMin: row.avgMin,
+          minutesRisk: row.minutesRisk,
+          trendRisk: row.trendRisk,
+          injuryRisk: row.injuryRisk,
+          dvpScore: row.dvpScore
+        }))
+
+      result[book.toLowerCase()][statType.toLowerCase()] = statRows
+    }
+  }
+
+  return result
+}
+
+// ─── Diagnostics helpers ───────────────────────────────────────────────────
+
+function buildRawCoverage() {
+  const raw = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length
+    ? oddsSnapshot.rawProps
+    : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+  const books = ["FanDuel", "DraftKings"]
+  const statTypes = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+
+  const byBook = {}
+  for (const bk of books) {
+    byBook[bk] = raw.filter((r) => r?.book === bk).length
+  }
+
+  const byStat = {}
+  for (const st of statTypes) {
+    byStat[st] = raw.filter((r) => r?.propType === st).length
+  }
+
+  const byBookAndStat = {}
+  for (const bk of books) {
+    byBookAndStat[bk] = {}
+    for (const st of statTypes) {
+      byBookAndStat[bk][st] = raw.filter((r) => r?.book === bk && r?.propType === st).length
+    }
+  }
+
+  const gameSet = new Set()
+  const playerSet = new Set()
+  let missingTeam = 0, missingOdds = 0, missingLine = 0, missingPropType = 0
+  for (const r of raw) {
+    if (r?.matchup) gameSet.add(String(r.matchup))
+    if (r?.player) playerSet.add(String(r.player))
+    if (!r?.team) missingTeam++
+    if (r?.odds == null || r?.odds === "") missingOdds++
+    if (r?.line == null || r?.line === "") missingLine++
+    if (!r?.propType) missingPropType++
+  }
+
+  return {
+    totalRawProps: raw.length,
+    byBook,
+    byStat,
+    byBookAndStat,
+    uniqueGames: gameSet.size,
+    uniquePlayers: playerSet.size,
+    missingFields: { team: missingTeam, odds: missingOdds, line: missingLine, propType: missingPropType }
+  }
+}
+
+function buildStageCounts(expandedEligibleRows, dualBestPropsPool) {
+  const safeExpanded = Array.isArray(expandedEligibleRows) ? expandedEligibleRows : []
+  const safeDualPool = Array.isArray(dualBestPropsPool) ? dualBestPropsPool : []
+  const rawProps = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0
+  const bestPropsRaw = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+
+  const finalBestRows = getAvailablePrimarySlateRows(Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : [])
+  const finalBestFD = finalBestRows.filter((r) => r?.book === "FanDuel").length
+  const finalBestDK = finalBestRows.filter((r) => r?.book === "DraftKings").length
+
+  return {
+    rawProps,
+    bestPropsRaw,
+    expandedEligibleRows: safeExpanded.length,
+    expandedByBook: {
+      FanDuel: safeExpanded.filter((r) => r?.book === "FanDuel").length,
+      DraftKings: safeExpanded.filter((r) => r?.book === "DraftKings").length
+    },
+    dualBestPropsPool: safeDualPool.length,
+    finalBestVisible: {
+      fanduel: finalBestFD,
+      draftkings: finalBestDK,
+      total: finalBestFD + finalBestDK
+    }
+  }
+}
+
+function buildExclusionSummary() {
+  const raw = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const todayKey = (() => { try { return getLocalSlateDateKey(new Date().toISOString()) } catch (_) { return "" } })()
+  const fragileReasonCounts = {}
+
+  let removedByPlayerStatus = 0
+  let removedByFragile = 0
+  let invalidGameTime = 0
+  let notPrimarySlate = 0
+  let missingRequiredFields = 0
+  let removedByPregameStatus = 0
+  let dedupedOut = 0
+  let survived = 0
+
+  // Track keys seen to count deduplication drops
+  const seenLegSig = new Set()
+
+  for (const r of raw) {
+    if (!r) continue
+
+    // Missing required fields check
+    if (!r.player || !r.propType || r.line == null) {
+      missingRequiredFields++
+      continue
+    }
+
+    // Player status check
+    if (shouldRemoveLegForPlayerStatus(r)) {
+      removedByPlayerStatus++
+      continue
+    }
+
+    // Fragile leg check
+    const fragileDiagnostics = getFragileLegDiagnostics(r, "default")
+    if (fragileDiagnostics.fragile) {
+      removedByFragile++
+      for (const reason of fragileDiagnostics.reasons) {
+        fragileReasonCounts[reason] = (fragileReasonCounts[reason] || 0) + 1
+      }
+      continue
+    }
+
+    if (!r?.gameTime) {
+      invalidGameTime++
+      continue
+    }
+
+    const gameMs = new Date(r.gameTime).getTime()
+    if (!Number.isFinite(gameMs)) {
+      invalidGameTime++
+      continue
+    }
+
+    if (!isPregameEligibleRow(r)) {
+      removedByPregameStatus++
+      continue
+    }
+
+    // Dedupe check (mimics dedupeByLegSignature key)
+    const legSig = `${r.player}|${r.propType}|${r.book}|${r.side}|${r.line}`
+    if (seenLegSig.has(legSig)) {
+      dedupedOut++
+      continue
+    }
+    seenLegSig.add(legSig)
+    survived++
+  }
+
+  return {
+    totalRaw: raw.length,
+    survived,
+    removedByPlayerStatus,
+    removedByFragile,
+    invalidGameTime,
+    notPrimarySlate,
+    missingRequiredFields,
+    removedByPregameStatus,
+    fragileReasonCounts,
+    dedupedOut,
+    totalExcluded: raw.length - survived
+  }
+}
+
+function normalizeDebugPlayerName(name) {
+  return String(name || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+}
+
+function normalizeTeamDebugText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+}
+
+function getTeamNameByAbbr(abbr) {
+  const map = {
+    ATL: "Atlanta Hawks",
+    BOS: "Boston Celtics",
+    BKN: "Brooklyn Nets",
+    CHA: "Charlotte Hornets",
+    CHI: "Chicago Bulls",
+    CLE: "Cleveland Cavaliers",
+    DAL: "Dallas Mavericks",
+    DEN: "Denver Nuggets",
+    DET: "Detroit Pistons",
+    GSW: "Golden State Warriors",
+    HOU: "Houston Rockets",
+    IND: "Indiana Pacers",
+    LAC: "Los Angeles Clippers",
+    LAL: "Los Angeles Lakers",
+    MEM: "Memphis Grizzlies",
+    MIA: "Miami Heat",
+    MIL: "Milwaukee Bucks",
+    MIN: "Minnesota Timberwolves",
+    NOP: "New Orleans Pelicans",
+    NYK: "New York Knicks",
+    OKC: "Oklahoma City Thunder",
+    ORL: "Orlando Magic",
+    PHI: "Philadelphia 76ers",
+    PHX: "Phoenix Suns",
+    POR: "Portland Trail Blazers",
+    SAC: "Sacramento Kings",
+    SAS: "San Antonio Spurs",
+    TOR: "Toronto Raptors",
+    UTA: "Utah Jazz",
+    WAS: "Washington Wizards"
+  }
+  return map[String(abbr || "").toUpperCase().trim()] || ""
+}
+
+function getTeamTokenSet(teamValue) {
+  const raw = String(teamValue || "").trim()
+  const tokens = new Set()
+  if (!raw) return tokens
+
+  const add = (value) => {
+    const normalized = normalizeTeamDebugText(value)
+    if (normalized) tokens.add(normalized)
+  }
+
+  add(raw)
+
+  const abbr = String(teamAbbr(raw) || raw).toUpperCase().trim()
+  if (abbr) {
+    add(abbr)
+    const fullName = getTeamNameByAbbr(abbr)
+    if (fullName) {
+      add(fullName)
+      const nameParts = normalizeTeamDebugText(fullName).split(" ").filter(Boolean)
+      if (nameParts.length) add(nameParts[nameParts.length - 1])
+    }
+  }
+
+  return tokens
+}
+
+function parseMatchupTeams(matchupValue) {
+  const matchup = String(matchupValue || "").trim()
+  if (!matchup) return { away: "", home: "" }
+  const normalized = matchup.replace(/\s+vs\.?\s+/i, " @ ")
+  const parts = normalized.split("@").map((part) => String(part || "").trim()).filter(Boolean)
+  if (parts.length >= 2) {
+    return {
+      away: parts[0],
+      home: parts[1]
+    }
+  }
+  return { away: "", home: "" }
+}
+
+function rowTeamMatchesMatchup(row) {
+  if (!row) return true
+
+  const team = String(row?.team || "").trim()
+  if (!team) return true
+
+  const parsedMatchup = parseMatchupTeams(row?.matchup)
+  const awayTeam = String(row?.awayTeam || parsedMatchup.away || "").trim()
+  const homeTeam = String(row?.homeTeam || parsedMatchup.home || "").trim()
+
+  const awayTokens = getTeamTokenSet(awayTeam)
+  const homeTokens = getTeamTokenSet(homeTeam)
+  const teamTokens = getTeamTokenSet(team)
+
+  if (!awayTokens.size && !homeTokens.size) return true
+
+  for (const token of teamTokens) {
+    if (awayTokens.has(token) || homeTokens.has(token)) return true
+  }
+
+  return false
+}
+
+function getBadTeamAssignmentRows(rows, limit = 25) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const maxRows = Number.isFinite(limit) ? Math.max(0, Number(limit)) : 25
+  return safeRows
+    .filter((row) => !rowTeamMatchesMatchup(row))
+    .slice(0, maxRows)
+    .map((row) => ({
+      player: row?.player,
+      team: row?.team,
+      matchup: row?.matchup,
+      awayTeam: row?.awayTeam,
+      homeTeam: row?.homeTeam,
+      book: row?.book,
+      propType: row?.propType,
+      line: row?.line,
+      odds: row?.odds,
+      eventId: row?.eventId
+    }))
+}
+
+function summarizeIdentityChanges(rawRows, enrichedRows, limit = 25) {
+  const safeRaw = Array.isArray(rawRows) ? rawRows : []
+  const safeEnriched = Array.isArray(enrichedRows) ? enrichedRows : []
+  const total = Math.min(safeRaw.length, safeEnriched.length)
+  const maxLimit = Number.isFinite(limit) ? Math.max(0, Number(limit)) : 25
+  let changedCount = 0
+  let playerChanged = 0
+  let teamChanged = 0
+  let matchupChanged = 0
+  let eventChanged = 0
+  let bookChanged = 0
+  let propChanged = 0
+  let sideChanged = 0
+  let lineChanged = 0
+  const sample = []
+  for (let i = 0; i < total; i++) {
+    const raw = safeRaw[i]
+    const enriched = safeEnriched[i]
+    const pChg = String(raw?.player ?? "") !== String(enriched?.player ?? "")
+    const tChg = String(raw?.team ?? "") !== String(enriched?.team ?? "")
+    const mChg = String(raw?.matchup ?? "") !== String(enriched?.matchup ?? "")
+    const aChg = String(raw?.awayTeam ?? "") !== String(enriched?.awayTeam ?? "")
+    const hChg = String(raw?.homeTeam ?? "") !== String(enriched?.homeTeam ?? "")
+    const eChg = String(raw?.eventId ?? "") !== String(enriched?.eventId ?? "")
+    const bChg = String(raw?.book ?? "") !== String(enriched?.book ?? "")
+    const prChg = String(raw?.propType ?? "") !== String(enriched?.propType ?? "")
+    const sChg = String(raw?.side ?? "") !== String(enriched?.side ?? "")
+    const lChg = String(raw?.line ?? "") !== String(enriched?.line ?? "")
+    const anyChanged = pChg || tChg || mChg || aChg || hChg || eChg || bChg || prChg || sChg || lChg
+    if (!anyChanged) continue
+    changedCount++
+    if (pChg) playerChanged++
+    if (tChg) teamChanged++
+    if (mChg) matchupChanged++
+    if (eChg) eventChanged++
+    if (bChg) bookChanged++
+    if (prChg) propChanged++
+    if (sChg) sideChanged++
+    if (lChg) lineChanged++
+    if (sample.length < maxLimit) {
+      sample.push({
+        index: i,
+        rawPlayer: raw?.player,
+        enrichedPlayer: enriched?.player,
+        rawTeam: raw?.team,
+        enrichedTeam: enriched?.team,
+        rawMatchup: raw?.matchup,
+        enrichedMatchup: enriched?.matchup,
+        rawEventId: raw?.eventId,
+        enrichedEventId: enriched?.eventId,
+        rawBook: raw?.book,
+        enrichedBook: enriched?.book,
+        rawPropType: raw?.propType,
+        enrichedPropType: enriched?.propType,
+        rawSide: raw?.side,
+        enrichedSide: enriched?.side,
+        rawLine: raw?.line,
+        enrichedLine: enriched?.line
+      })
+    }
+  }
+  return {
+    totalCompared: total,
+    changedCount,
+    playerChanged,
+    teamChanged,
+    matchupChanged,
+    eventChanged,
+    bookChanged,
+    propChanged,
+    sideChanged,
+    lineChanged,
+    sample
+  }
+}
+
+function getEventIdForDebug(event) {
+  const id = event?.id ?? event?.eventId
+  return id == null ? "" : String(id)
+}
+
+function getEventMatchupForDebug(event) {
+  const away = event?.away_team || event?.awayTeam || ""
+  const home = event?.home_team || event?.homeTeam || ""
+  if (away && home) return `${away} @ ${home}`
+  if (event?.matchup) return String(event.matchup)
+  return "UNKNOWN_MATCHUP"
+}
+
+function runCurrentSlateCoverageDiagnostics(debugStages = {}) {
+  const scheduledEvents = Array.isArray(debugStages?.scheduledEvents) ? debugStages.scheduledEvents : []
+  const rawPropsRows = Array.isArray(debugStages?.rawPropsRows) ? debugStages.rawPropsRows : []
+  const enrichedModelRows = Array.isArray(debugStages?.enrichedModelRows) ? debugStages.enrichedModelRows : []
+  const survivedFragileRows = Array.isArray(debugStages?.survivedFragileRows) ? debugStages.survivedFragileRows : []
+  const bestPropsRawRows = Array.isArray(debugStages?.bestPropsRawRows) ? debugStages.bestPropsRawRows : []
+  const finalBestVisibleRows = Array.isArray(debugStages?.finalBestVisibleRows) ? debugStages.finalBestVisibleRows : []
+
+  const scheduledByEventId = new Map()
+  for (const event of scheduledEvents) {
+    const eventId = getEventIdForDebug(event)
+    if (!eventId) continue
+    scheduledByEventId.set(eventId, {
+      eventId,
+      matchup: getEventMatchupForDebug(event),
+      commenceTime: event?.commence_time || event?.gameTime || null
+    })
+  }
+
+  const rawEventIds = new Set(
+    rawPropsRows
+      .map((row) => (row?.eventId == null ? "" : String(row.eventId)))
+      .filter(Boolean)
+  )
+
+  const missingScheduledGames = [...scheduledByEventId.values()].filter((event) => !rawEventIds.has(event.eventId))
+
+  const perGamePlayerNames = new Map()
+  const perGameNormalizedPlayers = new Map()
+  for (const row of rawPropsRows) {
+    const eventId = row?.eventId == null ? "" : String(row.eventId)
+    if (!eventId) continue
+    const rawName = String(row?.player || row?.playerName || "").trim()
+    if (!rawName) continue
+    const normalized = normalizeDebugPlayerName(rawName)
+    if (!perGamePlayerNames.has(eventId)) perGamePlayerNames.set(eventId, new Set())
+    if (!perGameNormalizedPlayers.has(eventId)) perGameNormalizedPlayers.set(eventId, new Set())
+    perGamePlayerNames.get(eventId).add(rawName)
+    if (normalized) perGameNormalizedPlayers.get(eventId).add(normalized)
+  }
+
+  const limitedEvents = [...scheduledByEventId.values()].slice(0, 6)
+  const perGameCoverage = limitedEvents.map((event) => {
+    const rawPlayers = [...(perGamePlayerNames.get(event.eventId) || new Set())].sort()
+    const normalizedPlayers = [...(perGameNormalizedPlayers.get(event.eventId) || new Set())].sort()
+    return {
+      eventId: event.eventId,
+      matchup: event.matchup,
+      commenceTime: event.commenceTime,
+      rawPlayerCount: rawPlayers.length,
+      normalizedPlayerCount: normalizedPlayers.length,
+      rawPlayers,
+      normalizedPlayers
+    }
+  })
+
+  const suspiciouslyThinGames = perGameCoverage.filter((game) => game.normalizedPlayerCount > 0 && game.normalizedPlayerCount < 12)
+
+  const watchedPlayers = [
+    "Luka Doncic",
+    "Luka Dončić"
+  ]
+
+  const stageRows = [
+    { key: "rawProps", rows: rawPropsRows },
+    { key: "finalBestVisible", rows: finalBestVisibleRows }
+  ]
+
+  const watchedSummary = watchedPlayers.map((watchedName) => {
+    const targetNorm = normalizeDebugPlayerName(watchedName)
+    const stagePresence = {}
+
+    for (const stage of stageRows) {
+      const matches = stage.rows.filter((row) => normalizeDebugPlayerName(row?.player || row?.playerName) === targetNorm)
+      stagePresence[stage.key] = {
+        present: matches.length > 0,
+        count: matches.length,
+        books: [...new Set(matches.map((row) => String(row?.book || "")).filter(Boolean))],
+        eventIds: [...new Set(matches.map((row) => String(row?.eventId || "")).filter(Boolean))]
+      }
+    }
+
+    let disappearedAfterStage = null
+    if (stagePresence.rawProps?.present) {
+      for (let index = 1; index < stageRows.length; index++) {
+        const prev = stageRows[index - 1].key
+        const current = stageRows[index].key
+        if (stagePresence[prev]?.present && !stagePresence[current]?.present) {
+          disappearedAfterStage = prev
+          break
+        }
+      }
+    }
+
+    return {
+      watchedName,
+      normalizedName: targetNorm,
+      stagePresence,
+      disappearedAfterStage
+    }
+  })
+
+  const finalVisibleByBook = {
+    FanDuel: finalBestVisibleRows.filter((row) => row?.book === "FanDuel").length,
+    DraftKings: finalBestVisibleRows.filter((row) => row?.book === "DraftKings").length
+  }
+
+  if (process.env.DISABLE_HEAVY_DEBUG === "true") return;
+  console.log("[COVERAGE-AUDIT-DEBUG]", {
+    scheduledCount: scheduledByEventId.size,
+    rawEventIdCount: rawEventIds.size,
+    missingGamesCount: missingScheduledGames.length
+  })
+
+  console.log("[MISSING-GAMES-DETAIL-DEBUG]", {
+    missingGames: missingScheduledGames.map((game) => ({
+      eventId: game.eventId,
+      matchup: game.matchup
+    }))
+  })
+
+  console.log("[MISSING-PLAYER-AUDIT-DEBUG]", {
+    totalGames: perGameCoverage.length,
+    thinGames: suspiciouslyThinGames.length
+  })
+
+  console.log("[WATCHED-PLAYER-STAGE-DEBUG]", {
+    watchedPlayers,
+    summary: watchedSummary.map((playerSummary) => ({
+      name: playerSummary.watchedName,
+      disappearedAfterStage: playerSummary.disappearedAfterStage
+    })),
+    finalVisibleByBook
+  })
+
+  console.log("[WATCHED-PLAYER-PRESENCE-DEBUG]", {
+    players: watchedSummary.map((playerSummary) => ({
+      name: playerSummary.watchedName,
+      rawPropsPresent: Boolean(playerSummary?.stagePresence?.rawProps?.present),
+      finalBestVisiblePresent: Boolean(playerSummary?.stagePresence?.finalBestVisible?.present),
+      rawPropsCount: Number(playerSummary?.stagePresence?.rawProps?.count || 0),
+      finalBestVisibleCount: Number(playerSummary?.stagePresence?.finalBestVisible?.count || 0)
+    }))
+  })
+}
+
+function buildWideLeaderboards() {
+  // Use a wider pool: all props arrays deduplicated, filter only for obviously invalid rows
+  const wideRaw = [
+    ...(Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []),
+    ...(Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps : []),
+    ...(Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps : []),
+    ...(Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps : []),
+    ...(Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : [])
+  ]
+
+  const deduped = (() => {
+    try { return dedupeByLegSignature(wideRaw) } catch (_) { return wideRaw }
+  })().filter((r) => r && r.player && r.propType && r.book)
+    .filter((r) => { try { return !shouldRemoveLegForPlayerStatus(r) } catch (_) { return true } })
+    .filter((r) => { try { return !isFragileLeg(r) } catch (_) { return true } })
+
+  const books = ["FanDuel", "DraftKings"]
+  const statTypes = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+  const result = {}
+
+  for (const bk of books) {
+    result[bk] = {}
+    const bookRows = deduped.filter((r) => r.book === bk)
+    for (const st of statTypes) {
+      const statRows = bookRows.filter((r) => r.propType === st)
+      const sorted = statRows.slice().sort((a, b) => {
+        const aHR = parseHitRateInline(a.hitRate)
+        const bHR = parseHitRateInline(b.hitRate)
+        const aEdge = Number(a.edge || a.projectedValue || 0)
+        const bEdge = Number(b.edge || b.projectedValue || 0)
+        const aScore = Number(a.score || 0)
+        const bScore = Number(b.score || 0)
+        const aMR = String(a.minutesRisk || "").toLowerCase() === "low" ? 0.08 : 0
+        const bMR = String(b.minutesRisk || "").toLowerCase() === "low" ? 0.08 : 0
+        const aIR = String(a.injuryRisk || "").toLowerCase() === "low" ? 0.05 : 0
+        const bIR = String(b.injuryRisk || "").toLowerCase() === "low" ? 0.05 : 0
+        const aTR = String(a.trendRisk || "").toLowerCase() === "high" ? -0.08 : 0
+        const bTR = String(b.trendRisk || "").toLowerCase() === "high" ? -0.08 : 0
+        const aC = (aHR * 0.55) + (aEdge / 12 * 0.2) + (aScore / 140 * 0.17) + aMR + aIR + aTR
+        const bC = (bHR * 0.55) + (bEdge / 12 * 0.2) + (bScore / 140 * 0.17) + bMR + bIR + bTR
+        return bC - aC
+      })
+      result[bk][st] = sorted.slice(0, 5).map((r) => ({
+        player: r.player,
+        team: r.team,
+        matchup: r.matchup,
+        propType: r.propType,
+        side: r.side,
+        line: r.line,
+        odds: r.odds,
+        hitRate: r.hitRate,
+        edge: r.edge,
+        score: r.score,
+        l10Avg: r.l10Avg,
+        recent5Avg: r.recent5Avg,
+        recent3Avg: r.recent3Avg,
+        avgMin: r.avgMin,
+        minutesRisk: r.minutesRisk,
+        trendRisk: r.trendRisk,
+        injuryRisk: r.injuryRisk,
+        dvpScore: r.dvpScore
+      }))
+    }
+  }
+
+  return result
+}
+
+// ─── End diagnostics helpers ────────────────────────────────────────────────
+
+// scoreBestFallbackRow and buildBestPropsFallbackRows are exported from
+// ./pipeline/selection/bestProps (required at top of file)
+
+function getFlexPropScore(row) {
+  const hitRate = parseHitRateInline(row?.hitRate)
+  const edge = Number(row?.edge || row?.projectedValue || 0)
+  const score = Number(row?.score || 0)
+  const odds = Number(row?.odds || 0)
+  const trendRisk = String(row?.trendRisk || "").toLowerCase()
+  const propType = String(row?.propType || "")
+
+  const oddsBonus =
+    odds >= -150 && odds <= 200 ? 0.12 :
+    odds > 200 ? 0.04 :
+    odds >= -220 ? 0.08 : 0
+
+  const trendBonus =
+    trendRisk === "low" ? 0.06 :
+    trendRisk === "medium" ? 0.02 : 0
+
+  const propBonus =
+    propType === "Threes" ? 0.08 :
+    propType === "Points" ? 0.06 :
+    propType === "PRA" ? 0.04 : 0
+
+  return hitRate * 0.5 + (edge / 12) * 0.2 + (score / 140) * 0.15 + oddsBonus + trendBonus + propBonus
+}
+
+function isFlexEligibleRow(row) {
+  if (!row) return false
+  if (shouldRemoveLegForPlayerStatus(row)) return false
+  if (isFragileLeg(row)) return false
+
+  const hitRate = parseHitRateInline(row.hitRate)
+  const avgMin = Number(row.avgMin || 0)
+  const edge = Number(row.edge || row.projectedValue || 0)
+  const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+  const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+  const removed = Boolean(row.removed)
+
+  if (removed) return false
+  if (minutesRisk === "high" && hitRate < 0.5) return false
+  if (injuryRisk === "high") return false
+  if (hitRate < 0.38) return false
+  if (avgMin > 0 && avgMin < 10) return false
+  if (edge < -4) return false
+
+  return true
+}
+
+function getFlexTargetSize(totalRows) {
+  if (!Number.isFinite(totalRows) || totalRows <= 0) return 50
+  return Math.max(50, Math.min(100, Math.round(totalRows * 0.4)))
+}
+
+function buildFlexPropsPool(label, sourceRows) {
+  const source = Array.isArray(sourceRows) ? sourceRows : []
+  const deduped = dedupeByLegSignature(source)
+
+  const beforeByProp = {}
+  const beforeByBook = {}
+  for (const row of deduped) {
+    const propType = String(row?.propType || "unknown")
+    const book = String(row?.book || "unknown")
+    beforeByProp[propType] = (beforeByProp[propType] || 0) + 1
+    beforeByBook[book] = (beforeByBook[book] || 0) + 1
+  }
+
+  const filtered = deduped.filter((row) => isFlexEligibleRow(row))
+  const flexDropCounts = {
+    removed: 0,
+    playerStatus: 0,
+    fragile: 0,
+    minutesRiskHighLowHitRate: 0,
+    injuryRiskHigh: 0,
+    hitRateTooLow: 0,
+    avgMinTooLow: 0,
+    edgeTooLow: 0,
+    survived: filtered.length
+  }
+
+  for (const row of deduped) {
+    if (!row) continue
+    if (row.removed) {
+      flexDropCounts.removed++
+      continue
+    }
+    if (shouldRemoveLegForPlayerStatus(row)) {
+      flexDropCounts.playerStatus++
+      continue
+    }
+    if (isFragileLeg(row)) {
+      flexDropCounts.fragile++
+      continue
+    }
+
+    const hitRate = parseHitRateInline(row.hitRate)
+    const avgMin = Number(row.avgMin || 0)
+    const edge = Number(row.edge || row.projectedValue || 0)
+    const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+    const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+
+    if (minutesRisk === "high" && hitRate < 0.5) {
+      flexDropCounts.minutesRiskHighLowHitRate++
+      continue
+    }
+    if (injuryRisk === "high") {
+      flexDropCounts.injuryRiskHigh++
+      continue
+    }
+    if (hitRate < 0.38) {
+      flexDropCounts.hitRateTooLow++
+      continue
+    }
+    if (avgMin > 0 && avgMin < 10) {
+      flexDropCounts.avgMinTooLow++
+      continue
+    }
+    if (edge < -4) {
+      flexDropCounts.edgeTooLow++
+      continue
+    }
+  }
+
+  const flexDropped = deduped.filter((row) => !isFlexEligibleRow(row))
+  const top15DroppedFlex = flexDropped
+    .sort((a, b) => getFlexPropScore(b) - getFlexPropScore(a))
+    .slice(0, 15)
+    .map((row) => ({
+      player: row?.player,
+      team: row?.team,
+      book: row?.book,
+      propType: row?.propType,
+      side: row?.side,
+      line: row?.line,
+      propVariant: row?.propVariant || "base",
+      hitRate: parseHitRateInline(row?.hitRate),
+      edge: Number(row?.edge || 0),
+      score: Number(row?.score || 0),
+      dropReason: "failedFlexEligibility"
+    }))
+
+  const afterByProp = {}
+  const afterByBook = {}
+  for (const row of filtered) {
+    const propType = String(row?.propType || "unknown")
+    const book = String(row?.book || "unknown")
+    afterByProp[propType] = (afterByProp[propType] || 0) + 1
+    afterByBook[book] = (afterByBook[book] || 0) + 1
+  }
+
+  const cap = getFlexTargetSize(filtered.length)
+  const ranked = filtered
+    .map((row) => ({ ...row, __flexScore: getFlexPropScore(row) }))
+    .sort((a, b) => {
+      if (b.__flexScore !== a.__flexScore) return b.__flexScore - a.__flexScore
+      return parseHitRateInline(b.hitRate) - parseHitRateInline(a.hitRate)
+    })
+    .slice(0, cap)
+    .map(({ __flexScore, ...row }) => row)
+
+  console.log("[FLEX-POOL-DEBUG]", {
+    label,
+    totalBeforeFilter: deduped.length,
+    totalAfterFilter: filtered.length,
+    flexDropCounts,
+    finalCount: ranked.length,
+    cap,
+    byPropBefore: beforeByProp,
+    byPropAfter: afterByProp,
+    byBookBefore: beforeByBook,
+    byBookAfter: afterByBook
+  })
+
+  console.log("[FINAL-FLEX-THINNING-DEBUG]", {
+    label,
+    sourceCount: source.length,
+    afterDedupe: deduped.length,
+    afterSafetyFilter: filtered.length,
+    afterCap: ranked.length,
+    cap,
+    finalByBook: {
+      FanDuel: ranked.filter((row) => String(row?.book || "") === "FanDuel").length,
+      DraftKings: ranked.filter((row) => String(row?.book || "") === "DraftKings").length
+    },
+    finalByPropVariant: ranked.reduce((acc, row) => {
+      const v = String(row?.propVariant || "base")
+      acc[v] = (acc[v] || 0) + 1
+      return acc
+    }, {}),
+    top15Dropped: top15DroppedFlex
+  })
+
+  return ranked
+}
+
+function probabilityToAmerican(probability) {
+  const prob = Number(probability)
+  if (!Number.isFinite(prob) || prob <= 0 || prob >= 1) return null
+  if (prob >= 0.5) return Math.round((-100 * prob) / (1 - prob))
+  return Math.round((100 * (1 - prob)) / prob)
+}
+
+function normalizeBestPropVariant(row, propVariant = "base") {
+  if (!row) return null
+  return {
+    ...row,
+    isAlt: propVariant !== "base",
+    propVariant
+  }
+}
+
+// Returns an array of { propVariant, lineOffset } ladder steps for a given propType.
+// lineOffset is added to baseLine; positive = harder for Over bettors.
+function getAltLadderSteps(propType) {
+  const key = String(propType || "")
+  if (key === "Points") {
+    return [
+      { propVariant: "alt-low",  lineOffset: -5   },
+      { propVariant: "alt-mid",  lineOffset: -2.5 },
+      // base is handled separately
+      { propVariant: "alt-high", lineOffset:  3   },
+      { propVariant: "alt-max",  lineOffset:  6   }
+    ]
+  }
+  if (key === "Threes") {
+    return [
+      { propVariant: "alt-low",  lineOffset: -1 },
+      // base is handled separately
+      { propVariant: "alt-high", lineOffset:  1 },
+      { propVariant: "alt-max",  lineOffset:  2 }
+    ]
+  }
+  if (key === "PRA") {
+    return [
+      { propVariant: "alt-low",  lineOffset: -5 },
+      // base is handled separately
+      { propVariant: "alt-high", lineOffset:  5 }
+    ]
+  }
+  return []
+}
+
+// Per-unit adjustments for each prop type when the line shifts by 1 unit.
+// These are applied proportionally to |lineOffset|.
+function getAltLadderRates(propType) {
+  const key = String(propType || "")
+  if (key === "Points") {
+    return { hitRatePerUnit: 0.012, edgePerUnit: 0.06, probPerUnit: 0.018, scorePerUnit: 0.9 }
+  }
+  if (key === "Threes") {
+    return { hitRatePerUnit: 0.08,  edgePerUnit: 0.22, probPerUnit: 0.11,  scorePerUnit: 4.5 }
+  }
+  if (key === "PRA") {
+    return { hitRatePerUnit: 0.010, edgePerUnit: 0.05, probPerUnit: 0.015, scorePerUnit: 0.8 }
+  }
+  // fallback — no variants will be added for other prop types, but keep safe defaults
+  return { hitRatePerUnit: 0.01, edgePerUnit: 0.05, probPerUnit: 0.015, scorePerUnit: 0.8 }
+}
+
+function buildBestPropVariantPool(rows = []) {
+  const baseRows = dedupeByLegSignature(
+    (Array.isArray(rows) ? rows : [])
+      .filter(Boolean)
+      .map((row) => normalizeBestPropVariant(row, String(row?.propVariant || "base")))
+      .filter(Boolean)
+  )
+
+  const altRows = []
+
+  for (const row of baseRows) {
+    const steps = getAltLadderSteps(row?.propType)
+    if (!steps.length) continue
+
+    const baseLine = Number(row?.line)
+    const baseOdds = Number(row?.odds)
+    if (!Number.isFinite(baseLine)) continue
+
+    const rates = getAltLadderRates(row?.propType)
+    const baseHitRate = parseHitRate(row?.hitRate)
+    const baseEdge = Number(row?.edge || 0)
+    const baseScore = Number(row?.score || 0)
+    const marketProb = impliedProbabilityFromAmerican(baseOdds)
+    const side = String(row?.side || "Over")
+
+    // Track unique lines we've already emitted (including base) to avoid duplicates
+    const seenLines = new Set([Number(baseLine.toFixed(1))])
+
+    for (const step of steps) {
+      const altLine = Number((baseLine + step.lineOffset).toFixed(1))
+
+      // Skip if line would be negative/zero for Threes, or is a duplicate
+      if (String(row?.propType || "") === "Threes" && altLine < 0.5) continue
+      if (seenLines.has(altLine)) continue
+      seenLines.add(altLine)
+
+      // A positive lineOffset is harder for Over, easier for Under
+      const harderForSide = side === "Under" ? step.lineOffset < 0 : step.lineOffset > 0
+      const magnitude = Math.abs(step.lineOffset)
+
+      // hitRate decreases as line gets harder, increases as it gets easier
+      const adjustedHitRate = clamp(
+        Number((baseHitRate + (harderForSide ? -1 : 1) * rates.hitRatePerUnit * magnitude).toFixed(3)),
+        0.05,
+        0.95
+      )
+
+      // Edge slightly increases for harder variants (alt-high/alt-max => +money => more EV if it hits)
+      // and decreases for easier variants
+      const edgeSign = harderForSide ? 0.6 : -0.4  // alt-high gets a small edge bonus
+      const adjustedEdge = Number(
+        (baseEdge + edgeSign * rates.edgePerUnit * magnitude).toFixed(2)
+      )
+
+      // Odds: harder line => higher implied prob needed => more + money
+      const probShift = (harderForSide ? 1 : -1) * rates.probPerUnit * magnitude
+      const adjustedMarketProb = marketProb !== null
+        ? clamp(marketProb - probShift, 0.05, 0.92)  // harder → lower prob → more +money
+        : null
+      const rawAdjustedOdds = adjustedMarketProb !== null
+        ? probabilityToAmerican(adjustedMarketProb)
+        : baseOdds + (harderForSide ? 45 : -45) * magnitude
+      const adjustedOdds = Number.isFinite(rawAdjustedOdds) ? rawAdjustedOdds : baseOdds
+
+      // Score: alt-high/alt-max harder variants drag score down slightly; easy variants lift it
+      const adjustedScore = Number(
+        (baseScore + (harderForSide ? -1 : 1) * rates.scorePerUnit * magnitude).toFixed(2)
+      )
+
+      altRows.push({
+        ...row,
+        line: altLine,
+        odds: adjustedOdds,
+        hitRate: adjustedHitRate,
+        edge: adjustedEdge,
+        score: adjustedScore,
+        isAlt: true,
+        propVariant: step.propVariant,
+        altFromLine: baseLine
+      })
+    }
+  }
+
+  const combined = dedupeSlipLegs([...baseRows, ...altRows])
+
+  console.log("[ALT-PROP-POOL-DEBUG]", {
+    baseRows: baseRows.length,
+    altRows: altRows.length,
+    combined: combined.length,
+    byVariant: combined.reduce((acc, row) => {
+      const key = String(row?.propVariant || "base")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
+
+  return combined
+}
+
+function buildMixedBestAvailableBuckets(rows = []) {
+  const sourceRows = dedupeSlipLegs((Array.isArray(rows) ? rows : []).filter(Boolean))
+  if (!sourceRows.length) {
+    return {
+      safe: null,
+      balanced: null,
+      aggressive: null,
+      lotto: null
+    }
+  }
+
+  const bucketConfigs = {
+    safe: {
+      tag: "safe",
+      minReturn: 40,
+      maxReturnExclusive: 80,
+      idealReturn: 58,
+      legCounts: [3, 4],
+      minHitRate: 0.56,
+      attempts: 18,
+      maxAltHigh: 1,
+      minAltHigh: 0
+    },
+    balanced: {
+      tag: "balanced",
+      minReturn: 80,
+      maxReturnExclusive: 180,
+      idealReturn: 120,
+      legCounts: [4, 5],
+      minHitRate: 0.52,
+      attempts: 20,
+      maxAltHigh: 2,
+      minAltHigh: 0
+    },
+    aggressive: {
+      tag: "aggressive",
+      minReturn: 180,
+      maxReturnExclusive: 400,
+      idealReturn: 260,
+      legCounts: [5, 6],
+      minHitRate: 0.48,
+      attempts: 24,
+      maxAltHigh: 3,
+      minAltHigh: 1
+    },
+    lotto: {
+      tag: "lotto",
+      minReturn: 400,
+      maxReturnExclusive: Infinity,
+      idealReturn: 550,
+      legCounts: [6, 7, 8],
+      minHitRate: 0.44,
+      attempts: 28,
+      maxAltHigh: 4,
+      minAltHigh: 1
+    }
+  }
+
+  const rotateRows = (list, offset = 0) => {
+    if (!Array.isArray(list) || list.length <= 1) return Array.isArray(list) ? [...list] : []
+    const safeOffset = Math.max(0, offset) % list.length
+    return [...list.slice(safeOffset), ...list.slice(0, safeOffset)]
+  }
+
+  const toLegKey = (row) => `${row.player}|${row.propType}|${row.side}|${Number(row.line)}|${row.book}`
+  const getTeamKey = (row) => String(row?.team || row?.playerTeam || row?.book || "unknown")
+  const isHighOddsLeg = (row) => Number(row?.odds || 0) > 120
+  const isSafeOddsLeg = (row) => Number(row?.odds || 0) <= -150 && Number(row?.odds || 0) >= -300
+
+  const selectionScore = (row, cfg) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge || 0)
+    const odds = Number(row?.odds || 0)
+    const score = Number(row?.score || 0)
+    const variant = String(row?.propVariant || "base")
+    const variantBonus =
+      cfg.tag === "safe"
+        ? (variant === "alt-low" ? 0.12 : variant === "alt-high" ? -0.08 : 0.05)
+        : cfg.tag === "balanced"
+          ? (variant === "base" ? 0.08 : variant === "alt-high" ? 0.05 : 0.04)
+          : cfg.tag === "aggressive"
+            ? (variant === "alt-high" ? 0.14 : variant === "base" ? 0.05 : 0)
+            : (variant === "alt-high" ? 0.2 : variant === "base" ? 0.04 : -0.02)
+    const oddsBonus =
+      cfg.tag === "safe"
+        ? (isSafeOddsLeg(row) ? 0.16 : odds > 120 ? -0.1 : 0.04)
+        : cfg.tag === "balanced"
+          ? (odds > 120 ? 0.08 : isSafeOddsLeg(row) ? 0.1 : 0.04)
+          : (odds > 120 ? 0.16 : isSafeOddsLeg(row) ? 0.06 : 0.02)
+
+    return hitRate * 0.42 + edge * 0.09 + score / 180 + oddsBonus + variantBonus
+  }
+
+  const makeCandidate = (book, tag, legs) => {
+    const normalizedLegs = dedupeSlipLegs(Array.isArray(legs) ? legs : []).filter(Boolean)
+    if (normalizedLegs.length < 2) return null
+
+    const price = parlayPriceFromLegs(normalizedLegs)
+    if (!price) return null
+
+    const projectedReturn = estimateReturn(5, price.american)
+    if (!Number.isFinite(projectedReturn)) return null
+
+    return {
+      book,
+      tag,
+      legs: normalizedLegs,
+      price,
+      projectedReturn,
+      confidence: confidenceFromLegs(normalizedLegs),
+      trueProbability: trueParlayProbabilityFromLegs(normalizedLegs)
+    }
+  }
+
+  const buildOddsBalanceScore = (candidate, cfg) => {
+    const projectedReturn = Number(candidate?.projectedReturn || 0)
+    const target = Number(cfg?.idealReturn || cfg?.minReturn || 0)
+    const closeness = target > 0
+      ? Math.max(0, 1 - Math.abs(projectedReturn - target) / Math.max(target, 1))
+      : 0
+    const legs = Array.isArray(candidate?.legs) ? candidate.legs : []
+    const plusMoneyCount = legs.filter((row) => Number(row?.odds || 0) > 0).length
+    const distinctPropTypes = new Set(legs.map((row) => String(row?.propType || ""))).size
+    const mixBonus = Math.min(1, distinctPropTypes / Math.max(2, Math.min(4, legs.length)))
+    const distributionBonus = plusMoneyCount >= 1 && plusMoneyCount < legs.length ? 1 : 0.55
+    const requirementBonus = legs.some(isHighOddsLeg) && legs.some(isSafeOddsLeg) ? 1 : 0
+    return Number((closeness * 0.45 + mixBonus * 0.2 + distributionBonus * 0.15 + requirementBonus * 0.2).toFixed(4))
+  }
+
+  const scoreCandidate = (candidate, cfg) => {
+    const legs = Array.isArray(candidate?.legs) ? candidate.legs : []
+    const avgEdge = avg(legs.map((row) => Number(row?.edge || 0))) || 0
+    const avgHitRate = avg(legs.map((row) => parseHitRate(row?.hitRate))) || 0
+    const normalizedEdge = clamp((avgEdge + 1.5) / 4.5, 0, 1)
+    const oddsBalance = buildOddsBalanceScore(candidate, cfg)
+    const slipScore = Number((normalizedEdge * 0.4 + avgHitRate * 0.3 + oddsBalance * 0.3).toFixed(4))
+    return {
+      ...candidate,
+      avgEdge: Number(avgEdge.toFixed(3)),
+      avgHitRate: Number(avgHitRate.toFixed(3)),
+      oddsBalance,
+      slipScore
+    }
+  }
+
+  const canAddLeg = (selected, candidate, cfg) => {
+    if (!candidate) return false
+    if (shouldRemoveLegForPlayerStatus(candidate) || hasConflict(selected, candidate)) return false
+    if (parseHitRate(candidate?.hitRate) < cfg.minHitRate) return false
+
+    const player = String(candidate?.player || "")
+    if (selected.some((leg) => String(leg?.player || "") === player)) return false
+
+    const teamKey = getTeamKey(candidate)
+    const teamCount = selected.filter((leg) => getTeamKey(leg) === teamKey).length
+    if (teamCount >= 2) return false
+
+    const propType = String(candidate?.propType || "")
+    const propCount = selected.filter((leg) => String(leg?.propType || "") === propType).length
+    if (propCount >= 2) return false
+
+    const altHighCount = selected.filter((leg) => String(leg?.propVariant || "") === "alt-high").length
+    if (String(candidate?.propVariant || "") === "alt-high" && altHighCount >= cfg.maxAltHigh) return false
+
+    if (hasSameGameStatSide(selected, candidate)) return false
+
+    return true
+  }
+
+  const finalizeBucketCandidate = (candidate, cfg) => {
+    if (!candidate) return null
+    const projectedReturn = Number(candidate.projectedReturn || 0)
+    if (projectedReturn < cfg.minReturn) return null
+    if (Number.isFinite(cfg.maxReturnExclusive) && projectedReturn >= cfg.maxReturnExclusive) return null
+    const legs = Array.isArray(candidate.legs) ? candidate.legs : []
+    if (!legs.some(isHighOddsLeg)) return null
+    if (!legs.some(isSafeOddsLeg)) return null
+    const altHighCount = legs.filter((leg) => String(leg?.propVariant || "") === "alt-high").length
+    if (altHighCount < cfg.minAltHigh) return null
+    return scoreCandidate(candidate, cfg)
+  }
+
+  const buildBookBucketCandidates = (book, cfg) => {
+    const bookRows = sourceRows
+      .filter((row) => String(row?.book || "") === book)
+      .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+
+    if (!bookRows.length) return []
+
+    const rankedRows = [...bookRows].sort((a, b) => selectionScore(b, cfg) - selectionScore(a, cfg))
+    const highOddsRows = rankedRows.filter((row) => isHighOddsLeg(row))
+    const safeOddsRows = rankedRows.filter((row) => isSafeOddsLeg(row))
+    const candidates = []
+
+    for (const legCount of cfg.legCounts) {
+      for (let attempt = 0; attempt < cfg.attempts; attempt += 1) {
+        const selected = []
+        const usedKeys = new Set()
+        const rotatedHighOdds = rotateRows(highOddsRows, attempt)
+        const rotatedSafeOdds = rotateRows(safeOddsRows, attempt * 2 + 1)
+        const rotatedAll = rotateRows(rankedRows, attempt * 3 + 2)
+
+        for (const row of rotatedHighOdds) {
+          const key = toLegKey(row)
+          if (usedKeys.has(key)) continue
+          if (!canAddLeg(selected, row, cfg)) continue
+          selected.push(row)
+          usedKeys.add(key)
+          break
+        }
+
+        for (const row of rotatedSafeOdds) {
+          const key = toLegKey(row)
+          if (usedKeys.has(key)) continue
+          if (!canAddLeg(selected, row, cfg)) continue
+          selected.push(row)
+          usedKeys.add(key)
+          break
+        }
+
+        for (const row of rotatedAll) {
+          if (selected.length >= legCount) break
+          const key = toLegKey(row)
+          if (usedKeys.has(key)) continue
+          if (!canAddLeg(selected, row, cfg)) continue
+
+          const propType = String(row?.propType || "")
+          const propCount = selected.filter((leg) => String(leg?.propType || "") === propType).length
+          const distinctPropTypes = new Set(selected.map((leg) => String(leg?.propType || ""))).size
+          if (propCount >= 1 && distinctPropTypes < Math.min(3, legCount - 1)) {
+            const unusedTypeExists = rotatedAll.some((candidate) => {
+              const candidateKey = toLegKey(candidate)
+              return !usedKeys.has(candidateKey) && String(candidate?.propType || "") !== propType && canAddLeg(selected, candidate, cfg)
+            })
+            if (unusedTypeExists) continue
+          }
+
+          selected.push(row)
+          usedKeys.add(key)
+        }
+
+        if (selected.length !== legCount) continue
+
+        const candidate = finalizeBucketCandidate(makeCandidate(book, cfg.tag, selected), cfg)
+        if (!candidate) continue
+        candidates.push(candidate)
+      }
+    }
+
+    const deduped = new Map()
+    for (const candidate of candidates) {
+      const signature = candidate.legs.map(toLegKey).sort().join("||")
+      const existing = deduped.get(signature)
+      if (!existing || candidate.slipScore > existing.slipScore) {
+        deduped.set(signature, candidate)
+      }
+    }
+
+    return [...deduped.values()].sort((a, b) => {
+      if (b.slipScore !== a.slipScore) return b.slipScore - a.slipScore
+      if (b.trueProbability !== a.trueProbability) return b.trueProbability - a.trueProbability
+      return a.projectedReturn - b.projectedReturn
+    })
+  }
+
+  const output = {
+    safe: null,
+    balanced: null,
+    aggressive: null,
+    lotto: null
+  }
+
+  for (const [bucketKey, cfg] of Object.entries(bucketConfigs)) {
+    const candidates = [
+      ...buildBookBucketCandidates("FanDuel", cfg),
+      ...buildBookBucketCandidates("DraftKings", cfg)
+    ].sort((a, b) => {
+      if (b.slipScore !== a.slipScore) return b.slipScore - a.slipScore
+      if (b.trueProbability !== a.trueProbability) return b.trueProbability - a.trueProbability
+      return a.projectedReturn - b.projectedReturn
+    })
+
+    const bestCandidate = candidates[0] || null
+    output[bucketKey] = bestCandidate
+      ? {
+          book: bestCandidate.book,
+          tag: cfg.tag,
+          legs: bestCandidate.legs,
+          projectedReturn: Number(bestCandidate.projectedReturn.toFixed(2)),
+          confidence: bestCandidate.confidence,
+          slipScore: bestCandidate.slipScore,
+          oddsAmerican: bestCandidate.price.american,
+          oddsDecimal: Number(bestCandidate.price.decimal.toFixed(3))
+        }
+      : null
+  }
+
+  console.log("[MIXED-BEST-AVAILABLE-DEBUG]", {
+    sourceRows: sourceRows.length,
+    buckets: Object.fromEntries(
+      Object.entries(output).map(([key, value]) => [
+        key,
+        value
+          ? {
+              book: value.book,
+              projectedReturn: value.projectedReturn,
+              confidence: value.confidence,
+              legs: value.legs.length
+            }
+          : null
+      ])
+    )
+  })
+
+  return output
+}
+
+function buildLiveDualBestAvailablePayload() {
+  console.log("[PAYLOAD-DEBUG] ENTER buildLiveDualBestAvailablePayload")
+  const CORE_ONLY_REFRESH_MODE = true
+  const combinedPrimaryRows = [
+    ...(oddsSnapshot.eliteProps || []),
+    ...(oddsSnapshot.strongProps || []),
+    ...(oddsSnapshot.playableProps || []),
+    ...(oddsSnapshot.bestProps || [])
+  ]
+  console.log("[PAYLOAD-DEBUG] combinedPrimaryRows.length:", combinedPrimaryRows.length)
+
+  const combinedRows = getAvailablePrimarySlateRows(combinedPrimaryRows)
+  console.log("[PAYLOAD-DEBUG] combinedRows.length:", combinedRows.length)
+  logPayloadDebugExclusions("combinedPrimaryRows→combinedRows", combinedPrimaryRows, combinedRows)
+
+  const elite = getAvailablePrimarySlateRows(oddsSnapshot.eliteProps || [])
+  console.log("[PAYLOAD-DEBUG] elite.length:", elite.length, "from eliteProps:", (oddsSnapshot.eliteProps || []).length)
+
+  const strong = getAvailablePrimarySlateRows(oddsSnapshot.strongProps || [])
+  console.log("[PAYLOAD-DEBUG] strong.length:", strong.length, "from strongProps:", (oddsSnapshot.strongProps || []).length)
+
+  const playable = getAvailablePrimarySlateRows(oddsSnapshot.playableProps || [])
+  console.log("[PAYLOAD-DEBUG] playable.length:", playable.length, "from playableProps:", (oddsSnapshot.playableProps || []).length)
+
+  const flex = getAvailablePrimarySlateRows(oddsSnapshot.flexProps || [])
+  console.log("[PAYLOAD-DEBUG] flex.length:", flex.length, "from flexProps:", (oddsSnapshot.flexProps || []).length)
+
+  const expandedEligibleRows = getDualExpandedEligibleRows()
+
+  console.log("[PAYLOAD-DEBUG] oddsSnapshot.bestProps.length:", (oddsSnapshot.bestProps || []).length)
+  const snapshotBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).map((row) => normalizeBestPropVariant(row, "base"))
+  const fallbackBest = buildBestPropsFallbackRows(expandedEligibleRows, Math.min(60, expandedEligibleRows.length || 60))
+  const useFallbackBest = snapshotBest.length < Math.min(12, Math.max(6, Math.round(expandedEligibleRows.length * 0.16)))
+  const best = useFallbackBest ? fallbackBest : snapshotBest
+
+  console.log("[PAYLOAD-DEBUG] best.length:", best.length)
+  logPayloadDebugExclusions("bestProps→best", oddsSnapshot.bestProps || [], snapshotBest)
+  console.log("[BEST-PROPS-FALLBACK-DEBUG]", {
+    snapshotBest: snapshotBest.length,
+    fallbackBest: fallbackBest.length,
+    expandedEligibleRows: expandedEligibleRows.length,
+    useFallbackBest
+  })
+  if (snapshotBest.length === 0 && Array.isArray(best) && best.length > 0) {
+    oddsSnapshot.bestProps = best.map((row) => ({ ...row }))
+    console.log("[BEST-PROPS-FALLBACK-ASSIGN-DEBUG]", {
+      assignedFromFallback: best.length,
+      byBook: {
+        FanDuel: best.filter((row) => row?.book === "FanDuel").length,
+        DraftKings: best.filter((row) => row?.book === "DraftKings").length
+      }
+    })
+  }
+  console.log("[BEST-PROPS-VISIBLE-COUNTS]", {
+    sourceAssigned: (oddsSnapshot.bestProps || []).length,
+    visibleTotal: best.length,
+    byBook: {
+      FanDuel: best.filter((row) => row.book === "FanDuel").length,
+      DraftKings: best.filter((row) => row.book === "DraftKings").length
+    }
+  })
+  if ((!Array.isArray(oddsSnapshot.bestProps) || oddsSnapshot.bestProps.length === 0) && Array.isArray(best) && best.length > 0) {
+    oddsSnapshot.bestProps = best.map((row) => ({ ...row }))
+    console.log("[BEST-PROPS-SNAPSHOT-BACKFILL-DEBUG]", {
+      assignedCount: oddsSnapshot.bestProps.length
+    })
+  }
+
+  const availableCounts = {
+    elite: {
+      total: elite.length,
+      fanduel: elite.filter((row) => row.book === "FanDuel").length,
+      draftkings: elite.filter((row) => row.book === "DraftKings").length
+    },
+    strong: {
+      total: strong.length,
+      fanduel: strong.filter((row) => row.book === "FanDuel").length,
+      draftkings: strong.filter((row) => row.book === "DraftKings").length
+    },
+    playable: {
+      total: playable.length,
+      fanduel: playable.filter((row) => row.book === "FanDuel").length,
+      draftkings: playable.filter((row) => row.book === "DraftKings").length
+    },
+    flex: {
+      total: flex.length,
+      fanduel: flex.filter((row) => row.book === "FanDuel").length,
+      draftkings: flex.filter((row) => row.book === "DraftKings").length
+    },
+    best: {
+      total: best.length,
+      fanduel: best.filter((row) => row.book === "FanDuel").length,
+      draftkings: best.filter((row) => row.book === "DraftKings").length
+    }
+  }
+
+  if (CORE_ONLY_REFRESH_MODE) {
+    console.log("[REFRESH-CORE-ONLY]", {
+      raw: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+      bestRaw: snapshotBest.length,
+      bestSnapshot: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0,
+      bestVisible: best.length
+    })
+
+    return {
+      availableCounts,
+      best,
+      safe: oddsSnapshot?.safe || null,
+      balanced: oddsSnapshot?.balanced || null,
+      aggressive: oddsSnapshot?.aggressive || null,
+      lotto: oddsSnapshot?.lotto || null,
+      flexProps: [],
+      highestHitRate2: { fanduel: null, draftkings: null },
+      highestHitRate3: { fanduel: null, draftkings: null },
+      highestHitRate4: { fanduel: null, draftkings: null },
+      highestHitRate5: { fanduel: null, draftkings: null },
+      highestHitRate6: { fanduel: null, draftkings: null },
+      highestHitRate7: { fanduel: null, draftkings: null },
+      highestHitRate8: { fanduel: null, draftkings: null },
+      highestHitRate9: { fanduel: null, draftkings: null },
+      highestHitRate10: { fanduel: null, draftkings: null },
+      payoutFitPortfolio: {
+        fanduel: null,
+        draftkings: null
+      },
+      moneyMakerPortfolio: {
+        fanduel: null,
+        draftkings: null
+      },
+      statLeaderboards: null,
+      poolDiagnostics: null,
+      diagnostics: null
+    }
+  }
+
+  const dualPoolDiagnostics = buildDualPoolDiagnostics(expandedEligibleRows)
+  const statLeaderboards = buildDualStatLeaderboards(expandedEligibleRows)
+
+  const rawPropsRowsForDebug = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const survivedFragileRowsForDebug = rawPropsRowsForDebug.filter((row) => {
+    try {
+      return !isFragileLeg(row)
+    } catch (_) {
+      return true
+    }
+  })
+
+  runCurrentSlateCoverageDiagnostics({
+    scheduledEvents: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : [],
+    rawPropsRows: rawPropsRowsForDebug,
+    enrichedModelRows: combinedPrimaryRows,
+    survivedFragileRows: survivedFragileRowsForDebug,
+    bestPropsRawRows: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : [],
+    finalBestVisibleRows: best
+  })
+
+  console.log("[DUAL-EXPANDED-POOL-DEBUG]", JSON.stringify(dualPoolDiagnostics, null, 2))
+
+  console.log("[DUAL-DEBUG] availableCounts:", JSON.stringify(availableCounts, null, 2))
+
+  // Build all highest-hit-rate slips once and reuse them for payout-fit portfolio
+  const dualBestPropsPoolBase = expandedEligibleRows.length ? expandedEligibleRows : best
+  const dualBestPropsPool = buildBestPropVariantPool(dualBestPropsPoolBase)
+  const mixedBestAvailable = buildMixedBestAvailableBuckets(dualBestPropsPool)
+
+  // ── Diagnostics (additive only, no side-effects on generation) ────────────
+  const rawCoverage = buildRawCoverage()
+  const stageCounts = buildStageCounts(expandedEligibleRows, dualBestPropsPoolBase)
+  const exclusionSummary = buildExclusionSummary()
+  const wideLeaderboards = buildWideLeaderboards()
+
+  console.log("[RAW-COVERAGE-DEBUG]", JSON.stringify(rawCoverage))
+  console.log("[STAGE-COUNTS-DEBUG]", JSON.stringify(stageCounts))
+  console.log("[EXCLUSION-SUMMARY-DEBUG]", JSON.stringify(exclusionSummary))
+  console.log("[WIDE-LEADERBOARDS-DEBUG] FD totalSlots:",
+    Object.values(wideLeaderboards.FanDuel || {}).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0),
+    "DK totalSlots:",
+    Object.values(wideLeaderboards.DraftKings || {}).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0)
+  )
+  // ── End diagnostics ───────────────────────────────────────────────────────
+
+  const fdHighestHitRate2 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 2, dualBestPropsPool), "Highest Hit Rate 2-Leg")
+  const fdHighestHitRate3 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 3, dualBestPropsPool), "Highest Hit Rate 3-Leg")
+  const fdHighestHitRate4 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 4, dualBestPropsPool), "Highest Hit Rate 4-Leg")
+  const fdHighestHitRate5 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 5, dualBestPropsPool), "Highest Hit Rate 5-Leg")
+  const fdHighestHitRate6 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 6, dualBestPropsPool), "Highest Hit Rate 6-Leg")
+  const fdHighestHitRate7 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 7, dualBestPropsPool), "Highest Hit Rate 7-Leg")
+  const fdHighestHitRate8 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 8, dualBestPropsPool), "Highest Hit Rate 8-Leg")
+  const fdHighestHitRate9 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 9, dualBestPropsPool), "Highest Hit Rate 9-Leg")
+  const fdHighestHitRate10 = makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 10, dualBestPropsPool), "Highest Hit Rate 10-Leg")
+
+  const dkHighestHitRate2 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 2, dualBestPropsPool), "Highest Hit Rate 2-Leg")
+  const dkHighestHitRate3 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 3, dualBestPropsPool), "Highest Hit Rate 3-Leg")
+  const dkHighestHitRate4 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 4, dualBestPropsPool), "Highest Hit Rate 4-Leg")
+  const dkHighestHitRate5 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 5, dualBestPropsPool), "Highest Hit Rate 5-Leg")
+  const dkHighestHitRate6 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 6, dualBestPropsPool), "Highest Hit Rate 6-Leg")
+  const dkHighestHitRate7 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 7, dualBestPropsPool), "Highest Hit Rate 7-Leg")
+  const dkHighestHitRate8 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 8, dualBestPropsPool), "Highest Hit Rate 8-Leg")
+  const dkHighestHitRate9 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 9, dualBestPropsPool), "Highest Hit Rate 9-Leg")
+  const dkHighestHitRate10 = makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 10, dualBestPropsPool), "Highest Hit Rate 10-Leg")
+
+  const fdSlipObjects = [
+    fdHighestHitRate2,
+    fdHighestHitRate3,
+    fdHighestHitRate4,
+    fdHighestHitRate5,
+    fdHighestHitRate6,
+    fdHighestHitRate7,
+    fdHighestHitRate8,
+    fdHighestHitRate9,
+    fdHighestHitRate10
+  ].filter(Boolean)
+
+  const dkSlipObjects = [
+    dkHighestHitRate2,
+    dkHighestHitRate3,
+    dkHighestHitRate4,
+    dkHighestHitRate5,
+    dkHighestHitRate6,
+    dkHighestHitRate7,
+    dkHighestHitRate8,
+    dkHighestHitRate9,
+    dkHighestHitRate10
+  ].filter(Boolean)
+
+  const moneyMakerSourceRows = Array.isArray(dualBestPropsPool) ? dualBestPropsPool : []
+  const moneyMakerSourceRowsByBook = {
+    FanDuel: moneyMakerSourceRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+    DraftKings: moneyMakerSourceRows.filter((row) => String(row?.book || "") === "DraftKings").length
+  }
+  const moneyMakerPostPlayerStatusRows = moneyMakerSourceRows.filter((row) => {
+    try {
+      return !shouldRemoveLegForPlayerStatus(row)
+    } catch (_) {
+      return true
+    }
+  })
+  const moneyMakerPostFragileRows = moneyMakerPostPlayerStatusRows.filter((row) => {
+    try {
+      return !isFragileLeg(row)
+    } catch (_) {
+      return true
+    }
+  })
+  const moneyMakerPostMatchupRows = moneyMakerPostFragileRows.filter((row) => {
+    try {
+      return playerFitsMatchup(row)
+    } catch (_) {
+      return true
+    }
+  })
+  const moneyMakerFd = buildMoneyMakerPortfolio("FanDuel", dualBestPropsPool)
+  const moneyMakerDk = buildMoneyMakerPortfolio("DraftKings", dualBestPropsPool)
+
+  console.log("[MONEYMAKER-CALLSITE-DEBUG]", {
+    sourceRows: moneyMakerSourceRows.length,
+    sourceRowsByBook: moneyMakerSourceRowsByBook,
+    postPlayerStatus: moneyMakerPostPlayerStatusRows.length,
+    postFragile: moneyMakerPostFragileRows.length,
+    postMatchup: moneyMakerPostMatchupRows.length,
+    output: {
+      fanduel: {
+        hasOutput: Boolean(moneyMakerFd),
+        optionCount: Array.isArray(moneyMakerFd?.options) ? moneyMakerFd.options.length : 0
+      },
+      draftkings: {
+        hasOutput: Boolean(moneyMakerDk),
+        optionCount: Array.isArray(moneyMakerDk?.options) ? moneyMakerDk.options.length : 0
+      }
+    }
+  })
+
+  // ONLY ML-weighted Highest Hit Rate tier (for winning with least chance to miss)
+  return {
+    availableCounts,
+    best,
+    safe: mixedBestAvailable.safe,
+    balanced: mixedBestAvailable.balanced,
+    aggressive: mixedBestAvailable.aggressive,
+    lotto: mixedBestAvailable.lotto,
+    flexProps: flex,
+    highestHitRate2: {
+      fanduel: fdHighestHitRate2,
+      draftkings: dkHighestHitRate2
+    },
+    highestHitRate3: {
+      fanduel: fdHighestHitRate3,
+      draftkings: dkHighestHitRate3
+    },
+    highestHitRate4: {
+      fanduel: fdHighestHitRate4,
+      draftkings: dkHighestHitRate4
+    },
+    highestHitRate5: {
+      fanduel: fdHighestHitRate5,
+      draftkings: dkHighestHitRate5
+    },
+    highestHitRate6: {
+      fanduel: fdHighestHitRate6,
+      draftkings: dkHighestHitRate6
+    },
+    highestHitRate7: {
+      fanduel: fdHighestHitRate7,
+      draftkings: dkHighestHitRate7
+    },
+    highestHitRate8: {
+      fanduel: fdHighestHitRate8,
+      draftkings: dkHighestHitRate8
+    },
+    highestHitRate9: {
+      fanduel: fdHighestHitRate9,
+      draftkings: dkHighestHitRate9
+    },
+    highestHitRate10: {
+      fanduel: fdHighestHitRate10,
+      draftkings: dkHighestHitRate10
+    },
+    payoutFitPortfolio: {
+      fanduel: buildPayoutFitPortfolio("FanDuel", fdSlipObjects, null, {
+        dualMode: true,
+        dualUsablePool: dualBestPropsPool
+      }),
+      draftkings: buildPayoutFitPortfolio("DraftKings", dkSlipObjects, null, {
+        dualMode: true,
+        dualUsablePool: dualBestPropsPool
+      })
+    },
+    moneyMakerPortfolio: {
+      fanduel: moneyMakerFd,
+      draftkings: moneyMakerDk
+    },
+    statLeaderboards,
+    poolDiagnostics: dualPoolDiagnostics,
+    diagnostics: {
+      rawCoverage,
+      stageCounts,
+      exclusionSummary,
+      wideLeaderboards
+    }
+  }
+}
+
+function toCompactBestRow(row) {
+  if (!row) return null
+  return {
+    book: row.book,
+    team: row.team,
+    player: row.player,
+    propType: row.propType,
+    side: row.side,
+    line: row.line,
+    odds: row.odds,
+    hitRate: row.hitRate,
+    edge: row.edge,
+    score: row.score,
+    matchup: row.matchup,
+    gameTime: row.gameTime,
+    minutesRisk: row.minutesRisk,
+    trendRisk: row.trendRisk,
+    injuryRisk: row.injuryRisk
+  }
+}
+
+function buildCompactBestPayload() {
+  const payload = buildLiveDualBestAvailablePayload()
+  const bestRows = Array.isArray(payload?.best) ? payload.best : []
+  const compactBest = bestRows.map(toCompactBestRow).filter(Boolean)
+
+  return {
+    snapshotMeta: buildSnapshotMeta(),
+    availableCounts: payload?.availableCounts || null,
+    bestCount: compactBest.length,
+    bestByBook: {
+      fanduel: compactBest.filter((row) => row.book === "FanDuel").length,
+      draftkings: compactBest.filter((row) => row.book === "DraftKings").length
+    },
+    best: compactBest,
+    highestHitRate5: payload?.highestHitRate5 || null,
+    payoutFitPortfolio: payload?.payoutFitPortfolio || null,
+    statLeaderboards: payload?.statLeaderboards || null,
+    diagnostics: payload?.diagnostics || null
+  }
+}
+
+function buildPayoutFitPortfolio(book, slipObjects = null, sourceRowsOverride = null, options = {}) {
+  const bands = {
+    smallHitters: { label: "Small Hitters", description: "Safe, lower-risk plays with smaller returns" },
+    midUpside: { label: "Mid Upside", description: "Balanced risk-reward with moderate upside" },
+    bigUpside: { label: "Big Upside", description: "Stronger upside plays with increased risk" },
+    lotto: { label: "Lotto Jackpot", description: "Highest-risk longshot plays with extreme payouts" }
+  }
+
+  const bandRules = {
+    smallHitters: {
+      minReturn: 10,
+      maxReturnExclusive: 25,
+      minLegs: 2,
+      maxLegs: 2,
+      preferredLegCounts: [2],
+      idealReturn: 17
+    },
+    midUpside: {
+      minReturn: 25,
+      maxReturnExclusive: 60,
+      minLegs: 3,
+      maxLegs: 3,
+      preferredLegCounts: [3],
+      idealReturn: 38
+    },
+    bigUpside: {
+      minReturn: 55,
+      maxReturnExclusive: 100,
+      minLegs: 4,
+      maxLegs: 5,
+      preferredLegCounts: [4, 5],
+      idealReturn: 85
+    },
+    lotto: {
+      minReturn: 100,
+      maxReturnExclusive: Infinity,
+      minLegs: 5,
+      maxLegs: 6,
+      preferredLegCounts: [5, 6],
+      idealReturn: 160
+    }
+  }
+
+  const bandOrder = ["smallHitters", "midUpside", "bigUpside", "lotto"]
+  const desiredOptionsByBand = {
+    smallHitters: 2,
+    midUpside: 3,
+    bigUpside: 3,
+    lotto: book === "FanDuel" ? 2 : 3
+  }
+  const dualMode = Boolean(options?.dualMode)
+  const dualUsablePool = Array.isArray(options?.dualUsablePool) ? options.dualUsablePool : null
+
+  const getBookRows = () => {
+    const primary = Array.isArray(sourceRowsOverride)
+      ? sourceRowsOverride
+      : (Array.isArray(dualUsablePool) && dualUsablePool.length
+          ? dualUsablePool
+          : [
+              ...(oddsSnapshot.eliteProps || []),
+              ...(oddsSnapshot.strongProps || []),
+              ...(oddsSnapshot.playableProps || []),
+              ...(oddsSnapshot.bestProps || [])
+            ])
+
+    return dedupeByLegSignature(
+      primary
+        .filter((row) => row.book === book)
+        .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    )
+  }
+
+  const confidenceWeight = (confidence) => {
+    const key = String(confidence || "").toLowerCase()
+    if (key === "high") return 1
+    if (key === "medium") return 0.65
+    if (key === "low") return 0.35
+    return 0.5
+  }
+
+  const toLegKey = (leg) => `${leg.playerName || leg.player}|${leg.statType || leg.propType}|${leg.side || ""}|${leg.line}`
+
+  const isReasonablePlusMoneyLeg = (odds) => {
+    if (!Number.isFinite(odds)) return false
+    if (odds > 0) return odds <= 170
+    return odds >= -150
+  }
+
+  const isHighRiskFlag = (row) => {
+    const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+    const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+    const trendRisk = String(row.trendRisk || "").toLowerCase()
+    return minutesRisk === "high" || injuryRisk === "high" || trendRisk === "high"
+  }
+
+  const isSafeLeg = (row, relaxed = false) => {
+    if (!row || shouldRemoveLegForPlayerStatus(row) || isFragileLeg(row)) return false
+    if (isHighRiskFlag(row)) return false
+
+    const hitRate = parseHitRate(row.hitRate)
+    const avgMin = Number(row.avgMin || 0)
+    const minFloor = Number(row.minFloor || 0)
+    const minHit = relaxed ? 0.5 : 0.52
+
+    if (hitRate < minHit) return false
+    if (!relaxed && avgMin > 0 && avgMin < 18) return false
+    if (!relaxed && minFloor > 0 && minFloor < 12) return false
+    return true
+  }
+
+  const isValueLeg = (row, relaxed = false) => {
+    if (!row || shouldRemoveLegForPlayerStatus(row) || isFragileLeg(row)) return false
+    if (isHighRiskFlag(row)) return false
+
+    const hitRate = parseHitRate(row.hitRate)
+    const edge = Number(row.edge || row.projectedValue || 0)
+    const score = Number(row.score || 0)
+    const minHit = relaxed ? 0.5 : 0.52
+
+    if (hitRate < minHit) return false
+    if (edge < (relaxed ? -1.25 : -1)) return false
+    if (score < (relaxed ? -5 : 5)) return false
+    return true
+  }
+
+  const isPayoutBoosterLeg = (row) => {
+    if (!row) return false
+    if (shouldRemoveLegForPlayerStatus(row)) return false
+    if (isFragileLeg(row)) return false
+
+    const propType = String(row.propType || "")
+    if (!["Threes", "Points", "PRA"].includes(propType)) return false
+
+    const hitRate = parseHitRate(row.hitRate)
+    if (hitRate < 0.5) return false
+
+    const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+    const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+    const trendRisk = String(row.trendRisk || "").toLowerCase()
+    if (minutesRisk === "high") return false
+    if (injuryRisk === "high") return false
+    if (trendRisk === "high") return false
+
+    const avgMin = Number(row.avgMin || 0)
+    if (avgMin > 0 && avgMin < 18) return false
+
+    const odds = Number(row.odds || 0)
+    if (!isReasonablePlusMoneyLeg(odds)) return false
+
+    return true
+  }
+
+  const isPayoutBoosterLegRelaxed = (row) => {
+    if (!row) return false
+    if (shouldRemoveLegForPlayerStatus(row)) return false
+    if (isFragileLeg(row)) return false
+    if (isHighRiskFlag(row)) return false
+
+    const propType = String(row.propType || "")
+    if (!["Threes", "Points", "PRA"].includes(propType)) return false
+    if (parseHitRate(row.hitRate) < 0.5) return false
+    return isReasonablePlusMoneyLeg(Number(row.odds || 0))
+  }
+
+  const payoutBoosterLegScore = (row) => {
+    const propType = String(row.propType || "")
+    const propPriority =
+      propType === "Threes" ? 0.22 :
+      propType === "Points" ? 0.14 :
+      propType === "PRA" ? 0.08 : 0
+
+    const hitRate = parseHitRate(row.hitRate)
+    const edge = Number(row.edge || row.projectedValue || 0)
+    const score = Number(row.score || 0)
+    const odds = Number(row.odds || 0)
+    const plusMoneyBonus =
+      odds > 0 && odds <= 180 ? 0.1 :
+      odds > 180 ? 0.04 :
+      odds >= -145 ? 0.07 : 0.02
+
+    return hitRate * 0.5 + (edge / 12) * 0.2 + (score / 130) * 0.15 + plusMoneyBonus + propPriority
+  }
+
+  const fitScoreForBand = (candidate, bandKey) => {
+    const rule = bandRules[bandKey]
+    const returnFit = 1 - Math.min(1, Math.abs(candidate.returnMultiple - rule.idealReturn) / Math.max(2, rule.idealReturn))
+    const legDistance = Math.min(...rule.preferredLegCounts.map((n) => Math.abs(candidate.legCount - n)))
+    const legFit = Math.max(0, 1 - legDistance / 3)
+    const probFit = Math.max(0, Math.min(1, candidate.trueProbability))
+    const confidenceFit = confidenceWeight(candidate.confidence)
+
+    return (
+      returnFit * 0.42 +
+      legFit * 0.28 +
+      probFit * 0.2 +
+      confidenceFit * 0.1
+    )
+  }
+
+  const legSelectionScore = (row, boostThrees = false) => {
+    const hitRate = parseHitRate(row.hitRate)
+    const edge = Number(row.edge || row.projectedValue || 0)
+    const score = Number(row.score || 0)
+    const odds = Number(row.odds || 0)
+    const threesBonus = boostThrees && String(row.propType || "") === "Threes" ? 0.12 : 0
+    const oddsBonus = odds > 0 && odds <= 200 ? 0.07 : (odds >= -160 && odds <= 120 ? 0.05 : 0)
+    return hitRate * 0.6 + (edge / 12) * 0.22 + (score / 130) * 0.15 + oddsBonus + threesBonus
+  }
+
+  const makeCandidate = (label, legs, bandKey) => {
+    const normalizedLegs = Array.isArray(legs) ? dedupeSlipLegs(legs).filter(Boolean) : []
+    if (normalizedLegs.length < 2) return null
+
+    const price = parlayPriceFromLegs(normalizedLegs)
+    if (!price) return null
+
+    const projectedReturn = estimateReturn(5, price.american)
+    if (!projectedReturn) return null
+
+    const trueProbability = trueParlayProbabilityFromLegs(normalizedLegs)
+    const confidence = confidenceFromLegs(normalizedLegs)
+    const materialSignature = normalizedLegs.map(toLegKey).sort().join("||")
+    const topTwoCore = [...normalizedLegs]
+      .sort((a, b) => parseHitRate(b.hitRate) - parseHitRate(a.hitRate))
+      .slice(0, 2)
+      .map(toLegKey)
+      .sort()
+      .join("||")
+
+    const candidate = {
+      sourceLabel: label,
+      legs: normalizedLegs,
+      stake: 5,
+      price,
+      projectedReturn,
+      returnMultiple: projectedReturn,
+      trueProbability,
+      confidence,
+      legCount: normalizedLegs.length,
+      materialSignature,
+      twoLegCoreSignature: topTwoCore,
+      assignmentScore: 0
+    }
+
+    candidate.assignmentScore = fitScoreForBand(candidate, bandKey)
+    return candidate
+  }
+
+  const portfolioDebug = {
+    rejectionCounts: {
+      smallHitters: {},
+      midUpside: {},
+      bigUpside: {},
+      lotto: {}
+    }
+  }
+
+  const noteBandRejection = (bandKey, reason) => {
+    const bucket = portfolioDebug.rejectionCounts[bandKey]
+    bucket[reason] = (bucket[reason] || 0) + 1
+  }
+
+  const fitsLottoByBook = (candidate) => {
+    if (!candidate) return false
+    const legCount = candidate.legCount
+    const returnMultiple = candidate.returnMultiple
+
+    if (legCount !== 5 && legCount !== 6) {
+      if (book === "FanDuel") {
+        console.log("[FD-LOTTO-QUALIFY-DEBUG]", {
+          legCount,
+          returnMultiple,
+          accepted: false,
+          rejectReason: "leg-count"
+        })
+      }
+      return false
+    }
+
+    if (book === "FanDuel") {
+      // 75x / 105x are reachable with mixed-odds 5/6-leg FD slips
+      return (candidate.legCount === 5 && candidate.returnMultiple >= 90) ||
+        (candidate.legCount === 6 && candidate.returnMultiple >= 125)
+    }
+
+    return returnMultiple >= 120
+  }
+
+  const ruleFits = (candidate, bandKey) => {
+    if (!candidate) return false
+
+    const rule = bandRules[bandKey]
+    const fitsBig = (
+      candidate.returnMultiple >= rule.minReturn &&
+      candidate.returnMultiple < rule.maxReturnExclusive &&
+      candidate.legCount >= rule.minLegs &&
+      candidate.legCount <= rule.maxLegs
+    )
+    const fitsLotto = fitsLottoByBook(candidate)
+
+    if (bandKey === "lotto" || bandKey === "bigUpside") {
+      console.log("[BAND-FIT-DEBUG]", {
+        book,
+        band: bandKey,
+        legCount: candidate.legCount,
+        returnMultiple: Number(candidate.returnMultiple.toFixed(2)),
+        fitsBigUpside: fitsBig,
+        fitsLotto
+      })
+    }
+
+    if (bandKey === "lotto") {
+      return fitsLotto
+    }
+
+    if (bandKey === "bigUpside") {
+      return fitsBig && !fitsLotto
+    }
+
+    return fitsBig
+  }
+
+  const ruleFitsRelaxed = (candidate, bandKey) => {
+    if (!candidate) return false
+    if (bandKey === "bigUpside") {
+      if (fitsLottoByBook(candidate)) return false
+      if (candidate.legCount === 4) return candidate.returnMultiple >= 55
+      if (candidate.legCount === 5) return candidate.returnMultiple >= 70 && candidate.returnMultiple < 120
+      return false
+    }
+    if (bandKey === "lotto") {
+      return fitsLottoByBook(candidate)
+    }
+    return ruleFits(candidate, bandKey)
+  }
+
+  const bookRows = getBookRows()
+  const fanDuelPoolIsThin = book === "FanDuel" && bookRows.length < 40
+
+  const highestHitRows = sortRowsForMLHighestHitRate(bookRows)
+  const bestValueRows = sortRowsForBestValue(bookRows)
+
+  const safeRows = highestHitRows.filter((row) => isSafeLeg(row, false))
+  const safeRowsRelaxed = highestHitRows.filter((row) => isSafeLeg(row, true))
+  const valueRows = bestValueRows.filter((row) => isValueLeg(row, false))
+  const valueRowsRelaxed = bestValueRows.filter((row) => isValueLeg(row, true))
+
+  const payoutBoosterRows = dedupeByLegSignature(
+    highestHitRows
+      .filter((row) => isPayoutBoosterLeg(row))
+      .map((row) => ({
+        ...row,
+        __payoutBoosterScore: payoutBoosterLegScore(row)
+      }))
+  ).sort((a, b) => {
+    if (b.__payoutBoosterScore !== a.__payoutBoosterScore) return b.__payoutBoosterScore - a.__payoutBoosterScore
+    return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+  })
+
+  const payoutBoosterRowsRelaxed = dedupeByLegSignature(
+    highestHitRows
+      .filter((row) => isPayoutBoosterLegRelaxed(row))
+      .map((row) => ({
+        ...row,
+        __payoutBoosterScore: payoutBoosterLegScore(row)
+      }))
+  ).sort((a, b) => {
+    if (b.__payoutBoosterScore !== a.__payoutBoosterScore) return b.__payoutBoosterScore - a.__payoutBoosterScore
+    return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+  })
+
+  const threesRows = payoutBoosterRows.filter((row) => String(row.propType || "") === "Threes")
+  const threesRowsRelaxed = payoutBoosterRowsRelaxed.filter((row) => String(row.propType || "") === "Threes")
+  const bestPropsBookBoosters = dedupeByLegSignature(
+    ((oddsSnapshot.bestProps || [])
+      .filter((row) => row.book === book)
+      .filter((row) => isPayoutBoosterLegRelaxed(row)))
+  ).sort((a, b) => {
+    const scoreDiff = payoutBoosterLegScore(b) - payoutBoosterLegScore(a)
+    if (scoreDiff !== 0) return scoreDiff
+    return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+  })
+
+  const rotateRows = (rows, attempt = 0) => {
+    if (!Array.isArray(rows) || rows.length <= 1) return Array.isArray(rows) ? [...rows] : []
+    const offset = Math.max(0, attempt) % rows.length
+    return [...rows.slice(offset), ...rows.slice(0, offset)]
+  }
+
+  const selectLegs = (targetLegCount, pools, options = {}) => {
+    const {
+      maxPerGame = targetLegCount <= 3 ? 1 : 2,
+      requireThrees = 0,
+      requireBooster = 0,
+      allowOneRiskier = false,
+      attempt = 0,
+      relaxed = false,
+      scoreBoostThrees = false,
+      blockSameGameStatSide = targetLegCount <= 2,
+      debugHighLegFallback = false
+    } = options
+
+    const flattened = []
+    for (const pool of pools) {
+      const rotated = rotateRows(pool, attempt)
+      for (const row of rotated) flattened.push(row)
+    }
+
+    const ranked = dedupeByLegSignature(flattened)
+      .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+      .filter((row) => !isFragileLeg(row))
+      .filter((row) => !isHighRiskFlag(row))
+      .sort((a, b) => legSelectionScore(b, scoreBoostThrees) - legSelectionScore(a, scoreBoostThrees))
+
+    const countUndersInGame = (legs, matchup) => {
+      return legs.filter((leg) =>
+        String(leg.matchup || "") === matchup &&
+        String(leg.side || "").toLowerCase() === "under"
+      ).length
+    }
+
+    const attemptSelect = (maxPerGameCap) => {
+      const selected = []
+      const gameCounts = new Map()
+      const statCounts = new Map()
+      const usedPlayers = new Set()
+      let riskierCount = 0
+
+      while (selected.length < targetLegCount) {
+        let bestRow = null
+        let bestScore = -Infinity
+
+        for (const row of ranked) {
+          const player = String(row.player || "")
+          const matchup = String(row.matchup || "")
+          const propType = String(row.propType || row.statType || "")
+          const side = String(row.side || "").toLowerCase()
+          if (!player) continue
+          if (usedPlayers.has(player)) continue
+          if ((gameCounts.get(matchup) || 0) >= maxPerGameCap) continue
+          if (hasConflict(selected, row)) continue
+          if (blockSameGameStatSide && hasSameGameStatSide(selected, row)) continue
+
+          const safe = isSafeLeg(row, relaxed)
+          if (!safe) {
+            if (!allowOneRiskier) continue
+            if (!isValueLeg(row, true) && !isPayoutBoosterLegRelaxed(row)) continue
+            if (riskierCount >= 1) continue
+          }
+
+          const isRepeatedUnderSameGame =
+            targetLegCount >= 5 &&
+            side === "under" &&
+            countUndersInGame(selected, matchup) >= 1
+
+          if (isRepeatedUnderSameGame) {
+            const hasAlternative = ranked.some((alt) => {
+              const altPlayer = String(alt.player || "")
+              const altMatchup = String(alt.matchup || "")
+              const altSide = String(alt.side || "").toLowerCase()
+              if (!altPlayer) return false
+              if (usedPlayers.has(altPlayer)) return false
+              if ((gameCounts.get(altMatchup) || 0) >= maxPerGameCap) return false
+              if (hasConflict(selected, alt)) return false
+              if (blockSameGameStatSide && hasSameGameStatSide(selected, alt)) return false
+              if (targetLegCount >= 5 && altSide === "under" && countUndersInGame(selected, altMatchup) >= 1) return false
+              const altSafe = isSafeLeg(alt, relaxed)
+              if (!altSafe) {
+                if (!allowOneRiskier) return false
+                if (!isValueLeg(alt, true) && !isPayoutBoosterLegRelaxed(alt)) return false
+                if (riskierCount >= 1) return false
+              }
+              return true
+            })
+            if (hasAlternative) continue
+          }
+
+          let dynamicScore = legSelectionScore(row, scoreBoostThrees)
+          if (targetLegCount >= 5) {
+            const existingFromGame = gameCounts.get(matchup) || 0
+            const existingFromStat = statCounts.get(propType) || 0
+            dynamicScore -= existingFromGame * 0.17
+            dynamicScore -= existingFromStat * 0.11
+            if (existingFromGame === 0) dynamicScore += 0.08
+            if (existingFromStat === 0) dynamicScore += 0.06
+            if (isRepeatedUnderSameGame) dynamicScore -= 0.24
+          }
+
+          if (dynamicScore > bestScore) {
+            bestScore = dynamicScore
+            bestRow = row
+          }
+        }
+
+        if (!bestRow) break
+
+        const player = String(bestRow.player || "")
+        const matchup = String(bestRow.matchup || "")
+        const propType = String(bestRow.propType || bestRow.statType || "")
+        const safe = isSafeLeg(bestRow, relaxed)
+
+        selected.push(bestRow)
+        usedPlayers.add(player)
+        gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+        statCounts.set(propType, (statCounts.get(propType) || 0) + 1)
+        if (!safe) riskierCount += 1
+      }
+
+      if (selected.length !== targetLegCount) return []
+
+      const threesCount = selected.filter((leg) => String(leg.propType || "") === "Threes").length
+      const boosterCount = selected.filter((leg) => isPayoutBoosterLegRelaxed(leg)).length
+      if (threesCount < requireThrees) return []
+      if (boosterCount < requireBooster) return []
+
+      return dedupeSlipLegs(selected)
+    }
+
+    const ladder = targetLegCount >= 5
+      ? [2, 3, 4]
+      : [Math.max(1, Number(maxPerGame || 1))]
+
+    for (const cap of ladder) {
+      const selected = attemptSelect(cap)
+      if (selected.length === targetLegCount) {
+        if (debugHighLegFallback && targetLegCount >= 5 && cap > 2) {
+          console.log("[HIGHLEG-MAXPERGAME-DEBUG]", {
+            book,
+            targetLegCount,
+            attempt,
+            chosenMaxPerGame: cap
+          })
+        }
+        return selected
+      }
+    }
+
+    if (debugHighLegFallback && targetLegCount >= 5) {
+      console.log("[HIGHLEG-MAXPERGAME-DEBUG]", {
+        book,
+        targetLegCount,
+        attempt,
+        chosenMaxPerGame: null
+      })
+    }
+    return []
+  }
+
+  const diversifyCandidateLastLeg = (candidate, bandKey, options = {}) => {
+    if (!candidate || !Array.isArray(candidate.legs) || candidate.legs.length < 5) return candidate
+
+    const maxPerGame = Number(options.maxPerGame || 4)
+    const legs = [...candidate.legs]
+    const lateStart = Math.min(3, Math.max(0, legs.length - 2))
+    const weakestLateIndex = legs
+      .map((leg, idx) => ({ idx, score: Number(leg?.score || 0) }))
+      .filter((x) => x.idx >= lateStart)
+      .sort((a, b) => a.score - b.score)[0]?.idx
+
+    if (!Number.isInteger(weakestLateIndex)) return candidate
+
+    const weakest = legs[weakestLateIndex]
+    const fixedLegs = legs.filter((_, idx) => idx !== weakestLateIndex)
+    const usedSignatures = new Set(fixedLegs.map(toLegKey))
+    const usedPlayers = new Set(fixedLegs.map((leg) => String(leg.player || "")))
+    const gameCounts = new Map()
+    const statCounts = new Map()
+    for (const leg of fixedLegs) {
+      const matchup = String(leg.matchup || "")
+      const stat = String(leg.propType || leg.statType || "")
+      gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+      statCounts.set(stat, (statCounts.get(stat) || 0) + 1)
+    }
+
+    const alternatives = dedupeByLegSignature([
+      ...highestHitRows,
+      ...safeRowsRelaxed,
+      ...valueRowsRelaxed,
+      ...payoutBoosterRowsRelaxed,
+      ...threesRowsRelaxed,
+      ...bestPropsBookBoosters
+    ])
+
+    let attempts = 0
+    let bestVariant = null
+    let bestVariantScore = -Infinity
+
+    for (const alt of alternatives) {
+      if (!alt || shouldRemoveLegForPlayerStatus(alt) || isFragileLeg(alt) || isHighRiskFlag(alt)) continue
+      if (usedPlayers.has(String(alt.player || ""))) continue
+      if (usedSignatures.has(toLegKey(alt))) continue
+      if (hasConflict(fixedLegs, alt)) continue
+      if (hasSameGameStatSide(fixedLegs, alt)) continue
+
+      const altMatchup = String(alt.matchup || "")
+      if ((gameCounts.get(altMatchup) || 0) >= maxPerGame) continue
+
+      const changesGame = String(alt.matchup || "") !== String(weakest.matchup || "")
+      const changesStat = String(alt.propType || alt.statType || "") !== String(weakest.propType || weakest.statType || "")
+      if (!changesGame && !changesStat) continue
+
+      attempts += 1
+
+      const variantLegs = dedupeSlipLegs([...fixedLegs, alt])
+      if (variantLegs.length !== legs.length) continue
+
+      const price = parlayPriceFromLegs(variantLegs)
+      if (!price) continue
+      const projectedReturn = estimateReturn(5, price.american)
+      if (!projectedReturn) continue
+
+      const variantCandidate = {
+        ...candidate,
+        legs: variantLegs,
+        legCount: variantLegs.length,
+        price,
+        projectedReturn,
+        returnMultiple: projectedReturn,
+        trueProbability: trueParlayProbabilityFromLegs(variantLegs),
+        confidence: confidenceFromLegs(variantLegs),
+        materialSignature: variantLegs.map(toLegKey).sort().join("||")
+      }
+
+      if (!candidateMatchesBandWindow(variantCandidate, bandKey) && !candidateMatchesBandWindowRelaxed(variantCandidate, bandKey)) continue
+
+      variantCandidate.assignmentScore = fitScoreForBand(variantCandidate, bandKey)
+
+      const statKey = String(alt.propType || alt.statType || "")
+      const gamePenalty = gameCounts.get(altMatchup) || 0
+      const statPenalty = statCounts.get(statKey) || 0
+      const diversityBump = (changesGame ? 0.18 : 0) + (changesStat ? 0.14 : 0)
+      const composite = (variantCandidate.assignmentScore || 0) + diversityBump - (gamePenalty * 0.08) - (statPenalty * 0.07)
+
+      if (composite > bestVariantScore) {
+        bestVariantScore = composite
+        bestVariant = variantCandidate
+      }
+    }
+
+    const accepted = Boolean(bestVariant && bestVariant.materialSignature !== candidate.materialSignature)
+    console.log("[DIVERSIFY-SWAP-DEBUG]", {
+      book,
+      scope: options.scope || "portfolio",
+      bandKey,
+      legCount: candidate.legCount,
+      attempts,
+      accepted
+    })
+
+    return accepted ? bestVariant : candidate
+  }
+
+  const buildSafe2Leg = (attempt = 0, relaxed = false) => {
+    const rows = relaxed ? safeRowsRelaxed : safeRows
+    return makeCandidate(
+      "buildSafe2Leg",
+      selectLegs(2, [rows, highestHitRows], { attempt, relaxed }),
+      "smallHitters"
+    )
+  }
+
+  const buildSafe3Leg = (attempt = 0, relaxed = false) => {
+    const rows = relaxed ? safeRowsRelaxed : safeRows
+    const candidate = makeCandidate(
+      "buildSafe3Leg",
+      selectLegs(3, [rows, highestHitRows], { attempt, relaxed, maxPerGame: relaxed ? 2 : 1, blockSameGameStatSide: false }),
+      "midUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 25 || candidate.returnMultiple >= 60) return null
+    return candidate
+  }
+
+  const buildBalanced3Leg = (attempt = 0, relaxed = false) => {
+    const safePool = relaxed ? safeRowsRelaxed : safeRows
+    const valuePool = relaxed ? valueRowsRelaxed : valueRows
+    const candidate = makeCandidate(
+      "buildBalanced3Leg",
+      selectLegs(3, [safePool, valuePool, payoutBoosterRowsRelaxed], {
+        attempt,
+        relaxed,
+        allowOneRiskier: true,
+        maxPerGame: 2,
+        blockSameGameStatSide: false
+      }),
+      "midUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 25 || candidate.returnMultiple >= 60) return null
+    return candidate
+  }
+
+  const buildBalanced4Leg = (attempt = 0, relaxed = false) => {
+    const safePool = relaxed ? safeRowsRelaxed : safeRows
+    const valuePool = relaxed ? valueRowsRelaxed : valueRows
+    const threesPool = relaxed ? threesRowsRelaxed : threesRows
+    const relaxedFourLegForFanDuel = book === "FanDuel"
+    const candidate = makeCandidate(
+      "buildBalanced4Leg",
+      selectLegs(4, [safePool, valuePool, threesPool, ...(book === "DraftKings" ? [bestPropsBookBoosters] : [])], {
+        attempt,
+        relaxed,
+        requireThrees: relaxedFourLegForFanDuel ? 0 : 1,
+        requireBooster: relaxedFourLegForFanDuel ? 0 : 1,
+        allowOneRiskier: true,
+        scoreBoostThrees: true,
+        maxPerGame: dualMode ? 3 : (book === "DraftKings" ? 3 : 2),
+        blockSameGameStatSide: false
+      }),
+      "bigUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 60 || candidate.returnMultiple >= 120) return null
+    return candidate
+  }
+
+  const buildThreesBoostSlip = (attempt = 0, relaxed = false) => {
+    const threesPool = relaxed ? threesRowsRelaxed : threesRows
+    const boosters = relaxed ? payoutBoosterRowsRelaxed : payoutBoosterRows
+    const valuePool = relaxed ? valueRowsRelaxed : valueRows
+    const relaxedFourLegForFanDuel = book === "FanDuel"
+    const candidate = makeCandidate(
+      "buildThreesBoostSlip",
+      selectLegs(4, [threesPool, boosters, valuePool, ...(book === "DraftKings" ? [bestPropsBookBoosters] : [])], {
+        attempt,
+        relaxed: true,
+        requireThrees: relaxedFourLegForFanDuel ? 0 : 1,
+        requireBooster: relaxedFourLegForFanDuel ? 0 : 2,
+        allowOneRiskier: true,
+        scoreBoostThrees: true
+        ,
+        maxPerGame: 3,
+        blockSameGameStatSide: false
+      }),
+      "bigUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 60 || candidate.returnMultiple >= 120) return null
+    return candidate
+  }
+
+  const buildBalanced5Leg = (attempt = 0, relaxed = false) => {
+    const safePool = relaxed ? safeRowsRelaxed : safeRows
+    const valuePool = relaxed ? valueRowsRelaxed : valueRows
+    const boosters = relaxed ? payoutBoosterRowsRelaxed : payoutBoosterRows
+    const threesPool = relaxed ? threesRowsRelaxed : threesRows
+    const candidate = makeCandidate(
+      "buildBalanced5Leg",
+      selectLegs(5, [safePool, valuePool, boosters, threesPool, ...(book === "DraftKings" ? [bestPropsBookBoosters] : [])], {
+        attempt,
+        relaxed: true,
+        requireBooster: book === "FanDuel" ? 0 : 1,
+        requireThrees: 0,
+        allowOneRiskier: true,
+        scoreBoostThrees: true,
+        maxPerGame: 3,
+        blockSameGameStatSide: false
+      }),
+      "bigUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 55 || candidate.returnMultiple >= 190) return null
+    return candidate
+  }
+
+  const buildMixed5Leg = (attempt = 0, relaxed = false) => {
+    const safePool = relaxed ? safeRowsRelaxed : safeRows
+    const valuePool = relaxed ? valueRowsRelaxed : valueRows
+    const boosters = relaxed ? payoutBoosterRowsRelaxed : payoutBoosterRows
+    const candidate = makeCandidate(
+      "buildMixed5Leg",
+      selectLegs(5, [valuePool, safePool, boosters, highestHitRows], {
+        attempt,
+        relaxed: true,
+        requireBooster: 0,
+        requireThrees: 0,
+        allowOneRiskier: true,
+        scoreBoostThrees: true,
+        maxPerGame: 3,
+        blockSameGameStatSide: false
+      }),
+      "bigUpside"
+    )
+    if (!candidate) return null
+    if (candidate.returnMultiple < 55 || candidate.returnMultiple >= 220) return null
+    return candidate
+  }
+
+  const buildLottoSlip = (attempt = 0, relaxed = false, options = {}) => {
+    const safePool = rotateRows(relaxed ? safeRowsRelaxed : safeRows, attempt)
+    const valuePool = rotateRows(relaxed ? valueRowsRelaxed : valueRows, attempt + 1)
+    const boosterPool = rotateRows(relaxed ? payoutBoosterRowsRelaxed : payoutBoosterRows, attempt + 2)
+    const threesPool = rotateRows(relaxed ? threesRowsRelaxed : threesRows, attempt + 3)
+    const isDraftKingsBook = book === "DraftKings"
+    const plusMoneyBoosterPool = boosterPool.filter((row) => Number(row.odds || 0) > 0)
+    const targetLegCount = Number(options?.forceLegCount) || [5, 6][attempt % 2]
+
+    const safeLegs = selectLegs(1, [safePool, highestHitRows], { attempt, relaxed, maxPerGame: 3, blockSameGameStatSide: false })
+    const valueLegs = selectLegs(1, [valuePool, bestValueRows], { attempt: attempt + 1, relaxed, allowOneRiskier: true, maxPerGame: 3, blockSameGameStatSide: false })
+    const boosterNeeded = targetLegCount - 2
+    const hasThreesPool = threesPool.length > 0
+    const availableBoosterSupply = dedupeSlipLegs([...plusMoneyBoosterPool, ...boosterPool]).length
+    const preferredRequireBooster = isDraftKingsBook ? 1 : (availableBoosterSupply >= 2 ? 2 : 1)
+    const thinBoosterPool = availableBoosterSupply < (targetLegCount + 1)
+    const requiredBoosterPrimary = thinBoosterPool ? 1 : preferredRequireBooster
+    const requiredThreesPrimary = hasThreesPool && !thinBoosterPool ? 1 : 0
+    let nullCandidateRejectCount = 0
+
+    const logLottoQualify = (candidate, accepted, rejectReason = "") => {
+      const boosterCount = Array.isArray(candidate?.legs)
+        ? candidate.legs.filter((leg) => isPayoutBoosterLegRelaxed(leg)).length
+        : 0
+      const threesCount = Array.isArray(candidate?.legs)
+        ? candidate.legs.filter((leg) => String(leg.propType || "") === "Threes").length
+        : 0
+
+      const payload = {
+        book,
+        legCount: candidate?.legCount || 0,
+        returnMultiple: Number(candidate?.returnMultiple || 0),
+        boosterCount,
+        threesCount,
+        accepted
+      }
+      if (!accepted) payload.rejectReason = rejectReason
+      console.log("[LOTTO-QUALIFY-DEBUG]", payload)
+    }
+
+    const qualifiesLottoCandidate = (candidate, options = {}) => {
+      const relaxedLaterFill = Boolean(options?.relaxedLaterFill)
+      if (!candidate) {
+        nullCandidateRejectCount += 1
+        return false
+      }
+      if (candidate.legCount < 5 || candidate.legCount > 6) {
+        logLottoQualify(candidate, false, "lotto-legcount")
+        return false
+      }
+      const boosterCount = candidate.legs.filter((leg) => isPayoutBoosterLegRelaxed(leg)).length
+      const threesCount = candidate.legs.filter((leg) => String(leg.propType || "") === "Threes").length
+      const relaxedFanDuelReturnFloor = candidate.legCount === 5 ? 90 : 125
+      const requiredBoosterCount = relaxedLaterFill && book === "FanDuel" && fanDuelPoolIsThin
+        ? 0
+        : (isDraftKingsBook ? 1 : requiredBoosterPrimary)
+      const requireThreesForThisCandidate = hasThreesPool && !(relaxedLaterFill && book === "FanDuel")
+      if (boosterCount < requiredBoosterCount) {
+        logLottoQualify(candidate, false, "booster-min")
+        return false
+      }
+      if (requireThreesForThisCandidate && threesCount < 1) {
+        logLottoQualify(candidate, false, "threes-min")
+        return false
+      }
+      if (!fitsLottoByBook(candidate)) {
+        if (!(relaxedLaterFill && book === "FanDuel" && candidate.returnMultiple >= relaxedFanDuelReturnFloor)) {
+          logLottoQualify(candidate, false, "return-threshold")
+          return false
+        }
+      }
+
+      if (relaxedLaterFill) {
+        const laterLegs = candidate.legs.slice(3)
+        for (const leg of laterLegs) {
+          const legHitRate = parseHitRate(leg.hitRate)
+          const legScore = Number(leg.score || 0)
+          const legEdge = Number(leg.edge || leg.projectedValue || 0)
+          const legTrendRisk = String(leg.trendRisk || "").toLowerCase()
+          const legInjuryRisk = String(leg.injuryRisk || "").toLowerCase()
+
+          if (legTrendRisk === "high") {
+            logLottoQualify(candidate, false, "fallback-later-trendRisk-high")
+            return false
+          }
+          if (legInjuryRisk === "high") {
+            logLottoQualify(candidate, false, "fallback-later-injuryRisk-high")
+            return false
+          }
+          // FanDuel thin-pool: skip score/edge/hitRate floors — risk flags above are sufficient safety gates
+          if (book === "FanDuel" && fanDuelPoolIsThin) continue
+          if (legEdge < -2) {
+            logLottoQualify(candidate, false, "fallback-later-edge-floor")
+            return false
+          }
+          if (legScore < 15) {
+            logLottoQualify(candidate, false, "fallback-later-score-floor")
+            return false
+          }
+          if (legHitRate < 0.58) {
+            logLottoQualify(candidate, false, "fallback-later-hitRate-floor")
+            return false
+          }
+        }
+      } else {
+        const strongHitRateLegs = candidate.legs.filter((leg) => parseHitRate(leg.hitRate) >= 0.8).length
+        const lowHitRateLegs = candidate.legs.filter((leg) => parseHitRate(leg.hitRate) < 0.75).length
+        const strictStrongLegFloor = book === "FanDuel" ? 3 : 4
+        if (strongHitRateLegs < strictStrongLegFloor) {
+          logLottoQualify(candidate, false, "strong-hitrate-min")
+          return false
+        }
+        if (lowHitRateLegs > 2) {
+          logLottoQualify(candidate, false, "low-hitrate-max")
+          return false
+        }
+      }
+
+      logLottoQualify(candidate, true)
+      return true
+    }
+
+    let boosterLegs = selectLegs(boosterNeeded, [plusMoneyBoosterPool, boosterPool, threesPool], {
+      attempt: attempt + 2,
+      relaxed: true,
+      allowOneRiskier: true,
+      requireBooster: requiredBoosterPrimary,
+      requireThrees: requiredThreesPrimary,
+      scoreBoostThrees: true,
+      maxPerGame: 3,
+      blockSameGameStatSide: false
+    })
+
+    let combined = dedupeSlipLegs([...safeLegs, ...valueLegs, ...boosterLegs])
+    let candidate = combined.length < targetLegCount
+      ? null
+      : makeCandidate("buildLottoSlip", combined.slice(0, targetLegCount), "lotto")
+
+    if (!qualifiesLottoCandidate(candidate, { relaxedLaterFill: false })) {
+      boosterLegs = selectLegs(boosterNeeded, [plusMoneyBoosterPool, boosterPool, threesPool], {
+        attempt: attempt + 3,
+        relaxed: true,
+        allowOneRiskier: true,
+        requireBooster: 1,
+        requireThrees: 0,
+        scoreBoostThrees: true,
+        maxPerGame: 3,
+        blockSameGameStatSide: false
+      })
+      combined = dedupeSlipLegs([...safeLegs, ...valueLegs, ...boosterLegs])
+      candidate = combined.length < targetLegCount
+        ? null
+        : makeCandidate("buildLottoSlip", combined.slice(0, targetLegCount), "lotto")
+    }
+    // Third fallback: wide pool with no booster/threes requirements to avoid null-candidate-aggregate
+    // Only triggers when candidate is still null after both prior attempts
+    if (!candidate) {
+      const widerLegs = selectLegs(targetLegCount, [safeRowsRelaxed, highestHitRows, valueRowsRelaxed, payoutBoosterRowsRelaxed, threesRowsRelaxed], {
+        attempt: attempt + 4,
+        relaxed: true,
+        requireBooster: 0,
+        requireThrees: 0,
+        allowOneRiskier: true,
+        maxPerGame: 3,
+        blockSameGameStatSide: false
+      })
+      if (widerLegs.length >= targetLegCount) {
+        const widerCandidate = makeCandidate("buildLottoSlip-wideFallback", widerLegs.slice(0, targetLegCount), "lotto")
+        // Accept wide-fallback at 60x for FD (pure safe-leg 5-leg slips rarely hit 75x)
+        const wideFallbackOk = candidateMatchesBandWindowRelaxed(widerCandidate, "lotto") ||
+          (book === "FanDuel" && widerCandidate.legCount >= 5 && widerCandidate.returnMultiple >= 60)
+        if (widerCandidate && wideFallbackOk) {
+          console.log("[LOTTO-QUALIFY-DEBUG]", {
+            book,
+            fallbackUsed: "wide-pool",
+            legCount: widerCandidate.legCount,
+            returnMultiple: Number(widerCandidate.returnMultiple.toFixed(1))
+          })
+          candidate = widerCandidate
+        }
+      }
+    }
+    const relaxedAccepted = qualifiesLottoCandidate(candidate, { relaxedLaterFill: true })
+    if (nullCandidateRejectCount > 0) {
+      console.log("[LOTTO-QUALIFY-DEBUG]", {
+        book,
+        legCount: targetLegCount,
+        accepted: false,
+        rejectReason: "null-candidate-aggregate",
+        count: nullCandidateRejectCount
+      })
+    }
+    if (relaxedAccepted) return candidate
+    if (candidate && candidate.legCount >= 5) {
+      // Lowered FD floors: 75x (5-leg) / 105x (6-leg) are achievable with mixed-odds slips
+      if (book === "FanDuel" && candidate.returnMultiple >= (candidate.legCount === 5 ? 75 : 105)) return candidate
+      if (book === "DraftKings" && candidate.returnMultiple >= 110) return candidate
+      if (candidate.returnMultiple >= 100) return candidate
+    }
+    return null
+  }
+
+  const buildLotto5Leg = (attempt = 0, relaxed = false) => buildLottoSlip(attempt, relaxed, { forceLegCount: 5 })
+  const buildLotto6Leg = (attempt = 0, relaxed = false) => buildLottoSlip(attempt, relaxed, { forceLegCount: 6 })
+
+  const buildVariantCandidate = (label, targetLegCount, pools, bandKey, options = {}) => {
+    const {
+      attempt = 0,
+      relaxed = true,
+      requireBooster = 0,
+      requireThrees = 0,
+      allowOneRiskier = true,
+      scoreBoostThrees = true,
+      maxPerGame = 3
+    } = options
+
+    return makeCandidate(
+      label,
+      selectLegs(targetLegCount, pools, {
+        attempt,
+        relaxed,
+        requireBooster,
+        requireThrees,
+        allowOneRiskier,
+        scoreBoostThrees,
+        maxPerGame,
+        blockSameGameStatSide: false
+      }),
+      bandKey
+    )
+  }
+
+  const buildCandidatePoolByBand = () => {
+    const pool = {
+      smallHitters: [],
+      midUpside: [],
+      bigUpside: [],
+      lotto: []
+    }
+
+    const pushCandidate = (bandKey, candidate) => {
+      if (!candidate) return
+      const strictFit = candidateMatchesBandWindow(candidate, bandKey)
+      const relaxedFit = !strictFit && candidateMatchesBandWindowRelaxed(candidate, bandKey)
+      if (!strictFit && !relaxedFit) return
+      pool[bandKey].push({
+        ...candidate,
+        __relaxedWindowOnly: relaxedFit,
+        assignmentScore: fitScoreForBand(candidate, bandKey)
+      })
+    }
+
+    if (Array.isArray(slipObjects)) {
+      for (const slip of slipObjects) {
+        const legs = Array.isArray(slip?.legs) ? dedupeSlipLegs(slip.legs) : []
+        if (legs.length < 2) continue
+        const candidate = makeCandidate(slip?.label || "Seed Slip", legs, "midUpside")
+        if (!candidate) continue
+
+        pushCandidate("smallHitters", candidate)
+        pushCandidate("midUpside", candidate)
+        pushCandidate("bigUpside", candidate)
+        pushCandidate("lotto", candidate)
+      }
+    }
+
+    const attemptCeiling = book === "FanDuel" ? 18 : 16
+
+    for (let attempt = 0; attempt < attemptCeiling; attempt += 1) {
+      const shiftedA = (attempt * 2 + 1) % attemptCeiling
+      const shiftedB = (attempt * 3 + 2) % attemptCeiling
+      const shiftedC = (attempt * 5 + 3) % attemptCeiling
+
+      pushCandidate("smallHitters", buildSafe2Leg(attempt, false))
+      pushCandidate("smallHitters", buildSafe2Leg(shiftedA, true))
+
+      pushCandidate("midUpside", buildSafe3Leg(attempt, false))
+      pushCandidate("midUpside", buildSafe3Leg(shiftedA, true))
+      pushCandidate("midUpside", buildBalanced3Leg(attempt, false))
+      pushCandidate("midUpside", buildBalanced3Leg(shiftedB, true))
+      pushCandidate("midUpside", buildBalanced4Leg(shiftedA, book === "FanDuel"))
+      pushCandidate("midUpside", buildBalanced4Leg(shiftedC, true))
+      pushCandidate("midUpside", buildVariantCandidate(
+        "buildVariantMid3",
+        3,
+        [safeRowsRelaxed, valueRowsRelaxed, payoutBoosterRowsRelaxed, threesRowsRelaxed, bestPropsBookBoosters],
+        "midUpside",
+        { attempt: shiftedB, requireBooster: 0, requireThrees: 0, maxPerGame: 2 }
+      ))
+
+      pushCandidate("bigUpside", buildBalanced4Leg(attempt, book === "FanDuel"))
+      pushCandidate("bigUpside", buildBalanced4Leg(shiftedA, true))
+      pushCandidate("bigUpside", buildThreesBoostSlip(attempt, book === "FanDuel"))
+      pushCandidate("bigUpside", buildThreesBoostSlip(shiftedB, true))
+      pushCandidate("bigUpside", buildBalanced5Leg(shiftedA, false))
+      pushCandidate("bigUpside", buildBalanced5Leg(shiftedB, true))
+      pushCandidate("bigUpside", buildMixed5Leg(shiftedC, false))
+      pushCandidate("bigUpside", buildMixed5Leg(attempt, true))
+      pushCandidate("bigUpside", buildVariantCandidate(
+        "buildVariantBig4",
+        4,
+        [payoutBoosterRowsRelaxed, threesRowsRelaxed, valueRowsRelaxed, safeRowsRelaxed, bestPropsBookBoosters],
+        "bigUpside",
+        {
+          attempt: shiftedC,
+          requireBooster: fanDuelPoolIsThin ? 0 : 1,
+          requireThrees: fanDuelPoolIsThin ? 0 : 1,
+          maxPerGame: 3
+        }
+      ))
+      pushCandidate("bigUpside", buildLottoSlip(shiftedA, false))
+
+      pushCandidate("lotto", buildLottoSlip(attempt, false))
+      pushCandidate("lotto", buildLottoSlip(shiftedA, true))
+      pushCandidate("lotto", buildLotto5Leg(shiftedB, false))
+      pushCandidate("lotto", buildLotto5Leg(shiftedC, true))
+      pushCandidate("lotto", buildLotto6Leg(shiftedA, false))
+      pushCandidate("lotto", buildLotto6Leg(shiftedB, true))
+      pushCandidate("lotto", buildVariantCandidate(
+        "buildVariantLotto5",
+        5,
+        [payoutBoosterRowsRelaxed, valueRowsRelaxed, safeRowsRelaxed, threesRowsRelaxed, bestPropsBookBoosters, highestHitRows],
+        "lotto",
+        {
+          attempt: shiftedC,
+          // FanDuel always uses 0 requirements for 5/6-leg variants — thin or not — to maximise candidate supply
+          requireBooster: book === "FanDuel" ? 0 : 1,
+          requireThrees: book === "FanDuel" ? 0 : 1,
+          maxPerGame: 3
+        }
+      ))
+      pushCandidate("lotto", buildVariantCandidate(
+        "buildVariantLotto6",
+        6,
+        [payoutBoosterRowsRelaxed, valueRowsRelaxed, safeRowsRelaxed, threesRowsRelaxed, bestPropsBookBoosters, highestHitRows],
+        "lotto",
+        {
+          attempt: shiftedB,
+          requireBooster: book === "FanDuel" ? 0 : 1,
+          requireThrees: 0,
+          maxPerGame: 3
+        }
+      ))
+      // Extra FD-only wide-pool lotto variant: no booster/threes constraints, maxPerGame:4, relaxed=true
+      // This ensures at least some lotto candidates exist even on the thinnest FD slates
+      if (book === "FanDuel") {
+        pushCandidate("lotto", buildVariantCandidate(
+          "buildVariantLotto5-fdwide",
+          5,
+          [highestHitRows, safeRowsRelaxed, valueRowsRelaxed, payoutBoosterRowsRelaxed, threesRowsRelaxed],
+          "lotto",
+          { attempt: shiftedA, requireBooster: 0, requireThrees: 0, maxPerGame: 4, relaxed: true }
+        ))
+        pushCandidate("lotto", buildVariantCandidate(
+          "buildVariantLotto5-fdwide2",
+          5,
+          [valueRowsRelaxed, highestHitRows, safeRowsRelaxed, payoutBoosterRowsRelaxed],
+          "lotto",
+          { attempt: shiftedB, requireBooster: 0, requireThrees: 0, maxPerGame: 4, relaxed: true }
+        ))
+      }
+    }
+
+    console.log(`[PAYOUT-PORTFOLIO] ${book} seeded candidate counts`, {
+      smallHitters: pool.smallHitters.length,
+      midUpside: pool.midUpside.length,
+      bigUpside: pool.bigUpside.length,
+      lotto: pool.lotto.length,
+      attemptCeiling
+    })
+
+    return pool
+  }
+
+  const dedupeCandidates = (candidates, bandKey) => {
+    const bySignature = new Map()
+
+    const candidateDiversityScore = (candidate) => {
+      const legs = Array.isArray(candidate?.legs) ? candidate.legs : []
+      if (!legs.length) return 0
+      const games = new Set(legs.map((leg) => String(leg?.matchup || ""))).size
+      const stats = new Set(legs.map((leg) => String(leg?.propType || leg?.statType || ""))).size
+      const underCount = legs.filter((leg) => String(leg?.side || "").toLowerCase() === "under").length
+      const underPenalty = underCount >= Math.max(3, Math.ceil(legs.length * 0.7)) ? 0.12 : 0
+      return games * 0.08 + stats * 0.05 - underPenalty
+    }
+
+    for (const candidate of candidates || []) {
+      if (!candidate) continue
+      // Accept if strict ruleFits OR relaxed window — pushCandidate already gatekeeps the raw pool,
+      // this prevents relaxed-window candidates (e.g. FD 5-leg 90-99x) from being silently stripped here
+      if (!ruleFits(candidate, bandKey) && !candidateMatchesBandWindowRelaxed(candidate, bandKey)) continue
+      const existing = bySignature.get(candidate.materialSignature)
+      const candidateComposite = candidate.assignmentScore + candidateDiversityScore(candidate)
+      const existingComposite = existing
+        ? existing.assignmentScore + candidateDiversityScore(existing)
+        : -Infinity
+      if (!existing || candidateComposite > existingComposite) {
+        bySignature.set(candidate.materialSignature, candidate)
+      }
+    }
+
+    return [...bySignature.values()].sort((a, b) => {
+      const bComposite = b.assignmentScore + candidateDiversityScore(b)
+      const aComposite = a.assignmentScore + candidateDiversityScore(a)
+      if (bComposite !== aComposite) return bComposite - aComposite
+      if (b.trueProbability !== a.trueProbability) return b.trueProbability - a.trueProbability
+      return b.returnMultiple - a.returnMultiple
+    })
+  }
+
+  const candidatePoolByBand = buildCandidatePoolByBand()
+  const candidateCountsRaw = {
+    smallHitters: candidatePoolByBand.smallHitters.length,
+    midUpside: candidatePoolByBand.midUpside.length,
+    bigUpside: candidatePoolByBand.bigUpside.length,
+    lotto: candidatePoolByBand.lotto.length
+  }
+
+  const selectedByBand = {
+    smallHitters: [],
+    midUpside: [],
+    bigUpside: [],
+    lotto: []
+  }
+
+  const buildLottoBatchOptions = (lottoCandidates = []) => {
+    const usedMaterial = new Set()
+    const twoCoreCounts = new Map()
+    const threeCoreCounts = new Map()
+    const anchorCounts = new Map()
+    const boosterCoreCounts = new Map()
+    const maxBatchOptions = book === "FanDuel" ? 2 : 3
+    const thinPool = (lottoCandidates || []).length < 6
+
+    const diversityScore = (candidate) => {
+      const legs = Array.isArray(candidate?.legs) ? candidate.legs : []
+      const games = new Set(legs.map((leg) => String(leg?.matchup || ""))).size
+      const propMix = new Set(legs.map((leg) => String(leg?.propType || leg?.statType || ""))).size
+      const plusMoneyCount = legs.filter((leg) => Number(leg?.odds || 0) > 0).length
+      return games * 0.18 + propMix * 0.14 + plusMoneyCount * 0.1 + (candidate.assignmentScore || 0)
+    }
+
+    const bucketed = {
+      5: [],
+      6: [],
+      7: [],
+      4: []
+    }
+
+    for (const c of lottoCandidates || []) {
+      if (!c || !Array.isArray(c.legs)) continue
+      const k = Number(c.legCount)
+      if (bucketed[k]) bucketed[k].push(c)
+    }
+
+    for (const k of Object.keys(bucketed)) {
+      bucketed[k].sort((a, b) => diversityScore(b) - diversityScore(a))
+    }
+
+    const ordered = []
+    const pattern = [5, 6, 5, 6, 5, 6, 7, 4]
+    for (const k of pattern) {
+      const arr = bucketed[k]
+      if (arr && arr.length) ordered.push(arr.shift())
+    }
+    for (const k of [5, 6, 7, 4]) {
+      for (const c of bucketed[k]) ordered.push(c)
+    }
+
+    console.log("[LOTTO-BATCH-DEDUPE-DEBUG]", {
+      book,
+      inputCandidates: lottoCandidates.length,
+      orderedCandidates: ordered.length,
+      thinPool,
+      relaxedCoreDedupe: thinPool
+    })
+
+    if (thinPool) {
+      const seedCandidates = ordered.slice(0, Math.min(6, ordered.length))
+      for (const seed of seedCandidates) {
+        const variant = diversifyCandidateLastLeg(seed, "lotto", { scope: "lottoBatch-variant", maxPerGame: 4 })
+        if (!variant) continue
+        if (variant.materialSignature === seed.materialSignature) continue
+        ordered.push(variant)
+      }
+    }
+
+    const selected = []
+    for (const c of ordered) {
+      if (selected.length >= maxBatchOptions) break
+      if (!c || !Array.isArray(c.legs)) continue
+      const candidate = diversifyCandidateLastLeg(c, "lotto", { scope: "lottoBatch-final", maxPerGame: 4 })
+      if (!candidate || !candidateMatchesBandWindowRelaxed(candidate, "lotto")) continue
+
+      const material = candidate.materialSignature || candidate.legs.map((l) => `${l.player}|${l.propType}|${l.side}|${l.line}`).sort().join("||")
+      if (usedMaterial.has(material)) continue
+
+      const core2 = candidate.legs
+        .slice(0, 2)
+        .map((l) => `${l.player}|${l.propType}`)
+        .join("|")
+      const core3 = candidate.legs
+        .slice(0, 3)
+        .map((l) => `${l.player}|${l.propType}`)
+        .join("|")
+      const anchor = candidate.legs
+        .slice()
+        .sort((a, b) => parseHitRate(b.hitRate) - parseHitRate(a.hitRate))[0]
+      const anchorKey = anchor ? `${anchor.player}|${anchor.propType}` : ""
+      const boosterCore = candidate.legs
+        .filter((l) => Number(l.odds || 0) > 0)
+        .slice(0, 2)
+        .map((l) => `${l.player}|${l.propType}`)
+        .sort()
+        .join("||")
+
+      if (!thinPool) {
+        if ((twoCoreCounts.get(core2) || 0) >= (book === "FanDuel" ? 1 : 2)) continue
+        if ((threeCoreCounts.get(core3) || 0) >= 2) continue
+        if (anchorKey && (anchorCounts.get(anchorKey) || 0) >= 1) continue
+        if (boosterCore && (boosterCoreCounts.get(boosterCore) || 0) >= 1) continue
+      }
+
+      usedMaterial.add(material)
+      twoCoreCounts.set(core2, (twoCoreCounts.get(core2) || 0) + 1)
+      threeCoreCounts.set(core3, (threeCoreCounts.get(core3) || 0) + 1)
+      if (anchorKey) anchorCounts.set(anchorKey, (anchorCounts.get(anchorKey) || 0) + 1)
+      if (boosterCore) boosterCoreCounts.set(boosterCore, (boosterCoreCounts.get(boosterCore) || 0) + 1)
+      selected.push(candidate)
+    }
+
+    console.log("[LOTTO-BATCH-DEDUPE-DEBUG]", {
+      book,
+      selectedCount: selected.length,
+      maxBatchOptions,
+      thinPool
+    })
+
+    return selected.map((candidate, index) => ({
+      rank: index + 1,
+      label: `Lotto Batch #${index + 1}`,
+      buildTag: "lotto-batch",
+      stake: 1,
+      projectedReturn: Number((candidate.projectedReturn / 5).toFixed(2)),
+      estimatedProfit: Number(((candidate.projectedReturn / 5) - 1).toFixed(2)),
+      oddsAmerican: candidate.price.american,
+      oddsDecimal: candidate.price.decimal,
+      trueProbability: Number((candidate.trueProbability * 100).toFixed(1)),
+      confidence: candidate.confidence,
+      legCount: candidate.legCount,
+      legs: candidate.legs
+    }))
+  }
+
+  function candidateMatchesBandWindow(candidate, bandKey) {
+    if (!candidate) return false
+    const rule = bandRules[bandKey]
+    if (!rule) return false
+    if (!candidate.legCount || candidate.legCount < 2) return false
+
+    if (bandKey === "lotto") {
+      return fitsLottoByBook(candidate)
+    }
+
+    if (bandKey === "bigUpside") {
+      if (candidate.legCount < rule.minLegs || candidate.legCount > rule.maxLegs) return false
+      if (candidate.returnMultiple < rule.minReturn) return false
+      if (candidate.returnMultiple >= rule.maxReturnExclusive) return false
+      if (fitsLottoByBook(candidate)) return false
+      return true
+    }
+
+    if (bandKey === "midUpside") {
+      if (candidate.legCount < 3 || candidate.legCount > 4) return false
+      if (candidate.returnMultiple < 25) return false
+      if (candidate.returnMultiple >= 60) return false
+      return true
+    }
+
+    if (bandKey === "smallHitters") {
+      if (candidate.legCount !== 2) return false
+      if (candidate.returnMultiple < 10) return false
+      if (candidate.returnMultiple >= 25) return false
+      return true
+    }
+
+    return false
+  }
+
+  function candidateMatchesBandWindowRelaxed(candidate, bandKey) {
+    if (!candidate || !Array.isArray(candidate.legs) || candidate.legs.length < 2) return false
+    if (candidate.legs.some((leg) => shouldRemoveLegForPlayerStatus(leg) || isFragileLeg(leg) || isHighRiskFlag(leg))) return false
+
+    if (bandKey === "smallHitters") {
+      if (candidate.legCount < 2 || candidate.legCount > 3) return false
+      return candidate.returnMultiple >= 8 && candidate.returnMultiple < 30
+    }
+
+    if (bandKey === "midUpside") {
+      if (candidate.legCount < 3 || candidate.legCount > 4) return false
+      return candidate.returnMultiple >= 22 && candidate.returnMultiple < 72
+    }
+
+    if (bandKey === "bigUpside") {
+      if (candidate.legCount < 4 || candidate.legCount > 6) return false
+      const minReturn = book === "FanDuel" ? 48 : 52
+      if (candidate.returnMultiple < minReturn || candidate.returnMultiple >= 140) return false
+      if (fitsLottoByBook(candidate)) return false
+      return true
+    }
+
+    if (bandKey === "lotto") {
+      if (fitsLottoByBook(candidate)) return true
+      if (candidate.legCount !== 5 && candidate.legCount !== 6) return false
+      if (book === "FanDuel") {
+        // RELAXED: accept 75x+ (5-leg) / 105x+ (6-leg) so thin-pool FD candidates aren't fully gated out
+        return (candidate.legCount === 5 && candidate.returnMultiple >= 75) ||
+          (candidate.legCount === 6 && candidate.returnMultiple >= 105)
+      }
+      return candidate.returnMultiple >= 110
+    }
+
+    return false
+  }
+
+  const usedMaterialAcrossBands = new Set()
+  const usedTwoLegCore = new Map()
+  const duplicateRejectCounts = {
+    smallHitters: { exactDuplicate: 0, sharedCoreDuplicate: 0 },
+    midUpside: { exactDuplicate: 0, sharedCoreDuplicate: 0 },
+    bigUpside: { exactDuplicate: 0, sharedCoreDuplicate: 0 },
+    lotto: { exactDuplicate: 0, sharedCoreDuplicate: 0 }
+  }
+  const dedupedCandidatesByBand = {}
+  const candidateCountsBeforeSelection = {}
+  const selectedCountsAfterFirstPass = {
+    smallHitters: 0,
+    midUpside: 0,
+    bigUpside: 0,
+    lotto: 0
+  }
+
+  const violatesPlayerReuse = () => false
+
+  const registerCandidateUsage = (candidate) => {
+    usedMaterialAcrossBands.add(candidate.materialSignature)
+    if (candidate.twoLegCoreSignature) {
+      usedTwoLegCore.set(candidate.twoLegCoreSignature, (usedTwoLegCore.get(candidate.twoLegCoreSignature) || 0) + 1)
+    }
+  }
+
+  const trySelectCandidate = (bandKey, candidate, phase = "selection", selectOptions = {}) => {
+    const allowExactReuse = Boolean(selectOptions?.allowExactReuse)
+    const disableCoreLockout = Boolean(selectOptions?.disableCoreLockout)
+    const enforceTwoLegCoreLockout = bandKey === "smallHitters" && !disableCoreLockout
+    if (!candidate) {
+      noteBandRejection(bandKey, `${phase}-null-candidate`)
+      return false
+    }
+    if (!allowExactReuse && usedMaterialAcrossBands.has(candidate.materialSignature)) {
+      noteBandRejection(bandKey, "exact-slip-reuse")
+      duplicateRejectCounts[bandKey].exactDuplicate += 1
+      if (bandKey === "lotto") {
+        console.log("[LOTTO-REJECT-DEBUG]", {
+          bandKey,
+          phase,
+          reason: "exact-slip-reuse",
+          materialSignature: candidate.materialSignature
+        })
+      }
+      return false
+    }
+    if (enforceTwoLegCoreLockout && candidate.twoLegCoreSignature && (usedTwoLegCore.get(candidate.twoLegCoreSignature) || 0) >= 1) {
+      noteBandRejection(bandKey, "two-leg-core-lockout")
+      duplicateRejectCounts[bandKey].sharedCoreDuplicate += 1
+      return false
+    }
+    if (violatesPlayerReuse(candidate)) {
+      noteBandRejection(bandKey, "player-reuse-lockout")
+      return false
+    }
+    registerCandidateUsage(candidate)
+    selectedByBand[bandKey].push(candidate)
+    return true
+  }
+
+  const buildRelaxedFallbackCandidates = (bandKey) => {
+    const basePool = candidatePoolByBand[bandKey] || []
+    const adjacentBandPools = {
+      smallHitters: [candidatePoolByBand.midUpside || []],
+      midUpside: [candidatePoolByBand.smallHitters || [], candidatePoolByBand.bigUpside || []],
+      bigUpside: [candidatePoolByBand.midUpside || [], candidatePoolByBand.lotto || []],
+      lotto: [candidatePoolByBand.bigUpside || []]
+    }
+
+    const merged = [...basePool, ...(adjacentBandPools[bandKey] || []).flat()]
+      .filter(Boolean)
+      .filter((candidate) => candidateMatchesBandWindowRelaxed(candidate, bandKey))
+
+    const byMaterial = new Map()
+    for (const candidate of merged) {
+      if (!candidate || !candidate.materialSignature) continue
+      const score = fitScoreForBand(candidate, bandKey)
+      const existing = byMaterial.get(candidate.materialSignature)
+      if (!existing || score > existing.__fallbackScore) {
+        byMaterial.set(candidate.materialSignature, { ...candidate, __fallbackScore: score })
+      }
+    }
+
+    return [...byMaterial.values()]
+      .sort((a, b) => {
+        if (b.__fallbackScore !== a.__fallbackScore) return b.__fallbackScore - a.__fallbackScore
+        if (b.trueProbability !== a.trueProbability) return b.trueProbability - a.trueProbability
+        return b.returnMultiple - a.returnMultiple
+      })
+      .map(({ __fallbackScore, ...candidate }) => candidate)
+  }
+
+  for (const bandKey of bandOrder) {
+    const deduped = dedupeCandidates(candidatePoolByBand[bandKey], bandKey)
+    dedupedCandidatesByBand[bandKey] = deduped
+    candidateCountsBeforeSelection[bandKey] = deduped.length
+  }
+
+  for (const bandKey of bandOrder) {
+    for (const candidate of dedupedCandidatesByBand[bandKey]) {
+      if (selectedByBand[bandKey].length >= 1) break
+      if (trySelectCandidate(bandKey, candidate, "first-pass")) break
+    }
+    selectedCountsAfterFirstPass[bandKey] = selectedByBand[bandKey].length
+  }
+
+  for (const bandKey of bandOrder) {
+    for (const candidate of dedupedCandidatesByBand[bandKey]) {
+      if (selectedByBand[bandKey].length >= (desiredOptionsByBand[bandKey] || 2)) break
+      if (selectedByBand[bandKey].some((selected) => selected.materialSignature === candidate.materialSignature)) continue
+      trySelectCandidate(bandKey, candidate, "second-pass")
+    }
+  }
+
+  for (const bandKey of bandOrder) {
+    if (selectedByBand[bandKey].length >= (desiredOptionsByBand[bandKey] || 2)) continue
+
+    const relaxedFallbackCandidates = buildRelaxedFallbackCandidates(bandKey)
+    if (relaxedFallbackCandidates.length) {
+      console.log(`[PAYOUT-PORTFOLIO] ${book} ${bandKey} relaxed fallback used`, {
+        targetOptions: desiredOptionsByBand[bandKey] || 2,
+        currentOptions: selectedByBand[bandKey].length,
+        relaxedCandidateCount: relaxedFallbackCandidates.length
+      })
+    }
+
+    for (const candidate of relaxedFallbackCandidates) {
+      if (selectedByBand[bandKey].length >= (desiredOptionsByBand[bandKey] || 2)) break
+      if (selectedByBand[bandKey].some((selected) => selected.materialSignature === candidate.materialSignature)) continue
+      trySelectCandidate(bandKey, candidate, "relaxed-pass", { disableCoreLockout: true })
+    }
+  }
+
+  for (const bandKey of bandOrder) {
+    console.log(`[PAYOUT-PORTFOLIO] ${book} ${bandKey} selection summary`, {
+      candidateCountBeforeSelection: candidateCountsBeforeSelection[bandKey],
+      selectedAfterFirstPass: selectedCountsAfterFirstPass[bandKey],
+      selectedAfterSecondPass: selectedByBand[bandKey].length,
+      duplicateRejects: duplicateRejectCounts[bandKey],
+      rejectionCounts: portfolioDebug.rejectionCounts[bandKey]
+    })
+    if (!selectedByBand[bandKey].length) {
+      console.log(`[PAYOUT-PORTFOLIO] ${book} ${bandKey} final empty`, portfolioDebug.rejectionCounts[bandKey])
+    }
+  }
+
+  const portfolio = {}
+  for (const bandKey of bandOrder) {
+    const band = bands[bandKey]
+    const selected = selectedByBand[bandKey]
+
+    const validSelected = selected.filter((c) => (
+      candidateMatchesBandWindow(c, bandKey) || candidateMatchesBandWindowRelaxed(c, bandKey)
+    ))
+
+    portfolio[bandKey] = {
+      label: band.label,
+      description: band.description,
+      options: validSelected.map((c, idx) => ({
+        rank: idx + 1,
+        label: `${band.label} #${idx + 1}`,
+        stake: c.stake,
+        projectedReturn: Number(c.projectedReturn.toFixed(2)),
+        estimatedProfit: Number((c.projectedReturn - c.stake).toFixed(2)),
+        oddsAmerican: c.price.american,
+        oddsDecimal: Number(c.price.decimal.toFixed(2)),
+        trueProbability: Number((c.trueProbability * 100).toFixed(1)),
+        confidence: c.confidence,
+        legCount: c.legCount,
+        legs: c.legs.map((leg) => ({
+          playerName: leg.playerName || leg.player,
+          statType: leg.statType || leg.propType,
+          line: leg.line,
+          odds: leg.odds,
+          book: leg.book,
+          hitRate: leg.hitRate,
+          projectedValue: leg.projectedValue || leg.edge
+        }))
+      }))
+    }
+  }
+
+  let lottoBatchSource = (dedupedCandidatesByBand?.lotto?.length
+    ? dedupedCandidatesByBand.lotto
+    : selectedByBand.lotto
+  // Accept both strict and relaxed lotto candidates so thin-pool FD slips reach buildLottoBatchOptions
+  ).filter((candidate) => candidateMatchesBandWindow(candidate, "lotto") || candidateMatchesBandWindowRelaxed(candidate, "lotto"))
+
+  const lottoBatchTarget = book === "FanDuel" ? 2 : 3
+  if (lottoBatchSource.length < lottoBatchTarget) {
+    const relaxedLottoFallback = [
+      ...(candidatePoolByBand.lotto || []),
+      ...(dedupedCandidatesByBand.bigUpside || []),
+      ...(candidatePoolByBand.bigUpside || [])
+    ]
+      .filter(Boolean)
+      .filter((candidate) => candidateMatchesBandWindowRelaxed(candidate, "lotto"))
+
+    const seenMaterial = new Set(lottoBatchSource.map((candidate) => candidate.materialSignature))
+    for (const candidate of relaxedLottoFallback) {
+      if (!candidate?.materialSignature) continue
+      if (seenMaterial.has(candidate.materialSignature)) continue
+      lottoBatchSource.push(candidate)
+      seenMaterial.add(candidate.materialSignature)
+    }
+
+    console.log("[LOTTO-BATCH-DEBUG]", {
+      book,
+      relaxedFallbackUsed: true,
+      lottoBatchTarget,
+      relaxedFallbackAdded: Math.max(0, lottoBatchSource.length - (dedupedCandidatesByBand?.lotto?.length || selectedByBand.lotto.length))
+    })
+  }
+
+  const lottoBatchOptions = buildLottoBatchOptions(lottoBatchSource)
+
+  console.log("[LOTTO-BATCH-DEBUG]", {
+    book,
+    lottoBatchTarget,
+    lottoBatchSourceCount: lottoBatchSource.length,
+    lottoBatchSelectedCount: lottoBatchOptions.length,
+    selectedLottoCount: selectedByBand.lotto.length,
+    dedupedLottoCount: dedupedCandidatesByBand?.lotto?.length || 0
+  })
+
+  portfolio.lottoBatch = {
+    label: "Lotto Batch",
+    description: "High-volume diversified $1 lotto tickets",
+    options: lottoBatchOptions
+  }
+
+  // Count strict vs relaxed breakdown in deduped pools for supply diagnostics
+  const relaxedCounts = {}
+  for (const bandKey of bandOrder) {
+    relaxedCounts[bandKey] = {
+      strict: dedupedCandidatesByBand[bandKey].filter((c) => !c.__relaxedWindowOnly).length,
+      relaxed: dedupedCandidatesByBand[bandKey].filter((c) => c.__relaxedWindowOnly).length
+    }
+  }
+
+  console.log("[PAYOUT-PORTFOLIO-CANDIDATE-SUMMARY]", {
+    book,
+    beforeDedupe: candidateCountsRaw,
+    afterDedupe: {
+      smallHitters: dedupedCandidatesByBand.smallHitters.length,
+      midUpside: dedupedCandidatesByBand.midUpside.length,
+      bigUpside: dedupedCandidatesByBand.bigUpside.length,
+      lotto: dedupedCandidatesByBand.lotto.length
+    },
+    relaxedBreakdown: relaxedCounts,
+    lottoBatchSelected: portfolio.lottoBatch.options.length
+  })
+
+  // Final band health summary: if supply was the problem vs conflict/band-fit rules
+  const bandHealth = {}
+  for (const bandKey of bandOrder) {
+    const deduped = dedupedCandidatesByBand[bandKey].length
+    const selected = selectedByBand[bandKey].length
+    const desired = desiredOptionsByBand[bandKey] || 2
+    bandHealth[bandKey] = {
+      deduped,
+      selected,
+      desired,
+      shortage: deduped === 0 ? "supply" : selected < desired ? "conflict-or-fit" : "ok"
+    }
+  }
+  console.log("[PAYOUT-PORTFOLIO-BAND-HEALTH]", { book, bands: bandHealth, lottoBatch: portfolio.lottoBatch.options.length })
+
+  return portfolio
+}
+
+function buildDualLanePortfoliosForBook(book, sourceRows = [], highestHitSlipObjects = []) {
+  const safeRows = dedupeByLegSignature(
+    (Array.isArray(sourceRows) ? sourceRows : [])
+      .filter((row) => row?.book === book)
+      .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+      .filter((row) => !isFragileLeg(row))
+  )
+
+  const laneConfigs = {
+    recoup: {
+      targetMin: 8,
+      targetMaxExclusive: 20,
+      legCounts: [2, 3],
+      maxOptions: 2,
+      stake: 5,
+      buildTags: ["recoup-core", "safe-floor-mix"],
+      maxBooster: 0,
+      minHitRate: 0.68,
+      avoidNovelty: true
+    },
+    conservative: {
+      targetMin: 20,
+      targetMaxExclusive: 60,
+      legCounts: [2, 3, 4],
+      maxOptions: 3,
+      stake: 5,
+      buildTags: ["conservative-alt-core", "balanced-floor"],
+      maxBooster: 1,
+      minHitRate: 0.62,
+      avoidNovelty: true
+    },
+    midUpside: {
+      targetMin: 60,
+      targetMaxExclusive: 120,
+      legCounts: [4, 5],
+      maxOptions: 3,
+      stake: 5,
+      buildTags: ["mid-upside-balance", "boosted-core"],
+      maxBooster: 2,
+      minHitRate: 0.56,
+      avoidNovelty: true
+    },
+    lottoBatch: {
+      targetMin: 100,
+      targetMaxExclusive: Infinity,
+      legCounts: [4, 5, 6, 7],
+      maxOptions: 10,
+      stake: 1,
+      buildTags: ["threes-cluster", "star-under-core", "balanced-ladder-style", "role-player-boost", "ceiling-mix"],
+      minHitRate: 0.5,
+      avoidNovelty: true
+    }
+  }
+
+  const isNoveltyMarket = (row) => {
+    const propType = String(row?.propType || "").toLowerCase()
+    if (!propType) return true
+    const stable = ["points", "rebounds", "assists", "pra", "threes", "blocks", "steals", "turnovers"]
+    return !stable.includes(propType)
+  }
+
+  const isHighRiskLeg = (row) => {
+    const trendRisk = String(row?.trendRisk || "").toLowerCase()
+    const injuryRisk = String(row?.injuryRisk || "").toLowerCase()
+    const minutesRisk = String(row?.minutesRisk || "").toLowerCase()
+    return trendRisk === "high" || injuryRisk === "high" || minutesRisk === "high"
+  }
+
+  const isPayoutBoosterLeg = (row) => {
+    const odds = Number(row?.odds || 0)
+    const propType = String(row?.propType || "").toLowerCase()
+    if (odds > 0) return true
+    if (isLadderLeg(row)) return true
+    return ["threes", "points", "pra", "rebounds", "assists"].includes(propType)
+  }
+
+  const isLadderLeg = (row) => {
+    const propTypeRaw = String(row?.propType || "")
+    const propType = propTypeRaw.toLowerCase()
+    const line = Number(row?.line || 0)
+    const odds = Number(row?.odds || 0)
+    if (propType.includes("alt")) return true
+    if (!Number.isFinite(line)) return false
+
+    const ladderThresholds = {
+      points: [15, 20, 25, 30],
+      rebounds: [4, 6, 8, 10],
+      assists: [3, 5, 7],
+      threes: [2, 3, 4, 5],
+      pra: [20, 25, 30, 35]
+    }
+
+    for (const [market, thresholds] of Object.entries(ladderThresholds)) {
+      if (!propType.includes(market)) continue
+      if (thresholds.includes(Math.round(line))) return true
+      if (odds >= -165 && line >= Math.min(...thresholds)) return true
+    }
+
+    return false
+  }
+
+  const isCoreLeg = (row) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const score = Number(row?.score || 0)
+    const edge = Number(row?.edge || row?.projectedValue || 0)
+    return hitRate >= 0.62 && score >= 55 && edge >= 0.25 && !isHighRiskLeg(row)
+  }
+
+  const missDistanceScore = (row) => {
+    const edge = Number(row?.edge || row?.projectedValue || 0)
+    const score = Number(row?.score || 0)
+    const valueStd = Math.abs(Number(row?.valueStd || 0))
+    const minStd = Math.abs(Number(row?.minStd || 0))
+    const volatility = (valueStd + minStd) / 2
+    const trendRisk = String(row?.trendRisk || "").toLowerCase()
+    const injuryRisk = String(row?.injuryRisk || "").toLowerCase()
+
+    const closeMissBonus = Math.max(0, edge) * 0.45 + Math.max(0, score) / 120
+    const volatilityPenalty = Math.min(1.1, volatility / 7.5)
+    const hardRiskPenalty = trendRisk === "high" || injuryRisk === "high" ? 0.7 : 0
+    const deadMissPenalty = edge < -0.25 ? 0.35 : 0
+
+    return closeMissBonus - volatilityPenalty - hardRiskPenalty - deadMissPenalty
+  }
+
+  const scoreRowForLane = (row, lane) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge || row?.projectedValue || 0)
+    const score = Number(row?.score || 0)
+    const odds = Number(row?.odds || 0)
+    const missScore = missDistanceScore(row)
+    const noveltyPenalty = isNoveltyMarket(row) ? 0.3 : 0
+    const riskPenalty = isHighRiskLeg(row) ? 0.45 : 0
+    const plusMoneyBoost = odds > 0 ? Math.min(0.2, odds / 900) : 0
+    const ladderBonus = isLadderLeg(row) ? 0.08 : 0
+
+    if (lane === "recoup") {
+      return hitRate * 0.62 + (score / 130) * 0.18 + Math.max(0, edge) * 0.08 + missScore * 0.2 - noveltyPenalty - riskPenalty - plusMoneyBoost * 0.35
+    }
+    if (lane === "conservative") {
+      return hitRate * 0.5 + (score / 130) * 0.2 + Math.max(0, edge) * 0.12 + missScore * 0.2 - noveltyPenalty - riskPenalty
+    }
+    if (lane === "midUpside") {
+      return hitRate * 0.38 + (score / 130) * 0.22 + Math.max(0, edge) * 0.2 + missScore * 0.15 + plusMoneyBoost * 0.1 + ladderBonus - noveltyPenalty * 0.5 - riskPenalty * 0.6
+    }
+    return hitRate * 0.24 + (score / 130) * 0.22 + Math.max(0, edge) * 0.24 + missScore * 0.13 + plusMoneyBoost * 0.2 + ladderBonus * 1.2 - noveltyPenalty * 0.35 - riskPenalty * 0.45
+  }
+
+  const rotateRows = (rows, attempt = 0) => {
+    if (!Array.isArray(rows) || rows.length <= 1) return Array.isArray(rows) ? [...rows] : []
+    const offset = Math.max(0, attempt) % rows.length
+    return [...rows.slice(offset), ...rows.slice(0, offset)]
+  }
+
+  const materialSignature = (legs) => (Array.isArray(legs) ? legs : [])
+    .map((leg) => `${leg.player || leg.playerName || ""}|${leg.propType || leg.statType || ""}|${leg.side || ""}|${Number(leg.line)}`)
+    .sort()
+    .join("||")
+
+  const twoLegCoreSignature = (legs) => (Array.isArray(legs) ? legs : [])
+    .slice()
+    .sort((a, b) => parseHitRate(b?.hitRate) - parseHitRate(a?.hitRate))
+    .slice(0, 2)
+    .map((leg) => `${leg.player || leg.playerName || ""}|${leg.propType || leg.statType || ""}|${leg.side || ""}|${Number(leg.line)}`)
+    .sort()
+    .join("||")
+
+  const threeLegCoreSignature = (legs) => (Array.isArray(legs) ? legs : [])
+    .slice()
+    .sort((a, b) => parseHitRate(b?.hitRate) - parseHitRate(a?.hitRate))
+    .slice(0, 3)
+    .map((leg) => `${leg.player || leg.playerName || ""}|${leg.propType || leg.statType || ""}|${leg.side || ""}|${Number(leg.line)}`)
+    .sort()
+    .join("||")
+
+  const makeCandidateFromLegs = (lane, legs, stake, buildTag) => {
+    const normalized = dedupeSlipLegs(Array.isArray(legs) ? legs : []).filter(Boolean)
+    if (normalized.length < 2) return null
+    const price = parlayPriceFromLegs(normalized)
+    if (!price) return null
+    const projectedReturn = estimateReturn(stake, price.american)
+    if (!Number.isFinite(projectedReturn)) return null
+    return {
+      lane,
+      buildTag,
+      stake,
+      legs: normalized,
+      legCount: normalized.length,
+      price,
+      projectedReturn,
+      estimatedProfit: projectedReturn - stake,
+      trueProbability: trueParlayProbabilityFromLegs(normalized),
+      confidence: confidenceFromLegs(normalized),
+      materialSignature: materialSignature(normalized),
+      twoLegCore: twoLegCoreSignature(normalized),
+      threeLegCore: threeLegCoreSignature(normalized)
+    }
+  }
+
+  const diversityScoreForCandidate = (candidate) => {
+    const legs = Array.isArray(candidate?.legs) ? candidate.legs : []
+    if (!legs.length) return -1
+    const matchups = legs.map((l) => String(l?.matchup || ""))
+    const matchupCounts = matchups.reduce((acc, m) => {
+      acc[m] = (acc[m] || 0) + 1
+      return acc
+    }, {})
+    const statCounts = legs.reduce((acc, leg) => {
+      const k = String(leg?.propType || leg?.statType || "")
+      acc[k] = (acc[k] || 0) + 1
+      return acc
+    }, {})
+    const underCount = legs.filter((l) => String(l?.side || "").toLowerCase() === "under").length
+    const coreLegs = legs.slice().sort((a, b) => parseHitRate(b?.hitRate) - parseHitRate(a?.hitRate)).slice(0, 3)
+    const boosterLegs = legs.filter((l) => isPayoutBoosterLeg(l)).length
+    const ladderLegs = legs.filter((l) => isLadderLeg(l)).length
+    const oomphLegs = legs.filter((l) => Number(l?.odds || 0) >= 140 || isLadderLeg(l)).length
+
+    const sameGameOverloadPenalty = Object.values(matchupCounts).reduce((n, c) => n + Math.max(0, c - 2), 0) * 0.2
+    const statClusterPenalty = Object.values(statCounts).reduce((n, c) => n + Math.max(0, c - 2), 0) * 0.13
+    const underHeavyPenalty = underCount >= Math.max(3, Math.ceil(legs.length * 0.7)) ? 0.35 : 0
+    const gameBonus = Math.min(0.5, new Set(matchups).size / Math.max(1, legs.length))
+    const coreBonus = coreLegs.length
+      ? coreLegs.reduce((n, l) => n + parseHitRate(l?.hitRate), 0) / coreLegs.length * 0.22
+      : 0
+    const payoutBonus = boosterLegs >= 1 && boosterLegs <= 3 ? 0.18 : (boosterLegs > 3 ? 0.05 : 0)
+    const oomphBonus = oomphLegs >= 1 ? 0.14 : 0
+    const ladderBonus = ladderLegs >= 1 ? 0.09 : 0
+
+    return gameBonus + coreBonus + payoutBonus + oomphBonus + ladderBonus - sameGameOverloadPenalty - statClusterPenalty - underHeavyPenalty
+  }
+
+  const optionFromCandidate = (laneLabel, candidate, rank) => ({
+    rank,
+    label: `${laneLabel} #${rank}`,
+    buildTag: candidate.buildTag,
+    stake: candidate.stake,
+    projectedReturn: Number(candidate.projectedReturn.toFixed(2)),
+    estimatedProfit: Number(candidate.estimatedProfit.toFixed(2)),
+    oddsAmerican: candidate.price.american,
+    oddsDecimal: Number(candidate.price.decimal.toFixed(2)),
+    trueProbability: Number((candidate.trueProbability * 100).toFixed(1)),
+    confidence: candidate.confidence,
+    legCount: candidate.legCount,
+    legs: candidate.legs.map((leg) => ({
+      playerName: leg.playerName || leg.player,
+      statType: leg.statType || leg.propType,
+      line: leg.line,
+      odds: leg.odds,
+      book: leg.book,
+      hitRate: leg.hitRate,
+      projectedValue: leg.projectedValue || leg.edge
+    }))
+  })
+
+  const buildLaneCandidates = (lane) => {
+    const cfg = laneConfigs[lane]
+    const rankedBase = [...safeRows]
+      .filter((row) => !cfg.avoidNovelty || !isNoveltyMarket(row))
+      .sort((a, b) => scoreRowForLane(b, lane) - scoreRowForLane(a, lane))
+
+    const candidates = []
+    const attempts = lane === "lottoBatch" ? 30 : 14
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const ranked = rotateRows(rankedBase, attempt)
+      for (const legCount of cfg.legCounts) {
+        if (lane === "lottoBatch") {
+          const selected = []
+          const usedPlayers = new Set()
+          const gameCounts = new Map()
+          const corePool = ranked.filter((row) => isCoreLeg(row))
+          const boosterPool = ranked.filter((row) => isPayoutBoosterLeg(row))
+          const coreTarget = legCount >= 6 ? 3 : 2
+          const boosterTarget = Math.max(2, Math.min(4, legCount - coreTarget))
+
+          for (const row of corePool) {
+            if (selected.length >= coreTarget) break
+            const player = String(row?.player || "")
+            const matchup = String(row?.matchup || "")
+            if (!player || usedPlayers.has(player)) continue
+            if (hasConflict(selected, row)) continue
+            if ((gameCounts.get(matchup) || 0) >= 2) continue
+            selected.push(row)
+            usedPlayers.add(player)
+            gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+          }
+
+          const usedBuildStyles = new Set(selected.map((r) => String(r?.propType || "").toLowerCase()))
+          for (const row of boosterPool) {
+            if (selected.length >= legCount) break
+            const player = String(row?.player || "")
+            const matchup = String(row?.matchup || "")
+            const style = String(row?.propType || "").toLowerCase()
+            if (!player || usedPlayers.has(player)) continue
+            if (hasConflict(selected, row)) continue
+            if ((gameCounts.get(matchup) || 0) >= 3) continue
+
+            const allUnder = selected.length >= 2 && selected.every((l) => String(l?.side || "").toLowerCase() === "under")
+            const thisUnder = String(row?.side || "").toLowerCase() === "under"
+            if (allUnder && thisUnder && boosterPool.some((x) => String(x?.side || "").toLowerCase() !== "under")) {
+              console.log("[BOOSTER-LEG-DEBUG]", {
+                book,
+                lane,
+                player,
+                propType: row?.propType,
+                line: row?.line,
+                accepted: false,
+                reason: "under-heavy-stack"
+              })
+              continue
+            }
+
+            const styleClustered = usedBuildStyles.has(style)
+            if (styleClustered && boosterPool.some((x) => String(x?.propType || "").toLowerCase() !== style)) {
+              console.log("[BOOSTER-LEG-DEBUG]", {
+                book,
+                lane,
+                player,
+                propType: row?.propType,
+                line: row?.line,
+                accepted: false,
+                reason: "style-clustered"
+              })
+              continue
+            }
+
+            selected.push(row)
+            usedPlayers.add(player)
+            usedBuildStyles.add(style)
+            gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+            console.log("[BOOSTER-LEG-DEBUG]", {
+              book,
+              lane,
+              player,
+              propType: row?.propType,
+              line: row?.line,
+              accepted: true,
+              reason: isLadderLeg(row) ? "ladder-booster" : "payout-booster"
+            })
+            if (selected.length >= coreTarget + boosterTarget) break
+          }
+
+          if (selected.length < Math.max(4, coreTarget + 2)) {
+            console.log("[LOTTO-BATCH-DEBUG]", {
+              book,
+              lane,
+              legCount,
+              accepted: false,
+              reason: "insufficient-core-booster-legs",
+              selectedLen: selected.length
+            })
+            continue
+          }
+
+          const ladderCount = selected.filter((row) => isLadderLeg(row)).length
+          console.log("[LADDER-DETECT-DEBUG]", {
+            book,
+            lane,
+            legCount,
+            ladderCount,
+            accepted: true,
+            reason: ladderCount > 0 ? "ladder-present" : "no-ladder"
+          })
+
+          const buildTag = cfg.buildTags[(attempt + legCount + ladderCount) % cfg.buildTags.length]
+          const candidate = makeCandidateFromLegs(lane, selected.slice(0, legCount), cfg.stake, buildTag)
+          if (!candidate) {
+            console.log("[LOTTO-BATCH-DEBUG]", {
+              book,
+              lane,
+              legCount,
+              accepted: false,
+              reason: "candidate-null"
+            })
+            continue
+          }
+          if (candidate.projectedReturn < cfg.targetMin || candidate.projectedReturn >= cfg.targetMaxExclusive) {
+            console.log("[LOTTO-BATCH-DEBUG]", {
+              book,
+              lane,
+              legCount,
+              accepted: false,
+              reason: "target-window-miss",
+              projectedReturn: candidate.projectedReturn
+            })
+            continue
+          }
+          candidates.push(candidate)
+          continue
+        }
+
+        const selected = []
+        const usedPlayers = new Set()
+        const gameCounts = new Map()
+        let boosterCount = 0
+
+        for (const row of ranked) {
+          if (selected.length >= legCount) break
+          const player = String(row?.player || "")
+          const matchup = String(row?.matchup || "")
+          if (!player || usedPlayers.has(player)) continue
+          if (hasConflict(selected, row)) continue
+
+          const maxPerGame = lane === "lottoBatch" ? 3 : 2
+          if ((gameCounts.get(matchup) || 0) >= maxPerGame) continue
+
+          if (isHighRiskLeg(row)) continue
+          if (parseHitRate(row.hitRate) < cfg.minHitRate) continue
+
+          const booster = isPayoutBoosterLeg(row)
+          if (lane === "conservative" && booster && boosterCount >= (cfg.maxBooster || 0)) continue
+          if (lane === "midUpside" && booster && boosterCount >= (cfg.maxBooster || 2)) continue
+
+          if (lane === "recoup" && booster) continue
+          if (lane === "recoup" && Number(row?.edge || row?.projectedValue || 0) < 0.2) continue
+
+          selected.push(row)
+          usedPlayers.add(player)
+          gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+          if (booster) boosterCount += 1
+        }
+
+        if (selected.length < legCount) continue
+        if (lane === "lottoBatch" && boosterCount < 1) continue
+
+        const buildTag = cfg.buildTags[(attempt + legCount) % cfg.buildTags.length]
+        const candidate = makeCandidateFromLegs(lane, selected, cfg.stake, buildTag)
+        if (!candidate) continue
+
+        const ladderCount = selected.filter((row) => isLadderLeg(row)).length
+        if (lane === "midUpside") {
+          console.log("[LADDER-DETECT-DEBUG]", {
+            book,
+            lane,
+            legCount,
+            ladderCount,
+            accepted: true,
+            reason: ladderCount > 0 ? "ladder-present" : "no-ladder"
+          })
+        }
+
+        if (candidate.projectedReturn < cfg.targetMin || candidate.projectedReturn >= cfg.targetMaxExclusive) continue
+        candidates.push(candidate)
+      }
+    }
+
+    if (Array.isArray(highestHitSlipObjects) && lane !== "lottoBatch") {
+      for (const slip of highestHitSlipObjects) {
+        if (!slip || !Array.isArray(slip.legs)) continue
+        const buildTag = cfg.buildTags[0]
+        const candidate = makeCandidateFromLegs(lane, slip.legs, cfg.stake, buildTag)
+        if (!candidate) continue
+        if (!cfg.legCounts.includes(candidate.legCount)) continue
+        if (candidate.projectedReturn < cfg.targetMin || candidate.projectedReturn >= cfg.targetMaxExclusive) continue
+        candidates.push(candidate)
+      }
+    }
+
+    console.log("[LANE-BUILD-DEBUG]", {
+      book,
+      lane,
+      sourceRows: safeRows.length,
+      candidateCount: candidates.length
+    })
+
+    return candidates
+  }
+
+  const selectTopCandidates = (lane, candidates) => {
+    const cfg = laneConfigs[lane]
+    const byMaterial = new Map()
+    for (const c of candidates || []) {
+      const existing = byMaterial.get(c.materialSignature)
+      if (!existing || c.trueProbability > existing.trueProbability) {
+        byMaterial.set(c.materialSignature, c)
+      }
+    }
+
+    const ranked = [...byMaterial.values()].sort((a, b) => {
+      const aD = diversityScoreForCandidate(a)
+      const bD = diversityScoreForCandidate(b)
+      const aScore = a.trueProbability * 0.58 + aD * 0.42
+      const bScore = b.trueProbability * 0.58 + bD * 0.42
+      if (bScore !== aScore) return bScore - aScore
+      return b.projectedReturn - a.projectedReturn
+    })
+
+    if (lane !== "lottoBatch") return ranked.slice(0, cfg.maxOptions)
+
+    const selected = []
+    const twoCoreCounts = new Map()
+    const threeCoreCounts = new Map()
+    const playerExposure = new Map()
+    const maxPlayerExposure = 5
+
+    for (const candidate of ranked) {
+      if (selected.length >= cfg.maxOptions) break
+      const core2 = candidate.twoLegCore || ""
+      const core3 = candidate.threeLegCore || ""
+      if ((twoCoreCounts.get(core2) || 0) >= 2) {
+        console.log("[PORTFOLIO-DIVERSITY-DEBUG]", {
+          book,
+          lane,
+          materialSignature: candidate.materialSignature,
+          diversity: diversityScoreForCandidate(candidate),
+          accepted: false,
+          reason: "two-leg-core-cap"
+        })
+        console.log("[LOTTO-BATCH-DEBUG]", {
+          book,
+          lane,
+          accepted: false,
+          reason: "two-leg-core-cap",
+          core: core2
+        })
+        continue
+      }
+      if ((threeCoreCounts.get(core3) || 0) >= 2) {
+        console.log("[PORTFOLIO-DIVERSITY-DEBUG]", {
+          book,
+          lane,
+          materialSignature: candidate.materialSignature,
+          diversity: diversityScoreForCandidate(candidate),
+          accepted: false,
+          reason: "three-leg-core-cap"
+        })
+        console.log("[LOTTO-BATCH-DEBUG]", {
+          book,
+          lane,
+          accepted: false,
+          reason: "three-leg-core-cap",
+          core: core3
+        })
+        continue
+      }
+
+      let overCap = false
+      for (const leg of candidate.legs) {
+        const player = String(leg.player || leg.playerName || "")
+        if ((playerExposure.get(player) || 0) >= maxPlayerExposure) {
+          overCap = true
+          break
+        }
+      }
+      if (overCap) {
+        console.log("[PORTFOLIO-DIVERSITY-DEBUG]", {
+          book,
+          lane,
+          materialSignature: candidate.materialSignature,
+          diversity: diversityScoreForCandidate(candidate),
+          accepted: false,
+          reason: "player-exposure-cap"
+        })
+        console.log("[LOTTO-BATCH-DEBUG]", {
+          book,
+          lane,
+          accepted: false,
+          reason: "player-exposure-cap"
+        })
+        continue
+      }
+
+      const diversity = diversityScoreForCandidate(candidate)
+      console.log("[PORTFOLIO-DIVERSITY-DEBUG]", {
+        book,
+        lane,
+        materialSignature: candidate.materialSignature,
+        diversity,
+        accepted: true,
+        reason: "selected"
+      })
+
+      selected.push(candidate)
+      twoCoreCounts.set(core2, (twoCoreCounts.get(core2) || 0) + 1)
+      threeCoreCounts.set(core3, (threeCoreCounts.get(core3) || 0) + 1)
+      for (const leg of candidate.legs) {
+        const player = String(leg.player || leg.playerName || "")
+        playerExposure.set(player, (playerExposure.get(player) || 0) + 1)
+      }
+
+      console.log("[LOTTO-BATCH-DEBUG]", {
+        book,
+        lane,
+        accepted: true,
+        reason: "selected",
+        legCount: candidate.legCount,
+        buildTag: candidate.buildTag
+      })
+    }
+
+    console.log("[LOTTO-BATCH-DEBUG]", {
+      book,
+      requested: cfg.maxOptions,
+      selected: selected.length,
+      uniqueCores: twoCoreCounts.size,
+      uniquePlayers: playerExposure.size
+    })
+
+    return selected
+  }
+
+  const recoupSelected = selectTopCandidates("recoup", buildLaneCandidates("recoup"))
+  const conservativeSelected = selectTopCandidates("conservative", buildLaneCandidates("conservative"))
+  const midUpsideSelected = selectTopCandidates("midUpside", buildLaneCandidates("midUpside"))
+  const lottoBatchSelected = selectTopCandidates("lottoBatch", buildLaneCandidates("lottoBatch"))
+
+  console.log("[LANE-SELECTION-SUMMARY]", {
+    book,
+    recoup: recoupSelected.length,
+    conservative: conservativeSelected.length,
+    midUpside: midUpsideSelected.length,
+    lottoBatch: lottoBatchSelected.length
+  })
+
+  return {
+    recoupPortfolio: {
+      options: recoupSelected.map((c, idx) => optionFromCandidate("Recoup", c, idx + 1))
+    },
+    conservativePortfolio: {
+      options: conservativeSelected.map((c, idx) => optionFromCandidate("Conservative", c, idx + 1))
+    },
+    midUpsidePortfolio: {
+      options: midUpsideSelected.map((c, idx) => optionFromCandidate("Mid Upside", c, idx + 1))
+    },
+    lottoBatchPortfolio: {
+      options: lottoBatchSelected.map((c, idx) => optionFromCandidate("Lotto Batch", c, idx + 1))
+    }
+  }
+}
+
+function buildHighestHitRateBookSlip(book, targetLegCount, sourceRowsOverride = null) {
+  const isFanDuel = book === "FanDuel"
+  const overrideRowsForBook = Array.isArray(sourceRowsOverride)
+    ? sortRowsForMLHighestHitRate(sourceRowsOverride.filter((r) => r.book === book))
+    : null
+  const rankedRows = dedupeByLegSignature(overrideRowsForBook || [])
+  const allowDraftKingsHighLegCoreFallback = Boolean(overrideRowsForBook && book === "DraftKings" && targetLegCount >= 5)
+
+  const getCandidatePoolForBook = () => {
+    if (Array.isArray(overrideRowsForBook) && overrideRowsForBook.length) {
+      return dedupeByLegSignature(overrideRowsForBook)
+    }
+
+    return dedupeByLegSignature(
+      sortRowsForMLHighestHitRate([
+        ...((oddsSnapshot.eliteProps || []).filter((r) => r.book === book)),
+        ...((oddsSnapshot.strongProps || []).filter((r) => r.book === book)),
+        ...((oddsSnapshot.playableProps || []).filter((r) => r.book === book)),
+        ...((oddsSnapshot.bestProps || []).filter((r) => r.book === book))
+      ])
+    )
+  }
+
+  const sourcePoolRows = getCandidatePoolForBook()
+  const sourceRowCount = sourcePoolRows.length
+  const usablePoolRows = dedupeByLegSignature(
+    sourcePoolRows.filter((row) => !shouldRemoveLegForPlayerStatus(row))
+  )
+  const usableRowCount = usablePoolRows.length
+  const uniqueGames = new Set(
+    usablePoolRows
+      .map((row) => String(row?.matchup || ""))
+      .filter(Boolean)
+  ).size
+  const isThinOrSingleGamePool = uniqueGames <= 1 || usableRowCount < 40
+
+  const legRiskPenalty = (row) => {
+    const minutesRisk = String(row?.minutesRisk || "").toLowerCase()
+    const injuryRisk = String(row?.injuryRisk || "").toLowerCase()
+    const trendRisk = String(row?.trendRisk || "").toLowerCase()
+    let penalty = 0
+    if (minutesRisk === "high") penalty += 2
+    else if (minutesRisk === "medium") penalty += 1
+    if (injuryRisk === "high") penalty += 2
+    else if (injuryRisk === "medium") penalty += 1
+    if (trendRisk === "high") penalty += 2
+    else if (trendRisk === "medium") penalty += 1
+    return penalty
+  }
+
+  const buildRelaxedSingleGameSafeSlip = () => {
+    const candidates = [...usablePoolRows].sort((a, b) => {
+      const aHitRate = parseHitRate(a.hitRate)
+      const bHitRate = parseHitRate(b.hitRate)
+      if (bHitRate !== aHitRate) return bHitRate - aHitRate
+
+      const aEdge = Number(a.edge ?? a.projectedValue ?? 0)
+      const bEdge = Number(b.edge ?? b.projectedValue ?? 0)
+      if (bEdge !== aEdge) return bEdge - aEdge
+
+      const aScore = Number(a.score || 0)
+      const bScore = Number(b.score || 0)
+      if (bScore !== aScore) return bScore - aScore
+
+      const aRiskPenalty = legRiskPenalty(a)
+      const bRiskPenalty = legRiskPenalty(b)
+      if (aRiskPenalty !== bRiskPenalty) return aRiskPenalty - bRiskPenalty
+
+      const aFragile = isFragileLeg(a) ? 1 : 0
+      const bFragile = isFragileLeg(b) ? 1 : 0
+      return aFragile - bFragile
+    })
+
+    const result = []
+    const usedPlayers = new Set()
+    const usedSignatures = new Set()
+
+    for (const row of candidates) {
+      if (!row) continue
+      const player = String(row.player || row.playerName || "")
+      const propType = String(row.propType || row.statType || "")
+      const side = String(row.side || "")
+      const line = Number(row.line)
+      const signature = `${player}|${propType}|${side}|${line}`
+
+      if (!player) continue
+      if (usedPlayers.has(player)) continue
+      if (usedSignatures.has(signature)) continue
+      if (hasConflict(result, row)) continue
+
+      result.push(row)
+      usedPlayers.add(player)
+      usedSignatures.add(signature)
+      if (result.length >= targetLegCount) break
+    }
+
+    return result
+  }
+
+  const finalizeHighestHitRateBuild = (rows, options = {}) => {
+    const strictRows = Array.isArray(rows)
+      ? dedupeSlipLegs(rows).filter((row) => !shouldRemoveLegForPlayerStatus(row))
+      : []
+
+    const strictSucceeded = strictRows.length === targetLegCount
+    const relaxedRows = !strictSucceeded && isThinOrSingleGamePool
+      ? dedupeSlipLegs(buildRelaxedSingleGameSafeSlip()).filter((row) => !shouldRemoveLegForPlayerStatus(row))
+      : []
+    const relaxedSucceeded = relaxedRows.length === targetLegCount
+    const finalRows = strictSucceeded ? strictRows : (relaxedSucceeded ? relaxedRows : [])
+
+    console.log("[HIGHEST-HIT-RATE-BUILD-DEBUG]", {
+      book,
+      requestedLegs: targetLegCount,
+      sourceRowCount,
+      usableRowCount,
+      uniqueGames,
+      strictSucceeded,
+      relaxedSucceeded,
+      finalLegCount: finalRows.length
+    })
+    return finalRows.length === targetLegCount ? finalRows : null
+  }
+
+  function getHighLegLateRejectReason(row, legIndex, options = {}) {
+    if (!row || targetLegCount < 5 || legIndex <= 3) return ""
+
+    const relaxedLaterFill = Boolean(options?.relaxedLaterFill)
+    const finalQualityPass = Boolean(options?.finalQualityPass)
+    const hitRate = parseHitRate(row.hitRate)
+    const score = Number(row.score || 0)
+    const edge = Number(row.edge ?? row.projectedValue ?? 0)
+    const trendRisk = String(row.trendRisk || "").toLowerCase()
+    const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+    const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+
+    if (trendRisk === "high") return "later-fill-trendRisk-high"
+    if (injuryRisk === "high") return "later-fill-injuryRisk-high"
+    if (minutesRisk === "high") return "later-fill-minutesRisk-high"
+
+    let minHitRate = 0.65
+    let minScore = 35
+    let minEdge = 0
+
+    if (book === "FanDuel") {
+      if (legIndex === 4) {
+        minHitRate = finalQualityPass ? 0.63 : (relaxedLaterFill ? 0.62 : 0.65)
+        minScore = finalQualityPass ? 30 : (relaxedLaterFill ? 28 : 35)
+        minEdge = finalQualityPass ? -0.1 : (relaxedLaterFill ? -0.25 : 0)
+      } else {
+        minHitRate = finalQualityPass ? 0.65 : (relaxedLaterFill ? 0.64 : 0.66)
+        minScore = finalQualityPass ? 34 : (relaxedLaterFill ? 32 : 38)
+        minEdge = 0
+      }
+    } else {
+      minHitRate = relaxedLaterFill ? 0.58 : 0.65
+      minScore = relaxedLaterFill ? 20 : 35
+      minEdge = relaxedLaterFill ? -1 : 0
+    }
+
+    if (edge < minEdge) return finalQualityPass ? "final-late-edge-floor" : "later-fill-edge-floor"
+    if (score < minScore) return finalQualityPass ? "final-late-score-floor" : "later-fill-score-floor"
+    if (hitRate < minHitRate) return finalQualityPass ? "final-late-hitRate-floor" : "later-fill-hitRate-floor"
+
+    return ""
+  }
+
+  function pruneWeakLateLegs(rows, phase = "") {
+    if (!isFanDuel || targetLegCount < 5) return rows
+    if (!Array.isArray(rows) || rows.length < 4) return rows
+
+    const kept = []
+    const rejectCounts = {}
+
+    for (const [index, row] of dedupeSlipLegs(rows).entries()) {
+      const rejectReason = getHighLegLateRejectReason(row, index + 1, {
+        relaxedLaterFill: true,
+        finalQualityPass: true
+      })
+
+      if (rejectReason) {
+        rejectCounts[rejectReason] = (rejectCounts[rejectReason] || 0) + 1
+        continue
+      }
+
+      kept.push(row)
+    }
+
+    if (Object.keys(rejectCounts).length) {
+      console.log("[HIGHLEG-LATE-REJECT-DEBUG]", {
+        book,
+        targetLegCount,
+        phase,
+        before: Array.isArray(rows) ? rows.length : 0,
+        after: kept.length,
+        rejectCounts
+      })
+    }
+
+    return kept
+  }
+
+  if (Array.isArray(sourceRowsOverride)) {
+    console.log("[DUAL-OVERRIDE-SOURCE-DEBUG]", {
+      book,
+      targetLegCount,
+      overrideCount: sourceRowsOverride.filter((r) => r.book === book).length
+    })
+
+    const logDeepFillReject = (row, reason) => {
+      console.log("[DEEP-FILL-REJECT-DEBUG]", {
+        book,
+        targetLegCount,
+        player: row.player,
+        propType: row.propType,
+        line: row.line,
+        hitRate: row.hitRate,
+        score: row.score,
+        edge: row.edge,
+        trendRisk: row.trendRisk,
+        injuryRisk: row.injuryRisk,
+        reason
+      })
+    }
+
+    const buildOverrideResult = (maxPerGame, options = {}) => {
+      const relaxedLaterFill = Boolean(options?.relaxedLaterFill)
+      const result = []
+      const usedPlayers = new Set()
+      const usedConflictKeys = new Set()
+      const usedSignatures = new Set()
+      const gameCounts = new Map()
+      const slotAvailability = {}
+      const thresholdRejectCounts = {}
+      const conflictRejectCounts = {}
+
+      const noteThresholdReject = (reason) => {
+        thresholdRejectCounts[reason] = (thresholdRejectCounts[reason] || 0) + 1
+      }
+
+      const noteConflictReject = (reason) => {
+        conflictRejectCounts[reason] = (conflictRejectCounts[reason] || 0) + 1
+      }
+
+      const countAvailableForSlot = (slotIndex) => {
+        return rankedRows.filter((candidate) => {
+          if (!candidate || shouldRemoveLegForPlayerStatus(candidate)) return false
+
+          const player = String(candidate.player || candidate.playerName || "")
+          const propType = String(candidate.propType || candidate.statType || "")
+          const side = String(candidate.side || "")
+          const line = Number(candidate.line)
+          const matchup = String(candidate.matchup || "")
+          const legSignature = `${player}|${propType}|${side}|${line}`
+          const conflictKey = `${player}|${propType}|${side}`
+
+          if (!player) return false
+          if (usedPlayers.has(player)) return false
+          if (usedConflictKeys.has(conflictKey)) return false
+          if (usedSignatures.has(legSignature)) return false
+          if ((gameCounts.get(matchup) || 0) >= maxPerGame) return false
+          if (hasConflict(result, candidate)) return false
+
+          if (slotIndex <= 3) {
+            const candidateHitRate = parseHitRate(candidate.hitRate)
+            const candidateScore = Number(candidate.score || 0)
+            const candidateEdge = Number(candidate.edge || candidate.projectedValue || 0)
+            return candidateHitRate >= 0.62 && candidateScore >= 45 && candidateEdge >= 0
+          }
+
+          return !getHighLegLateRejectReason(candidate, slotIndex, { relaxedLaterFill })
+        }).length
+      }
+
+      for (const row of rankedRows) {
+        if (!row || shouldRemoveLegForPlayerStatus(row)) continue
+
+        const player = String(row.player || row.playerName || "")
+        const propType = String(row.propType || row.statType || "")
+        const side = String(row.side || "")
+        const line = Number(row.line)
+        const matchup = String(row.matchup || "")
+        const legSignature = `${player}|${propType}|${side}|${line}`
+        const conflictKey = `${player}|${propType}|${side}`
+
+        if (!player) continue
+        if (usedPlayers.has(player)) {
+          noteConflictReject("used-player")
+          continue
+        }
+        if (usedConflictKeys.has(conflictKey)) {
+          noteConflictReject("conflict-key")
+          continue
+        }
+        if (usedSignatures.has(legSignature)) {
+          noteConflictReject("duplicate-signature")
+          continue
+        }
+        if ((gameCounts.get(matchup) || 0) >= maxPerGame) {
+          noteConflictReject("max-per-game")
+          continue
+        }
+
+        const nextLegIndex = result.length + 1
+        const hitRate = parseHitRate(row.hitRate)
+        const score = Number(row.score || 0)
+        const edge = Number(row.edge || 0)
+
+        if (slotAvailability[nextLegIndex] == null) {
+          slotAvailability[nextLegIndex] = countAvailableForSlot(nextLegIndex)
+        }
+
+        if (nextLegIndex <= 3) {
+          // Lowered floors so thin FD pool can still build a core
+          if (hitRate < 0.62) {
+            noteThresholdReject("legs1to3-hitRate-floor")
+            logDeepFillReject(row, "legs1to3-hitRate-floor")
+            continue
+          }
+          if (score < 45) {
+            noteThresholdReject("legs1to3-score-floor")
+            logDeepFillReject(row, "legs1to3-score-floor")
+            continue
+          }
+          if (edge < 0) {
+            noteThresholdReject("legs1to3-edge-floor")
+            logDeepFillReject(row, "legs1to3-edge-floor")
+            continue
+          }
+        } else if (targetLegCount >= 5) {
+          const rejectReason = getHighLegLateRejectReason(row, nextLegIndex, { relaxedLaterFill })
+          if (rejectReason) {
+            noteThresholdReject(rejectReason)
+            logDeepFillReject(row, rejectReason)
+            continue
+          }
+        } else if (nextLegIndex === 4) {
+          if (hitRate < 0.65) {
+            logDeepFillReject(row, "leg4-hitRate-floor")
+            continue
+          }
+          if (score < 55) {
+            logDeepFillReject(row, "leg4-score-floor")
+            continue
+          }
+          if (edge < 0) {
+            logDeepFillReject(row, "leg4-edge-floor")
+            continue
+          }
+        } else {
+          if (trendRisk === "high") {
+            logDeepFillReject(row, "legs5plus-trendRisk-high")
+            continue
+          }
+          if (injuryRisk === "high") {
+            logDeepFillReject(row, "legs5plus-injuryRisk-high")
+            continue
+          }
+          if (edge < 0) {
+            logDeepFillReject(row, "legs5plus-edge-floor")
+            continue
+          }
+          if (score < 40) {
+            logDeepFillReject(row, "legs5plus-score-floor")
+            continue
+          }
+          if (hitRate < 0.6) {
+            logDeepFillReject(row, "legs5plus-hitRate-floor")
+            continue
+          }
+        }
+
+        if (targetLegCount >= 5) {
+          const existingFromGame = gameCounts.get(matchup) || 0
+          const repeatedUnderSameGame =
+            String(side || "").toLowerCase() === "under" &&
+            result.some((leg) =>
+              String(leg.matchup || "") === matchup &&
+              String(leg.side || "").toLowerCase() === "under"
+            )
+
+          if (existingFromGame > 0 || repeatedUnderSameGame) {
+            const hasAlternative = rankedRows.some((alt) => {
+              const altPlayer = String(alt.player || alt.playerName || "")
+              const altPropType = String(alt.propType || alt.statType || "")
+              const altSide = String(alt.side || "")
+              const altLine = Number(alt.line)
+              const altMatchup = String(alt.matchup || "")
+              const altSignature = `${altPlayer}|${altPropType}|${altSide}|${altLine}`
+              const altConflictKey = `${altPlayer}|${altPropType}|${altSide}`
+
+              if (!altPlayer) return false
+              if (usedPlayers.has(altPlayer)) return false
+              if (usedConflictKeys.has(altConflictKey)) return false
+              if (usedSignatures.has(altSignature)) return false
+              if ((gameCounts.get(altMatchup) || 0) >= maxPerGame) return false
+              if (hasConflict(result, alt)) return false
+
+              const altIsRepeatedUnderSameGame =
+                String(altSide || "").toLowerCase() === "under" &&
+                result.some((leg) =>
+                  String(leg.matchup || "") === altMatchup &&
+                  String(leg.side || "").toLowerCase() === "under"
+                )
+              if (altIsRepeatedUnderSameGame) return false
+
+              // Soft preference: if we can find a fresh-game option with comparable quality,
+              // avoid stacking another leg from an already represented game.
+              const altScore = Number(alt.score || 0)
+              const altHitRate = parseHitRate(alt.hitRate)
+              if (existingFromGame > 0 && altMatchup !== matchup) {
+                return altScore >= (score - 8) && altHitRate >= (hitRate - 0.05)
+              }
+
+              return repeatedUnderSameGame && altMatchup !== matchup
+            })
+
+            if (hasAlternative) {
+              if (repeatedUnderSameGame) {
+                noteConflictReject("same-game-under-deprioritized")
+                logDeepFillReject(row, "same-game-under-deprioritized")
+              } else {
+                noteConflictReject("same-game-soft-penalty")
+                logDeepFillReject(row, "same-game-soft-penalty")
+              }
+              continue
+            }
+          }
+        }
+
+        result.push(row)
+        usedPlayers.add(player)
+        usedConflictKeys.add(conflictKey)
+        usedSignatures.add(legSignature)
+        gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+
+        if (result.length >= targetLegCount) break
+      }
+
+      if (targetLegCount >= 5) {
+        console.log("[HIGHLEG-SLOT-POOL-DEBUG]", {
+          book,
+          targetLegCount,
+          maxPerGame,
+          relaxedLaterFill,
+          slotAvailability
+        })
+        console.log("[HIGHLEG-LATE-REJECT-DEBUG]", {
+          book,
+          targetLegCount,
+          maxPerGame,
+          relaxedLaterFill,
+          thresholdRejectCounts,
+          conflictRejectCounts
+        })
+      }
+
+      return { result, usedPlayers, usedConflictKeys, usedSignatures, slotAvailability, thresholdRejectCounts, conflictRejectCounts }
+    }
+
+    const firstPassMaxPerGame = targetLegCount >= 5 ? 2 : (targetLegCount >= 4 ? 3 : 2)
+    let {
+      result,
+      usedPlayers,
+      usedConflictKeys,
+      usedSignatures,
+      slotAvailability,
+      thresholdRejectCounts,
+      conflictRejectCounts
+    } = buildOverrideResult(firstPassMaxPerGame, { relaxedLaterFill: false })
+
+    if (targetLegCount >= 5) {
+      console.log("[DEEP-RECOVERY-DEBUG]", {
+        book,
+        targetLegCount,
+        phase: "strict-pass",
+        resultLen: result.length,
+        maxPerGame: firstPassMaxPerGame
+      })
+    }
+
+    let overrideFallbackMaxPerGame = firstPassMaxPerGame
+
+    if (targetLegCount >= 5 && result.length < targetLegCount) {
+      ({
+        result,
+        usedPlayers,
+        usedConflictKeys,
+        usedSignatures,
+        slotAvailability,
+        thresholdRejectCounts,
+        conflictRejectCounts
+      } = buildOverrideResult(3, { relaxedLaterFill: true }))
+      overrideFallbackMaxPerGame = 3
+
+      console.log("[DEEP-RECOVERY-DEBUG]", {
+        book,
+        targetLegCount,
+        phase: "fallback-pass",
+        resultLen: result.length,
+        maxPerGame: 3
+      })
+    }
+
+    if (targetLegCount >= 5 && result.length < targetLegCount) {
+      ({
+        result,
+        usedPlayers,
+        usedConflictKeys,
+        usedSignatures,
+        slotAvailability,
+        thresholdRejectCounts,
+        conflictRejectCounts
+      } = buildOverrideResult(4, { relaxedLaterFill: true }))
+      overrideFallbackMaxPerGame = 4
+
+      console.log("[DEEP-RECOVERY-DEBUG]", {
+        book,
+        targetLegCount,
+        phase: "final-fallback-pass",
+        resultLen: result.length,
+        maxPerGame: 4
+      })
+    }
+
+    if (targetLegCount >= 5) {
+      console.log("[HIGHLEG-MAXPERGAME-DEBUG]", {
+        book,
+        targetLegCount,
+        chosenMaxPerGame: result.length >= targetLegCount ? overrideFallbackMaxPerGame : null
+      })
+    }
+
+    console.log("[OVERRIDE-BUILD-RESULT]", {
+      book,
+      targetLegCount,
+      builtLen: result.length,
+      players: result.map(r => r.player || r.playerName),
+      props: result.map(r => `${r.player || r.playerName} ${r.propType} ${r.line}`)
+    })
+
+    console.log("[OVERRIDE-BUILD-QUALITY-DEBUG]", {
+      book,
+      targetLegCount,
+      builtLen: result.length,
+      minHitRate: result.length ? Math.min(...result.map(r => parseHitRate(r.hitRate))) : null,
+      minScore: result.length ? Math.min(...result.map(r => Number(r.score || 0))) : null,
+      minEdge: result.length ? Math.min(...result.map(r => Number(r.edge || 0))) : null
+    })
+
+    if (targetLegCount >= 5 && result.length >= 2) {
+      const matchupCounts = result.reduce((acc, row) => {
+        const key = String(row.matchup || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+      const lowHitRateLegs = result.filter((row) => parseHitRate(row.hitRate) < 0.75).length
+      console.log("[DEEP-SLIP-QUALITY-DEBUG]", {
+        book,
+        targetLegCount,
+        matchupCounts,
+        lowHitRateLegs,
+        minHitRate: Math.min(...result.map((r) => parseHitRate(r.hitRate))),
+        minScore: Math.min(...result.map((r) => Number(r.score || 0))),
+        minEdge: Math.min(...result.map((r) => Number(r.edge || 0)))
+      })
+    }
+
+    if (book === "FanDuel" && targetLegCount >= 6 && result.length < targetLegCount) {
+      console.log("[FD-DEEP-NULL-DEBUG]", {
+        stage: "override-shortfall",
+        book,
+        targetLegCount,
+        rankedCount: rankedRows.length,
+        resultLen: result.length,
+        usedPlayers: usedPlayers.size,
+        usedConflictKeys: usedConflictKeys.size,
+        usedSignatures: usedSignatures.size
+      })
+    }
+
+    if (book === "FanDuel" && targetLegCount >= 6 && result.length < 2) {
+      console.log("[FD-DEEP-NULL-DEBUG]", {
+        stage: "override-return-empty",
+        book,
+        targetLegCount,
+        rankedCount: rankedRows.length,
+        resultLen: result.length,
+        usedPlayers: usedPlayers.size,
+        usedConflictKeys: usedConflictKeys.size,
+        usedSignatures: usedSignatures.size
+      })
+    }
+
+    const diversifiedResult = targetLegCount >= 5
+      ? pruneWeakLateLegs(diversifyHighLegFinalLeg(result), "override-final")
+      : result
+
+    if (allowDraftKingsHighLegCoreFallback && diversifiedResult.length < targetLegCount) {
+      console.log("[DK-HIGHLEG-FAIL-DEBUG]", {
+        book,
+        targetLegCount,
+        stage: "override-underfilled",
+        rankedCount: rankedRows.length,
+        resultLen: diversifiedResult.length,
+        slotAvailability,
+        thresholdRejectCounts,
+        conflictRejectCounts,
+        bandFitRejected: false,
+        fallbackLogic: "core-builder-enabled"
+      })
+    } else {
+      return finalizeHighestHitRateBuild(diversifiedResult)
+    }
+  }
+
+  const useOverrideOnly = Boolean(overrideRowsForBook) && !allowDraftKingsHighLegCoreFallback
+
+  const elite = useOverrideOnly ? [] : sortRowsForMLHighestHitRate(
+    ((oddsSnapshot.eliteProps || []).filter((r) => r.book === book))
+  )
+  const strong = useOverrideOnly ? [] : sortRowsForMLHighestHitRate(
+    ((oddsSnapshot.strongProps || []).filter((r) => r.book === book))
+  )
+  const playable = useOverrideOnly ? [] : sortRowsForMLHighestHitRate(
+    ((oddsSnapshot.playableProps || []).filter((r) => r.book === book))
+  )
+  const bestBookMatched = useOverrideOnly ? overrideRowsForBook : sortRowsForMLHighestHitRate(
+    ((oddsSnapshot.bestProps || []).filter((r) => r.book === book))
+  )
+
+  console.log(`[DUAL-DEBUG] buildHighestHitRateBookSlip(${book}, ${targetLegCount}) - elite:${elite.length} strong:${strong.length} playable:${playable.length}`)
+
+  const sources = useOverrideOnly ? [overrideRowsForBook] : [elite, strong, playable]
+  const shared = {
+    maxPerPlayer: 1,
+    maxPerGame: targetLegCount >= 5 ? 2 : 1,
+    preferredBook: book,
+    forceUniquePlayers: true,
+    blockSameGameStatSide: true,
+    allowedPropTypes: targetLegCount >= 5 ? null : ["Points", "Rebounds", "Assists", "Threes"]
+  }
+
+  let usedBestPropsFill = 0
+  const maybeAddBestPropsFill = (rows, options = {}) => {
+    const {
+      target = targetLegCount,
+      maxPerGame = 3,
+      blockSameGameStatSide = false,
+      allowedPropTypes = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+    } = options
+
+    const base = Array.isArray(rows) ? dedupeSlipLegs(rows) : []
+    if (base.length >= target) return base
+
+    const gameCounts = new Map()
+    const usedPlayers = new Set()
+    for (const leg of base) {
+      const player = String(leg.player || "")
+      const matchup = String(leg.matchup || "")
+      if (player) usedPlayers.add(player)
+      if (matchup) gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+    }
+
+    for (const row of bestBookMatched) {
+      if (base.length >= target) break
+      const player = String(row.player || "")
+      const matchup = String(row.matchup || "")
+      const propType = String(row.propType || "")
+      const slotIndex = base.length + 1
+      if (!player || usedPlayers.has(player)) continue
+      if (!allowedPropTypes.includes(propType)) continue
+      if ((gameCounts.get(matchup) || 0) >= maxPerGame) continue
+      if (hasConflict(base, row)) continue
+      if (blockSameGameStatSide && hasSameGameStatSide(base, row)) continue
+      if (targetLegCount >= 5) {
+        const lateRejectReason = getHighLegLateRejectReason(row, slotIndex, {
+          relaxedLaterFill: true,
+          finalQualityPass: true
+        })
+        if (lateRejectReason) continue
+      }
+
+      base.push(row)
+      usedPlayers.add(player)
+      gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+      usedBestPropsFill += 1
+      break
+    }
+
+    return dedupeSlipLegs(base)
+  }
+
+  const logBuilderDepth = (result) => {
+    const maxSameGame = Array.isArray(result) && result.length
+      ? Math.max(...Object.values(result.reduce((acc, leg) => {
+          const key = String(leg?.matchup || "unknown")
+          acc[key] = (acc[key] || 0) + 1
+          return acc
+        }, {})))
+      : 0
+    console.log(`[BUILDER-DEPTH-DEBUG] book=${book} targetLegCount=${targetLegCount} resultLength=${Array.isArray(result) ? result.length : 0}`)
+    console.log(`[FD-BUILDER-DEPTH-DEBUG] book=${book} targetLegCount=${targetLegCount} resultLength=${Array.isArray(result) ? result.length : 0} sourceCounts elite=${elite.length} strong=${strong.length} playable=${playable.length}`)
+    console.log(`[DEPTH-FILL-DEBUG] book=${book} target=${targetLegCount} finalLength=${Array.isArray(result) ? result.length : 0} usedBestPropsFill=${usedBestPropsFill}`)
+    if (targetLegCount >= 5) {
+      console.log("[HIGHLEG-MAXPERGAME-DEBUG]", {
+        book,
+        targetLegCount,
+        chosenMaxPerGame: maxSameGame || null
+      })
+    }
+  }
+
+  function diversifyHighLegFinalLeg(rows) {
+    if (!isFanDuel || targetLegCount < 5) return rows
+    if (!Array.isArray(rows) || rows.length < targetLegCount) return rows
+
+    const base = dedupeSlipLegs(rows).slice(0, targetLegCount)
+    if (base.length < targetLegCount) return rows
+
+    const lateStart = Math.min(3, Math.max(0, base.length - 2))
+    const weakestLateIndex = base
+      .map((leg, idx) => ({ idx, score: Number(leg?.score || 0) }))
+      .filter((x) => x.idx >= lateStart)
+      .sort((a, b) => a.score - b.score)[0]?.idx
+    if (!Number.isInteger(weakestLateIndex)) return rows
+
+    const weakest = base[weakestLateIndex]
+    const fixed = base.filter((_, idx) => idx !== weakestLateIndex)
+    const usedPlayers = new Set(fixed.map((leg) => String(leg.player || "")))
+    const usedSignatures = new Set(fixed.map((leg) => `${leg.player}|${leg.propType}|${leg.side}|${Number(leg.line)}`))
+    const gameCounts = new Map()
+    for (const leg of fixed) {
+      const matchup = String(leg.matchup || "")
+      gameCounts.set(matchup, (gameCounts.get(matchup) || 0) + 1)
+    }
+
+    const basePrice = parlayPriceFromLegs(base)
+    const baseReturn = basePrice ? estimateReturn(5, basePrice.american) : 0
+
+    let attempts = 0
+    let accepted = false
+    let bestRows = rows
+    let bestScore = -Infinity
+
+    for (const alt of rankedRows) {
+      if (!alt || shouldRemoveLegForPlayerStatus(alt) || isFragileLeg(alt)) continue
+      const player = String(alt.player || "")
+      const matchup = String(alt.matchup || "")
+      const signature = `${alt.player}|${alt.propType}|${alt.side}|${Number(alt.line)}`
+      const lateRejectReason = getHighLegLateRejectReason(alt, weakestLateIndex + 1, {
+        relaxedLaterFill: true,
+        finalQualityPass: true
+      })
+      if (!player || usedPlayers.has(player)) continue
+      if (usedSignatures.has(signature)) continue
+      if ((gameCounts.get(matchup) || 0) >= 4) continue
+      if (hasConflict(fixed, alt)) continue
+      if (lateRejectReason) continue
+
+      const changesGame = String(alt.matchup || "") !== String(weakest.matchup || "")
+      const changesStat = String(alt.propType || alt.statType || "") !== String(weakest.propType || weakest.statType || "")
+      if (!changesGame && !changesStat) continue
+
+      attempts += 1
+      const variant = dedupeSlipLegs([...fixed, alt])
+      if (variant.length !== targetLegCount) continue
+
+      const variantPrice = parlayPriceFromLegs(variant)
+      if (!variantPrice) continue
+      const variantReturn = estimateReturn(5, variantPrice.american)
+      if (!variantReturn) continue
+      if (baseReturn && variantReturn < baseReturn * 0.9) continue
+
+      const statTypes = new Set(variant.map((leg) => String(leg.propType || leg.statType || ""))).size
+      const games = new Set(variant.map((leg) => String(leg.matchup || ""))).size
+      const score = games * 0.4 + statTypes * 0.35 + parseHitRate(alt.hitRate)
+      if (score > bestScore) {
+        bestScore = score
+        bestRows = variant
+        accepted = true
+      }
+    }
+
+    console.log("[DIVERSIFY-SWAP-DEBUG]", {
+      book,
+      scope: "highestHitRate",
+      targetLegCount,
+      attempts,
+      accepted
+    })
+
+    return accepted ? bestRows : rows
+  }
+
+  if (targetLegCount === 2) {
+    const result = buildTierWithFallback(sources, 2, [
+      { ...shared, minScore: 95, avoidFragile: true },
+      { ...shared, minScore: 85, avoidFragile: false },
+      { ...shared, minScore: 75, avoidFragile: false },
+      { ...shared, minScore: 65, avoidFragile: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 55, avoidFragile: false, blockSameGameStatSide: false },
+            { ...shared, minScore: 45, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false }
+          ]
+        : [])
+    ])
+    const isValid = validateSlip(result, 1, 1)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   2-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 2 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 3) {
+    const result = buildTierWithFallback(sources, 3, [
+      { ...shared, minScore: 60, avoidFragile: false },  // Floor for 3-leg
+      { ...shared, minScore: 50, avoidFragile: false },
+      { ...shared, minScore: 40, avoidFragile: false },
+      { ...shared, minScore: 30, avoidFragile: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 20, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+            { ...shared, minScore: 10, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false }
+          ]
+        : []),
+      ...(!isFanDuel
+        ? [{ ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }]
+        : [])
+    ])
+    const isValid = validateSlip(result, 1, isFanDuel ? 2 : 1)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   3-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 3 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 4) {
+    const result = buildTierWithFallback(sources, 4, [
+      { ...shared, minScore: 55, avoidFragile: false },
+      { ...shared, minScore: 45, avoidFragile: false },
+      { ...shared, minScore: 35, avoidFragile: false },
+      { ...shared, minScore: 25, avoidFragile: false },
+      { ...shared, minScore: 15, avoidFragile: false, maxPerGame: 2 },
+      { ...shared, minScore: 5, avoidFragile: false, maxPerGame: 2 },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+          ]
+        : []),
+      ...(!isFanDuel
+        ? [{ ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false }]
+        : [])
+    ])
+    const isValid = validateSlip(result, 1, isFanDuel ? 3 : 2)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   4-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 4 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 5) {
+    let result = buildTierWithFallback(sources, 5, [
+      { ...shared, minScore: 60, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 50, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 40, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 30, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 20, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 10, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false }
+    ])
+    // Call bestPropsFill for both books so FanDuel can fill 5-leg from the wider pool
+    result = maybeAddBestPropsFill(result, { target: 5, maxPerGame: 3, blockSameGameStatSide: false })
+    result = diversifyHighLegFinalLeg(result)
+    const isValid = validateSlip(result, 1, 3)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   5-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 5 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 6) {
+    let result = buildTierWithFallback(sources, 6, [
+      { ...shared, minScore: 55, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 45, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 35, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 25, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 15, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 5, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 8, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+          ]
+        : [])
+    ])
+    result = maybeAddBestPropsFill(result, { target: 6, maxPerGame: 3, blockSameGameStatSide: false })
+    result = diversifyHighLegFinalLeg(result)
+    const isValid = validateSlip(result, 1, 3)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   6-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 6 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 7) {
+    let result = buildTierWithFallback(sources, 7, [
+      { ...shared, minScore: 45, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 35, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 25, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 15, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 5, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 8, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+          ]
+        : [])
+    ])
+    result = maybeAddBestPropsFill(result, { target: 7, maxPerGame: 3, blockSameGameStatSide: false })
+    result = diversifyHighLegFinalLeg(result)
+    const isValid = validateSlip(result, 1, 3)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   7-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 7 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 8) {
+    let result = buildTierWithFallback(sources, 8, [
+      { ...shared, minScore: 40, avoidFragile: false, maxPerGame: 2, blockSameGameStatSide: false },
+      { ...shared, minScore: 30, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 20, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 10, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 5, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 6, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+          ]
+        : [])
+    ])
+    result = maybeAddBestPropsFill(result, { target: 8, maxPerGame: 3, blockSameGameStatSide: false })
+    result = diversifyHighLegFinalLeg(result)
+    const isValid = validateSlip(result, 1, 3)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   8-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 8 && isValid ? result : [])
+  }
+
+  if (targetLegCount === 9) {
+    let result = buildTierWithFallback(sources, 9, [
+      { ...shared, minScore: 55, avoidFragile: false },
+      { ...shared, minScore: 45, avoidFragile: false },
+      { ...shared, minScore: 35, avoidFragile: false },
+      { ...shared, minScore: 25, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 15, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 5, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+      { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false },
+      ...(isFanDuel
+        ? [
+            { ...shared, minScore: 10, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+            { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+          ]
+        : [])
+    ])
+    result = maybeAddBestPropsFill(result, { target: 9, maxPerGame: 3, blockSameGameStatSide: false })
+    result = diversifyHighLegFinalLeg(result)
+    const isValid = validateSlip(result, 1, 3)
+    logBuilderDepth(result)
+    console.log(`[DUAL-DEBUG]   9-leg: result.length=${result.length} valid=${isValid}`)
+    return finalizeHighestHitRateBuild(result.length === 9 && isValid ? result : [])
+  }
+
+  let result = buildTierWithFallback(sources, 10, [
+    { ...shared, minScore: 50, avoidFragile: false },
+    { ...shared, minScore: 40, avoidFragile: false },
+    { ...shared, minScore: 30, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+    { ...shared, minScore: 20, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+    { ...shared, minScore: 10, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+    { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+    { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 4, blockSameGameStatSide: false },
+    ...(isFanDuel
+      ? [
+          { ...shared, minScore: 6, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false },
+          { ...shared, minScore: 0, avoidFragile: false, maxPerGame: 3, blockSameGameStatSide: false }
+        ]
+      : [])
+  ])
+  result = maybeAddBestPropsFill(result, { target: 10, maxPerGame: 3, blockSameGameStatSide: false })
+  result = diversifyHighLegFinalLeg(result)
+  const isValid = validateSlip(result, 1, 3)
+  logBuilderDepth(result)
+  console.log(`[DUAL-DEBUG]   10-leg: result.length=${result.length} valid=${isValid}`)
+  return finalizeHighestHitRateBuild(result.length === 10 && isValid ? result : [])
+}
+
+function buildBestBookSlip(book, targetLegCount) {
+  return buildTargetBookSlip(book, targetLegCount)
+}
+
+function getBookPrimaryRows(book) {
+  const primaryBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
+  const primaryElite = getAvailablePrimarySlateRows(oddsSnapshot.eliteProps || [])
+  const primaryStrong = getAvailablePrimarySlateRows(oddsSnapshot.strongProps || [])
+  const primaryPlayable = getAvailablePrimarySlateRows(oddsSnapshot.playableProps || [])
+
+  const combined = dedupeSlipLegs([
+    ...primaryBest,
+    ...primaryElite,
+    ...primaryStrong,
+    ...primaryPlayable
+  ]).filter(
+    (row) => row.book === book && isSafeSlipAllowedPropType(row.propType)
+  )
+
+  return sortRowsForMLHighestHitRate(combined)
+}
+
+function fallbackBookSlip(book, targetLegCount) {
+  const rows = getBookPrimaryRows(book)
+  if (!rows.length) return []
+
+  const isFanDuel = book === "FanDuel"
+
+  const exact = buildTierWithFallback([rows], targetLegCount, [
+    {
+      maxPerPlayer: 1,
+      maxPerGame: targetLegCount <= 2 ? 1 : targetLegCount <= 4 ? 2 : 3,
+      preferredBook: book,
+      minScore: 0,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      blockSameGameStatSide: targetLegCount <= 3,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    },
+    ...(isFanDuel
+      ? [
+          {
+            maxPerPlayer: 1,
+            maxPerGame: targetLegCount <= 3 ? 2 : 3,
+            preferredBook: book,
+            minScore: 0,
+            avoidFragile: false,
+            forceUniquePlayers: true,
+            blockSameGameStatSide: false,
+            allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+          }
+        ]
+      : [])
+  ])
+
+  if (exact.length === targetLegCount) return exact
+
+  for (let count = targetLegCount - 1; count >= 2; count -= 1) {
+    const partial = buildTierWithFallback([rows], count, [
+      {
+        maxPerPlayer: 1,
+        maxPerGame: count <= 2 ? 1 : count <= 4 ? 2 : 3,
+        preferredBook: book,
+        minScore: 0,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        blockSameGameStatSide: count <= 3,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      ...(isFanDuel
+        ? [
+            {
+              maxPerPlayer: 1,
+              maxPerGame: count <= 3 ? 2 : 3,
+              preferredBook: book,
+              minScore: 0,
+              avoidFragile: false,
+              forceUniquePlayers: true,
+              blockSameGameStatSide: false,
+              allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+            }
+          ]
+        : [])
+    ])
+
+    if (partial.length >= 2) return partial
+  }
+
+  return []
+}
+
+function withBookSlipFallback(book, targetLegCount, legs) {
+  const normalizedLegs = Array.isArray(legs)
+    ? dedupeSlipLegs(legs).filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    : []
+  const minAcceptedLegCount = targetLegCount >= 5 ? 4 : targetLegCount
+  const rawLen = Array.isArray(legs) ? legs.length : 0
+
+  console.log(`[DUAL-DEBUG] withBookSlipFallback(${book}, ${targetLegCount}) - normalizedLegs=${normalizedLegs.length}`)
+
+  if (normalizedLegs.length >= minAcceptedLegCount) {
+    console.log(`[SLIP-ACCEPT-DEBUG] book=${book} target=${targetLegCount} rawLen=${rawLen} normalizedLen=${normalizedLegs.length} accepted=true minAccepted=${minAcceptedLegCount}`)
+    return normalizedLegs
+  }
+  if (normalizedLegs.length > 0) {
+    console.log(`[DUAL-DEBUG]   rejecting partial primary slip for ${book} ${targetLegCount}-leg: got ${normalizedLegs.length}`)
+  }
+
+  const fallback = fallbackBookSlip(book, targetLegCount)
+  const normalizedFallback = Array.isArray(fallback)
+    ? dedupeSlipLegs(fallback).filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    : []
+
+  console.log(`[DUAL-DEBUG]   normalizedFallback=${normalizedFallback.length}`)
+
+  if (normalizedFallback.length >= minAcceptedLegCount) {
+    console.log(`[SLIP-ACCEPT-DEBUG] book=${book} target=${targetLegCount} rawLen=${normalizedFallback.length} normalizedLen=${normalizedFallback.length} accepted=true minAccepted=${minAcceptedLegCount}`)
+    return normalizedFallback
+  }
+  if (normalizedFallback.length > 0) {
+    console.log(`[DUAL-DEBUG]   rejecting partial fallback slip for ${book} ${targetLegCount}-leg: got ${normalizedFallback.length}`)
+  }
+
+  console.log(`[SLIP-ACCEPT-DEBUG] book=${book} target=${targetLegCount} rawLen=${normalizedFallback.length} normalizedLen=${normalizedFallback.length} accepted=false minAccepted=${minAcceptedLegCount}`)
+  return []
+}
+
+app.get("/api/best-available", (req, res) => {
+  const bestAvailablePayload = buildLiveDualBestAvailablePayload()
+
+  if (!bestAvailablePayload) {
+    return res.status(503).json({
+      ok: false,
+      error: "bestAvailable not ready"
+    })
+  }
+
+  const effectiveBestProps = (() => {
+    const snapshotBest = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
+    if (snapshotBest.length > 0) return snapshotBest
+    const fallbackBest = Array.isArray(oddsSnapshot.props) ? buildBestPropsFallbackRows(oddsSnapshot.props, 60) : []
+    return Array.isArray(fallbackBest) ? fallbackBest : []
+  })()
+
+  console.log("[BEST-PROPS-ROUTE-GAME-DEBUG]", {
+    total: effectiveBestProps.length,
+    byBook: {
+      FanDuel: effectiveBestProps.filter((row) => row?.book === "FanDuel").length,
+      DraftKings: effectiveBestProps.filter((row) => row?.book === "DraftKings").length
+    },
+    byGame: effectiveBestProps.reduce((acc, row) => {
+      const key = String(row?.matchup || row?.eventId || "unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
+
+  const snapshotMeta = logSnapshotMeta("route=/api/best-available response")
+
+  // === FORCE COVERAGE DEBUG ON LIVE RESPONSE PATH ===
+  try {
+    const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
+    const rawPropsRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const enrichedModelRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const survivedFragileRows = rawPropsRows.filter((r) => {
+      try {
+        return !shouldRemoveLegForPlayerStatus(r) && !isFragileLeg(r)
+      } catch (_) {
+        return true
+      }
+    })
+    const bestPropsRawRows = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : []
+    const finalBestVisibleRows = getAvailablePrimarySlateRows(bestPropsRawRows)
+
+    console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
+      scheduledEvents: scheduledEvents.length,
+      rawPropsRows: rawPropsRows.length,
+      enrichedModelRows: enrichedModelRows.length,
+      survivedFragileRows: survivedFragileRows.length,
+      survivedFragileRowsByBook: {
+        FanDuel: survivedFragileRows.filter((r) => r?.book === "FanDuel").length,
+        DraftKings: survivedFragileRows.filter((r) => r?.book === "DraftKings").length
+      },
+      bestPropsRawRows: bestPropsRawRows.length,
+      bestPropsRawRowsByBook: {
+        FanDuel: bestPropsRawRows.filter((r) => r?.book === "FanDuel").length,
+        DraftKings: bestPropsRawRows.filter((r) => r?.book === "DraftKings").length
+      },
+      finalBestVisibleRows: finalBestVisibleRows.length
+    })
+
+    runCurrentSlateCoverageDiagnostics({
+      scheduledEvents,
+      rawPropsRows,
+      enrichedModelRows,
+      survivedFragileRows,
+      bestPropsRawRows,
+      finalBestVisibleRows
+    })
+  } catch (e) {
+    console.log("[COVERAGE-AUDIT-ERROR]", e?.message || e)
+  }
+  // === END FORCE COVERAGE DEBUG ===
+
+  if (bestAvailablePayload) {
+    bestAvailablePayload.best = effectiveBestProps
+    if (bestAvailablePayload.availableCounts) {
+      bestAvailablePayload.availableCounts.best = {
+        total: effectiveBestProps.length,
+        fanduel: effectiveBestProps.filter((row) => row?.book === "FanDuel").length,
+        draftkings: effectiveBestProps.filter((row) => row?.book === "DraftKings").length
+      }
+    }
+  }
+
+  return res.json({
+    bestAvailable: bestAvailablePayload,
+    snapshotMeta
+  })
+})
+
+const PORT = process.env.PORT || 4000
+const ODDS_API_KEY = process.env.ODDS_API_KEY
+const API_SPORTS_KEY = process.env.API_SPORTS_KEY
+
+let playerIdCache = new Map()
+let playerStatsCache = new Map()
+let playerLookupMissCache = new Set()
+let apiSportsEmptySearchStreak = 0
+
+const CACHE_FILE = path.join(__dirname, "api-sports-cache.json")
+
+function loadApiSportsCachesFromDisk() {
+  // Async, non-blocking load of API-Sports caches from disk.
+  return (async () => {
+    try {
+      await fs.promises.access(CACHE_FILE)
+    } catch (err) {
+      // No cache file yet; that's fine.
+      return
+    }
+
+    try {
+      const raw = await fs.promises.readFile(CACHE_FILE, "utf8")
+      if (!raw) return
+
+      const parsed = JSON.parse(raw)
+
+      for (const [key, value] of Object.entries(parsed.playerIdCache || {})) {
+        playerIdCache.set(key, value)
+      }
+
+      for (const [key, value] of Object.entries(parsed.playerStatsCache || {})) {
+        playerStatsCache.set(Number(key), value)
+      }
+
+      for (const [key, value] of Object.entries(parsed.playerStatsCacheTimes || {})) {
+        playerStatsCacheTimes.set(Number(key), value)
+      }
+
+      for (const value of parsed.playerLookupMissCache || []) {
+        playerLookupMissCache.add(value)
+      }
+
+      console.log(
+        "Loaded API-Sports cache from disk:",
+        "ids=", playerIdCache.size,
+        "stats=", playerStatsCache.size,
+        "misses=", playerLookupMissCache.size
+      )
+    } catch (error) {
+      console.error("Failed loading API-Sports cache from disk:", error.message)
+    }
+  })()
+}
+
+function saveApiSportsCachesToDisk() {
+  // Async, non-blocking save of API-Sports caches to disk.
+  return (async () => {
+    try {
+      const payload = {
+        playerIdCache: Object.fromEntries(playerIdCache.entries()),
+        playerStatsCache: Object.fromEntries(playerStatsCache.entries()),
+        playerStatsCacheTimes: Object.fromEntries(playerStatsCacheTimes.entries()),
+        playerLookupMissCache: Array.from(playerLookupMissCache.values())
+      }
+
+      await fs.promises.writeFile(CACHE_FILE, JSON.stringify(payload))
+    } catch (error) {
+      console.error("Failed saving API-Sports cache to disk:", error.message)
+    }
+  })()
+}
+const API_SPORTS_EMPTY_SEARCH_STREAK_LIMIT = 25
+const MANUAL_PLAYER_OVERRIDES = {
+  "Tristan da Silva": { id: 4348, team: "Orlando Magic" },
+  "Tristan Da Silva": { id: 4348, team: "Orlando Magic" },
+  "Tristan DaSilva": { id: 4348, team: "Orlando Magic" },
+  "Dean Wade": { id: 2898, team: "Cleveland Cavaliers" },
+  "Jevon Carter": { id: 874, team: "Chicago Bulls" },
+  "Moe Wagner": { id: 1925, team: "Orlando Magic" },
+  "Moritz Wagner": { id: 1925, team: "Orlando Magic" },
+  "Cameron Johnson": { id: 1536, team: "Brooklyn Nets" },
+  "Jabari Smith Jr": { id: 3405, team: "Houston Rockets" },
+  "Jabari Smith Jr.": { id: 3405, team: "Houston Rockets" },
+  "Drew Eubanks": { id: 2036, team: "Utah Jazz" },
+  "Wendell Carter Jr": { id: 4347, team: "Orlando Magic" },
+  "Duncan Robinson": { id: 897, team: "Detroit Pistons" },
+  "Isaiah Stewart II": { id: 2177, team: "Detroit Pistons" }
+}
+let lastSnapshotRefreshAt = 0
+const SNAPSHOT_COOLDOWN_MS = 60 * 1000
+const PLAYER_LOOKUP_CONCURRENCY = 1
+const API_SPORTS_TIMEOUT_MS = 5000
+const PLAYER_STATS_TTL_MS = 30 * 60 * 1000
+let playerStatsCacheTimes = new Map()
+function normalizePropType(key) {
+  switch (key) {
+    case "player_points":
+      return "Points"
+    case "player_assists":
+      return "Assists"
+    case "player_rebounds":
+      return "Rebounds"
+    case "player_threes":
+      return "Threes"
+    case "player_points_rebounds_assists":
+      return "PRA"
+    default:
+      return key
+  }
+}
+
+function buildMatchup(awayTeam, homeTeam) {
+  return `${awayTeam} @ ${homeTeam}`
+}
+
+
+function getSlateDateKey(dateString) {
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return ""
+
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date)
+}
+
+function getTodaySlateDateKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date())
+}
+
+
+function filterEventsToPrimarySlate(events = []) {
+  const upcoming = [...events]
+    .filter((event) => new Date(event.commence_time).getTime() > Date.now())
+    .sort((a, b) => new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime())
+
+  if (!upcoming.length) return []
+
+  const primaryDateKey = getPrimarySlateDateKeyFromRows(
+    upcoming.map((event) => ({ gameTime: event?.commence_time }))
+  )
+
+  return upcoming.filter(
+    (event) => getLocalSlateDateKey(event.commence_time) === primaryDateKey
+  )
+}
+
+function filterRowsToPrimarySlate(rows = []) {
+  const upcoming = [...rows]
+    .filter((row) => new Date(row.gameTime).getTime() > Date.now())
+    .sort((a, b) => new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime())
+
+  if (!upcoming.length) return []
+
+  const primaryDateKey = getPrimarySlateDateKeyFromRows(upcoming)
+
+  return upcoming.filter(
+    (row) => getLocalSlateDateKey(row.gameTime) === primaryDateKey
+  )
+}
+
+
+
+function getAvailablePrimarySlateRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const isBestPropsVisibilityPass = safeRows === oddsSnapshot.bestProps
+
+  const filteredRows = safeRows.filter((row) => {
+    if (!row) return false
+    if (!row?.gameTime) return false
+
+    const gameMs = new Date(row.gameTime).getTime()
+    if (!Number.isFinite(gameMs)) return false
+    if (gameMs <= Date.now()) return false
+
+    const playerValue = row.player ?? row.playerName
+    const propTypeValue = row.propType ?? row.statType
+    const lineValue = row.line
+
+    if (!playerValue || !propTypeValue || lineValue == null) return false
+
+    return true
+  })
+
+  const inputGames = [...new Set(safeRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const outputGames = [...new Set(filteredRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  console.log("[PRIMARY-SLATE-FILTER-DEBUG]", {
+    nowIso: new Date().toISOString(),
+    inputRowCount: safeRows.length,
+    outputRowCount: filteredRows.length,
+    inputGameCount: inputGames.length,
+    outputGameCount: outputGames.length,
+    inputGames,
+    outputGames
+  })
+
+  if (isBestPropsVisibilityPass) {
+    console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
+      beforeTotal: safeRows.length,
+      afterTotal: filteredRows.length,
+      beforeByBook: {
+        FanDuel: safeRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: safeRows.filter((row) => String(row?.book || "") === "DraftKings").length
+      },
+      afterByBook: {
+        FanDuel: filteredRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: filteredRows.filter((row) => String(row?.book || "") === "DraftKings").length
+      }
+    })
+  }
+
+  return filteredRows
+}
+
+function summarizePropPipelineRows(rows = []) {
+  const safeRows = Array.isArray(rows) ? rows : []
+
+  const byPlayer = safeRows.reduce((acc, row) => {
+    const key = String(row?.player || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const byPropType = safeRows.reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const byBook = safeRows.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const byMatchup = safeRows.reduce((acc, row) => {
+    const matchup = String(
+      row?.matchup || `${row?.awayTeam || ""} @ ${row?.homeTeam || ""}`.trim() || "Unknown"
+    )
+    acc[matchup] = (acc[matchup] || 0) + 1
+    return acc
+  }, {})
+
+  const topMatchups = Object.entries(byMatchup)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([matchup, count]) => ({ matchup, count }))
+
+  const topPlayers = Object.entries(byPlayer)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([player, count]) => ({ player, count }))
+
+  return {
+    totalCount: safeRows.length,
+    distinctPlayerCount: Object.keys(byPlayer).length,
+    distinctMatchupCount: Object.keys(byMatchup).length,
+    byPropType,
+    byBook,
+    topMatchups,
+    topPlayers
+  }
+}
+
+function logPropPipelineStep(pathLabel, stepLabel, rows = []) {
+  console.log("[PROP-PIPELINE-DEBUG]", {
+    path: pathLabel,
+    step: stepLabel,
+    ...summarizePropPipelineRows(rows)
+  })
+}
+
+function logFunnelDropSummary(pathLabel, stages) {
+  const ORDERED_STAGES = [
+    "rawNormalized",
+    "afterPregameStatus",
+    "afterPrimarySlate",
+    "afterDedupe",
+    "afterScoringRanking",
+    "afterPlayableProps",
+    "afterStrongProps",
+    "afterEliteProps",
+    "afterBestProps"
+  ]
+  let maxDrop = 0
+  let maxDropStage = "none"
+  let maxDropFrom = 0
+  let maxDropTo = 0
+  for (let i = 1; i < ORDERED_STAGES.length; i++) {
+    const prev = stages[ORDERED_STAGES[i - 1]]?.totalCount ?? 0
+    const curr = stages[ORDERED_STAGES[i]]?.totalCount ?? 0
+    const drop = prev - curr
+    if (drop > maxDrop) {
+      maxDrop = drop
+      maxDropStage = ORDERED_STAGES[i]
+      maxDropFrom = prev
+      maxDropTo = curr
+    }
+  }
+  console.log(
+    `[PROP-PIPELINE-DROP] path=${pathLabel} biggestDrop=${maxDropStage}` +
+    ` from=${maxDropFrom} to=${maxDropTo} dropped=${maxDrop}`
+  )
+}
+
+function logPayloadDebugExclusions(label, inputRows, returnedRows) {
+  const safeInput = Array.isArray(inputRows) ? inputRows : []
+  const safeReturned = Array.isArray(returnedRows) ? returnedRows : []
+  const returnedSet = new Set(
+    safeReturned.map((r) =>
+      `${r.player}|${r.propType}|${r.book}|${r.matchup}|${r.gameTime}|${r.line}|${r.side}`
+    )
+  )
+  const todayKey = getLocalSlateDateKey(new Date().toISOString())
+  const excluded = safeInput.filter((r) => {
+    const key = `${r.player}|${r.propType}|${r.book}|${r.matchup}|${r.gameTime}|${r.line}|${r.side}`
+    return !returnedSet.has(key)
+  })
+  const sample = excluded.slice(0, 25).map((row) => {
+    let reason = "unknown"
+    if (shouldRemoveLegForPlayerStatus(row)) {
+      reason = "unavailable / removed"
+    } else {
+      const gameMs = new Date(row?.gameTime).getTime()
+      if (!Number.isFinite(gameMs)) {
+        reason = "invalid game time"
+      } else if (hasGameStarted(row?.gameTime) && getLocalSlateDateKey(row?.gameTime) !== todayKey) {
+        reason = "not primary slate"
+      } else if (!isPregameEligibleRow(row)) {
+        reason = "filtered by status"
+      }
+    }
+    return {
+      player: row.player,
+      book: row.book,
+      propType: row.propType,
+      matchup: row.matchup,
+      gameTime: row.gameTime,
+      playerStatus: row.playerStatus,
+      reason
+    }
+  })
+  console.log(`[PAYLOAD-DEBUG] ${label}: inputCount=${safeInput.length} returnedCount=${safeReturned.length} excludedCount=${excluded.length}`)
+  if (sample.length > 0) {
+    console.log(`[PAYLOAD-DEBUG] ${label}: first ${sample.length} excluded rows:`, sample)
+  }
+}
+
+function logTopPropSample(label, rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const sample = safeRows.slice(0, 12).map((row) => ({
+    player: row.player,
+    book: row.book,
+    propType: row.propType,
+    matchup: row.matchup,
+    line: row.line,
+    hitRate: row.hitRate,
+    score: row.score,
+    team: row.team
+  }))
+  console.log(`[TOP-PROP-SAMPLE] ${label}: total=${safeRows.length} sample=`, sample)
+}
+
+function logFunnelStage(pathLabel, stageName, inputRows, outputRows, opts = {}) {
+  const safeIn = Array.isArray(inputRows) ? inputRows : []
+  const safeOut = Array.isArray(outputRows) ? outputRows : []
+  const distinctPlayers = (rows) => new Set(rows.map((r) => r.player)).size
+  const distinctMatchups = (rows) => new Set(rows.map((r) => r.matchup || (r.awayTeam || "") + "@" + (r.homeTeam || ""))).size
+  console.log("[FUNNEL-STAGE-DEBUG]", {
+    path: pathLabel,
+    stage: stageName,
+    inputCount: safeIn.length,
+    outputCount: safeOut.length,
+    dropped: safeIn.length - safeOut.length,
+    distinctPlayersIn: distinctPlayers(safeIn),
+    distinctPlayersOut: distinctPlayers(safeOut),
+    distinctMatchupsIn: distinctMatchups(safeIn),
+    distinctMatchupsOut: distinctMatchups(safeOut),
+    ...opts
+  })
+}
+
+function logFunnelExcluded(pathLabel, stageName, inputRows, outputRows) {
+  const safeIn = Array.isArray(inputRows) ? inputRows : []
+  const safeOut = Array.isArray(outputRows) ? outputRows : []
+  const outKeys = new Set(safeOut.map((r) => r.player + "|" + r.propType + "|" + r.book + "|" + r.matchup + "|" + String(r.line) + "|" + r.side))
+  const excluded = safeIn.filter((r) => !outKeys.has(r.player + "|" + r.propType + "|" + r.book + "|" + r.matchup + "|" + String(r.line) + "|" + r.side))
+  if (!excluded.length) return
+  const sample = excluded.slice(0, 25).map((row) => ({
+    player: row.player,
+    book: row.book,
+    propType: row.propType,
+    matchup: row.matchup,
+    score: row.score,
+    hitRate: row.hitRate,
+    edge: row.edge,
+    team: row.team,
+    reason: "not-selected-by-stage"
+  }))
+  console.log("[FUNNEL-EXCLUDED-DEBUG]", { path: pathLabel, stage: stageName, excludedCount: excluded.length, sample })
+}
+
+function summarizeBestPropsCapPool(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const byPropType = safeRows.reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+  const byBook = safeRows.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+  const uniquePlayers = new Set(safeRows.map((row) => String(row?.player || "")).filter(Boolean)).size
+  const uniqueMatchups = new Set(
+    safeRows
+      .map((row) => String(row?.matchup || `${row?.awayTeam || ""}@${row?.homeTeam || ""}`))
+      .filter(Boolean)
+  ).size
+
+  return {
+    preCapBestPropsCount: safeRows.length,
+    uniquePlayers,
+    uniqueMatchups,
+    byPropType,
+    byBook,
+    preCapExceeds60: safeRows.length > 60
+  }
+}
+
+function logBestPropsCapDebug(pathLabel, phase, preCapRows, postCapRows, capDiagnostics = null) {
+  const summary = summarizeBestPropsCapPool(preCapRows)
+  const safePost = Array.isArray(postCapRows) ? postCapRows : []
+  const postSummary = summarizeBestPropsCapPool(safePost)
+  console.log(`[BEST-PROPS-CAP-DEBUG] ${phase}`, {
+    path: pathLabel,
+    bestPropsSourceCountBeforeCap: summary.preCapBestPropsCount,
+    finalBestPropsCountAfterCap: safePost.length,
+    preCapBestPropsCount: summary.preCapBestPropsCount,
+    postCapBestPropsCount: safePost.length,
+    uniquePlayers: summary.uniquePlayers,
+    uniqueMatchups: summary.uniqueMatchups,
+    byPropType: summary.byPropType,
+    byBook: summary.byBook,
+    preCapExceeds60: summary.preCapExceeds60,
+    beforeCapByBook: summary.byBook,
+    afterCapByBook: postSummary.byBook,
+    beforeCapByStat: summary.byPropType,
+    afterCapByStat: postSummary.byPropType,
+    droppedByConstraint: capDiagnostics?.dropCounts || null,
+    capConfig: capDiagnostics?.config || null
+  })
+}
+
+function logBestPropsCapExcluded(pathLabel, preCapRows, postCapRows, capDiagnostics = null) {
+  const safePre = Array.isArray(preCapRows) ? preCapRows : []
+  const safePost = Array.isArray(postCapRows) ? postCapRows : []
+  const keyOf = (row) => `${row?.player || ""}|${row?.book || ""}|${row?.propType || ""}|${row?.matchup || ""}|${Number(row?.line)}|${row?.side || ""}`
+  const keptKeys = new Set(safePost.map((row) => keyOf(row)))
+  const excludedByCap = safePre.filter((row) => !keptKeys.has(keyOf(row))).slice(0, 20).map((row) => ({
+    player: row.player,
+    book: row.book,
+    propType: row.propType,
+    matchup: row.matchup,
+    score: row.score,
+    edge: row.edge,
+    hitRate: row.hitRate,
+    capDropReason: capDiagnostics?.dropReasonByKey?.[keyOf(row)] || "unknown"
+  }))
+  console.log("[BEST-PROPS-CAP-EXCLUDED]", {
+    path: pathLabel,
+    excludedCount: Math.max(0, safePre.length - safePost.length),
+    sample: excludedByCap
+  })
+}
+
+function isLooseResolvedMatch(requestedName, matchedName) {
+  const requestedStrict = normalizePlayerName(requestedName)
+  const matchedStrict = normalizePlayerName(matchedName)
+  if (!requestedStrict || !matchedStrict) return false
+  if (requestedStrict === matchedStrict) return false
+
+  const requestedLoose = normalizePlayerNameLoose(requestedName)
+  const matchedLoose = normalizePlayerNameLoose(matchedName)
+  return Boolean(requestedLoose && requestedLoose === matchedLoose)
+}
+
+function logPlayerResolutionDiagnostics(pathLabel, diagnostics) {
+  console.log("[PLAYER-COVERAGE-DEBUG]", {
+    path: pathLabel,
+    step: "player-resolution-summary",
+    totalRawPlayerNamesSeen: diagnostics.totalRawPlayerNamesSeen,
+    totalPlayerNamesWithResolvedIds: diagnostics.totalPlayerNamesWithResolvedIds,
+    totalUnresolvedPlayerNames: diagnostics.totalUnresolvedPlayerNames,
+    sampleUnresolvedPlayerNames: diagnostics.sampleUnresolvedPlayerNames,
+    manualOverrideHitCount: diagnostics.manualOverrideHitCount,
+    looseMatchHitCount: diagnostics.looseMatchHitCount,
+    missCacheHitCount: diagnostics.missCacheHitCount
+  })
+}
+
+function avg(nums) {
+  if (!nums.length) return null
+  return nums.reduce((a, b) => a + b, 0) / nums.length
+}
+
+
+function stddev(nums) {
+  if (!nums.length) return null
+  const mean = avg(nums)
+  const variance = avg(nums.map((n) => (n - mean) ** 2))
+  return variance === null ? null : Math.sqrt(variance)
+}
+
+
+function minVal(nums) {
+  if (!nums.length) return null
+  return Math.min(...nums)
+}
+
+
+function maxVal(nums) {
+  if (!nums.length) return null
+  return Math.max(...nums)
+}
+
+
+function parseHitRate(hitRate) {
+  if (!hitRate || typeof hitRate !== "string") return 0
+  const [hits, total] = hitRate.split("/").map(Number)
+  if (!total) return 0
+  return hits / total
+}
+
+
+function normalizePlayerName(name) {
+  return String(name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[‐-‒–—-]/g, " ")
+    .replace(/[’']/g, "")
+    .replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, "")
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function normalizePlayerNameLoose(name) {
+  return normalizePlayerName(name)
+    .replace(/\b(da|de|del|van|von)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function buildWatchedNameSet() {
+  return WATCHED_PLAYER_NAMES.map((name) => ({
+    name,
+    normalized: normalizePlayerName(name)
+  })).filter((item) => item.normalized)
+}
+
+function extractOutcomePlayerFields(outcome = {}) {
+  return [
+    String(outcome?.name || ""),
+    String(outcome?.description || ""),
+    String(outcome?.player || ""),
+    String(outcome?.player_name || ""),
+    String(outcome?.participant || "")
+  ]
+}
+
+function countWatchedPlayersInOutcomes(outcomes = []) {
+  const watchedSet = buildWatchedNameSet()
+  const counts = Object.fromEntries(watchedSet.map((item) => [item.name, 0]))
+
+  for (const outcome of outcomes) {
+    const normalizedFields = extractOutcomePlayerFields(outcome)
+      .map((field) => normalizePlayerName(field))
+      .filter(Boolean)
+
+    for (const watched of watchedSet) {
+      const hit = normalizedFields.some((field) => field.includes(watched.normalized))
+      if (hit) counts[watched.name] = Number(counts[watched.name] || 0) + 1
+    }
+  }
+
+  return counts
+}
+
+function countWatchedPlayersInRows(rows = []) {
+  const watchedSet = buildWatchedNameSet()
+  const counts = Object.fromEntries(watchedSet.map((item) => [item.name, 0]))
+
+  for (const row of rows) {
+    const normalizedPlayer = normalizePlayerName(row?.player)
+    if (!normalizedPlayer) continue
+
+    for (const watched of watchedSet) {
+      if (normalizedPlayer.includes(watched.normalized)) {
+        counts[watched.name] = Number(counts[watched.name] || 0) + 1
+      }
+    }
+  }
+
+  return counts
+}
+
+function aggregateWatchedCountsFromEventDebug(eventDebugRows = []) {
+  const watchedSet = buildWatchedNameSet()
+  const totals = Object.fromEntries(watchedSet.map((item) => [item.name, 0]))
+
+  for (const debugRow of Array.isArray(eventDebugRows) ? eventDebugRows : []) {
+    const safeCounts = debugRow?.watchedRawCounts || {}
+    for (const watched of watchedSet) {
+      totals[watched.name] = Number(totals[watched.name] || 0) + Number(safeCounts[watched.name] || 0)
+    }
+  }
+
+  return totals
+}
+
+function buildWatchedPlayersCoverage(rawApiCounts = {}, rawPropsRows = [], bestPropsRows = []) {
+  const rawPropsCounts = countWatchedPlayersInRows(rawPropsRows)
+  const bestPropsCounts = countWatchedPlayersInRows(bestPropsRows)
+
+  return WATCHED_PLAYER_NAMES.map((name) => {
+    const rawApiCount = Number(rawApiCounts[name] || 0)
+    const rawPropsCount = Number(rawPropsCounts[name] || 0)
+    const bestPropsCount = Number(bestPropsCounts[name] || 0)
+
+    let missingReason = "present"
+    if (rawApiCount === 0) missingReason = "absent_from_raw_api"
+    else if (rawApiCount > 0 && rawPropsCount === 0) missingReason = "present_in_raw_api_not_mapped"
+    else if (rawPropsCount > 0 && bestPropsCount === 0) missingReason = "present_in_raw_props_not_in_best"
+
+    return {
+      player: name,
+      rawPropsPresent: rawPropsCount > 0,
+      rawPropsCount,
+      bestPropsPresent: bestPropsCount > 0,
+      bestPropsCount,
+      missingReason
+    }
+  })
+}
+
+function getRequestedPlayerCandidateNames(name) {
+  const variants = getPlayerSearchVariants(name)
+  const out = new Set()
+
+  for (const variant of variants) {
+    const cleaned = String(variant || "").trim()
+    if (!cleaned) continue
+    out.add(cleaned)
+
+    const withoutDots = cleaned.replace(/\./g, "").trim()
+    if (withoutDots) out.add(withoutDots)
+  }
+
+  return Array.from(out)
+}
+
+function getApiPlayerCandidateNames(apiPlayer) {
+  const rawCandidates = [
+    apiPlayer?.name,
+    apiPlayer?.fullname,
+    apiPlayer?.full_name,
+    apiPlayer?.display_name,
+    `${apiPlayer?.firstname || ""} ${apiPlayer?.lastname || ""}`.trim(),
+    `${apiPlayer?.firstName || ""} ${apiPlayer?.lastName || ""}`.trim(),
+    `${apiPlayer?.first_name || ""} ${apiPlayer?.last_name || ""}`.trim()
+  ]
+
+  return rawCandidates
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+}
+
+function getApiPlayerTeamCode(apiPlayer) {
+  const explicitCode = String(apiPlayer?.team?.code || "").toUpperCase().trim()
+  if (explicitCode) return explicitCode
+
+  const mappedName = teamAbbr(apiPlayer?.team?.name || apiPlayer?.team?.nickname || "")
+  return String(mappedName || "").toUpperCase().trim()
+}
+
+
+function isReasonablePlayerMatch(requestedName, apiPlayer, expectedTeamCodes = []) {
+  const requestedCandidates = getRequestedPlayerCandidateNames(requestedName)
+  const apiCandidates = getApiPlayerCandidateNames(apiPlayer)
+
+  if (!requestedCandidates.length || !apiCandidates.length) return false
+
+  const expectedSet = new Set(
+    (expectedTeamCodes || [])
+      .map((code) => String(code || "").toUpperCase().trim())
+      .filter(Boolean)
+  )
+
+  const apiTeamCode = getApiPlayerTeamCode(apiPlayer)
+  const teamMatches = !expectedSet.size || (apiTeamCode && expectedSet.has(apiTeamCode))
+
+  for (const requestedRaw of requestedCandidates) {
+    const requested = normalizePlayerName(requestedRaw)
+    const requestedLoose = normalizePlayerNameLoose(requestedRaw)
+
+    const requestedParts = requested.split(" ").filter(Boolean)
+    const requestedLooseParts = requestedLoose.split(" ").filter(Boolean)
+
+    const requestedFirst = requestedParts[0] || ""
+    const requestedLast = requestedParts[requestedParts.length - 1] || ""
+
+    for (const candidate of apiCandidates) {
+      const apiFull = normalizePlayerName(candidate)
+      const apiLoose = normalizePlayerNameLoose(candidate)
+
+      if (!apiFull) continue
+
+      const apiParts = apiFull.split(" ").filter(Boolean)
+      const apiLooseParts = apiLoose.split(" ").filter(Boolean)
+
+      const apiFirst = apiParts[0] || ""
+      const apiLast = apiParts[apiParts.length - 1] || ""
+
+      if (requested === apiFull) return true
+      if (requestedLoose && apiLoose && requestedLoose === apiLoose) return true
+
+      // strict first + last
+      if (
+        requestedFirst &&
+        requestedLast &&
+        requestedFirst === apiFirst &&
+        requestedLast === apiLast
+      ) {
+        return true
+      }
+
+      // strict compound-tail match like "tristan da silva"
+      if (
+        requestedLooseParts.length >= 3 &&
+        apiLooseParts.length >= 3 &&
+        requestedLooseParts[0] === apiLooseParts[0] &&
+        requestedLooseParts.slice(1).join(" ") === apiLooseParts.slice(1).join(" ")
+      ) {
+        return true
+      }
+
+      // allow initial-based API names only if initial + exact last name line up
+      // and the API player team still matches the expected slate teams when available
+      const apiFirstIsInitial = /^[a-z]$/.test(apiFirst)
+      if (
+        apiFirstIsInitial &&
+        requestedFirst &&
+        requestedLast &&
+        requestedFirst[0] === apiFirst &&
+        requestedLast === apiLast &&
+        teamMatches
+      ) {
+        return true
+      }
+
+      // also allow requested initial-style names like "C. Flagg" to match full names
+      const requestedFirstIsInitial = /^[a-z]$/.test(requestedFirst)
+      if (
+        requestedFirstIsInitial &&
+        apiFirst &&
+        requestedLast &&
+        requestedLast === apiLast &&
+        apiFirst[0] === requestedFirst &&
+        teamMatches
+      ) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+
+function getPlayerSearchOverride(playerName) {
+  const overrides = {
+    "Kelly Oubre Jr": "Kelly Oubre",
+    "Shai Gilgeous-Alexander": "Shai Gilgeous Alexander",
+    "Shai Gilgeous–Alexander": "Shai Gilgeous Alexander",
+    "P.J. Washington": "PJ Washington",
+    "R.J. Barrett": "RJ Barrett",
+    "Nickeil Alexander-Walker": "Nickeil Alexander Walker",
+    "Nickeil Alexander–Walker": "Nickeil Alexander Walker",
+    "Herb Jones": "Herbert Jones",
+    "Moe Wagner": "Moritz Wagner",
+    "Dennis Schroder": "Dennis Schroder",
+    "Ja'Kobe Walter": "Jakobe Walter",
+    "Dean Wade": "Dean Wade",
+    "Tristan da Silva": "Tristan da Silva",
+    "LaMelo Ball": "LaMelo Ball",
+    "Amen Thompson": "Amen Thompson",
+    "Cameron Johnson": "Cameron Johnson",
+    "Bruce Brown": "Bruce Brown",
+    "Derrick Jones": "Derrick Jones",
+    "Cody Williams": "Cody Williams",
+    "Ace Bailey": "Ace Bailey",
+    "Jabari Smith Jr": "Jabari Smith Jr",
+    "Miles Bridges": "Miles Bridges",
+    "Nique Clifford": "Nique Clifford",
+    "Maxime Raynaud": "Maxime Raynaud",
+    "Ryan Kalkbrenner": "Ryan Kalkbrenner",
+    "Kon Knueppel": "Kon Knueppel",
+    "Jeremiah Fears": "Jeremiah Fears"
+  }
+
+  return overrides[playerName] || playerName
+}
+
+function getPlayerSearchVariants(playerName) {
+  const overrideName = String(getPlayerSearchOverride(playerName) || "").trim()
+  const baseName = overrideName || String(playerName || "").trim()
+
+  const ordered = []
+  const seen = new Set()
+
+  const push = (value) => {
+    const cleaned = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+
+    if (!cleaned || seen.has(cleaned)) return
+    seen.add(cleaned)
+    ordered.push(cleaned)
+  }
+
+  const stripped = baseName
+    .replace(/[.’']/g, "")
+    .replace(/\./g, "")
+    .replace(/[‐-‒–—-]/g, " ")
+    .replace(/\bJr\b/gi, "")
+    .replace(/\bSr\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const parts = stripped.split(" ").filter(Boolean)
+  const first = parts[0] || stripped
+  const last = parts[parts.length - 1] || stripped
+  const firstLast = `${first} ${last}`.trim()
+  const isCompoundLastName = /\b(da|de|del|van|von)\b/i.test(stripped)
+  const isSuffixName = /\b(ii|iii|iv)\b/i.test(baseName)
+  const isSpecialCase =
+    /\bschroder\b/i.test(baseName) ||
+    /\bschröder\b/i.test(baseName) ||
+    /\bherb\b/i.test(baseName) ||
+    /\bmoe\b/i.test(baseName) ||
+    /[.'’]/.test(baseName)
+
+  // For most players, go straight to the most productive search first.
+  if (parts.length >= 2 && !isCompoundLastName && !isSuffixName && !isSpecialCase) {
+    push(last)
+    push(firstLast)
+    push(stripped)
+    push(baseName)
+  } else {
+    push(baseName)
+    push(stripped)
+    push(firstLast)
+    push(last)
+  }
+
+  push(first)
+
+  // Add special handling for Schroder/Schröder
+  if (/schroder/i.test(baseName) || /schröder/i.test(baseName)) {
+    push(baseName.replace(/Schroder/gi, "Schröder"))
+    push(baseName.replace(/Schröder/gi, "Schroder"))
+    push("Schroder")
+    push("Schröder")
+  }
+
+  if (parts.length >= 2) {
+    push(parts.slice(0, 2).join(" "))
+    push(parts.slice(-2).join(" "))
+  }
+
+  if (/\bda\b/i.test(stripped)) {
+    push(stripped.replace(/\bda\b/gi, "").replace(/\s+/g, " ").trim())
+    push(`Da ${last}`)
+
+    const daIndex = parts.findIndex((part) => /^da$/i.test(part))
+    if (daIndex >= 0 && daIndex < parts.length - 1) {
+      push(parts.slice(daIndex).join(" "))
+      push(parts.slice(daIndex - 1 >= 0 ? daIndex - 1 : daIndex).join(" "))
+    }
+  }
+
+  if (/\bde\b/i.test(stripped)) {
+    push(stripped.replace(/\bde\b/gi, "").replace(/\s+/g, " ").trim())
+  }
+
+  if (/\bherb\b/i.test(baseName)) {
+    push(baseName.replace(/\bHerb\b/i, "Herbert"))
+  }
+
+  if (/\bmoe\b/i.test(baseName)) {
+    push(baseName.replace(/\bMoe\b/i, "Moritz"))
+  }
+
+  if (parts.length >= 2) {
+    const firstInitial = first.replace(/[^a-z]/gi, "").charAt(0)
+    if (firstInitial) {
+      push(`${firstInitial} ${last}`)
+      push(`${firstInitial}. ${last}`)
+    }
+  }
+
+  return ordered.slice(0, 5)
+}
+
+
+
+
+function getTeamOverride(playerName) {
+  const overrides = {
+    
+  }
+
+  return overrides[playerName] || ""
+}
+
+function getManualPlayerStatus(playerName) {
+  const overrides = {
+    // Example:
+    // "LeBron James": "questionable",
+    // "Kawhi Leonard": "probable",
+    // "Player Name": "minutes restriction"
+  }
+
+  return String(overrides[playerName] || "")
+}
+
+function normalizePlayerStatusValue(status) {
+  return String(status || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isUnavailablePlayerStatus(status) {
+  const normalized = normalizePlayerStatusValue(status)
+  if (!normalized) return false
+
+  return [
+    "out",
+    "dnp",
+    "dnp coachs decision",
+    "dnp coaches decision",
+    "inactive",
+    "suspended",
+    "not with team"
+  ].includes(normalized)
+}
+
+
+function shouldRemoveLegForPlayerStatus(row) {
+  if (!row) return false
+  // STEP 3: Prevent filters from removing force-included watched players
+  if (row.__forceInclude) return false
+  return isUnavailablePlayerStatus(row.playerStatus)
+}
+
+function hasGameStarted(gameTime) {
+  const startMs = new Date(gameTime).getTime()
+  if (!Number.isFinite(startMs)) return false
+  return startMs <= Date.now()
+}
+
+function isPregameEligibleRow(row) {
+  if (!row?.gameTime) return false
+  const gameMs = new Date(row.gameTime).getTime()
+  if (!Number.isFinite(gameMs)) return false
+  return gameMs > Date.now()
+}
+
+
+function isManualOverridePlayer(playerName) {
+  return Boolean(MANUAL_PLAYER_OVERRIDES[playerName])
+}
+
+function isSafeSlipAllowedPropType(propType) {
+  return true
+}
+
+
+function teamAbbr(teamName) {
+  const map = {
+    "Atlanta Hawks": "ATL",
+    "Boston Celtics": "BOS",
+    "Brooklyn Nets": "BKN",
+    "Charlotte Hornets": "CHA",
+    "Chicago Bulls": "CHI",
+    "Cleveland Cavaliers": "CLE",
+    "Dallas Mavericks": "DAL",
+    "Denver Nuggets": "DEN",
+    "Detroit Pistons": "DET",
+    "Golden State Warriors": "GSW",
+    "Houston Rockets": "HOU",
+    "Indiana Pacers": "IND",
+    "Los Angeles Clippers": "LAC",
+    "Los Angeles Lakers": "LAL",
+    "Memphis Grizzlies": "MEM",
+    "Miami Heat": "MIA",
+    "Milwaukee Bucks": "MIL",
+    "Minnesota Timberwolves": "MIN",
+    "New Orleans Pelicans": "NOP",
+    "New York Knicks": "NYK",
+    "Oklahoma City Thunder": "OKC",
+    "Orlando Magic": "ORL",
+    "Philadelphia 76ers": "PHI",
+    "Phoenix Suns": "PHX",
+    "Portland Trail Blazers": "POR",
+    "Sacramento Kings": "SAC",
+    "San Antonio Spurs": "SAS",
+    "Toronto Raptors": "TOR",
+    "Utah Jazz": "UTA",
+    "Washington Wizards": "WAS"
+  }
+
+  return map[teamName] || teamName
+}
+
+function getDetroitDateParts(dateString) {
+  if (!dateString) return null
+
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return null
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Detroit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false
+  })
+
+  const parts = formatter.formatToParts(date)
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return {
+    year: lookup.year,
+    month: lookup.month,
+    day: lookup.day,
+    hour: Number(lookup.hour || 0)
+  }
+}
+
+function getLocalSlateDateKey(dateString) {
+  const parts = getDetroitDateParts(dateString)
+  if (!parts) return ""
+
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+function formatDetroitLocalTimestamp(dateString) {
+  if (!dateString) return ""
+
+  const date = new Date(dateString)
+  if (Number.isNaN(date.getTime())) return ""
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Detroit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZoneName: "short"
+  }).format(date)
+}
+
+function getPrimarySlateDateKeyFromRows(rows = []) {
+  const counts = new Map()
+
+  for (const row of rows) {
+    const key = getLocalSlateDateKey(row?.gameTime)
+    if (!key) continue
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+
+  let bestKey = ""
+  let bestCount = -1
+
+  for (const [key, count] of counts.entries()) {
+    if (count > bestCount) {
+      bestKey = key
+      bestCount = count
+    }
+  }
+
+  return bestKey
+}
+
+
+function getCurrentTeamCodeFromStats(stats) {
+  if (!stats || !stats.length) return ""
+
+  for (let i = stats.length - 1; i >= 0; i -= 1) {
+    const code = String(stats[i]?.team?.code || "").toUpperCase().trim()
+    if (code) return code
+  }
+
+  return ""
+}
+
+
+
+function playerFitsMatchup(row) {
+  const team = String(row.team || "").toUpperCase()
+  return team === teamAbbr(row.awayTeam) || team === teamAbbr(row.homeTeam)
+}
+
+function getOpponentForRow(row) {
+  const team = String(row.team || "").toUpperCase()
+  const away = teamAbbr(row.awayTeam)
+  const home = teamAbbr(row.homeTeam)
+
+  if (team && team === away) return row.homeTeam
+  if (team && team === home) return row.awayTeam
+
+  return row.awayTeam || row.homeTeam || ""
+}
+
+
+function propValueFromApiSportsLog(log, propType) {
+  switch (propType) {
+    case "Points":
+      return Number(log.points || 0)
+    case "Rebounds":
+      return Number(log.totReb || 0)
+    case "Assists":
+      return Number(log.assists || 0)
+    case "Threes":
+      return Number(log.tpm || 0)
+    case "PRA":
+      return Number(log.points || 0) + Number(log.totReb || 0) + Number(log.assists || 0)
+    default:
+      return null
+  }
+}
+
+
+function getDvpScore(opponent, propType) {
+  const dvpTable = {
+    "Cleveland Cavaliers": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    "Philadelphia 76ers": { Assists: 1, Points: 0, Rebounds: 0, Threes: 0, PRA: 0 },
+    "Phoenix Suns": { Assists: 1, Points: 1, Rebounds: -1, Threes: 1, PRA: 1 },
+    "Charlotte Hornets": { Assists: 1, Points: 1, Rebounds: 1, Threes: 1, PRA: 1 },
+    "Los Angeles Lakers": { Assists: 0, Points: 1, Rebounds: 1, Threes: 1, PRA: 1 },
+    "New York Knicks": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    // DVP UPGRADE: more team entries
+    "Boston Celtics": { Assists: -1, Points: -1, Rebounds: -1, Threes: -1, PRA: -1 },
+    "Atlanta Hawks": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Miami Heat": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    "Orlando Magic": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    "Washington Wizards": { Assists: 1, Points: 1, Rebounds: 1, Threes: 1, PRA: 1 },
+    "San Antonio Spurs": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Milwaukee Bucks": { Assists: 0, Points: 1, Rebounds: 1, Threes: 0, PRA: 1 },
+    "Sacramento Kings": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Denver Nuggets": { Assists: 0, Points: 0, Rebounds: 0, Threes: 0, PRA: 0 },
+    "Los Angeles Clippers": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    "Dallas Mavericks": { Assists: 0, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Detroit Pistons": { Assists: 0, Points: 1, Rebounds: 1, Threes: 0, PRA: 1 },
+    "Houston Rockets": { Assists: -1, Points: -1, Rebounds: 1, Threes: -1, PRA: -1 },
+    "Indiana Pacers": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Brooklyn Nets": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Chicago Bulls": { Assists: 0, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Golden State Warriors": { Assists: 1, Points: 0, Rebounds: -1, Threes: 1, PRA: 0 },
+    "Memphis Grizzlies": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Minnesota Timberwolves": { Assists: -1, Points: -1, Rebounds: 1, Threes: -1, PRA: -1 },
+    "New Orleans Pelicans": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Oklahoma City Thunder": { Assists: -1, Points: -1, Rebounds: 0, Threes: -1, PRA: -1 },
+    "Portland Trail Blazers": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Toronto Raptors": { Assists: 1, Points: 1, Rebounds: 0, Threes: 1, PRA: 1 },
+    "Utah Jazz": { Assists: 1, Points: 1, Rebounds: 1, Threes: 1, PRA: 1 }
+    // "Los Angeles Lakers" already exists, do not duplicate
+  }
+
+  const teamRow = dvpTable[opponent]
+  if (!teamRow) return 0
+  return teamRow[propType] || 0
+}
+
+
+function getVolatilityPenalty(row) {
+  let penalty = 0
+
+  const edge = Number(row.edge || 0)
+  const hit = parseHitRate(row.hitRate)
+  const odds = Number(row.odds || 0)
+  const prop = row.propType
+  const side = row.side
+
+  if (side === "Over" && edge < 2) penalty += 6
+  if (side === "Over" && hit < 0.7) penalty += 6
+
+  if (prop === "Points" && row.avgMin >= 30 && edge < 2.5) penalty += 4
+
+  if (odds < -170) penalty += 8
+  else if (odds < -150) penalty += 4
+
+  if (row.avgMin < 28) penalty += 4
+
+  if (edge < 1) penalty += 8
+  else if (edge < 1.5) penalty += 4
+
+  return penalty
+}
+
+function getPracticalSafetyBonus(row) {
+  let bonus = 0
+
+  const edge = Number(row.edge || 0)
+  const hit = parseHitRate(row.hitRate)
+  const odds = Number(row.odds || 0)
+
+  if (hit >= 0.8) bonus += 8
+  else if (hit >= 0.7) bonus += 4
+
+  if (edge >= 3) bonus += 8
+  else if (edge >= 2) bonus += 4
+
+  if (odds >= -140 && odds <= 110) bonus += 4
+
+  if (row.propType === "Rebounds" || row.propType === "Assists") bonus += 2
+
+  return bonus
+}
+
+function getMarketEdgeBonus(row) {
+  const odds = Number(row.odds || 0)
+  const edge = Number(row.edge || 0)
+  const hitRate = parseHitRate(row.hitRate)
+
+  let bonus = 0
+
+  if (edge >= 4) bonus += 10
+  else if (edge >= 3) bonus += 7
+  else if (edge >= 2) bonus += 4
+  else if (edge >= 1.5) bonus += 2
+
+  if (hitRate >= 0.8 && odds >= -150 && odds <= 125) bonus += 4
+  else if (hitRate >= 0.7 && odds >= -165 && odds <= 140) bonus += 2
+
+  if (odds > 0 && edge >= 2) bonus += 2
+
+  return bonus
+}
+
+function getSharpSteamBonus(row) {
+  const side = String(row.side || "")
+  const lineMove = Number(row.lineMove || 0)
+  const oddsMove = Number(row.oddsMove || 0)
+  const edge = Number(row.edge || 0)
+  const hitRate = parseHitRate(row.hitRate)
+
+  let bonus = 0
+
+  // Sharp steam = the market moving in the same direction as the bet.
+  if (side === "Over") {
+    if (lineMove >= 1) bonus += 10
+    else if (lineMove >= 0.5) bonus += 6
+
+    if (oddsMove <= -20) bonus += 5
+    else if (oddsMove <= -10) bonus += 3
+
+    if (lineMove <= -1) bonus -= 8
+    else if (lineMove <= -1) bonus -= 4
+  }
+
+  if (side === "Under") {
+    if (lineMove <= -1) bonus += 10
+    else if (lineMove <= -1) bonus += 6
+
+    if (oddsMove <= -20) bonus += 5
+    else if (oddsMove <= -10) bonus += 3
+
+    if (lineMove >= 1) bonus -= 8
+    else if (lineMove >= 0.5) bonus -= 4
+  }
+
+  // Only trust steam more when there is some actual support already.
+  if (edge < 1) bonus -= 3
+  if (hitRate < 0.6) bonus -= 3
+
+  return bonus
+}
+
+function scorePropRow(row) {
+  const hitRateValue = parseHitRate(row.hitRate)
+  const line = Number(row.line || 0)
+  const edge = Number(row.edge || 0)
+  const odds = Number(row.odds || 0)
+  const avgMin = Number(row.avgMin || 0)
+  const minStd = Number(row.minStd || 0)
+  const valueStd = Number(row.valueStd || 0)
+  const minFloor = Number(row.minFloor || 0)
+  const recent3Avg = Number(row.recent3Avg || 0)
+  const recent5Avg = Number(row.recent5Avg || 0)
+  const l10Avg = Number(row.l10Avg || 0)
+  const lineMove = Number(row.lineMove || 0)
+  const oddsMove = Number(row.oddsMove || 0)
+  const minutesRisk = String(row.minutesRisk || "")
+  const trendRisk = String(row.trendRisk || "")
+  const injuryRisk = String(row.injuryRisk || "")
+
+  let score = 0
+
+  if (row.edge !== null && line > 0) {
+    const edgeBase = Math.max(line, 5)
+    const normalizedEdge = edge / edgeBase
+    score += normalizedEdge * 120
+  }
+
+  score += hitRateValue * 55
+
+  if (row.avgMin !== null) {
+    if (avgMin >= 34) score += 10
+    else if (avgMin >= 30) score += 7
+    else if (avgMin >= 28) score += 4
+    else if (avgMin >= 26) score += 1
+    else score -= 10
+  }
+
+  if (odds >= -135 && odds <= 110) score += 6
+  else if (odds < -170) score -= 10
+  else if (odds < -150) score -= 5
+
+  const dvp = getDvpScore(getOpponentForRow(row), row.propType)
+  if (row.side === "Over") score += dvp * 5
+  if (row.side === "Under") score -= dvp * 5
+
+  if (row.propType === "Assists") {
+    if (line <= 5.5) score += 5
+    else if (line <= 6.5) score += 2
+    else if (line >= 8.5) score -= 6
+  }
+
+  if (row.propType === "Rebounds") {
+    if (line <= 8.5) score += 6
+    else if (line >= 11.5) score -= 5
+  }
+
+  if (row.propType === "Threes") {
+    if (line <= 1.5) score += 7
+    else if (line <= 2.5) score += 4
+    else if (line <= 3.5) score += 1 // Small bonus for reasonable 3+ lines
+    else if (line >= 4.5 && row.side === "Over") score -= 5 // Reduced penalty
+    else if (line >= 3.5 && row.side === "Over") score -= 3 // Reduced from -7
+    
+    // Allow higher 3-point lines for high hit rate players
+    const hitRate = parseHitRate(row.hitRate)
+    if (line >= 3.5 && hitRate >= 0.75) score += 2
+  }
+
+  if (row.propType === "Points") {
+    if (line <= 17.5) score += 5
+    else if (line >= 24.5) score -= 6
+    else if (line >= 29.5) score -= 12
+  }
+
+  if (row.propType === "PRA") {
+    // Reduced base penalty for PRA, allow when justified
+    score -= 6 // Reduced from -12
+    
+    // Less harsh penalties for high lines
+    if (line >= 35) score -= 4 // Reduced from -8 at 30, -15 at 40
+    else if (line >= 40) score -= 8
+    
+    // Bonus for high hit rate players on PRA (like consistent performers)
+    const hitRate = parseHitRate(row.hitRate)
+    if (hitRate >= 0.7) score += 4 // Allow PRA for consistent players
+    if (hitRate >= 0.8) score += 3
+    
+    // Bonus for good edge on PRA
+    if (edge >= 3) score += 3
+  }
+
+  if (row.side === "Over") {
+    if (row.propType === "Rebounds" && line <= 8.5) score += 3
+    if (row.propType === "Threes" && line <= 1.5) score += 4
+    if (row.propType === "Points" && line >= 24.5) score -= 5
+    if (row.propType === "PRA") score -= 2 // Reduced from -6
+  }
+
+  if (row.side === "Under") {
+    if (row.propType === "Points" && line >= 24.5) score += 5
+    if (row.propType === "Rebounds" && line >= 10.5) score += 4
+    if (row.propType === "PRA" && line >= 30) score += 8
+    if (row.propType === "Threes" && line >= 3.5) score += 4
+    if (row.propType === "Assists" && line >= 7.5) score += 4
+  }
+
+  // minutes stability
+  if (row.minStd !== null) {
+    if (minStd <= 2.5) score += 8
+    else if (minStd <= 4) score += 5
+    else if (minStd <= 6) score += 2
+    else if (minStd >= 9) score -= 10
+    else if (minStd >= 7) score -= 5
+  }
+
+  // role floor
+  if (row.minFloor !== null) {
+    if (minFloor >= 30) score += 8
+    else if (minFloor >= 27) score += 4
+    else if (minFloor < 24) score -= 10
+  }
+  if (minutesRisk === "high") score -= 8
+  else if (minutesRisk === "medium") score -= 3
+  else if (minutesRisk === "low") score += 1
+
+  if (trendRisk === "high") score -= 8
+  else if (trendRisk === "medium") score -= 3
+
+  if (injuryRisk === "high") score -= 10
+  else if (injuryRisk === "medium") score -= 4
+
+  // stat volatility
+  if (row.valueStd !== null) {
+    if (row.propType === "Points" || row.propType === "PRA") {
+      if (valueStd >= 10) score -= 8
+      else if (valueStd >= 8) score -= 4
+    } else {
+      if (valueStd >= 5) score -= 6
+      else if (valueStd >= 4) score -= 3
+    }
+  }
+
+  // recent form / trend
+  if (row.recent3Avg !== null && row.recent5Avg !== null) {
+    if (row.side === "Over") {
+      if (recent3Avg >= recent5Avg && recent5Avg >= l10Avg) score += 8
+      else if (recent3Avg < recent5Avg && recent5Avg < l10Avg) score -= 8
+    }
+
+    if (row.side === "Under") {
+      if (recent3Avg <= recent5Avg && recent5Avg <= l10Avg) score += 8
+      else if (recent3Avg > recent5Avg && recent5Avg > l10Avg) score -= 8
+    }
+  }
+
+  score += getPracticalSafetyBonus(row)
+  score += getMarketEdgeBonus(row)
+
+  // market movement adjustments
+  if (row.side === "Over") {
+    if (lineMove >= 1) score -= 8
+    else if (lineMove >= 0.5) score -= 4
+    else if (lineMove <= -1) score += 6
+    else if (lineMove <= -1) score += 3
+  }
+
+  if (row.side === "Under") {
+    if (lineMove <= -1) score -= 8
+    else if (lineMove <= -1) score -= 4
+    else if (lineMove >= 1) score += 6
+    else if (lineMove >= 0.5) score += 3
+  }
+
+  if (oddsMove <= -30) score -= 5
+  else if (oddsMove <= -15) score -= 3
+  else if (oddsMove >= 30) score += 4
+  else if (oddsMove >= 15) score += 2
+
+  score += getSharpSteamBonus(row)
+  score -= getVolatilityPenalty(row)
+
+  return Number(score.toFixed(1))
+}
+function dedupeBestProps(rows) {
+  const map = new Map()
+
+  for (const row of rows) {
+    if (shouldRemoveLegForPlayerStatus(row)) continue
+    const key = `${row.player}-${row.propType}-${row.line}-${row.side}`
+
+    if (!map.has(key)) {
+      map.set(key, row)
+    } else {
+      const existing = map.get(key)
+      if (Number(row.odds) > Number(existing.odds)) {
+        map.set(key, row)
+      }
+    }
+  }
+
+  return Array.from(map.values())
+}
+
+function buildConstrainedSlip(rows, legCount, options = {}) {
+  const { maxPerPlayer = 1, maxPerGame = 2 } = options
+
+  const chosen = []
+  const playerCounts = new Map()
+  const gameCounts = new Map()
+
+  for (const row of rows) {
+    const playerCount = playerCounts.get(row.player) || 0
+    const gameCount = gameCounts.get(row.matchup) || 0
+
+    if (playerCount >= maxPerPlayer) continue
+    if (gameCount >= maxPerGame) continue
+
+    chosen.push(row)
+    playerCounts.set(row.player, playerCount + 1)
+    gameCounts.set(row.matchup, gameCount + 1)
+
+    if (chosen.length >= legCount) break
+  }
+
+  return chosen
+}
+
+function dedupeSlipLegs(rows) {
+  const seen = new Set()
+  const out = []
+
+  for (const row of rows) {
+    if (shouldRemoveLegForPlayerStatus(row)) continue
+    const key = `${row.player}-${row.propType}-${row.side}-${Number(row.line)}-${row.book}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+
+  return out
+}
+
+function hasConflict(existingLegs, candidate) {
+  return existingLegs.some((leg) =>
+    leg.player === candidate.player &&
+    leg.propType === candidate.propType &&
+    Number(leg.line) === Number(candidate.line) &&
+    leg.side !== candidate.side
+  )
+}
+
+function hasSameGameStatSide(existingLegs, candidate) {
+  return existingLegs.some((leg) =>
+    leg.matchup === candidate.matchup &&
+    leg.propType === candidate.propType &&
+    leg.side === candidate.side
+  )
+}
+
+function hasSingleEventId(legs = []) {
+  if (!Array.isArray(legs) || !legs.length) return false
+
+  const firstEventId = String(legs[0]?.eventId || "").trim()
+  if (!firstEventId) return false
+
+  return legs.every((leg) => String(leg?.eventId || "").trim() === firstEventId)
+}
+
+function buildTieredSlip(sources, legCount, options = {}) {
+  const {
+    maxPerPlayer = 1,
+    maxPerGame = 2,
+    preferredBook = null,
+    skip = 0,
+    minScore = 0,
+    excludePlayers = [],
+    excludeLegKeys = [],
+    avoidFragile = false,
+    forceUniquePlayers = true,
+    excludeManualOverridePlayers = false,
+    allowedPropTypes = null,
+    blockSameGameStatSide = false
+  } = options
+
+  const chosen = []
+  const playerCounts = new Map()
+  const gameCounts = new Map()
+
+  const excludedPlayers = new Set(excludePlayers)
+  const excludedLegSet = new Set(excludeLegKeys)
+
+  let seenEligible = 0
+
+  for (const sourceRows of sources) {
+    const rows = preferredBook
+      ? sourceRows.filter((row) => row.book === preferredBook)
+      : sourceRows
+
+    for (const row of rows) {
+      if (shouldRemoveLegForPlayerStatus(row)) continue
+      const legKey = `${row.player}-${row.propType}-${row.side}-${Number(row.line)}-${row.book}`
+
+      if (excludedPlayers.has(row.player)) continue
+      if (excludedLegSet.has(legKey)) continue
+      if (Number(row.score || 0) < Number(minScore || 0)) continue
+      if (avoidFragile && isFragileLeg(row)) continue
+      if (excludeManualOverridePlayers && isManualOverridePlayer(row.player)) continue
+      if (Array.isArray(allowedPropTypes) && !allowedPropTypes.includes(row.propType)) continue
+
+      // Reject legs with high risk. Medium/unknown minutes/injury risk are still usable.
+      if (String(row.minutesRisk || "").toLowerCase() === "high") continue
+      if (String(row.injuryRisk || "").toLowerCase() === "high") continue
+      if (row.trendRisk === "high") continue
+      if ((row.avgMin || 0) > 0 && (row.avgMin || 0) < 20) continue
+      if ((row.minFloor || 0) > 0 && (row.minFloor || 0) < 12) continue
+
+      const playerCount = playerCounts.get(row.player) || 0
+      const gameCount = gameCounts.get(row.matchup) || 0
+
+      if (forceUniquePlayers && samePlayerInSlip(chosen, row)) continue
+      if (playerCount >= maxPerPlayer) continue
+      if (gameCount >= maxPerGame) continue
+      if (hasConflict(chosen, row)) continue
+      if (blockSameGameStatSide && hasSameGameStatSide(chosen, row)) continue
+
+      if (seenEligible < skip) {
+        seenEligible += 1
+        continue
+      }
+
+      chosen.push(row)
+      playerCounts.set(row.player, playerCount + 1)
+      gameCounts.set(row.matchup, gameCount + 1)
+
+      if (chosen.length >= legCount) {
+        return dedupeSlipLegs(chosen)
+      }
+    }
+  }
+
+  return dedupeSlipLegs(chosen)
+}
+
+
+function collectPlayers(legs = []) {
+  return [...new Set(legs.map((leg) => leg.player))]
+}
+
+function collectLegKeys(legs = []) {
+  return legs.map(
+    (leg) => `${leg.player}-${leg.propType}-${leg.side}-${Number(leg.line)}-${leg.book}`
+  )
+}
+
+function appendUniqueLegs(base, additions, maxLen, options = {}) {
+  const {
+    maxPerPlayer = Infinity,
+    maxPerGame = Infinity,
+    forceUniquePlayers = false
+  } = options
+
+  const out = [...base]
+
+  const getPlayerCount = (player) =>
+    out.filter((leg) => leg.player === player).length
+
+  const getGameCount = (matchup) =>
+    out.filter((leg) => leg.matchup === matchup).length
+
+  for (const row of additions || []) {
+    if (shouldRemoveLegForPlayerStatus(row)) continue
+    if (out.length >= maxLen) break
+    if (!row) continue
+
+    if (forceUniquePlayers && samePlayerInSlip(out, row)) continue
+    if (hasConflict(out, row)) continue
+    if (getPlayerCount(row.player) >= maxPerPlayer) continue
+    if (getGameCount(row.matchup) >= maxPerGame) continue
+
+    const alreadyExists = out.some(
+      (leg) =>
+        leg.player === row.player &&
+        leg.propType === row.propType &&
+        leg.side === row.side &&
+        Number(leg.line) === Number(row.line) &&
+        leg.book === row.book
+    )
+
+    if (alreadyExists) continue
+    out.push(row)
+  }
+
+  return out
+}
+
+function buildTierWithFallback(sources, legCount, strategies = []) {
+  let out = []
+
+  for (const strategy of strategies) {
+    if (out.length >= legCount) break
+
+    const picked = buildTieredSlip(sources, legCount, {
+      ...strategy,
+      blockSameGameStatSide: Boolean(strategy.blockSameGameStatSide),
+      excludePlayers: [
+        ...(strategy.excludePlayers || []),
+        ...collectPlayers(out)
+      ],
+      excludeLegKeys: [
+        ...(strategy.excludeLegKeys || []),
+        ...collectLegKeys(out)
+      ]
+    })
+
+    out = appendUniqueLegs(out, picked, legCount, {
+      maxPerPlayer: strategy.maxPerPlayer ?? Infinity,
+      maxPerGame: strategy.maxPerGame ?? Infinity,
+      forceUniquePlayers: Boolean(strategy.forceUniquePlayers)
+    })
+  }
+
+  return out.slice(0, legCount)
+}
+
+function validateSlip(slip, maxPerPlayer = 1, maxPerGame = 1) {
+  const playerCounts = new Map()
+  const gameCounts = new Map()
+
+  for (const leg of slip) {
+    const playerCount = playerCounts.get(leg.player) || 0
+    const gameCount = gameCounts.get(leg.matchup) || 0
+
+    if (playerCount >= maxPerPlayer) return false
+    if (gameCount >= maxPerGame) return false
+
+    playerCounts.set(leg.player, playerCount + 1)
+    gameCounts.set(leg.matchup, gameCount + 1)
+  }
+
+  return true
+}
+
+function highestHitRateSortValue(row) {
+  const hitRate = parseHitRate(row.hitRate)
+  const minutesRiskRank =
+    row.minutesRisk === "low" ? 3 :
+    row.minutesRisk === "medium" ? 2 :
+    row.minutesRisk === "high" ? 1 : 0
+  const trendRiskRank =
+    row.trendRisk === "low" ? 3 :
+    row.trendRisk === "medium" ? 2 :
+    row.trendRisk === "high" ? 1 : 0
+  const injuryRiskRank =
+    row.injuryRisk === "low" ? 3 :
+    row.injuryRisk === "medium" ? 2 :
+    row.injuryRisk === "high" ? 1 : 0
+
+  return (
+    hitRate * 1000 +
+    Number(row.minFloor || 0) * 2 +
+    Number(row.avgMin || 0) * 1.5 -
+    Number(row.minStd || 0) * 8 -
+    Number(row.valueStd || 0) * 6 +
+    minutesRiskRank * 12 +
+    trendRiskRank * 10 +
+    injuryRiskRank * 10 +
+    Number(row.score || 0) * 0.35
+  )
+}
+
+function bestValueSortValue(row) {
+  const hitRate = parseHitRate(row.hitRate)
+  return (
+    Number(row.score || 0) * 1.25 +
+    Number(row.edge || 0) * 18 +
+    hitRate * 120 +
+    Number(row.odds || 0) * 0.04 -
+    Number(row.minStd || 0) * 3 -
+    Number(row.valueStd || 0) * 2
+  )
+}
+
+/**
+ * ML-weighted sort value: combines heuristic score with ML-predicted probability.
+ * Higher values = better picks.
+ */
+function mlWeightedSortValue(row) {
+  const heuristicScore = Number(row.score || 0)
+  const mlProb = mlScorer.scoreRow(row)
+  
+  if (mlProb === null) {
+    // Fallback to heuristic if ML scorer unavailable
+    return heuristicScore
+  }
+  
+  const hitRate = parseHitRate(row.hitRate)
+  const edge = Number(row.edge || 0)
+  
+  // Weighted combination: heuristic + ML probability + edge + hit rate
+  return (
+    heuristicScore * 0.4 +
+    mlProb * 100 * 0.4 +
+    edge * 15 * 0.1 +
+    hitRate * 60 * 0.1
+  )
+}
+
+function sortRowsForHighestHitRate(rows = []) {
+  return [...rows].sort((a, b) => {
+    return highestHitRateSortValue(b) - highestHitRateSortValue(a)
+  })
+}
+
+function sortRowsForBestValue(rows = []) {
+  return [...rows].sort((a, b) => {
+    return bestValueSortValue(b) - bestValueSortValue(a)
+  })
+}
+
+/**
+ * Sort rows by ML-weighted score (heuristic + ML probability).
+ */
+function sortRowsForMLWeightedScore(rows = []) {
+  return [...rows].sort((a, b) => {
+    return mlWeightedSortValue(b) - mlWeightedSortValue(a)
+  })
+}
+
+/**
+ * ML-weighted hit rate sort: blends hit rate preference with ML probability.
+ * Prioritizes high-accuracy picks while incorporating ML confidence.
+ */
+function mlWeightedHighestHitRateSortValue(row) {
+  const hitRate = parseHitRate(row.hitRate)
+  const minutesRiskRank =
+    row.minutesRisk === "low" ? 3 :
+    row.minutesRisk === "medium" ? 2 :
+    row.minutesRisk === "high" ? 1 : 0
+  const trendRiskRank =
+    row.trendRisk === "low" ? 3 :
+    row.trendRisk === "medium" ? 2 :
+    row.trendRisk === "high" ? 1 : 0
+  const injuryRiskRank =
+    row.injuryRisk === "low" ? 3 :
+    row.injuryRisk === "medium" ? 2 :
+    row.injuryRisk === "high" ? 1 : 0
+  
+  // Base hit-rate scoring
+  const baseScore = (
+    hitRate * 1000 +
+    Number(row.minFloor || 0) * 2 +
+    Number(row.avgMin || 0) * 1.5 -
+    Number(row.minStd || 0) * 8 -
+    Number(row.valueStd || 0) * 6 +
+    minutesRiskRank * 12 +
+    trendRiskRank * 10 +
+    injuryRiskRank * 10 +
+    Number(row.score || 0) * 0.35
+  )
+  
+  // Blend with ML probability (60% hit rate, 40% ML probability)
+  const mlProb = mlScorer.scoreRow(row)
+  if (mlProb === null) return baseScore
+  
+  return baseScore * 0.6 + mlProb * 100 * 0.4
+}
+
+/**
+ * Sort rows by ML-weighted hit rate (hit rate preference + ML probability).
+ */
+function sortRowsForMLHighestHitRate(rows = []) {
+  return [...rows].sort((a, b) => {
+    return mlWeightedHighestHitRateSortValue(b) - mlWeightedHighestHitRateSortValue(a)
+  })
+}
+
+function makeSlipProfiles() {
+  // NOTE: /parlays uses makeSlipProfiles() — NOT buildLiveDualBestAvailablePayload
+  console.log("[PAYLOAD-DEBUG] ENTER makeSlipProfiles (used by /parlays route)")
+  console.log("[PAYLOAD-DEBUG] makeSlipProfiles oddsSnapshot counts:", {
+    bestProps: (oddsSnapshot.bestProps || []).length,
+    eliteProps: (oddsSnapshot.eliteProps || []).length,
+    strongProps: (oddsSnapshot.strongProps || []).length,
+    playableProps: (oddsSnapshot.playableProps || []).length
+  })
+  const primaryRows = (oddsSnapshot.bestProps || [])
+  if (!primaryRows.length) return {}
+  const elite = (oddsSnapshot.eliteProps || [])
+  const strong = (oddsSnapshot.strongProps || [])
+  const playable = (oddsSnapshot.playableProps || [])
+  const best = (oddsSnapshot.bestProps || [])
+
+  // Use ML-weighted sorting for highest hit rate sources (ML-optimized for maximum win probability)
+  const highestHitRateSources = [
+    sortRowsForMLHighestHitRate(elite),
+    sortRowsForMLHighestHitRate(strong),
+    sortRowsForMLHighestHitRate(playable),
+    sortRowsForMLHighestHitRate(best)
+  ]
+
+  // Best value sources for balanced/lotto strategies
+  const bestValueSources = [
+    sortRowsForBestValue(elite),
+    sortRowsForBestValue(strong),
+    sortRowsForBestValue(playable),
+    sortRowsForBestValue(best)
+  ]
+
+  const profiles = {}
+
+  // Conservative: High hit rate, safe props, 2-4 legs
+  const conservativeLegCounts = [2, 3, 4]
+  for (const legCount of conservativeLegCounts) {
+    const conservativeSlip = buildTierWithFallback(highestHitRateSources, legCount, [
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 2,
+        minScore: 85,
+        avoidFragile: true,
+        forceUniquePlayers: true,
+        blockSameGameStatSide: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"] // No PRA for conservative
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 2,
+        minScore: 75,
+        avoidFragile: true,
+        forceUniquePlayers: true,
+        blockSameGameStatSide: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 2,
+        minScore: 65,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        blockSameGameStatSide: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      }
+    ])
+
+    profiles[`conservative${legCount}`] = conservativeSlip.length === legCount
+      ? [...conservativeSlip].sort(
+          (a, b) =>
+            highestHitRateSortValue(b) - highestHitRateSortValue(a)
+        )
+      : []
+  }
+
+  // Balanced: Mix of hit rate and value, moderate risk, 3-6 legs
+  const balancedLegCounts = [3, 4, 5, 6]
+  for (const legCount of balancedLegCounts) {
+    const balancedSlip = buildTierWithFallback(bestValueSources, legCount, [
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        minScore: 70,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes", "PRA"] // Include PRA for balanced
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        minScore: 60,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        minScore: 50,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: false,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+      }
+    ])
+
+    profiles[`balanced${legCount}`] = balancedSlip.length === legCount
+      ? [...balancedSlip].sort(
+          (a, b) =>
+            bestValueSortValue(b) - bestValueSortValue(a)
+        )
+      : []
+  }
+
+  // Lotto: Higher risk/reward, include volatile props, 4-8 legs
+  const lottoLegCounts = [4, 5, 6, 7, 8]
+  for (const legCount of lottoLegCounts) {
+    const lottoSlip = buildTierWithFallback(bestValueSources, legCount, [
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 3,
+        minScore: 50,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: false,
+        allowedPropTypes: null // Allow all prop types for lotto
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 3,
+        minScore: 40,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 3,
+        maxPerGame: 4,
+        minScore: 30,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 3,
+        maxPerGame: 4,
+        minScore: 20,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        blockSameGameStatSide: false,
+        allowedPropTypes: null
+      }
+    ])
+
+    profiles[`lotto${legCount}`] = lottoSlip.length === legCount
+      ? [...lottoSlip].sort(
+          (a, b) =>
+            bestValueSortValue(b) - bestValueSortValue(a)
+        )
+      : []
+  }
+
+  return profiles
+}
+function buildClosestBookTargetCandidate(book, target, options = {}) {
+  const legCounts = [2, 3, 4, 5, 6, 7]
+  const candidates = []
+  const fallbackCandidates = []
+  const { allowUndershoot = false, allowFallbackBelowFloor = false } = options
+
+  for (const legCount of legCounts) {
+    const built = buildTargetBookSlip(book, legCount)
+    const price = parlayPriceFromLegs(built)
+
+    if (!price) continue
+    if (!Array.isArray(built) || built.length !== legCount) continue
+
+    const projectedReturn = estimateReturn(5, price.american)
+    if (!projectedReturn) continue
+
+    if (!allowUndershoot && !allowFallbackBelowFloor) {
+      if (target >= 1000 && projectedReturn < 800) continue
+      if (target >= 500 && projectedReturn < 425) continue
+      if (target >= 300 && projectedReturn < 255) continue
+      if (target >= 100 && projectedReturn < 90) continue
+      if (target >= 50 && projectedReturn < 40) continue
+    }
+
+    const trueProbability = Number(trueParlayProbabilityFromLegs(built) || 0)
+    const distanceFromTarget = Number(Math.abs(projectedReturn - target).toFixed(2))
+    const relativeMiss = distanceFromTarget / Math.max(target, 1)
+    const closenessScore = Math.max(0, 1 - relativeMiss)
+
+    const overshoot = projectedReturn > target
+    const overshootRatio = overshoot
+      ? (projectedReturn - target) / Math.max(target, 1)
+      : 0
+    const undershootRatio = projectedReturn < target
+      ? (target - projectedReturn) / Math.max(target, 1)
+      : 0
+
+    const minPreferredPayout =
+      target === 50 ? 40 :
+      target === 100 ? 90 :
+      target === 300 ? 255 :
+      target === 500 ? 425 :
+      target === 1000 ? 825 : 0
+
+    const maxPreferredPayout =
+      target === 50 ? 62 :
+      target === 100 ? 125 :
+      target === 300 ? 390 :
+      target === 500 ? 650 :
+      target === 1000 ? 1350 : Infinity
+
+    const isPreferredRange =
+      projectedReturn >= minPreferredPayout &&
+      projectedReturn <= maxPreferredPayout
+
+    let candidateScore =
+      closenessScore * 0.88 +
+      trueProbability * 0.12
+
+    if (undershootRatio > 0.2) {
+      candidateScore -= 0.9
+    } else if (undershootRatio > 0.1) {
+      candidateScore -= 0.45
+    } else if (undershootRatio > 0.03) {
+      candidateScore -= 0.15
+    }
+
+    if (overshootRatio > 0.35) {
+      candidateScore -= 0.6
+    } else if (overshootRatio > 0.2) {
+      candidateScore -= 0.28
+    } else if (overshootRatio > 0.1) {
+      candidateScore -= 0.1
+    }
+
+    if (target >= 300 && legCount <= 2) candidateScore -= 0.25
+    if (target >= 500 && legCount <= 3) candidateScore -= 0.2
+    if (target >= 1000 && legCount <= 4) candidateScore -= 0.15
+
+    candidateScore = Number(candidateScore.toFixed(4))
+
+    const candidate = {
+      legCount,
+      book,
+      targetPayout: target,
+      actualPayout: projectedReturn,
+      distanceFromTarget,
+      trueProbability,
+      candidateScore,
+      confidence: confidenceFromLegs(built),
+      slip: {
+        book,
+        legs: built,
+        price,
+        projectedReturn,
+        trueProbability,
+        confidence: confidenceFromLegs(built)
+      },
+      isPreferredRange
+    }
+
+    fallbackCandidates.push(candidate)
+    if (isPreferredRange) candidates.push(candidate)
+  }
+
+  const minTargetPayout =
+    target >= 1000 ? 800 :
+    target >= 500 ? 425 :
+    target >= 300 ? 255 :
+    target >= 100 ? 90 :
+    target >= 50 ? 40 : 0
+
+  const floorFilteredFallbacks = fallbackCandidates.filter(
+    (candidate) => Number(candidate.actualPayout || 0) >= minTargetPayout
+  )
+
+  const pool = candidates.length
+    ? candidates
+    : floorFilteredFallbacks.length
+      ? floorFilteredFallbacks
+      : (allowFallbackBelowFloor ? fallbackCandidates : [])
+  if (!pool.length) return null
+
+  pool.sort((a, b) => {
+    if (b.candidateScore !== a.candidateScore) return b.candidateScore - a.candidateScore
+    if (a.distanceFromTarget !== b.distanceFromTarget) return a.distanceFromTarget - b.distanceFromTarget
+    if (b.trueProbability !== a.trueProbability) return b.trueProbability - a.trueProbability
+
+    const confidenceRank = { High: 3, Medium: 2, Low: 1 }
+    const aConf = confidenceRank[a.confidence] || 0
+    const bConf = confidenceRank[b.confidence] || 0
+    if (bConf !== aConf) return bConf - aConf
+
+    return a.legCount - b.legCount
+  })
+
+  return pool[0]
+}
+
+function buildTargetBookSlip(book, targetLegCount) {
+  const elite = ((oddsSnapshot.eliteProps || []).filter((r) => r.book === book))
+  const strong = ((oddsSnapshot.strongProps || []).filter((r) => r.book === book))
+  const playable = ((oddsSnapshot.playableProps || []).filter((r) => r.book === book))
+  const practicalPlayable = playable.filter((row) => isPracticalCoreLeg(row))
+
+  const safeElite = dedupeByLegSignature(elite.filter((row) => isSafeProp(row)))
+  const safeStrong = dedupeByLegSignature(strong.filter((row) => isSafeProp(row)))
+  const safePracticalPlayable = dedupeByLegSignature(practicalPlayable.filter((row) => isSafeProp(row)))
+  const safePlayable = dedupeByLegSignature(playable.filter((row) => isSafeProp(row)))
+
+  const safestSources = safeElite.length || safeStrong.length
+    ? [safeElite, safeStrong, safePracticalPlayable, safePlayable]
+    : [safePracticalPlayable.length ? safePracticalPlayable : safePlayable]
+
+  if (targetLegCount === 2) {
+    return buildTierWithFallback(safestSources, 2, [
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 100,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 90,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 80,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      }
+    ])
+  }
+
+  if (targetLegCount === 3) {
+    return buildTierWithFallback(safestSources, 3, [
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 95,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 85,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 1,
+        preferredBook: book,
+        minScore: 75,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      }
+    ])
+  }
+
+  if (targetLegCount === 4) {
+    return buildTierWithFallback(safestSources, 4, [
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        preferredBook: book,
+        minScore: 85,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        preferredBook: book,
+        minScore: 75,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      },
+      {
+        maxPerPlayer: 2,
+        maxPerGame: 2,
+        preferredBook: book,
+        minScore: 65,
+        avoidFragile: false,
+        forceUniquePlayers: false,
+        allowedPropTypes: null
+      }
+    ])
+  }
+
+  if (targetLegCount === 5) {
+    return buildTierWithFallback([elite, strong, practicalPlayable, playable], 5, [
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 60,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 52,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 45,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 38,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 30,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      }
+    ])
+  }
+
+  if (targetLegCount === 6) {
+    return buildTierWithFallback([elite, strong, practicalPlayable, playable], 6, [
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 55,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 48,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 40,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 34,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 26,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      }
+    ])
+  }
+
+  if (targetLegCount === 7) {
+    return buildTierWithFallback([elite, strong, practicalPlayable, playable], 7, [
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 48,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 40,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 32,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 24,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      },
+      {
+        maxPerPlayer: 1,
+        maxPerGame: 3,
+        preferredBook: book,
+        minScore: 16,
+        avoidFragile: false,
+        forceUniquePlayers: true,
+        allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+      }
+    ])
+  }
+
+  return buildTierWithFallback([elite, strong, practicalPlayable, playable], 8, [
+    {
+      maxPerPlayer: 1,
+      maxPerGame: 3,
+      preferredBook: book,
+      minScore: 42,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    },
+    {
+      maxPerPlayer: 1,
+      maxPerGame: 3,
+      preferredBook: book,
+      minScore: 34,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    },
+    {
+      maxPerPlayer: 1,
+      maxPerGame: 3,
+      preferredBook: book,
+      minScore: 26,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    },
+    {
+      maxPerPlayer: 1,
+      maxPerGame: 3,
+      preferredBook: book,
+      minScore: 18,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    },
+    {
+      maxPerPlayer: 1,
+      maxPerGame: 3,
+      preferredBook: book,
+      minScore: 10,
+      avoidFragile: false,
+      forceUniquePlayers: true,
+      allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+    }
+  ])
+}
+
+
+
+function buildSafestBookSlip(book, targetLegCount) {
+  const elite = ((oddsSnapshot.eliteProps || []).filter((r) => r.book === book))
+  const strong = ((oddsSnapshot.strongProps || []).filter((r) => r.book === book))
+  const playable = ((oddsSnapshot.playableProps || []).filter((r) => r.book === book))
+
+  const safeElite = dedupeByLegSignature(elite.filter((row) => isSafeProp(row)))
+  const safeStrong = dedupeByLegSignature(strong.filter((row) => isSafeProp(row)))
+  const safePlayable = dedupeByLegSignature(playable.filter((row) => isSafeProp(row)))
+
+  const allSafeRows = dedupeByLegSignature([
+    ...safeElite,
+    ...safeStrong,
+    ...safePlayable
+  ])
+
+  const strictSources = safeElite.length || safeStrong.length
+    ? [safeElite, safeStrong, safePlayable]
+    : [safePlayable]
+
+  const relaxedSources = safeElite.length || safeStrong.length
+    ? [safeElite, safeStrong, safePlayable, allSafeRows]
+    : [allSafeRows]
+
+  const strictStrategy = {
+    maxPerPlayer: 1,
+    maxPerGame: 1,
+    preferredBook: book,
+    avoidFragile: true,
+    forceUniquePlayers: true,
+    allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+  }
+
+  const relaxedStrategy = {
+    maxPerPlayer: 1,
+    maxPerGame: targetLegCount <= 3 ? 1 : 2,
+    preferredBook: book,
+    avoidFragile: false,
+    forceUniquePlayers: true,
+    blockSameGameStatSide: true,
+    allowedPropTypes: ["Points", "Rebounds", "Assists", "Threes"]
+  }
+
+  const buildStrictest = (count) => {
+    if (count === 2) {
+      return buildTierWithFallback(strictSources, 2, [
+        { ...strictStrategy, minScore: 95 },
+        { ...strictStrategy, minScore: 85 },
+        { ...strictStrategy, minScore: 75 }
+      ])
+    }
+
+    if (count === 3) {
+      return buildTierWithFallback(strictSources, 3, [
+        { ...strictStrategy, minScore: 88 },
+        { ...strictStrategy, minScore: 80 },
+        { ...strictStrategy, minScore: 72 },
+        { ...strictStrategy, minScore: 68 }
+      ])
+    }
+
+    if (count === 4) {
+      return buildTierWithFallback(strictSources, 4, [
+        { ...strictStrategy, minScore: 84 },
+        { ...strictStrategy, minScore: 76 },
+        { ...strictStrategy, minScore: 68 },
+        { ...strictStrategy, minScore: 62 }
+      ])
+    }
+
+    if (count === 5) {
+      return buildTierWithFallback(strictSources, 5, [
+        { ...strictStrategy, minScore: 78 },
+        { ...strictStrategy, minScore: 72 },
+        { ...strictStrategy, minScore: 66 },
+        { ...strictStrategy, minScore: 60 }
+      ])
+    }
+
+    if (count === 6) {
+      return buildTierWithFallback(strictSources, 6, [
+        { ...strictStrategy, minScore: 74 },
+        { ...strictStrategy, minScore: 68 },
+        { ...strictStrategy, minScore: 62 },
+        { ...strictStrategy, minScore: 56 }
+      ])
+    }
+
+    if (count === 7) {
+      return buildTierWithFallback(strictSources, 7, [
+        { ...strictStrategy, minScore: 70 },
+        { ...strictStrategy, minScore: 64 },
+        { ...strictStrategy, minScore: 58 },
+        { ...strictStrategy, minScore: 52 }
+      ])
+    }
+
+    if (count === 8) {
+      return buildTierWithFallback(strictSources, 8, [
+        { ...strictStrategy, minScore: 66 },
+        { ...strictStrategy, minScore: 60 },
+        { ...strictStrategy, minScore: 54 },
+        { ...strictStrategy, minScore: 50 }
+      ])
+    }
+
+    if (count === 9) {
+      return buildTierWithFallback(strictSources, 9, [
+        { ...strictStrategy, minScore: 62 },
+        { ...strictStrategy, minScore: 56 },
+        { ...strictStrategy, minScore: 50 },
+        { ...strictStrategy, minScore: 46 }
+      ])
+    }
+
+    return buildTierWithFallback(strictSources, 10, [
+      { ...strictStrategy, minScore: 58 },
+      { ...strictStrategy, minScore: 52 },
+      { ...strictStrategy, minScore: 46 },
+      { ...strictStrategy, minScore: 42 }
+    ])
+  }
+
+  const buildRelaxed = (count) => {
+    if (count === 2) {
+      return buildTierWithFallback(relaxedSources, 2, [
+        { ...relaxedStrategy, minScore: 90 },
+        { ...relaxedStrategy, minScore: 82 },
+        { ...relaxedStrategy, minScore: 74 },
+        { ...relaxedStrategy, minScore: 66 }
+      ])
+    }
+
+    if (count === 3) {
+      return buildTierWithFallback(relaxedSources, 3, [
+        {
+          ...relaxedStrategy,
+          maxPerGame: 2,
+          minScore: 90,
+          avoidFragile: true,
+          blockSameGameStatSide: true
+        },
+        {
+          ...relaxedStrategy,
+          maxPerGame: 2,
+          minScore: 84,
+          avoidFragile: true,
+          blockSameGameStatSide: true
+        },
+        {
+          ...relaxedStrategy,
+          maxPerGame: 2,
+          minScore: 78,
+          avoidFragile: false,
+          blockSameGameStatSide: true
+        },
+        {
+          ...relaxedStrategy,
+          maxPerGame: 2,
+          minScore: 72,
+          avoidFragile: false,
+          blockSameGameStatSide: true
+        }
+      ])
+    }
+
+    if (count === 4) {
+      return buildTierWithFallback(relaxedSources, 4, [
+        { ...relaxedStrategy, minScore: 78 },
+        { ...relaxedStrategy, minScore: 72 },
+        { ...relaxedStrategy, minScore: 66 },
+        { ...relaxedStrategy, minScore: 60 }
+      ])
+    }
+
+    if (count === 5) {
+      return buildTierWithFallback(relaxedSources, 5, [
+        { ...relaxedStrategy, minScore: 74 },
+        { ...relaxedStrategy, minScore: 68 },
+        { ...relaxedStrategy, minScore: 62 },
+        { ...relaxedStrategy, minScore: 56 },
+        { ...relaxedStrategy, minScore: 50 }
+      ])
+    }
+
+    if (count === 6) {
+      return buildTierWithFallback(relaxedSources, 6, [
+        { ...relaxedStrategy, minScore: 70 },
+        { ...relaxedStrategy, minScore: 64 },
+        { ...relaxedStrategy, minScore: 58 },
+        { ...relaxedStrategy, minScore: 52 },
+        { ...relaxedStrategy, minScore: 46 }
+      ])
+    }
+
+    if (count === 7) {
+      return buildTierWithFallback(relaxedSources, 7, [
+        { ...relaxedStrategy, minScore: 66 },
+        { ...relaxedStrategy, minScore: 60 },
+        { ...relaxedStrategy, minScore: 54 },
+        { ...relaxedStrategy, minScore: 48 },
+        { ...relaxedStrategy, minScore: 42 }
+      ])
+    }
+
+    if (count === 8) {
+      return buildTierWithFallback(relaxedSources, 8, [
+        { ...relaxedStrategy, minScore: 62 },
+        { ...relaxedStrategy, minScore: 56 },
+        { ...relaxedStrategy, minScore: 50 },
+        { ...relaxedStrategy, minScore: 44 },
+        { ...relaxedStrategy, minScore: 38 }
+      ])
+    }
+
+    if (count === 9) {
+      return buildTierWithFallback(relaxedSources, 9, [
+        { ...relaxedStrategy, minScore: 58 },
+        { ...relaxedStrategy, minScore: 52 },
+        { ...relaxedStrategy, minScore: 46 },
+        { ...relaxedStrategy, minScore: 40 },
+        { ...relaxedStrategy, minScore: 34 }
+      ])
+    }
+
+    return buildTierWithFallback(relaxedSources, 10, [
+      { ...relaxedStrategy, minScore: 54 },
+      { ...relaxedStrategy, minScore: 48 },
+      { ...relaxedStrategy, minScore: 42 },
+      { ...relaxedStrategy, minScore: 36 },
+      { ...relaxedStrategy, minScore: 30 }
+    ])
+  }
+
+  const strictSlip = buildStrictest(targetLegCount)
+  if (strictSlip.length === targetLegCount) return strictSlip
+
+  const relaxedSlip = buildRelaxed(targetLegCount)
+  if (relaxedSlip.length === targetLegCount) return relaxedSlip
+
+  if (targetLegCount <= 3) return []
+  return []
+}
+
+// Helper to validate slip objects before returning them
+function isValidSlipObject(slip, expectedLegCount = null) {
+  if (!slip) return false
+  
+  // Check basic structure
+  if (!Array.isArray(slip.legs) || slip.legs.length === 0) return false
+  if (!Number.isFinite(slip.projectedReturn)) return false
+  if (!slip.price || !Number.isFinite(slip.price.american)) return false
+  
+  // Never allow 1-leg slips as parlay targets
+  if (slip.legs.length === 1) return false
+  
+  // Check expected leg count if provided
+  if (expectedLegCount && slip.legs.length !== expectedLegCount) return false
+  
+  return true
+}
+
+function getTargetLegCountFromLabel(labelPrefix = "") {
+  const match = String(labelPrefix || "").match(/(\d+)-Leg/i)
+  return match ? Number(match[1]) : null
+}
+
+function makeSlipObject(book, legs, labelPrefix) {
+  const targetLegCount = getTargetLegCountFromLabel(labelPrefix)
+  const accepted = Array.isArray(legs) && legs.length >= 2 && (!targetLegCount || legs.length === targetLegCount)
+  console.log("[RECOVERY-SLIP-DEBUG]", { book, label: labelPrefix, targetLegCount, rawLen: Array.isArray(legs) ? legs.length : 0, accepted })
+  if (!accepted) return null
+
+  const price = parlayPriceFromLegs(legs)
+  if (!price) return null
+
+  const projectedReturn = estimateReturn(5, price.american)
+  const trueProbability = trueParlayProbabilityFromLegs(legs)
+  const confidence = confidenceFromLegs(legs)
+
+  const slip = {
+    book,
+    legs,
+    price,
+    projectedReturn,
+    trueProbability,
+    confidence,
+    label: formatPayoutLabel(`${book} ${labelPrefix}`, projectedReturn)
+  }
+  
+  // Validate before returning
+  if (!isValidSlipObject(slip, targetLegCount)) {
+    return null
+  }
+  
+  return slip
+}
+
+
+function buildAnyBookSlip(targetLegCount) {
+  const elite = (oddsSnapshot.eliteProps || [])
+  const strong = (oddsSnapshot.strongProps || [])
+  const playable = (oddsSnapshot.playableProps || [])
+
+  if (targetLegCount <= 2) {
+    return buildTieredSlip([elite, strong], targetLegCount, {
+      maxPerPlayer: 1,
+      maxPerGame: 1
+    })
+  }
+
+  if (targetLegCount <= 4) {
+    return buildTieredSlip([elite, strong, playable], targetLegCount, {
+      maxPerPlayer: 1,
+      maxPerGame: 2
+    })
+  }
+
+  return buildTieredSlip([elite, strong, playable], targetLegCount, {
+    maxPerPlayer: 1,
+    maxPerGame: 2
+  })
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function impliedProbabilityFromAmerican(americanOdds) {
+  const odds = Number(americanOdds)
+  if (!Number.isFinite(odds)) return null
+  if (odds > 0) return 100 / (odds + 100)
+  return Math.abs(odds) / (Math.abs(odds) + 100)
+}
+
+function estimateLegTrueProbability(row) {
+  const hitRate = parseHitRate(row.hitRate)
+  const edge = Number(row.edge || 0)
+  const minStd = Number(row.minStd || 0)
+  const valueStd = Number(row.valueStd || 0)
+  const minFloor = Number(row.minFloor || 0)
+  const avgMin = Number(row.avgMin || 0)
+  const score = Number(row.score || 0)
+  const marketProb = impliedProbabilityFromAmerican(row.odds)
+
+  let prob = hitRate || 0.5
+
+  if (marketProb !== null) {
+    prob = prob * 0.75 + marketProb * 0.25
+  }
+
+  if (edge >= 3) prob += 0.05
+  else if (edge >= 2) prob += 0.03
+  else if (edge < 1) prob -= 0.04
+
+  if (avgMin >= 32) prob += 0.02
+  else if (avgMin < 28) prob -= 0.04
+
+  if (minFloor >= 28) prob += 0.03
+  else if (minFloor > 0 && minFloor < 18) prob -= 0.08
+
+  if (minStd >= 8) prob -= 0.05
+  else if (minStd >= 6.5) prob -= 0.03
+
+  if (valueStd >= 8) prob -= 0.05
+  else if (valueStd >= 6) prob -= 0.03
+
+  if (isTrendBadForLeg(row)) prob -= 0.05
+  if (isFragileLeg(row)) prob -= 0.06
+
+  if (score >= 110) prob += 0.04
+  else if (score >= 95) prob += 0.025
+  else if (score < 70) prob -= 0.04
+
+  return clamp(Number(prob.toFixed(4)), 0.05, 0.95)
+}
+
+
+function getSameGameCorrelationPenalty(legs) {
+  if (!Array.isArray(legs) || legs.length <= 1) return 0
+
+  const matchupGroups = new Map()
+
+  for (const leg of legs) {
+    const matchup = String(leg.matchup || "")
+    if (!matchup) continue
+    if (!matchupGroups.has(matchup)) matchupGroups.set(matchup, [])
+    matchupGroups.get(matchup).push(leg)
+  }
+
+  let penalty = 0
+
+  for (const group of matchupGroups.values()) {
+    if (group.length <= 1) continue
+
+    penalty += 0.05 * (group.length - 1)
+
+    const overs = group.filter((leg) => leg.side === "Over")
+    const unders = group.filter((leg) => leg.side === "Under")
+
+    if (overs.length >= 2) penalty += 0.02
+    if (unders.length >= 2) penalty += 0.015
+
+    const playerCounts = new Map()
+    for (const leg of group) {
+      playerCounts.set(leg.player, (playerCounts.get(leg.player) || 0) + 1)
+    }
+
+    for (const count of playerCounts.values()) {
+      if (count > 1) penalty += 0.08 * (count - 1)
+    }
+
+    const statTypeCounts = new Map()
+    for (const leg of group) {
+      const key = `${leg.side}-${leg.propType}`
+      statTypeCounts.set(key, (statTypeCounts.get(key) || 0) + 1)
+    }
+
+    for (const count of statTypeCounts.values()) {
+      if (count > 1) penalty += 0.025 * (count - 1)
+    }
+  }
+
+  return clamp(Number(penalty.toFixed(4)), 0, 0.35)
+}
+
+function getSameGameConfidencePenalty(legs) {
+  if (!Array.isArray(legs) || legs.length <= 1) return 0
+
+  const matchupCounts = new Map()
+  for (const leg of legs) {
+    const matchup = String(leg.matchup || "")
+    if (!matchup) continue
+    matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
+  }
+
+  let penalty = 0
+  for (const count of matchupCounts.values()) {
+    if (count > 1) penalty += (count - 1) * 6
+  }
+
+  return penalty
+}
+
+function trueParlayProbabilityFromLegs(legs) {
+  if (!legs.length) return 0
+
+  const baseProduct = legs.reduce((acc, leg) => {
+    return acc * estimateLegTrueProbability(leg)
+  }, 1)
+
+  const correlationPenalty = getSameGameCorrelationPenalty(legs)
+  const adjusted = baseProduct * (1 - correlationPenalty)
+
+  return clamp(Number(adjusted.toFixed(4)), 0, 1)
+}
+
+function americanToDecimal(americanOdds) {
+  const odds = Number(americanOdds)
+  if (Number.isNaN(odds)) return null
+  if (odds > 0) return 1 + odds / 100
+  return 1 + 100 / Math.abs(odds)
+}
+
+function decimalToAmerican(decimalOdds) {
+  const dec = Number(decimalOdds)
+  if (!dec || dec <= 1) return null
+  if (dec >= 2) return Math.round((dec - 1) * 100)
+  return Math.round(-100 / (dec - 1))
+}
+
+function parlayPriceFromLegs(legs) {
+  const decimals = legs
+    .map((leg) => americanToDecimal(leg.odds))
+    .filter((v) => v !== null)
+
+  if (!decimals.length) return null
+
+  const combinedDecimal = decimals.reduce((acc, v) => acc * v, 1)
+  const combinedAmerican = decimalToAmerican(combinedDecimal)
+
+  return {
+    decimal: Number(combinedDecimal.toFixed(3)),
+    american: combinedAmerican
+  }
+}
+
+function estimateReturn(stake, americanOdds) {
+  const dec = americanToDecimal(americanOdds)
+  if (!dec) return null
+  return Number((stake * dec).toFixed(2))
+}
+
+function formatPayoutLabel(baseLabel, payout) {
+  const value = Number(payout || 0)
+  if (!value) return baseLabel
+  return `${baseLabel} ($${value.toFixed(2)})`
+}
+
+function addSlipLabel(baseLabel, slip) {
+  if (!slip) return null
+  return {
+    ...slip,
+    label: formatPayoutLabel(baseLabel, slip.projectedReturn)
+  }
+}
+
+function confidenceFromLegs(legs) {
+  if (!legs.length) return "Low"
+
+  const avgScore = avg(legs.map((leg) => Number(leg.score || 0))) || 0
+  const avgHitRate = avg(legs.map((leg) => parseHitRate(leg.hitRate))) || 0
+  const avgEdge = avg(legs.map((leg) => Number(leg.edge || 0))) || 0
+  const avgMinFloor = avg(
+    legs.map((leg) => Number(leg.minFloor || 0)).filter((v) => v > 0)
+  ) || 0
+  const avgMinStd = avg(
+    legs.map((leg) => Number(leg.minStd || 0)).filter((v) => v > 0)
+  ) || 0
+  const avgValueStd = avg(
+    legs.map((leg) => Number(leg.valueStd || 0)).filter((v) => v > 0)
+  ) || 0
+
+  const trueProb = trueParlayProbabilityFromLegs(legs)
+
+  let confidenceScore = 0
+
+  confidenceScore += avgScore * 0.25
+  confidenceScore += avgHitRate * 100 * 0.35
+  confidenceScore += avgEdge * 4
+  confidenceScore += trueProb * 100 * 0.6
+
+  if (avgMinFloor >= 28) confidenceScore += 8
+  else if (avgMinFloor >= 24) confidenceScore += 5
+  else if (avgMinFloor >= 20) confidenceScore += 2
+  else confidenceScore -= 4
+
+  if (avgMinStd <= 4.5) confidenceScore += 8
+  else if (avgMinStd <= 6) confidenceScore += 5
+  else if (avgMinStd <= 7.5) confidenceScore += 2
+  else if (avgMinStd >= 9) confidenceScore -= 8
+  else confidenceScore -= 3
+
+  if (avgValueStd <= 2.5) confidenceScore += 6
+  else if (avgValueStd <= 4) confidenceScore += 3
+  else if (avgValueStd <= 6) confidenceScore += 1
+  else if (avgValueStd >= 8) confidenceScore -= 6
+  else confidenceScore -= 2
+
+  if (legs.length === 2) confidenceScore += 10
+  else if (legs.length === 3) confidenceScore += 6
+  else if (legs.length === 4) confidenceScore += 2
+  else if (legs.length === 5) confidenceScore -= 3
+  else if (legs.length === 6) confidenceScore -= 8
+  else if (legs.length >= 7) confidenceScore -= 12
+  confidenceScore -= getSameGameConfidencePenalty(legs)
+
+  if (trueProb >= 0.5) confidenceScore += 12
+  else if (trueProb >= 0.35) confidenceScore += 7
+  else if (trueProb >= 0.22) confidenceScore += 3
+  else if (trueProb < 0.12) confidenceScore -= 10
+
+  const mediumThreshold =
+    legs.length <= 3 ? 60 :
+    legs.length === 4 ? 66 :
+    legs.length === 5 ? 72 :
+    78
+
+  const highThreshold =
+    legs.length <= 3 ? 88 :
+    legs.length === 4 ? 94 :
+    legs.length === 5 ? 100 :
+    108
+
+  if (confidenceScore >= highThreshold) return "High"
+  if (confidenceScore >= mediumThreshold) return "Medium"
+  return "Low"
+}
+
+function compareDistance(a, b, target) {
+  return Math.abs(a - target) - Math.abs(b - target)
+}
+
+async function fetchApiSportsPlayerId(playerName, expectedTeamCodes = []) {
+  if (playerIdCache.has(playerName)) {
+    const cached = playerIdCache.get(playerName)
+    const expectedSet = new Set(
+      (expectedTeamCodes || [])
+        .map((code) => String(code || "").toUpperCase().trim())
+        .filter(Boolean)
+    )
+
+    if (!cached) return cached
+
+    const cachedTeamCode = String(
+      getTeamOverride(playerName) || teamAbbr(cached.team || "")
+    ).toUpperCase().trim()
+
+    if (!expectedSet.size || !cachedTeamCode || expectedSet.has(cachedTeamCode)) {
+      return cached
+    }
+
+    playerIdCache.delete(playerName)
+  }
+  if (playerLookupMissCache.has(playerName)) {
+    playerLookupMissCache.delete(playerName)
+  }
+  const manualOverride = MANUAL_PLAYER_OVERRIDES[playerName]
+  if (manualOverride) {
+    const manualResult = {
+      ...manualOverride,
+      matchedName: playerName,
+      requestedName: playerName
+    }
+    console.log("API-Sports MANUAL OVERRIDE:", playerName, "=>", manualOverride.team, "| id:", manualOverride.id)
+    playerIdCache.set(playerName, manualResult)
+    saveApiSportsCachesToDisk().catch((err) => console.error('Failed saving API-Sports cache:', err?.message || err))
+    return manualResult
+  }
+  const rawName = String(getPlayerSearchOverride(playerName) || "").trim()
+  if (!rawName) return null
+
+  const searchOverride = getPlayerSearchOverride(playerName)
+  const forceLastNameOnlyPlayers = new Set([
+    "Paolo Banchero",
+    "James Harden",
+    "Donovan Mitchell",
+    "Jalen Suggs",
+    "Evan Mobley",
+    "Keon Ellis",
+    "Sam Merrill",
+    "Jaylon Tyson",
+    "Wendell Carter Jr",
+    "R.J. Barrett",
+    "Zion Williamson",
+    "Dejounte Murray",
+    "Brandon Ingram",
+    "Scottie Barnes",
+    "Immanuel Quickley",
+    "Jakob Poeltl",
+    "Saddiq Bey",
+    "Derik Queen",
+    "Herb Jones",
+    "Keyonte George",
+    "Karl-Anthony Towns",
+    "Mikal Bridges",
+    "Jalen Brunson",
+    "Landry Shamet",
+    "Cody Williams",
+    "Kyle Filipowski",
+    "OG Anunoby",
+    "Brice Sensabaugh",
+    "Mitchell Robinson",
+    "Brandon Miller",
+    "DeMar DeRozan",
+    "Coby White",
+    "LaMelo Ball",
+    "Russell Westbrook",
+    "Moussa Diabate",
+    "Miles Bridges",
+    "Precious Achiuwa",
+    "Reed Sheppard",
+    "Nikola Jokic",
+    "Alperen Sengun",
+    "Amen Thompson",
+    "Jamal Murray",
+    "Tari Eason",
+    "Aaron Gordon",
+    "Christian Braun",
+    "Bruce Brown",
+    "Anthony Edwards",
+    "Kris Dunn",
+    "Donte DiVincenzo",
+    "Kawhi Leonard",
+    "Darius Garland",
+    "Julius Randle",
+    "Ayo Dosunmu",
+    "Rudy Gobert",
+    "Brook Lopez",
+    "Naz Reid",
+    "Bennedict Mathurin",
+    "Jaden McDaniels",
+    "Isaiah Jackson"
+  ])
+
+  let searches = []
+
+  if (forceLastNameOnlyPlayers.has(playerName)) {
+    const lastName = rawName.split(/\s+/).pop()
+    if (lastName) searches = [lastName]
+  } else if (searchOverride && searchOverride !== playerName) {
+    searches = getPlayerSearchVariants(playerName)
+  } else {
+    const variants = getPlayerSearchVariants(playerName)
+    const exactFirst = variants.find((search) => search === rawName)
+    const rest = variants.filter((search) => search !== rawName)
+    searches = exactFirst ? [exactFirst, ...rest] : variants
+  }
+
+  const attempts = searches.map((search) => ({
+    endpoint: "nba-v2",
+    url: "https://v2.nba.api-sports.io/players",
+    search,
+    label: `search=${search}`
+  }))
+
+  let rows = []
+  let matchedAttempt = null
+  let matchedEndpoint = null
+
+  for (const attempt of attempts) {
+    try {
+      const response = await axios.get(attempt.url, {
+        params: { search: attempt.search },
+        headers: {
+          "x-apisports-key": API_SPORTS_KEY
+        },
+        timeout: API_SPORTS_TIMEOUT_MS
+      })
+
+      const found = response.data?.response || []
+      console.log(
+        "API-Sports lookup:",
+        playerName,
+        "| endpoint:", attempt.endpoint,
+        "| attempt:", attempt.label,
+        "| results:", found.length
+      )
+
+      if (found.length) {
+        rows = found
+        matchedAttempt = attempt.label
+        matchedEndpoint = attempt.endpoint
+        break
+      }
+    } catch (error) {
+      console.error(
+        "API-Sports player search failed for",
+        playerName,
+        "| endpoint:", attempt.endpoint,
+        "| attempt:", attempt.label,
+        "|",
+        error.response?.data || error.message
+      )
+    }
+  }
+
+  if (!rows.length) {
+    console.log("API-Sports NO MATCH:", playerName)
+    saveApiSportsCachesToDisk().catch((err) => console.error('Failed saving API-Sports cache:', err?.message || err))
+    return null
+  }
+
+  const reasonableMatches = rows.filter((p) =>
+    isReasonablePlayerMatch(playerName, p, expectedTeamCodes)
+  )
+
+  let player = null
+
+  if (expectedTeamCodes.length) {
+    const expectedSet = new Set(
+      expectedTeamCodes
+        .map((code) => String(code || "").toUpperCase().trim())
+        .filter(Boolean)
+    )
+
+    player = reasonableMatches.find((p) => expectedSet.has(getApiPlayerTeamCode(p))) || null
+  }
+
+  if (!player && reasonableMatches.length === 1) {
+    player = reasonableMatches[0]
+  }
+
+  if (!player) {
+    console.log("API-Sports SAFE NO MATCH:", playerName)
+    saveApiSportsCachesToDisk()
+    return null
+  }
+
+  const matchedName = getApiPlayerCandidateNames(player)[0] || `${player.firstname || ""} ${player.lastname || ""}`.trim()
+
+  console.log(
+    "API-Sports MATCH:",
+    playerName,
+    "=>",
+    matchedName,
+    "| endpoint:", matchedEndpoint,
+    "| attempt:", matchedAttempt
+  )
+
+  const result = {
+    id: player.id,
+    team: player?.team?.name || player?.team?.nickname || "",
+    matchedName,
+    requestedName: playerName
+  }
+
+  playerIdCache.set(playerName, result)
+  saveApiSportsCachesToDisk().catch((err) => console.error('Failed saving API-Sports cache:', err?.message || err))
+
+  return result
+}
+async function fetchApiSportsPlayerStats(playerId) {
+  const response = await axios.get(
+    "https://v2.nba.api-sports.io/players/statistics",
+    {
+      params: {
+        id: playerId,
+        season: 2025
+      },
+      headers: {
+        "x-apisports-key": API_SPORTS_KEY
+      },
+      timeout: API_SPORTS_TIMEOUT_MS
+    }
+  )
+
+  return response.data?.response || []
+}
+
+async function fetchApiSportsPlayerIdCached(playerName, expectedTeamCodes = []) {
+  if (playerIdCache.has(playerName)) {
+    const cached = playerIdCache.get(playerName)
+    const expectedSet = new Set(
+      (expectedTeamCodes || [])
+        .map((code) => String(code || "").toUpperCase().trim())
+        .filter(Boolean)
+    )
+
+    if (!cached) return cached
+
+    const cachedTeamCode = String(
+      getTeamOverride(playerName) || teamAbbr(cached.team || "")
+    ).toUpperCase().trim()
+
+    if (!expectedSet.size || !cachedTeamCode || expectedSet.has(cachedTeamCode)) {
+      return cached
+    }
+
+    playerIdCache.delete(playerName)
+  }
+
+  const playerInfo = await fetchApiSportsPlayerId(playerName, expectedTeamCodes)
+  playerIdCache.set(playerName, playerInfo)
+  return playerInfo
+}
+
+async function fetchApiSportsPlayerStatsCached(playerId) {
+  const now = Date.now()
+  const cachedAt = playerStatsCacheTimes.get(playerId)
+
+  if (
+    playerStatsCache.has(playerId) &&
+    cachedAt &&
+    now - cachedAt < PLAYER_STATS_TTL_MS
+  ) {
+    return playerStatsCache.get(playerId)
+  }
+
+  const stats = await fetchApiSportsPlayerStats(playerId)
+  playerStatsCache.set(playerId, stats)
+  playerStatsCacheTimes.set(playerId, now)
+  saveApiSportsCachesToDisk().catch((err) => console.error('Failed saving API-Sports cache:', err?.message || err))
+  return stats
+}
+
+function isTrendBadForLeg(row) {
+  const line = Number(row.line || 0)
+  const recent3 = Number(row.recent3Avg || 0)
+  const recent5 = Number(row.recent5Avg || 0)
+
+  if (!line) return false
+
+  if (row.side === "Under") {
+    if (recent3 >= line) return true
+    if (recent5 >= line && recent3 >= line - 0.3) return true
+  }
+
+  if (row.side === "Over") {
+    if (recent3 <= line) return true
+    if (recent5 <= line && recent3 <= line + 0.3) return true
+  }
+
+  return false
+}
+
+function isPracticalCoreLeg(row) {
+  if (!row) return false
+
+  const propType = String(row.propType || "")
+  const side = String(row.side || "")
+  const line = Number(row.line || 0)
+  const avgMin = Number(row.avgMin || 0)
+  const minFloor = Number(row.minFloor || 0)
+  const odds = Number(row.odds || 0)
+  const hitRate = parseHitRate(row.hitRate)
+
+  if (!["Points", "Rebounds", "Assists", "Threes"].includes(propType)) return false
+  if (avgMin < 28) return false
+  if (minFloor > 0 && minFloor < 18) return false
+  if (hitRate < 0.7) return false
+  if (odds < -190) return false
+  if (isFragileLeg(row)) return false
+
+  if (propType === "Assists" && side === "Over" && line <= 2.5) return false
+  if (propType === "Assists" && side === "Under" && line <= 3.5) return false
+  if (propType === "Rebounds" && side === "Under" && line <= 5.5) return false
+  if (propType === "Threes" && side === "Under" && line <= 1.5) return false
+
+  return true
+}
+
+function samePlayerInSlip(existingLegs, candidate) {
+  return existingLegs.some((leg) => leg.player === candidate.player)
+}
+
+function isSafeProp(row) {
+  if (!row) return false
+
+  const hit = parseHitRate(row.hitRate)
+  const minStd = Number(row.minStd || 0)
+  const valueStd = Number(row.valueStd || 0)
+  const avgMin = Number(row.avgMin || 0)
+  const minFloor = Number(row.minFloor || 0)
+  const minutesRisk = String(row.minutesRisk || "")
+  const trendRisk = String(row.trendRisk || "")
+  const injuryRisk = String(row.injuryRisk || "")
+  const propType = String(row.propType || "")
+  const side = String(row.side || "")
+  const line = Number(row.line || 0)
+
+  if (!["Points", "Rebounds", "Assists", "Threes"].includes(propType)) return false
+  if (hit < 0.7) return false
+  if (minutesRisk === "high") return false
+  if (trendRisk === "high") return false
+  if (injuryRisk !== "low") return false
+  if (avgMin < 26) return false
+  if (minFloor > 0 && minFloor < 16) return false
+  if (valueStd > 7) return false
+  if (minStd > 6.5) return false
+  if (isFragileLeg(row)) return false
+
+  if (propType === "PRA") return false
+  if (propType === "Threes" && side === "Over" && line >= 3.5) return false
+  if (propType === "Points" && side === "Over" && line >= 24.5) return false
+  if (propType === "Assists" && side === "Over" && line >= 8.5) return false
+  if (propType === "Rebounds" && side === "Over" && line >= 11.5) return false
+
+  return true
+}
+
+function dedupeByEventId(rows = []) {
+  const seen = new Set()
+  const out = []
+
+  for (const row of rows) {
+    const eventId = String(row?.eventId || "")
+    if (!eventId) continue
+    if (seen.has(eventId)) continue
+    seen.add(eventId)
+    out.push(row)
+  }
+
+  return out
+}
+
+function dedupeByLegSignature(rows = []) {
+  const seen = new Set()
+  const out = []
+
+  for (const row of rows) {
+    const key = [
+      row?.eventId,
+      row?.book,
+      row?.player,
+      row?.propType,
+      row?.side,
+      Number(row?.line),
+      row?.propVariant || "base"
+    ].join("|")
+
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+
+  return out
+}
+
+function getIngestRejectReason(row) {
+  if (!row) return "invalid_row"
+
+  const player = String(row.player || "").trim()
+  const side = String(row.side || "").trim()
+  const propType = String(row.propType || "").trim()
+  const book = String(row.book || "").trim()
+  const matchup = String(row.matchup || "").trim()
+  const gameTime = String(row.gameTime || "").trim()
+  const line = Number(row.line)
+  const odds = Number(row.odds)
+
+  if (!player || !side || !propType || !book || !matchup || !gameTime) return "missing_required_fields"
+  if (!Number.isFinite(line)) return "invalid_line"
+  if (!Number.isFinite(odds)) return "invalid_odds"
+
+  if (side !== "Over" && side !== "Under") return "invalid_side"
+
+  const allowedPropTypes = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+  if (!allowedPropTypes.has(propType)) return "invalid_prop_type"
+
+  if (odds < -350 || odds > 400) return "odds_out_of_range"
+  if (line < 0) return "line_below_zero"
+
+  return null
+}
+
+function shouldRejectRow(row) {
+  return Boolean(getIngestRejectReason(row))
+}
+
+async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options = {}) {
+  const pathLabel = String(options.pathLabel || "unknown")
+  const matchup = buildMatchup(event?.away_team, event?.home_team)
+  const away = event?.away_team || event?.awayTeam || ""
+  const home = event?.home_team || event?.homeTeam || ""
+  const eventIdForDebug = String(event?.id || event?.eventId || "")
+  const matchupForDebug = away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+  const normalizeIngestText = (value) => String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+  const awayNorm = normalizeIngestText(event?.away_team)
+  const homeNorm = normalizeIngestText(event?.home_team)
+  const isMavsNuggetsEvent =
+    ((awayNorm.includes("mavericks") && homeNorm.includes("nuggets")) ||
+      (awayNorm.includes("nuggets") && homeNorm.includes("mavericks")))
+
+  const baseParams = {
+    apiKey: ODDS_API_KEY,
+    regions: "us",
+    markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+    oddsFormat: "american"
+  }
+
+  const parseBooksToRows = (books = [], sourceLabel) => {
+    const rows = []
+    let rejectedRows = 0
+    let marketCount = 0
+    let outcomeCount = 0
+    let emptyMarketsCount = 0
+    let emptyOutcomesCount = 0
+    const dropReasonCounts = {}
+    const lukaNameMapStats = {
+      rawOutcomeMentions: 0,
+      mappedRows: 0,
+      mappedPlayerSources: {}
+    }
+    const rawOutcomesForWatchedCoverage = []
+
+    const normalizeSide = (value) => {
+      const raw = String(value || "").trim().toLowerCase()
+      if (raw === "over") return "Over"
+      if (raw === "under") return "Under"
+      return String(value || "").trim()
+    }
+
+    for (const book of books) {
+      const markets = Array.isArray(book?.markets)
+        ? book.markets
+        : (Array.isArray(book?.props) ? book.props : [])
+
+      if (!Array.isArray(markets) || markets.length === 0) {
+        emptyMarketsCount += 1
+      }
+
+      for (const market of markets) {
+        marketCount += 1
+        const marketKey = String(market?.key || market?.market_key || market?.name || market?.description || "")
+        const propType = normalizePropType(marketKey)
+
+        const outcomes = Array.isArray(market?.outcomes)
+          ? market.outcomes
+          : (Array.isArray(market?.selections) ? market.selections : [])
+
+        if (!Array.isArray(outcomes) || outcomes.length === 0) {
+          emptyOutcomesCount += 1
+        }
+
+        for (const outcome of outcomes) {
+          outcomeCount += 1
+          rawOutcomesForWatchedCoverage.push(outcome)
+          const eventId = String(
+            event?.id ||
+            event?.eventId ||
+            event?.event_id ||
+            outcome?.eventId ||
+            outcome?.event_id ||
+            outcome?.game_id ||
+            market?.eventId ||
+            market?.event_id ||
+            market?.game_id ||
+            market?.event?.id ||
+            book?.eventId ||
+            book?.event_id ||
+            book?.game_id ||
+            book?.event?.id ||
+            event?.key ||
+            ""
+          ).trim()
+          const sideRaw = String(outcome?.name || outcome?.label || outcome?.side || "").trim()
+          const rawDescription = String(outcome?.description || "").trim()
+          const rawParticipant = String(outcome?.participant || "").trim()
+          const rawPlayer = String(outcome?.player || "").trim()
+          const rawPlayerName = String(outcome?.player_name || "").trim()
+          const combinedRawText = [sideRaw, rawDescription, rawParticipant, rawPlayer, rawPlayerName].join(" ")
+          let side = normalizeSide(sideRaw)
+          if (side !== "Over" && side !== "Under") {
+            const combinedNorm = normalizeIngestText(combinedRawText)
+            if (combinedNorm.includes(" over ") || combinedNorm.endsWith(" over") || combinedNorm.startsWith("over ")) side = "Over"
+            else if (combinedNorm.includes(" under ") || combinedNorm.endsWith(" under") || combinedNorm.startsWith("under ")) side = "Under"
+          }
+
+          let playerSource = "description"
+          let player = rawDescription
+          if (!player) {
+            player = rawParticipant
+            playerSource = "participant"
+          }
+          if (!player) {
+            player = rawPlayer
+            playerSource = "player"
+          }
+          if (!player) {
+            player = rawPlayerName
+            playerSource = "player_name"
+          }
+          if (!player) {
+            const cleanedName = sideRaw.replace(/\b(over|under)\b/gi, "").trim()
+            if (cleanedName && cleanedName.toLowerCase() !== "over" && cleanedName.toLowerCase() !== "under") {
+              player = cleanedName
+              playerSource = "name_derived"
+            }
+          }
+
+          // Permanent watched-player guard: check every common raw field with normalizePlayerName.
+          const watchedRawFields = [sideRaw, rawDescription, rawPlayer, rawPlayerName, rawParticipant]
+          const normalizedWatchedFields = watchedRawFields.map((field) => normalizePlayerName(field)).filter(Boolean)
+          for (const watchedName of WATCHED_PLAYER_NAMES) {
+            const watchedNormalized = normalizePlayerName(watchedName)
+            if (!watchedNormalized) continue
+            if (normalizedWatchedFields.some((field) => field.includes(watchedNormalized))) {
+              const preferredWatchedName = rawDescription || rawPlayer || rawPlayerName || rawParticipant || watchedName
+              if (!player || normalizePlayerName(player) !== watchedNormalized) {
+                player = preferredWatchedName
+                playerSource = "watched_field_match"
+              }
+              break
+            }
+          }
+
+          if (isMavsNuggetsEvent) {
+            const rawNorm = normalizeIngestText(combinedRawText)
+            if (rawNorm.includes("luka") || rawNorm.includes("doncic")) {
+              lukaNameMapStats.rawOutcomeMentions += 1
+            }
+          }
+
+          player = String(player || "").trim()
+          const bookName = String(book?.title || book?.key || book?.name || "").trim()
+          const currentLine = Number(outcome?.point ?? outcome?.line ?? outcome?.handicap ?? outcome?.total)
+          const currentOdds = Number(outcome?.price ?? outcome?.odds ?? outcome?.american_odds)
+          const rowKey = [
+            eventId,
+            player,
+            propType,
+            side,
+            bookName
+          ].join("|")
+
+          const previousOpen = previousOpenMap.get(rowKey)
+          const openingLine = previousOpen ? previousOpen.openingLine : currentLine
+          const openingOdds = previousOpen ? previousOpen.openingOdds : currentOdds
+          const lineMove = Number((currentLine - openingLine).toFixed(1))
+          const oddsMove = Number((currentOdds - openingOdds).toFixed(0))
+
+          let marketMovementTag = "neutral"
+          if (lineMove > 0) marketMovementTag = "line up"
+          else if (lineMove < 0) marketMovementTag = "line down"
+          else if (oddsMove > 0) marketMovementTag = "odds better"
+          else if (oddsMove < 0) marketMovementTag = "odds worse"
+
+          const draftRow = {
+            eventId,
+            matchup,
+            awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
+            homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
+            gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+            book: bookName,
+            propType,
+            player,
+            side,
+            playerStatus: getManualPlayerStatus(player),
+            line: currentLine,
+            odds: currentOdds,
+            openingLine,
+            openingOdds,
+            lineMove,
+            oddsMove,
+            marketMovementTag
+          }
+
+          const rejectReason = getIngestRejectReason(draftRow)
+          if (rejectReason) {
+            rejectedRows += 1
+            dropReasonCounts[rejectReason] = Number(dropReasonCounts[rejectReason] || 0) + 1
+            continue
+          }
+
+          rows.push(draftRow)
+
+          // STEP 2: Force-include logic for watched players (RIGHT AFTER ROW CREATION, BEFORE ANY FILTERS)
+          const normalizedPlayer = normalizeDebugPlayerName(draftRow.player || "")
+          const isWatched = WATCHED_PLAYER_NAMES
+            .map(normalizeDebugPlayerName)
+            .includes(normalizedPlayer)
+
+          if (isWatched) {
+            draftRow.__forceInclude = true
+            console.log("[WATCHED-PLAYER-INGESTED]", {
+              player: draftRow.player,
+              matchup: draftRow.matchup,
+              book: draftRow.book,
+              propType: draftRow.propType,
+              line: draftRow.line
+            })
+          }
+
+          if (isMavsNuggetsEvent) {
+            const mappedPlayerNorm = normalizeIngestText(player)
+            if (mappedPlayerNorm.includes("luka") || mappedPlayerNorm.includes("doncic")) {
+              lukaNameMapStats.mappedRows += 1
+              lukaNameMapStats.mappedPlayerSources[playerSource] = Number(lukaNameMapStats.mappedPlayerSources[playerSource] || 0) + 1
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      rows,
+      debug: {
+        sourceLabel,
+        bookmakerCount: Array.isArray(books) ? books.length : 0,
+        marketCount,
+        outcomeCount,
+        acceptedRows: rows.length,
+        rejectedRows,
+        emptyMarketsCount,
+        emptyOutcomesCount,
+        dropReasonCounts,
+        lukaNameMapStats,
+        watchedRawCounts: countWatchedPlayersInOutcomes(rawOutcomesForWatchedCoverage),
+        watchedMappedCounts: countWatchedPlayersInRows(rows),
+        booksSeen: (Array.isArray(books) ? books : []).map((book) => String(book?.title || "")).filter(Boolean)
+      }
+    }
+  }
+
+  const primaryResponse = await axios.get(
+    `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+    {
+      params: {
+        ...baseParams,
+        bookmakers: "fanduel,draftkings"
+      }
+    }
+  )
+
+  const primaryResponseEvents = Array.isArray(primaryResponse?.data)
+    ? primaryResponse.data
+    : (primaryResponse?.data ? [primaryResponse.data] : [])
+  if (!primaryResponseEvents.length) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "event_lookup_miss",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  const primaryBooks = primaryResponseEvents.flatMap((apiEvent) =>
+    Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
+  )
+
+  const lukaRaw = primaryResponseEvents.flatMap((e) =>
+    (e.bookmakers || []).flatMap((b) =>
+      (b.markets || []).flatMap((m) =>
+        (m.outcomes || []).filter((o) =>
+          String(o.description || "").toLowerCase().includes("doncic")
+        )
+      )
+    )
+  )
+
+  const primaryParsed = parseBooksToRows(primaryBooks, "primary-fanduel-draftkings")
+  console.log("[INGEST-DROP-REASON-DEBUG]", {
+    path: pathLabel,
+    eventId: String(event?.id || ""),
+    source: "primary-fanduel-draftkings",
+    dropReasonCounts: primaryParsed?.debug?.dropReasonCounts || {},
+    acceptedRows: primaryParsed?.debug?.acceptedRows || 0,
+    rejectedRows: primaryParsed?.debug?.rejectedRows || 0
+  })
+
+  let finalRows = [...primaryParsed.rows]
+  let fallbackParsed = null
+  let fallbackResponseEvents = []
+  let fallbackBooks = []
+  let fallbackLukaRaw = []
+
+  if (finalRows.length === 0) {
+    const fallbackResponse = await axios.get(
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+      {
+        params: baseParams
+      }
+    )
+
+    fallbackResponseEvents = Array.isArray(fallbackResponse?.data)
+      ? fallbackResponse.data
+      : (fallbackResponse?.data ? [fallbackResponse.data] : [])
+    fallbackBooks = fallbackResponseEvents.flatMap((apiEvent) =>
+      Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
+    )
+
+    fallbackLukaRaw = fallbackResponseEvents.flatMap((e) =>
+      (e.bookmakers || []).flatMap((b) =>
+        (b.markets || []).flatMap((m) =>
+          (m.outcomes || []).filter((o) =>
+            String(o.description || "").toLowerCase().includes("doncic")
+          )
+        )
+      )
+    )
+
+    fallbackParsed = parseBooksToRows(fallbackBooks, "fallback-all-books")
+    console.log("[INGEST-DROP-REASON-DEBUG]", {
+      path: pathLabel,
+      eventId: String(event?.id || ""),
+      source: "fallback-all-books",
+      dropReasonCounts: fallbackParsed?.debug?.dropReasonCounts || {},
+      acceptedRows: fallbackParsed?.debug?.acceptedRows || 0,
+      rejectedRows: fallbackParsed?.debug?.rejectedRows || 0
+    })
+    finalRows = [...fallbackParsed.rows]
+  }
+
+  const bookPayloads = [
+    ...primaryBooks,
+    ...(fallbackBooks || [])
+  ]
+  const markets = bookPayloads.flatMap((book) =>
+    Array.isArray(book?.markets)
+      ? book.markets
+      : (Array.isArray(book?.props) ? book.props : [])
+  )
+  const outcomes = markets.flatMap((market) =>
+    Array.isArray(market?.outcomes)
+      ? market.outcomes
+      : (Array.isArray(market?.selections) ? market.selections : [])
+  )
+  const eventRows = Array.isArray(finalRows) ? finalRows : []
+
+  console.log("[RAW-PROPS-EVENT-DEBUG]", {
+    eventId: eventIdForDebug,
+    matchup: matchupForDebug,
+    rawBookPayloadCount: Array.isArray(bookPayloads) ? bookPayloads.length : null,
+    rawMarketCount: Array.isArray(markets) ? markets.length : null,
+    rawOutcomeCount: Array.isArray(outcomes) ? outcomes.length : null,
+    normalizedRowsForEvent: Array.isArray(eventRows) ? eventRows.length : 0
+  })
+
+  if (!bookPayloads.length) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "no_book_payload",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  if (bookPayloads.length > 0 && markets.length === 0) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "no_markets",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  if (markets.length > 0 && outcomes.length === 0) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "no_outcomes",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  const invalidPropTypeDrops = Number(primaryParsed?.debug?.dropReasonCounts?.invalid_prop_type || 0) + Number(fallbackParsed?.debug?.dropReasonCounts?.invalid_prop_type || 0)
+  if (invalidPropTypeDrops > 0) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "unsupported_market_type",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  if (outcomes.length > 0 && eventRows.length === 0) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "normalization_empty",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+  if (eventRows.length > 0 && eventIdForDebug && !eventRows.some((row) => String(row?.eventId || "") === eventIdForDebug)) {
+    console.log("[RAW-PROPS-SKIP-DEBUG]", {
+      reason: "event_id_mismatch",
+      eventId: eventIdForDebug,
+      matchup: matchupForDebug
+    })
+  }
+
+  const debug = {
+    path: pathLabel,
+    eventId: String(event?.id || ""),
+    matchup,
+    apiEventIdsPrimary: primaryResponseEvents.map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean),
+    apiEventIdsFallback: fallbackResponseEvents.map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean),
+    lukaRawPrimaryCount: lukaRaw.length,
+    lukaRawFallbackCount: fallbackLukaRaw.length,
+    lukaMappedCount: finalRows.filter((row) => {
+      const normalized = String(row?.player || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      return normalized.includes("doncic")
+    }).length,
+    scheduledGameTime: event?.commence_time || null,
+    primary: primaryParsed.debug,
+    fallback: fallbackParsed?.debug || null,
+    watchedRawCounts: WATCHED_PLAYER_NAMES.reduce((acc, name) => {
+      acc[name] = Number(primaryParsed?.debug?.watchedRawCounts?.[name] || 0) + Number(fallbackParsed?.debug?.watchedRawCounts?.[name] || 0)
+      return acc
+    }, {}),
+    watchedMappedCounts: countWatchedPlayersInRows(finalRows),
+    usedFallbackAllBooks: Boolean(fallbackParsed),
+    finalAcceptedRows: finalRows.length,
+    finalDistinctPlayers: [...new Set(finalRows.map((row) => String(row?.player || "")).filter(Boolean))].length
+  }
+
+  if (isMavsNuggetsEvent) {
+    const rawBooks = [
+      ...primaryResponseEvents.flatMap((apiEvent) => Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []),
+      ...fallbackResponseEvents.flatMap((apiEvent) => Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : [])
+    ]
+    const bookmakerNames = [...new Set(rawBooks.map((book) => String(book?.title || book?.key || book?.name || "").trim()).filter(Boolean))]
+    const marketKeys = [...new Set(rawBooks.flatMap((book) => {
+      const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
+      return markets.map((market) => String(market?.key || market?.market_key || market?.name || market?.description || "").trim())
+    }).filter(Boolean))]
+
+    const rawOutcomes = rawBooks.flatMap((book) => {
+      const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
+      return markets.flatMap((market) => {
+        const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : (Array.isArray(market?.selections) ? market.selections : [])
+        return outcomes.map((outcome) => ({
+          name: String(outcome?.name || "").trim(),
+          description: String(outcome?.description || "").trim(),
+          player: String(outcome?.player || "").trim(),
+          player_name: String(outcome?.player_name || "").trim(),
+          participant: String(outcome?.participant || "").trim()
+        }))
+      })
+    })
+
+    const rawTextList = rawOutcomes.map((o) => [o.name, o.description, o.player, o.player_name, o.participant].join(" "))
+
+    const rawLower = rawTextList.join(" ").toLowerCase()
+    const rawNorm = normalizeIngestText(rawTextList.join(" "))
+    const lukaOrDoncicRegex = /luka|doncic/i
+
+    const fieldHitSummary = {
+      name: rawOutcomes.filter((o) => lukaOrDoncicRegex.test(o.name)).length,
+      description: rawOutcomes.filter((o) => lukaOrDoncicRegex.test(o.description)).length,
+      player: rawOutcomes.filter((o) => lukaOrDoncicRegex.test(o.player)).length,
+      player_name: rawOutcomes.filter((o) => lukaOrDoncicRegex.test(o.player_name)).length,
+      participant: rawOutcomes.filter((o) => lukaOrDoncicRegex.test(o.participant)).length
+    }
+
+    const matchingRawNames = rawOutcomes
+      .flatMap((o) => [o.name, o.description, o.player, o.player_name, o.participant])
+      .map((value) => String(value || "").trim())
+      .filter((value) => value && lukaOrDoncicRegex.test(value))
+    const matchingSample = [...new Set(matchingRawNames)].slice(0, 8)
+
+    const lukaMentionsCount = matchingRawNames.filter((value) => /luka/i.test(value)).length
+    const doncicMentionsCount = matchingRawNames.filter((value) => /doncic/i.test(value)).length
+
+    console.log("[LUKA-RAW-API-PRESENCE-DEBUG]", {
+      path: pathLabel,
+      eventId: String(event?.id || ""),
+      matchup,
+      rawApiEventFound: Boolean(primaryResponse?.data || fallbackResponseEvents.length),
+      bookmakers: bookmakerNames,
+      marketKeys,
+      lukaMentionsCount,
+      doncicMentionsCount,
+      matchingSample,
+      lukaAbsentFromRawApi: matchingSample.length === 0
+    })
+
+    console.log("[LUKA-RAW-API-FIELD-DEBUG]", {
+      path: pathLabel,
+      eventId: String(event?.id || ""),
+      fieldsChecked: ["outcome.name", "outcome.description", "outcome.player", "outcome.player_name", "outcome.participant"],
+      fieldHitSummary,
+      nameHits: {
+        lukaDoncic: rawNorm.includes("luka doncic"),
+        lukaDoncicAccent: rawLower.includes("luka dončić"),
+        luka: rawNorm.includes("luka"),
+        doncic: rawNorm.includes("doncic")
+      }
+    })
+
+  }
+
+  return { rows: finalRows, debug }
+}
+
+function getSlateModeFromEvents(events = []) {
+  const rawProps = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const todayKey = (() => {
+    try {
+      return getLocalSlateDateKey(new Date().toISOString())
+    } catch (_) {
+      return ""
+    }
+  })()
+
+  const slateDayRows = rawProps.filter((row) => {
+    const rowSlateKey = (() => {
+      try {
+        return getLocalSlateDateKey(row?.gameTime)
+      } catch (_) {
+        return ""
+      }
+    })()
+    return Boolean(todayKey && rowSlateKey && rowSlateKey === todayKey)
+  })
+
+  const totalSlateGames = new Set(
+    slateDayRows.map((row) => String(row?.matchup || "")).filter(Boolean)
+  ).size
+  const eligibleRemainingGames = new Set(
+    slateDayRows
+      .filter((row) => isPregameEligibleRow(row) === true)
+      .map((row) => String(row?.matchup || ""))
+      .filter(Boolean)
+  ).size
+  const startedSlateGames = new Set(
+    slateDayRows
+      .filter((row) => isPregameEligibleRow(row) === false)
+      .map((row) => String(row?.matchup || ""))
+      .filter(Boolean)
+  ).size
+
+  console.log("[SLATE-GAME-COUNT-DEBUG]", {
+    nowIso: new Date().toISOString(),
+    todayKey,
+    totalSlateGames,
+    eligibleRemainingGames,
+    startedSlateGames
+  })
+
+  if (!totalSlateGames) {
+    return {
+      slateMode: "unknown",
+      eligibleRemainingGames: 0,
+      totalEligibleGames: 0,
+      startedEligibleGames: 0
+    }
+  }
+
+  return {
+    slateMode: startedSlateGames > 0 ? "remaining-slate" : "full-slate",
+    eligibleRemainingGames,
+    totalEligibleGames: totalSlateGames,
+    startedEligibleGames: startedSlateGames
+  }
+}
+
+
+app.get("/", (req, res) => {
+  res.json({
+    status: "Betting engine running",
+    message: "API working"
+  })
+})
+
+app.get("/event-markets", async (req, res) => {
+  try {
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    const { eventId } = req.query
+    if (!eventId) {
+      return res.status(400).json({ error: "Missing eventId query param" })
+    }
+
+    const response = await axios.get(
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${eventId}/markets`,
+      {
+        params: {
+          apiKey: ODDS_API_KEY,
+          regions: "us",
+          bookmakers: "fanduel,draftkings"
+        }
+      }
+    )
+
+    res.json(response.data)
+  } catch (error) {
+    res.status(500).json({
+      error: "Event markets fetch failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+app.get("/odds", async (req, res) => {
+  try {
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    const response = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
+      {
+        params: {
+          apiKey: ODDS_API_KEY,
+          regions: "us",
+          markets: "h2h,spreads,totals",
+          oddsFormat: "american"
+        }
+      }
+    )
+
+    res.json(response.data)
+  } catch (error) {
+    if (error.response) {
+      return res.status(error.response.status).json({
+        error: "Odds API request failed",
+        details: error.response.data
+      })
+    }
+
+    res.status(500).json({
+      error: "Server error",
+      details: error.message
+    })
+  }
+})
+
+app.get("/props", async (req, res) => {
+  try {
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    const eventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      {
+        params: { apiKey: ODDS_API_KEY }
+      }
+    )
+
+    const events = eventsResponse.data || []
+    const targetEvents = events.slice(0, 3)
+    const allProps = []
+
+    for (const event of targetEvents) {
+      try {
+        const propsResponse = await axios.get(
+          `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+          {
+            params: {
+              apiKey: ODDS_API_KEY,
+              regions: "us",
+              bookmakers: "fanduel,draftkings",
+              markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+              oddsFormat: "american"
+            }
+          }
+        )
+
+        allProps.push({
+          eventId: event.id,
+          away_team: event.away_team,
+          home_team: event.home_team,
+          data: propsResponse.data
+        })
+      } catch (eventError) {
+        allProps.push({
+          eventId: event.id,
+          away_team: event.away_team,
+          home_team: event.home_team,
+          error: eventError.response?.data || eventError.message
+        })
+      }
+    }
+
+    res.json(allProps)
+  } catch (error) {
+    res.status(500).json({
+      error: "Props fetch failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+app.get("/props/clean", async (req, res) => {
+  try {
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    const eventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      {
+        params: { apiKey: ODDS_API_KEY }
+      }
+    )
+
+    const events = eventsResponse.data || []
+    const targetEvents = events.slice(0, 3)
+    const cleaned = []
+
+    const previousOpenMap = new Map(
+      (oddsSnapshot.props || []).map((row) => {
+        const key = [row.eventId, row.player, row.propType, row.side, row.book].join("|")
+        return [
+          key,
+          {
+            openingLine: Number.isFinite(Number(row.openingLine)) ? Number(row.openingLine) : Number(row.line),
+            openingOdds: Number.isFinite(Number(row.openingOdds)) ? Number(row.openingOdds) : Number(row.odds)
+          }
+        ]
+      })
+    )
+
+    for (const event of targetEvents) {
+      try {
+        const propsResponse = await axios.get(
+          `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+          {
+            params: {
+              apiKey: ODDS_API_KEY,
+              regions: "us",
+              bookmakers: "fanduel,draftkings",
+              markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+              oddsFormat: "american"
+            }
+          }
+        )
+
+        const matchup = buildMatchup(event.away_team, event.home_team)
+        const books = propsResponse.data.bookmakers || []
+
+        for (const book of books) {
+          const bookName = book.title
+
+          for (const market of book.markets || []) {
+            const propType = normalizePropType(market.key)
+
+            for (const outcome of market.outcomes || []) {
+              const draftRow = {
+                eventId: event.id,
+                matchup,
+                awayTeam: event.away_team,
+                homeTeam: event.home_team,
+                gameTime: event.commence_time,
+                book: bookName,
+                propType,
+                player: outcome.description,
+                side: outcome.name,
+                playerStatus: getManualPlayerStatus(outcome.description),
+                line: outcome.point,
+                odds: outcome.price
+              }
+
+              if (shouldRejectRow(draftRow)) continue
+
+              cleaned.push(draftRow)
+            }
+          }
+        }
+      } catch (eventError) {
+        console.error(
+          "Event props failed:",
+          event.id,
+          eventError.response?.data || eventError.message
+        )
+      }
+    }
+
+    res.json(cleaned)
+  } catch (error) {
+    res.status(500).json({
+      error: "Clean props fetch failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+app.get("/props/edges", async (req, res) => {
+  try {
+    res.json(oddsSnapshot.props || [])
+  } catch (error) {
+    res.status(500).json({
+      error: "Props edge fetch failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/props/best", async (req, res) => {
+  try {
+    res.json(oddsSnapshot.bestProps || [])
+  } catch (error) {
+    res.status(500).json({
+      error: "Best props fetch failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/props/elite", async (req, res) => {
+  try {
+    res.json(oddsSnapshot.eliteProps || [])
+  } catch (error) {
+    res.status(500).json({
+      error: "Elite props fetch failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/props/strong", async (req, res) => {
+  try {
+    res.json(oddsSnapshot.strongProps || [])
+  } catch (error) {
+    res.status(500).json({
+      error: "Strong props fetch failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/props/playable", async (req, res) => {
+  try {
+    res.json(oddsSnapshot.playableProps || [])
+  } catch (error) {
+    res.status(500).json({
+      error: "Playable props fetch failed",
+      details: error.message
+    })
+  }
+})
+
+function payoutMultipleFromAmerican(americanOdds) {
+  const dec = americanToDecimal(americanOdds)
+  if (!dec) return null
+  return dec
+}
+
+function legEVPerUnit(row) {
+  const odds = Number(row?.odds)
+  if (!Number.isFinite(odds)) return null
+
+  const payoutMultiple = payoutMultipleFromAmerican(odds)
+  if (!payoutMultiple) return null
+
+  const mlProb = mlScorer.scoreRow(row)
+  const prob = mlProb === null ? estimateLegTrueProbability(row) : mlProb
+  if (prob === null) return null
+
+  // EV per 1u stake: win => (payoutMultiple - 1), lose => -1
+  return prob * (payoutMultiple - 1) - (1 - prob)
+}
+
+function diversifyRows(rows = [], { limit = 15, maxPerTeam = 2, maxPerPlayer = 1 } = {}) {
+  const out = []
+  const teamCounts = new Map()
+  const playerCounts = new Map()
+
+  for (const row of rows) {
+    const team = String(row?.team || "UNK")
+    const player = String(row?.player || "UNK")
+
+    const t = teamCounts.get(team) || 0
+    const p = playerCounts.get(player) || 0
+    if (t >= maxPerTeam) continue
+    if (p >= maxPerPlayer) continue
+
+    out.push(row)
+    teamCounts.set(team, t + 1)
+    playerCounts.set(player, p + 1)
+
+    if (out.length >= limit) break
+  }
+
+  return out
+}
+
+app.get("/picks/today", async (req, res) => {
+  try {
+    const primary = getAvailablePrimarySlateRows(dedupeBestProps([
+      ...(oddsSnapshot.bestProps || []),
+      ...(oddsSnapshot.eliteProps || []),
+      ...(oddsSnapshot.strongProps || []),
+      ...(oddsSnapshot.playableProps || []),
+    ]))
+
+    if (!primary.length) {
+      return res.json({
+        ok: true,
+        updatedAt: oddsSnapshot.updatedAt || null,
+        picks: { singles: {}, slips: {} }
+      })
+    }
+
+    const withExtras = primary.map((row) => {
+      const impliedProb = impliedProbabilityFromAmerican(row.odds)
+      const mlProb = mlScorer.scoreRow(row)
+      const trueProb = mlProb === null ? estimateLegTrueProbability(row) : mlProb
+      const ev = legEVPerUnit(row)
+      const edgeVsMarket = (trueProb !== null && impliedProb !== null)
+        ? Number((trueProb - impliedProb).toFixed(4))
+        : null
+
+      return {
+        ...row,
+        mlPredictedProb: mlProb,
+        impliedProb,
+        trueProb,
+        evPerUnit: ev === null ? null : Number(ev.toFixed(4)),
+        edgeVsMarket
+      }
+    })
+
+    const conservativeSorted = sortRowsForMLHighestHitRate(withExtras)
+      .filter((row) => isSafeProp(row))
+
+    const balancedSorted = [...withExtras]
+      .filter((row) => row.evPerUnit !== null)
+      .sort((a, b) => Number(b.evPerUnit || -999) - Number(a.evPerUnit || -999))
+
+    // "Lotto singles": high payout lines but not pure noise
+    const lottoSingles = [...withExtras]
+      .filter((row) => {
+        const odds = Number(row.odds || 0)
+        if (!Number.isFinite(odds)) return false
+        if (odds < 120) return false
+        if (row.evPerUnit === null) return false
+        return row.evPerUnit >= 0.02
+      })
+      .sort((a, b) => (Number(b.evPerUnit) - Number(a.evPerUnit)))
+
+    const books = ["FanDuel", "DraftKings"]
+    const slips = {}
+
+    // Build the live payload once to get all highestHitRate and portfolio data
+    console.log("[PAYLOAD-DEBUG] ROUTE calling buildLiveDualBestAvailablePayload")
+    const payload = buildLiveDualBestAvailablePayload()
+
+    for (const book of books) {
+      slips[book] = {}
+      const bookKey = book === "FanDuel" ? "fanduel" : "draftkings"
+
+      // Daily Target (~$100): priority order
+      // 1. Try highestHitRate3 if return is roughly in daily range (75-125)
+      const hr3 = payload?.highestHitRate3?.[bookKey]
+      if (hr3?.projectedReturn && hr3.projectedReturn >= 75 && hr3.projectedReturn <= 125 && hr3?.legs?.length === 3) {
+        slips[book].daily = hr3
+      } else {
+        // 2. Try highestHitRate2
+        const hr2 = payload?.highestHitRate2?.[bookKey]
+        if (hr2?.legs?.length === 2) {
+          slips[book].daily = hr2
+        } else {
+          // 3. Try best from payoutFitPortfolio smallHitters/midUpside
+          const portfolio = payload?.payoutFitPortfolio?.[bookKey]
+          const dailyOption = portfolio?.smallHitters?.options?.[0] || portfolio?.midUpside?.options?.[0]
+          if (dailyOption?.legs?.length >= 2) {
+            slips[book].daily = {
+              book,
+              legs: dailyOption.legs,
+              price: { american: dailyOption.oddsAmerican },
+              projectedReturn: dailyOption.projectedReturn,
+              confidence: dailyOption.confidence,
+              label: `${book} Daily Target (~$${dailyOption.projectedReturn.toFixed(0)})`
+            }
+          }
+        }
+      }
+
+      // Lotto Target (~$500): priority order
+      // 1. Try highestHitRate5 (strictly requires 5 legs and appropriate payout)
+      const hr5 = payload?.highestHitRate5?.[bookKey]
+      if (hr5?.legs?.length === 5 && hr5?.projectedReturn >= 425) {
+        slips[book].lotto = hr5
+      } else {
+        // 2. Try highestHitRate4
+        const hr4 = payload?.highestHitRate4?.[bookKey]
+        if (hr4?.legs?.length === 4 && hr4?.projectedReturn >= 300) {
+          slips[book].lotto = hr4
+        } else {
+          // 3. Try best from payoutFitPortfolio lotto/bigUpside (4+ legs only)
+          const portfolio = payload?.payoutFitPortfolio?.[bookKey]
+          const lottoOption = portfolio?.lotto?.options?.[0] || 
+                             (portfolio?.bigUpside?.options?.find(o => o.legCount >= 4))
+          if (lottoOption?.legs?.length >= 4 && lottoOption?.projectedReturn >= 300) {
+            slips[book].lotto = {
+              book,
+              legs: lottoOption.legs,
+              price: { american: lottoOption.oddsAmerican },
+              projectedReturn: lottoOption.projectedReturn,
+              confidence: lottoOption.confidence,
+              label: `${book} Lotto Target (~$${lottoOption.projectedReturn.toFixed(0)})`
+            }
+          }
+        }
+      }
+    }
+
+    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+    res.json({
+      ok: true,
+      updatedAt: oddsSnapshot.updatedAt || null,
+      updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+      primarySlateDateLocal: getPrimarySlateDateKeyFromRows(withExtras),
+      slateMode: slateMeta.slateMode,
+      singles: {
+        conservative: diversifyRows(conservativeSorted, { limit: 15, maxPerTeam: 2, maxPerPlayer: 1 }),
+        balanced: diversifyRows(balancedSorted, { limit: 15, maxPerTeam: 2, maxPerPlayer: 1 }),
+        lotto: diversifyRows(lottoSingles, { limit: 15, maxPerTeam: 2, maxPerPlayer: 1 }),
+      },
+      slips
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Today picks failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/parlays", async (req, res) => {
+  try {
+    console.log("[route-hit] GET /parlays", new Date().toISOString())
+    // NOTE: /parlays uses makeSlipProfiles() — NOT buildLiveDualBestAvailablePayload
+    console.log("[PAYLOAD-DEBUG] ROUTE /parlays — calls makeSlipProfiles, NOT buildLiveDualBestAvailablePayload")
+    console.log("[PAYLOAD-DEBUG] /parlays oddsSnapshot.bestProps.length:", (oddsSnapshot.bestProps || []).length)
+    const slips = makeSlipProfiles()
+    console.log("[PAYLOAD-DEBUG] /parlays SUMMARY route=/parlays bestPropsInSnapshot:", (oddsSnapshot.bestProps || []).length,
+      "eliteProps:", (oddsSnapshot.eliteProps || []).length,
+      "strongProps:", (oddsSnapshot.strongProps || []).length,
+      "playableProps:", (oddsSnapshot.playableProps || []).length
+    )
+    console.log("[ROUTE-FINAL-DEBUG] /parlays", {
+      bestPropsRaw: (oddsSnapshot.bestProps || []).length,
+      playablePropsRaw: (oddsSnapshot.playableProps || []).length,
+      strongPropsRaw: (oddsSnapshot.strongProps || []).length,
+      elitePropsRaw: (oddsSnapshot.eliteProps || []).length
+    })
+    const payloadBestKeys = new Set()
+    for (const value of Object.values(slips || {})) {
+      if (!Array.isArray(value)) continue
+      for (const leg of value) {
+        const key = `${leg.player || ""}|${leg.propType || ""}|${leg.side || ""}|${Number(leg.line)}|${leg.book || ""}`
+        payloadBestKeys.add(key)
+      }
+    }
+    console.log(`[FINAL-ROUTE-COUNTS] route=/parlays bestPropsRaw=${(oddsSnapshot.bestProps || []).length} payloadBest=${payloadBestKeys.size}`)
+    const snapshotMeta = logSnapshotMeta("route=/parlays response")
+    res.json({
+      ...slips,
+      snapshotMeta
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Parlay builder failed",
+      details: error.message
+    })
+  }
+})
+
+// Export current candidate legs for model training (JSON)
+app.get("/export/training.json", async (req, res) => {
+  try {
+    const candidates = [
+      ...(oddsSnapshot.props || []),
+      ...(oddsSnapshot.bestProps || []),
+      ...manualOutcomes
+    ]
+
+    const rows = dedupeBestProps(candidates).map((row) => ({
+      eventId: row.eventId || "",
+      matchup: row.matchup || "",
+      gameTime: row.gameTime || "",
+      player: row.player || "",
+      propType: row.propType || "",
+      side: row.side || "",
+      book: row.book || "",
+      line: row.line || null,
+      odds: row.odds || null,
+      openingLine: row.openingLine || null,
+      openingOdds: row.openingOdds || null,
+      lineMove: row.lineMove || null,
+      oddsMove: row.oddsMove || null,
+      edge: row.edge || null,
+      hitRate: row.hitRate || null,
+      avgMin: row.avgMin || null,
+      minStd: row.minStd || null,
+      valueStd: row.valueStd || null,
+      minutesRisk: row.minutesRisk || null,
+      trendRisk: row.trendRisk || null,
+      injuryRisk: row.injuryRisk || null,
+      dvpScore: row.dvpScore || null,
+      score: row.score || null,
+      snapshotUpdatedAt: oddsSnapshot.updatedAt || null,
+      outcome: row.outcome === undefined ? null : row.outcome
+    }))
+
+    res.json(rows)
+  } catch (error) {
+    res.status(500).json({ error: "Training export failed", details: error.message })
+  }
+})
+
+// Export current candidate legs as CSV for quick download
+app.get("/export/training.csv", async (req, res) => {
+  try {
+    const candidates = [
+      ...(oddsSnapshot.props || []),
+      ...(oddsSnapshot.bestProps || []),
+      ...manualOutcomes
+    ]
+
+    const rows = dedupeBestProps(candidates).map((row) => ({
+      eventId: row.eventId || "",
+      matchup: row.matchup || "",
+      gameTime: row.gameTime || "",
+      player: row.player || "",
+      propType: row.propType || "",
+      side: row.side || "",
+      book: row.book || "",
+      line: row.line || "",
+      odds: row.odds || "",
+      openingLine: row.openingLine || "",
+      openingOdds: row.openingOdds || "",
+      lineMove: row.lineMove || "",
+      oddsMove: row.oddsMove || "",
+      edge: row.edge || "",
+      hitRate: row.hitRate || "",
+      avgMin: row.avgMin || "",
+      minStd: row.minStd || "",
+      valueStd: row.valueStd || "",
+      minutesRisk: row.minutesRisk || "",
+      trendRisk: row.trendRisk || "",
+      injuryRisk: row.injuryRisk || "",
+      dvpScore: row.dvpScore || "",
+      score: row.score || "",
+      snapshotUpdatedAt: oddsSnapshot.updatedAt || "",
+      outcome: row.outcome === undefined ? "" : String(row.outcome)
+    }))
+
+    const headers = Object.keys(rows[0] || {
+      eventId: "",
+      matchup: "",
+      gameTime: "",
+      player: "",
+      propType: "",
+      side: "",
+      book: "",
+      line: "",
+      odds: "",
+      openingLine: "",
+      openingOdds: "",
+      lineMove: "",
+      oddsMove: "",
+      edge: "",
+      hitRate: "",
+      avgMin: "",
+      minStd: "",
+      valueStd: "",
+      minutesRisk: "",
+      trendRisk: "",
+      injuryRisk: "",
+      dvpScore: "",
+      score: "",
+      snapshotUpdatedAt: "",
+      outcome: ""
+    })
+
+    const escape = (v) => {
+      if (v === null || v === undefined) return ""
+      const s = String(v)
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""') }"`
+      return s
+    }
+
+    const csv = [headers.join(",")]
+      .concat(rows.map((r) => headers.map((h) => escape(r[h])).join(",")))
+      .join("\n")
+
+    res.setHeader("Content-Type", "text/csv")
+    res.setHeader("Content-Disposition", "attachment; filename=training-data.csv")
+    res.send(csv)
+  } catch (error) {
+    res.status(500).json({ error: "Training CSV export failed", details: error.message })
+  }
+})
+
+// Label outcome for a specific leg (for model training).
+// POST /label-outcome { eventId, player, propType, side, line, book, outcome: 0|1, gameDate? }
+app.post("/label-outcome", async (req, res) => {
+  try {
+    const { eventId, player, propType, side, line, book, outcome, gameDate } = req.body
+    
+    if (!eventId || !player || !propType || !side || !book || outcome === undefined) {
+      return res.status(400).json({
+        error: "Missing required fields: eventId, player, propType, side, line, book, outcome"
+      })
+    }
+    
+    const outcomeNum = Number(outcome) ? 1 : 0
+    
+    // Find and update matching row in oddsSnapshot
+    let found = false
+    
+    for (const prop of oddsSnapshot.props || []) {
+      if (prop.eventId === eventId &&
+          prop.player === player &&
+          prop.propType === propType &&
+          prop.side === side &&
+          Number(prop.line) === Number(line) &&
+          prop.book === book) {
+        prop.outcome = outcomeNum
+        found = true
+        break
+      }
+    }
+    
+    for (const prop of oddsSnapshot.bestProps || []) {
+      if (prop.eventId === eventId &&
+          prop.player === player &&
+          prop.propType === propType &&
+          prop.side === side &&
+          Number(prop.line) === Number(line) &&
+          prop.book === book) {
+        prop.outcome = outcomeNum
+        found = true
+        break
+      }
+    }
+    
+    if (!found) {
+      // Check if it's a manual outcome (for settled props)
+      if (eventId.startsWith("manual-")) {
+        // Check if we already have this manual outcome
+        const existingIndex = manualOutcomes.findIndex(m =>
+          m.player === player &&
+          m.propType === propType &&
+          m.side === side &&
+          Number(m.line) === Number(line) &&
+          m.book === book
+        )
+        
+        if (existingIndex >= 0) {
+          manualOutcomes[existingIndex] = {
+            eventId,
+            player,
+            propType,
+            side,
+            line: Number(line),
+            book,
+            outcome: outcomeNum,
+            gameDate: gameDate || null,
+            recordedAt: new Date().toISOString()
+          }
+        } else {
+          manualOutcomes.push({
+            eventId,
+            player,
+            propType,
+            side,
+            line: Number(line),
+            book,
+            outcome: outcomeNum,
+            gameDate: gameDate || null,
+            recordedAt: new Date().toISOString()
+          })
+        }
+        
+        // Save manual outcomes to disk
+        await saveManualOutcomes()
+      } else {
+        return res.status(404).json({ error: "Leg not found" })
+      }
+    }
+    
+    res.json({
+      ok: true,
+      message: `Labeled leg as ${outcomeNum ? "hit" : "miss"}`,
+      eventId, player, propType, side, line, book, outcome: outcomeNum
+    })
+  } catch (error) {
+    res.status(500).json({ error: "Label outcome failed", details: error.message })
+  }
+})
+
+app.get("/parlays/compare", async (req, res) => {
+  try {
+    const parlays = makeSlipProfiles()
+
+    const compareSlip = (legs, label) => {
+      const pickBestForBook = (rows, side) => {
+        if (!rows.length) return null
+
+        return [...rows].sort((a, b) => {
+          const aLine = Number(a.line || 0)
+          const bLine = Number(b.line || 0)
+          const aOdds = Number(a.odds || -999)
+          const bOdds = Number(b.odds || -999)
+
+          if (side === "Over") {
+            if (aLine !== bLine) return aLine - bLine
+          } else {
+            if (aLine !== bLine) return bLine - aLine
+          }
+
+          return bOdds - aOdds
+        })[0]
+      }
+
+      const keys = legs.map((leg) => ({
+        player: leg.player,
+        propType: leg.propType,
+        side: leg.side,
+        originalLine: leg.line,
+        originalBook: leg.book
+      }))
+
+      const fdLegs = []
+      const dkLegs = []
+
+      for (const key of keys) {
+        const matching = (oddsSnapshot.props || []).filter((row) =>
+          row.player === key.player &&
+          row.propType === key.propType &&
+          row.side === key.side
+        )
+
+        const fd = pickBestForBook(
+          matching.filter((row) => row.book === "FanDuel"),
+          key.side
+        )
+        const dk = pickBestForBook(
+          matching.filter((row) => row.book === "DraftKings"),
+          key.side
+        )
+
+        if (fd) fdLegs.push(fd)
+        if (dk) dkLegs.push(dk)
+      }
+
+      const fdPrice = fdLegs.length === keys.length ? parlayPriceFromLegs(fdLegs) : null
+      const dkPrice = dkLegs.length === keys.length ? parlayPriceFromLegs(dkLegs) : null
+
+      let bestBook = null
+      if (fdPrice && dkPrice) bestBook = fdPrice.decimal > dkPrice.decimal ? "FanDuel" : "DraftKings"
+      else if (fdPrice) bestBook = "FanDuel"
+      else if (dkPrice) bestBook = "DraftKings"
+
+      return {
+        label,
+        legs: keys,
+        fanduel: fdPrice ? { legs: fdLegs, price: fdPrice } : null,
+        draftkings: dkPrice ? { legs: dkLegs, price: dkPrice } : null,
+        bestBook
+      }
+    }
+
+    res.json({
+      safest2: compareSlip(parlays.safest2 || [], "Safest 2"),
+      safest3: compareSlip(parlays.safest3 || [], "Safest 3"),
+      safest4: compareSlip(parlays.safest4 || [], "Safest 4"),
+      best2: compareSlip(parlays.best2 || [], "Best 2-Leg"),
+      best3: compareSlip(parlays.best3 || [], "Best 3-Leg"),
+      best4: compareSlip(parlays.best4 || [], "Best 4-Leg"),
+      best5: compareSlip(parlays.best5 || [], "Best 5-Leg"),
+      best6: compareSlip(parlays.best6 || [], "Best 6-Leg"),
+      best7: compareSlip(parlays.best7 || [], "Best 7-Leg")
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Parlay comparison failed",
+      details: error.message
+    })
+  }
+})
+
+
+app.get("/parlays/dual", async (req, res) => {
+  try {
+    console.log("[DUAL-TRACE] route hit")
+    // NOTE: /parlays/dual does NOT call buildLiveDualBestAvailablePayload.
+    // It builds slips inline using buildHighestHitRateBookSlip + buildPayoutFitPortfolio.
+    // buildLiveDualBestAvailablePayload is only used by /api/best-available.
+    console.log("[PAYLOAD-DEBUG] ROUTE /parlays/dual — does NOT use buildLiveDualBestAvailablePayload — builds inline")
+    console.log("[PAYLOAD-DEBUG] /parlays/dual oddsSnapshot counts:", {
+      bestProps: (oddsSnapshot.bestProps || []).length,
+      eliteProps: (oddsSnapshot.eliteProps || []).length,
+      strongProps: (oddsSnapshot.strongProps || []).length,
+      playableProps: (oddsSnapshot.playableProps || []).length
+    })
+    console.log("[route-hit] GET /parlays/dual", new Date().toISOString())
+    const dualBestPropsPool = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
+    console.log("[DUAL-BESTPROPS-POOL-DEBUG]", {
+      total: dualBestPropsPool.length,
+      fanduel: dualBestPropsPool.filter(r => r.book === "FanDuel").length,
+      draftkings: dualBestPropsPool.filter(r => r.book === "DraftKings").length
+    })
+
+    const allRows = [
+      ...(oddsSnapshot.eliteProps || []),
+      ...(oddsSnapshot.strongProps || []),
+      ...(oddsSnapshot.playableProps || []),
+      ...(oddsSnapshot.bestProps || []),
+      ...(oddsSnapshot.props || [])
+    ]
+
+    const byBook = (legs, book, requiredLegCount = null) => {
+      const out = []
+
+      if (requiredLegCount !== null && (!legs || legs.length !== requiredLegCount)) {
+        return null
+      }
+
+      for (const leg of legs) {
+        const matches = allRows.filter((row) =>
+          row.player === leg.player &&
+          row.propType === leg.propType &&
+          row.side === leg.side &&
+          Number(row.line) === Number(leg.line) &&
+          row.book === book
+        )
+
+        if (!matches.length) return null
+
+        const match =
+          matches.find((row) => row.score !== undefined) ||
+          matches.find((row) => row.dvpScore !== undefined) ||
+          matches[0]
+
+        out.push(match)
+      }
+
+      const price = parlayPriceFromLegs(out)
+      if (!price) return null
+
+      const trueProbability = trueParlayProbabilityFromLegs(out)
+      return {
+        book,
+        legs: out,
+        price,
+        projectedReturn: estimateReturn(5, price.american),
+        trueProbability,
+        confidence: confidenceFromLegs(out)
+      }
+    }
+
+
+    const formatPayoutLabel = (baseLabel, payout) => {
+      const value = Number(payout || 0)
+      if (!value) return baseLabel
+      return `${baseLabel} ($${value.toFixed(2)})`
+    }
+
+    const addSlipLabel = (baseLabel, slip) => {
+      if (!slip) return null
+      return {
+        ...slip,
+        label: formatPayoutLabel(baseLabel, slip.projectedReturn)
+      }
+    }
+
+    const isDualEmergencyAcceptedSize = (book, targetLegCount, legCount) => {
+      if (book === "DraftKings" && targetLegCount === 3 && legCount === 2) return true
+      if (book === "DraftKings" && targetLegCount === 4 && legCount === 3) return true
+      if (book === "FanDuel" && targetLegCount === 3 && legCount === 2) return true
+      if (book === "FanDuel" && targetLegCount === 4 && legCount === 3) return true
+      return false
+    }
+
+    const buildDualEmergencySlipObject = (book, legs, labelPrefix) => {
+      if (!Array.isArray(legs) || legs.length < 2) return null
+      const price = parlayPriceFromLegs(legs)
+      if (!price) return null
+      const projectedReturn = estimateReturn(5, price.american)
+      const trueProbability = trueParlayProbabilityFromLegs(legs)
+      const confidence = confidenceFromLegs(legs)
+      const slip = {
+        book,
+        legs,
+        price,
+        projectedReturn,
+        trueProbability,
+        confidence,
+        label: formatPayoutLabel(`${book} ${labelPrefix}`, projectedReturn)
+      }
+      return isValidSlipObject(slip, null) ? slip : null
+    }
+
+    const fdRaw6 = buildHighestHitRateBookSlip("FanDuel", 6, dualBestPropsPool)
+    console.log("[FD-DEEP-RAW-DEBUG]", {
+      target: 6,
+      rawLen: Array.isArray(fdRaw6) ? fdRaw6.length : 0
+    })
+    const fdRaw7 = buildHighestHitRateBookSlip("FanDuel", 7, dualBestPropsPool)
+    console.log("[FD-DEEP-RAW-DEBUG]", {
+      target: 7,
+      rawLen: Array.isArray(fdRaw7) ? fdRaw7.length : 0
+    })
+    const fdRaw8 = buildHighestHitRateBookSlip("FanDuel", 8, dualBestPropsPool)
+    console.log("[FD-DEEP-RAW-DEBUG]", {
+      target: 8,
+      rawLen: Array.isArray(fdRaw8) ? fdRaw8.length : 0
+    })
+    const fdRaw9 = buildHighestHitRateBookSlip("FanDuel", 9, dualBestPropsPool)
+    console.log("[FD-DEEP-RAW-DEBUG]", {
+      target: 9,
+      rawLen: Array.isArray(fdRaw9) ? fdRaw9.length : 0
+    })
+    const fdRaw10 = buildHighestHitRateBookSlip("FanDuel", 10, dualBestPropsPool)
+    console.log("[FD-DEEP-RAW-DEBUG]", {
+      target: 10,
+      rawLen: Array.isArray(fdRaw10) ? fdRaw10.length : 0
+    })
+
+    const fdSlips = {
+      highestHitRate2: makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 2, dualBestPropsPool), "Highest Hit Rate 2-Leg"),
+      highestHitRate3: makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 3, dualBestPropsPool), "Highest Hit Rate 3-Leg"),
+      highestHitRate4: makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 4, dualBestPropsPool), "Highest Hit Rate 4-Leg"),
+      highestHitRate5: makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 5, dualBestPropsPool), "Highest Hit Rate 5-Leg"),
+      highestHitRate6: makeSlipObject("FanDuel", fdRaw6, "Highest Hit Rate 6-Leg"),
+      highestHitRate7: makeSlipObject("FanDuel", fdRaw7, "Highest Hit Rate 7-Leg"),
+      highestHitRate8: makeSlipObject("FanDuel", fdRaw8, "Highest Hit Rate 8-Leg"),
+      highestHitRate9: makeSlipObject("FanDuel", fdRaw9, "Highest Hit Rate 9-Leg"),
+      highestHitRate10: makeSlipObject("FanDuel", fdRaw10, "Highest Hit Rate 10-Leg")
+    }
+
+    console.log("[DUAL-SLOT-DEBUG] slot=fd4 isNull=", fdSlips.highestHitRate4 === null, "legCount=", fdSlips.highestHitRate4?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd5 isNull=", fdSlips.highestHitRate5 === null, "legCount=", fdSlips.highestHitRate5?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd6 isNull=", fdSlips.highestHitRate6 === null, "legCount=", fdSlips.highestHitRate6?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd7 isNull=", fdSlips.highestHitRate7 === null, "legCount=", fdSlips.highestHitRate7?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd8 isNull=", fdSlips.highestHitRate8 === null, "legCount=", fdSlips.highestHitRate8?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd9 isNull=", fdSlips.highestHitRate9 === null, "legCount=", fdSlips.highestHitRate9?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=fd10 isNull=", fdSlips.highestHitRate10 === null, "legCount=", fdSlips.highestHitRate10?.legs?.length || 0)
+
+    const dkSlips = {
+      highestHitRate2: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 2, dualBestPropsPool), "Highest Hit Rate 2-Leg"),
+      highestHitRate3: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 3, dualBestPropsPool), "Highest Hit Rate 3-Leg"),
+      highestHitRate4: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 4, dualBestPropsPool), "Highest Hit Rate 4-Leg"),
+      highestHitRate5: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 5, dualBestPropsPool), "Highest Hit Rate 5-Leg"),
+      highestHitRate6: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 6, dualBestPropsPool), "Highest Hit Rate 6-Leg"),
+      highestHitRate7: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 7, dualBestPropsPool), "Highest Hit Rate 7-Leg"),
+      highestHitRate8: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 8, dualBestPropsPool), "Highest Hit Rate 8-Leg"),
+      highestHitRate9: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 9, dualBestPropsPool), "Highest Hit Rate 9-Leg"),
+      highestHitRate10: makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 10, dualBestPropsPool), "Highest Hit Rate 10-Leg")
+    }
+
+    console.log("[DUAL-SLOT-DEBUG] slot=dk4 isNull=", dkSlips.highestHitRate4 === null, "legCount=", dkSlips.highestHitRate4?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk5 isNull=", dkSlips.highestHitRate5 === null, "legCount=", dkSlips.highestHitRate5?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk6 isNull=", dkSlips.highestHitRate6 === null, "legCount=", dkSlips.highestHitRate6?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk7 isNull=", dkSlips.highestHitRate7 === null, "legCount=", dkSlips.highestHitRate7?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk8 isNull=", dkSlips.highestHitRate8 === null, "legCount=", dkSlips.highestHitRate8?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk9 isNull=", dkSlips.highestHitRate9 === null, "legCount=", dkSlips.highestHitRate9?.legs?.length || 0)
+    console.log("[DUAL-SLOT-DEBUG] slot=dk10 isNull=", dkSlips.highestHitRate10 === null, "legCount=", dkSlips.highestHitRate10?.legs?.length || 0)
+
+    const fdLanePortfolios = buildDualLanePortfoliosForBook("FanDuel", dualBestPropsPool, Object.values(fdSlips))
+    const dkLanePortfolios = buildDualLanePortfoliosForBook("DraftKings", dualBestPropsPool, Object.values(dkSlips))
+    const fdPayoutFitPortfolio = buildPayoutFitPortfolio("FanDuel", Object.values(fdSlips), dualBestPropsPool, { dualMode: true, dualUsablePool: dualBestPropsPool })
+    const dkPayoutFitPortfolio = buildPayoutFitPortfolio("DraftKings", Object.values(dkSlips), dualBestPropsPool, { dualMode: true, dualUsablePool: dualBestPropsPool })
+
+    const fdLottoBatchOptions = Array.isArray(fdLanePortfolios?.lottoBatchPortfolio?.options) && fdLanePortfolios.lottoBatchPortfolio.options.length
+      ? fdLanePortfolios.lottoBatchPortfolio.options
+      : (fdPayoutFitPortfolio?.lottoBatch?.options || [])
+    const dkLottoBatchOptions = Array.isArray(dkLanePortfolios?.lottoBatchPortfolio?.options) && dkLanePortfolios.lottoBatchPortfolio.options.length
+      ? dkLanePortfolios.lottoBatchPortfolio.options
+      : (dkPayoutFitPortfolio?.lottoBatch?.options || [])
+
+    const dualResponse = buildDualParlaysResponseShape({
+      bestAvailable: {
+        highestHitRate2: { fanduel: fdSlips.highestHitRate2, draftkings: dkSlips.highestHitRate2 },
+        highestHitRate3: { fanduel: fdSlips.highestHitRate3, draftkings: dkSlips.highestHitRate3 },
+        highestHitRate4: { fanduel: fdSlips.highestHitRate4, draftkings: dkSlips.highestHitRate4 },
+        highestHitRate5: { fanduel: fdSlips.highestHitRate5, draftkings: dkSlips.highestHitRate5 },
+        highestHitRate6: { fanduel: fdSlips.highestHitRate6, draftkings: dkSlips.highestHitRate6 },
+        highestHitRate7: { fanduel: fdSlips.highestHitRate7, draftkings: dkSlips.highestHitRate7 },
+        highestHitRate8: { fanduel: fdSlips.highestHitRate8, draftkings: dkSlips.highestHitRate8 },
+        highestHitRate9: { fanduel: fdSlips.highestHitRate9, draftkings: dkSlips.highestHitRate9 },
+        highestHitRate10: { fanduel: fdSlips.highestHitRate10, draftkings: dkSlips.highestHitRate10 }
+      },
+      payoutFitPortfolio: {
+        fanduel: fdPayoutFitPortfolio,
+        draftkings: dkPayoutFitPortfolio
+      },
+      recoupPortfolio: {
+        fanduel: fdLanePortfolios.recoupPortfolio,
+        draftkings: dkLanePortfolios.recoupPortfolio
+      },
+      conservativePortfolio: {
+        fanduel: fdLanePortfolios.conservativePortfolio,
+        draftkings: dkLanePortfolios.conservativePortfolio
+      },
+      midUpsidePortfolio: {
+        fanduel: fdLanePortfolios.midUpsidePortfolio,
+        draftkings: dkLanePortfolios.midUpsidePortfolio
+      },
+      lottoBatchPortfolio: {
+        fanduel: {
+          ...(fdLanePortfolios.lottoBatchPortfolio || {}),
+          options: fdLottoBatchOptions
+        },
+        draftkings: {
+          ...(dkLanePortfolios.lottoBatchPortfolio || {}),
+          options: dkLottoBatchOptions
+        }
+      }
+    })
+
+    console.log("[PAYOUT-PORTFOLIO] DraftKings portfolio keys:", Object.keys(dualResponse?.payoutFitPortfolio?.draftkings || {}))
+    console.log("[PAYLOAD-DEBUG] /parlays/dual SUMMARY route=/parlays/dual bestPropsInSnapshot:", (oddsSnapshot.bestProps || []).length,
+      "eliteProps:", (oddsSnapshot.eliteProps || []).length,
+      "strongProps:", (oddsSnapshot.strongProps || []).length,
+      "playableProps:", (oddsSnapshot.playableProps || []).length
+    )
+    console.log("[ROUTE-FINAL-DEBUG] /parlays/dual", {
+      bestPropsRaw: (oddsSnapshot.bestProps || []).length,
+      playablePropsRaw: (oddsSnapshot.playableProps || []).length,
+      strongPropsRaw: (oddsSnapshot.strongProps || []).length,
+      elitePropsRaw: (oddsSnapshot.eliteProps || []).length
+    })
+
+    const payloadBestKeys = new Set()
+    const collectPayloadLegKeys = (node) => {
+      if (!node) return
+      if (Array.isArray(node)) {
+        for (const item of node) collectPayloadLegKeys(item)
+        return
+      }
+      if (typeof node !== "object") return
+      if (Array.isArray(node.legs)) {
+        for (const leg of node.legs) {
+          const key = `${leg.player || leg.playerName || ""}|${leg.propType || leg.statType || ""}|${leg.side || ""}|${Number(leg.line)}|${leg.book || ""}`
+          payloadBestKeys.add(key)
+        }
+      }
+      for (const value of Object.values(node)) collectPayloadLegKeys(value)
+    }
+    collectPayloadLegKeys(dualResponse)
+    console.log(`[FINAL-ROUTE-COUNTS] route=/parlays/dual bestPropsRaw=${(oddsSnapshot.bestProps || []).length} payloadBest=${payloadBestKeys.size}`)
+    console.log("[DUAL-COVERAGE-DEBUG]", {
+      fd6: Boolean(dualResponse?.bestAvailable?.highestHitRate6?.fanduel),
+      fdLotto: Number(dualResponse?.payoutFitPortfolio?.fanduel?.lotto?.options?.length || 0),
+      dkBig: Number(dualResponse?.payoutFitPortfolio?.draftkings?.bigUpside?.options?.length || 0),
+      dkLotto: Number(dualResponse?.payoutFitPortfolio?.draftkings?.lotto?.options?.length || 0)
+    })
+
+    console.log("[DUAL-TRACE FINAL]", {
+      fd6: dualResponse?.bestAvailable?.highestHitRate6?.fanduel,
+      dk6: dualResponse?.bestAvailable?.highestHitRate6?.draftkings,
+      fd7: dualResponse?.bestAvailable?.highestHitRate7?.fanduel,
+      dk7: dualResponse?.bestAvailable?.highestHitRate7?.draftkings,
+      fd8: dualResponse?.bestAvailable?.highestHitRate8?.fanduel,
+      dk8: dualResponse?.bestAvailable?.highestHitRate8?.draftkings,
+      fd9: dualResponse?.bestAvailable?.highestHitRate9?.fanduel,
+      dk9: dualResponse?.bestAvailable?.highestHitRate9?.draftkings,
+      fd10: dualResponse?.bestAvailable?.highestHitRate10?.fanduel,
+      dk10: dualResponse?.bestAvailable?.highestHitRate10?.draftkings,
+      fdLotto: dualResponse?.bestAvailable?.payoutFitPortfolio?.fanduel?.lotto?.options?.length,
+      dkLotto: dualResponse?.bestAvailable?.payoutFitPortfolio?.draftkings?.lotto?.options?.length
+    })
+
+    console.log("[DUAL-FINAL-COVERAGE-DEBUG]", {
+      fd3: Boolean(dualResponse?.bestAvailable?.highestHitRate3?.fanduel),
+      fd4: Boolean(dualResponse?.bestAvailable?.highestHitRate4?.fanduel),
+      fd5: Boolean(dualResponse?.bestAvailable?.highestHitRate5?.fanduel),
+      fd6: Boolean(dualResponse?.bestAvailable?.highestHitRate6?.fanduel),
+      dk3: Boolean(dualResponse?.bestAvailable?.highestHitRate3?.draftkings),
+      dk4: Boolean(dualResponse?.bestAvailable?.highestHitRate4?.draftkings),
+      dk5: Boolean(dualResponse?.bestAvailable?.highestHitRate5?.draftkings),
+      dk6: Boolean(dualResponse?.bestAvailable?.highestHitRate6?.draftkings),
+      fdLottoCount: Number(dualResponse?.payoutFitPortfolio?.fanduel?.lotto?.options?.length || 0),
+      dkLottoCount: Number(dualResponse?.payoutFitPortfolio?.draftkings?.lotto?.options?.length || 0)
+    })
+
+    console.log("[DUAL-HIGHRATE-COVERAGE-DEBUG]", {
+      fd2: dualResponse.bestAvailable?.highestHitRate2?.fanduel?.legs?.length || 0,
+      fd3: dualResponse.bestAvailable?.highestHitRate3?.fanduel?.legs?.length || 0,
+      fd4: dualResponse.bestAvailable?.highestHitRate4?.fanduel?.legs?.length || 0,
+      fd5: dualResponse.bestAvailable?.highestHitRate5?.fanduel?.legs?.length || 0,
+      dk2: dualResponse.bestAvailable?.highestHitRate2?.draftkings?.legs?.length || 0,
+      dk3: dualResponse.bestAvailable?.highestHitRate3?.draftkings?.legs?.length || 0,
+      dk4: dualResponse.bestAvailable?.highestHitRate4?.draftkings?.legs?.length || 0,
+      dk5: dualResponse.bestAvailable?.highestHitRate5?.draftkings?.legs?.length || 0
+    })
+
+    const snapshotMeta = logSnapshotMeta("route=/parlays/dual response")
+    res.json({
+      ...dualResponse,
+      snapshotMeta
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Dual-mode parlay engine failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/snapshot/status", async (req, res) => {
+  try {
+    const forceRefresh = req.query.force === "1" || req.query.force === "true"
+    const now = Date.now()
+    const cooldownRemainingMs = Math.max(0, SNAPSHOT_COOLDOWN_MS - Math.max(0, now - lastSnapshotRefreshAt))
+    const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1000)
+    const forceRefreshAvailable = cooldownRemainingMs === 0
+    const snapshotSource = oddsSnapshot.updatedAt ? "Cached" : "Unknown"
+    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+    lastSnapshotSource = forceRefresh ? "force-refresh-live" : "refresh-live"
+    lastSnapshotSavedAt = Date.now()
+    lastSnapshotAgeMinutes = 0
+    if (forceRefresh) lastForceRefreshAt = new Date().toISOString()
+
+    res.json({
+      ok: true,
+      updatedAt: oddsSnapshot.updatedAt,
+      updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+      primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
+      snapshotSource,
+      slateMode: slateMeta.slateMode,
+      eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+      totalEligibleGames: slateMeta.totalEligibleGames,
+      startedEligibleGames: slateMeta.startedEligibleGames,
+      cooldownMs: SNAPSHOT_COOLDOWN_MS,
+      cooldownRemainingMs,
+      cooldownRemainingSeconds,
+      forceRefreshAvailable,
+      events: (oddsSnapshot.events || []).length,
+      props: (oddsSnapshot.props || []).length,
+      bestProps: (oddsSnapshot.bestProps || []).length
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Snapshot status failed",
+      details: error.message
+    })
+  }
+})
+
+app.get("/refresh-snapshot", async (req, res) => {
+  console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
+  try {
+    resetFragileFilterAdjustedLogCount()
+    const previousSnapshotForCarry = {
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? [...oddsSnapshot.rawProps] : [],
+      props: Array.isArray(oddsSnapshot?.props) ? [...oddsSnapshot.props] : []
+    }
+    const forceRefresh = String(req.query.force || "").toLowerCase() === "1" ||
+      String(req.query.force || "").toLowerCase() === "true"
+
+    if (forceRefresh) {
+      lastForceRefreshAt = new Date().toISOString()
+    }
+    console.log("[FORCE-REFRESH-DEBUG]", {
+      forceFlag: forceRefresh,
+      lastForceRefreshAt
+    })
+
+    if (forceRefresh) {
+      console.log("[SNAPSHOT-DEBUG] FORCE REFRESH ROUTE HIT")
+      // Force refresh: clear in-memory snapshot to ensure completely fresh rebuild
+      oddsSnapshot = {
+        updatedAt: null,
+        events: [],
+        props: [],
+        bestProps: [],
+        eliteProps: [],
+        strongProps: [],
+        playableProps: [],
+        flexProps: []
+      }
+    }
+
+    const snapshotAgeMinutes = oddsSnapshot?.updatedAt
+      ? (Date.now() - new Date(oddsSnapshot.updatedAt).getTime()) / 60000
+      : null
+
+    const shouldSkipRebuild =
+      snapshotLoadedFromDisk &&
+      snapshotAgeMinutes !== null &&
+      snapshotAgeMinutes < 10
+
+    if (shouldSkipRebuild) {
+      const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
+      const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
+      const cachedEnrichedModelRows = dedupeByLegSignature([
+        ...(Array.isArray(oddsSnapshot.eliteProps) ? oddsSnapshot.eliteProps : []),
+        ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
+        ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
+        ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+      ])
+      const cachedSurvivedFragileRows = cachedRawPropsRows.filter((row) => {
+        try {
+          return !isFragileLeg(row, "best")
+        } catch (_) {
+          return true
+        }
+      })
+      const cachedBestPropsRawRows = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
+      const cachedFinalBestVisibleRows = getAvailablePrimarySlateRows(cachedBestPropsRawRows)
+      console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
+        path: "refresh-snapshot-cached-skip-rebuild",
+        scheduledEvents: cachedScheduledEvents.length,
+        rawPropsRows: cachedRawPropsRows.length,
+        enrichedModelRows: cachedEnrichedModelRows.length,
+        survivedFragileRows: cachedSurvivedFragileRows.length,
+        survivedFragileRowsByBook: {
+          FanDuel: cachedSurvivedFragileRows.filter((r) => r?.book === "FanDuel").length,
+          DraftKings: cachedSurvivedFragileRows.filter((r) => r?.book === "DraftKings").length
+        },
+        bestPropsRawRows: cachedBestPropsRawRows.length,
+        bestPropsRawRowsByBook: {
+          FanDuel: cachedBestPropsRawRows.filter((r) => r?.book === "FanDuel").length,
+          DraftKings: cachedBestPropsRawRows.filter((r) => r?.book === "DraftKings").length
+        },
+        finalBestVisibleRows: cachedFinalBestVisibleRows.length
+      })
+      runCurrentSlateCoverageDiagnostics({
+        scheduledEvents: cachedScheduledEvents,
+        rawPropsRows: cachedRawPropsRows,
+        enrichedModelRows: cachedEnrichedModelRows,
+        survivedFragileRows: cachedSurvivedFragileRows,
+        bestPropsRawRows: cachedBestPropsRawRows,
+        finalBestVisibleRows: cachedFinalBestVisibleRows
+      })
+      console.log("[SNAPSHOT-CACHE] skipping rebuild, using cached snapshot", {
+        snapshotAgeMinutes
+      })
+      return res.json({
+        ok: true,
+        cached: true,
+        reason: "fresh_snapshot",
+        bestProps: oddsSnapshot.bestProps?.length || 0
+      })
+    }
+
+    if (
+      !forceRefresh &&
+      oddsSnapshot.updatedAt &&
+      oddsSnapshot.events.length &&
+      oddsSnapshot.props.length &&
+      (!snapshotLoadedFromDisk || (snapshotAgeMinutes !== null && snapshotAgeMinutes < 10))
+    ) {
+      const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
+      const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
+      const cachedEnrichedModelRows = dedupeByLegSignature([
+        ...(Array.isArray(oddsSnapshot.eliteProps) ? oddsSnapshot.eliteProps : []),
+        ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
+        ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
+        ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+      ])
+      const cachedSurvivedFragileRows = cachedRawPropsRows.filter((row) => {
+        try {
+          return !isFragileLeg(row, "best")
+        } catch (_) {
+          return true
+        }
+      })
+      const cachedBestPropsRawRows = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
+      const cachedFinalBestVisibleRows = getAvailablePrimarySlateRows(cachedBestPropsRawRows)
+      console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
+        path: "refresh-snapshot-cached-shortcut",
+        scheduledEvents: cachedScheduledEvents.length,
+        rawPropsRows: cachedRawPropsRows.length,
+        enrichedModelRows: cachedEnrichedModelRows.length,
+        survivedFragileRows: cachedSurvivedFragileRows.length,
+        survivedFragileRowsByBook: {
+          FanDuel: cachedSurvivedFragileRows.filter((r) => r?.book === "FanDuel").length,
+          DraftKings: cachedSurvivedFragileRows.filter((r) => r?.book === "DraftKings").length
+        },
+        bestPropsRawRows: cachedBestPropsRawRows.length,
+        bestPropsRawRowsByBook: {
+          FanDuel: cachedBestPropsRawRows.filter((r) => r?.book === "FanDuel").length,
+          DraftKings: cachedBestPropsRawRows.filter((r) => r?.book === "DraftKings").length
+        },
+        finalBestVisibleRows: cachedFinalBestVisibleRows.length
+      })
+      runCurrentSlateCoverageDiagnostics({
+        scheduledEvents: cachedScheduledEvents,
+        rawPropsRows: cachedRawPropsRows,
+        enrichedModelRows: cachedEnrichedModelRows,
+        survivedFragileRows: cachedSurvivedFragileRows,
+        bestPropsRawRows: cachedBestPropsRawRows,
+        finalBestVisibleRows: cachedFinalBestVisibleRows
+      })
+      const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+      return res.json({
+        ok: true,
+        cached: true,
+        updatedAt: oddsSnapshot.updatedAt,
+        updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+        primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
+        slateMode: slateMeta.slateMode,
+        eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+        totalEligibleGames: slateMeta.totalEligibleGames,
+        startedEligibleGames: slateMeta.startedEligibleGames,
+        events: oddsSnapshot.events.length,
+        props: oddsSnapshot.props.length,
+        bestProps: oddsSnapshot.bestProps.length
+      })
+    }
+
+    const now = Date.now()
+    const msSinceLast = now - lastSnapshotRefreshAt
+
+    if (msSinceLast < SNAPSHOT_COOLDOWN_MS && !forceRefresh) {
+      return res.status(429).json({
+        error: "Snapshot refresh cooldown active",
+        retryInSeconds: Math.ceil((SNAPSHOT_COOLDOWN_MS - msSinceLast) / 1000),
+        lastUpdatedAt: oddsSnapshot.updatedAt,
+        lastUpdatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+        primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || [])
+      })
+    }
+
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    if (!API_SPORTS_KEY) {
+      return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
+    }
+
+    const eventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      {
+        params: { apiKey: ODDS_API_KEY }
+      }
+    )
+
+    const events = eventsResponse.data || []
+    const targetEvents = filterEventsToPrimarySlate(events)
+    const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
+    if (!targetEvents.length) {
+      return res.status(404).json({
+        error: "No upcoming NBA games found for the primary slate"
+      })
+    }
+    const primarySlateDateLocal = targetEvents[0]
+      ? new Date(targetEvents[0].commence_time).toLocaleDateString("en-US", {
+          timeZone: "America/Detroit"
+        })
+      : null
+    const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
+    console.log("[RAW-PROPS-PIPELINE-START]", {
+      scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      eventIds: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean),
+      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => {
+        const away = event?.away_team || event?.awayTeam || ""
+        const home = event?.home_team || event?.homeTeam || ""
+        return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+      }).filter(Boolean)
+    })
+    const cleaned = []
+    const eventIngestDebug = []
+    const previousOpenMap = new Map(
+      (oddsSnapshot.props || []).map((row) => {
+        const key = [row.eventId, row.player, row.propType, row.side, row.book].join("|")
+        return [
+          key,
+          {
+            openingLine: Number.isFinite(Number(row.openingLine)) ? Number(row.openingLine) : Number(row.line),
+            openingOdds: Number.isFinite(Number(row.openingOdds)) ? Number(row.openingOdds) : Number(row.odds)
+          }
+        ]
+      })
+    )
+
+    for (const event of targetEvents) {
+      try {
+        const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
+          pathLabel: "refresh-snapshot"
+        })
+        cleaned.push(...(Array.isArray(fetched?.rows) ? fetched.rows : []))
+        eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
+      } catch (eventError) {
+        const away = event?.away_team || event?.awayTeam || ""
+        const home = event?.home_team || event?.homeTeam || ""
+        console.log("[RAW-PROPS-SKIP-DEBUG]", {
+          reason: "event_lookup_miss",
+          eventId: String(event?.id || event?.eventId || ""),
+          matchup: away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+        })
+        eventIngestDebug.push({
+          path: "refresh-snapshot",
+          eventId: String(event?.id || ""),
+          matchup: buildMatchup(event?.away_team, event?.home_team),
+          error: eventError.response?.data || eventError.message,
+          finalAcceptedRows: 0
+        })
+        console.error(
+          "Snapshot event props failed:",
+          event.id,
+          eventError.response?.data || eventError.message
+        )
+      }
+    }
+
+    const previousRowsForCarry = dedupeByLegSignature([
+      ...(Array.isArray(previousSnapshotForCarry?.rawProps) ? previousSnapshotForCarry.rawProps : []),
+      ...(Array.isArray(previousSnapshotForCarry?.props) ? previousSnapshotForCarry.props : [])
+    ])
+    const scheduledEventIds = scheduledEvents.map((event) => String(event?.id || "")).filter(Boolean)
+    const preCarryEventIds = [...new Set(cleaned.map((row) => String(row?.eventId || "")).filter(Boolean))]
+    const slateDateKey = targetEvents[0] ? getLocalSlateDateKey(targetEvents[0].commence_time) : ""
+    const unstableMissingBeforeCarry = UNSTABLE_GAME_EVENT_IDS.filter((eventId) => {
+      return scheduledEventIds.includes(eventId) && !preCarryEventIds.includes(eventId)
+    })
+    const carryForwardRows = previousRowsForCarry
+      .filter((row) => unstableMissingBeforeCarry.includes(String(row?.eventId || "")))
+      .filter((row) => {
+        if (!slateDateKey) return true
+        try {
+          return getLocalSlateDateKey(row?.gameTime) === slateDateKey
+        } catch (_) {
+          return false
+        }
+      })
+      .filter((row) => {
+        try {
+          return isPregameEligibleRow(row)
+        } catch (_) {
+          return false
+        }
+      })
+      .map((row) => ({ ...row, staleCarryForward: true }))
+
+    if (carryForwardRows.length > 0) cleaned.push(...carryForwardRows)
+
+    console.log("[UNSTABLE-GAME-CARRY-FORWARD-DEBUG]", {
+      path: "refresh-snapshot",
+      events: UNSTABLE_GAME_EVENT_IDS.map((eventId) => ({
+        eventId,
+        carriedRows: carryForwardRows.filter((row) => String(row?.eventId || "") === eventId).length
+      }))
+    })
+
+    const rawIngestedProps = dedupeByLegSignature(cleaned)
+    const rawPropsRows = rawIngestedProps
+    console.log("[RAW-PROPS-PIPELINE-END]", {
+      scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      totalRawRowsBuilt: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      byBook: {
+        FanDuel: (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => row?.book === "FanDuel").length,
+        DraftKings: (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => row?.book === "DraftKings").length
+      },
+      byEventId: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.eventId || "")
+        if (!key) return acc
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+    if (scheduledEvents.length > 0 && rawPropsRows.length === 0) {
+      console.log("[RAW-PROPS-ZERO-ROWS-DEBUG]", {
+        scheduledEvents: scheduledEvents.map((event) => ({
+          eventId: String(event?.id || event?.eventId || ""),
+          matchup: (() => {
+            const away = event?.away_team || event?.awayTeam || ""
+            const home = event?.home_team || event?.homeTeam || ""
+            return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+          })()
+        }))
+      })
+    }
+    const ingestedEventIds = [...new Set(rawPropsRows.map((row) => String(row?.eventId || "")).filter(Boolean))]
+    const missingEventIds = scheduledEventIds.filter((eventId) => !ingestedEventIds.includes(eventId))
+    const propsPerEventId = Object.fromEntries(
+      scheduledEventIds.map((eventId) => [
+        eventId,
+        rawPropsRows.filter((row) => String(row?.eventId || "") === eventId).length
+      ])
+    )
+
+    const ingestApiEventIds = [...new Set(
+      eventIngestDebug.flatMap((item) => [
+        ...(Array.isArray(item?.apiEventIdsPrimary) ? item.apiEventIdsPrimary : []),
+        ...(Array.isArray(item?.apiEventIdsFallback) ? item.apiEventIdsFallback : [])
+      ].map((id) => String(id || "")).filter(Boolean))
+    )]
+    const targetMissingEventStages = UNSTABLE_GAME_EVENT_IDS.map((id) => ({
+      eventId: id,
+      inScheduledEvents: scheduledEventIds.includes(id),
+      inRawApiResponse: rawApiEventIds.includes(id) || ingestApiEventIds.includes(id),
+      inMappedRawProps: ingestedEventIds.includes(id),
+      inFinalSavedRawProps: false,
+      inFinalSavedProps: false,
+      mappedRows: rawPropsRows.filter((row) => String(row?.eventId || "") === id).length
+    }))
+
+    console.log("[TARGET-MISSING-GAME-INGEST-DEBUG]", {
+      path: "refresh-snapshot",
+      targets: targetMissingEventStages
+    })
+
+    const normalizeIngestPlayer = (value) => String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+    const lukaRawApiCount = eventIngestDebug.reduce((sum, item) => {
+      return sum + Number(item?.lukaRawPrimaryCount || 0) + Number(item?.lukaRawFallbackCount || 0)
+    }, 0)
+    const lukaMappedCount = rawPropsRows.filter((row) => normalizeIngestPlayer(row?.player).includes("doncic")).length
+
+    console.log("[INGEST-LUKA-STAGE-DEBUG]", {
+      path: "refresh-snapshot",
+      inRawApiResponse: lukaRawApiCount > 0,
+      rawApiCount: lukaRawApiCount,
+      inMappedRawProps: lukaMappedCount > 0,
+      mappedCount: lukaMappedCount
+    })
+
+    const debugPipelineStages = {}
+    debugPipelineStages.rawNormalized = summarizePropPipelineRows(cleaned)
+    logPropPipelineStep("refresh-snapshot", "raw-normalized-props", cleaned)
+    const pregameStatusRowsForDebug = cleaned.filter((row) => isPregameEligibleRow(row))
+    debugPipelineStages.afterPregameStatus = summarizePropPipelineRows(pregameStatusRowsForDebug)
+    logPropPipelineStep("refresh-snapshot", "after-pregame-status-filtering", pregameStatusRowsForDebug)
+    const primarySlateRowsForDebug = filterRowsToPrimarySlate(pregameStatusRowsForDebug)
+    debugPipelineStages.afterPrimarySlate = summarizePropPipelineRows(primarySlateRowsForDebug)
+    logPropPipelineStep("refresh-snapshot", "after-primary-slate-filtering", primarySlateRowsForDebug)
+
+    const playerRows = new Map()
+    for (const row of cleaned) {
+      if (!row.player) continue
+      if (!playerRows.has(row.player)) playerRows.set(row.player, row)
+    }
+
+    const statsCache = new Map()
+    const playerTeamMap = new Map()
+    const players = Array.from(playerRows.keys())
+    const playerResolutionDebug = {
+      totalRawPlayerNamesSeen: players.length,
+      totalPlayerNamesWithResolvedIds: 0,
+      unresolvedPlayerNames: [],
+      manualOverrideHitCount: 0,
+      looseMatchHitCount: 0,
+      missCacheHitCount: 0
+    }
+
+    for (let i = 0; i < players.length; i += PLAYER_LOOKUP_CONCURRENCY) {
+      const batch = players.slice(i, i + PLAYER_LOOKUP_CONCURRENCY)
+
+      await Promise.all(
+        batch.map(async (player) => {
+          try {
+            if (isManualOverridePlayer(player)) {
+              playerResolutionDebug.manualOverrideHitCount += 1
+            }
+
+            const sourceRow = playerRows.get(player)
+            const expectedTeamCodes = sourceRow
+              ? [teamAbbr(sourceRow.awayTeam), teamAbbr(sourceRow.homeTeam)]
+              : []
+
+            const cachedPlayerInfo = playerIdCache.get(player)
+            if (cachedPlayerInfo?.id && playerStatsCache.has(cachedPlayerInfo.id)) {
+              const cachedStats = playerStatsCache.get(cachedPlayerInfo.id) || []
+              const recentStats = cachedStats.slice(0, 10)
+
+              const derivedTeamCode = String(
+                getTeamOverride(player) ||
+                teamAbbr(cachedPlayerInfo.team) ||
+                getCurrentTeamCodeFromStats(recentStats) ||
+                ""
+              ).toUpperCase().trim()
+
+              const expectedSet = new Set(
+                expectedTeamCodes
+                  .map((code) => String(code || "").toUpperCase().trim())
+                  .filter(Boolean)
+              )
+
+              if (!expectedSet.size || !derivedTeamCode || expectedSet.has(derivedTeamCode)) {
+                statsCache.set(player, recentStats)
+                playerTeamMap.set(player, derivedTeamCode)
+                playerResolutionDebug.totalPlayerNamesWithResolvedIds += 1
+                if (isLooseResolvedMatch(player, cachedPlayerInfo.matchedName || "")) {
+                  playerResolutionDebug.looseMatchHitCount += 1
+                }
+                return
+              }
+
+              playerIdCache.delete(player)
+            }
+
+            if (playerLookupMissCache.has(player)) {
+              playerResolutionDebug.missCacheHitCount += 1
+            }
+
+            const playerInfo = await fetchApiSportsPlayerIdCached(player, expectedTeamCodes)
+            if (!playerInfo || !playerInfo.id) return
+
+            playerResolutionDebug.totalPlayerNamesWithResolvedIds += 1
+            if (isLooseResolvedMatch(player, playerInfo.matchedName || "")) {
+              playerResolutionDebug.looseMatchHitCount += 1
+            }
+
+            const stats = await fetchApiSportsPlayerStatsCached(playerInfo.id)
+            const recentStats = (stats || []).slice(0, 10)
+
+            const derivedTeamCode =
+              getTeamOverride(player) ||
+              teamAbbr(playerInfo.team) ||
+              getCurrentTeamCodeFromStats(recentStats)
+
+            statsCache.set(player, recentStats)
+            playerTeamMap.set(player, String(derivedTeamCode || "").toUpperCase())
+          } catch (err) {
+            playerResolutionDebug.unresolvedPlayerNames.push(player)
+            console.error(
+              "Snapshot stats failed for",
+              player,
+              err.response?.data || err.message
+            )
+          }
+        })
+      )
+    }
+
+    for (const player of players) {
+      if (!playerTeamMap.has(player)) {
+        playerResolutionDebug.unresolvedPlayerNames.push(player)
+      }
+    }
+
+    const uniqueUnresolved = Array.from(new Set(playerResolutionDebug.unresolvedPlayerNames))
+    logPlayerResolutionDiagnostics("refresh-snapshot", {
+      totalRawPlayerNamesSeen: playerResolutionDebug.totalRawPlayerNamesSeen,
+      totalPlayerNamesWithResolvedIds: playerResolutionDebug.totalPlayerNamesWithResolvedIds,
+      totalUnresolvedPlayerNames: uniqueUnresolved.length,
+      sampleUnresolvedPlayerNames: uniqueUnresolved.slice(0, 20),
+      manualOverrideHitCount: playerResolutionDebug.manualOverrideHitCount,
+      looseMatchHitCount: playerResolutionDebug.looseMatchHitCount,
+      missCacheHitCount: playerResolutionDebug.missCacheHitCount
+    })
+
+    const enriched = cleaned.map((row) => {
+  const playerName = row.player
+  const manualStatus = row.playerStatus || getManualPlayerStatus(playerName) || ""
+  const logs = statsCache.get(row.player) || []
+
+  const values = logs
+    .map((log) => propValueFromApiSportsLog(log, row.propType))
+    .filter((v) => v !== null)
+
+  const mins = logs
+    .map((log) => Number(log.min || 0))
+    .filter((v) => !Number.isNaN(v) && v > 0)
+
+  const l10Avg = avg(values)
+  const avgMin = avg(mins)
+
+  const recent5Values = values.slice(-5)
+  const recent3Values = values.slice(-3)
+  const recent5Mins = mins.slice(-5)
+  const recent3Mins = mins.slice(-3)
+
+  const recent5Avg = avg(recent5Values)
+  const recent3Avg = avg(recent3Values)
+  const minStd = stddev(mins)
+  const valueStd = stddev(values)
+  const minFloor = minVal(mins)
+  const minCeiling = maxVal(mins)
+  const recent5MinAvg = avg(recent5Mins)
+  const recent3MinAvg = avg(recent3Mins)
+
+  let hitRate = null
+  let edge = null
+
+  if (l10Avg !== null && values.length) {
+    if (row.side === "Over") {
+      edge = l10Avg - row.line
+      hitRate = `${values.filter((v) => v > row.line).length}/${values.length}`
+    } else if (row.side === "Under") {
+      edge = row.line - l10Avg
+      hitRate = `${values.filter((v) => v < row.line).length}/${values.length}`
+    }
+  }
+
+  const teamCode = String(playerTeamMap.get(row.player) || "").toUpperCase()
+  const validTeam =
+    teamCode && (
+      teamCode === teamAbbr(row.awayTeam) ||
+      teamCode === teamAbbr(row.homeTeam)
+    )
+
+  const fallbackTeam =
+    teamCode ||
+    teamAbbr(row.awayTeam) ||
+    teamAbbr(row.homeTeam) ||
+    ""
+
+  const resolvedTeam = fallbackTeam
+
+  const highTriggers = [
+    minFloor !== null && minFloor < 18,
+    avgMin !== null && avgMin < 24,
+    minStd !== null && minStd >= 8.5
+  ].filter(Boolean).length
+
+  const mediumTriggers = [
+    minFloor !== null && minFloor < 18,
+    avgMin !== null && avgMin < 28,
+    minStd !== null && minStd >= 6.5
+  ].filter(Boolean).length
+
+  let minutesRisk = "low"
+
+  if (highTriggers >= 2) {
+    minutesRisk = "high"
+  } else if (highTriggers === 1 || mediumTriggers >= 2) {
+    minutesRisk = "medium"
+  }
+
+  // apply manual injury / minutes overrides
+  if (manualStatus === "out") minutesRisk = "high"
+  if (manualStatus === "limited") minutesRisk = "high"
+  if (manualStatus === "probable") minutesRisk = minutesRisk === "high" ? "medium" : minutesRisk
+
+  // Trend risk (recent form vs bet direction)
+  let trendRisk = "low"
+
+  if (recent3Avg !== null && l10Avg !== null) {
+    const trendDelta = recent3Avg - l10Avg
+
+    if (row.side === "Over" && trendDelta < -2) {
+      trendRisk = "high"
+    } else if (row.side === "Under" && trendDelta > 2) {
+      trendRisk = "high"
+    } else if (row.side === "Over" && trendDelta < -1) {
+      trendRisk = "medium"
+    } else if (row.side === "Under" && trendDelta > 1) {
+      trendRisk = "medium"
+    }
+  }
+
+  let injuryRisk = "low"
+
+  const status = String(row.playerStatus || manualStatus || "").toLowerCase()
+
+  if (
+    status.includes("questionable") ||
+    status.includes("game-time") ||
+    status.includes("gtd")
+  ) {
+    injuryRisk = "high"
+  } else if (
+    status.includes("probable") ||
+    status.includes("returning") ||
+    status.includes("minutes")
+  ) {
+    injuryRisk = "medium"
+  }
+
+  return {
+    ...row,
+    l10Avg: l10Avg === null ? null : Number(l10Avg.toFixed(1)),
+    avgMin: avgMin === null ? null : Number(avgMin.toFixed(1)),
+    hitRate,
+    edge: edge === null ? null : Number(edge.toFixed(1)),
+    gamesUsed: values.length,
+    recent5Avg: recent5Avg === null ? null : Number(recent5Avg.toFixed(1)),
+    recent3Avg: recent3Avg === null ? null : Number(recent3Avg.toFixed(1)),
+    minStd: minStd === null ? null : Number(minStd.toFixed(1)),
+    valueStd: valueStd === null ? null : Number(valueStd.toFixed(1)),
+    minFloor: minFloor === null ? null : Number(minFloor.toFixed(1)),
+    minCeiling: minCeiling === null ? null : Number(minCeiling.toFixed(1)),
+    recent5MinAvg: recent5MinAvg === null ? null : Number(recent5MinAvg.toFixed(1)),
+    recent3MinAvg: recent3MinAvg === null ? null : Number(recent3MinAvg.toFixed(1)),
+    minutesRisk,
+    trendRisk,
+    injuryRisk,
+    resolvedTeamCode: teamCode,
+    player: row.player,
+    team: resolvedTeam,
+    eventId: row.eventId,
+    matchup: row.matchup,
+    awayTeam: row.awayTeam,
+    homeTeam: row.homeTeam,
+    gameTime: row.gameTime,
+    book: row.book,
+    propType: row.propType,
+    side: row.side,
+    line: row.line,
+    odds: row.odds,
+    openingLine: row.openingLine,
+    openingOdds: row.openingOdds,
+    marketMovementTag: row.marketMovementTag,
+    playerStatus: row.playerStatus,
+    isAlt: row.isAlt,
+    propVariant: row.propVariant
+
+  }
+})
+
+    const enrichedModelRows = Array.isArray(enriched) ? enriched : []
+
+    console.log("[ENRICHMENT-IDENTITY-DEBUG]", summarizeIdentityChanges(rawPropsRows, enrichedModelRows, 25))
+    console.log("[BAD-TEAM-RAW-DEBUG]", {
+      count: getBadTeamAssignmentRows(rawPropsRows, 25).length,
+      byBook: {
+        FanDuel: rawPropsRows.filter((row) => row?.book === "FanDuel" && !rowTeamMatchesMatchup(row)).length,
+        DraftKings: rawPropsRows.filter((row) => row?.book === "DraftKings" && !rowTeamMatchesMatchup(row)).length
+      },
+      sample: getBadTeamAssignmentRows(rawPropsRows, 25)
+    })
+    console.log("[BAD-TEAM-ENRICHED-DEBUG]", {
+      count: getBadTeamAssignmentRows(enrichedModelRows, 25).length,
+      byBook: {
+        FanDuel: enrichedModelRows.filter((row) => row?.book === "FanDuel" && !rowTeamMatchesMatchup(row)).length,
+        DraftKings: enrichedModelRows.filter((row) => row?.book === "DraftKings" && !rowTeamMatchesMatchup(row)).length
+      },
+      sample: getBadTeamAssignmentRows(enrichedModelRows, 25)
+    })
+
+    const allBadTeamAssignmentRows = (Array.isArray(enriched) ? enriched : []).filter((row) => !rowTeamMatchesMatchup(row))
+    const badTeamAssignmentRows = getBadTeamAssignmentRows(enriched, 25)
+    console.log("[BAD-TEAM-ASSIGNMENT-DEBUG]", {
+      path: "refresh-snapshot",
+      count: allBadTeamAssignmentRows.length,
+      byBook: {
+        FanDuel: allBadTeamAssignmentRows.filter((r) => r?.book === "FanDuel").length,
+        DraftKings: allBadTeamAssignmentRows.filter((r) => r?.book === "DraftKings").length
+      },
+      sample: badTeamAssignmentRows
+    })
+
+    const deduped = dedupeBestProps(enriched)
+    debugPipelineStages.afterDedupe = summarizePropPipelineRows(deduped)
+  logPropPipelineStep("refresh-snapshot", "after-dedupe", deduped)
+
+const scoredProps = deduped
+  .filter((row) => playerFitsMatchup(row))
+  .filter((row) => {
+    const team = String(row.team || "").toUpperCase().trim()
+    return Boolean(team) && (
+      team === teamAbbr(row.awayTeam) ||
+      team === teamAbbr(row.homeTeam)
+    )
+  })
+  .filter((row) => row.l10Avg !== null)
+  .filter((row) => row.avgMin !== null && row.avgMin >= 22)
+  .filter((row) => parseHitRate(row.hitRate) >= 0.5)
+  .filter((row) => row.gamesUsed >= 6)
+  .filter((row) => {
+    const gameTime = new Date(row.gameTime)
+    if (!(gameTime.getTime() > Date.now())) return false
+
+    const localGameDate = gameTime.toLocaleDateString("en-US", {
+      timeZone: "America/Detroit"
+    })
+
+    return !primarySlateDateLocal || localGameDate === primarySlateDateLocal
+  })
+  .filter((row) => {
+    const diff = Math.abs(Number(row.line) - Number(row.l10Avg))
+
+    if (row.propType === "Points") return diff <= 10
+    if (row.propType === "Rebounds") return diff <= 5
+    if (row.propType === "Assists") return diff <= 5
+    if (row.propType === "Threes") return diff <= 2.5
+    if (row.propType === "PRA") return diff <= 12
+
+    return true
+  })
+  .filter((row) => {
+    if (row.propType === "Assists" && Number(row.line) > 11.5) return false
+    if (row.propType === "Rebounds" && Number(row.line) > 15.5) return false
+    if (row.propType === "Points" && Number(row.line) > 36.5) return false
+    if (row.propType === "PRA" && Number(row.line) > 47.5) return false
+    return true
+  })
+  .map((row) => ({
+    ...row,
+    score: scorePropRow(row),
+    dvpScore: getDvpScore(getOpponentForRow(row), row.propType)
+  }))
+  .sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if ((b.edge ?? -999) !== (a.edge ?? -999)) return (b.edge ?? -999) - (a.edge ?? -999)
+    return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+  })
+  debugPipelineStages.afterScoringRanking = summarizePropPipelineRows(scoredProps)
+logPropPipelineStep("refresh-snapshot", "after-scoring-ranking", scoredProps)
+
+console.log("[SCORED-PROPS-FILTER-RELAX-DEBUG]", {
+  total: scoredProps.length,
+  byBook: scoredProps.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  byGame: scoredProps.reduce((acc, row) => {
+    const key = String(row?.matchup || row?.eventId || "unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  byProp: scoredProps.reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+})
+
+const normalizeBestPropsEdge = (edge) => clamp((Number(edge || 0) + 2) / 8, 0, 1)
+const normalizeBestPropsScore = (score) => clamp(Number(score || 0) / 120, 0, 1)
+const getTierEdge = (row) => Number(row.edge ?? row.projectedValue ?? 0)
+const getTierScore = (row) => Number(row.score || 0)
+const getMinutesRisk = (row) => String(row.minutesRisk || "").toLowerCase()
+const getInjuryRisk = (row) => String(row.injuryRisk || "").toLowerCase()
+const TIER_BOOKS = ["FanDuel", "DraftKings"]
+const TIER_STAT_TYPES = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+
+const qualifiesEliteTier = (row) => {
+  const hit = parseHitRate(row.hitRate)
+  return (
+    hit >= 0.72 &&
+    getTierScore(row) >= 88 &&
+    (row.minFloor === null || row.minFloor >= 24) &&
+    (row.minStd === null || row.minStd <= 7.5) &&
+    (row.valueStd === null ||
+      (
+        (row.propType === "Points" || row.propType === "PRA")
+          ? row.valueStd <= 10.5
+          : row.valueStd <= 5.5
+      ))
+  )
+}
+
+const qualifiesStrongTier = (row) => {
+  const hit = parseHitRate(row.hitRate)
+  return (
+    hit >= 0.61 &&
+    getTierScore(row) >= 62 &&
+    (row.minFloor === null || row.minFloor >= 22) &&
+    (row.minStd === null || row.minStd <= 9.5) &&
+    (row.valueStd === null ||
+      (
+        (row.propType === "Points" || row.propType === "PRA")
+          ? row.valueStd <= 12
+          : row.valueStd <= 6.5
+      ))
+  )
+}
+
+const bestPropsCompositeScore = (row) => {
+  const hitRate = parseHitRate(row.hitRate)
+  const edgeComponent = normalizeBestPropsEdge(row.edge ?? row.projectedValue ?? 0)
+  const scoreComponent = normalizeBestPropsScore(row.score)
+  const lowRiskBonuses =
+    (String(row.minutesRisk || "").toLowerCase() === "low" ? 0.035 : 0) +
+    (String(row.injuryRisk || "").toLowerCase() === "low" ? 0.03 : 0) +
+    (String(row.trendRisk || "").toLowerCase() === "low" ? 0.02 : 0)
+
+  return hitRate * 0.5 + edgeComponent * 0.25 + scoreComponent * 0.15 + lowRiskBonuses
+}
+
+const qualifiesPlayableTier = (row) => {
+  const hit = parseHitRate(row.hitRate)
+  const edge = getTierEdge(row)
+  const score = getTierScore(row)
+  const minutesRisk = getMinutesRisk(row)
+  const injuryRisk = getInjuryRisk(row)
+
+  if (minutesRisk === "high") return false
+  if (injuryRisk === "high") return false
+  if (hit < 0.5) return false
+  if (edge < -0.75 && score < 34) return false
+  if (score >= 42) return true
+  if (hit >= 0.62) return true
+  if (hit >= 0.59 && edge >= 0.2) return true
+  if (hit >= 0.57 && score >= 34) return true
+  return false
+}
+
+const qualifiesBestPropsSource = (row) => {
+  const hit = parseHitRate(row.hitRate)
+  const edge = getTierEdge(row)
+  const score = getTierScore(row)
+  const minutesRisk = getMinutesRisk(row)
+  const injuryRisk = getInjuryRisk(row)
+
+  if (minutesRisk === "high") return false
+  if (injuryRisk === "high") return false
+  if (hit < 0.48) return false
+  if (edge < -0.75 && score < 32) return false
+  return score >= 32 || hit >= 0.55 || (hit >= 0.58 && edge >= 0.15)
+}
+
+const summarizeTierBucket = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const byBook = {}
+  const byStat = {}
+
+  for (const book of TIER_BOOKS) {
+    byBook[book] = safeRows.filter((row) => String(row?.book || "Unknown") === book).length
+  }
+
+  for (const statType of TIER_STAT_TYPES) {
+    byStat[statType] = safeRows.filter((row) => String(row?.propType || "Unknown") === statType).length
+  }
+
+  return {
+    total: safeRows.length,
+    byBook,
+    byStat
+  }
+}
+
+const buildSequentialFilterDropCounts = (rows, filters) => {
+  let remaining = Array.isArray(rows) ? rows : []
+  const droppedByFilter = {}
+
+  for (const filter of filters) {
+    const next = remaining.filter(filter.predicate)
+    droppedByFilter[filter.key] = remaining.length - next.length
+    remaining = next
+  }
+
+  return {
+    droppedByFilter,
+    survivors: remaining
+  }
+}
+
+const logTierAssignmentDebug = (pathLabel, rawRows, tierRows, filterCounts = {}) => {
+  const safeRawRows = Array.isArray(rawRows) ? rawRows : []
+  const eliteRows = Array.isArray(tierRows.eliteRows) ? tierRows.eliteRows : []
+  const strongRows = Array.isArray(tierRows.strongRows) ? tierRows.strongRows : []
+  const playableRows = Array.isArray(tierRows.playableRows) ? tierRows.playableRows : []
+  const bestSourceRows = Array.isArray(tierRows.bestSourceRows) ? tierRows.bestSourceRows : []
+  const preCapBestRows = Array.isArray(tierRows.preCapBestRows) ? tierRows.preCapBestRows : []
+  const bestRows = Array.isArray(tierRows.bestRows) ? tierRows.bestRows : []
+
+  console.log("[TIER-ASSIGNMENT-DEBUG]", {
+    path: pathLabel,
+    rawCandidateCount: safeRawRows.length,
+    rawPropsByBook: summarizeTierBucket(safeRawRows).byBook,
+    rawPropsByStatType: summarizeTierBucket(safeRawRows).byStat,
+    countRemovedByFilter: filterCounts,
+    finalCounts: {
+      eliteProps: eliteRows.length,
+      strongProps: strongRows.length,
+      playableProps: playableRows.length,
+      bestPropsSource: bestSourceRows.length,
+      bestPropsPreCap: preCapBestRows.length,
+      bestProps: bestRows.length
+    },
+    perBookCounts: {
+      eliteProps: summarizeTierBucket(eliteRows).byBook,
+      strongProps: summarizeTierBucket(strongRows).byBook,
+      playableProps: summarizeTierBucket(playableRows).byBook,
+      bestPropsSource: summarizeTierBucket(bestSourceRows).byBook,
+      bestProps: summarizeTierBucket(bestRows).byBook
+    },
+    perStatCounts: {
+      eliteProps: summarizeTierBucket(eliteRows).byStat,
+      strongProps: summarizeTierBucket(strongRows).byStat,
+      playableProps: summarizeTierBucket(playableRows).byStat,
+      bestPropsSource: summarizeTierBucket(bestSourceRows).byStat,
+      bestProps: summarizeTierBucket(bestRows).byStat
+    },
+    playablePropsByBook: summarizeTierBucket(playableRows).byBook,
+    bestPropsByBook: summarizeTierBucket(bestRows).byBook,
+    bestPropsByStatType: summarizeTierBucket(bestRows).byStat,
+    finalBestPropsTotal: bestRows.length
+  })
+}
+
+const eliteProps = scoredProps.filter((row) => qualifiesEliteTier(row))
+logFunnelStage("refresh-snapshot", "eliteProps-from-scoredProps", scoredProps, eliteProps, { threshold: "hit>=0.72,score>=88,minFloor>=24,minStd<=7.5,valueStd<=10.5/5.5" })
+logFunnelExcluded("refresh-snapshot", "eliteProps-from-scoredProps", scoredProps, eliteProps)
+
+const strongProps = scoredProps.filter((row) => qualifiesStrongTier(row))
+logFunnelStage("refresh-snapshot", "strongProps-from-scoredProps", scoredProps, strongProps, { threshold: "hit>=0.61,score>=62,minFloor>=22,minStd<=9.5,valueStd<=12/6.5" })
+logFunnelExcluded("refresh-snapshot", "strongProps-from-scoredProps", scoredProps, strongProps)
+
+const BEST_PROPS_BALANCE_CONFIG = {
+  totalCap: 140,
+  minPerBook: 60,
+  maxPerPlayer: 4,
+  maxPerMatchup: 6,
+  maxPerType: {
+    Assists: 30,
+    Rebounds: 30,
+    Points: 30,
+    Threes: 20,
+    PRA: 16
+  }
+}
+
+const FLEX_PRIORITY_PROP_TYPES = new Set(["Threes", "Points", "PRA"])
+
+const getFlexOddsBonus = (oddsValue) => {
+  const odds = Number(oddsValue)
+  if (!Number.isFinite(odds)) return 0
+  if (odds >= 100 && odds <= 200) return 0.1
+  if (odds >= -120 && odds < 100) return 0.05
+  return 0
+}
+
+const getFlexTrendBonus = (row) => {
+  const recent3 = Number(row?.recent3Avg)
+  const recent5 = Number(row?.recent5Avg)
+  const l10 = Number(row?.l10Avg)
+
+  let bonus = 0
+  if (Number.isFinite(recent3) && Number.isFinite(recent5) && recent3 > recent5) bonus += 0.08
+  if (Number.isFinite(recent5) && Number.isFinite(l10) && recent5 > l10) bonus += 0.05
+  return bonus
+}
+
+const isFlexEligible = (row) => {
+  if (!row) return false
+  if (!row.player || !row.propType || row.line == null) return false
+  if (shouldRemoveLegForPlayerStatus(row)) return false
+  if (isFragileLeg(row)) return false
+
+  const hit = parseHitRate(row.hitRate)
+  const avgMin = Number(row.avgMin || 0)
+  const edge = Number(row.edge ?? row.projectedValue ?? 0)
+  const minutesRisk = String(row.minutesRisk || "").toLowerCase()
+  const injuryRisk = String(row.injuryRisk || "").toLowerCase()
+
+  if (minutesRisk === "high") return false
+  if (injuryRisk === "high") return false
+  if (!Number.isFinite(hit) || hit < 0.45) return false
+  if (!Number.isFinite(avgMin) || avgMin < 14) return false
+  if (!Number.isFinite(edge) || edge < -2.5) return false
+
+  return true
+}
+
+const flexScore = (row) => {
+  const hit = parseHitRate(row.hitRate)
+  const edge = Number(row.edge ?? row.projectedValue ?? 0)
+  const score = Number(row.score || 0)
+  const oddsBonus = getFlexOddsBonus(row.odds)
+  const trendBonus = getFlexTrendBonus(row)
+
+  return (
+    hit * 0.4 +
+    (edge / 12) * 0.2 +
+    (score / 140) * 0.15 +
+    oddsBonus * 0.15 +
+    trendBonus * 0.1
+  )
+}
+
+const getFlexPoolCap = (candidateCount) => {
+  const safeCount = Number.isFinite(candidateCount) ? candidateCount : 0
+  return Math.max(60, Math.min(80, 60 + Math.floor(safeCount / 40) * 5))
+}
+
+const countRowsByKey = (rows, keyFn) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return safeRows.reduce((acc, row) => {
+    const key = keyFn(row)
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+}
+
+const buildFlexPropsPool = (pathLabel, sourceRows) => {
+  const dedupedSource = dedupeByLegSignature(Array.isArray(sourceRows) ? sourceRows : [])
+  const filtered = dedupedSource.filter((row) => isFlexEligible(row))
+  const cap = getFlexPoolCap(filtered.length)
+
+  const sorted = filtered.slice().sort((a, b) => {
+    const scoreDiff = flexScore(b) - flexScore(a)
+    if (scoreDiff !== 0) return scoreDiff
+
+    const aVariancePriority = FLEX_PRIORITY_PROP_TYPES.has(String(a.propType || "")) ? 1 : 0
+    const bVariancePriority = FLEX_PRIORITY_PROP_TYPES.has(String(b.propType || "")) ? 1 : 0
+    if (bVariancePriority !== aVariancePriority) return bVariancePriority - aVariancePriority
+
+    const aOddsWindow = Number.isFinite(Number(a.odds)) && Number(a.odds) >= -150 && Number(a.odds) <= 200 ? 1 : 0
+    const bOddsWindow = Number.isFinite(Number(b.odds)) && Number(b.odds) >= -150 && Number(b.odds) <= 200 ? 1 : 0
+    if (bOddsWindow !== aOddsWindow) return bOddsWindow - aOddsWindow
+
+    return Number(b.score || 0) - Number(a.score || 0)
+  })
+
+  const finalPool = sorted.slice(0, cap)
+
+  console.log("[FLEX-POOL-DEBUG]", {
+    path: pathLabel,
+    totalBeforeFilter: dedupedSource.length,
+    totalAfterFilter: filtered.length,
+    finalCount: finalPool.length,
+    cap,
+    beforeByPropType: countRowsByKey(dedupedSource, (row) => String(row?.propType || "Unknown")),
+    afterByPropType: countRowsByKey(finalPool, (row) => String(row?.propType || "Unknown")),
+    beforeByBook: countRowsByKey(dedupedSource, (row) => String(row?.book || "Unknown")),
+    afterByBook: countRowsByKey(finalPool, (row) => String(row?.book || "Unknown"))
+  })
+
+  return finalPool
+}
+
+const selectBalancedPool = (rows, options = {}) => {
+  const {
+    totalCap = 120,
+    minPerBook = 0,
+    maxPerPlayer = 2,
+    maxPerMatchup = 4,
+    maxPerType = {},
+    ranker = bestPropsCompositeScore
+  } = options
+
+  const sorted = dedupeSlipLegs(rows)
+    .slice()
+    .sort((a, b) => {
+      const scoreDiff = ranker(b) - ranker(a)
+      if (scoreDiff !== 0) return scoreDiff
+      if (Number(b.edge || -999) !== Number(a.edge || -999)) return Number(b.edge || -999) - Number(a.edge || -999)
+      return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+    })
+
+  const selected = []
+  const playerCounts = new Map()
+  const matchupCounts = new Map()
+  const typeCounts = new Map()
+  const bookCounts = new Map()
+  const books = ["FanDuel", "DraftKings"]
+
+  const canTakeRow = (row) => {
+    const player = String(row.player || "")
+    const matchup = String(row.matchup || "")
+    const propType = String(row.propType || "Unknown")
+    const bookKey = String(row.book || "Unknown")
+    if ((playerCounts.get(player) || 0) >= maxPerPlayer) return false
+    if ((matchupCounts.get(matchup) || 0) >= maxPerMatchup) return false
+    if ((typeCounts.get(propType) || 0) >= (maxPerType[propType] ?? 999)) return false
+    if ((bookCounts.get(bookKey) || 0) >= totalCap) return false
+    return true
+  }
+
+  const takeRow = (row) => {
+    const player = String(row.player || "")
+    const matchup = String(row.matchup || "")
+    const propType = String(row.propType || "Unknown")
+    const bookKey = String(row.book || "Unknown")
+    selected.push(row)
+    playerCounts.set(player, (playerCounts.get(player) || 0) + 1)
+    matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
+    typeCounts.set(propType, (typeCounts.get(propType) || 0) + 1)
+    bookCounts.set(bookKey, (bookCounts.get(bookKey) || 0) + 1)
+  }
+
+  for (const bookKey of books) {
+    for (const row of sorted) {
+      if (selected.length >= totalCap) break
+      if (String(row.book || "") !== bookKey) continue
+      if ((bookCounts.get(bookKey) || 0) >= minPerBook) break
+      if (!canTakeRow(row)) continue
+      takeRow(row)
+    }
+  }
+
+  for (const row of sorted) {
+    if (selected.length >= totalCap) break
+    const rowKey = `${row.player}|${row.propType}|${row.side}|${row.line}|${row.book}`
+    const alreadySelected = selected.some((picked) => `${picked.player}|${picked.propType}|${picked.side}|${picked.line}|${picked.book}` === rowKey)
+    if (alreadySelected) continue
+    if (!canTakeRow(row)) continue
+    takeRow(row)
+  }
+
+  return selected
+}
+
+function logBestStage(label, rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  console.log("[BEST-STAGE-DEBUG]", {
+    label,
+    total: safeRows.length,
+    fanduel: safeRows.filter((row) => row?.book === "FanDuel").length,
+    draftkings: safeRows.filter((row) => row?.book === "DraftKings").length
+  })
+  return rows
+}
+
+const buildBestPropsBalancedPool = (rows, options = {}) => {
+  const config = {
+    targetTotal: Number.isFinite(options.targetTotal) ? options.targetTotal : BEST_PROPS_BALANCE_CONFIG.totalCap,
+    bestCap: Number.isFinite(options.bestCap)
+      ? options.bestCap
+      : (Number.isFinite(options.targetTotal) ? options.targetTotal : BEST_PROPS_BALANCE_CONFIG.totalCap),
+    maxPerPlayer: Number.isFinite(options.maxPerPlayer) ? options.maxPerPlayer : BEST_PROPS_BALANCE_CONFIG.maxPerPlayer,
+    maxPerMatchup: Number.isFinite(options.maxPerMatchup) ? options.maxPerMatchup : BEST_PROPS_BALANCE_CONFIG.maxPerMatchup,
+    maxPerType: { ...BEST_PROPS_BALANCE_CONFIG.maxPerType, ...(options.maxPerType || {}) },
+    ranker: options.ranker || bestPropsCompositeScore
+  }
+  const configuredMinPerBook = Number.isFinite(options.minPerBook)
+    ? options.minPerBook
+    : BEST_PROPS_BALANCE_CONFIG.minPerBook
+  config.minPerBook = Math.max(0, Math.min(configuredMinPerBook, Math.floor(config.targetTotal / 2)))
+
+  const pathLabel = String(options.pathLabel || "unknown")
+  const rawSource = Array.isArray(rows) ? rows : []
+  const sourceByBook = countByBookForRows(rawSource)
+  logBestStage(`${pathLabel}:sourcePoolBeforeBestPropsFiltering`, rawSource)
+
+  const sourceAfterPlayerStatus = rawSource
+    .filter((row) => row && row.player && row.propType && row.line != null)
+    .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+  logBestStage(`${pathLabel}:afterPlayerStatusFiltering`, sourceAfterPlayerStatus)
+
+  const bestPropsAfterFragile = sourceAfterPlayerStatus
+    .filter((row) => !isFragileLeg(row, "best"))
+  logBestStage(`${pathLabel}:afterFragileFiltering`, bestPropsAfterFragile)
+  console.log("[BEST-FRAGILE-MODE-DEBUG]", {
+    mode: "best",
+    remaining: bestPropsAfterFragile.length,
+    fanduel: bestPropsAfterFragile.filter((row) => row?.book === "FanDuel").length,
+    draftkings: bestPropsAfterFragile.filter((row) => row?.book === "DraftKings").length
+  })
+  const eligibleSource = bestPropsAfterFragile
+    .filter((row) => playerFitsMatchup(row))
+  logBestStage(`${pathLabel}:afterMatchupGameFiltering`, eligibleSource)
+  const droppedByIneligible = Math.max(0, rawSource.length - eligibleSource.length)
+
+  console.log("[BEST-PROPS-STAGE-COUNTS]", {
+    path: pathLabel,
+    stage: "beforeFragileFilter",
+    total: sourceAfterPlayerStatus.length,
+    byBook: countByBookForRows(sourceAfterPlayerStatus)
+  })
+  console.log("[BEST-PROPS-STAGE-COUNTS]", {
+    path: pathLabel,
+    stage: "afterFragileFilter",
+    total: bestPropsAfterFragile.length,
+    byBook: countByBookForRows(bestPropsAfterFragile)
+  })
+
+  const dedupedEligible = dedupeByLegSignature(eligibleSource)
+  const droppedByDedupe = Math.max(0, eligibleSource.length - dedupedEligible.length)
+  logBestStage(`${pathLabel}:afterDedupe`, dedupedEligible)
+  console.log("[BEST-PROPS-STAGE-COUNTS]", {
+    path: pathLabel,
+    stage: "afterDedupe",
+    total: dedupedEligible.length,
+    byBook: countByBookForRows(dedupedEligible)
+  })
+
+  const candidates = dedupedEligible
+    .slice()
+    .sort((a, b) => {
+      const scoreDiff = config.ranker(b) - config.ranker(a)
+      if (scoreDiff !== 0) return scoreDiff
+      if (Number(b.edge || -999) !== Number(a.edge || -999)) return Number(b.edge || -999) - Number(a.edge || -999)
+      return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+    })
+
+  // ensure FD + DK balance before final best selection
+  const fd = candidates.filter((p) => p.book === "FanDuel")
+  const dk = candidates.filter((p) => p.book === "DraftKings")
+
+  // take top from each instead of letting one book dominate
+  const MAX_PER_BOOK = Math.ceil((config?.bestCap || 60) / 2)
+
+  const balancedPool = [
+    ...fd.slice(0, MAX_PER_BOOK),
+    ...dk.slice(0, MAX_PER_BOOK)
+  ]
+
+  // fallback if one side is low
+  const finalPool = balancedPool.length > 0 ? balancedPool : candidates
+  const bestPool = finalPool
+
+  const sorted = bestPool
+    .slice()
+    .sort((a, b) => {
+      const scoreDiff = config.ranker(b) - config.ranker(a)
+      if (scoreDiff !== 0) return scoreDiff
+      if (Number(b.edge || -999) !== Number(a.edge || -999)) return Number(b.edge || -999) - Number(a.edge || -999)
+      return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+    })
+
+  const eligibleByBook = countByBookForRows(sorted)
+  const reserveTargetByBook = {
+    FanDuel: Math.min(config.minPerBook, eligibleByBook.FanDuel || 0),
+    DraftKings: Math.min(config.minPerBook, eligibleByBook.DraftKings || 0)
+  }
+
+  const bookBuckets = {
+    FanDuel: sorted.filter((row) => String(row?.book || "") === "FanDuel"),
+    DraftKings: sorted.filter((row) => String(row?.book || "") === "DraftKings")
+  }
+  const bookCursor = {
+    FanDuel: 0,
+    DraftKings: 0
+  }
+
+  const keyOf = (row) => `${row?.player || ""}|${row?.book || ""}|${row?.propType || ""}|${row?.matchup || ""}|${Number(row?.line)}|${row?.side || ""}`
+  const selected = []
+  const selectedKeys = new Set()
+  const playerCounts = new Map()
+  const matchupCounts = new Map()
+  const typeCounts = new Map()
+  const bookCounts = new Map()
+  const dropCounts = {
+    droppedByBookCap: 0,
+    droppedByPlayerCap: 0,
+    droppedByMatchupCap: 0,
+    droppedByStatCap: 0,
+    droppedByDedupe,
+    droppedByIneligible
+  }
+  const dropReasonByKey = {}
+  const droppedRowObjects = []
+  let skippedLowQualityCount = 0
+  let openFillAdded = 0
+
+  const selectedByBook = () => countByBookForRows(selected)
+  const getBookCount = (book) => bookCounts.get(book) || 0
+  const finalDifferenceFDvsDK = () => Math.abs(getBookCount("FanDuel") - getBookCount("DraftKings"))
+  const recordDrop = (row, reason) => {
+    const key = keyOf(row)
+    if (selectedKeys.has(key)) return
+    if (dropReasonByKey[key]) return
+    dropReasonByKey[key] = reason
+      droppedRowObjects.push({ row, reason })
+    if (reason === "droppedByBookCap") dropCounts.droppedByBookCap += 1
+    if (reason === "droppedByPlayerCap") dropCounts.droppedByPlayerCap += 1
+    if (reason === "droppedByMatchupCap") dropCounts.droppedByMatchupCap += 1
+    if (reason === "droppedByStatCap") dropCounts.droppedByStatCap += 1
+  }
+
+  const canTakeRow = (row, mode = "reserve") => {
+    const player = String(row.player || "")
+    const matchup = String(row.matchup || "")
+    const propType = String(row.propType || "Unknown")
+    const bookKey = String(row.book || "Unknown")
+
+    if (selected.length >= config.targetTotal) return { ok: false, reason: "droppedByBookCap" }
+    if ((playerCounts.get(player) || 0) >= config.maxPerPlayer) return { ok: false, reason: "droppedByPlayerCap" }
+    if ((matchupCounts.get(matchup) || 0) >= config.maxPerMatchup) return { ok: false, reason: "droppedByMatchupCap" }
+    if ((typeCounts.get(propType) || 0) >= (config.maxPerType[propType] ?? 999)) return { ok: false, reason: "droppedByStatCap" }
+
+    if (mode === "open") {
+      const projectedFD = getBookCount("FanDuel") + (bookKey === "FanDuel" ? 1 : 0)
+      const projectedDK = getBookCount("DraftKings") + (bookKey === "DraftKings" ? 1 : 0)
+      if (Math.abs(projectedFD - projectedDK) > 6) {
+        return { ok: false, reason: "droppedByBookCap" }
+      }
+    }
+
+    return { ok: true }
+  }
+
+  const takeRow = (row) => {
+    const player = String(row.player || "")
+    const matchup = String(row.matchup || "")
+    const propType = String(row.propType || "Unknown")
+    const bookKey = String(row.book || "Unknown")
+    const key = keyOf(row)
+    selected.push(row)
+    selectedKeys.add(key)
+    playerCounts.set(player, (playerCounts.get(player) || 0) + 1)
+    matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
+    typeCounts.set(propType, (typeCounts.get(propType) || 0) + 1)
+    bookCounts.set(bookKey, (bookCounts.get(bookKey) || 0) + 1)
+  }
+
+  const takeNextFromBook = (bookKey) => {
+    const bucket = bookBuckets[bookKey] || []
+    while ((bookCursor[bookKey] || 0) < bucket.length) {
+      const row = bucket[bookCursor[bookKey]]
+      bookCursor[bookKey] += 1
+      if (selectedKeys.has(keyOf(row))) continue
+
+      const projectedFD = getBookCount("FanDuel") + (bookKey === "FanDuel" ? 1 : 0)
+      const projectedDK = getBookCount("DraftKings") + (bookKey === "DraftKings" ? 1 : 0)
+      if (Math.abs(projectedFD - projectedDK) > 6) {
+        recordDrop(row, "droppedByBookCap")
+        continue
+      }
+
+      const decision = canTakeRow(row, "reserve")
+      if (!decision.ok) {
+        recordDrop(row, decision.reason)
+        continue
+      }
+      takeRow(row)
+      return true
+    }
+    return false
+  }
+
+  const maxReserveRounds = Math.max(...TIER_BOOKS.map((book) => reserveTargetByBook[book] || 0), 0)
+  for (let round = 0; round < maxReserveRounds; round += 1) {
+    let madeProgress = false
+    for (const bookKey of TIER_BOOKS) {
+      if ((selectedByBook()[bookKey] || 0) >= (reserveTargetByBook[bookKey] || 0)) continue
+      if (takeNextFromBook(bookKey)) madeProgress = true
+    }
+    if (!madeProgress) break
+    if (selected.length >= config.targetTotal) break
+  }
+
+  const selectedByBookAfterReservePass = selectedByBook()
+  logBestStage(`${pathLabel}:afterPerBookBalancingAssignment`, selected)
+  console.log("[BEST-PROPS-STAGE-COUNTS]", {
+    path: pathLabel,
+    stage: "afterPerBookBalancing",
+    total: selected.length,
+    byBook: selectedByBookAfterReservePass
+  })
+
+  for (const row of sorted) {
+    if (selected.length >= config.targetTotal) break
+    if (selectedKeys.has(keyOf(row))) continue
+
+    const hitRate = parseHitRate(row.hitRate)
+    const edge = Number(row.edge ?? row.projectedValue ?? 0)
+    if (hitRate < 0.54 || edge < -0.5) {
+      skippedLowQualityCount += 1
+      continue
+    }
+
+    const decision = canTakeRow(row, "open")
+    if (!decision.ok) {
+      recordDrop(row, decision.reason)
+      continue
+    }
+    takeRow(row)
+    openFillAdded += 1
+  }
+
+  // Controlled fallback: if strict quality gating under-fills, admit only slightly lower quality rows.
+  if (selected.length < config.targetTotal) {
+    for (const row of sorted) {
+      if (selected.length >= config.targetTotal) break
+      if (selectedKeys.has(keyOf(row))) continue
+
+      const hitRate = parseHitRate(row.hitRate)
+      const edge = Number(row.edge ?? row.projectedValue ?? 0)
+      if (hitRate < 0.5 || edge < -1.5) continue
+
+      const decision = canTakeRow(row, "open")
+      if (!decision.ok) {
+        recordDrop(row, decision.reason)
+        continue
+      }
+      takeRow(row)
+      openFillAdded += 1
+    }
+  }
+
+  const postCapByBook = summarizeBestPropsCapPool(selected).byBook
+  logBestStage(`${pathLabel}:afterPerBookBalancingFinal`, selected)
+  console.log("[BEST-PROPS-BALANCER-DEBUG]", {
+    path: pathLabel,
+    sourceTotal: rawSource.length,
+    sourceByBook,
+    eligibleByBookBeforeBalancing: eligibleByBook,
+    reservedTargetByBook: reserveTargetByBook,
+    selectedByBookAfterReservePass,
+    selectedByBookAfterFinalFill: postCapByBook,
+    targetTotal: config.targetTotal,
+    minPerBook: config.minPerBook,
+    openFillAdded,
+    skippedLowQualityCount,
+    finalDifferenceFDvsDK: finalDifferenceFDvsDK(),
+    finalTotal: selected.length,
+    finalFD: getBookCount("FanDuel"),
+    finalDK: getBookCount("DraftKings")
+  })
+
+  console.log("[BEST-PROPS-BALANCER-DROPS]", {
+    path: pathLabel,
+    droppedByBookCap: dropCounts.droppedByBookCap,
+    droppedByPlayerCap: dropCounts.droppedByPlayerCap,
+    droppedByMatchupCap: dropCounts.droppedByMatchupCap,
+    droppedByStatCap: dropCounts.droppedByStatCap,
+    droppedByDedupe: dropCounts.droppedByDedupe,
+    droppedByIneligible: dropCounts.droppedByIneligible
+  })
+
+  const top15Dropped = droppedRowObjects
+    .sort((a, b) => config.ranker(b.row) - config.ranker(a.row))
+    .slice(0, 15)
+    .map(({ row, reason }) => ({
+      player: row?.player,
+      team: row?.team,
+      book: row?.book,
+      propType: row?.propType,
+      side: row?.side,
+      line: row?.line,
+      propVariant: row?.propVariant || "base",
+      hitRate: parseHitRate(row?.hitRate),
+      edge: Number(row?.edge || 0),
+      score: Number(row?.score || 0),
+      dropReason: reason
+    }))
+  console.log("[FINAL-BEST-THINNING-DEBUG]", {
+    path: pathLabel,
+    sourceCount: rawSource.length,
+    afterSafetyFilters: eligibleSource.length,
+    afterDedupe: dedupedEligible.length,
+    afterBalancing: (selectedByBookAfterReservePass.FanDuel || 0) + (selectedByBookAfterReservePass.DraftKings || 0),
+    afterCap: selected.length,
+    finalByBook: { FanDuel: getBookCount("FanDuel"), DraftKings: getBookCount("DraftKings") },
+    finalByPropVariant: selected.reduce((acc, row) => {
+      const v = String(row?.propVariant || "base")
+      acc[v] = (acc[v] || 0) + 1
+      return acc
+    }, {}),
+    top15Dropped
+  })
+
+
+  return {
+    selected,
+    diagnostics: {
+      config,
+      pathLabel,
+      sourceRawCount: rawSource.length,
+      eligibleCount: eligibleSource.length,
+      dedupedCount: dedupedEligible.length,
+      postBalancerCount: selected.length,
+      sourceCount: sorted.length,
+      finalCount: selected.length,
+      beforeCapByBook: countByBookForRows(sorted),
+      afterCapByBook: postCapByBook,
+      beforeCapByStat: summarizeBestPropsCapPool(sorted).byPropType,
+      afterCapByStat: summarizeBestPropsCapPool(selected).byPropType,
+      dropCounts: {
+        ...dropCounts,
+        totalCap: Math.max(0, sorted.length - selected.length),
+        perBookBalancing: dropCounts.droppedByBookCap,
+        perPlayerCap: dropCounts.droppedByPlayerCap,
+        perMatchupCap: dropCounts.droppedByMatchupCap,
+        perStatCap: dropCounts.droppedByStatCap
+      },
+      dropReasonByKey,
+      reserveTargetByBook,
+      eligibleByBook,
+      selectedByBookAfterReservePass,
+      targetTotal: config.targetTotal,
+      minPerBook: config.minPerBook,
+      openFillAdded,
+      skippedLowQualityCount,
+      finalDifferenceFDvsDK: finalDifferenceFDvsDK()
+    }
+  }
+}
+
+const countByBookForRows = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return {
+    FanDuel: safeRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+    DraftKings: safeRows.filter((row) => String(row?.book || "") === "DraftKings").length
+  }
+}
+
+const logPropStageByBookDebug = (path, stages = {}) => {
+  console.log("[PROP-STAGE-BY-BOOK-DEBUG]", {
+    path,
+    elite: countByBookForRows(stages.elite),
+    strong: countByBookForRows(stages.strong),
+    playable: countByBookForRows(stages.playable),
+    best: countByBookForRows(stages.best)
+  })
+}
+
+const ensureBestPropsPlayableBookFloor = (bestRows, playableRows, options = {}) => {
+  const targetBook = String(options?.targetBook || "FanDuel")
+  const minCount = Number.isFinite(options?.minCount) ? options.minCount : 8
+  const totalCap = Number.isFinite(options?.totalCap) ? options.totalCap : BEST_PROPS_BALANCE_CONFIG.totalCap
+  const healthyTotal = Number.isFinite(options?.healthyTotal) ? options.healthyTotal : 20
+
+  let safeBestRows = dedupeSlipLegs(Array.isArray(bestRows) ? bestRows : [])
+  const safePlayableRows = dedupeSlipLegs(Array.isArray(playableRows) ? playableRows : [])
+
+  const currentBookCount = safeBestRows.filter((row) => String(row?.book || "") === targetBook).length
+  if (safeBestRows.length < healthyTotal || currentBookCount >= minCount) {
+    return {
+      rows: safeBestRows,
+      promotedCount: 0,
+      initialBookCount: currentBookCount,
+      finalBookCount: currentBookCount
+    }
+  }
+
+  const existingKeys = new Set(
+    safeBestRows.map((row) => `${row?.player}-${row?.propType}-${row?.side}-${Number(row?.line)}-${row?.book}`)
+  )
+
+  const playableCandidates = safePlayableRows
+    .filter((row) => String(row?.book || "") === targetBook)
+    .filter((row) => playerFitsMatchup(row))
+    .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    .filter((row) => !existingKeys.has(`${row?.player}-${row?.propType}-${row?.side}-${Number(row?.line)}-${row?.book}`))
+    .sort((a, b) => {
+      const compositeDiff = bestPropsCompositeScore(b) - bestPropsCompositeScore(a)
+      if (compositeDiff !== 0) return compositeDiff
+      return Number(b?.score || 0) - Number(a?.score || 0)
+    })
+
+  let promotedCount = 0
+  for (const candidate of playableCandidates) {
+    if (safeBestRows.filter((row) => String(row?.book || "") === targetBook).length >= minCount) break
+    safeBestRows.push(candidate)
+    existingKeys.add(`${candidate?.player}-${candidate?.propType}-${candidate?.side}-${Number(candidate?.line)}-${candidate?.book}`)
+    promotedCount += 1
+  }
+
+  safeBestRows = dedupeSlipLegs(safeBestRows)
+    .sort((a, b) => {
+      const compositeDiff = bestPropsCompositeScore(b) - bestPropsCompositeScore(a)
+      if (compositeDiff !== 0) return compositeDiff
+      return Number(b?.score || 0) - Number(a?.score || 0)
+    })
+
+  if (safeBestRows.length > totalCap) {
+    const protectedRows = []
+    const unprotectedRows = []
+    let protectedFanDuelCount = 0
+
+    for (const row of safeBestRows) {
+      if (String(row?.book || "") === targetBook && protectedFanDuelCount < minCount) {
+        protectedRows.push(row)
+        protectedFanDuelCount += 1
+      } else {
+        unprotectedRows.push(row)
+      }
+    }
+
+    safeBestRows = [...protectedRows, ...unprotectedRows].slice(0, totalCap)
+  }
+
+  const finalBookCount = safeBestRows.filter((row) => String(row?.book || "") === targetBook).length
+  return {
+    rows: safeBestRows,
+    promotedCount,
+    initialBookCount: currentBookCount,
+    finalBookCount
+  }
+}
+
+const ensureBestPropsBookPresence = (finalRows, sourceRows, options = {}) => {
+  const targetBook = String(options?.targetBook || "DraftKings")
+  const totalCap = Number.isFinite(options?.totalCap) ? options.totalCap : BEST_PROPS_BALANCE_CONFIG.totalCap
+  const meaningfulFloor = Number.isFinite(options?.meaningfulFloor) ? options.meaningfulFloor : 8
+
+  const safeFinalRows = dedupeSlipLegs(Array.isArray(finalRows) ? finalRows : [])
+  const sourcePool = dedupeSlipLegs(Array.isArray(sourceRows) ? sourceRows : [])
+  const sourceCandidatesForBook = sourcePool
+    .filter((row) => String(row?.book || "") === targetBook)
+    .filter((row) => playerFitsMatchup(row))
+    .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    .sort((a, b) => {
+      const scoreDiff = bestPropsCompositeScore(b) - bestPropsCompositeScore(a)
+      if (scoreDiff !== 0) return scoreDiff
+      return Number(b.score || 0) - Number(a.score || 0)
+    })
+
+  const sourceHasBook = sourceCandidatesForBook.length > 0
+  const finalBookCount = safeFinalRows.filter((row) => String(row?.book || "") === targetBook).length
+  const targetBookCount = sourceCandidatesForBook.length >= meaningfulFloor
+    ? Math.min(meaningfulFloor, sourceCandidatesForBook.length)
+    : sourceCandidatesForBook.length
+
+  if (!sourceHasBook || finalBookCount >= targetBookCount) {
+    return {
+      rows: safeFinalRows,
+      rescuedBook: null
+    }
+  }
+
+  let nextRows = [...safeFinalRows]
+  let remainingNeed = Math.max(0, targetBookCount - finalBookCount)
+
+  const candidateQueue = sourceCandidatesForBook.filter((candidate) => {
+    const candidateKey = `${candidate.player}|${candidate.propType}|${candidate.side}|${Number(candidate.line)}|${candidate.book}`
+    return !nextRows.some((row) => `${row.player}|${row.propType}|${row.side}|${Number(row.line)}|${row.book}` === candidateKey)
+  })
+
+  while (remainingNeed > 0 && candidateQueue.length > 0) {
+    const replacementCandidate = candidateQueue.shift()
+    const replaceIndex = nextRows
+      .map((row, idx) => ({ idx, row }))
+      .filter((entry) => String(entry.row?.book || "") !== targetBook)
+      .sort((a, b) => {
+        const scoreDiff = bestPropsCompositeScore(a.row) - bestPropsCompositeScore(b.row)
+        if (scoreDiff !== 0) return scoreDiff
+        return Number(a.row?.score || 0) - Number(b.row?.score || 0)
+      })[0]?.idx
+
+    if (!Number.isInteger(replaceIndex)) break
+    nextRows.splice(replaceIndex, 1, replacementCandidate)
+    remainingNeed -= 1
+  }
+
+  nextRows = dedupeSlipLegs(nextRows).slice(0, totalCap)
+
+  const finalRescuedCount = nextRows.filter((row) => String(row?.book || "") === targetBook).length
+  const rescuedBook = finalRescuedCount > finalBookCount ? targetBook : null
+
+  return {
+    rows: nextRows,
+    rescuedBook
+  }
+}
+
+const playableProps = scoredProps.filter((row) => qualifiesPlayableTier(row))
+logFunnelStage("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps, { threshold: "mins/injury!=high and (score>=42 or hit>=0.62 or hit/edge support or hit/score support)" })
+logFunnelExcluded("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps)
+  debugPipelineStages.afterPlayableProps = summarizePropPipelineRows(playableProps)
+  debugPipelineStages.afterStrongProps = summarizePropPipelineRows(strongProps)
+  debugPipelineStages.afterEliteProps = summarizePropPipelineRows(eliteProps)
+logPropPipelineStep("refresh-snapshot", "after-playableProps-assignment", playableProps)
+logPropPipelineStep("refresh-snapshot", "after-strongProps-assignment", strongProps)
+logPropPipelineStep("refresh-snapshot", "after-eliteProps-assignment", eliteProps)
+
+const capPoolByType = (rows, caps) => {
+  const counts = new Map()
+  const out = []
+
+  for (const row of rows) {
+    const key = row.propType
+    const current = counts.get(key) || 0
+    const cap = caps[key] ?? 99
+
+    if (current >= cap) continue
+
+    out.push(row)
+    counts.set(key, current + 1)
+  }
+
+  return out
+}
+
+const capPoolByPlayer = (rows, maxPerPlayer = 2) => {
+  const counts = new Map()
+  const out = []
+
+  for (const row of rows) {
+    const current = counts.get(row.player) || 0
+    if (current >= maxPerPlayer) continue
+
+    out.push(row)
+    counts.set(row.player, current + 1)
+  }
+
+  return out
+}
+
+const eliteCapped = capPoolByPlayer(
+  capPoolByType(eliteProps, {
+    Assists: 4,
+    Rebounds: 4,
+    Points: 4,
+    Threes: 3,
+    PRA: 1
+  }),
+  2
+)
+logFunnelStage("refresh-snapshot", "eliteCapped-from-eliteProps", eliteProps, eliteCapped, { typeCaps: "Assists:4,Rebounds:4,Points:4,Threes:3,PRA:1", playerCap: 2 })
+logFunnelExcluded("refresh-snapshot", "eliteCapped-from-eliteProps", eliteProps, eliteCapped)
+
+const strongCapped = capPoolByPlayer(
+  capPoolByType(
+    strongProps.filter((row) =>
+      !eliteCapped.some(
+        (e) =>
+          e.player === row.player &&
+          e.propType === row.propType &&
+          e.side === row.side &&
+          Number(e.line) === Number(row.line)
+      )
+    ),
+    {
+      Assists: 6,
+      Rebounds: 6,
+      Points: 6,
+      Threes: 4,
+      PRA: 2
+    }
+  ),
+  2
+)
+logFunnelStage("refresh-snapshot", "strongCapped-from-strongProps", strongProps, strongCapped, { typeCaps: "Assists:6,Rebounds:6,Points:6,Threes:4,PRA:2", playerCap: 2, note: "deduped-vs-eliteCapped" })
+logFunnelExcluded("refresh-snapshot", "strongCapped-from-strongProps", strongProps, strongCapped)
+
+const playableCapped = selectBalancedPool(
+  playableProps.filter((row) =>
+    !eliteCapped.some(
+      (e) =>
+        e.player === row.player &&
+        e.propType === row.propType &&
+        e.side === row.side &&
+        Number(e.line) === Number(row.line)
+    ) &&
+    !strongCapped.some(
+      (e) =>
+        e.player === row.player &&
+        e.propType === row.propType &&
+        e.side === row.side &&
+        Number(e.line) === Number(row.line)
+    )
+  ),
+  {
+    totalCap: 180,
+    minPerBook: 80,
+    maxPerPlayer: 3,
+    maxPerMatchup: 6,
+    maxPerType: {
+      Assists: 32,
+      Rebounds: 32,
+      Points: 32,
+      Threes: 22,
+      PRA: 16
+    }
+  }
+)
+logFunnelStage("refresh-snapshot", "playableCapped-from-playableProps", playableProps, playableCapped, { totalCap: 180, minPerBook: 80, maxPerPlayer: 3, maxPerMatchup: 6 })
+logFunnelExcluded("refresh-snapshot", "playableCapped-from-playableProps", playableProps, playableCapped)
+
+const matchupValidProps = enriched.filter((row) => playerFitsMatchup(row))
+
+const bestPropsSource = scoredProps.filter((row) => qualifiesBestPropsSource(row))
+logBestStage("refresh-snapshot:sourcePool", bestPropsSource)
+console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot sourceCount=${bestPropsSource.length}`)
+
+const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, { pathLabel: "refresh-snapshot" })
+const preCapBestPropsPool = bestPropsCapResult.selected
+logBestPropsCapDebug("refresh-snapshot", "pre-cap", bestPropsSource, preCapBestPropsPool, bestPropsCapResult.diagnostics)
+let bestProps = preCapBestPropsPool.slice(0, BEST_PROPS_BALANCE_CONFIG.totalCap)
+const sourceRows = Array.isArray(bestPropsSource) ? bestPropsSource : []
+const fdRows = bestProps.filter((r) => r.book === "FanDuel")
+
+if (fdRows.length < 10) {
+  const fallbackFD = sourceRows
+    .filter((r) => r.book === "FanDuel")
+    .filter((r) => !shouldRemoveLegForPlayerStatus(r))
+    .slice(0, 20)
+
+  bestProps = [
+    ...bestProps,
+    ...fallbackFD.slice(0, 10 - fdRows.length)
+  ]
+}
+
+console.log("[BEST-PROPS-BOOK-BALANCE]", {
+  path: "refresh-snapshot",
+  fanduel: bestProps.filter((r) => r.book === "FanDuel").length,
+  draftkings: bestProps.filter((r) => r.book === "DraftKings").length
+})
+logBestStage("refresh-snapshot:afterRankingSortAndCap", bestProps)
+logBestPropsCapExcluded("refresh-snapshot", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
+logFunnelStage("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps, { sortComposite: true, cap: BEST_PROPS_BALANCE_CONFIG.totalCap, minPerBook: BEST_PROPS_BALANCE_CONFIG.minPerBook, matchupCap: BEST_PROPS_BALANCE_CONFIG.maxPerMatchup, playerCap: BEST_PROPS_BALANCE_CONFIG.maxPerPlayer })
+logFunnelExcluded("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps)
+
+oddsSnapshot.updatedAt = new Date().toISOString()
+oddsSnapshot.events = targetEvents
+oddsSnapshot.rawProps = rawIngestedProps
+oddsSnapshot.props = rawPropsRows
+console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
+  path: "refresh-snapshot",
+  targets: targetMissingEventStages.map((stage) => ({
+    ...stage,
+    inFinalSavedRawProps: (oddsSnapshot.rawProps || []).some((row) => String(row?.eventId || "") === stage.eventId),
+    inFinalSavedProps: (oddsSnapshot.props || []).some((row) => String(row?.eventId || "") === stage.eventId)
+  }))
+})
+oddsSnapshot.eliteProps = eliteCapped.filter((row) => playerFitsMatchup(row))
+logFunnelStage("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
+logFunnelExcluded("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
+oddsSnapshot.strongProps = strongCapped.filter((row) => playerFitsMatchup(row))
+logFunnelStage("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
+logFunnelExcluded("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
+oddsSnapshot.playableProps = playableCapped.filter((row) => playerFitsMatchup(row))
+logFunnelStage("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
+logFunnelExcluded("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
+logPropStageByBookDebug("refresh-snapshot:afterTierAssignment", {
+  elite: oddsSnapshot.eliteProps,
+  strong: oddsSnapshot.strongProps,
+  playable: oddsSnapshot.playableProps,
+  best: bestProps
+})
+
+// STEP 5: Final visibility guarantee - ensure all watched players in rawProps make it to bestProps
+const watchedNormalized = WATCHED_PLAYER_NAMES.map(normalizeDebugPlayerName)
+const allRawPropsForWatchedCheck = dedupeByLegSignature([
+  ...(Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : [])
+])
+const missingWatchedInBest = allRawPropsForWatchedCheck.filter(row => {
+  const name = normalizeDebugPlayerName(row?.player || "")
+  const isWatched = watchedNormalized.includes(name)
+  const inBest = bestProps.some(p => normalizeDebugPlayerName(p?.player || "") === name)
+  return isWatched && !inBest
+})
+
+for (const row of missingWatchedInBest) {
+  const playerName = normalizeDebugPlayerName(row?.player || "")
+  if (!bestProps.some(p => normalizeDebugPlayerName(p?.player || "") === playerName)) {
+    bestProps.push(row)
+    console.log("[WATCHED-PLAYER-FINAL-GUARANTEE]", {
+      player: row?.player,
+      reason: "missing_from_best_added_from_raw",
+      propType: row?.propType,
+      book: row?.book,
+      line: row?.line
+    })
+  }
+}
+
+oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
+logBestStage("refresh-snapshot:afterDedupe", oddsSnapshot.bestProps)
+const mainBestPropsBookRescue = ensureBestPropsBookPresence(oddsSnapshot.bestProps, bestPropsSource, {
+  targetBook: "DraftKings",
+  totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+  meaningfulFloor: bestPropsCapResult?.diagnostics?.config?.minPerBook || 11
+})
+const mainBestPropsFanDuelRescue = ensureBestPropsBookPresence(mainBestPropsBookRescue.rows, bestPropsSource, {
+  targetBook: "FanDuel",
+  totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+  meaningfulFloor: 1
+})
+const refreshPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
+  mainBestPropsFanDuelRescue.rows,
+  oddsSnapshot.playableProps,
+  {
+    targetBook: "FanDuel",
+    minCount: 8,
+    totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap
+  }
+)
+logBestStage("refresh-snapshot:afterBookBalance", refreshPlayableFanDuelPromotion.rows)
+console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
+  path: "refresh-snapshot",
+  initialFanDuelCount: refreshPlayableFanDuelPromotion.initialBookCount,
+  finalFanDuelCount: refreshPlayableFanDuelPromotion.finalBookCount,
+  promotedCount: refreshPlayableFanDuelPromotion.promotedCount,
+  playableFanDuelCount: countByBookForRows(oddsSnapshot.playableProps).FanDuel
+})
+
+const refreshSnapshotBestPropsRawRows = Array.isArray(refreshPlayableFanDuelPromotion.rows) ? refreshPlayableFanDuelPromotion.rows : []
+const refreshSnapshotFinalBestVisibleRowsPreSave = getAvailablePrimarySlateRows(refreshSnapshotBestPropsRawRows)
+const refreshSnapshotSurvivedFragileRowsPreSave = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
+  try {
+    return !isFragileLeg(row, "best")
+  } catch (_) {
+    return true
+  }
+})
+console.log("[FRAGILE-FILTER-SUMMARY-DEBUG]", {
+  inputCount: (Array.isArray(enriched) ? enriched : []).length,
+  survivedCount: refreshSnapshotSurvivedFragileRowsPreSave.length,
+  removedCount: Math.max(0, (Array.isArray(enriched) ? enriched : []).length - refreshSnapshotSurvivedFragileRowsPreSave.length),
+  byBookInput: {
+    FanDuel: (Array.isArray(enriched) ? enriched : []).filter((row) => row?.book === "FanDuel").length,
+    DraftKings: (Array.isArray(enriched) ? enriched : []).filter((row) => row?.book === "DraftKings").length
+  },
+  byBookSurvived: {
+    FanDuel: refreshSnapshotSurvivedFragileRowsPreSave.filter((row) => row?.book === "FanDuel").length,
+    DraftKings: refreshSnapshotSurvivedFragileRowsPreSave.filter((row) => row?.book === "DraftKings").length
+  }
+})
+const refreshSnapshotMissingStageNames = []
+if (!Array.isArray(targetEvents)) refreshSnapshotMissingStageNames.push("scheduledEvents")
+if (!Array.isArray(cleaned)) refreshSnapshotMissingStageNames.push("rawPropsRows")
+if (!Array.isArray(enriched)) refreshSnapshotMissingStageNames.push("enrichedModelRows")
+if (!Array.isArray(scoredProps)) refreshSnapshotMissingStageNames.push("survivedFragileRows")
+if (!Array.isArray(refreshPlayableFanDuelPromotion.rows)) refreshSnapshotMissingStageNames.push("bestPropsRawRows")
+
+const refreshRawPropsByBook = countByBookForRows(Array.isArray(cleaned) ? cleaned : [])
+const refreshSurvivedFragileByBook = countByBookForRows(refreshSnapshotSurvivedFragileRowsPreSave)
+const refreshPreBestCandidateByBook = countByBookForRows(Array.isArray(bestPropsSource) ? bestPropsSource : [])
+const refreshFinalBestRawByBook = countByBookForRows(refreshSnapshotBestPropsRawRows)
+
+console.log("[BEST-PROPS-BOOK-STAGE-DEBUG]", {
+  path: "refresh-snapshot",
+  rawPropsRows: refreshRawPropsByBook,
+  survivedFragileRows: refreshSurvivedFragileByBook,
+  preBestPropsCandidates: refreshPreBestCandidateByBook,
+  finalBestPropsRawRows: refreshFinalBestRawByBook,
+  balancer: {
+    minPerBook: bestPropsCapResult?.diagnostics?.minPerBook,
+    reserveTargetByBook: bestPropsCapResult?.diagnostics?.reserveTargetByBook,
+    selectedByBookAfterReservePass: bestPropsCapResult?.diagnostics?.selectedByBookAfterReservePass,
+    finalDifferenceFDvsDK: bestPropsCapResult?.diagnostics?.finalDifferenceFDvsDK
+  }
+})
+
+const refreshFdCandidates = (Array.isArray(bestPropsSource) ? bestPropsSource : []).filter((row) => String(row?.book || "") === "FanDuel")
+const refreshFdFinal = refreshSnapshotBestPropsRawRows.filter((row) => String(row?.book || "") === "FanDuel")
+const refreshFdDropReasons = {
+  totalFdCandidates: refreshFdCandidates.length,
+  finalFdRows: refreshFdFinal.length,
+  droppedByBookBalancer: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perBookBalancing || 0),
+  droppedByPlayerCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perPlayerCap || 0),
+  droppedByMatchupCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perMatchupCap || 0),
+  droppedByStatCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perStatCap || 0),
+  droppedByTotalCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.totalCap || 0),
+  sourceHasFanDuelCandidates: refreshFdCandidates.length > 0
+}
+
+console.log("[BEST-PROPS-BOOK-EXCLUSION-DEBUG]", {
+  path: "refresh-snapshot",
+  fanduel: refreshFdDropReasons
+})
+
+console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
+  path: "refresh-snapshot-pre-finalize",
+  scheduledEvents: (Array.isArray(targetEvents) ? targetEvents : []).length,
+  rawPropsRows: (Array.isArray(cleaned) ? cleaned : []).length,
+  enrichedModelRows: (Array.isArray(enriched) ? enriched : []).length,
+  survivedFragileRows: refreshSnapshotSurvivedFragileRowsPreSave.length,
+  survivedFragileRowsByBook: {
+    FanDuel: refreshSnapshotSurvivedFragileRowsPreSave.filter((r) => r?.book === "FanDuel").length,
+    DraftKings: refreshSnapshotSurvivedFragileRowsPreSave.filter((r) => r?.book === "DraftKings").length
+  },
+  bestPropsRawRows: refreshSnapshotBestPropsRawRows.length,
+  bestPropsRawRowsByBook: {
+    FanDuel: refreshSnapshotBestPropsRawRows.filter((r) => r?.book === "FanDuel").length,
+    DraftKings: refreshSnapshotBestPropsRawRows.filter((r) => r?.book === "DraftKings").length
+  },
+  finalBestVisibleRows: refreshSnapshotFinalBestVisibleRowsPreSave.length,
+  missingStages: refreshSnapshotMissingStageNames
+})
+runCurrentSlateCoverageDiagnostics({
+  scheduledEvents: Array.isArray(targetEvents) ? targetEvents : [],
+  rawPropsRows: Array.isArray(cleaned) ? cleaned : [],
+  enrichedModelRows: Array.isArray(enriched) ? enriched : [],
+  survivedFragileRows: refreshSnapshotSurvivedFragileRowsPreSave,
+  bestPropsRawRows: refreshSnapshotBestPropsRawRows,
+  finalBestVisibleRows: refreshSnapshotFinalBestVisibleRowsPreSave
+})
+
+oddsSnapshot.bestProps = refreshPlayableFanDuelPromotion.rows
+logBestStage("refresh-snapshot:finalAssignedBestProps", oddsSnapshot.bestProps)
+logPropStageByBookDebug("refresh-snapshot:finalPromotion", {
+  elite: oddsSnapshot.eliteProps,
+  strong: oddsSnapshot.strongProps,
+  playable: oddsSnapshot.playableProps,
+  best: oddsSnapshot.bestProps
+})
+const refreshWatchedRawApiCounts = aggregateWatchedCountsFromEventDebug(eventIngestDebug)
+const refreshWatchedCoverage = buildWatchedPlayersCoverage(
+  refreshWatchedRawApiCounts,
+  rawIngestedProps,
+  oddsSnapshot.bestProps
+)
+oddsSnapshot.diagnostics = {
+  ...(oddsSnapshot.diagnostics && typeof oddsSnapshot.diagnostics === "object" ? oddsSnapshot.diagnostics : {}),
+  watchedPlayersCoverage: refreshWatchedCoverage
+}
+console.log("[WATCHED-PLAYER-COVERAGE-GUARD]", {
+  path: "refresh-snapshot",
+  players: refreshWatchedCoverage.map((row) => ({
+    player: row.player,
+    rawPropsPresent: row.rawPropsPresent,
+    rawPropsCount: row.rawPropsCount,
+    bestPropsPresent: row.bestPropsPresent,
+    bestPropsCount: row.bestPropsCount,
+    missingReason: row.missingReason
+  }))
+})
+const bestAvailable = buildMixedBestAvailableBuckets(oddsSnapshot.bestProps || bestProps)
+oddsSnapshot.safe = bestAvailable.safe
+oddsSnapshot.balanced = bestAvailable.balanced
+oddsSnapshot.aggressive = bestAvailable.aggressive
+oddsSnapshot.lotto = bestAvailable.lotto
+console.log("[PARLAY-BUILDER-RESULT]", {
+  safe: !!oddsSnapshot.safe,
+  balanced: !!oddsSnapshot.balanced,
+  aggressive: !!oddsSnapshot.aggressive,
+  lotto: !!oddsSnapshot.lotto
+})
+const refreshSnapshotFinalVisibleBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
+logBestStage("refresh-snapshot:afterFinalVisibilityFiltering", refreshSnapshotFinalVisibleBest)
+console.log("[BEST-PROPS-STAGE-COUNTS]", {
+  path: "refresh-snapshot",
+  stage: "afterFinalVisibilityFilter",
+  total: refreshSnapshotFinalVisibleBest.length,
+  byBook: {
+    FanDuel: refreshSnapshotFinalVisibleBest.filter((row) => String(row?.book || "") === "FanDuel").length,
+    DraftKings: refreshSnapshotFinalVisibleBest.filter((row) => String(row?.book || "") === "DraftKings").length
+  }
+})
+console.log("[BEST-PROPS-PIPELINE-COUNTS]", {
+  path: "refresh-snapshot",
+  sourceCandidates: bestPropsSource.length,
+  postEligibility: bestPropsCapResult?.diagnostics?.eligibleCount || 0,
+  postDedupe: bestPropsCapResult?.diagnostics?.dedupedCount || 0,
+  postBalancer: preCapBestPropsPool.length,
+  postFinalAssignment: oddsSnapshot.bestProps.length,
+  finalVisibleByBook: {
+    FanDuel: getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+    DraftKings: getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length
+  }
+})
+console.log("[BEST-PROPS-FINAL-DEBUG]", {
+  finalBestPropsTotal: (oddsSnapshot.bestProps || []).length,
+  finalFDCount: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+  finalDKCount: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length,
+  first10Players: (oddsSnapshot.bestProps || []).slice(0, 10).map((row) => ({
+    player: row?.player,
+    book: row?.book,
+    propType: row?.propType
+  }))
+})
+console.log("[BEST-PROPS-SIZE-DEBUG]", {
+  path: "refresh-snapshot",
+  eligibleCount: bestPropsSource.length,
+  selectedFinalCount: (oddsSnapshot.bestProps || []).length,
+  byBook: {
+    FanDuel: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+    DraftKings: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length
+  }
+})
+logBestPropsCapDebug("refresh-snapshot", "post-cap", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
+logFunnelStage("refresh-snapshot", "oddsSnapshot.bestProps", bestProps, oddsSnapshot.bestProps, { filter: "playerFitsMatchup" })
+logFunnelExcluded("refresh-snapshot", "oddsSnapshot.bestProps", bestProps, oddsSnapshot.bestProps)
+const flexPropsSource = dedupeByLegSignature([
+  ...(Array.isArray(matchupValidProps) ? matchupValidProps : []),
+  ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
+  ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
+  ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+])
+oddsSnapshot.flexProps = []
+oddsSnapshot.parlays = null
+oddsSnapshot.dualParlays = null
+console.log("[REFRESH-CORE-ONLY]", {
+  raw: oddsSnapshot.props.length,
+  best: oddsSnapshot.bestProps.length
+})
+const playableFilterCounts = buildSequentialFilterDropCounts(scoredProps, [
+  { key: "playableHighMinutesRisk", predicate: (row) => getMinutesRisk(row) !== "high" },
+  { key: "playableHighInjuryRisk", predicate: (row) => getInjuryRisk(row) !== "high" },
+  { key: "playableSubfloorHitRate", predicate: (row) => parseHitRate(row.hitRate) >= 0.5 },
+  { key: "playableThinEdgeAndScore", predicate: (row) => !(getTierEdge(row) < -0.75 && getTierScore(row) < 34) },
+  { key: "playableMissedPromotionGate", predicate: qualifiesPlayableTier }
+])
+const bestFilterCounts = buildSequentialFilterDropCounts(scoredProps, [
+  { key: "bestHighMinutesRisk", predicate: (row) => getMinutesRisk(row) !== "high" },
+  { key: "bestHighInjuryRisk", predicate: (row) => getInjuryRisk(row) !== "high" },
+  { key: "bestSubfloorHitRate", predicate: (row) => parseHitRate(row.hitRate) >= 0.48 },
+  { key: "bestThinEdgeAndScore", predicate: (row) => !(getTierEdge(row) < -0.75 && getTierScore(row) < 32) },
+  { key: "bestMissedPromotionGate", predicate: qualifiesBestPropsSource }
+])
+logTierAssignmentDebug(
+  "refresh-snapshot",
+  scoredProps,
+  {
+    eliteRows: oddsSnapshot.eliteProps,
+    strongRows: oddsSnapshot.strongProps,
+    playableRows: oddsSnapshot.playableProps,
+    bestSourceRows: bestPropsSource,
+    preCapBestRows: bestProps,
+    bestRows: oddsSnapshot.bestProps,
+    flexRows: oddsSnapshot.flexProps
+  },
+  {
+    ...playableFilterCounts.droppedByFilter,
+    ...bestFilterCounts.droppedByFilter,
+    bestPoolSelectionDrop: Math.max(0, bestPropsSource.length - bestProps.length),
+    bestPoolTotalCapDrop: bestPropsCapResult.diagnostics.dropCounts.totalCap,
+    bestPoolPerBookBalancingDrop: bestPropsCapResult.diagnostics.dropCounts.perBookBalancing,
+    bestPoolPerPlayerCapDrop: bestPropsCapResult.diagnostics.dropCounts.perPlayerCap,
+    bestPoolPerMatchupCapDrop: bestPropsCapResult.diagnostics.dropCounts.perMatchupCap,
+    bestPoolPerStatCapDrop: bestPropsCapResult.diagnostics.dropCounts.perStatCap,
+    bestPostMatchupFilterDrop: Math.max(0, bestProps.length - oddsSnapshot.bestProps.length),
+    flexPoolCount: oddsSnapshot.flexProps.length
+  }
+)
+try {
+  fs.writeFileSync(
+    path.join(__dirname, "snapshot.json"),
+    JSON.stringify({
+      data: oddsSnapshot,
+      savedAt: Date.now()
+    })
+  )
+  console.log("[SNAPSHOT-CACHE] saved snapshot to disk")
+} catch (e) {
+  console.log("[SNAPSHOT-CACHE] failed to save snapshot", e.message)
+}
+console.log("[TOP-PROP-SAMPLE] bestProps count:", (oddsSnapshot.bestProps || []).length)
+logTopPropSample("refresh-snapshot bestProps", oddsSnapshot.bestProps)
+  debugPipelineStages.afterBestProps = summarizePropPipelineRows(oddsSnapshot.bestProps)
+logPropPipelineStep("refresh-snapshot", "after-bestProps-assignment", oddsSnapshot.bestProps)
+logFunnelDropSummary("refresh-snapshot", debugPipelineStages)
+console.log("[BEST-PROPS-DEBUG] total bestProps:", oddsSnapshot.bestProps.length)
+console.log("[FLEX-PROPS-DEBUG] total flexProps:", (oddsSnapshot.flexProps || []).length)
+console.log(
+  "[BEST-PROPS-DEBUG] bestProps by propType:",
+  oddsSnapshot.bestProps.reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+)
+console.log(
+  "[BEST-PROPS-DEBUG] bestProps by book:",
+  oddsSnapshot.bestProps.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+)
+lastSnapshotRefreshAt = Date.now()
+    console.log("[SNAPSHOT-DEBUG] END refresh-snapshot",
+      "bestProps=" + oddsSnapshot.bestProps.length,
+      "playableProps=" + oddsSnapshot.playableProps.length,
+      "strongProps=" + oddsSnapshot.strongProps.length,
+      "eliteProps=" + oddsSnapshot.eliteProps.length
+    )
+
+    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+    res.json({
+      ok: true,
+      updatedAt: oddsSnapshot.updatedAt,
+      updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+      primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
+      slateMode: slateMeta.slateMode,
+      eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+      totalEligibleGames: slateMeta.totalEligibleGames,
+      startedEligibleGames: slateMeta.startedEligibleGames,
+      events: oddsSnapshot.events.length,
+      props: oddsSnapshot.props.length,
+      bestProps: oddsSnapshot.bestProps.length,
+      flexProps: (oddsSnapshot.flexProps || []).length,
+      debugPipeline: {
+        stages: debugPipelineStages,
+        bestPropsCount: oddsSnapshot.bestProps.length,
+        flexPropsCount: (oddsSnapshot.flexProps || []).length,
+        playablePropsCount: oddsSnapshot.playableProps.length,
+        strongPropsCount: oddsSnapshot.strongProps.length,
+        elitePropsCount: oddsSnapshot.eliteProps.length
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Snapshot refresh failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+app.get("/refresh-snapshot/hard-reset", async (req, res) => {
+  console.log("[SNAPSHOT-DEBUG] START refresh-snapshot-hard-reset")
+  try {
+    resetFragileFilterAdjustedLogCount()
+    const previousSnapshotForCarry = {
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? [...oddsSnapshot.rawProps] : [],
+      props: Array.isArray(oddsSnapshot?.props) ? [...oddsSnapshot.props] : []
+    }
+    // Hard reset: clear all snapshot state and caches
+    oddsSnapshot = {
+      updatedAt: null,
+      events: [],
+      rawProps: [],
+      props: [],
+      eliteProps: [],
+      strongProps: [],
+      playableProps: [],
+      bestProps: [],
+      diagnostics: {},
+      flexProps: [],
+      parlays: null,
+      dualParlays: null
+    }
+    lastSnapshotRefreshAt = 0
+
+    // Clear in-memory caches
+    playerIdCache.clear()
+    playerStatsCache.clear()
+    playerStatsCacheTimes.clear()
+    playerLookupMissCache.clear()
+
+    // Optionally delete api-sports-cache.json if it exists
+    try {
+      if (fs.existsSync(CACHE_FILE)) {
+        fs.unlinkSync(CACHE_FILE)
+      }
+    } catch (cacheError) {
+      console.warn("Failed to delete cache file:", cacheError.message)
+    }
+
+    // Now rebuild snapshot from scratch (same logic as force refresh)
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    if (!API_SPORTS_KEY) {
+      return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
+    }
+
+    const eventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      {
+        params: { apiKey: ODDS_API_KEY }
+      }
+    )
+
+    const events = eventsResponse.data || []
+    const targetEvents = filterEventsToPrimarySlate(events)
+    const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
+    if (!targetEvents.length) {
+      return res.status(404).json({
+        error: "No upcoming NBA games found for the primary slate"
+      })
+    }
+
+    const primarySlateDateLocal = targetEvents[0]
+      ? new Date(targetEvents[0].commence_time).toLocaleDateString("en-US", {
+          timeZone: "America/Detroit"
+        })
+      : null
+    const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
+    console.log("[RAW-PROPS-PIPELINE-START]", {
+      scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      eventIds: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean),
+      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => {
+        const away = event?.away_team || event?.awayTeam || ""
+        const home = event?.home_team || event?.homeTeam || ""
+        return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+      }).filter(Boolean)
+    })
+    const cleaned = []
+    const eventIngestDebug = []
+    const previousOpenMap = new Map(
+      (oddsSnapshot.props || []).map((row) => {
+        const key = [row.eventId, row.player, row.propType, row.side, row.book].join("|")
+        return [
+          key,
+          {
+            openingLine: Number.isFinite(Number(row.openingLine)) ? Number(row.openingLine) : Number(row.line),
+            openingOdds: Number.isFinite(Number(row.openingOdds)) ? Number(row.openingOdds) : Number(row.odds)
+          }
+        ]
+      })
+    )
+
+    for (const event of targetEvents) {
+      try {
+        const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
+          pathLabel: "refresh-snapshot-hard-reset"
+        })
+        cleaned.push(...(Array.isArray(fetched?.rows) ? fetched.rows : []))
+        eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
+      } catch (eventError) {
+        const away = event?.away_team || event?.awayTeam || ""
+        const home = event?.home_team || event?.homeTeam || ""
+        console.log("[RAW-PROPS-SKIP-DEBUG]", {
+          reason: "event_lookup_miss",
+          eventId: String(event?.id || event?.eventId || ""),
+          matchup: away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+        })
+        eventIngestDebug.push({
+          path: "refresh-snapshot-hard-reset",
+          eventId: String(event?.id || ""),
+          matchup: buildMatchup(event?.away_team, event?.home_team),
+          error: eventError.response?.data || eventError.message,
+          finalAcceptedRows: 0
+        })
+        console.error(
+          "Snapshot event props failed:",
+          event.id,
+          eventError.response?.data || eventError.message
+        )
+      }
+    }
+
+    const previousRowsForCarry = dedupeByLegSignature([
+      ...(Array.isArray(previousSnapshotForCarry?.rawProps) ? previousSnapshotForCarry.rawProps : []),
+      ...(Array.isArray(previousSnapshotForCarry?.props) ? previousSnapshotForCarry.props : [])
+    ])
+    const scheduledEventIds = scheduledEvents.map((event) => String(event?.id || "")).filter(Boolean)
+    const preCarryEventIds = [...new Set(cleaned.map((row) => String(row?.eventId || "")).filter(Boolean))]
+    const slateDateKey = targetEvents[0] ? getLocalSlateDateKey(targetEvents[0].commence_time) : ""
+    const unstableMissingBeforeCarry = UNSTABLE_GAME_EVENT_IDS.filter((eventId) => {
+      return scheduledEventIds.includes(eventId) && !preCarryEventIds.includes(eventId)
+    })
+    const carryForwardRows = previousRowsForCarry
+      .filter((row) => unstableMissingBeforeCarry.includes(String(row?.eventId || "")))
+      .filter((row) => {
+        if (!slateDateKey) return true
+        try {
+          return getLocalSlateDateKey(row?.gameTime) === slateDateKey
+        } catch (_) {
+          return false
+        }
+      })
+      .filter((row) => {
+        try {
+          return isPregameEligibleRow(row)
+        } catch (_) {
+          return false
+        }
+      })
+      .map((row) => ({ ...row, staleCarryForward: true }))
+
+    if (carryForwardRows.length > 0) cleaned.push(...carryForwardRows)
+
+    console.log("[UNSTABLE-GAME-CARRY-FORWARD-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      events: UNSTABLE_GAME_EVENT_IDS.map((eventId) => ({
+        eventId,
+        carriedRows: carryForwardRows.filter((row) => String(row?.eventId || "") === eventId).length
+      }))
+    })
+
+    const rawIngestedProps = dedupeByLegSignature(cleaned)
+    const rawPropsRows = rawIngestedProps
+    console.log("[RAW-PROPS-PIPELINE-END]", {
+      scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      totalRawRowsBuilt: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      byBook: {
+        FanDuel: (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => row?.book === "FanDuel").length,
+        DraftKings: (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => row?.book === "DraftKings").length
+      },
+      byEventId: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.eventId || "")
+        if (!key) return acc
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+    if (scheduledEvents.length > 0 && rawPropsRows.length === 0) {
+      console.log("[RAW-PROPS-ZERO-ROWS-DEBUG]", {
+        scheduledEvents: scheduledEvents.map((event) => ({
+          eventId: String(event?.id || event?.eventId || ""),
+          matchup: (() => {
+            const away = event?.away_team || event?.awayTeam || ""
+            const home = event?.home_team || event?.homeTeam || ""
+            return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+          })()
+        }))
+      })
+    }
+    const ingestedEventIds = [...new Set(rawPropsRows.map((row) => String(row?.eventId || "")).filter(Boolean))]
+    const missingEventIds = scheduledEventIds.filter((eventId) => !ingestedEventIds.includes(eventId))
+    const propsPerEventId = Object.fromEntries(
+      scheduledEventIds.map((eventId) => [
+        eventId,
+        rawPropsRows.filter((row) => String(row?.eventId || "") === eventId).length
+      ])
+    )
+
+    const ingestApiEventIds = [...new Set(
+      eventIngestDebug.flatMap((item) => [
+        ...(Array.isArray(item?.apiEventIdsPrimary) ? item.apiEventIdsPrimary : []),
+        ...(Array.isArray(item?.apiEventIdsFallback) ? item.apiEventIdsFallback : [])
+      ].map((id) => String(id || "")).filter(Boolean))
+    )]
+    const targetMissingEventStages = UNSTABLE_GAME_EVENT_IDS.map((id) => ({
+      eventId: id,
+      inScheduledEvents: scheduledEventIds.includes(id),
+      inRawApiResponse: rawApiEventIds.includes(id) || ingestApiEventIds.includes(id),
+      inMappedRawProps: ingestedEventIds.includes(id),
+      inFinalSavedRawProps: false,
+      inFinalSavedProps: false,
+      mappedRows: rawPropsRows.filter((row) => String(row?.eventId || "") === id).length
+    }))
+
+    console.log("[TARGET-MISSING-GAME-INGEST-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      targets: targetMissingEventStages
+    })
+
+    const normalizeIngestPlayer = (value) => String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+    const lukaRawApiCount = eventIngestDebug.reduce((sum, item) => {
+      return sum + Number(item?.lukaRawPrimaryCount || 0) + Number(item?.lukaRawFallbackCount || 0)
+    }, 0)
+    const lukaMappedCount = rawPropsRows.filter((row) => normalizeIngestPlayer(row?.player).includes("doncic")).length
+
+    console.log("[INGEST-LUKA-STAGE-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      inRawApiResponse: lukaRawApiCount > 0,
+      rawApiCount: lukaRawApiCount,
+      inMappedRawProps: lukaMappedCount > 0,
+      mappedCount: lukaMappedCount
+    })
+
+    const debugPipelineStages = {}
+    debugPipelineStages.rawNormalized = summarizePropPipelineRows(cleaned)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "raw-normalized-props", cleaned)
+    const pregameStatusRowsForDebug = cleaned.filter((row) => isPregameEligibleRow(row))
+    debugPipelineStages.afterPregameStatus = summarizePropPipelineRows(pregameStatusRowsForDebug)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-pregame-status-filtering", pregameStatusRowsForDebug)
+    const primarySlateRowsForDebug = filterRowsToPrimarySlate(pregameStatusRowsForDebug)
+    debugPipelineStages.afterPrimarySlate = summarizePropPipelineRows(primarySlateRowsForDebug)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-primary-slate-filtering", primarySlateRowsForDebug)
+
+    const playerRows = new Map()
+    for (const row of cleaned) {
+      if (!row.player) continue
+      if (!playerRows.has(row.player)) playerRows.set(row.player, row)
+    }
+
+    const statsCache = new Map()
+    const playerTeamMap = new Map()
+    const players = Array.from(playerRows.keys())
+    const playerResolutionDebug = {
+      totalRawPlayerNamesSeen: players.length,
+      totalPlayerNamesWithResolvedIds: 0,
+      unresolvedPlayerNames: [],
+      manualOverrideHitCount: 0,
+      looseMatchHitCount: 0,
+      missCacheHitCount: 0
+    }
+
+    for (let i = 0; i < players.length; i += PLAYER_LOOKUP_CONCURRENCY) {
+      const batch = players.slice(i, i + PLAYER_LOOKUP_CONCURRENCY)
+
+      await Promise.all(
+        batch.map(async (player) => {
+          try {
+            if (isManualOverridePlayer(player)) {
+              playerResolutionDebug.manualOverrideHitCount += 1
+            }
+
+            const sourceRow = playerRows.get(player)
+            const expectedTeamCodes = sourceRow
+              ? [teamAbbr(sourceRow.awayTeam), teamAbbr(sourceRow.homeTeam)]
+              : []
+
+            const cachedPlayerInfo = playerIdCache.get(player)
+            if (cachedPlayerInfo?.id && playerStatsCache.has(cachedPlayerInfo.id)) {
+              const cachedStats = playerStatsCache.get(cachedPlayerInfo.id) || []
+              const recentStats = cachedStats.slice(0, 10)
+
+              const derivedTeamCode = String(
+                getTeamOverride(player) ||
+                teamAbbr(cachedPlayerInfo.team) ||
+                getCurrentTeamCodeFromStats(recentStats) ||
+                ""
+              ).toUpperCase().trim()
+
+              const expectedSet = new Set(
+                expectedTeamCodes
+                  .map((code) => String(code || "").toUpperCase().trim())
+                  .filter(Boolean)
+              )
+
+              if (!expectedSet.size || !derivedTeamCode || expectedSet.has(derivedTeamCode)) {
+                statsCache.set(player, recentStats)
+                playerTeamMap.set(player, derivedTeamCode)
+                playerResolutionDebug.totalPlayerNamesWithResolvedIds += 1
+                if (isLooseResolvedMatch(player, cachedPlayerInfo.matchedName || "")) {
+                  playerResolutionDebug.looseMatchHitCount += 1
+                }
+                return
+              }
+
+              playerIdCache.delete(player)
+            }
+
+            if (playerLookupMissCache.has(player)) {
+              playerResolutionDebug.missCacheHitCount += 1
+            }
+
+            const playerInfo = await fetchApiSportsPlayerIdCached(player, expectedTeamCodes)
+            if (!playerInfo || !playerInfo.id) return
+
+            playerResolutionDebug.totalPlayerNamesWithResolvedIds += 1
+            if (isLooseResolvedMatch(player, playerInfo.matchedName || "")) {
+              playerResolutionDebug.looseMatchHitCount += 1
+            }
+
+            const stats = await fetchApiSportsPlayerStatsCached(playerInfo.id)
+            const recentStats = stats.slice(0, 10)
+            statsCache.set(player, recentStats)
+            playerTeamMap.set(player, playerInfo.team)
+          } catch (playerError) {
+            playerResolutionDebug.unresolvedPlayerNames.push(player)
+            console.error("Player lookup failed:", player, playerError.message)
+          }
+        })
+      )
+    }
+
+    for (const player of players) {
+      if (!playerTeamMap.has(player)) {
+        playerResolutionDebug.unresolvedPlayerNames.push(player)
+      }
+    }
+
+    const uniqueUnresolved = Array.from(new Set(playerResolutionDebug.unresolvedPlayerNames))
+    logPlayerResolutionDiagnostics("refresh-snapshot-hard-reset", {
+      totalRawPlayerNamesSeen: playerResolutionDebug.totalRawPlayerNamesSeen,
+      totalPlayerNamesWithResolvedIds: playerResolutionDebug.totalPlayerNamesWithResolvedIds,
+      totalUnresolvedPlayerNames: uniqueUnresolved.length,
+      sampleUnresolvedPlayerNames: uniqueUnresolved.slice(0, 20),
+      manualOverrideHitCount: playerResolutionDebug.manualOverrideHitCount,
+      looseMatchHitCount: playerResolutionDebug.looseMatchHitCount,
+      missCacheHitCount: playerResolutionDebug.missCacheHitCount
+    })
+
+    const matchupValidProps = cleaned.filter((row) => {
+      const teamCode = playerTeamMap.get(row.player)
+      return teamCode && [teamAbbr(row.awayTeam), teamAbbr(row.homeTeam)].includes(teamCode)
+    })
+
+    const allBadTeamAssignmentRows = (Array.isArray(matchupValidProps) ? matchupValidProps : []).filter((row) => !rowTeamMatchesMatchup(row))
+    const badTeamAssignmentRows = getBadTeamAssignmentRows(matchupValidProps, 25)
+    console.log("[BAD-TEAM-ASSIGNMENT-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      count: allBadTeamAssignmentRows.length,
+      byBook: {
+        FanDuel: allBadTeamAssignmentRows.filter((r) => r?.book === "FanDuel").length,
+        DraftKings: allBadTeamAssignmentRows.filter((r) => r?.book === "DraftKings").length
+      },
+      sample: badTeamAssignmentRows
+    })
+
+    const scoredProps = matchupValidProps.map((row) => ({
+      ...row,
+      score: scorePropRow(row),
+      dvpScore: scorePropRowForDvp(row),
+      avgMin: getPlayerAvgMin(row.player, statsCache.get(row.player) || []),
+      minFloor: getPlayerMinFloor(row.player, statsCache.get(row.player) || []),
+      minStd: getPlayerMinStd(row.player, statsCache.get(row.player) || []),
+      valueStd: getPlayerValueStd(row.player, statsCache.get(row.player) || [], row.propType),
+      recent3Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 3, row.propType),
+      recent5Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 5, row.propType),
+      l10Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 10, row.propType),
+      minutesRisk: getPlayerMinutesRisk(row.player, statsCache.get(row.player) || []),
+      trendRisk: getPlayerTrendRisk(row.player, statsCache.get(row.player) || [], row.propType),
+      injuryRisk: getPlayerInjuryRisk(row.player, statsCache.get(row.player) || []),
+      hitRate: getPlayerHitRate(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side),
+      edge: getPlayerEdge(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side, row.odds)
+    }))
+    const scoredRankedForDebug = [...scoredProps].sort((a, b) => {
+      if (Number(b.score || 0) !== Number(a.score || 0)) {
+        return Number(b.score || 0) - Number(a.score || 0)
+      }
+      if (Number(b.edge || -999) !== Number(a.edge || -999)) {
+        return Number(b.edge || -999) - Number(a.edge || -999)
+      }
+      return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
+    })
+    debugPipelineStages.afterScoringRanking = summarizePropPipelineRows(scoredRankedForDebug)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-scoring-ranking", scoredRankedForDebug)
+
+    const dedupedBestCandidates = dedupeSlipLegs(
+      scoredProps.filter((row) => row.score >= 0)
+    )
+    debugPipelineStages.afterDedupe = summarizePropPipelineRows(dedupedBestCandidates)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-dedupe", dedupedBestCandidates)
+
+    const bestPropsSource = dedupedBestCandidates.filter((row) => qualifiesBestPropsSource(row))
+    logBestStage("refresh-snapshot-hard-reset:sourcePool", bestPropsSource)
+    console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot-hard-reset sourceCount=${bestPropsSource.length}`)
+    const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, { pathLabel: "refresh-snapshot-hard-reset" })
+    const preCapBestPropsPool = bestPropsCapResult.selected
+    logBestPropsCapDebug("refresh-snapshot-hard-reset", "pre-cap", bestPropsSource, preCapBestPropsPool, bestPropsCapResult.diagnostics)
+    let bestProps = preCapBestPropsPool.slice(0, BEST_PROPS_BALANCE_CONFIG.totalCap)
+    const sourceRows = Array.isArray(bestPropsSource) ? bestPropsSource : []
+    const fdRows = bestProps.filter((r) => r.book === "FanDuel")
+
+    if (fdRows.length < 10) {
+      const fallbackFD = sourceRows
+        .filter((r) => r.book === "FanDuel")
+        .filter((r) => !shouldRemoveLegForPlayerStatus(r))
+        .slice(0, 20)
+
+      bestProps = [
+        ...bestProps,
+        ...fallbackFD.slice(0, 10 - fdRows.length)
+      ]
+    }
+
+    console.log("[BEST-PROPS-BOOK-BALANCE]", {
+      path: "refresh-snapshot-hard-reset",
+      fanduel: bestProps.filter((r) => r.book === "FanDuel").length,
+      draftkings: bestProps.filter((r) => r.book === "DraftKings").length
+    })
+    logBestStage("refresh-snapshot-hard-reset:afterRankingSortAndCap", bestProps)
+    logBestPropsCapExcluded("refresh-snapshot-hard-reset", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
+    const eliteProps = bestProps.filter((row) => qualifiesEliteTier(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "eliteProps-from-bestProps", bestProps, eliteProps, { threshold: "hit>=0.72,score>=88,minFloor>=24,minStd<=7.5,valueStd<=10.5/5.5" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "eliteProps-from-bestProps", bestProps, eliteProps)
+    const strongProps = bestProps.filter((row) => qualifiesStrongTier(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "strongProps-from-bestProps", bestProps, strongProps, { threshold: "hit>=0.61,score>=62,minFloor>=22,minStd<=9.5,valueStd<=12/6.5" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "strongProps-from-bestProps", bestProps, strongProps)
+    const playableProps = bestProps.filter((row) => qualifiesPlayableTier(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "playableProps-from-bestProps", bestProps, playableProps, { threshold: "mins/injury!=high and (score>=42 or hit>=0.62 or hit/edge support or hit/score support)" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "playableProps-from-bestProps", bestProps, playableProps)
+    debugPipelineStages.afterPlayableProps = summarizePropPipelineRows(playableProps)
+    debugPipelineStages.afterStrongProps = summarizePropPipelineRows(strongProps)
+    debugPipelineStages.afterEliteProps = summarizePropPipelineRows(eliteProps)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-playableProps-assignment", playableProps)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-strongProps-assignment", strongProps)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-eliteProps-assignment", eliteProps)
+
+    const eliteCapped = diversifyByTeam(eliteProps, 2, 20)
+    logFunnelStage("refresh-snapshot-hard-reset", "eliteCapped-from-eliteProps", eliteProps, eliteCapped, { method: "diversifyByTeam", maxPerTeam: 2, totalCap: 20 })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "eliteCapped-from-eliteProps", eliteProps, eliteCapped)
+    const strongCapped = diversifyByTeam(strongProps, 2, 30)
+    logFunnelStage("refresh-snapshot-hard-reset", "strongCapped-from-strongProps", strongProps, strongCapped, { method: "diversifyByTeam", maxPerTeam: 2, totalCap: 30 })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "strongCapped-from-strongProps", strongProps, strongCapped)
+    const playableCapped = selectBalancedPool(playableProps, {
+      totalCap: 180,
+      minPerBook: 80,
+      maxPerPlayer: 3,
+      maxPerMatchup: 6,
+      maxPerType: {
+        Assists: 32,
+        Rebounds: 32,
+        Points: 32,
+        Threes: 22,
+        PRA: 16
+      }
+    })
+    logFunnelStage("refresh-snapshot-hard-reset", "playableCapped-from-playableProps", playableProps, playableCapped, { totalCap: 180, minPerBook: 80, maxPerPlayer: 3, maxPerMatchup: 6 })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "playableCapped-from-playableProps", playableProps, playableCapped)
+
+    oddsSnapshot.updatedAt = new Date().toISOString()
+    oddsSnapshot.events = targetEvents
+    oddsSnapshot.rawProps = rawIngestedProps
+    oddsSnapshot.props = rawPropsRows
+    console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      targets: targetMissingEventStages.map((stage) => ({
+        ...stage,
+        inFinalSavedRawProps: (oddsSnapshot.rawProps || []).some((row) => String(row?.eventId || "") === stage.eventId),
+        inFinalSavedProps: (oddsSnapshot.props || []).some((row) => String(row?.eventId || "") === stage.eventId)
+      }))
+    })
+    oddsSnapshot.eliteProps = eliteCapped.filter((row) => playerFitsMatchup(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
+    oddsSnapshot.strongProps = strongCapped.filter((row) => playerFitsMatchup(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
+    oddsSnapshot.playableProps = playableCapped.filter((row) => playerFitsMatchup(row))
+    logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
+    logPropStageByBookDebug("refresh-snapshot-hard-reset:afterTierAssignment", {
+      elite: oddsSnapshot.eliteProps,
+      strong: oddsSnapshot.strongProps,
+      playable: oddsSnapshot.playableProps,
+      best: bestProps
+    })
+
+    // STEP 5: Final visibility guarantee - ensure all watched players in rawProps make it to bestProps
+    const watchedNormalized = WATCHED_PLAYER_NAMES.map(normalizeDebugPlayerName)
+    const allRawPropsForWatchedCheck = dedupeByLegSignature([
+      ...(Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : [])
+    ])
+    const missingWatchedInBest = allRawPropsForWatchedCheck.filter(row => {
+      const name = normalizeDebugPlayerName(row?.player || "")
+      const isWatched = watchedNormalized.includes(name)
+      const inBest = bestProps.some(p => normalizeDebugPlayerName(p?.player || "") === name)
+      return isWatched && !inBest
+    })
+
+    for (const row of missingWatchedInBest) {
+      const playerName = normalizeDebugPlayerName(row?.player || "")
+      if (!bestProps.some(p => normalizeDebugPlayerName(p?.player || "") === playerName)) {
+        bestProps.push(row)
+        console.log("[WATCHED-PLAYER-FINAL-GUARANTEE]", {
+          player: row?.player,
+          reason: "missing_from_best_added_from_raw",
+          propType: row?.propType,
+          book: row?.book,
+          line: row?.line
+        })
+      }
+    }
+
+    oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
+    logBestStage("refresh-snapshot-hard-reset:afterDedupe", oddsSnapshot.bestProps)
+    const hardResetBestPropsBookRescue = ensureBestPropsBookPresence(oddsSnapshot.bestProps, bestPropsSource, {
+      targetBook: "DraftKings",
+      totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+      meaningfulFloor: bestPropsCapResult?.diagnostics?.config?.minPerBook || 11
+    })
+    const hardResetBestPropsFanDuelRescue = ensureBestPropsBookPresence(hardResetBestPropsBookRescue.rows, bestPropsSource, {
+      targetBook: "FanDuel",
+      totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+      meaningfulFloor: 1
+    })
+    const hardResetPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
+      hardResetBestPropsFanDuelRescue.rows,
+      oddsSnapshot.playableProps,
+      {
+        targetBook: "FanDuel",
+        minCount: 8,
+        totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap
+      }
+    )
+    logBestStage("refresh-snapshot-hard-reset:afterBookBalance", hardResetPlayableFanDuelPromotion.rows)
+    console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      initialFanDuelCount: hardResetPlayableFanDuelPromotion.initialBookCount,
+      finalFanDuelCount: hardResetPlayableFanDuelPromotion.finalBookCount,
+      promotedCount: hardResetPlayableFanDuelPromotion.promotedCount,
+      playableFanDuelCount: countByBookForRows(oddsSnapshot.playableProps).FanDuel
+    })
+    oddsSnapshot.bestProps = hardResetPlayableFanDuelPromotion.rows
+    logBestStage("refresh-snapshot-hard-reset:finalAssignedBestProps", oddsSnapshot.bestProps)
+    logPropStageByBookDebug("refresh-snapshot-hard-reset:finalPromotion", {
+      elite: oddsSnapshot.eliteProps,
+      strong: oddsSnapshot.strongProps,
+      playable: oddsSnapshot.playableProps,
+      best: oddsSnapshot.bestProps
+    })
+    const hardResetWatchedRawApiCounts = aggregateWatchedCountsFromEventDebug(eventIngestDebug)
+    const hardResetWatchedCoverage = buildWatchedPlayersCoverage(
+      hardResetWatchedRawApiCounts,
+      rawIngestedProps,
+      oddsSnapshot.bestProps
+    )
+    oddsSnapshot.diagnostics = {
+      ...(oddsSnapshot.diagnostics && typeof oddsSnapshot.diagnostics === "object" ? oddsSnapshot.diagnostics : {}),
+      watchedPlayersCoverage: hardResetWatchedCoverage
+    }
+    console.log("[WATCHED-PLAYER-COVERAGE-GUARD]", {
+      path: "refresh-snapshot-hard-reset",
+      players: hardResetWatchedCoverage.map((row) => ({
+        player: row.player,
+        rawPropsPresent: row.rawPropsPresent,
+        rawPropsCount: row.rawPropsCount,
+        bestPropsPresent: row.bestPropsPresent,
+        bestPropsCount: row.bestPropsCount,
+        missingReason: row.missingReason
+      }))
+    })
+    const bestAvailable = buildMixedBestAvailableBuckets(oddsSnapshot.bestProps || bestProps)
+    oddsSnapshot.safe = bestAvailable.safe
+    oddsSnapshot.balanced = bestAvailable.balanced
+    oddsSnapshot.aggressive = bestAvailable.aggressive
+    oddsSnapshot.lotto = bestAvailable.lotto
+    console.log("[PARLAY-BUILDER-RESULT]", {
+      safe: !!oddsSnapshot.safe,
+      balanced: !!oddsSnapshot.balanced,
+      aggressive: !!oddsSnapshot.aggressive,
+      lotto: !!oddsSnapshot.lotto
+    })
+    const hardResetFinalVisibleBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
+    logBestStage("refresh-snapshot-hard-reset:afterFinalVisibilityFiltering", hardResetFinalVisibleBest)
+    const hardResetSurvivedFragileRows = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
+      try {
+        return !isFragileLeg(row, "best")
+      } catch (_) {
+        return true
+      }
+    })
+    console.log("[FRAGILE-FILTER-SUMMARY-DEBUG]", {
+      inputCount: (Array.isArray(scoredProps) ? scoredProps : []).length,
+      survivedCount: hardResetSurvivedFragileRows.length,
+      removedCount: Math.max(0, (Array.isArray(scoredProps) ? scoredProps : []).length - hardResetSurvivedFragileRows.length),
+      byBookInput: {
+        FanDuel: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => row?.book === "FanDuel").length,
+        DraftKings: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => row?.book === "DraftKings").length
+      },
+      byBookSurvived: {
+        FanDuel: hardResetSurvivedFragileRows.filter((row) => row?.book === "FanDuel").length,
+        DraftKings: hardResetSurvivedFragileRows.filter((row) => row?.book === "DraftKings").length
+      }
+    })
+    const hardResetRawPropsByBook = countByBookForRows(Array.isArray(cleaned) ? cleaned : [])
+    const hardResetSurvivedFragileByBook = countByBookForRows(hardResetSurvivedFragileRows)
+    const hardResetPreBestCandidateByBook = countByBookForRows(Array.isArray(bestPropsSource) ? bestPropsSource : [])
+    const hardResetFinalBestRawByBook = countByBookForRows(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+
+    console.log("[BEST-PROPS-BOOK-STAGE-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      rawPropsRows: hardResetRawPropsByBook,
+      survivedFragileRows: hardResetSurvivedFragileByBook,
+      preBestPropsCandidates: hardResetPreBestCandidateByBook,
+      finalBestPropsRawRows: hardResetFinalBestRawByBook,
+      balancer: {
+        minPerBook: bestPropsCapResult?.diagnostics?.minPerBook,
+        reserveTargetByBook: bestPropsCapResult?.diagnostics?.reserveTargetByBook,
+        selectedByBookAfterReservePass: bestPropsCapResult?.diagnostics?.selectedByBookAfterReservePass,
+        finalDifferenceFDvsDK: bestPropsCapResult?.diagnostics?.finalDifferenceFDvsDK
+      }
+    })
+
+    const hardResetFdCandidates = (Array.isArray(bestPropsSource) ? bestPropsSource : []).filter((row) => String(row?.book || "") === "FanDuel")
+    const hardResetFdFinal = (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((row) => String(row?.book || "") === "FanDuel")
+    const hardResetFdDropReasons = {
+      totalFdCandidates: hardResetFdCandidates.length,
+      finalFdRows: hardResetFdFinal.length,
+      droppedByBookBalancer: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perBookBalancing || 0),
+      droppedByPlayerCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perPlayerCap || 0),
+      droppedByMatchupCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perMatchupCap || 0),
+      droppedByStatCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.perStatCap || 0),
+      droppedByTotalCap: Number(bestPropsCapResult?.diagnostics?.dropCounts?.totalCap || 0),
+      sourceHasFanDuelCandidates: hardResetFdCandidates.length > 0
+    }
+
+    console.log("[BEST-PROPS-BOOK-EXCLUSION-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      fanduel: hardResetFdDropReasons
+    })
+
+    console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      scheduledEvents: (Array.isArray(targetEvents) ? targetEvents : []).length,
+      rawPropsRows: (Array.isArray(cleaned) ? cleaned : []).length,
+      enrichedModelRows: (Array.isArray(scoredProps) ? scoredProps : []).length,
+      survivedFragileRows: hardResetSurvivedFragileRows.length,
+      survivedFragileRowsByBook: {
+        FanDuel: hardResetSurvivedFragileRows.filter((r) => r?.book === "FanDuel").length,
+        DraftKings: hardResetSurvivedFragileRows.filter((r) => r?.book === "DraftKings").length
+      },
+      bestPropsRawRows: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).length,
+      bestPropsRawRowsByBook: {
+        FanDuel: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((r) => r?.book === "FanDuel").length,
+        DraftKings: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((r) => r?.book === "DraftKings").length
+      },
+      finalBestVisibleRows: hardResetFinalVisibleBest.length
+    })
+    runCurrentSlateCoverageDiagnostics({
+      scheduledEvents: Array.isArray(targetEvents) ? targetEvents : [],
+      rawPropsRows: Array.isArray(cleaned) ? cleaned : [],
+      enrichedModelRows: Array.isArray(scoredProps) ? scoredProps : [],
+      survivedFragileRows: hardResetSurvivedFragileRows,
+      bestPropsRawRows: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [],
+      finalBestVisibleRows: hardResetFinalVisibleBest
+    })
+    console.log("[BEST-PROPS-STAGE-COUNTS]", {
+      path: "refresh-snapshot-hard-reset",
+      stage: "afterFinalVisibilityFilter",
+      total: hardResetFinalVisibleBest.length,
+      byBook: {
+        FanDuel: hardResetFinalVisibleBest.filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: hardResetFinalVisibleBest.filter((row) => String(row?.book || "") === "DraftKings").length
+      }
+    })
+    console.log("[BEST-PROPS-PIPELINE-COUNTS]", {
+      path: "refresh-snapshot-hard-reset",
+      sourceCandidates: bestPropsSource.length,
+      postEligibility: bestPropsCapResult?.diagnostics?.eligibleCount || 0,
+      postDedupe: bestPropsCapResult?.diagnostics?.dedupedCount || 0,
+      postBalancer: preCapBestPropsPool.length,
+      postFinalAssignment: oddsSnapshot.bestProps.length,
+      finalVisibleByBook: {
+        FanDuel: getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length
+      }
+    })
+    console.log("[BEST-PROPS-FINAL-DEBUG]", {
+      finalBestPropsTotal: (oddsSnapshot.bestProps || []).length,
+      finalFDCount: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+      finalDKCount: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length,
+      first10Players: (oddsSnapshot.bestProps || []).slice(0, 10).map((row) => ({
+        player: row?.player,
+        book: row?.book,
+        propType: row?.propType
+      }))
+    })
+    console.log("[BEST-PROPS-SIZE-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      eligibleCount: bestPropsSource.length,
+      selectedFinalCount: (oddsSnapshot.bestProps || []).length,
+      byBook: {
+        FanDuel: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: (oddsSnapshot.bestProps || []).filter((row) => String(row?.book || "") === "DraftKings").length
+      }
+    })
+    logBestPropsCapDebug("refresh-snapshot-hard-reset", "post-cap", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
+    logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.bestProps", bestProps, oddsSnapshot.bestProps, { filter: "playerFitsMatchup" })
+    logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.bestProps", bestProps, oddsSnapshot.bestProps)
+    const hardResetFlexPropsSource = dedupeByLegSignature([
+      ...(Array.isArray(matchupValidProps) ? matchupValidProps : []),
+      ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
+      ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
+      ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
+    ])
+    oddsSnapshot.flexProps = []
+    oddsSnapshot.parlays = null
+    oddsSnapshot.dualParlays = null
+    console.log("[REFRESH-CORE-ONLY]", {
+      raw: oddsSnapshot.props.length,
+      best: oddsSnapshot.bestProps.length
+    })
+    const hardResetPlayableFilterCounts = buildSequentialFilterDropCounts(dedupedBestCandidates, [
+      { key: "playableHighMinutesRisk", predicate: (row) => getMinutesRisk(row) !== "high" },
+      { key: "playableHighInjuryRisk", predicate: (row) => getInjuryRisk(row) !== "high" },
+      { key: "playableSubfloorHitRate", predicate: (row) => parseHitRate(row.hitRate) >= 0.5 },
+      { key: "playableThinEdgeAndScore", predicate: (row) => !(getTierEdge(row) < -0.75 && getTierScore(row) < 34) },
+      { key: "playableMissedPromotionGate", predicate: qualifiesPlayableTier }
+    ])
+    const hardResetBestFilterCounts = buildSequentialFilterDropCounts(dedupedBestCandidates, [
+      { key: "bestHighMinutesRisk", predicate: (row) => getMinutesRisk(row) !== "high" },
+      { key: "bestHighInjuryRisk", predicate: (row) => getInjuryRisk(row) !== "high" },
+      { key: "bestSubfloorHitRate", predicate: (row) => parseHitRate(row.hitRate) >= 0.48 },
+      { key: "bestThinEdgeAndScore", predicate: (row) => !(getTierEdge(row) < -0.75 && getTierScore(row) < 32) },
+      { key: "bestMissedPromotionGate", predicate: qualifiesBestPropsSource }
+    ])
+    logTierAssignmentDebug(
+      "refresh-snapshot-hard-reset",
+      dedupedBestCandidates,
+      {
+        eliteRows: oddsSnapshot.eliteProps,
+        strongRows: oddsSnapshot.strongProps,
+        playableRows: oddsSnapshot.playableProps,
+        bestSourceRows: bestPropsSource,
+        preCapBestRows: bestProps,
+        bestRows: oddsSnapshot.bestProps,
+        flexRows: oddsSnapshot.flexProps
+      },
+      {
+        ...hardResetPlayableFilterCounts.droppedByFilter,
+        ...hardResetBestFilterCounts.droppedByFilter,
+        bestPoolSelectionDrop: Math.max(0, bestPropsSource.length - bestProps.length),
+        bestPoolTotalCapDrop: bestPropsCapResult.diagnostics.dropCounts.totalCap,
+        bestPoolPerBookBalancingDrop: bestPropsCapResult.diagnostics.dropCounts.perBookBalancing,
+        bestPoolPerPlayerCapDrop: bestPropsCapResult.diagnostics.dropCounts.perPlayerCap,
+        bestPoolPerMatchupCapDrop: bestPropsCapResult.diagnostics.dropCounts.perMatchupCap,
+        bestPoolPerStatCapDrop: bestPropsCapResult.diagnostics.dropCounts.perStatCap,
+        bestPostMatchupFilterDrop: Math.max(0, bestProps.length - oddsSnapshot.bestProps.length),
+        flexPoolCount: oddsSnapshot.flexProps.length
+      }
+    )
+    try {
+      fs.writeFileSync(
+        path.join(__dirname, "snapshot.json"),
+        JSON.stringify({
+          data: oddsSnapshot,
+          savedAt: Date.now()
+        })
+      )
+      console.log("[SNAPSHOT-CACHE] saved snapshot to disk")
+    } catch (e) {
+      console.log("[SNAPSHOT-CACHE] failed to save snapshot", e.message)
+    }
+    console.log("[TOP-PROP-SAMPLE] bestProps count:", (oddsSnapshot.bestProps || []).length)
+    logTopPropSample("refresh-snapshot-hard-reset bestProps", oddsSnapshot.bestProps)
+    debugPipelineStages.afterBestProps = summarizePropPipelineRows(oddsSnapshot.bestProps)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "after-bestProps-assignment", oddsSnapshot.bestProps)
+    logFunnelDropSummary("refresh-snapshot-hard-reset", debugPipelineStages)
+    console.log("[BEST-PROPS-DEBUG] total bestProps:", oddsSnapshot.bestProps.length)
+    console.log("[FLEX-PROPS-DEBUG] total flexProps:", (oddsSnapshot.flexProps || []).length)
+    console.log(
+      "[BEST-PROPS-DEBUG] bestProps by propType:",
+      oddsSnapshot.bestProps.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    )
+    console.log(
+      "[BEST-PROPS-DEBUG] bestProps by book:",
+      oddsSnapshot.bestProps.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    )
+    lastSnapshotRefreshAt = Date.now()
+    console.log("[SNAPSHOT-DEBUG] END refresh-snapshot-hard-reset",
+      "bestProps=" + oddsSnapshot.bestProps.length,
+      "playableProps=" + oddsSnapshot.playableProps.length,
+      "strongProps=" + oddsSnapshot.strongProps.length,
+      "eliteProps=" + oddsSnapshot.eliteProps.length
+    )
+
+    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+    lastSnapshotSource = "hard-reset-live"
+    lastSnapshotSavedAt = Date.now()
+    lastSnapshotAgeMinutes = 0
+    lastForceRefreshAt = new Date().toISOString()
+
+    res.json({
+      ok: true,
+      hardReset: true,
+      updatedAt: oddsSnapshot.updatedAt,
+      updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+      primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
+      slateMode: slateMeta.slateMode,
+      eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+      totalEligibleGames: slateMeta.totalEligibleGames,
+      startedEligibleGames: slateMeta.startedEligibleGames,
+      events: oddsSnapshot.events.length,
+      props: oddsSnapshot.props.length,
+      bestProps: oddsSnapshot.bestProps.length,
+      flexProps: (oddsSnapshot.flexProps || []).length,
+      debugPipeline: {
+        stages: debugPipelineStages,
+        bestPropsCount: oddsSnapshot.bestProps.length,
+        flexPropsCount: (oddsSnapshot.flexProps || []).length,
+        playablePropsCount: oddsSnapshot.playableProps.length,
+        strongPropsCount: oddsSnapshot.strongProps.length,
+        elitePropsCount: oddsSnapshot.eliteProps.length
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      error: "Hard reset snapshot failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+
+// load caches (async) and log failures
+loadApiSportsCachesFromDisk().catch((err) => {
+  console.error("API-Sports cache load failed:", err?.message || err)
+})
+
+// periodically persist API-Sports caches so restarts do not burn API calls
+setInterval(() => {
+  saveApiSportsCachesToDisk().catch((err) => {
+    console.error("API-Sports cache autosave failed:", err?.message || err)
+  })
+}, 60000)
+
+app.get("/api/best/compact", (req, res) => {
+  res.json(buildCompactBestPayload())
+})
+
+app.get("/api/best/summary", (req, res) => {
+  const payload = buildLiveDualBestAvailablePayload()
+  const bestRows = Array.isArray(payload?.best) ? payload.best : []
+
+  res.json({
+    snapshotMeta: buildSnapshotMeta(),
+    availableCounts: payload?.availableCounts || null,
+    bestCount: bestRows.length,
+    bestByBook: {
+      fanduel: bestRows.filter((row) => row.book === "FanDuel").length,
+      draftkings: bestRows.filter((row) => row.book === "DraftKings").length
+    },
+    topBestSample: bestRows.slice(0, 10).map(toCompactBestRow),
+    highestHitRate5: payload?.highestHitRate5 || null,
+    diagnostics: payload?.diagnostics || null
+  })
+})
+
+app.get("/api/best/by-prop/:propType", (req, res) => {
+  const requestedPropType = String(req.params.propType || "").toLowerCase()
+  const payload = buildLiveDualBestAvailablePayload()
+  const bestRows = Array.isArray(payload?.best) ? payload.best : []
+
+  const filtered = bestRows.filter((row) =>
+    String(row?.propType || "").toLowerCase() === requestedPropType
+  )
+
+  res.json({
+    snapshotMeta: buildSnapshotMeta(),
+    propType: req.params.propType,
+    count: filtered.length,
+    rows: filtered.map(toCompactBestRow)
+  })
+})
+
+app.listen(PORT, () => {
+  console.log(`Backend listening on http://localhost:${PORT}`)
+})
+
+function normalizeParlayLegArray(value, expectedLegCount) {
+  if (!Array.isArray(value)) return []
+  if (expectedLegCount && value.length !== expectedLegCount) return []
+  return value
+}
+
+function normalizeParlaySlipObject(value, expectedLegCount) {
+  if (!value || typeof value !== "object") return null
+  if (!Array.isArray(value.legs)) return null
+  if (expectedLegCount && value.legs.length !== expectedLegCount) return null
+  return value
+}
+
+function buildParlaysResponseShape(parlays = {}) {
+  const out = {}
+
+  for (const category of ["safest", "highestHitRate", "best"]) {
+    for (const legCount of [2,3,4,5,6,7,8,9,10]) {
+      const key = `${category}${legCount}`
+      out[key] = normalizeParlayLegArray(parlays[key], legCount)
+    }
+  }
+
+  return out
+}
+
+function buildDualParlaysResponseShape(dualParlays = {}) {
+  const out = { bestAvailable: {} }
+
+  for (const category of ["highestHitRate"]) {
+    for (const legCount of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const key = `${category}${legCount}`
+      const nestedVal = dualParlays?.bestAvailable?.[key] || null
+      const flatVal = dualParlays?.[key] || null
+      const val =
+        nestedVal && typeof nestedVal === "object"
+          ? nestedVal
+          : flatVal && typeof flatVal === "object"
+            ? flatVal
+            : {}
+
+      if (!out.bestAvailable[key]) out.bestAvailable[key] = {}
+
+      out.bestAvailable[key].fanduel =
+        normalizeParlaySlipObject(val?.fanduel, legCount)
+
+      out.bestAvailable[key].draftkings =
+        normalizeParlaySlipObject(val?.draftkings, legCount)
+    }
+  }
+
+  // Add payoutFitPortfolio directly to the response
+  if (dualParlays?.payoutFitPortfolio) {
+    out.payoutFitPortfolio = {
+      fanduel: dualParlays.payoutFitPortfolio.fanduel || {},
+      draftkings: dualParlays.payoutFitPortfolio.draftkings || {}
+    }
+  }
+
+  for (const laneKey of ["recoupPortfolio", "conservativePortfolio", "midUpsidePortfolio", "lottoBatchPortfolio"]) {
+    if (!dualParlays?.[laneKey]) continue
+    out[laneKey] = {
+      fanduel: dualParlays[laneKey].fanduel || { options: [] },
+      draftkings: dualParlays[laneKey].draftkings || { options: [] }
+    }
+  }
+
+  return out
+}
