@@ -46,6 +46,8 @@ const WATCHED_PLAYER_NAMES = [
   "Luka Dončić"
 ]
 
+const ACTIVE_BOOKS = ["DraftKings"]
+
 const UNSTABLE_GAME_EVENT_IDS = [
   "d17b632d984be98852b4bc409ae1d056",
   "24a4d71edcffcb5584a61d2aa89c66d8"
@@ -110,6 +112,10 @@ function parseHitRateInline(hitRate) {
   }
   const numeric = Number(hitRate)
   return Number.isFinite(numeric) ? numeric : 0
+}
+
+function isActiveBook(book) {
+  return ACTIVE_BOOKS.includes(String(book || ""))
 }
 
 function getDualExpandedEligibleRows() {
@@ -5381,13 +5387,43 @@ app.get("/api/best-available", (req, res) => {
   try {
     const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
     const rawPropsRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    console.log("[RAW-PROPS-BEFORE-FILTER]", {
+      total: rawPropsRows.length,
+      byBook: rawPropsRows.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
     const enrichedModelRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const beforeFilter = rawPropsRows.length
     const survivedFragileRows = rawPropsRows.filter((r) => {
+      let keep = true
       try {
-        return !shouldRemoveLegForPlayerStatus(r) && !isFragileLeg(r)
+        keep = !shouldRemoveLegForPlayerStatus(r) && !isFragileLeg(r)
       } catch (_) {
-        return true
+        keep = true
       }
+
+      if (!keep && r?.book === "FanDuel") {
+        console.log("[FANDUEL-DROPPED-DEBUG]", {
+          player: r?.player,
+          propType: r?.propType,
+          matchup: r?.matchup,
+          reason: "failed_first_filter"
+        })
+      }
+
+      return keep
+    })
+    console.log("[RAW-PROPS-AFTER-FIRST-FILTER]", {
+      before: beforeFilter,
+      after: survivedFragileRows.length,
+      byBook: survivedFragileRows.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
     })
     const bestPropsRawRows = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : []
     const finalBestVisibleRows = getAvailablePrimarySlateRows(bestPropsRawRows)
@@ -8965,6 +9001,11 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   const home = event?.home_team || event?.homeTeam || ""
   const eventIdForDebug = String(event?.id || event?.eventId || "")
   const matchupForDebug = away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+  const getEventMatchupForDebug = (evt) => {
+    const awayTeam = evt?.away_team || evt?.awayTeam || ""
+    const homeTeam = evt?.home_team || evt?.homeTeam || ""
+    return awayTeam && homeTeam ? `${awayTeam} @ ${homeTeam}` : String(evt?.matchup || "")
+  }
   const normalizeIngestText = (value) => String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -9231,6 +9272,25 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
   )
 
+  console.log("[EVENT-ODDS-PAYLOAD-DEBUG]", {
+    eventId: String(event?.id || event?.eventId || ""),
+    matchup: getEventMatchupForDebug(event),
+    bookmakersPresent: Array.isArray(primaryBooks)
+      ? primaryBooks.map((b) => String(b?.key || b?.title || ""))
+      : [],
+    bookmakerCount: Array.isArray(primaryBooks) ? primaryBooks.length : 0
+  })
+
+  console.log("[BOOKMAKER-MARKET-DEBUG]", {
+    eventId: String(event?.id || event?.eventId || ""),
+    matchup: getEventMatchupForDebug(event),
+    books: (Array.isArray(primaryBooks) ? primaryBooks : []).map((book) => ({
+      key: String(book?.key || book?.title || ""),
+      marketCount: Array.isArray(book?.markets) ? book.markets.length : 0,
+      marketKeys: (Array.isArray(book?.markets) ? book.markets : []).map((m) => String(m?.key || m?.name || "")).slice(0, 25)
+    }))
+  })
+
   const lukaRaw = primaryResponseEvents.flatMap((e) =>
     (e.bookmakers || []).flatMap((b) =>
       (b.markets || []).flatMap((m) =>
@@ -9257,7 +9317,14 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   let fallbackBooks = []
   let fallbackLukaRaw = []
 
-  if (finalRows.length === 0) {
+  const primaryBooksNormalized = (Array.isArray(primaryBooks) ? primaryBooks : []).map((book) => {
+    return String(book?.key || book?.title || book?.name || "").toLowerCase().trim()
+  })
+  const hasPrimaryFanDuel = primaryBooksNormalized.some((key) => key.includes("fanduel"))
+  const hasPrimaryDraftKings = primaryBooksNormalized.some((key) => key.includes("draftkings"))
+  const shouldFetchFallbackAllBooks = finalRows.length === 0 || !hasPrimaryFanDuel || !hasPrimaryDraftKings
+
+  if (shouldFetchFallbackAllBooks) {
     const fallbackResponse = await axios.get(
       `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
       {
@@ -9271,6 +9338,25 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     fallbackBooks = fallbackResponseEvents.flatMap((apiEvent) =>
       Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
     )
+
+    console.log("[EVENT-ODDS-PAYLOAD-DEBUG]", {
+      eventId: String(event?.id || event?.eventId || ""),
+      matchup: getEventMatchupForDebug(event),
+      bookmakersPresent: Array.isArray(fallbackBooks)
+        ? fallbackBooks.map((b) => String(b?.key || b?.title || ""))
+        : [],
+      bookmakerCount: Array.isArray(fallbackBooks) ? fallbackBooks.length : 0
+    })
+
+    console.log("[BOOKMAKER-MARKET-DEBUG]", {
+      eventId: String(event?.id || event?.eventId || ""),
+      matchup: getEventMatchupForDebug(event),
+      books: (Array.isArray(fallbackBooks) ? fallbackBooks : []).map((book) => ({
+        key: String(book?.key || book?.title || ""),
+        marketCount: Array.isArray(book?.markets) ? book.markets.length : 0,
+        marketKeys: (Array.isArray(book?.markets) ? book.markets : []).map((m) => String(m?.key || m?.name || "")).slice(0, 25)
+      }))
+    })
 
     fallbackLukaRaw = fallbackResponseEvents.flatMap((e) =>
       (e.bookmakers || []).flatMap((b) =>
@@ -9291,7 +9377,10 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       acceptedRows: fallbackParsed?.debug?.acceptedRows || 0,
       rejectedRows: fallbackParsed?.debug?.rejectedRows || 0
     })
-    finalRows = [...fallbackParsed.rows]
+    finalRows = dedupeByLegSignature([
+      ...finalRows,
+      ...(Array.isArray(fallbackParsed?.rows) ? fallbackParsed.rows : [])
+    ])
   }
 
   const bookPayloads = [
@@ -9309,6 +9398,17 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       : (Array.isArray(market?.selections) ? market.selections : [])
   )
   const eventRows = Array.isArray(finalRows) ? finalRows : []
+
+  console.log("[EVENT-RAW-ROWS-DEBUG]", {
+    eventId: String(event?.id || event?.eventId || ""),
+    matchup: getEventMatchupForDebug(event),
+    rowCount: Array.isArray(eventRows) ? eventRows.length : 0,
+    byBook: (Array.isArray(eventRows) ? eventRows : []).reduce((acc, row) => {
+      const key = String(row?.book || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
 
   console.log("[RAW-PROPS-EVENT-DEBUG]", {
     eventId: eventIdForDebug,
@@ -11015,6 +11115,54 @@ app.get("/refresh-snapshot", async (req, res) => {
 
     const rawIngestedProps = dedupeByLegSignature(cleaned)
     const rawPropsRows = rawIngestedProps
+    const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
+    console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
+      activeBooks: ACTIVE_BOOKS,
+      before: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      after: activeBookRawPropsRows.length,
+      byBook: activeBookRawPropsRows.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+    const coveredEventIds = new Set(
+      (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+        .map((row) => String(row?.eventId || ""))
+        .filter(Boolean)
+    )
+
+    const coveredEvents = (Array.isArray(scheduledEvents) ? scheduledEvents : []).filter((event) => {
+      const eventId = getEventIdForDebug(event)
+      return eventId && coveredEventIds.has(eventId)
+    })
+
+    const missingScheduledEvents = (Array.isArray(scheduledEvents) ? scheduledEvents : []).filter((event) => {
+      const eventId = getEventIdForDebug(event)
+      return !eventId || !coveredEventIds.has(eventId)
+    })
+
+    console.log("[EVENT-COVERAGE-SNAPSHOT-DEBUG]", {
+      scheduledCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      coveredCount: coveredEvents.length,
+      missingCount: missingScheduledEvents.length,
+      coveredMatchups: coveredEvents.map((event) => getEventMatchupForDebug(event)),
+      missingMatchups: missingScheduledEvents.map((event) => getEventMatchupForDebug(event))
+    })
+    console.log("[RAW-PROPS-EVENT-COVERAGE-DEBUG]", {
+      totalRows: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      byBook: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byEventId: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.eventId || "")
+        if (!key) return acc
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
     console.log("[RAW-PROPS-PIPELINE-END]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
       totalRawRowsBuilt: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
@@ -11089,9 +11237,9 @@ app.get("/refresh-snapshot", async (req, res) => {
     })
 
     const debugPipelineStages = {}
-    debugPipelineStages.rawNormalized = summarizePropPipelineRows(cleaned)
-    logPropPipelineStep("refresh-snapshot", "raw-normalized-props", cleaned)
-    const pregameStatusRowsForDebug = cleaned.filter((row) => isPregameEligibleRow(row))
+    debugPipelineStages.rawNormalized = summarizePropPipelineRows(activeBookRawPropsRows)
+    logPropPipelineStep("refresh-snapshot", "raw-normalized-props", activeBookRawPropsRows)
+    const pregameStatusRowsForDebug = activeBookRawPropsRows.filter((row) => isPregameEligibleRow(row))
     debugPipelineStages.afterPregameStatus = summarizePropPipelineRows(pregameStatusRowsForDebug)
     logPropPipelineStep("refresh-snapshot", "after-pregame-status-filtering", pregameStatusRowsForDebug)
     const primarySlateRowsForDebug = filterRowsToPrimarySlate(pregameStatusRowsForDebug)
@@ -11099,7 +11247,7 @@ app.get("/refresh-snapshot", async (req, res) => {
     logPropPipelineStep("refresh-snapshot", "after-primary-slate-filtering", primarySlateRowsForDebug)
 
     const playerRows = new Map()
-    for (const row of cleaned) {
+    for (const row of activeBookRawPropsRows) {
       if (!row.player) continue
       if (!playerRows.has(row.player)) playerRows.set(row.player, row)
     }
@@ -11213,7 +11361,7 @@ app.get("/refresh-snapshot", async (req, res) => {
       missCacheHitCount: playerResolutionDebug.missCacheHitCount
     })
 
-    const enriched = cleaned.map((row) => {
+    const enriched = activeBookRawPropsRows.map((row) => {
   const playerName = row.player
   const manualStatus = row.playerStatus || getManualPlayerStatus(playerName) || ""
   const logs = statsCache.get(row.player) || []
@@ -11454,11 +11602,30 @@ const scoredProps = deduped
     score: scorePropRow(row),
     dvpScore: getDvpScore(getOpponentForRow(row), row.propType)
   }))
+  .filter((row) => {
+    const hasCoreData =
+      row.team &&
+      row.hitRate != null &&
+      row.edge != null &&
+      row.score != null
+
+    return hasCoreData
+  })
   .sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
     if ((b.edge ?? -999) !== (a.edge ?? -999)) return (b.edge ?? -999) - (a.edge ?? -999)
     return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
   })
+
+console.log("[BOOK-DATA-QUALITY-FILTER]", {
+  totalAfterFilter: scoredProps.length,
+  byBook: scoredProps.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+})
+
   debugPipelineStages.afterScoringRanking = summarizePropPipelineRows(scoredProps)
 logPropPipelineStep("refresh-snapshot", "after-scoring-ranking", scoredProps)
 
@@ -12535,9 +12702,9 @@ logFunnelStage("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource
 logFunnelExcluded("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps)
 
 oddsSnapshot.updatedAt = new Date().toISOString()
-oddsSnapshot.events = targetEvents
+oddsSnapshot.events = coveredEvents
 oddsSnapshot.rawProps = rawIngestedProps
-oddsSnapshot.props = rawPropsRows
+oddsSnapshot.props = activeBookRawPropsRows
 console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   path: "refresh-snapshot",
   targets: targetMissingEventStages.map((stage) => ({
@@ -12647,7 +12814,7 @@ if (!Array.isArray(enriched)) refreshSnapshotMissingStageNames.push("enrichedMod
 if (!Array.isArray(scoredProps)) refreshSnapshotMissingStageNames.push("survivedFragileRows")
 if (!Array.isArray(refreshPlayableFanDuelPromotion.rows)) refreshSnapshotMissingStageNames.push("bestPropsRawRows")
 
-const refreshRawPropsByBook = countByBookForRows(Array.isArray(cleaned) ? cleaned : [])
+const refreshRawPropsByBook = countByBookForRows(activeBookRawPropsRows)
 const refreshSurvivedFragileByBook = countByBookForRows(refreshSnapshotSurvivedFragileRowsPreSave)
 const refreshPreBestCandidateByBook = countByBookForRows(Array.isArray(bestPropsSource) ? bestPropsSource : [])
 const refreshFinalBestRawByBook = countByBookForRows(refreshSnapshotBestPropsRawRows)
@@ -12687,7 +12854,7 @@ console.log("[BEST-PROPS-BOOK-EXCLUSION-DEBUG]", {
 console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
   path: "refresh-snapshot-pre-finalize",
   scheduledEvents: (Array.isArray(targetEvents) ? targetEvents : []).length,
-  rawPropsRows: (Array.isArray(cleaned) ? cleaned : []).length,
+  rawPropsRows: activeBookRawPropsRows.length,
   enrichedModelRows: (Array.isArray(enriched) ? enriched : []).length,
   survivedFragileRows: refreshSnapshotSurvivedFragileRowsPreSave.length,
   survivedFragileRowsByBook: {
@@ -12704,7 +12871,7 @@ console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
 })
 runCurrentSlateCoverageDiagnostics({
   scheduledEvents: Array.isArray(targetEvents) ? targetEvents : [],
-  rawPropsRows: Array.isArray(cleaned) ? cleaned : [],
+  rawPropsRows: activeBookRawPropsRows,
   enrichedModelRows: Array.isArray(enriched) ? enriched : [],
   survivedFragileRows: refreshSnapshotSurvivedFragileRowsPreSave,
   bestPropsRawRows: refreshSnapshotBestPropsRawRows,
@@ -12722,11 +12889,15 @@ logPropStageByBookDebug("refresh-snapshot:finalPromotion", {
 const refreshWatchedRawApiCounts = aggregateWatchedCountsFromEventDebug(eventIngestDebug)
 const refreshWatchedCoverage = buildWatchedPlayersCoverage(
   refreshWatchedRawApiCounts,
-  rawIngestedProps,
+  activeBookRawPropsRows,
   oddsSnapshot.bestProps
 )
 oddsSnapshot.diagnostics = {
   ...(oddsSnapshot.diagnostics && typeof oddsSnapshot.diagnostics === "object" ? oddsSnapshot.diagnostics : {}),
+  activeBooks: ACTIVE_BOOKS,
+  scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+  coveredEventCount: coveredEvents.length,
+  missingScheduledEventCount: missingScheduledEvents.length,
   watchedPlayersCoverage: refreshWatchedCoverage
 }
 console.log("[WATCHED-PLAYER-COVERAGE-GUARD]", {
@@ -13089,6 +13260,54 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
 
     const rawIngestedProps = dedupeByLegSignature(cleaned)
     const rawPropsRows = rawIngestedProps
+    const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
+    console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
+      activeBooks: ACTIVE_BOOKS,
+      before: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      after: activeBookRawPropsRows.length,
+      byBook: activeBookRawPropsRows.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+    const coveredEventIds = new Set(
+      (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+        .map((row) => String(row?.eventId || ""))
+        .filter(Boolean)
+    )
+
+    const coveredEvents = (Array.isArray(scheduledEvents) ? scheduledEvents : []).filter((event) => {
+      const eventId = getEventIdForDebug(event)
+      return eventId && coveredEventIds.has(eventId)
+    })
+
+    const missingScheduledEvents = (Array.isArray(scheduledEvents) ? scheduledEvents : []).filter((event) => {
+      const eventId = getEventIdForDebug(event)
+      return !eventId || !coveredEventIds.has(eventId)
+    })
+
+    console.log("[EVENT-COVERAGE-SNAPSHOT-DEBUG]", {
+      scheduledCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      coveredCount: coveredEvents.length,
+      missingCount: missingScheduledEvents.length,
+      coveredMatchups: coveredEvents.map((event) => getEventMatchupForDebug(event)),
+      missingMatchups: missingScheduledEvents.map((event) => getEventMatchupForDebug(event))
+    })
+    console.log("[RAW-PROPS-EVENT-COVERAGE-DEBUG]", {
+      totalRows: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
+      byBook: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byEventId: (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+        const key = String(row?.eventId || "")
+        if (!key) return acc
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
     console.log("[RAW-PROPS-PIPELINE-END]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
       totalRawRowsBuilt: Array.isArray(rawPropsRows) ? rawPropsRows.length : 0,
@@ -13163,9 +13382,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     })
 
     const debugPipelineStages = {}
-    debugPipelineStages.rawNormalized = summarizePropPipelineRows(cleaned)
-    logPropPipelineStep("refresh-snapshot-hard-reset", "raw-normalized-props", cleaned)
-    const pregameStatusRowsForDebug = cleaned.filter((row) => isPregameEligibleRow(row))
+    debugPipelineStages.rawNormalized = summarizePropPipelineRows(activeBookRawPropsRows)
+    logPropPipelineStep("refresh-snapshot-hard-reset", "raw-normalized-props", activeBookRawPropsRows)
+    const pregameStatusRowsForDebug = activeBookRawPropsRows.filter((row) => isPregameEligibleRow(row))
     debugPipelineStages.afterPregameStatus = summarizePropPipelineRows(pregameStatusRowsForDebug)
     logPropPipelineStep("refresh-snapshot-hard-reset", "after-pregame-status-filtering", pregameStatusRowsForDebug)
     const primarySlateRowsForDebug = filterRowsToPrimarySlate(pregameStatusRowsForDebug)
@@ -13173,7 +13392,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     logPropPipelineStep("refresh-snapshot-hard-reset", "after-primary-slate-filtering", primarySlateRowsForDebug)
 
     const playerRows = new Map()
-    for (const row of cleaned) {
+    for (const row of activeBookRawPropsRows) {
       if (!row.player) continue
       if (!playerRows.has(row.player)) playerRows.set(row.player, row)
     }
@@ -13277,7 +13496,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       missCacheHitCount: playerResolutionDebug.missCacheHitCount
     })
 
-    const matchupValidProps = cleaned.filter((row) => {
+    const matchupValidProps = activeBookRawPropsRows.filter((row) => {
       const teamCode = playerTeamMap.get(row.player)
       return teamCode && [teamAbbr(row.awayTeam), teamAbbr(row.homeTeam)].includes(teamCode)
     })
@@ -13397,9 +13616,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     logFunnelExcluded("refresh-snapshot-hard-reset", "playableCapped-from-playableProps", playableProps, playableCapped)
 
     oddsSnapshot.updatedAt = new Date().toISOString()
-    oddsSnapshot.events = targetEvents
+    oddsSnapshot.events = coveredEvents
     oddsSnapshot.rawProps = rawIngestedProps
-    oddsSnapshot.props = rawPropsRows
+    oddsSnapshot.props = activeBookRawPropsRows
     console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       targets: targetMissingEventStages.map((stage) => ({
@@ -13490,11 +13709,15 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     const hardResetWatchedRawApiCounts = aggregateWatchedCountsFromEventDebug(eventIngestDebug)
     const hardResetWatchedCoverage = buildWatchedPlayersCoverage(
       hardResetWatchedRawApiCounts,
-      rawIngestedProps,
+      activeBookRawPropsRows,
       oddsSnapshot.bestProps
     )
     oddsSnapshot.diagnostics = {
       ...(oddsSnapshot.diagnostics && typeof oddsSnapshot.diagnostics === "object" ? oddsSnapshot.diagnostics : {}),
+      activeBooks: ACTIVE_BOOKS,
+      scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      coveredEventCount: coveredEvents.length,
+      missingScheduledEventCount: missingScheduledEvents.length,
       watchedPlayersCoverage: hardResetWatchedCoverage
     }
     console.log("[WATCHED-PLAYER-COVERAGE-GUARD]", {
@@ -13541,7 +13764,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         DraftKings: hardResetSurvivedFragileRows.filter((row) => row?.book === "DraftKings").length
       }
     })
-    const hardResetRawPropsByBook = countByBookForRows(Array.isArray(cleaned) ? cleaned : [])
+    const hardResetRawPropsByBook = countByBookForRows(activeBookRawPropsRows)
     const hardResetSurvivedFragileByBook = countByBookForRows(hardResetSurvivedFragileRows)
     const hardResetPreBestCandidateByBook = countByBookForRows(Array.isArray(bestPropsSource) ? bestPropsSource : [])
     const hardResetFinalBestRawByBook = countByBookForRows(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
@@ -13581,7 +13804,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       scheduledEvents: (Array.isArray(targetEvents) ? targetEvents : []).length,
-      rawPropsRows: (Array.isArray(cleaned) ? cleaned : []).length,
+      rawPropsRows: activeBookRawPropsRows.length,
       enrichedModelRows: (Array.isArray(scoredProps) ? scoredProps : []).length,
       survivedFragileRows: hardResetSurvivedFragileRows.length,
       survivedFragileRowsByBook: {
@@ -13597,7 +13820,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     })
     runCurrentSlateCoverageDiagnostics({
       scheduledEvents: Array.isArray(targetEvents) ? targetEvents : [],
-      rawPropsRows: Array.isArray(cleaned) ? cleaned : [],
+      rawPropsRows: activeBookRawPropsRows,
       enrichedModelRows: Array.isArray(scoredProps) ? scoredProps : [],
       survivedFragileRows: hardResetSurvivedFragileRows,
       bestPropsRawRows: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [],
