@@ -11,3 +11,26 @@ frontend/.env.*
 # build output
 **/dist/
 **/.vite/
+# macOS
+.DS_Store
+
+# env
+.env
+.env.*
+
+# logs
+*.log
+
+# caches / generated data
+backend/api-sports-cache.json
+backend/snapshot.json
+backend/snapshot-fixture.json
+backend/manual-outcomes.json
+
+# backups
+*.bak
+
+# node
+node_modules/
+frontend/node_modules/
+backend/node_modules/
