@@ -118,6 +118,728 @@ function isActiveBook(book) {
   return ACTIVE_BOOKS.includes(String(book || ""))
 }
 
+function summarizeBookMarketCoverage(bookmakers) {
+  const safeBooks = Array.isArray(bookmakers) ? bookmakers : []
+  const byBook = {}
+  const allMarketKeySet = new Set()
+
+  for (const book of safeBooks) {
+    const bookKey = String(book?.key || book?.title || "unknown")
+    const markets = Array.isArray(book?.markets)
+      ? book.markets
+      : (Array.isArray(book?.props) ? book.props : [])
+    const marketKeys = markets
+      .map((market) => String(market?.key || market?.name || ""))
+      .filter(Boolean)
+    for (const key of marketKeys) allMarketKeySet.add(key)
+    const outcomeCount = markets.reduce((count, market) => {
+      const outcomes = Array.isArray(market?.outcomes)
+        ? market.outcomes
+        : (Array.isArray(market?.selections) ? market.selections : [])
+      return count + outcomes.length
+    }, 0)
+
+    byBook[bookKey] = {
+      marketCount: markets.length,
+      outcomeCount,
+      marketKeys,
+      sampleMarkets: marketKeys.slice(0, 25)
+    }
+  }
+
+  return {
+    byBook,
+    allMarketKeys: [...allMarketKeySet]
+  }
+}
+
+function summarizeNormalizedMarketCoverage(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const byBook = {}
+  const byPropType = {}
+  const byMarketKey = {}
+  const byBookAndPropType = {}
+
+  for (const row of safeRows) {
+    const bookKey = String(row?.book || "Unknown")
+    const propTypeKey = String(row?.propType || "Unknown")
+    const marketKey = String(row?.marketKey || "unknown")
+
+    byBook[bookKey] = (byBook[bookKey] || 0) + 1
+    byPropType[propTypeKey] = (byPropType[propTypeKey] || 0) + 1
+    byMarketKey[marketKey] = (byMarketKey[marketKey] || 0) + 1
+
+    if (!byBookAndPropType[bookKey]) byBookAndPropType[bookKey] = {}
+    byBookAndPropType[bookKey][propTypeKey] = (byBookAndPropType[bookKey][propTypeKey] || 0) + 1
+  }
+
+  return {
+    totalRows: safeRows.length,
+    byBook,
+    byPropType,
+    byMarketKey,
+    byBookAndPropType
+  }
+}
+
+function detectInterestingMarketKeys(marketKeys) {
+  const safeKeys = Array.isArray(marketKeys) ? marketKeys : []
+  const uniqueKeys = [...new Set(safeKeys.map((key) => String(key || "").trim()).filter(Boolean))]
+
+  const matchesAny = (key, needles) => needles.some((needle) => key.includes(needle))
+  const firstBasketKeys = []
+  const firstTeamBasketKeys = []
+  const milestonePointKeys = []
+  const altThreeKeys = []
+  const doubleDoubleKeys = []
+  const tripleDoubleKeys = []
+  const otherInterestingKeys = []
+
+  for (const rawKey of uniqueKeys) {
+    const key = rawKey.toLowerCase()
+    if (matchesAny(key, ["first team basket", "first_team_basket"])) {
+      firstTeamBasketKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["first basket", "first_basket"])) {
+      firstBasketKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"])) {
+      altThreeKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["double double", "double_double"])) {
+      doubleDoubleKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["triple double", "triple_double"])) {
+      tripleDoubleKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"])) {
+      milestonePointKeys.push(rawKey)
+      continue
+    }
+    if (matchesAny(key, ["milestone", "ladder", "alternate", "special", "first scorer", "first_score"])) {
+      otherInterestingKeys.push(rawKey)
+    }
+  }
+
+  return {
+    firstBasketKeys,
+    firstTeamBasketKeys,
+    milestonePointKeys,
+    altThreeKeys,
+    doubleDoubleKeys,
+    tripleDoubleKeys,
+    otherInterestingKeys
+  }
+}
+
+// --- MARKET EXPANSION SCAFFOLD ---
+const MARKET_TYPE_RULES = [
+  {
+    internalType: "First Basket",
+    family: "special",
+    matches: ["first basket", "first_basket", "first scorer", "first_score"]
+  },
+  {
+    internalType: "First Team Basket",
+    family: "special",
+    matches: ["first team basket", "first_team_basket"]
+  },
+  {
+    internalType: "Double Double",
+    family: "special",
+    matches: ["double double", "double_double"]
+  },
+  {
+    internalType: "Triple Double",
+    family: "special",
+    matches: ["triple double", "triple_double"]
+  },
+  {
+    internalType: "Points Ladder",
+    family: "ladder",
+    matches: ["alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"]
+  },
+  {
+    internalType: "Threes Ladder",
+    family: "ladder",
+    matches: ["alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"]
+  },
+  {
+    internalType: "Points",
+    family: "standard",
+    matches: ["player_points", "points"]
+  },
+  {
+    internalType: "Rebounds",
+    family: "standard",
+    matches: ["player_rebounds", "rebounds"]
+  },
+  {
+    internalType: "Assists",
+    family: "standard",
+    matches: ["player_assists", "assists"]
+  },
+  {
+    internalType: "Threes",
+    family: "standard",
+    matches: ["player_threes", "threes", "3pt", "three pointers"]
+  },
+  {
+    internalType: "PRA",
+    family: "standard",
+    matches: ["pra", "points+rebounds+assists", "player_pra"]
+  }
+]
+
+function inferMarketTypeFromKey(marketKey) {
+  const normalized = String(marketKey || "").trim().toLowerCase()
+  if (!normalized) return { internalType: null, family: "unknown" }
+
+  for (const rule of MARKET_TYPE_RULES) {
+    if (rule.matches.some((needle) => normalized.includes(String(needle).toLowerCase()))) {
+      return {
+        internalType: rule.internalType,
+        family: rule.family
+      }
+    }
+  }
+
+  return {
+    internalType: null,
+    family: "unknown"
+  }
+}
+
+function summarizeInterestingNormalizedRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const byPropType = {}
+  const byFamily = {}
+
+  for (const row of safeRows) {
+    const marketKey = String(row?.marketKey || "")
+    const inferred = inferMarketTypeFromKey(marketKey)
+    const propType = String(row?.propType || inferred.internalType || "Unknown")
+    const family = String(inferred.family || "unknown")
+
+    byPropType[propType] = (byPropType[propType] || 0) + 1
+    byFamily[family] = (byFamily[family] || 0) + 1
+  }
+
+  return {
+    totalRows: safeRows.length,
+    byPropType,
+    byFamily
+  }
+}
+// --- END MARKET EXPANSION SCAFFOLD ---
+
+function adjustLadderMetrics(row, variantLine) {
+  const baseHitRate = parseHitRate(row.hitRate)
+  const baseLine = Number(row.line) || 0
+  const propType = String(row.propType || "")
+  const side = String(row.side || "Over")
+  const shift = variantLine - baseLine
+  // positive difficultyDelta = harder line
+  const hardnessMultiplier = side === "Over" ? 1 : -1
+  const difficultyDelta = shift * hardnessMultiplier
+
+  let hitRatePerPoint, edgePerPoint, scorePerPoint
+  if (propType === "Points") {
+    hitRatePerPoint = 0.012; edgePerPoint = 0.06; scorePerPoint = 0.9
+  } else if (propType === "PRA") {
+    hitRatePerPoint = 0.01; edgePerPoint = 0.05; scorePerPoint = 0.8
+  } else if (propType === "Assists" || propType === "Rebounds") {
+    hitRatePerPoint = 0.025; edgePerPoint = 0.12; scorePerPoint = 1.0
+  } else if (propType === "Threes") {
+    hitRatePerPoint = 0.08; edgePerPoint = 0.22; scorePerPoint = 1.4
+  } else {
+    hitRatePerPoint = 0.01; edgePerPoint = 0.05; scorePerPoint = 0.8
+  }
+
+  const adjustedHitRate = Math.min(0.95, Math.max(0.20, baseHitRate - difficultyDelta * hitRatePerPoint))
+  const adjustedEdge = (Number(row.edge) || 0) - difficultyDelta * edgePerPoint
+  const adjustedScore = (Number(row.score) || 0) - difficultyDelta * scorePerPoint
+
+  return {
+    hitRate: Math.round(adjustedHitRate * 1000) / 1000,
+    edge: Math.round(adjustedEdge * 1000) / 1000,
+    score: Math.round(adjustedScore * 100) / 100
+  }
+}
+
+function parseHitRateValue(hitRate) {
+  if (hitRate == null) return 0
+  if (typeof hitRate === "string" && hitRate.includes("/")) {
+    const parts = hitRate.split("/").map(Number)
+    if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && parts[1] > 0) {
+      return parts[0] / parts[1]
+    }
+    return 0
+  }
+  const numeric = Number(hitRate)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
+function getSlipCandidateScore(row) {
+  const hr = parseHitRateValue(row.hitRate)
+  const edge = Number(row.edge || 0)
+  const score = Number(row.score || 0)
+  return (hr * 100) + (edge * 4) + (score * 0.35)
+}
+
+function dedupeSlipPool(rows) {
+  const seen = new Set()
+  return rows.filter((row) => {
+    const key = [
+      String(row?.player || ""),
+      String(row?.propType || ""),
+      String(row?.side || ""),
+      String(row?.line ?? ""),
+      String(row?.propVariant || "base"),
+      String(row?.matchup || "")
+    ].join("|")
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function buildSlipCards(bestProps, ladderPool) {
+  const pickLeg = (row) => ({
+    eventId: row.eventId,
+    matchup: row.matchup,
+    gameTime: row.gameTime,
+    book: row.book,
+    player: row.player,
+    team: row.team,
+    propType: row.propType,
+    side: row.side,
+    line: row.line,
+    odds: row.odds,
+    hitRate: row.hitRate,
+    edge: row.edge,
+    score: row.score,
+    propVariant: row.propVariant || "base",
+    sourcePool: row.sourcePool || "best"
+  })
+
+  const getLegProfile = (row) => {
+    const hr = parseHitRateValue(row?.hitRate)
+    const variant = String(row?.propVariant || "base")
+    if (hr >= 0.78 && (variant === "base" || variant === "alt-low")) return "anchor"
+    if (hr >= 0.64) return "balanced"
+    return "upside"
+  }
+
+  const getSideKey = (row) => {
+    const side = String(row?.side || "Over").toLowerCase()
+    return side === "under" ? "under" : "over"
+  }
+
+  const americanToDecimal = (odds) => {
+    const n = Number(odds)
+    if (!Number.isFinite(n) || n === 0) return 1
+    if (n < 0) return 1 + (100 / Math.abs(n))
+    return 1 + (n / 100)
+  }
+
+  const estimateCardPayout = (legs, stake = 5) => {
+    const decimalOdds = (Array.isArray(legs) ? legs : []).reduce((acc, leg) => acc * americanToDecimal(leg?.odds), 1)
+    const totalReturn = stake * decimalOdds
+    const profit = totalReturn - stake
+    return {
+      stake: Math.round(stake * 100) / 100,
+      decimalOdds: Math.round(decimalOdds * 100) / 100,
+      estReturn: Math.round(totalReturn * 100) / 100,
+      estProfit: Math.round(profit * 100) / 100
+    }
+  }
+
+  const isUsable = (row) =>
+    row &&
+    row.book === "DraftKings" &&
+    row.team &&
+    row.hitRate != null &&
+    row.edge != null &&
+    row.score != null
+
+  const combined = dedupeSlipPool([
+    ...(Array.isArray(bestProps) ? bestProps : []).map((row) => ({ ...row, sourcePool: "best" })),
+    ...(Array.isArray(ladderPool) ? ladderPool : []).map((row) => ({ ...row, sourcePool: "ladder" }))
+  ]).filter(isUsable)
+
+  const ranked = [...combined].sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
+
+  const getComboPenalty = (row, currentLegs) => {
+    let penalty = 0
+
+    for (const leg of currentLegs) {
+      // Same matchup penalty
+      if (leg.matchup === row.matchup) penalty += 8
+
+      // Same player penalty (should rarely happen but extra safety)
+      if (leg.player === row.player) penalty += 12
+
+      // Same stat type penalty (prevents stacking like 3 PRA unders)
+      if (leg.propType === row.propType) penalty += 4
+
+      // Too many unders penalty
+      if (leg.side === "Under" && row.side === "Under") penalty += 3
+    }
+
+    return penalty
+  }
+
+
+  const getComboQualityScore = (legs) => {
+    const safeLegs = Array.isArray(legs) ? legs : []
+    if (!safeLegs.length) return -Infinity
+
+    let total = 0
+    let overs = 0
+    let unders = 0
+    const matchupSet = new Set()
+    const playerSet = new Set()
+    const variantSet = new Set()
+    let anchorCount = 0
+    let upsideCount = 0
+
+    for (const leg of safeLegs) {
+      total += getSlipCandidateScore(leg)
+      if (getSideKey(leg) === "over") overs += 1
+      else unders += 1
+      if (leg?.matchup) matchupSet.add(String(leg.matchup))
+      if (leg?.player) playerSet.add(String(leg.player))
+      if (leg?.propVariant) variantSet.add(String(leg.propVariant))
+      if (getLegProfile(leg) === "anchor") anchorCount += 1
+      if (getLegProfile(leg) === "upside") upsideCount += 1
+    }
+
+    const payout = estimateCardPayout(safeLegs, 5)
+    const estReturn = Number(payout?.estReturn || 0)
+    const diversityBonus = (matchupSet.size * 4) + (playerSet.size * 2)
+    const overBonus = overs >= 1 ? 6 : 0
+    const variantBonus = variantSet.has("base") && variantSet.size > 1 ? 5 : 0
+    const profileBonus = (anchorCount >= 1 ? 4 : 0) + (upsideCount >= 1 ? 4 : 0)
+    const underPenalty = unders >= 3 ? (unders - 2) * 4 : 0
+
+    return total + diversityBonus + overBonus + variantBonus + profileBonus + (estReturn * 0.08) - underPenalty
+  }
+
+  const buildBestComboForBand = (rankedRows, options) => {
+    const {
+      label,
+      minLegs,
+      maxLegs,
+      minHitRate,
+      allowedVariants,
+      minReturn,
+      maxReturn,
+      requireAtLeastOneOver,
+      requireAtLeastOneAnchor,
+      requireAtLeastOneUpside,
+      maxPerPlayer,
+      maxPerMatchup,
+      maxUnders
+    } = options
+
+    const allowedSet = new Set(Array.isArray(allowedVariants) ? allowedVariants : [])
+    const pool = (Array.isArray(rankedRows) ? rankedRows : []).filter((row) => {
+      if (!isUsable(row)) return false
+      const hr = parseHitRateValue(row.hitRate)
+      if (hr < minHitRate) return false
+      const variant = String(row?.propVariant || "base")
+      if (allowedSet.size > 0 && !allowedSet.has(variant)) return false
+      return true
+    }).slice(0, 12)
+
+    let bestCombo = null
+    let bestScore = -Infinity
+
+    const comboValid = (legs) => {
+      const playerCounts = new Map()
+      const matchupCounts = new Map()
+      let unders = 0
+      let overs = 0
+      let anchors = 0
+      let upsides = 0
+
+      for (const leg of legs) {
+        const player = String(leg?.player || "")
+        const matchup = String(leg?.matchup || "")
+        playerCounts.set(player, (playerCounts.get(player) || 0) + 1)
+        matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
+        if ((playerCounts.get(player) || 0) > maxPerPlayer) return false
+        if ((matchupCounts.get(matchup) || 0) > maxPerMatchup) return false
+        if (getSideKey(leg) === "under") unders += 1
+        else overs += 1
+        if (getLegProfile(leg) === "anchor") anchors += 1
+        if (getLegProfile(leg) === "upside") upsides += 1
+      }
+
+      if (unders > maxUnders) return false
+      if (requireAtLeastOneOver && overs < 1) return false
+      if (requireAtLeastOneAnchor && anchors < 1) return false
+      if (requireAtLeastOneUpside && upsides < 1) return false
+      return true
+    }
+
+    const considerCombo = (legs) => {
+      if (!comboValid(legs)) return
+      const payout = estimateCardPayout(legs, 5)
+      const estReturn = Number(payout?.estReturn || 0)
+      const inBand = estReturn >= minReturn && estReturn <= maxReturn
+      const distancePenalty = inBand ? 0 : Math.min(Math.abs(estReturn - minReturn), Math.abs(estReturn - maxReturn)) * 0.35
+      const comboScore = getComboQualityScore(legs) - distancePenalty
+      if (comboScore > bestScore) {
+        bestScore = comboScore
+        bestCombo = legs.slice()
+      }
+    }
+
+    const walk = (startIndex, targetSize, current) => {
+      if (current.length === targetSize) {
+        considerCombo(current)
+        return
+      }
+      for (let i = startIndex; i < pool.length; i++) {
+        const row = pool[i]
+        const duplicate = current.some((leg) => [
+          String(leg?.player || ""),
+          String(leg?.propType || ""),
+          String(leg?.side || ""),
+          String(leg?.line ?? ""),
+          String(leg?.propVariant || "base"),
+          String(leg?.matchup || "")
+        ].join("|") === [
+          String(row?.player || ""),
+          String(row?.propType || ""),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.propVariant || "base"),
+          String(row?.matchup || "")
+        ].join("|"))
+        if (duplicate) continue
+        current.push({ ...row, _comboScore: getSlipCandidateScore(row) - getComboPenalty(row, current) })
+        walk(i + 1, targetSize, current)
+        current.pop()
+      }
+    }
+
+    for (let size = minLegs; size <= maxLegs; size++) {
+      walk(0, size, [])
+    }
+
+    // Fallback pass if no combo found
+    if (!bestCombo && !options._relaxedFallbackPass) {
+      console.log("[CARD-FALLBACK] activating relaxed search for", label)
+
+      const relaxedOptions = {
+        ...options,
+        requireAtLeastOneOver: false,
+        requireAtLeastOneUpside: false,
+        maxPerMatchup: Math.max(options.maxPerMatchup || 1, 3)
+      }
+
+      const relaxedResult = buildBestComboForBand(rankedRows, {
+        ...relaxedOptions,
+        _relaxedFallbackPass: true,
+        minReturn: options.minReturn * 0.6,
+        maxReturn: options.maxReturn * 1.6
+      })
+
+      if (Array.isArray(relaxedResult?.legs) && relaxedResult.legs.length > 0) {
+        return relaxedResult
+      }
+    }
+
+    const finalLegs = Array.isArray(bestCombo) ? bestCombo.map(pickLeg) : []
+    return {
+      label,
+      legs: finalLegs,
+      payout: estimateCardPayout(finalLegs, 5)
+    }
+  }
+
+  const buildFallbackBandCard = (label, rankedRows, fallbackOptions) => {
+    const card = buildBestComboForBand(rankedRows, fallbackOptions)
+    if (Array.isArray(card?.legs) && card.legs.length > 0) return card
+    return {
+      label,
+      legs: [],
+      payout: estimateCardPayout([], 5)
+    }
+  }
+
+
+  const card50 = buildFallbackBandCard("$5 → $50", ranked, {
+    label: "$5 → $50",
+    minLegs: 2,
+    maxLegs: 3,
+    minHitRate: 0.68,
+    allowedVariants: ["base", "alt-low", "alt-mid"],
+    minReturn: 35,
+    maxReturn: 65,
+    requireAtLeastOneOver: false,
+    requireAtLeastOneAnchor: true,
+    requireAtLeastOneUpside: false,
+    maxPerPlayer: 1,
+    maxPerMatchup: 1,
+    maxUnders: 2
+  })
+
+  const card100 = buildFallbackBandCard("$5 → $100", ranked, {
+    label: "$5 → $100",
+    minLegs: 2,
+    maxLegs: 4,
+    minHitRate: 0.60,
+    allowedVariants: ["base", "alt-low", "alt-mid", "alt-high"],
+    minReturn: 75,
+    maxReturn: 140,
+    requireAtLeastOneOver: true,
+    requireAtLeastOneAnchor: true,
+    requireAtLeastOneUpside: false,
+    maxPerPlayer: 1,
+    maxPerMatchup: 1,
+    maxUnders: 2
+  })
+
+  const card300 = buildFallbackBandCard("$5 → $300", ranked, {
+    label: "$5 → $300",
+    minLegs: 2,
+    maxLegs: 5,
+    minHitRate: 0.52,
+    allowedVariants: ["base", "alt-low", "alt-mid", "alt-high", "alt-max"],
+    minReturn: 220,
+    maxReturn: 380,
+    requireAtLeastOneOver: true,
+    requireAtLeastOneAnchor: true,
+    requireAtLeastOneUpside: true,
+    maxPerPlayer: 1,
+    maxPerMatchup: 2,
+    maxUnders: 3
+  })
+
+  console.log("[SLIP-CARDS-DEBUG]", {
+    bestCount: Array.isArray(bestProps) ? bestProps.length : 0,
+    ladderCount: Array.isArray(ladderPool) ? ladderPool.length : 0,
+    combinedCount: combined.length,
+    card50Legs: card50.legs.length,
+    card50Overs: card50.legs.filter((row) => getSideKey(row) === "over").length,
+    card50Unders: card50.legs.filter((row) => getSideKey(row) === "under").length,
+    card50Return: Number(card50?.payout?.estReturn || 0),
+    card100Legs: card100.legs.length,
+    card100Overs: card100.legs.filter((row) => getSideKey(row) === "over").length,
+    card100Unders: card100.legs.filter((row) => getSideKey(row) === "under").length,
+    card100Return: Number(card100?.payout?.estReturn || 0),
+    card300Legs: card300.legs.length,
+    card300Overs: card300.legs.filter((row) => getSideKey(row) === "over").length,
+    card300Unders: card300.legs.filter((row) => getSideKey(row) === "under").length,
+    card300Return: Number(card300?.payout?.estReturn || 0)
+  })
+
+  return {
+    card50,
+    card100,
+    card300
+  }
+}
+
+function getLadderVariantsForRow(row) {
+  const hasCompleteLadderData =
+    row &&
+    row.team &&
+    row.hitRate != null &&
+    row.hitRate !== "" &&
+    row.edge != null &&
+    row.score != null
+
+  if (!hasCompleteLadderData) {
+    return [{ ...row, isAlt: false, propVariant: "base" }]
+  }
+
+  const baseLine = Number(row.line) || 0
+  const propType = String(row.propType || "")
+  const side = String(row.side || "Over")
+
+  function clampLine(l) {
+    const clamped = Math.max(0.5, l)
+    if (Number.isInteger(baseLine)) return Math.round(clamped)
+    return Math.round(clamped * 2) / 2
+  }
+
+  let offsets
+  if (propType === "Points") {
+    offsets = side === "Over"
+      ? [
+          { propVariant: "alt-low", lineOffset: -4 },
+          { propVariant: "alt-mid", lineOffset: -2 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: 3 },
+          { propVariant: "alt-max", lineOffset: 6 }
+        ]
+      : [
+          { propVariant: "alt-low", lineOffset: 4 },
+          { propVariant: "alt-mid", lineOffset: 2 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: -3 },
+          { propVariant: "alt-max", lineOffset: -6 }
+        ]
+  } else if (propType === "PRA") {
+    offsets = side === "Over"
+      ? [
+          { propVariant: "alt-low", lineOffset: -5 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: 5 }
+        ]
+      : [
+          { propVariant: "alt-low", lineOffset: 5 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: -5 }
+        ]
+  } else if (propType === "Assists" || propType === "Rebounds") {
+    offsets = side === "Over"
+      ? [
+          { propVariant: "alt-low", lineOffset: -2 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: 2 }
+        ]
+      : [
+          { propVariant: "alt-low", lineOffset: 2 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: -2 }
+        ]
+  } else if (propType === "Threes") {
+    offsets = side === "Over"
+      ? [
+          { propVariant: "alt-low", lineOffset: -1 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: 1 },
+          { propVariant: "alt-max", lineOffset: 2 }
+        ]
+      : [
+          { propVariant: "alt-low", lineOffset: 1 },
+          { propVariant: "base", lineOffset: 0 },
+          { propVariant: "alt-high", lineOffset: -1 },
+          { propVariant: "alt-max", lineOffset: -2 }
+        ]
+  } else {
+    return [{ ...row, isAlt: false, propVariant: "base" }]
+  }
+
+  return offsets.map(({ propVariant, lineOffset }) => {
+    const variantLine = clampLine(baseLine + lineOffset)
+    const isAlt = propVariant !== "base"
+    const adjustedMetrics = isAlt ? adjustLadderMetrics(row, variantLine) : {}
+    return { ...row, line: variantLine, isAlt, propVariant, ...adjustedMetrics }
+  })
+}
+
 function getDualExpandedEligibleRows() {
   const rawRows = dedupeByLegSignature([
     ...(Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []),
@@ -1553,28 +2275,17 @@ function buildLiveDualBestAvailablePayload() {
 
   console.log("[PAYLOAD-DEBUG] oddsSnapshot.bestProps.length:", (oddsSnapshot.bestProps || []).length)
   const snapshotBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).map((row) => normalizeBestPropVariant(row, "base"))
-  const fallbackBest = buildBestPropsFallbackRows(expandedEligibleRows, Math.min(60, expandedEligibleRows.length || 60))
-  const useFallbackBest = snapshotBest.length < Math.min(12, Math.max(6, Math.round(expandedEligibleRows.length * 0.16)))
-  const best = useFallbackBest ? fallbackBest : snapshotBest
+  const usingFallback = snapshotBest.length === 0
+  const fallbackBest = usingFallback ? buildBestPropsFallbackRows(expandedEligibleRows, Math.min(60, expandedEligibleRows.length || 60)) : []
+  const best = usingFallback ? fallbackBest : snapshotBest
 
   console.log("[PAYLOAD-DEBUG] best.length:", best.length)
   logPayloadDebugExclusions("bestProps→best", oddsSnapshot.bestProps || [], snapshotBest)
   console.log("[BEST-PROPS-FALLBACK-DEBUG]", {
     snapshotBest: snapshotBest.length,
     fallbackBest: fallbackBest.length,
-    expandedEligibleRows: expandedEligibleRows.length,
-    useFallbackBest
+    usingFallback
   })
-  if (snapshotBest.length === 0 && Array.isArray(best) && best.length > 0) {
-    oddsSnapshot.bestProps = best.map((row) => ({ ...row }))
-    console.log("[BEST-PROPS-FALLBACK-ASSIGN-DEBUG]", {
-      assignedFromFallback: best.length,
-      byBook: {
-        FanDuel: best.filter((row) => row?.book === "FanDuel").length,
-        DraftKings: best.filter((row) => row?.book === "DraftKings").length
-      }
-    })
-  }
   console.log("[BEST-PROPS-VISIBLE-COUNTS]", {
     sourceAssigned: (oddsSnapshot.bestProps || []).length,
     visibleTotal: best.length,
@@ -1583,12 +2294,6 @@ function buildLiveDualBestAvailablePayload() {
       DraftKings: best.filter((row) => row.book === "DraftKings").length
     }
   })
-  if ((!Array.isArray(oddsSnapshot.bestProps) || oddsSnapshot.bestProps.length === 0) && Array.isArray(best) && best.length > 0) {
-    oddsSnapshot.bestProps = best.map((row) => ({ ...row }))
-    console.log("[BEST-PROPS-SNAPSHOT-BACKFILL-DEBUG]", {
-      assignedCount: oddsSnapshot.bestProps.length
-    })
-  }
 
   const availableCounts = {
     elite: {
@@ -5381,6 +6086,27 @@ app.get("/api/best-available", (req, res) => {
     }, {})
   })
 
+  const ladderPool = effectiveBestProps.flatMap((row) => getLadderVariantsForRow(row))
+  console.log("[LADDER-POOL-DEBUG]", {
+    baseBestCount: effectiveBestProps.length,
+    ladderCount: ladderPool.length,
+    incompleteBaseRows: effectiveBestProps.filter((row) => {
+      return !(row && row.team && row.hitRate != null && row.hitRate !== "" && row.edge != null && row.score != null)
+    }).length,
+    byVariant: ladderPool.reduce((acc, row) => {
+      const key = String(row?.propVariant || "base")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    byProp: ladderPool.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
+
+  const slipCards = buildSlipCards(effectiveBestProps, ladderPool)
+
   const snapshotMeta = logSnapshotMeta("route=/api/best-available response")
 
   // === FORCE COVERAGE DEBUG ON LIVE RESPONSE PATH ===
@@ -5471,6 +6197,10 @@ app.get("/api/best-available", (req, res) => {
 
   return res.json({
     bestAvailable: bestAvailablePayload,
+    ladderPool,
+    card50: slipCards.card50,
+    card100: slipCards.card100,
+    card300: slipCards.card300,
     snapshotMeta
   })
 })
@@ -5571,7 +6301,8 @@ const API_SPORTS_TIMEOUT_MS = 5000
 const PLAYER_STATS_TTL_MS = 30 * 60 * 1000
 let playerStatsCacheTimes = new Map()
 function normalizePropType(key) {
-  switch (key) {
+  const normalizedKey = String(key || "").trim().toLowerCase()
+  switch (normalizedKey) {
     case "player_points":
       return "Points"
     case "player_assists":
@@ -5581,9 +6312,11 @@ function normalizePropType(key) {
     case "player_threes":
       return "Threes"
     case "player_points_rebounds_assists":
+    case "player_pra":
+    case "pra":
       return "PRA"
     default:
-      return key
+      return null
   }
 }
 
@@ -9057,8 +9790,20 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
 
       for (const market of markets) {
         marketCount += 1
-        const marketKey = String(market?.key || market?.market_key || market?.name || market?.description || "")
+        const marketKey = String(market?.key || market?.name || "").trim()
+        const inferredMarket = inferMarketTypeFromKey(marketKey)
+        const inferredPropType = inferredMarket.internalType
+        const inferredFamily = inferredMarket.family
         const propType = normalizePropType(marketKey)
+        let normalizedPropType = propType || inferredPropType || null
+        const shouldKeepNormalizedMarket = Boolean(
+          normalizedPropType ||
+          inferredFamily === "standard" ||
+          inferredFamily === "ladder" ||
+          inferredFamily === "special"
+        )
+
+        if (!shouldKeepNormalizedMarket) continue
 
         const outcomes = Array.isArray(market?.outcomes)
           ? market.outcomes
@@ -9154,7 +9899,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
           const rowKey = [
             eventId,
             player,
-            propType,
+            normalizedPropType,
             side,
             bookName
           ].join("|")
@@ -9178,7 +9923,9 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
             homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
             gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
             book: bookName,
-            propType,
+            marketKey,
+            marketFamily: inferredFamily,
+            propType: normalizedPropType,
             player,
             side,
             playerStatus: getManualPlayerStatus(player),
@@ -10875,6 +11622,20 @@ app.get("/refresh-snapshot", async (req, res) => {
       })
       const cachedBestPropsRawRows = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
       const cachedFinalBestVisibleRows = getAvailablePrimarySlateRows(cachedBestPropsRawRows)
+      const __normalizedFamilySummary = summarizeInterestingNormalizedRows(cachedRawPropsRows || [])
+      const __normalizedCoverageSummary = summarizeNormalizedMarketCoverage(cachedRawPropsRows || [])
+
+      console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", __normalizedFamilySummary)
+      console.log("[NORMALIZATION-MARKET-KEYS-TOP-DEBUG]", {
+        totalRows: __normalizedCoverageSummary.totalRows,
+        topPropTypes: Object.entries(__normalizedCoverageSummary.byPropType || {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 15),
+        topMarketKeys: Object.entries(__normalizedCoverageSummary.byMarketKey || {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 25),
+        byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
+      })
       console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
         path: "refresh-snapshot-cached-skip-rebuild",
         scheduledEvents: cachedScheduledEvents.length,
@@ -10935,6 +11696,20 @@ app.get("/refresh-snapshot", async (req, res) => {
       })
       const cachedBestPropsRawRows = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
       const cachedFinalBestVisibleRows = getAvailablePrimarySlateRows(cachedBestPropsRawRows)
+      const __normalizedFamilySummary = summarizeInterestingNormalizedRows(cachedRawPropsRows || [])
+      const __normalizedCoverageSummary = summarizeNormalizedMarketCoverage(cachedRawPropsRows || [])
+
+      console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", __normalizedFamilySummary)
+      console.log("[NORMALIZATION-MARKET-KEYS-TOP-DEBUG]", {
+        totalRows: __normalizedCoverageSummary.totalRows,
+        topPropTypes: Object.entries(__normalizedCoverageSummary.byPropType || {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 15),
+        topMarketKeys: Object.entries(__normalizedCoverageSummary.byMarketKey || {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 25),
+        byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
+      })
       console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
         path: "refresh-snapshot-cached-shortcut",
         scheduledEvents: cachedScheduledEvents.length,
@@ -11115,6 +11890,7 @@ app.get("/refresh-snapshot", async (req, res) => {
 
     const rawIngestedProps = dedupeByLegSignature(cleaned)
     const rawPropsRows = rawIngestedProps
+    console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
       activeBooks: ACTIVE_BOOKS,
@@ -12668,6 +13444,36 @@ logFunnelExcluded("refresh-snapshot", "playableCapped-from-playableProps", playa
 
 const matchupValidProps = enriched.filter((row) => playerFitsMatchup(row))
 
+const preBestStandardRows = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
+  const family = String(row?.marketFamily || "")
+  const propType = String(row?.propType || "")
+  return family === "standard" || ["Points", "Rebounds", "Assists", "Threes", "PRA"].includes(propType)
+})
+
+console.log("[PRE-BEST-STANDARD-COVERAGE-DEBUG]", {
+  total: preBestStandardRows.length,
+  byPropType: preBestStandardRows.reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  byBook: preBestStandardRows.reduce((acc, row) => {
+    const key = String(row?.book || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  sample: preBestStandardRows.slice(0, 20).map((row) => ({
+    book: row?.book,
+    propType: row?.propType,
+    marketKey: row?.marketKey,
+    player: row?.player,
+    line: row?.line,
+    hitRate: row?.hitRate,
+    edge: row?.edge,
+    score: row?.score
+  }))
+})
+
 const bestPropsSource = scoredProps.filter((row) => qualifiesBestPropsSource(row))
 logBestStage("refresh-snapshot:sourcePool", bestPropsSource)
 console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot sourceCount=${bestPropsSource.length}`)
@@ -12786,6 +13592,14 @@ console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
 })
 
 const refreshSnapshotBestPropsRawRows = Array.isArray(refreshPlayableFanDuelPromotion.rows) ? refreshPlayableFanDuelPromotion.rows : []
+console.log("[BEST-RAW-BY-PROP-DEBUG]", {
+  total: Array.isArray(refreshSnapshotBestPropsRawRows) ? refreshSnapshotBestPropsRawRows.length : 0,
+  byPropType: (Array.isArray(refreshSnapshotBestPropsRawRows) ? refreshSnapshotBestPropsRawRows : []).reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+})
 const refreshSnapshotFinalBestVisibleRowsPreSave = getAvailablePrimarySlateRows(refreshSnapshotBestPropsRawRows)
 const refreshSnapshotSurvivedFragileRowsPreSave = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
   try {
@@ -12849,6 +13663,21 @@ const refreshFdDropReasons = {
 console.log("[BEST-PROPS-BOOK-EXCLUSION-DEBUG]", {
   path: "refresh-snapshot",
   fanduel: refreshFdDropReasons
+})
+
+const __normalizedFamilySummary = summarizeInterestingNormalizedRows(rawPropsRows || [])
+const __normalizedCoverageSummary = summarizeNormalizedMarketCoverage(rawPropsRows || [])
+
+console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", __normalizedFamilySummary)
+console.log("[NORMALIZATION-MARKET-KEYS-TOP-DEBUG]", {
+  totalRows: __normalizedCoverageSummary.totalRows,
+  topPropTypes: Object.entries(__normalizedCoverageSummary.byPropType || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15),
+  topMarketKeys: Object.entries(__normalizedCoverageSummary.byMarketKey || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25),
+  byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
 })
 
 console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
@@ -13260,6 +14089,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
 
     const rawIngestedProps = dedupeByLegSignature(cleaned)
     const rawPropsRows = rawIngestedProps
+    console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
       activeBooks: ACTIVE_BOOKS,
@@ -13548,6 +14378,36 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     debugPipelineStages.afterDedupe = summarizePropPipelineRows(dedupedBestCandidates)
     logPropPipelineStep("refresh-snapshot-hard-reset", "after-dedupe", dedupedBestCandidates)
 
+    const preBestStandardRows = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
+      const family = String(row?.marketFamily || "")
+      const propType = String(row?.propType || "")
+      return family === "standard" || ["Points", "Rebounds", "Assists", "Threes", "PRA"].includes(propType)
+    })
+
+    console.log("[PRE-BEST-STANDARD-COVERAGE-DEBUG]", {
+      total: preBestStandardRows.length,
+      byPropType: preBestStandardRows.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byBook: preBestStandardRows.reduce((acc, row) => {
+        const key = String(row?.book || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      sample: preBestStandardRows.slice(0, 20).map((row) => ({
+        book: row?.book,
+        propType: row?.propType,
+        marketKey: row?.marketKey,
+        player: row?.player,
+        line: row?.line,
+        hitRate: row?.hitRate,
+        edge: row?.edge,
+        score: row?.score
+      }))
+    })
+
     const bestPropsSource = dedupedBestCandidates.filter((row) => qualifiesBestPropsSource(row))
     logBestStage("refresh-snapshot-hard-reset:sourcePool", bestPropsSource)
     console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot-hard-reset sourceCount=${bestPropsSource.length}`)
@@ -13691,6 +14551,14 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }
     )
     logBestStage("refresh-snapshot-hard-reset:afterBookBalance", hardResetPlayableFanDuelPromotion.rows)
+    console.log("[BEST-RAW-BY-PROP-DEBUG]", {
+      total: Array.isArray(hardResetPlayableFanDuelPromotion.rows) ? hardResetPlayableFanDuelPromotion.rows.length : 0,
+      byPropType: (Array.isArray(hardResetPlayableFanDuelPromotion.rows) ? hardResetPlayableFanDuelPromotion.rows : []).reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
     console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       initialFanDuelCount: hardResetPlayableFanDuelPromotion.initialBookCount,
@@ -13799,6 +14667,21 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     console.log("[BEST-PROPS-BOOK-EXCLUSION-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       fanduel: hardResetFdDropReasons
+    })
+
+    const __normalizedFamilySummary = summarizeInterestingNormalizedRows(rawPropsRows || [])
+    const __normalizedCoverageSummary = summarizeNormalizedMarketCoverage(rawPropsRows || [])
+
+    console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", __normalizedFamilySummary)
+    console.log("[NORMALIZATION-MARKET-KEYS-TOP-DEBUG]", {
+      totalRows: __normalizedCoverageSummary.totalRows,
+      topPropTypes: Object.entries(__normalizedCoverageSummary.byPropType || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15),
+      topMarketKeys: Object.entries(__normalizedCoverageSummary.byMarketKey || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 25),
+      byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
     })
 
     console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
