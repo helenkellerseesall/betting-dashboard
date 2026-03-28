@@ -197,27 +197,27 @@ function detectInterestingMarketKeys(marketKeys) {
 
   for (const rawKey of uniqueKeys) {
     const key = rawKey.toLowerCase()
-    if (matchesAny(key, ["first team basket", "first_team_basket"])) {
+    if (matchesAny(key, ["player first team basket", "player_first_team_basket", "first team basket", "first_team_basket"])) {
       firstTeamBasketKeys.push(rawKey)
       continue
     }
-    if (matchesAny(key, ["first basket", "first_basket"])) {
+    if (matchesAny(key, ["player first basket", "player_first_basket", "first basket", "first_basket"])) {
       firstBasketKeys.push(rawKey)
       continue
     }
-    if (matchesAny(key, ["alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"])) {
+    if (matchesAny(key, ["player_threes_alternate", "alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"])) {
       altThreeKeys.push(rawKey)
       continue
     }
-    if (matchesAny(key, ["double double", "double_double"])) {
+    if (matchesAny(key, ["player double double", "player_double_double", "double double", "double_double"])) {
       doubleDoubleKeys.push(rawKey)
       continue
     }
-    if (matchesAny(key, ["triple double", "triple_double"])) {
+    if (matchesAny(key, ["player triple double", "player_triple_double", "triple double", "triple_double"])) {
       tripleDoubleKeys.push(rawKey)
       continue
     }
-    if (matchesAny(key, ["alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"])) {
+    if (matchesAny(key, ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_points_rebounds_assists_alternate", "alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"])) {
       milestonePointKeys.push(rawKey)
       continue
     }
@@ -242,32 +242,47 @@ const MARKET_TYPE_RULES = [
   {
     internalType: "First Basket",
     family: "special",
-    matches: ["first basket", "first_basket", "first scorer", "first_score"]
+    matches: ["player first basket", "player_first_basket", "first basket", "first_basket", "first scorer", "first_score"]
   },
   {
     internalType: "First Team Basket",
     family: "special",
-    matches: ["first team basket", "first_team_basket"]
+    matches: ["player first team basket", "player_first_team_basket", "first team basket", "first_team_basket"]
   },
   {
     internalType: "Double Double",
     family: "special",
-    matches: ["double double", "double_double"]
+    matches: ["player double double", "player_double_double", "double double", "double_double"]
   },
   {
     internalType: "Triple Double",
     family: "special",
-    matches: ["triple double", "triple_double"]
+    matches: ["player triple double", "player_triple_double", "triple double", "triple_double"]
   },
   {
     internalType: "Points Ladder",
     family: "ladder",
-    matches: ["alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"]
+    matches: ["player_points_alternate", "alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"]
+  },
+  {
+    internalType: "Rebounds Ladder",
+    family: "ladder",
+    matches: ["player_rebounds_alternate"]
+  },
+  {
+    internalType: "Assists Ladder",
+    family: "ladder",
+    matches: ["player_assists_alternate"]
   },
   {
     internalType: "Threes Ladder",
     family: "ladder",
-    matches: ["alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"]
+    matches: ["player_threes_alternate", "alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"]
+  },
+  {
+    internalType: "PRA Ladder",
+    family: "ladder",
+    matches: ["player_points_rebounds_assists_alternate"]
   },
   {
     internalType: "Points",
@@ -407,6 +422,197 @@ function dedupeSlipPool(rows) {
     seen.add(key)
     return true
   })
+}
+
+function dedupeMarketRows(rows) {
+  const seen = new Set()
+  return rows.filter((row) => {
+    const key = [
+      String(row?.player || ""),
+      String(row?.propType || ""),
+      String(row?.side || ""),
+      String(row?.line ?? ""),
+      String(row?.matchup || ""),
+      String(row?.book || "")
+    ].join("|")
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const SLIP_SEED_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+
+function buildSlipSeedPool(snapshot) {
+  const elite = Array.isArray(snapshot?.eliteProps) ? snapshot.eliteProps : []
+  const strong = Array.isArray(snapshot?.strongProps) ? snapshot.strongProps : []
+  const playable = Array.isArray(snapshot?.playableProps) ? snapshot.playableProps : []
+  const combined = [...elite, ...strong, ...playable]
+  const seen = new Set()
+  const deduped = combined.filter((row) => {
+    const key = [
+      String(row?.player || ""),
+      String(row?.propType || ""),
+      String(row?.side || ""),
+      String(row?.line ?? ""),
+      String(row?.matchup || ""),
+      String(row?.book || "")
+    ].join("|")
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const qualified = deduped.filter(
+    (row) =>
+      row?.book === "DraftKings" &&
+      row?.team &&
+      row?.hitRate != null &&
+      row?.edge != null &&
+      row?.score != null &&
+      SLIP_SEED_PROP_TYPES.has(row?.propType)
+  )
+  qualified.sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
+  return qualified.slice(0, 20)
+}
+
+function buildFinalPlayableRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const filtered = safeRows.filter(
+    (row) =>
+      row?.book === "DraftKings" &&
+      row?.team &&
+      row?.hitRate != null &&
+      row?.edge != null &&
+      row?.score != null &&
+      row?.marketFamily === "standard" &&
+      STANDARD_CORE_PROP_TYPES.has(row?.propType)
+  )
+
+  const deduped = dedupeMarketRows(filtered)
+  deduped.sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
+
+  const perPlayer = new Map()
+  const perMatchup = new Map()
+  const finalRows = []
+
+  for (const row of deduped) {
+    const playerKey = String(row?.player || "")
+    const matchupKey = String(row?.matchup || row?.eventId || "unknown")
+    const playerCount = Number(perPlayer.get(playerKey) || 0)
+    const matchupCount = Number(perMatchup.get(matchupKey) || 0)
+    if (playerCount >= 2) continue
+    if (matchupCount >= 4) continue
+
+    finalRows.push(row)
+    perPlayer.set(playerKey, playerCount + 1)
+    perMatchup.set(matchupKey, matchupCount + 1)
+    if (finalRows.length >= 40) break
+  }
+
+  return finalRows
+}
+
+const STANDARD_CORE_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+const SPECIAL_PROP_TYPES = new Set(["First Basket", "First Team Basket", "Double Double", "Triple Double"])
+
+function buildExpandedMarketPools(snapshot) {
+  const playable = Array.isArray(snapshot?.playableProps) ? snapshot.playableProps : []
+  const strong = Array.isArray(snapshot?.strongProps) ? snapshot.strongProps : []
+  const elite = Array.isArray(snapshot?.eliteProps) ? snapshot.eliteProps : []
+  const best = Array.isArray(snapshot?.bestProps) ? snapshot.bestProps : []
+
+  const rows = dedupeMarketRows([
+    ...playable,
+    ...strong,
+    ...elite,
+    ...best
+  ])
+
+  console.log("[EXPANDED-MARKET-POOL-SOURCE-DEBUG]", {
+    playable: playable.length,
+    strong: strong.length,
+    elite: elite.length,
+    best: best.length,
+    mergedRows: rows.length,
+    sample: rows.slice(0, 10).map((row) => ({
+      player: row?.player,
+      propType: row?.propType,
+      marketKey: row?.marketKey,
+      marketFamily: row?.marketFamily,
+      hitRate: row?.hitRate,
+      edge: row?.edge,
+      score: row?.score
+    }))
+  })
+
+  const fullRows = Array.isArray(snapshot?.props) ? snapshot.props : []
+
+  console.log("[EXPANDED-MARKET-FULL-SOURCE-DEBUG]", {
+    fullRows: fullRows.length,
+    byFamily: summarizeInterestingNormalizedRows(fullRows).byFamily,
+    byPropType: summarizeInterestingNormalizedRows(fullRows).byPropType
+  })
+
+  const standardRaw = rows.filter(
+    (row) =>
+      row?.book === "DraftKings" &&
+      row?.team &&
+      row?.hitRate != null &&
+      row?.edge != null &&
+      row?.score != null &&
+      row?.marketFamily === "standard" &&
+      STANDARD_CORE_PROP_TYPES.has(row?.propType)
+  )
+  const standardCandidates = dedupeMarketRows(standardRaw)
+  standardCandidates.sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
+  const standardTop = standardCandidates.slice(0, 30)
+
+  const ladderRaw = fullRows.filter((row) => {
+    if (row?.book !== "DraftKings") return false
+    const mk = String(row?.marketKey || "").toLowerCase()
+    return (
+      row?.marketFamily === "ladder" ||
+      row?.propType === "Points Ladder" ||
+      row?.propType === "Threes Ladder" ||
+      mk.includes("alternate") ||
+      mk.includes("alt")
+    )
+  })
+  const ladderDeduped = dedupeMarketRows(ladderRaw)
+  ladderDeduped.sort((a, b) => {
+    const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0)
+    if (scoreDiff !== 0) return scoreDiff
+    return Number(b?.edge || 0) - Number(a?.edge || 0)
+  })
+  const ladderCandidates = ladderDeduped.slice(0, 30)
+
+  const specialRaw = fullRows.filter((row) => {
+    if (row?.book !== "DraftKings") return false
+    const mk = String(row?.marketKey || "").toLowerCase()
+    return (
+      row?.marketFamily === "special" ||
+      SPECIAL_PROP_TYPES.has(row?.propType) ||
+      mk.includes("player_first_basket") ||
+      mk.includes("first basket") ||
+      mk.includes("player_first_team_basket") ||
+      mk.includes("first_team_basket") ||
+      mk.includes("player_double_double") ||
+      mk.includes("double_double") ||
+      mk.includes("player_triple_double") ||
+      mk.includes("triple_double") ||
+      mk.includes("double double") ||
+      mk.includes("triple double")
+    )
+  })
+  const specialDeduped = dedupeMarketRows(specialRaw)
+  specialDeduped.sort((a, b) => {
+    const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0)
+    if (scoreDiff !== 0) return scoreDiff
+    return Number(b?.edge || 0) - Number(a?.edge || 0)
+  })
+  const specialProps = specialDeduped.slice(0, 30)
+
+  return { standardCandidates: standardTop, ladderCandidates, specialProps }
 }
 
 function buildSlipCards(bestProps, ladderPool) {
@@ -6086,7 +6292,105 @@ app.get("/api/best-available", (req, res) => {
     }, {})
   })
 
-  const ladderPool = effectiveBestProps.flatMap((row) => getLadderVariantsForRow(row))
+  const bestVisibleRows = Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []
+  const finalPlayableRows = buildFinalPlayableRows(bestVisibleRows)
+  console.log("[FINAL-PLAYABLE-ROWS-DEBUG]", {
+    total: finalPlayableRows.length,
+    byPropType: finalPlayableRows.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    byGame: finalPlayableRows.reduce((acc, row) => {
+      const key = String(row?.matchup || row?.eventId || "unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    topSample: finalPlayableRows.slice(0, 20).map((row) => ({
+      player: row?.player,
+      propType: row?.propType,
+      matchup: row?.matchup,
+      line: row?.line,
+      hitRate: row?.hitRate,
+      edge: row?.edge,
+      score: row?.score
+    }))
+  })
+
+  const expandedMarketPools = buildExpandedMarketPools(oddsSnapshot)
+  console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
+    standardCount: expandedMarketPools.standardCandidates.length,
+    ladderCount: expandedMarketPools.ladderCandidates.length,
+    specialCount: expandedMarketPools.specialProps.length,
+    standardByProp: expandedMarketPools.standardCandidates.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    ladderByProp: expandedMarketPools.ladderCandidates.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    specialByProp: expandedMarketPools.specialProps.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
+
+  const routePlayableSeed = Array.isArray(expandedMarketPools?.standardCandidates) && expandedMarketPools.standardCandidates.length > 0
+    ? expandedMarketPools.standardCandidates
+    : buildSlipSeedPool(oddsSnapshot)
+
+  console.log("[ROUTE-PLAYABLE-SEED-DEBUG]", {
+    total: routePlayableSeed.length,
+    byPropType: routePlayableSeed.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    byGame: routePlayableSeed.reduce((acc, row) => {
+      const key = String(row?.matchup || row?.eventId || "unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    topSample: routePlayableSeed.slice(0, 20).map((row) => ({
+      player: row?.player,
+      propType: row?.propType,
+      matchup: row?.matchup,
+      line: row?.line,
+      hitRate: row?.hitRate,
+      edge: row?.edge,
+      score: row?.score
+    }))
+  })
+
+  const slipSeedPool = routePlayableSeed
+  console.log("[SLIP-SEED-POOL-DEBUG]", {
+    total: slipSeedPool.length,
+    byPropType: slipSeedPool.reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    byGame: slipSeedPool.reduce((acc, row) => {
+      const key = String(row?.matchup || row?.eventId || "unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    sample: slipSeedPool.slice(0, 15).map((row) => ({
+      player: row?.player,
+      propType: row?.propType,
+      matchup: row?.matchup,
+      line: row?.line,
+      hitRate: row?.hitRate,
+      edge: row?.edge,
+      score: row?.score
+    }))
+  })
+
+  const ladderPool = slipSeedPool.flatMap((row) => getLadderVariantsForRow(row))
   console.log("[LADDER-POOL-DEBUG]", {
     baseBestCount: effectiveBestProps.length,
     ladderCount: ladderPool.length,
@@ -6113,6 +6417,7 @@ app.get("/api/best-available", (req, res) => {
   try {
     const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
     const rawPropsRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+
     console.log("[RAW-PROPS-BEFORE-FILTER]", {
       total: rawPropsRows.length,
       byBook: rawPropsRows.reduce((acc, row) => {
@@ -6198,9 +6503,14 @@ app.get("/api/best-available", (req, res) => {
   return res.json({
     bestAvailable: bestAvailablePayload,
     ladderPool,
+    routePlayableSeed: routePlayableSeed,
+    finalPlayableRows: finalPlayableRows,
     card50: slipCards.card50,
     card100: slipCards.card100,
     card300: slipCards.card300,
+    standardCandidates: expandedMarketPools.standardCandidates,
+    ladderCandidates: expandedMarketPools.ladderCandidates,
+    specialProps: expandedMarketPools.specialProps,
     snapshotMeta
   })
 })
@@ -6346,20 +6656,32 @@ function getTodaySlateDateKey() {
   }).format(new Date())
 }
 
+function toDetroitDateKey(value) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ""
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Detroit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date)
+}
+
 
 function filterEventsToPrimarySlate(events = []) {
-  const upcoming = [...events]
-    .filter((event) => new Date(event.commence_time).getTime() > Date.now())
-    .sort((a, b) => new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime())
+  const allEvents = [...events]
+    .filter((event) => Number.isFinite(new Date(event?.commence_time || event?.gameTime || "").getTime()))
+    .sort((a, b) => {
+      const aMs = new Date(a?.commence_time || a?.gameTime || "").getTime()
+      const bMs = new Date(b?.commence_time || b?.gameTime || "").getTime()
+      return aMs - bMs
+    })
 
-  if (!upcoming.length) return []
+  if (!allEvents.length) return []
 
-  const primaryDateKey = getPrimarySlateDateKeyFromRows(
-    upcoming.map((event) => ({ gameTime: event?.commence_time }))
-  )
-
-  return upcoming.filter(
-    (event) => getLocalSlateDateKey(event.commence_time) === primaryDateKey
+  const slateDateKey = toDetroitDateKey(Date.now())
+  return allEvents.filter(
+    (event) => toDetroitDateKey(event?.commence_time || event?.gameTime) === slateDateKey
   )
 }
 
@@ -6382,30 +6704,28 @@ function filterRowsToPrimarySlate(rows = []) {
 function getAvailablePrimarySlateRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
   const isBestPropsVisibilityPass = safeRows === oddsSnapshot.bestProps
+  const rawPropsRows = (Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length)
+    ? oddsSnapshot.rawProps
+    : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+  const primarySlateInputRows = isBestPropsVisibilityPass
+    ? (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+    : safeRows
 
-  const filteredRows = safeRows.filter((row) => {
-    if (!row) return false
-    if (!row?.gameTime) return false
-
-    const gameMs = new Date(row.gameTime).getTime()
-    if (!Number.isFinite(gameMs)) return false
-    if (gameMs <= Date.now()) return false
-
-    const playerValue = row.player ?? row.playerName
-    const propTypeValue = row.propType ?? row.statType
-    const lineValue = row.line
-
-    if (!playerValue || !propTypeValue || lineValue == null) return false
-
-    return true
+  const primarySlateRows = primarySlateInputRows.filter((row) => {
+    return (
+      row &&
+      row.eventId &&
+      row.matchup &&
+      row.book === "DraftKings"
+    )
   })
 
-  const inputGames = [...new Set(safeRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
-  const outputGames = [...new Set(filteredRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const inputGames = [...new Set(primarySlateInputRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const outputGames = [...new Set(primarySlateRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
   console.log("[PRIMARY-SLATE-FILTER-DEBUG]", {
     nowIso: new Date().toISOString(),
-    inputRowCount: safeRows.length,
-    outputRowCount: filteredRows.length,
+    inputRowCount: primarySlateInputRows.length,
+    outputRowCount: primarySlateRows.length,
     inputGameCount: inputGames.length,
     outputGameCount: outputGames.length,
     inputGames,
@@ -6414,20 +6734,20 @@ function getAvailablePrimarySlateRows(rows) {
 
   if (isBestPropsVisibilityPass) {
     console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
-      beforeTotal: safeRows.length,
-      afterTotal: filteredRows.length,
+      beforeTotal: primarySlateInputRows.length,
+      afterTotal: primarySlateRows.length,
       beforeByBook: {
-        FanDuel: safeRows.filter((row) => String(row?.book || "") === "FanDuel").length,
-        DraftKings: safeRows.filter((row) => String(row?.book || "") === "DraftKings").length
+        FanDuel: primarySlateInputRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: primarySlateInputRows.filter((row) => String(row?.book || "") === "DraftKings").length
       },
       afterByBook: {
-        FanDuel: filteredRows.filter((row) => String(row?.book || "") === "FanDuel").length,
-        DraftKings: filteredRows.filter((row) => String(row?.book || "") === "DraftKings").length
+        FanDuel: primarySlateRows.filter((row) => String(row?.book || "") === "FanDuel").length,
+        DraftKings: primarySlateRows.filter((row) => String(row?.book || "") === "DraftKings").length
       }
     })
   }
 
-  return filteredRows
+  return primarySlateRows
 }
 
 function summarizePropPipelineRows(rows = []) {
@@ -9750,10 +10070,29 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     ((awayNorm.includes("mavericks") && homeNorm.includes("nuggets")) ||
       (awayNorm.includes("nuggets") && homeNorm.includes("mavericks")))
 
+  const requestedMarkets = [
+    "player_points",
+    "player_rebounds",
+    "player_assists",
+    "player_points_rebounds_assists",
+    "player_threes"
+  ]
+  const DK_EXTRA_MARKETS = [
+    "player_first_basket",
+    "player_first_team_basket",
+    "player_double_double",
+    "player_triple_double",
+    "player_points_alternate",
+    "player_rebounds_alternate",
+    "player_assists_alternate",
+    "player_threes_alternate",
+    "player_points_rebounds_assists_alternate"
+  ]
+
   const baseParams = {
     apiKey: ODDS_API_KEY,
     regions: "us",
-    markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+    markets: requestedMarkets.join(","),
     oddsFormat: "american"
   }
 
@@ -9995,6 +10334,10 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     }
   }
 
+  console.log("[DK-MARKET-REQUEST-DEBUG]", {
+    requestedMarkets
+  })
+
   const primaryResponse = await axios.get(
     `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
     {
@@ -10094,6 +10437,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   })
 
   let finalRows = [...primaryParsed.rows]
+  let extraRawRows = []
+  let extraMarketsFetchSucceeded = false
   let fallbackParsed = null
   let fallbackResponseEvents = []
   let fallbackBooks = []
@@ -10175,6 +10520,45 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       ...finalRows,
       ...(Array.isArray(fallbackParsed?.rows) ? fallbackParsed.rows : [])
     ])
+  }
+
+  try {
+    console.log("[DK-EXTRA-MARKETS-REQUEST-DEBUG]", {
+      requestedMarkets: DK_EXTRA_MARKETS
+    })
+
+    const extraResponse = await axios.get(
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+      {
+        params: {
+          ...baseParams,
+          markets: DK_EXTRA_MARKETS.join(","),
+          bookmakers: "draftkings"
+        }
+      }
+    )
+
+    const extraEvents = Array.isArray(extraResponse?.data)
+      ? extraResponse.data
+      : (extraResponse?.data ? [extraResponse.data] : [])
+    const extraBooks = extraEvents.flatMap((apiEvent) =>
+      Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
+    )
+    const extraParsed = parseBooksToRows(extraBooks, "secondary-draftkings-extra-markets")
+    extraRawRows = Array.isArray(extraParsed?.rows) ? extraParsed.rows : []
+    extraMarketsFetchSucceeded = true
+
+    console.log("[DK-EXTRA-MARKETS-RESULT-DEBUG]", {
+      eventCount: Array.isArray(extraEvents) ? extraEvents.length : 0,
+      rawRowCount: Array.isArray(extraRawRows) ? extraRawRows.length : 0,
+      marketKeys: [...new Set((extraRawRows || []).map((row) => String(row?.marketKey || "")).filter(Boolean))].sort(),
+      byFamily: summarizeInterestingNormalizedRows(extraRawRows || []).byFamily,
+      byPropType: summarizeInterestingNormalizedRows(extraRawRows || []).byPropType
+    })
+  } catch (error) {
+    console.log("[DK-EXTRA-MARKETS-ERROR-DEBUG]", {
+      message: error?.message || String(error)
+    })
   }
 
   const bookPayloads = [
@@ -10288,17 +10672,12 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       return acc
     }, {}),
     watchedMappedCounts: countWatchedPlayersInRows(finalRows),
-    usedFallbackAllBooks: Boolean(fallbackParsed),
-    finalAcceptedRows: finalRows.length,
-    finalDistinctPlayers: [...new Set(finalRows.map((row) => String(row?.player || "")).filter(Boolean))].length
+    usedFallbackAllBooks: Boolean(fallbackParsed)
   }
 
   if (isMavsNuggetsEvent) {
-    const rawBooks = [
-      ...primaryResponseEvents.flatMap((apiEvent) => Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []),
-      ...fallbackResponseEvents.flatMap((apiEvent) => Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : [])
-    ]
-    const bookmakerNames = [...new Set(rawBooks.map((book) => String(book?.title || book?.key || book?.name || "").trim()).filter(Boolean))]
+    const rawBooks = [...primaryBooks, ...(fallbackBooks || [])]
+    const bookmakerNames = [...new Set(rawBooks.map((book) => String(book?.key || book?.title || "").trim()).filter(Boolean))]
     const marketKeys = [...new Set(rawBooks.flatMap((book) => {
       const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
       return markets.map((market) => String(market?.key || market?.market_key || market?.name || market?.description || "").trim())
@@ -10369,7 +10748,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
 
   }
 
-  return { rows: finalRows, debug }
+  return { rows: finalRows, extraRawRows, extraMarketsFetchSucceeded, debug }
 }
 
 function getSlateModeFromEvents(events = []) {
@@ -10381,17 +10760,11 @@ function getSlateModeFromEvents(events = []) {
       return ""
     }
   })()
-
-  const slateDayRows = rawProps.filter((row) => {
-    const rowSlateKey = (() => {
-      try {
-        return getLocalSlateDateKey(row?.gameTime)
-      } catch (_) {
-        return ""
-      }
-    })()
-    return Boolean(todayKey && rowSlateKey && rowSlateKey === todayKey)
-  })
+  const coveredEvents = Array.isArray(events) ? events : []
+  const scheduledEvents = coveredEvents
+  const slateDayRows = Array.isArray(coveredEvents)
+    ? coveredEvents
+    : (Array.isArray(scheduledEvents) ? scheduledEvents : [])
 
   const totalSlateGames = new Set(
     slateDayRows.map((row) => String(row?.matchup || "")).filter(Boolean)
@@ -11833,23 +12206,48 @@ app.get("/refresh-snapshot", async (req, res) => {
     }
 
     const eventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
       {
-        params: { apiKey: ODDS_API_KEY }
+        params: {
+          apiKey: ODDS_API_KEY,
+          regions: "us",
+          bookmakers: "draftkings",
+          markets: "h2h"
+        }
       }
     )
 
-    const events = eventsResponse.data || []
-    console.log("[API-SCHEDULED-EVENTS-RAW-DEBUG]", {
-      totalEvents: Array.isArray(events) ? events.length : 0,
-      matchups: (Array.isArray(events) ? events : []).map((event) => ({
+    const allEvents = Array.isArray(eventsResponse?.data) ? eventsResponse.data : []
+    console.log("[RAW-EVENTS-FETCH-DEBUG]", {
+      totalFetched: Array.isArray(allEvents) ? allEvents.length : 0,
+      events: (allEvents || []).map((e) => ({
+        matchup: getEventMatchupForDebug(e),
+        commenceTime: e?.commence_time
+      }))
+    })
+    console.log("[SCHEDULE-BEFORE-FILTER-DEBUG]", {
+        totalEvents: Array.isArray(allEvents) ? allEvents.length : 0,
+      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
         eventId: String(event?.id || event?.eventId || ""),
         matchup: getEventMatchupForDebug(event),
         commenceTime: String(event?.commence_time || event?.gameTime || "")
       }))
     })
-    const targetEvents = filterEventsToPrimarySlate(events)
-    const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
+    const detroitSlateDateKey = toDetroitDateKey(Date.now())
+    console.log("[DETROIT-SLATE-DATE-DEBUG]", {
+      slateDateKey: detroitSlateDateKey,
+      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || ""),
+        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
+      }))
+    })
+    const targetEvents = allEvents.filter((event) => {
+      const eventTime = event?.commence_time || event?.gameTime
+      return toDetroitDateKey(eventTime) === detroitSlateDateKey
+    })
+    const rawApiEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
     if (!targetEvents.length) {
       return res.status(404).json({
         error: "No upcoming NBA games found for the primary slate"
@@ -11861,12 +12259,25 @@ app.get("/refresh-snapshot", async (req, res) => {
         })
       : null
     const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
-    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+    console.log("[EVENT-FETCH-INTEGRITY-DEBUG]", {
+      scheduledEventsCount: scheduledEvents.length,
+      eventIds: scheduledEvents.map((e) => e?.id)
+    })
+    console.log("[SCHEDULE-AFTER-FILTER-DEBUG]", {
       totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
         eventId: String(event?.id || event?.eventId || ""),
         matchup: getEventMatchupForDebug(event),
         commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
+    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || ""),
+        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
       }))
     })
     console.log("[RAW-PROPS-PIPELINE-START]", {
@@ -11898,7 +12309,11 @@ app.get("/refresh-snapshot", async (req, res) => {
         const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
           pathLabel: "refresh-snapshot"
         })
-        cleaned.push(...(Array.isArray(fetched?.rows) ? fetched.rows : []))
+        const eventRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
+        if (Boolean(fetched?.extraMarketsFetchSucceeded)) {
+          eventRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
+        }
+        cleaned.push(...eventRows)
         eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
       } catch (eventError) {
         const away = event?.away_team || event?.awayTeam || ""
@@ -11962,8 +12377,8 @@ app.get("/refresh-snapshot", async (req, res) => {
       }))
     })
 
-    const rawIngestedProps = dedupeByLegSignature(cleaned)
-    const rawPropsRows = rawIngestedProps
+    let rawIngestedProps = dedupeByLegSignature(cleaned)
+    let rawPropsRows = rawIngestedProps
     console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
@@ -14047,23 +14462,48 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     }
 
     const eventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
       {
-        params: { apiKey: ODDS_API_KEY }
+        params: {
+          apiKey: ODDS_API_KEY,
+          regions: "us",
+          bookmakers: "draftkings",
+          markets: "h2h"
+        }
       }
     )
 
-    const events = eventsResponse.data || []
-    console.log("[API-SCHEDULED-EVENTS-RAW-DEBUG]", {
-      totalEvents: Array.isArray(events) ? events.length : 0,
-      matchups: (Array.isArray(events) ? events : []).map((event) => ({
+    const allEvents = Array.isArray(eventsResponse?.data) ? eventsResponse.data : []
+    console.log("[RAW-EVENTS-FETCH-DEBUG]", {
+      totalFetched: Array.isArray(allEvents) ? allEvents.length : 0,
+      events: (allEvents || []).map((e) => ({
+        matchup: getEventMatchupForDebug(e),
+        commenceTime: e?.commence_time
+      }))
+    })
+    console.log("[SCHEDULE-BEFORE-FILTER-DEBUG]", {
+        totalEvents: Array.isArray(allEvents) ? allEvents.length : 0,
+      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
         eventId: String(event?.id || event?.eventId || ""),
         matchup: getEventMatchupForDebug(event),
         commenceTime: String(event?.commence_time || event?.gameTime || "")
       }))
     })
-    const targetEvents = filterEventsToPrimarySlate(events)
-    const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
+    const detroitSlateDateKey = toDetroitDateKey(Date.now())
+    console.log("[DETROIT-SLATE-DATE-DEBUG]", {
+      slateDateKey: detroitSlateDateKey,
+      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || ""),
+        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
+      }))
+    })
+    const targetEvents = allEvents.filter((event) => {
+      const eventTime = event?.commence_time || event?.gameTime
+      return toDetroitDateKey(eventTime) === detroitSlateDateKey
+    })
+    const rawApiEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
     if (!targetEvents.length) {
       return res.status(404).json({
         error: "No upcoming NBA games found for the primary slate"
@@ -14076,12 +14516,25 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         })
       : null
     const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
-    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+    console.log("[EVENT-FETCH-INTEGRITY-DEBUG]", {
+      scheduledEventsCount: scheduledEvents.length,
+      eventIds: scheduledEvents.map((e) => e?.id)
+    })
+    console.log("[SCHEDULE-AFTER-FILTER-DEBUG]", {
       totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
         eventId: String(event?.id || event?.eventId || ""),
         matchup: getEventMatchupForDebug(event),
         commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
+    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || ""),
+        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
       }))
     })
     console.log("[RAW-PROPS-PIPELINE-START]", {
@@ -14113,7 +14566,11 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
           pathLabel: "refresh-snapshot-hard-reset"
         })
-        cleaned.push(...(Array.isArray(fetched?.rows) ? fetched.rows : []))
+        const eventRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
+        if (Boolean(fetched?.extraMarketsFetchSucceeded)) {
+          eventRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
+        }
+        cleaned.push(...eventRows)
         eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
       } catch (eventError) {
         const away = event?.away_team || event?.awayTeam || ""
@@ -14177,8 +14634,8 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }))
     })
 
-    const rawIngestedProps = dedupeByLegSignature(cleaned)
-    const rawPropsRows = rawIngestedProps
+    let rawIngestedProps = dedupeByLegSignature(cleaned)
+    let rawPropsRows = rawIngestedProps
     console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
