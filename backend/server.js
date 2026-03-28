@@ -10008,6 +10008,41 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   const primaryResponseEvents = Array.isArray(primaryResponse?.data)
     ? primaryResponse.data
     : (primaryResponse?.data ? [primaryResponse.data] : [])
+
+  for (const eventPayload of primaryResponseEvents) {
+    console.log("[EVENT-BOOKMAKER-PRESENCE-DEBUG]", {
+      eventId: String(event?.id || event?.eventId || ""),
+      matchup: getEventMatchupForDebug(event),
+      bookmakerCount: Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers.length : 0,
+      bookmakerKeys: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => String(book?.key || book?.title || "")),
+      marketCountByBook: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => ({
+        book: String(book?.key || book?.title || ""),
+        marketCount: Array.isArray(book?.markets) ? book.markets.length : 0
+      }))
+    })
+  }
+
+  const __events = Array.isArray(primaryResponse?.data) ? primaryResponse.data : []
+
+  console.log("[API-EVENT-COUNT-DEBUG]", {
+    totalEvents: __events.length,
+    sampleMatchups: __events.slice(0, 10).map((e) => ({
+      eventId: e?.id,
+      matchup: `${e?.away_team} @ ${e?.home_team}`
+    }))
+  })
+
+  for (const event of __events) {
+    console.log("[API-EVENT-MARKETS-DEBUG]", {
+      eventId: event?.id,
+      matchup: `${event?.away_team} @ ${event?.home_team}`,
+      bookmakerCount: (event?.bookmakers || []).length,
+      hasDraftKings: (event?.bookmakers || []).some((b) =>
+        (b?.key || "").toLowerCase().includes("draftkings")
+      )
+    })
+  }
+
   if (!primaryResponseEvents.length) {
     console.log("[RAW-PROPS-SKIP-DEBUG]", {
       reason: "event_lookup_miss",
@@ -10082,6 +10117,18 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     fallbackResponseEvents = Array.isArray(fallbackResponse?.data)
       ? fallbackResponse.data
       : (fallbackResponse?.data ? [fallbackResponse.data] : [])
+    for (const eventPayload of fallbackResponseEvents) {
+      console.log("[EVENT-BOOKMAKER-PRESENCE-DEBUG]", {
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        bookmakerCount: Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers.length : 0,
+        bookmakerKeys: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => String(book?.key || book?.title || "")),
+        marketCountByBook: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => ({
+          book: String(book?.key || book?.title || ""),
+          marketCount: Array.isArray(book?.markets) ? book.markets.length : 0
+        }))
+      })
+    }
     fallbackBooks = fallbackResponseEvents.flatMap((apiEvent) =>
       Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
     )
@@ -10145,6 +10192,17 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       : (Array.isArray(market?.selections) ? market.selections : [])
   )
   const eventRows = Array.isArray(finalRows) ? finalRows : []
+
+  console.log("[EVENT-RAW-ROWS-BY-GAME-DEBUG]", {
+    eventId: String(event?.id || event?.eventId || ""),
+    matchup: getEventMatchupForDebug(event),
+    rowCount: Array.isArray(eventRows) ? eventRows.length : 0,
+    byPropType: (Array.isArray(eventRows) ? eventRows : []).reduce((acc, row) => {
+      const key = String(row?.propType || "Unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+  })
 
   console.log("[EVENT-RAW-ROWS-DEBUG]", {
     eventId: String(event?.id || event?.eventId || ""),
@@ -11782,6 +11840,14 @@ app.get("/refresh-snapshot", async (req, res) => {
     )
 
     const events = eventsResponse.data || []
+    console.log("[API-SCHEDULED-EVENTS-RAW-DEBUG]", {
+      totalEvents: Array.isArray(events) ? events.length : 0,
+      matchups: (Array.isArray(events) ? events : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
     const targetEvents = filterEventsToPrimarySlate(events)
     const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
     if (!targetEvents.length) {
@@ -11795,6 +11861,14 @@ app.get("/refresh-snapshot", async (req, res) => {
         })
       : null
     const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
+    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
     console.log("[RAW-PROPS-PIPELINE-START]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
       eventIds: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean),
@@ -13980,6 +14054,14 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     )
 
     const events = eventsResponse.data || []
+    console.log("[API-SCHEDULED-EVENTS-RAW-DEBUG]", {
+      totalEvents: Array.isArray(events) ? events.length : 0,
+      matchups: (Array.isArray(events) ? events : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
     const targetEvents = filterEventsToPrimarySlate(events)
     const rawApiEventIds = [...new Set((Array.isArray(events) ? events : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
     if (!targetEvents.length) {
@@ -13994,6 +14076,14 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         })
       : null
     const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
+    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
+      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      matchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        commenceTime: String(event?.commence_time || event?.gameTime || "")
+      }))
+    })
     console.log("[RAW-PROPS-PIPELINE-START]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
       eventIds: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean),
