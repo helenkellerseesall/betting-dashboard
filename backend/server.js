@@ -6831,35 +6831,19 @@ app.get("/api/best-available", (req, res) => {
 
   let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
 
-  fbRows = normalizeRelativeScores(fbRows, "playerConfidenceScore")
-  fbRows = normalizeRelativeScores(fbRows, "gamePriorityScore")
-  fbRows = applyGamePriorityBoost(fbRows)
+  fbRows = filterSpecialRowsForBoard(fbRows)
+  fbRows = sortSpecialBoardSmart(fbRows)
 
-  fbRows = fbRows.map((row) => {
-    const relativeBoost =
-      (row.playerConfidenceScoreRelative || 0) * 0.5 +
-      (row.gamePriorityScoreRelative || 0) * 0.3
+  // HARD CAP to top 5 only
+  const firstBasketPicks = fbRows.slice(0, 5)
 
-    return {
-      ...row,
-      playerConfidenceScore: Math.min(
-        1,
-        (row.playerConfidenceScore || 0) + relativeBoost
-      )
-    }
-  })
-
-  const firstBasketPicks = buildSelectiveBoard(
-    fbRows,
-    6,
-    sortFirstBasketPredictionBoard
-  )
-
-  console.log("[CONFIDENCE-SPREAD-DEBUG]", {
-    fbMin: Math.min(...fbRows.map(r => r.playerConfidenceScore || 0)),
-    fbMax: Math.max(...fbRows.map(r => r.playerConfidenceScore || 0)),
-    fbTop: fbRows.slice(0,5).map(r => ({
+  console.log("[SPECIAL-BOARD-FILTER-DEBUG]", {
+    originalFB: predictionSourceRows.filter(r => isFirstBasketLikeRow(r)).length,
+    filteredFB: fbRows.length,
+    finalFB: firstBasketPicks.length,
+    topFB: firstBasketPicks.map(r => ({
       player: r.player,
+      odds: r.odds,
       confidence: r.playerConfidenceScore,
       tier: r.confidenceTier
     }))
@@ -6871,11 +6855,22 @@ app.get("/api/best-available", (req, res) => {
     sortByPredictionStrength
   )
 
-  const lottoPicks = buildSelectiveBoard(
-    predictionSourceRows.filter((row) => isLottoStyleRow(row) || isFirstBasketLikeRow(row)),
-    10,
-    sortLottoPredictionBoard
+  let lottoRows = predictionSourceRows.filter((row) =>
+    isLottoStyleRow(row) || isFirstBasketLikeRow(row)
   )
+
+  // allow longshots here, but still filter garbage
+  lottoRows = lottoRows.filter((row) => {
+    const odds = Number(row?.odds || 0)
+    const confidence = Number(row?.playerConfidenceScore || 0)
+
+    if (odds > 2000 && confidence < 0.15) return false
+    return true
+  })
+
+  lottoRows = sortSpecialBoardSmart(lottoRows)
+
+  const lottoPicks = lottoRows.slice(0, 10)
 
   console.log("[PREDICTION-LAYER-DEBUG]", {
     firstBasketPicks: Array.isArray(firstBasketPicks) ? firstBasketPicks.length : 0,
@@ -9175,6 +9170,51 @@ const enrichSpecialPredictionRow = (row) => {
     whyItRates,
     modelSummary
   }
+}
+
+const filterSpecialRowsForBoard = (rows) => {
+  const safe = Array.isArray(rows) ? rows : []
+
+  return safe.filter((row) => {
+    const odds = Number(row?.odds || 0)
+    const confidence = Number(row?.playerConfidenceScore || 0)
+    const tier = String(row?.confidenceTier || "")
+
+    // kill extreme longshot garbage
+    if (odds > 1500 && confidence < 0.25) return false
+
+    // kill low confidence noise
+    if (confidence < 0.22) return false
+
+    // keep only relevant tiers
+    if (
+      !tier.includes("elite") &&
+      !tier.includes("strong") &&
+      !tier.includes("playable")
+    ) {
+      return false
+    }
+
+    return true
+  })
+}
+
+const sortSpecialBoardSmart = (rows) => {
+  const safe = Array.isArray(rows) ? rows : []
+
+  return [...safe].sort((a, b) => {
+    const aScore =
+      (Number(a?.playerConfidenceScore || 0) * 0.6) +
+      (Number(a?.gamePriorityScore || 0) * 0.2) +
+      (Number(a?.bookValueScore || 0) * 0.1)
+
+    const bScore =
+      (Number(b?.playerConfidenceScore || 0) * 0.6) +
+      (Number(b?.gamePriorityScore || 0) * 0.2) +
+      (Number(b?.bookValueScore || 0) * 0.1)
+
+    return bScore - aScore
+  })
 }
 
 const normalizeRelativeScores = (rows, key) => {
