@@ -6751,11 +6751,15 @@ app.get("/api/best-available", (req, res) => {
     return out
   }
 
+  const enrichedSpecialProps = Array.isArray(specialProps)
+    ? specialProps.map(enrichSpecialPredictionRow)
+    : []
+
   const boardSourceRows = dedupeBoardRows([
     ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
     ...(Array.isArray(standardCandidates) ? standardCandidates : []),
     ...(Array.isArray(ladderPool) ? ladderPool : []),
-    ...(Array.isArray(specialProps) ? specialProps : []),
+    ...(Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps : []),
     ...(Array.isArray(effectiveBestProps) ? effectiveBestProps : [])
   ])
 
@@ -6825,11 +6829,41 @@ app.get("/api/best-available", (req, res) => {
   // --- Build prediction-layer selective picks ---
   const predictionSourceRows = boardSourceRows
 
+  let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
+
+  fbRows = normalizeRelativeScores(fbRows, "playerConfidenceScore")
+  fbRows = normalizeRelativeScores(fbRows, "gamePriorityScore")
+  fbRows = applyGamePriorityBoost(fbRows)
+
+  fbRows = fbRows.map((row) => {
+    const relativeBoost =
+      (row.playerConfidenceScoreRelative || 0) * 0.5 +
+      (row.gamePriorityScoreRelative || 0) * 0.3
+
+    return {
+      ...row,
+      playerConfidenceScore: Math.min(
+        1,
+        (row.playerConfidenceScore || 0) + relativeBoost
+      )
+    }
+  })
+
   const firstBasketPicks = buildSelectiveBoard(
-    predictionSourceRows.filter((row) => isFirstBasketLikeRow(row)),
-    8,
+    fbRows,
+    6,
     sortFirstBasketPredictionBoard
   )
+
+  console.log("[CONFIDENCE-SPREAD-DEBUG]", {
+    fbMin: Math.min(...fbRows.map(r => r.playerConfidenceScore || 0)),
+    fbMax: Math.max(...fbRows.map(r => r.playerConfidenceScore || 0)),
+    fbTop: fbRows.slice(0,5).map(r => ({
+      player: r.player,
+      confidence: r.playerConfidenceScore,
+      tier: r.confidenceTier
+    }))
+  })
 
   const corePropPicks = buildSelectiveBoard(
     predictionSourceRows.filter((row) => isCorePropRow(row) && !isLadderRow(row)),
@@ -6860,10 +6894,47 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  console.log("[SPECIAL-ENRICHMENT-DEBUG]", {
+    rawSpecialProps: Array.isArray(specialProps) ? specialProps.length : 0,
+    enrichedSpecialProps: Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps.length : 0,
+    firstBasketLikeEnriched: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.filter((row) =>
+          ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
+        ).length
+      : 0,
+    withEvidence: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.filter((row) => row?.evidence).length
+      : 0,
+    withWhyItRates: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.filter((row) => Array.isArray(row?.whyItRates) && row.whyItRates.length > 0).length
+      : 0,
+    withPredictionScores: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.filter((row) =>
+          row?.gamePriorityScore !== null &&
+          row?.gamePriorityScore !== undefined &&
+          row?.playerConfidenceScore !== null &&
+          row?.playerConfidenceScore !== undefined
+        ).length
+      : 0,
+    sampleFirstBasket: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps
+          .filter((row) => String(row?.marketKey || "") === "player_first_basket")
+          .slice(0, 6)
+          .map((row) => ({
+            player: row?.player || null,
+            odds: row?.odds ?? null,
+            gamePriorityScore: row?.gamePriorityScore ?? null,
+            playerConfidenceScore: row?.playerConfidenceScore ?? null,
+            confidenceTier: row?.confidenceTier || null,
+            whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : []
+          }))
+      : []
+  })
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayload,
-      specialProps,
+      specialProps: enrichedSpecialProps,
       slipCards,
       firstBasketBoard,
       corePropsBoard,
@@ -6882,7 +6953,7 @@ app.get("/api/best-available", (req, res) => {
     card300: slipCards.card300,
     standardCandidates: standardCandidates,
     ladderCandidates: ladderCandidates,
-    specialProps: specialProps,
+    specialProps: enrichedSpecialProps,
     snapshotMeta
   })
 })
@@ -8572,9 +8643,10 @@ const inferConfidenceTier = (row) => {
   const marketKey = String(row?.marketKey || "")
 
   if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") {
-    if (confidence >= 0.60) return "special-elite"
-    if (confidence >= 0.48) return "special-strong"
-    return "special-playable"
+    if (confidence >= 0.70) return "special-elite"
+    if (confidence >= 0.55) return "special-strong"
+    if (confidence >= 0.42) return "special-playable"
+    return "special-thin"
   }
 
   if (betTypeFit === "lotto") {
@@ -8608,6 +8680,85 @@ const enrichPredictionLayer = (row) => {
     ...predictionRow,
     confidenceTier: inferConfidenceTier(predictionRow)
   }
+}
+
+const enrichSpecialPredictionRow = (row) => {
+  const safeRow = row && typeof row === "object" ? row : {}
+
+  const specialBase = {
+    ...safeRow,
+    gameEnvironmentScore: Number(safeRow?.gameEnvironmentScore ?? 0.35),
+    matchupEdgeScore: Number(safeRow?.matchupEdgeScore ?? 0.25),
+    bookValueScore: Number(safeRow?.bookValueScore ?? inferBookValueScore(safeRow)),
+    volatilityScore: Number(safeRow?.volatilityScore ?? inferVolatilityScore(safeRow)),
+    betTypeFit: String(safeRow?.betTypeFit || inferBetTypeFit(safeRow, {
+      gameEnvironmentScore: Number(safeRow?.gameEnvironmentScore ?? 0.35),
+      matchupEdgeScore: Number(safeRow?.matchupEdgeScore ?? 0.25),
+      bookValueScore: Number(safeRow?.bookValueScore ?? inferBookValueScore(safeRow)),
+      volatilityScore: Number(safeRow?.volatilityScore ?? inferVolatilityScore(safeRow))
+    }))
+  }
+
+  const enrichedPrediction = enrichPredictionLayer(specialBase)
+  const evidence = buildEvidence(enrichedPrediction)
+  const whyItRates = buildDataDrivenWhyItRates(enrichedPrediction)
+  const modelSummary = buildModelSummary(enrichedPrediction, evidence, whyItRates)
+
+  return {
+    ...enrichedPrediction,
+    evidence,
+    whyItRates,
+    modelSummary
+  }
+}
+
+const normalizeRelativeScores = (rows, key) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  if (!safeRows.length) return safeRows
+
+  const values = safeRows.map((r) => Number(r?.[key] || 0))
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+
+  return safeRows.map((row) => ({
+    ...row,
+    [`${key}Relative`]: (Number(row?.[key] || 0) - min) / range
+  }))
+}
+
+const applyGamePriorityBoost = (rows) => {
+  const byGame = {}
+
+  for (const row of rows) {
+    const key = String(row?.matchup || "")
+    if (!byGame[key]) byGame[key] = []
+    byGame[key].push(row)
+  }
+
+  let output = []
+
+  for (const gameRows of Object.values(byGame)) {
+    const sorted = [...gameRows].sort(
+      (a, b) => (b.playerConfidenceScore || 0) - (a.playerConfidenceScore || 0)
+    )
+
+    const boosted = sorted.map((row, idx) => {
+      let boost = 0
+      if (idx === 0) boost = 0.12
+      else if (idx === 1) boost = 0.07
+      else if (idx === 2) boost = 0.03
+
+      return {
+        ...row,
+        playerConfidenceScore: Math.min(1, (row.playerConfidenceScore || 0) + boost)
+      }
+    })
+
+    output.push(...boosted)
+  }
+
+  return output
 }
 
 const dedupePredictionRows = (rows) => {
