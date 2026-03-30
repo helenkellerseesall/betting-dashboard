@@ -6534,13 +6534,22 @@ app.get("/api/best-available", (req, res) => {
   }
   // === END FORCE COVERAGE DEBUG ===
 
+  const bestPayloadRows = getAvailablePrimarySlateRows(
+    Array.isArray(effectiveBestProps) ? effectiveBestProps : []
+  )
+
+  console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
+    beforeTotal: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
+    afterTotal: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0
+  })
+
   if (bestAvailablePayload) {
-    bestAvailablePayload.best = effectiveBestProps
+    bestAvailablePayload.best = bestPayloadRows
     if (bestAvailablePayload.availableCounts) {
       bestAvailablePayload.availableCounts.best = {
-        total: effectiveBestProps.length,
-        fanduel: effectiveBestProps.filter((row) => row?.book === "FanDuel").length,
-        draftkings: effectiveBestProps.filter((row) => row?.book === "DraftKings").length
+        total: bestPayloadRows.length,
+        fanduel: bestPayloadRows.filter((row) => row?.book === "FanDuel").length,
+        draftkings: bestPayloadRows.filter((row) => row?.book === "DraftKings").length
       }
     }
   }
@@ -15314,7 +15323,9 @@ runCurrentSlateCoverageDiagnostics({
   finalBestVisibleRows: refreshSnapshotFinalBestVisibleRowsPreSave
 })
 
-oddsSnapshot.bestProps = refreshPlayableFanDuelPromotion.rows
+const refreshPromotedBestProps = Array.isArray(refreshPlayableFanDuelPromotion.rows)
+  ? refreshPlayableFanDuelPromotion.rows
+  : []
 logBestStage("refresh-snapshot:finalAssignedBestProps", oddsSnapshot.bestProps)
 logPropStageByBookDebug("refresh-snapshot:finalPromotion", {
   elite: oddsSnapshot.eliteProps,
@@ -16543,7 +16554,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       promotedCount: hardResetPlayableFanDuelPromotion.promotedCount,
       playableFanDuelCount: countByBookForRows(oddsSnapshot.playableProps).FanDuel
     })
-    oddsSnapshot.bestProps = hardResetPlayableFanDuelPromotion.rows
+    const hardResetPromotedBestProps = Array.isArray(hardResetPlayableFanDuelPromotion.rows)
+      ? hardResetPlayableFanDuelPromotion.rows
+      : []
     logBestStage("refresh-snapshot-hard-reset:finalAssignedBestProps", oddsSnapshot.bestProps)
     logPropStageByBookDebug("refresh-snapshot-hard-reset:finalPromotion", {
       elite: oddsSnapshot.eliteProps,
