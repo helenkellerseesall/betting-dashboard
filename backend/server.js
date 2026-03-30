@@ -8078,6 +8078,136 @@ function getSharpSteamBonus(row) {
   return bonus
 }
 
+// --- Edge profile helpers (additive, non-scoring) ---
+
+const clamp01 = (value) => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return 0
+  if (num <= 0) return 0
+  if (num >= 1) return 1
+  return num
+}
+
+const normalizeOddsForValueScore = (odds) => {
+  const num = Number(odds)
+  if (!Number.isFinite(num)) return 0
+  if (num >= 0) {
+    return clamp01((num - 100) / 900)
+  }
+  return clamp01((Math.abs(num) - 100) / 900)
+}
+
+const inferGameEnvironmentScore = (row) => {
+  const hitRate = Number(row?.hitRate || 0)
+  const edge = Number(row?.edge || 0)
+  const propType = String(row?.propType || "")
+  const odds = Number(row?.odds || 0)
+
+  let score = 0.35
+  score += clamp01(hitRate) * 0.25
+  score += clamp01(edge / 20) * 0.20
+
+  if (["Points", "PRA", "Assists", "Threes", "Points Ladder", "PRA Ladder", "Assists Ladder", "Threes Ladder"].includes(propType)) {
+    score += 0.10
+  }
+
+  if (Number.isFinite(odds) && odds > 0) {
+    score += 0.05
+  }
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferMatchupEdgeScore = (row) => {
+  const edge = Number(row?.edge || 0)
+  const hitRate = Number(row?.hitRate || 0)
+  const propType = String(row?.propType || "")
+  const propVariant = String(row?.propVariant || "base")
+
+  let score = 0.20
+  score += clamp01(edge / 25) * 0.45
+  score += clamp01(hitRate) * 0.20
+
+  if (propVariant.includes("alt")) score += 0.05
+  if (["First Basket", "First Team Basket", "Double Double", "Triple Double"].includes(propType)) score += 0.05
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferBookValueScore = (row) => {
+  const odds = Number(row?.odds || 0)
+  const propVariant = String(row?.propVariant || "base")
+  const marketKey = String(row?.marketKey || "")
+  const edge = Number(row?.edge || 0)
+
+  let score = 0.15
+  score += normalizeOddsForValueScore(odds) * 0.35
+  score += clamp01(edge / 20) * 0.20
+
+  if (propVariant.includes("alt")) score += 0.10
+  if (marketKey.includes("first_basket")) score += 0.10
+  if (marketKey.includes("double_double") || marketKey.includes("triple_double")) score += 0.10
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferVolatilityScore = (row) => {
+  const odds = Number(row?.odds || 0)
+  const propType = String(row?.propType || "")
+  const propVariant = String(row?.propVariant || "base")
+  const marketKey = String(row?.marketKey || "")
+
+  let score = 0.15
+
+  if (Number.isFinite(odds) && odds > 0) score += clamp01(odds / 1000) * 0.35
+  if (propVariant.includes("alt")) score += 0.20
+  if (marketKey.includes("first_basket") || marketKey.includes("first_team_basket")) score += 0.25
+  if (marketKey.includes("triple_double")) score += 0.20
+  if (["First Basket", "First Team Basket", "Triple Double"].includes(propType)) score += 0.15
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferBetTypeFit = (row, profile) => {
+  const propType = String(row?.propType || "")
+  const propVariant = String(row?.propVariant || "base")
+  const marketKey = String(row?.marketKey || "")
+  const hitRate = Number(row?.hitRate || 0)
+  const odds = Number(row?.odds || 0)
+
+  if (marketKey.includes("first_basket") || marketKey.includes("first_team_basket")) return "special"
+  if (marketKey.includes("double_double") || marketKey.includes("triple_double")) return "special"
+
+  if (propVariant.includes("alt-max") || propVariant.includes("alt-high")) return "ladder"
+  if (profile.volatilityScore >= 0.75 && Number.isFinite(odds) && odds >= 300) return "lotto"
+  if (hitRate >= 0.66 && profile.matchupEdgeScore >= 0.45) return "anchor"
+  if (profile.bookValueScore >= 0.55) return "value"
+
+  return "playable"
+}
+
+const buildWhyItRates = (row, profile) => {
+  const reasons = []
+  const hitRate = Number(row?.hitRate || 0)
+  const edge = Number(row?.edge || 0)
+  const odds = Number(row?.odds || 0)
+  const propVariant = String(row?.propVariant || "base")
+  const marketKey = String(row?.marketKey || "")
+
+  if (hitRate >= 0.65) reasons.push("high-hit-rate")
+  if (edge >= 8) reasons.push("positive-edge")
+  if (profile.matchupEdgeScore >= 0.55) reasons.push("matchup-edge")
+  if (profile.gameEnvironmentScore >= 0.60) reasons.push("good-game-environment")
+  if (profile.bookValueScore >= 0.55) reasons.push("book-value")
+  if (propVariant.includes("alt")) reasons.push("alt-line-upside")
+  if (marketKey.includes("first_basket") || marketKey.includes("first_team_basket")) reasons.push("special-market-upside")
+  if (Number.isFinite(odds) && odds >= 300) reasons.push("high-payout-volatility")
+
+  return reasons
+}
+
+// --- End edge profile helpers ---
+
 function scorePropRow(row) {
   const hitRateValue = parseHitRate(row.hitRate)
   const line = Number(row.line || 0)
@@ -14087,11 +14217,31 @@ const scoredProps = deduped
     if (row.propType === "PRA" && Number(row.line) > 47.5) return false
     return true
   })
-  .map((row) => ({
-    ...row,
-    score: scorePropRow(row),
-    dvpScore: getDvpScore(getOpponentForRow(row), row.propType)
-  }))
+  .map((row) => {
+    const baseRow = {
+      ...row,
+      score: scorePropRow(row),
+      dvpScore: getDvpScore(getOpponentForRow(row), row.propType)
+    }
+    const edgeProfile = {
+      gameEnvironmentScore: inferGameEnvironmentScore(baseRow),
+      matchupEdgeScore: inferMatchupEdgeScore(baseRow),
+      bookValueScore: inferBookValueScore(baseRow),
+      volatilityScore: inferVolatilityScore(baseRow)
+    }
+    const betTypeFit = inferBetTypeFit(baseRow, edgeProfile)
+    const whyItRates = buildWhyItRates(baseRow, edgeProfile)
+    return {
+      ...baseRow,
+      gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
+      matchupEdgeScore: edgeProfile.matchupEdgeScore,
+      bookValueScore: edgeProfile.bookValueScore,
+      volatilityScore: edgeProfile.volatilityScore,
+      betTypeFit,
+      edgeProfile,
+      whyItRates
+    }
+  })
   .filter((row) => {
     const hasCoreData =
       row.team &&
@@ -14106,6 +14256,36 @@ const scoredProps = deduped
     if ((b.edge ?? -999) !== (a.edge ?? -999)) return (b.edge ?? -999) - (a.edge ?? -999)
     return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
   })
+
+console.log("[EDGE-PROFILE-DEBUG]", {
+  totalRows: Array.isArray(scoredProps) ? scoredProps.length : 0,
+  byBetTypeFit: Array.isArray(scoredProps)
+    ? scoredProps.reduce((acc, row) => {
+        const key = String(row?.betTypeFit || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    : {},
+  sampleRows: Array.isArray(scoredProps)
+    ? scoredProps.slice(0, 12).map((row) => ({
+        player: row?.player || null,
+        team: row?.team || null,
+        matchup: row?.matchup || null,
+        propType: row?.propType || null,
+        marketKey: row?.marketKey || null,
+        propVariant: row?.propVariant || "base",
+        odds: row?.odds ?? null,
+        hitRate: row?.hitRate ?? null,
+        edge: row?.edge ?? null,
+        gameEnvironmentScore: row?.gameEnvironmentScore ?? null,
+        matchupEdgeScore: row?.matchupEdgeScore ?? null,
+        bookValueScore: row?.bookValueScore ?? null,
+        volatilityScore: row?.volatilityScore ?? null,
+        betTypeFit: row?.betTypeFit || null,
+        whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : []
+      }))
+    : []
+})
 
 console.log("[BOOK-DATA-QUALITY-FILTER]", {
   totalAfterFilter: scoredProps.length,
@@ -16497,7 +16677,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       sample: badTeamAssignmentRows
     })
 
-    const scoredProps = matchupValidProps.map((row) => ({
+    const scoredPropsBase = matchupValidProps.map((row) => ({
       ...row,
       score: scorePropRow(row),
       dvpScore: scorePropRowForDvp(row),
@@ -16514,6 +16694,57 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       hitRate: getPlayerHitRate(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side),
       edge: getPlayerEdge(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side, row.odds)
     }))
+    const scoredProps = scoredPropsBase.map((row) => {
+      const edgeProfile = {
+        gameEnvironmentScore: inferGameEnvironmentScore(row),
+        matchupEdgeScore: inferMatchupEdgeScore(row),
+        bookValueScore: inferBookValueScore(row),
+        volatilityScore: inferVolatilityScore(row)
+      }
+      const betTypeFit = inferBetTypeFit(row, edgeProfile)
+      const whyItRates = buildWhyItRates(row, edgeProfile)
+      return {
+        ...row,
+        gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
+        matchupEdgeScore: edgeProfile.matchupEdgeScore,
+        bookValueScore: edgeProfile.bookValueScore,
+        volatilityScore: edgeProfile.volatilityScore,
+        betTypeFit,
+        edgeProfile,
+        whyItRates
+      }
+    })
+
+    console.log("[EDGE-PROFILE-DEBUG]", {
+      totalRows: Array.isArray(scoredProps) ? scoredProps.length : 0,
+      byBetTypeFit: Array.isArray(scoredProps)
+        ? scoredProps.reduce((acc, row) => {
+            const key = String(row?.betTypeFit || "unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      sampleRows: Array.isArray(scoredProps)
+        ? scoredProps.slice(0, 12).map((row) => ({
+            player: row?.player || null,
+            team: row?.team || null,
+            matchup: row?.matchup || null,
+            propType: row?.propType || null,
+            marketKey: row?.marketKey || null,
+            propVariant: row?.propVariant || "base",
+            odds: row?.odds ?? null,
+            hitRate: row?.hitRate ?? null,
+            edge: row?.edge ?? null,
+            gameEnvironmentScore: row?.gameEnvironmentScore ?? null,
+            matchupEdgeScore: row?.matchupEdgeScore ?? null,
+            bookValueScore: row?.bookValueScore ?? null,
+            volatilityScore: row?.volatilityScore ?? null,
+            betTypeFit: row?.betTypeFit || null,
+            whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : []
+          }))
+        : []
+    })
+
     const scoredRankedForDebug = [...scoredProps].sort((a, b) => {
       if (Number(b.score || 0) !== Number(a.score || 0)) {
         return Number(b.score || 0) - Number(a.score || 0)
