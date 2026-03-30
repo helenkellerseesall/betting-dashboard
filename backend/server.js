@@ -6894,6 +6894,31 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  console.log("[FIRST-BASKET-CONTEXT-DEBUG]", {
+    firstBasketLikeCount: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.filter((row) =>
+          ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
+        ).length
+      : 0,
+    sample: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps
+          .filter((row) =>
+            ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
+          )
+          .slice(0, 8)
+          .map((row) => ({
+            player: row?.player || null,
+            propType: row?.propType || null,
+            odds: row?.odds ?? null,
+            gamePriorityScore: row?.gamePriorityScore ?? null,
+            playerConfidenceScore: row?.playerConfidenceScore ?? null,
+            confidenceTier: row?.confidenceTier || null,
+            whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : [],
+            modelSummary: row?.modelSummary || null
+          }))
+      : []
+  })
+
   console.log("[SPECIAL-CONTEXT-DEBUG]", {
     totalSpecialProps: Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps.length : 0,
     bySubtype: Array.isArray(enrichedSpecialProps)
@@ -8945,6 +8970,116 @@ const inferSpecialConfidenceTier = (row, adjustedConfidence, contextEvidence) =>
   return "special-thin"
 }
 
+const isFirstBasketSubtype = (rowOrSubtype) => {
+  const subtype = typeof rowOrSubtype === "string"
+    ? rowOrSubtype
+    : String(rowOrSubtype?.evidence?.subtype || rowOrSubtype?.marketKey || "")
+
+  return subtype === "first-basket" || subtype === "first-team-basket" ||
+    subtype === "player_first_basket" || subtype === "player_first_team_basket"
+}
+
+const inferFirstBasketOddsBandScore = (odds) => {
+  const num = Number(odds || 0)
+  if (!Number.isFinite(num)) return 0.2
+  if (num <= 180) return 0.95
+  if (num <= 320) return 0.82
+  if (num <= 500) return 0.68
+  if (num <= 700) return 0.52
+  if (num <= 1000) return 0.34
+  return 0.18
+}
+
+const inferFirstBasketGameContextScore = (row) => {
+  const odds = Number(row?.odds || 0)
+  const oddsBandScore = inferFirstBasketOddsBandScore(odds)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const volatilityScore = Number(row?.volatilityScore || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+
+  let score = 0.10
+  score += oddsBandScore * 0.45
+  score += bookValueScore * 0.20
+  score += matchupEdgeScore * 0.10
+  score += (1 - Math.min(1, Math.max(0, volatilityScore))) * 0.10
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferFirstBasketConfidenceScore = (row, contextEvidence) => {
+  const odds = Number(row?.odds || 0)
+  const oddsBandScore = inferFirstBasketOddsBandScore(odds)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
+
+  let score = 0.08
+  score += oddsBandScore * 0.45
+  score += bookValueScore * 0.20
+  score += gamePriorityScore * 0.15
+
+  if (String(contextEvidence?.oddsBand || "") === "favored") score += 0.08
+  if (String(contextEvidence?.oddsBand || "") === "balanced") score += 0.05
+  if (String(contextEvidence?.oddsBand || "") === "longshot") score -= 0.04
+  if (String(contextEvidence?.oddsBand || "") === "extreme-longshot") score -= 0.12
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const buildFirstBasketWhyItRates = (row, contextEvidence) => {
+  const reasons = []
+  const oddsBand = String(contextEvidence?.oddsBand || "")
+  const impliedProbability = Number(contextEvidence?.impliedProbability || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
+  const playerConfidenceScore = Number(row?.playerConfidenceScore || 0)
+
+  if (String(contextEvidence?.subtype || "") === "first-team-basket") reasons.push("team-first-score-angle")
+  else reasons.push("first-score-angle")
+
+  if (oddsBand === "favored") reasons.push("high-implied-probability")
+  if (oddsBand === "balanced") reasons.push("balanced-upside")
+  if (oddsBand === "longshot") reasons.push("longshot-upside")
+  if (oddsBand === "extreme-longshot") reasons.push("extreme-longshot")
+
+  if (impliedProbability >= 0.18) reasons.push("meaningful-implied-probability")
+  if (bookValueScore >= 0.30) reasons.push("book-value")
+  if (gamePriorityScore >= 0.35) reasons.push("game-context-valid")
+  if (playerConfidenceScore >= 0.38) reasons.push("model-confidence-valid")
+
+  return [...new Set(reasons)]
+}
+
+const buildFirstBasketSummary = (row, contextEvidence, whyItRates) => {
+  const player = String(row?.player || "This play")
+  const propType = String(row?.propType || "First Basket")
+
+  const pieces = []
+  if (contextEvidence?.oddsBandLabel) pieces.push(contextEvidence.oddsBandLabel)
+  if (contextEvidence?.gameContextLabel) pieces.push(contextEvidence.gameContextLabel)
+  if (contextEvidence?.bookValueLabel) pieces.push(contextEvidence.bookValueLabel)
+  if (contextEvidence?.confidenceLabel) pieces.push(contextEvidence.confidenceLabel)
+
+  if (!pieces.length) {
+    return `${player} ${propType} rates as a first-score play based on current pricing and context.`
+  }
+
+  return `${player} ${propType} rates well because of ${pieces.join(", ")}.`
+}
+
+const inferFirstBasketConfidenceTier = (row, adjustedConfidence, contextEvidence) => {
+  if (String(contextEvidence?.subtype || "") === "first-team-basket") {
+    if (adjustedConfidence >= 0.60) return "special-elite"
+    if (adjustedConfidence >= 0.48) return "special-strong"
+    if (adjustedConfidence >= 0.34) return "special-playable"
+    return "special-thin"
+  }
+
+  if (adjustedConfidence >= 0.54) return "special-elite"
+  if (adjustedConfidence >= 0.42) return "special-strong"
+  if (adjustedConfidence >= 0.30) return "special-playable"
+  return "special-thin"
+}
+
 const enrichSpecialPredictionRow = (row) => {
   const safeRow = row && typeof row === "object" ? row : {}
 
@@ -8973,16 +9108,45 @@ const enrichSpecialPredictionRow = (row) => {
     const contextModelSummary = buildSpecialContextSummary(withConfidence, contextEvidence, contextWhyItRates)
     const confidenceTier = inferSpecialConfidenceTier(withConfidence, adjustedSpecialConfidence, contextEvidence)
 
+    let finalGamePriorityScore = Number(withConfidence?.gamePriorityScore || 0)
+    let finalPlayerConfidenceScore = adjustedSpecialConfidence
+    let finalWhyItRates = contextWhyItRates
+    let finalModelSummary = contextModelSummary
+    let finalConfidenceTier = confidenceTier
+
+    if (isFirstBasketSubtype(contextEvidence?.subtype)) {
+      finalGamePriorityScore = inferFirstBasketGameContextScore(withConfidence)
+      finalPlayerConfidenceScore = inferFirstBasketConfidenceScore(
+        { ...withConfidence, gamePriorityScore: finalGamePriorityScore },
+        contextEvidence
+      )
+      finalWhyItRates = buildFirstBasketWhyItRates(
+        { ...withConfidence, gamePriorityScore: finalGamePriorityScore, playerConfidenceScore: finalPlayerConfidenceScore },
+        contextEvidence
+      )
+      finalModelSummary = buildFirstBasketSummary(
+        { ...withConfidence, gamePriorityScore: finalGamePriorityScore, playerConfidenceScore: finalPlayerConfidenceScore },
+        contextEvidence,
+        finalWhyItRates
+      )
+      finalConfidenceTier = inferFirstBasketConfidenceTier(
+        { ...withConfidence, gamePriorityScore: finalGamePriorityScore, playerConfidenceScore: finalPlayerConfidenceScore },
+        finalPlayerConfidenceScore,
+        contextEvidence
+      )
+    }
+
     return {
       ...withConfidence,
+      gamePriorityScore: finalGamePriorityScore,
       evidence: {
         ...(withConfidence?.evidence || {}),
         ...contextEvidence
       },
-      whyItRates: contextWhyItRates,
-      playerConfidenceScore: adjustedSpecialConfidence,
-      confidenceTier,
-      modelSummary: contextModelSummary
+      whyItRates: finalWhyItRates,
+      playerConfidenceScore: finalPlayerConfidenceScore,
+      confidenceTier: finalConfidenceTier,
+      modelSummary: finalModelSummary
     }
   }
 
