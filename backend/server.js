@@ -6318,17 +6318,22 @@ app.get("/api/best-available", (req, res) => {
     specialProps = expandedResult.specialProps || []
 
     // --- Special props fallback: rebuild from snapshot if expandedPools returned empty ---
-    // Also: always merge missing first basket rows even if specialProps is non-empty
+    // Also: always merge missing first basket / first team basket rows even if specialProps is non-empty
     const FIRST_BASKET_MARKET_KEYS = new Set(["player_first_basket", "player_first_team_basket"])
     const FIRST_BASKET_PROP_TYPES = new Set(["First Basket", "First Team Basket"])
 
     const hasFirstBasket = specialProps.some((row) => {
       const mk = String(row?.marketKey || "")
       const pt = String(row?.propType || "")
-      return FIRST_BASKET_MARKET_KEYS.has(mk) || FIRST_BASKET_PROP_TYPES.has(pt)
+      return mk === "player_first_basket" || pt === "First Basket"
+    })
+    const hasFirstTeamBasket = specialProps.some((row) => {
+      const mk = String(row?.marketKey || "")
+      const pt = String(row?.propType || "")
+      return mk === "player_first_team_basket" || pt === "First Team Basket"
     })
 
-    if (!specialProps.length || !hasFirstBasket) {
+    if (!specialProps.length || !hasFirstBasket || !hasFirstTeamBasket) {
       const specialFallbackSource = dedupeMarketRows([
         ...(Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
           ? oddsSnapshot.rawProps
@@ -6418,24 +6423,31 @@ app.get("/api/best-available", (req, res) => {
         : []
     })
 
-    // First basket specific debug
-    const firstBasketRows = specialProps.filter((row) => {
-      const mk = String(row?.marketKey || "")
-      const pt = String(row?.propType || "")
-      return FIRST_BASKET_MARKET_KEYS.has(mk) || FIRST_BASKET_PROP_TYPES.has(pt)
-    })
     console.log("[FIRST-BASKET-DEBUG]", {
-      firstBasketCount: firstBasketRows.length,
-      firstBasketSample: firstBasketRows.slice(0, 10).map((row) => ({
-        player: row?.player || null,
-        matchup: row?.matchup || null,
-        marketKey: row?.marketKey || null,
-        propType: row?.propType || null,
-        side: row?.side || null,
-        odds: row?.odds ?? null,
-        book: row?.book || null,
-        eventId: row?.eventId || null
-      }))
+      firstBasketCount: Array.isArray(specialProps)
+        ? specialProps.filter((row) => String(row?.marketKey || "") === "player_first_basket").length
+        : 0,
+      firstTeamBasketCount: Array.isArray(specialProps)
+        ? specialProps.filter((row) => String(row?.marketKey || "") === "player_first_team_basket").length
+        : 0,
+      sampleFirstBasketLike: Array.isArray(specialProps)
+        ? specialProps
+            .filter((row) =>
+              ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
+            )
+            .slice(0, 12)
+            .map((row) => ({
+              matchup: row?.matchup || null,
+              player: row?.player || null,
+              team: row?.team || null,
+              marketKey: row?.marketKey || null,
+              propType: row?.propType || null,
+              side: row?.side || null,
+              odds: row?.odds ?? null,
+              book: row?.book || null,
+              eventId: row?.eventId || null
+            }))
+        : []
     })
 
     console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
