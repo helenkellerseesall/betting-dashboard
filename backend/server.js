@@ -6724,8 +6724,66 @@ app.get("/api/best-available", (req, res) => {
     specialProps: Array.isArray(specialProps) ? specialProps.length : -1
   })
 
+  // --- Build enriched board source pool ---
+  const dedupeBoardRows = (rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    const seen = new Set()
+    const out = []
+
+    for (const row of safeRows) {
+      const key = [
+        String(row?.eventId || ""),
+        String(row?.player || ""),
+        String(row?.matchup || ""),
+        String(row?.marketKey || ""),
+        String(row?.propType || ""),
+        String(row?.side || ""),
+        String(row?.line ?? ""),
+        String(row?.odds ?? ""),
+        String(row?.propVariant || "base")
+      ].join("|")
+
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(row)
+    }
+
+    return out
+  }
+
+  const boardSourceRows = dedupeBoardRows([
+    ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
+    ...(Array.isArray(standardCandidates) ? standardCandidates : []),
+    ...(Array.isArray(ladderPool) ? ladderPool : []),
+    ...(Array.isArray(specialProps) ? specialProps : []),
+    ...(Array.isArray(effectiveBestProps) ? effectiveBestProps : [])
+  ])
+
+  console.log("[BOARD-SOURCE-DEBUG]", {
+    boardSourceRows: Array.isArray(boardSourceRows) ? boardSourceRows.length : 0,
+    withEvidence: Array.isArray(boardSourceRows)
+      ? boardSourceRows.filter((row) => row?.evidence).length
+      : 0,
+    withWhyItRates: Array.isArray(boardSourceRows)
+      ? boardSourceRows.filter((row) => Array.isArray(row?.whyItRates) && row.whyItRates.length > 0).length
+      : 0,
+    withPredictionScores: Array.isArray(boardSourceRows)
+      ? boardSourceRows.filter((row) =>
+          row?.gamePriorityScore !== null &&
+          row?.gamePriorityScore !== undefined &&
+          row?.playerConfidenceScore !== null &&
+          row?.playerConfidenceScore !== undefined
+        ).length
+      : 0,
+    firstBasketLike: Array.isArray(boardSourceRows)
+      ? boardSourceRows.filter((row) =>
+          ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
+        ).length
+      : 0
+  })
+
   // --- Build market-siloed boards ---
-  const allVisibleRowsForBoards = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const allVisibleRowsForBoards = boardSourceRows
 
   const firstBasketBoard = sortFirstBasketBoard(
     allVisibleRowsForBoards.filter(isFirstBasketLikeRow)
@@ -6765,7 +6823,7 @@ app.get("/api/best-available", (req, res) => {
   })
 
   // --- Build prediction-layer selective picks ---
-  const predictionSourceRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const predictionSourceRows = boardSourceRows
 
   const firstBasketPicks = buildSelectiveBoard(
     predictionSourceRows.filter((row) => isFirstBasketLikeRow(row)),
