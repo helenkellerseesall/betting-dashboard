@@ -6725,7 +6725,11 @@ app.get("/api/best-available", (req, res) => {
   })
 
   return res.json({
-    bestAvailable: bestAvailablePayload,
+    bestAvailable: {
+      ...bestAvailablePayload,
+      specialProps,
+      slipCards
+    },
     ladderPool,
     routePlayableSeed: routePlayableSeed,
     finalPlayableRows: finalPlayableRows,
