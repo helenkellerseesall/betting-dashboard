@@ -6894,6 +6894,16 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  console.log("[SPECIAL-MARKET-INTEL-DEBUG]", {
+    count: enrichedSpecialProps.length,
+    sample: enrichedSpecialProps.slice(0,5).map(r => ({
+      player: r.player,
+      odds: r.odds,
+      confidence: r.playerConfidenceScore,
+      why: r.whyItRates
+    }))
+  })
+
   console.log("[SPECIAL-ENRICHMENT-DEBUG]", {
     rawSpecialProps: Array.isArray(specialProps) ? specialProps.length : 0,
     enrichedSpecialProps: Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps.length : 0,
@@ -8682,8 +8692,83 @@ const enrichPredictionLayer = (row) => {
   }
 }
 
+const buildSpecialMarketEvidence = (row) => {
+  const odds = Number(row?.odds || 0)
+  const player = String(row?.player || "")
+  const propType = String(row?.propType || "")
+
+  const impliedProb = odds > 0
+    ? 100 / (odds + 100)
+    : Math.abs(odds) / (Math.abs(odds) + 100)
+
+  return {
+    impliedProbability: Number(impliedProb.toFixed(3)),
+    isLongshot: odds > 700,
+    isReasonable: odds > 200 && odds <= 700,
+    isFavorite: odds < 200,
+    player,
+    propType
+  }
+}
+
+const buildSpecialWhyItRates = (row, evidence) => {
+  const reasons = []
+
+  if (evidence.isFavorite) reasons.push("high-implied-probability")
+  if (evidence.isReasonable) reasons.push("balanced-upside")
+  if (!evidence.isLongshot) reasons.push("not-extreme-longshot")
+
+  if (row?.team) reasons.push("team-context-valid")
+  if (row?.matchup) reasons.push("game-context-valid")
+
+  return reasons
+}
+
+const scoreSpecialMarketConfidence = (row, evidence) => {
+  let score = 0.25
+
+  // IMPLIED PROBABILITY (MAIN DRIVER)
+  score += evidence.impliedProbability * 0.6
+
+  // ODDS PENALTY / BOOST
+  if (evidence.isLongshot) score -= 0.15
+  if (evidence.isReasonable) score += 0.08
+  if (evidence.isFavorite) score += 0.12
+
+  // STABILITY SIGNALS
+  if (row?.team) score += 0.05
+  if (row?.matchup) score += 0.05
+
+  return Math.max(0, Math.min(1, Number(score.toFixed(3))))
+}
+
 const enrichSpecialPredictionRow = (row) => {
   const safeRow = row && typeof row === "object" ? row : {}
+
+  if (
+    safeRow?.marketKey === "player_first_basket" ||
+    safeRow?.marketKey === "player_first_team_basket" ||
+    safeRow?.marketKey === "player_double_double" ||
+    safeRow?.marketKey === "player_triple_double"
+  ) {
+    const evidence = buildSpecialMarketEvidence(safeRow)
+    const whyItRates = buildSpecialWhyItRates(safeRow, evidence)
+    const confidence = scoreSpecialMarketConfidence(safeRow, evidence)
+
+    const withConfidence = {
+      ...safeRow,
+      evidence,
+      whyItRates,
+      playerConfidenceScore: confidence,
+      modelSummary: `${safeRow.player} ${safeRow.propType} is priced at ${safeRow.odds} with ${(evidence.impliedProbability * 100).toFixed(1)}% implied probability and categorized as ${evidence.isLongshot ? "longshot" : evidence.isReasonable ? "balanced" : "favored"}.`
+    }
+
+    return {
+      ...withConfidence,
+      gamePriorityScore: inferGamePriorityScore(withConfidence),
+      confidenceTier: inferConfidenceTier(withConfidence)
+    }
+  }
 
   const specialBase = {
     ...safeRow,
