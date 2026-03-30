@@ -6724,11 +6724,97 @@ app.get("/api/best-available", (req, res) => {
     specialProps: Array.isArray(specialProps) ? specialProps.length : -1
   })
 
+  // --- Build market-siloed boards ---
+  const allVisibleRowsForBoards = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+
+  const firstBasketBoard = sortFirstBasketBoard(
+    allVisibleRowsForBoards.filter(isFirstBasketLikeRow)
+  ).slice(0, 20)
+
+  const corePropsBoard = sortCorePropsBoard(
+    allVisibleRowsForBoards.filter((row) => isCorePropRow(row) && !isLadderRow(row))
+  ).slice(0, 40)
+
+  const ladderBoard = sortLadderBoard(
+    allVisibleRowsForBoards.filter(isLadderRow)
+  ).slice(0, 40)
+
+  const specialBoard = sortSpecialBoard(
+    allVisibleRowsForBoards.filter(isSpecialButNotFirstBasketRow)
+  ).slice(0, 20)
+
+  const lottoBoard = sortLottoBoard(
+    allVisibleRowsForBoards.filter((row) => isLottoStyleRow(row) || isFirstBasketLikeRow(row))
+  ).slice(0, 30)
+
+  console.log("[BOARD-BUILDER-DEBUG]", {
+    firstBasketBoard: Array.isArray(firstBasketBoard) ? firstBasketBoard.length : 0,
+    corePropsBoard: Array.isArray(corePropsBoard) ? corePropsBoard.length : 0,
+    ladderBoard: Array.isArray(ladderBoard) ? ladderBoard.length : 0,
+    specialBoard: Array.isArray(specialBoard) ? specialBoard.length : 0,
+    lottoBoard: Array.isArray(lottoBoard) ? lottoBoard.length : 0,
+    firstBasketSample: Array.isArray(firstBasketBoard)
+      ? firstBasketBoard.slice(0, 8).map((row) => ({
+          player: row?.player || null,
+          matchup: row?.matchup || null,
+          marketKey: row?.marketKey || null,
+          odds: row?.odds ?? null,
+          whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : []
+        }))
+      : []
+  })
+
+  // --- Build prediction-layer selective picks ---
+  const predictionSourceRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+
+  const firstBasketPicks = buildSelectiveBoard(
+    predictionSourceRows.filter((row) => isFirstBasketLikeRow(row)),
+    8,
+    sortFirstBasketPredictionBoard
+  )
+
+  const corePropPicks = buildSelectiveBoard(
+    predictionSourceRows.filter((row) => isCorePropRow(row) && !isLadderRow(row)),
+    12,
+    sortByPredictionStrength
+  )
+
+  const lottoPicks = buildSelectiveBoard(
+    predictionSourceRows.filter((row) => isLottoStyleRow(row) || isFirstBasketLikeRow(row)),
+    10,
+    sortLottoPredictionBoard
+  )
+
+  console.log("[PREDICTION-LAYER-DEBUG]", {
+    firstBasketPicks: Array.isArray(firstBasketPicks) ? firstBasketPicks.length : 0,
+    corePropPicks: Array.isArray(corePropPicks) ? corePropPicks.length : 0,
+    lottoPicks: Array.isArray(lottoPicks) ? lottoPicks.length : 0,
+    firstBasketSample: Array.isArray(firstBasketPicks)
+      ? firstBasketPicks.slice(0, 6).map((row) => ({
+          player: row?.player || null,
+          matchup: row?.matchup || null,
+          odds: row?.odds ?? null,
+          gamePriorityScore: row?.gamePriorityScore ?? null,
+          playerConfidenceScore: row?.playerConfidenceScore ?? null,
+          confidenceTier: row?.confidenceTier || null,
+          whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : []
+        }))
+      : []
+  })
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayload,
       specialProps,
-      slipCards
+      slipCards,
+      firstBasketBoard,
+      corePropsBoard,
+      ladderBoard,
+      specialBoard,
+      lottoBoard,
+      firstBasketPicks,
+      corePropPicks,
+      lottoPicks
     },
     ladderPool,
     routePlayableSeed: routePlayableSeed,
@@ -8211,6 +8297,354 @@ const buildWhyItRates = (row, profile) => {
 }
 
 // --- End edge profile helpers ---
+
+// --- Market-siloed board predicates ---
+
+const isFirstBasketLikeRow = (row) => {
+  const marketKey = String(row?.marketKey || "")
+  const propType = String(row?.propType || "")
+  return (
+    marketKey === "player_first_basket" ||
+    marketKey === "player_first_team_basket" ||
+    propType === "First Basket" ||
+    propType === "First Team Basket"
+  )
+}
+
+const isCorePropRow = (row) => {
+  const propType = String(row?.propType || "")
+  return new Set([
+    "Points",
+    "Rebounds",
+    "Assists",
+    "Threes",
+    "PRA"
+  ]).has(propType)
+}
+
+const isLadderRow = (row) => {
+  const propVariant = String(row?.propVariant || "")
+  const propType = String(row?.propType || "")
+  return (
+    propVariant.includes("alt") ||
+    propType.includes("Ladder")
+  )
+}
+
+const isSpecialButNotFirstBasketRow = (row) => {
+  const propType = String(row?.propType || "")
+  const marketKey = String(row?.marketKey || "")
+  if (isFirstBasketLikeRow(row)) return false
+  return (
+    marketKey === "player_double_double" ||
+    marketKey === "player_triple_double" ||
+    propType === "Double Double" ||
+    propType === "Triple Double"
+  )
+}
+
+const isLottoStyleRow = (row) => {
+  const odds = Number(row?.odds || 0)
+  const betTypeFit = String(row?.betTypeFit || "")
+  return betTypeFit === "lotto" || odds >= 300
+}
+
+// --- Market-siloed board ranking helpers ---
+
+const sortFirstBasketBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.bookValueScore || 0) * 0.35) +
+      (Number(a?.matchupEdgeScore || 0) * 0.20) +
+      (Number(a?.gameEnvironmentScore || 0) * 0.15) +
+      (Number(a?.volatilityScore || 0) * 0.20) +
+      ((Number(a?.odds || 0) >= 250 && Number(a?.odds || 0) <= 2500) ? 0.10 : 0)
+
+    const bScore =
+      (Number(b?.bookValueScore || 0) * 0.35) +
+      (Number(b?.matchupEdgeScore || 0) * 0.20) +
+      (Number(b?.gameEnvironmentScore || 0) * 0.15) +
+      (Number(b?.volatilityScore || 0) * 0.20) +
+      ((Number(b?.odds || 0) >= 250 && Number(b?.odds || 0) <= 2500) ? 0.10 : 0)
+
+    return bScore - aScore
+  })
+}
+
+const sortCorePropsBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.score || 0) * 0.45) +
+      (Number(a?.matchupEdgeScore || 0) * 0.20) +
+      (Number(a?.gameEnvironmentScore || 0) * 0.15) +
+      (Number(a?.bookValueScore || 0) * 0.10) -
+      (Number(a?.volatilityScore || 0) * 0.10)
+
+    const bScore =
+      (Number(b?.score || 0) * 0.45) +
+      (Number(b?.matchupEdgeScore || 0) * 0.20) +
+      (Number(b?.gameEnvironmentScore || 0) * 0.15) +
+      (Number(b?.bookValueScore || 0) * 0.10) -
+      (Number(b?.volatilityScore || 0) * 0.10)
+
+    return bScore - aScore
+  })
+}
+
+const sortLadderBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.bookValueScore || 0) * 0.25) +
+      (Number(a?.volatilityScore || 0) * 0.25) +
+      (Number(a?.matchupEdgeScore || 0) * 0.20) +
+      (Number(a?.score || 0) * 0.20) +
+      (String(a?.betTypeFit || "") === "ladder" ? 0.10 : 0)
+
+    const bScore =
+      (Number(b?.bookValueScore || 0) * 0.25) +
+      (Number(b?.volatilityScore || 0) * 0.25) +
+      (Number(b?.matchupEdgeScore || 0) * 0.20) +
+      (Number(b?.score || 0) * 0.20) +
+      (String(b?.betTypeFit || "") === "ladder" ? 0.10 : 0)
+
+    return bScore - aScore
+  })
+}
+
+const sortSpecialBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.bookValueScore || 0) * 0.30) +
+      (Number(a?.volatilityScore || 0) * 0.20) +
+      (Number(a?.matchupEdgeScore || 0) * 0.15) +
+      (Number(a?.score || 0) * 0.15) +
+      (String(a?.betTypeFit || "") === "special" ? 0.20 : 0)
+
+    const bScore =
+      (Number(b?.bookValueScore || 0) * 0.30) +
+      (Number(b?.volatilityScore || 0) * 0.20) +
+      (Number(b?.matchupEdgeScore || 0) * 0.15) +
+      (Number(b?.score || 0) * 0.15) +
+      (String(b?.betTypeFit || "") === "special" ? 0.20 : 0)
+
+    return bScore - aScore
+  })
+}
+
+const sortLottoBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.volatilityScore || 0) * 0.35) +
+      (Number(a?.bookValueScore || 0) * 0.20) +
+      (Number(a?.matchupEdgeScore || 0) * 0.15) +
+      ((Number(a?.odds || 0) >= 300) ? 0.20 : 0) +
+      (String(a?.betTypeFit || "") === "lotto" ? 0.10 : 0)
+
+    const bScore =
+      (Number(b?.volatilityScore || 0) * 0.35) +
+      (Number(b?.bookValueScore || 0) * 0.20) +
+      (Number(b?.matchupEdgeScore || 0) * 0.15) +
+      ((Number(b?.odds || 0) >= 300) ? 0.20 : 0) +
+      (String(b?.betTypeFit || "") === "lotto" ? 0.10 : 0)
+
+    return bScore - aScore
+  })
+}
+
+// --- End market-siloed board helpers ---
+
+// --- Prediction layer helpers ---
+
+const inferGamePriorityScore = (row) => {
+  const gameEnvironmentScore = Number(row?.gameEnvironmentScore || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+  const volatilityScore = Number(row?.volatilityScore || 0)
+  const propType = String(row?.propType || "")
+  const marketKey = String(row?.marketKey || "")
+
+  let score = 0.25
+  score += gameEnvironmentScore * 0.40
+  score += matchupEdgeScore * 0.25
+  score += volatilityScore * 0.10
+
+  if (["Points", "PRA", "Assists", "Threes"].includes(propType)) score += 0.10
+  if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") score += 0.10
+
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+const inferPlayerConfidenceScore = (row) => {
+  const score = Number(row?.score || 0)
+  const hitRateRaw = row?.hitRate
+  const hitRate =
+    typeof hitRateRaw === "string" && hitRateRaw.includes("/")
+      ? (() => {
+          const [a, b] = hitRateRaw.split("/").map(Number)
+          return b ? a / b : 0
+        })()
+      : Number(hitRateRaw || 0)
+
+  const gameEnvironmentScore = Number(row?.gameEnvironmentScore || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const volatilityScore = Number(row?.volatilityScore || 0)
+
+  let normalizedModelScore = 0
+  if (Number.isFinite(score)) normalizedModelScore = Math.min(1, Math.max(0, score / 250))
+
+  let confidence = 0.10
+  confidence += normalizedModelScore * 0.30
+  confidence += Math.min(1, Math.max(0, hitRate)) * 0.25
+  confidence += matchupEdgeScore * 0.15
+  confidence += gameEnvironmentScore * 0.10
+  confidence += bookValueScore * 0.10
+  confidence -= volatilityScore * 0.08
+
+  return Number(Math.min(1, Math.max(0, confidence)).toFixed(3))
+}
+
+const inferConfidenceTier = (row) => {
+  const confidence = Number(row?.playerConfidenceScore || 0)
+  const betTypeFit = String(row?.betTypeFit || "")
+  const marketKey = String(row?.marketKey || "")
+
+  if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") {
+    if (confidence >= 0.60) return "special-elite"
+    if (confidence >= 0.48) return "special-strong"
+    return "special-playable"
+  }
+
+  if (betTypeFit === "lotto") {
+    if (confidence >= 0.52) return "lotto-strong"
+    return "lotto-playable"
+  }
+
+  if (confidence >= 0.72) return "elite"
+  if (confidence >= 0.60) return "strong"
+  if (confidence >= 0.48) return "playable"
+  return "thin"
+}
+
+const enrichPredictionLayer = (row) => {
+  const gamePriorityScore = inferGamePriorityScore(row)
+  const playerConfidenceScore = inferPlayerConfidenceScore({
+    ...row,
+    gameEnvironmentScore: row?.gameEnvironmentScore,
+    matchupEdgeScore: row?.matchupEdgeScore,
+    bookValueScore: row?.bookValueScore,
+    volatilityScore: row?.volatilityScore
+  })
+
+  const predictionRow = {
+    ...row,
+    gamePriorityScore,
+    playerConfidenceScore
+  }
+
+  return {
+    ...predictionRow,
+    confidenceTier: inferConfidenceTier(predictionRow)
+  }
+}
+
+const dedupePredictionRows = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const seen = new Set()
+  const out = []
+
+  for (const row of safeRows) {
+    const key = [
+      String(row?.player || ""),
+      String(row?.matchup || ""),
+      String(row?.propType || ""),
+      String(row?.side || ""),
+      String(row?.line ?? ""),
+      String(row?.marketKey || ""),
+      String(row?.propVariant || "base")
+    ].join("|")
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+
+  return out
+}
+
+const buildSelectiveBoard = (rows, limit, sortFn) => {
+  const safeRows = dedupePredictionRows(Array.isArray(rows) ? rows : [])
+  const sorted = typeof sortFn === "function" ? sortFn(safeRows) : safeRows
+  return sorted.slice(0, limit)
+}
+
+const sortByPredictionStrength = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.playerConfidenceScore || 0) * 0.45) +
+      (Number(a?.gamePriorityScore || 0) * 0.25) +
+      (Number(a?.bookValueScore || 0) * 0.10) +
+      (Number(a?.matchupEdgeScore || 0) * 0.10) -
+      (Number(a?.volatilityScore || 0) * 0.05)
+
+    const bScore =
+      (Number(b?.playerConfidenceScore || 0) * 0.45) +
+      (Number(b?.gamePriorityScore || 0) * 0.25) +
+      (Number(b?.bookValueScore || 0) * 0.10) +
+      (Number(b?.matchupEdgeScore || 0) * 0.10) -
+      (Number(b?.volatilityScore || 0) * 0.05)
+
+    return bScore - aScore
+  })
+}
+
+const sortFirstBasketPredictionBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.playerConfidenceScore || 0) * 0.30) +
+      (Number(a?.bookValueScore || 0) * 0.20) +
+      (Number(a?.gamePriorityScore || 0) * 0.20) +
+      (Number(a?.volatilityScore || 0) * 0.15) +
+      ((Number(a?.odds || 0) >= 300 && Number(a?.odds || 0) <= 1800) ? 0.15 : 0)
+
+    const bScore =
+      (Number(b?.playerConfidenceScore || 0) * 0.30) +
+      (Number(b?.bookValueScore || 0) * 0.20) +
+      (Number(b?.gamePriorityScore || 0) * 0.20) +
+      (Number(b?.volatilityScore || 0) * 0.15) +
+      ((Number(b?.odds || 0) >= 300 && Number(b?.odds || 0) <= 1800) ? 0.15 : 0)
+
+    return bScore - aScore
+  })
+}
+
+const sortLottoPredictionBoard = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) => {
+    const aScore =
+      (Number(a?.volatilityScore || 0) * 0.30) +
+      (Number(a?.bookValueScore || 0) * 0.20) +
+      (Number(a?.playerConfidenceScore || 0) * 0.20) +
+      (Number(a?.gamePriorityScore || 0) * 0.10) +
+      ((Number(a?.odds || 0) >= 300) ? 0.20 : 0)
+
+    const bScore =
+      (Number(b?.volatilityScore || 0) * 0.30) +
+      (Number(b?.bookValueScore || 0) * 0.20) +
+      (Number(b?.playerConfidenceScore || 0) * 0.20) +
+      (Number(b?.gamePriorityScore || 0) * 0.10) +
+      ((Number(b?.odds || 0) >= 300) ? 0.20 : 0)
+
+    return bScore - aScore
+  })
+}
+
+// --- End prediction layer helpers ---
 
 function scorePropRow(row) {
   const hitRateValue = parseHitRate(row.hitRate)
@@ -14235,7 +14669,7 @@ const scoredProps = deduped
     }
     const betTypeFit = inferBetTypeFit(baseRow, edgeProfile)
     const whyItRates = buildWhyItRates(baseRow, edgeProfile)
-    return {
+    const edgeRow = {
       ...baseRow,
       gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
       matchupEdgeScore: edgeProfile.matchupEdgeScore,
@@ -14245,6 +14679,7 @@ const scoredProps = deduped
       edgeProfile,
       whyItRates
     }
+    return enrichPredictionLayer(edgeRow)
   })
   .filter((row) => {
     const hasCoreData =
@@ -16707,7 +17142,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }
       const betTypeFit = inferBetTypeFit(row, edgeProfile)
       const whyItRates = buildWhyItRates(row, edgeProfile)
-      return {
+      const edgeRow = {
         ...row,
         gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
         matchupEdgeScore: edgeProfile.matchupEdgeScore,
@@ -16717,6 +17152,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         edgeProfile,
         whyItRates
       }
+      return enrichPredictionLayer(edgeRow)
     })
 
     console.log("[EDGE-PROFILE-DEBUG]", {
