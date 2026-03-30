@@ -9,6 +9,9 @@ const path = require("path")
 const MLScorer = require("./ml/scorer")
 const { buildMoneyMakerPortfolio } = require("./upside/builders")
 const { isFragileLeg, getFragileLegDiagnostics, resetFragileFilterAdjustedLogCount } = require("./pipeline/filters/fragile")
+const { buildSlateEvents } = require("./pipeline/schedule/buildSlateEvents")
+const { inferMarketTypeFromKey } = require("./pipeline/markets/classification")
+const { buildExpandedMarketPools, buildFinalPlayableRows } = require("./pipeline/markets/expandedPools")
 const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline/selection/bestProps")
 
 // Initialize ML scorer (loads trained model if available)
@@ -48,6 +51,28 @@ const WATCHED_PLAYER_NAMES = [
 
 const ACTIVE_BOOKS = ["DraftKings"]
 
+const DK_EXTRA_MARKETS = [
+  "player_first_basket",
+  "player_first_team_basket",
+  "player_double_double",
+  "player_triple_double",
+  "player_points_alternate",
+  "player_rebounds_alternate",
+  "player_assists_alternate",
+  "player_threes_alternate",
+  "player_points_rebounds_assists_alternate"
+]
+
+const BASE_MARKETS = [
+  "player_points",
+  "player_rebounds",
+  "player_assists",
+  "player_threes",
+  "player_points_rebounds_assists"
+]
+
+const ALL_DK_MARKETS = [...BASE_MARKETS, ...DK_EXTRA_MARKETS]
+
 const UNSTABLE_GAME_EVENT_IDS = [
   "d17b632d984be98852b4bc409ae1d056",
   "24a4d71edcffcb5584a61d2aa89c66d8"
@@ -69,6 +94,13 @@ try {
       : null
     console.log("[SNAPSHOT-CACHE] loaded snapshot from disk", {
       ageMinutes: lastSnapshotAgeMinutes
+    })
+    console.log("[TOP-DOWN-DISK-LOAD]", {
+      events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1,
+      updatedAt: oddsSnapshot?.updatedAt || null
     })
   }
 } catch (e) {
@@ -237,99 +269,6 @@ function detectInterestingMarketKeys(marketKeys) {
   }
 }
 
-// --- MARKET EXPANSION SCAFFOLD ---
-const MARKET_TYPE_RULES = [
-  {
-    internalType: "First Basket",
-    family: "special",
-    matches: ["player first basket", "player_first_basket", "first basket", "first_basket", "first scorer", "first_score"]
-  },
-  {
-    internalType: "First Team Basket",
-    family: "special",
-    matches: ["player first team basket", "player_first_team_basket", "first team basket", "first_team_basket"]
-  },
-  {
-    internalType: "Double Double",
-    family: "special",
-    matches: ["player double double", "player_double_double", "double double", "double_double"]
-  },
-  {
-    internalType: "Triple Double",
-    family: "special",
-    matches: ["player triple double", "player_triple_double", "triple double", "triple_double"]
-  },
-  {
-    internalType: "Points Ladder",
-    family: "ladder",
-    matches: ["player_points_alternate", "alternate points", "alternate_points", "player points alt", "player_points_alt", "25+", "30+", "35+", "40+"]
-  },
-  {
-    internalType: "Rebounds Ladder",
-    family: "ladder",
-    matches: ["player_rebounds_alternate"]
-  },
-  {
-    internalType: "Assists Ladder",
-    family: "ladder",
-    matches: ["player_assists_alternate"]
-  },
-  {
-    internalType: "Threes Ladder",
-    family: "ladder",
-    matches: ["player_threes_alternate", "alternate threes", "alternate_threes", "player threes alt", "player_threes_alt"]
-  },
-  {
-    internalType: "PRA Ladder",
-    family: "ladder",
-    matches: ["player_points_rebounds_assists_alternate"]
-  },
-  {
-    internalType: "Points",
-    family: "standard",
-    matches: ["player_points", "points"]
-  },
-  {
-    internalType: "Rebounds",
-    family: "standard",
-    matches: ["player_rebounds", "rebounds"]
-  },
-  {
-    internalType: "Assists",
-    family: "standard",
-    matches: ["player_assists", "assists"]
-  },
-  {
-    internalType: "Threes",
-    family: "standard",
-    matches: ["player_threes", "threes", "3pt", "three pointers"]
-  },
-  {
-    internalType: "PRA",
-    family: "standard",
-    matches: ["pra", "points+rebounds+assists", "player_pra"]
-  }
-]
-
-function inferMarketTypeFromKey(marketKey) {
-  const normalized = String(marketKey || "").trim().toLowerCase()
-  if (!normalized) return { internalType: null, family: "unknown" }
-
-  for (const rule of MARKET_TYPE_RULES) {
-    if (rule.matches.some((needle) => normalized.includes(String(needle).toLowerCase()))) {
-      return {
-        internalType: rule.internalType,
-        family: rule.family
-      }
-    }
-  }
-
-  return {
-    internalType: null,
-    family: "unknown"
-  }
-}
-
 function summarizeInterestingNormalizedRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
   const byPropType = {}
@@ -475,146 +414,6 @@ function buildSlipSeedPool(snapshot) {
   return qualified.slice(0, 20)
 }
 
-function buildFinalPlayableRows(rows) {
-  const safeRows = Array.isArray(rows) ? rows : []
-  const filtered = safeRows.filter(
-    (row) =>
-      row?.book === "DraftKings" &&
-      row?.team &&
-      row?.hitRate != null &&
-      row?.edge != null &&
-      row?.score != null &&
-      row?.marketFamily === "standard" &&
-      STANDARD_CORE_PROP_TYPES.has(row?.propType)
-  )
-
-  const deduped = dedupeMarketRows(filtered)
-  deduped.sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
-
-  const perPlayer = new Map()
-  const perMatchup = new Map()
-  const finalRows = []
-
-  for (const row of deduped) {
-    const playerKey = String(row?.player || "")
-    const matchupKey = String(row?.matchup || row?.eventId || "unknown")
-    const playerCount = Number(perPlayer.get(playerKey) || 0)
-    const matchupCount = Number(perMatchup.get(matchupKey) || 0)
-    if (playerCount >= 2) continue
-    if (matchupCount >= 4) continue
-
-    finalRows.push(row)
-    perPlayer.set(playerKey, playerCount + 1)
-    perMatchup.set(matchupKey, matchupCount + 1)
-    if (finalRows.length >= 40) break
-  }
-
-  return finalRows
-}
-
-const STANDARD_CORE_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
-const SPECIAL_PROP_TYPES = new Set(["First Basket", "First Team Basket", "Double Double", "Triple Double"])
-
-function buildExpandedMarketPools(snapshot) {
-  const playable = Array.isArray(snapshot?.playableProps) ? snapshot.playableProps : []
-  const strong = Array.isArray(snapshot?.strongProps) ? snapshot.strongProps : []
-  const elite = Array.isArray(snapshot?.eliteProps) ? snapshot.eliteProps : []
-  const best = Array.isArray(snapshot?.bestProps) ? snapshot.bestProps : []
-
-  const rows = dedupeMarketRows([
-    ...playable,
-    ...strong,
-    ...elite,
-    ...best
-  ])
-
-  console.log("[EXPANDED-MARKET-POOL-SOURCE-DEBUG]", {
-    playable: playable.length,
-    strong: strong.length,
-    elite: elite.length,
-    best: best.length,
-    mergedRows: rows.length,
-    sample: rows.slice(0, 10).map((row) => ({
-      player: row?.player,
-      propType: row?.propType,
-      marketKey: row?.marketKey,
-      marketFamily: row?.marketFamily,
-      hitRate: row?.hitRate,
-      edge: row?.edge,
-      score: row?.score
-    }))
-  })
-
-  const fullRows = Array.isArray(snapshot?.props) ? snapshot.props : []
-
-  console.log("[EXPANDED-MARKET-FULL-SOURCE-DEBUG]", {
-    fullRows: fullRows.length,
-    byFamily: summarizeInterestingNormalizedRows(fullRows).byFamily,
-    byPropType: summarizeInterestingNormalizedRows(fullRows).byPropType
-  })
-
-  const standardRaw = rows.filter(
-    (row) =>
-      row?.book === "DraftKings" &&
-      row?.team &&
-      row?.hitRate != null &&
-      row?.edge != null &&
-      row?.score != null &&
-      row?.marketFamily === "standard" &&
-      STANDARD_CORE_PROP_TYPES.has(row?.propType)
-  )
-  const standardCandidates = dedupeMarketRows(standardRaw)
-  standardCandidates.sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
-  const standardTop = standardCandidates.slice(0, 30)
-
-  const ladderRaw = fullRows.filter((row) => {
-    if (row?.book !== "DraftKings") return false
-    const mk = String(row?.marketKey || "").toLowerCase()
-    return (
-      row?.marketFamily === "ladder" ||
-      row?.propType === "Points Ladder" ||
-      row?.propType === "Threes Ladder" ||
-      mk.includes("alternate") ||
-      mk.includes("alt")
-    )
-  })
-  const ladderDeduped = dedupeMarketRows(ladderRaw)
-  ladderDeduped.sort((a, b) => {
-    const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0)
-    if (scoreDiff !== 0) return scoreDiff
-    return Number(b?.edge || 0) - Number(a?.edge || 0)
-  })
-  const ladderCandidates = ladderDeduped.slice(0, 30)
-
-  const specialRaw = fullRows.filter((row) => {
-    if (row?.book !== "DraftKings") return false
-    const mk = String(row?.marketKey || "").toLowerCase()
-    return (
-      row?.marketFamily === "special" ||
-      SPECIAL_PROP_TYPES.has(row?.propType) ||
-      mk.includes("player_first_basket") ||
-      mk.includes("first basket") ||
-      mk.includes("player_first_team_basket") ||
-      mk.includes("first_team_basket") ||
-      mk.includes("player_double_double") ||
-      mk.includes("double_double") ||
-      mk.includes("player_triple_double") ||
-      mk.includes("triple_double") ||
-      mk.includes("double double") ||
-      mk.includes("triple double")
-    )
-  })
-  const specialDeduped = dedupeMarketRows(specialRaw)
-  specialDeduped.sort((a, b) => {
-    const scoreDiff = Number(b?.score || 0) - Number(a?.score || 0)
-    if (scoreDiff !== 0) return scoreDiff
-    return Number(b?.edge || 0) - Number(a?.edge || 0)
-  })
-  const specialProps = specialDeduped.slice(0, 30)
-
-  return { standardCandidates: standardTop, ladderCandidates, specialProps }
-}
-
 function buildSlipCards(bestProps, ladderPool) {
   const pickLeg = (row) => ({
     eventId: row.eventId,
@@ -753,6 +552,12 @@ function buildSlipCards(bestProps, ladderPool) {
       maxPerMatchup,
       maxUnders
     } = options
+    const emptyBandCard = () => ({
+      label,
+      legs: [],
+      payout: estimateCardPayout([], 5)
+    })
+    const isReturnInBand = (estReturn) => estReturn >= minReturn && estReturn <= maxReturn
 
     const allowedSet = new Set(Array.isArray(allowedVariants) ? allowedVariants : [])
     const pool = (Array.isArray(rankedRows) ? rankedRows : []).filter((row) => {
@@ -799,9 +604,8 @@ function buildSlipCards(bestProps, ladderPool) {
       if (!comboValid(legs)) return
       const payout = estimateCardPayout(legs, 5)
       const estReturn = Number(payout?.estReturn || 0)
-      const inBand = estReturn >= minReturn && estReturn <= maxReturn
-      const distancePenalty = inBand ? 0 : Math.min(Math.abs(estReturn - minReturn), Math.abs(estReturn - maxReturn)) * 0.35
-      const comboScore = getComboQualityScore(legs) - distancePenalty
+      if (!isReturnInBand(estReturn)) return
+      const comboScore = getComboQualityScore(legs)
       if (comboScore > bestScore) {
         bestScore = comboScore
         bestCombo = legs.slice()
@@ -854,21 +658,26 @@ function buildSlipCards(bestProps, ladderPool) {
 
       const relaxedResult = buildBestComboForBand(rankedRows, {
         ...relaxedOptions,
-        _relaxedFallbackPass: true,
-        minReturn: options.minReturn * 0.6,
-        maxReturn: options.maxReturn * 1.6
+        _relaxedFallbackPass: true
       })
 
       if (Array.isArray(relaxedResult?.legs) && relaxedResult.legs.length > 0) {
         return relaxedResult
       }
+
+      return emptyBandCard()
     }
 
     const finalLegs = Array.isArray(bestCombo) ? bestCombo.map(pickLeg) : []
+    const finalPayout = estimateCardPayout(finalLegs, 5)
+    const finalReturn = Number(finalPayout?.estReturn || 0)
+    if (!finalLegs.length || !isReturnInBand(finalReturn)) {
+      return emptyBandCard()
+    }
     return {
       label,
       legs: finalLegs,
-      payout: estimateCardPayout(finalLegs, 5)
+      payout: finalPayout
     }
   }
 
@@ -930,6 +739,12 @@ function buildSlipCards(bestProps, ladderPool) {
     maxPerMatchup: 2,
     maxUnders: 3
   })
+  const card50Return = Number(card50?.payout?.estReturn || 0)
+  const card100Return = Number(card100?.payout?.estReturn || 0)
+  const card300Return = Number(card300?.payout?.estReturn || 0)
+  const card50InRange = card50.legs.length > 0 && card50Return >= 35 && card50Return <= 65
+  const card100InRange = card100.legs.length > 0 && card100Return >= 75 && card100Return <= 140
+  const card300InRange = card300.legs.length > 0 && card300Return >= 220 && card300Return <= 380
 
   console.log("[SLIP-CARDS-DEBUG]", {
     bestCount: Array.isArray(bestProps) ? bestProps.length : 0,
@@ -938,15 +753,18 @@ function buildSlipCards(bestProps, ladderPool) {
     card50Legs: card50.legs.length,
     card50Overs: card50.legs.filter((row) => getSideKey(row) === "over").length,
     card50Unders: card50.legs.filter((row) => getSideKey(row) === "under").length,
-    card50Return: Number(card50?.payout?.estReturn || 0),
+    card50Return,
+    card50InRange,
     card100Legs: card100.legs.length,
     card100Overs: card100.legs.filter((row) => getSideKey(row) === "over").length,
     card100Unders: card100.legs.filter((row) => getSideKey(row) === "under").length,
-    card100Return: Number(card100?.payout?.estReturn || 0),
+    card100Return,
+    card100InRange,
     card300Legs: card300.legs.length,
     card300Overs: card300.legs.filter((row) => getSideKey(row) === "over").length,
     card300Unders: card300.legs.filter((row) => getSideKey(row) === "under").length,
-    card300Return: Number(card300?.payout?.estReturn || 0)
+    card300Return,
+    card300InRange
   })
 
   return {
@@ -1556,6 +1374,39 @@ function getEventMatchupForDebug(event) {
   if (away && home) return `${away} @ ${home}`
   if (event?.matchup) return String(event.matchup)
   return "UNKNOWN_MATCHUP"
+}
+
+function getEventTimeForDebug(event) {
+  return event?.commence_time || event?.gameTime || event?.startTime || event?.start_time || event?.game_time || null
+}
+
+function getDistinctGameCount(items = []) {
+  const safeItems = Array.isArray(items) ? items : []
+  const gameKeys = new Set()
+
+  for (const item of safeItems) {
+    const eventId = getEventIdForDebug(item) || String(item?.eventId || "").trim()
+    const matchup = String(item?.matchup || getEventMatchupForDebug(item) || "").trim()
+    const key = eventId || matchup
+    if (key) gameKeys.add(key)
+  }
+
+  return gameKeys.size
+}
+
+async function fetchDkScopedEventsForDebug(oddsApiKey) {
+  const response = await axios.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", {
+    params: {
+      apiKey: oddsApiKey,
+      regions: "us",
+      bookmakers: "draftkings",
+      markets: "h2h",
+      oddsFormat: "american"
+    },
+    timeout: 15000
+  })
+
+  return Array.isArray(response?.data) ? response.data : []
 }
 
 function runCurrentSlateCoverageDiagnostics(debugStages = {}) {
@@ -6263,6 +6114,15 @@ function withBookSlipFallback(book, targetLegCount, legs) {
 }
 
 app.get("/api/best-available", (req, res) => {
+  console.log("[TOP-DOWN-BEST-AVAILABLE-ENTRY]", {
+    snapshotSource: lastSnapshotSource || "unknown",
+    snapshotLoadedFromDisk,
+    updatedAt: oddsSnapshot?.updatedAt || null,
+    events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+    rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+    props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+    bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+  })
   const bestAvailablePayload = buildLiveDualBestAvailablePayload()
 
   if (!bestAvailablePayload) {
@@ -6293,123 +6153,175 @@ app.get("/api/best-available", (req, res) => {
   })
 
   const bestVisibleRows = Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []
-  const finalPlayableRows = buildFinalPlayableRows(bestVisibleRows)
-  console.log("[FINAL-PLAYABLE-ROWS-DEBUG]", {
-    total: finalPlayableRows.length,
-    byPropType: finalPlayableRows.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byGame: finalPlayableRows.reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    topSample: finalPlayableRows.slice(0, 20).map((row) => ({
-      player: row?.player,
-      propType: row?.propType,
-      matchup: row?.matchup,
-      line: row?.line,
-      hitRate: row?.hitRate,
-      edge: row?.edge,
-      score: row?.score
-    }))
-  })
 
-  const expandedMarketPools = buildExpandedMarketPools(oddsSnapshot)
-  console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
-    standardCount: expandedMarketPools.standardCandidates.length,
-    ladderCount: expandedMarketPools.ladderCandidates.length,
-    specialCount: expandedMarketPools.specialProps.length,
-    standardByProp: expandedMarketPools.standardCandidates.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    ladderByProp: expandedMarketPools.ladderCandidates.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    specialByProp: expandedMarketPools.specialProps.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {})
-  })
+  let standardCandidates = []
+  let ladderCandidates = []
+  let specialProps = []
+  let routePlayableSeed = []
+  let finalPlayableRows = []
+  let ladderPool = []
+  let slipCards = { card50: null, card100: null, card300: null }
+  let expandedPoolDebug = null
 
-  const routePlayableSeed = Array.isArray(expandedMarketPools?.standardCandidates) && expandedMarketPools.standardCandidates.length > 0
-    ? expandedMarketPools.standardCandidates
-    : buildSlipSeedPool(oddsSnapshot)
+  try {
+    const expandedResult = buildExpandedMarketPools(oddsSnapshot)
+    standardCandidates = expandedResult.standardCandidates || []
+    const builtFinalPlayableRows = expandedResult.finalPlayableRows
+    ladderCandidates = expandedResult.ladderCandidates || []
+    specialProps = expandedResult.specialProps || []
 
-  console.log("[ROUTE-PLAYABLE-SEED-DEBUG]", {
-    total: routePlayableSeed.length,
-    byPropType: routePlayableSeed.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byGame: routePlayableSeed.reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    topSample: routePlayableSeed.slice(0, 20).map((row) => ({
-      player: row?.player,
-      propType: row?.propType,
-      matchup: row?.matchup,
-      line: row?.line,
-      hitRate: row?.hitRate,
-      edge: row?.edge,
-      score: row?.score
-    }))
-  })
+    console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
+      standardCount: standardCandidates.length,
+      ladderCount: ladderCandidates.length,
+      specialCount: specialProps.length,
+      standardByProp: standardCandidates.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      ladderByProp: ladderCandidates.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      specialByProp: specialProps.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
 
-  const slipSeedPool = routePlayableSeed
-  console.log("[SLIP-SEED-POOL-DEBUG]", {
-    total: slipSeedPool.length,
-    byPropType: slipSeedPool.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byGame: slipSeedPool.reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    sample: slipSeedPool.slice(0, 15).map((row) => ({
-      player: row?.player,
-      propType: row?.propType,
-      matchup: row?.matchup,
-      line: row?.line,
-      hitRate: row?.hitRate,
-      edge: row?.edge,
-      score: row?.score
-    }))
-  })
+    routePlayableSeed = Array.isArray(standardCandidates) && standardCandidates.length > 0
+      ? standardCandidates
+      : buildSlipSeedPool(oddsSnapshot)
 
-  const ladderPool = slipSeedPool.flatMap((row) => getLadderVariantsForRow(row))
-  console.log("[LADDER-POOL-DEBUG]", {
-    baseBestCount: effectiveBestProps.length,
-    ladderCount: ladderPool.length,
-    incompleteBaseRows: effectiveBestProps.filter((row) => {
-      return !(row && row.team && row.hitRate != null && row.hitRate !== "" && row.edge != null && row.score != null)
-    }).length,
-    byVariant: ladderPool.reduce((acc, row) => {
-      const key = String(row?.propVariant || "base")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byProp: ladderPool.reduce((acc, row) => {
-      const key = String(row?.propType || "Unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {})
-  })
+    console.log("[ROUTE-PLAYABLE-SEED-DEBUG]", {
+      total: routePlayableSeed.length,
+      byPropType: routePlayableSeed.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byGame: routePlayableSeed.reduce((acc, row) => {
+        const key = String(row?.matchup || row?.eventId || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      topSample: routePlayableSeed.slice(0, 20).map((row) => ({
+        player: row?.player,
+        propType: row?.propType,
+        matchup: row?.matchup,
+        line: row?.line,
+        hitRate: row?.hitRate,
+        edge: row?.edge,
+        score: row?.score
+      }))
+    })
 
-  const slipCards = buildSlipCards(effectiveBestProps, ladderPool)
+    finalPlayableRows = Array.isArray(builtFinalPlayableRows) ? builtFinalPlayableRows : []
+
+    if (!finalPlayableRows.length) {
+      const fallbackStandardCandidates = Array.isArray(standardCandidates) ? standardCandidates : []
+      const fallbackRoutePlayableSeed = Array.isArray(routePlayableSeed) ? routePlayableSeed : []
+
+      finalPlayableRows = dedupeMarketRows(
+        fallbackStandardCandidates.length ? fallbackStandardCandidates : fallbackRoutePlayableSeed
+      )
+
+      console.log("[FINAL-PLAYABLE-FALLBACK]", {
+        builtFinalPlayableRows: Array.isArray(builtFinalPlayableRows) ? builtFinalPlayableRows.length : 0,
+        standardCandidates: fallbackStandardCandidates.length,
+        routePlayableSeed: fallbackRoutePlayableSeed.length,
+        finalPlayableRows: finalPlayableRows.length,
+        source:
+          fallbackStandardCandidates.length ? "standardCandidates" :
+          fallbackRoutePlayableSeed.length ? "routePlayableSeed" :
+          "none"
+      })
+    } else {
+      console.log("[FINAL-PLAYABLE-FALLBACK]", {
+        builtFinalPlayableRows: finalPlayableRows.length,
+        standardCandidates: Array.isArray(standardCandidates) ? standardCandidates.length : 0,
+        routePlayableSeed: Array.isArray(routePlayableSeed) ? routePlayableSeed.length : 0,
+        finalPlayableRows: finalPlayableRows.length,
+        source: "builder"
+      })
+    }
+
+    const slipSeedPool = routePlayableSeed
+    console.log("[SLIP-SEED-POOL-DEBUG]", {
+      total: slipSeedPool.length,
+      byPropType: slipSeedPool.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byGame: slipSeedPool.reduce((acc, row) => {
+        const key = String(row?.matchup || row?.eventId || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      sample: slipSeedPool.slice(0, 15).map((row) => ({
+        player: row?.player,
+        propType: row?.propType,
+        matchup: row?.matchup,
+        line: row?.line,
+        hitRate: row?.hitRate,
+        edge: row?.edge,
+        score: row?.score
+      }))
+    })
+
+    ladderPool = slipSeedPool.flatMap((row) => getLadderVariantsForRow(row))
+    console.log("[LADDER-POOL-DEBUG]", {
+      baseBestCount: effectiveBestProps.length,
+      ladderCount: ladderPool.length,
+      incompleteBaseRows: effectiveBestProps.filter((row) => {
+        return !(row && row.team && row.hitRate != null && row.hitRate !== "" && row.edge != null && row.score != null)
+      }).length,
+      byVariant: ladderPool.reduce((acc, row) => {
+        const key = String(row?.propVariant || "base")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byProp: ladderPool.reduce((acc, row) => {
+        const key = String(row?.propType || "Unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+
+    slipCards = buildSlipCards(effectiveBestProps, ladderPool)
+
+    expandedPoolDebug = {
+      ladderPool: Array.isArray(ladderPool) ? ladderPool.length : -1,
+      routePlayableSeed: Array.isArray(routePlayableSeed) ? routePlayableSeed.length : -1,
+      standardCandidates: Array.isArray(standardCandidates) ? standardCandidates.length : -1,
+      finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : -1,
+      ladderCandidates: Array.isArray(ladderCandidates) ? ladderCandidates.length : -1,
+      specialProps: Array.isArray(specialProps) ? specialProps.length : -1,
+      card50Legs: Array.isArray(slipCards.card50?.legs) ? slipCards.card50.legs.length : -1,
+      card100Legs: Array.isArray(slipCards.card100?.legs) ? slipCards.card100.legs.length : -1,
+      card300Legs: Array.isArray(slipCards.card300?.legs) ? slipCards.card300.legs.length : -1
+    }
+
+    console.log("[EXPANDED-POOL-SUCCESS]", expandedPoolDebug)
+  } catch (err) {
+    const readableExpandedPoolError =
+      err?.stack ||
+      err?.message ||
+      (typeof err === "string" ? err : "") ||
+      JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
+
+    console.error("[EXPANDED-POOL-CRASH]", {
+      message: err?.message || null,
+      stack: err?.stack || null,
+      expandedPoolDebug,
+      readableExpandedPoolError
+    })
+
+    throw err
+  }
 
   const snapshotMeta = logSnapshotMeta("route=/api/best-available response")
 
@@ -6500,6 +6412,15 @@ app.get("/api/best-available", (req, res) => {
     }
   }
 
+  console.log("[FINAL-PLAYABLE-RUNTIME-CHECK]", {
+    ladderPool: Array.isArray(ladderPool) ? ladderPool.length : -1,
+    routePlayableSeed: Array.isArray(routePlayableSeed) ? routePlayableSeed.length : -1,
+    standardCandidates: Array.isArray(standardCandidates) ? standardCandidates.length : -1,
+    finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : -1,
+    ladderCandidates: Array.isArray(ladderCandidates) ? ladderCandidates.length : -1,
+    specialProps: Array.isArray(specialProps) ? specialProps.length : -1
+  })
+
   return res.json({
     bestAvailable: bestAvailablePayload,
     ladderPool,
@@ -6508,9 +6429,9 @@ app.get("/api/best-available", (req, res) => {
     card50: slipCards.card50,
     card100: slipCards.card100,
     card300: slipCards.card300,
-    standardCandidates: expandedMarketPools.standardCandidates,
-    ladderCandidates: expandedMarketPools.ladderCandidates,
-    specialProps: expandedMarketPools.specialProps,
+    standardCandidates: standardCandidates,
+    ladderCandidates: ladderCandidates,
+    specialProps: specialProps,
     snapshotMeta
   })
 })
@@ -6704,6 +6625,12 @@ function filterRowsToPrimarySlate(rows = []) {
 function getAvailablePrimarySlateRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
   const isBestPropsVisibilityPass = safeRows === oddsSnapshot.bestProps
+  const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
+  const scheduledEventIdSet = new Set(
+    scheduledEvents
+      .map((event) => String(event?.eventId || event?.id || ""))
+      .filter(Boolean)
+  )
   const rawPropsRows = (Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length)
     ? oddsSnapshot.rawProps
     : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
@@ -6712,24 +6639,38 @@ function getAvailablePrimarySlateRows(rows) {
     : safeRows
 
   const primarySlateRows = primarySlateInputRows.filter((row) => {
-    return (
-      row &&
-      row.eventId &&
-      row.matchup &&
-      row.book === "DraftKings"
-    )
+    if (!row || !row.eventId || !row.matchup) return false
+    if (scheduledEventIdSet.size === 0) return true
+    return scheduledEventIdSet.has(String(row.eventId))
   })
 
   const inputGames = [...new Set(primarySlateInputRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
   const outputGames = [...new Set(primarySlateRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const scheduledGames = scheduledEvents.map((event) => String(event?.matchup || getEventMatchupForDebug(event) || "")).filter(Boolean)
+  const propsCoveredGames = [...new Set(primarySlateRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
+  const missingFromPropsGames = scheduledGames.filter((matchup) => !propsCoveredGames.includes(matchup))
   console.log("[PRIMARY-SLATE-FILTER-DEBUG]", {
     nowIso: new Date().toISOString(),
     inputRowCount: primarySlateInputRows.length,
     outputRowCount: primarySlateRows.length,
     inputGameCount: inputGames.length,
     outputGameCount: outputGames.length,
+    scheduledGameCount: scheduledGames.length,
+    propsCoveredGameCount: propsCoveredGames.length,
+    missingFromPropsGameCount: missingFromPropsGames.length,
     inputGames,
     outputGames
+  })
+  const scheduledMatchups = scheduledEvents.map((e) => e.matchup)
+  const propsMatchups = Array.from(new Set(primarySlateRows.map((r) => r.matchup)))
+
+  const missingMatchups = scheduledMatchups.filter((m) => !propsMatchups.includes(m))
+
+  console.log("[SLATE-COVERAGE-CHECK]", {
+    scheduledGameCount: scheduledEvents.length,
+    propsCoveredGameCount: propsMatchups.length,
+    missingFromPropsGameCount: missingMatchups.length,
+    missingMatchups
   })
 
   if (isBestPropsVisibilityPass) {
@@ -10027,24 +9968,118 @@ function getIngestRejectReason(row) {
   const gameTime = String(row.gameTime || "").trim()
   const line = Number(row.line)
   const odds = Number(row.odds)
+  const marketFamily = String(row.marketFamily || "").trim()
 
-  if (!player || !side || !propType || !book || !matchup || !gameTime) return "missing_required_fields"
-  if (!Number.isFinite(line)) return "invalid_line"
+  if (!player || !propType || !book || !matchup || !gameTime) return "missing_required_fields"
   if (!Number.isFinite(odds)) return "invalid_odds"
 
-  if (side !== "Over" && side !== "Under") return "invalid_side"
+  const isLadder = marketFamily === "ladder"
+  const isSpecial = marketFamily === "special"
 
-  const allowedPropTypes = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
-  if (!allowedPropTypes.has(propType)) return "invalid_prop_type"
+  // Standard markets require Over/Under side and a finite line
+  if (!isLadder && !isSpecial) {
+    if (!side) return "missing_required_fields"
+    if (side !== "Over" && side !== "Under") return "invalid_side"
+    if (!Number.isFinite(line)) return "invalid_line"
+  }
+
+  // Ladder markets require a finite line but accept Over/Under/Yes
+  if (isLadder) {
+    if (!Number.isFinite(line)) return "invalid_line"
+  }
+
+  // Special markets (first basket, double-double, triple-double) do NOT require a numeric line or Over/Under side
+
+  const standardPropTypes = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+  const ladderPropTypes = new Set(["Points Ladder", "Rebounds Ladder", "Assists Ladder", "Threes Ladder", "PRA Ladder"])
+  const specialPropTypes = new Set(["First Basket", "First Team Basket", "Double Double", "Triple Double"])
+  const allAllowedPropTypes = new Set([...standardPropTypes, ...ladderPropTypes, ...specialPropTypes])
+  if (!allAllowedPropTypes.has(propType)) return "invalid_prop_type"
 
   if (odds < -350 || odds > 400) return "odds_out_of_range"
-  if (line < 0) return "line_below_zero"
+  if (Number.isFinite(line) && line < 0) return "line_below_zero"
 
   return null
 }
 
 function shouldRejectRow(row) {
   return Boolean(getIngestRejectReason(row))
+}
+
+async function buildExtraMarketRowsForEvents({ scheduledEvents, oddsApiKey, normalizeEventRows }) {
+  console.log("[DK-EXTRA-MARKETS-REQUEST-DEBUG]", {
+    requestedMarkets: DK_EXTRA_MARKETS,
+    scheduledEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
+  })
+
+  const safeEvents = Array.isArray(scheduledEvents) ? scheduledEvents : []
+  const extraRawRows = []
+  const extraEvents = []
+
+  for (const event of safeEvents) {
+    const eventId = String(event?.id || event?.eventId || "").trim()
+    if (!eventId) continue
+
+    try {
+      const extraResponse = await axios.get(`https://api.the-odds-api.com/v4/sports/basketball_nba/events/${eventId}/odds`, {
+        params: {
+          apiKey: oddsApiKey,
+          regions: "us",
+          bookmakers: "draftkings",
+          markets: DK_EXTRA_MARKETS.join(","),
+          oddsFormat: "american"
+        },
+        timeout: 15000
+      })
+
+      const eventPayload = extraResponse?.data || null
+
+      console.log("[DK-EVENT-FETCH-RESPONSE-DEBUG]", {
+        eventId: event?.id || event?.eventId || null,
+        matchup: `${event?.away_team || event?.awayTeam || "?"} @ ${event?.home_team || event?.homeTeam || "?"}`,
+        responseType: Array.isArray(eventPayload) ? "array" : typeof eventPayload,
+        hasResponse: Boolean(eventPayload),
+        topLevelKeys: eventPayload && typeof eventPayload === "object" && !Array.isArray(eventPayload)
+          ? Object.keys(eventPayload).slice(0, 20)
+          : [],
+        bookmakerCount: Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers.length : 0,
+        bookmakerKeys: Array.isArray(eventPayload?.bookmakers)
+          ? eventPayload.bookmakers.map((b) => ({
+              key: b?.key || null,
+              title: b?.title || null,
+              marketCount: Array.isArray(b?.markets) ? b.markets.length : 0,
+              sampleMarketKeys: Array.isArray(b?.markets)
+                ? b.markets.slice(0, 10).map((m) => m?.key || m?.name || null)
+                : []
+            }))
+          : []
+      })
+
+      if (!eventPayload) continue
+      extraEvents.push(eventPayload)
+
+      const eventRows = normalizeEventRows(eventPayload, event) || []
+      if (Array.isArray(eventRows) && eventRows.length > 0) {
+        extraRawRows.push(...eventRows)
+      }
+    } catch (error) {
+      console.log("[DK-EXTRA-MARKETS-ERROR-DEBUG]", {
+        eventId,
+        matchup: getEventMatchupForDebug(event),
+        message: error?.message || String(error)
+      })
+    }
+  }
+
+  console.log("[DK-EXTRA-MARKETS-RESULT-DEBUG]", {
+    eventCount: extraEvents.length,
+    rawRowCount: extraRawRows.length,
+    marketKeys: [...new Set(extraRawRows.map((row) => String(row?.marketKey || "")).filter(Boolean))].sort(),
+    byFamily: summarizeInterestingNormalizedRows(extraRawRows).byFamily,
+    byPropType: summarizeInterestingNormalizedRows(extraRawRows).byPropType
+  })
+
+  return extraRawRows
 }
 
 async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options = {}) {
@@ -10070,30 +10105,21 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     ((awayNorm.includes("mavericks") && homeNorm.includes("nuggets")) ||
       (awayNorm.includes("nuggets") && homeNorm.includes("mavericks")))
 
-  const requestedMarkets = [
-    "player_points",
-    "player_rebounds",
-    "player_assists",
-    "player_points_rebounds_assists",
-    "player_threes"
-  ]
-  const DK_EXTRA_MARKETS = [
-    "player_first_basket",
-    "player_first_team_basket",
-    "player_double_double",
-    "player_triple_double",
-    "player_points_alternate",
-    "player_rebounds_alternate",
-    "player_assists_alternate",
-    "player_threes_alternate",
-    "player_points_rebounds_assists_alternate"
-  ]
+  const requestedMarkets = ALL_DK_MARKETS
 
   const baseParams = {
     apiKey: ODDS_API_KEY,
     regions: "us",
-    markets: requestedMarkets.join(","),
+    markets: BASE_MARKETS.join(","),
     oddsFormat: "american"
+  }
+  const isDraftKingsBook = (book) => {
+    const key = String(book?.key || book?.title || book?.name || "").toLowerCase().trim()
+    return key.includes("draftkings")
+  }
+  const getMarketCountFromBook = (book) => {
+    const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
+    return Array.isArray(markets) ? markets.length : 0
   }
 
   const parseBooksToRows = (books = [], sourceLabel) => {
@@ -10117,6 +10143,17 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       if (raw === "under") return "Under"
       return String(value || "").trim()
     }
+
+    console.log("[DK-NORMALIZE-INPUT]", {
+      bookmakerCount: Array.isArray(books) ? books.length : 0,
+      marketKeys: Array.isArray(books)
+        ? [...new Set(
+            books.flatMap((book) =>
+              Array.isArray(book?.markets) ? book.markets.map((m) => m?.key).filter(Boolean) : []
+            )
+          )]
+        : []
+    })
 
     for (const book of books) {
       const markets = Array.isArray(book?.markets)
@@ -10184,6 +10221,14 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
             const combinedNorm = normalizeIngestText(combinedRawText)
             if (combinedNorm.includes(" over ") || combinedNorm.endsWith(" over") || combinedNorm.startsWith("over ")) side = "Over"
             else if (combinedNorm.includes(" under ") || combinedNorm.endsWith(" under") || combinedNorm.startsWith("under ")) side = "Under"
+          }
+
+          // For special/ladder markets, normalize Yes/No and treat player-name sides as "Yes"
+          if (inferredFamily === "special" || inferredFamily === "ladder") {
+            const sideLower = side.toLowerCase()
+            if (sideLower === "yes") side = "Yes"
+            else if (sideLower === "no") side = "No"
+            else if (side !== "Over" && side !== "Under") side = "Yes"
           }
 
           let playerSource = "description"
@@ -10314,6 +10359,20 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       }
     }
 
+    console.log("[DK-NORMALIZE-OUTPUT]", {
+      totalRows: rows.length,
+      byMarketKey: rows.reduce((acc, row) => {
+        const key = String(row?.marketKey || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {}),
+      byFamily: rows.reduce((acc, row) => {
+        const key = String(row?.marketFamily || "unknown")
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+    })
+
     return {
       rows,
       debug: {
@@ -10338,15 +10397,26 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     requestedMarkets
   })
 
-  const primaryResponse = await axios.get(
-    `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
-    {
-      params: {
-        ...baseParams,
-        bookmakers: "fanduel,draftkings"
+  let primaryResponse = null
+  try {
+    primaryResponse = await axios.get(
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+      {
+        params: {
+          ...baseParams,
+          bookmakers: "fanduel,draftkings"
+        }
       }
+    )
+  } catch (error) {
+    error.__dkFetchMeta = {
+      requestedMarkets,
+      responseReceived: Boolean(error?.response)
     }
-  )
+    throw error
+  }
+
+  console.log("[DK-MARKETS-REQUESTED]", ALL_DK_MARKETS)
 
   const primaryResponseEvents = Array.isArray(primaryResponse?.data)
     ? primaryResponse.data
@@ -10452,74 +10522,85 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   const shouldFetchFallbackAllBooks = finalRows.length === 0 || !hasPrimaryFanDuel || !hasPrimaryDraftKings
 
   if (shouldFetchFallbackAllBooks) {
-    const fallbackResponse = await axios.get(
-      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
-      {
-        params: baseParams
-      }
-    )
+    try {
+      const fallbackResponse = await axios.get(
+        `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+        {
+          params: baseParams
+        }
+      )
 
-    fallbackResponseEvents = Array.isArray(fallbackResponse?.data)
-      ? fallbackResponse.data
-      : (fallbackResponse?.data ? [fallbackResponse.data] : [])
-    for (const eventPayload of fallbackResponseEvents) {
-      console.log("[EVENT-BOOKMAKER-PRESENCE-DEBUG]", {
+      fallbackResponseEvents = Array.isArray(fallbackResponse?.data)
+        ? fallbackResponse.data
+        : (fallbackResponse?.data ? [fallbackResponse.data] : [])
+      for (const eventPayload of fallbackResponseEvents) {
+        console.log("[EVENT-BOOKMAKER-PRESENCE-DEBUG]", {
+          eventId: String(event?.id || event?.eventId || ""),
+          matchup: getEventMatchupForDebug(event),
+          bookmakerCount: Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers.length : 0,
+          bookmakerKeys: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => String(book?.key || book?.title || "")),
+          marketCountByBook: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => ({
+            book: String(book?.key || book?.title || ""),
+            marketCount: Array.isArray(book?.markets) ? book.markets.length : 0
+          }))
+        })
+      }
+      fallbackBooks = fallbackResponseEvents.flatMap((apiEvent) =>
+        Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
+      )
+
+      console.log("[EVENT-ODDS-PAYLOAD-DEBUG]", {
         eventId: String(event?.id || event?.eventId || ""),
         matchup: getEventMatchupForDebug(event),
-        bookmakerCount: Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers.length : 0,
-        bookmakerKeys: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => String(book?.key || book?.title || "")),
-        marketCountByBook: (Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []).map((book) => ({
-          book: String(book?.key || book?.title || ""),
-          marketCount: Array.isArray(book?.markets) ? book.markets.length : 0
+        bookmakersPresent: Array.isArray(fallbackBooks)
+          ? fallbackBooks.map((b) => String(b?.key || b?.title || ""))
+          : [],
+        bookmakerCount: Array.isArray(fallbackBooks) ? fallbackBooks.length : 0
+      })
+
+      console.log("[BOOKMAKER-MARKET-DEBUG]", {
+        eventId: String(event?.id || event?.eventId || ""),
+        matchup: getEventMatchupForDebug(event),
+        books: (Array.isArray(fallbackBooks) ? fallbackBooks : []).map((book) => ({
+          key: String(book?.key || book?.title || ""),
+          marketCount: Array.isArray(book?.markets) ? book.markets.length : 0,
+          marketKeys: (Array.isArray(book?.markets) ? book.markets : []).map((m) => String(m?.key || m?.name || "")).slice(0, 25)
         }))
       })
-    }
-    fallbackBooks = fallbackResponseEvents.flatMap((apiEvent) =>
-      Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
-    )
 
-    console.log("[EVENT-ODDS-PAYLOAD-DEBUG]", {
-      eventId: String(event?.id || event?.eventId || ""),
-      matchup: getEventMatchupForDebug(event),
-      bookmakersPresent: Array.isArray(fallbackBooks)
-        ? fallbackBooks.map((b) => String(b?.key || b?.title || ""))
-        : [],
-      bookmakerCount: Array.isArray(fallbackBooks) ? fallbackBooks.length : 0
-    })
-
-    console.log("[BOOKMAKER-MARKET-DEBUG]", {
-      eventId: String(event?.id || event?.eventId || ""),
-      matchup: getEventMatchupForDebug(event),
-      books: (Array.isArray(fallbackBooks) ? fallbackBooks : []).map((book) => ({
-        key: String(book?.key || book?.title || ""),
-        marketCount: Array.isArray(book?.markets) ? book.markets.length : 0,
-        marketKeys: (Array.isArray(book?.markets) ? book.markets : []).map((m) => String(m?.key || m?.name || "")).slice(0, 25)
-      }))
-    })
-
-    fallbackLukaRaw = fallbackResponseEvents.flatMap((e) =>
-      (e.bookmakers || []).flatMap((b) =>
-        (b.markets || []).flatMap((m) =>
-          (m.outcomes || []).filter((o) =>
-            String(o.description || "").toLowerCase().includes("doncic")
+      fallbackLukaRaw = fallbackResponseEvents.flatMap((e) =>
+        (e.bookmakers || []).flatMap((b) =>
+          (b.markets || []).flatMap((m) =>
+            (m.outcomes || []).filter((o) =>
+              String(o.description || "").toLowerCase().includes("doncic")
+            )
           )
         )
       )
-    )
 
-    fallbackParsed = parseBooksToRows(fallbackBooks, "fallback-all-books")
-    console.log("[INGEST-DROP-REASON-DEBUG]", {
-      path: pathLabel,
-      eventId: String(event?.id || ""),
-      source: "fallback-all-books",
-      dropReasonCounts: fallbackParsed?.debug?.dropReasonCounts || {},
-      acceptedRows: fallbackParsed?.debug?.acceptedRows || 0,
-      rejectedRows: fallbackParsed?.debug?.rejectedRows || 0
-    })
-    finalRows = dedupeByLegSignature([
-      ...finalRows,
-      ...(Array.isArray(fallbackParsed?.rows) ? fallbackParsed.rows : [])
-    ])
+      fallbackParsed = parseBooksToRows(fallbackBooks, "fallback-all-books")
+      console.log("[INGEST-DROP-REASON-DEBUG]", {
+        path: pathLabel,
+        eventId: String(event?.id || ""),
+        source: "fallback-all-books",
+        dropReasonCounts: fallbackParsed?.debug?.dropReasonCounts || {},
+        acceptedRows: fallbackParsed?.debug?.acceptedRows || 0,
+        rejectedRows: fallbackParsed?.debug?.rejectedRows || 0
+      })
+      finalRows = dedupeByLegSignature([
+        ...finalRows,
+        ...(Array.isArray(fallbackParsed?.rows) ? fallbackParsed.rows : [])
+      ])
+    } catch (fallbackError) {
+      console.log("[DK-FALLBACK-FETCH-ERROR]", {
+        path: pathLabel,
+        eventId: eventIdForDebug,
+        matchup: matchupForDebug,
+        requestedMarkets,
+        responseReceived: Boolean(fallbackError?.response),
+        message: fallbackError?.response?.data || fallbackError?.message || String(fallbackError)
+      })
+    }
   }
 
   try {
@@ -10561,10 +10642,21 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     })
   }
 
+  console.log("[DK-SPLIT-FETCH]", {
+    baseCount: finalRows.length,
+    extraCount: Array.isArray(extraRawRows) ? extraRawRows.length : 0,
+    combinedCount: finalRows.length + (Array.isArray(extraRawRows) ? extraRawRows.length : 0)
+  })
+
+  if (extraMarketsFetchSucceeded && Array.isArray(extraRawRows) && extraRawRows.length > 0) {
+    finalRows = dedupeByLegSignature([...finalRows, ...extraRawRows])
+  }
+
   const bookPayloads = [
     ...primaryBooks,
     ...(fallbackBooks || [])
   ]
+  const dkBookPayloads = bookPayloads.filter((book) => isDraftKingsBook(book))
   const markets = bookPayloads.flatMap((book) =>
     Array.isArray(book?.markets)
       ? book.markets
@@ -10576,6 +10668,9 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       : (Array.isArray(market?.selections) ? market.selections : [])
   )
   const eventRows = Array.isArray(finalRows) ? finalRows : []
+  const dkBookmakerEntries = dkBookPayloads.length
+  const dkMarketEntries = dkBookPayloads.reduce((sum, book) => sum + getMarketCountFromBook(book), 0)
+  const dkNormalizedRowsProduced = eventRows.filter((row) => String(row?.book || "") === "DraftKings").length
 
   console.log("[EVENT-RAW-ROWS-BY-GAME-DEBUG]", {
     eventId: String(event?.id || event?.eventId || ""),
@@ -10656,6 +10751,13 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     path: pathLabel,
     eventId: String(event?.id || ""),
     matchup,
+    requestedMarkets,
+    responseReceived: true,
+    dkRequestSucceeded: true,
+    dkBookmakerEntries,
+    dkMarketEntries,
+    dkNormalizedRowsProduced,
+    normalizedRowsProduced: eventRows.length,
     apiEventIdsPrimary: primaryResponseEvents.map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean),
     apiEventIdsFallback: fallbackResponseEvents.map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean),
     lukaRawPrimaryCount: lukaRaw.length,
@@ -10672,7 +10774,14 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       return acc
     }, {}),
     watchedMappedCounts: countWatchedPlayersInRows(finalRows),
-    usedFallbackAllBooks: Boolean(fallbackParsed)
+    usedFallbackAllBooks: Boolean(fallbackParsed),
+    allBookmakerSummary: bookPayloads.map((b) => ({
+      key: String(b?.key || ""),
+      title: String(b?.title || ""),
+      marketCount: Array.isArray(b?.markets) ? b.markets.length : 0,
+      sampleMarketKeys: Array.isArray(b?.markets) ? b.markets.slice(0, 15).map((m) => String(m?.key || m?.name || "")) : []
+    })),
+    dkMarketKeysSeen: [...new Set(dkBookPayloads.flatMap((b) => (Array.isArray(b?.markets) ? b.markets : []).map((m) => String(m?.key || m?.name || ""))))].filter(Boolean)
   }
 
   if (isMavsNuggetsEvent) {
@@ -10747,6 +10856,11 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     })
 
   }
+
+  const allNormalizedRows = [...(Array.isArray(finalRows) ? finalRows : []), ...(Array.isArray(extraRawRows) ? extraRawRows : [])]
+  console.log("[DK-MARKETS-RETURNED]", {
+    uniqueMarketKeys: [...new Set(allNormalizedRows.map(r => r.marketKey))].slice(0, 50)
+  })
 
   return { rows: finalRows, extraRawRows, extraMarketsFetchSucceeded, debug }
 }
@@ -10899,24 +11013,44 @@ app.get("/props", async (req, res) => {
 
     for (const event of targetEvents) {
       try {
-        const propsResponse = await axios.get(
+        const basePropsResponse = await axios.get(
           `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
           {
             params: {
               apiKey: ODDS_API_KEY,
               regions: "us",
               bookmakers: "fanduel,draftkings",
-              markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+              markets: BASE_MARKETS.join(","),
               oddsFormat: "american"
             }
           }
         )
 
+        const extraPropsResponse = await axios.get(
+          `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+          {
+            params: {
+              apiKey: ODDS_API_KEY,
+              regions: "us",
+              bookmakers: "draftkings",
+              markets: DK_EXTRA_MARKETS.join(","),
+              oddsFormat: "american"
+            }
+          }
+        )
+
+        const baseData = basePropsResponse.data
+        const extraData = extraPropsResponse.data
+        const mergedBookmakers = [
+          ...(Array.isArray(baseData?.bookmakers) ? baseData.bookmakers : []),
+          ...(Array.isArray(extraData?.bookmakers) ? extraData.bookmakers : [])
+        ]
+
         allProps.push({
           eventId: event.id,
           away_team: event.away_team,
           home_team: event.home_team,
-          data: propsResponse.data
+          data: { ...baseData, bookmakers: mergedBookmakers }
         })
       } catch (eventError) {
         allProps.push({
@@ -10969,29 +11103,58 @@ app.get("/props/clean", async (req, res) => {
 
     for (const event of targetEvents) {
       try {
-        const propsResponse = await axios.get(
+        const basePropsResponse = await axios.get(
           `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
           {
             params: {
               apiKey: ODDS_API_KEY,
               regions: "us",
               bookmakers: "fanduel,draftkings",
-              markets: "player_points,player_rebounds,player_assists,player_threes,player_points_rebounds_assists",
+              markets: BASE_MARKETS.join(","),
               oddsFormat: "american"
             }
           }
         )
 
+        const extraPropsResponse = await axios.get(
+          `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+          {
+            params: {
+              apiKey: ODDS_API_KEY,
+              regions: "us",
+              bookmakers: "draftkings",
+              markets: DK_EXTRA_MARKETS.join(","),
+              oddsFormat: "american"
+            }
+          }
+        )
+
+        const baseBooks = basePropsResponse.data.bookmakers || []
+        const extraBooks = extraPropsResponse.data.bookmakers || []
+        const books = [...baseBooks, ...extraBooks]
+
         const matchup = buildMatchup(event.away_team, event.home_team)
-        const books = propsResponse.data.bookmakers || []
 
         for (const book of books) {
           const bookName = book.title
 
           for (const market of book.markets || []) {
-            const propType = normalizePropType(market.key)
+            const marketKey = String(market?.key || market?.name || "").trim()
+            const inferredMarket = inferMarketTypeFromKey(marketKey)
+            const inferredFamily = inferredMarket.family
+            const propType = normalizePropType(market.key) || inferredMarket.internalType || null
 
             for (const outcome of market.outcomes || []) {
+              const sideRaw = String(outcome?.name || "").trim()
+              let side = sideRaw === "over" || sideRaw === "Over" ? "Over" : (sideRaw === "under" || sideRaw === "Under" ? "Under" : sideRaw)
+
+              if (inferredFamily === "special" || inferredFamily === "ladder") {
+                const sideLower = side.toLowerCase()
+                if (sideLower === "yes") side = "Yes"
+                else if (sideLower === "no") side = "No"
+                else if (side !== "Over" && side !== "Under") side = "Yes"
+              }
+
               const draftRow = {
                 eventId: event.id,
                 matchup,
@@ -10999,9 +11162,11 @@ app.get("/props/clean", async (req, res) => {
                 homeTeam: event.home_team,
                 gameTime: event.commence_time,
                 book: bookName,
+                marketKey,
+                marketFamily: inferredFamily,
                 propType,
                 player: outcome.description,
-                side: outcome.name,
+                side,
                 playerStatus: getManualPlayerStatus(outcome.description),
                 line: outcome.point,
                 odds: outcome.price
@@ -11994,12 +12159,87 @@ app.get("/snapshot/status", async (req, res) => {
 
 app.get("/refresh-snapshot", async (req, res) => {
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
+  console.log("[TOP-DOWN-REFRESH-ENTRY]", {
+    snapshotSource: lastSnapshotSource || "unknown",
+    snapshotLoadedFromDisk,
+    updatedAt: oddsSnapshot?.updatedAt || null,
+    events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+    rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+    props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+    bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1,
+    forceQuery: req.query.force || null
+  })
   try {
     resetFragileFilterAdjustedLogCount()
+    const previousSnapshot = oddsSnapshot && typeof oddsSnapshot === "object"
+      ? {
+          ...oddsSnapshot,
+          events: Array.isArray(oddsSnapshot.events) ? [...oddsSnapshot.events] : [],
+          rawProps: Array.isArray(oddsSnapshot.rawProps) ? [...oddsSnapshot.rawProps] : [],
+          props: Array.isArray(oddsSnapshot.props) ? [...oddsSnapshot.props] : [],
+          eliteProps: Array.isArray(oddsSnapshot.eliteProps) ? [...oddsSnapshot.eliteProps] : [],
+          strongProps: Array.isArray(oddsSnapshot.strongProps) ? [...oddsSnapshot.strongProps] : [],
+          playableProps: Array.isArray(oddsSnapshot.playableProps) ? [...oddsSnapshot.playableProps] : [],
+          bestProps: Array.isArray(oddsSnapshot.bestProps) ? [...oddsSnapshot.bestProps] : [],
+          flexProps: Array.isArray(oddsSnapshot.flexProps) ? [...oddsSnapshot.flexProps] : [],
+          diagnostics: oddsSnapshot.diagnostics && typeof oddsSnapshot.diagnostics === "object"
+            ? { ...oddsSnapshot.diagnostics }
+            : {}
+        }
+      : null
     const previousSnapshotForCarry = {
       rawProps: Array.isArray(oddsSnapshot?.rawProps) ? [...oddsSnapshot.rawProps] : [],
       props: Array.isArray(oddsSnapshot?.props) ? [...oddsSnapshot.props] : []
     }
+
+    const cloneSnapshotForFallback = (snapshot) => (
+      snapshot && typeof snapshot === "object"
+        ? {
+            ...snapshot,
+            events: Array.isArray(snapshot.events) ? [...snapshot.events] : [],
+            rawProps: Array.isArray(snapshot.rawProps) ? [...snapshot.rawProps] : [],
+            props: Array.isArray(snapshot.props) ? [...snapshot.props] : [],
+            eliteProps: Array.isArray(snapshot.eliteProps) ? [...snapshot.eliteProps] : [],
+            strongProps: Array.isArray(snapshot.strongProps) ? [...snapshot.strongProps] : [],
+            playableProps: Array.isArray(snapshot.playableProps) ? [...snapshot.playableProps] : [],
+            bestProps: Array.isArray(snapshot.bestProps) ? [...snapshot.bestProps] : [],
+            flexProps: Array.isArray(snapshot.flexProps) ? [...snapshot.flexProps] : [],
+            diagnostics: snapshot.diagnostics && typeof snapshot.diagnostics === "object"
+              ? { ...snapshot.diagnostics }
+              : {},
+            parlays: snapshot.parlays ?? null,
+            dualParlays: snapshot.dualParlays ?? null
+          }
+        : null
+    )
+
+    const currentSnapshotFallback = cloneSnapshotForFallback(oddsSnapshot)
+
+    let diskSnapshotFallback = null
+    try {
+      const snapshotPath = path.join(__dirname, "snapshot.json")
+      if (fs.existsSync(snapshotPath)) {
+        const rawDiskSnapshot = JSON.parse(fs.readFileSync(snapshotPath, "utf-8"))
+        diskSnapshotFallback = cloneSnapshotForFallback(rawDiskSnapshot?.data || null)
+      }
+    } catch (diskReadError) {
+      console.log("[SNAPSHOT-FALLBACK-DISK-READ-FAILED]", {
+        message: diskReadError?.message || null
+      })
+    }
+
+    const getSnapshotStrength = (snapshot) => {
+      const rawPropsCount = Array.isArray(snapshot?.rawProps) ? snapshot.rawProps.length : 0
+      const bestPropsCount = Array.isArray(snapshot?.bestProps) ? snapshot.bestProps.length : 0
+      const propsCount = Array.isArray(snapshot?.props) ? snapshot.props.length : 0
+      return rawPropsCount * 1000000 + bestPropsCount * 1000 + propsCount
+    }
+
+    const preferredSnapshotFallback =
+      getSnapshotStrength(diskSnapshotFallback) > getSnapshotStrength(currentSnapshotFallback)
+        ? diskSnapshotFallback
+        : currentSnapshotFallback
+
     const forceRefresh = String(req.query.force || "").toLowerCase() === "1" ||
       String(req.query.force || "").toLowerCase() === "true"
 
@@ -12036,6 +12276,15 @@ app.get("/refresh-snapshot", async (req, res) => {
       snapshotAgeMinutes < 10
 
     if (shouldSkipRebuild) {
+      console.log("[TOP-DOWN-REFRESH-SKIP-REBUILD]", {
+        reason: "shouldSkipRebuild",
+        snapshotLoadedFromDisk,
+        snapshotAgeMinutes,
+        events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+      })
       const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
       const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
       const cachedEnrichedModelRows = dedupeByLegSignature([
@@ -12110,6 +12359,15 @@ app.get("/refresh-snapshot", async (req, res) => {
       oddsSnapshot.props.length &&
       (!snapshotLoadedFromDisk || (snapshotAgeMinutes !== null && snapshotAgeMinutes < 10))
     ) {
+      console.log("[TOP-DOWN-REFRESH-SKIP-CACHED]", {
+        reason: "cached_snapshot_still_valid",
+        snapshotLoadedFromDisk,
+        snapshotAgeMinutes,
+        events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+      })
       const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
       const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
       const cachedEnrichedModelRows = dedupeByLegSignature([
@@ -12205,80 +12463,174 @@ app.get("/refresh-snapshot", async (req, res) => {
       return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
     }
 
-    const eventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
+    // Same-slate cache guard: skip live API calls if snapshot is fresh and for a valid slate
+    const slateCacheSnapshotAge = oddsSnapshot?.updatedAt
+      ? (Date.now() - new Date(oddsSnapshot.updatedAt).getTime()) / 60000
+      : null
+    const slateCacheHasEvents = Array.isArray(oddsSnapshot?.events) && oddsSnapshot.events.length > 0
+    const slateCacheHasSlateKey = Boolean(oddsSnapshot?.snapshotSlateDateKey)
+    const slateCacheIsFresh = slateCacheSnapshotAge !== null && slateCacheSnapshotAge <= 10
+
+    if (
+      !forceRefresh &&
+      slateCacheHasSlateKey &&
+      slateCacheHasEvents &&
+      slateCacheIsFresh
+    ) {
+      console.log("[REFRESH-CACHE-HIT-SAME-SLATE]", {
+        snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey,
+        snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
+        snapshotAgeMinutes: Math.round((slateCacheSnapshotAge || 0) * 10) / 10,
+        events: oddsSnapshot.events.length,
+        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+      })
+
+      const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+
+      return res.json({
+        ok: true,
+        cached: true,
+        cacheReason: "same-slate-fresh",
+        updatedAt: oddsSnapshot.updatedAt,
+        updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+        snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey,
+        snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
+        slateMode: slateMeta.slateMode,
+        eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+        totalEligibleGames: slateMeta.totalEligibleGames,
+        startedEligibleGames: slateMeta.startedEligibleGames,
+        events: oddsSnapshot.events.length,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+      })
+    }
+
+    const unrestrictedEventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
       {
-        params: {
-          apiKey: ODDS_API_KEY,
-          regions: "us",
-          bookmakers: "draftkings",
-          markets: "h2h"
-        }
+        params: { apiKey: ODDS_API_KEY },
+        timeout: 15000
       }
     )
+    const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data) ? unrestrictedEventsResponse.data : []
+    const {
+      allEvents,
+      scheduledEvents: rawScheduledEvents
+    } = await buildSlateEvents({
+      oddsApiKey: ODDS_API_KEY,
+      now: Date.now(),
+      events: unrestrictedFetchedEvents
+    })
 
-    const allEvents = Array.isArray(eventsResponse?.data) ? eventsResponse.data : []
-    console.log("[RAW-EVENTS-FETCH-DEBUG]", {
-      totalFetched: Array.isArray(allEvents) ? allEvents.length : 0,
-      events: (allEvents || []).map((e) => ({
-        matchup: getEventMatchupForDebug(e),
-        commenceTime: e?.commence_time
+    // Smart slate selection: today vs tomorrow
+    const slateNow = Date.now()
+    const todayDateKey = toDetroitDateKey(slateNow)
+    const tomorrowDateKey = toDetroitDateKey(slateNow + 24 * 60 * 60 * 1000)
+
+    const getEventTime = (event) =>
+      event?.commence_time || event?.gameTime || event?.startTime || event?.start_time || event?.game_time || ""
+
+    const todayEvents = (Array.isArray(allEvents) ? allEvents : []).filter((event) =>
+      toDetroitDateKey(getEventTime(event)) === todayDateKey
+    )
+    const tomorrowEvents = (Array.isArray(allEvents) ? allEvents : []).filter((event) =>
+      toDetroitDateKey(getEventTime(event)) === tomorrowDateKey
+    )
+    const todayPregameEligible = todayEvents.filter((event) => {
+      const eventMs = new Date(getEventTime(event)).getTime()
+      return Number.isFinite(eventMs) && eventMs > slateNow
+    })
+
+    let chosenSlateDateKey = todayDateKey
+    let scheduledEvents = todayEvents
+
+    if (todayPregameEligible.length <= 2 && tomorrowEvents.length > 0) {
+      chosenSlateDateKey = tomorrowDateKey
+      scheduledEvents = tomorrowEvents
+    } else if (todayEvents.length === 0 && tomorrowEvents.length > 0) {
+      chosenSlateDateKey = tomorrowDateKey
+      scheduledEvents = tomorrowEvents
+    }
+
+    console.log("[SLATE-SELECTION-DEBUG]", {
+      now: new Date(slateNow).toISOString(),
+      todayDateKey,
+      tomorrowDateKey,
+      todayEventCount: todayEvents.length,
+      todayPregameEligibleCount: todayPregameEligible.length,
+      tomorrowEventCount: tomorrowEvents.length,
+      chosenSlateDateKey,
+      chosenEventCount: scheduledEvents.length,
+      chosenEvents: scheduledEvents.map((e) => ({
+        eventId: e?.id || e?.eventId || null,
+        matchup: `${e?.away_team || e?.awayTeam || "?"} @ ${e?.home_team || e?.homeTeam || "?"}`
       }))
     })
-    console.log("[SCHEDULE-BEFORE-FILTER-DEBUG]", {
-        totalEvents: Array.isArray(allEvents) ? allEvents.length : 0,
-      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || "")
-      }))
+
+    console.log("[REFRESH-STAGE-1-SCHEDULED-EVENTS]", {
+      scheduledEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : -1,
+      sampleEventIds: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => e?.id || e?.eventId || null) : [],
+      sampleMatchups: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => `${e?.away_team || e?.awayTeam || "?"} @ ${e?.home_team || e?.homeTeam || "?"}`) : []
     })
-    const detroitSlateDateKey = toDetroitDateKey(Date.now())
-    console.log("[DETROIT-SLATE-DATE-DEBUG]", {
-      slateDateKey: detroitSlateDateKey,
-      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || ""),
-        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
-      }))
-    })
-    const targetEvents = allEvents.filter((event) => {
-      const eventTime = event?.commence_time || event?.gameTime
-      return toDetroitDateKey(eventTime) === detroitSlateDateKey
-    })
-    const rawApiEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
-    if (!targetEvents.length) {
+    let dkScopedFetchedEvents = null
+    try {
+      dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+    } catch (error) {
+      const outOfCredits =
+        error?.response?.status === 401 &&
+        String(error?.response?.data?.error_code || "") === "OUT_OF_USAGE_CREDITS"
+
+      if (outOfCredits) {
+        console.log("[DK-SCOPED-EVENTS-DEBUG-SKIPPED] out of usage credits", {
+          status: error?.response?.status || null,
+          errorCode: error?.response?.data?.error_code || null,
+          message: error?.response?.data?.message || error?.message || null
+        })
+        dkScopedFetchedEvents = null
+      } else {
+        throw error
+      }
+    }
+    const {
+      scheduledEvents: dkScopedScheduledEvents
+    } = dkScopedFetchedEvents != null ? await buildSlateEvents({
+      oddsApiKey: ODDS_API_KEY,
+      now: Date.now(),
+      events: dkScopedFetchedEvents
+    }) : { scheduledEvents: [] }
+
+    const unrestrictedEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const scheduledEventIds = [...new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const dkScopedEventIds = [...new Set((Array.isArray(dkScopedScheduledEvents) ? dkScopedScheduledEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const rawApiEventIds = dkScopedEventIds
+    const missingFromDkButInScheduled = scheduledEventIds.filter((eventId) => !dkScopedEventIds.includes(eventId))
+    if (!scheduledEvents.length) {
       return res.status(404).json({
         error: "No upcoming NBA games found for the primary slate"
       })
     }
-    const primarySlateDateLocal = targetEvents[0]
-      ? new Date(targetEvents[0].commence_time).toLocaleDateString("en-US", {
+    const primarySlateDateLocal = scheduledEvents[0]
+      ? new Date(getEventTimeForDebug(scheduledEvents[0])).toLocaleDateString("en-US", {
           timeZone: "America/Detroit"
         })
       : null
-    const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
     console.log("[EVENT-FETCH-INTEGRITY-DEBUG]", {
-      scheduledEventsCount: scheduledEvents.length,
-      eventIds: scheduledEvents.map((e) => e?.id)
+      unrestrictedEventFetchCount: unrestrictedEventIds.length,
+      unrestrictedEventIds,
+      scheduledEventCount: scheduledEvents.length,
+      scheduledEventIds,
+      dkScopedEventFetchCount: dkScopedEventIds.length,
+      dkScopedEventIds,
+      missingFromDkButInScheduled
     })
-    console.log("[SCHEDULE-AFTER-FILTER-DEBUG]", {
-      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || "")
-      }))
-    })
-    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
-      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || ""),
-        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
-      }))
+    console.log("[EVENT-FETCH-MATCHUP-INTEGRITY-DEBUG]", {
+      scheduledMatchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => getEventMatchupForDebug(event)),
+      dkScopedMatchups: (Array.isArray(dkScopedScheduledEvents) ? dkScopedScheduledEvents : []).map((event) => getEventMatchupForDebug(event)),
+      missingScheduledMatchupsFromDk: (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .filter((event) => missingFromDkButInScheduled.includes(getEventIdForDebug(event)))
+        .map((event) => getEventMatchupForDebug(event))
     })
     console.log("[RAW-PROPS-PIPELINE-START]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
@@ -12289,7 +12641,16 @@ app.get("/refresh-snapshot", async (req, res) => {
         return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
       }).filter(Boolean)
     })
-    const cleaned = []
+    console.log("[TOP-DOWN-RAW-PROPS-INPUT]", {
+      inputCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : -1,
+      sampleEventIds: Array.isArray(scheduledEvents)
+        ? scheduledEvents.slice(0, 5).map((item) => item?.id || item?.eventId || null)
+        : [],
+      sampleMatchups: Array.isArray(scheduledEvents)
+        ? scheduledEvents.slice(0, 5).map((item) => `${item?.away_team || item?.awayTeam || "?"} @ ${item?.home_team || item?.homeTeam || "?"}`)
+        : []
+    })
+    let cleaned = []
     const eventIngestDebug = []
     const previousOpenMap = new Map(
       (oddsSnapshot.props || []).map((row) => {
@@ -12303,48 +12664,312 @@ app.get("/refresh-snapshot", async (req, res) => {
         ]
       })
     )
+    const dkRequestedMarkets = ALL_DK_MARKETS
+    const scheduledEventRecords = (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+      .map((event) => ({
+        eventId: String(event?.eventId || event?.id || ""),
+        matchup: String(event?.matchup || getEventMatchupForDebug(event) || ""),
+        gameTime: event?.gameTime || event?.commence_time || event?.startTime || null
+      }))
+      .filter((event) => event.eventId)
+    const scheduledEventMap = new Map(
+      (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .map((event) => [String(event?.eventId || event?.id || ""), event])
+        .filter(([eventId]) => Boolean(eventId))
+    )
+    const settledEventAttempts = await Promise.allSettled(
+      scheduledEventRecords.map(async (scheduledRecord) => {
+        const sourceEvent = scheduledEventMap.get(scheduledRecord.eventId)
+        if (!sourceEvent) {
+          return {
+            eventId: scheduledRecord.eventId,
+            matchup: scheduledRecord.matchup,
+            ok: false,
+            empty: false,
+            errorMessage: "scheduled_event_not_found",
+            responseBookmakersCount: 0,
+            responseMarketsCount: 0,
+            normalizedRowsCount: 0,
+            normalizedRows: [],
+            responseReceived: false,
+            requestedMarkets: dkRequestedMarkets,
+            _allRows: [],
+            _fetchDebug: {}
+          }
+        }
 
-    for (const event of targetEvents) {
-      try {
-        const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
+        const fetched = await fetchEventPlayerPropsWithCoverage(sourceEvent, previousOpenMap, {
           pathLabel: "refresh-snapshot"
         })
-        const eventRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
+        const allRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
         if (Boolean(fetched?.extraMarketsFetchSucceeded)) {
-          eventRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
+          allRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
         }
-        cleaned.push(...eventRows)
-        eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
-      } catch (eventError) {
-        const away = event?.away_team || event?.awayTeam || ""
-        const home = event?.home_team || event?.homeTeam || ""
-        console.log("[RAW-PROPS-SKIP-DEBUG]", {
-          reason: "event_lookup_miss",
-          eventId: String(event?.id || event?.eventId || ""),
-          matchup: away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+        const fetchDebug = fetched?.debug || {}
+        const normalizedRows = allRows.filter((row) => String(row?.book || "") === "DraftKings")
+        const responseBookmakersCount = Number(fetchDebug?.dkBookmakerEntries || 0)
+        const responseMarketsCount = Number(fetchDebug?.dkMarketEntries || 0)
+
+        console.log("[DK-EVENT-COVERAGE-CHECK]", {
+          eventId: sourceEvent?.id || sourceEvent?.eventId,
+          matchup: `${sourceEvent?.away_team || sourceEvent?.awayTeam || "?"} @ ${sourceEvent?.home_team || sourceEvent?.homeTeam || "?"}`,
+          hasResponse: Boolean(fetched),
+          bookmakerCount: responseBookmakersCount,
+          bookmakerKeys: Array.isArray(fetchDebug?.allBookmakerSummary)
+            ? fetchDebug.allBookmakerSummary.map(b => b?.key || b?.title || null)
+            : [],
+          hasDraftKings: responseBookmakersCount > 0,
+          marketCount: responseMarketsCount,
+          dkMarketKeys: Array.isArray(fetchDebug?.dkMarketKeysSeen) ? fetchDebug.dkMarketKeysSeen : [],
+          normalizedRowCount: normalizedRows.length,
+          totalRowCount: allRows.length
         })
-        eventIngestDebug.push({
-          path: "refresh-snapshot",
-          eventId: String(event?.id || ""),
-          matchup: buildMatchup(event?.away_team, event?.home_team),
-          error: eventError.response?.data || eventError.message,
-          finalAcceptedRows: 0
+
+        if (responseBookmakersCount === 0 || responseMarketsCount === 0) {
+          console.log("[DK-EVENT-NO-DATA]", {
+            eventId: sourceEvent?.id || sourceEvent?.eventId,
+            matchup: `${sourceEvent?.away_team || sourceEvent?.awayTeam || "?"} @ ${sourceEvent?.home_team || sourceEvent?.homeTeam || "?"}`,
+            bookmakerCount: responseBookmakersCount,
+            marketCount: responseMarketsCount,
+            fetchDebugKeys: Object.keys(fetchDebug),
+            primaryBooksSeen: fetchDebug?.primary?.booksSeen || [],
+            primaryAccepted: fetchDebug?.primary?.acceptedRows || 0,
+            primaryRejected: fetchDebug?.primary?.rejectedRows || 0,
+            primaryDropReasons: fetchDebug?.primary?.dropReasonCounts || {}
+          })
+        }
+
+        const normalizedRowsCount = normalizedRows.length
+        const empty = responseBookmakersCount === 0 || responseMarketsCount === 0 || normalizedRowsCount === 0
+
+        return {
+          eventId: scheduledRecord.eventId,
+          matchup: scheduledRecord.matchup,
+          ok: true,
+          empty,
+          errorMessage: null,
+          responseBookmakersCount,
+          responseMarketsCount,
+          normalizedRowsCount,
+          normalizedRows,
+          responseReceived: true,
+          requestedMarkets: Array.isArray(fetchDebug?.requestedMarkets) && fetchDebug.requestedMarkets.length
+            ? fetchDebug.requestedMarkets
+            : dkRequestedMarkets,
+          _allRows: allRows,
+          _fetchDebug: fetchDebug
+        }
+      })
+    )
+    const eventResults = settledEventAttempts.map((settled, index) => {
+      const scheduledRecord = scheduledEventRecords[index] || { eventId: "", matchup: "" }
+      if (settled.status === "fulfilled") {
+        return settled.value
+      }
+      const reason = settled.reason || {}
+      return {
+        eventId: scheduledRecord.eventId,
+        matchup: scheduledRecord.matchup,
+        ok: false,
+        empty: false,
+        errorMessage: String(reason?.response?.data?.message || reason?.response?.data?.error || reason?.message || reason || "unknown_error"),
+        responseBookmakersCount: 0,
+        responseMarketsCount: 0,
+        normalizedRowsCount: 0,
+        normalizedRows: [],
+        responseReceived: Boolean(reason?.response || reason?.__dkFetchMeta?.responseReceived),
+        requestedMarkets: Array.isArray(reason?.__dkFetchMeta?.requestedMarkets) && reason.__dkFetchMeta.requestedMarkets.length
+          ? reason.__dkFetchMeta.requestedMarkets
+          : dkRequestedMarkets,
+        _allRows: [],
+        _fetchDebug: {}
+      }
+    })
+    console.log("[DK-EVENT-ATTEMPT-SUMMARY]", {
+      scheduledEventCount: scheduledEventRecords.length,
+      attemptedEventCount: eventResults.length,
+      successCount: eventResults.filter((result) => result.ok).length,
+      emptyCount: eventResults.filter((result) => result.ok && result.empty).length,
+      errorCount: eventResults.filter((result) => !result.ok).length,
+      rowBackedEventCount: eventResults.filter((result) => (result.normalizedRowsCount || 0) > 0).length,
+      missingEventAttempts: scheduledEventRecords
+        .filter((scheduledRecord) => !eventResults.some((result) => result.eventId === scheduledRecord.eventId))
+        .map((scheduledRecord) => ({ eventId: scheduledRecord.eventId, matchup: scheduledRecord.matchup }))
+    })
+    console.log("[DK-EVENT-ATTEMPT-DETAILS]", eventResults.map((result) => ({
+      eventId: result.eventId,
+      matchup: result.matchup,
+      ok: result.ok,
+      empty: result.empty,
+      errorMessage: result.errorMessage,
+      responseBookmakersCount: result.responseBookmakersCount,
+      responseMarketsCount: result.responseMarketsCount,
+      normalizedRowsCount: result.normalizedRowsCount
+    })))
+    for (const eventResult of eventResults) {
+      if (eventResult.ok && (eventResult.normalizedRowsCount || 0) > 0) {
+        console.log("[DK-EVENT-FETCH-SUCCESS]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
         })
-        console.error(
-          "Snapshot event props failed:",
-          event.id,
-          eventError.response?.data || eventError.message
-        )
+      } else if (eventResult.ok) {
+        console.log("[DK-EVENT-FETCH-EMPTY]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
+        })
+      } else {
+        console.log("[DK-EVENT-FETCH-ERROR]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
+        })
       }
     }
+    console.log("[REFRESH-STAGE-2-FETCHED-EVENT-ODDS]", {
+      fetchedEvents: Array.isArray(eventResults) ? eventResults.length : -1,
+      sampleEventIds: Array.isArray(eventResults) ? eventResults.slice(0, 5).map((e) => e?.eventId || null) : [],
+      sampleBookmakerCounts: Array.isArray(eventResults) ? eventResults.slice(0, 5).map((e) => e?.responseBookmakersCount || 0) : [],
+      sampleMarketCounts: Array.isArray(eventResults) ? eventResults.slice(0, 5).map((e) => e?.responseMarketsCount || 0) : [],
+      sampleNormalizedRowCounts: Array.isArray(eventResults) ? eventResults.slice(0, 5).map((e) => e?.normalizedRowsCount || 0) : [],
+      totalNormalizedRows: Array.isArray(eventResults) ? eventResults.reduce((sum, e) => sum + (e?.normalizedRowsCount || 0), 0) : 0,
+      erroredEvents: Array.isArray(eventResults) ? eventResults.filter((e) => !e?.ok).map((e) => ({ eventId: e?.eventId, matchup: e?.matchup, error: e?.errorMessage })) : [],
+      firstEventBookmakers: (() => {
+        const first = eventResults[0]?._fetchDebug?.allBookmakerSummary
+        return Array.isArray(first) ? first.map((b) => ({
+          key: b?.key || null,
+          title: b?.title || null,
+          marketCount: b?.marketCount || 0,
+          sampleMarketKeys: Array.isArray(b?.sampleMarketKeys) ? b.sampleMarketKeys.slice(0, 10) : []
+        })) : []
+      })()
+    })
+    const dkFetchAudit = Array.isArray(eventResults)
+      ? eventResults.slice(0, 10).map((r) => {
+          const debug = r._fetchDebug || {}
+          return {
+            eventId: r.eventId || null,
+            matchup: r.matchup || null,
+            bookmakerCount: debug.primary?.bookmakerCount || 0,
+            booksSeen: debug.primary?.booksSeen || [],
+            hasDraftKings: (debug.dkBookmakerEntries || 0) > 0,
+            dkMarketCount: debug.dkMarketEntries || 0,
+            dkNormalizedRows: debug.dkNormalizedRowsProduced || 0,
+            dkSampleMarketKeys: Array.isArray(debug.dkMarketKeysSeen) ? debug.dkMarketKeysSeen.slice(0, 15) : [],
+            requestedMarkets: debug.requestedMarkets || [],
+            dropReasonCounts: debug.primary?.dropReasonCounts || {},
+            acceptedRows: debug.primary?.acceptedRows || 0,
+            rejectedRows: debug.primary?.rejectedRows || 0
+          }
+        })
+      : []
+    console.log("[REFRESH-STAGE-2B-DK-AUDIT]", dkFetchAudit)
+
+    const quotaExceededDuringRefresh = Array.isArray(eventResults)
+      ? eventResults.some((attempt) => {
+          const message = String(attempt?.errorMessage || "")
+          return message.includes("Usage quota has been reached") || message.includes("OUT_OF_USAGE_CREDITS")
+        })
+      : false
+
+    if (quotaExceededDuringRefresh) {
+      const fallbackRawProps = Array.isArray(preferredSnapshotFallback?.rawProps) ? preferredSnapshotFallback.rawProps.length : 0
+      const fallbackBestProps = Array.isArray(preferredSnapshotFallback?.bestProps) ? preferredSnapshotFallback.bestProps.length : 0
+      const fallbackProps = Array.isArray(preferredSnapshotFallback?.props) ? preferredSnapshotFallback.props.length : 0
+
+      console.log("[REFRESH-QUOTA-PRESERVE-SNAPSHOT]", {
+        fallbackRawProps,
+        fallbackProps,
+        fallbackBestProps,
+        usingDiskFallback: getSnapshotStrength(diskSnapshotFallback) > getSnapshotStrength(currentSnapshotFallback),
+        usingMemoryFallback: getSnapshotStrength(currentSnapshotFallback) >= getSnapshotStrength(diskSnapshotFallback)
+      })
+
+      if (preferredSnapshotFallback && (fallbackRawProps > 0 || fallbackBestProps > 0 || fallbackProps > 0)) {
+        oddsSnapshot = preferredSnapshotFallback
+        lastSnapshotSource = "quota-preserved-cache"
+
+        return res.status(200).json({
+          ok: true,
+          message: "Live refresh skipped because Odds API quota is exhausted; preserved cached snapshot",
+          snapshotMeta: buildSnapshotMeta({ source: "quota-preserved-cache" }),
+          counts: {
+            rawProps: fallbackRawProps,
+            props: fallbackProps,
+            bestProps: fallbackBestProps
+          }
+        })
+      }
+
+      return res.status(503).json({
+        ok: false,
+        error: "Odds API quota exhausted and no usable cached snapshot is available",
+        snapshotMeta: buildSnapshotMeta({ source: "quota-exhausted-no-cache" })
+      })
+    }
+
+    const rawDraftKingsRows = eventResults.flatMap((result) =>
+      Array.isArray(result.normalizedRows) ? result.normalizedRows : []
+    )
+    cleaned = dedupeByLegSignature(rawDraftKingsRows)
+    for (const eventResult of eventResults) {
+      const allRows = Array.isArray(eventResult?._allRows) ? eventResult._allRows : []
+      const fetchDebug = eventResult?._fetchDebug || {}
+      eventIngestDebug.push({
+        ...fetchDebug,
+        path: "refresh-snapshot",
+        eventId: eventResult.eventId,
+        matchup: eventResult.matchup,
+        requestedMarkets: eventResult.requestedMarkets,
+        responseReceived: eventResult.responseReceived,
+        dkRequestSucceeded: eventResult.ok,
+        dkBookmakerEntries: eventResult.responseBookmakersCount,
+        dkMarketEntries: eventResult.responseMarketsCount,
+        dkNormalizedRowsProduced: eventResult.normalizedRowsCount,
+        normalizedRowsProduced: allRows.length,
+        dkFetchError: !eventResult.ok,
+        error: eventResult.errorMessage,
+        finalAcceptedRows: allRows.length
+      })
+    }
+    const dkAttemptedEventIdSet = new Set(eventResults.map((result) => String(result?.eventId || "")).filter(Boolean))
+    const dkRowBackedEventIdSetFromAttempts = new Set(
+      eventResults
+        .filter((result) => Number(result?.normalizedRowsCount || 0) > 0)
+        .map((result) => String(result?.eventId || ""))
+        .filter(Boolean)
+    )
+    console.log("[DK-ATTEMPT-VS-ROW-COVERAGE]", {
+      scheduledEventCount: scheduledEventRecords.length,
+      attemptedEventCount: dkAttemptedEventIdSet.size,
+      rowBackedEventCount: dkRowBackedEventIdSetFromAttempts.size,
+      attemptedWithoutRows: eventResults
+        .filter((result) => result.ok && (result.normalizedRowsCount || 0) === 0)
+        .map((result) => ({ eventId: result.eventId, matchup: result.matchup })),
+      failedAttempts: eventResults
+        .filter((result) => !result.ok)
+        .map((result) => ({ eventId: result.eventId, matchup: result.matchup, errorMessage: result.errorMessage }))
+    })
 
     const previousRowsForCarry = dedupeByLegSignature([
       ...(Array.isArray(previousSnapshotForCarry?.rawProps) ? previousSnapshotForCarry.rawProps : []),
       ...(Array.isArray(previousSnapshotForCarry?.props) ? previousSnapshotForCarry.props : [])
     ])
-    const scheduledEventIds = scheduledEvents.map((event) => String(event?.id || "")).filter(Boolean)
     const preCarryEventIds = [...new Set(cleaned.map((row) => String(row?.eventId || "")).filter(Boolean))]
-    const slateDateKey = targetEvents[0] ? getLocalSlateDateKey(targetEvents[0].commence_time) : ""
+    const slateDateKey = scheduledEvents[0] ? getLocalSlateDateKey(getEventTimeForDebug(scheduledEvents[0])) : ""
     const unstableMissingBeforeCarry = UNSTABLE_GAME_EVENT_IDS.filter((eventId) => {
       return scheduledEventIds.includes(eventId) && !preCarryEventIds.includes(eventId)
     })
@@ -12379,6 +13004,258 @@ app.get("/refresh-snapshot", async (req, res) => {
 
     let rawIngestedProps = dedupeByLegSignature(cleaned)
     let rawPropsRows = rawIngestedProps
+
+    console.log("[TOP-DOWN-RAW-PROPS-SOURCE]", {
+      cleanedCount: Array.isArray(cleaned) ? cleaned.length : -1,
+      rawPropsCount: Array.isArray(rawPropsRows) ? rawPropsRows.length : -1,
+      byBook: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.book || "Unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      byPropType: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.propType || "Unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      byMarketKey: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.marketKey || "unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      sampleRows: Array.isArray(rawPropsRows)
+        ? rawPropsRows.slice(0, 5).map((row) => ({
+            eventId: row?.eventId || null,
+            matchup: row?.matchup || null,
+            book: row?.book || null,
+            player: row?.player || null,
+            propType: row?.propType || null,
+            side: row?.side || null,
+            line: row?.line ?? null,
+            marketKey: row?.marketKey || null
+          }))
+        : []
+    })
+
+    console.log("[REFRESH-STAGE-3A-PRE-EXTRA-MARKETS]", {
+      rawIngestedProps: Array.isArray(rawIngestedProps) ? rawIngestedProps.length : -1,
+      byBook: Array.isArray(rawIngestedProps)
+        ? rawIngestedProps.reduce((acc, row) => {
+            const key = String(row?.book || "Unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {}
+    })
+
+    const normalizeEventRowsFromPayload = (eventPayload, event) => {
+      const matchup = buildMatchup(event?.away_team, event?.home_team)
+      const rows = []
+      const rejectReasonCounts = {}
+      const books = Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []
+
+      for (const book of books) {
+        const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
+
+        for (const market of markets) {
+          const marketKey = String(market?.key || market?.name || "").trim()
+          const inferredMarket = inferMarketTypeFromKey(marketKey)
+          const propType = normalizePropType(marketKey)
+          let normalizedPropType = propType || inferredMarket.internalType || null
+          const inferredFamily = inferredMarket.family
+          const shouldKeep = Boolean(
+            normalizedPropType ||
+            inferredFamily === "standard" ||
+            inferredFamily === "ladder" ||
+            inferredFamily === "special"
+          )
+
+          if (!shouldKeep) continue
+
+          const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : (Array.isArray(market?.selections) ? market.selections : [])
+
+          for (const outcome of outcomes) {
+            const eventId = String(
+              event?.id ||
+              event?.eventId ||
+              market?.eventId ||
+              book?.eventId ||
+              ""
+            ).trim()
+            const sideRaw = String(outcome?.name || outcome?.label || outcome?.side || "").trim()
+            const rawDescription = String(outcome?.description || "").trim()
+            let side = sideRaw === "over" || sideRaw === "Over" ? "Over" : (sideRaw === "under" || sideRaw === "Under" ? "Under" : sideRaw)
+
+            // For special/ladder markets, normalize Yes/No and treat player-name sides as "Yes"
+            if (inferredFamily === "special" || inferredFamily === "ladder") {
+              const sideLower = side.toLowerCase()
+              if (sideLower === "yes") side = "Yes"
+              else if (sideLower === "no") side = "No"
+              else if (side !== "Over" && side !== "Under") side = "Yes"
+            }
+
+            let player = rawDescription || String(outcome?.participant || "").trim() || String(outcome?.player || "").trim()
+            player = String(player || "").trim()
+
+            const bookName = String(book?.title || book?.key || book?.name || "").trim()
+            const currentLine = Number(outcome?.point ?? outcome?.line ?? outcome?.handicap ?? outcome?.total)
+            const currentOdds = Number(outcome?.price ?? outcome?.odds ?? outcome?.american_odds)
+
+            const draftRow = {
+              eventId,
+              matchup,
+              awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
+              homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
+              gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+              book: bookName,
+              marketKey,
+              marketFamily: inferredFamily,
+              propType: normalizedPropType,
+              player,
+              side,
+              playerStatus: getManualPlayerStatus(player),
+              line: currentLine,
+              odds: currentOdds,
+              openingLine: currentLine,
+              openingOdds: currentOdds,
+              lineMove: 0,
+              oddsMove: 0,
+              marketMovementTag: "neutral"
+            }
+
+            const rejectReason = getIngestRejectReason(draftRow)
+            if (rejectReason) {
+              rejectReasonCounts[rejectReason] = (rejectReasonCounts[rejectReason] || 0) + 1
+              continue
+            }
+
+            rows.push(draftRow)
+          }
+        }
+      }
+
+      const totalRejected = Object.values(rejectReasonCounts).reduce((s, n) => s + n, 0)
+      if (totalRejected > 0 || rows.length === 0) {
+        console.log("[INGEST-REJECT-REASONS-EXTRA-MKT]", {
+          eventId: event?.id,
+          matchup,
+          accepted: rows.length,
+          rejected: totalRejected,
+          reasons: rejectReasonCounts
+        })
+      }
+
+      return rows
+    }
+
+    const extraRawRows = await buildExtraMarketRowsForEvents({
+      scheduledEvents,
+      oddsApiKey: ODDS_API_KEY,
+      normalizeEventRows: normalizeEventRowsFromPayload
+    })
+
+    rawPropsRows = dedupeMarketRows([
+      ...(Array.isArray(rawPropsRows) ? rawPropsRows : []),
+      ...(Array.isArray(extraRawRows) ? extraRawRows : [])
+    ])
+    console.log("[REFRESH-STAGE-3-NORMALIZED-RAW-PROPS]", {
+      rawProps: Array.isArray(rawPropsRows) ? rawPropsRows.length : -1,
+      extraRawRows: Array.isArray(extraRawRows) ? extraRawRows.length : -1,
+      byBook: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.book || "Unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      byPropType: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.propType || "Unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      byMarketKey: Array.isArray(rawPropsRows)
+        ? rawPropsRows.reduce((acc, row) => {
+            const key = String(row?.marketKey || "unknown")
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+        : {},
+      sampleRows: Array.isArray(rawPropsRows) ? rawPropsRows.slice(0, 5).map((row) => ({
+        eventId: row?.eventId || null,
+        matchup: row?.matchup || null,
+        book: row?.book || null,
+        player: row?.player || null,
+        propType: row?.propType || null,
+        side: row?.side || null,
+        line: row?.line ?? null,
+        marketKey: row?.marketKey || null
+      })) : []
+    })
+    const scheduledEventIdSet = new Set(
+      (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .map((event) => String(event?.eventId || event?.id || ""))
+        .filter(Boolean)
+    )
+    const rawDraftKingsEventIdSet = new Set(
+      (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+        .filter((row) => String(row?.book || "") === "DraftKings")
+        .map((row) => String(row?.eventId || ""))
+        .filter(Boolean)
+    )
+    const missingDraftKingsEventIds = [...scheduledEventIdSet].filter((id) => !rawDraftKingsEventIdSet.has(id))
+    console.log("[DK-RAW-COVERAGE-DEBUG]", {
+      scheduledEventCount: scheduledEventIdSet.size,
+      rawDraftKingsEventCount: rawDraftKingsEventIdSet.size,
+      missingDraftKingsEventIds
+    })
+    console.log("[DK-RAW-COVERAGE-MATCHUPS]", {
+      missingMatchups: (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .filter((event) => !rawDraftKingsEventIdSet.has(String(event?.eventId || event?.id || "")))
+        .map((event) => ({
+          eventId: String(event?.eventId || event?.id || ""),
+          matchup: String(event?.matchup || getEventMatchupForDebug(event) || ""),
+          gameTime: event?.gameTime || event?.commence_time || event?.startTime || null
+        }))
+    })
+    const dkAttemptedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkFetchedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => item?.dkRequestSucceeded === true)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkRowBackedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => Number(item?.dkNormalizedRowsProduced || 0) > 0)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkErroredEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => item?.dkFetchError === true)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    console.log("[DK-EVENT-FETCH-VS-ROWS]", {
+      dkFetchedEventCount: dkFetchedEventIds.size,
+      dkRowBackedEventCount: dkRowBackedEventIds.size,
+      fetchedWithoutRows: [...dkFetchedEventIds].filter((id) => !dkRowBackedEventIds.has(id)),
+      dkErroredEventIds: [...dkErroredEventIds],
+      neverAttemptedEventIds: [...scheduledEventIdSet].filter((id) => !dkAttemptedEventIds.has(id))
+    })
+
     console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
@@ -13996,10 +14873,75 @@ logBestPropsCapExcluded("refresh-snapshot", bestPropsSource, bestProps, bestProp
 logFunnelStage("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps, { sortComposite: true, cap: BEST_PROPS_BALANCE_CONFIG.totalCap, minPerBook: BEST_PROPS_BALANCE_CONFIG.minPerBook, matchupCap: BEST_PROPS_BALANCE_CONFIG.maxPerMatchup, playerCap: BEST_PROPS_BALANCE_CONFIG.maxPerPlayer })
 logFunnelExcluded("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps)
 
+const nextRawPropsCount = Array.isArray(rawPropsRows) ? rawPropsRows.length : 0
+const nextPropsCount = Array.isArray(activeBookRawPropsRows) ? activeBookRawPropsRows.length : 0
+const nextBestPropsCount = Array.isArray(bestProps) ? bestProps.length : 0
+const scheduledEventsCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
+const previousRawPropsCount = Array.isArray(previousSnapshot?.rawProps) ? previousSnapshot.rawProps.length : 0
+const previousBestPropsCount = Array.isArray(previousSnapshot?.bestProps) ? previousSnapshot.bestProps.length : 0
+
+const previousHadUsableData = previousRawPropsCount > 0 || previousBestPropsCount > 0
+const newSnapshotIsEmptyButSlateExists =
+  scheduledEventsCount > 0 &&
+  nextRawPropsCount === 0 &&
+  nextPropsCount === 0 &&
+  nextBestPropsCount === 0
+
+console.log("[SNAPSHOT-COMMIT-CHECK]", {
+  scheduledEventsCount,
+  nextRawPropsCount,
+  nextPropsCount,
+  nextBestPropsCount,
+  previousRawPropsCount,
+  previousBestPropsCount
+})
+
+if (newSnapshotIsEmptyButSlateExists && previousHadUsableData) {
+  console.log("[SNAPSHOT-PRESERVE-PREVIOUS]", {
+    scheduledEventsCount,
+    nextRawPropsCount,
+    nextPropsCount,
+    nextBestPropsCount,
+    previousRawPropsCount,
+    previousBestPropsCount
+  })
+
+  oddsSnapshot = previousSnapshot
+  lastSnapshotSource = "refresh-live-empty-preserved-previous"
+
+  return res.status(200).json({
+    ok: true,
+    message: "Live refresh returned no props; preserved previous snapshot",
+    snapshotMeta: buildSnapshotMeta({ source: "refresh-live-empty-preserved-previous" }),
+    counts: {
+      scheduledEvents: scheduledEventsCount,
+      incomingRawProps: nextRawPropsCount,
+      incomingProps: nextPropsCount,
+      incomingBestProps: nextBestPropsCount,
+      preservedRawProps: previousRawPropsCount,
+      preservedBestProps: previousBestPropsCount
+    }
+  })
+}
+
+console.log("[TOP-DOWN-SNAPSHOT-PRE-COMMIT]", {
+  events: Array.isArray(scheduledEvents) ? scheduledEvents.length : -1,
+  rawProps: Array.isArray(rawPropsRows) ? rawPropsRows.length : -1,
+  props: Array.isArray(activeBookRawPropsRows) ? activeBookRawPropsRows.length : -1,
+  bestProps: Array.isArray(bestProps) ? bestProps.length : -1
+})
+console.log("[REFRESH-STAGE-4-SNAPSHOT-ASSEMBLY]", {
+  events: Array.isArray(scheduledEvents) ? scheduledEvents.length : -1,
+  rawProps: Array.isArray(rawPropsRows) ? rawPropsRows.length : -1,
+  props: Array.isArray(activeBookRawPropsRows) ? activeBookRawPropsRows.length : -1,
+  bestProps: Array.isArray(bestProps) ? bestProps.length : -1
+})
 oddsSnapshot.updatedAt = new Date().toISOString()
-oddsSnapshot.events = coveredEvents
-oddsSnapshot.rawProps = rawIngestedProps
+oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
+oddsSnapshot.rawProps = rawPropsRows
 oddsSnapshot.props = activeBookRawPropsRows
+oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
+oddsSnapshot.snapshotSlateGameCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
 console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   path: "refresh-snapshot",
   targets: targetMissingEventStages.map((stage) => ({
@@ -14111,6 +15053,9 @@ console.log("[FRAGILE-FILTER-SUMMARY-DEBUG]", {
   }
 })
 const refreshSnapshotMissingStageNames = []
+const targetEvents = Array.isArray(scheduledEvents)
+  ? scheduledEvents
+  : (Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : [])
 if (!Array.isArray(targetEvents)) refreshSnapshotMissingStageNames.push("scheduledEvents")
 if (!Array.isArray(cleaned)) refreshSnapshotMissingStageNames.push("rawPropsRows")
 if (!Array.isArray(enriched)) refreshSnapshotMissingStageNames.push("enrichedModelRows")
@@ -14242,6 +15187,19 @@ console.log("[PARLAY-BUILDER-RESULT]", {
 })
 const refreshSnapshotFinalVisibleBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
 logBestStage("refresh-snapshot:afterFinalVisibilityFiltering", refreshSnapshotFinalVisibleBest)
+console.log("[PRIMARY-SLATE-DISCOVERY-DEBUG]", {
+  path: "refresh-snapshot",
+  unrestrictedEventFetchCount: unrestrictedEventIds.length,
+  unrestrictedEventIds,
+  scheduledEventCount: scheduledEventIds.length,
+  scheduledEventIds,
+  dkScopedEventFetchCount: dkScopedEventIds.length,
+  dkScopedEventIds,
+  missingFromDkButInScheduled,
+  mappedRawPropGameCount: getDistinctGameCount(activeBookRawPropsRows),
+  playablePropGameCount: getDistinctGameCount(oddsSnapshot.playableProps),
+  bestPropGameCount: getDistinctGameCount(refreshSnapshotFinalVisibleBest)
+})
 console.log("[BEST-PROPS-STAGE-COUNTS]", {
   path: "refresh-snapshot",
   stage: "afterFinalVisibilityFilter",
@@ -14373,42 +15331,55 @@ console.log(
   }, {})
 )
 lastSnapshotRefreshAt = Date.now()
-    console.log("[SNAPSHOT-DEBUG] END refresh-snapshot",
-      "bestProps=" + oddsSnapshot.bestProps.length,
-      "playableProps=" + oddsSnapshot.playableProps.length,
-      "strongProps=" + oddsSnapshot.strongProps.length,
-      "eliteProps=" + oddsSnapshot.eliteProps.length
-    )
 
-    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+    const refreshMeta = buildSnapshotMeta({ source: "refresh-live" })
 
-    res.json({
+    console.log("[SNAPSHOT-REFRESH-SUCCESS]", {
+      updatedAt: oddsSnapshot?.updatedAt || null,
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+      playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
+      strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
+      eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
+    })
+
+    return res.json({
       ok: true,
-      updatedAt: oddsSnapshot.updatedAt,
-      updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
-      primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
-      slateMode: slateMeta.slateMode,
-      eligibleRemainingGames: slateMeta.eligibleRemainingGames,
-      totalEligibleGames: slateMeta.totalEligibleGames,
-      startedEligibleGames: slateMeta.startedEligibleGames,
-      events: oddsSnapshot.events.length,
-      props: oddsSnapshot.props.length,
-      bestProps: oddsSnapshot.bestProps.length,
-      flexProps: (oddsSnapshot.flexProps || []).length,
-      debugPipeline: {
-        stages: debugPipelineStages,
-        bestPropsCount: oddsSnapshot.bestProps.length,
-        flexPropsCount: (oddsSnapshot.flexProps || []).length,
-        playablePropsCount: oddsSnapshot.playableProps.length,
-        strongPropsCount: oddsSnapshot.strongProps.length,
-        elitePropsCount: oddsSnapshot.eliteProps.length
+      message: "Snapshot refreshed successfully",
+      snapshotMeta: refreshMeta,
+      snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey || null,
+      snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
+      counts: {
+        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+        playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
+        strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
+        eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
       }
     })
   } catch (error) {
-    res.status(500).json({
-      error: "Snapshot refresh failed",
-      details: error.response?.data || error.message
+    const readableError =
+      error?.stack ||
+      error?.message ||
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      (typeof error?.response?.data === "string" ? error.response.data : "") ||
+      (typeof error === "string" ? error : "") ||
+      JSON.stringify(error, Object.getOwnPropertyNames(error || {}))
+
+    console.error("[SNAPSHOT-REFRESH-ERROR]", {
+      message: error?.message || null,
+      stack: error?.stack || null,
+      name: error?.name || null,
+      code: error?.code || null,
+      responseStatus: error?.response?.status || null,
+      responseData: error?.response?.data || null,
+      readableError
     })
+
+    res.status(500).send(`Snapshot refresh failed (${readableError})`)
   }
 })
 
@@ -14461,81 +15432,62 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
     }
 
-    const eventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/odds",
+    const unrestrictedEventsResponse = await axios.get(
+      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
       {
-        params: {
-          apiKey: ODDS_API_KEY,
-          regions: "us",
-          bookmakers: "draftkings",
-          markets: "h2h"
-        }
+        params: { apiKey: ODDS_API_KEY },
+        timeout: 15000
       }
     )
+    const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data) ? unrestrictedEventsResponse.data : []
+    const {
+      allEvents,
+      scheduledEvents
+    } = await buildSlateEvents({
+      oddsApiKey: ODDS_API_KEY,
+      now: Date.now(),
+      events: unrestrictedFetchedEvents
+    })
+    const dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+    const {
+      scheduledEvents: dkScopedScheduledEvents
+    } = await buildSlateEvents({
+      oddsApiKey: ODDS_API_KEY,
+      now: Date.now(),
+      events: dkScopedFetchedEvents
+    })
 
-    const allEvents = Array.isArray(eventsResponse?.data) ? eventsResponse.data : []
-    console.log("[RAW-EVENTS-FETCH-DEBUG]", {
-      totalFetched: Array.isArray(allEvents) ? allEvents.length : 0,
-      events: (allEvents || []).map((e) => ({
-        matchup: getEventMatchupForDebug(e),
-        commenceTime: e?.commence_time
-      }))
-    })
-    console.log("[SCHEDULE-BEFORE-FILTER-DEBUG]", {
-        totalEvents: Array.isArray(allEvents) ? allEvents.length : 0,
-      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || "")
-      }))
-    })
-    const detroitSlateDateKey = toDetroitDateKey(Date.now())
-    console.log("[DETROIT-SLATE-DATE-DEBUG]", {
-      slateDateKey: detroitSlateDateKey,
-      events: (Array.isArray(allEvents) ? allEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || ""),
-        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
-      }))
-    })
-    const targetEvents = allEvents.filter((event) => {
-      const eventTime = event?.commence_time || event?.gameTime
-      return toDetroitDateKey(eventTime) === detroitSlateDateKey
-    })
-    const rawApiEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((e) => String(e?.id || e?.event_id || e?.key || "")).filter(Boolean))]
-    if (!targetEvents.length) {
+    const unrestrictedEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const scheduledEventIds = [...new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const dkScopedEventIds = [...new Set((Array.isArray(dkScopedScheduledEvents) ? dkScopedScheduledEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
+    const rawApiEventIds = dkScopedEventIds
+    const missingFromDkButInScheduled = scheduledEventIds.filter((eventId) => !dkScopedEventIds.includes(eventId))
+    if (!scheduledEvents.length) {
       return res.status(404).json({
         error: "No upcoming NBA games found for the primary slate"
       })
     }
 
-    const primarySlateDateLocal = targetEvents[0]
-      ? new Date(targetEvents[0].commence_time).toLocaleDateString("en-US", {
+    const primarySlateDateLocal = scheduledEvents[0]
+      ? new Date(getEventTimeForDebug(scheduledEvents[0])).toLocaleDateString("en-US", {
           timeZone: "America/Detroit"
         })
       : null
-    const scheduledEvents = Array.isArray(targetEvents) ? targetEvents : []
     console.log("[EVENT-FETCH-INTEGRITY-DEBUG]", {
-      scheduledEventsCount: scheduledEvents.length,
-      eventIds: scheduledEvents.map((e) => e?.id)
+      unrestrictedEventFetchCount: unrestrictedEventIds.length,
+      unrestrictedEventIds,
+      scheduledEventCount: scheduledEvents.length,
+      scheduledEventIds,
+      dkScopedEventFetchCount: dkScopedEventIds.length,
+      dkScopedEventIds,
+      missingFromDkButInScheduled
     })
-    console.log("[SCHEDULE-AFTER-FILTER-DEBUG]", {
-      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || "")
-      }))
-    })
-    console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
-      totalEvents: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
-      events: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => ({
-        eventId: String(event?.id || event?.eventId || ""),
-        matchup: getEventMatchupForDebug(event),
-        commenceTime: String(event?.commence_time || event?.gameTime || ""),
-        detroitDateKey: toDetroitDateKey(event?.commence_time || event?.gameTime)
-      }))
+    console.log("[EVENT-FETCH-MATCHUP-INTEGRITY-DEBUG]", {
+      scheduledMatchups: (Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => getEventMatchupForDebug(event)),
+      dkScopedMatchups: (Array.isArray(dkScopedScheduledEvents) ? dkScopedScheduledEvents : []).map((event) => getEventMatchupForDebug(event)),
+      missingScheduledMatchupsFromDk: (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .filter((event) => missingFromDkButInScheduled.includes(getEventIdForDebug(event)))
+        .map((event) => getEventMatchupForDebug(event))
     })
     console.log("[RAW-PROPS-PIPELINE-START]", {
       scheduledEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
@@ -14546,7 +15498,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         return away && home ? `${away} @ ${home}` : String(event?.matchup || "")
       }).filter(Boolean)
     })
-    const cleaned = []
+    let cleaned = []
     const eventIngestDebug = []
     const previousOpenMap = new Map(
       (oddsSnapshot.props || []).map((row) => {
@@ -14560,48 +15512,200 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         ]
       })
     )
+    const dkRequestedMarkets = ALL_DK_MARKETS
+    const scheduledEventRecords = (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+      .map((event) => ({
+        eventId: String(event?.eventId || event?.id || ""),
+        matchup: String(event?.matchup || getEventMatchupForDebug(event) || ""),
+        gameTime: event?.gameTime || event?.commence_time || event?.startTime || null
+      }))
+      .filter((event) => event.eventId)
+    const scheduledEventMap = new Map(
+      (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .map((event) => [String(event?.eventId || event?.id || ""), event])
+        .filter(([eventId]) => Boolean(eventId))
+    )
+    const settledEventAttempts = await Promise.allSettled(
+      scheduledEventRecords.map(async (scheduledRecord) => {
+        const sourceEvent = scheduledEventMap.get(scheduledRecord.eventId)
+        if (!sourceEvent) {
+          return {
+            eventId: scheduledRecord.eventId,
+            matchup: scheduledRecord.matchup,
+            ok: false,
+            empty: false,
+            errorMessage: "scheduled_event_not_found",
+            responseBookmakersCount: 0,
+            responseMarketsCount: 0,
+            normalizedRowsCount: 0,
+            normalizedRows: [],
+            responseReceived: false,
+            requestedMarkets: dkRequestedMarkets,
+            _allRows: [],
+            _fetchDebug: {}
+          }
+        }
 
-    for (const event of targetEvents) {
-      try {
-        const fetched = await fetchEventPlayerPropsWithCoverage(event, previousOpenMap, {
+        const fetched = await fetchEventPlayerPropsWithCoverage(sourceEvent, previousOpenMap, {
           pathLabel: "refresh-snapshot-hard-reset"
         })
-        const eventRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
+        const allRows = Array.isArray(fetched?.rows) ? [...fetched.rows] : []
         if (Boolean(fetched?.extraMarketsFetchSucceeded)) {
-          eventRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
+          allRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
         }
-        cleaned.push(...eventRows)
-        eventIngestDebug.push(fetched?.debug || { eventId: String(event?.id || ""), finalAcceptedRows: 0 })
-      } catch (eventError) {
-        const away = event?.away_team || event?.awayTeam || ""
-        const home = event?.home_team || event?.homeTeam || ""
-        console.log("[RAW-PROPS-SKIP-DEBUG]", {
-          reason: "event_lookup_miss",
-          eventId: String(event?.id || event?.eventId || ""),
-          matchup: away && home ? `${away} @ ${home}` : String(event?.matchup || "")
+        const fetchDebug = fetched?.debug || {}
+        const normalizedRows = allRows.filter((row) => String(row?.book || "") === "DraftKings")
+        const responseBookmakersCount = Number(fetchDebug?.dkBookmakerEntries || 0)
+        const responseMarketsCount = Number(fetchDebug?.dkMarketEntries || 0)
+        const normalizedRowsCount = normalizedRows.length
+        const empty = responseBookmakersCount === 0 || responseMarketsCount === 0 || normalizedRowsCount === 0
+
+        return {
+          eventId: scheduledRecord.eventId,
+          matchup: scheduledRecord.matchup,
+          ok: true,
+          empty,
+          errorMessage: null,
+          responseBookmakersCount,
+          responseMarketsCount,
+          normalizedRowsCount,
+          normalizedRows,
+          responseReceived: true,
+          requestedMarkets: Array.isArray(fetchDebug?.requestedMarkets) && fetchDebug.requestedMarkets.length
+            ? fetchDebug.requestedMarkets
+            : dkRequestedMarkets,
+          _allRows: allRows,
+          _fetchDebug: fetchDebug
+        }
+      })
+    )
+    const eventResults = settledEventAttempts.map((settled, index) => {
+      const scheduledRecord = scheduledEventRecords[index] || { eventId: "", matchup: "" }
+      if (settled.status === "fulfilled") {
+        return settled.value
+      }
+      const reason = settled.reason || {}
+      return {
+        eventId: scheduledRecord.eventId,
+        matchup: scheduledRecord.matchup,
+        ok: false,
+        empty: false,
+        errorMessage: String(reason?.response?.data?.message || reason?.response?.data?.error || reason?.message || reason || "unknown_error"),
+        responseBookmakersCount: 0,
+        responseMarketsCount: 0,
+        normalizedRowsCount: 0,
+        normalizedRows: [],
+        responseReceived: Boolean(reason?.response || reason?.__dkFetchMeta?.responseReceived),
+        requestedMarkets: Array.isArray(reason?.__dkFetchMeta?.requestedMarkets) && reason.__dkFetchMeta.requestedMarkets.length
+          ? reason.__dkFetchMeta.requestedMarkets
+          : dkRequestedMarkets,
+        _allRows: [],
+        _fetchDebug: {}
+      }
+    })
+    console.log("[DK-EVENT-ATTEMPT-SUMMARY]", {
+      scheduledEventCount: scheduledEventRecords.length,
+      attemptedEventCount: eventResults.length,
+      successCount: eventResults.filter((result) => result.ok).length,
+      emptyCount: eventResults.filter((result) => result.ok && result.empty).length,
+      errorCount: eventResults.filter((result) => !result.ok).length,
+      rowBackedEventCount: eventResults.filter((result) => (result.normalizedRowsCount || 0) > 0).length,
+      missingEventAttempts: scheduledEventRecords
+        .filter((scheduledRecord) => !eventResults.some((result) => result.eventId === scheduledRecord.eventId))
+        .map((scheduledRecord) => ({ eventId: scheduledRecord.eventId, matchup: scheduledRecord.matchup }))
+    })
+    console.log("[DK-EVENT-ATTEMPT-DETAILS]", eventResults.map((result) => ({
+      eventId: result.eventId,
+      matchup: result.matchup,
+      ok: result.ok,
+      empty: result.empty,
+      errorMessage: result.errorMessage,
+      responseBookmakersCount: result.responseBookmakersCount,
+      responseMarketsCount: result.responseMarketsCount,
+      normalizedRowsCount: result.normalizedRowsCount
+    })))
+    for (const eventResult of eventResults) {
+      if (eventResult.ok && (eventResult.normalizedRowsCount || 0) > 0) {
+        console.log("[DK-EVENT-FETCH-SUCCESS]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
         })
-        eventIngestDebug.push({
-          path: "refresh-snapshot-hard-reset",
-          eventId: String(event?.id || ""),
-          matchup: buildMatchup(event?.away_team, event?.home_team),
-          error: eventError.response?.data || eventError.message,
-          finalAcceptedRows: 0
+      } else if (eventResult.ok) {
+        console.log("[DK-EVENT-FETCH-EMPTY]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
         })
-        console.error(
-          "Snapshot event props failed:",
-          event.id,
-          eventError.response?.data || eventError.message
-        )
+      } else {
+        console.log("[DK-EVENT-FETCH-ERROR]", {
+          eventId: eventResult.eventId,
+          matchup: eventResult.matchup,
+          requestedMarkets: eventResult.requestedMarkets,
+          responseReceived: eventResult.responseReceived,
+          bookmakerEntries: eventResult.responseBookmakersCount,
+          marketEntries: eventResult.responseMarketsCount,
+          normalizedRowsProduced: eventResult.normalizedRowsCount
+        })
       }
     }
+    const rawDraftKingsRows = eventResults.flatMap((result) =>
+      Array.isArray(result.normalizedRows) ? result.normalizedRows : []
+    )
+    cleaned = dedupeByLegSignature(rawDraftKingsRows)
+    for (const eventResult of eventResults) {
+      const allRows = Array.isArray(eventResult?._allRows) ? eventResult._allRows : []
+      const fetchDebug = eventResult?._fetchDebug || {}
+      eventIngestDebug.push({
+        ...fetchDebug,
+        path: "refresh-snapshot-hard-reset",
+        eventId: eventResult.eventId,
+        matchup: eventResult.matchup,
+        requestedMarkets: eventResult.requestedMarkets,
+        responseReceived: eventResult.responseReceived,
+        dkRequestSucceeded: eventResult.ok,
+        dkBookmakerEntries: eventResult.responseBookmakersCount,
+        dkMarketEntries: eventResult.responseMarketsCount,
+        dkNormalizedRowsProduced: eventResult.normalizedRowsCount,
+        normalizedRowsProduced: allRows.length,
+        dkFetchError: !eventResult.ok,
+        error: eventResult.errorMessage,
+        finalAcceptedRows: allRows.length
+      })
+    }
+    const dkAttemptedEventIdSet = new Set(eventResults.map((result) => String(result?.eventId || "")).filter(Boolean))
+    const dkRowBackedEventIdSetFromAttempts = new Set(
+      eventResults
+        .filter((result) => Number(result?.normalizedRowsCount || 0) > 0)
+        .map((result) => String(result?.eventId || ""))
+        .filter(Boolean)
+    )
+    console.log("[DK-ATTEMPT-VS-ROW-COVERAGE]", {
+      scheduledEventCount: scheduledEventRecords.length,
+      attemptedEventCount: dkAttemptedEventIdSet.size,
+      rowBackedEventCount: dkRowBackedEventIdSetFromAttempts.size,
+      attemptedWithoutRows: eventResults
+        .filter((result) => result.ok && (result.normalizedRowsCount || 0) === 0)
+        .map((result) => ({ eventId: result.eventId, matchup: result.matchup })),
+      failedAttempts: eventResults
+        .filter((result) => !result.ok)
+        .map((result) => ({ eventId: result.eventId, matchup: result.matchup, errorMessage: result.errorMessage }))
+    })
 
     const previousRowsForCarry = dedupeByLegSignature([
       ...(Array.isArray(previousSnapshotForCarry?.rawProps) ? previousSnapshotForCarry.rawProps : []),
       ...(Array.isArray(previousSnapshotForCarry?.props) ? previousSnapshotForCarry.props : [])
     ])
-    const scheduledEventIds = scheduledEvents.map((event) => String(event?.id || "")).filter(Boolean)
     const preCarryEventIds = [...new Set(cleaned.map((row) => String(row?.eventId || "")).filter(Boolean))]
-    const slateDateKey = targetEvents[0] ? getLocalSlateDateKey(targetEvents[0].commence_time) : ""
+    const slateDateKey = scheduledEvents[0] ? getLocalSlateDateKey(getEventTimeForDebug(scheduledEvents[0])) : ""
     const unstableMissingBeforeCarry = UNSTABLE_GAME_EVENT_IDS.filter((eventId) => {
       return scheduledEventIds.includes(eventId) && !preCarryEventIds.includes(eventId)
     })
@@ -14636,6 +15740,159 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
 
     let rawIngestedProps = dedupeByLegSignature(cleaned)
     let rawPropsRows = rawIngestedProps
+
+    const normalizeEventRowsFromPayload = (eventPayload, event) => {
+      const matchup = buildMatchup(event?.away_team, event?.home_team)
+      const rows = []
+      const books = Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []
+
+      for (const book of books) {
+        const markets = Array.isArray(book?.markets) ? book.markets : (Array.isArray(book?.props) ? book.props : [])
+
+        for (const market of markets) {
+          const marketKey = String(market?.key || market?.name || "").trim()
+          const inferredMarket = inferMarketTypeFromKey(marketKey)
+          const propType = normalizePropType(marketKey)
+          let normalizedPropType = propType || inferredMarket.internalType || null
+          const inferredFamily = inferredMarket.family
+          const shouldKeep = Boolean(
+            normalizedPropType ||
+            inferredFamily === "standard" ||
+            inferredFamily === "ladder" ||
+            inferredFamily === "special"
+          )
+
+          if (!shouldKeep) continue
+
+          const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : (Array.isArray(market?.selections) ? market.selections : [])
+
+          for (const outcome of outcomes) {
+            const eventId = String(
+              event?.id ||
+              event?.eventId ||
+              market?.eventId ||
+              book?.eventId ||
+              ""
+            ).trim()
+            const sideRaw = String(outcome?.name || outcome?.label || outcome?.side || "").trim()
+            const rawDescription = String(outcome?.description || "").trim()
+            let side = sideRaw === "over" || sideRaw === "Over" ? "Over" : (sideRaw === "under" || sideRaw === "Under" ? "Under" : sideRaw)
+
+            // For special/ladder markets, normalize Yes/No and treat player-name sides as "Yes"
+            if (inferredFamily === "special" || inferredFamily === "ladder") {
+              const sideLower = side.toLowerCase()
+              if (sideLower === "yes") side = "Yes"
+              else if (sideLower === "no") side = "No"
+              else if (side !== "Over" && side !== "Under") side = "Yes"
+            }
+
+            let player = rawDescription || String(outcome?.participant || "").trim() || String(outcome?.player || "").trim()
+            player = String(player || "").trim()
+
+            const bookName = String(book?.title || book?.key || book?.name || "").trim()
+            const currentLine = Number(outcome?.point ?? outcome?.line ?? outcome?.handicap ?? outcome?.total)
+            const currentOdds = Number(outcome?.price ?? outcome?.odds ?? outcome?.american_odds)
+
+            const draftRow = {
+              eventId,
+              matchup,
+              awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
+              homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
+              gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+              book: bookName,
+              marketKey,
+              marketFamily: inferredFamily,
+              propType: normalizedPropType,
+              player,
+              side,
+              playerStatus: getManualPlayerStatus(player),
+              line: currentLine,
+              odds: currentOdds,
+              openingLine: currentLine,
+              openingOdds: currentOdds,
+              lineMove: 0,
+              oddsMove: 0,
+              marketMovementTag: "neutral"
+            }
+
+            const rejectReason = getIngestRejectReason(draftRow)
+            if (rejectReason) continue
+
+            rows.push(draftRow)
+          }
+        }
+      }
+
+      return rows
+    }
+
+    const extraRawRows = await buildExtraMarketRowsForEvents({
+      scheduledEvents,
+      oddsApiKey: ODDS_API_KEY,
+      normalizeEventRows: normalizeEventRowsFromPayload
+    })
+
+    rawPropsRows = dedupeMarketRows([
+      ...(Array.isArray(rawPropsRows) ? rawPropsRows : []),
+      ...(Array.isArray(extraRawRows) ? extraRawRows : [])
+    ])
+    const scheduledEventIdSet = new Set(
+      (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .map((event) => String(event?.eventId || event?.id || ""))
+        .filter(Boolean)
+    )
+    const rawDraftKingsEventIdSet = new Set(
+      (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+        .filter((row) => String(row?.book || "") === "DraftKings")
+        .map((row) => String(row?.eventId || ""))
+        .filter(Boolean)
+    )
+    const missingDraftKingsEventIds = [...scheduledEventIdSet].filter((id) => !rawDraftKingsEventIdSet.has(id))
+    console.log("[DK-RAW-COVERAGE-DEBUG]", {
+      scheduledEventCount: scheduledEventIdSet.size,
+      rawDraftKingsEventCount: rawDraftKingsEventIdSet.size,
+      missingDraftKingsEventIds
+    })
+    console.log("[DK-RAW-COVERAGE-MATCHUPS]", {
+      missingMatchups: (Array.isArray(scheduledEvents) ? scheduledEvents : [])
+        .filter((event) => !rawDraftKingsEventIdSet.has(String(event?.eventId || event?.id || "")))
+        .map((event) => ({
+          eventId: String(event?.eventId || event?.id || ""),
+          matchup: String(event?.matchup || getEventMatchupForDebug(event) || ""),
+          gameTime: event?.gameTime || event?.commence_time || event?.startTime || null
+        }))
+    })
+    const dkAttemptedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkFetchedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => item?.dkRequestSucceeded === true)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkRowBackedEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => Number(item?.dkNormalizedRowsProduced || 0) > 0)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    const dkErroredEventIds = new Set(
+      (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+        .filter((item) => item?.dkFetchError === true)
+        .map((item) => String(item?.eventId || ""))
+        .filter(Boolean)
+    )
+    console.log("[DK-EVENT-FETCH-VS-ROWS]", {
+      dkFetchedEventCount: dkFetchedEventIds.size,
+      dkRowBackedEventCount: dkRowBackedEventIds.size,
+      fetchedWithoutRows: [...dkFetchedEventIds].filter((id) => !dkRowBackedEventIds.has(id)),
+      dkErroredEventIds: [...dkErroredEventIds],
+      neverAttemptedEventIds: [...scheduledEventIdSet].filter((id) => !dkAttemptedEventIds.has(id))
+    })
+
     console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", summarizeInterestingNormalizedRows(rawPropsRows || []))
     const activeBookRawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).filter((row) => isActiveBook(row?.book))
     console.log("[ACTIVE-BOOK-FILTER-DEBUG]", {
@@ -15023,8 +16280,8 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     logFunnelExcluded("refresh-snapshot-hard-reset", "playableCapped-from-playableProps", playableProps, playableCapped)
 
     oddsSnapshot.updatedAt = new Date().toISOString()
-    oddsSnapshot.events = coveredEvents
-    oddsSnapshot.rawProps = rawIngestedProps
+    oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
+    oddsSnapshot.rawProps = rawPropsRows
     oddsSnapshot.props = activeBookRawPropsRows
     console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
@@ -15159,6 +16416,19 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     })
     const hardResetFinalVisibleBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || [])
     logBestStage("refresh-snapshot-hard-reset:afterFinalVisibilityFiltering", hardResetFinalVisibleBest)
+    console.log("[PRIMARY-SLATE-DISCOVERY-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      unrestrictedEventFetchCount: unrestrictedEventIds.length,
+      unrestrictedEventIds,
+      scheduledEventCount: scheduledEventIds.length,
+      scheduledEventIds,
+      dkScopedEventFetchCount: dkScopedEventIds.length,
+      dkScopedEventIds,
+      missingFromDkButInScheduled,
+      mappedRawPropGameCount: getDistinctGameCount(activeBookRawPropsRows),
+      playablePropGameCount: getDistinctGameCount(oddsSnapshot.playableProps),
+      bestPropGameCount: getDistinctGameCount(hardResetFinalVisibleBest)
+    })
     const hardResetSurvivedFragileRows = (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => {
       try {
         return !isFragileLeg(row, "best")
@@ -15231,6 +16501,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
     })
 
+    const targetEvents = Array.isArray(scheduledEvents)
+      ? scheduledEvents
+      : (Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : [])
     console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       scheduledEvents: (Array.isArray(targetEvents) ? targetEvents : []).length,
