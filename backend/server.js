@@ -8646,6 +8646,96 @@ const sortLottoPredictionBoard = (rows) => {
 
 // --- End prediction layer helpers ---
 
+// --- Explanation layer helpers ---
+
+const parseHitRateFraction = (value) => {
+  if (typeof value === "string" && value.includes("/")) {
+    const [a, b] = value.split("/").map(Number)
+    if (Number.isFinite(a) && Number.isFinite(b) && b > 0) return { made: a, total: b, ratio: a / b }
+  }
+  const num = Number(value)
+  if (Number.isFinite(num)) return { made: null, total: null, ratio: num }
+  return { made: null, total: null, ratio: 0 }
+}
+
+const buildEvidence = (row) => {
+  const hit = parseHitRateFraction(row?.hitRate)
+  const l10Avg = Number(row?.l10Avg || 0)
+  const recent5Avg = Number(row?.recent5Avg || 0)
+  const recent3Avg = Number(row?.recent3Avg || 0)
+  const line = row?.line
+  const avgMin = Number(row?.avgMin || 0)
+  const recent5MinAvg = Number(row?.recent5MinAvg || 0)
+  const edge = Number(row?.edge || 0)
+  const gameEnvironmentScore = Number(row?.gameEnvironmentScore || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+  const odds = row?.odds
+
+  return {
+    hitRateLabel:
+      hit.made !== null && hit.total !== null
+        ? `${hit.made}/${hit.total} last ${hit.total}`
+        : null,
+    lineLabel: line !== null && line !== undefined ? `line ${line}` : null,
+    l10AvgLabel: Number.isFinite(l10Avg) && l10Avg > 0 ? `${l10Avg} last 10 avg` : null,
+    recent5AvgLabel: Number.isFinite(recent5Avg) && recent5Avg > 0 ? `${recent5Avg} last 5 avg` : null,
+    recent3AvgLabel: Number.isFinite(recent3Avg) && recent3Avg > 0 ? `${recent3Avg} last 3 avg` : null,
+    avgMinLabel: Number.isFinite(avgMin) && avgMin > 0 ? `${avgMin} avg mpg` : null,
+    recent5MinLabel: Number.isFinite(recent5MinAvg) && recent5MinAvg > 0 ? `${recent5MinAvg} recent mpg` : null,
+    edgeLabel: Number.isFinite(edge) && edge > 0 ? `edge +${edge}` : null,
+    matchupLabel: matchupEdgeScore >= 0.55 ? "strong matchup edge" : matchupEdgeScore >= 0.40 ? "positive matchup edge" : null,
+    environmentLabel: gameEnvironmentScore >= 0.60 ? "strong game environment" : gameEnvironmentScore >= 0.48 ? "good game environment" : null,
+    oddsLabel: odds !== null && odds !== undefined ? `odds ${odds}` : null
+  }
+}
+
+const buildDataDrivenWhyItRates = (row) => {
+  const reasons = []
+  const hit = parseHitRateFraction(row?.hitRate)
+  const line = Number(row?.line)
+  const l10Avg = Number(row?.l10Avg || 0)
+  const recent5Avg = Number(row?.recent5Avg || 0)
+  const recent5MinAvg = Number(row?.recent5MinAvg || 0)
+  const edge = Number(row?.edge || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+  const gameEnvironmentScore = Number(row?.gameEnvironmentScore || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const marketKey = String(row?.marketKey || "")
+
+  if (hit.ratio >= 0.8) reasons.push("high-hit-rate")
+  if (Number.isFinite(line) && Number.isFinite(l10Avg) && l10Avg > line) reasons.push("recent-production-over-line")
+  if (Number.isFinite(line) && Number.isFinite(recent5Avg) && recent5Avg > line) reasons.push("recent-form-over-line")
+  if (Number.isFinite(recent5MinAvg) && recent5MinAvg >= 28) reasons.push("stable-minutes")
+  if (edge >= 5) reasons.push("positive-edge")
+  if (matchupEdgeScore >= 0.40) reasons.push("matchup-edge")
+  if (gameEnvironmentScore >= 0.48) reasons.push("good-game-environment")
+  if (bookValueScore >= 0.24) reasons.push("book-value")
+  if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") reasons.push("special-market-upside")
+
+  return reasons
+}
+
+const buildModelSummary = (row, evidence, reasons) => {
+  const player = String(row?.player || "This play")
+  const propType = String(row?.propType || "prop")
+  const parts = []
+
+  if (evidence?.hitRateLabel) parts.push(`hit ${evidence.hitRateLabel}`)
+  if (evidence?.l10AvgLabel && evidence?.lineLabel) parts.push(`${evidence.l10AvgLabel} against ${evidence.lineLabel}`)
+  if (evidence?.recent5MinLabel) parts.push(`${evidence.recent5MinLabel}`)
+  if (evidence?.matchupLabel) parts.push(evidence.matchupLabel)
+  if (evidence?.environmentLabel) parts.push(evidence.environmentLabel)
+  if (evidence?.edgeLabel) parts.push(evidence.edgeLabel)
+
+  if (!parts.length) {
+    return `${player} ${propType} rates well based on the current model inputs.`
+  }
+
+  return `${player} ${propType} rates well because ${parts.join(", ")}.`
+}
+
+// --- End explanation layer helpers ---
+
 function scorePropRow(row) {
   const hitRateValue = parseHitRate(row.hitRate)
   const line = Number(row.line || 0)
@@ -14668,7 +14758,9 @@ const scoredProps = deduped
       volatilityScore: inferVolatilityScore(baseRow)
     }
     const betTypeFit = inferBetTypeFit(baseRow, edgeProfile)
-    const whyItRates = buildWhyItRates(baseRow, edgeProfile)
+    const evidence = buildEvidence(baseRow)
+    const whyItRates = buildDataDrivenWhyItRates(baseRow)
+    const modelSummary = buildModelSummary(baseRow, evidence, whyItRates)
     const edgeRow = {
       ...baseRow,
       gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
@@ -14677,7 +14769,9 @@ const scoredProps = deduped
       volatilityScore: edgeProfile.volatilityScore,
       betTypeFit,
       edgeProfile,
-      whyItRates
+      evidence,
+      whyItRates,
+      modelSummary
     }
     return enrichPredictionLayer(edgeRow)
   })
@@ -17141,7 +17235,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         volatilityScore: inferVolatilityScore(row)
       }
       const betTypeFit = inferBetTypeFit(row, edgeProfile)
-      const whyItRates = buildWhyItRates(row, edgeProfile)
+      const evidence = buildEvidence(row)
+      const whyItRates = buildDataDrivenWhyItRates(row)
+      const modelSummary = buildModelSummary(row, evidence, whyItRates)
       const edgeRow = {
         ...row,
         gameEnvironmentScore: edgeProfile.gameEnvironmentScore,
@@ -17150,7 +17246,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         volatilityScore: edgeProfile.volatilityScore,
         betTypeFit,
         edgeProfile,
-        whyItRates
+        evidence,
+        whyItRates,
+        modelSummary
       }
       return enrichPredictionLayer(edgeRow)
     })
