@@ -6894,6 +6894,29 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  console.log("[SPECIAL-CONTEXT-DEBUG]", {
+    totalSpecialProps: Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps.length : 0,
+    bySubtype: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.reduce((acc, row) => {
+          const key = String(row?.evidence?.subtype || "unknown")
+          acc[key] = (acc[key] || 0) + 1
+          return acc
+        }, {})
+      : {},
+    sample: Array.isArray(enrichedSpecialProps)
+      ? enrichedSpecialProps.slice(0, 8).map((row) => ({
+          player: row?.player || null,
+          propType: row?.propType || null,
+          marketKey: row?.marketKey || null,
+          odds: row?.odds ?? null,
+          playerConfidenceScore: row?.playerConfidenceScore ?? null,
+          confidenceTier: row?.confidenceTier || null,
+          whyItRates: Array.isArray(row?.whyItRates) ? row.whyItRates : [],
+          modelSummary: row?.modelSummary || null
+        }))
+      : []
+  })
+
   console.log("[SPECIAL-MARKET-INTEL-DEBUG]", {
     count: enrichedSpecialProps.length,
     sample: enrichedSpecialProps.slice(0,5).map(r => ({
@@ -8742,6 +8765,186 @@ const scoreSpecialMarketConfidence = (row, evidence) => {
   return Math.max(0, Math.min(1, Number(score.toFixed(3))))
 }
 
+const getSpecialOddsBand = (odds) => {
+  const num = Number(odds || 0)
+  if (!Number.isFinite(num)) return "unknown"
+  if (num <= 180) return "favored"
+  if (num <= 450) return "balanced"
+  if (num <= 900) return "longshot"
+  return "extreme-longshot"
+}
+
+const inferSpecialMarketSubtype = (row) => {
+  const marketKey = String(row?.marketKey || "")
+  const propType = String(row?.propType || "")
+
+  if (marketKey === "player_first_basket" || propType === "First Basket") return "first-basket"
+  if (marketKey === "player_first_team_basket" || propType === "First Team Basket") return "first-team-basket"
+  if (marketKey === "player_double_double" || propType === "Double Double") return "double-double"
+  if (marketKey === "player_triple_double" || propType === "Triple Double") return "triple-double"
+  return "special"
+}
+
+const buildSpecialContextEvidence = (row) => {
+  const subtype = inferSpecialMarketSubtype(row)
+  const odds = Number(row?.odds || 0)
+  const oddsBand = getSpecialOddsBand(odds)
+  const impliedProb =
+    Number.isFinite(odds) && odds !== 0
+      ? (odds > 0
+          ? 100 / (odds + 100)
+          : Math.abs(odds) / (Math.abs(odds) + 100))
+      : 0
+
+  const volatilityScore = Number(row?.volatilityScore || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
+  const playerConfidenceScore = Number(row?.playerConfidenceScore || 0)
+
+  const marketContextLabel =
+    subtype === "first-basket"
+      ? "first-score volatility market"
+      : subtype === "first-team-basket"
+        ? "team-first-score market"
+        : subtype === "double-double"
+          ? "multi-stat accumulation market"
+          : subtype === "triple-double"
+            ? "high-volatility multi-stat market"
+            : "special market"
+
+  const oddsBandLabel =
+    oddsBand === "favored"
+      ? "favored special price"
+      : oddsBand === "balanced"
+        ? "balanced special price"
+        : oddsBand === "longshot"
+          ? "longshot special price"
+          : oddsBand === "extreme-longshot"
+            ? "extreme longshot price"
+            : null
+
+  const volatilityLabel =
+    volatilityScore >= 0.75
+      ? "very high volatility"
+      : volatilityScore >= 0.5
+        ? "high volatility"
+        : volatilityScore >= 0.3
+          ? "moderate volatility"
+          : "controlled volatility"
+
+  return {
+    subtype,
+    impliedProbability: Number(impliedProb.toFixed(3)),
+    oddsBand,
+    oddsBandLabel,
+    marketContextLabel,
+    volatilityLabel,
+    bookValueLabel: bookValueScore >= 0.55 ? "strong special value" : bookValueScore >= 0.35 ? "reasonable special value" : null,
+    gameContextLabel: gamePriorityScore >= 0.55 ? "strong game context" : gamePriorityScore >= 0.4 ? "good game context" : null,
+    confidenceLabel: playerConfidenceScore >= 0.7 ? "high model confidence" : playerConfidenceScore >= 0.55 ? "solid model confidence" : playerConfidenceScore >= 0.42 ? "playable model confidence" : "thin model confidence"
+  }
+}
+
+const buildSpecialContextWhyItRates = (row, contextEvidence) => {
+  const reasons = []
+  const subtype = String(contextEvidence?.subtype || "")
+  const oddsBand = String(contextEvidence?.oddsBand || "")
+  const impliedProbability = Number(contextEvidence?.impliedProbability || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
+  const playerConfidenceScore = Number(row?.playerConfidenceScore || 0)
+
+  if (subtype === "first-team-basket") reasons.push("team-first-score-market")
+  if (subtype === "first-basket") reasons.push("first-score-market")
+  if (subtype === "double-double") reasons.push("multi-stat-role")
+  if (subtype === "triple-double") reasons.push("high-end-multi-stat-path")
+
+  if (oddsBand === "favored") reasons.push("high-implied-probability")
+  if (oddsBand === "balanced") reasons.push("balanced-upside")
+  if (oddsBand === "longshot") reasons.push("longshot-upside")
+  if (oddsBand === "extreme-longshot") reasons.push("extreme-longshot")
+
+  if (impliedProbability >= 0.20) reasons.push("meaningful-implied-probability")
+  if (bookValueScore >= 0.35) reasons.push("book-value")
+  if (gamePriorityScore >= 0.4) reasons.push("game-context-valid")
+  if (playerConfidenceScore >= 0.42) reasons.push("model-confidence-valid")
+
+  return [...new Set(reasons)]
+}
+
+const buildSpecialContextSummary = (row, contextEvidence, whyItRates) => {
+  const player = String(row?.player || "This play")
+  const propType = String(row?.propType || "special")
+  const pieces = []
+
+  if (contextEvidence?.oddsBandLabel) pieces.push(contextEvidence.oddsBandLabel)
+  if (contextEvidence?.marketContextLabel) pieces.push(contextEvidence.marketContextLabel)
+  if (contextEvidence?.gameContextLabel) pieces.push(contextEvidence.gameContextLabel)
+  if (contextEvidence?.bookValueLabel) pieces.push(contextEvidence.bookValueLabel)
+  if (contextEvidence?.confidenceLabel) pieces.push(contextEvidence.confidenceLabel)
+
+  if (!pieces.length) {
+    return `${player} ${propType} rates as a special-market play based on current pricing and context.`
+  }
+
+  return `${player} ${propType} rates well because of ${pieces.join(", ")}.`
+}
+
+const adjustSpecialConfidenceForSubtype = (row, contextEvidence) => {
+  const subtype = String(contextEvidence?.subtype || "")
+  const oddsBand = String(contextEvidence?.oddsBand || "")
+  const base = Number(row?.playerConfidenceScore || 0)
+
+  let adjusted = base
+
+  if (subtype === "first-team-basket") adjusted += 0.08
+  if (subtype === "double-double") adjusted += 0.10
+  if (subtype === "triple-double") adjusted -= 0.05
+  if (subtype === "first-basket") adjusted -= 0.03
+
+  if (oddsBand === "favored") adjusted += 0.10
+  if (oddsBand === "balanced") adjusted += 0.05
+  if (oddsBand === "longshot") adjusted -= 0.04
+  if (oddsBand === "extreme-longshot") adjusted -= 0.12
+
+  return Number(Math.max(0, Math.min(1, adjusted)).toFixed(3))
+}
+
+const inferSpecialConfidenceTier = (row, adjustedConfidence, contextEvidence) => {
+  const subtype = String(contextEvidence?.subtype || "")
+
+  if (subtype === "double-double") {
+    if (adjustedConfidence >= 0.72) return "special-elite"
+    if (adjustedConfidence >= 0.58) return "special-strong"
+    if (adjustedConfidence >= 0.44) return "special-playable"
+    return "special-thin"
+  }
+
+  if (subtype === "first-team-basket") {
+    if (adjustedConfidence >= 0.62) return "special-elite"
+    if (adjustedConfidence >= 0.50) return "special-strong"
+    if (adjustedConfidence >= 0.38) return "special-playable"
+    return "special-thin"
+  }
+
+  if (subtype === "first-basket") {
+    if (adjustedConfidence >= 0.56) return "special-elite"
+    if (adjustedConfidence >= 0.46) return "special-strong"
+    if (adjustedConfidence >= 0.34) return "special-playable"
+    return "special-thin"
+  }
+
+  if (subtype === "triple-double") {
+    if (adjustedConfidence >= 0.52) return "special-strong"
+    if (adjustedConfidence >= 0.38) return "special-playable"
+    return "special-thin"
+  }
+
+  if (adjustedConfidence >= 0.60) return "special-strong"
+  if (adjustedConfidence >= 0.42) return "special-playable"
+  return "special-thin"
+}
+
 const enrichSpecialPredictionRow = (row) => {
   const safeRow = row && typeof row === "object" ? row : {}
 
@@ -8760,13 +8963,26 @@ const enrichSpecialPredictionRow = (row) => {
       evidence,
       whyItRates,
       playerConfidenceScore: confidence,
+      gamePriorityScore: inferGamePriorityScore(safeRow),
       modelSummary: `${safeRow.player} ${safeRow.propType} is priced at ${safeRow.odds} with ${(evidence.impliedProbability * 100).toFixed(1)}% implied probability and categorized as ${evidence.isLongshot ? "longshot" : evidence.isReasonable ? "balanced" : "favored"}.`
     }
 
+    const contextEvidence = buildSpecialContextEvidence(withConfidence)
+    const contextWhyItRates = buildSpecialContextWhyItRates(withConfidence, contextEvidence)
+    const adjustedSpecialConfidence = adjustSpecialConfidenceForSubtype(withConfidence, contextEvidence)
+    const contextModelSummary = buildSpecialContextSummary(withConfidence, contextEvidence, contextWhyItRates)
+    const confidenceTier = inferSpecialConfidenceTier(withConfidence, adjustedSpecialConfidence, contextEvidence)
+
     return {
       ...withConfidence,
-      gamePriorityScore: inferGamePriorityScore(withConfidence),
-      confidenceTier: inferConfidenceTier(withConfidence)
+      evidence: {
+        ...(withConfidence?.evidence || {}),
+        ...contextEvidence
+      },
+      whyItRates: contextWhyItRates,
+      playerConfidenceScore: adjustedSpecialConfidence,
+      confidenceTier,
+      modelSummary: contextModelSummary
     }
   }
 
