@@ -6318,7 +6318,17 @@ app.get("/api/best-available", (req, res) => {
     specialProps = expandedResult.specialProps || []
 
     // --- Special props fallback: rebuild from snapshot if expandedPools returned empty ---
-    if (!specialProps.length) {
+    // Also: always merge missing first basket rows even if specialProps is non-empty
+    const FIRST_BASKET_MARKET_KEYS = new Set(["player_first_basket", "player_first_team_basket"])
+    const FIRST_BASKET_PROP_TYPES = new Set(["First Basket", "First Team Basket"])
+
+    const hasFirstBasket = specialProps.some((row) => {
+      const mk = String(row?.marketKey || "")
+      const pt = String(row?.propType || "")
+      return FIRST_BASKET_MARKET_KEYS.has(mk) || FIRST_BASKET_PROP_TYPES.has(pt)
+    })
+
+    if (!specialProps.length || !hasFirstBasket) {
       const specialFallbackSource = dedupeMarketRows([
         ...(Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
           ? oddsSnapshot.rawProps
@@ -6329,36 +6339,66 @@ app.get("/api/best-available", (req, res) => {
         ...(Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : [])
       ])
 
-      const specialFallbackRaw = specialFallbackSource.filter((row) => {
-        if (row?.book !== "DraftKings") return false
-        if (!row?.player) return false
+      if (!specialProps.length) {
+        // Full fallback: rebuild ALL special props from snapshot
+        const specialFallbackRaw = specialFallbackSource.filter((row) => {
+          if (row?.book !== "DraftKings") return false
+          if (!row?.player) return false
 
-        const marketKey = String(row?.marketKey || "")
-        const isSpecialMarket = SPECIAL_MARKET_KEYS.has(marketKey)
-        const isSpecialPropType = SPECIAL_PROP_TYPE_NAMES.has(String(row?.propType || ""))
-        const shouldTreatAsSpecial = isSpecialMarket || isSpecialPropType
+          const marketKey = String(row?.marketKey || "")
+          const isSpecialMarket = SPECIAL_MARKET_KEYS.has(marketKey)
+          const isSpecialPropType = SPECIAL_PROP_TYPE_NAMES.has(String(row?.propType || ""))
+          const shouldTreatAsSpecial = isSpecialMarket || isSpecialPropType
 
-        if (!shouldTreatAsSpecial) return false
+          if (!shouldTreatAsSpecial) return false
 
-        // Relax metric requirements for special markets: only require player + matchup
-        if (!row?.matchup && !row?.eventId) return false
-        return true
-      })
+          // Relax metric requirements for special markets: only require player + matchup
+          if (!row?.matchup && !row?.eventId) return false
+          return true
+        })
 
-      specialFallbackRaw.sort((a, b) => {
-        const scoreA = Number(a?.score || 0)
-        const scoreB = Number(b?.score || 0)
-        if (scoreB !== scoreA) return scoreB - scoreA
-        return Number(b?.edge || 0) - Number(a?.edge || 0)
-      })
+        specialFallbackRaw.sort((a, b) => {
+          const scoreA = Number(a?.score || 0)
+          const scoreB = Number(b?.score || 0)
+          if (scoreB !== scoreA) return scoreB - scoreA
+          return Number(b?.edge || 0) - Number(a?.edge || 0)
+        })
 
-      specialProps = specialFallbackRaw.slice(0, 40)
+        specialProps = specialFallbackRaw.slice(0, 40)
 
-      console.log("[SPECIAL-PROPS-FALLBACK-DEBUG]", {
-        fallbackSourceCount: specialFallbackSource.length,
-        specialFallbackRawCount: specialFallbackRaw.length,
-        finalSpecialPropsCount: specialProps.length
-      })
+        console.log("[SPECIAL-PROPS-FALLBACK-DEBUG]", {
+          fallbackSourceCount: specialFallbackSource.length,
+          specialFallbackRawCount: specialFallbackRaw.length,
+          finalSpecialPropsCount: specialProps.length
+        })
+      } else {
+        // Partial fallback: specialProps exists but is missing first basket rows — merge them in
+        const firstBasketFallback = specialFallbackSource.filter((row) => {
+          if (row?.book !== "DraftKings") return false
+          if (!row?.player) return false
+          if (!row?.matchup && !row?.eventId) return false
+
+          const mk = String(row?.marketKey || "")
+          const pt = String(row?.propType || "")
+          return FIRST_BASKET_MARKET_KEYS.has(mk) || FIRST_BASKET_PROP_TYPES.has(pt)
+        })
+
+        firstBasketFallback.sort((a, b) => {
+          const oddsA = Number(a?.odds || 0)
+          const oddsB = Number(b?.odds || 0)
+          // Lower odds = higher implied probability = better
+          return oddsA - oddsB
+        })
+
+        const firstBasketMerge = firstBasketFallback.slice(0, 30)
+        specialProps = dedupeMarketRows([...specialProps, ...firstBasketMerge])
+
+        console.log("[FIRST-BASKET-MERGE-DEBUG]", {
+          firstBasketFallbackCount: firstBasketFallback.length,
+          mergedCount: firstBasketMerge.length,
+          totalSpecialPropsAfterMerge: specialProps.length
+        })
+      }
     }
 
     console.log("[SPECIAL-PROPS-DEBUG]", {
@@ -6376,6 +6416,26 @@ app.get("/api/best-available", (req, res) => {
             score: row?.score ?? null
           }))
         : []
+    })
+
+    // First basket specific debug
+    const firstBasketRows = specialProps.filter((row) => {
+      const mk = String(row?.marketKey || "")
+      const pt = String(row?.propType || "")
+      return FIRST_BASKET_MARKET_KEYS.has(mk) || FIRST_BASKET_PROP_TYPES.has(pt)
+    })
+    console.log("[FIRST-BASKET-DEBUG]", {
+      firstBasketCount: firstBasketRows.length,
+      firstBasketSample: firstBasketRows.slice(0, 10).map((row) => ({
+        player: row?.player || null,
+        matchup: row?.matchup || null,
+        marketKey: row?.marketKey || null,
+        propType: row?.propType || null,
+        side: row?.side || null,
+        odds: row?.odds ?? null,
+        book: row?.book || null,
+        eventId: row?.eventId || null
+      }))
     })
 
     console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
@@ -10227,7 +10287,12 @@ function getIngestRejectReason(row) {
   const allAllowedPropTypes = new Set([...standardPropTypes, ...ladderPropTypes, ...specialPropTypes])
   if (!allAllowedPropTypes.has(propType)) return "invalid_prop_type"
 
-  if (odds < -350 || odds > 400) return "odds_out_of_range"
+  // Special markets (first basket etc.) have much higher odds (+500 to +5000), widen range
+  if (isSpecial) {
+    if (odds < -1000 || odds > 10000) return "odds_out_of_range"
+  } else {
+    if (odds < -350 || odds > 400) return "odds_out_of_range"
+  }
   if (Number.isFinite(line) && line < 0) return "line_below_zero"
 
   return null
