@@ -6787,7 +6787,16 @@ app.get("/api/best-available", (req, res) => {
   })
 
   // --- Build market-siloed boards ---
-  const allVisibleRowsForBoards = boardSourceRows
+  const gameEdgeMap = buildGameEdgeMap(boardSourceRows)
+  const boardSourceRowsWithGameRole = applyGameAndRoleEdge(boardSourceRows, gameEdgeMap).map((row) => ({
+    ...row,
+    playDecision: inferPlayDecision(row)
+  })).map((row) => ({
+    ...row,
+    decisionSummary: buildDecisionSummary(row)
+  }))
+
+  const allVisibleRowsForBoards = boardSourceRowsWithGameRole
 
   const firstBasketBoard = sortFirstBasketBoard(
     allVisibleRowsForBoards.filter(isFirstBasketLikeRow)
@@ -6827,7 +6836,7 @@ app.get("/api/best-available", (req, res) => {
   })
 
   // --- Build prediction-layer selective picks ---
-  const predictionSourceRows = boardSourceRows
+  const predictionSourceRows = boardSourceRowsWithGameRole
 
   let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
 
@@ -6984,6 +6993,37 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  const gameEdgeBoard = Object.values(gameEdgeMap)
+    .sort((a, b) => Number(b?.gameEdgeScore || 0) - Number(a?.gameEdgeScore || 0))
+    .slice(0, 8)
+
+  const mustPlayBoard = sortByAdjustedConfidence(
+    boardSourceRowsWithGameRole.filter((row) => String(row?.playDecision || "") === "must-play")
+  ).slice(0, 15)
+
+  console.log("[GAME-ROLE-EDGE-DEBUG]", {
+    gameEdgeBoard: Array.isArray(gameEdgeBoard) ? gameEdgeBoard.length : 0,
+    mustPlayBoard: Array.isArray(mustPlayBoard) ? mustPlayBoard.length : 0,
+    gameEdgeTop: Array.isArray(gameEdgeBoard)
+      ? gameEdgeBoard.slice(0, 5).map((row) => ({
+          matchup: row?.matchup || null,
+          gameEdgeScore: row?.gameEdgeScore ?? null,
+          avgConfidence: row?.avgConfidence ?? null
+        }))
+      : [],
+    mustPlayTop: Array.isArray(mustPlayBoard)
+      ? mustPlayBoard.slice(0, 8).map((row) => ({
+          player: row?.player || null,
+          matchup: row?.matchup || null,
+          propType: row?.propType || null,
+          marketKey: row?.marketKey || null,
+          adjustedConfidenceScore: row?.adjustedConfidenceScore ?? null,
+          playDecision: row?.playDecision || null,
+          decisionSummary: row?.decisionSummary || null
+        }))
+      : []
+  })
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayload,
@@ -6996,7 +7036,9 @@ app.get("/api/best-available", (req, res) => {
       lottoBoard,
       firstBasketPicks,
       corePropPicks,
-      lottoPicks
+      lottoPicks,
+      gameEdgeBoard,
+      mustPlayBoard
     },
     ladderPool,
     routePlayableSeed: routePlayableSeed,
@@ -9215,6 +9257,174 @@ const sortSpecialBoardSmart = (rows) => {
 
     return bScore - aScore
   })
+}
+
+const getMatchupKey = (row) => String(row?.matchup || "")
+
+const buildGameEdgeMap = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const byGame = {}
+
+  for (const row of safeRows) {
+    const key = getMatchupKey(row)
+    if (!key) continue
+    if (!byGame[key]) byGame[key] = []
+    byGame[key].push(row)
+  }
+
+  const gameEdgeMap = {}
+
+  for (const [matchup, gameRows] of Object.entries(byGame)) {
+    const count = gameRows.length || 1
+
+    const avgGameEnvironment =
+      gameRows.reduce((sum, row) => sum + Number(row?.gameEnvironmentScore || 0), 0) / count
+
+    const avgMatchupEdge =
+      gameRows.reduce((sum, row) => sum + Number(row?.matchupEdgeScore || 0), 0) / count
+
+    const avgBookValue =
+      gameRows.reduce((sum, row) => sum + Number(row?.bookValueScore || 0), 0) / count
+
+    const avgConfidence =
+      gameRows.reduce((sum, row) => sum + Number(row?.playerConfidenceScore || 0), 0) / count
+
+    const score = Number(Math.min(1, Math.max(0,
+      (avgGameEnvironment * 0.40) +
+      (avgMatchupEdge * 0.25) +
+      (avgBookValue * 0.15) +
+      (avgConfidence * 0.20)
+    )).toFixed(3))
+
+    gameEdgeMap[matchup] = {
+      matchup,
+      rowCount: gameRows.length,
+      avgGameEnvironment: Number(avgGameEnvironment.toFixed(3)),
+      avgMatchupEdge: Number(avgMatchupEdge.toFixed(3)),
+      avgBookValue: Number(avgBookValue.toFixed(3)),
+      avgConfidence: Number(avgConfidence.toFixed(3)),
+      gameEdgeScore: score
+    }
+  }
+
+  return gameEdgeMap
+}
+
+const inferRoleSignal = (row) => {
+  const recent5MinAvg = Number(row?.recent5MinAvg || 0)
+  const avgMin = Number(row?.avgMin || 0)
+  const hitRateRaw = row?.hitRate
+  const hitRate =
+    typeof hitRateRaw === "string" && hitRateRaw.includes("/")
+      ? (() => {
+          const [a, b] = hitRateRaw.split("/").map(Number)
+          return b ? a / b : 0
+        })()
+      : Number(hitRateRaw || 0)
+
+  let roleScore = 0.10
+  if (recent5MinAvg >= 30) roleScore += 0.30
+  else if (recent5MinAvg >= 26) roleScore += 0.20
+  else if (recent5MinAvg >= 22) roleScore += 0.10
+
+  if (avgMin >= 30) roleScore += 0.20
+  else if (avgMin >= 26) roleScore += 0.12
+
+  if (hitRate >= 0.70) roleScore += 0.20
+  else if (hitRate >= 0.55) roleScore += 0.10
+
+  if (String(row?.betTypeFit || "") === "anchor") roleScore += 0.10
+  if (String(row?.betTypeFit || "") === "special") roleScore += 0.05
+  if (String(row?.betTypeFit || "") === "lotto") roleScore -= 0.05
+
+  return Number(Math.min(1, Math.max(0, roleScore)).toFixed(3))
+}
+
+const applyGameAndRoleEdge = (rows, gameEdgeMap) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const safeMap = gameEdgeMap && typeof gameEdgeMap === "object" ? gameEdgeMap : {}
+
+  return safeRows.map((row) => {
+    const matchup = getMatchupKey(row)
+    const gameEdgeScore = Number(safeMap?.[matchup]?.gameEdgeScore || 0)
+    const roleSignalScore = inferRoleSignal(row)
+
+    const adjustedConfidence = Number(Math.min(1, Math.max(0,
+      (Number(row?.playerConfidenceScore || 0) * 0.55) +
+      (gameEdgeScore * 0.25) +
+      (roleSignalScore * 0.20)
+    )).toFixed(3))
+
+    return {
+      ...row,
+      gameEdgeScore,
+      roleSignalScore,
+      adjustedConfidenceScore: adjustedConfidence
+    }
+  })
+}
+
+const inferPlayDecision = (row) => {
+  const adjusted = Number(row?.adjustedConfidenceScore || 0)
+  const betTypeFit = String(row?.betTypeFit || "")
+  const marketKey = String(row?.marketKey || "")
+
+  if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") {
+    if (adjusted >= 0.52) return "must-play"
+    if (adjusted >= 0.38) return "secondary"
+    return "avoid"
+  }
+
+  if (betTypeFit === "anchor") {
+    if (adjusted >= 0.72) return "must-play"
+    if (adjusted >= 0.58) return "secondary"
+    return "avoid"
+  }
+
+  if (betTypeFit === "value" || betTypeFit === "ladder" || betTypeFit === "special") {
+    if (adjusted >= 0.60) return "must-play"
+    if (adjusted >= 0.44) return "secondary"
+    return "avoid"
+  }
+
+  if (betTypeFit === "lotto") {
+    if (adjusted >= 0.46) return "must-play"
+    if (adjusted >= 0.32) return "secondary"
+    return "avoid"
+  }
+
+  if (adjusted >= 0.60) return "must-play"
+  if (adjusted >= 0.42) return "secondary"
+  return "avoid"
+}
+
+const buildDecisionSummary = (row) => {
+  const decision = String(row?.playDecision || "secondary")
+  const matchup = String(row?.matchup || "")
+  const gameEdgeScore = Number(row?.gameEdgeScore || 0)
+  const roleSignalScore = Number(row?.roleSignalScore || 0)
+  const adjusted = Number(row?.adjustedConfidenceScore || 0)
+
+  const reasons = []
+  if (gameEdgeScore >= 0.50) reasons.push("strong game")
+  else if (gameEdgeScore >= 0.35) reasons.push("good game")
+
+  if (roleSignalScore >= 0.45) reasons.push("strong role")
+  else if (roleSignalScore >= 0.28) reasons.push("solid role")
+
+  if (adjusted >= 0.60) reasons.push("high confidence")
+  else if (adjusted >= 0.42) reasons.push("playable confidence")
+
+  if (!reasons.length) reasons.push("limited edge")
+
+  return `${decision.toUpperCase()}: ${reasons.join(", ")}${matchup ? ` in ${matchup}` : ""}.`
+}
+
+const sortByAdjustedConfidence = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows].sort((a, b) =>
+    Number(b?.adjustedConfidenceScore || 0) - Number(a?.adjustedConfidenceScore || 0)
+  )
 }
 
 const normalizeRelativeScores = (rows, key) => {
