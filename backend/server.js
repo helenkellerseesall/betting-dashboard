@@ -292,6 +292,34 @@ function summarizeInterestingNormalizedRows(rows) {
 }
 // --- END MARKET EXPANSION SCAFFOLD ---
 
+// Patch: Make bulk DraftKings coverage helper fail safe for INVALID_MARKET 422 error
+
+/**
+ * Bulk DraftKings NBA odds fetcher (hard no-op patch: disables unsupported endpoint)
+ * @param {Array} events
+ * @param {Function} normalizeEventRowsFromPayload
+ */
+async function fetchBulkDraftKingsBaseRowsForEvents(events, normalizeEventRowsFromPayload) {
+  const safeEvents = Array.isArray(events) ? events : []
+  const eventIdSet = new Set(
+    safeEvents
+      .map((ev) => String(ev?.eventId || ev?.id || "").trim())
+      .filter(Boolean)
+  )
+
+  console.log("[BULK-DK-BASE-COVERAGE-DISABLED]", {
+    reason: "bulk-odds-endpoint-does-not-support-player-prop-markets",
+    scheduledEvents: safeEvents.length,
+    requestedEventIds: [...eventIdSet]
+  })
+
+  return {
+    rows: [],
+    byEventId: {},
+    eventIds: [...eventIdSet]
+  }
+}
+
 function adjustLadderMetrics(row, variantLine) {
   const baseHitRate = parseHitRate(row.hitRate)
   const baseLine = Number(row.line) || 0
@@ -473,9 +501,14 @@ function buildSlipCards(bestProps, ladderPool) {
     row.edge != null &&
     row.score != null
 
+  const snapshotStandardCandidates = Array.isArray(oddsSnapshot?.standardCandidates) ? oddsSnapshot.standardCandidates : []
+  const snapshotFinalPlayableRows = Array.isArray(oddsSnapshot?.finalPlayableRows) ? oddsSnapshot.finalPlayableRows : []
+
   const combined = dedupeSlipPool([
     ...(Array.isArray(bestProps) ? bestProps : []).map((row) => ({ ...row, sourcePool: "best" })),
-    ...(Array.isArray(ladderPool) ? ladderPool : []).map((row) => ({ ...row, sourcePool: "ladder" }))
+    ...(Array.isArray(ladderPool) ? ladderPool : []).map((row) => ({ ...row, sourcePool: "ladder" })),
+    ...snapshotStandardCandidates.map((row) => ({ ...row, sourcePool: row?.sourcePool || "standard" })),
+    ...snapshotFinalPlayableRows.map((row) => ({ ...row, sourcePool: row?.sourcePool || "playable" }))
   ]).filter(isUsable)
 
   const ranked = [...combined].sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
@@ -567,7 +600,7 @@ function buildSlipCards(bestProps, ladderPool) {
       const variant = String(row?.propVariant || "base")
       if (allowedSet.size > 0 && !allowedSet.has(variant)) return false
       return true
-    }).slice(0, 12)
+    }).slice(0, 24)
 
     let bestCombo = null
     let bestScore = -Infinity
@@ -653,7 +686,12 @@ function buildSlipCards(bestProps, ladderPool) {
         ...options,
         requireAtLeastOneOver: false,
         requireAtLeastOneUpside: false,
-        maxPerMatchup: Math.max(options.maxPerMatchup || 1, 3)
+        requireAtLeastOneAnchor: false,
+        maxPerMatchup: Math.max(options.maxPerMatchup || 1, 3),
+        minHitRate: Math.max(0, Number(options.minHitRate || 0) - 0.08),
+        minReturn: Math.max(5, Number(options.minReturn || 0) * 0.8),
+        maxReturn: Number(options.maxReturn || 0) * 1.25,
+        maxLegs: Math.max(Number(options.maxLegs || 0), Number(options.minLegs || 0) + 2)
       }
 
       const relaxedResult = buildBestComboForBand(rankedRows, {
@@ -684,6 +722,87 @@ function buildSlipCards(bestProps, ladderPool) {
   const buildFallbackBandCard = (label, rankedRows, fallbackOptions) => {
     const card = buildBestComboForBand(rankedRows, fallbackOptions)
     if (Array.isArray(card?.legs) && card.legs.length > 0) return card
+
+    const safeRows = Array.isArray(rankedRows) ? rankedRows : []
+    const emergencyPool = safeRows
+      .filter(isUsable)
+      .filter((row) => {
+        const variant = String(row?.propVariant || "base")
+        const allowedSet = new Set(Array.isArray(fallbackOptions?.allowedVariants) ? fallbackOptions.allowedVariants : [])
+        if (allowedSet.size > 0 && !allowedSet.has(variant)) return false
+        return true
+      })
+      .slice(0, 10)
+
+    let bestEmergency = null
+    let bestDistance = Infinity
+
+    const minLegs = Number(fallbackOptions?.minLegs || 2)
+    const maxLegs = Math.min(Number(fallbackOptions?.maxLegs || 3), 6)
+    const minReturn = Number(fallbackOptions?.minReturn || 0)
+    const maxReturn = Number(fallbackOptions?.maxReturn || Infinity)
+
+    const considerEmergency = (legs) => {
+      const payout = estimateCardPayout(legs, 5)
+      const estReturn = Number(payout?.estReturn || 0)
+
+      let distance = 0
+      if (estReturn < minReturn) distance = minReturn - estReturn
+      else if (estReturn > maxReturn) distance = estReturn - maxReturn
+
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestEmergency = {
+          label,
+          legs: legs.map(pickLeg),
+          payout
+        }
+      }
+    }
+
+    const walkEmergency = (startIndex, targetSize, current) => {
+      if (current.length === targetSize) {
+        considerEmergency(current)
+        return
+      }
+      for (let i = startIndex; i < emergencyPool.length; i++) {
+        const row = emergencyPool[i]
+        const duplicate = current.some((leg) => [
+          String(leg?.player || ""),
+          String(leg?.propType || ""),
+          String(leg?.side || ""),
+          String(leg?.line ?? ""),
+          String(leg?.propVariant || "base"),
+          String(leg?.matchup || "")
+        ].join("|") === [
+          String(row?.player || ""),
+          String(row?.propType || ""),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.propVariant || "base"),
+          String(row?.matchup || "")
+        ].join("|"))
+        if (duplicate) continue
+        current.push(row)
+        walkEmergency(i + 1, targetSize, current)
+        current.pop()
+      }
+    }
+
+    for (let size = minLegs; size <= maxLegs; size++) {
+      walkEmergency(0, size, [])
+    }
+
+    if (bestEmergency && Array.isArray(bestEmergency.legs) && bestEmergency.legs.length > 0) {
+      console.log("[CARD-EMERGENCY-FALLBACK]", {
+        label,
+        bestDistance,
+        legs: bestEmergency.legs.length,
+        estReturn: bestEmergency.payout?.estReturn || 0
+      })
+      return bestEmergency
+    }
+
     return {
       label,
       legs: [],
@@ -750,6 +869,20 @@ function buildSlipCards(bestProps, ladderPool) {
     bestCount: Array.isArray(bestProps) ? bestProps.length : 0,
     ladderCount: Array.isArray(ladderPool) ? ladderPool.length : 0,
     combinedCount: combined.length,
+    rankedCount: ranked.length,
+    standardCandidateCount: snapshotStandardCandidates.length,
+    finalPlayableCandidateCount: snapshotFinalPlayableRows.length,
+    topRankedSample: ranked.slice(0, 8).map((row) => ({
+      player: row?.player || null,
+      team: row?.team || null,
+      matchup: row?.matchup || null,
+      propType: row?.propType || null,
+      side: row?.side || null,
+      line: row?.line ?? null,
+      odds: row?.odds ?? null,
+      propVariant: row?.propVariant || "base",
+      sourcePool: row?.sourcePool || null
+    })),
     card50Legs: card50.legs.length,
     card50Overs: card50.legs.filter((row) => getSideKey(row) === "over").length,
     card50Unders: card50.legs.filter((row) => getSideKey(row) === "under").length,
@@ -13153,6 +13286,46 @@ app.get("/refresh-snapshot", async (req, res) => {
 
       return rows
     }
+
+    // Bulk DK base-markets fetch: one call for all scheduled events
+    const bulkDraftKingsBase = await fetchBulkDraftKingsBaseRowsForEvents(
+      scheduledEvents,
+      normalizeEventRowsFromPayload
+    )
+
+    const bulkDraftKingsRowsByEventId =
+      bulkDraftKingsBase?.byEventId && typeof bulkDraftKingsBase.byEventId === "object"
+        ? bulkDraftKingsBase.byEventId
+        : {}
+
+    // Merge bulk DK base rows into cleaned (per-event rows may have missed some events)
+    const bulkBaseAllRows = Array.isArray(bulkDraftKingsBase?.rows) ? bulkDraftKingsBase.rows : []
+    if (bulkBaseAllRows.length > 0) {
+      cleaned = dedupeByLegSignature([...cleaned, ...bulkBaseAllRows])
+    }
+
+    // Log per-event bulk coverage merged with per-event fetch results
+    for (const scheduledRecord of scheduledEventRecords) {
+      const eventId = scheduledRecord.eventId
+      const bulkBaseRows = Array.isArray(bulkDraftKingsRowsByEventId[eventId]) ? bulkDraftKingsRowsByEventId[eventId] : []
+      const perEventResult = eventResults.find((r) => r.eventId === eventId)
+      const perEventRows = Array.isArray(perEventResult?.normalizedRows) ? perEventResult.normalizedRows : []
+      const combinedDraftKingsRows = dedupeByLegSignature([...bulkBaseRows, ...perEventRows])
+
+      console.log("[DK-EVENT-COVERAGE-CHECK-MERGED]", {
+        eventId,
+        matchup: scheduledRecord.matchup,
+        bulkBaseRowCount: bulkBaseRows.length,
+        perEventRowCount: perEventRows.length,
+        combinedRowCount: combinedDraftKingsRows.length,
+        bulkMarketKeys: [...new Set(bulkBaseRows.map((row) => row?.marketKey).filter(Boolean))],
+        perEventMarketKeys: [...new Set(perEventRows.map((row) => row?.marketKey).filter(Boolean))],
+        combinedMarketKeys: [...new Set(combinedDraftKingsRows.map((row) => row?.marketKey).filter(Boolean))]
+      })
+    }
+
+    // Update rawPropsRows with merged cleaned data
+    rawPropsRows = cleaned
 
     const extraRawRows = await buildExtraMarketRowsForEvents({
       scheduledEvents,
