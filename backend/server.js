@@ -73,6 +73,20 @@ const BASE_MARKETS = [
 
 const ALL_DK_MARKETS = [...BASE_MARKETS, ...DK_EXTRA_MARKETS]
 
+const SPECIAL_MARKET_KEYS = new Set([
+  "player_first_basket",
+  "player_first_team_basket",
+  "player_double_double",
+  "player_triple_double"
+])
+
+const SPECIAL_PROP_TYPE_NAMES = new Set([
+  "First Basket",
+  "First Team Basket",
+  "Double Double",
+  "Triple Double"
+])
+
 const UNSTABLE_GAME_EVENT_IDS = [
   "d17b632d984be98852b4bc409ae1d056",
   "24a4d71edcffcb5584a61d2aa89c66d8"
@@ -6303,6 +6317,67 @@ app.get("/api/best-available", (req, res) => {
     ladderCandidates = expandedResult.ladderCandidates || []
     specialProps = expandedResult.specialProps || []
 
+    // --- Special props fallback: rebuild from snapshot if expandedPools returned empty ---
+    if (!specialProps.length) {
+      const specialFallbackSource = dedupeMarketRows([
+        ...(Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
+          ? oddsSnapshot.rawProps
+          : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])),
+        ...(Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps : []),
+        ...(Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps : []),
+        ...(Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps : []),
+        ...(Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : [])
+      ])
+
+      const specialFallbackRaw = specialFallbackSource.filter((row) => {
+        if (row?.book !== "DraftKings") return false
+        if (!row?.player) return false
+
+        const marketKey = String(row?.marketKey || "")
+        const isSpecialMarket = SPECIAL_MARKET_KEYS.has(marketKey)
+        const isSpecialPropType = SPECIAL_PROP_TYPE_NAMES.has(String(row?.propType || ""))
+        const shouldTreatAsSpecial = isSpecialMarket || isSpecialPropType
+
+        if (!shouldTreatAsSpecial) return false
+
+        // Relax metric requirements for special markets: only require player + matchup
+        if (!row?.matchup && !row?.eventId) return false
+        return true
+      })
+
+      specialFallbackRaw.sort((a, b) => {
+        const scoreA = Number(a?.score || 0)
+        const scoreB = Number(b?.score || 0)
+        if (scoreB !== scoreA) return scoreB - scoreA
+        return Number(b?.edge || 0) - Number(a?.edge || 0)
+      })
+
+      specialProps = specialFallbackRaw.slice(0, 40)
+
+      console.log("[SPECIAL-PROPS-FALLBACK-DEBUG]", {
+        fallbackSourceCount: specialFallbackSource.length,
+        specialFallbackRawCount: specialFallbackRaw.length,
+        finalSpecialPropsCount: specialProps.length
+      })
+    }
+
+    console.log("[SPECIAL-PROPS-DEBUG]", {
+      totalSpecialProps: Array.isArray(specialProps) ? specialProps.length : 0,
+      sampleSpecialProps: Array.isArray(specialProps)
+        ? specialProps.slice(0, 10).map((row) => ({
+            matchup: row?.matchup || null,
+            player: row?.player || null,
+            team: row?.team || null,
+            marketKey: row?.marketKey || null,
+            propType: row?.propType || null,
+            side: row?.side || null,
+            line: row?.line ?? null,
+            odds: row?.odds ?? null,
+            score: row?.score ?? null
+          }))
+        : []
+    })
+
     console.log("[EXPANDED-MARKET-POOLS-DEBUG]", {
       standardCount: standardCandidates.length,
       ladderCount: ladderCandidates.length,
@@ -6534,9 +6609,23 @@ app.get("/api/best-available", (req, res) => {
   }
   // === END FORCE COVERAGE DEBUG ===
 
-  const bestPayloadRows = getAvailablePrimarySlateRows(
-    Array.isArray(effectiveBestProps) ? effectiveBestProps : []
+  const scheduledEventsForBestPayload = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
+  const scheduledBestEventIdSet = new Set(
+    scheduledEventsForBestPayload
+      .map((event) => String(event?.eventId || event?.id || ""))
+      .filter(Boolean)
   )
+
+  const bestPayloadRows = (Array.isArray(effectiveBestProps) ? effectiveBestProps : []).filter((row) => {
+    if (!row) return false
+    if (shouldRemoveLegForPlayerStatus(row)) return false
+
+    const eventId = String(row?.eventId || "")
+    if (!eventId) return false
+    if (scheduledBestEventIdSet.size === 0) return true
+
+    return scheduledBestEventIdSet.has(eventId)
+  })
 
   console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
     beforeTotal: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
