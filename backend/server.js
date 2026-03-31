@@ -16580,7 +16580,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     if (mode === "open") {
       const projectedFD = getBookCount("FanDuel") + (bookKey === "FanDuel" ? 1 : 0)
       const projectedDK = getBookCount("DraftKings") + (bookKey === "DraftKings" ? 1 : 0)
-      if (Math.abs(projectedFD - projectedDK) > 6) {
+      if (!singleBookMode && Math.abs(projectedFD - projectedDK) > 6) {
         return { ok: false, reason: "droppedByBookCap" }
       }
     }
@@ -16611,7 +16611,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
       const projectedFD = getBookCount("FanDuel") + (bookKey === "FanDuel" ? 1 : 0)
       const projectedDK = getBookCount("DraftKings") + (bookKey === "DraftKings" ? 1 : 0)
-      if (Math.abs(projectedFD - projectedDK) > 6) {
+      if (!singleBookMode && Math.abs(projectedFD - projectedDK) > 6) {
         recordDrop(row, "droppedByBookCap")
         continue
       }
