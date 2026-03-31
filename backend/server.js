@@ -6353,6 +6353,38 @@ app.get("/api/best-available", (req, res) => {
     return Array.isArray(fallbackBest) ? fallbackBest : []
   })()
 
+  const LEGACY_STANDARD_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+  const legacyBestFilterDebug = {
+    input: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
+    excludedSpecialMarketFamily: 0,
+    excludedNonStandardPropType: 0,
+    excludedMissingCoreFields: 0,
+    forceIncludedSpecialExcluded: 0
+  }
+  const legacyStandardBestProps = (Array.isArray(effectiveBestProps) ? effectiveBestProps : []).filter((row) => {
+    if (!row) return false
+
+    const marketFamily = String(row?.marketFamily || "")
+    if (marketFamily === "special") {
+      legacyBestFilterDebug.excludedSpecialMarketFamily += 1
+      if (row?.__forceInclude) legacyBestFilterDebug.forceIncludedSpecialExcluded += 1
+      return false
+    }
+
+    const propType = String(row?.propType || "")
+    if (!LEGACY_STANDARD_PROP_TYPES.has(propType)) {
+      legacyBestFilterDebug.excludedNonStandardPropType += 1
+      return false
+    }
+
+    if (!row?.player || !row?.team || !row?.matchup || !row?.propType || !row?.book) {
+      legacyBestFilterDebug.excludedMissingCoreFields += 1
+      return false
+    }
+
+    return true
+  })
+
   console.log("[BEST-PROPS-ROUTE-GAME-DEBUG]", {
     total: effectiveBestProps.length,
     byBook: {
@@ -6755,7 +6787,7 @@ app.get("/api/best-available", (req, res) => {
       .filter(Boolean)
   )
 
-  const bestPayloadRows = (Array.isArray(effectiveBestProps) ? effectiveBestProps : []).filter((row) => {
+  const bestPayloadRows = legacyStandardBestProps.filter((row) => {
     if (!row) return false
     if (shouldRemoveLegForPlayerStatus(row)) return false
 
@@ -6768,7 +6800,12 @@ app.get("/api/best-available", (req, res) => {
 
   console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
     beforeTotal: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
-    afterTotal: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0
+    afterLegacyStandardFilter: Array.isArray(legacyStandardBestProps) ? legacyStandardBestProps.length : 0,
+    afterTotal: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0,
+    excludedSpecialFromLegacyBestProps: legacyBestFilterDebug.excludedSpecialMarketFamily,
+    excludedNonStandardFromLegacyBestProps: legacyBestFilterDebug.excludedNonStandardPropType,
+    excludedMissingCoreFieldsFromLegacyBestProps: legacyBestFilterDebug.excludedMissingCoreFields,
+    forceIncludedSpecialExcludedFromLegacyBestProps: legacyBestFilterDebug.forceIncludedSpecialExcluded
   })
 
   if (bestAvailablePayload) {
@@ -7136,13 +7173,43 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => Number(b?.gameEdgeScore || 0) - Number(a?.gameEdgeScore || 0))
     .slice(0, 8)
 
-  const mustPlayBoard = sortByAdjustedConfidence(
+  const finalMustPlayRowsBeforeDedupe = sortByAdjustedConfidence(
     boardSourceRowsWithGameRole.filter((row) => String(row?.playDecision || "") === "must-play")
-  ).slice(0, 15)
+  )
+  const normalizeMustPlayKeyPart = (value) =>
+    value == null ? "" : String(value).trim().toLowerCase()
+
+  const mustPlaySeen = new Set()
+  const finalMustPlayRowsAfterDedupe = []
+  for (const row of finalMustPlayRowsBeforeDedupe) {
+    const normalizedLineValue = row?.line
+    const normalizedLine =
+      normalizedLineValue == null
+        ? ""
+        : normalizeMustPlayKeyPart(Number.isFinite(Number(normalizedLineValue)) ? Number(normalizedLineValue) : normalizedLineValue)
+    const normalizedVariantRaw = normalizeMustPlayKeyPart(row?.propVariant)
+    const normalizedVariant = normalizedVariantRaw || "base"
+    const mustPlayKey = [
+      normalizeMustPlayKeyPart(row?.player),
+      normalizeMustPlayKeyPart(row?.matchup),
+      normalizeMustPlayKeyPart(row?.marketKey),
+      normalizeMustPlayKeyPart(row?.propType),
+      normalizeMustPlayKeyPart(row?.side),
+      normalizedLine,
+      normalizedVariant,
+      normalizeMustPlayKeyPart(row?.book)
+    ].join("|")
+    if (mustPlaySeen.has(mustPlayKey)) continue
+    mustPlaySeen.add(mustPlayKey)
+    finalMustPlayRowsAfterDedupe.push(row)
+  }
+  const mustPlayDuplicatesRemoved = finalMustPlayRowsBeforeDedupe.length - finalMustPlayRowsAfterDedupe.length
+  const mustPlayBoard = finalMustPlayRowsAfterDedupe.slice(0, 15)
 
   console.log("[GAME-ROLE-EDGE-DEBUG]", {
     gameEdgeBoard: Array.isArray(gameEdgeBoard) ? gameEdgeBoard.length : 0,
     mustPlayBoard: Array.isArray(mustPlayBoard) ? mustPlayBoard.length : 0,
+    mustPlayDuplicatesRemoved,
     gameEdgeTop: Array.isArray(gameEdgeBoard)
       ? gameEdgeBoard.slice(0, 5).map((row) => ({
           matchup: row?.matchup || null,
@@ -17239,7 +17306,93 @@ for (const row of missingWatchedInBest) {
   }
 }
 
-oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
+const finalBestPropsGateDebug = {
+  finalBestPropsExcludedSpecial: 0,
+  finalBestPropsExcludedNonStandard: 0,
+  finalBestPropsExcludedInvalidCoreFields: 0,
+  finalBestPropsExcludedInvalidLine: 0,
+  finalBestPropsExcludedInvalidScore: 0,
+  finalBestPropsForceIncludedBlocked: 0
+}
+const bestPropsAfterFinalLegacyGate = (Array.isArray(bestProps) ? bestProps : []).filter((row) => {
+  if (!row) {
+    finalBestPropsGateDebug.finalBestPropsExcludedInvalidCoreFields += 1
+    return false
+  }
+
+  const blockForceIncluded = () => {
+    if (row?.__forceInclude) finalBestPropsGateDebug.finalBestPropsForceIncludedBlocked += 1
+  }
+
+  if (String(row?.marketFamily || "") === "special") {
+    finalBestPropsGateDebug.finalBestPropsExcludedSpecial += 1
+    blockForceIncluded()
+    return false
+  }
+
+  if (!STANDARD_PROP_TYPES.has(String(row?.propType || ""))) {
+    finalBestPropsGateDebug.finalBestPropsExcludedNonStandard += 1
+    blockForceIncluded()
+    return false
+  }
+
+  if (!row?.player || !row?.team || !row?.matchup || !row?.propType || !row?.book) {
+    finalBestPropsGateDebug.finalBestPropsExcludedInvalidCoreFields += 1
+    blockForceIncluded()
+    return false
+  }
+
+  if (!Number.isFinite(Number(row?.line))) {
+    finalBestPropsGateDebug.finalBestPropsExcludedInvalidLine += 1
+    blockForceIncluded()
+    return false
+  }
+
+  if (!Number.isFinite(Number(row?.score))) {
+    finalBestPropsGateDebug.finalBestPropsExcludedInvalidScore += 1
+    blockForceIncluded()
+    return false
+  }
+
+  return true
+})
+
+console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
+  inputCount: Array.isArray(bestProps) ? bestProps.length : 0,
+  outputCount: bestPropsAfterFinalLegacyGate.length,
+  ...finalBestPropsGateDebug
+})
+
+oddsSnapshot.bestProps = dedupeByLegSignature(bestPropsAfterFinalLegacyGate)
+console.log("[FINAL-LEGACY-BESTPROPS-DEBUG]", {
+  total: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0,
+  bestPropsByPropType: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).reduce((acc, row) => {
+    const key = String(row?.propType || "Unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  bestPropsByMarketFamily: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).reduce((acc, row) => {
+    const key = String(row?.marketFamily || "unknown")
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {}),
+  invalidLineCount: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((row) => !Number.isFinite(Number(row?.line))).length,
+  invalidScoreCount: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((row) => !Number.isFinite(Number(row?.score))).length,
+  missingTeamCount: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).filter((row) => !row?.team).length,
+  sample: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).slice(0, 10).map((row) => ({
+    player: row?.player || null,
+    matchup: row?.matchup || null,
+    propType: row?.propType || null,
+    marketKey: row?.marketKey || null,
+    marketFamily: row?.marketFamily || null,
+    team: row?.team || null,
+    line: row?.line ?? null,
+    odds: row?.odds ?? null,
+    score: row?.score ?? null,
+    hitRate: row?.hitRate ?? null,
+    __forceInclude: row?.__forceInclude === true
+  }))
+})
 logBestStage("refresh-snapshot:afterDedupe", oddsSnapshot.bestProps)
 const mainBestPropsBookRescue = ensureBestPropsBookPresence(oddsSnapshot.bestProps, bestPropsSource, {
   targetBook: "DraftKings",
