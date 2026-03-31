@@ -6865,6 +6865,78 @@ app.get("/api/best-available", (req, res) => {
 
   const allVisibleRowsForBoards = boardSourceRowsWithGameRole
 
+  const CORE_STANDARD_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+  const LADDER_PROP_VARIANTS = new Set(["alt-low", "alt-mid", "alt-high", "alt-max"])
+
+  const hasCoreBoardFields = (row) =>
+    Boolean(row?.player && row?.team && row?.matchup && row?.propType && row?.book)
+
+  const hasSpecialBoardFields = (row) =>
+    Boolean(row?.player && row?.matchup && row?.propType && row?.book)
+
+  const coreStandardProps = dedupeBoardRows(
+    sortCorePropsBoard(
+      allVisibleRowsForBoards.filter((row) => {
+        if (!hasCoreBoardFields(row)) return false
+        if (String(row?.marketFamily || "") === "special") return false
+        if (!CORE_STANDARD_PROP_TYPES.has(String(row?.propType || ""))) return false
+        const propVariant = String(row?.propVariant || "base")
+        return propVariant === "base" || propVariant === "default"
+      })
+    )
+  )
+
+  const ladderProps = dedupeBoardRows(
+    sortLadderBoard(
+      allVisibleRowsForBoards.filter((row) => {
+        if (!hasCoreBoardFields(row)) return false
+        if (String(row?.marketFamily || "") === "special") return false
+        const propVariant = String(row?.propVariant || "base")
+        return LADDER_PROP_VARIANTS.has(propVariant)
+      })
+    )
+  )
+
+  const specialPropsBoard = dedupeBoardRows(
+    sortSpecialBoard(
+      allVisibleRowsForBoards.filter((row) => {
+        if (!hasSpecialBoardFields(row)) return false
+        return String(row?.marketFamily || "") === "special"
+      })
+    )
+  )
+
+  const boardCounts = {
+    coreStandardProps: coreStandardProps.length,
+    ladderProps: ladderProps.length,
+    specialProps: specialPropsBoard.length
+  }
+
+  console.log("[NBA-BOARD-SHAPING-DEBUG]", {
+    counts: boardCounts,
+    coreStandardSample: coreStandardProps.slice(0, 5).map((row) => ({
+      player: row?.player || null,
+      matchup: row?.matchup || null,
+      propType: row?.propType || null,
+      marketKey: row?.marketKey || null,
+      propVariant: row?.propVariant || "base"
+    })),
+    ladderSample: ladderProps.slice(0, 5).map((row) => ({
+      player: row?.player || null,
+      matchup: row?.matchup || null,
+      propType: row?.propType || null,
+      marketKey: row?.marketKey || null,
+      propVariant: row?.propVariant || "base"
+    })),
+    specialSample: specialPropsBoard.slice(0, 5).map((row) => ({
+      player: row?.player || null,
+      matchup: row?.matchup || null,
+      propType: row?.propType || null,
+      marketKey: row?.marketKey || null,
+      line: row?.line ?? null
+    }))
+  })
+
   const firstBasketBoard = sortFirstBasketBoard(
     allVisibleRowsForBoards.filter(isFirstBasketLikeRow)
   ).slice(0, 20)
@@ -7115,7 +7187,10 @@ app.get("/api/best-available", (req, res) => {
     card300: slipCards.card300,
     standardCandidates: standardCandidates,
     ladderCandidates: ladderCandidates,
-    specialProps: enrichedSpecialProps,
+    coreStandardProps,
+    ladderProps,
+    specialProps: specialPropsBoard,
+    boardCounts,
     snapshotMeta
   })
 })
