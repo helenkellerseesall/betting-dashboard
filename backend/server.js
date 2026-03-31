@@ -515,13 +515,51 @@ function buildSlipCards(bestProps, ladderPool) {
     }
   }
 
-  const isUsable = (row) =>
-    row &&
-    row.book === "DraftKings" &&
-    row.team &&
-    row.hitRate != null &&
-    row.edge != null &&
-    row.score != null
+  const isUsable = (row) => {
+    if (!row) return false
+    if (row.book !== "DraftKings") return false
+    if (!row.team) return false
+    if (row.hitRate == null || row.edge == null || row.score == null) return false
+    if (!row.player || !row.propType || row.line == null || row.odds == null) return false
+    if (shouldRemoveLegForPlayerStatus(row)) return false
+    if (isFragileLeg(row)) return false
+    if (!isPregameEligibleRow(row)) return false
+    if (!rowTeamMatchesMatchup(row)) return false
+    return true
+  }
+
+  const isSpecialPropType = (row) => SPECIAL_PROP_TYPE_NAMES.has(String(row?.propType || ""))
+
+  const getPrimaryPriority = (row) => {
+    const variant = String(row?.propVariant || "base")
+    const propType = String(row?.propType || "")
+    const odds = Number(row?.odds || 0)
+
+    if (isSpecialPropType(row)) return 5
+    if (variant === "alt-max") return 4
+    if (variant === "alt-high") return 3
+    if (variant === "alt-mid") return 2
+    if (variant === "alt-low") return 1
+    if (propType === "Points" || propType === "Rebounds" || propType === "Assists" || propType === "Threes" || propType === "PRA") {
+      if (odds >= -220 && odds <= 160) return 0
+    }
+    return 1
+  }
+
+  const getPrimaryOnlyPool = (rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return safeRows.filter((row) => getPrimaryPriority(row) <= 1)
+  }
+
+  const buildRankedPool = (rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return [...safeRows].sort((a, b) => {
+      const aPriority = getPrimaryPriority(a)
+      const bPriority = getPrimaryPriority(b)
+      if (aPriority !== bPriority) return aPriority - bPriority
+      return getSlipCandidateScore(b) - getSlipCandidateScore(a)
+    })
+  }
 
   const snapshotStandardCandidates = Array.isArray(oddsSnapshot?.standardCandidates) ? oddsSnapshot.standardCandidates : []
   const snapshotFinalPlayableRows = Array.isArray(oddsSnapshot?.finalPlayableRows) ? oddsSnapshot.finalPlayableRows : []
@@ -533,7 +571,9 @@ function buildSlipCards(bestProps, ladderPool) {
     ...snapshotFinalPlayableRows.map((row) => ({ ...row, sourcePool: row?.sourcePool || "playable" }))
   ]).filter(isUsable)
 
-  const ranked = [...combined].sort((a, b) => getSlipCandidateScore(b) - getSlipCandidateScore(a))
+  const primaryOnlyPool = dedupeSlipPool(getPrimaryOnlyPool(combined))
+  const ranked = buildRankedPool(combined)
+  const rankedPrimary = buildRankedPool(primaryOnlyPool)
 
   const getComboPenalty = (row, currentLegs) => {
     let penalty = 0
@@ -742,11 +782,17 @@ function buildSlipCards(bestProps, ladderPool) {
   }
 
   const buildFallbackBandCard = (label, rankedRows, fallbackOptions) => {
-    const card = buildBestComboForBand(rankedRows, fallbackOptions)
-    if (Array.isArray(card?.legs) && card.legs.length > 0) return card
+    const primaryRows = getPrimaryOnlyPool(rankedRows)
+
+    const primaryCard = buildBestComboForBand(primaryRows, fallbackOptions)
+    if (Array.isArray(primaryCard?.legs) && primaryCard.legs.length > 0) return primaryCard
+
+    const rankedCard = buildBestComboForBand(rankedRows, fallbackOptions)
+    if (Array.isArray(rankedCard?.legs) && rankedCard.legs.length > 0) return rankedCard
 
     const safeRows = Array.isArray(rankedRows) ? rankedRows : []
-    const emergencyPool = safeRows
+    const emergencySource = primaryRows.length >= 2 ? primaryRows : safeRows
+    const emergencyPool = emergencySource
       .filter(isUsable)
       .filter((row) => {
         const variant = String(row?.propVariant || "base")
@@ -754,7 +800,7 @@ function buildSlipCards(bestProps, ladderPool) {
         if (allowedSet.size > 0 && !allowedSet.has(variant)) return false
         return true
       })
-      .slice(0, 10)
+      .slice(0, 12)
 
     let bestEmergency = null
     let bestDistance = Infinity
@@ -820,7 +866,8 @@ function buildSlipCards(bestProps, ladderPool) {
         label,
         bestDistance,
         legs: bestEmergency.legs.length,
-        estReturn: bestEmergency.payout?.estReturn || 0
+        estReturn: bestEmergency.payout?.estReturn || 0,
+        usedPrimaryOnly: emergencySource === primaryRows
       })
       return bestEmergency
     }
@@ -832,8 +879,7 @@ function buildSlipCards(bestProps, ladderPool) {
     }
   }
 
-
-  const card50 = buildFallbackBandCard("$5 → $50", ranked, {
+  const card50 = buildFallbackBandCard("$5 → $50", rankedPrimary, {
     label: "$5 → $50",
     minLegs: 2,
     maxLegs: 3,
@@ -849,7 +895,7 @@ function buildSlipCards(bestProps, ladderPool) {
     maxUnders: 2
   })
 
-  const card100 = buildFallbackBandCard("$5 → $100", ranked, {
+  const card100 = buildFallbackBandCard("$5 → $100", rankedPrimary, {
     label: "$5 → $100",
     minLegs: 2,
     maxLegs: 4,
@@ -891,10 +937,23 @@ function buildSlipCards(bestProps, ladderPool) {
     bestCount: Array.isArray(bestProps) ? bestProps.length : 0,
     ladderCount: Array.isArray(ladderPool) ? ladderPool.length : 0,
     combinedCount: combined.length,
+    primaryOnlyCount: primaryOnlyPool.length,
+    rankedPrimaryCount: rankedPrimary.length,
     rankedCount: ranked.length,
     standardCandidateCount: snapshotStandardCandidates.length,
     finalPlayableCandidateCount: snapshotFinalPlayableRows.length,
     topRankedSample: ranked.slice(0, 8).map((row) => ({
+      player: row?.player || null,
+      team: row?.team || null,
+      matchup: row?.matchup || null,
+      propType: row?.propType || null,
+      side: row?.side || null,
+      line: row?.line ?? null,
+      odds: row?.odds ?? null,
+      propVariant: row?.propVariant || "base",
+      sourcePool: row?.sourcePool || null
+    })),
+    topPrimarySample: rankedPrimary.slice(0, 8).map((row) => ({
       player: row?.player || null,
       team: row?.team || null,
       matchup: row?.matchup || null,
@@ -16326,6 +16385,9 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     FanDuel: 0,
     DraftKings: 0
   }
+  // --- Single-book mode logic ---
+  const activeCandidateBooks = Object.keys(eligibleByBook).filter((b) => eligibleByBook[b] > 0)
+  const singleBookMode = activeCandidateBooks.length === 1
 
   const keyOf = (row) => `${row?.player || ""}|${row?.book || ""}|${row?.propType || ""}|${row?.matchup || ""}|${Number(row?.line)}|${row?.side || ""}`
   const selected = []
@@ -16423,25 +16485,53 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     return false
   }
 
-  const maxReserveRounds = Math.max(...TIER_BOOKS.map((book) => reserveTargetByBook[book] || 0), 0)
-  for (let round = 0; round < maxReserveRounds; round += 1) {
-    let madeProgress = false
-    for (const bookKey of TIER_BOOKS) {
-      if ((selectedByBook()[bookKey] || 0) >= (reserveTargetByBook[bookKey] || 0)) continue
-      if (takeNextFromBook(bookKey)) madeProgress = true
+  let selectedByBookAfterReservePass = {}
+  if (singleBookMode) {
+    // Only one book: skip per-book balancing, just take top N globally
+    for (const row of sorted) {
+      if (selected.length >= config.targetTotal) break
+      if (selectedKeys.has(keyOf(row))) continue
+      const decision = canTakeRow(row, "open")
+      if (!decision.ok) {
+        recordDrop(row, decision.reason)
+        continue
+      }
+      takeRow(row)
     }
-    if (!madeProgress) break
-    if (selected.length >= config.targetTotal) break
+    selectedByBookAfterReservePass = selectedByBook()
+    logBestStage(`${pathLabel}:afterPerBookBalancingAssignment`, selected)
+    console.log("[BEST-PROPS-STAGE-COUNTS]", {
+      path: pathLabel,
+      stage: "afterPerBookBalancing",
+      total: selected.length,
+      byBook: selectedByBookAfterReservePass,
+      singleBookMode,
+      activeCandidateBooks
+    })
+    // In single-book mode, do not increment droppedByBookCap for per-book balancing
+    dropCounts.droppedByBookCap = 0
+  } else {
+    const maxReserveRounds = Math.max(...TIER_BOOKS.map((book) => reserveTargetByBook[book] || 0), 0)
+    for (let round = 0; round < maxReserveRounds; round += 1) {
+      let madeProgress = false
+      for (const bookKey of TIER_BOOKS) {
+        if ((selectedByBook()[bookKey] || 0) >= (reserveTargetByBook[bookKey] || 0)) continue
+        if (takeNextFromBook(bookKey)) madeProgress = true
+      }
+      if (!madeProgress) break
+      if (selected.length >= config.targetTotal) break
+    }
+    selectedByBookAfterReservePass = selectedByBook()
+    logBestStage(`${pathLabel}:afterPerBookBalancingAssignment`, selected)
+    console.log("[BEST-PROPS-STAGE-COUNTS]", {
+      path: pathLabel,
+      stage: "afterPerBookBalancing",
+      total: selected.length,
+      byBook: selectedByBookAfterReservePass,
+      singleBookMode,
+      activeCandidateBooks
+    })
   }
-
-  const selectedByBookAfterReservePass = selectedByBook()
-  logBestStage(`${pathLabel}:afterPerBookBalancingAssignment`, selected)
-  console.log("[BEST-PROPS-STAGE-COUNTS]", {
-    path: pathLabel,
-    stage: "afterPerBookBalancing",
-    total: selected.length,
-    byBook: selectedByBookAfterReservePass
-  })
 
   for (const row of sorted) {
     if (selected.length >= config.targetTotal) break
@@ -16886,9 +16976,45 @@ console.log("[PRE-BEST-STANDARD-COVERAGE-DEBUG]", {
   }))
 })
 
-const bestPropsSource = scoredProps.filter((row) => qualifiesBestPropsSource(row))
+
+// --- Strict core bestProps promotion: only valid standard stat props ---
+const STANDARD_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+const bestPropsSourceRaw = Array.isArray(scoredProps) ? scoredProps : []
+const bestPropsSource = []
+const excludedSpecials = []
+const excludedMalformed = []
+for (const row of bestPropsSourceRaw) {
+  const isStandard = STANDARD_PROP_TYPES.has(String(row?.propType || ""))
+  const hasAllFields = (
+    row &&
+    row.player &&
+    row.team &&
+    row.matchup &&
+    row.propType &&
+    Number.isFinite(row.line) &&
+    row.hitRate != null &&
+    Number.isFinite(row.score) &&
+    row.book &&
+    playerFitsMatchup(row)
+  )
+  if (!isStandard) {
+    excludedSpecials.push(row)
+    continue
+  }
+  if (!hasAllFields) {
+    excludedMalformed.push(row)
+    continue
+  }
+  bestPropsSource.push(row)
+}
 logBestStage("refresh-snapshot:sourcePool", bestPropsSource)
 console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot sourceCount=${bestPropsSource.length}`)
+console.log("[BEST-PROPS-EXCLUDED-DEBUG]", {
+  excludedSpecials: excludedSpecials.length,
+  excludedMalformed: excludedMalformed.length,
+  sampleSpecials: excludedSpecials.slice(0, 5).map(r => ({ player: r?.player, propType: r?.propType, book: r?.book, line: r?.line })),
+  sampleMalformed: excludedMalformed.slice(0, 5).map(r => ({ player: r?.player, propType: r?.propType, book: r?.book, line: r?.line, hitRate: r?.hitRate, score: r?.score, team: r?.team }))
+})
 
 const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, { pathLabel: "refresh-snapshot" })
 const preCapBestPropsPool = bestPropsCapResult.selected
