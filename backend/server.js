@@ -14954,7 +14954,7 @@ app.get("/refresh-snapshot", async (req, res) => {
 
     const normalizeEventRowsFromPayload = (eventPayload, event) => {
       const matchup = buildMatchup(event?.away_team, event?.home_team)
-      const rows = []
+      let rows = []
       const rejectReasonCounts = {}
       const books = Array.isArray(eventPayload?.bookmakers) ? eventPayload.bookmakers : []
 
@@ -14977,7 +14977,6 @@ app.get("/refresh-snapshot", async (req, res) => {
           if (!shouldKeep) continue
 
           const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : (Array.isArray(market?.selections) ? market.selections : [])
-
           for (const outcome of outcomes) {
             const eventId = String(
               event?.id ||
@@ -15024,7 +15023,11 @@ app.get("/refresh-snapshot", async (req, res) => {
               openingOdds: currentOdds,
               lineMove: 0,
               oddsMove: 0,
-              marketMovementTag: "neutral"
+              marketMovementTag: "neutral",
+              // line integrity fields (to be set below)
+              currentLine: currentLine,
+              isPrimaryLine: false,
+              propVariant: outcome?.propVariant || null
             }
 
             const rejectReason = getIngestRejectReason(draftRow)
@@ -15050,6 +15053,56 @@ app.get("/refresh-snapshot", async (req, res) => {
       }
 
       return rows
+          // --- Real-time line integrity enforcement ---
+          // Group by player+propType+side
+          const groupKey = (row) => [row.player, row.propType, row.side].join("|")
+          const grouped = {}
+          for (const row of rows) {
+            if (!row.player || !row.propType) continue
+            const key = groupKey(row)
+            if (!grouped[key]) grouped[key] = []
+            grouped[key].push(row)
+          }
+          // For each group, find median line and mark isPrimaryLine
+          for (const key in grouped) {
+            const group = grouped[key]
+            const lines = group.map(r => r.line).filter(Number.isFinite)
+            if (!lines.length) continue
+            const sorted = [...lines].sort((a, b) => a - b)
+            const median = sorted.length % 2 === 1 ? sorted[(sorted.length - 1) >> 1] : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2
+            // Find row closest to median
+            let minDiff = Infinity, primaryIdx = -1
+            for (let i = 0; i < group.length; ++i) {
+              const diff = Math.abs(group[i].line - median)
+              if (diff < minDiff) {
+                minDiff = diff
+                primaryIdx = i
+              }
+            }
+            if (primaryIdx >= 0) group[primaryIdx].isPrimaryLine = true
+            // Mark all others as false
+            for (let i = 0; i < group.length; ++i) {
+              if (i !== primaryIdx) group[i].isPrimaryLine = false
+              group[i].currentLine = group[i].line
+            }
+            // Stale line guard: drop if abs(line - median) > 2.5
+            for (let i = 0; i < group.length; ++i) {
+              if (Math.abs(group[i].line - median) > 2.5) group[i].__dropStaleLine = true
+            }
+          }
+          // Filter: keep only isPrimaryLine or alt-low/alt-high, and drop stale lines
+          rows = rows.filter(row => {
+            const keep = (row.isPrimaryLine === true || row.propVariant === "alt-low" || row.propVariant === "alt-high") && !row.__dropStaleLine
+            if (!keep) return false
+            // Debug log for every row that passes
+            console.log("[LINE-INTEGRITY-CHECK]", {
+              player: row.player,
+              propType: row.propType,
+              line: row.line,
+              isPrimaryLine: row.isPrimaryLine
+            })
+            return true
+          })
     }
 
     // Bulk DK base-markets fetch: one call for all scheduled events
