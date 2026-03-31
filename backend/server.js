@@ -29,6 +29,8 @@ let lastSnapshotSavedAt = null
 let lastSnapshotAgeMinutes = null
 let lastForceRefreshAt = null
 
+const ENABLE_DISK_SNAPSHOT_LOAD = String(process.env.ENABLE_DISK_SNAPSHOT_LOAD || "false").toLowerCase() === "true"
+
 let oddsSnapshot = {
   updatedAt: null,
   events: [],
@@ -94,7 +96,13 @@ const UNSTABLE_GAME_EVENT_IDS = [
 
 try {
   const snapshotPath = path.join(__dirname, "snapshot.json")
-  if (fs.existsSync(snapshotPath)) {
+  if (!ENABLE_DISK_SNAPSHOT_LOAD) {
+    snapshotLoadedFromDisk = false
+    lastSnapshotSource = "startup-empty-disk-cache-disabled"
+    console.log("[SNAPSHOT-CACHE] startup disk snapshot load disabled", {
+      snapshotPath
+    })
+  } else if (fs.existsSync(snapshotPath)) {
     const raw = JSON.parse(fs.readFileSync(snapshotPath, "utf-8"))
     oddsSnapshot = raw.data
     if (!Array.isArray(oddsSnapshot.rawProps)) oddsSnapshot.rawProps = []
@@ -17435,7 +17443,15 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       now: Date.now(),
       events: unrestrictedFetchedEvents
     })
-    const dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+    let dkScopedFetchedEvents = null
+    try {
+      dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+    } catch (err) {
+      console.log("[DK-SCOPED-DEBUG-SKIPPED]", {
+        message: err?.message || String(err || "")
+      })
+      dkScopedFetchedEvents = null
+    }
     const {
       scheduledEvents: dkScopedScheduledEvents
     } = await buildSlateEvents({
