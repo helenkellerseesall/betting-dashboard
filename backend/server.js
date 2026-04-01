@@ -11,6 +11,7 @@ const { buildMoneyMakerPortfolio } = require("./upside/builders")
 const { isFragileLeg, getFragileLegDiagnostics, resetFragileFilterAdjustedLogCount } = require("./pipeline/filters/fragile")
 const { buildSlateEvents } = require("./pipeline/schedule/buildSlateEvents")
 const { inferMarketTypeFromKey } = require("./pipeline/markets/classification")
+const { classifyBoardRow, isTeamFirstBasketRow, isMilestoneLadderRow } = require("./pipeline/markets/boardClassification")
 const { buildExpandedMarketPools, buildFinalPlayableRows } = require("./pipeline/markets/expandedPools")
 const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline/selection/bestProps")
 
@@ -6891,14 +6892,43 @@ app.get("/api/best-available", (req, res) => {
   })
 
   // --- Build market-siloed boards ---
-  const gameEdgeMap = buildGameEdgeMap(boardSourceRows)
-  const boardSourceRowsWithGameRole = applyGameAndRoleEdge(boardSourceRows, gameEdgeMap).map((row) => ({
+  const classifiedBoardSourceRows = boardSourceRows.map((row) => {
+    const classified = classifyBoardRow(row)
+    return {
+      ...row,
+      boardFamily: classified?.boardFamily || null,
+      ladderSubtype: classified?.ladderSubtype || null,
+      specialSubtype: classified?.specialSubtype || null
+    }
+  })
+  const gameEdgeMap = buildGameEdgeMap(classifiedBoardSourceRows)
+  const boardSourceRowsWithGameRole = applyGameAndRoleEdge(classifiedBoardSourceRows, gameEdgeMap).map((row) => ({
     ...row,
     playDecision: inferPlayDecision(row)
   })).map((row) => ({
     ...row,
     decisionSummary: buildDecisionSummary(row)
   }))
+
+  console.log("[BOARD-CLASSIFIER-DEBUG]", {
+    boardFamily: boardSourceRowsWithGameRole.reduce((acc, row) => {
+      const key = String(row?.boardFamily || "unknown")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    ladderSubtype: boardSourceRowsWithGameRole.reduce((acc, row) => {
+      const key = String(row?.ladderSubtype || "none")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    specialSubtype: boardSourceRowsWithGameRole.reduce((acc, row) => {
+      const key = String(row?.specialSubtype || "none")
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {}),
+    teamFirstBasketCount: boardSourceRowsWithGameRole.filter((row) => isTeamFirstBasketRow(row)).length,
+    milestoneLadderCount: boardSourceRowsWithGameRole.filter((row) => isMilestoneLadderRow(row)).length
+  })
 
   const allVisibleRowsForBoards = boardSourceRowsWithGameRole
 
@@ -7372,6 +7402,20 @@ function normalizePropType(key) {
     case "player_pra":
     case "pra":
       return "PRA"
+    case "player_first_basket":
+      return "First Basket"
+    case "player_first_team_basket":
+      return "First Team Basket"
+    case "player_points_alternate":
+      return "Points Ladder"
+    case "player_rebounds_alternate":
+      return "Rebounds Ladder"
+    case "player_assists_alternate":
+      return "Assists Ladder"
+    case "player_threes_alternate":
+      return "Threes Ladder"
+    case "player_points_rebounds_assists_alternate":
+      return "PRA Ladder"
     default:
       return null
   }
@@ -12077,9 +12121,12 @@ function getIngestRejectReason(row) {
     if (!Number.isFinite(line)) return "invalid_line"
   }
 
-  // Ladder markets require a finite line but accept Over/Under/Yes
+  // Ladder markets: do not reject solely for missing/invalid line.
+  // Only reject if both side and line are unusable for ladder handling.
   if (isLadder) {
-    if (!Number.isFinite(line)) return "invalid_line"
+    const hasUsableSide = side === "Over" || side === "Under" || side === "Yes" || side === "No"
+    const hasUsableLine = Number.isFinite(line)
+    if (!hasUsableSide && !hasUsableLine) return "ladder_unusable_missing_side_and_line"
   }
 
   // Special markets (first basket, double-double, triple-double) do NOT require a numeric line or Over/Under side
@@ -12092,6 +12139,8 @@ function getIngestRejectReason(row) {
 
   // Special markets (first basket etc.) have much higher odds (+500 to +5000), widen range
   if (isSpecial) {
+    if (odds < -1000 || odds > 10000) return "odds_out_of_range"
+  } else if (isLadder) {
     if (odds < -1000 || odds > 10000) return "odds_out_of_range"
   } else {
     if (odds < -350 || odds > 400) return "odds_out_of_range"
@@ -12229,6 +12278,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     let emptyMarketsCount = 0
     let emptyOutcomesCount = 0
     const dropReasonCounts = {}
+    let rejectedTeamFirstBasket = 0
+    let rejectedAlternateMarkets = 0
     const lukaNameMapStats = {
       rawOutcomeMentions: 0,
       mappedRows: 0,
@@ -12420,11 +12471,22 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
             oddsMove,
             marketMovementTag
           }
+          const classification = classifyBoardRow(draftRow)
+          draftRow.boardFamily = classification?.boardFamily || null
+          draftRow.ladderSubtype = classification?.ladderSubtype || null
+          draftRow.specialSubtype = classification?.specialSubtype || null
 
           const rejectReason = getIngestRejectReason(draftRow)
           if (rejectReason) {
             rejectedRows += 1
             dropReasonCounts[rejectReason] = Number(dropReasonCounts[rejectReason] || 0) + 1
+            const marketKeyLower = String(draftRow?.marketKey || "").toLowerCase()
+            if (marketKeyLower.includes("player_first_team_basket") || draftRow?.specialSubtype === "teamFirstBasket") {
+              rejectedTeamFirstBasket += 1
+            }
+            if (marketKeyLower.includes("_alternate")) {
+              rejectedAlternateMarkets += 1
+            }
             continue
           }
 
@@ -12483,6 +12545,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
         rejectedRows,
         emptyMarketsCount,
         emptyOutcomesCount,
+        rejectedTeamFirstBasket,
+        rejectedAlternateMarkets,
         dropReasonCounts,
         lukaNameMapStats,
         watchedRawCounts: countWatchedPlayersInOutcomes(rawOutcomesForWatchedCoverage),

@@ -19,6 +19,14 @@ function toKey(value) {
   return String(value || "").trim()
 }
 
+function toSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 function isSpecialRow(row) {
   const marketKey = toKey(row?.marketKey)
   const propType = toKey(row?.propType)
@@ -34,10 +42,16 @@ function isSpecialRow(row) {
 function isTeamFirstBasketRow(row) {
   const marketKey = toKey(row?.marketKey)
   const propType = toKey(row?.propType)
+  const marketKeyText = toSearchText(row?.marketKey)
+  const propTypeText = toSearchText(row?.propType)
 
   return (
     marketKey === "player_first_team_basket" ||
-    propType === "First Team Basket"
+    propType === "First Team Basket" ||
+    marketKeyText.includes("first team basket") ||
+    marketKeyText.includes("team first basket") ||
+    propTypeText.includes("first team basket") ||
+    propTypeText.includes("team first basket")
   )
 }
 
@@ -53,22 +67,37 @@ function isPlayerFirstBasketRow(row) {
 
 function isMilestoneLadderRow(row) {
   const marketKey = toKey(row?.marketKey)
-  const propVariant = toKey(row?.propVariant || "base")
   const line = Number(row?.line)
   const propType = toKey(row?.propType)
+  const sideText = toSearchText(row?.side)
+  const contextText = toSearchText([
+    row?.marketKey,
+    row?.marketName,
+    row?.label,
+    row?.name,
+    row?.selection,
+    row?.outcomeName,
+    row?.description
+  ].filter(Boolean).join(" "))
 
   if (!STANDARD_PROP_TYPES.has(propType)) return false
   if (!Number.isFinite(line)) return false
 
   const isAlternateMarket =
     marketKey.endsWith("_alternate") ||
-    marketKey.includes("_alternate")
+    marketKey.includes("_alternate") ||
+    marketKey.includes("alternate")
 
   if (!isAlternateMarket) return false
 
-  if (!LADDER_PROP_VARIANTS.has(propVariant)) return true
+  const isThresholdStyle =
+    contextText.includes("or more") ||
+    contextText.includes("at least") ||
+    contextText.includes("+") ||
+    sideText === "over" ||
+    sideText === "under"
 
-  return false
+  return isThresholdStyle
 }
 
 function isAltLineLadderRow(row) {
