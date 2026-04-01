@@ -6981,6 +6981,7 @@ app.get("/api/best-available", (req, res) => {
     "player_threes_alternate",
     "player_points_rebounds_assists_alternate"
   ])
+  const ladderPresentationVariants = new Set(["alt-low", "alt-mid", "alt-high", "alt-max"])
   const ladderTypeByMarketKey = {
     player_points_alternate: "Points",
     player_rebounds_alternate: "Rebounds",
@@ -6990,13 +6991,18 @@ app.get("/api/best-available", (req, res) => {
   }
   const boardSourceRowsWithLadderPresentation = boardSourceRowsWithGameRole.map((row) => {
     const marketKey = String(row?.marketKey || "")
-    if (!ladderPresentationAlternateMarketKeys.has(marketKey)) {
+    const propVariant = String(row?.propVariant || "base")
+    const isAlternateMarketRow = ladderPresentationAlternateMarketKeys.has(marketKey)
+    const isSyntheticLadderVariant = ladderPresentationVariants.has(propVariant)
+    const isLadderBoardRow = String(row?.boardFamily || "") === "ladder" || String(row?.ladderSubtype || "") !== ""
+    const shouldAttachLadderPresentation = isAlternateMarketRow || isSyntheticLadderVariant || isLadderBoardRow
+    if (!shouldAttachLadderPresentation) {
       return row
     }
 
     const side = String(row?.side || "")
     const lineValue = Number(row?.line)
-    const hasMilestoneLikeShape = side === "Over" && Number.isFinite(lineValue)
+    const hasMilestoneLikeShape = isAlternateMarketRow && side === "Over" && Number.isFinite(lineValue)
     const ladderPresentation = hasMilestoneLikeShape ? "milestoneLike" : "altLine"
     const ladderTarget = Number.isFinite(lineValue) ? lineValue : null
     const labelType = String(
@@ -7004,10 +7010,14 @@ app.get("/api/best-available", (req, res) => {
       ladderTypeByMarketKey[marketKey] ||
       "Ladder"
     ).replace(/\s+Ladder$/i, "").trim()
-    const thresholdLabel = Number.isFinite(lineValue)
-      ? `${Number.isInteger(lineValue) ? lineValue : Number(lineValue.toFixed(1))}+`
-      : "Alt"
-    const ladderLabel = `${thresholdLabel} ${labelType}`.trim()
+    const normalizedThreshold = Number.isFinite(lineValue)
+      ? (Number.isInteger(lineValue) ? lineValue : Number(lineValue.toFixed(1)))
+      : null
+    const ladderLabel = hasMilestoneLikeShape
+      ? `${normalizedThreshold}+ ${labelType}`.trim()
+      : Number.isFinite(lineValue)
+        ? `${side === "Under" ? "Under" : side === "Over" ? "Over" : "Alt"} ${normalizedThreshold} ${labelType}`.trim()
+        : `Alt ${labelType}`.trim()
 
     return {
       ...row,
@@ -7039,7 +7049,7 @@ app.get("/api/best-available", (req, res) => {
 
   const allVisibleRowsForBoards = boardSourceRowsWithLadderPresentation
   const ladderPresentationRows = allVisibleRowsForBoards.filter((row) =>
-    ladderPresentationAlternateMarketKeys.has(String(row?.marketKey || ""))
+    String(row?.ladderPresentation || "").length > 0
   )
   console.log("[LADDER-PRESENTATION-DEBUG]", {
     totalLadderRows: ladderPresentationRows.length,
