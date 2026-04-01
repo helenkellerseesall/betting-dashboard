@@ -76,6 +76,25 @@ const BASE_MARKETS = [
 ]
 
 const ALL_DK_MARKETS = [...BASE_MARKETS, ...DK_EXTRA_MARKETS]
+const MARKET_COVERAGE_FOCUS_KEYS = [
+  "player_first_team_basket",
+  "player_points_alternate",
+  "player_rebounds_alternate",
+  "player_assists_alternate",
+  "player_threes_alternate",
+  "player_points_rebounds_assists_alternate"
+]
+let lastMarketCoverageFocusDebug = {
+  marketCoverage: MARKET_COVERAGE_FOCUS_KEYS.map((marketKey) => ({
+    marketKey,
+    requested: 0,
+    returned: 0,
+    accepted: 0,
+    rejected: 0,
+    final: 0
+  })),
+  rejectReasons: []
+}
 
 const SPECIAL_MARKET_KEYS = new Set([
   "player_first_basket",
@@ -1608,6 +1627,51 @@ function getDistinctGameCount(items = []) {
   }
 
   return gameKeys.size
+}
+
+function aggregateMarketCoverageFocusDebug(eventIngestDebug = []) {
+  const totalsByKey = MARKET_COVERAGE_FOCUS_KEYS.reduce((acc, key) => {
+    acc[key] = { requested: 0, returned: 0, accepted: 0, rejected: 0, final: 0 }
+    return acc
+  }, {})
+  const rejectReasonTotals = {}
+
+  for (const entry of Array.isArray(eventIngestDebug) ? eventIngestDebug : []) {
+    const focus = entry?.marketCoverageFocusDebug
+    if (!focus) continue
+
+    const coverageRows = Array.isArray(focus?.marketCoverage) ? focus.marketCoverage : []
+    for (const row of coverageRows) {
+      const key = String(row?.marketKey || "")
+      if (!totalsByKey[key]) continue
+      totalsByKey[key].requested += Number(row?.requested || 0)
+      totalsByKey[key].returned += Number(row?.returned || 0)
+      totalsByKey[key].accepted += Number(row?.accepted || 0)
+      totalsByKey[key].rejected += Number(row?.rejected || 0)
+      totalsByKey[key].final += Number(row?.final || 0)
+    }
+
+    const reasons = Array.isArray(focus?.rejectReasons) ? focus.rejectReasons : []
+    for (const reasonRow of reasons) {
+      const reason = String(reasonRow?.reason || "unknown")
+      rejectReasonTotals[reason] = Number(rejectReasonTotals[reason] || 0) + Number(reasonRow?.count || 0)
+    }
+  }
+
+  return {
+    marketCoverage: MARKET_COVERAGE_FOCUS_KEYS.map((marketKey) => ({
+      marketKey,
+      requested: totalsByKey[marketKey].requested,
+      returned: totalsByKey[marketKey].returned,
+      accepted: totalsByKey[marketKey].accepted,
+      rejected: totalsByKey[marketKey].rejected,
+      final: totalsByKey[marketKey].final
+    })),
+    rejectReasons: Object.entries(rejectReasonTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([reason, count]) => ({ reason, count }))
+  }
 }
 
 async function fetchDkScopedEventsForDebug(oddsApiKey) {
@@ -6910,6 +6974,48 @@ app.get("/api/best-available", (req, res) => {
     ...row,
     decisionSummary: buildDecisionSummary(row)
   }))
+  const ladderPresentationAlternateMarketKeys = new Set([
+    "player_points_alternate",
+    "player_rebounds_alternate",
+    "player_assists_alternate",
+    "player_threes_alternate",
+    "player_points_rebounds_assists_alternate"
+  ])
+  const ladderTypeByMarketKey = {
+    player_points_alternate: "Points",
+    player_rebounds_alternate: "Rebounds",
+    player_assists_alternate: "Assists",
+    player_threes_alternate: "Threes",
+    player_points_rebounds_assists_alternate: "PRA"
+  }
+  const boardSourceRowsWithLadderPresentation = boardSourceRowsWithGameRole.map((row) => {
+    const marketKey = String(row?.marketKey || "")
+    if (!ladderPresentationAlternateMarketKeys.has(marketKey)) {
+      return row
+    }
+
+    const side = String(row?.side || "")
+    const lineValue = Number(row?.line)
+    const hasMilestoneLikeShape = side === "Over" && Number.isFinite(lineValue)
+    const ladderPresentation = hasMilestoneLikeShape ? "milestoneLike" : "altLine"
+    const ladderTarget = Number.isFinite(lineValue) ? lineValue : null
+    const labelType = String(
+      row?.propType ||
+      ladderTypeByMarketKey[marketKey] ||
+      "Ladder"
+    ).replace(/\s+Ladder$/i, "").trim()
+    const thresholdLabel = Number.isFinite(lineValue)
+      ? `${Number.isInteger(lineValue) ? lineValue : Number(lineValue.toFixed(1))}+`
+      : "Alt"
+    const ladderLabel = `${thresholdLabel} ${labelType}`.trim()
+
+    return {
+      ...row,
+      ladderPresentation,
+      ladderLabel,
+      ladderTarget
+    }
+  })
 
   console.log("[BOARD-CLASSIFIER-DEBUG]", {
     boardFamily: boardSourceRowsWithGameRole.reduce((acc, row) => {
@@ -6931,7 +7037,20 @@ app.get("/api/best-available", (req, res) => {
     milestoneLadderCount: boardSourceRowsWithGameRole.filter((row) => isMilestoneLadderRow(row)).length
   })
 
-  const allVisibleRowsForBoards = boardSourceRowsWithGameRole
+  const allVisibleRowsForBoards = boardSourceRowsWithLadderPresentation
+  const ladderPresentationRows = allVisibleRowsForBoards.filter((row) =>
+    ladderPresentationAlternateMarketKeys.has(String(row?.marketKey || ""))
+  )
+  console.log("[LADDER-PRESENTATION-DEBUG]", {
+    totalLadderRows: ladderPresentationRows.length,
+    milestoneLikeCount: ladderPresentationRows.filter((row) => row?.ladderPresentation === "milestoneLike").length,
+    altLineCount: ladderPresentationRows.filter((row) => row?.ladderPresentation === "altLine").length,
+    ladderLabelSample: [...new Set(
+      ladderPresentationRows
+        .map((row) => String(row?.ladderLabel || "").trim())
+        .filter(Boolean)
+    )].slice(0, 10)
+  })
 
   const CORE_STANDARD_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
   const LADDER_PROP_VARIANTS = new Set(["alt-low", "alt-mid", "alt-high", "alt-max"])
@@ -17890,54 +18009,8 @@ lastSnapshotRefreshAt = Date.now()
 	      strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
 	      eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
 	    })
-	    const marketCoverageFocusDebug = (() => {
-	      const focusedMarketKeys = [
-	        "player_first_team_basket",
-	        "player_points_alternate",
-	        "player_rebounds_alternate",
-	        "player_assists_alternate",
-	        "player_threes_alternate",
-	        "player_points_rebounds_assists_alternate"
-	      ]
-	      const totalsByKey = focusedMarketKeys.reduce((acc, key) => {
-	        acc[key] = { requested: 0, returned: 0, accepted: 0, rejected: 0, final: 0 }
-	        return acc
-	      }, {})
-	      const rejectReasonTotals = {}
-	      for (const entry of eventIngestDebug) {
-	        const focus = entry?.marketCoverageFocusDebug
-	        if (!focus) continue
-	        const coverageRows = Array.isArray(focus?.marketCoverage) ? focus.marketCoverage : []
-	        for (const row of coverageRows) {
-	          const key = String(row?.marketKey || "")
-	          if (!totalsByKey[key]) continue
-	          totalsByKey[key].requested += Number(row?.requested || 0)
-	          totalsByKey[key].returned += Number(row?.returned || 0)
-	          totalsByKey[key].accepted += Number(row?.accepted || 0)
-	          totalsByKey[key].rejected += Number(row?.rejected || 0)
-	          totalsByKey[key].final += Number(row?.final || 0)
-	        }
-	        const reasons = Array.isArray(focus?.rejectReasons) ? focus.rejectReasons : []
-	        for (const reasonRow of reasons) {
-	          const reason = String(reasonRow?.reason || "unknown")
-	          rejectReasonTotals[reason] = Number(rejectReasonTotals[reason] || 0) + Number(reasonRow?.count || 0)
-	        }
-	      }
-	      return {
-	        marketCoverage: focusedMarketKeys.map((marketKey) => ({
-	          marketKey,
-	          requested: totalsByKey[marketKey].requested,
-	          returned: totalsByKey[marketKey].returned,
-	          accepted: totalsByKey[marketKey].accepted,
-	          rejected: totalsByKey[marketKey].rejected,
-	          final: totalsByKey[marketKey].final
-	        })),
-	        rejectReasons: Object.entries(rejectReasonTotals)
-	          .sort((a, b) => b[1] - a[1])
-	          .slice(0, 8)
-	          .map(([reason, count]) => ({ reason, count }))
-	      }
-	    })()
+	    const marketCoverageFocusDebug = aggregateMarketCoverageFocusDebug(eventIngestDebug)
+	    lastMarketCoverageFocusDebug = marketCoverageFocusDebug
 
 	    return res.json({
 	      ok: true,
@@ -19329,9 +19402,10 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       "eliteProps=" + oddsSnapshot.eliteProps.length
     )
 
-    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+	    const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+	    lastMarketCoverageFocusDebug = aggregateMarketCoverageFocusDebug(eventIngestDebug)
 
-    lastSnapshotSource = "hard-reset-live"
+	    lastSnapshotSource = "hard-reset-live"
     lastSnapshotSavedAt = Date.now()
     lastSnapshotAgeMinutes = 0
     lastForceRefreshAt = new Date().toISOString()
@@ -19379,6 +19453,13 @@ setInterval(() => {
     console.error("API-Sports cache autosave failed:", err?.message || err)
   })
 }, 60000)
+
+app.get("/api/debug/market-coverage", (req, res) => {
+  res.json({
+    generatedAt: new Date().toISOString(),
+    marketCoverageFocusDebug: lastMarketCoverageFocusDebug
+  })
+})
 
 app.get("/api/best/compact", (req, res) => {
   res.json(buildCompactBestPayload())
