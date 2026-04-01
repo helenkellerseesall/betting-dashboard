@@ -12875,7 +12875,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     const reason = String(row?.rejectReason || "unknown")
     focusedRejectReasons[reason] = (focusedRejectReasons[reason] || 0) + 1
   }
-  console.log("[MARKET-COVERAGE-FOCUS-DEBUG]", {
+  const marketCoverageFocusDebug = {
     marketCoverage: focusedMarketKeys.map((marketKey) => {
       const entry = focusedCoverageMap.get(marketKey) || null
       return {
@@ -12891,7 +12891,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([reason, count]) => ({ reason, count }))
-  })
+  }
+  console.log("[MARKET-COVERAGE-FOCUS-DEBUG]", marketCoverageFocusDebug)
 
   const bookPayloads = [
     ...primaryBooks,
@@ -13023,7 +13024,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       sampleMarketKeys: Array.isArray(b?.markets) ? b.markets.slice(0, 15).map((m) => String(m?.key || m?.name || "")) : []
     })),
     dkMarketKeysSeen: [...new Set(dkBookPayloads.flatMap((b) => (Array.isArray(b?.markets) ? b.markets : []).map((m) => String(m?.key || m?.name || ""))))].filter(Boolean),
-    coverageReport
+    coverageReport,
+    marketCoverageFocusDebug
   }
 
   if (isMavsNuggetsEvent) {
@@ -17879,23 +17881,72 @@ lastSnapshotRefreshAt = Date.now()
 
     const refreshMeta = buildSnapshotMeta({ source: "refresh-live" })
 
-    console.log("[SNAPSHOT-REFRESH-SUCCESS]", {
-      updatedAt: oddsSnapshot?.updatedAt || null,
-      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
-      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
-      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
-      playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
-      strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
-      eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
-    })
+	    console.log("[SNAPSHOT-REFRESH-SUCCESS]", {
+	      updatedAt: oddsSnapshot?.updatedAt || null,
+	      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+	      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+	      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+	      playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
+	      strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
+	      eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
+	    })
+	    const marketCoverageFocusDebug = (() => {
+	      const focusedMarketKeys = [
+	        "player_first_team_basket",
+	        "player_points_alternate",
+	        "player_rebounds_alternate",
+	        "player_assists_alternate",
+	        "player_threes_alternate",
+	        "player_points_rebounds_assists_alternate"
+	      ]
+	      const totalsByKey = focusedMarketKeys.reduce((acc, key) => {
+	        acc[key] = { requested: 0, returned: 0, accepted: 0, rejected: 0, final: 0 }
+	        return acc
+	      }, {})
+	      const rejectReasonTotals = {}
+	      for (const entry of eventIngestDebug) {
+	        const focus = entry?.marketCoverageFocusDebug
+	        if (!focus) continue
+	        const coverageRows = Array.isArray(focus?.marketCoverage) ? focus.marketCoverage : []
+	        for (const row of coverageRows) {
+	          const key = String(row?.marketKey || "")
+	          if (!totalsByKey[key]) continue
+	          totalsByKey[key].requested += Number(row?.requested || 0)
+	          totalsByKey[key].returned += Number(row?.returned || 0)
+	          totalsByKey[key].accepted += Number(row?.accepted || 0)
+	          totalsByKey[key].rejected += Number(row?.rejected || 0)
+	          totalsByKey[key].final += Number(row?.final || 0)
+	        }
+	        const reasons = Array.isArray(focus?.rejectReasons) ? focus.rejectReasons : []
+	        for (const reasonRow of reasons) {
+	          const reason = String(reasonRow?.reason || "unknown")
+	          rejectReasonTotals[reason] = Number(rejectReasonTotals[reason] || 0) + Number(reasonRow?.count || 0)
+	        }
+	      }
+	      return {
+	        marketCoverage: focusedMarketKeys.map((marketKey) => ({
+	          marketKey,
+	          requested: totalsByKey[marketKey].requested,
+	          returned: totalsByKey[marketKey].returned,
+	          accepted: totalsByKey[marketKey].accepted,
+	          rejected: totalsByKey[marketKey].rejected,
+	          final: totalsByKey[marketKey].final
+	        })),
+	        rejectReasons: Object.entries(rejectReasonTotals)
+	          .sort((a, b) => b[1] - a[1])
+	          .slice(0, 8)
+	          .map(([reason, count]) => ({ reason, count }))
+	      }
+	    })()
 
-    return res.json({
-      ok: true,
-      message: "Snapshot refreshed successfully",
-      snapshotMeta: refreshMeta,
-      snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey || null,
-      snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
-      counts: {
+	    return res.json({
+	      ok: true,
+	      message: "Snapshot refreshed successfully",
+	      snapshotMeta: refreshMeta,
+	      marketCoverageFocusDebug,
+	      snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey || null,
+	      snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
+	      counts: {
         rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
         props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
         bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
