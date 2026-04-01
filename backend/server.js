@@ -11,6 +11,7 @@ const { buildMoneyMakerPortfolio } = require("./upside/builders")
 const { isFragileLeg, getFragileLegDiagnostics, resetFragileFilterAdjustedLogCount } = require("./pipeline/filters/fragile")
 const { buildSlateEvents } = require("./pipeline/schedule/buildSlateEvents")
 const { inferMarketTypeFromKey } = require("./pipeline/markets/classification")
+const { buildCoverageReport } = require("./pipeline/markets/coverageReport")
 const { classifyBoardRow, isTeamFirstBasketRow, isMilestoneLadderRow } = require("./pipeline/markets/boardClassification")
 const { buildExpandedMarketPools, buildFinalPlayableRows } = require("./pipeline/markets/expandedPools")
 const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline/selection/bestProps")
@@ -12272,6 +12273,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
 
   const parseBooksToRows = (books = [], sourceLabel) => {
     const rows = []
+    const returnedRowsForCoverage = []
+    const rejectedRowsForCoverage = []
     let rejectedRows = 0
     let marketCount = 0
     let outcomeCount = 0
@@ -12475,11 +12478,13 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
           draftRow.boardFamily = classification?.boardFamily || null
           draftRow.ladderSubtype = classification?.ladderSubtype || null
           draftRow.specialSubtype = classification?.specialSubtype || null
+          returnedRowsForCoverage.push(draftRow)
 
           const rejectReason = getIngestRejectReason(draftRow)
           if (rejectReason) {
             rejectedRows += 1
             dropReasonCounts[rejectReason] = Number(dropReasonCounts[rejectReason] || 0) + 1
+            rejectedRowsForCoverage.push({ ...draftRow, rejectReason })
             const marketKeyLower = String(draftRow?.marketKey || "").toLowerCase()
             if (marketKeyLower.includes("player_first_team_basket") || draftRow?.specialSubtype === "teamFirstBasket") {
               rejectedTeamFirstBasket += 1
@@ -12548,6 +12553,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
         rejectedTeamFirstBasket,
         rejectedAlternateMarkets,
         dropReasonCounts,
+        returnedRowsForCoverage,
+        rejectedRowsForCoverage,
         lukaNameMapStats,
         watchedRawCounts: countWatchedPlayersInOutcomes(rawOutcomesForWatchedCoverage),
         watchedMappedCounts: countWatchedPlayersInRows(rows),
@@ -12673,6 +12680,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   let extraRawRows = []
   let extraMarketsFetchSucceeded = false
   let fallbackParsed = null
+  let extraParsed = null
   let fallbackResponseEvents = []
   let fallbackBooks = []
   let fallbackLukaRaw = []
@@ -12788,7 +12796,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     const extraBooks = extraEvents.flatMap((apiEvent) =>
       Array.isArray(apiEvent?.bookmakers) ? apiEvent.bookmakers : []
     )
-    const extraParsed = parseBooksToRows(extraBooks, "secondary-draftkings-extra-markets")
+    extraParsed = parseBooksToRows(extraBooks, "secondary-draftkings-extra-markets")
     extraRawRows = Array.isArray(extraParsed?.rows) ? extraParsed.rows : []
     extraMarketsFetchSucceeded = true
 
@@ -12814,6 +12822,76 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   if (extraMarketsFetchSucceeded && Array.isArray(extraRawRows) && extraRawRows.length > 0) {
     finalRows = dedupeByLegSignature([...finalRows, ...extraRawRows])
   }
+
+  const requestedMarketKeysForCoverage = [
+    ...(Array.isArray(requestedMarkets) ? requestedMarkets : []),
+    ...DK_EXTRA_MARKETS
+  ]
+  const returnedRowsForCoverage = [
+    ...(Array.isArray(primaryParsed?.debug?.returnedRowsForCoverage) ? primaryParsed.debug.returnedRowsForCoverage : []),
+    ...(Array.isArray(fallbackParsed?.debug?.returnedRowsForCoverage) ? fallbackParsed.debug.returnedRowsForCoverage : []),
+    ...(Array.isArray(extraParsed?.debug?.returnedRowsForCoverage) ? extraParsed.debug.returnedRowsForCoverage : [])
+  ]
+  const acceptedRowsForCoverage = [
+    ...(Array.isArray(primaryParsed?.rows) ? primaryParsed.rows : []),
+    ...(Array.isArray(fallbackParsed?.rows) ? fallbackParsed.rows : []),
+    ...(Array.isArray(extraParsed?.rows) ? extraParsed.rows : [])
+  ]
+  const rejectedRowsForCoverage = [
+    ...(Array.isArray(primaryParsed?.debug?.rejectedRowsForCoverage) ? primaryParsed.debug.rejectedRowsForCoverage : []),
+    ...(Array.isArray(fallbackParsed?.debug?.rejectedRowsForCoverage) ? fallbackParsed.debug.rejectedRowsForCoverage : []),
+    ...(Array.isArray(extraParsed?.debug?.rejectedRowsForCoverage) ? extraParsed.debug.rejectedRowsForCoverage : [])
+  ]
+  const coverageReport = buildCoverageReport({
+    requestedMarketKeys: requestedMarketKeysForCoverage,
+    returnedRows: returnedRowsForCoverage,
+    acceptedRows: acceptedRowsForCoverage,
+    rejectedRows: rejectedRowsForCoverage,
+    finalRows: Array.isArray(finalRows) ? finalRows : []
+  })
+  console.log("[MARKET-COVERAGE-DEBUG]", {
+    totals: coverageReport?.totals || {},
+    rejectedByReason: coverageReport?.rejectedByReason || {},
+    marketCoverage: Array.isArray(coverageReport?.marketCoverage) ? coverageReport.marketCoverage.slice(0, 25) : []
+  })
+  const focusedMarketKeys = [
+    "player_first_team_basket",
+    "player_points_alternate",
+    "player_rebounds_alternate",
+    "player_assists_alternate",
+    "player_threes_alternate",
+    "player_points_rebounds_assists_alternate"
+  ]
+  const focusedCoverageMap = new Map(
+    (Array.isArray(coverageReport?.marketCoverage) ? coverageReport.marketCoverage : []).map((entry) => [
+      String(entry?.marketKey || ""),
+      entry
+    ])
+  )
+  const focusedRejectReasons = {}
+  for (const row of rejectedRowsForCoverage) {
+    const mk = String(row?.marketKey || "")
+    if (!focusedMarketKeys.includes(mk)) continue
+    const reason = String(row?.rejectReason || "unknown")
+    focusedRejectReasons[reason] = (focusedRejectReasons[reason] || 0) + 1
+  }
+  console.log("[MARKET-COVERAGE-FOCUS-DEBUG]", {
+    marketCoverage: focusedMarketKeys.map((marketKey) => {
+      const entry = focusedCoverageMap.get(marketKey) || null
+      return {
+        marketKey,
+        requested: Number(entry?.requested || 0),
+        returned: Number(entry?.returned || 0),
+        accepted: Number(entry?.accepted || 0),
+        rejected: Number(entry?.rejected || 0),
+        final: Number(entry?.final || 0)
+      }
+    }),
+    rejectReasons: Object.entries(focusedRejectReasons)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([reason, count]) => ({ reason, count }))
+  })
 
   const bookPayloads = [
     ...primaryBooks,
@@ -12944,7 +13022,8 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
       marketCount: Array.isArray(b?.markets) ? b.markets.length : 0,
       sampleMarketKeys: Array.isArray(b?.markets) ? b.markets.slice(0, 15).map((m) => String(m?.key || m?.name || "")) : []
     })),
-    dkMarketKeysSeen: [...new Set(dkBookPayloads.flatMap((b) => (Array.isArray(b?.markets) ? b.markets : []).map((m) => String(m?.key || m?.name || ""))))].filter(Boolean)
+    dkMarketKeysSeen: [...new Set(dkBookPayloads.flatMap((b) => (Array.isArray(b?.markets) ? b.markets : []).map((m) => String(m?.key || m?.name || ""))))].filter(Boolean),
+    coverageReport
   }
 
   if (isMavsNuggetsEvent) {
