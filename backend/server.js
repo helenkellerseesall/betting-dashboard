@@ -16725,7 +16725,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     .filter((row) => {
       if (!isBestBoardPath) return true
       const tier = String(row?.confidenceTier || "").toLowerCase()
-      return tier !== "thin" || parseHitRate(row?.hitRate) >= 0.7 || Number(row?.edge ?? row?.projectedValue ?? 0) >= 4
+      return tier !== "thin" || parseHitRate(row?.hitRate) >= 0.63 || Number(row?.edge ?? row?.projectedValue ?? 0) >= 2.25
     })
   logBestStage(`${pathLabel}:afterPlayerStatusFiltering`, sourceAfterPlayerStatus)
 
@@ -16906,12 +16906,12 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
     if (isBestBoardPath) {
       if ((playerCounts.get(normalizedPlayer) || 0) >= 1) {
-        if (!(hitRate >= 0.78 && edge >= 4.0 && score >= 120)) {
+        if (!(hitRate >= 0.71 && edge >= 2.25 && score >= 88)) {
           return { ok: false, reason: "droppedByQualityShape" }
         }
       }
 
-      if (side === "Under" && !(hitRate >= 0.72 && edge >= 3.0 && score >= 95)) {
+      if (side === "Under" && !(hitRate >= 0.68 && edge >= 2.0 && score >= 78)) {
         return { ok: false, reason: "droppedByQualityShape" }
       }
     }
