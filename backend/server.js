@@ -16710,6 +16710,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     const baseScore = Number((options.ranker || bestPropsCompositeScore)(row) || 0)
     const side = String(row?.side || "")
     const propVariant = String(row?.propVariant || "base")
+    const propType = String(row?.propType || "")
     const hitRate = parseHitRate(row?.hitRate)
     const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
 
@@ -16717,6 +16718,13 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
     if (side === "Under") adjusted -= 8
     if (propVariant !== "base" && propVariant !== "default") adjusted -= 6
+
+    if (propType === "Points") adjusted += 4
+    if (propType === "PRA") adjusted += 5
+    if (propType === "Assists") adjusted += 3
+    if (propType === "Rebounds") adjusted -= 4
+
+    if (side === "Under" && propType === "Rebounds") adjusted -= 6
 
     if (side === "Under" && hitRate >= 0.76 && edge >= 3.5) adjusted += 5
     if ((propVariant !== "base" && propVariant !== "default") && hitRate >= 0.8 && edge >= 4.0) adjusted += 4
