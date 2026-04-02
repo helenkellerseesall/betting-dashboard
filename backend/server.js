@@ -16487,14 +16487,14 @@ logFunnelExcluded("refresh-snapshot", "strongProps-from-scoredProps", scoredProp
 const BEST_PROPS_BALANCE_CONFIG = {
   totalCap: 140,
   minPerBook: 60,
-  maxPerPlayer: 4,
-  maxPerMatchup: 6,
+  maxPerPlayer: 8,
+  maxPerMatchup: 12,
   maxPerType: {
-    Assists: 30,
-    Rebounds: 30,
-    Points: 30,
-    Threes: 20,
-    PRA: 16
+    Assists: 40,
+    Rebounds: 40,
+    Points: 40,
+    Threes: 24,
+    PRA: 24
   }
 }
 
@@ -16808,6 +16808,18 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   // --- Single-book mode logic ---
   const activeCandidateBooks = Object.keys(eligibleByBook).filter((b) => eligibleByBook[b] > 0)
   const singleBookMode = activeCandidateBooks.length === 1
+  if (singleBookMode && activeCandidateBooks[0] === "DraftKings") {
+    config.maxPerPlayer = Math.max(config.maxPerPlayer, 8)
+    config.maxPerMatchup = Math.max(config.maxPerMatchup, 12)
+    config.maxPerType = {
+      ...config.maxPerType,
+      Assists: Math.max(Number(config.maxPerType?.Assists || 0), 40),
+      Rebounds: Math.max(Number(config.maxPerType?.Rebounds || 0), 40),
+      Points: Math.max(Number(config.maxPerType?.Points || 0), 40),
+      Threes: Math.max(Number(config.maxPerType?.Threes || 0), 24),
+      PRA: Math.max(Number(config.maxPerType?.PRA || 0), 24)
+    }
+  }
 
   const keyOf = (row) => `${row?.player || ""}|${row?.book || ""}|${row?.propType || ""}|${row?.matchup || ""}|${Number(row?.line)}|${row?.side || ""}`
   const selected = []
