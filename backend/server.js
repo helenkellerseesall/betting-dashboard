@@ -16391,9 +16391,9 @@ const qualifiesBestPropsSource = (row) => {
 
   if (minutesRisk === "high") return false
   if (injuryRisk === "high") return false
-  if (hit < 0.48) return false
-  if (edge < -0.75 && score < 32) return false
-  return score >= 32 || hit >= 0.55 || (hit >= 0.58 && edge >= 0.15)
+  if (hit < 0.46) return false
+  if (edge < -1.0 && score < 30) return false
+  return score >= 30 || hit >= 0.53 || (hit >= 0.56 && edge >= 0.05)
 }
 
 const summarizeTierBucket = (rows) => {
@@ -16765,18 +16765,22 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   // ensure FD + DK balance before final best selection
   const fd = candidates.filter((p) => p.book === "FanDuel")
   const dk = candidates.filter((p) => p.book === "DraftKings")
+  const activeBooksInCandidates = [
+    fd.length > 0 ? "FanDuel" : null,
+    dk.length > 0 ? "DraftKings" : null
+  ].filter(Boolean)
+  const dualBookMode = activeBooksInCandidates.length > 1
 
-  // take top from each instead of letting one book dominate
-  const MAX_PER_BOOK = Math.ceil((config?.bestCap || 60) / 2)
+  let bestPool = candidates
 
-  const balancedPool = [
-    ...fd.slice(0, MAX_PER_BOOK),
-    ...dk.slice(0, MAX_PER_BOOK)
-  ]
-
-  // fallback if one side is low
-  const finalPool = balancedPool.length > 0 ? balancedPool : candidates
-  const bestPool = finalPool
+  if (dualBookMode) {
+    const MAX_PER_BOOK = Math.ceil((config?.bestCap || 60) / 2)
+    const balancedPool = [
+      ...fd.slice(0, MAX_PER_BOOK),
+      ...dk.slice(0, MAX_PER_BOOK)
+    ]
+    bestPool = balancedPool.length > 0 ? balancedPool : candidates
+  }
 
   const sorted = bestPool
     .slice()
@@ -16955,7 +16959,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
     const hitRate = parseHitRate(row.hitRate)
     const edge = Number(row.edge ?? row.projectedValue ?? 0)
-    if (hitRate < 0.54 || edge < -0.5) {
+    if (hitRate < 0.5 || edge < -1.0) {
       skippedLowQualityCount += 1
       continue
     }
@@ -16977,7 +16981,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
       const hitRate = parseHitRate(row.hitRate)
       const edge = Number(row.edge ?? row.projectedValue ?? 0)
-      if (hitRate < 0.5 || edge < -1.5) continue
+      if (hitRate < 0.47 || edge < -2.0) continue
 
       const decision = canTakeRow(row, "open")
       if (!decision.ok) {
