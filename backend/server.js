@@ -16706,6 +16706,24 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     : BEST_PROPS_BALANCE_CONFIG.minPerBook
   config.minPerBook = Math.max(0, Math.min(configuredMinPerBook, Math.floor(config.targetTotal / 2)))
 
+  const bestBoardOrderingScore = (row) => {
+    const baseScore = Number((options.ranker || bestPropsCompositeScore)(row) || 0)
+    const side = String(row?.side || "")
+    const propVariant = String(row?.propVariant || "base")
+    const hitRate = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
+
+    let adjusted = baseScore
+
+    if (side === "Under") adjusted -= 8
+    if (propVariant !== "base" && propVariant !== "default") adjusted -= 6
+
+    if (side === "Under" && hitRate >= 0.76 && edge >= 3.5) adjusted += 5
+    if ((propVariant !== "base" && propVariant !== "default") && hitRate >= 0.8 && edge >= 4.0) adjusted += 4
+
+    return adjusted
+  }
+
   const pathLabel = String(options.pathLabel || "unknown")
   const isBestBoardPath =
     pathLabel === "refresh-snapshot" ||
@@ -16769,7 +16787,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   const candidates = dedupedEligible
     .slice()
     .sort((a, b) => {
-      const scoreDiff = config.ranker(b) - config.ranker(a)
+      const scoreDiff = bestBoardOrderingScore(b) - bestBoardOrderingScore(a)
       if (scoreDiff !== 0) return scoreDiff
       if (Number(b.edge || -999) !== Number(a.edge || -999)) return Number(b.edge || -999) - Number(a.edge || -999)
       return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
@@ -16798,7 +16816,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   const sorted = bestPool
     .slice()
     .sort((a, b) => {
-      const scoreDiff = config.ranker(b) - config.ranker(a)
+      const scoreDiff = bestBoardOrderingScore(b) - bestBoardOrderingScore(a)
       if (scoreDiff !== 0) return scoreDiff
       if (Number(b.edge || -999) !== Number(a.edge || -999)) return Number(b.edge || -999) - Number(a.edge || -999)
       return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
