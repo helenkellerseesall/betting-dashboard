@@ -16707,7 +16707,10 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   config.minPerBook = Math.max(0, Math.min(configuredMinPerBook, Math.floor(config.targetTotal / 2)))
 
   const pathLabel = String(options.pathLabel || "unknown")
-  const isBestBoardPath = pathLabel.includes("bestProps")
+  const isBestBoardPath =
+    pathLabel === "refresh-snapshot" ||
+    pathLabel === "refresh-snapshot-hard-reset" ||
+    pathLabel.includes("bestProps")
   const rawSource = Array.isArray(rows) ? rows : []
   const sourceByBook = countByBookForRows(rawSource)
   logBestStage(`${pathLabel}:sourcePoolBeforeBestPropsFiltering`, rawSource)
@@ -16721,7 +16724,8 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     })
     .filter((row) => {
       if (!isBestBoardPath) return true
-      return String(row?.confidenceTier || "").toLowerCase() !== "thin"
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      return tier !== "thin" || parseHitRate(row?.hitRate) >= 0.7 || Number(row?.edge ?? row?.projectedValue ?? 0) >= 4
     })
   logBestStage(`${pathLabel}:afterPlayerStatusFiltering`, sourceAfterPlayerStatus)
 
@@ -16867,14 +16871,25 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     if (reason === "droppedByQualityShape") dropCounts.droppedByQualityShape += 1
   }
 
+  const normalizeBestPlayerKey = (value) =>
+    String(value || "")
+      .normalize("NFKD")
+      .replace(/[’']/g, "")
+      .replace(/\./g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase()
+
   const canTakeRow = (row, mode = "reserve") => {
     const player = String(row.player || "")
+    const normalizedPlayer = normalizeBestPlayerKey(player)
     const matchup = String(row.matchup || "")
     const propType = String(row.propType || "Unknown")
     const bookKey = String(row.book || "Unknown")
     const side = String(row?.side || "")
     const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
     const hitRate = parseHitRate(row?.hitRate)
+    const score = Number(row?.score ?? 0)
 
     if (selected.length >= config.targetTotal) return { ok: false, reason: "droppedByBookCap" }
     if ((playerCounts.get(player) || 0) >= config.maxPerPlayer) return { ok: false, reason: "droppedByPlayerCap" }
@@ -16890,11 +16905,13 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     }
 
     if (isBestBoardPath) {
-      if ((playerCounts.get(player) || 0) >= 2) {
-        return { ok: false, reason: "droppedByQualityShape" }
+      if ((playerCounts.get(normalizedPlayer) || 0) >= 1) {
+        if (!(hitRate >= 0.78 && edge >= 4.0 && score >= 120)) {
+          return { ok: false, reason: "droppedByQualityShape" }
+        }
       }
 
-      if (side === "Under" && !(hitRate >= 0.75 && edge >= 2.0)) {
+      if (side === "Under" && !(hitRate >= 0.72 && edge >= 3.0 && score >= 95)) {
         return { ok: false, reason: "droppedByQualityShape" }
       }
     }
@@ -16904,13 +16921,14 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
   const takeRow = (row) => {
     const player = String(row.player || "")
+    const normalizedPlayer = normalizeBestPlayerKey(player)
     const matchup = String(row.matchup || "")
     const propType = String(row.propType || "Unknown")
     const bookKey = String(row.book || "Unknown")
     const key = keyOf(row)
     selected.push(row)
     selectedKeys.add(key)
-    playerCounts.set(player, (playerCounts.get(player) || 0) + 1)
+    playerCounts.set(normalizedPlayer, (playerCounts.get(normalizedPlayer) || 0) + 1)
     matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
     typeCounts.set(propType, (typeCounts.get(propType) || 0) + 1)
     bookCounts.set(bookKey, (bookCounts.get(bookKey) || 0) + 1)
@@ -17029,8 +17047,27 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     }
   }
 
-  const postCapByBook = summarizeBestPropsCapPool(selected).byBook
-  logBestStage(`${pathLabel}:afterPerBookBalancingFinal`, selected)
+  const dedupeSelectedBestRowsByPlayer = (rows) => {
+    if (!isBestBoardPath) return Array.isArray(rows) ? rows : []
+
+    const safeRows = Array.isArray(rows) ? rows : []
+    const seenPlayers = new Set()
+    const out = []
+
+    for (const row of safeRows) {
+      const playerKey = normalizeBestPlayerKey(row?.player)
+      if (!playerKey) continue
+      if (seenPlayers.has(playerKey)) continue
+      seenPlayers.add(playerKey)
+      out.push(row)
+    }
+
+    return out
+  }
+
+  const finalSelected = dedupeSelectedBestRowsByPlayer(selected)
+  const postCapByBook = summarizeBestPropsCapPool(finalSelected).byBook
+  logBestStage(`${pathLabel}:afterPerBookBalancingFinal`, finalSelected)
   console.log("[BEST-PROPS-BALANCER-DEBUG]", {
     path: pathLabel,
     sourceTotal: rawSource.length,
@@ -17044,9 +17081,9 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     openFillAdded,
     skippedLowQualityCount,
     finalDifferenceFDvsDK: finalDifferenceFDvsDK(),
-    finalTotal: selected.length,
-    finalFD: getBookCount("FanDuel"),
-    finalDK: getBookCount("DraftKings")
+    finalTotal: finalSelected.length,
+    finalFD: finalSelected.filter((row) => row?.book === "FanDuel").length,
+    finalDK: finalSelected.filter((row) => row?.book === "DraftKings").length
   })
 
   console.log("[BEST-PROPS-BALANCER-DROPS]", {
@@ -17081,9 +17118,9 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     afterSafetyFilters: eligibleSource.length,
     afterDedupe: dedupedEligible.length,
     afterBalancing: (selectedByBookAfterReservePass.FanDuel || 0) + (selectedByBookAfterReservePass.DraftKings || 0),
-    afterCap: selected.length,
-    finalByBook: { FanDuel: getBookCount("FanDuel"), DraftKings: getBookCount("DraftKings") },
-    finalByPropVariant: selected.reduce((acc, row) => {
+    afterCap: finalSelected.length,
+    finalByBook: countByBookForRows(finalSelected),
+    finalByPropVariant: finalSelected.reduce((acc, row) => {
       const v = String(row?.propVariant || "base")
       acc[v] = (acc[v] || 0) + 1
       return acc
@@ -17093,20 +17130,20 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
 
   return {
-    selected,
+    selected: finalSelected,
     diagnostics: {
       config,
       pathLabel,
       sourceRawCount: rawSource.length,
       eligibleCount: eligibleSource.length,
       dedupedCount: dedupedEligible.length,
-      postBalancerCount: selected.length,
+      postBalancerCount: finalSelected.length,
       sourceCount: sorted.length,
-      finalCount: selected.length,
+      finalCount: finalSelected.length,
       beforeCapByBook: countByBookForRows(sorted),
       afterCapByBook: postCapByBook,
       beforeCapByStat: summarizeBestPropsCapPool(sorted).byPropType,
-      afterCapByStat: summarizeBestPropsCapPool(selected).byPropType,
+      afterCapByStat: summarizeBestPropsCapPool(finalSelected).byPropType,
       dropCounts: {
         ...dropCounts,
         totalCap: Math.max(0, sorted.length - selected.length),
