@@ -16707,6 +16707,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   config.minPerBook = Math.max(0, Math.min(configuredMinPerBook, Math.floor(config.targetTotal / 2)))
 
   const pathLabel = String(options.pathLabel || "unknown")
+  const isBestBoardPath = pathLabel.includes("bestProps")
   const rawSource = Array.isArray(rows) ? rows : []
   const sourceByBook = countByBookForRows(rawSource)
   logBestStage(`${pathLabel}:sourcePoolBeforeBestPropsFiltering`, rawSource)
@@ -16714,6 +16715,14 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   const sourceAfterPlayerStatus = rawSource
     .filter((row) => row && row.player && row.propType && row.line != null)
     .filter((row) => !shouldRemoveLegForPlayerStatus(row))
+    .filter((row) => {
+      if (!isBestBoardPath) return true
+      return String(row?.minutesRisk || "").toLowerCase() !== "high"
+    })
+    .filter((row) => {
+      if (!isBestBoardPath) return true
+      return String(row?.confidenceTier || "").toLowerCase() !== "thin"
+    })
   logBestStage(`${pathLabel}:afterPlayerStatusFiltering`, sourceAfterPlayerStatus)
 
   const bestPropsAfterFragile = sourceAfterPlayerStatus
@@ -16833,6 +16842,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     droppedByPlayerCap: 0,
     droppedByMatchupCap: 0,
     droppedByStatCap: 0,
+    droppedByQualityShape: 0,
     droppedByDedupe,
     droppedByIneligible
   }
@@ -16854,6 +16864,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     if (reason === "droppedByPlayerCap") dropCounts.droppedByPlayerCap += 1
     if (reason === "droppedByMatchupCap") dropCounts.droppedByMatchupCap += 1
     if (reason === "droppedByStatCap") dropCounts.droppedByStatCap += 1
+    if (reason === "droppedByQualityShape") dropCounts.droppedByQualityShape += 1
   }
 
   const canTakeRow = (row, mode = "reserve") => {
@@ -16861,6 +16872,9 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     const matchup = String(row.matchup || "")
     const propType = String(row.propType || "Unknown")
     const bookKey = String(row.book || "Unknown")
+    const side = String(row?.side || "")
+    const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
+    const hitRate = parseHitRate(row?.hitRate)
 
     if (selected.length >= config.targetTotal) return { ok: false, reason: "droppedByBookCap" }
     if ((playerCounts.get(player) || 0) >= config.maxPerPlayer) return { ok: false, reason: "droppedByPlayerCap" }
@@ -16872,6 +16886,16 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
       const projectedDK = getBookCount("DraftKings") + (bookKey === "DraftKings" ? 1 : 0)
       if (!singleBookMode && Math.abs(projectedFD - projectedDK) > 6) {
         return { ok: false, reason: "droppedByBookCap" }
+      }
+    }
+
+    if (isBestBoardPath) {
+      if ((playerCounts.get(player) || 0) >= 2) {
+        return { ok: false, reason: "droppedByQualityShape" }
+      }
+
+      if (side === "Under" && !(hitRate >= 0.75 && edge >= 2.0)) {
+        return { ok: false, reason: "droppedByQualityShape" }
       }
     }
 
