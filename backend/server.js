@@ -7601,7 +7601,17 @@ app.get("/api/best-available", (req, res) => {
   for (const row of featuredFirstBasketSource) {
     const matchup = String(row?.matchup || row?.eventId || "").trim()
     const current = featuredFirstBasketByGame.get(matchup)
-    if (!current || featuredPlayScore(row) > featuredPlayScore(current)) {
+    if (!current) {
+      featuredFirstBasketByGame.set(matchup, row)
+      continue
+    }
+    const rowIsPlayerFB = String(row?.marketKey || "") === "player_first_basket"
+    const currentIsPlayerFB = String(current?.marketKey || "") === "player_first_basket"
+    if (rowIsPlayerFB && !currentIsPlayerFB) {
+      featuredFirstBasketByGame.set(matchup, row)
+    } else if (!rowIsPlayerFB && currentIsPlayerFB) {
+      // keep current — player_first_basket preferred
+    } else if (featuredPlayScore(row) > featuredPlayScore(current)) {
       featuredFirstBasketByGame.set(matchup, row)
     }
   }
