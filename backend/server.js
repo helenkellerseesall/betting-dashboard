@@ -6499,39 +6499,6 @@ app.get("/api/best-available", (req, res) => {
       ...(Array.isArray(normalizedFirstBasketRows) ? normalizedFirstBasketRows : [])
     ])
 
-    console.log("[FIRST-BASKET-UPSTREAM-CARRY-DEBUG]", {
-      normalizedFirstBasketRows: Array.isArray(normalizedFirstBasketRows) ? normalizedFirstBasketRows.length : 0,
-      expandedPoolInputRows: Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows.length : 0,
-      firstBasketByEventId: (Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows : [])
-        .filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
-        .reduce((acc, row) => {
-          const key = String(row?.eventId || "missing")
-          acc[key] = (acc[key] || 0) + 1
-          return acc
-        }, {}),
-      firstBasketByMatchup: (Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows : [])
-        .filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
-        .reduce((acc, row) => {
-          const key = String(row?.matchup || "missing")
-          acc[key] = (acc[key] || 0) + 1
-          return acc
-        }, {}),
-      sample: (Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows : [])
-        .filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
-        .slice(0, 20)
-        .map((row) => ({
-          eventId: row?.eventId || null,
-          matchup: row?.matchup || null,
-          awayTeam: row?.awayTeam || null,
-          homeTeam: row?.homeTeam || null,
-          player: row?.player || null,
-          team: row?.team || null,
-          marketKey: row?.marketKey || null,
-          propType: row?.propType || null,
-          odds: row?.odds ?? null
-        }))
-    })
-
     const eventPlayerPool = new Map()
     for (const row of (Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows : [])) {
       const eventKey = String(row?.eventId || row?.matchup || "")
@@ -6714,37 +6681,6 @@ app.get("/api/best-available", (req, res) => {
       ...(Array.isArray(specialProps) ? specialProps : []),
       ...directFirstBasketRows
     ])
-
-    console.log("[FIRST-BASKET-CARRY-THROUGH-FIX-DEBUG]", {
-      directFirstBasketRows: Array.isArray(directFirstBasketRows) ? directFirstBasketRows.length : 0,
-      specialPropsTotal: Array.isArray(specialProps) ? specialProps.length : 0,
-      firstBasketByEventId: (Array.isArray(specialProps) ? specialProps : [])
-        .filter((row) => FIRST_BASKET_MARKET_KEYS.has(String(row?.marketKey || "")))
-        .reduce((acc, row) => {
-          const key = String(row?.eventId || "missing")
-          acc[key] = (acc[key] || 0) + 1
-          return acc
-        }, {}),
-      firstBasketByMatchup: (Array.isArray(specialProps) ? specialProps : [])
-        .filter((row) => FIRST_BASKET_MARKET_KEYS.has(String(row?.marketKey || "")))
-        .reduce((acc, row) => {
-          const key = String(row?.matchup || "missing")
-          acc[key] = (acc[key] || 0) + 1
-          return acc
-        }, {}),
-      sample: (Array.isArray(specialProps) ? specialProps : [])
-        .filter((row) => FIRST_BASKET_MARKET_KEYS.has(String(row?.marketKey || "")))
-        .slice(0, 20)
-        .map((row) => ({
-          eventId: row?.eventId || null,
-          matchup: row?.matchup || null,
-          player: row?.player || null,
-          team: row?.team || null,
-          marketKey: row?.marketKey || null,
-          propType: row?.propType || null,
-          odds: row?.odds ?? null
-        }))
-    })
 
     console.log("[SPECIAL-PROPS-DEBUG]", {
       totalSpecialProps: Array.isArray(specialProps) ? specialProps.length : 0,
@@ -7099,42 +7035,6 @@ app.get("/api/best-available", (req, res) => {
   const enrichedSpecialProps = Array.isArray(specialProps)
     ? specialProps.map(enrichSpecialPredictionRow)
     : []
-
-  const rawFirstBasketDebugRows = Array.isArray(enrichedSpecialProps)
-    ? enrichedSpecialProps.filter((row) =>
-        ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || ""))
-      )
-    : []
-
-  console.log("[RAW-FIRST-BASKET-SOURCE-DEBUG]", {
-    total: rawFirstBasketDebugRows.length,
-    byMarketKey: rawFirstBasketDebugRows.reduce((acc, row) => {
-      const key = String(row?.marketKey || "unknown")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byEventId: rawFirstBasketDebugRows.reduce((acc, row) => {
-      const key = String(row?.eventId || "missing")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    byMatchup: rawFirstBasketDebugRows.reduce((acc, row) => {
-      const key = String(row?.matchup || "missing")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    sample: rawFirstBasketDebugRows.slice(0, 20).map((row) => ({
-      eventId: row?.eventId || null,
-      matchup: row?.matchup || null,
-      awayTeam: row?.awayTeam || null,
-      homeTeam: row?.homeTeam || null,
-      player: row?.player || null,
-      team: row?.team || null,
-      marketKey: row?.marketKey || null,
-      propType: row?.propType || null,
-      odds: row?.odds ?? null
-    }))
-  })
 
   const boardSourceRows = dedupeBoardRows([
     ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
@@ -7651,89 +7551,6 @@ app.get("/api/best-available", (req, res) => {
     return out
   }
 
-  const buildPerGameFirstBasketPlays = (rows) => {
-    const safeRows = Array.isArray(rows) ? rows : []
-    const byGame = new Map()
-    const rawByGameCounts = {}
-    const keptByGameCounts = {}
-    const selectedByGameSamples = {}
-
-    for (const row of safeRows) {
-      if (!row) continue
-      if (String(row?.propType || "") !== "First Basket") continue
-
-      const gameKey = String(row?.eventId || row?.matchup || "")
-      if (!gameKey) continue
-
-      if (!byGame.has(gameKey)) byGame.set(gameKey, [])
-      rawByGameCounts[gameKey] = (rawByGameCounts[gameKey] || 0) + 1
-      byGame.get(gameKey).push(row)
-    }
-
-    const out = []
-
-    for (const [gameKey, gameRows] of byGame.entries()) {
-      const ranked = gameRows
-        .filter((row) => {
-          const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
-          const odds = Number(row?.odds ?? 0)
-          const player = String(row?.player || "").trim()
-          const matchup = String(row?.matchup || row?.eventId || "").trim()
-          const tier = String(row?.confidenceTier || "").toLowerCase()
-
-          if (!player) return false
-          if (!matchup) return false
-          if (!Number.isFinite(odds) || odds <= 0) return false
-
-          if (odds > 2000) return false
-          if (confidence < 0.10) return false
-          if (tier === "special-thin" && confidence < 0.16) return false
-
-          return true
-        })
-        .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
-        .slice(0, 3)
-      keptByGameCounts[gameKey] = ranked.length
-      selectedByGameSamples[gameKey] = ranked.map((row) => ({
-        player: row?.player || null,
-        team: row?.team || null,
-        matchup: row?.matchup || null,
-        odds: row?.odds ?? null,
-        confidenceTier: row?.confidenceTier || null,
-        playDecision: row?.playDecision || null
-      }))
-
-      out.push(...ranked)
-    }
-
-    console.log("[FIRST-BASKET-PER-GAME-DEBUG]", {
-      rawByGameCounts,
-      keptByGameCounts,
-      selectedByGameSamples
-    })
-
-    return out
-  }
-
-  const firstBasketPlays = buildPerGameFirstBasketPlays(firstBasketBoard)
-
-  console.log("[FIRST-BASKET-PLAYS-POST-BUILD-DEBUG]", {
-    total: Array.isArray(firstBasketPlays) ? firstBasketPlays.length : 0,
-    byMatchup: (Array.isArray(firstBasketPlays) ? firstBasketPlays : []).reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "missing")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    sample: (Array.isArray(firstBasketPlays) ? firstBasketPlays : []).slice(0, 20).map((row) => ({
-      player: row?.player || null,
-      matchup: row?.matchup || null,
-      odds: row?.odds ?? null,
-      confidenceTier: row?.confidenceTier || null,
-      playDecision: row?.playDecision || null,
-      score: row?.score ?? null
-    }))
-  })
-
   const featuredCore = ((Array.isArray(corePropPicks) ? corePropPicks : [])
     .filter(Boolean)
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
@@ -7793,29 +7610,6 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 9)
 
-  console.log("[FEATURED-FIRST-BASKET-SOURCE-DEBUG]", {
-    sourceTotal: Array.isArray(featuredFirstBasketSource) ? featuredFirstBasketSource.length : 0,
-    byMatchup: (Array.isArray(featuredFirstBasketSource) ? featuredFirstBasketSource : []).reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "missing")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    finalTotal: Array.isArray(featuredFirstBasket) ? featuredFirstBasket.length : 0,
-    finalByMatchup: (Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []).reduce((acc, row) => {
-      const key = String(row?.matchup || row?.eventId || "missing")
-      acc[key] = (acc[key] || 0) + 1
-      return acc
-    }, {}),
-    sample: (Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []).slice(0, 12).map((row) => ({
-      player: row?.player || null,
-      matchup: row?.matchup || null,
-      marketKey: row?.marketKey || null,
-      odds: row?.odds ?? null,
-      confidenceTier: row?.confidenceTier || null,
-      score: row?.score ?? null
-    }))
-  })
-
   const featuredSpecials = ((Array.isArray(specialBoard) ? specialBoard : [])
     .filter(Boolean)
     .filter((row) => {
@@ -7847,16 +7641,6 @@ app.get("/api/best-available", (req, res) => {
 
   console.log("[FEATURED-PLAYS-DEBUG]", {
     total: featuredPlays.length,
-    firstBasketPlaysTotal: Array.isArray(firstBasketPlays) ? firstBasketPlays.length : 0,
-    firstBasketSample: Array.isArray(firstBasketPlays)
-      ? firstBasketPlays.slice(0, 8).map((row) => ({
-          player: row?.player || null,
-          matchup: row?.matchup || null,
-          odds: row?.odds ?? null,
-          confidenceTier: row?.confidenceTier || null,
-          playDecision: row?.playDecision || null
-        }))
-      : [],
     sourceCounts: {
       core: featuredCore.length,
       ladders: featuredLadders.length,
