@@ -7707,12 +7707,32 @@ app.get("/api/best-available", (req, res) => {
     })()
     : []
 
-  const tonightsBestSpecials = [
-    ...(Array.isArray(featuredFirstBasket)
+
+  const tonightsBestSpecials = (() => {
+    const playerFirstBasketRows = Array.isArray(featuredFirstBasket)
       ? featuredFirstBasket.filter((row) => String(row?.marketKey || "") === "player_first_basket")
-      : []),
-    ...(Array.isArray(featuredSpecials) ? featuredSpecials : [])
-  ].slice(0, 6)
+      : []
+
+    const specialRows = Array.isArray(featuredSpecials) ? featuredSpecials : []
+
+    const firstBasketPicks = playerFirstBasketRows.slice(0, 3)
+    const selectedPlayers = new Set(
+      firstBasketPicks.map((row) => String(row?.player || "").trim().toLowerCase())
+    )
+
+    const allSpecials = []
+    for (const row of specialRows) {
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      if (selectedPlayers.has(playerKey)) continue
+      allSpecials.push(row)
+      selectedPlayers.add(playerKey)
+    }
+
+    return [
+      ...firstBasketPicks,
+      ...allSpecials
+    ].slice(0, 6)
+  })()
 
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
 
