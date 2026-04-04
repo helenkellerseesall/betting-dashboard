@@ -7307,7 +7307,7 @@ app.get("/api/best-available", (req, res) => {
 
   const corePropPicks = buildSelectiveBoard(
     predictionSourceRows.filter((row) => isCorePropRow(row) && !isLadderRow(row)),
-    12,
+    20,
     sortByPredictionStrength
   )
 
@@ -7664,9 +7664,84 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 3))
 
-  const tonightsBestSingles = Array.isArray(featuredCore)
-    ? featuredCore.slice(0, 5)
-    : []
+  const tonightsBestSingles = (() => {
+    const candidates = (Array.isArray(corePropPicks) ? corePropPicks : [])
+      .filter(Boolean)
+
+    const picks = []
+    const seenPropTypes = new Set()
+    const seenLegs = new Set()
+    const seenPlayers = new Set()
+
+    for (const row of candidates) {
+      const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      const legKey = [
+        playerKey,
+        propTypeKey,
+        String(row?.side || ""),
+        String(row?.line ?? ""),
+        String(row?.marketKey || ""),
+        String(row?.propVariant || "base")
+      ].join("|")
+
+      if (seenLegs.has(legKey)) continue
+      if (seenPropTypes.has(propTypeKey)) continue
+      if (seenPlayers.has(playerKey)) continue
+
+      seenLegs.add(legKey)
+      seenPropTypes.add(propTypeKey)
+      seenPlayers.add(playerKey)
+      picks.push(row)
+
+      if (picks.length >= 5) break
+    }
+
+    if (picks.length < 5) {
+      for (const row of candidates) {
+        const playerKey = String(row?.player || "").trim().toLowerCase()
+        const legKey = [
+          playerKey,
+          String(row?.propType || "").trim().toLowerCase(),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.marketKey || ""),
+          String(row?.propVariant || "base")
+        ].join("|")
+
+        if (seenLegs.has(legKey)) continue
+        if (seenPlayers.has(playerKey)) continue
+
+        seenLegs.add(legKey)
+        seenPlayers.add(playerKey)
+        picks.push(row)
+
+        if (picks.length >= 5) break
+      }
+    }
+
+    if (picks.length < 5) {
+      for (const row of candidates) {
+        const legKey = [
+          String(row?.player || "").trim().toLowerCase(),
+          String(row?.propType || "").trim().toLowerCase(),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.marketKey || ""),
+          String(row?.propVariant || "base")
+        ].join("|")
+
+        if (seenLegs.has(legKey)) continue
+
+        seenLegs.add(legKey)
+        picks.push(row)
+
+        if (picks.length >= 5) break
+      }
+    }
+
+    return picks
+  })()
 
   const tonightsBestLadders = Array.isArray(featuredLadders)
     ? (() => {
@@ -7728,10 +7803,12 @@ app.get("/api/best-available", (req, res) => {
       selectedPlayers.add(playerKey)
     }
 
-    return [
+    const nightlySpecials = [
       ...firstBasketPicks,
       ...allSpecials
     ].slice(0, 6)
+
+    return nightlySpecials.sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
   })()
 
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
