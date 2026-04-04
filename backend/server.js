@@ -7556,20 +7556,34 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 5))
 
-  const featuredLadders = ((Array.isArray(ladderBoard) ? ladderBoard : [])
-    .filter(Boolean)
-    .filter((row) => {
-      const propType = String(row?.propType || "")
-      const side = String(row?.side || "")
-      const propVariant = String(row?.propVariant || "base")
-      return (
-        side === "Over" &&
-        propVariant !== "base" &&
-        ["Points", "PRA", "Assists", "Threes"].includes(propType)
-      )
-    })
-    .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
-    .slice(0, 10))
+  const featuredLadders = (() => {
+    const sorted = (Array.isArray(ladderBoard) ? ladderBoard : [])
+      .filter(Boolean)
+      .filter((row) => {
+        const propType = String(row?.propType || "")
+        const side = String(row?.side || "")
+        const propVariant = String(row?.propVariant || "base")
+        return (
+          side === "Over" &&
+          propVariant !== "base" &&
+          ["Points", "PRA", "Assists", "Threes", "Rebounds"].includes(propType)
+        )
+      })
+      .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
+
+    const seenPlayerPropType = new Set()
+    const out = []
+    for (const row of sorted) {
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+      const dedupKey = `${playerKey}|${propTypeKey}`
+      if (seenPlayerPropType.has(dedupKey)) continue
+      seenPlayerPropType.add(dedupKey)
+      out.push(row)
+      if (out.length >= 10) break
+    }
+    return out
+  })()
 
   const FEATURED_FIRST_BASKET_MARKET_KEYS = new Set([
     "player_first_basket",
@@ -7657,16 +7671,39 @@ app.get("/api/best-available", (req, res) => {
   const tonightsBestLadders = Array.isArray(featuredLadders)
     ? (() => {
       const seenLadderKeys = new Set()
-      return featuredLadders
-        .filter((row) => {
+      const ladderRowsPerPlayer = new Map()
+      const TONIGHTS_LADDER_MAX_PER_PLAYER = 2
+      const tonightsLadders = []
+
+      for (const row of featuredLadders) {
+        const playerKey = String(row?.player || "").trim().toLowerCase()
+        const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+        const ladderKey = `${playerKey}|${propTypeKey}`
+        if (seenLadderKeys.has(ladderKey)) continue
+        if ((ladderRowsPerPlayer.get(playerKey) || 0) >= TONIGHTS_LADDER_MAX_PER_PLAYER) continue
+
+        seenLadderKeys.add(ladderKey)
+        ladderRowsPerPlayer.set(playerKey, (ladderRowsPerPlayer.get(playerKey) || 0) + 1)
+        tonightsLadders.push(row)
+
+        if (tonightsLadders.length >= 5) break
+      }
+
+      if (tonightsLadders.length < 5) {
+        for (const row of featuredLadders) {
           const playerKey = String(row?.player || "").trim().toLowerCase()
           const propTypeKey = String(row?.propType || "").trim().toLowerCase()
           const ladderKey = `${playerKey}|${propTypeKey}`
-          if (seenLadderKeys.has(ladderKey)) return false
+          if (seenLadderKeys.has(ladderKey)) continue
+
           seenLadderKeys.add(ladderKey)
-          return true
-        })
-        .slice(0, 5)
+          tonightsLadders.push(row)
+
+          if (tonightsLadders.length >= 5) break
+        }
+      }
+
+      return tonightsLadders
     })()
     : []
 
