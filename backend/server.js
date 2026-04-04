@@ -7716,8 +7716,10 @@ app.get("/api/best-available", (req, res) => {
 
     const picks = []
     const seenPropTypes = new Set()
+    const propTypeCounts = new Map()
     const seenLegs = new Set()
     const seenPlayers = new Set()
+    const TONIGHTS_SINGLES_MAX_PER_PROP_TYPE = 2
 
     for (const row of candidates) {
       const propTypeKey = String(row?.propType || "").trim().toLowerCase()
@@ -7738,6 +7740,7 @@ app.get("/api/best-available", (req, res) => {
       seenLegs.add(legKey)
       seenPropTypes.add(propTypeKey)
       seenPlayers.add(playerKey)
+      propTypeCounts.set(propTypeKey, (propTypeCounts.get(propTypeKey) || 0) + 1)
       picks.push(row)
 
       if (picks.length >= 5) break
@@ -7746,9 +7749,10 @@ app.get("/api/best-available", (req, res) => {
     if (picks.length < 5) {
       for (const row of candidates) {
         const playerKey = String(row?.player || "").trim().toLowerCase()
+        const propTypeKey = String(row?.propType || "").trim().toLowerCase()
         const legKey = [
           playerKey,
-          String(row?.propType || "").trim().toLowerCase(),
+          propTypeKey,
           String(row?.side || ""),
           String(row?.line ?? ""),
           String(row?.marketKey || ""),
@@ -7757,9 +7761,34 @@ app.get("/api/best-available", (req, res) => {
 
         if (seenLegs.has(legKey)) continue
         if (seenPlayers.has(playerKey)) continue
+        if ((propTypeCounts.get(propTypeKey) || 0) >= TONIGHTS_SINGLES_MAX_PER_PROP_TYPE) continue
 
         seenLegs.add(legKey)
         seenPlayers.add(playerKey)
+        propTypeCounts.set(propTypeKey, (propTypeCounts.get(propTypeKey) || 0) + 1)
+        picks.push(row)
+
+        if (picks.length >= 5) break
+      }
+    }
+
+    if (picks.length < 5) {
+      for (const row of candidates) {
+        const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+        const legKey = [
+          String(row?.player || "").trim().toLowerCase(),
+          propTypeKey,
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.marketKey || ""),
+          String(row?.propVariant || "base")
+        ].join("|")
+
+        if (seenLegs.has(legKey)) continue
+        if ((propTypeCounts.get(propTypeKey) || 0) >= TONIGHTS_SINGLES_MAX_PER_PROP_TYPE) continue
+
+        seenLegs.add(legKey)
+        propTypeCounts.set(propTypeKey, (propTypeCounts.get(propTypeKey) || 0) + 1)
         picks.push(row)
 
         if (picks.length >= 5) break
