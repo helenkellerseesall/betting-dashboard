@@ -7650,6 +7650,21 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 3))
 
+  const tonightsBestSingles = Array.isArray(featuredCore)
+    ? featuredCore.slice(0, 5)
+    : []
+
+  const tonightsBestLadders = Array.isArray(featuredLadders)
+    ? featuredLadders.slice(0, 5)
+    : []
+
+  const tonightsBestSpecials = [
+    ...(Array.isArray(featuredFirstBasket)
+      ? featuredFirstBasket.filter((row) => String(row?.marketKey || "") === "player_first_basket")
+      : []),
+    ...(Array.isArray(featuredSpecials) ? featuredSpecials : [])
+  ].slice(0, 6)
+
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
 
   const nonFirstBasketFeaturedSource = [
@@ -7744,7 +7759,17 @@ app.get("/api/best-available", (req, res) => {
       lottoPicks,
       gameEdgeBoard,
       mustPlayBoard,
-      featuredPlays
+      featuredPlays,
+      tonightsPlays: {
+        bestSingles: tonightsBestSingles,
+        bestLadders: tonightsBestLadders,
+        bestSpecials: tonightsBestSpecials,
+        counts: {
+          bestSingles: tonightsBestSingles.length,
+          bestLadders: tonightsBestLadders.length,
+          bestSpecials: tonightsBestSpecials.length
+        }
+      }
     },
     ladderPool,
     routePlayableSeed: routePlayableSeed,
