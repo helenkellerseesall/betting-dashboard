@@ -7890,6 +7890,29 @@ app.get("/api/best-available", (req, res) => {
       : []
   })
 
+  const buildTonightsLaneAuditRows = (lane, rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return safeRows.map((row, index) => ({
+      lane,
+      rankWithinLane: index + 1,
+      player: row?.player || null,
+      propType: row?.propType || null,
+      marketKey: row?.marketKey || null,
+      propVariant: row?.propVariant || "base",
+      odds: Number(row?.odds ?? 0) || null,
+      confidenceTier: row?.confidenceTier || null,
+      score: Number(row?.score ?? 0) || null,
+      adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
+      playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null
+    }))
+  }
+
+  const tonightsPlaysEvaluation = {
+    bestSingles: buildTonightsLaneAuditRows("bestSingles", tonightsBestSingles),
+    bestLadders: buildTonightsLaneAuditRows("bestLadders", tonightsBestLadders),
+    bestSpecials: buildTonightsLaneAuditRows("bestSpecials", tonightsBestSpecials)
+  }
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayload,
@@ -7914,7 +7937,8 @@ app.get("/api/best-available", (req, res) => {
           bestSingles: tonightsBestSingles.length,
           bestLadders: tonightsBestLadders.length,
           bestSpecials: tonightsBestSpecials.length
-        }
+        },
+        evaluation: tonightsPlaysEvaluation
       }
     },
     ladderPool,
