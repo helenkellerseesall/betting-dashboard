@@ -7655,7 +7655,19 @@ app.get("/api/best-available", (req, res) => {
     : []
 
   const tonightsBestLadders = Array.isArray(featuredLadders)
-    ? featuredLadders.slice(0, 5)
+    ? (() => {
+      const seenLadderKeys = new Set()
+      return featuredLadders
+        .filter((row) => {
+          const playerKey = String(row?.player || "").trim().toLowerCase()
+          const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+          const ladderKey = `${playerKey}|${propTypeKey}`
+          if (seenLadderKeys.has(ladderKey)) return false
+          seenLadderKeys.add(ladderKey)
+          return true
+        })
+        .slice(0, 5)
+    })()
     : []
 
   const tonightsBestSpecials = [
