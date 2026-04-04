@@ -7557,6 +7557,7 @@ app.get("/api/best-available", (req, res) => {
     .slice(0, 5))
 
   const featuredLadders = (() => {
+    const FEATURED_LADDER_MAX_PER_PLAYER = 1
     const sorted = (Array.isArray(ladderBoard) ? ladderBoard : [])
       .filter(Boolean)
       .filter((row) => {
@@ -7571,17 +7572,62 @@ app.get("/api/best-available", (req, res) => {
       })
       .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
 
+    const baseFallback = (Array.isArray(ladderBoard) ? ladderBoard : [])
+      .filter(Boolean)
+      .filter((row) => {
+        const propType = String(row?.propType || "")
+        const side = String(row?.side || "")
+        const propVariant = String(row?.propVariant || "base")
+        return (
+          side === "Over" &&
+          (propVariant === "base" || propVariant === "default") &&
+          ["Points", "PRA", "Assists", "Threes", "Rebounds"].includes(propType)
+        )
+      })
+      .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
+
     const seenPlayerPropType = new Set()
+    const playerCounts = new Map()
+    const seenFeaturedPropTypes = new Set()
     const out = []
     for (const row of sorted) {
       const playerKey = String(row?.player || "").trim().toLowerCase()
       const propTypeKey = String(row?.propType || "").trim().toLowerCase()
       const dedupKey = `${playerKey}|${propTypeKey}`
       if (seenPlayerPropType.has(dedupKey)) continue
+      if ((playerCounts.get(playerKey) || 0) >= FEATURED_LADDER_MAX_PER_PLAYER) continue
+      if (seenFeaturedPropTypes.has(propTypeKey)) continue
       seenPlayerPropType.add(dedupKey)
+      seenFeaturedPropTypes.add(propTypeKey)
+      playerCounts.set(playerKey, (playerCounts.get(playerKey) || 0) + 1)
       out.push(row)
       if (out.length >= 10) break
     }
+
+    if (out.length < 10) {
+      for (const row of sorted) {
+        const playerKey = String(row?.player || "").trim().toLowerCase()
+        const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+        const dedupKey = `${playerKey}|${propTypeKey}`
+        if (seenPlayerPropType.has(dedupKey)) continue
+        seenPlayerPropType.add(dedupKey)
+        out.push(row)
+        if (out.length >= 10) break
+      }
+    }
+
+    if (out.length < 10) {
+      for (const row of baseFallback) {
+        const playerKey = String(row?.player || "").trim().toLowerCase()
+        const propTypeKey = String(row?.propType || "").trim().toLowerCase()
+        const dedupKey = `${playerKey}|${propTypeKey}`
+        if (seenPlayerPropType.has(dedupKey)) continue
+        seenPlayerPropType.add(dedupKey)
+        out.push(row)
+        if (out.length >= 10) break
+      }
+    }
+
     return out
   })()
 
@@ -15465,12 +15511,9 @@ app.get("/refresh-snapshot", async (req, res) => {
     })
 
     let chosenSlateDateKey = todayDateKey
-    let scheduledEvents = todayEvents
+    let scheduledEvents = todayPregameEligible
 
-    if (todayPregameEligible.length <= 2 && tomorrowEvents.length > 0) {
-      chosenSlateDateKey = tomorrowDateKey
-      scheduledEvents = tomorrowEvents
-    } else if (todayEvents.length === 0 && tomorrowEvents.length > 0) {
+    if (todayPregameEligible.length === 0 && tomorrowEvents.length > 0) {
       chosenSlateDateKey = tomorrowDateKey
       scheduledEvents = tomorrowEvents
     }
