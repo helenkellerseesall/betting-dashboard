@@ -168,7 +168,11 @@ function buildSnapshotMeta(overrides = {}) {
     flexProps: Array.isArray(oddsSnapshot?.flexProps) ? oddsSnapshot.flexProps.length : 0,
     playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
     strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
-    eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
+    eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0,
+    snapshotSlateDateKey: oddsSnapshot?.snapshotSlateDateKey || null,
+    snapshotSlateGameCount: Number(oddsSnapshot?.snapshotSlateGameCount || 0),
+      slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+      lineHistorySummary: oddsSnapshot?.lineHistorySummary || null,
   }
 }
 
@@ -176,6 +180,87 @@ function logSnapshotMeta(label, overrides = {}) {
   const meta = buildSnapshotMeta(overrides)
   console.log(`[SNAPSHOT-META] ${label}`, meta)
   return meta
+}
+
+function getLineHistoryLegKey(row) {
+  return [
+    String(row?.eventId || row?.gameId || row?.matchup || ""),
+    String(row?.book || ""),
+    String(row?.marketKey || ""),
+    String(row?.propType || ""),
+    String(row?.player || ""),
+    String(row?.side || "")
+  ].join("|")
+}
+
+function toFiniteOrNull(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function applyPersistentLineHistory(currentRows, previousRows, observedAtIso) {
+  const safeCurrent = Array.isArray(currentRows) ? currentRows : []
+  const safePrevious = Array.isArray(previousRows) ? previousRows : []
+  const previousByKey = new Map()
+
+  for (const row of safePrevious) {
+    previousByKey.set(getLineHistoryLegKey(row), row)
+  }
+
+  return safeCurrent.map((row) => {
+    const key = getLineHistoryLegKey(row)
+    const prev = previousByKey.get(key)
+
+    const latestLine = toFiniteOrNull(row?.line)
+    const latestOdds = toFiniteOrNull(row?.odds)
+    const previousLine = toFiniteOrNull(prev?.latestLine ?? prev?.line)
+    const previousOdds = toFiniteOrNull(prev?.latestOdds ?? prev?.odds)
+    const firstSeenLine = toFiniteOrNull(prev?.firstSeenLine ?? prev?.line ?? row?.line)
+    const firstSeenOdds = toFiniteOrNull(prev?.firstSeenOdds ?? prev?.odds ?? row?.odds)
+    const firstSeenAt = prev?.firstSeenAt || prev?.latestSeenAt || observedAtIso
+    const previousSeenAt = prev?.latestSeenAt || prev?.firstSeenAt || null
+
+    const lineMove =
+      Number.isFinite(latestLine) && Number.isFinite(firstSeenLine)
+        ? Number((latestLine - firstSeenLine).toFixed(3))
+        : null
+    const oddsMove =
+      Number.isFinite(latestOdds) && Number.isFinite(firstSeenOdds)
+        ? Number((latestOdds - firstSeenOdds).toFixed(3))
+        : null
+
+    return {
+      ...row,
+      firstSeenLine,
+      firstSeenOdds,
+      latestLine,
+      latestOdds,
+      previousLine,
+      previousOdds,
+      lineMove,
+      oddsMove,
+      firstSeenAt,
+      previousSeenAt,
+      latestSeenAt: observedAtIso
+    }
+  })
+}
+
+function buildLineHistorySummary(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  let movedLineCount = 0
+  let movedOddsCount = 0
+
+  for (const row of safeRows) {
+    if (Number.isFinite(Number(row?.lineMove)) && Number(row?.lineMove) !== 0) movedLineCount += 1
+    if (Number.isFinite(Number(row?.oddsMove)) && Number(row?.oddsMove) !== 0) movedOddsCount += 1
+  }
+
+  return {
+    trackedLegs: safeRows.length,
+    movedLineCount,
+    movedOddsCount
+  }
 }
 
 function parseHitRateInline(hitRate) {
@@ -6408,7 +6493,10 @@ app.get("/api/best-available", (req, res) => {
   if (!bestAvailablePayload) {
     return res.status(503).json({
       ok: false,
-      error: "bestAvailable not ready"
+      error: "bestAvailable not ready",
+      snapshotMeta: buildSnapshotMeta(),
+      slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+      lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
     })
   }
 
@@ -7886,6 +7974,50 @@ app.get("/api/best-available", (req, res) => {
     return nightlySpecials.sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
   })()
 
+  const MUST_PLAY_ELIGIBLE_TIERS = new Set(["elite", "strong"])
+
+  const mustPlayCandidates = (() => {
+    const eligible = [...tonightsBestSingles, ...tonightsBestLadders].filter((row) => {
+      if (!row) return false
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      return MUST_PLAY_ELIGIBLE_TIERS.has(tier)
+    })
+
+    // Group by player|propType, prefer base/default variant
+    const groupMap = new Map()
+    for (const row of eligible) {
+      const groupKey = [
+        String(row?.player || "").trim().toLowerCase(),
+        String(row?.propType || "").trim().toLowerCase()
+      ].join("|")
+      const existing = groupMap.get(groupKey)
+      if (!existing) {
+        groupMap.set(groupKey, row)
+        continue
+      }
+      const rowVariant = String(row?.propVariant || "base").toLowerCase()
+      const existingVariant = String(existing?.propVariant || "base").toLowerCase()
+      const rowIsBase = rowVariant === "base" || rowVariant === "default"
+      const existingIsBase = existingVariant === "base" || existingVariant === "default"
+      if (rowIsBase && !existingIsBase) groupMap.set(groupKey, row)
+    }
+
+    const out = []
+    const seen = new Set()
+    for (const row of eligible) {
+      const groupKey = [
+        String(row?.player || "").trim().toLowerCase(),
+        String(row?.propType || "").trim().toLowerCase()
+      ].join("|")
+      if (seen.has(groupKey)) continue
+      if (groupMap.get(groupKey) !== row) continue
+      seen.add(groupKey)
+      out.push(row)
+      if (out.length >= 5) break
+    }
+    return out
+  })()
+
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
 
   const nonFirstBasketFeaturedSource = [
@@ -7985,7 +8117,8 @@ app.get("/api/best-available", (req, res) => {
   const tonightsPlaysEvaluation = {
     bestSingles: buildTonightsLaneAuditRows("bestSingles", tonightsBestSingles),
     bestLadders: buildTonightsLaneAuditRows("bestLadders", tonightsBestLadders),
-    bestSpecials: buildTonightsLaneAuditRows("bestSpecials", tonightsBestSpecials)
+    bestSpecials: buildTonightsLaneAuditRows("bestSpecials", tonightsBestSpecials),
+    mustPlayCandidates: buildTonightsLaneAuditRows("mustPlayCandidates", mustPlayCandidates)
   }
 
   return res.json({
@@ -8008,10 +8141,12 @@ app.get("/api/best-available", (req, res) => {
         bestSingles: tonightsBestSingles,
         bestLadders: tonightsBestLadders,
         bestSpecials: tonightsBestSpecials,
+        mustPlayCandidates,
         counts: {
           bestSingles: tonightsBestSingles.length,
           bestLadders: tonightsBestLadders.length,
-          bestSpecials: tonightsBestSpecials.length
+          bestSpecials: tonightsBestSpecials.length,
+          mustPlayCandidates: mustPlayCandidates.length
         },
         evaluation: tonightsPlaysEvaluation
       }
@@ -8028,7 +8163,9 @@ app.get("/api/best-available", (req, res) => {
     ladderProps,
     specialProps: specialPropsBoard,
     boardCounts,
-    snapshotMeta
+    snapshotMeta,
+    slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+    lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
   })
 })
 
@@ -15344,7 +15481,9 @@ app.get("/refresh-snapshot", async (req, res) => {
         ok: true,
         cached: true,
         reason: "fresh_snapshot",
-        bestProps: oddsSnapshot.bestProps?.length || 0
+        bestProps: oddsSnapshot.bestProps?.length || 0,
+        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
       })
     }
 
@@ -15434,7 +15573,9 @@ app.get("/refresh-snapshot", async (req, res) => {
         startedEligibleGames: slateMeta.startedEligibleGames,
         events: oddsSnapshot.events.length,
         props: oddsSnapshot.props.length,
-        bestProps: oddsSnapshot.bestProps.length
+        bestProps: oddsSnapshot.bestProps.length,
+        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
       })
     }
 
@@ -15499,7 +15640,9 @@ app.get("/refresh-snapshot", async (req, res) => {
         startedEligibleGames: slateMeta.startedEligibleGames,
         events: oddsSnapshot.events.length,
         props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
-        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
       })
     }
 
@@ -18284,11 +18427,42 @@ console.log("[REFRESH-STAGE-4-SNAPSHOT-ASSEMBLY]", {
   bestProps: Array.isArray(bestProps) ? bestProps.length : -1
 })
 oddsSnapshot.updatedAt = new Date().toISOString()
+const lineHistoryObservedAt = oddsSnapshot.updatedAt
+const previousRawPropsForHistory = Array.isArray(previousSnapshot?.rawProps) ? previousSnapshot.rawProps : []
+const previousPropsForHistory = Array.isArray(previousSnapshot?.props) ? previousSnapshot.props : []
+const previousBestPropsForHistory = Array.isArray(previousSnapshot?.bestProps) ? previousSnapshot.bestProps : []
+const rawPropsRowsWithHistory = applyPersistentLineHistory(rawPropsRows, previousRawPropsForHistory, lineHistoryObservedAt)
+const activeBookRawPropsRowsWithHistory = applyPersistentLineHistory(activeBookRawPropsRows, previousPropsForHistory, lineHistoryObservedAt)
+bestProps = applyPersistentLineHistory(bestProps, previousBestPropsForHistory, lineHistoryObservedAt)
 oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
-oddsSnapshot.rawProps = rawPropsRows
-oddsSnapshot.props = activeBookRawPropsRows
+oddsSnapshot.rawProps = rawPropsRowsWithHistory
+oddsSnapshot.props = activeBookRawPropsRowsWithHistory
 oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
 oddsSnapshot.snapshotSlateGameCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
+const chosenEventIds = new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean))
+const chosenEventIdsWithProps = new Set((Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).map((row) => String(row?.eventId || "")).filter((eventId) => chosenEventIds.has(eventId)))
+const chosenEventCount = chosenEventIds.size
+const chosenEventsWithPropsCount = chosenEventIdsWithProps.size
+const chosenPropsPartiallyPosted = chosenEventCount > 0 && chosenEventsWithPropsCount > 0 && chosenEventsWithPropsCount < chosenEventCount
+let slateState = "active_today"
+if (todayPregameEligible.length > 0) {
+  slateState = "active_today"
+} else if (chosenSlateDateKey === tomorrowDateKey && chosenEventsWithPropsCount === 0) {
+  slateState = "awaiting_posting"
+} else if (chosenSlateDateKey === tomorrowDateKey) {
+  slateState = "rolled_to_tomorrow"
+}
+oddsSnapshot.slateStateValidator = {
+  currentDateKeyChosen: chosenSlateDateKey || null,
+  currentPregameGameCount: todayPregameEligible.length,
+  todayTotalGames: todayEvents.length,
+  tomorrowTotalGames: tomorrowEvents.length,
+  todayHasPregameGames: todayPregameEligible.length > 0,
+  tomorrowPropsPartiallyPosted: chosenSlateDateKey === tomorrowDateKey ? chosenPropsPartiallyPosted : false,
+  slateState,
+  chosenEventsWithPropsCount,
+  chosenEventCount
+}
 console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   path: "refresh-snapshot",
   targets: targetMissingEventStages.map((stage) => ({
@@ -18397,6 +18571,7 @@ console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
 })
 
 oddsSnapshot.bestProps = dedupeByLegSignature(bestPropsAfterFinalLegacyGate)
+oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
 console.log("[FINAL-LEGACY-BESTPROPS-DEBUG]", {
   total: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0,
   bestPropsByPropType: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).reduce((acc, row) => {
@@ -18788,6 +18963,8 @@ lastSnapshotRefreshAt = Date.now()
 	      marketCoverageFocusDebug,
 	      snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey || null,
 	      snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
+        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null,
 	      counts: {
         rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
         props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
