@@ -7597,6 +7597,14 @@ app.get("/api/best-available", (req, res) => {
   })
 
   const featuredFirstBasketByGame = new Map()
+  const featuredFirstBasketTierRank = (tier) => {
+    const t = String(tier || "").toLowerCase()
+    if (t === "special-elite") return 4
+    if (t === "special-strong") return 3
+    if (t === "special-playable") return 2
+    if (t === "special-thin") return 1
+    return 0
+  }
 
   for (const row of featuredFirstBasketSource) {
     const matchup = String(row?.matchup || row?.eventId || "").trim()
@@ -7611,6 +7619,14 @@ app.get("/api/best-available", (req, res) => {
       featuredFirstBasketByGame.set(matchup, row)
     } else if (!rowIsPlayerFB && currentIsPlayerFB) {
       // keep current — player_first_basket preferred
+    } else if (rowIsPlayerFB && currentIsPlayerFB) {
+      const rowTier = featuredFirstBasketTierRank(row?.confidenceTier)
+      const currentTier = featuredFirstBasketTierRank(current?.confidenceTier)
+      if (rowTier > currentTier) {
+        featuredFirstBasketByGame.set(matchup, row)
+      } else if (rowTier === currentTier && featuredPlayScore(row) > featuredPlayScore(current)) {
+        featuredFirstBasketByGame.set(matchup, row)
+      }
     } else if (featuredPlayScore(row) > featuredPlayScore(current)) {
       featuredFirstBasketByGame.set(matchup, row)
     }
@@ -7634,18 +7650,23 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 3))
 
-  const featuredSource = [
+  const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
+
+  const nonFirstBasketFeaturedSource = [
     ...featuredCore,
     ...featuredLadders,
-    ...featuredFirstBasket,
     ...featuredSpecials,
     ...featuredMustPlays
+  ].filter((row) => String(row?.marketKey || "") !== "player_first_basket")
+
+  const featuredSource = [
+    ...preservedFeaturedFirstBasket,
+    ...nonFirstBasketFeaturedSource
   ]
 
   const featuredPlays = dedupeFeaturedRows(
     featuredSource
-      .filter(Boolean)
-      .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a)),
+      .filter(Boolean),
     2
   ).slice(0, 18)
 
