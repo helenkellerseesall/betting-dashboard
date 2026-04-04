@@ -7977,13 +7977,33 @@ app.get("/api/best-available", (req, res) => {
   const MUST_PLAY_ELIGIBLE_TIERS = new Set(["elite", "strong"])
 
   const mustPlayCandidates = (() => {
+    const mustPlayMarketScore = (row) => {
+      const side = String(row?.side || "").toLowerCase()
+      const lm = Number.isFinite(Number(row?.lineMove)) ? Number(row.lineMove) : null
+      const om = Number.isFinite(Number(row?.oddsMove)) ? Number(row.oddsMove) : null
+      let bonus = 0
+      if (lm !== null) {
+        if (side === "over" && lm < 0) bonus += 2   // line dropped — easier to hit
+        if (side === "over" && lm > 0) bonus -= 2   // line rose — harder to hit
+        if (side === "under" && lm > 0) bonus += 2  // line rose — easier to hit
+        if (side === "under" && lm < 0) bonus -= 2  // line dropped — harder
+      }
+      if (om !== null) {
+        if (om < -3) bonus += 1   // odds shortened — market backing it
+        if (om > 10) bonus -= 1   // odds drifted — market fading it
+      }
+      return bonus
+    }
+
+    const laddersSet = new Set(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+
     const eligible = [...tonightsBestSingles, ...tonightsBestLadders].filter((row) => {
       if (!row) return false
       const tier = String(row?.confidenceTier || "").toLowerCase()
       return MUST_PLAY_ELIGIBLE_TIERS.has(tier)
     })
 
-    // Group by player|propType, prefer base/default variant
+    // Group by player|propType — prefer base/default variant, then better market score
     const groupMap = new Map()
     for (const row of eligible) {
       const groupKey = [
@@ -7999,7 +8019,11 @@ app.get("/api/best-available", (req, res) => {
       const existingVariant = String(existing?.propVariant || "base").toLowerCase()
       const rowIsBase = rowVariant === "base" || rowVariant === "default"
       const existingIsBase = existingVariant === "base" || existingVariant === "default"
-      if (rowIsBase && !existingIsBase) groupMap.set(groupKey, row)
+      if (rowIsBase && !existingIsBase) {
+        groupMap.set(groupKey, row)
+      } else if (rowIsBase === existingIsBase) {
+        if (mustPlayMarketScore(row) > mustPlayMarketScore(existing)) groupMap.set(groupKey, row)
+      }
     }
 
     const out = []
@@ -8015,7 +8039,44 @@ app.get("/api/best-available", (req, res) => {
       out.push(row)
       if (out.length >= 5) break
     }
-    return out
+
+    // Secondary sort: strongest confidence first, market signal as tiebreaker
+    out.sort((a, b) => {
+      const confDiff = Number(b?.playerConfidenceScore || 0) - Number(a?.playerConfidenceScore || 0)
+      if (confDiff !== 0) return confDiff
+      return mustPlayMarketScore(b) - mustPlayMarketScore(a)
+    })
+
+    return out.map((row, index) => {
+      const sourceLane = laddersSet.has(row) ? "bestLadders" : "bestSingles"
+      const betType = sourceLane === "bestLadders" ? "ladder" : "single"
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      const propVariant = String(row?.propVariant || "base").toLowerCase()
+      const isAlt = propVariant !== "base" && propVariant !== "default"
+      const side = String(row?.side || "")
+      const line = row?.line ?? null
+      const mks = mustPlayMarketScore(row)
+
+      const reasonParts = []
+      if (tier === "elite") reasonParts.push("elite-confidence")
+      else if (tier === "strong") reasonParts.push("strong-confidence")
+      if (isAlt) reasonParts.push("alt-variant")
+      if (mks > 0) reasonParts.push("market-confirmed")
+      else if (mks < 0) reasonParts.push("market-caution")
+
+      const displayLineParts = [side]
+      if (line != null) displayLineParts.push(String(line))
+      if (isAlt) displayLineParts.push(`(${propVariant})`)
+
+      return {
+        ...row,
+        mustPlayRank: index + 1,
+        mustPlayBetType: betType,
+        mustPlaySourceLane: sourceLane,
+        mustPlayReasonTag: reasonParts.join("+") || "qualified",
+        mustPlayDisplayLine: displayLineParts.join(" ") || null
+      }
+    })
   })()
 
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
