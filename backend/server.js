@@ -7264,6 +7264,40 @@ app.get("/api/best-available", (req, res) => {
   const hasSpecialBoardFields = (row) =>
     Boolean(row?.player && row?.matchup && row?.propType && row?.book)
 
+  const TEAM_FIRST_BASKET_MARKET_KEY = "player_first_team_basket"
+  const isTeamFirstBasketMarketRow = (row) => String(row?.marketKey || "") === TEAM_FIRST_BASKET_MARKET_KEY
+  const isSpecialLikeFallbackCandidate = (row) => {
+    if (!hasSpecialBoardFields(row)) return false
+    if (isFirstBasketLikeRow(row)) return false
+    const marketFamily = String(row?.marketFamily || "")
+    const propVariant = String(row?.propVariant || "base")
+    const odds = Number(row?.odds || 0)
+    const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const isSpecialTier = tier.startsWith("special-")
+    const isAggressiveAlt = ["alt-mid", "alt-high", "alt-max"].includes(propVariant)
+    const isInterestingPlusMoney = Number.isFinite(odds) && odds >= 140
+    if (confidence < 0.20) return false
+    return marketFamily === "special" || isSpecialTier || isAggressiveAlt || isInterestingPlusMoney
+  }
+  const specialLikeFallbackScore = (row) => {
+    const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    const volatility = Number(row?.volatilityScore || 0)
+    const gamePriority = Number(row?.gamePriorityScore || 0)
+    const odds = Number(row?.odds || 0)
+    const propVariant = String(row?.propVariant || "base")
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+
+    let score = (confidence * 100) + (volatility * 30) + (gamePriority * 20)
+    if (tier === "special-elite") score += 10
+    else if (tier === "special-strong") score += 7
+    else if (tier === "special-playable") score += 4
+    if (["alt-mid", "alt-high", "alt-max"].includes(propVariant)) score += 8
+    if (Number.isFinite(odds) && odds >= 180 && odds <= 1200) score += 10
+    else if (Number.isFinite(odds) && odds > 1200) score += 4
+    return score
+  }
+
   const coreStandardProps = dedupeBoardRows(
     sortCorePropsBoard(
       allVisibleRowsForBoards.filter((row) => {
@@ -7327,9 +7361,20 @@ app.get("/api/best-available", (req, res) => {
     }))
   })
 
-  const firstBasketBoard = sortFirstBasketBoard(
+  const trueTeamFirstBasketRowsForBoard = allVisibleRowsForBoards.filter(isTeamFirstBasketMarketRow)
+  const rawFirstBasketBoard = sortFirstBasketBoard(
     allVisibleRowsForBoards.filter(isFirstBasketLikeRow)
   ).slice(0, 20)
+  const specialLikeFallbackBoardRows = sortSpecialBoardSmart(
+    allVisibleRowsForBoards
+      .filter(isSpecialLikeFallbackCandidate)
+      .sort((a, b) => specialLikeFallbackScore(b) - specialLikeFallbackScore(a))
+  ).slice(0, 10)
+  const useSpecialLikeFirstBasketFallback =
+    trueTeamFirstBasketRowsForBoard.length === 0 && rawFirstBasketBoard.length < 20
+  const firstBasketBoard = useSpecialLikeFirstBasketFallback
+    ? dedupeBoardRows([...rawFirstBasketBoard, ...specialLikeFallbackBoardRows]).slice(0, 20)
+    : rawFirstBasketBoard
 
   const corePropsBoard = sortCorePropsBoard(
     allVisibleRowsForBoards.filter((row) => isCorePropRow(row) && !isLadderRow(row))
@@ -7349,6 +7394,9 @@ app.get("/api/best-available", (req, res) => {
 
   console.log("[BOARD-BUILDER-DEBUG]", {
     firstBasketBoard: Array.isArray(firstBasketBoard) ? firstBasketBoard.length : 0,
+    trueTeamFirstBasketRows: trueTeamFirstBasketRowsForBoard.length,
+    specialLikeFallbackActivated: useSpecialLikeFirstBasketFallback,
+    specialLikeFallbackRows: specialLikeFallbackBoardRows.length,
     corePropsBoard: Array.isArray(corePropsBoard) ? corePropsBoard.length : 0,
     ladderBoard: Array.isArray(ladderBoard) ? ladderBoard.length : 0,
     specialBoard: Array.isArray(specialBoard) ? specialBoard.length : 0,
@@ -7368,6 +7416,15 @@ app.get("/api/best-available", (req, res) => {
   const predictionSourceRows = boardSourceRowsWithGameRole
 
   let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
+  const trueTeamFirstBasketRowsForPicks = predictionSourceRows.filter(isTeamFirstBasketMarketRow)
+  if (trueTeamFirstBasketRowsForPicks.length === 0 && fbRows.length < 5) {
+    const specialLikeFallbackPickRows = sortSpecialBoardSmart(
+      predictionSourceRows
+        .filter(isSpecialLikeFallbackCandidate)
+        .sort((a, b) => specialLikeFallbackScore(b) - specialLikeFallbackScore(a))
+    ).slice(0, 10)
+    fbRows = dedupeBoardRows([...fbRows, ...specialLikeFallbackPickRows]).slice(0, 20)
+  }
 
   fbRows = filterSpecialRowsForBoard(fbRows)
   fbRows = sortSpecialBoardSmart(fbRows)
@@ -7789,14 +7846,30 @@ app.get("/api/best-available", (req, res) => {
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
     .slice(0, 9)
 
-  const featuredSpecials = ((Array.isArray(specialBoard) ? specialBoard : [])
-    .filter(Boolean)
-    .filter((row) => {
-      const propType = String(row?.propType || "")
-      return ["Double Double", "Triple Double"].includes(propType)
-    })
-    .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
-    .slice(0, 3))
+  const featuredSpecials = (() => {
+    const specialRows = (Array.isArray(specialBoard) ? specialBoard : []).filter(Boolean)
+    const primary = specialRows
+      .filter((row) => {
+        const propType = String(row?.propType || "")
+        return ["Double Double", "Triple Double"].includes(propType)
+      })
+      .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
+
+    if (primary.length >= 3 || !useSpecialLikeFirstBasketFallback) {
+      return primary.slice(0, 3)
+    }
+
+    const seenPlayerKeys = new Set(primary.map((row) => String(row?.player || "").trim().toLowerCase()))
+    const fallback = specialRows
+      .filter((row) => {
+        const playerKey = String(row?.player || "").trim().toLowerCase()
+        if (seenPlayerKeys.has(playerKey)) return false
+        return isSpecialLikeFallbackCandidate(row)
+      })
+      .sort((a, b) => (featuredPlayScore(b) + specialLikeFallbackScore(b) * 0.05) - (featuredPlayScore(a) + specialLikeFallbackScore(a) * 0.05))
+
+    return [...primary, ...fallback].slice(0, 3)
+  })()
 
   const featuredMustPlays = ((Array.isArray(mustPlayBoard) ? mustPlayBoard : [])
     .filter(Boolean)
@@ -8290,9 +8363,31 @@ app.get("/api/best-available", (req, res) => {
     ...bestAvailablePayloadBoardFirst
   } = bestAvailablePayload || {}
 
+  const firstBasketFallbackDiagnostics = {
+    trueTeamFirstBasketRows: trueTeamFirstBasketRowsForBoard.length,
+    specialLikeFallbackActivated: useSpecialLikeFirstBasketFallback,
+    specialLikeFallbackRows: specialLikeFallbackBoardRows.length
+  }
+
+  const mergedBestAvailableDiagnostics = {
+    ...(bestAvailablePayloadBoardFirst?.diagnostics && typeof bestAvailablePayloadBoardFirst.diagnostics === "object"
+      ? bestAvailablePayloadBoardFirst.diagnostics
+      : {}),
+    ...firstBasketFallbackDiagnostics
+  }
+
+  const mergedBestAvailablePoolDiagnostics = {
+    ...(bestAvailablePayloadBoardFirst?.poolDiagnostics && typeof bestAvailablePayloadBoardFirst.poolDiagnostics === "object"
+      ? bestAvailablePayloadBoardFirst.poolDiagnostics
+      : {}),
+    ...firstBasketFallbackDiagnostics
+  }
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
+      diagnostics: mergedBestAvailableDiagnostics,
+      poolDiagnostics: mergedBestAvailablePoolDiagnostics,
       specialProps: enrichedSpecialProps,
       boards,
       firstBasketBoard,
