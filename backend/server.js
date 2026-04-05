@@ -7297,6 +7297,25 @@ app.get("/api/best-available", (req, res) => {
     else if (Number.isFinite(odds) && odds > 1200) score += 4
     return score
   }
+  const specialLikeFallbackPromotionScore = (row) => {
+    const marketKey = String(row?.marketKey || "")
+    const propVariant = String(row?.propVariant || "base")
+    const odds = Number(row?.odds || 0)
+
+    let score = specialLikeFallbackScore(row)
+    if (isFirstBasketLikeRow(row)) score += 90
+    if (marketKey === TEAM_FIRST_BASKET_MARKET_KEY) score += 30
+    if (marketKey === "player_first_basket") score += 24
+    if (propVariant === "alt-max") score += 10
+    else if (propVariant === "alt-high") score += 8
+    else if (propVariant === "alt-mid") score += 6
+
+    if (Number.isFinite(odds) && odds >= 180 && odds <= 950) score += 10
+    else if (Number.isFinite(odds) && odds > 950) score += 5
+    else if (Number.isFinite(odds) && odds > 0 && odds < 130) score -= 12
+
+    return score
+  }
 
   const coreStandardProps = dedupeBoardRows(
     sortCorePropsBoard(
@@ -7374,7 +7393,9 @@ app.get("/api/best-available", (req, res) => {
   const useSpecialLikeFirstBasketFallback =
     teamFirstBasketSupplyThinForBoard && specialLikeFallbackBoardRows.length > 0
   const firstBasketBoard = useSpecialLikeFirstBasketFallback
-    ? dedupeBoardRows([...rawFirstBasketBoard, ...specialLikeFallbackBoardRows]).slice(0, 20)
+    ? dedupeBoardRows([...rawFirstBasketBoard, ...specialLikeFallbackBoardRows])
+      .sort((a, b) => specialLikeFallbackPromotionScore(b) - specialLikeFallbackPromotionScore(a))
+      .slice(0, 20)
     : rawFirstBasketBoard
 
   const corePropsBoard = sortCorePropsBoard(
@@ -7419,19 +7440,26 @@ app.get("/api/best-available", (req, res) => {
   let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
   const trueTeamFirstBasketRowsForPicks = predictionSourceRows.filter(isTeamFirstBasketMarketRow)
   const teamFirstBasketSupplyThinForPicks = trueTeamFirstBasketRowsForPicks.length <= 1
+  let specialLikeFallbackPickRowsCount = 0
+  let specialLikeFallbackActivatedForPicks = false
   if (teamFirstBasketSupplyThinForPicks) {
     const specialLikeFallbackPickRows = sortSpecialBoardSmart(
       predictionSourceRows
         .filter(isSpecialLikeFallbackCandidate)
         .sort((a, b) => specialLikeFallbackScore(b) - specialLikeFallbackScore(a))
     ).slice(0, 10)
+    specialLikeFallbackPickRowsCount = specialLikeFallbackPickRows.length
     if (specialLikeFallbackPickRows.length > 0) {
       fbRows = dedupeBoardRows([...fbRows, ...specialLikeFallbackPickRows]).slice(0, 20)
+      specialLikeFallbackActivatedForPicks = true
     }
   }
 
   fbRows = filterSpecialRowsForBoard(fbRows)
   fbRows = sortSpecialBoardSmart(fbRows)
+  if (specialLikeFallbackActivatedForPicks) {
+    fbRows = [...fbRows].sort((a, b) => specialLikeFallbackPromotionScore(b) - specialLikeFallbackPromotionScore(a))
+  }
 
   // HARD CAP to top 5 only
   const firstBasketPicks = fbRows.slice(0, 5)
@@ -7439,6 +7467,8 @@ app.get("/api/best-available", (req, res) => {
   console.log("[SPECIAL-BOARD-FILTER-DEBUG]", {
     originalFB: predictionSourceRows.filter(r => isFirstBasketLikeRow(r)).length,
     filteredFB: fbRows.length,
+    specialLikeFallbackActivatedForPicks,
+    specialLikeFallbackPickRows: specialLikeFallbackPickRowsCount,
     finalFB: firstBasketPicks.length,
     topFB: firstBasketPicks.map(r => ({
       player: r.player,
@@ -7863,14 +7893,20 @@ app.get("/api/best-available", (req, res) => {
       return primary.slice(0, 3)
     }
 
+    const fallbackSourceRows = dedupeBoardRows([
+      ...specialRows,
+      ...firstBasketBoard
+    ])
+
     const seenPlayerKeys = new Set(primary.map((row) => String(row?.player || "").trim().toLowerCase()))
-    const fallback = specialRows
+    const fallback = fallbackSourceRows
       .filter((row) => {
         const playerKey = String(row?.player || "").trim().toLowerCase()
         if (seenPlayerKeys.has(playerKey)) return false
+        if (isFirstBasketLikeRow(row)) return false
         return isSpecialLikeFallbackCandidate(row)
       })
-      .sort((a, b) => (featuredPlayScore(b) + specialLikeFallbackScore(b) * 0.05) - (featuredPlayScore(a) + specialLikeFallbackScore(a) * 0.05))
+      .sort((a, b) => (featuredPlayScore(b) + specialLikeFallbackPromotionScore(b)) - (featuredPlayScore(a) + specialLikeFallbackPromotionScore(a)))
 
     return [...primary, ...fallback].slice(0, 3)
   })()
@@ -8223,11 +8259,18 @@ app.get("/api/best-available", (req, res) => {
   })()
 
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
+  const featuredFallbackSpecialLikes = useSpecialLikeFirstBasketFallback
+    ? firstBasketBoard
+      .filter((row) => isSpecialLikeFallbackCandidate(row) && !isFirstBasketLikeRow(row))
+      .sort((a, b) => specialLikeFallbackPromotionScore(b) - specialLikeFallbackPromotionScore(a))
+      .slice(0, 3)
+    : []
 
   const nonFirstBasketFeaturedSource = [
     ...featuredCore,
     ...featuredLadders,
     ...featuredSpecials,
+    ...featuredFallbackSpecialLikes,
     ...featuredMustPlays
   ].filter((row) => String(row?.marketKey || "") !== "player_first_basket")
 
