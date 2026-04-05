@@ -8158,6 +8158,80 @@ app.get("/api/best-available", (req, res) => {
     return formatReadableTag(key)
   }
 
+  const formatTierWord = (tier) => {
+    const key = String(tier || "").toLowerCase()
+    if (!key) return null
+    if (key.includes("elite")) return "Elite"
+    if (key.includes("strong")) return "Strong"
+    if (key.includes("playable")) return "Playable"
+    if (key.includes("thin")) return "Thin"
+    return formatReadableTag(key)
+  }
+
+  const deriveBetTypeLabel = (row, extra = {}) => {
+    const explicitBetType = String(row?.mustPlayBetType || "").toLowerCase()
+    if (explicitBetType === "single") return "single"
+    if (explicitBetType === "ladder") return "ladder"
+    if (explicitBetType === "special") return "special"
+
+    const lane = String(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane || "").toLowerCase()
+    if (lane === "bestsingles") return "single"
+    if (lane === "bestladders") return "ladder"
+    if (lane === "bestspecials") return "special"
+    return null
+  }
+
+  const deriveLeadSynopsis = (row, extra = {}) => {
+    const tierWord = formatTierWord(row?.confidenceTier)
+    const betType = deriveBetTypeLabel(row, extra)
+
+    if (betType === "special" && tierWord) return `Special ${tierWord.toLowerCase()}`
+    if (tierWord && betType) return `${tierWord} ${betType}`
+    if (tierWord) return tierWord
+
+    const laneLabel = formatLaneLabel(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane)
+    return laneLabel ? laneLabel.replace(/s$/, "") : null
+  }
+
+  const deriveShapeSynopsis = (row) => {
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propType = String(row?.propType || "").trim()
+    const odds = Number(row?.odds ?? 0)
+
+    if (marketKey === "player_first_basket" || /first basket/i.test(propType)) return "first basket"
+    if (marketKey === "player_first_team_basket" || /first team basket/i.test(propType)) return "first team basket"
+    if (/triple double/i.test(propType)) return "triple double"
+    if (/double double/i.test(propType)) return "double double"
+
+    const variantKey = String(row?.propVariant || "base").toLowerCase()
+    if (variantKey && variantKey !== "base" && variantKey !== "default") return formatVariantLabel(variantKey)?.toLowerCase() || null
+    if (Number.isFinite(odds) && odds >= 100) return "plus-money upside"
+    return "base line"
+  }
+
+  const deriveContextSynopsis = (row) => {
+    const contextTag = String(row?.mustPlayContextTag || "").toLowerCase()
+    if (contextTag === "context-strong") return "stable role/context"
+    if (contextTag === "context-viable") return "viable context"
+    if (contextTag === "context-thin") return "thin context"
+
+    const playDecision = String(row?.playDecision || "").trim().toLowerCase()
+    if (playDecision.includes("stable")) return "role stable"
+    if (playDecision.includes("viable")) return "viable context"
+    return null
+  }
+
+  const deriveReasonSynopsis = (row) => {
+    const reasonTag = String(row?.mustPlayReasonTag || "").toLowerCase()
+    if (reasonTag.includes("market-confirmed")) return "market-backed"
+    if (reasonTag.includes("market-drifting")) return "market drifting"
+    if (reasonTag.includes("stable-market")) return "stable market"
+
+    const decisionSummary = String(row?.decisionSummary || "").trim()
+    if (decisionSummary && decisionSummary.length <= 40) return decisionSummary
+    return null
+  }
+
   const deriveMovementLabel = (row) => {
     const explicitTag = formatReadableTag(row?.marketMovementTag)
     if (explicitTag) return explicitTag
@@ -8181,15 +8255,13 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const buildWhySynopsis = (row, extra = {}) => {
-    const laneLabel = formatLaneLabel(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane)
-    const tierLabel = formatReadableTag(row?.confidenceTier)
-    const variantLabel = formatVariantLabel(row?.propVariant)
     const movementLabel = deriveMovementLabel(row)
-    const decisionLabel = String(row?.decisionSummary || row?.playDecision || "").trim() || null
-    const reasonLabel = formatReadableTag(row?.mustPlayReasonTag || row?.mustPlayContextTag)
-
-    const parts = [laneLabel, tierLabel, variantLabel, movementLabel, decisionLabel || reasonLabel]
-      .filter(Boolean)
+    const parts = [
+      deriveLeadSynopsis(row, extra),
+      deriveShapeSynopsis(row),
+      deriveReasonSynopsis(row) || movementLabel?.toLowerCase() || null,
+      deriveContextSynopsis(row)
+    ].filter(Boolean)
       .slice(0, 4)
 
     return parts.length ? parts.join(" | ") : null
