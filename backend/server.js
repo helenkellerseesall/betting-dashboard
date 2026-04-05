@@ -8177,62 +8177,121 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const buildBettingNowView = () => {
-    const out = []
-    const seenPlayers = new Set()
-    const seenMatchups = new Set()
+    const candidatePools = [
+      { rows: mustPlayCandidates, getLane: (r) => r?.mustPlaySourceLane || "unknown", limit: 5 },
+      { rows: tonightsBestSingles, getLane: () => "bestSingles", limit: 3 },
+      { rows: tonightsBestLadders, getLane: () => "bestLadders", limit: 2 },
+      { rows: tonightsBestSpecials, getLane: () => "bestSpecials", limit: 3 }
+    ]
 
-    const addRowIfUnique = (row, sourceRank, sourceLane) => {
-      if (!row) return false
-      const playerKey = String(row?.player || "").trim().toLowerCase()
-      const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
-      if (playerKey && seenPlayers.has(playerKey)) return false
-      if (matchupKey && seenMatchups.has(matchupKey)) return false
+    // First pass: strict diversity (no duplicate players, max 1 per matchup)
+    const strictPass = () => {
+      const tempOut = []
+      const seenPlayers = new Set()
+      const seenMatchups = new Set()
       
-      if (playerKey) seenPlayers.add(playerKey)
-      if (matchupKey) seenMatchups.add(matchupKey)
-      
-      out.push({
-        rank: out.length + 1,
-        player: row?.player || null,
-        marketKey: row?.marketKey || null,
-        propType: row?.propType || null,
-        side: row?.side || null,
-        line: row?.line ?? null,
-        odds: Number(row?.odds ?? 0) || null,
-        propVariant: row?.propVariant || "base",
-        confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
-        confidenceTier: row?.confidenceTier || null,
-        sourceLane,
-        sourceRank
-      })
-      return true
-    }
-
-    // Anchor with must-play candidates (already prioritized)
-    for (let i = 0; i < Math.min(5, mustPlayCandidates.length); i++) {
-      const row = mustPlayCandidates[i]
-      if (row) {
-        const sourceLane = row?.mustPlaySourceLane || "unknown"
-        addRowIfUnique(row, i + 1, sourceLane)
+      for (const pool of candidatePools) {
+        const safeRows = Array.isArray(pool.rows) ? pool.rows : []
+        for (let i = 0; i < Math.min(pool.limit, safeRows.length) && tempOut.length < 9; i++) {
+          const row = safeRows[i]
+          if (!row) continue
+          
+          const sourceLane = pool.getLane(row)
+          const playerKey = String(row?.player || "").trim().toLowerCase()
+          const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+          
+          // Skip if player already in output
+          if (playerKey && seenPlayers.has(playerKey)) continue
+          
+          // Skip if matchup already has a row
+          if (matchupKey && seenMatchups.has(matchupKey)) continue
+          
+          seenPlayers.add(playerKey)
+          seenMatchups.add(matchupKey)
+          
+          tempOut.push({
+            rank: tempOut.length + 1,
+            player: row?.player || null,
+            marketKey: row?.marketKey || null,
+            propType: row?.propType || null,
+            side: row?.side || null,
+            line: row?.line ?? null,
+            odds: Number(row?.odds ?? 0) || null,
+            propVariant: row?.propVariant || "base",
+            confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
+            confidenceTier: row?.confidenceTier || null,
+            sourceLane,
+            sourceRank: i + 1,
+            _matchupKey: matchupKey
+          })
+        }
       }
+      return tempOut
     }
 
-    // Fill with top singles not yet included
-    for (let i = 0; i < Math.min(3, tonightsBestSingles.length) && out.length < 10; i++) {
-      addRowIfUnique(tonightsBestSingles[i], i + 1, "bestSingles")
+    // Fallback pass: lenient fill if strict pass didn't reach target
+    const fallbackFill = (baseOut, baseTarget = 9) => {
+      if (baseOut.length >= baseTarget) return baseOut
+      
+      const result = [...baseOut]
+      const matchupCounts = new Map()
+      
+      for (const r of baseOut) {
+        if (r._matchupKey) {
+          matchupCounts.set(r._matchupKey, (matchupCounts.get(r._matchupKey) || 0) + 1)
+        }
+      }
+      
+      // Try to add remaining rows with max 2 per matchup, but allow duplicate players from different lanes
+      for (const pool of candidatePools) {
+        const safeRows = Array.isArray(pool.rows) ? pool.rows : []
+        for (let i = 0; i < safeRows.length && result.length < baseTarget; i++) {
+          const row = safeRows[i]
+          if (!row) continue
+          
+          const sourceLane = pool.getLane(row)
+          const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+          
+          // Check if this exact row is already in result (by checking all fields)
+          const isDuplicate = result.some((r) => 
+            r.player === row?.player && 
+            r.propType === (row?.propType || null) && 
+            r.marketKey === (row?.marketKey || null) &&
+            r.side === (row?.side || null)
+          )
+          if (isDuplicate) continue
+          
+          // Allow max 2 per matchup in fallback
+          if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= 2) continue
+          
+          const newRow = {
+            rank: result.length + 1,
+            player: row?.player || null,
+            marketKey: row?.marketKey || null,
+            propType: row?.propType || null,
+            side: row?.side || null,
+            line: row?.line ?? null,
+            odds: Number(row?.odds ?? 0) || null,
+            propVariant: row?.propVariant || "base",
+            confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
+            confidenceTier: row?.confidenceTier || null,
+            sourceLane,
+            sourceRank: i + 1
+          }
+          
+          result.push(newRow)
+          if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
+        }
+      }
+      
+      return result
     }
 
-    // Fill with top ladders not yet included
-    for (let i = 0; i < Math.min(2, tonightsBestLadders.length) && out.length < 10; i++) {
-      addRowIfUnique(tonightsBestLadders[i], i + 1, "bestLadders")
-    }
-
-    // Fill with top specials not yet included
-    for (let i = 0; i < Math.min(3, tonightsBestSpecials.length) && out.length < 10; i++) {
-      addRowIfUnique(tonightsBestSpecials[i], i + 1, "bestSpecials")
-    }
-
-    return out
+    const strictPhaseOut = strictPass()
+    const finalOut = fallbackFill(strictPhaseOut)
+    
+    // Remove internal _matchupKey field before returning
+    return finalOut.slice(0, 10).map(({ _matchupKey, ...row }) => row)
   }
 
   const bettingNow = buildBettingNowView()
