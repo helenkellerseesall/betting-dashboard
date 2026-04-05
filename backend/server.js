@@ -7370,8 +7370,9 @@ app.get("/api/best-available", (req, res) => {
       .filter(isSpecialLikeFallbackCandidate)
       .sort((a, b) => specialLikeFallbackScore(b) - specialLikeFallbackScore(a))
   ).slice(0, 10)
+  const teamFirstBasketSupplyThinForBoard = trueTeamFirstBasketRowsForBoard.length <= 1
   const useSpecialLikeFirstBasketFallback =
-    trueTeamFirstBasketRowsForBoard.length === 0 && rawFirstBasketBoard.length < 20
+    teamFirstBasketSupplyThinForBoard && specialLikeFallbackBoardRows.length > 0
   const firstBasketBoard = useSpecialLikeFirstBasketFallback
     ? dedupeBoardRows([...rawFirstBasketBoard, ...specialLikeFallbackBoardRows]).slice(0, 20)
     : rawFirstBasketBoard
@@ -7417,13 +7418,16 @@ app.get("/api/best-available", (req, res) => {
 
   let fbRows = predictionSourceRows.filter((row) => isFirstBasketLikeRow(row))
   const trueTeamFirstBasketRowsForPicks = predictionSourceRows.filter(isTeamFirstBasketMarketRow)
-  if (trueTeamFirstBasketRowsForPicks.length === 0 && fbRows.length < 5) {
+  const teamFirstBasketSupplyThinForPicks = trueTeamFirstBasketRowsForPicks.length <= 1
+  if (teamFirstBasketSupplyThinForPicks) {
     const specialLikeFallbackPickRows = sortSpecialBoardSmart(
       predictionSourceRows
         .filter(isSpecialLikeFallbackCandidate)
         .sort((a, b) => specialLikeFallbackScore(b) - specialLikeFallbackScore(a))
     ).slice(0, 10)
-    fbRows = dedupeBoardRows([...fbRows, ...specialLikeFallbackPickRows]).slice(0, 20)
+    if (specialLikeFallbackPickRows.length > 0) {
+      fbRows = dedupeBoardRows([...fbRows, ...specialLikeFallbackPickRows]).slice(0, 20)
+    }
   }
 
   fbRows = filterSpecialRowsForBoard(fbRows)
