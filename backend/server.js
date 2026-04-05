@@ -7264,11 +7264,25 @@ app.get("/api/best-available", (req, res) => {
   const hasSpecialBoardFields = (row) =>
     Boolean(row?.player && row?.matchup && row?.propType && row?.book)
 
+  const isLaneNativeLadderCandidate = (row) => {
+    const marketFamily = String(row?.marketFamily || "")
+    const propVariant = String(row?.propVariant || "base")
+    const propType = String(row?.propType || "")
+    const side = String(row?.side || "")
+    if (marketFamily === "special") return false
+    if (!LADDER_PROP_VARIANTS.has(propVariant)) return false
+    if (!CORE_STANDARD_PROP_TYPES.has(propType)) return false
+    if (side !== "Over") return false
+    if (isFirstBasketLikeRow(row)) return false
+    return true
+  }
+
   const TEAM_FIRST_BASKET_MARKET_KEY = "player_first_team_basket"
   const isTeamFirstBasketMarketRow = (row) => String(row?.marketKey || "") === TEAM_FIRST_BASKET_MARKET_KEY
   const isSpecialLikeFallbackCandidate = (row) => {
     if (!hasSpecialBoardFields(row)) return false
     if (isFirstBasketLikeRow(row)) return false
+    if (isLaneNativeLadderCandidate(row)) return false
     const marketFamily = String(row?.marketFamily || "")
     const propVariant = String(row?.propVariant || "base")
     const odds = Number(row?.odds || 0)
@@ -8026,12 +8040,33 @@ app.get("/api/best-available", (req, res) => {
 
   const tonightsBestLadders = Array.isArray(featuredLadders)
     ? (() => {
+      const isLaneNativeLadderRow = (row) => {
+        return isLaneNativeLadderCandidate(row)
+      }
+      const ladderVariantRank = (row) => {
+        const variant = String(row?.propVariant || "base")
+        if (variant === "alt-max") return 4
+        if (variant === "alt-high") return 3
+        if (variant === "alt-mid") return 2
+        if (variant === "alt-low") return 1
+        return 0
+      }
+      const ladderCandidatesOrdered = [...featuredLadders].sort((a, b) => {
+        const nativeDiff = Number(isLaneNativeLadderRow(b)) - Number(isLaneNativeLadderRow(a))
+        if (nativeDiff !== 0) return nativeDiff
+        const variantDiff = ladderVariantRank(b) - ladderVariantRank(a)
+        if (variantDiff !== 0) return variantDiff
+        return featuredPlayScore(b) - featuredPlayScore(a)
+      })
+      const nativeLadderRows = ladderCandidatesOrdered.filter((row) => isLaneNativeLadderRow(row))
+      const fallbackLadderRows = ladderCandidatesOrdered.filter((row) => !isLaneNativeLadderRow(row))
+
       const seenLadderKeys = new Set()
       const ladderRowsPerPlayer = new Map()
       const TONIGHTS_LADDER_MAX_PER_PLAYER = 2
       const tonightsLadders = []
 
-      for (const row of featuredLadders) {
+      for (const row of nativeLadderRows) {
         const playerKey = String(row?.player || "").trim().toLowerCase()
         const propTypeKey = String(row?.propType || "").trim().toLowerCase()
         const ladderKey = `${playerKey}|${propTypeKey}`
@@ -8046,7 +8081,7 @@ app.get("/api/best-available", (req, res) => {
       }
 
       if (tonightsLadders.length < 5) {
-        for (const row of featuredLadders) {
+        for (const row of fallbackLadderRows) {
           const playerKey = String(row?.player || "").trim().toLowerCase()
           const propTypeKey = String(row?.propType || "").trim().toLowerCase()
           const ladderKey = `${playerKey}|${propTypeKey}`
@@ -8065,6 +8100,20 @@ app.get("/api/best-available", (req, res) => {
 
 
   const tonightsBestSpecials = (() => {
+    const isLaneNativeSpecialRow = (row) => {
+      const marketFamily = String(row?.marketFamily || "")
+      const marketKey = String(row?.marketKey || "")
+      const propType = String(row?.propType || "")
+      if (marketFamily === "special") return true
+      if (["player_first_basket", "player_first_team_basket", "player_double_double", "player_triple_double"].includes(marketKey)) return true
+      return ["First Basket", "First Team Basket", "Double Double", "Triple Double"].includes(propType)
+    }
+    const specialSubtypeKey = (row) => {
+      const marketKey = String(row?.marketKey || "").trim().toLowerCase()
+      if (marketKey) return marketKey
+      return String(row?.propType || "").trim().toLowerCase()
+    }
+
     const playerFirstBasketRows = Array.isArray(featuredFirstBasket)
       ? featuredFirstBasket.filter((row) => String(row?.marketKey || "") === "player_first_basket")
       : []
@@ -8113,7 +8162,57 @@ app.get("/api/best-available", (req, res) => {
       return boost
     }
 
-    return nightlySpecials.sort((a, b) => (featuredPlayScore(b) + specialExcitementBoost(b)) - (featuredPlayScore(a) + specialExcitementBoost(a)))
+    const orderedNightlySpecials = [...nightlySpecials].sort((a, b) => {
+      const nativeDiff = Number(isLaneNativeSpecialRow(b)) - Number(isLaneNativeSpecialRow(a))
+      if (nativeDiff !== 0) return nativeDiff
+      return (featuredPlayScore(b) + specialExcitementBoost(b)) - (featuredPlayScore(a) + specialExcitementBoost(a))
+    })
+
+    const nativeSpecialRows = orderedNightlySpecials.filter((row) => isLaneNativeSpecialRow(row))
+    const fallbackSpecialRows = orderedNightlySpecials.filter((row) => !isLaneNativeSpecialRow(row))
+
+    const shaped = []
+    const seenSpecialLegs = new Set()
+    const subtypeCounts = new Map()
+    const uniqueNativeSubtypeCount = new Set(nativeSpecialRows.map((row) => specialSubtypeKey(row))).size
+    const NATIVE_MAX_PER_SUBTYPE = uniqueNativeSubtypeCount >= 3 ? 1 : 2
+
+    for (const row of nativeSpecialRows) {
+      const legKey = [
+        String(row?.player || "").trim().toLowerCase(),
+        String(row?.propType || "").trim().toLowerCase(),
+        String(row?.side || "").trim().toLowerCase(),
+        String(row?.line ?? ""),
+        String(row?.marketKey || "").trim().toLowerCase(),
+        String(row?.propVariant || "base").trim().toLowerCase()
+      ].join("|")
+      if (seenSpecialLegs.has(legKey)) continue
+      const subtypeKey = specialSubtypeKey(row)
+      if ((subtypeCounts.get(subtypeKey) || 0) >= NATIVE_MAX_PER_SUBTYPE) continue
+      seenSpecialLegs.add(legKey)
+      subtypeCounts.set(subtypeKey, (subtypeCounts.get(subtypeKey) || 0) + 1)
+      shaped.push(row)
+      if (shaped.length >= 6) break
+    }
+
+    if (shaped.length < 6) {
+      for (const row of fallbackSpecialRows) {
+        const legKey = [
+          String(row?.player || "").trim().toLowerCase(),
+          String(row?.propType || "").trim().toLowerCase(),
+          String(row?.side || "").trim().toLowerCase(),
+          String(row?.line ?? ""),
+          String(row?.marketKey || "").trim().toLowerCase(),
+          String(row?.propVariant || "base").trim().toLowerCase()
+        ].join("|")
+        if (seenSpecialLegs.has(legKey)) continue
+        seenSpecialLegs.add(legKey)
+        shaped.push(row)
+        if (shaped.length >= 6) break
+      }
+    }
+
+    return shaped
   })()
 
   const MUST_PLAY_ELIGIBLE_TIERS = new Set(["elite", "strong"])
@@ -8410,6 +8509,39 @@ app.get("/api/best-available", (req, res) => {
     ...bestAvailablePayloadBoardFirst
   } = bestAvailablePayload || {}
 
+  const buildCompactPreviewRows = (rows, limit = 4) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return safeRows.slice(0, limit).map((row) => {
+      const isTrueFirstBasket = isFirstBasketLikeRow(row)
+      const isFallbackSpecialLike = !isTrueFirstBasket && isSpecialLikeFallbackCandidate(row)
+      return {
+        player: row?.player || null,
+        team: row?.team || null,
+        marketKey: row?.marketKey || null,
+        propType: row?.propType || null,
+        line: row?.line ?? null,
+        odds: Number(row?.odds ?? 0) || null,
+        propVariant: row?.propVariant || "base",
+        confidenceTier: row?.confidenceTier || null,
+        adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
+        playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
+        rowKind: isTrueFirstBasket ? "true-first-basket" : isFallbackSpecialLike ? "fallback-special-like" : "other"
+      }
+    })
+  }
+
+  const surfacedRowsPreviewDiagnostics = {
+    firstBasketBoardPreview: buildCompactPreviewRows(firstBasketBoard, 5),
+    firstBasketPicksPreview: buildCompactPreviewRows(firstBasketPicks, 5),
+    featuredPlaysPreview: buildCompactPreviewRows(featuredPlays, 5),
+    tonightsPlaysPreview: {
+      bestSingles: buildCompactPreviewRows(tonightsBestSingles, 3),
+      bestLadders: buildCompactPreviewRows(tonightsBestLadders, 3),
+      bestSpecials: buildCompactPreviewRows(tonightsBestSpecials, 3),
+      mustPlayCandidates: buildCompactPreviewRows(mustPlayCandidates, 3)
+    }
+  }
+
   const firstBasketFallbackDiagnostics = {
     trueTeamFirstBasketRows: trueTeamFirstBasketRowsForBoard.length,
     specialLikeFallbackActivated: useSpecialLikeFirstBasketFallback,
@@ -8420,14 +8552,16 @@ app.get("/api/best-available", (req, res) => {
     ...(bestAvailablePayloadBoardFirst?.diagnostics && typeof bestAvailablePayloadBoardFirst.diagnostics === "object"
       ? bestAvailablePayloadBoardFirst.diagnostics
       : {}),
-    ...firstBasketFallbackDiagnostics
+    ...firstBasketFallbackDiagnostics,
+    ...surfacedRowsPreviewDiagnostics
   }
 
   const mergedBestAvailablePoolDiagnostics = {
     ...(bestAvailablePayloadBoardFirst?.poolDiagnostics && typeof bestAvailablePayloadBoardFirst.poolDiagnostics === "object"
       ? bestAvailablePayloadBoardFirst.poolDiagnostics
       : {}),
-    ...firstBasketFallbackDiagnostics
+    ...firstBasketFallbackDiagnostics,
+    ...surfacedRowsPreviewDiagnostics
   }
 
   return res.json({
