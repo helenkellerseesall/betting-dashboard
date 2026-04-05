@@ -8060,9 +8060,11 @@ app.get("/api/best-available", (req, res) => {
       const reasonParts = []
       if (tier === "elite") reasonParts.push("elite-confidence")
       else if (tier === "strong") reasonParts.push("strong-confidence")
-      if (isAlt) reasonParts.push("alt-variant")
+      reasonParts.push(betType)
+      reasonParts.push(isAlt ? "alt" : "base")
       if (mks > 0) reasonParts.push("market-confirmed")
-      else if (mks < 0) reasonParts.push("market-caution")
+      else if (mks < 0) reasonParts.push("market-drifting")
+      else reasonParts.push("stable-market")
 
       const displayLineParts = [side]
       if (line != null) displayLineParts.push(String(line))
