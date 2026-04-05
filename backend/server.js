@@ -8176,12 +8176,74 @@ app.get("/api/best-available", (req, res) => {
     ...surfacedRowsPreviewDiagnostics
   }
 
+  const buildBettingNowView = () => {
+    const out = []
+    const seenPlayers = new Set()
+    const seenMatchups = new Set()
+
+    const addRowIfUnique = (row, sourceRank, sourceLane) => {
+      if (!row) return false
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+      if (playerKey && seenPlayers.has(playerKey)) return false
+      if (matchupKey && seenMatchups.has(matchupKey)) return false
+      
+      if (playerKey) seenPlayers.add(playerKey)
+      if (matchupKey) seenMatchups.add(matchupKey)
+      
+      out.push({
+        rank: out.length + 1,
+        player: row?.player || null,
+        marketKey: row?.marketKey || null,
+        propType: row?.propType || null,
+        side: row?.side || null,
+        line: row?.line ?? null,
+        odds: Number(row?.odds ?? 0) || null,
+        propVariant: row?.propVariant || "base",
+        confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
+        confidenceTier: row?.confidenceTier || null,
+        sourceLane,
+        sourceRank
+      })
+      return true
+    }
+
+    // Anchor with must-play candidates (already prioritized)
+    for (let i = 0; i < Math.min(5, mustPlayCandidates.length); i++) {
+      const row = mustPlayCandidates[i]
+      if (row) {
+        const sourceLane = row?.mustPlaySourceLane || "unknown"
+        addRowIfUnique(row, i + 1, sourceLane)
+      }
+    }
+
+    // Fill with top singles not yet included
+    for (let i = 0; i < Math.min(3, tonightsBestSingles.length) && out.length < 10; i++) {
+      addRowIfUnique(tonightsBestSingles[i], i + 1, "bestSingles")
+    }
+
+    // Fill with top ladders not yet included
+    for (let i = 0; i < Math.min(2, tonightsBestLadders.length) && out.length < 10; i++) {
+      addRowIfUnique(tonightsBestLadders[i], i + 1, "bestLadders")
+    }
+
+    // Fill with top specials not yet included
+    for (let i = 0; i < Math.min(3, tonightsBestSpecials.length) && out.length < 10; i++) {
+      addRowIfUnique(tonightsBestSpecials[i], i + 1, "bestSpecials")
+    }
+
+    return out
+  }
+
+  const bettingNow = buildBettingNowView()
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
       diagnostics: mergedBestAvailableDiagnostics,
       poolDiagnostics: mergedBestAvailablePoolDiagnostics,
       specialProps: enrichedSpecialProps,
+      bettingNow,
       boards,
       firstBasketBoard,
       corePropsBoard,
