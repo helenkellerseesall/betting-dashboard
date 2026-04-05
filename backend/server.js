@@ -7837,6 +7837,7 @@ app.get("/api/best-available", (req, res) => {
     const laddersSet = new Set(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
     const specialsSet = new Set(Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : [])
     const MUST_PLAY_SPECIAL_TIERS = new Set(["special-elite", "special-strong"])
+    const MUST_PLAY_MAX_PER_MATCHUP = 2
 
     const eligibleSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).filter((row) => {
       if (!row) return false
@@ -7874,19 +7875,57 @@ app.get("/api/best-available", (req, res) => {
       }
     }
 
+    const mustPlayPriorityScore = (row) => {
+      const conf = Number(row?.playerConfidenceScore || row?.adjustedConfidenceScore || row?.score || 0)
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      const tierBonus = tier === "elite" ? 8 : tier === "strong" ? 4 : 0
+      const variant = String(row?.propVariant || "base").toLowerCase()
+      const baseBonus = (variant === "base" || variant === "default") ? 3 : 0
+      const laneBonus = laddersSet.has(row) ? 2 : 6
+      return (conf * 100) + (mustPlayMarketScore(row) * 4) + tierBonus + baseBonus + laneBonus
+    }
+
+    const preferredEligible = Array.from(groupMap.values())
+      .filter(Boolean)
+      .sort((a, b) => mustPlayPriorityScore(b) - mustPlayPriorityScore(a))
+
     const out = []
     const seen = new Set()
-    for (const row of eligible) {
+    const seenPlayers = new Set()
+    const matchupCounts = new Map()
+
+    for (const row of preferredEligible) {
       const groupKey = [
         String(row?.player || "").trim().toLowerCase(),
         String(row?.propType || "").trim().toLowerCase()
       ].join("|")
       if (seen.has(groupKey)) continue
       if (groupMap.get(groupKey) !== row) continue
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+      if (playerKey && seenPlayers.has(playerKey)) continue
+      if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= MUST_PLAY_MAX_PER_MATCHUP) continue
       seen.add(groupKey)
+      if (playerKey) seenPlayers.add(playerKey)
+      if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
       out.push(row)
       if (out.length >= 5) break
+    }
 
+    if (out.length < 5) {
+      for (const row of preferredEligible) {
+        const groupKey = [
+          String(row?.player || "").trim().toLowerCase(),
+          String(row?.propType || "").trim().toLowerCase()
+        ].join("|")
+        if (seen.has(groupKey)) continue
+        const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+        if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= MUST_PLAY_MAX_PER_MATCHUP) continue
+        seen.add(groupKey)
+        if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
+        out.push(row)
+        if (out.length >= 5) break
+      }
     }
 
     // Append qualifying specials into remaining slots (up to 5 total)
@@ -7895,7 +7934,10 @@ app.get("/api/best-available", (req, res) => {
       if (out.length >= 5) break
       const groupKey = [String(row?.player || "").trim().toLowerCase(), String(row?.propType || "").trim().toLowerCase()].join("|")
       if (seenSpecialKeys.has(groupKey)) continue
+      const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+      if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= MUST_PLAY_MAX_PER_MATCHUP) continue
       seenSpecialKeys.add(groupKey)
+      if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
       out.push(row)
     }
 

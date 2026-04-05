@@ -319,14 +319,46 @@ function buildFeaturedPlays({
       .slice(0, 3)
     : []
 
-  const primaryFeaturedSource = [
-    ...featuredCore.slice(0, 4),
-    ...featuredLadders.slice(0, 4),
-    ...featuredSpecials.slice(0, 4),
-    ...featuredMustPlays.slice(0, 3),
-    ...preservedFeaturedFirstBasket.slice(0, 2),
-    ...featuredFallbackSpecialLikes.slice(0, 1)
-  ]
+  const lanePrimaryPools = {
+    core: featuredCore.slice(0, 4),
+    ladders: featuredLadders.slice(0, 4),
+    specials: featuredSpecials.slice(0, 4),
+    mustPlays: featuredMustPlays.slice(0, 3),
+    firstBasket: preservedFeaturedFirstBasket.slice(0, 2),
+    fallbackSpecialLikes: featuredFallbackSpecialLikes.slice(0, 1)
+  }
+
+  const laneOrder = ["core", "mustPlays", "ladders", "specials", "firstBasket", "fallbackSpecialLikes"]
+  const laneIndexes = new Map(laneOrder.map((lane) => [lane, 0]))
+  const seenPrimaryLegs = new Set()
+  const primaryFeaturedSource = []
+
+  let progressed = true
+  while (progressed) {
+    progressed = false
+    for (const lane of laneOrder) {
+      const laneRows = lanePrimaryPools[lane] || []
+      let idx = laneIndexes.get(lane) || 0
+      while (idx < laneRows.length) {
+        const row = laneRows[idx]
+        idx += 1
+        const legKey = [
+          normalizeFeaturedPlayerKey(row?.player),
+          String(row?.propType || ""),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.marketKey || ""),
+          String(row?.propVariant || "base")
+        ].join("|")
+        if (seenPrimaryLegs.has(legKey)) continue
+        seenPrimaryLegs.add(legKey)
+        primaryFeaturedSource.push(row)
+        progressed = true
+        break
+      }
+      laneIndexes.set(lane, idx)
+    }
+  }
 
   const reserveFeaturedSource = [
     ...featuredCore.slice(4),
