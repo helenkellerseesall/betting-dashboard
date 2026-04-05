@@ -8296,6 +8296,33 @@ app.get("/api/best-available", (req, res) => {
 
   const bettingNow = buildBettingNowView()
 
+  const buildTopCardView = () => {
+    const compactRow = (row) => ({
+      player: row?.player || null,
+      marketKey: row?.marketKey || null,
+      propType: row?.propType || null,
+      side: row?.side || null,
+      line: row?.line ?? null,
+      odds: Number(row?.odds ?? 0) || null,
+      propVariant: row?.propVariant || "base",
+      confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
+      confidenceTier: row?.confidenceTier || null
+    })
+
+    return {
+      topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 3) : []).map(compactRow),
+      topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 3) : []).map(compactRow),
+      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 3) : []).map(compactRow),
+      topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 3) : []).map((row) => ({
+        ...compactRow(row),
+        mustPlayBetType: row?.mustPlayBetType || null,
+        mustPlaySourceLane: row?.mustPlaySourceLane || null
+      }))
+    }
+  }
+
+  const topCard = buildTopCardView()
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -8303,6 +8330,7 @@ app.get("/api/best-available", (req, res) => {
       poolDiagnostics: mergedBestAvailablePoolDiagnostics,
       specialProps: enrichedSpecialProps,
       bettingNow,
+      topCard,
       boards,
       firstBasketBoard,
       corePropsBoard,
