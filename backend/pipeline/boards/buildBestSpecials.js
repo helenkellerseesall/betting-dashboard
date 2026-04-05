@@ -3,6 +3,7 @@ const { normalizeLower, buildRowLegKey } = require("./boardHelpers")
 function buildBestSpecials({
   featuredFirstBasket,
   featuredSpecials,
+  liveSpecialRows,
   featuredPlayScore,
   maxRows = 6
 }) {
@@ -49,27 +50,69 @@ function buildBestSpecials({
     return normalizeLower(row?.propType)
   }
 
+  const preferredSpecialRows = (Array.isArray(featuredSpecials) ? featuredSpecials : []).filter(Boolean)
+  const liveSpecialPoolRows = (Array.isArray(liveSpecialRows) ? liveSpecialRows : []).filter(Boolean)
+  const mergedSpecialRows = []
+  const seenMergedLegKeys = new Set()
+
+  for (const row of [...preferredSpecialRows, ...liveSpecialPoolRows]) {
+    const legKey = buildRowLegKey(row)
+    if (seenMergedLegKeys.has(legKey)) continue
+    seenMergedLegKeys.add(legKey)
+    mergedSpecialRows.push(row)
+  }
+
+  const specialRows = mergedSpecialRows.filter((row) => isLaneNativeSpecialRow(row))
+
+  const liveSpecialLegKeys = new Set(
+    specialRows
+      .filter((row) => isLaneNativeSpecialRow(row))
+      .map((row) => buildRowLegKey(row))
+  )
+
+  const liveFirstBasketRows = specialRows.filter((row) => isTrueFirstBasketRow(row))
+
   const playerFirstBasketRows = Array.isArray(featuredFirstBasket)
-    ? featuredFirstBasket.filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
+    ? featuredFirstBasket.filter((row) => {
+      const marketKey = String(row?.marketKey || "")
+      if (!["player_first_basket", "player_first_team_basket"].includes(marketKey)) return false
+      return liveSpecialLegKeys.has(buildRowLegKey(row))
+    })
     : []
 
-  const specialRows = Array.isArray(featuredSpecials) ? featuredSpecials : []
+  const validFirstBasketRows = playerFirstBasketRows.length > 0
+    ? playerFirstBasketRows
+    : liveFirstBasketRows
 
-  const firstBasketPicks = playerFirstBasketRows.slice(0, 2)
-  const selectedPlayers = new Set(firstBasketPicks.map((row) => normalizeLower(row?.player)))
+  const firstBasketPicks = validFirstBasketRows.slice(0, 2)
+  const selectedLegKeys = new Set(firstBasketPicks.map((row) => buildRowLegKey(row)))
 
   const allSpecials = []
   for (const row of specialRows) {
-    const playerKey = normalizeLower(row?.player)
-    if (selectedPlayers.has(playerKey)) continue
+    const legKey = buildRowLegKey(row)
+    if (selectedLegKeys.has(legKey)) continue
     allSpecials.push(row)
-    selectedPlayers.add(playerKey)
+    selectedLegKeys.add(legKey)
   }
 
   const nightlySpecials = [
     ...firstBasketPicks,
     ...allSpecials
   ]
+
+  const isThinLottoSpecial = (row) => {
+    const odds = Number(row?.odds ?? 0)
+    const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const propType = String(row?.propType || "")
+    const marketKey = String(row?.marketKey || "")
+    const isTripleOrDouble = propType === "Triple Double" || propType === "Double Double" || marketKey === "player_triple_double" || marketKey === "player_double_double"
+
+    if (tier === "special-thin" && Number.isFinite(odds) && odds >= 700) return true
+    if (isTripleOrDouble && Number.isFinite(odds) && odds >= 1200 && confidence < 0.45) return true
+    if (Number.isFinite(odds) && odds >= 1600 && confidence < 0.40) return true
+    return false
+  }
 
   const specialExcitementBoost = (row) => {
     const odds = Number(row?.odds ?? 0)
@@ -91,6 +134,7 @@ function buildBestSpecials({
     if (propType === "Triple Double") boost += 5
     else if (propType === "Double Double") boost += 3
     if (confidence >= 0.45) boost += 3
+    if (isThinLottoSpecial(row)) boost -= 12
 
     return boost
   }
@@ -109,10 +153,12 @@ function buildBestSpecials({
 
     if (Number.isFinite(odds) && odds >= 180 && odds <= 1200) score += 9
     else if (Number.isFinite(odds) && odds >= 130 && odds < 180) score += 4
-    else if (Number.isFinite(odds) && odds > 1200) score -= 2
+    else if (Number.isFinite(odds) && odds > 1200) score -= 5
 
     if (confidence >= 0.55) score += 6
     else if (confidence >= 0.45) score += 3
+    if (String(row?.confidenceTier || "").toLowerCase() === "special-thin") score -= 6
+    if (isThinLottoSpecial(row)) score -= 8
 
     return score
   }
@@ -122,6 +168,7 @@ function buildBestSpecials({
     const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
     const tier = String(row?.confidenceTier || "").toLowerCase()
     const strongTier = tier === "special-elite" || tier === "special-strong"
+    if (isThinLottoSpecial(row)) return false
     return (
       (Number.isFinite(odds) && odds >= 170 && odds <= 1400 && confidence >= 0.20) ||
       (strongTier && Number.isFinite(odds) && odds >= 130)
@@ -159,19 +206,25 @@ function buildBestSpecials({
   const nonDoubleDoubleNativeCount = nativeSpecialRows.filter((row) => !isDoubleDoubleRow(row)).length
   const NATIVE_MAX_DOUBLE_DOUBLE = nonDoubleDoubleNativeCount >= 2 ? 1 : 2
   const NATIVE_MAX_PER_MATCHUP = 2
+  const nonThinLottoNativeCount = nativeSpecialRows.filter((row) => !isThinLottoSpecial(row)).length
+  const NATIVE_MAX_THIN_LOTTO = nonThinLottoNativeCount >= 3 ? 1 : 2
+  let thinLottoCount = 0
 
   for (const row of nativeSpecialRows) {
     const legKey = buildRowLegKey(row)
     if (seenSpecialLegs.has(legKey)) continue
     const subtypeKey = specialSubtypeKey(row)
     const matchupKey = normalizeLower(row?.matchup || row?.eventId)
+    const isThinLotto = isThinLottoSpecial(row)
     if (isDoubleDoubleRow(row) && doubleDoubleCount >= NATIVE_MAX_DOUBLE_DOUBLE) continue
+    if (isThinLotto && thinLottoCount >= NATIVE_MAX_THIN_LOTTO) continue
     if ((subtypeCounts.get(subtypeKey) || 0) >= NATIVE_MAX_PER_SUBTYPE) continue
     if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= NATIVE_MAX_PER_MATCHUP) continue
     seenSpecialLegs.add(legKey)
     subtypeCounts.set(subtypeKey, (subtypeCounts.get(subtypeKey) || 0) + 1)
     if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
     if (isDoubleDoubleRow(row)) doubleDoubleCount += 1
+    if (isThinLotto) thinLottoCount += 1
     shaped.push(row)
     if (shaped.length >= maxRows) break
   }

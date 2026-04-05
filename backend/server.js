@@ -7809,6 +7809,7 @@ app.get("/api/best-available", (req, res) => {
   const tonightsBestSpecials = buildBestSpecials({
     featuredFirstBasket,
     featuredSpecials,
+    liveSpecialRows: specialBoard,
     featuredPlayScore,
     maxRows: 7
   })
@@ -8267,8 +8268,133 @@ app.get("/api/best-available", (req, res) => {
     return parts.length ? parts.join(" | ") : null
   }
 
+  const normalizeConfidence01 = (value) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) return 0
+    if (numeric <= 1) return Math.min(1, numeric)
+    if (numeric <= 100) return Math.min(1, numeric / 100)
+    return 0
+  }
+
+  const buildMarketEdgeScore = (row) => {
+    const reasonTag = String(row?.mustPlayReasonTag || "").toLowerCase()
+    const movementLabel = String(deriveMovementLabel(row) || "").toLowerCase()
+    const side = String(row?.side || "").toLowerCase()
+    const lineMove = Number.isFinite(Number(row?.lineMove)) ? Number(row.lineMove) : null
+    const oddsMove = Number.isFinite(Number(row?.oddsMove)) ? Number(row.oddsMove) : null
+
+    let score = 0
+
+    if (reasonTag.includes("market-confirmed")) score += 0.22
+    else if (reasonTag.includes("stable-market")) score += 0.06
+    else if (reasonTag.includes("market-drifting")) score -= 0.20
+
+    if (movementLabel.includes("backing")) score += 0.14
+    else if (movementLabel.includes("drifting")) score -= 0.12
+    else if (movementLabel.includes("stable")) score += 0.03
+
+    if (lineMove !== null) {
+      const supportive = (side === "over" && lineMove < 0) || (side === "under" && lineMove > 0)
+      const adverse = (side === "over" && lineMove > 0) || (side === "under" && lineMove < 0)
+      if (supportive) score += 0.08
+      if (adverse) score -= 0.08
+    }
+
+    if (oddsMove !== null) {
+      if (oddsMove < -3) score += 0.06
+      if (oddsMove > 10) score -= 0.06
+    }
+
+    return Number(Math.max(-1, Math.min(1, score)).toFixed(3))
+  }
+
+  const buildContextEdgeScore = (row, confidenceScore) => {
+    const confidence01 = normalizeConfidence01(confidenceScore)
+    const contextScore = Math.max(0, Math.min(1, Number(row?.mustPlayContextScore || 0)))
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const decision = String(row?.playDecision || "").toLowerCase()
+
+    let tierBoost = 0
+    if (tier.includes("elite")) tierBoost += 0.12
+    else if (tier.includes("strong")) tierBoost += 0.08
+    else if (tier.includes("playable")) tierBoost += 0.03
+    else if (tier.includes("thin")) tierBoost -= 0.08
+
+    if (decision.includes("must-play")) tierBoost += 0.06
+    else if (decision.includes("playable")) tierBoost += 0.03
+    else if (decision.includes("fade") || decision.includes("avoid")) tierBoost -= 0.08
+
+    const score = (confidence01 * 0.58) + (contextScore * 0.32) + tierBoost
+    return Number(Math.max(0, Math.min(1, score)).toFixed(3))
+  }
+
+  const buildVolatilityOverlay = (row) => {
+    const variant = String(row?.propVariant || "base").toLowerCase()
+    const odds = Number(row?.odds ?? 0)
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propType = String(row?.propType || "")
+
+    let penalty = 0
+    if (variant === "alt-low") penalty += 0.06
+    else if (variant === "alt-mid") penalty += 0.12
+    else if (variant === "alt-high") penalty += 0.20
+    else if (variant === "alt-max") penalty += 0.28
+
+    if (Number.isFinite(odds) && odds >= 700) penalty += 0.10
+    if (Number.isFinite(odds) && odds >= 1200) penalty += 0.12
+    if (tier === "special-thin" || tier.includes("thin")) penalty += 0.16
+
+    const isTripleOrDouble = marketKey === "player_triple_double" || marketKey === "player_double_double" || propType === "Triple Double" || propType === "Double Double"
+    if (isTripleOrDouble && Number.isFinite(odds) && odds >= 1000) penalty += 0.10
+
+    const volatilityPenalty = Number(Math.max(0, Math.min(1, penalty)).toFixed(3))
+    let volatilityFlag = "low"
+    if (volatilityPenalty >= 0.45) volatilityFlag = "high"
+    else if (volatilityPenalty >= 0.20) volatilityFlag = "medium"
+
+    return {
+      volatilityPenalty,
+      volatilityFlag
+    }
+  }
+
+  const deriveBookValueHint = (marketEdgeScore, volatilityPenalty) => {
+    if (marketEdgeScore >= 0.18 && volatilityPenalty <= 0.14) return "value-live"
+    if (marketEdgeScore >= 0.10) return "value-lean"
+    if (marketEdgeScore <= -0.12) return "price-expensive"
+    return "fair-price"
+  }
+
+  const buildEdgeSynopsis = (contextEdgeScore, marketEdgeScore, volatilityFlag) => {
+    const contextPart = contextEdgeScore >= 0.72 ? "strong context" : contextEdgeScore >= 0.56 ? "viable context" : "thin context"
+    const marketPart = marketEdgeScore >= 0.14 ? "market-backed" : marketEdgeScore <= -0.10 ? "market-drifting" : "market-neutral"
+    const volPart = volatilityFlag === "high" ? "high vol" : volatilityFlag === "medium" ? "medium vol" : "low vol"
+    return `${contextPart} | ${marketPart} | ${volPart}`
+  }
+
+  const buildWhyTonight = (row, extra, bookValueHint, contextEdgeScore) => {
+    const lead = deriveLeadSynopsis(row, extra)
+    const movement = deriveMovementLabel(row)
+    const context = deriveContextSynopsis(row)
+    const valueHint = bookValueHint === "value-live" ? "value live" : bookValueHint === "value-lean" ? "value lean" : null
+    const confidenceTone = contextEdgeScore >= 0.72 ? "high-confidence context" : contextEdgeScore >= 0.56 ? "viable context" : null
+
+    const parts = [lead, movement ? movement.toLowerCase() : null, context, valueHint, confidenceTone]
+      .filter(Boolean)
+      .slice(0, 3)
+
+    return parts.length ? parts.join(" | ") : null
+  }
+
   const buildReadableSurfaceRow = (row, extra = {}) => {
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
+    const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
+    const marketEdgeScore = buildMarketEdgeScore(row)
+    const { volatilityPenalty, volatilityFlag } = buildVolatilityOverlay(row)
+    const bookValueHint = deriveBookValueHint(marketEdgeScore, volatilityPenalty)
+    const edgeSynopsis = buildEdgeSynopsis(contextEdgeScore, marketEdgeScore, volatilityFlag)
+    const whyTonight = buildWhyTonight(row, extra, bookValueHint, contextEdgeScore)
 
     return {
       player: row?.player || null,
@@ -8290,6 +8416,13 @@ app.get("/api/best-available", (req, res) => {
       mustPlayReasonTag: row?.mustPlayReasonTag || null,
       mustPlayContextTag: row?.mustPlayContextTag || null,
       mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
+      contextEdgeScore,
+      marketEdgeScore,
+      volatilityPenalty,
+      volatilityFlag,
+      bookValueHint,
+      edgeSynopsis,
+      whyTonight,
       whySynopsis: buildWhySynopsis(row, extra),
       ...extra
     }
@@ -8452,6 +8585,96 @@ app.get("/api/best-available", (req, res) => {
 
   const bettingNow = buildBettingNowView()
 
+  const buildSlateBoardView = () => {
+    const lanePools = [
+      { lane: "mustPlayCandidates", rows: Array.isArray(mustPlayBoard) ? mustPlayBoard : [], limit: 24 },
+      { lane: "bestSingles", rows: Array.isArray(corePropsBoard) ? corePropsBoard : [], limit: 48 },
+      { lane: "bestLadders", rows: Array.isArray(ladderBoard) ? ladderBoard : [], limit: 40 },
+      { lane: "bestSpecials", rows: Array.isArray(specialBoard) ? specialBoard : [], limit: 40 }
+    ]
+
+    const buildSlateLegKey = (row) => {
+      return [
+        String(row?.matchup || row?.eventId || "").trim().toLowerCase(),
+        String(row?.player || "").trim().toLowerCase(),
+        String(row?.marketKey || "").trim().toLowerCase(),
+        String(row?.propType || "").trim().toLowerCase(),
+        String(row?.side || "").trim().toLowerCase(),
+        String(row?.line ?? ""),
+        String(row?.propVariant || "base").trim().toLowerCase()
+      ].join("|")
+    }
+
+    const laneCapsByMatchup = {
+      mustPlayCandidates: 2,
+      bestSingles: 4,
+      bestLadders: 3,
+      bestSpecials: 3
+    }
+
+    const seenLegs = new Set()
+    const groupedByMatchup = new Map()
+
+    for (const pool of lanePools) {
+      const lane = pool.lane
+      const rows = Array.isArray(pool.rows) ? pool.rows : []
+      const limit = Number(pool.limit || 0)
+
+      for (let i = 0; i < rows.length && i < limit; i++) {
+        const row = rows[i]
+        if (!row) continue
+        const legKey = buildSlateLegKey(row)
+        if (seenLegs.has(legKey)) continue
+
+        const matchup = String(row?.matchup || row?.eventId || "").trim() || "Unknown"
+        const matchupKey = matchup.toLowerCase()
+        const laneCap = laneCapsByMatchup[lane] || 2
+
+        if (!groupedByMatchup.has(matchupKey)) {
+          groupedByMatchup.set(matchupKey, {
+            matchup,
+            rows: [],
+            laneCounts: new Map()
+          })
+        }
+
+        const bucket = groupedByMatchup.get(matchupKey)
+        const laneCount = bucket.laneCounts.get(lane) || 0
+        if (laneCount >= laneCap) continue
+        if (bucket.rows.length >= 12) continue
+
+        seenLegs.add(legKey)
+        bucket.laneCounts.set(lane, laneCount + 1)
+        bucket.rows.push({
+          ...buildReadableSurfaceRow(row, {
+            sourceLane: lane,
+            sourceRank: i + 1
+          }),
+          team: row?.team || null,
+          matchup: row?.matchup || row?.eventId || null,
+          eventId: row?.eventId || null
+        })
+      }
+    }
+
+    const matchups = Array.from(groupedByMatchup.values())
+      .filter((bucket) => Array.isArray(bucket.rows) && bucket.rows.length > 0)
+      .sort((a, b) => b.rows.length - a.rows.length)
+      .map((bucket) => ({
+        matchup: bucket.matchup,
+        totalRows: bucket.rows.length,
+        rows: bucket.rows
+      }))
+
+    return {
+      totalMatchups: matchups.length,
+      totalRows: matchups.reduce((acc, bucket) => acc + bucket.totalRows, 0),
+      matchups
+    }
+  }
+
+  const slateBoard = buildSlateBoardView()
+
   const buildTopCardView = () => {
     const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
 
@@ -8472,6 +8695,7 @@ app.get("/api/best-available", (req, res) => {
       poolDiagnostics: mergedBestAvailablePoolDiagnostics,
       specialProps: enrichedSpecialProps,
       bettingNow,
+      slateBoard,
       topCard,
       boards,
       firstBasketBoard,
