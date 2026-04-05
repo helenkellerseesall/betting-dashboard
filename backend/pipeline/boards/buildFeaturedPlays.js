@@ -283,8 +283,8 @@ function buildFeaturedPlays({
         return featuredPlayScore(b) - featuredPlayScore(a)
       })
 
-    if (primary.length >= 3 || !useSpecialLikeFirstBasketFallback) {
-      return primary.slice(0, 3)
+    if (primary.length >= 4 || !useSpecialLikeFirstBasketFallback) {
+      return primary.slice(0, 4)
     }
 
     const fallbackSourceRows = dedupeBoardRows([
@@ -302,13 +302,13 @@ function buildFeaturedPlays({
       })
       .sort((a, b) => (featuredPlayScore(b) + specialLikeFallbackPromotionScore(b)) - (featuredPlayScore(a) + specialLikeFallbackPromotionScore(a)))
 
-    return [...primary, ...fallback].slice(0, 3)
+    return [...primary, ...fallback].slice(0, 4)
   })()
 
   const featuredMustPlays = ((Array.isArray(mustPlayBoard) ? mustPlayBoard : [])
     .filter(Boolean)
     .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
-    .slice(0, 3))
+    .slice(0, 4))
 
   const preservedFeaturedFirstBasket = Array.isArray(featuredFirstBasket) ? featuredFirstBasket : []
 
@@ -323,9 +323,9 @@ function buildFeaturedPlays({
     core: featuredCore.slice(0, 4),
     ladders: featuredLadders.slice(0, 4),
     specials: featuredSpecials.slice(0, 4),
-    mustPlays: featuredMustPlays.slice(0, 3),
-    firstBasket: preservedFeaturedFirstBasket.slice(0, 2),
-    fallbackSpecialLikes: featuredFallbackSpecialLikes.slice(0, 1)
+    mustPlays: featuredMustPlays.slice(0, 4),
+    firstBasket: preservedFeaturedFirstBasket.slice(0, 3),
+    fallbackSpecialLikes: featuredFallbackSpecialLikes.slice(0, 2)
   }
 
   const laneOrder = ["core", "mustPlays", "ladders", "specials", "firstBasket", "fallbackSpecialLikes"]
@@ -364,9 +364,9 @@ function buildFeaturedPlays({
     ...featuredCore.slice(4),
     ...featuredLadders.slice(4),
     ...featuredSpecials.slice(4),
-    ...featuredMustPlays.slice(3),
-    ...preservedFeaturedFirstBasket.slice(2),
-    ...featuredFallbackSpecialLikes.slice(1)
+    ...featuredMustPlays.slice(4),
+    ...preservedFeaturedFirstBasket.slice(3),
+    ...featuredFallbackSpecialLikes.slice(2)
   ]
 
   const featuredSource = [

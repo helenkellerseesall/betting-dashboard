@@ -7804,13 +7804,13 @@ app.get("/api/best-available", (req, res) => {
     featuredLadders,
     featuredPlayScore,
     isLaneNativeLadderCandidate,
-    maxRows: 5
+    maxRows: 6
   })
   const tonightsBestSpecials = buildBestSpecials({
     featuredFirstBasket,
     featuredSpecials,
     featuredPlayScore,
-    maxRows: 6
+    maxRows: 7
   })
 
   const MUST_PLAY_ELIGIBLE_TIERS = new Set(["elite", "strong"])
@@ -7909,10 +7909,10 @@ app.get("/api/best-available", (req, res) => {
       if (playerKey) seenPlayers.add(playerKey)
       if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
       out.push(row)
-      if (out.length >= 5) break
+      if (out.length >= 6) break
     }
 
-    if (out.length < 5) {
+    if (out.length < 6) {
       for (const row of preferredEligible) {
         const groupKey = [
           String(row?.player || "").trim().toLowerCase(),
@@ -7924,14 +7924,14 @@ app.get("/api/best-available", (req, res) => {
         seen.add(groupKey)
         if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
         out.push(row)
-        if (out.length >= 5) break
+        if (out.length >= 6) break
       }
     }
 
-    // Append qualifying specials into remaining slots (up to 5 total)
+    // Append qualifying specials into remaining slots (up to 6 total)
     const seenSpecialKeys = new Set(out.map((r) => [String(r?.player || "").trim().toLowerCase(), String(r?.propType || "").trim().toLowerCase()].join("|")))
     for (const row of eligibleSpecials) {
-      if (out.length >= 5) break
+      if (out.length >= 6) break
       const groupKey = [String(row?.player || "").trim().toLowerCase(), String(row?.propType || "").trim().toLowerCase()].join("|")
       if (seenSpecialKeys.has(groupKey)) continue
       const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
@@ -8121,6 +8121,28 @@ app.get("/api/best-available", (req, res) => {
     ...bestAvailablePayloadBoardFirst
   } = bestAvailablePayload || {}
 
+  const buildReadableSurfaceRow = (row, extra = {}) => ({
+    player: row?.player || null,
+    marketKey: row?.marketKey || null,
+    propType: row?.propType || null,
+    side: row?.side || null,
+    line: row?.line ?? null,
+    odds: Number(row?.odds ?? 0) || null,
+    propVariant: row?.propVariant || "base",
+    confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
+    adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
+    playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
+    confidenceTier: row?.confidenceTier || null,
+    playDecision: row?.playDecision || null,
+    decisionSummary: row?.decisionSummary || null,
+    mustPlayBetType: row?.mustPlayBetType || null,
+    mustPlaySourceLane: row?.mustPlaySourceLane || null,
+    mustPlayReasonTag: row?.mustPlayReasonTag || null,
+    mustPlayContextTag: row?.mustPlayContextTag || null,
+    mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
+    ...extra
+  })
+
   const buildCompactPreviewRows = (rows, limit = 4) => {
     const safeRows = Array.isArray(rows) ? rows : []
     return safeRows.slice(0, limit).map((row) => {
@@ -8147,10 +8169,10 @@ app.get("/api/best-available", (req, res) => {
     firstBasketPicksPreview: buildCompactPreviewRows(firstBasketPicks, 5),
     featuredPlaysPreview: buildCompactPreviewRows(featuredPlays, 5),
     tonightsPlaysPreview: {
-      bestSingles: buildCompactPreviewRows(tonightsBestSingles, 3),
-      bestLadders: buildCompactPreviewRows(tonightsBestLadders, 3),
-      bestSpecials: buildCompactPreviewRows(tonightsBestSpecials, 3),
-      mustPlayCandidates: buildCompactPreviewRows(mustPlayCandidates, 3)
+      bestSingles: buildCompactPreviewRows(tonightsBestSingles, 4),
+      bestLadders: buildCompactPreviewRows(tonightsBestLadders, 4),
+      bestSpecials: buildCompactPreviewRows(tonightsBestSpecials, 4),
+      mustPlayCandidates: buildCompactPreviewRows(mustPlayCandidates, 4)
     }
   }
 
@@ -8178,10 +8200,10 @@ app.get("/api/best-available", (req, res) => {
 
   const buildBettingNowView = () => {
     const candidatePools = [
-      { rows: mustPlayCandidates, getLane: (r) => r?.mustPlaySourceLane || "unknown", limit: 5 },
-      { rows: tonightsBestSingles, getLane: () => "bestSingles", limit: 3 },
-      { rows: tonightsBestLadders, getLane: () => "bestLadders", limit: 2 },
-      { rows: tonightsBestSpecials, getLane: () => "bestSpecials", limit: 3 }
+      { rows: mustPlayCandidates, getLane: (r) => r?.mustPlaySourceLane || "unknown", limit: 6 },
+      { rows: tonightsBestSingles, getLane: () => "bestSingles", limit: 4 },
+      { rows: tonightsBestLadders, getLane: () => "bestLadders", limit: 3 },
+      { rows: tonightsBestSpecials, getLane: () => "bestSpecials", limit: 4 }
     ]
 
     // First pass: strict diversity (no duplicate players, max 1 per matchup)
@@ -8192,7 +8214,7 @@ app.get("/api/best-available", (req, res) => {
       
       for (const pool of candidatePools) {
         const safeRows = Array.isArray(pool.rows) ? pool.rows : []
-        for (let i = 0; i < Math.min(pool.limit, safeRows.length) && tempOut.length < 9; i++) {
+        for (let i = 0; i < Math.min(pool.limit, safeRows.length) && tempOut.length < 10; i++) {
           const row = safeRows[i]
           if (!row) continue
           
@@ -8209,28 +8231,19 @@ app.get("/api/best-available", (req, res) => {
           seenPlayers.add(playerKey)
           seenMatchups.add(matchupKey)
           
-          tempOut.push({
+          tempOut.push(buildReadableSurfaceRow(row, {
             rank: tempOut.length + 1,
-            player: row?.player || null,
-            marketKey: row?.marketKey || null,
-            propType: row?.propType || null,
-            side: row?.side || null,
-            line: row?.line ?? null,
-            odds: Number(row?.odds ?? 0) || null,
-            propVariant: row?.propVariant || "base",
-            confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
-            confidenceTier: row?.confidenceTier || null,
             sourceLane,
             sourceRank: i + 1,
             _matchupKey: matchupKey
-          })
+          }))
         }
       }
       return tempOut
     }
 
     // Fallback pass: lenient fill if strict pass didn't reach target
-    const fallbackFill = (baseOut, baseTarget = 9) => {
+    const fallbackFill = (baseOut, baseTarget = 10) => {
       if (baseOut.length >= baseTarget) return baseOut
       
       const result = [...baseOut]
@@ -8264,20 +8277,11 @@ app.get("/api/best-available", (req, res) => {
           // Allow max 2 per matchup in fallback
           if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= 2) continue
           
-          const newRow = {
+          const newRow = buildReadableSurfaceRow(row, {
             rank: result.length + 1,
-            player: row?.player || null,
-            marketKey: row?.marketKey || null,
-            propType: row?.propType || null,
-            side: row?.side || null,
-            line: row?.line ?? null,
-            odds: Number(row?.odds ?? 0) || null,
-            propVariant: row?.propVariant || "base",
-            confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
-            confidenceTier: row?.confidenceTier || null,
             sourceLane,
             sourceRank: i + 1
-          }
+          })
           
           result.push(newRow)
           if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
@@ -8297,27 +8301,13 @@ app.get("/api/best-available", (req, res) => {
   const bettingNow = buildBettingNowView()
 
   const buildTopCardView = () => {
-    const compactRow = (row) => ({
-      player: row?.player || null,
-      marketKey: row?.marketKey || null,
-      propType: row?.propType || null,
-      side: row?.side || null,
-      line: row?.line ?? null,
-      odds: Number(row?.odds ?? 0) || null,
-      propVariant: row?.propVariant || "base",
-      confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
-      confidenceTier: row?.confidenceTier || null
-    })
+    const compactRow = (row) => buildReadableSurfaceRow(row)
 
     return {
-      topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 3) : []).map(compactRow),
-      topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 3) : []).map(compactRow),
-      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 3) : []).map(compactRow),
-      topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 3) : []).map((row) => ({
-        ...compactRow(row),
-        mustPlayBetType: row?.mustPlayBetType || null,
-        mustPlaySourceLane: row?.mustPlaySourceLane || null
-      }))
+      topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 4) : []).map(compactRow),
+      topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 4) : []).map(compactRow),
+      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 4) : []).map(compactRow),
+      topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 4) : []).map(compactRow)
     }
   }
 
