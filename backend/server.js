@@ -8121,27 +8121,107 @@ app.get("/api/best-available", (req, res) => {
     ...bestAvailablePayloadBoardFirst
   } = bestAvailablePayload || {}
 
-  const buildReadableSurfaceRow = (row, extra = {}) => ({
-    player: row?.player || null,
-    marketKey: row?.marketKey || null,
-    propType: row?.propType || null,
-    side: row?.side || null,
-    line: row?.line ?? null,
-    odds: Number(row?.odds ?? 0) || null,
-    propVariant: row?.propVariant || "base",
-    confidenceScore: Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null,
-    adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
-    playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
-    confidenceTier: row?.confidenceTier || null,
-    playDecision: row?.playDecision || null,
-    decisionSummary: row?.decisionSummary || null,
-    mustPlayBetType: row?.mustPlayBetType || null,
-    mustPlaySourceLane: row?.mustPlaySourceLane || null,
-    mustPlayReasonTag: row?.mustPlayReasonTag || null,
-    mustPlayContextTag: row?.mustPlayContextTag || null,
-    mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
-    ...extra
-  })
+  const toReadablePercent = (value) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) return null
+    if (numeric <= 1) return Math.max(1, Math.min(99, Math.round(numeric * 100)))
+    return Math.max(1, Math.min(99, Math.round(numeric)))
+  }
+
+  const formatReadableTag = (value) => {
+    const raw = String(value || "").trim()
+    if (!raw) return null
+    return raw
+      .split(/[+_]/)
+      .filter(Boolean)
+      .map((part) => part.replace(/-/g, " "))
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(", ")
+  }
+
+  const formatLaneLabel = (lane) => {
+    const key = String(lane || "").trim()
+    if (!key) return null
+    const labels = {
+      bestSingles: "Singles",
+      bestLadders: "Ladders",
+      bestSpecials: "Specials",
+      mustPlayCandidates: "Must Play",
+      unknown: "Surfaced"
+    }
+    return labels[key] || formatReadableTag(key)
+  }
+
+  const formatVariantLabel = (variant) => {
+    const key = String(variant || "base").toLowerCase()
+    if (!key || key === "base" || key === "default") return "Base line"
+    return formatReadableTag(key)
+  }
+
+  const deriveMovementLabel = (row) => {
+    const explicitTag = formatReadableTag(row?.marketMovementTag)
+    if (explicitTag) return explicitTag
+
+    const lineMove = Number.isFinite(Number(row?.lineMove)) ? Number(row?.lineMove) : null
+    const oddsMove = Number.isFinite(Number(row?.oddsMove)) ? Number(row?.oddsMove) : null
+    const side = String(row?.side || "").toLowerCase()
+
+    if (lineMove !== null) {
+      if ((side === "over" && lineMove < 0) || (side === "under" && lineMove > 0)) return "Market backing"
+      if ((side === "over" && lineMove > 0) || (side === "under" && lineMove < 0)) return "Market drifting"
+    }
+
+    if (oddsMove !== null) {
+      if (oddsMove < -3) return "Market backing"
+      if (oddsMove > 10) return "Market drifting"
+      return "Stable market"
+    }
+
+    return null
+  }
+
+  const buildWhySynopsis = (row, extra = {}) => {
+    const laneLabel = formatLaneLabel(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane)
+    const tierLabel = formatReadableTag(row?.confidenceTier)
+    const variantLabel = formatVariantLabel(row?.propVariant)
+    const movementLabel = deriveMovementLabel(row)
+    const decisionLabel = String(row?.decisionSummary || row?.playDecision || "").trim() || null
+    const reasonLabel = formatReadableTag(row?.mustPlayReasonTag || row?.mustPlayContextTag)
+
+    const parts = [laneLabel, tierLabel, variantLabel, movementLabel, decisionLabel || reasonLabel]
+      .filter(Boolean)
+      .slice(0, 4)
+
+    return parts.length ? parts.join(" | ") : null
+  }
+
+  const buildReadableSurfaceRow = (row, extra = {}) => {
+    const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
+
+    return {
+      player: row?.player || null,
+      marketKey: row?.marketKey || null,
+      propType: row?.propType || null,
+      side: row?.side || null,
+      line: row?.line ?? null,
+      odds: Number(row?.odds ?? 0) || null,
+      propVariant: row?.propVariant || "base",
+      confidenceScore,
+      hitRatePct: toReadablePercent(confidenceScore),
+      adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
+      playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
+      confidenceTier: row?.confidenceTier || null,
+      playDecision: row?.playDecision || null,
+      decisionSummary: row?.decisionSummary || null,
+      mustPlayBetType: row?.mustPlayBetType || null,
+      mustPlaySourceLane: row?.mustPlaySourceLane || null,
+      mustPlayReasonTag: row?.mustPlayReasonTag || null,
+      mustPlayContextTag: row?.mustPlayContextTag || null,
+      mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
+      whySynopsis: buildWhySynopsis(row, extra),
+      ...extra
+    }
+  }
 
   const buildCompactPreviewRows = (rows, limit = 4) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -8301,13 +8381,13 @@ app.get("/api/best-available", (req, res) => {
   const bettingNow = buildBettingNowView()
 
   const buildTopCardView = () => {
-    const compactRow = (row) => buildReadableSurfaceRow(row)
+    const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
 
     return {
-      topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 4) : []).map(compactRow),
-      topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 4) : []).map(compactRow),
-      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 4) : []).map(compactRow),
-      topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 4) : []).map(compactRow)
+      topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 4) : []).map((row) => compactRow(row, "bestSingles")),
+      topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 4) : []).map((row) => compactRow(row, "bestLadders")),
+      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 4) : []).map((row) => compactRow(row, "bestSpecials")),
+      topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 4) : []).map((row) => compactRow(row, "mustPlayCandidates"))
     }
   }
 
