@@ -50,12 +50,12 @@ function buildBestSpecials({
   }
 
   const playerFirstBasketRows = Array.isArray(featuredFirstBasket)
-    ? featuredFirstBasket.filter((row) => String(row?.marketKey || "") === "player_first_basket")
+    ? featuredFirstBasket.filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
     : []
 
   const specialRows = Array.isArray(featuredSpecials) ? featuredSpecials : []
 
-  const firstBasketPicks = playerFirstBasketRows.slice(0, 3)
+  const firstBasketPicks = playerFirstBasketRows.slice(0, 2)
   const selectedPlayers = new Set(firstBasketPicks.map((row) => normalizeLower(row?.player)))
 
   const allSpecials = []
@@ -95,6 +95,28 @@ function buildBestSpecials({
     return boost
   }
 
+  const specialActionabilityScore = (row) => {
+    const odds = Number(row?.odds ?? 0)
+    const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    const marketKey = String(row?.marketKey || "")
+    const propType = String(row?.propType || "")
+
+    let score = 0
+    if (marketKey === "player_first_basket") score += 8
+    if (marketKey === "player_first_team_basket") score += 6
+    if (propType === "Triple Double") score += 5
+    if (propType === "Double Double") score += 2
+
+    if (Number.isFinite(odds) && odds >= 180 && odds <= 1200) score += 9
+    else if (Number.isFinite(odds) && odds >= 130 && odds < 180) score += 4
+    else if (Number.isFinite(odds) && odds > 1200) score -= 2
+
+    if (confidence >= 0.55) score += 6
+    else if (confidence >= 0.45) score += 3
+
+    return score
+  }
+
   const isBoardWorthyVolatileSpecial = (row) => {
     const odds = Number(row?.odds ?? 0)
     const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
@@ -119,6 +141,8 @@ function buildBestSpecials({
     if (nativeDiff !== 0) return nativeDiff
     const nativePriorityDiff = nativePriority(b) - nativePriority(a)
     if (nativePriorityDiff !== 0) return nativePriorityDiff
+    const actionableDiff = specialActionabilityScore(b) - specialActionabilityScore(a)
+    if (actionableDiff !== 0) return actionableDiff
     return (featuredPlayScore(b) + specialExcitementBoost(b)) - (featuredPlayScore(a) + specialExcitementBoost(a))
   })
 
@@ -128,20 +152,25 @@ function buildBestSpecials({
   const shaped = []
   const seenSpecialLegs = new Set()
   const subtypeCounts = new Map()
+  const matchupCounts = new Map()
   let doubleDoubleCount = 0
   const uniqueNativeSubtypeCount = new Set(nativeSpecialRows.map((row) => specialSubtypeKey(row))).size
   const NATIVE_MAX_PER_SUBTYPE = uniqueNativeSubtypeCount >= 3 ? 1 : 2
   const nonDoubleDoubleNativeCount = nativeSpecialRows.filter((row) => !isDoubleDoubleRow(row)).length
   const NATIVE_MAX_DOUBLE_DOUBLE = nonDoubleDoubleNativeCount >= 2 ? 1 : 2
+  const NATIVE_MAX_PER_MATCHUP = 2
 
   for (const row of nativeSpecialRows) {
     const legKey = buildRowLegKey(row)
     if (seenSpecialLegs.has(legKey)) continue
     const subtypeKey = specialSubtypeKey(row)
+    const matchupKey = normalizeLower(row?.matchup || row?.eventId)
     if (isDoubleDoubleRow(row) && doubleDoubleCount >= NATIVE_MAX_DOUBLE_DOUBLE) continue
     if ((subtypeCounts.get(subtypeKey) || 0) >= NATIVE_MAX_PER_SUBTYPE) continue
+    if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= NATIVE_MAX_PER_MATCHUP) continue
     seenSpecialLegs.add(legKey)
     subtypeCounts.set(subtypeKey, (subtypeCounts.get(subtypeKey) || 0) + 1)
+    if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
     if (isDoubleDoubleRow(row)) doubleDoubleCount += 1
     shaped.push(row)
     if (shaped.length >= maxRows) break
@@ -151,7 +180,10 @@ function buildBestSpecials({
     for (const row of nativeSpecialRows) {
       const legKey = buildRowLegKey(row)
       if (seenSpecialLegs.has(legKey)) continue
+      const matchupKey = normalizeLower(row?.matchup || row?.eventId)
+      if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= NATIVE_MAX_PER_MATCHUP) continue
       seenSpecialLegs.add(legKey)
+      if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
       shaped.push(row)
       if (shaped.length >= maxRows) break
     }

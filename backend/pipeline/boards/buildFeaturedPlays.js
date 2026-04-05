@@ -238,12 +238,50 @@ function buildFeaturedPlays({
 
   const featuredSpecials = (() => {
     const specialRows = (Array.isArray(specialBoard) ? specialBoard : []).filter(Boolean)
+    const specialActionabilityScore = (row) => {
+      const odds = Number(row?.odds ?? 0)
+      const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+      const marketKey = String(row?.marketKey || "")
+      const propType = String(row?.propType || "")
+
+      let score = 0
+      if (marketKey === "player_first_basket") score += 9
+      else if (marketKey === "player_first_team_basket") score += 6
+      else if (propType === "Triple Double") score += 5
+      else if (propType === "Double Double") score += 3
+
+      if (Number.isFinite(odds) && odds >= 170 && odds <= 1200) score += 8
+      else if (Number.isFinite(odds) && odds >= 125 && odds < 170) score += 4
+      else if (Number.isFinite(odds) && odds > 1200) score -= 2
+
+      if (confidence >= 0.55) score += 6
+      else if (confidence >= 0.45) score += 3
+
+      return score
+    }
+
     const primary = specialRows
       .filter((row) => {
+        const marketKey = String(row?.marketKey || "")
         const propType = String(row?.propType || "")
-        return ["Double Double", "Triple Double"].includes(propType)
+        const odds = Number(row?.odds ?? 0)
+
+        const isCoreSpecial = [
+          "player_first_basket",
+          "player_first_team_basket",
+          "player_double_double",
+          "player_triple_double"
+        ].includes(marketKey) || ["First Basket", "First Team Basket", "Double Double", "Triple Double"].includes(propType)
+
+        if (!isCoreSpecial) return false
+        if (Number.isFinite(odds) && odds > 1800) return false
+        return true
       })
-      .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
+      .sort((a, b) => {
+        const actionableDiff = specialActionabilityScore(b) - specialActionabilityScore(a)
+        if (actionableDiff !== 0) return actionableDiff
+        return featuredPlayScore(b) - featuredPlayScore(a)
+      })
 
     if (primary.length >= 3 || !useSpecialLikeFirstBasketFallback) {
       return primary.slice(0, 3)
@@ -281,18 +319,28 @@ function buildFeaturedPlays({
       .slice(0, 3)
     : []
 
-  const nonFirstBasketFeaturedSource = [
-    ...featuredCore,
-    ...featuredLadders,
-    ...featuredSpecials,
-    ...featuredFallbackSpecialLikes,
-    ...featuredMustPlays
-  ].filter((row) => String(row?.marketKey || "") !== "player_first_basket")
+  const primaryFeaturedSource = [
+    ...featuredCore.slice(0, 4),
+    ...featuredLadders.slice(0, 4),
+    ...featuredSpecials.slice(0, 4),
+    ...featuredMustPlays.slice(0, 3),
+    ...preservedFeaturedFirstBasket.slice(0, 2),
+    ...featuredFallbackSpecialLikes.slice(0, 1)
+  ]
+
+  const reserveFeaturedSource = [
+    ...featuredCore.slice(4),
+    ...featuredLadders.slice(4),
+    ...featuredSpecials.slice(4),
+    ...featuredMustPlays.slice(3),
+    ...preservedFeaturedFirstBasket.slice(2),
+    ...featuredFallbackSpecialLikes.slice(1)
+  ]
 
   const featuredSource = [
-    ...preservedFeaturedFirstBasket,
-    ...nonFirstBasketFeaturedSource
-  ]
+    ...primaryFeaturedSource,
+    ...reserveFeaturedSource
+  ].filter(Boolean)
 
   const featuredPlays = dedupeFeaturedRows(
     featuredSource
