@@ -8076,6 +8076,18 @@ app.get("/api/best-available", (req, res) => {
       const side = String(row?.side || "")
       const line = row?.line ?? null
       const mks = mustPlayMarketScore(row)
+      const gameEdgeScore = Number(row?.gameEdgeScore || 0)
+      const roleSignalScore = Number(row?.roleSignalScore || 0)
+      const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+      const mustPlayContextScore = Number(Math.min(1, Math.max(0,
+        (gameEdgeScore * 0.45) +
+        (roleSignalScore * 0.35) +
+        (matchupEdgeScore * 0.20)
+      )).toFixed(3))
+
+      let mustPlayContextTag = "context-thin"
+      if (mustPlayContextScore >= 0.60) mustPlayContextTag = "context-strong"
+      else if (mustPlayContextScore >= 0.45) mustPlayContextTag = "context-viable"
 
       const reasonParts = []
       if (tier === "elite" || tier === "special-elite") reasonParts.push("elite-confidence")
@@ -8096,7 +8108,9 @@ app.get("/api/best-available", (req, res) => {
         mustPlayBetType: betType,
         mustPlaySourceLane: sourceLane,
         mustPlayReasonTag: reasonParts.join("+") || "qualified",
-        mustPlayDisplayLine: displayLineParts.join(" ") || null
+        mustPlayDisplayLine: displayLineParts.join(" ") || null,
+        mustPlayContextScore,
+        mustPlayContextTag
       }
     })
   })()
