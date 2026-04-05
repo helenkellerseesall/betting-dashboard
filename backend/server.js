@@ -6560,7 +6560,6 @@ app.get("/api/best-available", (req, res) => {
   let routePlayableSeed = []
   let finalPlayableRows = []
   let ladderPool = []
-  let slipCards = { card50: null, card100: null, card300: null }
   let expandedPoolDebug = null
 
   try {
@@ -6935,18 +6934,13 @@ app.get("/api/best-available", (req, res) => {
       }, {})
     })
 
-    slipCards = buildSlipCards(effectiveBestProps, ladderPool)
-
     expandedPoolDebug = {
       ladderPool: Array.isArray(ladderPool) ? ladderPool.length : -1,
       routePlayableSeed: Array.isArray(routePlayableSeed) ? routePlayableSeed.length : -1,
       standardCandidates: Array.isArray(standardCandidates) ? standardCandidates.length : -1,
       finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : -1,
       ladderCandidates: Array.isArray(ladderCandidates) ? ladderCandidates.length : -1,
-      specialProps: Array.isArray(specialProps) ? specialProps.length : -1,
-      card50Legs: Array.isArray(slipCards.card50?.legs) ? slipCards.card50.legs.length : -1,
-      card100Legs: Array.isArray(slipCards.card100?.legs) ? slipCards.card100.legs.length : -1,
-      card300Legs: Array.isArray(slipCards.card300?.legs) ? slipCards.card300.legs.length : -1
+      specialProps: Array.isArray(specialProps) ? specialProps.length : -1
     }
 
     console.log("[EXPANDED-POOL-SUCCESS]", expandedPoolDebug)
@@ -7611,14 +7605,16 @@ app.get("/api/best-available", (req, res) => {
     return score
   }
 
-  const dedupeFeaturedRows = (rows, maxPerPlayer = 2) => {
+  const dedupeFeaturedRows = (rows, maxPerPlayer = 2, maxPerMatchup = 3) => {
     const safeRows = Array.isArray(rows) ? rows : []
     const playerCounts = new Map()
+    const matchupCounts = new Map()
     const seenLegs = new Set()
     const out = []
 
     for (const row of safeRows) {
       const playerKey = normalizeFeaturedPlayerKey(row?.player)
+      const matchupKey = String(row?.matchup || row?.eventId || "").trim().toLowerCase()
       const legKey = [
         playerKey,
         String(row?.propType || ""),
@@ -7630,9 +7626,11 @@ app.get("/api/best-available", (req, res) => {
 
       if (seenLegs.has(legKey)) continue
       if (playerKey && (playerCounts.get(playerKey) || 0) >= maxPerPlayer) continue
+      if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= maxPerMatchup) continue
 
       seenLegs.add(legKey)
       if (playerKey) playerCounts.set(playerKey, (playerCounts.get(playerKey) || 0) + 1)
+      if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
       out.push(row)
     }
 
@@ -7660,6 +7658,13 @@ app.get("/api/best-available", (req, res) => {
       })
       .sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
 
+    const preferredUpside = sorted.filter((row) => {
+      const propVariant = String(row?.propVariant || "base")
+      const odds = Number(row?.odds || 0)
+      if (["alt-mid", "alt-high", "alt-max"].includes(propVariant)) return true
+      return Number.isFinite(odds) && odds >= 120
+    })
+
     const baseFallback = (Array.isArray(ladderBoard) ? ladderBoard : [])
       .filter(Boolean)
       .filter((row) => {
@@ -7678,7 +7683,7 @@ app.get("/api/best-available", (req, res) => {
     const playerCounts = new Map()
     const seenFeaturedPropTypes = new Set()
     const out = []
-    for (const row of sorted) {
+    for (const row of preferredUpside) {
       const playerKey = String(row?.player || "").trim().toLowerCase()
       const propTypeKey = String(row?.propType || "").trim().toLowerCase()
       const dedupKey = `${playerKey}|${propTypeKey}`
@@ -7971,7 +7976,31 @@ app.get("/api/best-available", (req, res) => {
       ...allSpecials
     ].slice(0, 6)
 
-    return nightlySpecials.sort((a, b) => featuredPlayScore(b) - featuredPlayScore(a))
+    const specialExcitementBoost = (row) => {
+      const odds = Number(row?.odds ?? 0)
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      const propType = String(row?.propType || "")
+      const marketKey = String(row?.marketKey || "")
+      const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+
+      let boost = 0
+      if (tier === "special-elite") boost += 12
+      else if (tier === "special-strong") boost += 8
+      else if (tier === "special-playable") boost += 4
+
+      if (Number.isFinite(odds) && odds >= 180 && odds <= 1100) boost += 6
+      else if (Number.isFinite(odds) && odds > 1100) boost += 2
+      else if (Number.isFinite(odds) && odds > 0 && odds < 150) boost -= 6
+
+      if (marketKey === "player_first_basket") boost += 4
+      if (propType === "Triple Double") boost += 5
+      else if (propType === "Double Double") boost += 3
+      if (confidence >= 0.45) boost += 3
+
+      return boost
+    }
+
+    return nightlySpecials.sort((a, b) => (featuredPlayScore(b) + specialExcitementBoost(b)) - (featuredPlayScore(a) + specialExcitementBoost(a)))
   })()
 
   const MUST_PLAY_ELIGIBLE_TIERS = new Set(["elite", "strong"])
@@ -8097,6 +8126,7 @@ app.get("/api/best-available", (req, res) => {
       if (mks > 0) reasonParts.push("market-confirmed")
       else if (mks < 0) reasonParts.push("market-drifting")
       else reasonParts.push("stable-market")
+      reasonParts.push(mustPlayContextTag)
 
       const displayLineParts = [side]
       if (line != null) displayLineParts.push(String(line))
@@ -8132,7 +8162,8 @@ app.get("/api/best-available", (req, res) => {
   const featuredPlays = dedupeFeaturedRows(
     featuredSource
       .filter(Boolean),
-    2
+    2,
+    3
   ).slice(0, 18)
 
   console.log("[FEATURED-PLAYS-DEBUG]", {
@@ -8211,6 +8242,19 @@ app.get("/api/best-available", (req, res) => {
     }))
   }
 
+  const boardProgress = {
+    snapshotSlateDateKey: oddsSnapshot?.snapshotSlateDateKey || null,
+    snapshotSlateGameCount: Number(oddsSnapshot?.snapshotSlateGameCount || 0),
+    laneCounts: {
+      bestSingles: tonightsBestSingles.length,
+      bestLadders: tonightsBestLadders.length,
+      bestSpecials: tonightsBestSpecials.length,
+      mustPlayCandidates: mustPlayCandidates.length
+    },
+    mustPlayIncludesSpecials: mustPlayCandidates.some((row) => String(row?.mustPlayBetType || "") === "special" || String(row?.mustPlaySourceLane || "") === "bestSpecials"),
+    lineHistoryPresent: Boolean(Number(oddsSnapshot?.lineHistorySummary?.trackedLegs || 0) > 0)
+  }
+
   const tonightsPlaysEvaluation = {
     bestSingles: buildTonightsLaneAuditRows("bestSingles", tonightsBestSingles),
     bestLadders: buildTonightsLaneAuditRows("bestLadders", tonightsBestLadders),
@@ -8218,11 +8262,39 @@ app.get("/api/best-available", (req, res) => {
     mustPlayCandidates: buildTonightsLaneAuditRows("mustPlayCandidates", mustPlayCandidates)
   }
 
+  const boards = {
+    mustPlayCandidates,
+    bestSingles: tonightsBestSingles,
+    bestSpecials: tonightsBestSpecials,
+    bestLadders: tonightsBestLadders,
+    bestLongshots: Array.isArray(lottoPicks) ? lottoPicks : [],
+    comboCandidates: Array.isArray(featuredPlays) ? featuredPlays : []
+  }
+
+  const {
+    safe,
+    balanced,
+    aggressive,
+    lotto,
+    highestHitRate2,
+    highestHitRate3,
+    highestHitRate4,
+    highestHitRate5,
+    highestHitRate6,
+    highestHitRate7,
+    highestHitRate8,
+    highestHitRate9,
+    highestHitRate10,
+    payoutFitPortfolio,
+    moneyMakerPortfolio,
+    ...bestAvailablePayloadBoardFirst
+  } = bestAvailablePayload || {}
+
   return res.json({
     bestAvailable: {
-      ...bestAvailablePayload,
+      ...bestAvailablePayloadBoardFirst,
       specialProps: enrichedSpecialProps,
-      slipCards,
+      boards,
       firstBasketBoard,
       corePropsBoard,
       ladderBoard,
@@ -8239,6 +8311,7 @@ app.get("/api/best-available", (req, res) => {
         bestLadders: tonightsBestLadders,
         bestSpecials: tonightsBestSpecials,
         mustPlayCandidates,
+        boardProgress,
         counts: {
           bestSingles: tonightsBestSingles.length,
           bestLadders: tonightsBestLadders.length,
@@ -8251,9 +8324,6 @@ app.get("/api/best-available", (req, res) => {
     ladderPool,
     routePlayableSeed: routePlayableSeed,
     finalPlayableRows: finalPlayableRows,
-    card50: slipCards.card50,
-    card100: slipCards.card100,
-    card300: slipCards.card300,
     standardCandidates: standardCandidates,
     ladderCandidates: ladderCandidates,
     coreStandardProps,
