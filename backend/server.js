@@ -7996,6 +7996,15 @@ app.get("/api/best-available", (req, res) => {
     }
 
     const laddersSet = new Set(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+    const specialsSet = new Set(Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : [])
+    const MUST_PLAY_SPECIAL_TIERS = new Set(["special-elite", "special-strong"])
+
+    const eligibleSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).filter((row) => {
+      if (!row) return false
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      return MUST_PLAY_SPECIAL_TIERS.has(tier)
+    })
+
 
     const eligible = [...tonightsBestSingles, ...tonightsBestLadders].filter((row) => {
       if (!row) return false
@@ -8038,6 +8047,17 @@ app.get("/api/best-available", (req, res) => {
       seen.add(groupKey)
       out.push(row)
       if (out.length >= 5) break
+
+    }
+
+    // Append qualifying specials into remaining slots (up to 5 total)
+    const seenSpecialKeys = new Set(out.map((r) => [String(r?.player || "").trim().toLowerCase(), String(r?.propType || "").trim().toLowerCase()].join("|")))
+    for (const row of eligibleSpecials) {
+      if (out.length >= 5) break
+      const groupKey = [String(row?.player || "").trim().toLowerCase(), String(row?.propType || "").trim().toLowerCase()].join("|")
+      if (seenSpecialKeys.has(groupKey)) continue
+      seenSpecialKeys.add(groupKey)
+      out.push(row)
     }
 
     // Secondary sort: strongest confidence first, market signal as tiebreaker
@@ -8048,8 +8068,8 @@ app.get("/api/best-available", (req, res) => {
     })
 
     return out.map((row, index) => {
-      const sourceLane = laddersSet.has(row) ? "bestLadders" : "bestSingles"
-      const betType = sourceLane === "bestLadders" ? "ladder" : "single"
+      const sourceLane = specialsSet.has(row) ? "bestSpecials" : laddersSet.has(row) ? "bestLadders" : "bestSingles"
+      const betType = sourceLane === "bestSpecials" ? "special" : sourceLane === "bestLadders" ? "ladder" : "single"
       const tier = String(row?.confidenceTier || "").toLowerCase()
       const propVariant = String(row?.propVariant || "base").toLowerCase()
       const isAlt = propVariant !== "base" && propVariant !== "default"
@@ -8058,8 +8078,8 @@ app.get("/api/best-available", (req, res) => {
       const mks = mustPlayMarketScore(row)
 
       const reasonParts = []
-      if (tier === "elite") reasonParts.push("elite-confidence")
-      else if (tier === "strong") reasonParts.push("strong-confidence")
+      if (tier === "elite" || tier === "special-elite") reasonParts.push("elite-confidence")
+      else if (tier === "strong" || tier === "special-strong") reasonParts.push("strong-confidence")
       reasonParts.push(betType)
       reasonParts.push(isAlt ? "alt" : "base")
       if (mks > 0) reasonParts.push("market-confirmed")
