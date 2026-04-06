@@ -8212,25 +8212,68 @@ app.get("/api/best-available", (req, res) => {
 
   const deriveContextSynopsis = (row) => {
     const contextTag = String(row?.mustPlayContextTag || "").toLowerCase()
-    if (contextTag === "context-strong") return "stable role/context"
-    if (contextTag === "context-viable") return "viable context"
-    if (contextTag === "context-thin") return "thin context"
+    if (contextTag === "context-strong") return "role and spot intact"
+    if (contextTag === "context-viable") return "role holding up"
+    if (contextTag === "context-thin") return "thin support"
 
     const playDecision = String(row?.playDecision || "").trim().toLowerCase()
-    if (playDecision.includes("stable")) return "role stable"
-    if (playDecision.includes("viable")) return "viable context"
+    if (playDecision.includes("stable")) return "role holding up"
+    if (playDecision.includes("viable")) return "path is live"
     return null
   }
 
   const deriveReasonSynopsis = (row) => {
     const reasonTag = String(row?.mustPlayReasonTag || "").toLowerCase()
-    if (reasonTag.includes("market-confirmed")) return "market-backed"
-    if (reasonTag.includes("market-drifting")) return "market drifting"
-    if (reasonTag.includes("stable-market")) return "stable market"
+    if (reasonTag.includes("market-confirmed")) return "market backing"
+    if (reasonTag.includes("market-drifting")) return "market fading"
+    if (reasonTag.includes("stable-market")) return "price holding"
 
     const decisionSummary = String(row?.decisionSummary || "").trim()
-    if (decisionSummary && decisionSummary.length <= 40) return decisionSummary
+    if (decisionSummary) {
+      const shortSummary = decisionSummary.replace(/^[A-Z\- ]+:\s*/, "").replace(/\.$/, "").trim()
+      if (shortSummary && shortSummary.length <= 56) return shortSummary
+    }
     return null
+  }
+
+  const deriveSupportSynopsis = (row, confidenceScore) => {
+    const playDecision = String(row?.playDecision || "").toLowerCase()
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const hitRatePct = Number.isFinite(Number(row?.hitRatePct))
+      ? Number(row.hitRatePct)
+      : toReadablePercent(confidenceScore)
+
+    if (playDecision.includes("must-play")) return "must-play signal"
+    if (tier.includes("elite")) return hitRatePct >= 55 ? `elite read | ${hitRatePct}% hit rate` : "elite read"
+    if (tier.includes("strong")) return hitRatePct >= 55 ? `strong read | ${hitRatePct}% hit rate` : "strong read"
+    if (playDecision.includes("playable") || tier.includes("playable")) return hitRatePct >= 55 ? `playable edge | ${hitRatePct}% hit rate` : "playable edge"
+    if (tier.includes("thin")) return "thin support"
+    if (hitRatePct >= 60) return `${hitRatePct}% hit rate`
+    return null
+  }
+
+  const derivePriceSynopsis = (bookValueHint, movementLabel) => {
+    if (bookValueHint === "value-live") return "price still live"
+    if (bookValueHint === "value-lean") return "price worth a look"
+    if (bookValueHint === "price-expensive") return "price already taxed"
+
+    const movement = String(movementLabel || "").toLowerCase()
+    if (movement.includes("backing")) return "market backing"
+    if (movement.includes("drifting")) return "market fading"
+    if (movement.includes("stable")) return "price holding"
+    return null
+  }
+
+  const deriveRiskSynopsis = (row, volatilityFlag) => {
+    const variant = String(row?.propVariant || "base").toLowerCase()
+    const variantLabel = variant !== "base" && variant !== "default"
+      ? formatVariantLabel(variant)?.toLowerCase()
+      : null
+
+    if (volatilityFlag === "high") return variantLabel ? `${variantLabel} | high vol` : "high vol payout"
+    if (volatilityFlag === "medium") return variantLabel ? `${variantLabel} | medium vol` : "medium vol"
+    if (variantLabel) return `${variantLabel} profile`
+    return "low-vol base"
   }
 
   const deriveMovementLabel = (row) => {
@@ -8255,15 +8298,15 @@ app.get("/api/best-available", (req, res) => {
     return null
   }
 
-  const buildWhySynopsis = (row, extra = {}) => {
+  const buildWhySynopsis = (row, extra = {}, insights = {}) => {
     const movementLabel = deriveMovementLabel(row)
     const parts = [
-      deriveLeadSynopsis(row, extra),
       deriveShapeSynopsis(row),
-      deriveReasonSynopsis(row) || movementLabel?.toLowerCase() || null,
+      deriveSupportSynopsis(row, insights?.confidenceScore),
+      deriveReasonSynopsis(row) || derivePriceSynopsis(insights?.bookValueHint, movementLabel),
       deriveContextSynopsis(row)
     ].filter(Boolean)
-      .slice(0, 4)
+      .slice(0, 3)
 
     return parts.length ? parts.join(" | ") : null
   }
@@ -8366,10 +8409,10 @@ app.get("/api/best-available", (req, res) => {
     return "fair-price"
   }
 
-  const buildEdgeSynopsis = (contextEdgeScore, marketEdgeScore, volatilityFlag) => {
-    const contextPart = contextEdgeScore >= 0.72 ? "strong context" : contextEdgeScore >= 0.56 ? "viable context" : "thin context"
-    const marketPart = marketEdgeScore >= 0.14 ? "market-backed" : marketEdgeScore <= -0.10 ? "market-drifting" : "market-neutral"
-    const volPart = volatilityFlag === "high" ? "high vol" : volatilityFlag === "medium" ? "medium vol" : "low vol"
+  const buildEdgeSynopsis = (row, contextEdgeScore, marketEdgeScore, volatilityFlag, bookValueHint) => {
+    const contextPart = contextEdgeScore >= 0.72 ? "setup strong" : contextEdgeScore >= 0.56 ? "setup live" : "support thin"
+    const marketPart = marketEdgeScore >= 0.14 ? "market backing" : marketEdgeScore <= -0.10 ? "market fading" : derivePriceSynopsis(bookValueHint, deriveMovementLabel(row)) || "price holding"
+    const volPart = deriveRiskSynopsis(row, volatilityFlag)
     return `${contextPart} | ${marketPart} | ${volPart}`
   }
 
@@ -8377,10 +8420,11 @@ app.get("/api/best-available", (req, res) => {
     const lead = deriveLeadSynopsis(row, extra)
     const movement = deriveMovementLabel(row)
     const context = deriveContextSynopsis(row)
-    const valueHint = bookValueHint === "value-live" ? "value live" : bookValueHint === "value-lean" ? "value lean" : null
-    const confidenceTone = contextEdgeScore >= 0.72 ? "high-confidence context" : contextEdgeScore >= 0.56 ? "viable context" : null
+    const support = deriveSupportSynopsis(row, row?.hitRatePct ?? row?.adjustedConfidenceScore ?? row?.playerConfidenceScore)
+    const priceHint = derivePriceSynopsis(bookValueHint, movement)
+    const confidenceTone = contextEdgeScore >= 0.72 ? "support is strong" : contextEdgeScore >= 0.56 ? "support is live" : null
 
-    const parts = [lead, movement ? movement.toLowerCase() : null, context, valueHint, confidenceTone]
+    const parts = [lead, support, priceHint || context, confidenceTone]
       .filter(Boolean)
       .slice(0, 3)
 
@@ -8393,7 +8437,7 @@ app.get("/api/best-available", (req, res) => {
     const marketEdgeScore = buildMarketEdgeScore(row)
     const { volatilityPenalty, volatilityFlag } = buildVolatilityOverlay(row)
     const bookValueHint = deriveBookValueHint(marketEdgeScore, volatilityPenalty)
-    const edgeSynopsis = buildEdgeSynopsis(contextEdgeScore, marketEdgeScore, volatilityFlag)
+    const edgeSynopsis = buildEdgeSynopsis(row, contextEdgeScore, marketEdgeScore, volatilityFlag, bookValueHint)
     const whyTonight = buildWhyTonight(row, extra, bookValueHint, contextEdgeScore)
 
     return {
@@ -8423,7 +8467,7 @@ app.get("/api/best-available", (req, res) => {
       bookValueHint,
       edgeSynopsis,
       whyTonight,
-      whySynopsis: buildWhySynopsis(row, extra),
+      whySynopsis: buildWhySynopsis(row, extra, { confidenceScore, bookValueHint }),
       ...extra
     }
   }
@@ -8726,13 +8770,33 @@ app.get("/api/best-available", (req, res) => {
 
   const slateBoard = buildSlateBoardView()
 
+  const filterTopSpecialsForWeakness = (rows) => {
+    const isWeak = (row) => {
+      const decision = String(row?.playDecision || "").toLowerCase()
+      const tier = String(row?.confidenceTier || "").toLowerCase()
+      const hitRate = Number(row?.hitRatePct)
+
+      if (decision.includes("avoid") || decision.includes("fade")) return true
+      if (tier.includes("special-thin")) return true
+      if (Number.isFinite(hitRate) && hitRate < 40) return true
+      return false
+    }
+
+    const safeRows = Array.isArray(rows) ? rows : []
+    const strictPass = safeRows.filter((row) => !isWeak(row))
+
+    if (strictPass.length > 0) return strictPass
+    return safeRows
+  }
+
   const buildTopCardView = () => {
     const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
+    const filteredTopSpecials = filterTopSpecialsForWeakness(tonightsBestSpecials)
 
     return {
       topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 4) : []).map((row) => compactRow(row, "bestSingles")),
       topLadders: (Array.isArray(tonightsBestLadders) ? tonightsBestLadders.slice(0, 4) : []).map((row) => compactRow(row, "bestLadders")),
-      topSpecials: (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.slice(0, 4) : []).map((row) => compactRow(row, "bestSpecials")),
+      topSpecials: (Array.isArray(filteredTopSpecials) ? filteredTopSpecials.slice(0, 4) : []).map((row) => compactRow(row, "bestSpecials")),
       topMustPlays: (Array.isArray(mustPlayCandidates) ? mustPlayCandidates.slice(0, 4) : []).map((row) => compactRow(row, "mustPlayCandidates"))
     }
   }
