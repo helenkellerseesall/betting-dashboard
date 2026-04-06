@@ -6,11 +6,25 @@ function clamp(value, min, max) {
 	return Math.max(min, Math.min(max, value))
 }
 
-function toDecisionLabel(score) {
+function isSpecialStyleRow(row = {}) {
+	const marketKey = String(row.marketKey || "").toLowerCase()
+	const propType = String(row.propType || "").toLowerCase()
+	const sourceLane = String(row.sourceLane || row.mustPlaySourceLane || "").toLowerCase()
+	const betType = String(row.mustPlayBetType || "").toLowerCase()
+	const propVariant = String(row.propVariant || "").toLowerCase()
+
+	if (sourceLane === "bestspecials" || betType === "special") return true
+	if (marketKey.includes("first_basket") || marketKey.includes("double_double") || marketKey.includes("triple_double")) return true
+	if (propType.includes("first basket") || propType.includes("double double") || propType.includes("triple double")) return true
+	if (propVariant.includes("alt-high") || propVariant.includes("alt-max")) return true
+	return false
+}
+
+function toDecisionLabel(score, row = {}) {
 	if (score >= 80) return "must-play"
 	if (score >= 68) return "strong-play"
 	if (score >= 54) return "playable"
-	if (score >= 42) return "special-only"
+	if (score >= 42) return isSpecialStyleRow(row) ? "special-only" : "playable"
 	return "sit"
 }
 
@@ -114,7 +128,7 @@ function buildDecisionLayer(row = {}) {
 	).toFixed(1))
 	const finalDecisionScore = Number((baseDecisionScore + Number(externalInfluence.scoreAdjustment || 0)).toFixed(1))
 
-	let finalDecisionLabel = toDecisionLabel(finalDecisionScore)
+	let finalDecisionLabel = toDecisionLabel(finalDecisionScore, row)
 	const sitReason = buildSitReason(row, contextEdge, marketEdge, riskEdge, finalDecisionScore)
 	if (sitReason || externalInfluence.forceSit) finalDecisionLabel = "sit"
 
