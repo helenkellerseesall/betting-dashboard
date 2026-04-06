@@ -33,14 +33,29 @@ function resolvePrimarySignal(signals) {
 return [...safeSignals].sort((a, b) => rankSignal(a) - rankSignal(b))[0]
 }
 
+function resolveBestInformativeSignal(signals, fieldName, disallowedValues = []) {
+	const safeSignals = Array.isArray(signals) ? signals : []
+	const disallowed = new Set(disallowedValues.map((v) => String(v || "").toLowerCase()))
+
+	const informativeSignals = safeSignals.filter((signal) => {
+		const value = String(signal?.[fieldName] || "").toLowerCase()
+		return value && !disallowed.has(value)
+	})
+
+	if (informativeSignals.length === 0) return null
+	return [...informativeSignals].sort((a, b) => rankSignal(a) - rankSignal(b))[0]
+}
+
 function buildExternalEdgeOverlay(row = {}, externalInput) {
 	const normalizedSignals = normalizeIncomingSignals(externalInput)
 	const primary = resolvePrimarySignal(normalizedSignals)
+	const availabilitySignal = resolveBestInformativeSignal(normalizedSignals, "availabilityStatus", ["unknown", "not-influenced"])
+	const starterSignal = resolveBestInformativeSignal(normalizedSignals, "starterStatus", ["unknown", "not-influenced"])
 
-	const availabilityStatus = primary?.availabilityStatus || "unknown"
-	const starterStatus = primary?.starterStatus || "unknown"
+	const availabilityStatus = availabilitySignal?.availabilityStatus || primary?.availabilityStatus || "unknown"
+	const starterStatus = starterSignal?.starterStatus || primary?.starterStatus || "unknown"
 	const marketValidity = primary?.marketValidity || "unknown"
-	const contextTag = primary?.contextTag || "context-neutral"
+	const contextTag = availabilitySignal?.contextTag || starterSignal?.contextTag || primary?.contextTag || "context-neutral"
 
 	let overlayDelta = 0
 	let externalSitFlag = false

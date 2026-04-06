@@ -23,6 +23,7 @@ const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
+const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -8547,6 +8548,42 @@ app.get("/api/best-available", (req, res) => {
     const ingestedNbaOfficialRows = nbaOfficialRuntimeInput
       ? ingestNbaOfficialInjuryReport(nbaOfficialRuntimeInput)
       : []
+    const rotoWireRuntimeInputCandidates = [
+      oddsSnapshot?.rotoWireSignals,
+      oddsSnapshot?.rotoWireStatus,
+      oddsSnapshot?.rotoWireLineups,
+      oddsSnapshot?.injuryReports?.rotoWire,
+      oddsSnapshot?.externalSignals?.rotoWire,
+      oddsSnapshot?.sourceFeeds?.rotoWire
+    ]
+    const rotoWireRuntimeFilePath = path.join(__dirname, "runtime_inputs", "rotowire_signals.json")
+    let rotoWireRuntimeFileChecked = true
+    let rotoWireRuntimeFileExists = false
+    let rotoWireRuntimeFileRows = 0
+    let rotoWireRuntimeFileInput = null
+
+    try {
+      rotoWireRuntimeFileExists = fs.existsSync(rotoWireRuntimeFilePath)
+      if (rotoWireRuntimeFileExists) {
+        const rawFile = fs.readFileSync(rotoWireRuntimeFilePath, "utf-8")
+        const parsedFile = JSON.parse(rawFile)
+        if (Array.isArray(parsedFile) ? parsedFile.length > 0 : Boolean(parsedFile && typeof parsedFile === "object")) {
+          rotoWireRuntimeFileInput = parsedFile
+        }
+      }
+    } catch (_) {
+      rotoWireRuntimeFileInput = null
+    }
+
+    const rotoWireRuntimeInput = rotoWireRuntimeInputCandidates.find((value) => {
+      if (Array.isArray(value)) return value.length > 0
+      return Boolean(value && typeof value === "object")
+    }) || rotoWireRuntimeFileInput || null
+    const rotoWireRuntimeInputRows = countRuntimeInputRows(rotoWireRuntimeInput)
+    rotoWireRuntimeFileRows = countRuntimeInputRows(rotoWireRuntimeFileInput)
+    const ingestedRotoWireRows = rotoWireRuntimeInput
+      ? ingestRotoWireSignals(rotoWireRuntimeInput)
+      : []
 
     let rowsWithStatusEvidence = 0
     let adaptedSignalsCreated = 0
@@ -8554,6 +8591,10 @@ app.get("/api/best-available", (req, res) => {
     let adaptedSignalsWithStarter = 0
     let nbaOfficialSignalsWithAvailability = 0
     let nbaOfficialSignalsMerged = 0
+    let rotoWireSignalsWithAvailability = 0
+    let rotoWireSignalsWithStarter = 0
+    let rotoWireSignalsMerged = 0
+    let rotoWireRuntimeFileSignalsMerged = 0
 
     for (const ingested of ingestedNbaOfficialRows) {
       if (!ingested?.playerKey) continue
@@ -8577,6 +8618,36 @@ app.get("/api/best-available", (req, res) => {
       if (!existing || Number(candidateSignal.__evidenceScore) > Number(existing.__evidenceScore || 0)) {
         signalMap.set(ingested.playerKey, candidateSignal)
         nbaOfficialSignalsMerged += 1
+      }
+    }
+
+    for (const ingested of ingestedRotoWireRows) {
+      if (!ingested?.playerKey) continue
+
+      const hasAvailabilityEvidence = ingested.availabilityStatus && ingested.availabilityStatus !== "unknown"
+      const hasStarterEvidence = ingested.starterStatus && ingested.starterStatus !== "unknown"
+      if (hasAvailabilityEvidence) rotoWireSignalsWithAvailability += 1
+      if (hasStarterEvidence) rotoWireSignalsWithStarter += 1
+
+      const candidateSignal = {
+        sourceName: ingested.sourceName || "rotowire",
+        availabilityStatus: hasAvailabilityEvidence ? ingested.availabilityStatus : null,
+        starterStatus: hasStarterEvidence ? ingested.starterStatus : null,
+        contextTag: ingested.contextTag || null,
+        __runtimeLocalSourceName: ingested.sourceName || "rotowire",
+        __hasAvailabilityEvidence: Boolean(hasAvailabilityEvidence),
+        __hasStarterEvidence: Boolean(hasStarterEvidence),
+        __adapterFed: true,
+        __evidenceScore: (hasAvailabilityEvidence ? 2 : 0) + (hasStarterEvidence ? 2 : 0)
+      }
+
+      const existing = signalMap.get(ingested.playerKey)
+      if (!existing || Number(candidateSignal.__evidenceScore) > Number(existing.__evidenceScore || 0)) {
+        signalMap.set(ingested.playerKey, candidateSignal)
+        rotoWireSignalsMerged += 1
+        if (rotoWireRuntimeFileInput && !rotoWireRuntimeInputCandidates.some((value) => value === rotoWireRuntimeInput)) {
+          rotoWireRuntimeFileSignalsMerged += 1
+        }
       }
     }
 
@@ -8643,6 +8714,17 @@ app.get("/api/best-available", (req, res) => {
         phase2bNbaOfficialSignalsWithAvailability: nbaOfficialSignalsWithAvailability,
         phase2bNbaOfficialSignalsMerged: nbaOfficialSignalsMerged,
         phase2bNbaOfficialRuntimeInputMissing: !nbaOfficialRuntimeInput,
+        phase2bRotoWireRuntimeInputAvailable: Boolean(rotoWireRuntimeInput),
+        phase2bRotoWireRuntimeInputRows: rotoWireRuntimeInputRows,
+        phase2bRotoWireIngestedRows: ingestedRotoWireRows.length,
+        phase2bRotoWireSignalsWithAvailability: rotoWireSignalsWithAvailability,
+        phase2bRotoWireSignalsWithStarter: rotoWireSignalsWithStarter,
+        phase2bRotoWireSignalsMerged: rotoWireSignalsMerged,
+        phase2bRotoWireRuntimeInputMissing: !rotoWireRuntimeInput,
+        phase2bRotoWireRuntimeFileChecked: rotoWireRuntimeFileChecked,
+        phase2bRotoWireRuntimeFileExists: rotoWireRuntimeFileExists,
+        phase2bRotoWireRuntimeFileRows: rotoWireRuntimeFileRows,
+        phase2bRotoWireRuntimeFileSignalsMerged: rotoWireRuntimeFileSignalsMerged,
         phase2bExternalIngestionRowsScanned: sourceRows.length,
         phase2bExternalIngestionRowsWithStatusEvidence: rowsWithStatusEvidence,
         phase2bExternalIngestionSignalsAdapted: adaptedSignalsCreated,
