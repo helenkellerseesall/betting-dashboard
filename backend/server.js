@@ -8578,6 +8578,10 @@ app.get("/api/best-available", (req, res) => {
 
     const strictPhaseOut = strictPass()
     const filled = fallbackFill(strictPhaseOut)
+    const surfacedEligible = filled.filter((row) => {
+      const playDecision = String(row?.playDecision || "").toLowerCase()
+      return !playDecision.includes("avoid") && !playDecision.includes("fade")
+    })
 
     // Final gate: same definition as the smoke test so the check here = what the test sees
     const isSurfacedSpecialRow = (row) => {
@@ -8603,8 +8607,8 @@ app.get("/api/best-available", (req, res) => {
     }
 
     // Separate and rebuild so specials cannot occupy rank 1 or exceed 1 in top 3
-    const corePool = filled.filter((row) => !isSurfacedSpecialRow(row))
-    const specialPool = filled.filter((row) => isSurfacedSpecialRow(row))
+  const corePool = surfacedEligible.filter((row) => !isSurfacedSpecialRow(row))
+  const specialPool = surfacedEligible.filter((row) => isSurfacedSpecialRow(row))
     const rebuilt = []
     let cIdx = 0
     let sIdx = 0
@@ -19078,7 +19082,13 @@ oddsSnapshot.slateStateValidator = {
   tomorrowPropsPartiallyPosted: chosenSlateDateKey === tomorrowDateKey ? chosenPropsPartiallyPosted : false,
   slateState,
   chosenEventsWithPropsCount,
-  chosenEventCount
+  chosenEventCount,
+  rolloverApplied: chosenSlateDateKey !== todayDateKey,
+  nextDateKeyConsidered: tomorrowDateKey,
+  nextPregameGameCount: tomorrowEvents.filter(e => {
+    const t = new Date(getEventTime(e)).getTime()
+    return Number.isFinite(t) && t > slateNow
+  }).length
 }
 console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   path: "refresh-snapshot",

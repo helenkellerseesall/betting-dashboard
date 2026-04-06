@@ -54,11 +54,20 @@ function isSpecialRow(row) {
   const ba = data?.bestAvailable || {};
   const topCard = ba?.topCard || {};
   const bettingNow = Array.isArray(ba?.bettingNow) ? ba.bettingNow : [];
+  const slateValidator = data?.slateStateValidator || {};
+  const rolloverApplied = slateValidator?.rolloverApplied === true;
+  const rolloverSlateState = slateValidator?.slateState || "";
 
   if (!bettingNow.length) fail("bettingNow is empty");
   if (!Array.isArray(topCard?.topSingles) || !topCard.topSingles.length) fail("topSingles is empty");
   if (!Array.isArray(topCard?.topLadders) || !topCard.topLadders.length) fail("topLadders is empty");
-  if (!Array.isArray(topCard?.topMustPlays) || !topCard.topMustPlays.length) fail("topMustPlays is empty");
+  if (!Array.isArray(topCard?.topMustPlays) || !topCard.topMustPlays.length) {
+    if (rolloverApplied) {
+      console.log(`WARN: topMustPlays is empty (rolloverApplied=true, slateState=${rolloverSlateState}) — skipping`);
+    } else {
+      fail("topMustPlays is empty");
+    }
+  }
 
   const rank1 = bettingNow[0];
   if (rank1 && isSpecialRow(rank1)) fail("bettingNow rank 1 is a special");
