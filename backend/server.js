@@ -8789,6 +8789,70 @@ app.get("/api/best-available", (req, res) => {
     return safeRows
   }
 
+  const classifySpecialType = (row) => {
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propType = String(row?.propType || "").trim()
+    
+    if (marketKey === "player_first_basket" || /first\s*basket/i.test(propType)) return "firstBasket"
+    if (marketKey === "player_first_team_basket" || /first\s*team\s*basket/i.test(propType)) return "firstTeamBasket"
+    if (/triple\s*double/i.test(propType)) return "tripleDouble"
+    if (/double\s*double/i.test(propType)) return "doubleDouble"
+    return "otherSpecials"
+  }
+
+  const buildSpecialsAudit = (rows) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    
+    const groups = {
+      firstBasket: [],
+      firstTeamBasket: [],
+      doubleDouble: [],
+      tripleDouble: [],
+      otherSpecials: []
+    }
+    
+    const countsByType = {
+      firstBasket: 0,
+      firstTeamBasket: 0,
+      doubleDouble: 0,
+      tripleDouble: 0,
+      otherSpecials: 0
+    }
+    
+    for (const row of safeRows) {
+      const specialType = classifySpecialType(row)
+      groups[specialType].push({
+        player: row?.player || null,
+        matchup: row?.matchup || null,
+        marketKey: row?.marketKey || null,
+        propType: row?.propType || null,
+        odds: Number(row?.odds ?? 0) || null,
+        hitRatePct: Number(row?.hitRatePct),
+        confidenceTier: row?.confidenceTier || null,
+        playDecision: row?.playDecision || null,
+        decisionSummary: row?.decisionSummary || null,
+        sourceLane: row?.sourceLane || null,
+        whySynopsis: row?.whySynopsis || null
+      })
+      countsByType[specialType]++
+    }
+    
+    return {
+      totalCandidates: safeRows.length,
+      countsByType,
+      groupedByType: {
+        firstBasket: groups.firstBasket,
+        firstTeamBasket: groups.firstTeamBasket,
+        doubleDouble: groups.doubleDouble,
+        tripleDouble: groups.tripleDouble,
+        otherSpecials: groups.otherSpecials
+      },
+      surfacedBestSpecialsCount: Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.length : 0
+    }
+  }
+
+  const specialsAudit = buildSpecialsAudit(specialBoard)
+
   const buildTopCardView = () => {
     const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
     const filteredTopSpecials = filterTopSpecialsForWeakness(tonightsBestSpecials)
@@ -8837,7 +8901,8 @@ app.get("/api/best-available", (req, res) => {
           mustPlayCandidates: mustPlayCandidates.length
         },
         evaluation: tonightsPlaysEvaluation
-      }
+      },
+      specialsAudit: specialsAudit
     },
     ladderPool,
     routePlayableSeed: routePlayableSeed,

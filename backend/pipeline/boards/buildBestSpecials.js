@@ -50,12 +50,29 @@ function buildBestSpecials({
     return normalizeLower(row?.propType)
   }
 
-  const preferredSpecialRows = (Array.isArray(featuredSpecials) ? featuredSpecials : []).filter(Boolean)
+  const isWeakQualitySpecial = (row) => {
+    const decision = String(row?.playDecision || "").toLowerCase()
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    const hitRate = Number(row?.hitRatePct)
+    const marketKey = String(row?.marketKey || "")
+    const propType = String(row?.propType || "")
+    const isTripleDouble = marketKey === "player_triple_double" || propType === "Triple Double"
+    
+    if (decision.includes("avoid") || decision.includes("fade")) return true
+    if (tier.includes("special-thin")) return true
+    if (Number.isFinite(hitRate) && isTripleDouble && hitRate < 35) return true
+    if (Number.isFinite(hitRate) && !isTripleDouble && hitRate < 40) return true
+    return false
+  }
+
+  const preferredSpecialRows = (Array.isArray(featuredSpecials) ? featuredSpecials : []).filter((row) => !isWeakQualitySpecial(row))
   const liveSpecialPoolRows = (Array.isArray(liveSpecialRows) ? liveSpecialRows : []).filter(Boolean)
   const mergedSpecialRows = []
   const seenMergedLegKeys = new Set()
 
-  for (const row of [...preferredSpecialRows, ...liveSpecialPoolRows]) {
+  const filteredLiveSpecialPoolRows = liveSpecialPoolRows.filter((row) => !isWeakQualitySpecial(row))
+  
+  for (const row of [...preferredSpecialRows, ...filteredLiveSpecialPoolRows]) {
     const legKey = buildRowLegKey(row)
     if (seenMergedLegKeys.has(legKey)) continue
     seenMergedLegKeys.add(legKey)
