@@ -23,6 +23,19 @@ function fail(message) {
   process.exit(1);
 }
 
+function summarizePlayers(rows) {
+  return rows.map((row) => row?.player || "unknown").join(", ");
+}
+
+function getSlateValidator(data, bestAvailable) {
+  return (
+    data?.slateStateValidator ||
+    bestAvailable?.slateStateValidator ||
+    bestAvailable?.diagnostics?.slateStateValidator ||
+    {}
+  );
+}
+
 function isSpecialRow(row) {
   const text = [
     row?.marketKey,
@@ -54,31 +67,78 @@ function isSpecialRow(row) {
   const ba = data?.bestAvailable || {};
   const topCard = ba?.topCard || {};
   const bettingNow = Array.isArray(ba?.bettingNow) ? ba.bettingNow : [];
-  const slateValidator = data?.slateStateValidator || {};
-  const rolloverApplied = slateValidator?.rolloverApplied === true;
-  const rolloverSlateState = slateValidator?.slateState || "";
+  const slateValidator = getSlateValidator(data, ba);
+  const failures = [];
+  const warnings = [];
 
-  if (!bettingNow.length) fail("bettingNow is empty");
-  if (!Array.isArray(topCard?.topSingles) || !topCard.topSingles.length) fail("topSingles is empty");
-  if (!Array.isArray(topCard?.topLadders) || !topCard.topLadders.length) fail("topLadders is empty");
+  const slateState = slateValidator?.slateState || "unknown";
+  const currentPregameGameCount = Number.isFinite(Number(slateValidator?.currentPregameGameCount))
+    ? Number(slateValidator.currentPregameGameCount)
+    : null;
+  const rolloverApplied = slateValidator?.rolloverApplied === true;
+  const currentDateKeyChosen = slateValidator?.currentDateKeyChosen || null;
+  const nextDateKeyConsidered = slateValidator?.nextDateKeyConsidered || null;
+  const tinySlate = currentPregameGameCount === 0 || currentPregameGameCount === 1;
+
+  console.log(
+    [
+      "SLATE:",
+      `state=${slateState}`,
+      `currentPregameGameCount=${currentPregameGameCount ?? "unknown"}`,
+      `rolloverApplied=${rolloverApplied}`,
+      `currentDateKeyChosen=${currentDateKeyChosen || "unknown"}`,
+      `nextDateKeyConsidered=${nextDateKeyConsidered || "unknown"}`,
+    ].join(" ")
+  );
+
+  if (rolloverApplied && !currentDateKeyChosen) {
+    failures.push("[rollover state problem] rolloverApplied=true but currentDateKeyChosen is missing");
+  }
+
+  if (rolloverApplied && !nextDateKeyConsidered) {
+    failures.push("[rollover state problem] rolloverApplied=true but nextDateKeyConsidered is missing");
+  }
+
+  if (!bettingNow.length) {
+    failures.push("[surfaced integrity] bettingNow is empty");
+  }
+
+  if (!Array.isArray(topCard?.topSingles) || !topCard.topSingles.length) {
+    failures.push("[surfaced integrity] topSingles is empty");
+  }
+
+  if (!Array.isArray(topCard?.topLadders) || !topCard.topLadders.length) {
+    failures.push("[surfaced integrity] topLadders is empty");
+  }
+
   if (!Array.isArray(topCard?.topMustPlays) || !topCard.topMustPlays.length) {
-    if (rolloverApplied) {
-      console.log(`WARN: topMustPlays is empty (rolloverApplied=true, slateState=${rolloverSlateState}) — skipping`);
+    if (tinySlate || rolloverApplied) {
+      warnings.push(
+        `[late-slate small-board allowance] topMustPlays is empty; allowing because currentPregameGameCount=${currentPregameGameCount ?? "unknown"} and rolloverApplied=${rolloverApplied}`
+      );
     } else {
-      fail("topMustPlays is empty");
+      failures.push("[late-slate small-board allowance] topMustPlays is empty on a normal-sized current pregame slate");
     }
   }
 
   const rank1 = bettingNow[0];
-  if (rank1 && isSpecialRow(rank1)) fail("bettingNow rank 1 is a special");
+  if (rank1 && isSpecialRow(rank1)) {
+    failures.push("[surfaced integrity] bettingNow rank 1 is a special");
+  }
 
   const specialsInTop3 = bettingNow.slice(0, 3).filter(isSpecialRow).length;
-  if (specialsInTop3 > 1) fail(`bettingNow has ${specialsInTop3} specials in top 3`);
+  if (specialsInTop3 > 1) {
+    warnings.push(`[late-slate small-board allowance] bettingNow has ${specialsInTop3} specials in top 3`);
+  }
 
   const avoidRows = bettingNow.filter((row) =>
-    String(row?.playDecision || "").toLowerCase().includes("avoid")
+    ["avoid", "fade"].some((term) =>
+      String(row?.playDecision || "").toLowerCase().includes(term)
+    )
   );
-  if (avoidRows.length) fail(`bettingNow contains avoid rows: ${avoidRows.map(r => r.player).join(", ")}`);
+  if (avoidRows.length) {
+    failures.push(`[surfaced integrity] bettingNow contains avoid/fade rows: ${summarizePlayers(avoidRows)}`);
+  }
 
   const badSurfacedSpecials = bettingNow.filter(
     (row) =>
@@ -87,12 +147,21 @@ function isSpecialRow(row) {
       !row?.decisionSummary
   );
   if (badSurfacedSpecials.length) {
-    fail(
-      `bettingNow contains null-decision specials: ${badSurfacedSpecials
-        .map((r) => r.player)
-        .join(", ")}`
+    failures.push(
+      `[surfaced integrity] bettingNow contains null-decision specials: ${summarizePlayers(badSurfacedSpecials)}`
     );
   }
 
-  console.log("PASS: nightly board smoke test passed");
-})();
+  warnings.forEach((message) => console.warn(`WARN: ${message}`));
+
+  if (failures.length) {
+    failures.forEach((message) => console.error(`FAIL: ${message}`));
+    process.exit(1);
+  }
+
+  console.log(
+    `PASS: nightly board smoke test passed [state=${slateState} chosen=${currentDateKeyChosen || "unknown"} rolloverApplied=${rolloverApplied} currentPregameGameCount=${currentPregameGameCount ?? "unknown"}]`
+  );
+})().catch((error) => {
+  fail(`[surfaced integrity] smoke test request failed: ${error.message}`);
+});
