@@ -8945,9 +8945,13 @@ app.get("/api/best-available", (req, res) => {
   }
 
   let finalBettingNowNullDecisionSpecialsFiltered = 0
+  let finalDecisionCalibratorPromotedStrong = 0
+  let finalDecisionCalibratorPromotedMust = 0
 
   const buildBettingNowView = () => {
     finalBettingNowNullDecisionSpecialsFiltered = 0
+    finalDecisionCalibratorPromotedStrong = 0
+    finalDecisionCalibratorPromotedMust = 0
     const candidatePools = [
       { rows: mustPlayCandidates, getLane: (r) => r?.mustPlaySourceLane || "unknown", limit: 6 },
       { rows: tonightsBestSingles, getLane: () => "bestSingles", limit: 4 },
@@ -9103,13 +9107,94 @@ app.get("/api/best-available", (req, res) => {
       rebuilt.push(nextCore); cIdx++
     }
 
-    // Remove internal field and re-assign sequential rank
-    return rebuilt.map(({ _matchupKey, rank: _r, ...row }, idx) => ({ ...row, rank: idx + 1 }))
+    const orderedRows = rebuilt.map(({ _matchupKey, rank: _r, ...row }, idx) => ({ ...row, rank: idx + 1 }))
+
+    // Final post-ranking calibrator for surfaced bettingNow rows only.
+    // Keeps order fixed and only adjusts decision labels/buckets conservatively for core rows.
+    let promotedMustUsed = false
+    return orderedRows.map((row, idx) => {
+      const isSpecial = isSurfacedSpecialRow(row)
+      if (isSpecial) return row
+
+      const currentLabel = String(row?.finalDecisionLabel || "").toLowerCase()
+      if (currentLabel === "sit" || currentLabel === "must-play") return row
+
+      const hasSitReason = Boolean(String(row?.sitReason || "").trim())
+      if (hasSitReason) return row
+
+      const availability = String(row?.availabilityStatus || "").toLowerCase()
+      if (availability === "out" || availability === "doubtful") return row
+
+      const score = Number(row?.finalDecisionScore)
+      if (!Number.isFinite(score)) return row
+
+      const starterStatus = String(row?.starterStatus || "").toLowerCase()
+      const externalEdgeLabel = String(row?.externalEdgeLabel || "").toLowerCase()
+      const contextSummary = String(row?.supportEdge?.contextSummary || "").toLowerCase()
+      const marketSummary = String(row?.marketEdge?.marketSummary || "").toLowerCase()
+      const riskSummary = String(row?.riskEdge?.riskSummary || "").toLowerCase()
+      const contextEdgeScore = Number(row?.supportEdge?.contextEdgeScore)
+
+      let supportSignals = 0
+      if (starterStatus === "starter") supportSignals += 1
+      if (externalEdgeLabel.includes("upgrade")) supportSignals += 1
+      if (contextSummary === "strong-support" || (Number.isFinite(contextEdgeScore) && contextEdgeScore >= 78)) supportSignals += 1
+      if (contextSummary === "viable-support") supportSignals += 1
+      if (marketSummary !== "market-adverse") supportSignals += 1
+      if (riskSummary !== "risk-fragile") supportSignals += 1
+
+      const isTopCoreSlot = idx < 4
+      const strongEligible =
+        isTopCoreSlot &&
+        score >= 49 &&
+        riskSummary !== "risk-fragile" &&
+        supportSignals >= 3 &&
+        currentLabel === "playable"
+
+      if (!strongEligible && currentLabel !== "strong-play") return row
+
+      let nextLabel = currentLabel
+      if (strongEligible) {
+        nextLabel = "strong-play"
+        finalDecisionCalibratorPromotedStrong += 1
+      }
+
+      const mustEligible =
+        !promotedMustUsed &&
+        idx < 2 &&
+        nextLabel === "strong-play" &&
+        score >= 66 &&
+        supportSignals >= 5 &&
+        availability !== "questionable"
+
+      if (mustEligible) {
+        nextLabel = "must-play"
+        promotedMustUsed = true
+        finalDecisionCalibratorPromotedMust += 1
+      }
+
+      const nextBucket =
+        nextLabel === "must-play" ? "must-play"
+        : nextLabel === "strong-play" ? "strong-play"
+        : nextLabel === "playable" ? "playable"
+        : nextLabel === "special-only" ? "special-only"
+        : "sit"
+
+      return {
+        ...row,
+        finalDecisionLabel: nextLabel,
+        decisionBucket: nextBucket
+      }
+    })
   }
 
   const bettingNow = buildBettingNowView()
   mergedBestAvailableDiagnostics.finalBettingNowNullDecisionSpecialsFiltered = finalBettingNowNullDecisionSpecialsFiltered
+  mergedBestAvailableDiagnostics.finalDecisionCalibratorPromotedStrong = finalDecisionCalibratorPromotedStrong
+  mergedBestAvailableDiagnostics.finalDecisionCalibratorPromotedMust = finalDecisionCalibratorPromotedMust
   mergedBestAvailablePoolDiagnostics.finalBettingNowNullDecisionSpecialsFiltered = finalBettingNowNullDecisionSpecialsFiltered
+  mergedBestAvailablePoolDiagnostics.finalDecisionCalibratorPromotedStrong = finalDecisionCalibratorPromotedStrong
+  mergedBestAvailablePoolDiagnostics.finalDecisionCalibratorPromotedMust = finalDecisionCalibratorPromotedMust
 
   const buildSlateBoardView = () => {
     const lanePools = [

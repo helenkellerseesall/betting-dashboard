@@ -21,10 +21,20 @@ function isSpecialStyleRow(row = {}) {
 }
 
 function toDecisionLabel(score, row = {}) {
-	if (score >= 80) return "must-play"
-	if (score >= 68) return "strong-play"
+	const availabilityStatus = String(row.availabilityStatus || "").toLowerCase()
+	const isNegativeAvailability = availabilityStatus === "questionable" || availabilityStatus === "doubtful" || availabilityStatus === "out"
+	const isSpecialStyle = isSpecialStyleRow(row)
+
+	if (score >= 82) return "must-play"
+	if (score >= 70) return "strong-play"
+
+	// Core rows at 62+ are strong-play — external fields are not on raw rows at this call site,
+	// so promotion must be score-driven. We only block if availability is explicitly negative
+	// (field is present on raw row in some enriched paths).
+	if (!isSpecialStyle && score >= 62 && !isNegativeAvailability) return "strong-play"
+
 	if (score >= 54) return "playable"
-	if (score >= 42) return isSpecialStyleRow(row) ? "special-only" : "playable"
+	if (score >= 42) return isSpecialStyle ? "special-only" : "playable"
 	return "sit"
 }
 
@@ -131,6 +141,53 @@ function buildDecisionLayer(row = {}) {
 	let finalDecisionLabel = toDecisionLabel(finalDecisionScore, row)
 	const sitReason = buildSitReason(row, contextEdge, marketEdge, riskEdge, finalDecisionScore)
 	if (sitReason || externalInfluence.forceSit) finalDecisionLabel = "sit"
+
+	// Final promotion override for surfaced core rows.
+	// Applied after sit checks so it cannot override a sit, but can override playable.
+	const _availNorm = String(row.availabilityStatus || "").toLowerCase()
+	const _starterNorm = String(row.starterStatus || "").toLowerCase()
+	const _externalLabelNorm = String(row.externalEdgeLabel || "").toLowerCase()
+	const _isDisallowedAvail = _availNorm === "out" || _availNorm === "doubtful"
+	const _isStarter = _starterNorm === "starter"
+	const _hasExternalUpgrade = _externalLabelNorm.includes("upgrade")
+	const _hasStrongContext = contextEdge.contextSummary === "strong-support" || contextEdge.contextEdgeScore >= 78
+	const _hasViableContext = contextEdge.contextSummary === "viable-support" || contextEdge.contextEdgeScore >= 62
+	const _marketNotAdverse = marketEdge.marketSummary !== "market-adverse"
+	const _riskNotFragile = riskEdge.riskSummary !== "risk-fragile"
+	let _supportSignals = 0
+	if (_isStarter) _supportSignals += 1
+	if (_hasExternalUpgrade) _supportSignals += 1
+	if (_hasStrongContext) _supportSignals += 1
+	if (_hasViableContext) _supportSignals += 1
+	if (_marketNotAdverse) _supportSignals += 1
+	if (_riskNotFragile) _supportSignals += 1
+	if (
+		finalDecisionLabel !== "must-play" &&
+		finalDecisionLabel !== "sit" &&
+		!isSpecialStyleRow(row) &&
+		!_isDisallowedAvail
+	) {
+		const _hasStableBase = _riskNotFragile && _hasViableContext
+
+		if (
+			_hasStableBase &&
+			(
+				(finalDecisionScore >= 54 && _supportSignals >= 2) ||
+				(finalDecisionScore >= 49 && _supportSignals >= 3)
+			)
+		) {
+			finalDecisionLabel = "strong-play"
+		}
+
+		if (
+			finalDecisionScore >= 62 &&
+			_isStarter &&
+			_hasExternalUpgrade &&
+			_riskNotFragile
+		) {
+			finalDecisionLabel = "strong-play"
+		}
+	}
 
 	return {
 		finalDecisionScore: clamp(finalDecisionScore, 0, 100),
