@@ -9124,6 +9124,7 @@ app.get("/api/best-available", (req, res) => {
 
       const availability = String(row?.availabilityStatus || "").toLowerCase()
       if (availability === "out" || availability === "doubtful") return row
+      const isQuestionable = availability === "questionable"
 
       const score = Number(row?.finalDecisionScore)
       if (!Number.isFinite(score)) return row
@@ -9144,11 +9145,22 @@ app.get("/api/best-available", (req, res) => {
       if (riskSummary !== "risk-fragile") supportSignals += 1
 
       const isTopCoreSlot = idx < 4
+      const questionableExceptionalEligible =
+        isQuestionable &&
+        isTopCoreSlot &&
+        score >= 62 &&
+        supportSignals >= 5 &&
+        starterStatus === "starter" &&
+        externalEdgeLabel.includes("upgrade") &&
+        (contextSummary === "strong-support" || (Number.isFinite(contextEdgeScore) && contextEdgeScore >= 82)) &&
+        marketSummary !== "market-adverse" &&
+        riskSummary !== "risk-fragile"
+
       const strongEligible =
         isTopCoreSlot &&
-        score >= 49 &&
+        ((isQuestionable && questionableExceptionalEligible) || (!isQuestionable && score >= 49)) &&
         riskSummary !== "risk-fragile" &&
-        supportSignals >= 3 &&
+        supportSignals >= (isQuestionable ? 5 : 3) &&
         currentLabel === "playable"
 
       if (!strongEligible && currentLabel !== "strong-play") return row
