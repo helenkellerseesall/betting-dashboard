@@ -8443,12 +8443,42 @@ app.get("/api/best-available", (req, res) => {
     return parts.length ? parts.join(" | ") : null
   }
 
+  const buildRuntimeExternalSignalInput = (row, extra = {}) => {
+    const sourceLane = extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
+    const playerStatus = row?.playerStatus || row?.status || row?.availabilityStatus || row?.injuryStatus || null
+    const starterStatus = row?.starterStatus || row?.lineupStatus || row?.startingStatus || row?.startingRole || null
+    const normalizedPlayerStatus = normalizePlayerStatusValue(playerStatus)
+    const normalizedStarterStatus = normalizePlayerStatusValue(starterStatus)
+    const book = String(row?.book || "")
+    const isCurrentSurfacedMarket = Boolean(
+      row &&
+      (sourceLane || row?.marketKey || row?.propType) &&
+      row?.odds != null &&
+      row?.line != null
+    )
+
+    let contextTag = row?.contextTag || row?.mustPlayContextTag || null
+    if (!contextTag && (normalizedStarterStatus.includes("starter") || normalizedStarterStatus.includes("starting"))) {
+      contextTag = "starter confirmed"
+    } else if (!contextTag && isCurrentSurfacedMarket) {
+      contextTag = "market live"
+    }
+
+    return {
+      sourceName: book === "DraftKings" ? "draftkings_live_board" : null,
+      availabilityStatus: normalizedPlayerStatus || null,
+      starterStatus: normalizedStarterStatus || null,
+      marketValidity: isCurrentSurfacedMarket ? "valid" : null,
+      contextTag
+    }
+  }
+
   const buildReadableSurfaceRow = (row, extra = {}) => {
-    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || null
     const decisionLayerInput = {
       ...row,
       sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
     }
+    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || buildRuntimeExternalSignalInput(row, extra)
     const decisionLayer = buildDecisionLayer(decisionLayerInput)
     const externalOverlay = buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput)
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
@@ -8996,7 +9026,7 @@ app.get("/api/best-available", (req, res) => {
   mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
   const surfacedBestSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).map((row) => {
-    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || null
+    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || buildRuntimeExternalSignalInput(row, { sourceLane: row?.sourceLane || "bestSpecials" })
     const decisionLayer = buildDecisionLayer({
       ...row,
       sourceLane: row?.sourceLane || "bestSpecials"
