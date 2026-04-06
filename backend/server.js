@@ -21,6 +21,7 @@ const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoa
 const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
 const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
+const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -8443,12 +8444,47 @@ app.get("/api/best-available", (req, res) => {
     return parts.length ? parts.join(" | ") : null
   }
 
+  const normalizeRuntimeAvailabilityStatus = (row) => {
+    const rawStatus = row?.availabilityStatus || row?.playerStatus || row?.status || row?.injuryStatus || ""
+    const normalized = normalizePlayerStatusValue(rawStatus)
+
+    if (!normalized) return null
+    if (normalized.includes("out") || normalized.includes("inactive") || normalized.includes("suspended") || normalized.includes("not with team") || normalized.includes("dnp")) return "out"
+    if (normalized.includes("questionable") || normalized.includes("game time") || normalized.includes("gtd")) return "questionable"
+    if (normalized.includes("doubtful")) return "doubtful"
+    if (normalized.includes("probable") || normalized.includes("returning") || normalized.includes("minutes") || normalized.includes("limited")) return "probable"
+    if (normalized.includes("available") || normalized.includes("active") || normalized.includes("cleared") || normalized.includes("healthy")) return "active"
+    return null
+  }
+
+  const normalizeRuntimeStarterStatus = (row) => {
+    const rawStarter = row?.starterStatus || row?.lineupStatus || row?.startingStatus || row?.startingRole || row?.roleTag || ""
+    const normalizedStarter = normalizePlayerStatusValue(rawStarter)
+    const normalizedContext = normalizePlayerStatusValue(row?.contextTag || row?.mustPlayContextTag || "")
+
+    if (!normalizedStarter && !normalizedContext) return null
+    if (normalizedStarter.includes("starter") || normalizedStarter.includes("starting") || normalizedStarter.includes("first unit")) return "starter"
+    if (normalizedStarter.includes("bench") || normalizedStarter.includes("reserve") || normalizedStarter.includes("non starter") || normalizedStarter.includes("second unit")) return "bench"
+    if (normalizedContext.includes("starter") || normalizedContext.includes("starting")) return "starter"
+    return null
+  }
+
+  const buildRuntimeExternalContextTag = (row, availabilityStatus, starterStatus, marketValidity) => {
+    const rawContext = normalizePlayerStatusValue(row?.contextTag || row?.mustPlayContextTag || row?.statusTag || "")
+
+    if (availabilityStatus === "out") return "player out"
+    if (availabilityStatus === "questionable" || availabilityStatus === "doubtful") return "questionable status"
+    if (starterStatus === "starter") return "starter confirmed"
+    if (starterStatus === "bench") return "bench role"
+    if (rawContext.includes("context strong")) return "positive role context"
+    if (rawContext.includes("context viable")) return "role holding"
+    if (rawContext.includes("context thin")) return "thin support"
+    if (marketValidity === "valid") return "market live"
+    return null
+  }
+
   const buildRuntimeExternalSignalInput = (row, extra = {}) => {
     const sourceLane = extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
-    const playerStatus = row?.playerStatus || row?.status || row?.availabilityStatus || row?.injuryStatus || null
-    const starterStatus = row?.starterStatus || row?.lineupStatus || row?.startingStatus || row?.startingRole || null
-    const normalizedPlayerStatus = normalizePlayerStatusValue(playerStatus)
-    const normalizedStarterStatus = normalizePlayerStatusValue(starterStatus)
     const book = String(row?.book || "")
     const isCurrentSurfacedMarket = Boolean(
       row &&
@@ -8456,20 +8492,161 @@ app.get("/api/best-available", (req, res) => {
       row?.odds != null &&
       row?.line != null
     )
+    const availabilityStatus = normalizeRuntimeAvailabilityStatus(row)
+    const starterStatus = normalizeRuntimeStarterStatus(row)
+    const marketValidity = isCurrentSurfacedMarket ? "valid" : null
+    const contextTag = buildRuntimeExternalContextTag(row, availabilityStatus, starterStatus, marketValidity)
+    const hasRuntimeStatusEvidence = Boolean(availabilityStatus || starterStatus)
+    const sourceName = book === "DraftKings" ? "draftkings_live_board" : null
 
-    let contextTag = row?.contextTag || row?.mustPlayContextTag || null
-    if (!contextTag && (normalizedStarterStatus.includes("starter") || normalizedStarterStatus.includes("starting"))) {
-      contextTag = "starter confirmed"
-    } else if (!contextTag && isCurrentSurfacedMarket) {
-      contextTag = "market live"
+    return {
+      sourceName,
+      availabilityStatus,
+      starterStatus,
+      marketValidity,
+      contextTag,
+      __runtimeLocalSourceName: hasRuntimeStatusEvidence ? "runtime_row_signal" : sourceName,
+      __hasAvailabilityEvidence: Boolean(availabilityStatus),
+      __hasStarterEvidence: Boolean(starterStatus)
+    }
+  }
+
+  const buildSourceLevelAvailabilitySignalMap = () => {
+    const sourceRows = [
+      ...(Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps : []),
+      ...(Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+    ]
+
+    const signalMap = new Map()
+    let rowsWithStatusEvidence = 0
+    let adaptedSignalsCreated = 0
+    let adaptedSignalsWithAvailability = 0
+    let adaptedSignalsWithStarter = 0
+
+    for (const row of sourceRows) {
+      if (!row?.player) continue
+
+      const rawAvailability = row?.availabilityStatus || row?.playerStatus || row?.status || row?.injuryStatus || null
+      const rawStarter = row?.starterStatus || row?.lineupStatus || row?.startingStatus || row?.startingRole || row?.roleTag || null
+      const rawContext = row?.contextTag || row?.mustPlayContextTag || row?.statusTag || null
+
+      if (!rawAvailability && !rawStarter) continue
+      rowsWithStatusEvidence += 1
+
+      const sourceHint =
+        row?.statusSource ||
+        row?.availabilitySource ||
+        row?.lineupSource ||
+        row?.newsSource ||
+        row?.sourceName ||
+        row?.source ||
+        row?.provider ||
+        "nba_official_injury_report"
+
+      const adaptedSignal = adaptAvailabilitySignal({
+        sourceName: sourceHint,
+        playerName: row.player,
+        status: rawAvailability,
+        starterStatus: rawStarter,
+        contextTag: rawContext
+      })
+
+      if (!adaptedSignal?.playerKey) continue
+      adaptedSignalsCreated += 1
+
+      const hasAvailabilityEvidence = adaptedSignal.availabilityStatus && adaptedSignal.availabilityStatus !== "unknown"
+      const hasStarterEvidence = adaptedSignal.starterStatus && adaptedSignal.starterStatus !== "unknown"
+      if (hasAvailabilityEvidence) adaptedSignalsWithAvailability += 1
+      if (hasStarterEvidence) adaptedSignalsWithStarter += 1
+
+      const candidateSignal = {
+        sourceName: adaptedSignal.sourceName,
+        availabilityStatus: hasAvailabilityEvidence ? adaptedSignal.availabilityStatus : null,
+        starterStatus: hasStarterEvidence ? adaptedSignal.starterStatus : null,
+        contextTag: adaptedSignal.contextTag || null,
+        __runtimeLocalSourceName: adaptedSignal.sourceName,
+        __hasAvailabilityEvidence: Boolean(hasAvailabilityEvidence),
+        __hasStarterEvidence: Boolean(hasStarterEvidence),
+        __adapterFed: true,
+        __evidenceScore: (hasAvailabilityEvidence ? 2 : 0) + (hasStarterEvidence ? 1 : 0)
+      }
+
+      const existing = signalMap.get(adaptedSignal.playerKey)
+      if (!existing || Number(candidateSignal.__evidenceScore) > Number(existing.__evidenceScore || 0)) {
+        signalMap.set(adaptedSignal.playerKey, candidateSignal)
+      }
     }
 
     return {
-      sourceName: book === "DraftKings" ? "draftkings_live_board" : null,
-      availabilityStatus: normalizedPlayerStatus || null,
-      starterStatus: normalizedStarterStatus || null,
-      marketValidity: isCurrentSurfacedMarket ? "valid" : null,
-      contextTag
+      signalMap,
+      diagnostics: {
+        phase2bExternalIngestionRowsScanned: sourceRows.length,
+        phase2bExternalIngestionRowsWithStatusEvidence: rowsWithStatusEvidence,
+        phase2bExternalIngestionSignalsAdapted: adaptedSignalsCreated,
+        phase2bExternalIngestionSignalsWithAvailability: adaptedSignalsWithAvailability,
+        phase2bExternalIngestionSignalsWithStarter: adaptedSignalsWithStarter,
+        phase2bExternalIngestionUniquePlayerKeys: signalMap.size,
+        phase2bExternalIngestionNoSourceStatusInputs: rowsWithStatusEvidence === 0
+      }
+    }
+  }
+
+  const externalAvailabilityIngestion = buildSourceLevelAvailabilitySignalMap()
+  const externalAvailabilitySignalMap = externalAvailabilityIngestion.signalMap
+
+  const buildAdapterAvailabilitySignalForRow = (row) => {
+    const playerKey = toPlayerKey(row?.player)
+    if (!playerKey) return null
+    return externalAvailabilitySignalMap.get(playerKey) || null
+  }
+
+  const buildOverlayExternalSignalInput = (row, extra = {}) => {
+    const existingSignals = row?.externalSignals || row?.externalSignal || row?.externalSources || null
+    const adapterSignal = buildAdapterAvailabilitySignalForRow(row)
+    const runtimeSignal = buildRuntimeExternalSignalInput(row, extra)
+    const combinedSignals = []
+
+    if (adapterSignal) combinedSignals.push(adapterSignal)
+    if (Array.isArray(existingSignals)) combinedSignals.push(...existingSignals)
+    else if (existingSignals && typeof existingSignals === "object") combinedSignals.push(existingSignals)
+    if (runtimeSignal) combinedSignals.push(runtimeSignal)
+
+    if (combinedSignals.length === 0) return null
+    if (combinedSignals.length === 1) return combinedSignals[0]
+    return combinedSignals
+  }
+
+  const finalizeRuntimeExternalOverlay = (overlay, externalSignalInput) => {
+    const inputSignals = Array.isArray(externalSignalInput)
+      ? externalSignalInput.filter(Boolean)
+      : (externalSignalInput ? [externalSignalInput] : [])
+    const hasAvailabilityEvidence = inputSignals.some((signal) => Boolean(signal?.__hasAvailabilityEvidence))
+    const hasStarterEvidence = inputSignals.some((signal) => Boolean(signal?.__hasStarterEvidence))
+    const safeOverlay = overlay && typeof overlay === "object" ? overlay : {}
+    const safeSignalsUsed = safeOverlay?.externalSignalsUsed && typeof safeOverlay.externalSignalsUsed === "object"
+      ? safeOverlay.externalSignalsUsed
+      : { count: 0, sources: [] }
+
+    return {
+      ...safeOverlay,
+      availabilityStatus: hasAvailabilityEvidence ? (safeOverlay?.availabilityStatus || "unknown") : "unknown",
+      starterStatus: hasStarterEvidence ? (safeOverlay?.starterStatus || "unknown") : "unknown",
+      externalSignalsUsed: {
+        ...safeSignalsUsed,
+        sources: Array.isArray(safeSignalsUsed.sources)
+          ? safeSignalsUsed.sources.map((signal, index) => {
+              const inputSignal = inputSignals[index] || null
+              const displaySourceName = inputSignal?.__runtimeLocalSourceName || inputSignal?.sourceName || signal?.sourceName || null
+              return ({
+              ...signal,
+              sourceName: displaySourceName,
+              sourcePriority: displaySourceName === "runtime_row_signal"
+                ? null
+                : (signal?.sourcePriority ?? null)
+            })
+          })
+          : []
+      }
     }
   }
 
@@ -8478,9 +8655,9 @@ app.get("/api/best-available", (req, res) => {
       ...row,
       sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
     }
-    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || buildRuntimeExternalSignalInput(row, extra)
+    const externalSignalInput = buildOverlayExternalSignalInput(row, extra)
     const decisionLayer = buildDecisionLayer(decisionLayerInput)
-    const externalOverlay = buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput)
+    const externalOverlay = finalizeRuntimeExternalOverlay(buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput), externalSignalInput)
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
     const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
     const marketEdgeScore = buildMarketEdgeScore(row)
@@ -8596,12 +8773,19 @@ app.get("/api/best-available", (req, res) => {
     firstBasketBoardFirstTeamBasketCount: countByMarketKey(firstBasketBoard, "player_first_team_basket")
   }
 
+  const externalAvailabilityIngestionDiagnostics = {
+    ...(externalAvailabilityIngestion?.diagnostics && typeof externalAvailabilityIngestion.diagnostics === "object"
+      ? externalAvailabilityIngestion.diagnostics
+      : {})
+  }
+
   const mergedBestAvailableDiagnostics = {
     ...(bestAvailablePayloadBoardFirst?.diagnostics && typeof bestAvailablePayloadBoardFirst.diagnostics === "object"
       ? bestAvailablePayloadBoardFirst.diagnostics
       : {}),
     ...firstBasketFallbackDiagnostics,
     ...firstBasketPipelineDiagnostics,
+    ...externalAvailabilityIngestionDiagnostics,
     ...surfacedRowsPreviewDiagnostics
   }
 
@@ -8611,6 +8795,7 @@ app.get("/api/best-available", (req, res) => {
       : {}),
     ...firstBasketFallbackDiagnostics,
     ...firstBasketPipelineDiagnostics,
+    ...externalAvailabilityIngestionDiagnostics,
     ...surfacedRowsPreviewDiagnostics
   }
 
@@ -9026,15 +9211,15 @@ app.get("/api/best-available", (req, res) => {
   mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
   const surfacedBestSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).map((row) => {
-    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || buildRuntimeExternalSignalInput(row, { sourceLane: row?.sourceLane || "bestSpecials" })
+    const externalSignalInput = buildOverlayExternalSignalInput(row, { sourceLane: row?.sourceLane || "bestSpecials" })
     const decisionLayer = buildDecisionLayer({
       ...row,
       sourceLane: row?.sourceLane || "bestSpecials"
     })
-    const externalOverlay = buildExternalEdgeOverlay({
+    const externalOverlay = finalizeRuntimeExternalOverlay(buildExternalEdgeOverlay({
       ...row,
       sourceLane: row?.sourceLane || "bestSpecials"
-    }, externalSignalInput)
+    }, externalSignalInput), externalSignalInput)
     return {
       ...row,
       finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
