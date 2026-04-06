@@ -20,6 +20,7 @@ const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
 const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
 const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
 const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
+const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -8443,11 +8444,13 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const buildReadableSurfaceRow = (row, extra = {}) => {
+    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || null
     const decisionLayerInput = {
       ...row,
       sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
     }
     const decisionLayer = buildDecisionLayer(decisionLayerInput)
+    const externalOverlay = buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput)
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
     const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
     const marketEdgeScore = buildMarketEdgeScore(row)
@@ -8483,6 +8486,15 @@ app.get("/api/best-available", (req, res) => {
       marketEdge: decisionLayer?.marketEdge || null,
       riskEdge: decisionLayer?.riskEdge || null,
       sitReason: decisionLayer?.sitReason || null,
+      externalEdgeScore: externalOverlay?.externalEdgeScore ?? null,
+      externalEdgeLabel: externalOverlay?.externalEdgeLabel || null,
+      availabilityStatus: externalOverlay?.availabilityStatus || null,
+      starterStatus: externalOverlay?.starterStatus || null,
+      marketValidity: externalOverlay?.marketValidity || null,
+      contextTag: externalOverlay?.contextTag || null,
+      externalSignalsUsed: externalOverlay?.externalSignalsUsed || null,
+      externalSitFlag: Boolean(externalOverlay?.externalSitFlag),
+      externalSitReason: externalOverlay?.externalSitReason || null,
       contextEdgeScore,
       marketEdgeScore,
       volatilityPenalty,
@@ -8984,10 +8996,15 @@ app.get("/api/best-available", (req, res) => {
   mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
   const surfacedBestSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).map((row) => {
+    const externalSignalInput = row?.externalSignals || row?.externalSignal || row?.externalSources || null
     const decisionLayer = buildDecisionLayer({
       ...row,
       sourceLane: row?.sourceLane || "bestSpecials"
     })
+    const externalOverlay = buildExternalEdgeOverlay({
+      ...row,
+      sourceLane: row?.sourceLane || "bestSpecials"
+    }, externalSignalInput)
     return {
       ...row,
       finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
@@ -8996,7 +9013,16 @@ app.get("/api/best-available", (req, res) => {
       supportEdge: decisionLayer?.supportEdge || null,
       marketEdge: decisionLayer?.marketEdge || null,
       riskEdge: decisionLayer?.riskEdge || null,
-      sitReason: decisionLayer?.sitReason || null
+      sitReason: decisionLayer?.sitReason || null,
+      externalEdgeScore: externalOverlay?.externalEdgeScore ?? null,
+      externalEdgeLabel: externalOverlay?.externalEdgeLabel || null,
+      availabilityStatus: externalOverlay?.availabilityStatus || null,
+      starterStatus: externalOverlay?.starterStatus || null,
+      marketValidity: externalOverlay?.marketValidity || null,
+      contextTag: externalOverlay?.contextTag || null,
+      externalSignalsUsed: externalOverlay?.externalSignalsUsed || null,
+      externalSitFlag: Boolean(externalOverlay?.externalSitFlag),
+      externalSitReason: externalOverlay?.externalSitReason || null
     }
   })
 
