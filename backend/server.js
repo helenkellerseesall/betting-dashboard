@@ -8577,10 +8577,57 @@ app.get("/api/best-available", (req, res) => {
     }
 
     const strictPhaseOut = strictPass()
-    const finalOut = fallbackFill(strictPhaseOut)
-    
-    // Remove internal _matchupKey field before returning
-    return finalOut.slice(0, 10).map(({ _matchupKey, ...row }) => row)
+    const filled = fallbackFill(strictPhaseOut)
+
+    // Final gate: same definition as the smoke test so the check here = what the test sees
+    const isSurfacedSpecialRow = (row) => {
+      const text = [
+        row?.marketKey,
+        row?.propType,
+        row?.sourceLane,
+        row?.mustPlayBetType,
+        row?.mustPlaySourceLane,
+      ].filter(Boolean).join(" ").toLowerCase()
+      return [
+        "first_basket",
+        "first basket",
+        "first_team_basket",
+        "first team basket",
+        "double_double",
+        "double double",
+        "triple_double",
+        "triple double",
+        "special",
+        "bestspecials",
+      ].some((x) => text.includes(x))
+    }
+
+    // Separate and rebuild so specials cannot occupy rank 1 or exceed 1 in top 3
+    const corePool = filled.filter((row) => !isSurfacedSpecialRow(row))
+    const specialPool = filled.filter((row) => isSurfacedSpecialRow(row))
+    const rebuilt = []
+    let cIdx = 0
+    let sIdx = 0
+    let specialsInTop3 = 0
+    while (rebuilt.length < 10) {
+      const rank = rebuilt.length + 1
+      const nextCore = corePool[cIdx]
+      const nextSpecial = specialPool[sIdx]
+      if (!nextCore && !nextSpecial) break
+      if (!nextCore) { rebuilt.push(nextSpecial); sIdx++; continue }
+      if (!nextSpecial) { rebuilt.push(nextCore); cIdx++; continue }
+      // Rank 1 must be core
+      if (rank === 1) { rebuilt.push(nextCore); cIdx++; continue }
+      // Top 3: max 1 special
+      if (rank <= 3 && specialsInTop3 < 1) {
+        rebuilt.push(nextSpecial); sIdx++; specialsInTop3++; continue
+      }
+      // Default: prefer core to keep singles/ladders anchored
+      rebuilt.push(nextCore); cIdx++
+    }
+
+    // Remove internal field and re-assign sequential rank
+    return rebuilt.map(({ _matchupKey, rank: _r, ...row }, idx) => ({ ...row, rank: idx + 1 }))
   }
 
   const bettingNow = buildBettingNowView()
