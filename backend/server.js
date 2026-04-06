@@ -8559,7 +8559,10 @@ app.get("/api/best-available", (req, res) => {
     ...surfacedRowsPreviewDiagnostics
   }
 
+  let finalBettingNowNullDecisionSpecialsFiltered = 0
+
   const buildBettingNowView = () => {
+    finalBettingNowNullDecisionSpecialsFiltered = 0
     const candidatePools = [
       { rows: mustPlayCandidates, getLane: (r) => r?.mustPlaySourceLane || "unknown", limit: 6 },
       { rows: tonightsBestSingles, getLane: () => "bestSingles", limit: 4 },
@@ -8654,7 +8657,7 @@ app.get("/api/best-available", (req, res) => {
 
     const strictPhaseOut = strictPass()
     const filled = fallbackFill(strictPhaseOut)
-    const surfacedEligible = filled.filter((row) => {
+    const nonAvoidOrFade = filled.filter((row) => {
       const playDecision = String(row?.playDecision || "").toLowerCase()
       return !playDecision.includes("avoid") && !playDecision.includes("fade")
     })
@@ -8681,6 +8684,15 @@ app.get("/api/best-available", (req, res) => {
         "bestspecials",
       ].some((x) => text.includes(x))
     }
+
+    const surfacedEligible = nonAvoidOrFade.filter((row) => {
+      const hasDecisionBacking = Boolean(String(row?.playDecision || "").trim()) || Boolean(String(row?.decisionSummary || "").trim())
+      if (isSurfacedSpecialRow(row) && !hasDecisionBacking) {
+        finalBettingNowNullDecisionSpecialsFiltered += 1
+        return false
+      }
+      return true
+    })
 
     // Separate and rebuild so specials cannot occupy rank 1 or exceed 1 in top 3
   const corePool = surfacedEligible.filter((row) => !isSurfacedSpecialRow(row))
@@ -8711,6 +8723,8 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const bettingNow = buildBettingNowView()
+  mergedBestAvailableDiagnostics.finalBettingNowNullDecisionSpecialsFiltered = finalBettingNowNullDecisionSpecialsFiltered
+  mergedBestAvailablePoolDiagnostics.finalBettingNowNullDecisionSpecialsFiltered = finalBettingNowNullDecisionSpecialsFiltered
 
   const buildSlateBoardView = () => {
     const lanePools = [
