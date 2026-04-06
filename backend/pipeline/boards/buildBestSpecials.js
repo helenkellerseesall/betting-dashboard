@@ -24,6 +24,12 @@ function buildBestSpecials({
     return marketKey === "player_double_double" || propType === "Double Double"
   }
 
+  const isTripleDoubleRow = (row) => {
+    const marketKey = String(row?.marketKey || "")
+    const propType = String(row?.propType || "")
+    return marketKey === "player_triple_double" || propType === "Triple Double"
+  }
+
   const isTrueSpecialMarketRow = (row) => {
     if (String(row?.marketFamily || "") === "special") return true
     const marketKey = String(row?.marketKey || "")
@@ -50,27 +56,96 @@ function buildBestSpecials({
     return normalizeLower(row?.propType)
   }
 
+  const confidenceEstimate01 = (row) => {
+    const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    if (!Number.isFinite(confidence) || confidence <= 0) return 0
+    if (confidence <= 1) return Math.max(0, Math.min(1, confidence))
+    if (confidence <= 100) return Math.max(0, Math.min(1, confidence / 100))
+    return 0
+  }
+
+  const hitRateEstimatePct = (row) => {
+    const hitRate = Number(row?.hitRatePct)
+    if (Number.isFinite(hitRate) && hitRate > 0) return hitRate
+    return Math.round(confidenceEstimate01(row) * 100)
+  }
+
+  const decisionStrengthScore = (row) => {
+    const decision = String(row?.playDecision || "").toLowerCase()
+    if (decision.includes("must-play")) return 1
+    if (decision.includes("strong")) return 0.8
+    if (decision.includes("playable")) return 0.55
+    if (decision.includes("viable")) return 0.45
+    if (decision.includes("avoid") || decision.includes("fade")) return 0
+    return 0.35
+  }
+
+  const tierSupportScore = (row) => {
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    if (tier.includes("elite")) return 1
+    if (tier.includes("strong")) return 0.82
+    if (tier.includes("playable")) return 0.58
+    if (tier.includes("thin")) return 0.18
+    return 0.45
+  }
+
+  const movementSupportScore = (row) => {
+    const movement = String(row?.marketMovementTag || "").toLowerCase()
+    if (movement.includes("confirm") || movement.includes("back") || movement.includes("steam")) return 1
+    if (movement.includes("stable")) return 0.55
+    if (movement.includes("drift")) return 0.18
+    return 0.45
+  }
+
+  const summarySupportScore = (row) => {
+    const summary = String(row?.decisionSummary || "").trim()
+    if (!summary) return 0
+    return summary.length >= 24 ? 1 : 0.6
+  }
+
+  const ddTdQualityScore = (row) => {
+    const confidence = confidenceEstimate01(row)
+    const hitRate = Math.max(0, Math.min(100, hitRateEstimatePct(row))) / 100
+    const score =
+      (decisionStrengthScore(row) * 0.28) +
+      (tierSupportScore(row) * 0.22) +
+      (confidence * 0.22) +
+      (hitRate * 0.20) +
+      (movementSupportScore(row) * 0.05) +
+      (summarySupportScore(row) * 0.03)
+    return Number(score.toFixed(3))
+  }
+
+  const isStrongTripleDoubleCandidate = (row) => {
+    if (!isTripleDoubleRow(row)) return true
+    const quality = ddTdQualityScore(row)
+    const hitRate = hitRateEstimatePct(row)
+    const confidence = confidenceEstimate01(row)
+    return quality >= 0.67 || (quality >= 0.62 && hitRate >= 52 && confidence >= 0.52)
+  }
+
   const isWeakQualitySpecial = (row) => {
     const decision = String(row?.playDecision || "").toLowerCase()
     const tier = String(row?.confidenceTier || "").toLowerCase()
-    const hitRate = Number(row?.hitRatePct)
-    const marketKey = String(row?.marketKey || "")
-    const propType = String(row?.propType || "")
-    const isTripleDouble = marketKey === "player_triple_double" || propType === "Triple Double"
-    
+    const hitRate = hitRateEstimatePct(row)
+
     if (decision.includes("avoid") || decision.includes("fade")) return true
     if (tier.includes("special-thin")) return true
-    if (Number.isFinite(hitRate) && isTripleDouble && hitRate < 35) return true
-    if (Number.isFinite(hitRate) && !isTripleDouble && hitRate < 40) return true
+    if (isTripleDoubleRow(row) && !isStrongTripleDoubleCandidate(row)) return true
+    if (isTripleDoubleRow(row) && Number.isFinite(hitRate) && hitRate < 48) return true
+    if (isDoubleDoubleRow(row) && Number.isFinite(hitRate) && hitRate < 42) return true
     return false
   }
 
-  const preferredSpecialRows = (Array.isArray(featuredSpecials) ? featuredSpecials : []).filter((row) => !isWeakQualitySpecial(row))
+  const preferredSpecialRowsRaw = (Array.isArray(featuredSpecials) ? featuredSpecials : []).filter(Boolean)
   const liveSpecialPoolRows = (Array.isArray(liveSpecialRows) ? liveSpecialRows : []).filter(Boolean)
+  const preferredSpecialRowsStrict = preferredSpecialRowsRaw.filter((row) => !isWeakQualitySpecial(row))
+  const preferredSpecialRows = preferredSpecialRowsStrict.length > 0 ? preferredSpecialRowsStrict : preferredSpecialRowsRaw
   const mergedSpecialRows = []
   const seenMergedLegKeys = new Set()
 
-  const filteredLiveSpecialPoolRows = liveSpecialPoolRows.filter((row) => !isWeakQualitySpecial(row))
+  const filteredLiveSpecialPoolRowsStrict = liveSpecialPoolRows.filter((row) => !isWeakQualitySpecial(row))
+  const filteredLiveSpecialPoolRows = filteredLiveSpecialPoolRowsStrict.length > 0 ? filteredLiveSpecialPoolRowsStrict : liveSpecialPoolRows
   
   for (const row of [...preferredSpecialRows, ...filteredLiveSpecialPoolRows]) {
     const legKey = buildRowLegKey(row)
@@ -134,9 +209,9 @@ function buildBestSpecials({
   const specialExcitementBoost = (row) => {
     const odds = Number(row?.odds ?? 0)
     const tier = String(row?.confidenceTier || "").toLowerCase()
-    const propType = String(row?.propType || "")
     const marketKey = String(row?.marketKey || "")
     const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
+    const ddTdQuality = ddTdQualityScore(row)
 
     let boost = 0
     if (tier === "special-elite") boost += 12
@@ -144,12 +219,12 @@ function buildBestSpecials({
     else if (tier === "special-playable") boost += 4
 
     if (Number.isFinite(odds) && odds >= 180 && odds <= 1100) boost += 6
-    else if (Number.isFinite(odds) && odds > 1100) boost += 2
+    else if (Number.isFinite(odds) && odds > 1100) boost += 1
     else if (Number.isFinite(odds) && odds > 0 && odds < 150) boost -= 6
 
     if (marketKey === "player_first_basket") boost += 4
-    if (propType === "Triple Double") boost += 5
-    else if (propType === "Double Double") boost += 3
+    if (isDoubleDoubleRow(row)) boost += ddTdQuality >= 0.62 ? 4 : 1
+    if (isTripleDoubleRow(row)) boost += ddTdQuality >= 0.70 ? 2 : -8
     if (confidence >= 0.45) boost += 3
     if (isThinLottoSpecial(row)) boost -= 12
 
@@ -160,13 +235,13 @@ function buildBestSpecials({
     const odds = Number(row?.odds ?? 0)
     const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
     const marketKey = String(row?.marketKey || "")
-    const propType = String(row?.propType || "")
+    const ddTdQuality = ddTdQualityScore(row)
 
     let score = 0
     if (marketKey === "player_first_basket") score += 8
     if (marketKey === "player_first_team_basket") score += 6
-    if (propType === "Triple Double") score += 5
-    if (propType === "Double Double") score += 2
+    if (isTripleDoubleRow(row)) score += ddTdQuality >= 0.70 ? 1 : -18
+    if (isDoubleDoubleRow(row)) score += ddTdQuality >= 0.60 ? 6 : -6
 
     if (Number.isFinite(odds) && odds >= 180 && odds <= 1200) score += 9
     else if (Number.isFinite(odds) && odds >= 130 && odds < 180) score += 4
@@ -176,6 +251,7 @@ function buildBestSpecials({
     else if (confidence >= 0.45) score += 3
     if (String(row?.confidenceTier || "").toLowerCase() === "special-thin") score -= 6
     if (isThinLottoSpecial(row)) score -= 8
+    if (isDoubleDoubleRow(row) || isTripleDoubleRow(row)) score += Math.round(ddTdQuality * 10)
 
     return score
   }
@@ -194,9 +270,10 @@ function buildBestSpecials({
 
   const nativePriority = (row) => {
     if (isTrueFirstBasketRow(row)) return 4
-    if (isTrueSpecialMarketRow(row) && !isDoubleDoubleRow(row)) return 3
-    if (isBoardWorthyVolatileSpecial(row)) return 2
-    if (isDoubleDoubleRow(row)) return 1
+    if (isTripleDoubleRow(row)) return isStrongTripleDoubleCandidate(row) ? 2 : 0
+    if (isDoubleDoubleRow(row)) return 2
+    if (isTrueSpecialMarketRow(row)) return 3
+    if (isBoardWorthyVolatileSpecial(row)) return 1
     return 0
   }
 

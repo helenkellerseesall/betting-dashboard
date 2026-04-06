@@ -8853,6 +8853,45 @@ app.get("/api/best-available", (req, res) => {
 
   const specialsAudit = buildSpecialsAudit(specialBoard)
 
+  const buildTypeAwareSpecialSlices = (rows, limit = 4) => {
+    const safeRows = Array.isArray(rows) ? rows : []
+    const compactTypeRow = (row) => buildReadableSurfaceRow(row, { defaultLane: "bestSpecials", sourceLane: row?.sourceLane || "bestSpecials" })
+
+    const isFirstTeamBasket = (row) => {
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      const propType = String(row?.propType || "")
+      return marketKey === "player_first_team_basket" || /first\s*team\s*basket/i.test(propType)
+    }
+
+    const isFirstBasket = (row) => {
+      if (isFirstTeamBasket(row)) return false
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      const propType = String(row?.propType || "")
+      return marketKey === "player_first_basket" || /first\s*basket/i.test(propType)
+    }
+
+    const isDoubleDouble = (row) => {
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      const propType = String(row?.propType || "")
+      return marketKey === "player_double_double" || /double\s*double/i.test(propType)
+    }
+
+    const isTripleDouble = (row) => {
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      const propType = String(row?.propType || "")
+      return marketKey === "player_triple_double" || /triple\s*double/i.test(propType)
+    }
+
+    return {
+      bestDoubleDoubles: safeRows.filter((row) => isDoubleDouble(row)).slice(0, limit).map((row) => compactTypeRow(row)),
+      bestTripleDoubles: safeRows.filter((row) => isTripleDouble(row)).slice(0, limit).map((row) => compactTypeRow(row)),
+      bestFirstBasket: safeRows.filter((row) => isFirstBasket(row)).slice(0, limit).map((row) => compactTypeRow(row)),
+      bestFirstTeamBasket: safeRows.filter((row) => isFirstTeamBasket(row)).slice(0, limit).map((row) => compactTypeRow(row))
+    }
+  }
+
+  const typeAwareSpecials = buildTypeAwareSpecialSlices(specialBoard, 4)
+
   const buildTopCardView = () => {
     const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
     const filteredTopSpecials = filterTopSpecialsForWeakness(tonightsBestSpecials)
@@ -8888,6 +8927,10 @@ app.get("/api/best-available", (req, res) => {
       gameEdgeBoard,
       mustPlayBoard,
       featuredPlays,
+      bestDoubleDoubles: typeAwareSpecials.bestDoubleDoubles,
+      bestTripleDoubles: typeAwareSpecials.bestTripleDoubles,
+      bestFirstBasket: typeAwareSpecials.bestFirstBasket,
+      bestFirstTeamBasket: typeAwareSpecials.bestFirstTeamBasket,
       tonightsPlays: {
         bestSingles: tonightsBestSingles,
         bestLadders: tonightsBestLadders,
