@@ -7425,9 +7425,16 @@ app.get("/api/best-available", (req, res) => {
     allVisibleRowsForBoards.filter(isLadderRow)
   ).slice(0, 40)
 
-  const specialBoard = sortSpecialBoard(
-    allVisibleRowsForBoards.filter(isSpecialButNotFirstBasketRow)
-  ).slice(0, 20)
+  const specialBoardSourceRows = allVisibleRowsForBoards.filter(
+    (row) => isSpecialButNotFirstBasketRow(row) || isFirstBasketLikeRow(row)
+  )
+  const sortedSpecialBoardRows = sortSpecialBoard(specialBoardSourceRows)
+  const specialBoardFirstBasketRows = sortedSpecialBoardRows.filter(isFirstBasketLikeRow).slice(0, 6)
+  const specialBoardNonFirstBasketRows = sortedSpecialBoardRows.filter((row) => !isFirstBasketLikeRow(row))
+  const specialBoard = dedupeBoardRows([
+    ...specialBoardFirstBasketRows,
+    ...specialBoardNonFirstBasketRows
+  ]).slice(0, 20)
 
   const lottoBoard = sortLottoBoard(
     allVisibleRowsForBoards.filter((row) => isLottoStyleRow(row) || isFirstBasketLikeRow(row))
@@ -7441,6 +7448,8 @@ app.get("/api/best-available", (req, res) => {
     corePropsBoard: Array.isArray(corePropsBoard) ? corePropsBoard.length : 0,
     ladderBoard: Array.isArray(ladderBoard) ? ladderBoard.length : 0,
     specialBoard: Array.isArray(specialBoard) ? specialBoard.length : 0,
+    specialBoardFirstBasketCount: (Array.isArray(specialBoard) ? specialBoard : []).filter((row) => String(row?.marketKey || "") === "player_first_basket").length,
+    specialBoardFirstTeamBasketCount: (Array.isArray(specialBoard) ? specialBoard : []).filter((row) => String(row?.marketKey || "") === "player_first_team_basket").length,
     lottoBoard: Array.isArray(lottoBoard) ? lottoBoard.length : 0,
     firstBasketSample: Array.isArray(firstBasketBoard)
       ? firstBasketBoard.slice(0, 8).map((row) => ({
@@ -7806,10 +7815,11 @@ app.get("/api/best-available", (req, res) => {
     isLaneNativeLadderCandidate,
     maxRows: 6
   })
+  const liveSpecialCandidates = Array.isArray(specialBoard) ? specialBoard : []
   const tonightsBestSpecials = buildBestSpecials({
     featuredFirstBasket,
     featuredSpecials,
-    liveSpecialRows: specialBoard,
+    liveSpecialRows: liveSpecialCandidates,
     featuredPlayScore,
     maxRows: 7
   })
@@ -8511,11 +8521,32 @@ app.get("/api/best-available", (req, res) => {
     specialLikeFallbackRows: specialLikeFallbackBoardRows.length
   }
 
+  const countByMarketKey = (rows, marketKey) =>
+    (Array.isArray(rows) ? rows : []).filter((row) => String(row?.marketKey || "") === marketKey).length
+
+  const rawFirstBasketSourceRows = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
+    ? oddsSnapshot.rawProps
+    : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+
+  const firstBasketPipelineDiagnostics = {
+    rawFirstBasketRowsSeen: countByMarketKey(rawFirstBasketSourceRows, "player_first_basket"),
+    rawFirstTeamBasketRowsSeen: countByMarketKey(rawFirstBasketSourceRows, "player_first_team_basket"),
+    visibleFirstBasketRowsForBoards: countByMarketKey(allVisibleRowsForBoards, "player_first_basket"),
+    visibleFirstTeamBasketRowsForBoards: countByMarketKey(allVisibleRowsForBoards, "player_first_team_basket"),
+    specialBoardFirstBasketCount: countByMarketKey(specialBoard, "player_first_basket"),
+    specialBoardFirstTeamBasketCount: countByMarketKey(specialBoard, "player_first_team_basket"),
+    liveSpecialCandidatesFirstBasketCount: countByMarketKey(liveSpecialCandidates, "player_first_basket"),
+    liveSpecialCandidatesFirstTeamBasketCount: countByMarketKey(liveSpecialCandidates, "player_first_team_basket"),
+    firstBasketBoardFirstBasketCount: countByMarketKey(firstBasketBoard, "player_first_basket"),
+    firstBasketBoardFirstTeamBasketCount: countByMarketKey(firstBasketBoard, "player_first_team_basket")
+  }
+
   const mergedBestAvailableDiagnostics = {
     ...(bestAvailablePayloadBoardFirst?.diagnostics && typeof bestAvailablePayloadBoardFirst.diagnostics === "object"
       ? bestAvailablePayloadBoardFirst.diagnostics
       : {}),
     ...firstBasketFallbackDiagnostics,
+    ...firstBasketPipelineDiagnostics,
     ...surfacedRowsPreviewDiagnostics
   }
 
@@ -8524,6 +8555,7 @@ app.get("/api/best-available", (req, res) => {
       ? bestAvailablePayloadBoardFirst.poolDiagnostics
       : {}),
     ...firstBasketFallbackDiagnostics,
+    ...firstBasketPipelineDiagnostics,
     ...surfacedRowsPreviewDiagnostics
   }
 
@@ -8840,6 +8872,12 @@ app.get("/api/best-available", (req, res) => {
     return {
       totalCandidates: safeRows.length,
       countsByType,
+      surfacedAuditFirstBasketCount: countsByType.firstBasket,
+      surfacedAuditFirstTeamBasketCount: countsByType.firstTeamBasket,
+      auditSource: "specialBoard",
+      auditSourceExcludesFirstBasketByDesign: true,
+      routedFirstBasketRowsInFirstBasketBoard: countByMarketKey(firstBasketBoard, "player_first_basket"),
+      routedFirstTeamBasketRowsInFirstBasketBoard: countByMarketKey(firstBasketBoard, "player_first_team_basket"),
       groupedByType: {
         firstBasket: groups.firstBasket,
         firstTeamBasket: groups.firstTeamBasket,
