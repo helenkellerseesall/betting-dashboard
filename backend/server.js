@@ -8816,7 +8816,10 @@ app.get("/api/best-available", (req, res) => {
 
   const slateBoard = buildSlateBoardView()
 
+  let finalTopSpecialsNullDecisionFilteredCount = 0
+
   const filterTopSpecialsForWeakness = (rows) => {
+    finalTopSpecialsNullDecisionFilteredCount = 0
     const isWeak = (row) => {
       const decision = String(row?.playDecision || "").toLowerCase()
       const tier = String(row?.confidenceTier || "").toLowerCase()
@@ -8829,9 +8832,16 @@ app.get("/api/best-available", (req, res) => {
     }
 
     const safeRows = Array.isArray(rows) ? rows : []
-    const strictPass = safeRows.filter((row) => !isWeak(row))
+    const qualityPass = safeRows.filter((row) => !isWeak(row))
+    const decisionBackedPass = qualityPass.filter((row) => {
+      const hasDecisionBacking = Boolean(String(row?.playDecision || "").trim()) || Boolean(String(row?.decisionSummary || "").trim())
+      if (!hasDecisionBacking) finalTopSpecialsNullDecisionFilteredCount += 1
+      return hasDecisionBacking
+    })
 
-    if (strictPass.length > 0) return strictPass
+    if (decisionBackedPass.length > 0) return decisionBackedPass
+    if (qualityPass.length > 0) return qualityPass
+    finalTopSpecialsNullDecisionFilteredCount = 0
     return safeRows
   }
 
@@ -8957,6 +8967,8 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const topCard = buildTopCardView()
+  mergedBestAvailableDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
+  mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
   return res.json({
     bestAvailable: {
