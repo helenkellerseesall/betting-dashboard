@@ -19,6 +19,7 @@ const { buildBestLadders } = require("./pipeline/boards/buildBestLadders")
 const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
 const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
 const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
+const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -8442,6 +8443,11 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const buildReadableSurfaceRow = (row, extra = {}) => {
+    const decisionLayerInput = {
+      ...row,
+      sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
+    }
+    const decisionLayer = buildDecisionLayer(decisionLayerInput)
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
     const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
     const marketEdgeScore = buildMarketEdgeScore(row)
@@ -8470,6 +8476,13 @@ app.get("/api/best-available", (req, res) => {
       mustPlayReasonTag: row?.mustPlayReasonTag || null,
       mustPlayContextTag: row?.mustPlayContextTag || null,
       mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
+      finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
+      finalDecisionLabel: decisionLayer?.finalDecisionLabel || null,
+      decisionBucket: decisionLayer?.decisionBucket || null,
+      supportEdge: decisionLayer?.supportEdge || null,
+      marketEdge: decisionLayer?.marketEdge || null,
+      riskEdge: decisionLayer?.riskEdge || null,
+      sitReason: decisionLayer?.sitReason || null,
       contextEdgeScore,
       marketEdgeScore,
       volatilityPenalty,
@@ -8970,6 +8983,23 @@ app.get("/api/best-available", (req, res) => {
   mergedBestAvailableDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
   mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
+  const surfacedBestSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).map((row) => {
+    const decisionLayer = buildDecisionLayer({
+      ...row,
+      sourceLane: row?.sourceLane || "bestSpecials"
+    })
+    return {
+      ...row,
+      finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
+      finalDecisionLabel: decisionLayer?.finalDecisionLabel || null,
+      decisionBucket: decisionLayer?.decisionBucket || null,
+      supportEdge: decisionLayer?.supportEdge || null,
+      marketEdge: decisionLayer?.marketEdge || null,
+      riskEdge: decisionLayer?.riskEdge || null,
+      sitReason: decisionLayer?.sitReason || null
+    }
+  })
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -8998,7 +9028,7 @@ app.get("/api/best-available", (req, res) => {
       tonightsPlays: {
         bestSingles: tonightsBestSingles,
         bestLadders: tonightsBestLadders,
-        bestSpecials: tonightsBestSpecials,
+        bestSpecials: surfacedBestSpecials,
         mustPlayCandidates,
         boardProgress,
         counts: {
