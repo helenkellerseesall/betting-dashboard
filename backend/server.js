@@ -22,6 +22,7 @@ const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
 const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
+const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -8518,10 +8519,66 @@ app.get("/api/best-available", (req, res) => {
     ]
 
     const signalMap = new Map()
+    const nbaOfficialRuntimeInputCandidates = [
+      oddsSnapshot?.nbaOfficialInjuryReport,
+      oddsSnapshot?.nbaOfficialInjuries,
+      oddsSnapshot?.injuryReports?.nbaOfficial,
+      oddsSnapshot?.externalInjuries?.nbaOfficial,
+      oddsSnapshot?.externalSignals?.nbaOfficialInjuryReport,
+      oddsSnapshot?.sourceFeeds?.nbaOfficialInjuryReport
+    ]
+    const nbaOfficialRuntimeInput = nbaOfficialRuntimeInputCandidates.find((value) => {
+      if (Array.isArray(value)) return value.length > 0
+      return Boolean(value && typeof value === "object")
+    }) || null
+
+    const countRuntimeInputRows = (value) => {
+      if (!value) return 0
+      if (Array.isArray(value)) return value.length
+      if (typeof value !== "object") return 0
+      const listKeys = ["reports", "injuries", "players", "rows", "data", "items", "entries"]
+      for (const key of listKeys) {
+        if (Array.isArray(value?.[key])) return value[key].length
+      }
+      return 1
+    }
+
+    const nbaOfficialRuntimeInputRows = countRuntimeInputRows(nbaOfficialRuntimeInput)
+    const ingestedNbaOfficialRows = nbaOfficialRuntimeInput
+      ? ingestNbaOfficialInjuryReport(nbaOfficialRuntimeInput)
+      : []
+
     let rowsWithStatusEvidence = 0
     let adaptedSignalsCreated = 0
     let adaptedSignalsWithAvailability = 0
     let adaptedSignalsWithStarter = 0
+    let nbaOfficialSignalsWithAvailability = 0
+    let nbaOfficialSignalsMerged = 0
+
+    for (const ingested of ingestedNbaOfficialRows) {
+      if (!ingested?.playerKey) continue
+
+      const hasAvailabilityEvidence = ingested.availabilityStatus && ingested.availabilityStatus !== "unknown"
+      if (hasAvailabilityEvidence) nbaOfficialSignalsWithAvailability += 1
+
+      const candidateSignal = {
+        sourceName: ingested.sourceName || "nba_official_injury_report",
+        availabilityStatus: hasAvailabilityEvidence ? ingested.availabilityStatus : null,
+        starterStatus: null,
+        contextTag: ingested.contextTag || null,
+        __runtimeLocalSourceName: ingested.sourceName || "nba_official_injury_report",
+        __hasAvailabilityEvidence: Boolean(hasAvailabilityEvidence),
+        __hasStarterEvidence: false,
+        __adapterFed: true,
+        __evidenceScore: hasAvailabilityEvidence ? 3 : 0
+      }
+
+      const existing = signalMap.get(ingested.playerKey)
+      if (!existing || Number(candidateSignal.__evidenceScore) > Number(existing.__evidenceScore || 0)) {
+        signalMap.set(ingested.playerKey, candidateSignal)
+        nbaOfficialSignalsMerged += 1
+      }
+    }
 
     for (const row of sourceRows) {
       if (!row?.player) continue
@@ -8580,6 +8637,12 @@ app.get("/api/best-available", (req, res) => {
     return {
       signalMap,
       diagnostics: {
+        phase2bNbaOfficialRuntimeInputAvailable: Boolean(nbaOfficialRuntimeInput),
+        phase2bNbaOfficialRuntimeInputRows: nbaOfficialRuntimeInputRows,
+        phase2bNbaOfficialIngestedRows: ingestedNbaOfficialRows.length,
+        phase2bNbaOfficialSignalsWithAvailability: nbaOfficialSignalsWithAvailability,
+        phase2bNbaOfficialSignalsMerged: nbaOfficialSignalsMerged,
+        phase2bNbaOfficialRuntimeInputMissing: !nbaOfficialRuntimeInput,
         phase2bExternalIngestionRowsScanned: sourceRows.length,
         phase2bExternalIngestionRowsWithStatusEvidence: rowsWithStatusEvidence,
         phase2bExternalIngestionSignalsAdapted: adaptedSignalsCreated,
