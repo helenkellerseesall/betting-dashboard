@@ -62,7 +62,7 @@ const WATCHED_PLAYER_NAMES = [
   "Luka Dončić"
 ]
 
-const ACTIVE_BOOKS = ["DraftKings"]
+const ACTIVE_BOOKS = ["DraftKings", "FanDuel"]
 
 const DK_EXTRA_MARKETS = [
   "player_first_basket",
@@ -283,8 +283,17 @@ function parseHitRateInline(hitRate) {
   return Number.isFinite(numeric) ? numeric : 0
 }
 
+function normalizeBookName(book) {
+  const raw = String(book || "").trim()
+  const lower = raw.toLowerCase()
+  if (lower.includes("draftkings")) return "DraftKings"
+  if (lower.includes("fanduel")) return "FanDuel"
+  return raw
+}
+
 function isActiveBook(book) {
-  return ACTIVE_BOOKS.includes(String(book || ""))
+  const normalizedActiveBooks = ACTIVE_BOOKS.map((value) => normalizeBookName(value))
+  return normalizedActiveBooks.includes(normalizeBookName(book))
 }
 
 function summarizeBookMarketCoverage(bookmakers) {
@@ -17573,7 +17582,7 @@ app.get("/refresh-snapshot", async (req, res) => {
           allRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
         }
         const fetchDebug = fetched?.debug || {}
-        const normalizedRows = allRows.filter((row) => String(row?.book || "") === "DraftKings")
+        const normalizedRows = allRows.filter((row) => isActiveBook(row?.book))
         const responseBookmakersCount = Number(fetchDebug?.dkBookmakerEntries || 0)
         const responseMarketsCount = Number(fetchDebug?.dkMarketEntries || 0)
 
@@ -21158,7 +21167,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
           allRows.push(...(Array.isArray(fetched?.extraRawRows) ? fetched.extraRawRows : []))
         }
         const fetchDebug = fetched?.debug || {}
-        const normalizedRows = allRows.filter((row) => String(row?.book || "") === "DraftKings")
+        const normalizedRows = allRows.filter((row) => isActiveBook(row?.book))
         const responseBookmakersCount = Number(fetchDebug?.dkBookmakerEntries || 0)
         const responseMarketsCount = Number(fetchDebug?.dkMarketEntries || 0)
         const normalizedRowsCount = normalizedRows.length
