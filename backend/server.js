@@ -19470,6 +19470,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
   const matchupCounts = new Map()
   const typeCounts = new Map()
   const bookCounts = new Map()
+  const sideCounts = new Map()
   const dropCounts = {
     droppedByBookCap: 0,
     droppedByPlayerCap: 0,
@@ -19534,6 +19535,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     }
 
     if (isBestBoardPath) {
+      const sideLower = side.toLowerCase()
       if ((playerCounts.get(normalizedPlayer) || 0) >= 1) {
         const passesRepeatPlayerGate = config.partialPostingMode
           ? (hitRate >= 0.66 && edge >= 1.5 && score >= 78)
@@ -19549,6 +19551,20 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
       if (side === "Under" && !passesUnderGate) {
         return { ok: false, reason: "droppedByQualityShape" }
       }
+
+      // Soft composition guard: avoid under-heavy boards unless an under is truly elite.
+      if (mode === "open" && sideLower === "under" && selected.length >= 12) {
+        const projectedUnderCount = (sideCounts.get("under") || 0) + 1
+        const projectedShare = projectedUnderCount / (selected.length + 1)
+        const softUnderShareCap = config.partialPostingMode ? 0.58 : 0.55
+        const eliteUnderException = config.partialPostingMode
+          ? (hitRate >= 0.69 && edge >= 1.6 && score >= 82)
+          : (hitRate >= 0.72 && edge >= 2.1 && score >= 88)
+
+        if (projectedShare > softUnderShareCap && !eliteUnderException) {
+          return { ok: false, reason: "droppedByQualityShape" }
+        }
+      }
     }
 
     return { ok: true }
@@ -19560,6 +19576,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     const matchup = String(row.matchup || "")
     const propType = String(row.propType || "Unknown")
     const bookKey = String(row.book || "Unknown")
+    const sideKey = String(row?.side || "").toLowerCase()
     const key = keyOf(row)
     selected.push(row)
     selectedKeys.add(key)
@@ -19567,6 +19584,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     matchupCounts.set(matchup, (matchupCounts.get(matchup) || 0) + 1)
     typeCounts.set(propType, (typeCounts.get(propType) || 0) + 1)
     bookCounts.set(bookKey, (bookCounts.get(bookKey) || 0) + 1)
+    if (sideKey) sideCounts.set(sideKey, (sideCounts.get(sideKey) || 0) + 1)
   }
 
   const takeNextFromBook = (bookKey) => {
