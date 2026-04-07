@@ -513,6 +513,72 @@ function parseHitRateValue(hitRate) {
   return Number.isFinite(numeric) ? numeric : 0
 }
 
+function buildCeilingRoleSpikeSignals(row) {
+  const hitRate = parseHitRateValue(row?.hitRate)
+  const score = Number(row?.score || 0)
+  const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
+  const line = Number(row?.line)
+  const recent3Avg = Number(row?.recent3Avg)
+  const l10Avg = Number(row?.l10Avg)
+  const avgMin = Number(row?.avgMin)
+  const recent3MinAvg = Number(row?.recent3MinAvg)
+  const minCeiling = Number(row?.minCeiling)
+  const side = String(row?.side || "").toLowerCase()
+  const minutesRisk = String(row?.minutesRisk || "").toLowerCase()
+  const injuryRisk = String(row?.injuryRisk || "").toLowerCase()
+  const trendRisk = String(row?.trendRisk || "").toLowerCase()
+  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
+  const roleSignalScore = Number(row?.roleSignalScore || 0)
+  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
+  const bookValueScore = Number(row?.bookValueScore || 0)
+  
+  const recentFormDelta = Number.isFinite(recent3Avg) && Number.isFinite(l10Avg) ? (recent3Avg - l10Avg) : 0
+  const minutesTrendDelta = Number.isFinite(recent3MinAvg) && Number.isFinite(avgMin) ? (recent3MinAvg - avgMin) : 0
+  const lineLeverage = Number.isFinite(line) && Number.isFinite(recent3Avg)
+    ? (side === "under" ? (line - recent3Avg) : (recent3Avg - line))
+    : 0
+  const ceilingOverLine = Number.isFinite(minCeiling) && Number.isFinite(line) ? (minCeiling - line) : 0
+  
+  const scoreSignal = clamp((score - 64) / 34, 0, 1)
+  const edgeSignal = clamp((edge + 0.15) / 2.35, 0, 1)
+  const hitSignal = clamp((hitRate - 0.5) / 0.3, 0, 1)
+  const formSignal = clamp((recentFormDelta + 1.5) / 5, 0, 1)
+  const lineSignal = clamp((lineLeverage + 0.4) / 3.2, 0, 1)
+  const ceilingRangeSignal = clamp((ceilingOverLine + 1) / 9, 0, 1)
+  const contextSignal = clamp((gamePriorityScore * 0.55) + (matchupEdgeScore * 0.45), 0, 1)
+  
+  const roleSignal = clamp(roleSignalScore, 0, 1)
+  const minutesTrendSignal = clamp((minutesTrendDelta + 1.2) / 4.2, 0, 1)
+  const minutesBaseSignal = clamp((avgMin - 23) / 12, 0, 1)
+  const pricingSignal = clamp(bookValueScore, 0, 1)
+  
+  const riskPenalty =
+    (minutesRisk === "high" ? 0.08 : minutesRisk === "medium" ? 0.03 : 0) +
+    (injuryRisk === "high" ? 0.08 : injuryRisk === "medium" ? 0.03 : 0) +
+    (trendRisk === "high" ? 0.06 : trendRisk === "medium" ? 0.02 : 0)
+  
+  const ceilingRaw =
+    (scoreSignal * 0.2) +
+    (edgeSignal * 0.17) +
+    (hitSignal * 0.12) +
+    (formSignal * 0.16) +
+    (lineSignal * 0.15) +
+    (ceilingRangeSignal * 0.1) +
+    (contextSignal * 0.1)
+  
+  const roleSpikeRaw =
+    (roleSignal * 0.3) +
+    (minutesTrendSignal * 0.24) +
+    (formSignal * 0.2) +
+    (minutesBaseSignal * 0.16) +
+    (pricingSignal * 0.1)
+  
+  return {
+    ceilingScore: Number(clamp(ceilingRaw - riskPenalty, 0, 1).toFixed(3)),
+    roleSpikeScore: Number(clamp(roleSpikeRaw - (riskPenalty * 0.85), 0, 1).toFixed(3))
+  }
+}
+
 function getSlipCandidateScore(row) {
   const hr = parseHitRateValue(row.hitRate)
   const edge = Number(row.edge || 0)
@@ -8259,13 +8325,15 @@ app.get("/api/best-available", (req, res) => {
         const score = Number(row?.score || 0)
         const edge = Number(row?.edge || 0)
         const hitRate = parseHitRateValue(row?.hitRate)
+        const ceilingScore = Number(row?.ceilingScore || 0)
+        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
         const side = String(row?.side || "").toLowerCase()
         const variant = String(row?.propVariant || "base").toLowerCase()
         const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
         const overBonus = side === "over" ? 16 : -18
         const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
         const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
-        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + variantBonus + overBonus + ladderBonus + oddsBandBonus
+        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 16) + (roleSpikeScore * 12) + variantBonus + overBonus + ladderBonus + oddsBandBonus
       }
     })
 
@@ -9125,6 +9193,8 @@ app.get("/api/best-available", (req, res) => {
     const decisionLayer = buildDecisionLayer(decisionLayerInput)
     const externalOverlay = finalizeRuntimeExternalOverlay(buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput), externalSignalInput)
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
+    const ceilingScore = Number(row?.ceilingScore)
+    const roleSpikeScore = Number(row?.roleSpikeScore)
     const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
     const marketEdgeScore = buildMarketEdgeScore(row)
     const { volatilityPenalty, volatilityFlag } = buildVolatilityOverlay(row)
@@ -9145,6 +9215,8 @@ app.get("/api/best-available", (req, res) => {
       odds: Number(row?.odds ?? 0) || null,
       propVariant: row?.propVariant || "base",
       confidenceScore,
+      ceilingScore: Number.isFinite(ceilingScore) ? Number(ceilingScore.toFixed(3)) : null,
+      roleSpikeScore: Number.isFinite(roleSpikeScore) ? Number(roleSpikeScore.toFixed(3)) : null,
       hitRatePct: toReadablePercent(confidenceScore),
       adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
       playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
@@ -9840,6 +9912,14 @@ app.get("/api/best-available", (req, res) => {
       sourceRank: index + 1,
       defaultLane: "bestLadders"
     }))
+
+  console.log("[CEILING-SIGNAL-EMIT-DEBUG]", {
+    bestPayloadRowsWithCeiling: (Array.isArray(bestPayloadRows) ? bestPayloadRows : []).filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
+    bestPayloadRowsWithRoleSpike: (Array.isArray(bestPayloadRows) ? bestPayloadRows : []).filter((row) => Number.isFinite(Number(row?.roleSpikeScore))).length,
+    curatedMostLikelyWithCeiling: curatedMostLikelyToHit.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
+    curatedBestValueWithCeiling: curatedBestValue.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
+    curatedBestUpsideWithCeiling: curatedBestUpside.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length
+  })
 
   return res.json({
     bestAvailable: {
@@ -18829,7 +18909,8 @@ const scoredProps = deduped
       whyItRates,
       modelSummary
     }
-    return enrichPredictionLayer(edgeRow)
+    const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
+    return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals })
   })
   .filter((row) => {
     const hasCoreData =
@@ -18845,6 +18926,13 @@ const scoredProps = deduped
     if ((b.edge ?? -999) !== (a.edge ?? -999)) return (b.edge ?? -999) - (a.edge ?? -999)
     return parseHitRate(b.hitRate) - parseHitRate(a.hitRate)
   })
+
+console.log("[CEILING-SIGNAL-STAGE-DEBUG]", {
+  path: "refresh-snapshot",
+  scoredPropsCount: Array.isArray(scoredProps) ? scoredProps.length : 0,
+  scoredWithCeilingScore: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
+  scoredWithRoleSpikeScore: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => Number.isFinite(Number(row?.roleSpikeScore))).length
+})
 
 console.log("[EDGE-PROFILE-DEBUG]", {
   totalRows: Array.isArray(scoredProps) ? scoredProps.length : 0,
@@ -21824,7 +21912,15 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         whyItRates,
         modelSummary
       }
-      return enrichPredictionLayer(edgeRow)
+      const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
+      return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals })
+    })
+
+    console.log("[CEILING-SIGNAL-STAGE-DEBUG]", {
+      path: "refresh-snapshot-hard-reset",
+      scoredPropsCount: Array.isArray(scoredProps) ? scoredProps.length : 0,
+      scoredWithCeilingScore: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
+      scoredWithRoleSpikeScore: (Array.isArray(scoredProps) ? scoredProps : []).filter((row) => Number.isFinite(Number(row?.roleSpikeScore))).length
     })
 
     console.log("[EDGE-PROFILE-DEBUG]", {
