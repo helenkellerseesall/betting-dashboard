@@ -8013,6 +8013,148 @@ app.get("/api/best-available", (req, res) => {
     })
   })()
 
+  const buildCuratedLayer2Buckets = () => {
+    const safeCoreRows = Array.isArray(corePropsBoard) ? corePropsBoard : []
+    const safeLadderRows = Array.isArray(ladderBoard) ? ladderBoard : []
+    const toLegKey = (row) => [
+      String(row?.eventId || ""),
+      String(row?.player || "").trim().toLowerCase(),
+      String(row?.propType || "").trim().toLowerCase(),
+      String(row?.side || "").trim().toLowerCase(),
+      String(row?.line ?? ""),
+      String(row?.marketKey || "").trim().toLowerCase(),
+      String(row?.propVariant || "base").trim().toLowerCase(),
+      String(row?.book || "").trim().toLowerCase()
+    ].join("|")
+    const normalizePlayerKey = (row) => String(row?.player || "").trim().toLowerCase()
+    const normalizePropTypeKey = (row) => String(row?.propType || "").trim().toLowerCase()
+    const normalizeMatchupKey = (row) => String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+    const isPlayableCandidate = (row) => {
+      if (!row) return false
+      if (!row?.player || !row?.matchup || !row?.propType || !row?.book) return false
+      if (!Number.isFinite(Number(row?.line))) return false
+      if (!Number.isFinite(Number(row?.odds))) return false
+      if (!Number.isFinite(Number(row?.score))) return false
+      if (shouldRemoveLegForPlayerStatus(row)) return false
+      const playDecision = String(row?.playDecision || "").toLowerCase()
+      if (playDecision.includes("avoid") || playDecision.includes("fade")) return false
+      return true
+    }
+    const selectCuratedRows = (rows, config) => {
+      const safeRows = Array.isArray(rows) ? rows : []
+      const sorted = safeRows
+        .filter((row) => isPlayableCandidate(row))
+        .filter((row) => config.rowFilter(row))
+        .slice()
+        .sort((a, b) => config.rankFn(b) - config.rankFn(a))
+
+      const selected = []
+      const seenLegKeys = new Set()
+      const playerCounts = new Map()
+      const matchupCounts = new Map()
+      const playerPropKeys = new Set()
+
+      for (const row of sorted) {
+        if (selected.length >= config.maxRows) break
+
+        const legKey = toLegKey(row)
+        if (seenLegKeys.has(legKey)) continue
+
+        const playerKey = normalizePlayerKey(row)
+        const propTypeKey = normalizePropTypeKey(row)
+        const matchupKey = normalizeMatchupKey(row)
+        const playerPropKey = `${playerKey}|${propTypeKey}`
+
+        if (!playerKey || !propTypeKey || !matchupKey) continue
+        if ((playerCounts.get(playerKey) || 0) >= config.maxPerPlayer) continue
+        if ((matchupCounts.get(matchupKey) || 0) >= config.maxPerMatchup) continue
+        if (playerPropKeys.has(playerPropKey)) continue
+
+        selected.push(row)
+        seenLegKeys.add(legKey)
+        playerCounts.set(playerKey, (playerCounts.get(playerKey) || 0) + 1)
+        matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
+        playerPropKeys.add(playerPropKey)
+      }
+
+      return selected
+    }
+
+    const mostLikelyToHit = selectCuratedRows(safeCoreRows, {
+      maxRows: 8,
+      maxPerPlayer: 1,
+      maxPerMatchup: 2,
+      rowFilter: (row) => {
+        const hitRate = parseHitRate(row?.hitRate)
+        const score = Number(row?.score || 0)
+        const odds = Number(row?.odds || 0)
+        const variant = String(row?.propVariant || "base").toLowerCase()
+        return hitRate >= 0.57 && score >= 74 && odds >= -320 && odds <= 180 && (variant === "base" || variant === "default" || variant === "alt-low")
+      },
+      rankFn: (row) => {
+        const hitRate = parseHitRate(row?.hitRate)
+        const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
+        const score = Number(row?.score || 0)
+        const odds = Number(row?.odds || 0)
+        const pricingPenalty = odds > 120 ? Math.min(18, (odds - 120) * 0.06) : 0
+        return highestHitRateSortValue(row) + (confidence * 30) + (score * 0.4) - pricingPenalty
+      }
+    })
+
+    const bestValue = selectCuratedRows(safeCoreRows, {
+      maxRows: 8,
+      maxPerPlayer: 1,
+      maxPerMatchup: 2,
+      rowFilter: (row) => {
+        const hitRate = parseHitRate(row?.hitRate)
+        const score = Number(row?.score || 0)
+        const edge = Number(row?.edge || 0)
+        const odds = Number(row?.odds || 0)
+        return hitRate >= 0.52 && score >= 70 && edge >= 0.5 && odds >= -240 && odds <= 260
+      },
+      rankFn: (row) => {
+        const odds = Number(row?.odds || 0)
+        const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
+        const plusMoneyBonus = odds >= 100 && odds <= 220 ? 8 : 0
+        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus
+      }
+    })
+
+    const upsideSourceRows = dedupeBoardRows([
+      ...safeLadderRows,
+      ...safeCoreRows.filter((row) => Number(row?.odds || 0) >= 100)
+    ])
+    const bestUpside = selectCuratedRows(upsideSourceRows, {
+      maxRows: 8,
+      maxPerPlayer: 2,
+      maxPerMatchup: 3,
+      rowFilter: (row) => {
+        const hitRate = parseHitRate(row?.hitRate)
+        const score = Number(row?.score || 0)
+        const edge = Number(row?.edge || 0)
+        const odds = Number(row?.odds || 0)
+        return hitRate >= 0.44 && score >= 66 && edge >= 0.25 && odds >= 100 && odds <= 1100
+      },
+      rankFn: (row) => {
+        const odds = Number(row?.odds || 0)
+        const score = Number(row?.score || 0)
+        const edge = Number(row?.edge || 0)
+        const hitRate = parseHitRate(row?.hitRate)
+        const variant = String(row?.propVariant || "base").toLowerCase()
+        const variantBonus = variant === "alt-high" || variant === "alt-max" ? 7 : variant === "alt-mid" ? 4 : 0
+        return (odds * 0.13) + (score * 0.9) + (edge * 18) + (hitRate * 55) + variantBonus
+      }
+    })
+
+    return {
+      mostLikelyToHit,
+      bestValue,
+      bestUpside
+    }
+  }
+
+  const layer2CuratedBuckets = buildCuratedLayer2Buckets()
+
   console.log("[FEATURED-PLAYS-DEBUG]", {
     total: featuredPlays.length,
     sourceCounts: {
@@ -8097,6 +8239,11 @@ app.get("/api/best-available", (req, res) => {
       bestLadders: tonightsBestLadders.length,
       bestSpecials: tonightsBestSpecials.length,
       mustPlayCandidates: mustPlayCandidates.length
+    },
+    curatedCounts: {
+      mostLikelyToHit: Array.isArray(layer2CuratedBuckets?.mostLikelyToHit) ? layer2CuratedBuckets.mostLikelyToHit.length : 0,
+      bestValue: Array.isArray(layer2CuratedBuckets?.bestValue) ? layer2CuratedBuckets.bestValue.length : 0,
+      bestUpside: Array.isArray(layer2CuratedBuckets?.bestUpside) ? layer2CuratedBuckets.bestUpside.length : 0
     },
     mustPlayIncludesSpecials: mustPlayCandidates.some((row) => String(row?.mustPlayBetType || "") === "special" || String(row?.mustPlaySourceLane || "") === "bestSpecials"),
     lineHistoryPresent: Boolean(Number(oddsSnapshot?.lineHistorySummary?.trackedLegs || 0) > 0)
@@ -9525,6 +9672,25 @@ app.get("/api/best-available", (req, res) => {
     }
   })
 
+  const curatedMostLikelyToHit = (Array.isArray(layer2CuratedBuckets?.mostLikelyToHit) ? layer2CuratedBuckets.mostLikelyToHit : [])
+    .map((row, index) => buildReadableSurfaceRow(row, {
+      sourceLane: "mostLikelyToHit",
+      sourceRank: index + 1,
+      defaultLane: "bestSingles"
+    }))
+  const curatedBestValue = (Array.isArray(layer2CuratedBuckets?.bestValue) ? layer2CuratedBuckets.bestValue : [])
+    .map((row, index) => buildReadableSurfaceRow(row, {
+      sourceLane: "bestValue",
+      sourceRank: index + 1,
+      defaultLane: "bestSingles"
+    }))
+  const curatedBestUpside = (Array.isArray(layer2CuratedBuckets?.bestUpside) ? layer2CuratedBuckets.bestUpside : [])
+    .map((row, index) => buildReadableSurfaceRow(row, {
+      sourceLane: "bestUpside",
+      sourceRank: index + 1,
+      defaultLane: "bestLadders"
+    }))
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -9534,6 +9700,9 @@ app.get("/api/best-available", (req, res) => {
       bettingNow,
       slateBoard,
       topCard,
+      mostLikelyToHit: curatedMostLikelyToHit,
+      bestValue: curatedBestValue,
+      bestUpside: curatedBestUpside,
       boards,
       firstBasketBoard,
       corePropsBoard,
@@ -9555,12 +9724,20 @@ app.get("/api/best-available", (req, res) => {
         bestLadders: tonightsBestLadders,
         bestSpecials: surfacedBestSpecials,
         mustPlayCandidates,
+        curated: {
+          mostLikelyToHit: curatedMostLikelyToHit,
+          bestValue: curatedBestValue,
+          bestUpside: curatedBestUpside
+        },
         boardProgress,
         counts: {
           bestSingles: tonightsBestSingles.length,
           bestLadders: tonightsBestLadders.length,
           bestSpecials: tonightsBestSpecials.length,
-          mustPlayCandidates: mustPlayCandidates.length
+          mustPlayCandidates: mustPlayCandidates.length,
+          mostLikelyToHit: curatedMostLikelyToHit.length,
+          bestValue: curatedBestValue.length,
+          bestUpside: curatedBestUpside.length
         },
         evaluation: tonightsPlaysEvaluation
       },
@@ -19298,6 +19475,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     const safeRows = Array.isArray(rows) ? rows : []
     const perPlayerCap = config.partialPostingMode ? 2 : 1
     const playerCounts = new Map()
+    const playerPropTypes = new Map()
     const out = []
 
     for (const row of safeRows) {
@@ -19305,14 +19483,74 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
       if (!playerKey) continue
       const count = playerCounts.get(playerKey) || 0
       if (count >= perPlayerCap) continue
+      if (config.partialPostingMode && count >= 1) {
+        const currentPropType = String(row?.propType || "")
+        const seenTypes = playerPropTypes.get(playerKey) || new Set()
+        if (currentPropType && seenTypes.has(currentPropType)) continue
+      }
       playerCounts.set(playerKey, count + 1)
+      const propType = String(row?.propType || "")
+      const nextSeenTypes = playerPropTypes.get(playerKey) || new Set()
+      if (propType) nextSeenTypes.add(propType)
+      playerPropTypes.set(playerKey, nextSeenTypes)
       out.push(row)
     }
 
     return out
   }
 
-  const finalSelected = dedupeSelectedBestRowsByPlayer(selected)
+  let finalSelected = dedupeSelectedBestRowsByPlayer(selected)
+  let partialDiversityFillAdded = 0
+  if (config.partialPostingMode && finalSelected.length < Math.min(32, config.targetTotal)) {
+    const refillTarget = Math.min(32, config.targetTotal)
+    const refillRows = [...finalSelected]
+    const refillKeys = new Set(refillRows.map((row) => keyOf(row)))
+    const refillPlayerCounts = new Map()
+    const refillMatchupCounts = new Map()
+    const refillPlayerPropKeys = new Set()
+
+    for (const row of refillRows) {
+      const playerKey = normalizeBestPlayerKey(row?.player)
+      const matchupKey = String(row?.matchup || "")
+      const propType = String(row?.propType || "")
+      if (playerKey) {
+        refillPlayerCounts.set(playerKey, (refillPlayerCounts.get(playerKey) || 0) + 1)
+        if (propType) refillPlayerPropKeys.add(`${playerKey}|${propType}`)
+      }
+      if (matchupKey) refillMatchupCounts.set(matchupKey, (refillMatchupCounts.get(matchupKey) || 0) + 1)
+    }
+
+    const matchupCapForRefill = Math.max(5, Math.min(8, Math.ceil(refillTarget / 4)))
+    for (const row of sorted) {
+      if (refillRows.length >= refillTarget) break
+      const key = keyOf(row)
+      if (refillKeys.has(key)) continue
+
+      const hitRate = parseHitRate(row?.hitRate)
+      const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
+      const score = Number(row?.score ?? 0)
+      if (hitRate < 0.58 || edge < 0.75 || score < 72) continue
+
+      const playerKey = normalizeBestPlayerKey(row?.player)
+      const matchupKey = String(row?.matchup || "")
+      const propType = String(row?.propType || "")
+      const playerPropKey = `${playerKey}|${propType}`
+
+      if (!playerKey || !matchupKey || !propType) continue
+      if ((refillPlayerCounts.get(playerKey) || 0) >= 2) continue
+      if (refillPlayerPropKeys.has(playerPropKey)) continue
+      if ((refillMatchupCounts.get(matchupKey) || 0) >= matchupCapForRefill) continue
+
+      refillRows.push(row)
+      refillKeys.add(key)
+      refillPlayerCounts.set(playerKey, (refillPlayerCounts.get(playerKey) || 0) + 1)
+      refillPlayerPropKeys.add(playerPropKey)
+      refillMatchupCounts.set(matchupKey, (refillMatchupCounts.get(matchupKey) || 0) + 1)
+      partialDiversityFillAdded += 1
+    }
+
+    finalSelected = refillRows
+  }
   const postCapByBook = summarizeBestPropsCapPool(finalSelected).byBook
   logBestStage(`${pathLabel}:afterPerBookBalancingFinal`, finalSelected)
   console.log("[BEST-PROPS-BALANCER-DEBUG]", {
@@ -19326,6 +19564,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     targetTotal: config.targetTotal,
     minPerBook: config.minPerBook,
     openFillAdded,
+    partialDiversityFillAdded,
     skippedLowQualityCount,
     finalDifferenceFDvsDK: finalDifferenceFDvsDK(),
     finalTotal: finalSelected.length,
@@ -19406,6 +19645,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
       targetTotal: config.targetTotal,
       minPerBook: config.minPerBook,
       openFillAdded,
+      partialDiversityFillAdded,
       skippedLowQualityCount,
       finalDifferenceFDvsDK: finalDifferenceFDvsDK()
     }
@@ -20154,6 +20394,10 @@ const refreshPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
     totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap
   }
 )
+oddsSnapshot.bestProps = dedupeByLegSignature(
+  Array.isArray(refreshPlayableFanDuelPromotion.rows) ? refreshPlayableFanDuelPromotion.rows : []
+)
+oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
 logBestStage("refresh-snapshot:afterBookBalance", refreshPlayableFanDuelPromotion.rows)
 console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
   path: "refresh-snapshot",
