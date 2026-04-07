@@ -8153,23 +8153,27 @@ app.get("/api/best-available", (req, res) => {
       const edge = Number(row?.edge || 0)
       const odds = Number(row?.odds || 0)
       const side = String(row?.side || "").toLowerCase()
+      const variant = String(row?.propVariant || "base").toLowerCase()
       const isLadderish = isLadderStyleRow(row)
       const isOver = side === "over"
+      const isUnder = side === "under"
 
-      // Ladder-style acceptance path: orientation-agnostic, ceiling-focused.
-      // Does NOT require over-side or plus-money — ladder rows are inherently ceiling plays.
-      // Requires stronger quality to guard against junk.
       if (isLadderish) {
+        // alt-low is value/safety regardless of side; never ceiling
+        if (variant === "alt-low") return false
         if (hitRate < 0.48) return false
         if (score < 65) return false
-        // Allow negative odds (standard ladder lines sit at -110 to -130).
-        // Block only extreme chalk (< -350) and unrealistic lotto odds (> 1100).
         if (odds < -350 || odds > 1100) return false
+        // Unders: variant semantics invert — any under alt-variant is easier, not ceiling.
+        // Only allow with truly elite stats.
+        if (isUnder) {
+          if (hitRate < 0.68 || score < 86 || edge < 1.5) return false
+        }
         return true
       }
 
-      // Non-ladder: must be over-biased + meaningful plus-money (original intent)
-      const strongUnderException = side === "under" && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
+      // Non-ladder: over-biased + meaningful plus-money
+      const strongUnderException = isUnder && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
       if (odds < 115 || odds > 1100) return false
       if (hitRate < 0.43 || score < 64 || edge < 0.2) return false
       if (!isOver && !strongUnderException) return false
@@ -8182,19 +8186,24 @@ app.get("/api/best-available", (req, res) => {
       const edge = Number(row?.edge || 0)
       const odds = Number(row?.odds || 0)
       const side = String(row?.side || "").toLowerCase()
+      const variant = String(row?.propVariant || "base").toLowerCase()
       const isLadderish = isLadderStyleRow(row)
       const isOver = side === "over"
+      const isUnder = side === "under"
 
-      // Ladder fallback: slightly looser than base
       if (isLadderish) {
+        if (variant === "alt-low") return false
         if (hitRate < 0.44) return false
         if (score < 60) return false
         if (odds < -400 || odds > 1100) return false
+        if (isUnder) {
+          if (hitRate < 0.64 || score < 80 || edge < 1.0) return false
+        }
         return true
       }
 
       // Non-ladder fallback: unchanged
-      const strongUnderException = side === "under" && odds >= 240 && hitRate >= 0.6 && edge >= 1.5 && score >= 80
+      const strongUnderException = isUnder && odds >= 240 && hitRate >= 0.6 && edge >= 1.5 && score >= 80
       if (odds < 105 || odds > 1100) return false
       if (hitRate < 0.4 || score < 60 || edge < 0) return false
       if (!isOver && !strongUnderException) return false
@@ -8229,8 +8238,8 @@ app.get("/api/best-available", (req, res) => {
       ? upsidePostBlockCandidates.filter((row) => bestUpsideFallbackRowFilter(row))
       : upsidePostBaseFilterCandidates
 
-    const bestUpside = selectCuratedRows(upsideSourceRows, {
-      maxRows: 8,
+    const bestUpsideRaw = selectCuratedRows(upsideSourceRows, {
+      maxRows: 12,
       maxPerPlayer: 2,
       maxPerMatchup: 3,
       blockedPlayerPropKeys: saferLanePlayerPropKeys,
@@ -8240,16 +8249,24 @@ app.get("/api/best-available", (req, res) => {
         const odds = Number(row?.odds || 0)
         const score = Number(row?.score || 0)
         const edge = Number(row?.edge || 0)
-        const hitRate = parseHitRate(row?.hitRate)
+        const hitRate = parseHitRateValue(row?.hitRate)
         const side = String(row?.side || "").toLowerCase()
         const variant = String(row?.propVariant || "base").toLowerCase()
-        const variantBonus = variant === "alt-max" ? 14 : variant === "alt-high" ? 11 : variant === "alt-mid" ? 7 : variant === "alt-low" ? 2 : 0
-        const overBonus = side === "over" ? 10 : -6
+        const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
+        const overBonus = side === "over" ? 16 : -18
         const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
-        const oddsBandBonus = odds >= 180 && odds <= 550 ? 10 : odds > 550 ? 4 : 0
-        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 48) + variantBonus + overBonus + ladderBonus + oddsBandBonus
+        const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
+        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + variantBonus + overBonus + ladderBonus + oddsBandBonus
       }
     })
+
+    // Composition enforcement: max 1 under row, overs fill first
+    let upsideUnderCount = 0
+    const bestUpside = bestUpsideRaw.filter((row) => {
+      if (String(row?.side || "").toLowerCase() !== "under") return true
+      if (upsideUnderCount < 1) { upsideUnderCount++; return true }
+      return false
+    }).slice(0, 8)
 
     console.log("[LAYER2-BESTUPSIDE-DEBUG]", {
       sourceCandidateCount: upsideSourceRows.length,
@@ -8258,6 +8275,7 @@ app.get("/api/best-available", (req, res) => {
       postRowFilterCount: upsidePostFilterCandidates.length,
       usedFallbackFilter: upsideUseFallbackFilter,
       finalSelectedCount: bestUpside.length,
+      underCount: upsideUnderCount,
       sourceMix: {
         ladderStyle: upsideInitialCandidates.filter((row) => isLadderStyleRow(row)).length,
         overSide: upsideInitialCandidates.filter((row) => String(row?.side || "").toLowerCase() === "over").length,
