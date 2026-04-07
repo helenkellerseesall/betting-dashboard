@@ -20558,6 +20558,10 @@ console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
 
 oddsSnapshot.bestProps = dedupeByLegSignature(bestPropsAfterFinalLegacyGate)
 oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
+const bestPropsBookSoftFloor = Math.max(
+  4,
+  Math.min(10, Math.floor((Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0) * 0.3))
+)
 console.log("[FINAL-LEGACY-BESTPROPS-DEBUG]", {
   total: Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0,
   bestPropsByPropType: (Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []).reduce((acc, row) => {
@@ -20591,12 +20595,12 @@ logBestStage("refresh-snapshot:afterDedupe", oddsSnapshot.bestProps)
 const mainBestPropsBookRescue = ensureBestPropsBookPresence(oddsSnapshot.bestProps, bestPropsSource, {
   targetBook: "DraftKings",
   totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
-  meaningfulFloor: bestPropsCapResult?.diagnostics?.config?.minPerBook || 11
+  meaningfulFloor: bestPropsBookSoftFloor
 })
 const mainBestPropsFanDuelRescue = ensureBestPropsBookPresence(mainBestPropsBookRescue.rows, bestPropsSource, {
   targetBook: "FanDuel",
   totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
-  meaningfulFloor: 1
+  meaningfulFloor: bestPropsBookSoftFloor
 })
 const refreshPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
   mainBestPropsFanDuelRescue.rows,
@@ -20668,6 +20672,8 @@ const refreshFinalBestRawByBook = countByBookForRows(refreshSnapshotBestPropsRaw
 console.log("[BEST-PROPS-BOOK-STAGE-DEBUG]", {
   path: "refresh-snapshot",
   rawPropsRows: refreshRawPropsByBook,
+  dedupedRows: countByBookForRows(deduped),
+  scoredPropsRows: countByBookForRows(scoredProps),
   survivedFragileRows: refreshSurvivedFragileByBook,
   preBestPropsCandidates: refreshPreBestCandidateByBook,
   finalBestPropsRawRows: refreshFinalBestRawByBook,
@@ -22003,16 +22009,20 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     }
 
     oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
+    const hardResetBestPropsBookSoftFloor = Math.max(
+      4,
+      Math.min(10, Math.floor((Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0) * 0.3))
+    )
     logBestStage("refresh-snapshot-hard-reset:afterDedupe", oddsSnapshot.bestProps)
     const hardResetBestPropsBookRescue = ensureBestPropsBookPresence(oddsSnapshot.bestProps, bestPropsSource, {
       targetBook: "DraftKings",
       totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
-      meaningfulFloor: bestPropsCapResult?.diagnostics?.config?.minPerBook || 11
+      meaningfulFloor: hardResetBestPropsBookSoftFloor
     })
     const hardResetBestPropsFanDuelRescue = ensureBestPropsBookPresence(hardResetBestPropsBookRescue.rows, bestPropsSource, {
       targetBook: "FanDuel",
       totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
-      meaningfulFloor: 1
+      meaningfulFloor: hardResetBestPropsBookSoftFloor
     })
     const hardResetPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
       hardResetBestPropsFanDuelRescue.rows,
@@ -22128,6 +22138,8 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     console.log("[BEST-PROPS-BOOK-STAGE-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       rawPropsRows: hardResetRawPropsByBook,
+      dedupedRows: countByBookForRows(dedupedBestCandidates),
+      scoredPropsRows: countByBookForRows(scoredProps),
       survivedFragileRows: hardResetSurvivedFragileByBook,
       preBestPropsCandidates: hardResetPreBestCandidateByBook,
       finalBestPropsRawRows: hardResetFinalBestRawByBook,
