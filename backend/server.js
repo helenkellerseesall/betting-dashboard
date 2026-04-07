@@ -8556,23 +8556,47 @@ app.get("/api/best-available", (req, res) => {
       oddsSnapshot?.externalSignals?.rotoWire,
       oddsSnapshot?.sourceFeeds?.rotoWire
     ]
-    const rotoWireRuntimeFilePath = path.join(__dirname, "runtime_inputs", "rotowire_signals.json")
+    const dailyOverlayRuntimeFilePath = path.join(__dirname, "runtime_inputs", "daily_overlay.json")
+    const legacyRotoWireRuntimeFilePath = path.join(__dirname, "runtime_inputs", "rotowire_signals.json")
     let rotoWireRuntimeFileChecked = true
     let rotoWireRuntimeFileExists = false
     let rotoWireRuntimeFileRows = 0
     let rotoWireRuntimeFileInput = null
+    let manualOverlaySource = "manual-overlay-unavailable"
+    let manualOverlayPath = "backend/runtime_inputs/daily_overlay.json"
 
     try {
-      rotoWireRuntimeFileExists = fs.existsSync(rotoWireRuntimeFilePath)
-      if (rotoWireRuntimeFileExists) {
-        const rawFile = fs.readFileSync(rotoWireRuntimeFilePath, "utf-8")
+      const parseRuntimeOverlayFile = (filePath) => {
+        if (!fs.existsSync(filePath)) return null
+        const rawFile = fs.readFileSync(filePath, "utf-8")
         const parsedFile = JSON.parse(rawFile)
-        if (Array.isArray(parsedFile) ? parsedFile.length > 0 : Boolean(parsedFile && typeof parsedFile === "object")) {
-          rotoWireRuntimeFileInput = parsedFile
+        const hasData = Array.isArray(parsedFile)
+          ? parsedFile.length > 0
+          : Boolean(parsedFile && typeof parsedFile === "object")
+        return hasData ? parsedFile : null
+      }
+
+      const preferredOverlayInput = parseRuntimeOverlayFile(dailyOverlayRuntimeFilePath)
+      if (preferredOverlayInput) {
+        rotoWireRuntimeFileInput = preferredOverlayInput
+        rotoWireRuntimeFileExists = true
+        manualOverlaySource = "manual-overlay-daily"
+        manualOverlayPath = "backend/runtime_inputs/daily_overlay.json"
+      } else {
+        const legacyOverlayInput = parseRuntimeOverlayFile(legacyRotoWireRuntimeFilePath)
+        if (legacyOverlayInput) {
+          rotoWireRuntimeFileInput = legacyOverlayInput
+          rotoWireRuntimeFileExists = true
+          manualOverlaySource = "manual-overlay-legacy-rotowire"
+          manualOverlayPath = "backend/runtime_inputs/rotowire_signals.json"
+        } else {
+          rotoWireRuntimeFileExists = fs.existsSync(dailyOverlayRuntimeFilePath) || fs.existsSync(legacyRotoWireRuntimeFilePath)
         }
       }
     } catch (_) {
       rotoWireRuntimeFileInput = null
+      manualOverlaySource = "manual-overlay-unavailable"
+      manualOverlayPath = "backend/runtime_inputs/daily_overlay.json"
     }
 
     const rotoWireRuntimeInput = rotoWireRuntimeInputCandidates.find((value) => {
@@ -8721,6 +8745,10 @@ app.get("/api/best-available", (req, res) => {
         phase2bRotoWireSignalsWithStarter: rotoWireSignalsWithStarter,
         phase2bRotoWireSignalsMerged: rotoWireSignalsMerged,
         phase2bRotoWireRuntimeInputMissing: !rotoWireRuntimeInput,
+        phase2bManualOverlayAvailable: Boolean(rotoWireRuntimeFileInput),
+        phase2bManualOverlaySource: manualOverlaySource,
+        phase2bManualOverlayRows: rotoWireRuntimeFileRows,
+        phase2bManualOverlayPath: manualOverlayPath,
         phase2bRotoWireRuntimeFileChecked: rotoWireRuntimeFileChecked,
         phase2bRotoWireRuntimeFileExists: rotoWireRuntimeFileExists,
         phase2bRotoWireRuntimeFileRows: rotoWireRuntimeFileRows,
@@ -9171,13 +9199,27 @@ app.get("/api/best-available", (req, res) => {
         finalDecisionCalibratorPromotedStrong += 1
       }
 
+      const hasStrongContext =
+        contextSummary === "strong-support" ||
+        (Number.isFinite(contextEdgeScore) && contextEdgeScore >= 82)
+      const hasSupportiveExternalState = externalEdgeLabel.includes("upgrade")
+      const hasSafeMustAvailability =
+        availability !== "out" &&
+        availability !== "doubtful" &&
+        availability !== "questionable"
+
       const mustEligible =
         !promotedMustUsed &&
         idx < 2 &&
         nextLabel === "strong-play" &&
-        score >= 66 &&
+        score >= 68 &&
         supportSignals >= 5 &&
-        availability !== "questionable"
+        hasSafeMustAvailability &&
+        starterStatus === "starter" &&
+        hasStrongContext &&
+        hasSupportiveExternalState &&
+        marketSummary !== "market-adverse" &&
+        riskSummary !== "risk-fragile"
 
       if (mustEligible) {
         nextLabel = "must-play"
@@ -14482,6 +14524,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   const matchup = buildMatchup(event?.away_team, event?.home_team)
   const away = event?.away_team || event?.awayTeam || ""
   const home = event?.home_team || event?.homeTeam || ""
+  const eventApiId = String(event?.id || event?.eventId || "").trim()
   const eventIdForDebug = String(event?.id || event?.eventId || "")
   const matchupForDebug = away && home ? `${away} @ ${home}` : String(event?.matchup || "")
   const getEventMatchupForDebug = (evt) => {
@@ -14705,7 +14748,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
             matchup,
             awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
             homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
-            gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+            gameTime: getEventTimeForDebug(event) || "",
             book: bookName,
             marketKey,
             marketFamily: inferredFamily,
@@ -14820,7 +14863,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   let primaryResponse = null
   try {
     primaryResponse = await axios.get(
-      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${eventApiId}/odds`,
       {
         params: {
           ...baseParams,
@@ -14945,7 +14988,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
   if (shouldFetchFallbackAllBooks) {
     try {
       const fallbackResponse = await axios.get(
-        `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+        `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${eventApiId}/odds`,
         {
           params: baseParams
         }
@@ -15030,7 +15073,7 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     })
 
     const extraResponse = await axios.get(
-      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds`,
+      `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${eventApiId}/odds`,
       {
         params: {
           ...baseParams,
@@ -17647,7 +17690,7 @@ app.get("/refresh-snapshot", async (req, res) => {
               matchup,
               awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
               homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
-              gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+              gameTime: getEventTimeForDebug(event) || "",
               book: bookName,
               marketKey,
               marketFamily: inferredFamily,
@@ -18861,6 +18904,7 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
       : (Number.isFinite(options.targetTotal) ? options.targetTotal : BEST_PROPS_BALANCE_CONFIG.totalCap),
     maxPerPlayer: Number.isFinite(options.maxPerPlayer) ? options.maxPerPlayer : BEST_PROPS_BALANCE_CONFIG.maxPerPlayer,
     maxPerMatchup: Number.isFinite(options.maxPerMatchup) ? options.maxPerMatchup : BEST_PROPS_BALANCE_CONFIG.maxPerMatchup,
+    partialPostingMode: options.partialPostingMode === true,
     maxPerType: { ...BEST_PROPS_BALANCE_CONFIG.maxPerType, ...(options.maxPerType || {}) },
     ranker: options.ranker || bestPropsCompositeScore
   }
@@ -19101,12 +19145,18 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
 
     if (isBestBoardPath) {
       if ((playerCounts.get(normalizedPlayer) || 0) >= 1) {
-        if (!(hitRate >= 0.71 && edge >= 2.25 && score >= 88)) {
+        const passesRepeatPlayerGate = config.partialPostingMode
+          ? (hitRate >= 0.66 && edge >= 1.5 && score >= 78)
+          : (hitRate >= 0.71 && edge >= 2.25 && score >= 88)
+        if (!passesRepeatPlayerGate) {
           return { ok: false, reason: "droppedByQualityShape" }
         }
       }
 
-      if (side === "Under" && !(hitRate >= 0.68 && edge >= 2.0 && score >= 78)) {
+      const passesUnderGate = config.partialPostingMode
+        ? (hitRate >= 0.63 && edge >= 1.25 && score >= 70)
+        : (hitRate >= 0.68 && edge >= 2.0 && score >= 78)
+      if (side === "Under" && !passesUnderGate) {
         return { ok: false, reason: "droppedByQualityShape" }
       }
     }
@@ -19246,14 +19296,16 @@ const buildBestPropsBalancedPool = (rows, options = {}) => {
     if (!isBestBoardPath) return Array.isArray(rows) ? rows : []
 
     const safeRows = Array.isArray(rows) ? rows : []
-    const seenPlayers = new Set()
+    const perPlayerCap = config.partialPostingMode ? 2 : 1
+    const playerCounts = new Map()
     const out = []
 
     for (const row of safeRows) {
       const playerKey = normalizeBestPlayerKey(row?.player)
       if (!playerKey) continue
-      if (seenPlayers.has(playerKey)) continue
-      seenPlayers.add(playerKey)
+      const count = playerCounts.get(playerKey) || 0
+      if (count >= perPlayerCap) continue
+      playerCounts.set(playerKey, count + 1)
       out.push(row)
     }
 
@@ -19704,7 +19756,21 @@ console.log("[BEST-PROPS-EXCLUDED-DEBUG]", {
   sampleMalformed: excludedMalformed.slice(0, 5).map(r => ({ player: r?.player, propType: r?.propType, book: r?.book, line: r?.line, hitRate: r?.hitRate, score: r?.score, team: r?.team }))
 })
 
-const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, { pathLabel: "refresh-snapshot" })
+const scheduledEventCountForBestBoard = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
+const coveredEventCountForBestBoard = new Set(
+  (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+    .map((row) => String(row?.eventId || ""))
+    .filter(Boolean)
+).size
+const partialPostingModeForBestBoard =
+  scheduledEventCountForBestBoard > 0 &&
+  coveredEventCountForBestBoard > 0 &&
+  coveredEventCountForBestBoard < scheduledEventCountForBestBoard
+
+const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, {
+  pathLabel: "refresh-snapshot",
+  partialPostingMode: partialPostingModeForBestBoard
+})
 const preCapBestPropsPool = bestPropsCapResult.selected
 logBestPropsCapDebug("refresh-snapshot", "pre-cap", bestPropsSource, preCapBestPropsPool, bestPropsCapResult.diagnostics)
 let bestProps = preCapBestPropsPool.slice(0, BEST_PROPS_BALANCE_CONFIG.totalCap)
@@ -19811,8 +19877,93 @@ oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
 oddsSnapshot.snapshotSlateGameCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
 const chosenEventIds = new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean))
 const chosenEventIdsWithProps = new Set((Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).map((row) => String(row?.eventId || "")).filter((eventId) => chosenEventIds.has(eventId)))
+const chosenEventIdsArray = Array.from(chosenEventIds)
+const chosenEventIdsWithPropsArray = Array.from(chosenEventIdsWithProps)
+const missingChosenEventIdsArray = chosenEventIdsArray.filter((eventId) => !chosenEventIdsWithProps.has(eventId))
+const eventIngestDebugByEventId = new Map(
+  (Array.isArray(eventIngestDebug) ? eventIngestDebug : [])
+    .map((item) => [String(item?.eventId || ""), item])
+    .filter(([eventId]) => Boolean(eventId))
+)
+const rawPropsRowsForCoverageDebug = Array.isArray(rawPropsRowsWithHistory)
+  ? rawPropsRowsWithHistory
+  : (Array.isArray(rawPropsRows) ? rawPropsRows : [])
+const rawPropCountsByEventId = rawPropsRowsForCoverageDebug.reduce((acc, row) => {
+  const eventId = String(row?.eventId || "")
+  if (!eventId) return acc
+  acc.set(eventId, (acc.get(eventId) || 0) + 1)
+  return acc
+}, new Map())
+const chosenEventsById = (Array.isArray(scheduledEvents) ? scheduledEvents : []).reduce((acc, event) => {
+  const eventId = String(event?.id || event?.eventId || "")
+  if (eventId) acc.set(eventId, event)
+  return acc
+}, new Map())
+const classifyChosenEventPostingState = (eventId, rawPropsCountBeforeFinalFiltering) => {
+  const ingest = eventIngestDebugByEventId.get(eventId) || null
+  const requestSucceeded = ingest?.dkRequestSucceeded === true
+  const fetchError = ingest?.dkFetchError === true || ingest?.dkRequestSucceeded === false
+  const dkBookmakerEntries = Number(ingest?.dkBookmakerEntries || 0)
+  const dkMarketEntries = Number(ingest?.dkMarketEntries || 0)
+  const acceptedRows = Number(ingest?.finalAcceptedRows || ingest?.normalizedRowsProduced || 0)
+
+  if (rawPropsCountBeforeFinalFiltering > 0) {
+    if (requestSucceeded && dkMarketEntries > 0 && dkMarketEntries <= 2) return "partial_props_posted"
+    return "props_posted"
+  }
+  if (fetchError) return "ingest_error"
+  if (requestSucceeded && dkBookmakerEntries === 0 && dkMarketEntries === 0) return "no_props_posted_yet"
+  if (requestSucceeded && (dkBookmakerEntries > 0 || dkMarketEntries > 0) && acceptedRows === 0) return "fetched_but_zero_accepted_rows"
+  return "true_unknown_gap"
+}
+const chosenEventCoverageStates = chosenEventIdsArray.map((eventId) => {
+  const event = chosenEventsById.get(eventId) || null
+  const rawPropsCountBeforeFinalFiltering = Number(rawPropCountsByEventId.get(eventId) || 0)
+  return {
+    eventId,
+    matchup: event?.matchup || null,
+    postingState: classifyChosenEventPostingState(eventId, rawPropsCountBeforeFinalFiltering),
+    rawPropsCountBeforeFinalFiltering
+  }
+})
+const missingChosenEventSummaries = missingChosenEventIdsArray.map((eventId) => {
+  const event = chosenEventsById.get(eventId) || null
+  const ingest = eventIngestDebugByEventId.get(eventId) || null
+  const rawPropsCountBeforeFinalFiltering = Number(rawPropCountsByEventId.get(eventId) || 0)
+  const postingState = classifyChosenEventPostingState(eventId, rawPropsCountBeforeFinalFiltering)
+  return {
+    eventId,
+    matchup: event?.matchup || null,
+    commenceTime: event ? (getEventTime(event) || event?.commenceTime || null) : null,
+    homeTeam: event?.homeTeam || event?.home_team || null,
+    awayTeam: event?.awayTeam || event?.away_team || null,
+    postingState,
+    dkFetchError: ingest?.dkFetchError === true,
+    dkRequestSucceeded: ingest?.dkRequestSucceeded === true,
+    dkBookmakerEntries: Number(ingest?.dkBookmakerEntries || 0),
+    dkMarketEntries: Number(ingest?.dkMarketEntries || 0),
+    rawPropsExistedBeforeFinalFiltering: rawPropsCountBeforeFinalFiltering > 0,
+    rawPropsCountBeforeFinalFiltering
+  }
+})
 const chosenEventCount = chosenEventIds.size
 const chosenEventsWithPropsCount = chosenEventIdsWithProps.size
+const partialPostedChosenEventCount = chosenEventCoverageStates.filter((item) => item.postingState === "partial_props_posted").length
+const noPropsPostedChosenEventCount = chosenEventCoverageStates.filter((item) => item.postingState === "no_props_posted_yet").length
+const ingestErrorChosenEventCount = chosenEventCoverageStates.filter((item) => item.postingState === "ingest_error").length
+console.log("[CHOSEN-SLATE-PROP-COVERAGE-DEBUG]", {
+  chosenSlateDateKey,
+  chosenEventCount,
+  chosenEventsWithPropsCount,
+  partialPostedChosenEventCount,
+  noPropsPostedChosenEventCount,
+  ingestErrorChosenEventCount,
+  chosenEventIds: chosenEventIdsArray,
+  chosenEventIdsWithProps: chosenEventIdsWithPropsArray,
+  missingChosenEventIds: missingChosenEventIdsArray,
+  chosenEventCoverageStates,
+  missingChosenEventSummaries
+})
 const chosenPropsPartiallyPosted = chosenEventCount > 0 && chosenEventsWithPropsCount > 0 && chosenEventsWithPropsCount < chosenEventCount
 let slateState = "active_today"
 if (todayPregameEligible.length > 0) {
@@ -19832,6 +19983,12 @@ oddsSnapshot.slateStateValidator = {
   slateState,
   chosenEventsWithPropsCount,
   chosenEventCount,
+  partialPostedChosenEventCount,
+  noPropsPostedChosenEventCount,
+  ingestErrorChosenEventCount,
+  chosenEventCoverageStates,
+  missingChosenEventIds: missingChosenEventIdsArray,
+  missingChosenEventSummaries,
   rolloverApplied: chosenSlateDateKey !== todayDateKey,
   nextDateKeyConsidered: tomorrowDateKey,
   nextPregameGameCount: tomorrowEvents.filter(e => {
@@ -20797,7 +20954,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
               matchup,
               awayTeam: event?.away_team || event?.awayTeam || event?.teams?.[0] || "",
               homeTeam: event?.home_team || event?.homeTeam || event?.teams?.[1] || "",
-              gameTime: event?.commence_time || event?.start_time || event?.game_time || "",
+              gameTime: getEventTimeForDebug(event) || "",
               book: bookName,
               marketKey,
               marketFamily: inferredFamily,

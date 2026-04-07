@@ -1,0 +1,34 @@
+{
+  "lineups": [
+    {
+      "playerName": "Karl-Anthony Towns",
+      "status": "Active",
+      "confirmedStarter": true,
+      "news": "Confirmed starter"
+    },
+    {
+      "playerName": "Franz Wagner",
+      "status": "Probable",
+      "confirmedStarter": true,
+      "news": "Expected to start"
+    },
+    {
+      "playerName": "De'Aaron Fox",
+      "status": "Questionable",
+      "confirmedStarter": true,
+      "news": "Game-time decision"
+    },
+    {
+      "playerName": "Deni Avdija",
+      "status": "Active",
+      "lineupStatus": "starter",
+      "news": "Starting tonight"
+    },
+    {
+      "playerName": "Zaccharie Risacher",
+      "status": "Active",
+      "lineupStatus": "bench",
+      "news": "Second unit role"
+    }
+  ]
+}
