@@ -8148,7 +8148,7 @@ app.get("/api/best-available", (req, res) => {
 
     const bestUpsideAllowBlockedRow = (row) => isLadderStyleRow(row)
     const bestUpsideBaseRowFilter = (row) => {
-      const hitRate = parseHitRate(row?.hitRate)
+      const hitRate = parseHitRateValue(row?.hitRate)
       const score = Number(row?.score || 0)
       const edge = Number(row?.edge || 0)
       const odds = Number(row?.odds || 0)
@@ -8177,7 +8177,7 @@ app.get("/api/best-available", (req, res) => {
       return true
     }
     const bestUpsideFallbackRowFilter = (row) => {
-      const hitRate = parseHitRate(row?.hitRate)
+      const hitRate = parseHitRateValue(row?.hitRate)
       const score = Number(row?.score || 0)
       const edge = Number(row?.edge || 0)
       const odds = Number(row?.odds || 0)
