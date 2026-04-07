@@ -8015,7 +8015,11 @@ app.get("/api/best-available", (req, res) => {
 
   const buildCuratedLayer2Buckets = () => {
     const safeCoreRows = Array.isArray(corePropsBoard) ? corePropsBoard : []
-    const safeLadderRows = Array.isArray(ladderBoard) ? ladderBoard : []
+    const safeLadderRows = dedupeBoardRows([
+      ...(Array.isArray(ladderBoard) ? ladderBoard : []),
+      ...(Array.isArray(ladderProps) ? ladderProps : [])
+    ])
+    const safeLottoRows = Array.isArray(lottoBoard) ? lottoBoard : []
     const toLegKey = (row) => [
       String(row?.eventId || ""),
       String(row?.player || "").trim().toLowerCase(),
@@ -8030,6 +8034,15 @@ app.get("/api/best-available", (req, res) => {
     const normalizePropTypeKey = (row) => String(row?.propType || "").trim().toLowerCase()
     const normalizeMatchupKey = (row) => String(row?.matchup || row?.eventId || "").trim().toLowerCase()
     const toPlayerPropKey = (row) => `${normalizePlayerKey(row)}|${normalizePropTypeKey(row)}`
+    const isAggressiveVariant = (row) => {
+      const variant = String(row?.propVariant || "base").toLowerCase()
+      return variant === "alt-mid" || variant === "alt-high" || variant === "alt-max"
+    }
+    const isLadderStyleRow = (row) => {
+      return Boolean(row?.ladderPresentation) ||
+        String(row?.boardFamily || "") === "ladder" ||
+        isAggressiveVariant(row)
+    }
     const isPlayableCandidate = (row) => {
       if (!row) return false
       if (!row?.player || !row?.matchup || !row?.propType || !row?.book) return false
@@ -8047,7 +8060,10 @@ app.get("/api/best-available", (req, res) => {
         .filter((row) => isPlayableCandidate(row))
         .filter((row) => {
           if (!config.blockedPlayerPropKeys || !(config.blockedPlayerPropKeys instanceof Set)) return true
-          return !config.blockedPlayerPropKeys.has(toPlayerPropKey(row))
+          const isBlocked = config.blockedPlayerPropKeys.has(toPlayerPropKey(row))
+          if (!isBlocked) return true
+          if (typeof config.allowBlockedRow === "function") return Boolean(config.allowBlockedRow(row))
+          return false
         })
         .filter((row) => config.rowFilter(row))
         .slice()
@@ -8130,33 +8146,96 @@ app.get("/api/best-available", (req, res) => {
       ...bestValue.map((row) => toPlayerPropKey(row))
     ])
 
+    const bestUpsideAllowBlockedRow = (row) => isLadderStyleRow(row)
+    const bestUpsideBaseRowFilter = (row) => {
+      const hitRate = parseHitRate(row?.hitRate)
+      const score = Number(row?.score || 0)
+      const edge = Number(row?.edge || 0)
+      const odds = Number(row?.odds || 0)
+      const side = String(row?.side || "").toLowerCase()
+      const isLadderish = isLadderStyleRow(row)
+      const isOver = side === "over"
+
+      // Ladder-style acceptance path: orientation-agnostic, ceiling-focused.
+      // Does NOT require over-side or plus-money — ladder rows are inherently ceiling plays.
+      // Requires stronger quality to guard against junk.
+      if (isLadderish) {
+        if (hitRate < 0.48) return false
+        if (score < 65) return false
+        // Allow negative odds (standard ladder lines sit at -110 to -130).
+        // Block only extreme chalk (< -350) and unrealistic lotto odds (> 1100).
+        if (odds < -350 || odds > 1100) return false
+        return true
+      }
+
+      // Non-ladder: must be over-biased + meaningful plus-money (original intent)
+      const strongUnderException = side === "under" && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
+      if (odds < 115 || odds > 1100) return false
+      if (hitRate < 0.43 || score < 64 || edge < 0.2) return false
+      if (!isOver && !strongUnderException) return false
+      if (odds < 150) return false
+      return true
+    }
+    const bestUpsideFallbackRowFilter = (row) => {
+      const hitRate = parseHitRate(row?.hitRate)
+      const score = Number(row?.score || 0)
+      const edge = Number(row?.edge || 0)
+      const odds = Number(row?.odds || 0)
+      const side = String(row?.side || "").toLowerCase()
+      const isLadderish = isLadderStyleRow(row)
+      const isOver = side === "over"
+
+      // Ladder fallback: slightly looser than base
+      if (isLadderish) {
+        if (hitRate < 0.44) return false
+        if (score < 60) return false
+        if (odds < -400 || odds > 1100) return false
+        return true
+      }
+
+      // Non-ladder fallback: unchanged
+      const strongUnderException = side === "under" && odds >= 240 && hitRate >= 0.6 && edge >= 1.5 && score >= 80
+      if (odds < 105 || odds > 1100) return false
+      if (hitRate < 0.4 || score < 60 || edge < 0) return false
+      if (!isOver && !strongUnderException) return false
+      if (odds < 140) return false
+      return true
+    }
+
     const upsideSourceRows = dedupeBoardRows([
       ...safeLadderRows,
-      ...safeCoreRows.filter((row) => Number(row?.odds || 0) >= 100)
+      ...safeLottoRows.filter((row) => {
+        const odds = Number(row?.odds || 0)
+        const side = String(row?.side || "").toLowerCase()
+        const marketFamily = String(row?.marketFamily || "")
+        return marketFamily !== "special" && side === "over" && odds >= 115 && isLadderStyleRow(row)
+      }),
+      ...safeCoreRows.filter((row) => {
+        const odds = Number(row?.odds || 0)
+        const side = String(row?.side || "").toLowerCase()
+        return side === "over" && odds >= 115
+      })
     ])
+
+    const upsideInitialCandidates = upsideSourceRows.filter((row) => isPlayableCandidate(row))
+    const upsidePostBlockCandidates = upsideInitialCandidates.filter((row) => {
+      const isBlocked = saferLanePlayerPropKeys.has(toPlayerPropKey(row))
+      if (!isBlocked) return true
+      return bestUpsideAllowBlockedRow(row)
+    })
+    const upsidePostBaseFilterCandidates = upsidePostBlockCandidates.filter((row) => bestUpsideBaseRowFilter(row))
+    const upsideUseFallbackFilter = upsidePostBaseFilterCandidates.length === 0 && upsidePostBlockCandidates.length > 0
+    const upsidePostFilterCandidates = upsideUseFallbackFilter
+      ? upsidePostBlockCandidates.filter((row) => bestUpsideFallbackRowFilter(row))
+      : upsidePostBaseFilterCandidates
+
     const bestUpside = selectCuratedRows(upsideSourceRows, {
       maxRows: 8,
       maxPerPlayer: 2,
       maxPerMatchup: 3,
       blockedPlayerPropKeys: saferLanePlayerPropKeys,
-      rowFilter: (row) => {
-        const hitRate = parseHitRate(row?.hitRate)
-        const score = Number(row?.score || 0)
-        const edge = Number(row?.edge || 0)
-        const odds = Number(row?.odds || 0)
-        const side = String(row?.side || "").toLowerCase()
-        const variant = String(row?.propVariant || "base").toLowerCase()
-        const isAggressiveVariant = variant === "alt-mid" || variant === "alt-high" || variant === "alt-max"
-        const isLadderish = Boolean(row?.ladderPresentation) || isAggressiveVariant || String(row?.boardFamily || "") === "ladder"
-        const isOver = side === "over"
-        const strongUnderException = side === "under" && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
-
-        if (odds < 115 || odds > 1100) return false
-        if (hitRate < 0.43 || score < 64 || edge < 0.2) return false
-        if (!isOver && !strongUnderException) return false
-        if (!isLadderish && odds < 150) return false
-        return true
-      },
+      allowBlockedRow: bestUpsideAllowBlockedRow,
+      rowFilter: upsideUseFallbackFilter ? bestUpsideFallbackRowFilter : bestUpsideBaseRowFilter,
       rankFn: (row) => {
         const odds = Number(row?.odds || 0)
         const score = Number(row?.score || 0)
@@ -8169,6 +8248,20 @@ app.get("/api/best-available", (req, res) => {
         const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
         const oddsBandBonus = odds >= 180 && odds <= 550 ? 10 : odds > 550 ? 4 : 0
         return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 48) + variantBonus + overBonus + ladderBonus + oddsBandBonus
+      }
+    })
+
+    console.log("[LAYER2-BESTUPSIDE-DEBUG]", {
+      sourceCandidateCount: upsideSourceRows.length,
+      postPlayableCandidateCount: upsideInitialCandidates.length,
+      postBlockDeoverlapCount: upsidePostBlockCandidates.length,
+      postRowFilterCount: upsidePostFilterCandidates.length,
+      usedFallbackFilter: upsideUseFallbackFilter,
+      finalSelectedCount: bestUpside.length,
+      sourceMix: {
+        ladderStyle: upsideInitialCandidates.filter((row) => isLadderStyleRow(row)).length,
+        overSide: upsideInitialCandidates.filter((row) => String(row?.side || "").toLowerCase() === "over").length,
+        plusMoney180Plus: upsideInitialCandidates.filter((row) => Number(row?.odds || 0) >= 180).length
       }
     })
 
@@ -18577,6 +18670,69 @@ app.get("/refresh-snapshot", async (req, res) => {
     debugPipelineStages.afterDedupe = summarizePropPipelineRows(deduped)
   logPropPipelineStep("refresh-snapshot", "after-dedupe", deduped)
 
+// --- Funnel diagnostics: prove which filter drives afterDedupe -> afterScoringRanking drop ---
+{
+  const _sd0 = Array.isArray(deduped) ? deduped : []
+  const _sd1 = _sd0.filter((row) => playerFitsMatchup(row))
+  const _sd2 = _sd1.filter((row) => {
+    const team = String(row.team || "").toUpperCase().trim()
+    return Boolean(team) && (team === teamAbbr(row.awayTeam) || team === teamAbbr(row.homeTeam))
+  })
+  const _sd3 = _sd2.filter((row) => row.l10Avg !== null)
+  const _sd4 = _sd3.filter((row) => row.avgMin !== null && row.avgMin >= 18)
+  const _sd4_old = _sd3.filter((row) => row.avgMin !== null && row.avgMin >= 22)
+  const _sd5 = _sd4.filter((row) => parseHitRate(row.hitRate) >= 0.5)
+  const _sd6 = _sd5.filter((row) => row.gamesUsed >= 6)
+  const _sd7 = _sd6.filter((row) => {
+    const gameTime = new Date(row.gameTime)
+    if (!(gameTime.getTime() > Date.now())) return false
+    const localGameDate = gameTime.toLocaleDateString("en-US", { timeZone: "America/Detroit" })
+    return !primarySlateDateLocal || localGameDate === primarySlateDateLocal
+  })
+  const _sd8 = _sd7.filter((row) => {
+    const diff = Math.abs(Number(row.line) - Number(row.l10Avg))
+    if (row.propType === "Points") return diff <= 10
+    if (row.propType === "Rebounds") return diff <= 5
+    if (row.propType === "Assists") return diff <= 5
+    if (row.propType === "Threes") return diff <= 2.5
+    if (row.propType === "PRA") return diff <= 12
+    return true
+  })
+  const _sd9 = _sd8.filter((row) => {
+    if (row.propType === "Assists" && Number(row.line) > 11.5) return false
+    if (row.propType === "Rebounds" && Number(row.line) > 15.5) return false
+    if (row.propType === "Points" && Number(row.line) > 36.5) return false
+    if (row.propType === "PRA" && Number(row.line) > 47.5) return false
+    return true
+  })
+  console.log("[SCORED-PROPS-FUNNEL-DEBUG]", {
+    f0_deduped: _sd0.length,
+    f1_playerFitsMatchup: _sd1.length,
+    f2_teamAbbrValidation: _sd2.length,
+    f3_l10AvgNotNull: _sd3.length,
+    f4_avgMinGe18_new: _sd4.length,
+    f4_avgMinGe22_old: _sd4_old.length,
+    f4_recoveredByLowering: _sd4.length - _sd4_old.length,
+    f5_hitRateGe50pct: _sd5.length,
+    f6_gamesUsedGe6: _sd6.length,
+    f7_gameDateFilter: _sd7.length,
+    f8_lineDiffProximity: _sd8.length,
+    f9_maxLineSanity: _sd9.length,
+    drops: {
+      f1_teamFit: _sd0.length - _sd1.length,
+      f2_teamAbbr: _sd1.length - _sd2.length,
+      f3_l10Avg: _sd2.length - _sd3.length,
+      f4_avgMin_18: _sd3.length - _sd4.length,
+      f4_avgMin_22_would_have_dropped: _sd3.length - _sd4_old.length,
+      f5_hitRate_50: _sd4.length - _sd5.length,
+      f6_gamesUsed: _sd5.length - _sd6.length,
+      f7_gameDate: _sd6.length - _sd7.length,
+      f8_lineDiff: _sd7.length - _sd8.length,
+      f9_maxLine: _sd8.length - _sd9.length
+    }
+  })
+}
+
 const scoredProps = deduped
   .filter((row) => playerFitsMatchup(row))
   .filter((row) => {
@@ -18587,7 +18743,7 @@ const scoredProps = deduped
     )
   })
   .filter((row) => row.l10Avg !== null)
-  .filter((row) => row.avgMin !== null && row.avgMin >= 22)
+  .filter((row) => row.avgMin !== null && row.avgMin >= 18)
   .filter((row) => parseHitRate(row.hitRate) >= 0.5)
   .filter((row) => row.gamesUsed >= 6)
   .filter((row) => {
