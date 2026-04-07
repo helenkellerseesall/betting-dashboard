@@ -8029,6 +8029,7 @@ app.get("/api/best-available", (req, res) => {
     const normalizePlayerKey = (row) => String(row?.player || "").trim().toLowerCase()
     const normalizePropTypeKey = (row) => String(row?.propType || "").trim().toLowerCase()
     const normalizeMatchupKey = (row) => String(row?.matchup || row?.eventId || "").trim().toLowerCase()
+    const toPlayerPropKey = (row) => `${normalizePlayerKey(row)}|${normalizePropTypeKey(row)}`
     const isPlayableCandidate = (row) => {
       if (!row) return false
       if (!row?.player || !row?.matchup || !row?.propType || !row?.book) return false
@@ -8044,6 +8045,10 @@ app.get("/api/best-available", (req, res) => {
       const safeRows = Array.isArray(rows) ? rows : []
       const sorted = safeRows
         .filter((row) => isPlayableCandidate(row))
+        .filter((row) => {
+          if (!config.blockedPlayerPropKeys || !(config.blockedPlayerPropKeys instanceof Set)) return true
+          return !config.blockedPlayerPropKeys.has(toPlayerPropKey(row))
+        })
         .filter((row) => config.rowFilter(row))
         .slice()
         .sort((a, b) => config.rankFn(b) - config.rankFn(a))
@@ -8120,6 +8125,11 @@ app.get("/api/best-available", (req, res) => {
       }
     })
 
+    const saferLanePlayerPropKeys = new Set([
+      ...mostLikelyToHit.map((row) => toPlayerPropKey(row)),
+      ...bestValue.map((row) => toPlayerPropKey(row))
+    ])
+
     const upsideSourceRows = dedupeBoardRows([
       ...safeLadderRows,
       ...safeCoreRows.filter((row) => Number(row?.odds || 0) >= 100)
@@ -8128,21 +8138,37 @@ app.get("/api/best-available", (req, res) => {
       maxRows: 8,
       maxPerPlayer: 2,
       maxPerMatchup: 3,
+      blockedPlayerPropKeys: saferLanePlayerPropKeys,
       rowFilter: (row) => {
         const hitRate = parseHitRate(row?.hitRate)
         const score = Number(row?.score || 0)
         const edge = Number(row?.edge || 0)
         const odds = Number(row?.odds || 0)
-        return hitRate >= 0.44 && score >= 66 && edge >= 0.25 && odds >= 100 && odds <= 1100
+        const side = String(row?.side || "").toLowerCase()
+        const variant = String(row?.propVariant || "base").toLowerCase()
+        const isAggressiveVariant = variant === "alt-mid" || variant === "alt-high" || variant === "alt-max"
+        const isLadderish = Boolean(row?.ladderPresentation) || isAggressiveVariant || String(row?.boardFamily || "") === "ladder"
+        const isOver = side === "over"
+        const strongUnderException = side === "under" && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
+
+        if (odds < 115 || odds > 1100) return false
+        if (hitRate < 0.43 || score < 64 || edge < 0.2) return false
+        if (!isOver && !strongUnderException) return false
+        if (!isLadderish && odds < 150) return false
+        return true
       },
       rankFn: (row) => {
         const odds = Number(row?.odds || 0)
         const score = Number(row?.score || 0)
         const edge = Number(row?.edge || 0)
         const hitRate = parseHitRate(row?.hitRate)
+        const side = String(row?.side || "").toLowerCase()
         const variant = String(row?.propVariant || "base").toLowerCase()
-        const variantBonus = variant === "alt-high" || variant === "alt-max" ? 7 : variant === "alt-mid" ? 4 : 0
-        return (odds * 0.13) + (score * 0.9) + (edge * 18) + (hitRate * 55) + variantBonus
+        const variantBonus = variant === "alt-max" ? 14 : variant === "alt-high" ? 11 : variant === "alt-mid" ? 7 : variant === "alt-low" ? 2 : 0
+        const overBonus = side === "over" ? 10 : -6
+        const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
+        const oddsBandBonus = odds >= 180 && odds <= 550 ? 10 : odds > 550 ? 4 : 0
+        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 48) + variantBonus + overBonus + ladderBonus + oddsBandBonus
       }
     })
 
