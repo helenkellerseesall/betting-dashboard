@@ -8987,6 +8987,10 @@ app.get("/api/best-available", (req, res) => {
     const whyTonight = buildWhyTonight(row, extra, bookValueHint, contextEdgeScore)
 
     return {
+      eventId: row?.eventId || null,
+      matchup: row?.matchup || null,
+      team: row?.team || null,
+      book: row?.book || null,
       player: row?.player || null,
       marketKey: row?.marketKey || null,
       propType: row?.propType || null,
