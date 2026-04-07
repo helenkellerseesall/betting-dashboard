@@ -8263,8 +8263,12 @@ app.get("/api/best-available", (req, res) => {
         const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
         const score = Number(row?.score || 0)
         const odds = Number(row?.odds || 0)
+        const ceilingScore = Number(row?.ceilingScore || 0)
+        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
+        const marketLagScore = Number(row?.marketLagScore || 0)
         const pricingPenalty = odds > 120 ? Math.min(18, (odds - 120) * 0.06) : 0
-        return highestHitRateSortValue(row) + (confidence * 30) + (score * 0.4) - pricingPenalty
+        const boomPenalty = (ceilingScore * 8) + (roleSpikeScore * 6) + (marketLagScore * 4)
+        return highestHitRateSortValue(row) + (confidence * 32) + (score * 0.45) - pricingPenalty - boomPenalty
       }
     })
 
@@ -8284,8 +8288,11 @@ app.get("/api/best-available", (req, res) => {
         const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
         const marketLagScore = Number(row?.marketLagScore || 0)
         const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
+        const ceilingScore = Number(row?.ceilingScore || 0)
+        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
         const plusMoneyBonus = odds >= 100 && odds <= 220 ? 8 : 0
-        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 8) + (bookDisagreementScore * 10)
+        const genericBoomPenalty = (ceilingScore * 3) + (roleSpikeScore * 2)
+        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 14) + (bookDisagreementScore * 20) - genericBoomPenalty
       }
     })
 
@@ -8401,21 +8408,39 @@ app.get("/api/best-available", (req, res) => {
         const ceilingScore = Number(row?.ceilingScore || 0)
         const roleSpikeScore = Number(row?.roleSpikeScore || 0)
         const marketLagScore = Number(row?.marketLagScore || 0)
+        const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
         const side = String(row?.side || "").toLowerCase()
         const variant = String(row?.propVariant || "base").toLowerCase()
         const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
         const overBonus = side === "over" ? 16 : -18
         const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
         const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
-        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 16) + (roleSpikeScore * 12) + (marketLagScore * 8) + variantBonus + overBonus + ladderBonus + oddsBandBonus
+        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 22) + (roleSpikeScore * 18) + (marketLagScore * 12) + (bookDisagreementScore * 6) + variantBonus + overBonus + ladderBonus + oddsBandBonus
       }
     })
 
-    // Composition enforcement: max 1 under row, overs fill first
+    // Composition enforcement: under rows are excluded by default.
+    // Allow at most one under only if it clears an elite upside exception bar.
     let upsideUnderCount = 0
     const bestUpside = bestUpsideRaw.filter((row) => {
       if (String(row?.side || "").toLowerCase() !== "under") return true
-      if (upsideUnderCount < 1) { upsideUnderCount++; return true }
+
+      const hitRate = parseHitRateValue(row?.hitRate)
+      const score = Number(row?.score || 0)
+      const edge = Number(row?.edge || 0)
+      const ceilingScore = Number(row?.ceilingScore || 0)
+      const roleSpikeScore = Number(row?.roleSpikeScore || 0)
+      const eliteUnderUpsideException =
+        hitRate >= 0.74 &&
+        score >= 90 &&
+        edge >= 2.2 &&
+        ceilingScore >= 0.72 &&
+        roleSpikeScore >= 0.65
+
+      if (eliteUnderUpsideException && upsideUnderCount < 1) {
+        upsideUnderCount++
+        return true
+      }
       return false
     }).slice(0, 8)
 
