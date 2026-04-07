@@ -579,6 +579,77 @@ function buildCeilingRoleSpikeSignals(row) {
   }
 }
 
+function buildMarketContextSignals(row) {
+  const side = String(row?.side || "").toLowerCase()
+  const hitRate = parseHitRateValue(row?.hitRate)
+  const odds = Number(row?.odds)
+  const openingOdds = Number(row?.openingOdds)
+  const line = Number(row?.line)
+  const openingLine = Number(row?.openingLine)
+  const oddsMove = Number.isFinite(Number(row?.oddsMove))
+    ? Number(row.oddsMove)
+    : (Number.isFinite(odds) && Number.isFinite(openingOdds) ? (odds - openingOdds) : 0)
+  const lineMove = Number.isFinite(Number(row?.lineMove))
+    ? Number(row.lineMove)
+    : (Number.isFinite(line) && Number.isFinite(openingLine) ? (line - openingLine) : 0)
+  const bookValueScore = clamp(Number(row?.bookValueScore || 0), 0, 1)
+  const marketMovementTag = String(row?.marketMovementTag || "").toLowerCase()
+
+  const impliedNow = impliedProbabilityFromAmerican(odds)
+  const impliedOpen = impliedProbabilityFromAmerican(openingOdds)
+  const impliedLag =
+    impliedNow != null && impliedOpen != null
+      ? clamp((impliedOpen - impliedNow) / 0.12, -1, 1)
+      : 0
+  const valueGap = impliedNow != null ? clamp((hitRate - impliedNow) / 0.2, -1, 1) : 0
+
+  const directionalLine = Number.isFinite(lineMove)
+    ? (side === "under"
+      ? clamp(lineMove / 1.75, -1, 1)
+      : clamp((-lineMove) / 1.75, -1, 1))
+    : 0
+  const directionalOdds = Number.isFinite(oddsMove) ? clamp(oddsMove / 60, -1, 1) : 0
+
+  let tagAdj = 0
+  if (marketMovementTag.includes("odds better")) tagAdj += 0.25
+  if (marketMovementTag.includes("odds worse")) tagAdj -= 0.2
+  if (side === "under") {
+    if (marketMovementTag.includes("line up")) tagAdj += 0.2
+    if (marketMovementTag.includes("line down")) tagAdj -= 0.2
+  } else {
+    if (marketMovementTag.includes("line down")) tagAdj += 0.2
+    if (marketMovementTag.includes("line up")) tagAdj -= 0.2
+  }
+
+  const hasMovementEvidence =
+    Math.abs(lineMove) >= 0.1 ||
+    Math.abs(oddsMove) >= 3 ||
+    Math.abs(impliedLag) >= 0.03 ||
+    marketMovementTag.includes("line") ||
+    marketMovementTag.includes("odds")
+
+  const marketLagRaw = hasMovementEvidence
+    ? (
+      (directionalLine * 0.32) +
+      (directionalOdds * 0.24) +
+      (impliedLag * 0.24) +
+      (tagAdj * 0.12) +
+      (valueGap * 0.08)
+    )
+    : (
+      (valueGap * 0.72) +
+      (((bookValueScore * 2) - 1) * 0.28)
+    )
+
+  const marketLagScore = clamp((marketLagRaw + 1) / 2, 0, 1)
+  const bookDisagreementScore = clamp((bookValueScore * 0.7) + (marketLagScore * 0.3), 0, 1)
+
+  return {
+    marketLagScore: Number(marketLagScore.toFixed(3)),
+    bookDisagreementScore: Number(bookDisagreementScore.toFixed(3))
+  }
+}
+
 function getSlipCandidateScore(row) {
   const hr = parseHitRateValue(row.hitRate)
   const edge = Number(row.edge || 0)
@@ -8211,8 +8282,10 @@ app.get("/api/best-available", (req, res) => {
       rankFn: (row) => {
         const odds = Number(row?.odds || 0)
         const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
+        const marketLagScore = Number(row?.marketLagScore || 0)
+        const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
         const plusMoneyBonus = odds >= 100 && odds <= 220 ? 8 : 0
-        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus
+        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 8) + (bookDisagreementScore * 10)
       }
     })
 
@@ -8327,13 +8400,14 @@ app.get("/api/best-available", (req, res) => {
         const hitRate = parseHitRateValue(row?.hitRate)
         const ceilingScore = Number(row?.ceilingScore || 0)
         const roleSpikeScore = Number(row?.roleSpikeScore || 0)
+        const marketLagScore = Number(row?.marketLagScore || 0)
         const side = String(row?.side || "").toLowerCase()
         const variant = String(row?.propVariant || "base").toLowerCase()
         const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
         const overBonus = side === "over" ? 16 : -18
         const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
         const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
-        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 16) + (roleSpikeScore * 12) + variantBonus + overBonus + ladderBonus + oddsBandBonus
+        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 16) + (roleSpikeScore * 12) + (marketLagScore * 8) + variantBonus + overBonus + ladderBonus + oddsBandBonus
       }
     })
 
@@ -9195,6 +9269,8 @@ app.get("/api/best-available", (req, res) => {
     const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
     const ceilingScore = Number(row?.ceilingScore)
     const roleSpikeScore = Number(row?.roleSpikeScore)
+    const marketLagScore = Number(row?.marketLagScore)
+    const bookDisagreementScore = Number(row?.bookDisagreementScore)
     const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
     const marketEdgeScore = buildMarketEdgeScore(row)
     const { volatilityPenalty, volatilityFlag } = buildVolatilityOverlay(row)
@@ -9217,6 +9293,8 @@ app.get("/api/best-available", (req, res) => {
       confidenceScore,
       ceilingScore: Number.isFinite(ceilingScore) ? Number(ceilingScore.toFixed(3)) : null,
       roleSpikeScore: Number.isFinite(roleSpikeScore) ? Number(roleSpikeScore.toFixed(3)) : null,
+      marketLagScore: Number.isFinite(marketLagScore) ? Number(marketLagScore.toFixed(3)) : null,
+      bookDisagreementScore: Number.isFinite(bookDisagreementScore) ? Number(bookDisagreementScore.toFixed(3)) : null,
       hitRatePct: toReadablePercent(confidenceScore),
       adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
       playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
@@ -18910,7 +18988,8 @@ const scoredProps = deduped
       modelSummary
     }
     const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
-    return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals })
+    const marketContextSignals = buildMarketContextSignals(edgeRow)
+    return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...marketContextSignals })
   })
   .filter((row) => {
     const hasCoreData =
@@ -21913,7 +21992,8 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         modelSummary
       }
       const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
-      return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals })
+      const marketContextSignals = buildMarketContextSignals(edgeRow)
+      return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...marketContextSignals })
     })
 
     console.log("[CEILING-SIGNAL-STAGE-DEBUG]", {
