@@ -343,6 +343,128 @@ const buildWhyTonight = (row, extra, bookValueHint, contextEdgeScore) => {
   return parts.length ? parts.join(" | ") : null
 }
 
+const toUnitScore = (value, fallback = 0) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric <= 1) return Math.max(0, Math.min(1, numeric))
+  if (numeric <= 100) return Math.max(0, Math.min(1, numeric / 100))
+  return fallback
+}
+
+const buildCuratedLaneDecision = (row, sourceLane, metrics = {}) => {
+  const lane = String(sourceLane || "").toLowerCase()
+  if (!["mostlikelytohit", "bestvalue", "bestupside"].includes(lane)) return null
+
+  const confidence = toUnitScore(metrics.confidenceScore, 0)
+  const lineup = toUnitScore(row?.lineupContextScore, 0)
+  const opportunity = toUnitScore(row?.opportunitySpikeScore, 0)
+  const ceiling = toUnitScore(row?.ceilingScore, confidence)
+  const roleSpike = toUnitScore(row?.roleSpikeScore, 0)
+  const marketLag = toUnitScore(row?.marketLagScore, 0)
+  const bookDisagreement = toUnitScore(row?.bookDisagreementScore, marketLag)
+  const volatilityPenalty = toUnitScore(metrics.volatilityPenalty, 0)
+  const odds = Number(row?.odds ?? 0)
+
+  if (lane === "mostlikelytohit") {
+    const priceSafety = odds <= 180 && odds >= -350 ? 1 : odds <= 250 ? 0.7 : 0.45
+    const stabilityScore =
+      (confidence * 0.5) +
+      (lineup * 0.24) +
+      (opportunity * 0.1) +
+      ((1 - volatilityPenalty) * 0.1) +
+      (priceSafety * 0.06)
+
+    if (stabilityScore >= 0.7) {
+      return {
+        playDecision: "stable-strong",
+        decisionSummary: "L2-STABLE: high-confidence baseline with stable role/context support.",
+        finalDecisionLabel: "strong-play",
+        decisionBucket: "strong-play"
+      }
+    }
+
+    if (stabilityScore >= 0.56) {
+      return {
+        playDecision: "stable-playable",
+        decisionSummary: "L2-STABLE: conservative setup remains playable with controlled risk.",
+        finalDecisionLabel: "playable",
+        decisionBucket: "playable"
+      }
+    }
+
+    return {
+      playDecision: "stable-thin",
+      decisionSummary: "L2-STABLE: support is thinner than desired for a safest-lane entry.",
+      finalDecisionLabel: "sit",
+      decisionBucket: "sit"
+    }
+  }
+
+  if (lane === "bestvalue") {
+    const contextSupport = Math.max(0, ((lineup * 0.62) + (opportunity * 0.38)) - 0.42)
+    const plusMoneyWindowBonus = odds >= 100 && odds <= 260 ? 0.08 : 0
+    const valueIntentScore =
+      (bookDisagreement * 0.3) +
+      (marketLag * 0.28) +
+      (confidence * 0.24) +
+      (contextSupport * 0.12) +
+      plusMoneyWindowBonus
+
+    if (valueIntentScore >= 0.63) {
+      return {
+        playDecision: "value-strong",
+        decisionSummary: "L2-VALUE: price inefficiency and support context align for stronger value conviction.",
+        finalDecisionLabel: "strong-play",
+        decisionBucket: "strong-play"
+      }
+    }
+
+    if (valueIntentScore >= 0.5) {
+      return {
+        playDecision: "value-playable",
+        decisionSummary: "L2-VALUE: market/value profile is favorable with context support.",
+        finalDecisionLabel: "playable",
+        decisionBucket: "playable"
+      }
+    }
+
+    return {
+      playDecision: "value-thin",
+      decisionSummary: "L2-VALUE: current price edge is not strong enough for a value-lane push.",
+      finalDecisionLabel: "sit",
+      decisionBucket: "sit"
+    }
+  }
+
+  const upsideSignal = (ceiling * 0.34) + (opportunity * 0.27) + (roleSpike * 0.19) + (lineup * 0.08)
+  const upsideIntentScore = (upsideSignal * 0.74) + (confidence * 0.2) + (toUnitScore(odds, 0) * 0.06)
+
+  if (upsideIntentScore >= 0.63) {
+    return {
+      playDecision: "upside-strong",
+      decisionSummary: "L2-UPSIDE: ceiling and opportunity stack support an intentional boom-style entry.",
+      finalDecisionLabel: "strong-play",
+      decisionBucket: "strong-play"
+    }
+  }
+
+  if (upsideIntentScore >= 0.5) {
+    return {
+      playDecision: "upside-playable",
+      decisionSummary: "L2-UPSIDE: opportunity and ceiling profile remain playable for upside exposure.",
+      finalDecisionLabel: "playable",
+      decisionBucket: "playable"
+    }
+  }
+
+  return {
+    playDecision: "upside-thin",
+    decisionSummary: "L2-UPSIDE: upside signal stack is currently too thin for this lane.",
+    finalDecisionLabel: "sit",
+    decisionBucket: "sit"
+  }
+}
+
 // ---------------------------------------------------------------------------
 // External overlay finalizer (pure — no closure deps)
 // ---------------------------------------------------------------------------
@@ -394,9 +516,10 @@ const finalizeRuntimeExternalOverlay = (overlay, externalSignalInput) => {
  */
 function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
   return function buildReadableSurfaceRow(row, extra = {}) {
+    const sourceLane = extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
     const decisionLayerInput = {
       ...row,
-      sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
+      sourceLane
     }
     const externalSignalInput = buildOverlayExternalSignalInput(row, extra)
     const decisionLayer = buildDecisionLayer(decisionLayerInput)
@@ -414,6 +537,27 @@ function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
     const bookValueHint = deriveBookValueHint(marketEdgeScore, volatilityPenalty)
     const edgeSynopsis = buildEdgeSynopsis(row, contextEdgeScore, marketEdgeScore, volatilityFlag, bookValueHint)
     const whyTonight = buildWhyTonight(row, extra, bookValueHint, contextEdgeScore)
+    const curatedLaneDecision = buildCuratedLaneDecision(row, sourceLane, {
+      confidenceScore,
+      volatilityPenalty
+    })
+    const hardStopFromDecisionLayer =
+      String(decisionLayer?.finalDecisionLabel || "").toLowerCase() === "sit" &&
+      Boolean(String(decisionLayer?.sitReason || "").trim())
+    const availabilityBlock = ["out", "doubtful"].includes(String(externalOverlay?.availabilityStatus || "").toLowerCase())
+    const shouldPreserveHardStop = hardStopFromDecisionLayer || availabilityBlock
+    const surfacedPlayDecision = curatedLaneDecision && !shouldPreserveHardStop
+      ? curatedLaneDecision.playDecision
+      : (row?.playDecision || null)
+    const surfacedDecisionSummary = curatedLaneDecision && !shouldPreserveHardStop
+      ? curatedLaneDecision.decisionSummary
+      : (row?.decisionSummary || null)
+    const surfacedFinalDecisionLabel = curatedLaneDecision && !shouldPreserveHardStop
+      ? curatedLaneDecision.finalDecisionLabel
+      : (decisionLayer?.finalDecisionLabel || null)
+    const surfacedDecisionBucket = curatedLaneDecision && !shouldPreserveHardStop
+      ? curatedLaneDecision.decisionBucket
+      : (decisionLayer?.decisionBucket || null)
 
     return {
       eventId: row?.eventId || null,
@@ -439,16 +583,16 @@ function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
       adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
       playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
       confidenceTier: row?.confidenceTier || null,
-      playDecision: row?.playDecision || null,
-      decisionSummary: row?.decisionSummary || null,
+      playDecision: surfacedPlayDecision,
+      decisionSummary: surfacedDecisionSummary,
       mustPlayBetType: row?.mustPlayBetType || null,
       mustPlaySourceLane: row?.mustPlaySourceLane || null,
       mustPlayReasonTag: row?.mustPlayReasonTag || null,
       mustPlayContextTag: row?.mustPlayContextTag || null,
       mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
       finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
-      finalDecisionLabel: decisionLayer?.finalDecisionLabel || null,
-      decisionBucket: decisionLayer?.decisionBucket || null,
+      finalDecisionLabel: surfacedFinalDecisionLabel,
+      decisionBucket: surfacedDecisionBucket,
       supportEdge: decisionLayer?.supportEdge || null,
       marketEdge: decisionLayer?.marketEdge || null,
       riskEdge: decisionLayer?.riskEdge || null,
