@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^node -e \"const fs=require\\('fs'\\);const d=JSON\\.parse\\(fs\\.readFileSync\\('backend/snapshot\\.json','utf8'\\)\\);const vals=\\[\\];function walk\\(v\\)\\{if\\(Array\\.isArray\\(v\\)\\)\\{for\\(const x of v\\)walk\\(x\\);return;\\}if\\(v&&typeof v==='object'\\)\\{if\\(Number\\.isFinite\\(v\\.lineupContextScore\\)\\|\\|Number\\.isFinite\\(v\\.opportunitySpikeScore\\)\\)\\{vals\\.push\\(\\{marketFamily:v\\.marketFamily,specialSubtype:v\\.specialSubtype,player:v\\.player,lineupContextScore:v\\.lineupContextScore,opportunitySpikeScore:v\\.opportunitySpikeScore,playDecision:v\\.playDecision,decisionSummary:v\\.decisionSummary\\}\\);\\}for\\(const k of Object\\.keys\\(v\\)\\)walk\\(v\\[k\\]\\);\\}\\}walk\\(d\\);const spec=vals\\.filter\\(x=>x\\.marketFamily==='special'\\|\\|x\\.specialSubtype\\);console\\.log\\('all rows with context fields',vals\\.length\\);console\\.log\\('special rows with context fields',spec\\.length\\);const uniq=\\(arr,key\\)=>\\[\\.\\.\\.new Set\\(arr\\.map\\(x=>x\\[key\\]\\)\\.filter\\(Number\\.isFinite\\)\\)\\]\\.sort\\(\\(a,b\\)=>a-b\\);console\\.log\\('unique special lineupContextScore',uniq\\(spec,'lineupContextScore'\\)\\.slice\\(0,40\\)\\);console\\.log\\('unique special opportunitySpikeScore',uniq\\(spec,'opportunitySpikeScore'\\)\\.slice\\(0,40\\)\\);console\\.log\\('sample special',JSON\\.stringify\\(spec\\.slice\\(0,20\\)\\)\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

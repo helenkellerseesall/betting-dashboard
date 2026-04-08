@@ -103,13 +103,9 @@ function normalizeSpecialtyRow(row) {
   const playerKey = String(safeRow?.player || "").trim().toLowerCase()
   const indexedTeam = playerKey ? playerTeamIndex[playerKey] : null
   const inferredTeam =
-    safeRow?.team ||
-    safeRow?.playerTeam ||
-    safeRow?.teamName ||
-    safeRow?.teamAbbr ||
     indexedTeam ||
-    safeRow?.awayTeam ||
-    safeRow?.homeTeam ||
+    safeRow?.playerTeam ||
+    safeRow?.team ||
     null
 
   const confidence01 = toUnitScore(safeRow?.adjustedConfidenceScore ?? safeRow?.playerConfidenceScore ?? safeRow?.score, null)
@@ -146,6 +142,7 @@ function normalizeSpecialtyRow(row) {
 
   return {
     ...safeRow,
+    indexedTeam: indexedTeam || null,
     team: inferredTeam,
     ceilingScore,
     roleSpikeScore,

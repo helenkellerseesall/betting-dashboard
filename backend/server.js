@@ -19,7 +19,11 @@ const { buildBestLadders } = require("./pipeline/boards/buildBestLadders")
 const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
 const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
 const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
+const { buildCuratedLayer2Buckets: buildCuratedLayer2BucketsHelper } = require("./pipeline/boards/buildCuratedLayer2Buckets")
 const { buildSpecialtyOutputs } = require("./pipeline/boards/buildSpecialtyOutputs")
+const { buildCeilingRoleSpikeSignals, buildLineupRoleContextSignals, buildMarketContextSignals } = require("./pipeline/signals/buildPredictiveSignals")
+const { createSurfaceRowBuilder, finalizeRuntimeExternalOverlay } = require("./pipeline/output/buildSurfaceRow")
+const { rowTeamMatchesMatchup: rowTeamMatchesMatchupResolver, getBadTeamAssignmentRows: getBadTeamAssignmentRowsResolver, buildSpecialtyPlayerTeamIndex } = require("./pipeline/resolution/playerTeamResolution")
 const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
@@ -505,156 +509,6 @@ function adjustLadderMetrics(row, variantLine) {
     hitRate: Math.round(adjustedHitRate * 1000) / 1000,
     edge: Math.round(adjustedEdge * 1000) / 1000,
     score: Math.round(adjustedScore * 100) / 100
-  }
-}
-
-function parseHitRateValue(hitRate) {
-  if (hitRate == null) return 0
-  if (typeof hitRate === "string" && hitRate.includes("/")) {
-    const parts = hitRate.split("/").map(Number)
-    if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1]) && parts[1] > 0) {
-      return parts[0] / parts[1]
-    }
-    return 0
-  }
-  const numeric = Number(hitRate)
-  return Number.isFinite(numeric) ? numeric : 0
-}
-
-function buildCeilingRoleSpikeSignals(row) {
-  const hitRate = parseHitRateValue(row?.hitRate)
-  const score = Number(row?.score || 0)
-  const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
-  const line = Number(row?.line)
-  const recent3Avg = Number(row?.recent3Avg)
-  const l10Avg = Number(row?.l10Avg)
-  const avgMin = Number(row?.avgMin)
-  const recent3MinAvg = Number(row?.recent3MinAvg)
-  const minCeiling = Number(row?.minCeiling)
-  const side = String(row?.side || "").toLowerCase()
-  const minutesRisk = String(row?.minutesRisk || "").toLowerCase()
-  const injuryRisk = String(row?.injuryRisk || "").toLowerCase()
-  const trendRisk = String(row?.trendRisk || "").toLowerCase()
-  const gamePriorityScore = Number(row?.gamePriorityScore || 0)
-  const roleSignalScore = Number(row?.roleSignalScore || 0)
-  const matchupEdgeScore = Number(row?.matchupEdgeScore || 0)
-  const bookValueScore = Number(row?.bookValueScore || 0)
-  
-  const recentFormDelta = Number.isFinite(recent3Avg) && Number.isFinite(l10Avg) ? (recent3Avg - l10Avg) : 0
-  const minutesTrendDelta = Number.isFinite(recent3MinAvg) && Number.isFinite(avgMin) ? (recent3MinAvg - avgMin) : 0
-  const lineLeverage = Number.isFinite(line) && Number.isFinite(recent3Avg)
-    ? (side === "under" ? (line - recent3Avg) : (recent3Avg - line))
-    : 0
-  const ceilingOverLine = Number.isFinite(minCeiling) && Number.isFinite(line) ? (minCeiling - line) : 0
-  
-  const scoreSignal = clamp((score - 64) / 34, 0, 1)
-  const edgeSignal = clamp((edge + 0.15) / 2.35, 0, 1)
-  const hitSignal = clamp((hitRate - 0.5) / 0.3, 0, 1)
-  const formSignal = clamp((recentFormDelta + 1.5) / 5, 0, 1)
-  const lineSignal = clamp((lineLeverage + 0.4) / 3.2, 0, 1)
-  const ceilingRangeSignal = clamp((ceilingOverLine + 1) / 9, 0, 1)
-  const contextSignal = clamp((gamePriorityScore * 0.55) + (matchupEdgeScore * 0.45), 0, 1)
-  
-  const roleSignal = clamp(roleSignalScore, 0, 1)
-  const minutesTrendSignal = clamp((minutesTrendDelta + 1.2) / 4.2, 0, 1)
-  const minutesBaseSignal = clamp((avgMin - 23) / 12, 0, 1)
-  const pricingSignal = clamp(bookValueScore, 0, 1)
-  
-  const riskPenalty =
-    (minutesRisk === "high" ? 0.08 : minutesRisk === "medium" ? 0.03 : 0) +
-    (injuryRisk === "high" ? 0.08 : injuryRisk === "medium" ? 0.03 : 0) +
-    (trendRisk === "high" ? 0.06 : trendRisk === "medium" ? 0.02 : 0)
-  
-  const ceilingRaw =
-    (scoreSignal * 0.2) +
-    (edgeSignal * 0.17) +
-    (hitSignal * 0.12) +
-    (formSignal * 0.16) +
-    (lineSignal * 0.15) +
-    (ceilingRangeSignal * 0.1) +
-    (contextSignal * 0.1)
-  
-  const roleSpikeRaw =
-    (roleSignal * 0.3) +
-    (minutesTrendSignal * 0.24) +
-    (formSignal * 0.2) +
-    (minutesBaseSignal * 0.16) +
-    (pricingSignal * 0.1)
-  
-  return {
-    ceilingScore: Number(clamp(ceilingRaw - riskPenalty, 0, 1).toFixed(3)),
-    roleSpikeScore: Number(clamp(roleSpikeRaw - (riskPenalty * 0.85), 0, 1).toFixed(3))
-  }
-}
-
-function buildMarketContextSignals(row) {
-  const side = String(row?.side || "").toLowerCase()
-  const hitRate = parseHitRateValue(row?.hitRate)
-  const odds = Number(row?.odds)
-  const openingOdds = Number(row?.openingOdds)
-  const line = Number(row?.line)
-  const openingLine = Number(row?.openingLine)
-  const oddsMove = Number.isFinite(Number(row?.oddsMove))
-    ? Number(row.oddsMove)
-    : (Number.isFinite(odds) && Number.isFinite(openingOdds) ? (odds - openingOdds) : 0)
-  const lineMove = Number.isFinite(Number(row?.lineMove))
-    ? Number(row.lineMove)
-    : (Number.isFinite(line) && Number.isFinite(openingLine) ? (line - openingLine) : 0)
-  const bookValueScore = clamp(Number(row?.bookValueScore || 0), 0, 1)
-  const marketMovementTag = String(row?.marketMovementTag || "").toLowerCase()
-
-  const impliedNow = impliedProbabilityFromAmerican(odds)
-  const impliedOpen = impliedProbabilityFromAmerican(openingOdds)
-  const impliedLag =
-    impliedNow != null && impliedOpen != null
-      ? clamp((impliedOpen - impliedNow) / 0.12, -1, 1)
-      : 0
-  const valueGap = impliedNow != null ? clamp((hitRate - impliedNow) / 0.2, -1, 1) : 0
-
-  const directionalLine = Number.isFinite(lineMove)
-    ? (side === "under"
-      ? clamp(lineMove / 1.75, -1, 1)
-      : clamp((-lineMove) / 1.75, -1, 1))
-    : 0
-  const directionalOdds = Number.isFinite(oddsMove) ? clamp(oddsMove / 60, -1, 1) : 0
-
-  let tagAdj = 0
-  if (marketMovementTag.includes("odds better")) tagAdj += 0.25
-  if (marketMovementTag.includes("odds worse")) tagAdj -= 0.2
-  if (side === "under") {
-    if (marketMovementTag.includes("line up")) tagAdj += 0.2
-    if (marketMovementTag.includes("line down")) tagAdj -= 0.2
-  } else {
-    if (marketMovementTag.includes("line down")) tagAdj += 0.2
-    if (marketMovementTag.includes("line up")) tagAdj -= 0.2
-  }
-
-  const hasMovementEvidence =
-    Math.abs(lineMove) >= 0.1 ||
-    Math.abs(oddsMove) >= 3 ||
-    Math.abs(impliedLag) >= 0.03 ||
-    marketMovementTag.includes("line") ||
-    marketMovementTag.includes("odds")
-
-  const marketLagRaw = hasMovementEvidence
-    ? (
-      (directionalLine * 0.32) +
-      (directionalOdds * 0.24) +
-      (impliedLag * 0.24) +
-      (tagAdj * 0.12) +
-      (valueGap * 0.08)
-    )
-    : (
-      (valueGap * 0.72) +
-      (((bookValueScore * 2) - 1) * 0.28)
-    )
-
-  const marketLagScore = clamp((marketLagRaw + 1) / 2, 0, 1)
-  const bookDisagreementScore = clamp((bookValueScore * 0.7) + (marketLagScore * 0.3), 0, 1)
-
-  return {
-    marketLagScore: Number(marketLagScore.toFixed(3)),
-    bookDisagreementScore: Number(bookDisagreementScore.toFixed(3))
   }
 }
 
@@ -1641,133 +1495,12 @@ function normalizeDebugPlayerName(name) {
     .toLowerCase()
 }
 
-function normalizeTeamDebugText(value) {
-  return String(value || "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase()
-}
-
-function getTeamNameByAbbr(abbr) {
-  const map = {
-    ATL: "Atlanta Hawks",
-    BOS: "Boston Celtics",
-    BKN: "Brooklyn Nets",
-    CHA: "Charlotte Hornets",
-    CHI: "Chicago Bulls",
-    CLE: "Cleveland Cavaliers",
-    DAL: "Dallas Mavericks",
-    DEN: "Denver Nuggets",
-    DET: "Detroit Pistons",
-    GSW: "Golden State Warriors",
-    HOU: "Houston Rockets",
-    IND: "Indiana Pacers",
-    LAC: "Los Angeles Clippers",
-    LAL: "Los Angeles Lakers",
-    MEM: "Memphis Grizzlies",
-    MIA: "Miami Heat",
-    MIL: "Milwaukee Bucks",
-    MIN: "Minnesota Timberwolves",
-    NOP: "New Orleans Pelicans",
-    NYK: "New York Knicks",
-    OKC: "Oklahoma City Thunder",
-    ORL: "Orlando Magic",
-    PHI: "Philadelphia 76ers",
-    PHX: "Phoenix Suns",
-    POR: "Portland Trail Blazers",
-    SAC: "Sacramento Kings",
-    SAS: "San Antonio Spurs",
-    TOR: "Toronto Raptors",
-    UTA: "Utah Jazz",
-    WAS: "Washington Wizards"
-  }
-  return map[String(abbr || "").toUpperCase().trim()] || ""
-}
-
-function getTeamTokenSet(teamValue) {
-  const raw = String(teamValue || "").trim()
-  const tokens = new Set()
-  if (!raw) return tokens
-
-  const add = (value) => {
-    const normalized = normalizeTeamDebugText(value)
-    if (normalized) tokens.add(normalized)
-  }
-
-  add(raw)
-
-  const abbr = String(teamAbbr(raw) || raw).toUpperCase().trim()
-  if (abbr) {
-    add(abbr)
-    const fullName = getTeamNameByAbbr(abbr)
-    if (fullName) {
-      add(fullName)
-      const nameParts = normalizeTeamDebugText(fullName).split(" ").filter(Boolean)
-      if (nameParts.length) add(nameParts[nameParts.length - 1])
-    }
-  }
-
-  return tokens
-}
-
-function parseMatchupTeams(matchupValue) {
-  const matchup = String(matchupValue || "").trim()
-  if (!matchup) return { away: "", home: "" }
-  const normalized = matchup.replace(/\s+vs\.?\s+/i, " @ ")
-  const parts = normalized.split("@").map((part) => String(part || "").trim()).filter(Boolean)
-  if (parts.length >= 2) {
-    return {
-      away: parts[0],
-      home: parts[1]
-    }
-  }
-  return { away: "", home: "" }
-}
-
 function rowTeamMatchesMatchup(row) {
-  if (!row) return true
-
-  const team = String(row?.team || "").trim()
-  if (!team) return true
-
-  const parsedMatchup = parseMatchupTeams(row?.matchup)
-  const awayTeam = String(row?.awayTeam || parsedMatchup.away || "").trim()
-  const homeTeam = String(row?.homeTeam || parsedMatchup.home || "").trim()
-
-  const awayTokens = getTeamTokenSet(awayTeam)
-  const homeTokens = getTeamTokenSet(homeTeam)
-  const teamTokens = getTeamTokenSet(team)
-
-  if (!awayTokens.size && !homeTokens.size) return true
-
-  for (const token of teamTokens) {
-    if (awayTokens.has(token) || homeTokens.has(token)) return true
-  }
-
-  return false
+  return rowTeamMatchesMatchupResolver(row, teamAbbr)
 }
 
 function getBadTeamAssignmentRows(rows, limit = 25) {
-  const safeRows = Array.isArray(rows) ? rows : []
-  const maxRows = Number.isFinite(limit) ? Math.max(0, Number(limit)) : 25
-  return safeRows
-    .filter((row) => !rowTeamMatchesMatchup(row))
-    .slice(0, maxRows)
-    .map((row) => ({
-      player: row?.player,
-      team: row?.team,
-      matchup: row?.matchup,
-      awayTeam: row?.awayTeam,
-      homeTeam: row?.homeTeam,
-      book: row?.book,
-      propType: row?.propType,
-      line: row?.line,
-      odds: row?.odds,
-      eventId: row?.eventId
-    }))
+  return getBadTeamAssignmentRowsResolver(rows, limit, teamAbbr)
 }
 
 function summarizeIdentityChanges(rawRows, enrichedRows, limit = 25) {
@@ -7281,12 +7014,22 @@ app.get("/api/best-available", (req, res) => {
     ? specialProps.map(enrichSpecialPredictionRow)
     : []
 
+  const effectiveBestPropsForBoardSource = (Array.isArray(effectiveBestProps) ? effectiveBestProps : []).filter((row) => {
+    const marketFamily = String(row?.marketFamily || "").toLowerCase()
+    const marketKey = String(row?.marketKey || "")
+    const propType = String(row?.propType || "")
+    if (marketFamily === "special") return false
+    if (SPECIAL_MARKET_KEYS.has(marketKey)) return false
+    if (SPECIAL_PROP_TYPE_NAMES.has(propType)) return false
+    return true
+  })
+
   const boardSourceRows = dedupeBoardRows([
     ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
     ...(Array.isArray(standardCandidates) ? standardCandidates : []),
     ...(Array.isArray(ladderPool) ? ladderPool : []),
     ...(Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps : []),
-    ...(Array.isArray(effectiveBestProps) ? effectiveBestProps : [])
+    ...effectiveBestPropsForBoardSource
   ])
 
   console.log("[BOARD-SOURCE-DEBUG]", {
@@ -8167,312 +7910,18 @@ app.get("/api/best-available", (req, res) => {
     })
   })()
 
-  const buildCuratedLayer2Buckets = () => {
-    const safeCoreRows = Array.isArray(corePropsBoard) ? corePropsBoard : []
-    const safeLadderRows = dedupeBoardRows([
-      ...(Array.isArray(ladderBoard) ? ladderBoard : []),
-      ...(Array.isArray(ladderProps) ? ladderProps : [])
-    ])
-    const safeLottoRows = Array.isArray(lottoBoard) ? lottoBoard : []
-    const toLegKey = (row) => [
-      String(row?.eventId || ""),
-      String(row?.player || "").trim().toLowerCase(),
-      String(row?.propType || "").trim().toLowerCase(),
-      String(row?.side || "").trim().toLowerCase(),
-      String(row?.line ?? ""),
-      String(row?.marketKey || "").trim().toLowerCase(),
-      String(row?.propVariant || "base").trim().toLowerCase(),
-      String(row?.book || "").trim().toLowerCase()
-    ].join("|")
-    const normalizePlayerKey = (row) => String(row?.player || "").trim().toLowerCase()
-    const normalizePropTypeKey = (row) => String(row?.propType || "").trim().toLowerCase()
-    const normalizeMatchupKey = (row) => String(row?.matchup || row?.eventId || "").trim().toLowerCase()
-    const toPlayerPropKey = (row) => `${normalizePlayerKey(row)}|${normalizePropTypeKey(row)}`
-    const isAggressiveVariant = (row) => {
-      const variant = String(row?.propVariant || "base").toLowerCase()
-      return variant === "alt-mid" || variant === "alt-high" || variant === "alt-max"
-    }
-    const isLadderStyleRow = (row) => {
-      return Boolean(row?.ladderPresentation) ||
-        String(row?.boardFamily || "") === "ladder" ||
-        isAggressiveVariant(row)
-    }
-    const isPlayableCandidate = (row) => {
-      if (!row) return false
-      if (!row?.player || !row?.matchup || !row?.propType || !row?.book) return false
-      if (!Number.isFinite(Number(row?.line))) return false
-      if (!Number.isFinite(Number(row?.odds))) return false
-      if (!Number.isFinite(Number(row?.score))) return false
-      if (shouldRemoveLegForPlayerStatus(row)) return false
-      const playDecision = String(row?.playDecision || "").toLowerCase()
-      if (playDecision.includes("avoid") || playDecision.includes("fade")) return false
-      return true
-    }
-    const selectCuratedRows = (rows, config) => {
-      const safeRows = Array.isArray(rows) ? rows : []
-      const sorted = safeRows
-        .filter((row) => isPlayableCandidate(row))
-        .filter((row) => {
-          if (!config.blockedPlayerPropKeys || !(config.blockedPlayerPropKeys instanceof Set)) return true
-          const isBlocked = config.blockedPlayerPropKeys.has(toPlayerPropKey(row))
-          if (!isBlocked) return true
-          if (typeof config.allowBlockedRow === "function") return Boolean(config.allowBlockedRow(row))
-          return false
-        })
-        .filter((row) => config.rowFilter(row))
-        .slice()
-        .sort((a, b) => config.rankFn(b) - config.rankFn(a))
-
-      const selected = []
-      const seenLegKeys = new Set()
-      const playerCounts = new Map()
-      const matchupCounts = new Map()
-      const playerPropKeys = new Set()
-
-      for (const row of sorted) {
-        if (selected.length >= config.maxRows) break
-
-        const legKey = toLegKey(row)
-        if (seenLegKeys.has(legKey)) continue
-
-        const playerKey = normalizePlayerKey(row)
-        const propTypeKey = normalizePropTypeKey(row)
-        const matchupKey = normalizeMatchupKey(row)
-        const playerPropKey = `${playerKey}|${propTypeKey}`
-
-        if (!playerKey || !propTypeKey || !matchupKey) continue
-        if ((playerCounts.get(playerKey) || 0) >= config.maxPerPlayer) continue
-        if ((matchupCounts.get(matchupKey) || 0) >= config.maxPerMatchup) continue
-        if (playerPropKeys.has(playerPropKey)) continue
-
-        selected.push(row)
-        seenLegKeys.add(legKey)
-        playerCounts.set(playerKey, (playerCounts.get(playerKey) || 0) + 1)
-        matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
-        playerPropKeys.add(playerPropKey)
-      }
-
-      return selected
-    }
-
-    const mostLikelyToHit = selectCuratedRows(safeCoreRows, {
-      maxRows: 8,
-      maxPerPlayer: 1,
-      maxPerMatchup: 2,
-      rowFilter: (row) => {
-        const hitRate = parseHitRate(row?.hitRate)
-        const score = Number(row?.score || 0)
-        const odds = Number(row?.odds || 0)
-        const variant = String(row?.propVariant || "base").toLowerCase()
-        return hitRate >= 0.57 && score >= 74 && odds >= -320 && odds <= 180 && (variant === "base" || variant === "default" || variant === "alt-low")
-      },
-      rankFn: (row) => {
-        const hitRate = parseHitRate(row?.hitRate)
-        const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
-        const score = Number(row?.score || 0)
-        const odds = Number(row?.odds || 0)
-        const ceilingScore = Number(row?.ceilingScore || 0)
-        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
-        const marketLagScore = Number(row?.marketLagScore || 0)
-        const pricingPenalty = odds > 120 ? Math.min(18, (odds - 120) * 0.06) : 0
-        const boomPenalty = (ceilingScore * 8) + (roleSpikeScore * 6) + (marketLagScore * 4)
-        return highestHitRateSortValue(row) + (confidence * 32) + (score * 0.45) - pricingPenalty - boomPenalty
-      }
-    })
-
-    const bestValue = selectCuratedRows(safeCoreRows, {
-      maxRows: 8,
-      maxPerPlayer: 1,
-      maxPerMatchup: 2,
-      rowFilter: (row) => {
-        const hitRate = parseHitRate(row?.hitRate)
-        const score = Number(row?.score || 0)
-        const edge = Number(row?.edge || 0)
-        const odds = Number(row?.odds || 0)
-        return hitRate >= 0.52 && score >= 70 && edge >= 0.5 && odds >= -240 && odds <= 260
-      },
-      rankFn: (row) => {
-        const odds = Number(row?.odds || 0)
-        const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
-        const marketLagScore = Number(row?.marketLagScore || 0)
-        const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
-        const ceilingScore = Number(row?.ceilingScore || 0)
-        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
-        const plusMoneyBonus = odds >= 100 && odds <= 220 ? 8 : 0
-        const genericBoomPenalty = (ceilingScore * 3) + (roleSpikeScore * 2)
-        return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 14) + (bookDisagreementScore * 20) - genericBoomPenalty
-      }
-    })
-
-    const saferLanePlayerPropKeys = new Set([
-      ...mostLikelyToHit.map((row) => toPlayerPropKey(row)),
-      ...bestValue.map((row) => toPlayerPropKey(row))
-    ])
-
-    const bestUpsideAllowBlockedRow = (row) => isLadderStyleRow(row)
-    const bestUpsideBaseRowFilter = (row) => {
-      const hitRate = parseHitRateValue(row?.hitRate)
-      const score = Number(row?.score || 0)
-      const edge = Number(row?.edge || 0)
-      const odds = Number(row?.odds || 0)
-      const side = String(row?.side || "").toLowerCase()
-      const variant = String(row?.propVariant || "base").toLowerCase()
-      const isLadderish = isLadderStyleRow(row)
-      const isOver = side === "over"
-      const isUnder = side === "under"
-
-      if (isLadderish) {
-        // alt-low is value/safety regardless of side; never ceiling
-        if (variant === "alt-low") return false
-        if (hitRate < 0.48) return false
-        if (score < 65) return false
-        if (odds < -350 || odds > 1100) return false
-        // Unders: variant semantics invert — any under alt-variant is easier, not ceiling.
-        // Only allow with truly elite stats.
-        if (isUnder) {
-          if (hitRate < 0.68 || score < 86 || edge < 1.5) return false
-        }
-        return true
-      }
-
-      // Non-ladder: over-biased + meaningful plus-money
-      const strongUnderException = isUnder && odds >= 220 && hitRate >= 0.57 && edge >= 1.25 && score >= 76
-      if (odds < 115 || odds > 1100) return false
-      if (hitRate < 0.43 || score < 64 || edge < 0.2) return false
-      if (!isOver && !strongUnderException) return false
-      if (odds < 150) return false
-      return true
-    }
-    const bestUpsideFallbackRowFilter = (row) => {
-      const hitRate = parseHitRateValue(row?.hitRate)
-      const score = Number(row?.score || 0)
-      const edge = Number(row?.edge || 0)
-      const odds = Number(row?.odds || 0)
-      const side = String(row?.side || "").toLowerCase()
-      const variant = String(row?.propVariant || "base").toLowerCase()
-      const isLadderish = isLadderStyleRow(row)
-      const isOver = side === "over"
-      const isUnder = side === "under"
-
-      if (isLadderish) {
-        if (variant === "alt-low") return false
-        if (hitRate < 0.44) return false
-        if (score < 60) return false
-        if (odds < -400 || odds > 1100) return false
-        if (isUnder) {
-          if (hitRate < 0.64 || score < 80 || edge < 1.0) return false
-        }
-        return true
-      }
-
-      // Non-ladder fallback: unchanged
-      const strongUnderException = isUnder && odds >= 240 && hitRate >= 0.6 && edge >= 1.5 && score >= 80
-      if (odds < 105 || odds > 1100) return false
-      if (hitRate < 0.4 || score < 60 || edge < 0) return false
-      if (!isOver && !strongUnderException) return false
-      if (odds < 140) return false
-      return true
-    }
-
-    const upsideSourceRows = dedupeBoardRows([
-      ...safeLadderRows,
-      ...safeLottoRows.filter((row) => {
-        const odds = Number(row?.odds || 0)
-        const side = String(row?.side || "").toLowerCase()
-        const marketFamily = String(row?.marketFamily || "")
-        return marketFamily !== "special" && side === "over" && odds >= 115 && isLadderStyleRow(row)
-      }),
-      ...safeCoreRows.filter((row) => {
-        const odds = Number(row?.odds || 0)
-        const side = String(row?.side || "").toLowerCase()
-        return side === "over" && odds >= 115
-      })
-    ])
-
-    const upsideInitialCandidates = upsideSourceRows.filter((row) => isPlayableCandidate(row))
-    const upsidePostBlockCandidates = upsideInitialCandidates.filter((row) => {
-      const isBlocked = saferLanePlayerPropKeys.has(toPlayerPropKey(row))
-      if (!isBlocked) return true
-      return bestUpsideAllowBlockedRow(row)
-    })
-    const upsidePostBaseFilterCandidates = upsidePostBlockCandidates.filter((row) => bestUpsideBaseRowFilter(row))
-    const upsideUseFallbackFilter = upsidePostBaseFilterCandidates.length === 0 && upsidePostBlockCandidates.length > 0
-    const upsidePostFilterCandidates = upsideUseFallbackFilter
-      ? upsidePostBlockCandidates.filter((row) => bestUpsideFallbackRowFilter(row))
-      : upsidePostBaseFilterCandidates
-
-    const bestUpsideRaw = selectCuratedRows(upsideSourceRows, {
-      maxRows: 12,
-      maxPerPlayer: 2,
-      maxPerMatchup: 3,
-      blockedPlayerPropKeys: saferLanePlayerPropKeys,
-      allowBlockedRow: bestUpsideAllowBlockedRow,
-      rowFilter: upsideUseFallbackFilter ? bestUpsideFallbackRowFilter : bestUpsideBaseRowFilter,
-      rankFn: (row) => {
-        const odds = Number(row?.odds || 0)
-        const score = Number(row?.score || 0)
-        const edge = Number(row?.edge || 0)
-        const hitRate = parseHitRateValue(row?.hitRate)
-        const ceilingScore = Number(row?.ceilingScore || 0)
-        const roleSpikeScore = Number(row?.roleSpikeScore || 0)
-        const marketLagScore = Number(row?.marketLagScore || 0)
-        const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
-        const side = String(row?.side || "").toLowerCase()
-        const variant = String(row?.propVariant || "base").toLowerCase()
-        const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
-        const overBonus = side === "over" ? 16 : -18
-        const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
-        const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
-        return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 22) + (roleSpikeScore * 18) + (marketLagScore * 12) + (bookDisagreementScore * 6) + variantBonus + overBonus + ladderBonus + oddsBandBonus
-      }
-    })
-
-    // Composition enforcement: under rows are excluded by default.
-    // Allow at most one under only if it clears an elite upside exception bar.
-    let upsideUnderCount = 0
-    const bestUpside = bestUpsideRaw.filter((row) => {
-      if (String(row?.side || "").toLowerCase() !== "under") return true
-
-      const hitRate = parseHitRateValue(row?.hitRate)
-      const score = Number(row?.score || 0)
-      const edge = Number(row?.edge || 0)
-      const ceilingScore = Number(row?.ceilingScore || 0)
-      const roleSpikeScore = Number(row?.roleSpikeScore || 0)
-      const eliteUnderUpsideException =
-        hitRate >= 0.74 &&
-        score >= 90 &&
-        edge >= 2.2 &&
-        ceilingScore >= 0.72 &&
-        roleSpikeScore >= 0.65
-
-      if (eliteUnderUpsideException && upsideUnderCount < 1) {
-        upsideUnderCount++
-        return true
-      }
-      return false
-    }).slice(0, 8)
-
-    console.log("[LAYER2-BESTUPSIDE-DEBUG]", {
-      sourceCandidateCount: upsideSourceRows.length,
-      postPlayableCandidateCount: upsideInitialCandidates.length,
-      postBlockDeoverlapCount: upsidePostBlockCandidates.length,
-      postRowFilterCount: upsidePostFilterCandidates.length,
-      usedFallbackFilter: upsideUseFallbackFilter,
-      finalSelectedCount: bestUpside.length,
-      underCount: upsideUnderCount,
-      sourceMix: {
-        ladderStyle: upsideInitialCandidates.filter((row) => isLadderStyleRow(row)).length,
-        overSide: upsideInitialCandidates.filter((row) => String(row?.side || "").toLowerCase() === "over").length,
-        plusMoney180Plus: upsideInitialCandidates.filter((row) => Number(row?.odds || 0) >= 180).length
-      }
-    })
-
-    return {
-      mostLikelyToHit,
-      bestValue,
-      bestUpside
-    }
-  }
+  const buildCuratedLayer2Buckets = () => buildCuratedLayer2BucketsHelper({
+    corePropsBoard,
+    ladderBoard,
+    ladderProps,
+    lottoBoard,
+    parseHitRate,
+    dedupeBoardRows,
+    shouldRemoveLegForPlayerStatus,
+    highestHitRateSortValue,
+    bestValueSortValue,
+    logger: console.log
+  })
 
   const layer2CuratedBuckets = buildCuratedLayer2Buckets()
 
@@ -8604,315 +8053,6 @@ app.get("/api/best-available", (req, res) => {
     moneyMakerPortfolio,
     ...bestAvailablePayloadBoardFirst
   } = bestAvailablePayload || {}
-
-  const toReadablePercent = (value) => {
-    const numeric = Number(value)
-    if (!Number.isFinite(numeric) || numeric <= 0) return null
-    if (numeric <= 1) return Math.max(1, Math.min(99, Math.round(numeric * 100)))
-    return Math.max(1, Math.min(99, Math.round(numeric)))
-  }
-
-  const formatReadableTag = (value) => {
-    const raw = String(value || "").trim()
-    if (!raw) return null
-    return raw
-      .split(/[+_]/)
-      .filter(Boolean)
-      .map((part) => part.replace(/-/g, " "))
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(", ")
-  }
-
-  const formatLaneLabel = (lane) => {
-    const key = String(lane || "").trim()
-    if (!key) return null
-    const labels = {
-      bestSingles: "Singles",
-      bestLadders: "Ladders",
-      bestSpecials: "Specials",
-      mustPlayCandidates: "Must Play",
-      unknown: "Surfaced"
-    }
-    return labels[key] || formatReadableTag(key)
-  }
-
-  const formatVariantLabel = (variant) => {
-    const key = String(variant || "base").toLowerCase()
-    if (!key || key === "base" || key === "default") return "Base line"
-    return formatReadableTag(key)
-  }
-
-  const formatTierWord = (tier) => {
-    const key = String(tier || "").toLowerCase()
-    if (!key) return null
-    if (key.includes("elite")) return "Elite"
-    if (key.includes("strong")) return "Strong"
-    if (key.includes("playable")) return "Playable"
-    if (key.includes("thin")) return "Thin"
-    return formatReadableTag(key)
-  }
-
-  const deriveBetTypeLabel = (row, extra = {}) => {
-    const explicitBetType = String(row?.mustPlayBetType || "").toLowerCase()
-    if (explicitBetType === "single") return "single"
-    if (explicitBetType === "ladder") return "ladder"
-    if (explicitBetType === "special") return "special"
-
-    const lane = String(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane || "").toLowerCase()
-    if (lane === "bestsingles") return "single"
-    if (lane === "bestladders") return "ladder"
-    if (lane === "bestspecials") return "special"
-    return null
-  }
-
-  const deriveLeadSynopsis = (row, extra = {}) => {
-    const tierWord = formatTierWord(row?.confidenceTier)
-    const betType = deriveBetTypeLabel(row, extra)
-
-    if (betType === "special" && tierWord) return `Special ${tierWord.toLowerCase()}`
-    if (tierWord && betType) return `${tierWord} ${betType}`
-    if (tierWord) return tierWord
-
-    const laneLabel = formatLaneLabel(extra?.sourceLane || row?.mustPlaySourceLane || extra?.defaultLane)
-    return laneLabel ? laneLabel.replace(/s$/, "") : null
-  }
-
-  const deriveShapeSynopsis = (row) => {
-    const marketKey = String(row?.marketKey || "").toLowerCase()
-    const propType = String(row?.propType || "").trim()
-    const odds = Number(row?.odds ?? 0)
-
-    if (marketKey === "player_first_basket" || /first basket/i.test(propType)) return "first basket"
-    if (marketKey === "player_first_team_basket" || /first team basket/i.test(propType)) return "first team basket"
-    if (/triple double/i.test(propType)) return "triple double"
-    if (/double double/i.test(propType)) return "double double"
-
-    const variantKey = String(row?.propVariant || "base").toLowerCase()
-    if (variantKey && variantKey !== "base" && variantKey !== "default") return formatVariantLabel(variantKey)?.toLowerCase() || null
-    if (Number.isFinite(odds) && odds >= 100) return "plus-money upside"
-    return "base line"
-  }
-
-  const deriveContextSynopsis = (row) => {
-    const contextTag = String(row?.mustPlayContextTag || "").toLowerCase()
-    if (contextTag === "context-strong") return "role and spot intact"
-    if (contextTag === "context-viable") return "role holding up"
-    if (contextTag === "context-thin") return "thin support"
-
-    const playDecision = String(row?.playDecision || "").trim().toLowerCase()
-    if (playDecision.includes("stable")) return "role holding up"
-    if (playDecision.includes("viable")) return "path is live"
-    return null
-  }
-
-  const deriveReasonSynopsis = (row) => {
-    const reasonTag = String(row?.mustPlayReasonTag || "").toLowerCase()
-    if (reasonTag.includes("market-confirmed")) return "market backing"
-    if (reasonTag.includes("market-drifting")) return "market fading"
-    if (reasonTag.includes("stable-market")) return "price holding"
-
-    const decisionSummary = String(row?.decisionSummary || "").trim()
-    if (decisionSummary) {
-      const shortSummary = decisionSummary.replace(/^[A-Z\- ]+:\s*/, "").replace(/\.$/, "").trim()
-      if (shortSummary && shortSummary.length <= 56) return shortSummary
-    }
-    return null
-  }
-
-  const deriveSupportSynopsis = (row, confidenceScore) => {
-    const playDecision = String(row?.playDecision || "").toLowerCase()
-    const tier = String(row?.confidenceTier || "").toLowerCase()
-    const hitRatePct = Number.isFinite(Number(row?.hitRatePct))
-      ? Number(row.hitRatePct)
-      : toReadablePercent(confidenceScore)
-
-    if (playDecision.includes("must-play")) return "must-play signal"
-    if (tier.includes("elite")) return hitRatePct >= 55 ? `elite read | ${hitRatePct}% hit rate` : "elite read"
-    if (tier.includes("strong")) return hitRatePct >= 55 ? `strong read | ${hitRatePct}% hit rate` : "strong read"
-    if (playDecision.includes("playable") || tier.includes("playable")) return hitRatePct >= 55 ? `playable edge | ${hitRatePct}% hit rate` : "playable edge"
-    if (tier.includes("thin")) return "thin support"
-    if (hitRatePct >= 60) return `${hitRatePct}% hit rate`
-    return null
-  }
-
-  const derivePriceSynopsis = (bookValueHint, movementLabel) => {
-    if (bookValueHint === "value-live") return "price still live"
-    if (bookValueHint === "value-lean") return "price worth a look"
-    if (bookValueHint === "price-expensive") return "price already taxed"
-
-    const movement = String(movementLabel || "").toLowerCase()
-    if (movement.includes("backing")) return "market backing"
-    if (movement.includes("drifting")) return "market fading"
-    if (movement.includes("stable")) return "price holding"
-    return null
-  }
-
-  const deriveRiskSynopsis = (row, volatilityFlag) => {
-    const variant = String(row?.propVariant || "base").toLowerCase()
-    const variantLabel = variant !== "base" && variant !== "default"
-      ? formatVariantLabel(variant)?.toLowerCase()
-      : null
-
-    if (volatilityFlag === "high") return variantLabel ? `${variantLabel} | high vol` : "high vol payout"
-    if (volatilityFlag === "medium") return variantLabel ? `${variantLabel} | medium vol` : "medium vol"
-    if (variantLabel) return `${variantLabel} profile`
-    return "low-vol base"
-  }
-
-  const deriveMovementLabel = (row) => {
-    const explicitTag = formatReadableTag(row?.marketMovementTag)
-    if (explicitTag) return explicitTag
-
-    const lineMove = Number.isFinite(Number(row?.lineMove)) ? Number(row?.lineMove) : null
-    const oddsMove = Number.isFinite(Number(row?.oddsMove)) ? Number(row?.oddsMove) : null
-    const side = String(row?.side || "").toLowerCase()
-
-    if (lineMove !== null) {
-      if ((side === "over" && lineMove < 0) || (side === "under" && lineMove > 0)) return "Market backing"
-      if ((side === "over" && lineMove > 0) || (side === "under" && lineMove < 0)) return "Market drifting"
-    }
-
-    if (oddsMove !== null) {
-      if (oddsMove < -3) return "Market backing"
-      if (oddsMove > 10) return "Market drifting"
-      return "Stable market"
-    }
-
-    return null
-  }
-
-  const buildWhySynopsis = (row, extra = {}, insights = {}) => {
-    const movementLabel = deriveMovementLabel(row)
-    const parts = [
-      deriveShapeSynopsis(row),
-      deriveSupportSynopsis(row, insights?.confidenceScore),
-      deriveReasonSynopsis(row) || derivePriceSynopsis(insights?.bookValueHint, movementLabel),
-      deriveContextSynopsis(row)
-    ].filter(Boolean)
-      .slice(0, 3)
-
-    return parts.length ? parts.join(" | ") : null
-  }
-
-  const normalizeConfidence01 = (value) => {
-    const numeric = Number(value)
-    if (!Number.isFinite(numeric) || numeric <= 0) return 0
-    if (numeric <= 1) return Math.min(1, numeric)
-    if (numeric <= 100) return Math.min(1, numeric / 100)
-    return 0
-  }
-
-  const buildMarketEdgeScore = (row) => {
-    const reasonTag = String(row?.mustPlayReasonTag || "").toLowerCase()
-    const movementLabel = String(deriveMovementLabel(row) || "").toLowerCase()
-    const side = String(row?.side || "").toLowerCase()
-    const lineMove = Number.isFinite(Number(row?.lineMove)) ? Number(row.lineMove) : null
-    const oddsMove = Number.isFinite(Number(row?.oddsMove)) ? Number(row.oddsMove) : null
-
-    let score = 0
-
-    if (reasonTag.includes("market-confirmed")) score += 0.22
-    else if (reasonTag.includes("stable-market")) score += 0.06
-    else if (reasonTag.includes("market-drifting")) score -= 0.20
-
-    if (movementLabel.includes("backing")) score += 0.14
-    else if (movementLabel.includes("drifting")) score -= 0.12
-    else if (movementLabel.includes("stable")) score += 0.03
-
-    if (lineMove !== null) {
-      const supportive = (side === "over" && lineMove < 0) || (side === "under" && lineMove > 0)
-      const adverse = (side === "over" && lineMove > 0) || (side === "under" && lineMove < 0)
-      if (supportive) score += 0.08
-      if (adverse) score -= 0.08
-    }
-
-    if (oddsMove !== null) {
-      if (oddsMove < -3) score += 0.06
-      if (oddsMove > 10) score -= 0.06
-    }
-
-    return Number(Math.max(-1, Math.min(1, score)).toFixed(3))
-  }
-
-  const buildContextEdgeScore = (row, confidenceScore) => {
-    const confidence01 = normalizeConfidence01(confidenceScore)
-    const contextScore = Math.max(0, Math.min(1, Number(row?.mustPlayContextScore || 0)))
-    const tier = String(row?.confidenceTier || "").toLowerCase()
-    const decision = String(row?.playDecision || "").toLowerCase()
-
-    let tierBoost = 0
-    if (tier.includes("elite")) tierBoost += 0.12
-    else if (tier.includes("strong")) tierBoost += 0.08
-    else if (tier.includes("playable")) tierBoost += 0.03
-    else if (tier.includes("thin")) tierBoost -= 0.08
-
-    if (decision.includes("must-play")) tierBoost += 0.06
-    else if (decision.includes("playable")) tierBoost += 0.03
-    else if (decision.includes("fade") || decision.includes("avoid")) tierBoost -= 0.08
-
-    const score = (confidence01 * 0.58) + (contextScore * 0.32) + tierBoost
-    return Number(Math.max(0, Math.min(1, score)).toFixed(3))
-  }
-
-  const buildVolatilityOverlay = (row) => {
-    const variant = String(row?.propVariant || "base").toLowerCase()
-    const odds = Number(row?.odds ?? 0)
-    const tier = String(row?.confidenceTier || "").toLowerCase()
-    const marketKey = String(row?.marketKey || "").toLowerCase()
-    const propType = String(row?.propType || "")
-
-    let penalty = 0
-    if (variant === "alt-low") penalty += 0.06
-    else if (variant === "alt-mid") penalty += 0.12
-    else if (variant === "alt-high") penalty += 0.20
-    else if (variant === "alt-max") penalty += 0.28
-
-    if (Number.isFinite(odds) && odds >= 700) penalty += 0.10
-    if (Number.isFinite(odds) && odds >= 1200) penalty += 0.12
-    if (tier === "special-thin" || tier.includes("thin")) penalty += 0.16
-
-    const isTripleOrDouble = marketKey === "player_triple_double" || marketKey === "player_double_double" || propType === "Triple Double" || propType === "Double Double"
-    if (isTripleOrDouble && Number.isFinite(odds) && odds >= 1000) penalty += 0.10
-
-    const volatilityPenalty = Number(Math.max(0, Math.min(1, penalty)).toFixed(3))
-    let volatilityFlag = "low"
-    if (volatilityPenalty >= 0.45) volatilityFlag = "high"
-    else if (volatilityPenalty >= 0.20) volatilityFlag = "medium"
-
-    return {
-      volatilityPenalty,
-      volatilityFlag
-    }
-  }
-
-  const deriveBookValueHint = (marketEdgeScore, volatilityPenalty) => {
-    if (marketEdgeScore >= 0.18 && volatilityPenalty <= 0.14) return "value-live"
-    if (marketEdgeScore >= 0.10) return "value-lean"
-    if (marketEdgeScore <= -0.12) return "price-expensive"
-    return "fair-price"
-  }
-
-  const buildEdgeSynopsis = (row, contextEdgeScore, marketEdgeScore, volatilityFlag, bookValueHint) => {
-    const contextPart = contextEdgeScore >= 0.72 ? "setup strong" : contextEdgeScore >= 0.56 ? "setup live" : "support thin"
-    const marketPart = marketEdgeScore >= 0.14 ? "market backing" : marketEdgeScore <= -0.10 ? "market fading" : derivePriceSynopsis(bookValueHint, deriveMovementLabel(row)) || "price holding"
-    const volPart = deriveRiskSynopsis(row, volatilityFlag)
-    return `${contextPart} | ${marketPart} | ${volPart}`
-  }
-
-  const buildWhyTonight = (row, extra, bookValueHint, contextEdgeScore) => {
-    const lead = deriveLeadSynopsis(row, extra)
-    const movement = deriveMovementLabel(row)
-    const context = deriveContextSynopsis(row)
-    const support = deriveSupportSynopsis(row, row?.hitRatePct ?? row?.adjustedConfidenceScore ?? row?.playerConfidenceScore)
-    const priceHint = derivePriceSynopsis(bookValueHint, movement)
-    const confidenceTone = contextEdgeScore >= 0.72 ? "support is strong" : contextEdgeScore >= 0.56 ? "support is live" : null
-
-    const parts = [lead, support, priceHint || context, confidenceTone]
-      .filter(Boolean)
-      .slice(0, 3)
-
-    return parts.length ? parts.join(" | ") : null
-  }
 
   const normalizeRuntimeAvailabilityStatus = (row) => {
     const rawStatus = row?.availabilityStatus || row?.playerStatus || row?.status || row?.injuryStatus || ""
@@ -9257,116 +8397,7 @@ app.get("/api/best-available", (req, res) => {
     return combinedSignals
   }
 
-  const finalizeRuntimeExternalOverlay = (overlay, externalSignalInput) => {
-    const inputSignals = Array.isArray(externalSignalInput)
-      ? externalSignalInput.filter(Boolean)
-      : (externalSignalInput ? [externalSignalInput] : [])
-    const hasAvailabilityEvidence = inputSignals.some((signal) => Boolean(signal?.__hasAvailabilityEvidence))
-    const hasStarterEvidence = inputSignals.some((signal) => Boolean(signal?.__hasStarterEvidence))
-    const safeOverlay = overlay && typeof overlay === "object" ? overlay : {}
-    const safeSignalsUsed = safeOverlay?.externalSignalsUsed && typeof safeOverlay.externalSignalsUsed === "object"
-      ? safeOverlay.externalSignalsUsed
-      : { count: 0, sources: [] }
-
-    return {
-      ...safeOverlay,
-      availabilityStatus: hasAvailabilityEvidence ? (safeOverlay?.availabilityStatus || "unknown") : "unknown",
-      starterStatus: hasStarterEvidence ? (safeOverlay?.starterStatus || "unknown") : "unknown",
-      externalSignalsUsed: {
-        ...safeSignalsUsed,
-        sources: Array.isArray(safeSignalsUsed.sources)
-          ? safeSignalsUsed.sources.map((signal, index) => {
-              const inputSignal = inputSignals[index] || null
-              const displaySourceName = inputSignal?.__runtimeLocalSourceName || inputSignal?.sourceName || signal?.sourceName || null
-              return ({
-              ...signal,
-              sourceName: displaySourceName,
-              sourcePriority: displaySourceName === "runtime_row_signal"
-                ? null
-                : (signal?.sourcePriority ?? null)
-            })
-          })
-          : []
-      }
-    }
-  }
-
-  const buildReadableSurfaceRow = (row, extra = {}) => {
-    const decisionLayerInput = {
-      ...row,
-      sourceLane: extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
-    }
-    const externalSignalInput = buildOverlayExternalSignalInput(row, extra)
-    const decisionLayer = buildDecisionLayer(decisionLayerInput)
-    const externalOverlay = finalizeRuntimeExternalOverlay(buildExternalEdgeOverlay(decisionLayerInput, externalSignalInput), externalSignalInput)
-    const confidenceScore = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0) || null
-    const ceilingScore = Number(row?.ceilingScore)
-    const roleSpikeScore = Number(row?.roleSpikeScore)
-    const marketLagScore = Number(row?.marketLagScore)
-    const bookDisagreementScore = Number(row?.bookDisagreementScore)
-    const contextEdgeScore = buildContextEdgeScore(row, confidenceScore)
-    const marketEdgeScore = buildMarketEdgeScore(row)
-    const { volatilityPenalty, volatilityFlag } = buildVolatilityOverlay(row)
-    const bookValueHint = deriveBookValueHint(marketEdgeScore, volatilityPenalty)
-    const edgeSynopsis = buildEdgeSynopsis(row, contextEdgeScore, marketEdgeScore, volatilityFlag, bookValueHint)
-    const whyTonight = buildWhyTonight(row, extra, bookValueHint, contextEdgeScore)
-
-    return {
-      eventId: row?.eventId || null,
-      matchup: row?.matchup || null,
-      team: row?.team || null,
-      book: row?.book || null,
-      player: row?.player || null,
-      marketKey: row?.marketKey || null,
-      propType: row?.propType || null,
-      side: row?.side || null,
-      line: row?.line ?? null,
-      odds: Number(row?.odds ?? 0) || null,
-      propVariant: row?.propVariant || "base",
-      specialtyRankScore: Number.isFinite(Number(row?.specialtyRankScore)) ? Number(Number(row.specialtyRankScore).toFixed(4)) : null,
-      confidenceScore,
-      ceilingScore: Number.isFinite(ceilingScore) ? Number(ceilingScore.toFixed(3)) : null,
-      roleSpikeScore: Number.isFinite(roleSpikeScore) ? Number(roleSpikeScore.toFixed(3)) : null,
-      marketLagScore: Number.isFinite(marketLagScore) ? Number(marketLagScore.toFixed(3)) : null,
-      bookDisagreementScore: Number.isFinite(bookDisagreementScore) ? Number(bookDisagreementScore.toFixed(3)) : null,
-      hitRatePct: toReadablePercent(confidenceScore),
-      adjustedConfidenceScore: Number(row?.adjustedConfidenceScore ?? 0) || null,
-      playerConfidenceScore: Number(row?.playerConfidenceScore ?? 0) || null,
-      confidenceTier: row?.confidenceTier || null,
-      playDecision: row?.playDecision || null,
-      decisionSummary: row?.decisionSummary || null,
-      mustPlayBetType: row?.mustPlayBetType || null,
-      mustPlaySourceLane: row?.mustPlaySourceLane || null,
-      mustPlayReasonTag: row?.mustPlayReasonTag || null,
-      mustPlayContextTag: row?.mustPlayContextTag || null,
-      mustPlayContextScore: Number(row?.mustPlayContextScore ?? 0) || null,
-      finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
-      finalDecisionLabel: decisionLayer?.finalDecisionLabel || null,
-      decisionBucket: decisionLayer?.decisionBucket || null,
-      supportEdge: decisionLayer?.supportEdge || null,
-      marketEdge: decisionLayer?.marketEdge || null,
-      riskEdge: decisionLayer?.riskEdge || null,
-      sitReason: decisionLayer?.sitReason || null,
-      externalEdgeScore: externalOverlay?.externalEdgeScore ?? null,
-      externalEdgeLabel: externalOverlay?.externalEdgeLabel || null,
-      availabilityStatus: externalOverlay?.availabilityStatus || null,
-      starterStatus: externalOverlay?.starterStatus || null,
-      marketValidity: externalOverlay?.marketValidity || null,
-      contextTag: externalOverlay?.contextTag || null,
-      externalSignalsUsed: externalOverlay?.externalSignalsUsed || null,
-      externalSitFlag: Boolean(externalOverlay?.externalSitFlag),
-      externalSitReason: externalOverlay?.externalSitReason || null,
-      contextEdgeScore,
-      marketEdgeScore,
-      volatilityPenalty,
-      volatilityFlag,
-      bookValueHint,
-      edgeSynopsis,
-      whyTonight,
-      whySynopsis: buildWhySynopsis(row, extra, { confidenceScore, bookValueHint }),
-      ...extra
-    }
-  }
+  const buildReadableSurfaceRow = createSurfaceRowBuilder({ buildOverlayExternalSignalInput })
 
   const buildCompactPreviewRows = (rows, limit = 4) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -9820,34 +8851,7 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const slateBoard = buildSlateBoardView()
-  const specialtyPlayerTeamIndex = (() => {
-    const rows = Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards : []
-    const countsByPlayer = new Map()
-
-    for (const row of rows) {
-      const playerKey = String(row?.player || "").trim().toLowerCase()
-      const team = String(row?.team || row?.playerTeam || "").trim()
-      if (!playerKey || !team) continue
-      if (!countsByPlayer.has(playerKey)) countsByPlayer.set(playerKey, new Map())
-      const teamCounts = countsByPlayer.get(playerKey)
-      teamCounts.set(team, (teamCounts.get(team) || 0) + 1)
-    }
-
-    const output = {}
-    for (const [playerKey, teamCounts] of countsByPlayer.entries()) {
-      let bestTeam = null
-      let bestCount = -1
-      for (const [team, count] of teamCounts.entries()) {
-        if (count > bestCount) {
-          bestTeam = team
-          bestCount = count
-        }
-      }
-      if (bestTeam) output[playerKey] = bestTeam
-    }
-
-    return output
-  })()
+  const specialtyPlayerTeamIndex = buildCanonicalSpecialtyPlayerTeamIndex(allVisibleRowsForBoards)
 
   const specialtyOutputs = buildSpecialtyOutputs({
     specialBoard,
@@ -11248,6 +10252,116 @@ function getCurrentTeamCodeFromStats(stats) {
   return ""
 }
 
+function resolveTeamNameForRowFromCode(teamCode, row) {
+  const normalizedCode = String(teamCode || "").toUpperCase().trim()
+  if (!normalizedCode) return null
+
+  const awayCode = String(teamAbbr(row?.awayTeam) || "").toUpperCase().trim()
+  const homeCode = String(teamAbbr(row?.homeTeam) || "").toUpperCase().trim()
+
+  if (normalizedCode === awayCode) return row?.awayTeam || normalizedCode
+  if (normalizedCode === homeCode) return row?.homeTeam || normalizedCode
+  return normalizedCode
+}
+
+function getCachedRecentStatsForPlayer(playerName) {
+  const cachedPlayerInfo = playerIdCache.get(playerName)
+  if (!cachedPlayerInfo?.id || !playerStatsCache.has(cachedPlayerInfo.id)) return []
+  const cachedStats = playerStatsCache.get(cachedPlayerInfo.id) || []
+  return Array.isArray(cachedStats) ? cachedStats.slice(0, 10) : []
+}
+
+function resolveCanonicalPlayerTeamForRow(row) {
+  const playerName = String(row?.player || "").trim()
+  if (!playerName) return null
+
+  const cachedPlayerInfo = playerIdCache.get(playerName)
+  const recentStats = getCachedRecentStatsForPlayer(playerName)
+  const teamCode = String(
+    getTeamOverride(playerName) ||
+    teamAbbr(cachedPlayerInfo?.team || "") ||
+    getCurrentTeamCodeFromStats(recentStats) ||
+    ""
+  ).toUpperCase().trim()
+
+  if (!teamCode) return null
+  return resolveTeamNameForRowFromCode(teamCode, row)
+}
+
+function inferSpecialtyContextPropType(row) {
+  const marketKey = String(row?.marketKey || "")
+  const propType = String(row?.propType || "")
+
+  if (marketKey === "player_first_basket" || marketKey === "player_first_team_basket") return "Points"
+  if (marketKey === "player_double_double" || marketKey === "player_triple_double") return "PRA"
+  if (/first\s*basket/i.test(propType)) return "Points"
+  if (/double\s*double/i.test(propType) || /triple\s*double/i.test(propType)) return "PRA"
+  return "Points"
+}
+
+function buildRealSpecialtyContextInputs(row) {
+  const playerName = String(row?.player || "").trim()
+  if (!playerName) return {}
+
+  const recentStats = getCachedRecentStatsForPlayer(playerName)
+  if (!recentStats.length) return {}
+
+  const contextPropType = inferSpecialtyContextPropType(row)
+  const values = recentStats
+    .map((log) => propValueFromApiSportsLog(log, contextPropType))
+    .filter((value) => value !== null && Number.isFinite(Number(value)))
+    .map(Number)
+  const mins = recentStats
+    .map((log) => Number(log?.min || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+
+  const avgMin = avg(mins)
+  const recent3MinAvg = avg(mins.slice(-3))
+  const minCeiling = maxVal(mins)
+  const recent3Avg = avg(values.slice(-3))
+  const l10Avg = avg(values)
+  const minutesTrendDelta = Number.isFinite(recent3MinAvg) && Number.isFinite(avgMin)
+    ? recent3MinAvg - avgMin
+    : null
+  const minutesBaseSignal = Number.isFinite(avgMin)
+    ? clamp((avgMin - 18) / 18, 0, 1)
+    : null
+  const minutesTrendSignal = Number.isFinite(minutesTrendDelta)
+    ? clamp((minutesTrendDelta + 1.5) / 6, 0, 1)
+    : null
+  const roleSignalScore = minutesBaseSignal != null || minutesTrendSignal != null
+    ? Number(clamp(
+        ((minutesBaseSignal != null ? minutesBaseSignal : 0) * 0.65) +
+        ((minutesTrendSignal != null ? minutesTrendSignal : 0) * 0.35),
+        0,
+        1
+      ).toFixed(3))
+    : null
+
+  const output = {}
+  if (Number.isFinite(avgMin)) output.avgMin = Number(avgMin.toFixed(1))
+  if (Number.isFinite(recent3MinAvg)) output.recent3MinAvg = Number(recent3MinAvg.toFixed(1))
+  if (Number.isFinite(minCeiling)) output.minCeiling = Number(minCeiling.toFixed(1))
+  if (Number.isFinite(recent3Avg)) output.recent3Avg = Number(recent3Avg.toFixed(1))
+  if (Number.isFinite(l10Avg)) output.l10Avg = Number(l10Avg.toFixed(1))
+  if (Number.isFinite(roleSignalScore)) output.roleSignalScore = roleSignalScore
+  return output
+}
+
+function buildCanonicalSpecialtyPlayerTeamIndex(rows) {
+  const seededIndex = buildSpecialtyPlayerTeamIndex(rows)
+  const output = { ...(seededIndex || {}) }
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const playerKey = String(row?.player || "").trim().toLowerCase()
+    if (!playerKey) continue
+    const canonicalTeam = resolveCanonicalPlayerTeamForRow(row)
+    if (canonicalTeam) output[playerKey] = canonicalTeam
+  }
+
+  return output
+}
+
 
 
 function playerFitsMatchup(row) {
@@ -12158,6 +11272,14 @@ const inferFirstBasketConfidenceTier = (row, adjustedConfidence, contextEvidence
 
 const enrichSpecialPredictionRow = (row) => {
   const safeRow = row && typeof row === "object" ? row : {}
+  const canonicalTeam = resolveCanonicalPlayerTeamForRow(safeRow)
+  const realContextInputs = buildRealSpecialtyContextInputs(safeRow)
+  const canonicalSpecialRow = {
+    ...safeRow,
+    playerTeam: canonicalTeam || safeRow?.playerTeam || null,
+    team: canonicalTeam || safeRow?.playerTeam || null,
+    ...realContextInputs
+  }
 
   if (
     safeRow?.marketKey === "player_first_basket" ||
@@ -12165,17 +11287,17 @@ const enrichSpecialPredictionRow = (row) => {
     safeRow?.marketKey === "player_double_double" ||
     safeRow?.marketKey === "player_triple_double"
   ) {
-    const evidence = buildSpecialMarketEvidence(safeRow)
-    const whyItRates = buildSpecialWhyItRates(safeRow, evidence)
-    const confidence = scoreSpecialMarketConfidence(safeRow, evidence)
+    const evidence = buildSpecialMarketEvidence(canonicalSpecialRow)
+    const whyItRates = buildSpecialWhyItRates(canonicalSpecialRow, evidence)
+    const confidence = scoreSpecialMarketConfidence(canonicalSpecialRow, evidence)
 
     const withConfidence = {
-      ...safeRow,
+      ...canonicalSpecialRow,
       evidence,
       whyItRates,
       playerConfidenceScore: confidence,
-      gamePriorityScore: inferGamePriorityScore(safeRow),
-      modelSummary: `${safeRow.player} ${safeRow.propType} is priced at ${safeRow.odds} with ${(evidence.impliedProbability * 100).toFixed(1)}% implied probability and categorized as ${evidence.isLongshot ? "longshot" : evidence.isReasonable ? "balanced" : "favored"}.`
+      gamePriorityScore: inferGamePriorityScore(canonicalSpecialRow),
+      modelSummary: `${canonicalSpecialRow.player} ${canonicalSpecialRow.propType} is priced at ${canonicalSpecialRow.odds} with ${(evidence.impliedProbability * 100).toFixed(1)}% implied probability and categorized as ${evidence.isLongshot ? "longshot" : evidence.isReasonable ? "balanced" : "favored"}.`
     }
 
     const contextEvidence = buildSpecialContextEvidence(withConfidence)
@@ -12212,6 +11334,23 @@ const enrichSpecialPredictionRow = (row) => {
       )
     }
 
+    const lineupContextInput = {
+      ...withConfidence,
+      gamePriorityScore: finalGamePriorityScore,
+      playerConfidenceScore: finalPlayerConfidenceScore
+    }
+    const hasRealSpecialtyContext = [
+      lineupContextInput.avgMin,
+      lineupContextInput.recent3MinAvg,
+      lineupContextInput.recent3Avg,
+      lineupContextInput.l10Avg,
+      lineupContextInput.minCeiling,
+      lineupContextInput.roleSignalScore
+    ].some((value) => Number.isFinite(Number(value)))
+    const lineupRoleSignals = hasRealSpecialtyContext
+      ? buildLineupRoleContextSignals(lineupContextInput)
+      : {}
+
     return {
       ...withConfidence,
       gamePriorityScore: finalGamePriorityScore,
@@ -12222,12 +11361,13 @@ const enrichSpecialPredictionRow = (row) => {
       whyItRates: finalWhyItRates,
       playerConfidenceScore: finalPlayerConfidenceScore,
       confidenceTier: finalConfidenceTier,
-      modelSummary: finalModelSummary
+      modelSummary: finalModelSummary,
+      ...lineupRoleSignals
     }
   }
 
   const specialBase = {
-    ...safeRow,
+    ...canonicalSpecialRow,
     gameEnvironmentScore: Number(safeRow?.gameEnvironmentScore ?? 0.35),
     matchupEdgeScore: Number(safeRow?.matchupEdgeScore ?? 0.25),
     bookValueScore: Number(safeRow?.bookValueScore ?? inferBookValueScore(safeRow)),
@@ -19004,8 +18144,9 @@ const scoredProps = deduped
       modelSummary
     }
     const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
+    const lineupRoleSignals = buildLineupRoleContextSignals(edgeRow)
     const marketContextSignals = buildMarketContextSignals(edgeRow)
-    return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...marketContextSignals })
+    return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...lineupRoleSignals, ...marketContextSignals })
   })
   .filter((row) => {
     const hasCoreData =
@@ -22014,8 +21155,9 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         modelSummary
       }
       const ceilingRoleSignals = buildCeilingRoleSpikeSignals(edgeRow)
+      const lineupRoleSignals = buildLineupRoleContextSignals(edgeRow)
       const marketContextSignals = buildMarketContextSignals(edgeRow)
-      return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...marketContextSignals })
+      return enrichPredictionLayer({ ...edgeRow, ...ceilingRoleSignals, ...lineupRoleSignals, ...marketContextSignals })
     })
 
     console.log("[CEILING-SIGNAL-STAGE-DEBUG]", {
