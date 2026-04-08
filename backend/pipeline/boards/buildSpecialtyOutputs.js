@@ -228,6 +228,61 @@ function toAmericanOddsBandScore(oddsValue) {
   return 0.32
 }
 
+function getSubtypeOddsFitScore(subtype, oddsValue) {
+  const odds = Number(oddsValue)
+  if (!Number.isFinite(odds)) return 0.3
+
+  if (subtype === "firstBasket") {
+    if (odds >= 240 && odds <= 700) return 1
+    if (odds >= 180 && odds < 240) return 0.72
+    if (odds > 700 && odds <= 1100) return 0.68
+    if (odds > 1100 && odds <= 1500) return 0.45
+    return 0.2
+  }
+
+  if (subtype === "firstTeamBasket") {
+    if (odds >= 180 && odds <= 600) return 1
+    if (odds > 600 && odds <= 1000) return 0.62
+    if (odds >= 130 && odds < 180) return 0.64
+    return 0.24
+  }
+
+  if (subtype === "tripleDouble") {
+    if (odds >= 250 && odds <= 1400) return 1
+    if (odds >= 170 && odds < 250) return 0.62
+    return 0.3
+  }
+
+  if (subtype === "doubleDouble") {
+    if (odds >= 130 && odds <= 700) return 1
+    if (odds > 700 && odds <= 1100) return 0.58
+    return 0.34
+  }
+
+  if (odds >= 150 && odds <= 900) return 0.85
+  if (odds > 900 && odds <= 1400) return 0.52
+  return 0.3
+}
+
+function getSignalCompletenessScore(row) {
+  const hasCeiling = Number.isFinite(Number(row?.ceilingScore))
+  const hasRoleSpike = Number.isFinite(Number(row?.roleSpikeScore))
+  const hasMarketLag = Number.isFinite(Number(row?.marketLagScore))
+  const hasConfidence = Number.isFinite(Number(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score))
+  const hasTier = Boolean(String(row?.confidenceTier || "").trim())
+  const whyCount = Array.isArray(row?.whyItRates) ? row.whyItRates.length : 0
+
+  let completeness = 0
+  if (hasConfidence) completeness += 0.28
+  if (hasCeiling) completeness += 0.2
+  if (hasRoleSpike) completeness += 0.18
+  if (hasMarketLag) completeness += 0.18
+  if (hasTier) completeness += 0.1
+  if (whyCount > 0) completeness += 0.06
+
+  return Number(Math.max(0, Math.min(1, completeness)).toFixed(3))
+}
+
 function buildSpecialtyRankScore(row) {
   const subtype = getSpecialtySubtype(row)
   const confidence = toUnitScore(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score, 0)
@@ -237,13 +292,15 @@ function buildSpecialtyRankScore(row) {
   const bookDisagreementScore = toUnitScore(row?.bookDisagreementScore, marketLagScore)
   const tierScore = tierToScore(row)
   const oddsBandScore = toAmericanOddsBandScore(row?.odds)
+  const subtypeOddsFitScore = getSubtypeOddsFitScore(subtype, row?.odds)
+  const signalCompletenessScore = getSignalCompletenessScore(row)
   const playDecision = String(row?.playDecision || "").toLowerCase()
 
   const subtypeWeights = subtype === "firstTeamBasket"
-    ? { confidence: 0.33, ceiling: 0.2, role: 0.22, market: 0.12, book: 0.08, tier: 0.05 }
+    ? { confidence: 0.31, ceiling: 0.2, role: 0.22, market: 0.12, book: 0.08, tier: 0.05 }
     : subtype === "firstBasket"
-      ? { confidence: 0.36, ceiling: 0.22, role: 0.16, market: 0.12, book: 0.08, tier: 0.06 }
-      : { confidence: 0.34, ceiling: 0.24, role: 0.15, market: 0.12, book: 0.08, tier: 0.07 }
+      ? { confidence: 0.34, ceiling: 0.22, role: 0.18, market: 0.12, book: 0.08, tier: 0.06 }
+      : { confidence: 0.32, ceiling: 0.24, role: 0.16, market: 0.12, book: 0.08, tier: 0.08 }
 
   let score =
     (confidence * subtypeWeights.confidence) +
@@ -253,11 +310,24 @@ function buildSpecialtyRankScore(row) {
     (bookDisagreementScore * subtypeWeights.book) +
     (tierScore * subtypeWeights.tier)
 
-  score += oddsBandScore * 0.14
+  // Boom lane: reward plus-money shape with subtype-specific odds windows and complete signals.
+  score += oddsBandScore * 0.1
+  score += subtypeOddsFitScore * 0.1
+  score += signalCompletenessScore * 0.08
+
+  const boomReadinessScore = Number((
+    (confidence * 0.35) +
+    (ceilingScore * 0.3) +
+    (roleSpikeScore * 0.2) +
+    (marketLagScore * 0.15)
+  ).toFixed(4))
+  score += boomReadinessScore * 0.12
 
   if (playDecision.includes("avoid") || playDecision.includes("fade") || playDecision.includes("sit")) score -= 0.22
   if (tierScore <= 0.2 && confidence < 0.28) score -= 0.16
   if (Number(row?.odds || 0) > 1500 && confidence < 0.34) score -= 0.18
+  if (signalCompletenessScore < 0.46 && confidence < 0.34) score -= 0.14
+  if (boomReadinessScore < 0.33 && subtypeOddsFitScore < 0.45) score -= 0.12
 
   return Number(score.toFixed(4))
 }

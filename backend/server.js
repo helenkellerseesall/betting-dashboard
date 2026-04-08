@@ -9323,6 +9323,7 @@ app.get("/api/best-available", (req, res) => {
       line: row?.line ?? null,
       odds: Number(row?.odds ?? 0) || null,
       propVariant: row?.propVariant || "base",
+      specialtyRankScore: Number.isFinite(Number(row?.specialtyRankScore)) ? Number(Number(row.specialtyRankScore).toFixed(4)) : null,
       confidenceScore,
       ceilingScore: Number.isFinite(ceilingScore) ? Number(ceilingScore.toFixed(3)) : null,
       roleSpikeScore: Number.isFinite(roleSpikeScore) ? Number(roleSpikeScore.toFixed(3)) : null,
