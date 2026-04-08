@@ -200,13 +200,95 @@ function filterTopSpecialsForWeakness(rows) {
   }
 }
 
+function getSpecialtySubtype(row) {
+  if (isFirstTeamBasket(row)) return "firstTeamBasket"
+  if (isFirstBasket(row)) return "firstBasket"
+  if (isTripleDouble(row)) return "tripleDouble"
+  if (isDoubleDouble(row)) return "doubleDouble"
+  return "otherSpecials"
+}
+
+function tierToScore(row) {
+  const tier = String(row?.confidenceTier || "").toLowerCase()
+  if (tier.includes("special-elite") || tier === "elite") return 1
+  if (tier.includes("special-strong") || tier === "strong") return 0.78
+  if (tier.includes("special-playable") || tier === "playable") return 0.56
+  if (tier.includes("thin")) return 0.18
+  return 0.4
+}
+
+function toAmericanOddsBandScore(oddsValue) {
+  const odds = Number(oddsValue)
+  if (!Number.isFinite(odds)) return 0.35
+  if (odds >= 180 && odds <= 900) return 1
+  if (odds > 900 && odds <= 1400) return 0.72
+  if (odds >= 120 && odds < 180) return 0.58
+  if (odds > 0 && odds < 120) return 0.28
+  if (odds > 1400) return 0.18
+  return 0.32
+}
+
+function buildSpecialtyRankScore(row) {
+  const subtype = getSpecialtySubtype(row)
+  const confidence = toUnitScore(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score, 0)
+  const ceilingScore = toUnitScore(row?.ceilingScore, confidence)
+  const roleSpikeScore = toUnitScore(row?.roleSpikeScore, confidence)
+  const marketLagScore = toUnitScore(row?.marketLagScore, 0.3)
+  const bookDisagreementScore = toUnitScore(row?.bookDisagreementScore, marketLagScore)
+  const tierScore = tierToScore(row)
+  const oddsBandScore = toAmericanOddsBandScore(row?.odds)
+  const playDecision = String(row?.playDecision || "").toLowerCase()
+
+  const subtypeWeights = subtype === "firstTeamBasket"
+    ? { confidence: 0.33, ceiling: 0.2, role: 0.22, market: 0.12, book: 0.08, tier: 0.05 }
+    : subtype === "firstBasket"
+      ? { confidence: 0.36, ceiling: 0.22, role: 0.16, market: 0.12, book: 0.08, tier: 0.06 }
+      : { confidence: 0.34, ceiling: 0.24, role: 0.15, market: 0.12, book: 0.08, tier: 0.07 }
+
+  let score =
+    (confidence * subtypeWeights.confidence) +
+    (ceilingScore * subtypeWeights.ceiling) +
+    (roleSpikeScore * subtypeWeights.role) +
+    (marketLagScore * subtypeWeights.market) +
+    (bookDisagreementScore * subtypeWeights.book) +
+    (tierScore * subtypeWeights.tier)
+
+  score += oddsBandScore * 0.14
+
+  if (playDecision.includes("avoid") || playDecision.includes("fade") || playDecision.includes("sit")) score -= 0.22
+  if (tierScore <= 0.2 && confidence < 0.28) score -= 0.16
+  if (Number(row?.odds || 0) > 1500 && confidence < 0.34) score -= 0.18
+
+  return Number(score.toFixed(4))
+}
+
+function rankSpecialtyRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  return [...safeRows]
+    .map((row, index) => ({
+      row,
+      index,
+      rankScore: buildSpecialtyRankScore(row),
+      confidenceTieBreaker: Number(toUnitScore(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score, 0) || 0),
+      oddsTieBreaker: Number(row?.odds || 0)
+    }))
+    .sort((a, b) => {
+      if (b.rankScore !== a.rankScore) return b.rankScore - a.rankScore
+      if (b.confidenceTieBreaker !== a.confidenceTieBreaker) return b.confidenceTieBreaker - a.confidenceTieBreaker
+      if (b.oddsTieBreaker !== a.oddsTieBreaker) return b.oddsTieBreaker - a.oddsTieBreaker
+      return a.index - b.index
+    })
+    .map(({ row, rankScore }) => ({ ...row, specialtyRankScore: rankScore }))
+}
+
 function buildTypeAwareSpecialSlices(rows, limit = 4) {
   const safeRows = Array.isArray(rows) ? rows : []
+  const rankedRows = rankSpecialtyRows(safeRows)
   return {
-    bestDoubleDoubles: safeRows.filter((row) => isDoubleDouble(row)).slice(0, limit),
-    bestTripleDoubles: safeRows.filter((row) => isTripleDouble(row)).slice(0, limit),
-    bestFirstBasket: safeRows.filter((row) => isFirstBasket(row)).slice(0, limit),
-    bestFirstTeamBasket: safeRows.filter((row) => isFirstTeamBasket(row)).slice(0, limit)
+    bestDoubleDoubles: rankedRows.filter((row) => isDoubleDouble(row)).slice(0, limit),
+    bestTripleDoubles: rankedRows.filter((row) => isTripleDouble(row)).slice(0, limit),
+    bestFirstBasket: rankedRows.filter((row) => isFirstBasket(row)).slice(0, limit),
+    bestFirstTeamBasket: rankedRows.filter((row) => isFirstTeamBasket(row)).slice(0, limit)
   }
 }
 
@@ -293,12 +375,16 @@ function buildSpecialtyOutputs({
     .filter((row) => isSpecialLikeRow(row))
     .map((row) => normalizeSpecialtyRow(withTeamIndex(row)))
 
-  const filteredTopSpecials = filterTopSpecialsForWeakness(normalizedTopSpecialRows)
-  const typeAwareSpecials = buildTypeAwareSpecialSlices(normalizedSpecialBoard, typeSliceLimit)
+  const rankedSpecialBoard = rankSpecialtyRows(normalizedSpecialBoard)
+  const rankedTopSpecialRows = rankSpecialtyRows(normalizedTopSpecialRows)
+  const rankedFeaturedRows = rankSpecialtyRows(normalizedFeaturedRows)
+
+  const filteredTopSpecials = filterTopSpecialsForWeakness(rankedTopSpecialRows)
+  const typeAwareSpecials = buildTypeAwareSpecialSlices(rankedSpecialBoard, typeSliceLimit)
   const specialsAudit = buildSpecialsAudit({
-    specialBoard: normalizedSpecialBoard,
+    specialBoard: rankedSpecialBoard,
     firstBasketBoard,
-    tonightsBestSpecials: normalizedTopSpecialRows,
+    tonightsBestSpecials: rankedTopSpecialRows,
     countByMarketKey
   })
 
@@ -306,12 +392,12 @@ function buildSpecialtyOutputs({
     filteredTopSpecials,
     typeAwareSpecials,
     specialsAudit,
-    normalizedBestSpecialRows: normalizedTopSpecialRows,
+    normalizedBestSpecialRows: rankedTopSpecialRows,
     specialtyLaneOutputs: {
-      firstBasket: normalizedFeaturedRows.filter((row) => isFirstBasket(row)).slice(0, laneSliceLimit),
-      firstTeamBasket: normalizedFeaturedRows.filter((row) => isFirstTeamBasket(row)).slice(0, laneSliceLimit),
-      specials: normalizedTopSpecialRows.slice(0, laneSliceLimit),
-      featured: normalizedFeaturedRows.slice(0, laneSliceLimit)
+      firstBasket: rankedFeaturedRows.filter((row) => isFirstBasket(row)).slice(0, laneSliceLimit),
+      firstTeamBasket: rankedFeaturedRows.filter((row) => isFirstTeamBasket(row)).slice(0, laneSliceLimit),
+      specials: rankedTopSpecialRows.slice(0, laneSliceLimit),
+      featured: rankedFeaturedRows.slice(0, laneSliceLimit)
     }
   }
 }
