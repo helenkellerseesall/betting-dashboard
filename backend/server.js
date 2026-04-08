@@ -19,6 +19,7 @@ const { buildBestLadders } = require("./pipeline/boards/buildBestLadders")
 const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
 const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
 const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
+const { buildSpecialtyOutputs } = require("./pipeline/boards/buildSpecialtyOutputs")
 const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
@@ -9818,148 +9819,70 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const slateBoard = buildSlateBoardView()
+  const specialtyOutputs = buildSpecialtyOutputs({
+    specialBoard,
+    firstBasketBoard,
+    tonightsBestSpecials,
+    featuredPlays,
+    countByMarketKey,
+    typeSliceLimit: 4,
+    laneSliceLimit: 6
+  })
 
-  let finalTopSpecialsNullDecisionFilteredCount = 0
+  let finalTopSpecialsNullDecisionFilteredCount = Number(
+    specialtyOutputs?.filteredTopSpecials?.nullDecisionFilteredCount || 0
+  )
 
-  const filterTopSpecialsForWeakness = (rows) => {
-    finalTopSpecialsNullDecisionFilteredCount = 0
-    const isWeak = (row) => {
-      const decision = String(row?.playDecision || "").toLowerCase()
-      const tier = String(row?.confidenceTier || "").toLowerCase()
-      const hitRate = Number(row?.hitRatePct)
-
-      if (decision.includes("avoid") || decision.includes("fade")) return true
-      if (tier.includes("special-thin")) return true
-      if (Number.isFinite(hitRate) && hitRate < 40) return true
-      return false
-    }
-
-    const safeRows = Array.isArray(rows) ? rows : []
-    const qualityPass = safeRows.filter((row) => !isWeak(row))
-    const decisionBackedPass = qualityPass.filter((row) => {
-      const hasDecisionBacking = Boolean(String(row?.playDecision || "").trim()) || Boolean(String(row?.decisionSummary || "").trim())
-      if (!hasDecisionBacking) finalTopSpecialsNullDecisionFilteredCount += 1
-      return hasDecisionBacking
-    })
-
-    if (decisionBackedPass.length > 0) return decisionBackedPass
-    if (qualityPass.length > 0) return qualityPass
-    finalTopSpecialsNullDecisionFilteredCount = 0
-    return safeRows
-  }
-
-  const classifySpecialType = (row) => {
-    const marketKey = String(row?.marketKey || "").toLowerCase()
-    const propType = String(row?.propType || "").trim()
-    
-    if (marketKey === "player_first_basket" || /first\s*basket/i.test(propType)) return "firstBasket"
-    if (marketKey === "player_first_team_basket" || /first\s*team\s*basket/i.test(propType)) return "firstTeamBasket"
-    if (/triple\s*double/i.test(propType)) return "tripleDouble"
-    if (/double\s*double/i.test(propType)) return "doubleDouble"
-    return "otherSpecials"
-  }
-
-  const buildSpecialsAudit = (rows) => {
-    const safeRows = Array.isArray(rows) ? rows : []
-    
-    const groups = {
-      firstBasket: [],
-      firstTeamBasket: [],
-      doubleDouble: [],
-      tripleDouble: [],
-      otherSpecials: []
-    }
-    
-    const countsByType = {
+  const specialsAudit = specialtyOutputs?.specialsAudit || {
+    totalCandidates: 0,
+    countsByType: {
       firstBasket: 0,
       firstTeamBasket: 0,
       doubleDouble: 0,
       tripleDouble: 0,
       otherSpecials: 0
-    }
-    
-    for (const row of safeRows) {
-      const specialType = classifySpecialType(row)
-      groups[specialType].push({
-        player: row?.player || null,
-        matchup: row?.matchup || null,
-        marketKey: row?.marketKey || null,
-        propType: row?.propType || null,
-        odds: Number(row?.odds ?? 0) || null,
-        hitRatePct: Number(row?.hitRatePct),
-        confidenceTier: row?.confidenceTier || null,
-        playDecision: row?.playDecision || null,
-        decisionSummary: row?.decisionSummary || null,
-        sourceLane: row?.sourceLane || null,
-        whySynopsis: row?.whySynopsis || null
-      })
-      countsByType[specialType]++
-    }
-    
-    return {
-      totalCandidates: safeRows.length,
-      countsByType,
-      surfacedAuditFirstBasketCount: countsByType.firstBasket,
-      surfacedAuditFirstTeamBasketCount: countsByType.firstTeamBasket,
-      auditSource: "specialBoard",
-      auditSourceExcludesFirstBasketByDesign: true,
-      routedFirstBasketRowsInFirstBasketBoard: countByMarketKey(firstBasketBoard, "player_first_basket"),
-      routedFirstTeamBasketRowsInFirstBasketBoard: countByMarketKey(firstBasketBoard, "player_first_team_basket"),
-      groupedByType: {
-        firstBasket: groups.firstBasket,
-        firstTeamBasket: groups.firstTeamBasket,
-        doubleDouble: groups.doubleDouble,
-        tripleDouble: groups.tripleDouble,
-        otherSpecials: groups.otherSpecials
-      },
-      surfacedBestSpecialsCount: Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials.length : 0
-    }
+    },
+    surfacedAuditFirstBasketCount: 0,
+    surfacedAuditFirstTeamBasketCount: 0,
+    auditSource: "specialBoard",
+    auditSourceExcludesFirstBasketByDesign: true,
+    routedFirstBasketRowsInFirstBasketBoard: 0,
+    routedFirstTeamBasketRowsInFirstBasketBoard: 0,
+    groupedByType: {
+      firstBasket: [],
+      firstTeamBasket: [],
+      doubleDouble: [],
+      tripleDouble: [],
+      otherSpecials: []
+    },
+    surfacedBestSpecialsCount: 0
   }
 
-  const specialsAudit = buildSpecialsAudit(specialBoard)
+  const mapSpecialRowsForSurface = (rows) =>
+    (Array.isArray(rows) ? rows : []).map((row) => buildReadableSurfaceRow(row, {
+      defaultLane: "bestSpecials",
+      sourceLane: row?.sourceLane || "bestSpecials"
+    }))
 
-  const buildTypeAwareSpecialSlices = (rows, limit = 4) => {
-    const safeRows = Array.isArray(rows) ? rows : []
-    const compactTypeRow = (row) => buildReadableSurfaceRow(row, { defaultLane: "bestSpecials", sourceLane: row?.sourceLane || "bestSpecials" })
-
-    const isFirstTeamBasket = (row) => {
-      const marketKey = String(row?.marketKey || "").toLowerCase()
-      const propType = String(row?.propType || "")
-      return marketKey === "player_first_team_basket" || /first\s*team\s*basket/i.test(propType)
-    }
-
-    const isFirstBasket = (row) => {
-      if (isFirstTeamBasket(row)) return false
-      const marketKey = String(row?.marketKey || "").toLowerCase()
-      const propType = String(row?.propType || "")
-      return marketKey === "player_first_basket" || /first\s*basket/i.test(propType)
-    }
-
-    const isDoubleDouble = (row) => {
-      const marketKey = String(row?.marketKey || "").toLowerCase()
-      const propType = String(row?.propType || "")
-      return marketKey === "player_double_double" || /double\s*double/i.test(propType)
-    }
-
-    const isTripleDouble = (row) => {
-      const marketKey = String(row?.marketKey || "").toLowerCase()
-      const propType = String(row?.propType || "")
-      return marketKey === "player_triple_double" || /triple\s*double/i.test(propType)
-    }
-
-    return {
-      bestDoubleDoubles: safeRows.filter((row) => isDoubleDouble(row)).slice(0, limit).map((row) => compactTypeRow(row)),
-      bestTripleDoubles: safeRows.filter((row) => isTripleDouble(row)).slice(0, limit).map((row) => compactTypeRow(row)),
-      bestFirstBasket: safeRows.filter((row) => isFirstBasket(row)).slice(0, limit).map((row) => compactTypeRow(row)),
-      bestFirstTeamBasket: safeRows.filter((row) => isFirstTeamBasket(row)).slice(0, limit).map((row) => compactTypeRow(row))
-    }
+  const typeAwareSpecialsRaw = specialtyOutputs?.typeAwareSpecials || {}
+  const typeAwareSpecials = {
+    bestDoubleDoubles: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestDoubleDoubles),
+    bestTripleDoubles: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestTripleDoubles),
+    bestFirstBasket: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestFirstBasket),
+    bestFirstTeamBasket: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestFirstTeamBasket)
   }
 
-  const typeAwareSpecials = buildTypeAwareSpecialSlices(specialBoard, 4)
+  const specialtyLaneOutputsRaw = specialtyOutputs?.specialtyLaneOutputs || {}
+  const specialtyLaneOutputs = {
+    firstBasket: mapSpecialRowsForSurface(specialtyLaneOutputsRaw.firstBasket),
+    firstTeamBasket: mapSpecialRowsForSurface(specialtyLaneOutputsRaw.firstTeamBasket),
+    specials: mapSpecialRowsForSurface(specialtyLaneOutputsRaw.specials),
+    featured: mapSpecialRowsForSurface(specialtyLaneOutputsRaw.featured)
+  }
 
   const buildTopCardView = () => {
     const compactRow = (row, defaultLane) => buildReadableSurfaceRow(row, { defaultLane })
-    const filteredTopSpecials = filterTopSpecialsForWeakness(tonightsBestSpecials)
+    const filteredTopSpecials = specialtyOutputs?.filteredTopSpecials?.rows || []
 
     return {
       topSingles: (Array.isArray(tonightsBestSingles) ? tonightsBestSingles.slice(0, 4) : []).map((row) => compactRow(row, "bestSingles")),
@@ -10055,6 +9978,10 @@ app.get("/api/best-available", (req, res) => {
       gameEdgeBoard,
       mustPlayBoard,
       featuredPlays,
+      firstBasket: specialtyLaneOutputs.firstBasket,
+      firstTeamBasket: specialtyLaneOutputs.firstTeamBasket,
+      specials: specialtyLaneOutputs.specials,
+      featured: specialtyLaneOutputs.featured,
       bestDoubleDoubles: typeAwareSpecials.bestDoubleDoubles,
       bestTripleDoubles: typeAwareSpecials.bestTripleDoubles,
       bestFirstBasket: typeAwareSpecials.bestFirstBasket,
