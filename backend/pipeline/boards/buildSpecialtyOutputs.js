@@ -95,6 +95,72 @@ function hasSpecialHardStop(row) {
   return false
 }
 
+function inferSpecialtyDecision(row, confidence01, rankScore01) {
+  const safeRow = row && typeof row === "object" ? row : {}
+  const tier = String(safeRow?.confidenceTier || "").toLowerCase()
+  const roleSpike = toUnitScore(safeRow?.roleSpikeScore, 0)
+  const lineupContext = toUnitScore(safeRow?.lineupContextScore, 0)
+  const opportunitySpike = toUnitScore(safeRow?.opportunitySpikeScore, 0)
+  const confidence = Number.isFinite(confidence01) ? confidence01 : 0
+  const rank = Number.isFinite(rankScore01) ? rankScore01 : 0
+
+  if (tier.includes("special-elite") || tier === "elite") {
+    return {
+      playDecision: "special-strong",
+      decisionSummary: "SPECIAL: elite confidence profile with specialty-only upside still actionable.",
+      decisionBucketHint: "special-only",
+      finalDecisionLabelHint: "special-only"
+    }
+  }
+
+  if (tier.includes("special-strong") || tier === "strong") {
+    return {
+      playDecision: "special-strong",
+      decisionSummary: "SPECIAL: strong confidence and context alignment support a playable specialty look.",
+      decisionBucketHint: "special-only",
+      finalDecisionLabelHint: "special-only"
+    }
+  }
+
+  if (tier.includes("special-playable") || tier === "playable") {
+    return {
+      playDecision: "special-playable",
+      decisionSummary: "SPECIAL: specialty-only review passed; playable with moderated confidence.",
+      decisionBucketHint: "special-only",
+      finalDecisionLabelHint: "special-only"
+    }
+  }
+
+  const contextPulse = Number((((roleSpike * 0.45) + (lineupContext * 0.30) + (opportunitySpike * 0.25))).toFixed(3))
+  const strongThresholdHit = confidence >= 0.58 || rank >= 0.74
+  const playableThresholdHit = confidence >= 0.40 || rank >= 0.52 || contextPulse >= 0.34
+
+  if (strongThresholdHit) {
+    return {
+      playDecision: "special-strong",
+      decisionSummary: "SPECIAL: confidence and rank profile are strong enough for specialty-only action.",
+      decisionBucketHint: "special-only",
+      finalDecisionLabelHint: "special-only"
+    }
+  }
+
+  if (playableThresholdHit) {
+    return {
+      playDecision: "special-playable",
+      decisionSummary: "SPECIAL: specialty-only review passed; playable with moderated confidence.",
+      decisionBucketHint: "special-only",
+      finalDecisionLabelHint: "special-only"
+    }
+  }
+
+  return {
+    playDecision: "special-thin",
+    decisionSummary: "SPECIAL: signal stack is thin for this specialty price at the moment.",
+    decisionBucketHint: "sit",
+    finalDecisionLabelHint: "sit"
+  }
+}
+
 function normalizeSpecialtyRow(row) {
   const safeRow = row && typeof row === "object" ? row : {}
   const playerTeamIndex = safeRow?.__specialtyPlayerTeamIndex && typeof safeRow.__specialtyPlayerTeamIndex === "object"
@@ -126,19 +192,23 @@ function normalizeSpecialtyRow(row) {
        String(safeRow?.playDecision || "").toLowerCase().includes("sit"))
       ? "special-playable"
       : (safeRow?.playDecision || null)
+  const inferredDecision = inferSpecialtyDecision(safeRow, confidence01, toUnitScore(safeRow?.specialtyRankScore, null))
+  const decisionSeed = nextPlayDecision || inferredDecision.playDecision
 
   const nextDecisionSummary =
-    nextPlayDecision === "special-playable"
+    decisionSeed === "special-playable"
       ? "SPECIAL: specialty-only review passed; playable with moderated confidence."
-      : (safeRow?.decisionSummary || null)
+      : (safeRow?.decisionSummary || inferredDecision.decisionSummary || null)
 
-  const nextDecisionBucketHint = nextPlayDecision === "special-playable"
-    ? "special-only"
-    : (safeRow?.decisionBucketHint || null)
+  const nextDecisionBucketHint =
+    decisionSeed === "special-playable"
+      ? "special-only"
+      : (safeRow?.decisionBucketHint || inferredDecision.decisionBucketHint || null)
 
-  const nextFinalDecisionLabelHint = nextPlayDecision === "special-playable"
-    ? "special-only"
-    : (safeRow?.finalDecisionLabelHint || null)
+  const nextFinalDecisionLabelHint =
+    decisionSeed === "special-playable"
+      ? "special-only"
+      : (safeRow?.finalDecisionLabelHint || inferredDecision.finalDecisionLabelHint || null)
 
   return {
     ...safeRow,
@@ -148,7 +218,7 @@ function normalizeSpecialtyRow(row) {
     roleSpikeScore,
     marketLagScore,
     bookDisagreementScore,
-    playDecision: nextPlayDecision,
+    playDecision: decisionSeed,
     decisionSummary: nextDecisionSummary,
     decisionBucketHint: nextDecisionBucketHint,
     finalDecisionLabelHint: nextFinalDecisionLabelHint
