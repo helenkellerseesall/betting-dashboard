@@ -9819,12 +9819,42 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const slateBoard = buildSlateBoardView()
+  const specialtyPlayerTeamIndex = (() => {
+    const rows = Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards : []
+    const countsByPlayer = new Map()
+
+    for (const row of rows) {
+      const playerKey = String(row?.player || "").trim().toLowerCase()
+      const team = String(row?.team || row?.playerTeam || "").trim()
+      if (!playerKey || !team) continue
+      if (!countsByPlayer.has(playerKey)) countsByPlayer.set(playerKey, new Map())
+      const teamCounts = countsByPlayer.get(playerKey)
+      teamCounts.set(team, (teamCounts.get(team) || 0) + 1)
+    }
+
+    const output = {}
+    for (const [playerKey, teamCounts] of countsByPlayer.entries()) {
+      let bestTeam = null
+      let bestCount = -1
+      for (const [team, count] of teamCounts.entries()) {
+        if (count > bestCount) {
+          bestTeam = team
+          bestCount = count
+        }
+      }
+      if (bestTeam) output[playerKey] = bestTeam
+    }
+
+    return output
+  })()
+
   const specialtyOutputs = buildSpecialtyOutputs({
     specialBoard,
     firstBasketBoard,
     tonightsBestSpecials,
     featuredPlays,
     countByMarketKey,
+    specialtyPlayerTeamIndex,
     typeSliceLimit: 4,
     laneSliceLimit: 6
   })
@@ -9896,7 +9926,11 @@ app.get("/api/best-available", (req, res) => {
   mergedBestAvailableDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
   mergedBestAvailablePoolDiagnostics.finalTopSpecialsNullDecisionFilteredCount = finalTopSpecialsNullDecisionFilteredCount
 
-  const surfacedBestSpecials = (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : []).map((row) => {
+  const surfacedBestSpecialRows = Array.isArray(specialtyOutputs?.normalizedBestSpecialRows)
+    ? specialtyOutputs.normalizedBestSpecialRows
+    : (Array.isArray(tonightsBestSpecials) ? tonightsBestSpecials : [])
+
+  const surfacedBestSpecials = surfacedBestSpecialRows.map((row) => {
     const externalSignalInput = buildOverlayExternalSignalInput(row, { sourceLane: row?.sourceLane || "bestSpecials" })
     const decisionLayer = buildDecisionLayer({
       ...row,
@@ -9906,15 +9940,33 @@ app.get("/api/best-available", (req, res) => {
       ...row,
       sourceLane: row?.sourceLane || "bestSpecials"
     }, externalSignalInput), externalSignalInput)
+
+    const baseDecisionLabel = decisionLayer?.finalDecisionLabel || null
+    const baseDecisionBucket = decisionLayer?.decisionBucket || null
+    const baseSitReason = decisionLayer?.sitReason || null
+    const forceSpecialPlayable =
+      String(row?.playDecision || "").toLowerCase() === "special-playable" &&
+      String(row?.finalDecisionLabelHint || row?.decisionBucketHint || "").toLowerCase() === "special-only"
+
+    const alignedDecisionLabel = forceSpecialPlayable && baseDecisionLabel === "sit"
+      ? "special-only"
+      : baseDecisionLabel
+    const alignedDecisionBucket = forceSpecialPlayable && baseDecisionBucket === "sit"
+      ? "special-only"
+      : baseDecisionBucket
+    const alignedSitReason = forceSpecialPlayable && baseSitReason === "play-decision-blocked"
+      ? null
+      : baseSitReason
+
     return {
       ...row,
       finalDecisionScore: decisionLayer?.finalDecisionScore ?? null,
-      finalDecisionLabel: decisionLayer?.finalDecisionLabel || null,
-      decisionBucket: decisionLayer?.decisionBucket || null,
+      finalDecisionLabel: alignedDecisionLabel,
+      decisionBucket: alignedDecisionBucket,
       supportEdge: decisionLayer?.supportEdge || null,
       marketEdge: decisionLayer?.marketEdge || null,
       riskEdge: decisionLayer?.riskEdge || null,
-      sitReason: decisionLayer?.sitReason || null,
+      sitReason: alignedSitReason,
       externalEdgeScore: externalOverlay?.externalEdgeScore ?? null,
       externalEdgeLabel: externalOverlay?.externalEdgeLabel || null,
       availabilityStatus: externalOverlay?.availabilityStatus || null,
