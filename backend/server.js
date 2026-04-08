@@ -165,11 +165,18 @@ function buildSnapshotMeta(overrides = {}) {
   const ageMinutes = Number.isFinite(updatedAtMs)
     ? Math.max(0, Math.round((Date.now() - updatedAtMs) / 60000))
     : (Number.isFinite(lastSnapshotAgeMinutes) ? lastSnapshotAgeMinutes : null)
+  const snapshotGeneratedAt = oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null
+  const snapshotSlateDateLocal =
+    oddsSnapshot?.snapshotSlateDateLocal ||
+    oddsSnapshot?.snapshotSlateDateKey ||
+    (snapshotGeneratedAt ? toDetroitDateKey(snapshotGeneratedAt) : null)
 
   return {
     source: overrides.source || lastSnapshotSource || "unknown",
     loadedFromDisk: snapshotLoadedFromDisk,
     updatedAt: oddsSnapshot?.updatedAt || null,
+    snapshotGeneratedAt,
+    snapshotSlateDateLocal,
     ageMinutes,
     savedAt: lastSnapshotSavedAt || null,
     lastForceRefreshAt,
@@ -17488,6 +17495,8 @@ app.get("/refresh-snapshot", async (req, res) => {
         ok: true,
         cached: true,
         updatedAt: oddsSnapshot.updatedAt,
+        snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
+        snapshotSlateDateLocal: oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
         updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
         primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
         slateMode: slateMeta.slateMode,
@@ -17554,6 +17563,8 @@ app.get("/refresh-snapshot", async (req, res) => {
         cached: true,
         cacheReason: "same-slate-fresh",
         updatedAt: oddsSnapshot.updatedAt,
+        snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
+        snapshotSlateDateLocal: oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
         updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
         snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey,
         snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
@@ -20502,6 +20513,8 @@ if (newSnapshotIsEmptyButSlateExists && previousHadUsableData) {
     ok: true,
     message: "Live refresh returned no props; preserved previous snapshot",
     snapshotMeta: buildSnapshotMeta({ source: "refresh-live-empty-preserved-previous" }),
+    snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
+    snapshotSlateDateLocal: oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
     counts: {
       scheduledEvents: scheduledEventsCount,
       incomingRawProps: nextRawPropsCount,
@@ -20536,7 +20549,9 @@ bestProps = applyPersistentLineHistory(bestProps, previousBestPropsForHistory, l
 oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
 oddsSnapshot.rawProps = rawPropsRowsWithHistory
 oddsSnapshot.props = activeBookRawPropsRowsWithHistory
+oddsSnapshot.snapshotGeneratedAt = oddsSnapshot.updatedAt || null
 oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
+oddsSnapshot.snapshotSlateDateLocal = chosenSlateDateKey || (oddsSnapshot.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null)
 oddsSnapshot.snapshotSlateGameCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
 const chosenEventIds = new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean))
 const chosenEventIdsWithProps = new Set((Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).map((row) => String(row?.eventId || "")).filter((eventId) => chosenEventIds.has(eventId)))
@@ -21166,6 +21181,8 @@ lastSnapshotRefreshAt = Date.now()
 	      ok: true,
 	      message: "Snapshot refreshed successfully",
 	      snapshotMeta: refreshMeta,
+        snapshotGeneratedAt: refreshMeta?.snapshotGeneratedAt || null,
+        snapshotSlateDateLocal: refreshMeta?.snapshotSlateDateLocal || null,
 	      marketCoverageFocusDebug,
 	      snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey || null,
 	      snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
