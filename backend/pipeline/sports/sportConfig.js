@@ -101,6 +101,8 @@ const SPORT_CONFIG = {
     externalData: {
       preferredSource: "mlb_api_sports",
       enableLiveFetch: true,
+      enableLineupOverlay: true,
+      lineupOverlaySource: "mlb_official_lineups",
       cacheKey: "mlb_external_snapshot",
       cacheTtlMs: 900000
     },

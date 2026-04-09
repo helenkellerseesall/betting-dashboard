@@ -7,10 +7,12 @@ const {
   normalizeMlbExternalSnapshotShape
 } = require("../enrichment/buildMlbExternalSnapshotScaffold")
 const { fetchMlbApiSportsScaffold } = require("./adapters/fetchMlbApiSportsScaffold")
+const { fetchMlbOfficialLineupsSnapshot } = require("./adapters/fetchMlbOfficialLineupsSnapshot")
+const { mergeMlbExternalSnapshots } = require("./mergeMlbExternalSnapshots")
 
 const MLB_EXTERNAL_ADAPTERS = {
   mlb_api_sports: fetchMlbApiSportsScaffold,
-  mlb_official_lineups: null,
+  mlb_official_lineups: fetchMlbOfficialLineupsSnapshot,
   rotowire_mlb: null,
   fangraphs_lineups: null,
   mlb_official_injury_report: null
@@ -46,6 +48,13 @@ async function fetchMlbExternalSnapshot({
   const mlbConfig = getSportConfig("mlb") || {}
   const liveFetchEnabled = mlbConfig?.externalData?.enableLiveFetch !== false
   const adapter = MLB_EXTERNAL_ADAPTERS[selectedSource]
+  const lineupOverlaySource = toSafeSourceName(
+    sourceOptions?.lineupOverlaySource ||
+    mlbConfig?.externalData?.lineupOverlaySource ||
+    ""
+  )
+  const lineupOverlayEnabled = sourceOptions?.enableLineupOverlay !== false && mlbConfig?.externalData?.enableLineupOverlay !== false
+  const overlayAdapter = lineupOverlayEnabled ? MLB_EXTERNAL_ADAPTERS[lineupOverlaySource] : null
 
   if (!liveFetchEnabled) {
     const empty = createEmptyMlbExternalSnapshot({
@@ -99,7 +108,26 @@ async function fetchMlbExternalSnapshot({
 
   try {
     const fetched = await adapter({ events, now, sourceOptions })
-    const normalized = normalizeMlbExternalSnapshotShape(fetched, { now })
+    let normalized = normalizeMlbExternalSnapshotShape(fetched, { now })
+
+    if (
+      selectedSource === "mlb_api_sports" &&
+      lineupOverlayEnabled &&
+      lineupOverlaySource &&
+      typeof overlayAdapter === "function" &&
+      lineupOverlaySource !== selectedSource
+    ) {
+      const overlayFetched = await overlayAdapter({ events, now, sourceOptions })
+      const normalizedOverlay = normalizeMlbExternalSnapshotShape(overlayFetched, { now })
+      normalized = normalizeMlbExternalSnapshotShape(
+        mergeMlbExternalSnapshots({
+          baseSnapshot: normalized,
+          overlaySnapshot: normalizedOverlay,
+          overlaySourceName: lineupOverlaySource
+        }),
+        { now }
+      )
+    }
 
     return {
       ...normalized,
