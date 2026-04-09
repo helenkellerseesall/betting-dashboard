@@ -8,6 +8,10 @@ const {
   getMlbExternalCacheEntry,
   setMlbExternalCacheEntry
 } = require("../mlbExternalCache")
+const {
+  getMlbPlayerIdentityCache,
+  mergeMlbPlayerIdentityCache
+} = require("../mlbPlayerIdentityCache")
 
 const API_SPORTS_BASE_URL = "https://v1.baseball.api-sports.io"
 const API_SPORTS_TIMEOUT_MS = 12000
@@ -62,6 +66,15 @@ function toEventContext(event) {
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : []
+}
+
+function ensureObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {}
+}
+
+function hasEndpointUnsupportedError(errors) {
+  const endpointError = String(errors?.endpoint || "").toLowerCase()
+  return endpointError.includes("do not exist")
 }
 
 function extractLineupPlayers(lineupRow) {
@@ -175,7 +188,74 @@ async function fetchApiSportsLineupsForGame({ gameId, apiSportsKey }) {
     timeout: API_SPORTS_TIMEOUT_MS
   })
 
+  const errors = ensureObject(response?.data?.errors)
+  if (hasEndpointUnsupportedError(errors)) {
+    const unsupported = new Error("lineups-endpoint-unsupported")
+    unsupported.code = "LINEUPS_ENDPOINT_UNSUPPORTED"
+    unsupported.apiSportsErrors = errors
+    throw unsupported
+  }
+
   return ensureArray(response?.data?.response)
+}
+
+function extractRosterPlayers(responseRows) {
+  const out = []
+
+  for (const row of ensureArray(responseRows)) {
+    const player = row?.player && typeof row.player === "object" ? row.player : row
+    const playerName = String(
+      player?.name ||
+      player?.player_name ||
+      player?.fullname ||
+      row?.name ||
+      row?.player_name ||
+      ""
+    ).trim()
+    if (!playerName) continue
+
+    out.push({
+      playerIdExternal: player?.id ?? row?.id ?? null,
+      playerName,
+      position: String(player?.pos || player?.position || row?.pos || row?.position || "").trim() || null,
+      source: "api-sports-team-roster"
+    })
+  }
+
+  const seen = new Set()
+  const deduped = []
+  for (const row of out) {
+    const key = normalizeMlbText(row.playerName)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    deduped.push(row)
+  }
+
+  return deduped
+}
+
+async function fetchApiSportsRosterForTeam({ teamId, season, apiSportsKey }) {
+  const response = await axios.get(`${API_SPORTS_BASE_URL}/players`, {
+    params: {
+      team: teamId,
+      season,
+      league: MLB_LEAGUE_ID
+    },
+    headers: {
+      "x-apisports-key": apiSportsKey
+    },
+    timeout: API_SPORTS_TIMEOUT_MS
+  })
+
+  const errors = ensureObject(response?.data?.errors)
+  if (hasEndpointUnsupportedError(errors)) {
+    const unsupported = new Error("players-endpoint-unsupported")
+    unsupported.code = "PLAYERS_ENDPOINT_UNSUPPORTED"
+    unsupported.apiSportsErrors = errors
+    throw unsupported
+  }
+
+  return extractRosterPlayers(response?.data?.response)
 }
 
 async function fetchApiSportsTeamStatistics({ teamId, season, apiSportsKey }) {
@@ -242,6 +322,11 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
         mode: "live-fetch",
         fetchAttempted: false,
         eventCountInput: safeEvents.length,
+        lineupsEndpointSupported: null,
+        playersEndpointSupported: null,
+        fallbackIdentityCacheKeys: 0,
+        fallbackIdentityCandidatesApplied: 0,
+        fallbackIdentityCandidatesAdded: 0,
         notes: []
       }
     }
@@ -283,6 +368,7 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
 
   const cacheTtlMs = Number(sourceOptions?.cacheTtlMs || 15 * 60 * 1000)
   const cacheKey = [
+    "phase-7-6-identity-seeding-v1",
     "mlb_api_sports",
     [...requestDateKeys].sort().join(","),
     `events=${safeEvents.length}`
@@ -318,6 +404,9 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
   const playersByPlayerKey = {}
   const playersByEventId = {}
 
+  const cachedIdentityState = await getMlbPlayerIdentityCache()
+  const cachedPlayersByPlayerKey = ensureObject(cachedIdentityState?.playersByPlayerKey)
+
   const notes = []
   const fetchErrors = []
   let apiGamesFetched = 0
@@ -325,8 +414,14 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
   let lineupsFetched = 0
   let lineupRowsFound = 0
   let lineupGamesWithData = 0
+  let lineupsEndpointUnsupported = false
   let teamStatsFetched = 0
   let teamStatsMissing = 0
+  let teamRosterCalls = 0
+  let teamRosterRowsFound = 0
+  let teamRosterTeamsWithData = 0
+  let playersEndpointUnsupported = false
+  let fallbackIdentityCandidatesApplied = 0
 
   const apiGameByMatchKey = new Map()
 
@@ -352,6 +447,7 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
 
   const lineupsByGameId = new Map()
   const teamStatsByTeamId = new Map()
+  const rosterPlayersByTeamId = new Map()
 
   for (const [matchKey, eventRef] of eventByMatchKey.entries()) {
     const game = apiGameByMatchKey.get(matchKey)
@@ -360,7 +456,7 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
     apiGamesMatchedToSlate += 1
     const gameId = Number(game?.id)
 
-    if (Number.isFinite(gameId)) {
+    if (Number.isFinite(gameId) && !lineupsEndpointUnsupported) {
       try {
         const lineups = await fetchApiSportsLineupsForGame({ gameId, apiSportsKey })
         lineupsByGameId.set(gameId, lineups)
@@ -368,14 +464,21 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
         lineupRowsFound += lineups.length
         if (lineups.length > 0) lineupGamesWithData += 1
       } catch (error) {
-        fetchErrors.push({
-          stage: "lineups",
-          gameId,
-          eventId: eventRef.eventId,
-          error: String(error?.response?.data?.message || error?.message || error)
-        })
+        if (String(error?.code || "") === "LINEUPS_ENDPOINT_UNSUPPORTED") {
+          lineupsEndpointUnsupported = true
+          notes.push("API-Sports lineups endpoint is unsupported for current account/source; lineup-based identity seeding disabled.")
+        } else {
+          fetchErrors.push({
+            stage: "lineups",
+            gameId,
+            eventId: eventRef.eventId,
+            error: String(error?.response?.data?.message || error?.message || error)
+          })
+        }
         lineupsByGameId.set(gameId, [])
       }
+    } else if (Number.isFinite(gameId)) {
+      lineupsByGameId.set(gameId, [])
     }
 
     const season = Number(game?.league?.season || String(eventRef.dateKey || "").slice(0, 4))
@@ -398,6 +501,28 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
           teamId,
           error: String(error?.response?.data?.message || error?.message || error)
         })
+      }
+
+      if (!playersEndpointUnsupported && !rosterPlayersByTeamId.has(teamId)) {
+        try {
+          const rosterPlayers = await fetchApiSportsRosterForTeam({ teamId, season, apiSportsKey })
+          rosterPlayersByTeamId.set(teamId, rosterPlayers)
+          teamRosterCalls += 1
+          teamRosterRowsFound += rosterPlayers.length
+          if (rosterPlayers.length > 0) teamRosterTeamsWithData += 1
+        } catch (error) {
+          if (String(error?.code || "") === "PLAYERS_ENDPOINT_UNSUPPORTED") {
+            playersEndpointUnsupported = true
+            notes.push("API-Sports players endpoint is unsupported for current account/source; roster-based identity seeding disabled.")
+          } else {
+            fetchErrors.push({
+              stage: "players-team-roster",
+              teamId,
+              error: String(error?.response?.data?.message || error?.message || error)
+            })
+          }
+          rosterPlayersByTeamId.set(teamId, [])
+        }
       }
     }
   }
@@ -483,11 +608,34 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
       ...awayPlayers.map((player) => ({ ...player, teamName: game?.teams?.away?.name }))
     ]
 
-    if (lineupCandidates.length > 0) {
+    const homeTeamId = Number(game?.teams?.home?.id)
+    const awayTeamId = Number(game?.teams?.away?.id)
+    const homeRosterCandidates = Number.isFinite(homeTeamId)
+      ? ensureArray(rosterPlayersByTeamId.get(homeTeamId)).map((player) => ({
+          ...player,
+          teamName: game?.teams?.home?.name,
+          source: "api-sports-team-roster"
+        }))
+      : []
+    const awayRosterCandidates = Number.isFinite(awayTeamId)
+      ? ensureArray(rosterPlayersByTeamId.get(awayTeamId)).map((player) => ({
+          ...player,
+          teamName: game?.teams?.away?.name,
+          source: "api-sports-team-roster"
+        }))
+      : []
+
+    const eventPlayerCandidates = [
+      ...lineupCandidates,
+      ...homeRosterCandidates,
+      ...awayRosterCandidates
+    ]
+
+    if (eventPlayerCandidates.length > 0) {
       playersByEventId[eventId] = []
     }
 
-    for (const candidate of lineupCandidates) {
+    for (const candidate of eventPlayerCandidates) {
       const playerName = String(candidate?.playerName || "").trim()
       const playerKey = normalizeMlbPlayerKey(playerName)
       if (!playerKey) continue
@@ -498,7 +646,7 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
         playerKey,
         teamResolved: String(candidate?.teamName || "").trim() || null,
         teamCode: resolveTeamCode(candidate?.teamName || "") || null,
-        source: "api-sports-lineups",
+        source: String(candidate?.source || "api-sports-lineups").trim() || "api-sports-lineups",
         eventIds: [eventId]
       }
 
@@ -518,6 +666,52 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
     }
   }
 
+  for (const [playerKey, cachedCandidates] of Object.entries(cachedPlayersByPlayerKey)) {
+    const safeKey = String(playerKey || "").trim()
+    if (!safeKey) continue
+
+    if (!Array.isArray(playersByPlayerKey[safeKey])) {
+      playersByPlayerKey[safeKey] = []
+    }
+
+    for (const cachedCandidate of ensureArray(cachedCandidates)) {
+      const candidateRow = {
+        playerIdExternal: cachedCandidate?.playerIdExternal ?? null,
+        playerName: String(cachedCandidate?.playerName || "").trim() || null,
+        playerKey: String(cachedCandidate?.playerKey || safeKey).trim() || safeKey,
+        teamResolved: String(cachedCandidate?.teamResolved || "").trim() || null,
+        teamCode: String(cachedCandidate?.teamCode || resolveTeamCode(cachedCandidate?.teamResolved || "") || "").trim() || null,
+        source: "identity-cache",
+        eventIds: ensureArray(cachedCandidate?.eventIds)
+          .map((eventId) => String(eventId || "").trim())
+          .filter(Boolean)
+      }
+
+      if (!candidateRow.playerName) continue
+
+      const exists = playersByPlayerKey[safeKey].some((existing) => {
+        const sameName = String(existing?.playerName || "") === String(candidateRow.playerName || "")
+        const sameTeam = String(existing?.teamResolved || "") === String(candidateRow.teamResolved || "")
+        return sameName && sameTeam
+      })
+      if (exists) continue
+
+      playersByPlayerKey[safeKey].push(candidateRow)
+      fallbackIdentityCandidatesApplied += 1
+    }
+  }
+
+  const identityCandidatesToPersist = []
+  for (const rowsForKey of Object.values(playersByPlayerKey)) {
+    for (const row of ensureArray(rowsForKey)) {
+      if (String(row?.source || "") === "identity-cache") continue
+      identityCandidatesToPersist.push(row)
+    }
+  }
+  const identityCacheMerge = await mergeMlbPlayerIdentityCache({
+    candidates: identityCandidatesToPersist
+  })
+
   if (apiGamesFetched === 0) {
     notes.push("API-Sports games endpoint returned no MLB games for requested slate dates.")
   }
@@ -526,6 +720,15 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
   }
   if (lineupGamesWithData === 0) {
     notes.push("API-Sports lineups endpoint returned no starter rows for matched games; probable pitcher coverage unavailable in current window.")
+  }
+  if (teamRosterTeamsWithData === 0) {
+    notes.push("No team-roster player rows were available for matched event teams in current window.")
+  }
+  if (Object.keys(cachedPlayersByPlayerKey).length === 0) {
+    notes.push("Fallback MLB identity cache has no player keys yet; unresolved rows will remain high until lineup/player identity data is observed.")
+  }
+  if (Object.keys(cachedPlayersByPlayerKey).length > 0 && fallbackIdentityCandidatesApplied === 0) {
+    notes.push("Fallback MLB identity cache loaded but did not add new candidates for current snapshot keys.")
   }
   if (teamStatsFetched === 0) {
     notes.push("API-Sports team statistics endpoint returned no team stats for matched teams.")
@@ -554,8 +757,17 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
         lineupCalls: lineupsFetched,
         lineupRowsFound,
         lineupGamesWithData,
+        lineupsEndpointSupported: !lineupsEndpointUnsupported,
         teamStatsFetched,
         teamStatsMissing,
+        teamRosterCalls,
+        teamRosterRowsFound,
+        teamRosterTeamsWithData,
+        playersEndpointSupported: !playersEndpointUnsupported,
+        fallbackIdentityCacheKeys: Object.keys(cachedPlayersByPlayerKey).length,
+        fallbackIdentityCandidatesApplied,
+        fallbackIdentityCandidatesAdded: Number(identityCacheMerge?.added || 0),
+        fallbackIdentityCacheTotalKeys: Number(identityCacheMerge?.totalKeys || 0),
         fetchErrors,
         notes
       }

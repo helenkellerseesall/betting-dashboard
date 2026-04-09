@@ -44,6 +44,86 @@ function toCandidate(value) {
   }
 }
 
+function normalizeNameForAlias(value) {
+  return normalizeMlbText(value)
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function buildPlayerKeyAliases(playerName) {
+  const original = String(playerName || "").trim()
+  const aliases = new Set()
+
+  const canonical = normalizeMlbPlayerKey(original)
+  if (canonical) aliases.add(canonical)
+
+  const simplified = normalizeNameForAlias(original)
+  if (simplified) {
+    aliases.add(normalizeMlbPlayerKey(simplified))
+    const parts = simplified.split(" ").filter(Boolean)
+    if (parts.length >= 2) {
+      const initial = String(parts[0] || "").slice(0, 1)
+      const last = String(parts[parts.length - 1] || "")
+      const initialLast = normalizeMlbPlayerKey(`${initial} ${last}`)
+      if (initialLast) aliases.add(initialLast)
+    }
+  }
+
+  return [...aliases].filter(Boolean)
+}
+
+function matchesAnyEventTeam(candidate, eventTeams) {
+  const teams = Array.isArray(eventTeams) ? eventTeams : []
+  if (teams.length === 0) return false
+
+  const candidateTeam = normalizeMlbText(candidate?.teamResolved || "")
+  if (!candidateTeam) return false
+  return teams.some((teamName) => normalizeMlbText(teamName) === candidateTeam)
+}
+
+function dedupeCandidates(rows) {
+  const seen = new Set()
+  const out = []
+  for (const row of normalizeArray(rows)) {
+    const candidate = toCandidate(row)
+    if (!candidate) continue
+    const key = [
+      String(candidate.playerKey || ""),
+      String(candidate.playerName || ""),
+      String(candidate.teamResolved || ""),
+      String(candidate.source || "")
+    ].join("|")
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(candidate)
+  }
+  return out
+}
+
+function collectProbablePitcherCandidates({ probablePitchersByEventId, eventId }) {
+  const out = []
+  const probable = normalizeObject(probablePitchersByEventId)[String(eventId || "")]
+  if (!probable || typeof probable !== "object") return out
+
+  for (const side of ["home", "away"]) {
+    const pitcher = probable?.[side]
+    const playerName = String(pitcher?.playerName || "").trim()
+    if (!playerName) continue
+    out.push({
+      playerIdExternal: pitcher?.playerIdExternal ?? null,
+      playerName,
+      playerKey: normalizeMlbPlayerKey(playerName),
+      teamResolved: null,
+      teamCode: null,
+      source: "event-probable-pitcher",
+      eventIds: [String(eventId || "").trim()].filter(Boolean)
+    })
+  }
+
+  return out
+}
+
 function candidateMatchesEvent(candidate, eventId) {
   if (!candidate) return false
   const safeEventId = String(eventId || "").trim()
@@ -90,6 +170,11 @@ function deriveMatchupContext(row) {
 }
 
 function pickBestCandidate({ eventCandidates, keyCandidates, eventId }) {
+  const eventIdsMatched = eventCandidates.filter((candidate) => candidateMatchesEvent(candidate, eventId))
+  if (eventIdsMatched.length > 0) {
+    return { candidate: eventIdsMatched[0], confidence: 0.94, source: "external-event-playerkey" }
+  }
+
   for (const candidate of eventCandidates) {
     if (candidateMatchesEvent(candidate, eventId)) {
       return { candidate, confidence: 0.92, source: "external-event-playerkey" }
@@ -107,6 +192,28 @@ function pickBestCandidate({ eventCandidates, keyCandidates, eventId }) {
   return { candidate: null, confidence: 0, source: "unresolved" }
 }
 
+function pickBestCandidateTeamAware({ eventCandidates, keyCandidates, eventId, eventTeams }) {
+  const eventTeamFiltered = eventCandidates.filter((candidate) => matchesAnyEventTeam(candidate, eventTeams))
+  if (eventTeamFiltered.length > 0) {
+    const withEventId = eventTeamFiltered.find((candidate) => candidateMatchesEvent(candidate, eventId))
+    if (withEventId) {
+      return { candidate: withEventId, confidence: 0.95, source: "external-event-team-aware" }
+    }
+    return { candidate: eventTeamFiltered[0], confidence: 0.84, source: "external-event-team-aware" }
+  }
+
+  const keyTeamFiltered = keyCandidates.filter((candidate) => matchesAnyEventTeam(candidate, eventTeams))
+  if (keyTeamFiltered.length === 1) {
+    return { candidate: keyTeamFiltered[0], confidence: 0.72, source: "external-playerkey-team-aware" }
+  }
+
+  if (keyTeamFiltered.length > 1) {
+    return { candidate: null, confidence: 0, source: "unresolved-team-ambiguous" }
+  }
+
+  return pickBestCandidate({ eventCandidates, keyCandidates, eventId })
+}
+
 function resolveMlbIdentityForRow({ row, externalSnapshot }) {
   const safeRow = row || {}
   const safeExternal = normalizeObject(externalSnapshot)
@@ -116,6 +223,7 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
 
   const matchupContext = deriveMatchupContext(safeRow)
   const playerKey = normalizeMlbPlayerKey(player)
+  const aliasKeys = buildPlayerKeyAliases(player)
 
   // Non-player game markets still get team/opponent context fields for consistency.
   if (!player || marketFamily === "game") {
@@ -127,26 +235,59 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
       isHome: matchupContext.isHome,
       playerIdExternal: null,
       identityConfidence: null,
-      identitySource: "matchup-context-only"
+      identitySource: "matchup-context-only",
+      unresolvedReason: null
     }
   }
 
   const playersByPlayerKey = normalizeObject(safeExternal.playersByPlayerKey)
   const playersByEventId = normalizeObject(safeExternal.playersByEventId)
+  const probablePitchersByEventId = normalizeObject(safeExternal.probablePitchersByEventId)
+  const teamContextByEventId = normalizeObject(safeExternal.teamContextByEventId)
 
-  const keyCandidates = normalizeArray(playersByPlayerKey[playerKey]).map(toCandidate).filter(Boolean)
-  const eventCandidates = normalizeArray(playersByEventId[eventId]).map(toCandidate).filter(Boolean)
+  const eventTeams = []
+  const teamContext = normalizeObject(teamContextByEventId[eventId])
+  const externalHome = String(teamContext?.homeTeam?.name || "").trim()
+  const externalAway = String(teamContext?.awayTeam?.name || "").trim()
+  if (externalHome) eventTeams.push(externalHome)
+  if (externalAway) eventTeams.push(externalAway)
+  if (matchupContext.homeTeam) eventTeams.push(matchupContext.homeTeam)
+  if (matchupContext.awayTeam) eventTeams.push(matchupContext.awayTeam)
 
-  const chosen = pickBestCandidate({
+  const keyCandidateRows = []
+  for (const aliasKey of aliasKeys) {
+    keyCandidateRows.push(...normalizeArray(playersByPlayerKey[aliasKey]))
+  }
+
+  const keyCandidates = dedupeCandidates(keyCandidateRows)
+  const probablePitcherCandidates = collectProbablePitcherCandidates({ probablePitchersByEventId, eventId })
+  const eventCandidates = dedupeCandidates([
+    ...normalizeArray(playersByEventId[eventId]),
+    ...probablePitcherCandidates
+  ])
+
+  const chosen = pickBestCandidateTeamAware({
     eventCandidates,
     keyCandidates,
-    eventId
+    eventId,
+    eventTeams
   })
 
   const candidate = chosen.candidate
 
   // If we have no external match, keep neutral scaffold fields so current behavior is unchanged.
   if (!candidate) {
+    let unresolvedReason = "no-candidate"
+    if (eventCandidates.length === 0 && keyCandidates.length === 0) {
+      unresolvedReason = "no-external-player-candidates"
+    } else if (String(chosen.source || "").includes("ambiguous")) {
+      unresolvedReason = "team-ambiguous-candidates"
+    } else if (eventCandidates.length > 0 && keyCandidates.length === 0) {
+      unresolvedReason = "event-candidates-no-playerkey-match"
+    } else if (eventCandidates.length === 0 && keyCandidates.length > 0) {
+      unresolvedReason = "playerkey-candidates-no-event-match"
+    }
+
     return {
       playerKey: playerKey || null,
       teamResolved: null,
@@ -155,7 +296,8 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
       isHome: null,
       playerIdExternal: null,
       identityConfidence: 0,
-      identitySource: chosen.source
+      identitySource: chosen.source,
+      unresolvedReason
     }
   }
 
@@ -180,7 +322,8 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
     isHome,
     playerIdExternal: candidate.playerIdExternal,
     identityConfidence: Number(chosen.confidence.toFixed(3)),
-    identitySource: chosen.source
+    identitySource: chosen.source,
+    unresolvedReason: null
   }
 }
 

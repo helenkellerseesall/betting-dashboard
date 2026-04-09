@@ -38,6 +38,7 @@ function buildMlbEnrichmentDiagnostics(rows) {
   const unresolvedSamples = []
   const lowConfidenceSamples = []
   const byMarketFamily = {}
+  const unresolvedByReason = {}
 
   for (const row of safeRows) {
     const familyBucket = addFamilyBucket(byMarketFamily, row?.marketFamily)
@@ -57,6 +58,8 @@ function buildMlbEnrichmentDiagnostics(rows) {
     } else {
       unresolvedRows += 1
       familyBucket.unresolved += 1
+      const unresolvedReason = String(row?.unresolvedReason || "unknown")
+      unresolvedByReason[unresolvedReason] = Number(unresolvedByReason[unresolvedReason] || 0) + 1
       if (unresolvedSamples.length < 25) {
         unresolvedSamples.push({
           eventId: row?.eventId || null,
@@ -64,7 +67,9 @@ function buildMlbEnrichmentDiagnostics(rows) {
           player: row?.player || null,
           marketKey: row?.marketKey || null,
           marketFamily: row?.marketFamily || null,
-          playerKey: row?.playerKey || null
+          playerKey: row?.playerKey || null,
+          unresolvedReason: row?.unresolvedReason || null,
+          identitySource: row?.identitySource || null
         })
       }
     }
@@ -99,6 +104,7 @@ function buildMlbEnrichmentDiagnostics(rows) {
       overallMatchRate: roundRate(matchedRows, playerRows)
     },
     byMarketFamily,
+    unresolvedByReason,
     unresolvedSamples,
     lowConfidenceSamples
   }
@@ -123,7 +129,8 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       isHome: identity.isHome,
       playerIdExternal: identity.playerIdExternal,
       identityConfidence: identity.identityConfidence,
-      identitySource: identity.identitySource
+      identitySource: identity.identitySource,
+      unresolvedReason: identity.unresolvedReason || null
     }
   })
 
