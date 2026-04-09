@@ -158,6 +158,63 @@ function computeLowInformationPenalty(row) {
   return 0
 }
 
+/**
+ * Classify a row as "safe" (floor/stable) or "upside" (value/aggressive) or null.
+ *
+ * Safe:
+ *   - Primary standard market (not alternate/ladder)
+ *   - Implied probability 52-78% (roughly -110 to -255)
+ *   - Odds no worse than -320, no wilder than +150
+ *
+ * Upside:
+ *   - Implied probability 38-62% (roughly -163 to +163)
+ *   - Odds between -165 and +380
+ *   - Allows alternate/ladder at meaningful (non-trivial) lines
+ *   - Also includes primary markets at even/slight-plus prices
+ *
+ * Hard excludes from both:
+ *   - Odds worse than -600 or better than +500
+ *   - Trivially easy alt-overs (batter_hits alt <=0.5, pitcher_strikeouts alt <=2.5, total_bases alt <=1.5)
+ */
+function classifyRowTier(row) {
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds)) return null
+
+  const implied = impliedProbabilityFromAmerican(odds)
+  if (implied == null) return null
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const family = String(row?.marketFamily || "")
+  const isAlt = isAlternateMarketKey(marketKey) || family === "ladder"
+  const line = toNumberOrNull(row?.line)
+  const side = String(row?.side || "").toLowerCase()
+
+  // Hard excludes: absurd chalk or absurd longshot
+  if (odds < -600) return null
+  if (odds > 500) return null
+
+  // Hard exclude trivially easy alt-overs from both tiers
+  if (isAlt && side === "over" && Number.isFinite(line)) {
+    if (marketKey.includes("batter_hits") && line <= 0.5) return null
+    if (marketKey.includes("pitcher_strikeouts") && line <= 2.5) return null
+    if (marketKey.includes("total_bases") && line <= 1.5) return null
+  }
+
+  // Safe tier: primary standard market at moderate familiar price
+  if (!isAlt && family === "standard") {
+    const inSafePrice = odds >= -320 && odds <= 150
+    const inSafeImplied = implied >= 0.52 && implied <= 0.78
+    if (inSafePrice && inSafeImplied) return "safe"
+  }
+
+  // Upside tier: value-band pricing; allows alts at meaningful lines or primary at near-even/plus
+  const inUpsidePrice = odds >= -165 && odds <= 380
+  const inUpsideImplied = implied >= 0.38 && implied <= 0.62
+  if (inUpsidePrice && inUpsideImplied) return "upside"
+
+  return null
+}
+
 function buildBalancedOverallBoard({ bestHitters, bestPitchers, bestSpecials, bestGameMarkets, maxRows }) {
   const hitters = Array.isArray(bestHitters) ? bestHitters : []
   const pitchers = Array.isArray(bestPitchers) ? bestPitchers : []
@@ -375,18 +432,82 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     maxRows: maxRowsPerGroup
   })
 
+  // --- Phase 5: safe / upside sub-tiers ---
+  // Pre-filter each prop pool by tier before ranking so the resulting lists are
+  // meaningfully distinct rather than just score-ordered sub-slices of the same pool.
+
+  const safeHitterPool = hitterRows.filter((r) => classifyRowTier(r) === "safe")
+  const upsideHitterPool = hitterRows.filter((r) => classifyRowTier(r) === "upside")
+  const safePitcherPool = pitcherRows.filter((r) => classifyRowTier(r) === "safe")
+  const upsidePitcherPool = pitcherRows.filter((r) => classifyRowTier(r) === "upside")
+
+  const tierMax = Math.max(3, Math.round(maxRowsPerGroup * 0.65))
+
+  const safeHitters = rankRows(safeHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2 })
+  const safePitchers = rankRows(safePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2 })
+  const upsideHitters = rankRows(upsideHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2 })
+  const upsidePitchers = rankRows(upsidePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2 })
+
+  // Separate safe/upside pools for specials and game lines used in the combined overall boards.
+  const safeSpecialPool = specialRows.filter((r) => {
+    const o = toNumberOrNull(r?.odds)
+    return o != null && o >= -250 && o <= 200
+  })
+  const upsideSpecialPool = specialRows.filter((r) => {
+    const o = toNumberOrNull(r?.odds)
+    return o != null && o >= 100 && o <= 600
+  })
+  const safeGamePool = gameRows.filter((r) => {
+    const o = toNumberOrNull(r?.odds)
+    return o != null && o >= -220 && o <= 120
+  })
+  const upsideGamePool = gameRows.filter((r) => {
+    const o = toNumberOrNull(r?.odds)
+    return o != null && o >= -160 && o <= 280
+  })
+
+  const overallTierMax = Math.max(4, Math.round(maxRowsPerGroup * 0.7))
+
+  const bestOverallSafe = buildBalancedOverallBoard({
+    bestHitters: safeHitters,
+    bestPitchers: safePitchers,
+    bestSpecials: rankRows(safeSpecialPool, { groupType: "specials", maxRows: 3 }),
+    bestGameMarkets: rankRows(safeGamePool, { groupType: "game", maxRows: 2 }),
+    maxRows: overallTierMax
+  })
+
+  const bestOverallUpside = buildBalancedOverallBoard({
+    bestHitters: upsideHitters,
+    bestPitchers: upsidePitchers,
+    bestSpecials: rankRows(upsideSpecialPool, { groupType: "specials", maxRows: 3 }),
+    bestGameMarkets: rankRows(upsideGamePool, { groupType: "game", maxRows: 2 }),
+    maxRows: overallTierMax
+  })
+
   return {
     bestHitters,
     bestPitchers,
     bestSpecials,
     bestGameMarkets,
     bestOverall,
+    safeHitters,
+    safePitchers,
+    upsideHitters,
+    upsidePitchers,
+    bestOverallSafe,
+    bestOverallUpside,
     counts: {
       bestHitters: bestHitters.length,
       bestPitchers: bestPitchers.length,
       bestSpecials: bestSpecials.length,
       bestGameMarkets: bestGameMarkets.length,
-      bestOverall: bestOverall.length
+      bestOverall: bestOverall.length,
+      safeHitters: safeHitters.length,
+      safePitchers: safePitchers.length,
+      upsideHitters: upsideHitters.length,
+      upsidePitchers: upsidePitchers.length,
+      bestOverallSafe: bestOverallSafe.length,
+      bestOverallUpside: bestOverallUpside.length
     }
   }
 }
