@@ -137,7 +137,12 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       hasExternalData: normalizedExternalSnapshot?.diagnostics?.hasExternalData === true,
       playerKeyCount: Number(normalizedExternalSnapshot?.diagnostics?.playerKeyCount || 0),
       eventContextCount: Number(normalizedExternalSnapshot?.diagnostics?.eventContextCount || 0),
-      playersByEventCount: Number(normalizedExternalSnapshot?.diagnostics?.playersByEventCount || 0)
+      playersByEventCount: Number(normalizedExternalSnapshot?.diagnostics?.playersByEventCount || 0),
+      probablePitcherEventCount: Number(normalizedExternalSnapshot?.diagnostics?.probablePitcherEventCount || 0),
+      lineupConfirmationEventCount: Number(normalizedExternalSnapshot?.diagnostics?.lineupConfirmationEventCount || 0),
+      teamContextEventCount: Number(normalizedExternalSnapshot?.diagnostics?.teamContextEventCount || 0),
+      recentStatsPlayerCount: Number(normalizedExternalSnapshot?.diagnostics?.recentStatsPlayerCount || 0),
+      fetchReadiness: normalizedExternalSnapshot?.diagnostics?.fetchReadiness || null
     }
   }
 }

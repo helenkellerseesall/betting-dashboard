@@ -14,6 +14,7 @@ const {
   normalizeMlbExternalSnapshotShape
 } = require("./enrichment/buildMlbExternalSnapshotScaffold")
 const { enrichMlbRowsWithExternalContext } = require("./enrichment/mergeMlbExternalContext")
+const { fetchMlbExternalSnapshot } = require("./external/fetchMlbExternalSnapshot")
 
 function createEmptyMlbSnapshot() {
   return {
@@ -329,7 +330,7 @@ function buildMarketRequestList(mlbConfig) {
   ]
 }
 
-async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externalSnapshot = null }) {
+async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externalSnapshot = null, externalSourceName = null }) {
   const mlbConfig = getSportConfig("mlb")
   if (!mlbConfig) {
     throw new Error("MLB sport config missing")
@@ -529,8 +530,19 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     }
   }
 
+  let resolvedExternalSnapshot
+  if (externalSnapshot && typeof externalSnapshot === "object") {
+    resolvedExternalSnapshot = normalizeMlbExternalSnapshotShape(externalSnapshot, { now })
+  } else {
+    resolvedExternalSnapshot = await fetchMlbExternalSnapshot({
+      events: scheduledEvents,
+      now,
+      sourceName: externalSourceName
+    })
+  }
+
   const normalizedExternalSnapshot = normalizeMlbExternalSnapshotShape(
-    externalSnapshot || createEmptyMlbExternalSnapshot({ now }),
+    resolvedExternalSnapshot || createEmptyMlbExternalSnapshot({ now }),
     { now }
   )
 
@@ -590,6 +602,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
         unresolvedSamples: [],
         lowConfidenceSamples: []
       },
+      externalFetchReadiness: (normalizedExternalSnapshot?.diagnostics && normalizedExternalSnapshot.diagnostics.fetchReadiness) || null,
       payloadShapes,
       failedEvents
     }

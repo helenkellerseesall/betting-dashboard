@@ -28,11 +28,23 @@ function createEmptyMlbExternalSnapshot({ now = Date.now(), source = "mlb-extern
     // Example: { [eventId]: [ { playerIdExternal, playerName, playerKey, teamResolved, teamCode } ] }
     playersByEventId: {},
 
+    // Explicit early-stage context lanes to support future live fetch wiring.
+    probablePitchersByEventId: {},
+    lineupConfirmationByEventId: {},
+    teamContextByEventId: {},
+
+    // Placeholder for future stat payload rollups keyed by playerKey.
+    recentStatsByPlayerKey: {},
+
     diagnostics: {
       hasExternalData: false,
       playerKeyCount: 0,
       eventContextCount: 0,
-      playersByEventCount: 0
+      playersByEventCount: 0,
+      probablePitcherEventCount: 0,
+      lineupConfirmationEventCount: 0,
+      teamContextEventCount: 0,
+      recentStatsPlayerCount: 0
     }
   }
 }
@@ -44,6 +56,10 @@ function normalizeMlbExternalSnapshotShape(snapshot, { now = Date.now() } = {}) 
   const eventContextByEventId = normalizeObject(safe.eventContextByEventId)
   const playersByPlayerKey = normalizeObject(safe.playersByPlayerKey)
   const playersByEventId = normalizeObject(safe.playersByEventId)
+  const probablePitchersByEventId = normalizeObject(safe.probablePitchersByEventId)
+  const lineupConfirmationByEventId = normalizeObject(safe.lineupConfirmationByEventId)
+  const teamContextByEventId = normalizeObject(safe.teamContextByEventId)
+  const recentStatsByPlayerKey = normalizeObject(safe.recentStatsByPlayerKey)
 
   const out = {
     ...base,
@@ -51,15 +67,27 @@ function normalizeMlbExternalSnapshotShape(snapshot, { now = Date.now() } = {}) 
     eventContextByEventId,
     playersByPlayerKey,
     playersByEventId,
+    probablePitchersByEventId,
+    lineupConfirmationByEventId,
+    teamContextByEventId,
+    recentStatsByPlayerKey,
     diagnostics: {
       ...(normalizeObject(safe.diagnostics)),
       hasExternalData:
         Object.keys(eventContextByEventId).length > 0 ||
         Object.keys(playersByPlayerKey).length > 0 ||
-        Object.keys(playersByEventId).length > 0,
+        Object.keys(playersByEventId).length > 0 ||
+        Object.keys(probablePitchersByEventId).length > 0 ||
+        Object.keys(lineupConfirmationByEventId).length > 0 ||
+        Object.keys(teamContextByEventId).length > 0 ||
+        Object.keys(recentStatsByPlayerKey).length > 0,
       playerKeyCount: Object.keys(playersByPlayerKey).length,
       eventContextCount: Object.keys(eventContextByEventId).length,
-      playersByEventCount: Object.keys(playersByEventId).length
+      playersByEventCount: Object.keys(playersByEventId).length,
+      probablePitcherEventCount: Object.keys(probablePitchersByEventId).length,
+      lineupConfirmationEventCount: Object.keys(lineupConfirmationByEventId).length,
+      teamContextEventCount: Object.keys(teamContextByEventId).length,
+      recentStatsPlayerCount: Object.keys(recentStatsByPlayerKey).length
     }
   }
 

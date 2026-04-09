@@ -55,11 +55,22 @@ const EDGE_SOURCE_CONFIG = {
 	// Phase 1 will wire these into a sport-scoped buildExternalEdgeOverlay call.
 	// ---------------------------------------------------------------------------
 	mlbTrustedSourceStack: [
+		"mlb_api_sports",
 		"mlb_official_injury_report",
 		"rotowire_mlb",
 		"fangraphs_lineups"
 	],
 	mlbSources: {
+		mlb_api_sports: {
+			label: "API-Sports MLB",
+			priority: 0,
+			influences: {
+				availability: true,
+				starterStatus: true,
+				marketValidity: false,
+				contextTag: true
+			}
+		},
 		mlb_official_injury_report: {
 			label: "MLB Official IL / Injury Report",
 			priority: 1,

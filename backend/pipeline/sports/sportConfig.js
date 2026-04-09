@@ -98,6 +98,11 @@ const SPORT_CONFIG = {
       "mlb_official_injury_report",
       "rotowire_mlb"
     ],
+    externalData: {
+      preferredSource: "mlb_api_sports",
+      enableLiveFetch: false,
+      cacheKey: "mlb_external_snapshot"
+    },
     // MLB fragile rules differ: no avgMin concept; use PA/IP thresholds instead
     fragileRules: {
       // Batter: fewer than 2 plate appearances projected → fragile
