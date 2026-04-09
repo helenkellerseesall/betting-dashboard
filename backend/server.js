@@ -9213,6 +9213,59 @@ function buildReplayRefreshResponse({ source = "replay-disk-snapshot" } = {}) {
   }
 }
 
+// ===== MLB REPLAY MODE SUPPORT (Phase 7) =====
+const MLB_REPLAY_SNAPSHOT_PATH = path.join(__dirname, "snapshot-mlb.json")
+
+async function loadMlbReplaySnapshotFromDisk() {
+  try {
+    const raw = await fs.promises.readFile(MLB_REPLAY_SNAPSHOT_PATH, "utf8")
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    const snapshot = (parsed?.data && typeof parsed.data === "object") ? parsed.data : parsed
+    if (!snapshot || typeof snapshot !== "object") return null
+
+    // Normalize arrays
+    if (!Array.isArray(snapshot.events)) snapshot.events = []
+    if (!Array.isArray(snapshot.rawOddsEvents)) snapshot.rawOddsEvents = []
+    if (!Array.isArray(snapshot.rows)) snapshot.rows = []
+
+    // Normalize diagnostics
+    if (!snapshot.diagnostics || typeof snapshot.diagnostics !== "object") snapshot.diagnostics = {}
+    if (!Array.isArray(snapshot.diagnostics.failedEvents)) snapshot.diagnostics.failedEvents = []
+    if (!snapshot.diagnostics.byBook) snapshot.diagnostics.byBook = {}
+    if (!snapshot.diagnostics.byMarketFamily) snapshot.diagnostics.byMarketFamily = {}
+    if (!snapshot.diagnostics.enrichmentCoverage) snapshot.diagnostics.enrichmentCoverage = {}
+
+    return snapshot
+  } catch (err) {
+    console.error(`[MLB-REPLAY] Failed to load MLB replay snapshot: ${err.message}`)
+    return null
+  }
+}
+
+function buildMlbReplayRefreshResponse(sourceSnap = {}) {
+  const rows = Array.isArray(sourceSnap?.rows) ? sourceSnap.rows : []
+  return {
+    ok: true,
+    replay: true,
+    sport: "mlb",
+    classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
+    updatedAt: sourceSnap?.updatedAt || sourceSnap?.snapshotGeneratedAt || null,
+    snapshotSlateDateKey: sourceSnap?.snapshotSlateDateKey || null,
+    events: Array.isArray(sourceSnap?.events) ? sourceSnap.events.length : 0,
+    fetchedEventOdds: Array.isArray(sourceSnap?.rawOddsEvents) ? sourceSnap.rawOddsEvents.length : 0,
+    rows: rows.length,
+    byBook: (sourceSnap?.diagnostics && sourceSnap.diagnostics.byBook) || {},
+    byMarketFamily: (sourceSnap?.diagnostics && sourceSnap.diagnostics.byMarketFamily) || {},
+    externalSnapshotMeta: sourceSnap?.externalSnapshotMeta || null,
+    diagnostics: {
+      enrichmentCoverage: (sourceSnap?.diagnostics && sourceSnap.diagnostics.enrichmentCoverage) || null
+    },
+    failedEventCount: Number(sourceSnap?.diagnostics?.failedEventCount || 0)
+  }
+}
+
 function normalizePropType(key) {
   const normalizedKey = String(key || "").trim().toLowerCase()
   switch (normalizedKey) {
@@ -21815,6 +21868,23 @@ app.get("/api/best/by-prop/:propType", (req, res) => {
 
 app.get("/mlb/refresh", async (req, res) => {
   try {
+    // MLB Replay mode support (Phase 7)
+    const replayModeRequested = isNbaOddsReplayRequest(req)
+    if (replayModeRequested) {
+      const replaySnapshot = await loadMlbReplaySnapshotFromDisk()
+      if (!replaySnapshot) {
+        return res.status(503).json({
+          ok: false,
+          error: "Replay mode requested but MLB snapshot replay file is missing or invalid",
+          replay: true
+        })
+      }
+
+      mlbSnapshot = replaySnapshot
+
+      return res.status(200).json(buildMlbReplayRefreshResponse(replaySnapshot))
+    }
+
     if (!ODDS_API_KEY) {
       return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
     }
