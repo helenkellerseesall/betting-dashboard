@@ -465,6 +465,27 @@ const buildCuratedLaneDecision = (row, sourceLane, metrics = {}) => {
   }
 }
 
+const isTrueCuratedHardStop = (sourceLane, decisionLayer, externalOverlay) => {
+  const lane = String(sourceLane || "").toLowerCase()
+  const sitReason = String(decisionLayer?.sitReason || "").trim().toLowerCase()
+  const availabilityStatus = String(externalOverlay?.availabilityStatus || "").toLowerCase()
+
+  if (availabilityStatus === "out" || availabilityStatus === "doubtful") return true
+  if (!sitReason) return false
+
+  if (lane !== "bestupside") {
+    return String(decisionLayer?.finalDecisionLabel || "").toLowerCase() === "sit"
+  }
+
+  return [
+    "play-decision-blocked",
+    "external-availability-out",
+    "external-sit-flag",
+    "risk-fragile-context-thin",
+    "risk-fragile-market-adverse"
+  ].includes(sitReason)
+}
+
 // ---------------------------------------------------------------------------
 // External overlay finalizer (pure — no closure deps)
 // ---------------------------------------------------------------------------
@@ -541,11 +562,7 @@ function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
       confidenceScore,
       volatilityPenalty
     })
-    const hardStopFromDecisionLayer =
-      String(decisionLayer?.finalDecisionLabel || "").toLowerCase() === "sit" &&
-      Boolean(String(decisionLayer?.sitReason || "").trim())
-    const availabilityBlock = ["out", "doubtful"].includes(String(externalOverlay?.availabilityStatus || "").toLowerCase())
-    const shouldPreserveHardStop = hardStopFromDecisionLayer || availabilityBlock
+    const shouldPreserveHardStop = isTrueCuratedHardStop(sourceLane, decisionLayer, externalOverlay)
     const surfacedPlayDecision = curatedLaneDecision && !shouldPreserveHardStop
       ? curatedLaneDecision.playDecision
       : (row?.playDecision || null)
