@@ -81,6 +81,132 @@ function normalizeMarketShapeSignal(row) {
   return 0.04
 }
 
+function isAlternateMarketKey(marketKey) {
+  const mk = String(marketKey || "").toLowerCase()
+  return mk.includes("alternate") || mk.endsWith("_alt") || mk.endsWith("_alternate")
+}
+
+function toMarketBaseKey(marketKey) {
+  const mk = String(marketKey || "").toLowerCase().trim()
+  if (!mk) return ""
+  return mk
+    .replace(/_alternate$/g, "")
+    .replace(/_alt$/g, "")
+    .replace(/alternate/g, "")
+    .replace(/__+/g, "_")
+    .replace(/^_+|_+$/g, "")
+}
+
+function buildPrimaryMarketIndex(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const index = new Set()
+
+  for (const row of safeRows) {
+    const marketKey = String(row?.marketKey || "")
+    const isAlt = isAlternateMarketKey(marketKey) || String(row?.marketFamily || "") === "ladder"
+    if (isAlt) continue
+
+    const player = toKey(row?.player, "")
+    const baseKey = toMarketBaseKey(marketKey)
+    const side = toKey(row?.side, "")
+    if (!player || !baseKey) continue
+
+    index.add([player, baseKey, side].join("|"))
+  }
+
+  return index
+}
+
+function computeTrivialAlternatePenalty(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const side = String(row?.side || "").toLowerCase()
+  const isAlt = isAlternateMarketKey(marketKey) || String(row?.marketFamily || "") === "ladder"
+  if (!isAlt || !Number.isFinite(line)) return 0
+
+  if (marketKey.includes("batter_hits") && side === "over" && line <= 0.5) return 0.24
+  if (marketKey.includes("total_bases") && side === "over" && line <= 1.5) return 0.16
+  if (marketKey.includes("pitcher_strikeouts") && side === "over" && line <= 2.5) return 0.28
+  if (marketKey.includes("pitcher_strikeouts") && side === "over" && line <= 3.5) return 0.18
+  if (side === "over" && line <= 0.5) return 0.12
+
+  return 0
+}
+
+function computeHeavyFavoritePenalty(odds) {
+  const n = toNumberOrNull(odds)
+  if (!Number.isFinite(n) || n >= 0) return 0
+
+  const absOdds = Math.abs(n)
+  if (absOdds <= 220) return 0
+  if (absOdds <= 350) return 0.05
+  if (absOdds <= 500) return 0.1
+  if (absOdds <= 900) return 0.16
+  return 0.22
+}
+
+function computeLowInformationPenalty(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const side = String(row?.side || "").toLowerCase()
+  if (!Number.isFinite(line)) return 0
+
+  if (side === "under" && line <= 0.5 && (marketKey.includes("rbis") || marketKey.includes("home_runs"))) {
+    return 0.1
+  }
+
+  return 0
+}
+
+function buildBalancedOverallBoard({ bestHitters, bestPitchers, bestSpecials, bestGameMarkets, maxRows }) {
+  const hitters = Array.isArray(bestHitters) ? bestHitters : []
+  const pitchers = Array.isArray(bestPitchers) ? bestPitchers : []
+  const specials = Array.isArray(bestSpecials) ? bestSpecials : []
+  const games = Array.isArray(bestGameMarkets) ? bestGameMarkets : []
+  const limit = Math.max(1, Number(maxRows) || 10)
+
+  const minTargets = {
+    hitters: Math.min(hitters.length, Math.max(1, Math.floor(limit * 0.25))),
+    pitchers: Math.min(pitchers.length, Math.max(1, Math.floor(limit * 0.25))),
+    games: Math.min(games.length, Math.max(1, Math.floor(limit * 0.16))),
+    specials: Math.min(specials.length, Math.max(1, Math.floor(limit * 0.08)))
+  }
+
+  const out = []
+  const seen = new Set()
+
+  function pushUnique(rows, count) {
+    if (!Array.isArray(rows) || count <= 0) return
+    for (const row of rows) {
+      if (count <= 0) break
+      const key = buildCandidateKey(row)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(row)
+      count -= 1
+      if (out.length >= limit) break
+    }
+  }
+
+  pushUnique(hitters, minTargets.hitters)
+  pushUnique(pitchers, minTargets.pitchers)
+  pushUnique(games, minTargets.games)
+  pushUnique(specials, minTargets.specials)
+
+  const remainder = [...hitters, ...pitchers, ...games, ...specials]
+    .sort((a, b) => Number(b?.surfaceScore || 0) - Number(a?.surfaceScore || 0))
+
+  for (const row of remainder) {
+    if (out.length >= limit) break
+    const key = buildCandidateKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+
+  return out.slice(0, limit)
+}
+
 function getBookStrengthMap(rows) {
   const byBook = countBy(rows, (row) => row?.book)
   const maxCount = Math.max(1, ...Object.values(byBook))
@@ -105,24 +231,47 @@ function rankRows(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 12
   const groupType = String(options.groupType || "")
+  const perMarketKeyMax = Number.isFinite(options.perMarketKeyMax)
+    ? Math.max(1, Number(options.perMarketKeyMax))
+    : (
+      groupType === "pitchers" ? 2 :
+      groupType === "overall" ? 2 :
+      groupType === "hitters" ? 3 :
+      4
+    )
 
   const matchupCounts = countBy(safeRows, (row) => row?.matchup)
   const maxMatchupCount = Math.max(1, ...Object.values(matchupCounts))
   const bookStrength = getBookStrengthMap(safeRows)
+  const primaryMarketIndex = buildPrimaryMarketIndex(safeRows)
 
   const scored = safeRows
     .map((row) => {
       const implied = impliedProbabilityFromAmerican(row?.odds)
-      const impliedSignal = implied == null ? 0.1 : clamp((implied - 0.34) / 0.5, 0, 1)
+      const impliedSignal = implied == null ? 0.18 : clamp((implied - 0.44) / 0.32, 0, 1)
+      const valueBandSignal = implied == null
+        ? 0.3
+        : clamp(1 - (Math.abs(implied - 0.58) / 0.28), 0, 1)
 
       const odds = toNumberOrNull(row?.odds)
-      const plusMoneySignal = Number.isFinite(odds)
-        ? (odds > 0 ? clamp(1 - (odds / 900), 0.15, 0.9) : clamp(1 - (Math.abs(odds) / 380), 0.2, 0.85))
-        : 0.35
+      const priceModerationSignal = Number.isFinite(odds)
+        ? (odds > 0
+          ? clamp(1 - ((odds - 125) / 700), 0.2, 0.95)
+          : clamp(1 - ((Math.abs(odds) - 150) / 500), 0, 0.95))
+        : 0.3
 
       const shapeSignal = normalizeMarketShapeSignal(row)
       const bookSignal = bookStrength[toKey(row?.book, "unknown")] || 0.25
       const matchupSignal = clamp(1 - ((Number(matchupCounts[toKey(row?.matchup, "unknown")] || 1) - 1) / maxMatchupCount), 0.35, 1)
+
+      const marketKey = String(row?.marketKey || "")
+      const baseKey = toMarketBaseKey(marketKey)
+      const player = toKey(row?.player, "")
+      const side = toKey(row?.side, "")
+      const isAlt = isAlternateMarketKey(marketKey) || String(row?.marketFamily || "") === "ladder"
+      const primaryMarketSignal = isAlt
+        ? (primaryMarketIndex.has([player, baseKey, side].join("|")) ? 0.08 : 0.24)
+        : 0.92
 
       const family = String(row?.marketFamily || "")
       const familyBonus =
@@ -132,13 +281,22 @@ function rankRows(rows, options = {}) {
         groupType === "pitchers" && row?.isPitcherMarket === true ? 0.14 :
         0
 
+      const trivialAltPenalty = computeTrivialAlternatePenalty(row)
+      const heavyFavoritePenalty = computeHeavyFavoritePenalty(odds)
+      const lowInformationPenalty = computeLowInformationPenalty(row)
+
       const score = Number((
-        (impliedSignal * 0.34) +
-        (plusMoneySignal * 0.18) +
-        (shapeSignal * 0.19) +
-        (bookSignal * 0.15) +
-        (matchupSignal * 0.14) +
-        familyBonus
+        (impliedSignal * 0.2) +
+        (valueBandSignal * 0.22) +
+        (priceModerationSignal * 0.15) +
+        (shapeSignal * 0.15) +
+        (primaryMarketSignal * 0.16) +
+        (bookSignal * 0.06) +
+        (matchupSignal * 0.06) +
+        familyBonus -
+        trivialAltPenalty -
+        heavyFavoritePenalty -
+        lowInformationPenalty
       ).toFixed(4))
 
       return {
@@ -153,6 +311,7 @@ function rankRows(rows, options = {}) {
   const perMatchup = {}
   const perPlayer = {}
   const perBook = {}
+  const perMarketKey = {}
 
   for (const candidate of scored) {
     const row = candidate.row
@@ -162,15 +321,18 @@ function rankRows(rows, options = {}) {
     const matchup = toKey(row?.matchup, "unknown")
     const player = toKey(row?.player, "")
     const book = toKey(row?.book, "unknown")
+    const marketKey = toKey(row?.marketKey, "unknown")
 
     if (Number(perMatchup[matchup] || 0) >= 2) continue
     if (player && Number(perPlayer[player] || 0) >= 1) continue
-    if (Number(perBook[book] || 0) >= 4) continue
+    if (Number(perBook[book] || 0) >= (groupType === "overall" ? 3 : 4)) continue
+    if (Number(perMarketKey[marketKey] || 0) >= perMarketKeyMax) continue
 
     seen.add(key)
     perMatchup[matchup] = Number(perMatchup[matchup] || 0) + 1
     if (player) perPlayer[player] = Number(perPlayer[player] || 0) + 1
     perBook[book] = Number(perBook[book] || 0) + 1
+    perMarketKey[marketKey] = Number(perMarketKey[marketKey] || 0) + 1
 
     deduped.push({
       ...compactMlbRow(row),
@@ -201,19 +363,17 @@ function buildMlbSurfaceBoard(rows, options = {}) {
   })
 
   const bestHitters = rankRows(hitterRows, { groupType: "hitters", maxRows: maxRowsPerGroup })
-  const bestPitchers = rankRows(pitcherRows, { groupType: "pitchers", maxRows: maxRowsPerGroup })
+  const bestPitchers = rankRows(pitcherRows, { groupType: "pitchers", maxRows: maxRowsPerGroup, perMarketKeyMax: 2 })
   const bestSpecials = rankRows(specialRows, { groupType: "specials", maxRows: maxRowsPerGroup })
   const bestGameMarkets = rankRows(gameRows, { groupType: "game", maxRows: maxRowsPerGroup })
 
-  const bestOverall = rankRows(
-    [
-      ...hitterRows,
-      ...pitcherRows,
-      ...specialRows,
-      ...gameRows
-    ],
-    { groupType: "overall", maxRows: maxRowsPerGroup }
-  )
+  const bestOverall = buildBalancedOverallBoard({
+    bestHitters,
+    bestPitchers,
+    bestSpecials,
+    bestGameMarkets,
+    maxRows: maxRowsPerGroup
+  })
 
   return {
     bestHitters,
