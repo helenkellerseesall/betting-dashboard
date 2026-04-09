@@ -9214,7 +9214,13 @@ function buildReplayRefreshResponse({ source = "replay-disk-snapshot" } = {}) {
 }
 
 // ===== MLB REPLAY MODE SUPPORT (Phase 7) =====
+const ENABLE_MLB_ODDS_REPLAY_MODE = String(process.env.ENABLE_MLB_ODDS_REPLAY_MODE || "false").toLowerCase() === "true"
 const MLB_REPLAY_SNAPSHOT_PATH = path.join(__dirname, "snapshot-mlb.json")
+
+function isMlbOddsReplayRequest(req) {
+  const replayParam = String(req?.query?.replay || "").toLowerCase().trim()
+  return ENABLE_MLB_ODDS_REPLAY_MODE || replayParam === "1" || replayParam === "true"
+}
 
 async function loadMlbReplaySnapshotFromDisk() {
   try {
@@ -9244,11 +9250,28 @@ async function loadMlbReplaySnapshotFromDisk() {
   }
 }
 
+async function saveMlbReplaySnapshotToDisk(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return
+
+  try {
+    await fs.promises.writeFile(
+      MLB_REPLAY_SNAPSHOT_PATH,
+      JSON.stringify({
+        data: snapshot,
+        savedAt: Date.now()
+      })
+    )
+  } catch (err) {
+    console.error(`[MLB-REPLAY] Failed to save MLB replay snapshot: ${err.message}`)
+  }
+}
+
 function buildMlbReplayRefreshResponse(sourceSnap = {}) {
   const rows = Array.isArray(sourceSnap?.rows) ? sourceSnap.rows : []
   return {
     ok: true,
     replay: true,
+    source: "mlb-replay-disk-snapshot",
     sport: "mlb",
     classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
     updatedAt: sourceSnap?.updatedAt || sourceSnap?.snapshotGeneratedAt || null,
@@ -21869,7 +21892,7 @@ app.get("/api/best/by-prop/:propType", (req, res) => {
 app.get("/mlb/refresh", async (req, res) => {
   try {
     // MLB Replay mode support (Phase 7)
-    const replayModeRequested = isNbaOddsReplayRequest(req)
+    const replayModeRequested = isMlbOddsReplayRequest(req)
     if (replayModeRequested) {
       const replaySnapshot = await loadMlbReplaySnapshotFromDisk()
       if (!replaySnapshot) {
@@ -21902,10 +21925,14 @@ app.get("/mlb/refresh", async (req, res) => {
       }
     }
 
+    await saveMlbReplaySnapshotToDisk(mlbSnapshot)
+
     const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
 
     return res.json({
       ok: true,
+      replay: false,
+      source: "mlb-live-refresh",
       sport: "mlb",
       classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
       updatedAt: mlbSnapshot.updatedAt,
