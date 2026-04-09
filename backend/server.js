@@ -9081,8 +9081,13 @@ function loadApiSportsCachesFromDisk() {
         playerStatsCache.set(Number(key), value)
       }
 
+      // CRITICAL FIX: When reloading cache from disk, refresh timestamps to NOW
+      // so entries are not immediately considered stale by the TTL check.
+      // Otherwise, cached entries fail (now - cachedAt < TTL) check and trigger
+      // new API calls despite having valid data.
+      const now = Date.now()
       for (const [key, value] of Object.entries(parsed.playerStatsCacheTimes || {})) {
-        playerStatsCacheTimes.set(Number(key), value)
+        playerStatsCacheTimes.set(Number(key), now)
       }
 
       for (const value of parsed.playerLookupMissCache || []) {
@@ -9092,7 +9097,7 @@ function loadApiSportsCachesFromDisk() {
       console.log(
         "Loaded API-Sports cache from disk:",
         "ids=", playerIdCache.size,
-        "stats=", playerStatsCache.size,
+        "stats=", playerStatsCache.size + " (timestamps refreshed to now)",
         "misses=", playerLookupMissCache.size
       )
     } catch (error) {
@@ -9137,10 +9142,77 @@ const MANUAL_PLAYER_OVERRIDES = {
 }
 let lastSnapshotRefreshAt = 0
 const SNAPSHOT_COOLDOWN_MS = 60 * 1000
-const PLAYER_LOOKUP_CONCURRENCY = 1
+const ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH = String(process.env.ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH || "false").toLowerCase() === "true"
+const ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH = String(process.env.ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH || "false").toLowerCase() === "true"
+const ENABLE_NBA_ODDS_REPLAY_MODE = String(process.env.ENABLE_NBA_ODDS_REPLAY_MODE || "false").toLowerCase() === "true"
+const NBA_REPLAY_SNAPSHOT_PATH = path.join(__dirname, "snapshot.json")
+// CRITICAL FIX: Increased from 1 to 10 to fix 98% API-Sports usage spike.
+// Reason: Concurrency=1 meant player lookups happened serially (one at a time).
+// With 200+ unique players per refresh, this multiplied request time and API calls.
+// Raising to 10 processes batches in parallel, reducing refresh time ~10x.
+const PLAYER_LOOKUP_CONCURRENCY = 10
 const API_SPORTS_TIMEOUT_MS = 5000
 const PLAYER_STATS_TTL_MS = 30 * 60 * 1000
 let playerStatsCacheTimes = new Map()
+
+function isNbaOddsReplayRequest(req) {
+  const replayParam = String(req?.query?.replay || "").toLowerCase().trim()
+  return ENABLE_NBA_ODDS_REPLAY_MODE || replayParam === "1" || replayParam === "true"
+}
+
+async function loadNbaReplaySnapshotFromDisk() {
+  try {
+    const raw = await fs.promises.readFile(NBA_REPLAY_SNAPSHOT_PATH, "utf8")
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    const snapshot = (parsed?.data && typeof parsed.data === "object") ? parsed.data : parsed
+    if (!snapshot || typeof snapshot !== "object") return null
+
+    if (!Array.isArray(snapshot.events)) snapshot.events = []
+    if (!Array.isArray(snapshot.rawProps)) snapshot.rawProps = []
+    if (!Array.isArray(snapshot.props)) snapshot.props = []
+    if (!Array.isArray(snapshot.eliteProps)) snapshot.eliteProps = []
+    if (!Array.isArray(snapshot.strongProps)) snapshot.strongProps = []
+    if (!Array.isArray(snapshot.playableProps)) snapshot.playableProps = []
+    if (!Array.isArray(snapshot.bestProps)) snapshot.bestProps = []
+    if (!Array.isArray(snapshot.flexProps)) snapshot.flexProps = []
+    if (!snapshot.diagnostics || typeof snapshot.diagnostics !== "object") snapshot.diagnostics = {}
+
+    return snapshot
+  } catch (error) {
+    console.error("[NBA-REPLAY] Failed loading replay snapshot:", error?.message || error)
+    return null
+  }
+}
+
+function buildReplayRefreshResponse({ source = "replay-disk-snapshot" } = {}) {
+  const refreshMeta = buildSnapshotMeta({ source })
+  return {
+    ok: true,
+    replay: true,
+    cached: true,
+    message: "Snapshot loaded from replay cache",
+    source,
+    snapshotMeta: refreshMeta,
+    snapshotGeneratedAt: refreshMeta?.snapshotGeneratedAt || oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
+    snapshotSlateDateLocal: refreshMeta?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || null,
+    snapshotSlateDateKey: oddsSnapshot?.snapshotSlateDateKey || null,
+    snapshotSlateGameCount: Number(oddsSnapshot?.snapshotSlateGameCount || 0),
+    slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+    lineHistorySummary: oddsSnapshot?.lineHistorySummary || null,
+    marketCoverageFocusDebug: lastMarketCoverageFocusDebug,
+    counts: {
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+      playableProps: Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps.length : 0,
+      strongProps: Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps.length : 0,
+      eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
+    }
+  }
+}
+
 function normalizePropType(key) {
   const normalizedKey = String(key || "").trim().toLowerCase()
   switch (normalizedKey) {
@@ -16728,24 +16800,48 @@ app.get("/refresh-snapshot", async (req, res) => {
       sampleEventIds: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => e?.id || e?.eventId || null) : [],
       sampleMatchups: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => `${e?.away_team || e?.awayTeam || "?"} @ ${e?.home_team || e?.homeTeam || "?"}`) : []
     })
-    let dkScopedFetchedEvents = null
-    try {
-      dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
-    } catch (error) {
-      const outOfCredits =
-        error?.response?.status === 401 &&
-        String(error?.response?.data?.error_code || "") === "OUT_OF_USAGE_CREDITS"
-
-      if (outOfCredits) {
-        console.log("[DK-SCOPED-EVENTS-DEBUG-SKIPPED] out of usage credits", {
-          status: error?.response?.status || null,
-          errorCode: error?.response?.data?.error_code || null,
-          message: error?.response?.data?.message || error?.message || null
+    const replayModeRequested = isNbaOddsReplayRequest(req)
+    if (replayModeRequested) {
+      const replaySnapshot = await loadNbaReplaySnapshotFromDisk()
+      if (!replaySnapshot) {
+        return res.status(503).json({
+          ok: false,
+          error: "Replay mode requested but snapshot replay file is missing or invalid",
+          replay: true
         })
-        dkScopedFetchedEvents = null
-      } else {
-        throw error
       }
+
+      oddsSnapshot = replaySnapshot
+      lastSnapshotSource = "replay-disk-snapshot"
+      snapshotLoadedFromDisk = true
+      lastSnapshotSavedAt = Date.now()
+      lastSnapshotAgeMinutes = 0
+
+      return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
+    }
+
+    let dkScopedFetchedEvents = null
+    if (ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH) {
+      try {
+        dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+      } catch (error) {
+        const outOfCredits =
+          error?.response?.status === 401 &&
+          String(error?.response?.data?.error_code || "") === "OUT_OF_USAGE_CREDITS"
+
+        if (outOfCredits) {
+          console.log("[DK-SCOPED-EVENTS-DEBUG-SKIPPED] out of usage credits", {
+            status: error?.response?.status || null,
+            errorCode: error?.response?.data?.error_code || null,
+            message: error?.response?.data?.message || error?.message || null
+          })
+          dkScopedFetchedEvents = null
+        } else {
+          throw error
+        }
+      }
+    } else {
+      console.log("[DK-SCOPED-EVENTS-DEBUG-SKIPPED] disabled by ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH=false")
     }
     const {
       scheduledEvents: dkScopedScheduledEvents
@@ -17344,11 +17440,16 @@ app.get("/refresh-snapshot", async (req, res) => {
     // Continue with per-event normalized rows only.
     rawPropsRows = cleaned
 
-    const extraRawRows = await buildExtraMarketRowsForEvents({
-      scheduledEvents,
-      oddsApiKey: ODDS_API_KEY,
-      normalizeEventRows: normalizeEventRowsFromPayload
-    })
+    let extraRawRows = []
+    if (ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH) {
+      extraRawRows = await buildExtraMarketRowsForEvents({
+        scheduledEvents,
+        oddsApiKey: ODDS_API_KEY,
+        normalizeEventRows: normalizeEventRowsFromPayload
+      })
+    } else {
+      console.log("[DK-EXTRA-MARKETS-REFETCH-SKIPPED] disabled by ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH=false")
+    }
 
     rawPropsRows = dedupeMarketRows([
       ...(Array.isArray(rawPropsRows) ? rawPropsRows : []),
@@ -20223,6 +20324,26 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot-hard-reset")
   try {
     resetFragileFilterAdjustedLogCount()
+    const replayModeRequested = isNbaOddsReplayRequest(req)
+    if (replayModeRequested) {
+      const replaySnapshot = await loadNbaReplaySnapshotFromDisk()
+      if (!replaySnapshot) {
+        return res.status(503).json({
+          ok: false,
+          error: "Replay mode requested but snapshot replay file is missing or invalid",
+          replay: true
+        })
+      }
+
+      oddsSnapshot = replaySnapshot
+      lastSnapshotSource = "replay-disk-snapshot"
+      snapshotLoadedFromDisk = true
+      lastSnapshotSavedAt = Date.now()
+      lastSnapshotAgeMinutes = 0
+
+      return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
+    }
+
     const previousSnapshotForCarry = {
       rawProps: Array.isArray(oddsSnapshot?.rawProps) ? [...oddsSnapshot.rawProps] : [],
       props: Array.isArray(oddsSnapshot?.props) ? [...oddsSnapshot.props] : []
@@ -20285,21 +20406,25 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       events: unrestrictedFetchedEvents
     })
     let dkScopedFetchedEvents = null
-    try {
-      dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
-    } catch (err) {
-      console.log("[DK-SCOPED-DEBUG-SKIPPED]", {
-        message: err?.message || String(err || "")
-      })
-      dkScopedFetchedEvents = null
+    if (ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH) {
+      try {
+        dkScopedFetchedEvents = await fetchDkScopedEventsForDebug(ODDS_API_KEY)
+      } catch (err) {
+        console.log("[DK-SCOPED-DEBUG-SKIPPED]", {
+          message: err?.message || String(err || "")
+        })
+        dkScopedFetchedEvents = null
+      }
+    } else {
+      console.log("[DK-SCOPED-EVENTS-DEBUG-SKIPPED] disabled by ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH=false")
     }
     const {
       scheduledEvents: dkScopedScheduledEvents
-    } = await buildSlateEvents({
+    } = dkScopedFetchedEvents != null ? await buildSlateEvents({
       oddsApiKey: ODDS_API_KEY,
       now: Date.now(),
       events: dkScopedFetchedEvents
-    })
+    }) : { scheduledEvents: [] }
 
     const unrestrictedEventIds = [...new Set((Array.isArray(allEvents) ? allEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
     const scheduledEventIds = [...new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => getEventIdForDebug(event)).filter(Boolean))]
@@ -20670,11 +20795,16 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       return rows
     }
 
-    const extraRawRows = await buildExtraMarketRowsForEvents({
-      scheduledEvents,
-      oddsApiKey: ODDS_API_KEY,
-      normalizeEventRows: normalizeEventRowsFromPayload
-    })
+    let extraRawRows = []
+    if (ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH) {
+      extraRawRows = await buildExtraMarketRowsForEvents({
+        scheduledEvents,
+        oddsApiKey: ODDS_API_KEY,
+        normalizeEventRows: normalizeEventRowsFromPayload
+      })
+    } else {
+      console.log("[DK-EXTRA-MARKETS-REFETCH-SKIPPED] disabled by ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH=false")
+    }
 
     rawPropsRows = dedupeMarketRows([
       ...(Array.isArray(rawPropsRows) ? rawPropsRows : []),
