@@ -65,6 +65,7 @@ let oddsSnapshot = {
 
 // Phase 1 MLB bootstrap snapshot is intentionally isolated from oddsSnapshot.
 let mlbSnapshot = createEmptyMlbSnapshot()
+const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-1.5-game-market-family-v1"
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -21705,6 +21706,7 @@ app.get("/mlb/refresh", async (req, res) => {
     return res.json({
       ok: true,
       sport: "mlb",
+      classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
       updatedAt: mlbSnapshot.updatedAt,
       snapshotSlateDateKey: mlbSnapshot.snapshotSlateDateKey,
       events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0,
@@ -21749,6 +21751,7 @@ app.get("/mlb/board", (req, res) => {
   return res.json({
     ok: true,
     sport: "mlb",
+    classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
     updatedAt: mlbSnapshot?.updatedAt || null,
     snapshotSlateDateKey: mlbSnapshot?.snapshotSlateDateKey || null,
     counts: {

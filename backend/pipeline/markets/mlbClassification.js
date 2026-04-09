@@ -24,6 +24,23 @@
 // ---------------------------------------------------------------------------
 
 const MLB_MARKET_TYPE_RULES = [
+  // --- Game lines (used in fallback bootstrap when player markets are sparse) ---
+  {
+    internalType: "Moneyline",
+    family: "game",
+    matches: ["h2h", "moneyline", "match winner"]
+  },
+  {
+    internalType: "Run Line",
+    family: "game",
+    matches: ["spreads", "run line", "runline"]
+  },
+  {
+    internalType: "Game Total",
+    family: "game",
+    matches: ["totals", "total runs", "game total"]
+  },
+
   // --- Specials / game props ---
   {
     internalType: "NRFI",
@@ -244,7 +261,7 @@ const MLB_MARKET_TYPE_RULES = [
  * Infer the MLB internal market type and family from an Odds API market key.
  *
  * @param {string} marketKey - Raw market key string from the odds feed.
- * @returns {{ internalType: string|null, family: "standard"|"ladder"|"special"|"unknown" }}
+ * @returns {{ internalType: string|null, family: "standard"|"ladder"|"special"|"game"|"unknown" }}
  */
 function inferMlbMarketTypeFromKey(marketKey) {
   const normalized = String(marketKey || "").trim().toLowerCase()
@@ -321,11 +338,18 @@ const MLB_SPECIAL_TYPES = new Set([
   "First Hit"
 ])
 
+const MLB_GAME_LINE_TYPES = new Set([
+  "Moneyline",
+  "Run Line",
+  "Game Total"
+])
+
 module.exports = {
   MLB_MARKET_TYPE_RULES,
   MLB_STANDARD_BATTER_TYPES,
   MLB_STANDARD_PITCHER_TYPES,
   MLB_SPECIAL_TYPES,
+  MLB_GAME_LINE_TYPES,
   inferMlbMarketTypeFromKey,
   isMlbPitcherMarketKey,
   isMlbStandardBatterType

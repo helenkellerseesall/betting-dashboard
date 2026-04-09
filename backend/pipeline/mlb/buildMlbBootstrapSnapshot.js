@@ -87,7 +87,19 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
       counters.markets += 1
 
       const marketKey = String(market?.key || market?.name || "").trim()
-      const inferred = inferMlbMarketTypeFromKey(marketKey)
+      const inferredBase = inferMlbMarketTypeFromKey(marketKey)
+      let inferred = inferredBase
+      // Defensive runtime fallback for common game lines seen in bootstrap fallbacks.
+      if (String(inferredBase?.family || "") === "unknown") {
+        const mk = marketKey.toLowerCase()
+        if (mk === "h2h" || mk.includes("moneyline")) {
+          inferred = { internalType: "Moneyline", family: "game" }
+        } else if (mk === "spreads" || mk.includes("run line") || mk.includes("runline")) {
+          inferred = { internalType: "Run Line", family: "game" }
+        } else if (mk === "totals" || mk.includes("total runs") || mk.includes("game total")) {
+          inferred = { internalType: "Game Total", family: "game" }
+        }
+      }
       const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : []
 
       for (const outcome of outcomes) {
