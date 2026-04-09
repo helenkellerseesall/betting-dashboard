@@ -66,7 +66,7 @@ let oddsSnapshot = {
 
 // Phase 1 MLB bootstrap snapshot is intentionally isolated from oddsSnapshot.
 let mlbSnapshot = createEmptyMlbSnapshot()
-const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-2-market-coverage-v1"
+const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-3-surfacing-v1"
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -21777,6 +21777,7 @@ app.get("/mlb/board", (req, res) => {
       topMatchups: inspectionBoard.diagnostics.topMatchups
     },
     groups: inspectionBoard.groups,
+    surfaced: inspectionBoard.surfaced,
     sampleRows
   })
 })
