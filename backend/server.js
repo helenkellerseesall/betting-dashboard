@@ -30,6 +30,7 @@ const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildA
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
 const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
 const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
+const { buildMlbInspectionBoard } = require("./pipeline/mlb/buildMlbInspectionBoard")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -21728,6 +21729,16 @@ app.get("/mlb/board", (req, res) => {
   const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
   const parsedLimit = Number(req.query.limit)
   const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(200, parsedLimit)) : 50
+  const parsedGroupSample = Number(req.query.groupSample)
+  const groupSample = Number.isFinite(parsedGroupSample) ? Math.max(1, Math.min(100, parsedGroupSample)) : 10
+  const parsedTopLimit = Number(req.query.topLimit)
+  const topLimit = Number.isFinite(parsedTopLimit) ? Math.max(1, Math.min(100, parsedTopLimit)) : 20
+
+  const inspectionBoard = buildMlbInspectionBoard({
+    snapshot: mlbSnapshot,
+    sampleLimit: groupSample,
+    topLimit
+  })
 
   const sampleRows = rows
     .slice(0, limit)
@@ -21754,12 +21765,18 @@ app.get("/mlb/board", (req, res) => {
     classificationVersion: MLB_BOOTSTRAP_CLASSIFICATION_VERSION,
     updatedAt: mlbSnapshot?.updatedAt || null,
     snapshotSlateDateKey: mlbSnapshot?.snapshotSlateDateKey || null,
-    counts: {
-      events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0,
-      fetchedEventOdds: Array.isArray(mlbSnapshot?.rawOddsEvents) ? mlbSnapshot.rawOddsEvents.length : 0,
-      rows: rows.length
+    counts: inspectionBoard.counts,
+    diagnostics: {
+      ...(mlbSnapshot?.diagnostics || {}),
+      byMarketFamily: inspectionBoard.diagnostics.byMarketFamily,
+      byMarketKey: inspectionBoard.diagnostics.byMarketKey,
+      byBook: inspectionBoard.diagnostics.byBook,
+      byMatchup: inspectionBoard.diagnostics.byMatchup,
+      topMarketKeys: inspectionBoard.diagnostics.topMarketKeys,
+      topBooks: inspectionBoard.diagnostics.topBooks,
+      topMatchups: inspectionBoard.diagnostics.topMatchups
     },
-    diagnostics: mlbSnapshot?.diagnostics || {},
+    groups: inspectionBoard.groups,
     sampleRows
   })
 })
