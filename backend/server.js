@@ -450,34 +450,6 @@ function summarizeInterestingNormalizedRows(rows) {
 }
 // --- END MARKET EXPANSION SCAFFOLD ---
 
-// Patch: Make bulk DraftKings coverage helper fail safe for INVALID_MARKET 422 error
-
-/**
- * Bulk DraftKings NBA odds fetcher (hard no-op patch: disables unsupported endpoint)
- * @param {Array} events
- * @param {Function} normalizeEventRowsFromPayload
- */
-async function fetchBulkDraftKingsBaseRowsForEvents(events, normalizeEventRowsFromPayload) {
-  const safeEvents = Array.isArray(events) ? events : []
-  const eventIdSet = new Set(
-    safeEvents
-      .map((ev) => String(ev?.eventId || ev?.id || "").trim())
-      .filter(Boolean)
-  )
-
-  console.log("[BULK-DK-BASE-COVERAGE-DISABLED]", {
-    reason: "bulk-odds-endpoint-does-not-support-player-prop-markets",
-    scheduledEvents: safeEvents.length,
-    requestedEventIds: [...eventIdSet]
-  })
-
-  return {
-    rows: [],
-    byEventId: {},
-    eventIds: [...eventIdSet]
-  }
-}
-
 function adjustLadderMetrics(row, variantLine) {
   const baseHitRate = parseHitRate(row.hitRate)
   const baseLine = Number(row.line) || 0
@@ -6559,7 +6531,6 @@ app.get("/api/best-available", (req, res) => {
       rawProps: expandedPoolInputRows
     })
     standardCandidates = expandedResult.standardCandidates || []
-    const builtFinalPlayableRows = expandedResult.finalPlayableRows
     ladderCandidates = expandedResult.ladderCandidates || []
     specialProps = expandedResult.specialProps || []
 
@@ -6757,35 +6728,22 @@ app.get("/api/best-available", (req, res) => {
       }))
     })
 
-    finalPlayableRows = Array.isArray(builtFinalPlayableRows) ? builtFinalPlayableRows : []
+    const fallbackStandardCandidates = Array.isArray(standardCandidates) ? standardCandidates : []
+    const fallbackRoutePlayableSeed = Array.isArray(routePlayableSeed) ? routePlayableSeed : []
 
-    if (!finalPlayableRows.length) {
-      const fallbackStandardCandidates = Array.isArray(standardCandidates) ? standardCandidates : []
-      const fallbackRoutePlayableSeed = Array.isArray(routePlayableSeed) ? routePlayableSeed : []
+    finalPlayableRows = dedupeMarketRows(
+      fallbackStandardCandidates.length ? fallbackStandardCandidates : fallbackRoutePlayableSeed
+    )
 
-      finalPlayableRows = dedupeMarketRows(
-        fallbackStandardCandidates.length ? fallbackStandardCandidates : fallbackRoutePlayableSeed
-      )
-
-      console.log("[FINAL-PLAYABLE-FALLBACK]", {
-        builtFinalPlayableRows: Array.isArray(builtFinalPlayableRows) ? builtFinalPlayableRows.length : 0,
-        standardCandidates: fallbackStandardCandidates.length,
-        routePlayableSeed: fallbackRoutePlayableSeed.length,
-        finalPlayableRows: finalPlayableRows.length,
-        source:
-          fallbackStandardCandidates.length ? "standardCandidates" :
-          fallbackRoutePlayableSeed.length ? "routePlayableSeed" :
-          "none"
-      })
-    } else {
-      console.log("[FINAL-PLAYABLE-FALLBACK]", {
-        builtFinalPlayableRows: finalPlayableRows.length,
-        standardCandidates: Array.isArray(standardCandidates) ? standardCandidates.length : 0,
-        routePlayableSeed: Array.isArray(routePlayableSeed) ? routePlayableSeed.length : 0,
-        finalPlayableRows: finalPlayableRows.length,
-        source: "builder"
-      })
-    }
+    console.log("[FINAL-PLAYABLE-FALLBACK]", {
+      standardCandidates: fallbackStandardCandidates.length,
+      routePlayableSeed: fallbackRoutePlayableSeed.length,
+      finalPlayableRows: finalPlayableRows.length,
+      source:
+        fallbackStandardCandidates.length ? "standardCandidates" :
+        fallbackRoutePlayableSeed.length ? "routePlayableSeed" :
+        "none"
+    })
 
     const slipSeedPool = routePlayableSeed
     console.log("[SLIP-SEED-POOL-DEBUG]", {
@@ -17375,96 +17333,9 @@ app.get("/refresh-snapshot", async (req, res) => {
       }
 
       return rows
-          // --- Real-time line integrity enforcement ---
-          // Group by player+propType+side
-          const groupKey = (row) => [row.player, row.propType, row.side].join("|")
-          const grouped = {}
-          for (const row of rows) {
-            if (!row.player || !row.propType) continue
-            const key = groupKey(row)
-            if (!grouped[key]) grouped[key] = []
-            grouped[key].push(row)
-          }
-          // For each group, find median line and mark isPrimaryLine
-          for (const key in grouped) {
-            const group = grouped[key]
-            const lines = group.map(r => r.line).filter(Number.isFinite)
-            if (!lines.length) continue
-            const sorted = [...lines].sort((a, b) => a - b)
-            const median = sorted.length % 2 === 1 ? sorted[(sorted.length - 1) >> 1] : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2
-            // Find row closest to median
-            let minDiff = Infinity, primaryIdx = -1
-            for (let i = 0; i < group.length; ++i) {
-              const diff = Math.abs(group[i].line - median)
-              if (diff < minDiff) {
-                minDiff = diff
-                primaryIdx = i
-              }
-            }
-            if (primaryIdx >= 0) group[primaryIdx].isPrimaryLine = true
-            // Mark all others as false
-            for (let i = 0; i < group.length; ++i) {
-              if (i !== primaryIdx) group[i].isPrimaryLine = false
-              group[i].currentLine = group[i].line
-            }
-            // Stale line guard: drop if abs(line - median) > 2.5
-            for (let i = 0; i < group.length; ++i) {
-              if (Math.abs(group[i].line - median) > 2.5) group[i].__dropStaleLine = true
-            }
-          }
-          // Filter: keep only isPrimaryLine or alt-low/alt-high, and drop stale lines
-          rows = rows.filter(row => {
-            const keep = (row.isPrimaryLine === true || row.propVariant === "alt-low" || row.propVariant === "alt-high") && !row.__dropStaleLine
-            if (!keep) return false
-            // Debug log for every row that passes
-            console.log("[LINE-INTEGRITY-CHECK]", {
-              player: row.player,
-              propType: row.propType,
-              line: row.line,
-              isPrimaryLine: row.isPrimaryLine
-            })
-            return true
-          })
     }
 
-    // Bulk DK base-markets fetch: one call for all scheduled events
-    const bulkDraftKingsBase = await fetchBulkDraftKingsBaseRowsForEvents(
-      scheduledEvents,
-      normalizeEventRowsFromPayload
-    )
-
-    const bulkDraftKingsRowsByEventId =
-      bulkDraftKingsBase?.byEventId && typeof bulkDraftKingsBase.byEventId === "object"
-        ? bulkDraftKingsBase.byEventId
-        : {}
-
-    // Merge bulk DK base rows into cleaned (per-event rows may have missed some events)
-    const bulkBaseAllRows = Array.isArray(bulkDraftKingsBase?.rows) ? bulkDraftKingsBase.rows : []
-    if (bulkBaseAllRows.length > 0) {
-      cleaned = dedupeByLegSignature([...cleaned, ...bulkBaseAllRows])
-    }
-
-    // Log per-event bulk coverage merged with per-event fetch results
-    for (const scheduledRecord of scheduledEventRecords) {
-      const eventId = scheduledRecord.eventId
-      const bulkBaseRows = Array.isArray(bulkDraftKingsRowsByEventId[eventId]) ? bulkDraftKingsRowsByEventId[eventId] : []
-      const perEventResult = eventResults.find((r) => r.eventId === eventId)
-      const perEventRows = Array.isArray(perEventResult?.normalizedRows) ? perEventResult.normalizedRows : []
-      const combinedDraftKingsRows = dedupeByLegSignature([...bulkBaseRows, ...perEventRows])
-
-      console.log("[DK-EVENT-COVERAGE-CHECK-MERGED]", {
-        eventId,
-        matchup: scheduledRecord.matchup,
-        bulkBaseRowCount: bulkBaseRows.length,
-        perEventRowCount: perEventRows.length,
-        combinedRowCount: combinedDraftKingsRows.length,
-        bulkMarketKeys: [...new Set(bulkBaseRows.map((row) => row?.marketKey).filter(Boolean))],
-        perEventMarketKeys: [...new Set(perEventRows.map((row) => row?.marketKey).filter(Boolean))],
-        combinedMarketKeys: [...new Set(combinedDraftKingsRows.map((row) => row?.marketKey).filter(Boolean))]
-      })
-    }
-
-    // Update rawPropsRows with merged cleaned data
+    // Continue with per-event normalized rows only.
     rawPropsRows = cleaned
 
     const extraRawRows = await buildExtraMarketRowsForEvents({
