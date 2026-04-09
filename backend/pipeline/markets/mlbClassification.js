@@ -195,6 +195,7 @@ const MLB_MARKET_TYPE_RULES = [
     matches: [
       "player_runs",
       "batter_runs",
+      "batter_runs_scored",
       "runs scored",
       "runs_scored"
     ]

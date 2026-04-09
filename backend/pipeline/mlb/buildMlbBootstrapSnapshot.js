@@ -146,6 +146,46 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
   }
 }
 
+function buildMlbRowKey(row) {
+  return [
+    String(row?.eventId || ""),
+    String(row?.book || ""),
+    String(row?.marketKey || ""),
+    String(row?.player || ""),
+    String(row?.side || ""),
+    String(row?.line ?? ""),
+    String(row?.odds ?? ""),
+    String(row?.outcomeName || "")
+  ].join("|")
+}
+
+function dedupeMlbRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const seen = new Set()
+  const out = []
+  for (const row of safeRows) {
+    const key = buildMlbRowKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
+}
+
+function payloadHasMarketKey(payload, marketKey) {
+  const target = String(marketKey || "").trim().toLowerCase()
+  if (!target) return false
+  const bookmakers = Array.isArray(payload?.bookmakers) ? payload.bookmakers : []
+  for (const bookmaker of bookmakers) {
+    const markets = Array.isArray(bookmaker?.markets) ? bookmaker.markets : []
+    for (const market of markets) {
+      const key = String(market?.key || market?.name || "").trim().toLowerCase()
+      if (key === target) return true
+    }
+  }
+  return false
+}
+
 function addCount(bucket, key) {
   const normalizedKey = String(key || "Unknown")
   bucket[normalizedKey] = Number(bucket[normalizedKey] || 0) + 1
@@ -295,6 +335,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
   const invalidMarketsDetected = new Set()
   const fallbackRetryEvents = []
   const emptyBookmakerFallbackEvents = []
+  const supplementalSpecialFetchEvents = []
   const payloadShapes = []
 
   let totalBookmakersSeen = 0
@@ -390,7 +431,42 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
       }
 
       const payloadShape = describePayloadShape(response?.data, oddsPayload)
-      payloadShapes.push({ eventId, ...payloadShape })
+      payloadShapes.push({ eventId, source: "primary", ...payloadShape })
+
+      const payloadsForNormalization = [oddsPayload]
+
+      // Preserve a special lane even when configured books focus on standard props.
+      // We supplement with all-books first-home-run if primary payload does not contain it.
+      if (!payloadHasMarketKey(oddsPayload, "batter_first_home_run")) {
+        try {
+          const supplementalResponse = await fetchMlbEventOdds({
+            oddsApiKey,
+            eventId,
+            marketsCsv: "batter_first_home_run"
+          })
+          const supplementalPayload = extractOddsPayload(supplementalResponse?.data, eventId)
+          const supplementalBookCount = Array.isArray(supplementalPayload?.bookmakers)
+            ? supplementalPayload.bookmakers.length
+            : 0
+          if (supplementalBookCount > 0) {
+            payloadsForNormalization.push(supplementalPayload)
+            payloadShapes.push({
+              eventId,
+              source: "supplemental-special",
+              ...describePayloadShape(supplementalResponse?.data, supplementalPayload)
+            })
+            supplementalSpecialFetchEvents.push({
+              eventId,
+              matchup: event?.matchup || null,
+              bookmakers: supplementalBookCount,
+              market: "batter_first_home_run",
+              added: true
+            })
+          }
+        } catch (_) {
+          // Non-fatal: special market is additive for inspection only.
+        }
+      }
 
       rawOddsEvents.push({
         eventId,
@@ -402,12 +478,29 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
         payloadShape
       })
 
-      const normalized = normalizeMlbEventRows({ event, oddsPayload, observedAtIso })
-      rows.push(...normalized.rows)
+      const eventRowsMerged = []
+      let eventBookmakersSeen = 0
+      let eventMarketsSeen = 0
+      let eventOutcomesSeen = 0
 
-      totalBookmakersSeen += Number(normalized.counters?.bookmakers || 0)
-      totalMarketsSeen += Number(normalized.counters?.markets || 0)
-      totalOutcomesSeen += Number(normalized.counters?.outcomes || 0)
+      for (const payloadForNormalization of payloadsForNormalization) {
+        const normalized = normalizeMlbEventRows({
+          event,
+          oddsPayload: payloadForNormalization,
+          observedAtIso
+        })
+        eventRowsMerged.push(...(Array.isArray(normalized?.rows) ? normalized.rows : []))
+        eventBookmakersSeen += Number(normalized?.counters?.bookmakers || 0)
+        eventMarketsSeen += Number(normalized?.counters?.markets || 0)
+        eventOutcomesSeen += Number(normalized?.counters?.outcomes || 0)
+      }
+
+      const eventRows = dedupeMlbRows(eventRowsMerged)
+      rows.push(...eventRows)
+
+      totalBookmakersSeen += eventBookmakersSeen
+      totalMarketsSeen += eventMarketsSeen
+      totalOutcomesSeen += eventOutcomesSeen
     } catch (error) {
       failedEvents.push({
         eventId,
@@ -443,6 +536,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
       fallbackRetryEvents,
       emptyBookmakerFallbackEventCount: emptyBookmakerFallbackEvents.length,
       emptyBookmakerFallbackEvents,
+      supplementalSpecialFetchEventCount: supplementalSpecialFetchEvents.length,
+      supplementalSpecialFetchEvents,
       payloadShapes,
       failedEvents
     }
