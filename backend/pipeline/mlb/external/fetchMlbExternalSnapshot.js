@@ -43,7 +43,33 @@ async function fetchMlbExternalSnapshot({
   sourceOptions = {}
 } = {}) {
   const selectedSource = getPreferredMlbSource({ sourceName })
+  const mlbConfig = getSportConfig("mlb") || {}
+  const liveFetchEnabled = mlbConfig?.externalData?.enableLiveFetch !== false
   const adapter = MLB_EXTERNAL_ADAPTERS[selectedSource]
+
+  if (!liveFetchEnabled) {
+    const empty = createEmptyMlbExternalSnapshot({
+      now,
+      source: selectedSource || "mlb-external-scaffold"
+    })
+
+    return {
+      ...empty,
+      diagnostics: {
+        ...(empty.diagnostics || {}),
+        fetchReadiness: {
+          selectedSource,
+          adapter: adapter?.name || null,
+          mode: "live-fetch-disabled",
+          fetchAttempted: false,
+          eventCountInput: Array.isArray(events) ? events.length : 0,
+          notes: [
+            "MLB external live fetch disabled in sport config."
+          ]
+        }
+      }
+    }
+  }
 
   if (typeof adapter !== "function") {
     const empty = createEmptyMlbExternalSnapshot({
@@ -80,16 +106,12 @@ async function fetchMlbExternalSnapshot({
       diagnostics: {
         ...(normalized.diagnostics || {}),
         fetchReadiness: {
+          ...(normalized?.diagnostics?.fetchReadiness || {}),
           selectedSource,
           adapter: adapter.name || "anonymous-adapter",
           mode: "adapter-ok",
           fetchAttempted: normalized?.diagnostics?.fetchReadiness?.fetchAttempted === true,
-          eventCountInput: Array.isArray(events) ? events.length : 0,
-          notes: [
-            ...(Array.isArray(normalized?.diagnostics?.fetchReadiness?.notes)
-              ? normalized.diagnostics.fetchReadiness.notes
-              : [])
-          ]
+          eventCountInput: Array.isArray(events) ? events.length : 0
         }
       }
     }

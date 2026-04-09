@@ -100,8 +100,9 @@ const SPORT_CONFIG = {
     ],
     externalData: {
       preferredSource: "mlb_api_sports",
-      enableLiveFetch: false,
-      cacheKey: "mlb_external_snapshot"
+      enableLiveFetch: true,
+      cacheKey: "mlb_external_snapshot",
+      cacheTtlMs: 900000
     },
     // MLB fragile rules differ: no avgMin concept; use PA/IP thresholds instead
     fragileRules: {

@@ -537,7 +537,12 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     resolvedExternalSnapshot = await fetchMlbExternalSnapshot({
       events: scheduledEvents,
       now,
-      sourceName: externalSourceName
+      sourceName: externalSourceName,
+      sourceOptions: {
+        ...(mlbConfig?.externalData && typeof mlbConfig.externalData === "object"
+          ? mlbConfig.externalData
+          : {})
+      }
     })
   }
 
