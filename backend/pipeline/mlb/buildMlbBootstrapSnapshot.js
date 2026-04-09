@@ -348,6 +348,25 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     oddsApiKey,
     now
   })
+  const allEventsSafe = Array.isArray(allEvents) ? allEvents : []
+  const scheduledEventsSafe = Array.isArray(scheduledEvents) ? scheduledEvents : []
+  const scheduledEventIds = new Set(
+    scheduledEventsSafe
+      .map((event) => String(event?.eventId || event?.id || "").trim())
+      .filter(Boolean)
+  )
+  const outOfSlateEventsSample = allEventsSafe
+    .filter((event) => {
+      const eventId = String(event?.eventId || event?.id || "").trim()
+      return eventId && !scheduledEventIds.has(eventId)
+    })
+    .slice(0, 8)
+    .map((event) => ({
+      eventId: String(event?.eventId || event?.id || "").trim() || null,
+      matchup: event?.matchup || null,
+      commenceTime: event?.commence_time || event?.gameTime || null,
+      detroitDateKey: event?.detroitDateKey || null
+    }))
 
   const rows = []
   const rawOddsEvents = []
@@ -363,7 +382,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   let totalOutcomesSeen = 0
 
   // Sequential fetch is safer for initial bootstrap and easier on API limits.
-  for (const event of scheduledEvents) {
+  for (const event of scheduledEventsSafe) {
     const eventId = String(event?.eventId || event?.id || "")
     if (!eventId) continue
 
@@ -564,7 +583,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     updatedAt: observedAtIso,
     snapshotGeneratedAt: observedAtIso,
     snapshotSlateDateKey: slateDateKey,
-    events: allEvents,
+    events: scheduledEventsSafe,
     rawOddsEvents,
     rows: enrichedRows,
     externalSnapshotMeta: enrichmentResult?.externalSnapshotMeta || {
@@ -577,9 +596,12 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       playersByEventCount: Number(normalizedExternalSnapshot?.diagnostics?.playersByEventCount || 0)
     },
     diagnostics: {
-      requestedEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      totalDiscoveredEventCount: allEventsSafe.length,
+      requestedEventCount: scheduledEventsSafe.length,
       fetchedEventCount: rawOddsEvents.length,
       failedEventCount: failedEvents.length,
+      outOfSlateEventCount: Math.max(allEventsSafe.length - scheduledEventsSafe.length, 0),
+      outOfSlateEventsSample,
       totalBookmakersSeen,
       totalMarketsSeen,
       totalOutcomesSeen,
