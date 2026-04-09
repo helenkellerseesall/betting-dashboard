@@ -29,6 +29,7 @@ const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeO
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
 const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
+const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -61,6 +62,9 @@ let oddsSnapshot = {
   parlays: null,
   dualParlays: null
 }
+
+// Phase 1 MLB bootstrap snapshot is intentionally isolated from oddsSnapshot.
+let mlbSnapshot = createEmptyMlbSnapshot()
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -21674,6 +21678,86 @@ app.get("/api/best/by-prop/:propType", (req, res) => {
     propType: req.params.propType,
     count: filtered.length,
     rows: filtered.map(toCompactBestRow)
+  })
+})
+
+app.get("/mlb/refresh", async (req, res) => {
+  try {
+    if (!ODDS_API_KEY) {
+      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    }
+
+    const snapshot = await buildMlbBootstrapSnapshot({
+      oddsApiKey: ODDS_API_KEY,
+      now: Date.now()
+    })
+
+    mlbSnapshot = {
+      ...snapshot,
+      diagnostics: {
+        ...(snapshot?.diagnostics && typeof snapshot.diagnostics === "object" ? snapshot.diagnostics : {}),
+        bootstrapPhase: "phase-1-live"
+      }
+    }
+
+    const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+
+    return res.json({
+      ok: true,
+      sport: "mlb",
+      updatedAt: mlbSnapshot.updatedAt,
+      snapshotSlateDateKey: mlbSnapshot.snapshotSlateDateKey,
+      events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0,
+      fetchedEventOdds: Array.isArray(mlbSnapshot?.rawOddsEvents) ? mlbSnapshot.rawOddsEvents.length : 0,
+      rows: rows.length,
+      byBook: (mlbSnapshot?.diagnostics && mlbSnapshot.diagnostics.byBook) || {},
+      byMarketFamily: (mlbSnapshot?.diagnostics && mlbSnapshot.diagnostics.byMarketFamily) || {},
+      failedEventCount: Number(mlbSnapshot?.diagnostics?.failedEventCount || 0)
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: "MLB refresh failed",
+      details: error.response?.data || error.message
+    })
+  }
+})
+
+app.get("/mlb/board", (req, res) => {
+  const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+  const parsedLimit = Number(req.query.limit)
+  const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(200, parsedLimit)) : 50
+
+  const sampleRows = rows
+    .slice(0, limit)
+    .map((row) => ({
+      sport: row?.sport || "mlb",
+      eventId: row?.eventId || null,
+      matchup: row?.matchup || null,
+      gameTime: row?.gameTime || null,
+      book: row?.book || null,
+      marketKey: row?.marketKey || null,
+      marketFamily: row?.marketFamily || null,
+      propType: row?.propType || null,
+      player: row?.player || null,
+      side: row?.side || null,
+      line: row?.line,
+      odds: row?.odds,
+      isPitcherMarket: row?.isPitcherMarket === true,
+      teamMatchesMatchup: row?.teamMatchesMatchup !== false
+    }))
+
+  return res.json({
+    ok: true,
+    sport: "mlb",
+    updatedAt: mlbSnapshot?.updatedAt || null,
+    snapshotSlateDateKey: mlbSnapshot?.snapshotSlateDateKey || null,
+    counts: {
+      events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0,
+      fetchedEventOdds: Array.isArray(mlbSnapshot?.rawOddsEvents) ? mlbSnapshot.rawOddsEvents.length : 0,
+      rows: rows.length
+    },
+    diagnostics: mlbSnapshot?.diagnostics || {},
+    sampleRows
   })
 })
 

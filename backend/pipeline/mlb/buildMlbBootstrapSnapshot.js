@@ -1,0 +1,443 @@
+"use strict"
+
+const axios = require("axios")
+
+const { getSportConfig } = require("../sports/sportConfig")
+const { buildMlbSlateEvents } = require("../schedule/buildMlbSlateEvents")
+const {
+  inferMlbMarketTypeFromKey,
+  isMlbPitcherMarketKey
+} = require("../markets/mlbClassification")
+const { mlbRowTeamMatchesMatchup } = require("../resolution/mlbTeamResolution")
+
+function createEmptyMlbSnapshot() {
+  return {
+    sport: "mlb",
+    updatedAt: null,
+    snapshotGeneratedAt: null,
+    snapshotSlateDateKey: null,
+    events: [],
+    rawOddsEvents: [],
+    rows: [],
+    diagnostics: {
+      requestedEventCount: 0,
+      fetchedEventCount: 0,
+      failedEventCount: 0,
+      totalBookmakersSeen: 0,
+      totalMarketsSeen: 0,
+      totalOutcomesSeen: 0,
+      byBook: {},
+      byMarketKey: {},
+      byMarketFamily: {},
+      failedEvents: []
+    }
+  }
+}
+
+function toNumberOrNull(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizeSide(outcomeName) {
+  const normalized = String(outcomeName || "").trim().toLowerCase()
+  if (normalized === "over") return "Over"
+  if (normalized === "under") return "Under"
+  if (normalized === "yes") return "Yes"
+  if (normalized === "no") return "No"
+  return null
+}
+
+function resolvePlayerName(outcome, normalizedSide) {
+  const description = String(outcome?.description || "").trim()
+  if (description) return description
+
+  const participant = String(outcome?.participant || "").trim()
+  if (participant) return participant
+
+  const name = String(outcome?.name || "").trim()
+  if (!name) return ""
+  if (normalizedSide && name.toLowerCase() === normalizedSide.toLowerCase()) return ""
+  return name
+}
+
+function buildRowOutcomeName(outcome) {
+  const name = String(outcome?.name || "").trim()
+  const description = String(outcome?.description || "").trim()
+  if (description && name) return `${description} ${name}`.trim()
+  return description || name || ""
+}
+
+function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
+  const bookmakers = Array.isArray(oddsPayload?.bookmakers) ? oddsPayload.bookmakers : []
+  const matchup = String(event?.matchup || `${event?.away_team || event?.awayTeam || ""} @ ${event?.home_team || event?.homeTeam || ""}`).trim()
+
+  const rows = []
+  const counters = {
+    bookmakers: bookmakers.length,
+    markets: 0,
+    outcomes: 0
+  }
+
+  for (const bookmaker of bookmakers) {
+    const book = String(bookmaker?.title || bookmaker?.key || "Unknown")
+    const markets = Array.isArray(bookmaker?.markets) ? bookmaker.markets : []
+
+    for (const market of markets) {
+      counters.markets += 1
+
+      const marketKey = String(market?.key || market?.name || "").trim()
+      const inferred = inferMlbMarketTypeFromKey(marketKey)
+      const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : []
+
+      for (const outcome of outcomes) {
+        counters.outcomes += 1
+
+        const side = normalizeSide(outcome?.name)
+        const player = resolvePlayerName(outcome, side)
+        const row = {
+          sport: "mlb",
+          source: "odds-api-v4",
+          fetchedAt: observedAtIso,
+
+          eventId: String(event?.eventId || event?.id || ""),
+          gameTime: event?.gameTime || event?.commence_time || null,
+          matchup,
+          awayTeam: event?.awayTeam || event?.away_team || "",
+          homeTeam: event?.homeTeam || event?.home_team || "",
+
+          book,
+          marketKey,
+          marketFamily: inferred.family,
+          propType: inferred.internalType || null,
+          marketName: String(market?.name || marketKey || "").trim() || null,
+
+          player,
+          team: null,
+          side,
+          line: toNumberOrNull(outcome?.point),
+          odds: toNumberOrNull(outcome?.price),
+          outcomeName: buildRowOutcomeName(outcome),
+
+          isPitcherMarket: isMlbPitcherMarketKey(marketKey)
+        }
+
+        row.teamMatchesMatchup = mlbRowTeamMatchesMatchup(row)
+        rows.push(row)
+      }
+    }
+  }
+
+  return {
+    rows,
+    counters
+  }
+}
+
+function addCount(bucket, key) {
+  const normalizedKey = String(key || "Unknown")
+  bucket[normalizedKey] = Number(bucket[normalizedKey] || 0) + 1
+}
+
+function summarizeRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const summary = {
+    byBook: {},
+    byMarketKey: {},
+    byMarketFamily: {}
+  }
+
+  for (const row of safeRows) {
+    addCount(summary.byBook, row?.book)
+    addCount(summary.byMarketKey, row?.marketKey)
+    addCount(summary.byMarketFamily, row?.marketFamily)
+  }
+
+  return summary
+}
+
+function extractOddsPayload(rawResponseData, eventId) {
+  const data = rawResponseData
+
+  // Common shape for event odds endpoint.
+  if (data && typeof data === "object" && !Array.isArray(data) && Array.isArray(data.bookmakers)) {
+    return data
+  }
+
+  // Some clients/providers can wrap payload under `data`.
+  if (
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    data.data &&
+    typeof data.data === "object" &&
+    Array.isArray(data.data.bookmakers)
+  ) {
+    return data.data
+  }
+
+  // Fallback: array payload. Use matching event if present, else first row with bookmakers.
+  if (Array.isArray(data)) {
+    const id = String(eventId || "")
+    const byId = data.find((row) => {
+      const rowId = String(row?.id || row?.eventId || "")
+      return id && rowId === id
+    })
+    if (byId && Array.isArray(byId?.bookmakers)) return byId
+
+    const firstWithBooks = data.find((row) => Array.isArray(row?.bookmakers))
+    if (firstWithBooks) return firstWithBooks
+  }
+
+  return {}
+}
+
+function describePayloadShape(rawResponseData, normalizedPayload) {
+  const raw = rawResponseData
+  const normalized = normalizedPayload
+  return {
+    rawType: Array.isArray(raw) ? "array" : typeof raw,
+    rawKeys: raw && typeof raw === "object" && !Array.isArray(raw) ? Object.keys(raw).slice(0, 20) : [],
+    rawArrayLength: Array.isArray(raw) ? raw.length : null,
+    normalizedBookmakersCount: Array.isArray(normalized?.bookmakers) ? normalized.bookmakers.length : 0,
+    normalizedKeys: normalized && typeof normalized === "object" ? Object.keys(normalized).slice(0, 20) : []
+  }
+}
+
+async function fetchMlbEventOdds({ oddsApiKey, eventId, bookmakersCsv, marketsCsv }) {
+  const endpoint = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${eventId}/odds`
+
+  const params = {
+    apiKey: oddsApiKey,
+    regions: "us",
+    oddsFormat: "american"
+  }
+
+  if (bookmakersCsv) params.bookmakers = bookmakersCsv
+  if (marketsCsv) params.markets = marketsCsv
+
+  return axios.get(endpoint, {
+    params,
+    timeout: 15000
+  })
+}
+
+function parseInvalidMarketsFromError(error) {
+  const data = error?.response?.data
+  const message = String(data?.message || "")
+  if (!message.toLowerCase().includes("invalid markets:")) return []
+
+  const invalidPortion = message.split(":").slice(1).join(":")
+  if (!invalidPortion) return []
+
+  return invalidPortion
+    .split(",")
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+}
+
+function normalizeMarketList(values) {
+  const safeValues = Array.isArray(values) ? values : []
+  return [...new Set(safeValues.map((v) => String(v || "").trim()).filter(Boolean))]
+}
+
+function buildMarketRequestList(mlbConfig) {
+  const base = Array.isArray(mlbConfig?.baseMarkets) ? mlbConfig.baseMarkets : []
+  const extra = Array.isArray(mlbConfig?.extraMarkets) ? mlbConfig.extraMarkets : []
+  const merged = normalizeMarketList([...base, ...extra])
+
+  if (merged.length > 0) return merged
+
+  // Safety fallback in case config is missing.
+  return [
+    "player_hits",
+    "player_total_bases",
+    "player_home_runs",
+    "player_strikeouts",
+    "player_pitcher_strikeouts"
+  ]
+}
+
+async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
+  const mlbConfig = getSportConfig("mlb")
+  if (!mlbConfig) {
+    throw new Error("MLB sport config missing")
+  }
+
+  const bookmakersCsv = (Array.isArray(mlbConfig.activeBooks) ? mlbConfig.activeBooks : ["DraftKings", "FanDuel"])
+    .map((book) => String(book || "").toLowerCase())
+    .join(",")
+
+  const marketRequestList = buildMarketRequestList(mlbConfig)
+  const marketsCsv = marketRequestList.join(",")
+
+  const observedAtIso = new Date(now).toISOString()
+  const { slateDateKey, allEvents, scheduledEvents } = await buildMlbSlateEvents({
+    oddsApiKey,
+    now
+  })
+
+  const rows = []
+  const rawOddsEvents = []
+  const failedEvents = []
+  const invalidMarketsDetected = new Set()
+  const fallbackRetryEvents = []
+  const emptyBookmakerFallbackEvents = []
+  const payloadShapes = []
+
+  let totalBookmakersSeen = 0
+  let totalMarketsSeen = 0
+  let totalOutcomesSeen = 0
+
+  // Sequential fetch is safer for initial bootstrap and easier on API limits.
+  for (const event of scheduledEvents) {
+    const eventId = String(event?.eventId || event?.id || "")
+    if (!eventId) continue
+
+    try {
+      let response
+      let marketsUsed = marketRequestList
+
+      try {
+        response = await fetchMlbEventOdds({
+          oddsApiKey,
+          eventId,
+          bookmakersCsv,
+          marketsCsv
+        })
+      } catch (error) {
+        const invalidMarkets = parseInvalidMarketsFromError(error)
+        if (!invalidMarkets.length) throw error
+
+        for (const invalidMarket of invalidMarkets) {
+          invalidMarketsDetected.add(invalidMarket)
+        }
+
+        const invalidSet = new Set(invalidMarkets)
+        const fallbackMarkets = normalizeMarketList(
+          marketRequestList.filter((market) => !invalidSet.has(market))
+        )
+
+        if (!fallbackMarkets.length) throw error
+
+        marketsUsed = fallbackMarkets
+        response = await fetchMlbEventOdds({
+          oddsApiKey,
+          eventId,
+          bookmakersCsv,
+          marketsCsv: fallbackMarkets.join(",")
+        })
+
+        fallbackRetryEvents.push({
+          eventId,
+          matchup: event?.matchup || null,
+          removedInvalidMarkets: invalidMarkets,
+          fallbackMarketsUsed: fallbackMarkets
+        })
+      }
+
+      let oddsPayload = extractOddsPayload(response?.data, eventId)
+
+      // If request succeeded but yielded no bookmaker payload, broaden the query
+      // so bootstrap can still materialize inspectable MLB rows.
+      const initialBookmakerCount = Array.isArray(oddsPayload?.bookmakers) ? oddsPayload.bookmakers.length : 0
+      if (initialBookmakerCount === 0) {
+        const fallbackAttempts = []
+
+        const noBookFilterResponse = await fetchMlbEventOdds({
+          oddsApiKey,
+          eventId,
+          marketsCsv: Array.isArray(marketsUsed) && marketsUsed.length ? marketsUsed.join(",") : null
+        })
+        let noBookFilterPayload = extractOddsPayload(noBookFilterResponse?.data, eventId)
+        let noBookFilterCount = Array.isArray(noBookFilterPayload?.bookmakers) ? noBookFilterPayload.bookmakers.length : 0
+        fallbackAttempts.push({ type: "all-books-same-markets", bookmakers: noBookFilterCount })
+
+        if (noBookFilterCount === 0) {
+          const broadMarketResponse = await fetchMlbEventOdds({
+            oddsApiKey,
+            eventId,
+            marketsCsv: "h2h,spreads,totals"
+          })
+          noBookFilterPayload = extractOddsPayload(broadMarketResponse?.data, eventId)
+          noBookFilterCount = Array.isArray(noBookFilterPayload?.bookmakers) ? noBookFilterPayload.bookmakers.length : 0
+          fallbackAttempts.push({ type: "all-books-broad-markets", bookmakers: noBookFilterCount })
+        }
+
+        if (noBookFilterCount > 0) {
+          oddsPayload = noBookFilterPayload
+        }
+
+        emptyBookmakerFallbackEvents.push({
+          eventId,
+          matchup: event?.matchup || null,
+          initialBookmakers: initialBookmakerCount,
+          finalBookmakers: noBookFilterCount,
+          attempts: fallbackAttempts
+        })
+      }
+
+      const payloadShape = describePayloadShape(response?.data, oddsPayload)
+      payloadShapes.push({ eventId, ...payloadShape })
+
+      rawOddsEvents.push({
+        eventId,
+        awayTeam: event?.awayTeam || event?.away_team || "",
+        homeTeam: event?.homeTeam || event?.home_team || "",
+        commenceTime: event?.commence_time || event?.gameTime || null,
+        bookmakers: Array.isArray(oddsPayload?.bookmakers) ? oddsPayload.bookmakers.length : 0,
+        marketsRequested: marketsUsed,
+        payloadShape
+      })
+
+      const normalized = normalizeMlbEventRows({ event, oddsPayload, observedAtIso })
+      rows.push(...normalized.rows)
+
+      totalBookmakersSeen += Number(normalized.counters?.bookmakers || 0)
+      totalMarketsSeen += Number(normalized.counters?.markets || 0)
+      totalOutcomesSeen += Number(normalized.counters?.outcomes || 0)
+    } catch (error) {
+      failedEvents.push({
+        eventId,
+        matchup: event?.matchup || null,
+        error: error?.response?.data || error?.message || "Unknown error"
+      })
+    }
+  }
+
+  const summary = summarizeRows(rows)
+
+  return {
+    sport: "mlb",
+    updatedAt: observedAtIso,
+    snapshotGeneratedAt: observedAtIso,
+    snapshotSlateDateKey: slateDateKey,
+    events: allEvents,
+    rawOddsEvents,
+    rows,
+    diagnostics: {
+      requestedEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
+      fetchedEventCount: rawOddsEvents.length,
+      failedEventCount: failedEvents.length,
+      totalBookmakersSeen,
+      totalMarketsSeen,
+      totalOutcomesSeen,
+      byBook: summary.byBook,
+      byMarketKey: summary.byMarketKey,
+      byMarketFamily: summary.byMarketFamily,
+      marketRequestList,
+      invalidMarketsDetected: [...invalidMarketsDetected],
+      fallbackRetryEventCount: fallbackRetryEvents.length,
+      fallbackRetryEvents,
+      emptyBookmakerFallbackEventCount: emptyBookmakerFallbackEvents.length,
+      emptyBookmakerFallbackEvents,
+      payloadShapes,
+      failedEvents
+    }
+  }
+}
+
+module.exports = {
+  createEmptyMlbSnapshot,
+  buildMlbBootstrapSnapshot
+}
