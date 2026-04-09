@@ -9,6 +9,11 @@ const {
   isMlbPitcherMarketKey
 } = require("../markets/mlbClassification")
 const { mlbRowTeamMatchesMatchup } = require("../resolution/mlbTeamResolution")
+const {
+  createEmptyMlbExternalSnapshot,
+  normalizeMlbExternalSnapshotShape
+} = require("./enrichment/buildMlbExternalSnapshotScaffold")
+const { enrichMlbRowsWithExternalContext } = require("./enrichment/mergeMlbExternalContext")
 
 function createEmptyMlbSnapshot() {
   return {
@@ -19,6 +24,7 @@ function createEmptyMlbSnapshot() {
     events: [],
     rawOddsEvents: [],
     rows: [],
+    externalSnapshotMeta: createEmptyMlbExternalSnapshot().diagnostics,
     diagnostics: {
       requestedEventCount: 0,
       fetchedEventCount: 0,
@@ -29,6 +35,19 @@ function createEmptyMlbSnapshot() {
       byBook: {},
       byMarketKey: {},
       byMarketFamily: {},
+      enrichmentCoverage: {
+        totals: {
+          totalRows: 0,
+          playerRows: 0,
+          matchedRows: 0,
+          unresolvedRows: 0,
+          lowConfidenceRows: 0,
+          overallMatchRate: 0
+        },
+        byMarketFamily: {},
+        unresolvedSamples: [],
+        lowConfidenceSamples: []
+      },
       failedEvents: []
     }
   }
@@ -310,7 +329,7 @@ function buildMarketRequestList(mlbConfig) {
   ]
 }
 
-async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
+async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externalSnapshot = null }) {
   const mlbConfig = getSportConfig("mlb")
   if (!mlbConfig) {
     throw new Error("MLB sport config missing")
@@ -510,7 +529,18 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
     }
   }
 
-  const summary = summarizeRows(rows)
+  const normalizedExternalSnapshot = normalizeMlbExternalSnapshotShape(
+    externalSnapshot || createEmptyMlbExternalSnapshot({ now }),
+    { now }
+  )
+
+  const enrichmentResult = enrichMlbRowsWithExternalContext({
+    rows,
+    externalSnapshot: normalizedExternalSnapshot
+  })
+
+  const enrichedRows = Array.isArray(enrichmentResult?.rows) ? enrichmentResult.rows : []
+  const summary = summarizeRows(enrichedRows)
 
   return {
     sport: "mlb",
@@ -519,7 +549,16 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
     snapshotSlateDateKey: slateDateKey,
     events: allEvents,
     rawOddsEvents,
-    rows,
+    rows: enrichedRows,
+    externalSnapshotMeta: enrichmentResult?.externalSnapshotMeta || {
+      generatedAt: normalizedExternalSnapshot.generatedAt,
+      source: normalizedExternalSnapshot.source,
+      version: normalizedExternalSnapshot.version,
+      hasExternalData: normalizedExternalSnapshot?.diagnostics?.hasExternalData === true,
+      playerKeyCount: Number(normalizedExternalSnapshot?.diagnostics?.playerKeyCount || 0),
+      eventContextCount: Number(normalizedExternalSnapshot?.diagnostics?.eventContextCount || 0),
+      playersByEventCount: Number(normalizedExternalSnapshot?.diagnostics?.playersByEventCount || 0)
+    },
     diagnostics: {
       requestedEventCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0,
       fetchedEventCount: rawOddsEvents.length,
@@ -538,6 +577,19 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now() }) {
       emptyBookmakerFallbackEvents,
       supplementalSpecialFetchEventCount: supplementalSpecialFetchEvents.length,
       supplementalSpecialFetchEvents,
+      enrichmentCoverage: enrichmentResult?.diagnostics || {
+        totals: {
+          totalRows: enrichedRows.length,
+          playerRows: 0,
+          matchedRows: 0,
+          unresolvedRows: 0,
+          lowConfidenceRows: 0,
+          overallMatchRate: 0
+        },
+        byMarketFamily: {},
+        unresolvedSamples: [],
+        lowConfidenceSamples: []
+      },
       payloadShapes,
       failedEvents
     }

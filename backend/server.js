@@ -66,7 +66,7 @@ let oddsSnapshot = {
 
 // Phase 1 MLB bootstrap snapshot is intentionally isolated from oddsSnapshot.
 let mlbSnapshot = createEmptyMlbSnapshot()
-const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-5-surfacing-v1"
+const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-6-ingest-scaffold-v1"
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -21715,6 +21715,10 @@ app.get("/mlb/refresh", async (req, res) => {
       rows: rows.length,
       byBook: (mlbSnapshot?.diagnostics && mlbSnapshot.diagnostics.byBook) || {},
       byMarketFamily: (mlbSnapshot?.diagnostics && mlbSnapshot.diagnostics.byMarketFamily) || {},
+      externalSnapshotMeta: mlbSnapshot?.externalSnapshotMeta || null,
+      diagnostics: {
+        enrichmentCoverage: (mlbSnapshot?.diagnostics && mlbSnapshot.diagnostics.enrichmentCoverage) || null
+      },
       failedEventCount: Number(mlbSnapshot?.diagnostics?.failedEventCount || 0)
     })
   } catch (error) {
