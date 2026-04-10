@@ -9387,6 +9387,48 @@ async function sendNbaReplayRefreshResponse(res, { routeTag = "refresh-snapshot"
   return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
 }
 
+function ensureNbaRefreshEnvConfigured(res) {
+  if (!ODDS_API_KEY) {
+    res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    return false
+  }
+
+  if (!API_SPORTS_KEY) {
+    res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
+    return false
+  }
+
+  return true
+}
+
+async function fetchNbaUnrestrictedSlateEvents() {
+  const unrestrictedEventsResponse = await axios.get(
+    "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+    {
+      params: { apiKey: ODDS_API_KEY },
+      timeout: 15000
+    }
+  )
+
+  const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data)
+    ? unrestrictedEventsResponse.data
+    : []
+
+  const {
+    allEvents,
+    scheduledEvents
+  } = await buildSlateEvents({
+    oddsApiKey: ODDS_API_KEY,
+    now: Date.now(),
+    events: unrestrictedFetchedEvents
+  })
+
+  return {
+    allEvents,
+    scheduledEvents
+  }
+}
+
 // ===== MLB REPLAY MODE SUPPORT (Phase 7) =====
 const ENABLE_MLB_ODDS_REPLAY_MODE = String(process.env.ENABLE_MLB_ODDS_REPLAY_MODE || "false").toLowerCase() === "true"
 const MLB_REPLAY_SNAPSHOT_PATH = path.join(__dirname, "snapshot-mlb.json")
@@ -16906,12 +16948,8 @@ app.get("/refresh-snapshot", async (req, res) => {
       })
     }
 
-    if (!ODDS_API_KEY) {
-      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
-    }
-
-    if (!API_SPORTS_KEY) {
-      return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
+    if (!ensureNbaRefreshEnvConfigured(res)) {
+      return
     }
 
     // Same-slate cache guard: skip live API calls if snapshot is fresh and for a valid slate
@@ -16944,22 +16982,10 @@ app.get("/refresh-snapshot", async (req, res) => {
       }))
     }
 
-    const unrestrictedEventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
-      {
-        params: { apiKey: ODDS_API_KEY },
-        timeout: 15000
-      }
-    )
-    const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data) ? unrestrictedEventsResponse.data : []
     const {
       allEvents,
       scheduledEvents: rawScheduledEvents
-    } = await buildSlateEvents({
-      oddsApiKey: ODDS_API_KEY,
-      now: Date.now(),
-      events: unrestrictedFetchedEvents
-    })
+    } = await fetchNbaUnrestrictedSlateEvents()
 
     // Smart slate selection: today vs tomorrow
     const slateNow = Date.now()
@@ -20558,30 +20584,14 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     }
 
     // Now rebuild snapshot from scratch (same logic as force refresh)
-    if (!ODDS_API_KEY) {
-      return res.status(500).json({ error: "Missing ODDS_API_KEY in .env" })
+    if (!ensureNbaRefreshEnvConfigured(res)) {
+      return
     }
 
-    if (!API_SPORTS_KEY) {
-      return res.status(500).json({ error: "Missing API_SPORTS_KEY in .env" })
-    }
-
-    const unrestrictedEventsResponse = await axios.get(
-      "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
-      {
-        params: { apiKey: ODDS_API_KEY },
-        timeout: 15000
-      }
-    )
-    const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data) ? unrestrictedEventsResponse.data : []
     const {
       allEvents,
       scheduledEvents
-    } = await buildSlateEvents({
-      oddsApiKey: ODDS_API_KEY,
-      now: Date.now(),
-      events: unrestrictedFetchedEvents
-    })
+    } = await fetchNbaUnrestrictedSlateEvents()
     let dkScopedFetchedEvents = null
     if (ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH) {
       try {
