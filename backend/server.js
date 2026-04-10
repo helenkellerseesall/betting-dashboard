@@ -9194,6 +9194,10 @@ function buildReplayRefreshResponse({ source = "replay-disk-snapshot" } = {}) {
     cached: true,
     message: "Snapshot loaded from replay cache",
     source,
+    liveOddsFetchAttempted: false,
+    liveOddsFetchSkipped: true,
+    liveExternalFetchAttempted: false,
+    apiSpendExpected: 0,
     snapshotMeta: refreshMeta,
     snapshotGeneratedAt: refreshMeta?.snapshotGeneratedAt || oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
     snapshotSlateDateLocal: refreshMeta?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || null,
@@ -9211,6 +9215,176 @@ function buildReplayRefreshResponse({ source = "replay-disk-snapshot" } = {}) {
       eliteProps: Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps.length : 0
     }
   }
+}
+
+function getNbaReplayEventTime(event) {
+  return event?.commence_time || event?.gameTime || event?.startTime || event?.start_time || event?.game_time || ""
+}
+
+function recomputeNbaReplaySlateState(snapshot, { logTag = "[SLATE-SELECTION-DEBUG-REPLAY-MODE]", routeTag = "refresh-snapshot" } = {}) {
+  const replayReferenceTimeIso =
+    snapshot?.snapshotGeneratedAt ||
+    snapshot?.updatedAt ||
+    null
+  const replayReferenceTimeMs = replayReferenceTimeIso
+    ? new Date(replayReferenceTimeIso).getTime()
+    : NaN
+  const replaySlateNow = Number.isFinite(replayReferenceTimeMs)
+    ? replayReferenceTimeMs
+    : Date.now()
+
+  const replayTodayDateKey = toDetroitDateKey(replaySlateNow)
+  const replayTomorrowDateKey = toDetroitDateKey(replaySlateNow + 24 * 60 * 60 * 1000)
+  const replayAllEvents = Array.isArray(snapshot?.events) ? snapshot.events : []
+
+  const replayTodayEvents = replayAllEvents.filter((event) =>
+    toDetroitDateKey(getNbaReplayEventTime(event)) === replayTodayDateKey
+  )
+  const replayTomorrowEvents = replayAllEvents.filter((event) =>
+    toDetroitDateKey(getNbaReplayEventTime(event)) === replayTomorrowDateKey
+  )
+  const replayTodayPregameEligible = replayTodayEvents.filter((event) => {
+    const eventMs = new Date(getNbaReplayEventTime(event)).getTime()
+    return Number.isFinite(eventMs) && eventMs > replaySlateNow
+  })
+
+  let replayChosenSlateDateKey = replayTodayDateKey
+  let replayChosenEvents = replayTodayPregameEligible
+
+  if (replayTodayPregameEligible.length === 0 && replayTomorrowEvents.length > 0) {
+    replayChosenSlateDateKey = replayTomorrowDateKey
+    replayChosenEvents = replayTomorrowEvents
+  }
+
+  const replayChosenEventIds = new Set(
+    replayChosenEvents
+      .map((event) => String(event?.id || event?.eventId || ""))
+      .filter(Boolean)
+  )
+
+  const replayRawProps = Array.isArray(snapshot?.rawProps) ? snapshot.rawProps : []
+  const replayRawPropsCountByEventId = replayRawProps.reduce((acc, row) => {
+    const eventId = String(row?.eventId || "")
+    if (!eventId) return acc
+    acc.set(eventId, (acc.get(eventId) || 0) + 1)
+    return acc
+  }, new Map())
+
+  const replayProps = Array.isArray(snapshot?.props) ? snapshot.props : []
+  const replayChosenEventsWithProps = new Set(
+    replayProps
+      .map((row) => String(row?.eventId || ""))
+      .filter((eventId) => replayChosenEventIds.has(eventId))
+  )
+
+  const chosenEventCoverageStates = replayChosenEvents.map((event) => {
+    const eventId = String(event?.id || event?.eventId || "")
+    const rawPropsCountBeforeFinalFiltering = Number(replayRawPropsCountByEventId.get(eventId) || 0)
+    const hasProps = replayChosenEventsWithProps.has(eventId)
+    return {
+      eventId,
+      matchup: event?.matchup || `${event?.away_team || event?.awayTeam || "?"} @ ${event?.home_team || event?.homeTeam || "?"}`,
+      postingState: hasProps ? "props_posted" : "no_props_posted_yet",
+      rawPropsCountBeforeFinalFiltering
+    }
+  })
+
+  const chosenEventsWithPropsCount = replayChosenEventsWithProps.size
+  const missingChosenEventIds = chosenEventCoverageStates
+    .filter((item) => item.postingState !== "props_posted")
+    .map((item) => item.eventId)
+
+  const missingChosenEventSummaries = replayChosenEvents
+    .filter((event) => missingChosenEventIds.includes(String(event?.id || event?.eventId || "")))
+    .map((event) => {
+      const eventId = String(event?.id || event?.eventId || "")
+      return {
+        eventId,
+        matchup: event?.matchup || null,
+        commenceTime: getNbaReplayEventTime(event) || null,
+        homeTeam: event?.homeTeam || event?.home_team || null,
+        awayTeam: event?.awayTeam || event?.away_team || null,
+        postingState: "no_props_posted_yet",
+        dkFetchError: false,
+        dkRequestSucceeded: false,
+        dkBookmakerEntries: 0,
+        dkMarketEntries: 0,
+        rawPropsExistedBeforeFinalFiltering: Number(replayRawPropsCountByEventId.get(eventId) || 0) > 0,
+        rawPropsCountBeforeFinalFiltering: Number(replayRawPropsCountByEventId.get(eventId) || 0)
+      }
+    })
+
+  let slateState = "active_today"
+  if (replayChosenSlateDateKey === replayTomorrowDateKey) {
+    slateState = "rolled_to_tomorrow"
+  } else if (replayChosenEvents.length > 0 && chosenEventsWithPropsCount === 0) {
+    slateState = "awaiting_posting"
+  }
+
+  snapshot.snapshotSlateDateKey = replayChosenSlateDateKey || null
+  snapshot.snapshotSlateDateLocal = replayChosenSlateDateKey || null
+  snapshot.snapshotSlateGameCount = replayChosenEvents.length
+  snapshot.slateStateValidator = {
+    currentDateKeyChosen: replayChosenSlateDateKey || null,
+    currentPregameGameCount: replayTodayPregameEligible.length,
+    todayTotalGames: replayTodayEvents.length,
+    tomorrowTotalGames: replayTomorrowEvents.length,
+    todayHasPregameGames: replayTodayPregameEligible.length > 0,
+    tomorrowPropsPartiallyPosted: false,
+    slateState,
+    chosenEventsWithPropsCount,
+    chosenEventCount: replayChosenEvents.length,
+    partialPostedChosenEventCount: 0,
+    noPropsPostedChosenEventCount: chosenEventCoverageStates.filter((item) => item.postingState === "no_props_posted_yet").length,
+    ingestErrorChosenEventCount: 0,
+    chosenEventCoverageStates,
+    missingChosenEventIds,
+    missingChosenEventSummaries,
+    rolloverApplied: replayChosenSlateDateKey !== replayTodayDateKey,
+    nextDateKeyConsidered: replayTomorrowDateKey,
+    nextPregameGameCount: replayTomorrowEvents.filter((event) => {
+      const eventMs = new Date(getNbaReplayEventTime(event)).getTime()
+      return Number.isFinite(eventMs) && eventMs > replaySlateNow
+    }).length
+  }
+
+  console.log(logTag, {
+    route: routeTag,
+    now: new Date(replaySlateNow).toISOString(),
+    referenceTimeIso: replayReferenceTimeIso,
+    todayDateKey: replayTodayDateKey,
+    tomorrowDateKey: replayTomorrowDateKey,
+    todayEventCount: replayTodayEvents.length,
+    todayPregameEligibleCount: replayTodayPregameEligible.length,
+    tomorrowEventCount: replayTomorrowEvents.length,
+    chosenSlateDateKey: replayChosenSlateDateKey,
+    chosenEventCount: replayChosenEvents.length,
+    chosenEvents: replayChosenEvents.map((e) => ({
+      eventId: e?.id || e?.eventId || null,
+      matchup: `${e?.away_team || e?.awayTeam || "?"} @ ${e?.home_team || e?.homeTeam || "?"}`
+    }))
+  })
+}
+
+async function sendNbaReplayRefreshResponse(res, { routeTag = "refresh-snapshot", logTag = "[SLATE-SELECTION-DEBUG-REPLAY-MODE]" } = {}) {
+  const replaySnapshot = await loadNbaReplaySnapshotFromDisk()
+  if (!replaySnapshot) {
+    return res.status(503).json({
+      ok: false,
+      error: "Replay mode requested but snapshot replay file is missing or invalid",
+      replay: true
+    })
+  }
+
+  oddsSnapshot = replaySnapshot
+  lastSnapshotSource = "replay-disk-snapshot"
+  snapshotLoadedFromDisk = true
+  lastSnapshotSavedAt = Date.now()
+  lastSnapshotAgeMinutes = 0
+
+  recomputeNbaReplaySlateState(oddsSnapshot, { logTag, routeTag })
+
+  return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
 }
 
 // ===== MLB REPLAY MODE SUPPORT (Phase 7) =====
@@ -16535,6 +16709,14 @@ app.get("/refresh-snapshot", async (req, res) => {
         ? diskSnapshotFallback
         : currentSnapshotFallback
 
+    const replayModeRequested = isNbaOddsReplayRequest(req)
+    if (replayModeRequested) {
+      return sendNbaReplayRefreshResponse(res, {
+        routeTag: "refresh-snapshot",
+        logTag: "[SLATE-SELECTION-DEBUG-REPLAY-MODE]"
+      })
+    }
+
     const forceRefresh = String(req.query.force || "").toLowerCase() === "1" ||
       String(req.query.force || "").toLowerCase() === "true"
 
@@ -16565,21 +16747,12 @@ app.get("/refresh-snapshot", async (req, res) => {
       ? (Date.now() - new Date(oddsSnapshot.updatedAt).getTime()) / 60000
       : null
 
-    const shouldSkipRebuild =
-      snapshotLoadedFromDisk &&
-      snapshotAgeMinutes !== null &&
-      snapshotAgeMinutes < 10
-
-    if (shouldSkipRebuild) {
-      console.log("[TOP-DOWN-REFRESH-SKIP-REBUILD]", {
-        reason: "shouldSkipRebuild",
-        snapshotLoadedFromDisk,
-        snapshotAgeMinutes,
-        events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
-        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
-        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
-        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
-      })
+    const buildCachedRefreshResponse = ({
+      cacheReason = null,
+      includePrimarySlateDateLocal = false,
+      includeSnapshotSlateFields = false,
+      includeLegacyFreshSnapshotReason = false
+    } = {}) => {
       const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
       const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
       const cachedEnrichedModelRows = dedupeByLegSignature([
@@ -16612,7 +16785,7 @@ app.get("/refresh-snapshot", async (req, res) => {
         byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
       })
       console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
-        path: "refresh-snapshot-cached-skip-rebuild",
+        path: cacheReason || "refresh-snapshot-cached",
         scheduledEvents: cachedScheduledEvents.length,
         rawPropsRows: cachedRawPropsRows.length,
         enrichedModelRows: cachedEnrichedModelRows.length,
@@ -16636,17 +16809,66 @@ app.get("/refresh-snapshot", async (req, res) => {
         bestPropsRawRows: cachedBestPropsRawRows,
         finalBestVisibleRows: cachedFinalBestVisibleRows
       })
+
+      const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
+      const response = {
+        ok: true,
+        cached: true,
+        updatedAt: oddsSnapshot.updatedAt,
+        snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
+        snapshotSlateDateLocal:
+          oddsSnapshot?.snapshotSlateDateLocal ||
+          oddsSnapshot?.snapshotSlateDateKey ||
+          (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
+        updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
+        slateMode: slateMeta.slateMode,
+        eligibleRemainingGames: slateMeta.eligibleRemainingGames,
+        totalEligibleGames: slateMeta.totalEligibleGames,
+        startedEligibleGames: slateMeta.startedEligibleGames,
+        events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
+        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
+        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
+      }
+
+      if (cacheReason) response.cacheReason = cacheReason
+      if (includePrimarySlateDateLocal) {
+        response.primarySlateDateLocal = getPrimarySlateDateKeyFromRows(oddsSnapshot.props || [])
+      }
+      if (includeSnapshotSlateFields) {
+        response.snapshotSlateDateKey = oddsSnapshot.snapshotSlateDateKey || null
+        response.snapshotSlateGameCount = oddsSnapshot.snapshotSlateGameCount || 0
+      }
+      if (includeLegacyFreshSnapshotReason) {
+        response.reason = "fresh_snapshot"
+      }
+
+      return response
+    }
+
+    const shouldSkipRebuild =
+      snapshotLoadedFromDisk &&
+      snapshotAgeMinutes !== null &&
+      snapshotAgeMinutes < 10
+
+    if (shouldSkipRebuild) {
+      console.log("[TOP-DOWN-REFRESH-SKIP-REBUILD]", {
+        reason: "shouldSkipRebuild",
+        snapshotLoadedFromDisk,
+        snapshotAgeMinutes,
+        events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+        rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+      })
       console.log("[SNAPSHOT-CACHE] skipping rebuild, using cached snapshot", {
         snapshotAgeMinutes
       })
-      return res.json({
-        ok: true,
-        cached: true,
-        reason: "fresh_snapshot",
-        bestProps: oddsSnapshot.bestProps?.length || 0,
-        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
-        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
-      })
+      return res.json(buildCachedRefreshResponse({
+        cacheReason: "refresh-snapshot-cached-skip-rebuild",
+        includeLegacyFreshSnapshotReason: true
+      }))
     }
 
     if (
@@ -16665,82 +16887,10 @@ app.get("/refresh-snapshot", async (req, res) => {
         props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
         bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
       })
-      const cachedScheduledEvents = Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events : []
-      const cachedRawPropsRows = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
-      const cachedEnrichedModelRows = dedupeByLegSignature([
-        ...(Array.isArray(oddsSnapshot.eliteProps) ? oddsSnapshot.eliteProps : []),
-        ...(Array.isArray(oddsSnapshot.strongProps) ? oddsSnapshot.strongProps : []),
-        ...(Array.isArray(oddsSnapshot.playableProps) ? oddsSnapshot.playableProps : []),
-        ...(Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : [])
-      ])
-      const cachedSurvivedFragileRows = cachedRawPropsRows.filter((row) => {
-        try {
-          return !isFragileLeg(row, "best")
-        } catch (_) {
-          return true
-        }
-      })
-      const cachedBestPropsRawRows = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
-      const cachedFinalBestVisibleRows = getAvailablePrimarySlateRows(cachedBestPropsRawRows)
-      const __normalizedFamilySummary = summarizeInterestingNormalizedRows(cachedRawPropsRows || [])
-      const __normalizedCoverageSummary = summarizeNormalizedMarketCoverage(cachedRawPropsRows || [])
-
-      console.log("[NORMALIZATION-MARKET-FAMILY-DEBUG]", __normalizedFamilySummary)
-      console.log("[NORMALIZATION-MARKET-KEYS-TOP-DEBUG]", {
-        totalRows: __normalizedCoverageSummary.totalRows,
-        topPropTypes: Object.entries(__normalizedCoverageSummary.byPropType || {})
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 15),
-        topMarketKeys: Object.entries(__normalizedCoverageSummary.byMarketKey || {})
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 25),
-        byBookAndPropType: __normalizedCoverageSummary.byBookAndPropType || {}
-      })
-      console.log("[COVERAGE-AUDIT-CALLSITE-DEBUG]", {
-        path: "refresh-snapshot-cached-shortcut",
-        scheduledEvents: cachedScheduledEvents.length,
-        rawPropsRows: cachedRawPropsRows.length,
-        enrichedModelRows: cachedEnrichedModelRows.length,
-        survivedFragileRows: cachedSurvivedFragileRows.length,
-        survivedFragileRowsByBook: {
-          FanDuel: cachedSurvivedFragileRows.filter((r) => r?.book === "FanDuel").length,
-          DraftKings: cachedSurvivedFragileRows.filter((r) => r?.book === "DraftKings").length
-        },
-        bestPropsRawRows: cachedBestPropsRawRows.length,
-        bestPropsRawRowsByBook: {
-          FanDuel: cachedBestPropsRawRows.filter((r) => r?.book === "FanDuel").length,
-          DraftKings: cachedBestPropsRawRows.filter((r) => r?.book === "DraftKings").length
-        },
-        finalBestVisibleRows: cachedFinalBestVisibleRows.length
-      })
-      runCurrentSlateCoverageDiagnostics({
-        scheduledEvents: cachedScheduledEvents,
-        rawPropsRows: cachedRawPropsRows,
-        enrichedModelRows: cachedEnrichedModelRows,
-        survivedFragileRows: cachedSurvivedFragileRows,
-        bestPropsRawRows: cachedBestPropsRawRows,
-        finalBestVisibleRows: cachedFinalBestVisibleRows
-      })
-      const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
-
-      return res.json({
-        ok: true,
-        cached: true,
-        updatedAt: oddsSnapshot.updatedAt,
-        snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
-        snapshotSlateDateLocal: oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
-        updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
-        primarySlateDateLocal: getPrimarySlateDateKeyFromRows(oddsSnapshot.props || []),
-        slateMode: slateMeta.slateMode,
-        eligibleRemainingGames: slateMeta.eligibleRemainingGames,
-        totalEligibleGames: slateMeta.totalEligibleGames,
-        startedEligibleGames: slateMeta.startedEligibleGames,
-        events: oddsSnapshot.events.length,
-        props: oddsSnapshot.props.length,
-        bestProps: oddsSnapshot.bestProps.length,
-        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
-        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
-      })
+      return res.json(buildCachedRefreshResponse({
+        cacheReason: "refresh-snapshot-cached-shortcut",
+        includePrimarySlateDateLocal: true
+      }))
     }
 
     const now = Date.now()
@@ -16788,28 +16938,10 @@ app.get("/refresh-snapshot", async (req, res) => {
         bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
       })
 
-      const slateMeta = getSlateModeFromEvents(oddsSnapshot.events || [])
-
-      return res.json({
-        ok: true,
-        cached: true,
+      return res.json(buildCachedRefreshResponse({
         cacheReason: "same-slate-fresh",
-        updatedAt: oddsSnapshot.updatedAt,
-        snapshotGeneratedAt: oddsSnapshot?.snapshotGeneratedAt || oddsSnapshot?.updatedAt || null,
-        snapshotSlateDateLocal: oddsSnapshot?.snapshotSlateDateLocal || oddsSnapshot?.snapshotSlateDateKey || (oddsSnapshot?.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null),
-        updatedAtLocal: formatDetroitLocalTimestamp(oddsSnapshot.updatedAt),
-        snapshotSlateDateKey: oddsSnapshot.snapshotSlateDateKey,
-        snapshotSlateGameCount: oddsSnapshot.snapshotSlateGameCount || 0,
-        slateMode: slateMeta.slateMode,
-        eligibleRemainingGames: slateMeta.eligibleRemainingGames,
-        totalEligibleGames: slateMeta.totalEligibleGames,
-        startedEligibleGames: slateMeta.startedEligibleGames,
-        events: oddsSnapshot.events.length,
-        props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
-        bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0,
-        slateStateValidator: oddsSnapshot?.slateStateValidator || null,
-        lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
-      })
+        includeSnapshotSlateFields: true
+      }))
     }
 
     const unrestrictedEventsResponse = await axios.get(
@@ -16876,25 +17008,6 @@ app.get("/refresh-snapshot", async (req, res) => {
       sampleEventIds: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => e?.id || e?.eventId || null) : [],
       sampleMatchups: Array.isArray(scheduledEvents) ? scheduledEvents.slice(0, 5).map((e) => `${e?.away_team || e?.awayTeam || "?"} @ ${e?.home_team || e?.homeTeam || "?"}`) : []
     })
-    const replayModeRequested = isNbaOddsReplayRequest(req)
-    if (replayModeRequested) {
-      const replaySnapshot = await loadNbaReplaySnapshotFromDisk()
-      if (!replaySnapshot) {
-        return res.status(503).json({
-          ok: false,
-          error: "Replay mode requested but snapshot replay file is missing or invalid",
-          replay: true
-        })
-      }
-
-      oddsSnapshot = replaySnapshot
-      lastSnapshotSource = "replay-disk-snapshot"
-      snapshotLoadedFromDisk = true
-      lastSnapshotSavedAt = Date.now()
-      lastSnapshotAgeMinutes = 0
-
-      return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
-    }
 
     let dkScopedFetchedEvents = null
     if (ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH) {
@@ -20402,22 +20515,10 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     resetFragileFilterAdjustedLogCount()
     const replayModeRequested = isNbaOddsReplayRequest(req)
     if (replayModeRequested) {
-      const replaySnapshot = await loadNbaReplaySnapshotFromDisk()
-      if (!replaySnapshot) {
-        return res.status(503).json({
-          ok: false,
-          error: "Replay mode requested but snapshot replay file is missing or invalid",
-          replay: true
-        })
-      }
-
-      oddsSnapshot = replaySnapshot
-      lastSnapshotSource = "replay-disk-snapshot"
-      snapshotLoadedFromDisk = true
-      lastSnapshotSavedAt = Date.now()
-      lastSnapshotAgeMinutes = 0
-
-      return res.status(200).json(buildReplayRefreshResponse({ source: "replay-disk-snapshot" }))
+      return sendNbaReplayRefreshResponse(res, {
+        routeTag: "refresh-snapshot-hard-reset",
+        logTag: "[SLATE-SELECTION-DEBUG-REPLAY-MODE-HARD-RESET]"
+      })
     }
 
     const previousSnapshotForCarry = {
