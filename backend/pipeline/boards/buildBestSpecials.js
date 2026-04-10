@@ -136,10 +136,12 @@ function buildBestSpecials({
 
   const isWeakQualitySpecial = (row) => {
     const decision = String(row?.playDecision || "").toLowerCase()
+    const decisionSummary = String(row?.decisionSummary || "").trim()
     const tier = String(row?.confidenceTier || "").toLowerCase()
     const hitRate = hitRateEstimatePct(row)
 
     if (decision.includes("avoid") || decision.includes("fade")) return true
+    if (!decision && !decisionSummary) return true
     if (tier.includes("special-thin")) return true
     if (isTripleDoubleRow(row) && !isStrongTripleDoubleCandidate(row)) return true
     if (isTripleDoubleRow(row) && Number.isFinite(hitRate) && hitRate < 48) return true
@@ -260,6 +262,7 @@ function buildBestSpecials({
     const odds = Number(row?.odds ?? 0)
     const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? row?.score ?? 0)
     const marketKey = String(row?.marketKey || "")
+    const tier = String(row?.confidenceTier || "").toLowerCase()
     const ddTdQuality = ddTdQualityScore(row)
 
     let score = 0
@@ -268,12 +271,15 @@ function buildBestSpecials({
     if (isTripleDoubleRow(row)) score += ddTdQuality >= 0.70 ? 1 : -18
     if (isDoubleDoubleRow(row)) score += ddTdQuality >= 0.60 ? 6 : -6
 
-    if (Number.isFinite(odds) && odds >= 180 && odds <= 1200) score += 9
+    if (Number.isFinite(odds) && odds >= 220 && odds <= 1200) score += 11
+    else if (Number.isFinite(odds) && odds >= 170 && odds < 220) score += 7
     else if (Number.isFinite(odds) && odds >= 130 && odds < 180) score += 4
     else if (Number.isFinite(odds) && odds > 1200) score -= 5
 
     if (confidence >= 0.55) score += 6
     else if (confidence >= 0.45) score += 3
+    if (tier === "special-elite") score += 5
+    else if (tier === "special-strong") score += 3
     if (String(row?.confidenceTier || "").toLowerCase() === "special-thin") score -= 6
     if (isThinLottoSpecial(row)) score -= 8
     if (isDoubleDoubleRow(row) || isTripleDoubleRow(row)) score += Math.round(ddTdQuality * 10)

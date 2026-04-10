@@ -151,7 +151,8 @@ function buildCuratedLayer2Buckets({
       const score = Number(row?.score || 0)
       const edge = Number(row?.edge || 0)
       const odds = Number(row?.odds || 0)
-      return hitRate >= 0.52 && score >= 70 && edge >= 0.5 && odds >= -240 && odds <= 260
+      const hasPlusMoneyPath = odds >= 100
+      return hitRate >= 0.52 && score >= 70 && edge >= 0.7 && odds >= -190 && odds <= 300 && (hasPlusMoneyPath || edge >= 1.0)
     },
     rankFn: (row) => {
       const odds = Number(row?.odds || 0)
@@ -164,9 +165,10 @@ function buildCuratedLayer2Buckets({
       const opportunitySpikeScore = Number(row?.opportunitySpikeScore || 0)
       const valueContextSupport = Math.max(0, ((lineupContextScore * 0.65) + (opportunitySpikeScore * 0.35)) - 0.42)
       const valueContextLift = valueContextSupport * 16
-      const plusMoneyBonus = odds >= 100 && odds <= 220 ? 8 : 0
+      const plusMoneyBonus = odds >= 105 && odds <= 280 ? 10 : 0
+      const lowCeilingPenalty = odds < -155 ? 8 : 0
       const genericBoomPenalty = (ceilingScore * 3) + (roleSpikeScore * 2)
-      return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 14) + (bookDisagreementScore * 20) + valueContextLift - genericBoomPenalty
+      return bestValueSortValue(row) + (confidence * 18) + plusMoneyBonus + (marketLagScore * 16) + (bookDisagreementScore * 24) + valueContextLift - genericBoomPenalty - lowCeilingPenalty
     }
   })
 
@@ -191,7 +193,7 @@ function buildCuratedLayer2Buckets({
       if (variant === "alt-low") return false
       if (hitRate < 0.48) return false
       if (score < 65) return false
-      if (odds < -350 || odds > 1100) return false
+      if (odds < 120 || odds > 1100) return false
       if (isUnder) {
         if (hitRate < 0.68 || score < 86 || edge < 1.5) return false
       }
@@ -287,11 +289,12 @@ function buildCuratedLayer2Buckets({
       const upsideSignalSynergy = upsideContextScore * upsideSignalStack * 26
       const side = String(row?.side || "").toLowerCase()
       const variant = String(row?.propVariant || "base").toLowerCase()
-      const variantBonus = variant === "alt-max" ? 22 : variant === "alt-high" ? 17 : variant === "alt-mid" ? 11 : 0
+      const variantBonus = variant === "alt-max" ? 24 : variant === "alt-high" ? 20 : variant === "alt-mid" ? 12 : 0
       const overBonus = side === "over" ? 16 : -18
-      const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 8 : 0
+      const ladderBonus = Boolean(row?.ladderPresentation) || String(row?.boardFamily || "") === "ladder" ? 10 : 0
       const oddsBandBonus = odds >= 180 && odds <= 550 ? 12 : odds > 550 ? 5 : 0
-      return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 22) + (roleSpikeScore * 18) + (marketLagScore * 12) + (bookDisagreementScore * 6) + upsideContextLift + upsideSignalSynergy + variantBonus + overBonus + ladderBonus + oddsBandBonus
+      const lowOddsPenalty = odds < 140 ? 10 : 0
+      return (odds * 0.12) + (score * 0.95) + (edge * 20) + (hitRate * 52) + (ceilingScore * 22) + (roleSpikeScore * 18) + (marketLagScore * 12) + (bookDisagreementScore * 6) + upsideContextLift + upsideSignalSynergy + variantBonus + overBonus + ladderBonus + oddsBandBonus - lowOddsPenalty
     }
   })
 

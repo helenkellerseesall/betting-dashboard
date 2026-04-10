@@ -27,16 +27,16 @@ function buildBestLadders({
     const variant = String(row?.propVariant || "base")
 
     let score = 0
-    if (variant === "alt-high") score += 8
-    else if (variant === "alt-mid") score += 7
-    else if (variant === "alt-max") score += 5
-    else if (variant === "alt-low") score += 4
+    if (variant === "alt-high") score += 10
+    else if (variant === "alt-mid") score += 8
+    else if (variant === "alt-max") score += 8
+    else if (variant === "alt-low") score += 2
 
-    if (Number.isFinite(odds) && odds >= 120 && odds <= 700) score += 10
-    else if (Number.isFinite(odds) && odds >= 105 && odds < 120) score += 5
-    else if (Number.isFinite(odds) && odds > 700) score -= 3
+    if (Number.isFinite(odds) && odds >= 145 && odds <= 700) score += 12
+    else if (Number.isFinite(odds) && odds >= 120 && odds < 145) score += 4
+    else if (Number.isFinite(odds) && odds > 900) score -= 6
 
-    if (confidence >= 0.62) score += 6
+    if (confidence >= 0.64) score += 7
     else if (confidence >= 0.52) score += 3
 
     return score
@@ -86,9 +86,11 @@ function buildBestLadders({
       const matchupKey = normalizeLower(row?.matchup || row?.eventId)
       const ladderKey = `${playerKey}|${propTypeKey}`
       if (seenLadderKeys.has(ladderKey)) continue
+      if ((ladderRowsPerPlayer.get(playerKey) || 0) >= TONIGHTS_LADDER_MAX_PER_PLAYER) continue
       if (matchupKey && (ladderRowsPerMatchup.get(matchupKey) || 0) >= TONIGHTS_LADDER_MAX_PER_MATCHUP) continue
 
       seenLadderKeys.add(ladderKey)
+      ladderRowsPerPlayer.set(playerKey, (ladderRowsPerPlayer.get(playerKey) || 0) + 1)
       if (matchupKey) ladderRowsPerMatchup.set(matchupKey, (ladderRowsPerMatchup.get(matchupKey) || 0) + 1)
       tonightsLadders.push(row)
 
