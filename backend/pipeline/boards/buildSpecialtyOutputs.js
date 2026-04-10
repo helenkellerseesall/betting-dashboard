@@ -429,6 +429,171 @@ function buildTypeAwareSpecialSlices(rows, limit = 4) {
   }
 }
 
+function buildSplitSpecialSubtypeLanes({ preferredRows, fallbackRows, limit = 4 }) {
+  const safePreferred = Array.isArray(preferredRows) ? preferredRows : []
+  const safeFallback = Array.isArray(fallbackRows) ? fallbackRows : []
+
+  const pickLaneRows = (predicate) => {
+    const preferredMatches = safePreferred.filter((row) => predicate(row)).slice(0, limit)
+    if (preferredMatches.length > 0) return preferredMatches
+    return safeFallback.filter((row) => predicate(row)).slice(0, limit)
+  }
+
+  return {
+    bestDoubleDoubles: pickLaneRows((row) => isDoubleDouble(row)),
+    bestTripleDoubles: pickLaneRows((row) => isTripleDouble(row)),
+    bestFirstBasket: pickLaneRows((row) => isFirstBasket(row)),
+    bestFirstTeamBasket: pickLaneRows((row) => isFirstTeamBasket(row))
+  }
+}
+
+function buildBestLongshotPlays(rows, limit = 6) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const toLowerKey = (value) => String(value || "").trim().toLowerCase()
+
+  const oddsBandScore = (oddsValue) => {
+    const odds = Number(oddsValue)
+    if (!Number.isFinite(odds)) return 0
+    if (odds >= 150 && odds <= 700) return 1
+    if (odds >= 110 && odds < 150) return 0.78
+    if (odds > 850 && odds <= 1400) return 0.62
+    if (odds > 1400 && odds <= 2000) return 0.42
+    if (odds >= -125 && odds < 110) return 0.58
+    return 0.2
+  }
+
+  const isEligibleLongshotRow = (row) => {
+    const odds = Number(row?.odds || 0)
+    if (!Number.isFinite(odds) || odds > 2000) return false
+
+    const playDecision = String(row?.playDecision || "").toLowerCase()
+    if (playDecision.includes("avoid") || playDecision.includes("fade") || playDecision.includes("sit")) return false
+
+    const propVariant = String(row?.propVariant || "base").toLowerCase()
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propType = String(row?.propType || "").toLowerCase()
+    const marketFamily = String(row?.marketFamily || "").toLowerCase()
+    const side = String(row?.side || "").toLowerCase()
+
+    const isAggressiveAlt = propVariant === "alt-mid" || propVariant === "alt-high" || propVariant === "alt-max"
+    const isSpecialLike = marketFamily === "special" || [
+      "player_first_basket",
+      "player_first_team_basket",
+      "player_double_double",
+      "player_triple_double"
+    ].includes(marketKey)
+    const isCoreUpsideProp = ["points", "threes", "assists", "rebounds", "pra"].includes(propType)
+
+    if (!isAggressiveAlt && !isSpecialLike && !isCoreUpsideProp) return false
+    if (isSpecialLike && odds < 140) return false
+    if (!isSpecialLike && odds < -125) return false
+    if (side === "under" && !isSpecialLike && odds < 220) return false
+
+    const ceiling = Number(toUnitScore(row?.ceilingScore, 0) || 0)
+    const roleSpike = Number(toUnitScore(row?.roleSpikeScore, 0) || 0)
+    const opportunity = Number(toUnitScore(row?.opportunitySpikeScore, 0) || 0)
+    const lineup = Number(toUnitScore(row?.lineupContextScore, 0) || 0)
+    const confidence = Number(toUnitScore(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score, 0) || 0)
+
+    const hasPath =
+      ceiling >= 0.42 ||
+      (roleSpike >= 0.34 && opportunity >= 0.34) ||
+      (isSpecialLike && confidence >= 0.3 && (opportunity >= 0.44 || lineup >= 0.44))
+
+    if (!isSpecialLike && !isAggressiveAlt && ceiling < 0.5) return false
+
+    return hasPath
+  }
+
+  const rankLongshotRow = (row) => {
+    const ceiling = Number(toUnitScore(row?.ceilingScore, 0) || 0)
+    const roleSpike = Number(toUnitScore(row?.roleSpikeScore, 0) || 0)
+    const opportunity = Number(toUnitScore(row?.opportunitySpikeScore, 0) || 0)
+    const lineup = Number(toUnitScore(row?.lineupContextScore, 0) || 0)
+    const marketLag = Number(toUnitScore(row?.marketLagScore, 0) || 0)
+    const bookDisagreement = Number(toUnitScore(row?.bookDisagreementScore, marketLag) || 0)
+    const matchupEdge = Number(toUnitScore(row?.matchupEdgeScore, 0) || 0)
+    const gameEnv = Number(toUnitScore(row?.gameEnvironmentScore, 0) || 0)
+    const volatility = Number(toUnitScore(row?.volatilityScore, 0) || 0)
+    const confidence = Number(toUnitScore(row?.playerConfidenceScore ?? row?.adjustedConfidenceScore ?? row?.confidenceScore ?? row?.score, 0) || 0)
+    const odds = Number(row?.odds || 0)
+    const propVariant = String(row?.propVariant || "base").toLowerCase()
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+
+    const ceilingPath = (ceiling * 0.3) + (roleSpike * 0.23) + (opportunity * 0.2) + (lineup * 0.09)
+    const breakoutPath = (volatility * 0.18) + (matchupEdge * 0.12) + (gameEnv * 0.1)
+    const marketPath = (marketLag * 0.14) + (bookDisagreement * 0.12)
+    const payoutPath = oddsBandScore(odds) * 0.16
+
+    const variantBonus = propVariant === "alt-max" ? 0.1 : propVariant === "alt-high" ? 0.08 : propVariant === "alt-mid" ? 0.06 : 0
+    const specialBonus = marketKey === "player_triple_double"
+      ? 0.04
+      : marketKey === "player_first_basket" || marketKey === "player_first_team_basket"
+        ? 0.02
+        : marketKey === "player_double_double"
+          ? 0.03
+          : 0
+
+    const score =
+      ceilingPath +
+      breakoutPath +
+      marketPath +
+      payoutPath +
+      variantBonus +
+      specialBonus +
+      (confidence * 0.08)
+
+    return Number(score.toFixed(4))
+  }
+
+  const ranked = safeRows
+    .filter((row) => isEligibleLongshotRow(row))
+    .map((row, index) => ({
+      row,
+      index,
+      longshotRankScore: rankLongshotRow(row)
+    }))
+    .sort((a, b) => {
+      if (b.longshotRankScore !== a.longshotRankScore) return b.longshotRankScore - a.longshotRankScore
+      return a.index - b.index
+    })
+
+  const selected = []
+  const seenLegs = new Set()
+  const matchupCounts = new Map()
+  const playerCounts = new Map()
+  const marketCounts = new Map()
+
+  for (const entry of ranked) {
+    if (selected.length >= limit) break
+    const row = entry.row
+    const playerKey = toLowerKey(row?.player)
+    const matchupKey = toLowerKey(row?.matchup || row?.eventId)
+    const legKey = [
+      playerKey,
+      toLowerKey(row?.marketKey || row?.propType),
+      toLowerKey(row?.side),
+      String(row?.line ?? ""),
+      toLowerKey(row?.propVariant || "base")
+    ].join("|")
+    const marketKey = toLowerKey(row?.marketKey || row?.propType)
+    const maxPerMarket = marketKey === "player_first_basket" || marketKey === "player_first_team_basket" ? 2 : 3
+
+    if (seenLegs.has(legKey)) continue
+    if ((playerCounts.get(playerKey) || 0) >= 1) continue
+    if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= 2) continue
+    if ((marketCounts.get(marketKey) || 0) >= maxPerMarket) continue
+
+    seenLegs.add(legKey)
+    playerCounts.set(playerKey, (playerCounts.get(playerKey) || 0) + 1)
+    if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
+    marketCounts.set(marketKey, (marketCounts.get(marketKey) || 0) + 1)
+    selected.push({ ...row, longshotRankScore: entry.longshotRankScore })
+  }
+
+  return selected
+}
+
 function buildSpecialsAudit({
   specialBoard,
   firstBasketBoard,
@@ -511,13 +676,21 @@ function buildSpecialtyOutputs({
   const normalizedFeaturedRows = (Array.isArray(featuredPlays) ? featuredPlays : [])
     .filter((row) => isSpecialLikeRow(row))
     .map((row) => normalizeSpecialtyRow(withTeamIndex(row)))
+  const normalizedLongshotSourceRows = (Array.isArray(featuredPlays) ? featuredPlays : [])
+    .map((row) => normalizeSpecialtyRow(withTeamIndex(row)))
 
   const rankedSpecialBoard = rankSpecialtyRows(normalizedSpecialBoard)
   const rankedTopSpecialRows = rankSpecialtyRows(normalizedTopSpecialRows)
   const rankedFeaturedRows = rankSpecialtyRows(normalizedFeaturedRows)
 
+  const filteredSpecialBoard = filterTopSpecialsForWeakness(rankedSpecialBoard)
   const filteredTopSpecials = filterTopSpecialsForWeakness(rankedTopSpecialRows)
-  const typeAwareSpecials = buildTypeAwareSpecialSlices(rankedSpecialBoard, typeSliceLimit)
+  const typeAwareSpecials = buildSplitSpecialSubtypeLanes({
+    preferredRows: filteredSpecialBoard.rows,
+    fallbackRows: rankedSpecialBoard,
+    limit: typeSliceLimit
+  })
+  const bestLongshotPlays = buildBestLongshotPlays(normalizedLongshotSourceRows, laneSliceLimit)
   const specialsAudit = buildSpecialsAudit({
     specialBoard: rankedSpecialBoard,
     firstBasketBoard,
@@ -527,7 +700,10 @@ function buildSpecialtyOutputs({
 
   return {
     filteredTopSpecials,
-    typeAwareSpecials,
+    typeAwareSpecials: {
+      ...typeAwareSpecials,
+      bestLongshotPlays
+    },
     specialsAudit,
     normalizedBestSpecialRows: rankedTopSpecialRows,
     specialtyLaneOutputs: {

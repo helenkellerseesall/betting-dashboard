@@ -134,13 +134,41 @@ function buildBestSpecials({
     return quality >= 0.67 || (quality >= 0.62 && hitRate >= 52 && confidence >= 0.52)
   }
 
+  const hasRecoverableNonDdSupport = (row) => {
+    if (isDoubleDoubleRow(row)) return false
+
+    const tier = String(row?.confidenceTier || "").toLowerCase()
+    if (tier.includes("special-thin") || tier.includes("thin")) return false
+
+    const confidence = confidenceEstimate01(row)
+    const summary = summarySupportScore(row)
+    const movement = movementSupportScore(row)
+    const tierSupport = tierSupportScore(row)
+    const odds = Number(row?.odds ?? 0)
+    const oddsInPlayableBand = Number.isFinite(odds) && odds >= 170 && odds <= 1400
+
+    if (!oddsInPlayableBand) return false
+    if (confidence < 0.34) return false
+    if (summary < 0.6) return false
+
+    const supportScore =
+      (confidence * 0.45) +
+      (tierSupport * 0.25) +
+      (summary * 0.18) +
+      (movement * 0.12)
+
+    return supportScore >= 0.5
+  }
+
   const isWeakQualitySpecial = (row) => {
     const decision = String(row?.playDecision || "").toLowerCase()
     const decisionSummary = String(row?.decisionSummary || "").trim()
     const tier = String(row?.confidenceTier || "").toLowerCase()
     const hitRate = hitRateEstimatePct(row)
 
-    if (decision.includes("avoid") || decision.includes("fade")) return true
+    if (decision.includes("avoid") || decision.includes("fade")) {
+      if (!hasRecoverableNonDdSupport(row)) return true
+    }
     if (!decision && !decisionSummary) return true
     if (tier.includes("special-thin")) return true
     if (isTripleDoubleRow(row) && !isStrongTripleDoubleCandidate(row)) return true

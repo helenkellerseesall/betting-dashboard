@@ -8363,7 +8363,7 @@ app.get("/api/best-available", (req, res) => {
 
   const resolveSurfaceTeam = (row) => {
     const canonicalTeam = resolveCanonicalPlayerTeamForRow(row)
-    if (canonicalTeam) return canonicalTeam
+    if (canonicalTeam && rowTeamMatchesMatchup({ ...row, team: canonicalTeam })) return canonicalTeam
 
     const playerTeam = String(row?.playerTeam || "").trim()
     if (playerTeam && rowTeamMatchesMatchup({ ...row, team: playerTeam })) return playerTeam
@@ -8881,7 +8881,9 @@ app.get("/api/best-available", (req, res) => {
     bestDoubleDoubles: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestDoubleDoubles),
     bestTripleDoubles: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestTripleDoubles),
     bestFirstBasket: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestFirstBasket),
-    bestFirstTeamBasket: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestFirstTeamBasket)
+    bestFirstTeamBasket: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestFirstTeamBasket),
+    bestLongshotPlays: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestLongshotPlays),
+    bestLongshotSpecials: mapSpecialRowsForSurface(typeAwareSpecialsRaw.bestLongshotPlays)
   }
 
   const specialtyLaneOutputsRaw = specialtyOutputs?.specialtyLaneOutputs || {}
@@ -9058,6 +9060,8 @@ app.get("/api/best-available", (req, res) => {
       bestTripleDoubles: typeAwareSpecials.bestTripleDoubles,
       bestFirstBasket: typeAwareSpecials.bestFirstBasket,
       bestFirstTeamBasket: typeAwareSpecials.bestFirstTeamBasket,
+      bestLongshotPlays: typeAwareSpecials.bestLongshotPlays,
+      bestLongshotSpecials: typeAwareSpecials.bestLongshotSpecials,
       tonightsPlays: {
         bestSingles: tonightsBestSingles,
         bestLadders: tonightsBestLadders,
