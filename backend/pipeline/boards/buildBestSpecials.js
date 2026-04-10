@@ -401,7 +401,7 @@ function buildBestSpecials({
   const uniqueNativeSubtypeCount = new Set(nativeSpecialRows.map((row) => specialSubtypeKey(row))).size
   const NATIVE_MAX_PER_SUBTYPE = uniqueNativeSubtypeCount >= 3 ? 1 : 2
   const nonDoubleDoubleNativeCount = nativeSpecialRows.filter((row) => !isDoubleDoubleRow(row)).length
-  const NATIVE_MAX_DOUBLE_DOUBLE = nonDoubleDoubleNativeCount >= 2 ? 1 : 2
+  const NATIVE_MAX_DOUBLE_DOUBLE = nonDoubleDoubleNativeCount >= 1 ? 1 : 2
   const NATIVE_MAX_PER_MATCHUP = 2
   const nonThinLottoNativeCount = nativeSpecialRows.filter((row) => !isThinLottoSpecial(row)).length
   const NATIVE_MAX_THIN_LOTTO = nonThinLottoNativeCount >= 3 ? 1 : 2
@@ -430,10 +430,12 @@ function buildBestSpecials({
     for (const row of nativeSpecialRows) {
       const legKey = buildRowLegKey(row)
       if (seenSpecialLegs.has(legKey)) continue
+      if (isDoubleDoubleRow(row) && doubleDoubleCount >= NATIVE_MAX_DOUBLE_DOUBLE) continue
       const matchupKey = normalizeLower(row?.matchup || row?.eventId)
       if (matchupKey && (matchupCounts.get(matchupKey) || 0) >= NATIVE_MAX_PER_MATCHUP) continue
       seenSpecialLegs.add(legKey)
       if (matchupKey) matchupCounts.set(matchupKey, (matchupCounts.get(matchupKey) || 0) + 1)
+      if (isDoubleDoubleRow(row)) doubleDoubleCount += 1
       shaped.push(row)
       if (shaped.length >= maxRows) break
     }

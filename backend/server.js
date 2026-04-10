@@ -8361,7 +8361,20 @@ app.get("/api/best-available", (req, res) => {
     return combinedSignals
   }
 
-  const buildReadableSurfaceRow = createSurfaceRowBuilder({ buildOverlayExternalSignalInput })
+  const resolveSurfaceTeam = (row) => {
+    const canonicalTeam = resolveCanonicalPlayerTeamForRow(row)
+    if (canonicalTeam) return canonicalTeam
+
+    const playerTeam = String(row?.playerTeam || "").trim()
+    if (playerTeam && rowTeamMatchesMatchup({ ...row, team: playerTeam })) return playerTeam
+
+    const rawTeam = String(row?.team || "").trim()
+    if (rawTeam && rowTeamMatchesMatchup(row)) return rawTeam
+
+    return playerTeam || rawTeam || null
+  }
+
+  const buildReadableSurfaceRow = createSurfaceRowBuilder({ buildOverlayExternalSignalInput, resolveSurfaceTeam })
 
   const buildCompactPreviewRows = (rows, limit = 4) => {
     const safeRows = Array.isArray(rows) ? rows : []
@@ -8948,24 +8961,62 @@ app.get("/api/best-available", (req, res) => {
     }
   })
 
-  const curatedMostLikelyToHit = (Array.isArray(layer2CuratedBuckets?.mostLikelyToHit) ? layer2CuratedBuckets.mostLikelyToHit : [])
-    .map((row, index) => buildReadableSurfaceRow(row, {
-      sourceLane: "mostLikelyToHit",
-      sourceRank: index + 1,
-      defaultLane: "bestSingles"
-    }))
-  const curatedBestValue = (Array.isArray(layer2CuratedBuckets?.bestValue) ? layer2CuratedBuckets.bestValue : [])
-    .map((row, index) => buildReadableSurfaceRow(row, {
-      sourceLane: "bestValue",
-      sourceRank: index + 1,
-      defaultLane: "bestSingles"
-    }))
-  const curatedBestUpside = (Array.isArray(layer2CuratedBuckets?.bestUpside) ? layer2CuratedBuckets.bestUpside : [])
-    .map((row, index) => buildReadableSurfaceRow(row, {
-      sourceLane: "bestUpside",
-      sourceRank: index + 1,
-      defaultLane: "bestLadders"
-    }))
+  const buildCuratedSurfaceLane = ({ rows, sourceLane, defaultLane, thinDecision, isEligibleFallbackRow }) => {
+    const surfacedRows = (Array.isArray(rows) ? rows : [])
+      .map((row, index) => buildReadableSurfaceRow(row, {
+        sourceLane,
+        sourceRank: index + 1,
+        defaultLane
+      }))
+
+    const primaryRows = surfacedRows.filter((row) => {
+      const playDecision = String(row?.playDecision || "").toLowerCase()
+      const finalDecisionLabel = String(row?.finalDecisionLabel || "").toLowerCase()
+      return playDecision !== thinDecision && finalDecisionLabel !== "sit"
+    })
+
+    if (primaryRows.length > 0) return primaryRows
+
+    return surfacedRows.filter((row) => {
+      const playDecision = String(row?.playDecision || "").toLowerCase()
+      return playDecision === thinDecision && isEligibleFallbackRow(row)
+    }).slice(0, 3)
+  }
+
+  const curatedMostLikelyToHit = buildCuratedSurfaceLane({
+    rows: Array.isArray(layer2CuratedBuckets?.mostLikelyToHit) ? layer2CuratedBuckets.mostLikelyToHit : [],
+    sourceLane: "mostLikelyToHit",
+    defaultLane: "bestSingles",
+    thinDecision: "stable-thin",
+    isEligibleFallbackRow: (row) => Number(row?.confidenceScore || 0) >= 0.58
+  })
+  const curatedBestValue = buildCuratedSurfaceLane({
+    rows: Array.isArray(layer2CuratedBuckets?.bestValue) ? layer2CuratedBuckets.bestValue : [],
+    sourceLane: "bestValue",
+    defaultLane: "bestSingles",
+    thinDecision: "value-thin",
+    isEligibleFallbackRow: (row) => {
+      const odds = Number(row?.odds || 0)
+      const confidenceScore = Number(row?.confidenceScore || 0)
+      const marketLagScore = Number(row?.marketLagScore || 0)
+      const bookDisagreementScore = Number(row?.bookDisagreementScore || 0)
+      return odds >= -165 && odds <= 280 && confidenceScore >= 0.52 && (marketLagScore >= 0.18 || bookDisagreementScore >= 0.16 || odds >= 100)
+    }
+  })
+  const curatedBestUpside = buildCuratedSurfaceLane({
+    rows: Array.isArray(layer2CuratedBuckets?.bestUpside) ? layer2CuratedBuckets.bestUpside : [],
+    sourceLane: "bestUpside",
+    defaultLane: "bestLadders",
+    thinDecision: "upside-thin",
+    isEligibleFallbackRow: (row) => {
+      const propVariant = String(row?.propVariant || "base").toLowerCase()
+      const odds = Number(row?.odds || 0)
+      const ceilingScore = Number(row?.ceilingScore || 0)
+      const roleSpikeScore = Number(row?.roleSpikeScore || 0)
+      const hasTrueUpsideShape = (propVariant !== "base" && propVariant !== "default") || odds >= 170
+      return hasTrueUpsideShape && ceilingScore >= 0.18 && roleSpikeScore >= 0.12
+    }
+  })
 
   console.log("[CEILING-SIGNAL-EMIT-DEBUG]", {
     bestPayloadRowsWithCeiling: (Array.isArray(bestPayloadRows) ? bestPayloadRows : []).filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,

@@ -401,16 +401,21 @@ const buildCuratedLaneDecision = (row, sourceLane, metrics = {}) => {
   }
 
   if (lane === "bestvalue") {
-    const contextSupport = Math.max(0, ((lineup * 0.62) + (opportunity * 0.38)) - 0.42)
+    const contextSupport = Math.max(0, ((lineup * 0.62) + (opportunity * 0.38)) - 0.38)
     const plusMoneyWindowBonus = odds >= 100 && odds <= 260 ? 0.08 : 0
+    const favoritePenalty = odds < -145 ? 0.07 : 0
+    const rawEdge = Number(row?.edge ?? 0)
+    const normalizedEdge = Number.isFinite(rawEdge) ? Math.max(0, Math.min(1, (rawEdge + 0.5) / 4.5)) : 0.25
     const valueIntentScore =
-      (bookDisagreement * 0.3) +
-      (marketLag * 0.28) +
+      (bookDisagreement * 0.22) +
+      (marketLag * 0.20) +
+      (normalizedEdge * 0.20) +
       (confidence * 0.24) +
-      (contextSupport * 0.12) +
-      plusMoneyWindowBonus
+      (contextSupport * 0.10) +
+      plusMoneyWindowBonus -
+      favoritePenalty
 
-    if (valueIntentScore >= 0.63) {
+    if (valueIntentScore >= 0.62) {
       return {
         playDecision: "value-strong",
         decisionSummary: "L2-VALUE: price inefficiency and support context align for stronger value conviction.",
@@ -436,10 +441,15 @@ const buildCuratedLaneDecision = (row, sourceLane, metrics = {}) => {
     }
   }
 
-  const upsideSignal = (ceiling * 0.34) + (opportunity * 0.27) + (roleSpike * 0.19) + (lineup * 0.08)
-  const upsideIntentScore = (upsideSignal * 0.74) + (confidence * 0.2) + (toUnitScore(odds, 0) * 0.06)
+  const variantKey = String(row?.propVariant || "base").toLowerCase()
+  const isAltUpside = variantKey !== "base" && variantKey !== "default"
+  const plusMoneyPath = odds >= 170 ? 0.08 : odds >= 100 ? 0.04 : -0.02
+  const nonUpsideBasePenalty = !isAltUpside && odds < 170 ? 0.07 : 0
+  const variantCeilingLift = variantKey === "alt-max" ? 0.16 : variantKey === "alt-high" ? 0.11 : variantKey === "alt-mid" ? 0.07 : 0
+  const upsideSignal = (ceiling * 0.34) + (opportunity * 0.27) + (roleSpike * 0.19) + (lineup * 0.08) + variantCeilingLift
+  const upsideIntentScore = (upsideSignal * 0.74) + (confidence * 0.2) + plusMoneyPath - nonUpsideBasePenalty
 
-  if (upsideIntentScore >= 0.63) {
+  if (upsideIntentScore >= 0.62) {
     return {
       playDecision: "upside-strong",
       decisionSummary: "L2-UPSIDE: ceiling and opportunity stack support an intentional boom-style entry.",
@@ -481,8 +491,7 @@ const isTrueCuratedHardStop = (sourceLane, decisionLayer, externalOverlay) => {
     "play-decision-blocked",
     "external-availability-out",
     "external-sit-flag",
-    "risk-fragile-context-thin",
-    "risk-fragile-market-adverse"
+    "risk-fragile-context-thin"
   ].includes(sitReason)
 }
 
@@ -535,7 +544,7 @@ const finalizeRuntimeExternalOverlay = (overlay, externalSignalInput) => {
  * @param {{ buildOverlayExternalSignalInput: Function }} deps
  * @returns {Function} buildReadableSurfaceRow(row, extra?) => shaped row object
  */
-function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
+function createSurfaceRowBuilder({ buildOverlayExternalSignalInput, resolveSurfaceTeam }) {
   return function buildReadableSurfaceRow(row, extra = {}) {
     const sourceLane = extra?.sourceLane || extra?.defaultLane || row?.sourceLane || row?.mustPlaySourceLane || null
     const decisionLayerInput = {
@@ -575,11 +584,14 @@ function createSurfaceRowBuilder({ buildOverlayExternalSignalInput }) {
     const surfacedDecisionBucket = curatedLaneDecision && !shouldPreserveHardStop
       ? curatedLaneDecision.decisionBucket
       : (decisionLayer?.decisionBucket || null)
+    const surfacedTeam = typeof resolveSurfaceTeam === "function"
+      ? (resolveSurfaceTeam(row) || row?.playerTeam || row?.team || null)
+      : (row?.playerTeam || row?.team || null)
 
     return {
       eventId: row?.eventId || null,
       matchup: row?.matchup || null,
-      team: row?.team || null,
+      team: surfacedTeam,
       book: row?.book || null,
       player: row?.player || null,
       marketKey: row?.marketKey || null,

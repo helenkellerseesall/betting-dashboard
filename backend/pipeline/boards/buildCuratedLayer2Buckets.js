@@ -142,18 +142,30 @@ function buildCuratedLayer2Buckets({
     }
   })
 
+  const bestValuePrimaryRowFilter = (row) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const score = Number(row?.score || 0)
+    const edge = Number(row?.edge || 0)
+    const odds = Number(row?.odds || 0)
+    const hasPlusMoneyPath = odds >= 100
+    return hitRate >= 0.52 && score >= 70 && edge >= 0.7 && odds >= -190 && odds <= 300 && (hasPlusMoneyPath || edge >= 1.0)
+  }
+  const bestValueFallbackRowFilter = (row) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const score = Number(row?.score || 0)
+    const edge = Number(row?.edge || 0)
+    const odds = Number(row?.odds || 0)
+    return hitRate >= 0.48 && score >= 65 && edge >= 0.45 && odds >= -190 && odds <= 300
+  }
+  const bestValuePostPlayable = safeCoreRows.filter((row) => isPlayableCandidate(row))
+  const bestValuePostPrimary = bestValuePostPlayable.filter((row) => bestValuePrimaryRowFilter(row))
+  const bestValueUseFallback = bestValuePostPrimary.length < 2 && bestValuePostPlayable.length > 0
+
   const bestValue = selectCuratedRows(safeCoreRows, {
     maxRows: 8,
     maxPerPlayer: 1,
     maxPerMatchup: 2,
-    rowFilter: (row) => {
-      const hitRate = parseHitRate(row?.hitRate)
-      const score = Number(row?.score || 0)
-      const edge = Number(row?.edge || 0)
-      const odds = Number(row?.odds || 0)
-      const hasPlusMoneyPath = odds >= 100
-      return hitRate >= 0.52 && score >= 70 && edge >= 0.7 && odds >= -190 && odds <= 300 && (hasPlusMoneyPath || edge >= 1.0)
-    },
+    rowFilter: bestValueUseFallback ? bestValueFallbackRowFilter : bestValuePrimaryRowFilter,
     rankFn: (row) => {
       const odds = Number(row?.odds || 0)
       const confidence = Number(row?.adjustedConfidenceScore ?? row?.playerConfidenceScore ?? 0)
@@ -260,7 +272,7 @@ function buildCuratedLayer2Buckets({
     return bestUpsideAllowBlockedRow(row)
   })
   const upsidePostBaseFilterCandidates = upsidePostBlockCandidates.filter((row) => bestUpsideBaseRowFilter(row))
-  const upsideUseFallbackFilter = upsidePostBaseFilterCandidates.length === 0 && upsidePostBlockCandidates.length > 0
+  const upsideUseFallbackFilter = upsidePostBaseFilterCandidates.length < 3 && upsidePostBlockCandidates.length > 0
   const upsidePostFilterCandidates = upsideUseFallbackFilter
     ? upsidePostBlockCandidates.filter((row) => bestUpsideFallbackRowFilter(row))
     : upsidePostBaseFilterCandidates

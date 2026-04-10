@@ -283,8 +283,18 @@ function buildFeaturedPlays({
         return featuredPlayScore(b) - featuredPlayScore(a)
       })
 
-    if (primary.length >= 4 || !useSpecialLikeFirstBasketFallback) {
-      return primary.slice(0, 4)
+    const isDdInPrimary = (row) => {
+      const mk = String(row?.marketKey || "")
+      const pt = String(row?.propType || "")
+      return mk === "player_double_double" || pt === "Double Double"
+    }
+    const primaryDdCount = primary.filter(isDdInPrimary).length
+    const finalPrimary = primaryDdCount >= 3 && (primary.length - primaryDdCount) < 2
+      ? [...primary.filter((row) => !isDdInPrimary(row)), ...primary.filter(isDdInPrimary).slice(0, 2)]
+      : primary
+
+    if (finalPrimary.length >= 4 || !useSpecialLikeFirstBasketFallback) {
+      return finalPrimary.slice(0, 4)
     }
 
     const fallbackSourceRows = dedupeBoardRows([
@@ -292,7 +302,7 @@ function buildFeaturedPlays({
       ...firstBasketBoard
     ])
 
-    const seenPlayerKeys = new Set(primary.map((row) => normalizeLower(row?.player)))
+    const seenPlayerKeys = new Set(finalPrimary.map((row) => normalizeLower(row?.player)))
     const fallback = fallbackSourceRows
       .filter((row) => {
         const playerKey = normalizeLower(row?.player)
@@ -302,7 +312,7 @@ function buildFeaturedPlays({
       })
       .sort((a, b) => (featuredPlayScore(b) + specialLikeFallbackPromotionScore(b)) - (featuredPlayScore(a) + specialLikeFallbackPromotionScore(a)))
 
-    return [...primary, ...fallback].slice(0, 4)
+    return [...finalPrimary, ...fallback].slice(0, 4)
   })()
 
   const featuredMustPlays = ((Array.isArray(mustPlayBoard) ? mustPlayBoard : [])
