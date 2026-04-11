@@ -35,7 +35,7 @@ function buildPlayerTeamIndex(rows) {
 
   for (const row of safeRows) {
     const player = String(row?.player || "").trim()
-    const team = String(row?.team || "").trim()
+    const team = String(row?.team || row?.teamResolved || row?.teamName || row?.teamCode || "").trim()
     if (!player || !team || isLikelyMatchupLabel(team)) continue
 
     if (!playerTeamCounts[player]) playerTeamCounts[player] = {}
@@ -52,8 +52,11 @@ function buildPlayerTeamIndex(rows) {
 }
 
 function inferSurfaceTeamLabel(row, playerTeamIndex = {}) {
-  const directTeam = String(row?.team || "").trim()
-  if (directTeam && !isLikelyMatchupLabel(directTeam)) return directTeam
+  const directCandidates = [row?.team, row?.teamResolved, row?.teamName, row?.teamCode]
+  for (const candidate of directCandidates) {
+    const directTeam = String(candidate || "").trim()
+    if (directTeam && !isLikelyMatchupLabel(directTeam)) return directTeam
+  }
 
   const player = String(row?.player || "").trim()
   if (player && playerTeamIndex[player]) return playerTeamIndex[player]
@@ -771,7 +774,8 @@ function toTicketLeg(row, role) {
     line: row?.line,
     odds: row?.odds,
     surfaceScore: toNumberOrNull(row?.surfaceScore),
-    homeRunPathScore: toNumberOrNull(row?.homeRunPathScore)
+    homeRunPathScore: toNumberOrNull(row?.homeRunPathScore),
+    bombTier: row?.bombTier || null
   }
 }
 
@@ -822,15 +826,30 @@ function buildTicketCandidate(legs, ticketType) {
   const payoutDecimal = safeLegs.reduce((acc, leg) => acc * toDecimalOdds(leg?.odds), 1)
   const payoutSignal = clamp((payoutDecimal - 2.2) / 10, 0, 1)
 
+  const bombLegs = safeLegs.filter((leg) => String(leg?.role || "") === "bomb")
+  const bombSpecificity = bombLegs.length
+    ? (bombLegs.reduce((sum, leg) => {
+      const tier = String(leg?.bombTier || "")
+      const tierWeight =
+        tier === "hr" ? 1 :
+        tier === "strong" ? 0.86 :
+        tier === "medium" ? 0.7 :
+        tier === "soft" ? 0.52 :
+        0.64
+      return sum + tierWeight
+    }, 0) / bombLegs.length)
+    : 0.64
+
   const matchupCounts = countBy(safeLegs, (leg) => leg?.matchup)
   const matchupValues = Object.values(matchupCounts)
   const maxMatchupShare = matchupValues.length ? (Math.max(...matchupValues) / safeLegs.length) : 1
   const diversitySignal = clamp(1 - maxMatchupShare + (1 / safeLegs.length), 0.2, 1)
 
   const ticketScore = Number((
-    (avgQuality * 0.62) +
-    (payoutSignal * 0.28) +
-    (diversitySignal * 0.1)
+    (avgQuality * 0.54) +
+    (payoutSignal * 0.24) +
+    (diversitySignal * 0.1) +
+    (bombSpecificity * 0.12)
   ).toFixed(4))
 
   return {
@@ -842,17 +861,130 @@ function buildTicketCandidate(legs, ticketType) {
   }
 }
 
-function rankTicketCandidates(candidates, limit) {
+function createTicketExposureState() {
+  return {
+    supportPlayerUses: {},
+    pitcherSupportPlayerUses: {},
+    bombPlayerUses: {},
+    exactPlayerMarketComboUses: {},
+    matchupUses: {}
+  }
+}
+
+function uniqueList(values) {
+  return [...new Set((Array.isArray(values) ? values : []).filter(Boolean))]
+}
+
+function buildCandidateExposureKeys(ticket) {
+  const safeLegs = Array.isArray(ticket?.legs) ? ticket.legs : []
+
+  const supportPlayers = uniqueList(
+    safeLegs
+      .filter((leg) => String(leg?.role || "") === "support")
+      .map((leg) => toKey(leg?.player, ""))
+  )
+
+  const pitcherSupportPlayers = uniqueList(
+    safeLegs
+      .filter((leg) => String(leg?.role || "") === "pitcherSupport")
+      .map((leg) => toKey(leg?.player, ""))
+  )
+
+  const bombPlayers = uniqueList(
+    safeLegs
+      .filter((leg) => String(leg?.role || "") === "bomb")
+      .map((leg) => toKey(leg?.player, ""))
+  )
+
+  const exactPlayerMarketCombos = uniqueList(
+    safeLegs
+      .map((leg) => [toKey(leg?.player, ""), toKey(leg?.marketKey, "")].join("|"))
+  )
+
+  const matchups = uniqueList(safeLegs.map((leg) => toKey(leg?.matchup, "")))
+
+  return {
+    supportPlayers,
+    pitcherSupportPlayers,
+    bombPlayers,
+    exactPlayerMarketCombos,
+    matchups
+  }
+}
+
+function canAcceptCandidateWithExposureState(exposureKeys, exposureState, constraints) {
+  const supportCap = Math.max(1, Number(constraints?.maxSupportPlayerUsesAfterFirst || 1))
+  const pitcherSupportCap = Math.max(1, Number(constraints?.maxPitcherSupportPlayerUsesAfterFirst || 1))
+  const bombCap = Math.max(1, Number(constraints?.maxBombPlayerUsesAfterFirst || 1))
+  const exactComboCap = Math.max(1, Number(constraints?.maxExactPlayerMarketComboUses || 1))
+  const matchupCap = Math.max(1, Number(constraints?.maxMatchupUsesAcrossSurfacedTickets || 2))
+
+  for (const player of exposureKeys.supportPlayers) {
+    if (Number(exposureState.supportPlayerUses[player] || 0) >= supportCap) return false
+  }
+  for (const player of exposureKeys.pitcherSupportPlayers) {
+    if (Number(exposureState.pitcherSupportPlayerUses[player] || 0) >= pitcherSupportCap) return false
+  }
+  for (const player of exposureKeys.bombPlayers) {
+    if (Number(exposureState.bombPlayerUses[player] || 0) >= bombCap) return false
+  }
+  for (const combo of exposureKeys.exactPlayerMarketCombos) {
+    if (Number(exposureState.exactPlayerMarketComboUses[combo] || 0) >= exactComboCap) return false
+  }
+  for (const matchup of exposureKeys.matchups) {
+    if (Number(exposureState.matchupUses[matchup] || 0) >= matchupCap) return false
+  }
+
+  return true
+}
+
+function recordCandidateExposureState(exposureKeys, exposureState) {
+  for (const player of exposureKeys.supportPlayers) {
+    exposureState.supportPlayerUses[player] = Number(exposureState.supportPlayerUses[player] || 0) + 1
+  }
+  for (const player of exposureKeys.pitcherSupportPlayers) {
+    exposureState.pitcherSupportPlayerUses[player] = Number(exposureState.pitcherSupportPlayerUses[player] || 0) + 1
+  }
+  for (const player of exposureKeys.bombPlayers) {
+    exposureState.bombPlayerUses[player] = Number(exposureState.bombPlayerUses[player] || 0) + 1
+  }
+  for (const combo of exposureKeys.exactPlayerMarketCombos) {
+    exposureState.exactPlayerMarketComboUses[combo] = Number(exposureState.exactPlayerMarketComboUses[combo] || 0) + 1
+  }
+  for (const matchup of exposureKeys.matchups) {
+    exposureState.matchupUses[matchup] = Number(exposureState.matchupUses[matchup] || 0) + 1
+  }
+}
+
+function selectSurfacedTicketsHard(candidates, limit, constraints = {}) {
   const safeCandidates = Array.isArray(candidates) ? candidates : []
   const maxRows = Math.max(1, Number(limit) || 6)
-  const out = []
-  const seen = new Set()
+  const sorted = safeCandidates.sort((a, b) => Number(b?.ticketScore || 0) - Number(a?.ticketScore || 0))
 
-  for (const ticket of safeCandidates.sort((a, b) => Number(b?.ticketScore || 0) - Number(a?.ticketScore || 0))) {
-    const key = buildTicketKeyFromLegs(ticket?.legs || [])
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    out.push(ticket)
+  const seen = new Set()
+  const exposureState = createTicketExposureState()
+  const out = []
+
+  for (const candidate of sorted) {
+    const candidateKey = buildTicketKeyFromLegs(candidate?.legs || [])
+    if (!candidateKey || seen.has(candidateKey)) continue
+
+    const exposureKeys = buildCandidateExposureKeys(candidate)
+
+    // Preserve strongest first ticket in each family.
+    if (!out.length) {
+      seen.add(candidateKey)
+      out.push(candidate)
+      recordCandidateExposureState(exposureKeys, exposureState)
+      if (out.length >= maxRows) break
+      continue
+    }
+
+    if (!canAcceptCandidateWithExposureState(exposureKeys, exposureState, constraints)) continue
+
+    seen.add(candidateKey)
+    out.push(candidate)
+    recordCandidateExposureState(exposureKeys, exposureState)
     if (out.length >= maxRows) break
   }
 
@@ -866,14 +998,20 @@ function buildBestBombPairTickets({ bombRows, limit = 6 }) {
   for (let i = 0; i < bombs.length; i += 1) {
     for (let j = i + 1; j < bombs.length; j += 1) {
       const ticket = buildTicketCandidate([
-        toTicketLeg(bombs[i], "bomb"),
-        toTicketLeg(bombs[j], "bomb")
+        toTicketLeg({ ...bombs[i], bombTier: getHomeRunProxyTier(bombs[i]) }, "bomb"),
+        toTicketLeg({ ...bombs[j], bombTier: getHomeRunProxyTier(bombs[j]) }, "bomb")
       ], "bombPair")
       if (ticket) candidates.push(ticket)
     }
   }
 
-  return rankTicketCandidates(candidates, limit)
+  return selectSurfacedTicketsHard(candidates, limit, {
+    maxSupportPlayerUsesAfterFirst: 1,
+    maxPitcherSupportPlayerUsesAfterFirst: 1,
+    maxBombPlayerUsesAfterFirst: 2,
+    maxExactPlayerMarketComboUses: 1,
+    maxMatchupUsesAcrossSurfacedTickets: 2
+  })
 }
 
 function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, limit = 8 }) {
@@ -885,7 +1023,7 @@ function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, l
   for (const bomb of bombs) {
     for (const support of supports) {
       const twoLeg = buildTicketCandidate([
-        toTicketLeg(bomb, "bomb"),
+        toTicketLeg({ ...bomb, bombTier: getHomeRunProxyTier(bomb) }, "bomb"),
         toTicketLeg(support, "support")
       ], "bombPlusSupport")
       if (twoLeg) candidates.push(twoLeg)
@@ -894,7 +1032,7 @@ function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, l
     for (const support of supports.slice(0, 4)) {
       for (const pitcher of pitchers.slice(0, 3)) {
         const threeLeg = buildTicketCandidate([
-          toTicketLeg(bomb, "bomb"),
+          toTicketLeg({ ...bomb, bombTier: getHomeRunProxyTier(bomb) }, "bomb"),
           toTicketLeg(support, "support"),
           toTicketLeg(pitcher, "pitcherSupport")
         ], "bombPlusSupport")
@@ -903,7 +1041,13 @@ function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, l
     }
   }
 
-  return rankTicketCandidates(candidates, limit)
+  return selectSurfacedTicketsHard(candidates, limit, {
+    maxSupportPlayerUsesAfterFirst: 1,
+    maxPitcherSupportPlayerUsesAfterFirst: 1,
+    maxBombPlayerUsesAfterFirst: 1,
+    maxExactPlayerMarketComboUses: 1,
+    maxMatchupUsesAcrossSurfacedTickets: 2
+  })
 }
 
 function buildBestPitcherPlusBombTickets({ bombRows, pitcherRows, limit = 6 }) {
@@ -915,13 +1059,19 @@ function buildBestPitcherPlusBombTickets({ bombRows, pitcherRows, limit = 6 }) {
     for (const pitcher of pitchers) {
       const ticket = buildTicketCandidate([
         toTicketLeg(pitcher, "pitcherSupport"),
-        toTicketLeg(bomb, "bomb")
+        toTicketLeg({ ...bomb, bombTier: getHomeRunProxyTier(bomb) }, "bomb")
       ], "pitcherPlusBomb")
       if (ticket) candidates.push(ticket)
     }
   }
 
-  return rankTicketCandidates(candidates, limit)
+  return selectSurfacedTicketsHard(candidates, limit, {
+    maxSupportPlayerUsesAfterFirst: 1,
+    maxPitcherSupportPlayerUsesAfterFirst: 1,
+    maxBombPlayerUsesAfterFirst: 1,
+    maxExactPlayerMarketComboUses: 1,
+    maxMatchupUsesAcrossSurfacedTickets: 2
+  })
 }
 
 function buildMlbSurfaceBoard(rows, options = {}) {
