@@ -22,11 +22,24 @@ function sortCountEntries(countMap, limit = 25) {
     .map(([key, count]) => ({ key, count }))
 }
 
+function inferSurfaceTeamLabel(row) {
+  const directTeam = String(row?.team || "").trim()
+  if (directTeam) return directTeam
+
+  const matchup = String(row?.matchup || "").trim()
+  if (matchup) return matchup
+
+  return null
+}
+
 function compactMlbRow(row) {
   return {
     eventId: row?.eventId || null,
     matchup: row?.matchup || null,
     gameTime: row?.gameTime || null,
+    team: inferSurfaceTeamLabel(row),
+    awayTeam: row?.awayTeam || null,
+    homeTeam: row?.homeTeam || null,
     book: row?.book || null,
     marketKey: row?.marketKey || null,
     marketFamily: row?.marketFamily || null,
@@ -154,6 +167,58 @@ function computeLowInformationPenalty(row) {
   if (side === "under" && line <= 0.5 && (marketKey.includes("rbis") || marketKey.includes("home_runs"))) {
     return 0.1
   }
+
+  return 0
+}
+
+function computePositiveProductionBonus(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+
+  if (!(side === "over" || side === "yes" || side === "to hit" || side === "hit")) return 0
+
+  if (marketKey.includes("home_run") || marketKey.includes("home_runs")) return 0.16
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 1.5) return 0.08
+  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 1.5) return 0.06
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line >= 0.5) return 0.08
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line >= 0.5) return 0.08
+  if (marketKey.includes("batter_hits_alternate") && Number.isFinite(line) && line >= 1.5) return 0.06
+
+  return 0
+}
+
+// Penalise props that represent negative outcomes or near-zero player production.
+// These contaminate "best hitter" and "best pitcher" lanes with low-value rows.
+function computeNegativeDirectionalPropPenalty(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const isAlt = isAlternateMarketKey(marketKey) || String(row?.marketFamily || "") === "ladder"
+
+  // Hitter: trivially weak "get any hit" prop (primary standard only; alts already hit by trivialAltPenalty)
+  if (marketKey === "batter_hits" && side === "over" && !isAlt && Number.isFinite(line) && line <= 0.5) return 0.20
+
+  // Hitter: betting a player gets NO hits — not a quality hitter pick
+  if (marketKey === "batter_hits" && side === "under") return 0.28
+
+  // Hitter: betting zero total-bases production (primary standard)
+  if (marketKey === "batter_total_bases" && side === "under" && !isAlt && Number.isFinite(line) && line <= 1.5) return 0.16
+
+  // Hitter: betting a player doesn't walk — low-value direction for a "best hitter" lane
+  if (marketKey === "batter_walks" && side === "under") return 0.14
+
+  // Hitter: under-0.5 production markets are weak filler for best hitter lane quality.
+  if (marketKey === "batter_runs_scored" && side === "under" && Number.isFinite(line) && line <= 0.5) return 0.24
+  if (marketKey === "batter_rbis" && side === "under" && Number.isFinite(line) && line <= 0.5) return 0.22
+  if (marketKey.includes("home_runs") && side === "under") return 0.28
+
+  // Pitcher: bad-outcome props — pitcher gives up runs, walks batters, allows hits, or gets pulled early
+  if (marketKey.includes("pitcher_earned_runs") && side === "over") return 0.22
+  if (marketKey.includes("pitcher_outs") && side === "under") return 0.20
+  if (marketKey.includes("pitcher_strikeouts") && side === "under" && !isAlt) return 0.18
+  if (marketKey.includes("pitcher_hits_allowed") && side === "over") return 0.16
+  if (marketKey.includes("pitcher_walks") && side === "over") return 0.16
 
   return 0
 }
@@ -293,7 +358,8 @@ function rankRows(rows, options = {}) {
     : (
       groupType === "pitchers" ? 2 :
       groupType === "overall" ? 2 :
-      groupType === "hitters" ? 3 :
+      groupType === "hitters" ? 2 :
+      groupType === "specials" ? 2 :
       4
     )
 
@@ -341,6 +407,8 @@ function rankRows(rows, options = {}) {
       const trivialAltPenalty = computeTrivialAlternatePenalty(row)
       const heavyFavoritePenalty = computeHeavyFavoritePenalty(odds)
       const lowInformationPenalty = computeLowInformationPenalty(row)
+      const negativeDirectionalPenalty = computeNegativeDirectionalPropPenalty(row)
+      const positiveProductionBonus = computePositiveProductionBonus(row)
 
       const score = Number((
         (impliedSignal * 0.2) +
@@ -350,10 +418,12 @@ function rankRows(rows, options = {}) {
         (primaryMarketSignal * 0.16) +
         (bookSignal * 0.06) +
         (matchupSignal * 0.06) +
-        familyBonus -
+        familyBonus +
+        positiveProductionBonus -
         trivialAltPenalty -
         heavyFavoritePenalty -
-        lowInformationPenalty
+        lowInformationPenalty -
+        negativeDirectionalPenalty
       ).toFixed(4))
 
       return {
@@ -402,6 +472,205 @@ function rankRows(rows, options = {}) {
   return deduped
 }
 
+function isHomeRunMarketRow(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const propType = String(row?.propType || "").toLowerCase()
+  return marketKey.includes("home_run") || marketKey.includes("home_runs") || propType.includes("home run")
+}
+
+function isFirstHomeRunSpecialRow(row) {
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const propType = String(row?.propType || "").toLowerCase()
+  return marketKey.includes("first_home_run") || propType.includes("first home run")
+}
+
+function isStandardHomeRunPropRow(row) {
+  if (!isHomeRunMarketRow(row)) return false
+  if (isFirstHomeRunSpecialRow(row)) return false
+
+  const family = String(row?.marketFamily || "")
+  return family === "standard" || family === "ladder"
+}
+
+function isHomeRunProxyCandidateRow(row) {
+  if (row?.isPitcherMarket === true) return false
+  if (isFirstHomeRunSpecialRow(row)) return false
+
+  const family = String(row?.marketFamily || "")
+  if (family !== "standard" && family !== "ladder") return false
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const odds = toNumberOrNull(row?.odds)
+
+  if (!(side === "over" || side === "yes")) return false
+  if (!Number.isFinite(odds) || odds < 100 || odds > 1000) return false
+
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 1.5) return true
+  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 1.5) return true
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line >= 0.5) return true
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line >= 0.5) return true
+  if (marketKey.includes("batter_hits_alternate") && Number.isFinite(line) && line >= 1.5) return true
+
+  return false
+}
+
+function computeHomeRunPayoutSignal(odds) {
+  const n = toNumberOrNull(odds)
+  if (!Number.isFinite(n)) return 0
+
+  // Keep bombs realistic: reward meaningful plus-money while discounting extreme tails.
+  if (n >= 450 && n <= 1200) return 1
+  if (n >= 300 && n < 450) return 0.82
+  if (n > 1200 && n <= 1800) return 0.7
+  if (n > 1800 && n <= 2200) return 0.42
+  if (n >= 200 && n < 300) return 0.54
+  return 0.2
+}
+
+function buildBestHomeRunPlays(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
+
+  let homeRunRows = safeRows.filter((row) => {
+    if (!isStandardHomeRunPropRow(row)) return false
+
+    const player = String(row?.player || "").trim()
+    const side = String(row?.side || "").toLowerCase()
+    const odds = toNumberOrNull(row?.odds)
+    if (!player || !Number.isFinite(odds)) return false
+
+    if (!(side === "yes" || side === "over" || side === "to hit" || side === "hit")) return false
+
+    // Avoid fake bombs and dead chalk.
+    if (odds < 200 || odds > 2200) return false
+
+    return true
+  })
+
+  // Hard correction: if the live feed has no standard HR markets tonight,
+  // fall back to strong HR-proxy hitter production rows instead of surfacing an empty lane.
+  if (!homeRunRows.length) {
+    homeRunRows = safeRows.filter((row) => isHomeRunProxyCandidateRow(row))
+  }
+
+  const byBook = countBy(homeRunRows, (row) => row?.book)
+  const maxBookCount = Math.max(1, ...Object.values(byBook))
+  const playerMarketCounts = countBy(homeRunRows, (row) => [toKey(row?.player, ""), toMarketBaseKey(row?.marketKey), toKey(row?.side, "")].join("|"))
+  const maxPlayerMarketCount = Math.max(1, ...Object.values(playerMarketCounts))
+
+  const scored = homeRunRows
+    .map((row) => {
+      const odds = toNumberOrNull(row?.odds)
+      const implied = impliedProbabilityFromAmerican(odds)
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      const line = toNumberOrNull(row?.line)
+      const isProxy = isHomeRunProxyCandidateRow(row) && !isStandardHomeRunPropRow(row)
+
+      const hrPathSignal = implied == null ? 0.25 : clamp((implied - 0.05) / 0.13, 0, 1)
+      const payoutSignal = computeHomeRunPayoutSignal(odds)
+      const marketTypeSignal = isProxy ? 0.74 : 1
+      const lineSignal = Number.isFinite(line)
+        ? (line >= 0.5 && line <= 1.5 ? 1 : 0.68)
+        : 0.88
+
+      const consensusKey = [toKey(row?.player, ""), toMarketBaseKey(row?.marketKey), toKey(row?.side, "")].join("|")
+      const consensusSignal = clamp(Number(playerMarketCounts[consensusKey] || 1) / maxPlayerMarketCount, 0.25, 1)
+      const bookSignal = clamp(Number(byBook[toKey(row?.book, "unknown")] || 1) / maxBookCount, 0.2, 1)
+
+      const extremeLongshotPenalty = Number.isFinite(odds) && odds > 1700 ? 0.14 : 0
+      const proxyPenalty = isProxy ? 0.06 : 0
+
+      const homeRunPathScore = Number((
+        (hrPathSignal * 0.28) +
+        (payoutSignal * 0.24) +
+        (marketTypeSignal * 0.2) +
+        (consensusSignal * 0.14) +
+        (lineSignal * 0.08) +
+        (bookSignal * 0.06) -
+        extremeLongshotPenalty -
+        proxyPenalty
+      ).toFixed(4))
+
+      return {
+        row,
+        homeRunPathScore
+      }
+    })
+    .sort((a, b) => b.homeRunPathScore - a.homeRunPathScore)
+
+  const out = []
+  const seen = new Set()
+  const perPlayer = {}
+  const perMatchup = {}
+  const perMarket = {}
+
+  for (const candidate of scored) {
+    const row = candidate.row
+    const key = buildCandidateKey(row)
+    if (seen.has(key)) continue
+
+    const player = toKey(row?.player, "")
+    const matchup = toKey(row?.matchup, "unknown")
+    const marketKey = toKey(row?.marketKey, "unknown")
+
+    if (player && Number(perPlayer[player] || 0) >= 1) continue
+    if (Number(perMatchup[matchup] || 0) >= 2) continue
+    if (Number(perMarket[marketKey] || 0) >= 4) continue
+
+    seen.add(key)
+    if (player) perPlayer[player] = Number(perPlayer[player] || 0) + 1
+    perMatchup[matchup] = Number(perMatchup[matchup] || 0) + 1
+    perMarket[marketKey] = Number(perMarket[marketKey] || 0) + 1
+
+    out.push({
+      ...compactMlbRow(row),
+      homeRunPathScore: candidate.homeRunPathScore,
+      surfaceScore: candidate.homeRunPathScore
+    })
+
+    if (out.length >= maxRows) break
+  }
+
+  return out
+}
+
+function buildBestLongshotPlays(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
+
+  const homeRunCore = buildBestHomeRunPlays(safeRows, { maxRows })
+  const longshotCandidates = rankRows(
+    safeRows.filter((row) => {
+      if (String(row?.isPitcherMarket) === "true" || row?.isPitcherMarket === true) return false
+      const odds = toNumberOrNull(row?.odds)
+      if (!Number.isFinite(odds)) return false
+      if (odds < 100 || odds > 900) return false
+      if (isFirstHomeRunSpecialRow(row)) return false
+      return true
+    }),
+    {
+      groupType: "hitters",
+      maxRows: maxRows * 2,
+      perMarketKeyMax: 2
+    }
+  )
+
+  const out = []
+  const seen = new Set()
+
+  for (const row of [...homeRunCore, ...longshotCandidates]) {
+    const key = buildCandidateKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+    if (out.length >= maxRows) break
+  }
+
+  return out
+}
+
 function buildMlbSurfaceBoard(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRowsPerGroup = Number.isFinite(options.maxRowsPerGroup)
@@ -422,6 +691,8 @@ function buildMlbSurfaceBoard(rows, options = {}) {
   const bestHitters = rankRows(hitterRows, { groupType: "hitters", maxRows: maxRowsPerGroup })
   const bestPitchers = rankRows(pitcherRows, { groupType: "pitchers", maxRows: maxRowsPerGroup, perMarketKeyMax: 2 })
   const bestSpecials = rankRows(specialRows, { groupType: "specials", maxRows: maxRowsPerGroup })
+  const bestHomeRunPlays = buildBestHomeRunPlays(safeRows, { maxRows: Math.min(maxRowsPerGroup, 6) })
+  const bestLongshotPlays = buildBestLongshotPlays(hitterRows, { maxRows: Math.min(maxRowsPerGroup, 6) })
   const bestGameMarkets = rankRows(gameRows, { groupType: "game", maxRows: maxRowsPerGroup })
 
   const bestOverall = buildBalancedOverallBoard({
@@ -488,6 +759,8 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     bestHitters,
     bestPitchers,
     bestSpecials,
+    bestHomeRunPlays,
+    bestLongshotPlays,
     bestGameMarkets,
     bestOverall,
     safeHitters,
@@ -500,6 +773,8 @@ function buildMlbSurfaceBoard(rows, options = {}) {
       bestHitters: bestHitters.length,
       bestPitchers: bestPitchers.length,
       bestSpecials: bestSpecials.length,
+      bestHomeRunPlays: bestHomeRunPlays.length,
+      bestLongshotPlays: bestLongshotPlays.length,
       bestGameMarkets: bestGameMarkets.length,
       bestOverall: bestOverall.length,
       safeHitters: safeHitters.length,

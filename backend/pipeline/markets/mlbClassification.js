@@ -60,8 +60,7 @@ const MLB_MARKET_TYPE_RULES = [
       "first home run",
       "first_home_run",
       "first hr",
-      "first hr scorer",
-      "anytime_home_run"
+      "first hr scorer"
     ]
   },
   {
@@ -173,6 +172,8 @@ const MLB_MARKET_TYPE_RULES = [
     matches: [
       "player_home_runs",
       "batter_home_runs",
+      "anytime_home_run",
+      "to_hit_home_run",
       "home runs",
       "home_runs",
       "hr"
