@@ -22,22 +22,52 @@ function sortCountEntries(countMap, limit = 25) {
     .map(([key, count]) => ({ key, count }))
 }
 
-function inferSurfaceTeamLabel(row) {
-  const directTeam = String(row?.team || "").trim()
-  if (directTeam) return directTeam
+function isLikelyMatchupLabel(value) {
+  const text = String(value || "").trim()
+  if (!text) return false
+  const lower = text.toLowerCase()
+  return lower.includes("@") || lower.includes(" vs ") || lower.includes(" vs.")
+}
 
-  const matchup = String(row?.matchup || "").trim()
-  if (matchup) return matchup
+function buildPlayerTeamIndex(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const playerTeamCounts = {}
+
+  for (const row of safeRows) {
+    const player = String(row?.player || "").trim()
+    const team = String(row?.team || "").trim()
+    if (!player || !team || isLikelyMatchupLabel(team)) continue
+
+    if (!playerTeamCounts[player]) playerTeamCounts[player] = {}
+    playerTeamCounts[player][team] = Number(playerTeamCounts[player][team] || 0) + 1
+  }
+
+  const out = {}
+  for (const [player, teamCounts] of Object.entries(playerTeamCounts)) {
+    const winner = Object.entries(teamCounts).sort((a, b) => b[1] - a[1])[0]
+    if (winner?.[0]) out[player] = winner[0]
+  }
+
+  return out
+}
+
+function inferSurfaceTeamLabel(row, playerTeamIndex = {}) {
+  const directTeam = String(row?.team || "").trim()
+  if (directTeam && !isLikelyMatchupLabel(directTeam)) return directTeam
+
+  const player = String(row?.player || "").trim()
+  if (player && playerTeamIndex[player]) return playerTeamIndex[player]
 
   return null
 }
 
-function compactMlbRow(row) {
+function compactMlbRow(row, options = {}) {
+  const playerTeamIndex = options.playerTeamIndex || {}
   return {
     eventId: row?.eventId || null,
     matchup: row?.matchup || null,
     gameTime: row?.gameTime || null,
-    team: inferSurfaceTeamLabel(row),
+    team: inferSurfaceTeamLabel(row, playerTeamIndex),
     awayTeam: row?.awayTeam || null,
     homeTeam: row?.homeTeam || null,
     book: row?.book || null,
@@ -462,7 +492,7 @@ function rankRows(rows, options = {}) {
     perMarketKey[marketKey] = Number(perMarketKey[marketKey] || 0) + 1
 
     deduped.push({
-      ...compactMlbRow(row),
+      ...compactMlbRow(row, { playerTeamIndex: options.playerTeamIndex }),
       surfaceScore: candidate.surfaceScore
     })
 
@@ -516,6 +546,34 @@ function isHomeRunProxyCandidateRow(row) {
   return false
 }
 
+function getHomeRunProxyTier(row) {
+  if (isStandardHomeRunPropRow(row)) return "hr"
+  if (!isHomeRunProxyCandidateRow(row)) return null
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+
+  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 2.5) return "strong"
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 2.5) return "strong"
+
+  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 1.5) return "medium"
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 1.5) return "medium"
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line >= 0.5) return "medium"
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line >= 0.5) return "medium"
+
+  if (marketKey.includes("batter_hits_alternate") && Number.isFinite(line) && line >= 1.5) return "soft"
+
+  return null
+}
+
+function proxyTierWeight(tier) {
+  if (tier === "hr") return 1
+  if (tier === "strong") return 0.9
+  if (tier === "medium") return 0.74
+  if (tier === "soft") return 0.52
+  return 0
+}
+
 function computeHomeRunPayoutSignal(odds) {
   const n = toNumberOrNull(odds)
   if (!Number.isFinite(n)) return 0
@@ -533,7 +591,7 @@ function buildBestHomeRunPlays(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
 
-  let homeRunRows = safeRows.filter((row) => {
+  const trueHomeRunRows = safeRows.filter((row) => {
     if (!isStandardHomeRunPropRow(row)) return false
 
     const player = String(row?.player || "").trim()
@@ -548,6 +606,15 @@ function buildBestHomeRunPlays(rows, options = {}) {
 
     return true
   })
+
+  const strongProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "strong")
+  const mediumProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "medium")
+  const softProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "soft")
+
+  let homeRunRows = [...trueHomeRunRows, ...strongProxyRows, ...mediumProxyRows]
+  if (homeRunRows.length < maxRows) {
+    homeRunRows = [...homeRunRows, ...softProxyRows]
+  }
 
   // Hard correction: if the live feed has no standard HR markets tonight,
   // fall back to strong HR-proxy hitter production rows instead of surfacing an empty lane.
@@ -566,11 +633,12 @@ function buildBestHomeRunPlays(rows, options = {}) {
       const implied = impliedProbabilityFromAmerican(odds)
       const marketKey = String(row?.marketKey || "").toLowerCase()
       const line = toNumberOrNull(row?.line)
-      const isProxy = isHomeRunProxyCandidateRow(row) && !isStandardHomeRunPropRow(row)
+      const proxyTier = getHomeRunProxyTier(row)
+      const isProxy = proxyTier !== "hr"
 
       const hrPathSignal = implied == null ? 0.25 : clamp((implied - 0.05) / 0.13, 0, 1)
       const payoutSignal = computeHomeRunPayoutSignal(odds)
-      const marketTypeSignal = isProxy ? 0.74 : 1
+      const marketTypeSignal = proxyTierWeight(proxyTier)
       const lineSignal = Number.isFinite(line)
         ? (line >= 0.5 && line <= 1.5 ? 1 : 0.68)
         : 0.88
@@ -580,7 +648,11 @@ function buildBestHomeRunPlays(rows, options = {}) {
       const bookSignal = clamp(Number(byBook[toKey(row?.book, "unknown")] || 1) / maxBookCount, 0.2, 1)
 
       const extremeLongshotPenalty = Number.isFinite(odds) && odds > 1700 ? 0.14 : 0
-      const proxyPenalty = isProxy ? 0.06 : 0
+      const proxyPenalty =
+        proxyTier === "soft" ? 0.14 :
+        proxyTier === "medium" ? 0.08 :
+        proxyTier === "strong" ? 0.03 :
+        0
 
       const homeRunPathScore = Number((
         (hrPathSignal * 0.28) +
@@ -625,7 +697,7 @@ function buildBestHomeRunPlays(rows, options = {}) {
     perMarket[marketKey] = Number(perMarket[marketKey] || 0) + 1
 
     out.push({
-      ...compactMlbRow(row),
+      ...compactMlbRow(row, { playerTeamIndex: options.playerTeamIndex }),
       homeRunPathScore: candidate.homeRunPathScore,
       surfaceScore: candidate.homeRunPathScore
     })
@@ -640,7 +712,7 @@ function buildBestLongshotPlays(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
 
-  const homeRunCore = buildBestHomeRunPlays(safeRows, { maxRows })
+  const homeRunCore = buildBestHomeRunPlays(safeRows, { maxRows, playerTeamIndex: options.playerTeamIndex })
   const longshotCandidates = rankRows(
     safeRows.filter((row) => {
       if (String(row?.isPitcherMarket) === "true" || row?.isPitcherMarket === true) return false
@@ -671,11 +743,193 @@ function buildBestLongshotPlays(rows, options = {}) {
   return out
 }
 
+function toDecimalOdds(odds) {
+  const n = toNumberOrNull(odds)
+  if (!Number.isFinite(n) || n === 0) return 1
+  if (n > 0) return 1 + (n / 100)
+  return 1 + (100 / Math.abs(n))
+}
+
+function buildTicketLegKey(row) {
+  return [
+    toKey(row?.player, ""),
+    toKey(row?.marketKey, ""),
+    toKey(row?.side, ""),
+    String(row?.line ?? ""),
+    toKey(row?.book, "")
+  ].join("|")
+}
+
+function toTicketLeg(row, role) {
+  return {
+    role,
+    player: row?.player || null,
+    team: row?.team || null,
+    matchup: row?.matchup || null,
+    marketKey: row?.marketKey || null,
+    side: row?.side || null,
+    line: row?.line,
+    odds: row?.odds,
+    surfaceScore: toNumberOrNull(row?.surfaceScore),
+    homeRunPathScore: toNumberOrNull(row?.homeRunPathScore)
+  }
+}
+
+function buildTicketKeyFromLegs(legs) {
+  const safeLegs = Array.isArray(legs) ? legs : []
+  return safeLegs
+    .map((leg) => [
+      toKey(leg?.player, ""),
+      toKey(leg?.marketKey, ""),
+      toKey(leg?.side, ""),
+      String(leg?.line ?? "")
+    ].join("|"))
+    .sort()
+    .join("||")
+}
+
+function hasDuplicatePlayers(legs) {
+  const seen = new Set()
+  for (const leg of legs || []) {
+    const player = String(leg?.player || "").trim()
+    if (!player) continue
+    if (seen.has(player)) return true
+    seen.add(player)
+  }
+  return false
+}
+
+function isOverstackedByMarket(legs) {
+  const marketCounts = countBy(legs || [], (leg) => leg?.marketKey)
+  const values = Object.values(marketCounts)
+  const maxCount = values.length ? Math.max(...values) : 0
+  return maxCount >= Math.max(3, (legs || []).length)
+}
+
+function buildTicketCandidate(legs, ticketType) {
+  const safeLegs = Array.isArray(legs) ? legs : []
+  if (!safeLegs.length) return null
+  if (hasDuplicatePlayers(safeLegs)) return null
+  if (isOverstackedByMarket(safeLegs)) return null
+
+  const qualityScores = safeLegs.map((leg) => {
+    const hr = toNumberOrNull(leg?.homeRunPathScore)
+    const surface = toNumberOrNull(leg?.surfaceScore)
+    return clamp(hr != null ? hr : (surface != null ? surface : 0.45), 0.05, 1)
+  })
+  const avgQuality = qualityScores.reduce((sum, n) => sum + n, 0) / qualityScores.length
+
+  const payoutDecimal = safeLegs.reduce((acc, leg) => acc * toDecimalOdds(leg?.odds), 1)
+  const payoutSignal = clamp((payoutDecimal - 2.2) / 10, 0, 1)
+
+  const matchupCounts = countBy(safeLegs, (leg) => leg?.matchup)
+  const matchupValues = Object.values(matchupCounts)
+  const maxMatchupShare = matchupValues.length ? (Math.max(...matchupValues) / safeLegs.length) : 1
+  const diversitySignal = clamp(1 - maxMatchupShare + (1 / safeLegs.length), 0.2, 1)
+
+  const ticketScore = Number((
+    (avgQuality * 0.62) +
+    (payoutSignal * 0.28) +
+    (diversitySignal * 0.1)
+  ).toFixed(4))
+
+  return {
+    ticketType,
+    legCount: safeLegs.length,
+    legs: safeLegs,
+    estimatedPayoutDecimal: Number(payoutDecimal.toFixed(2)),
+    ticketScore
+  }
+}
+
+function rankTicketCandidates(candidates, limit) {
+  const safeCandidates = Array.isArray(candidates) ? candidates : []
+  const maxRows = Math.max(1, Number(limit) || 6)
+  const out = []
+  const seen = new Set()
+
+  for (const ticket of safeCandidates.sort((a, b) => Number(b?.ticketScore || 0) - Number(a?.ticketScore || 0))) {
+    const key = buildTicketKeyFromLegs(ticket?.legs || [])
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(ticket)
+    if (out.length >= maxRows) break
+  }
+
+  return out
+}
+
+function buildBestBombPairTickets({ bombRows, limit = 6 }) {
+  const bombs = (Array.isArray(bombRows) ? bombRows : []).slice(0, 10)
+  const candidates = []
+
+  for (let i = 0; i < bombs.length; i += 1) {
+    for (let j = i + 1; j < bombs.length; j += 1) {
+      const ticket = buildTicketCandidate([
+        toTicketLeg(bombs[i], "bomb"),
+        toTicketLeg(bombs[j], "bomb")
+      ], "bombPair")
+      if (ticket) candidates.push(ticket)
+    }
+  }
+
+  return rankTicketCandidates(candidates, limit)
+}
+
+function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, limit = 8 }) {
+  const bombs = (Array.isArray(bombRows) ? bombRows : []).slice(0, 8)
+  const supports = (Array.isArray(supportRows) ? supportRows : []).slice(0, 10)
+  const pitchers = (Array.isArray(pitcherRows) ? pitcherRows : []).slice(0, 6)
+  const candidates = []
+
+  for (const bomb of bombs) {
+    for (const support of supports) {
+      const twoLeg = buildTicketCandidate([
+        toTicketLeg(bomb, "bomb"),
+        toTicketLeg(support, "support")
+      ], "bombPlusSupport")
+      if (twoLeg) candidates.push(twoLeg)
+    }
+
+    for (const support of supports.slice(0, 4)) {
+      for (const pitcher of pitchers.slice(0, 3)) {
+        const threeLeg = buildTicketCandidate([
+          toTicketLeg(bomb, "bomb"),
+          toTicketLeg(support, "support"),
+          toTicketLeg(pitcher, "pitcherSupport")
+        ], "bombPlusSupport")
+        if (threeLeg) candidates.push(threeLeg)
+      }
+    }
+  }
+
+  return rankTicketCandidates(candidates, limit)
+}
+
+function buildBestPitcherPlusBombTickets({ bombRows, pitcherRows, limit = 6 }) {
+  const bombs = (Array.isArray(bombRows) ? bombRows : []).slice(0, 10)
+  const pitchers = (Array.isArray(pitcherRows) ? pitcherRows : []).slice(0, 10)
+  const candidates = []
+
+  for (const bomb of bombs) {
+    for (const pitcher of pitchers) {
+      const ticket = buildTicketCandidate([
+        toTicketLeg(pitcher, "pitcherSupport"),
+        toTicketLeg(bomb, "bomb")
+      ], "pitcherPlusBomb")
+      if (ticket) candidates.push(ticket)
+    }
+  }
+
+  return rankTicketCandidates(candidates, limit)
+}
+
 function buildMlbSurfaceBoard(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRowsPerGroup = Number.isFinite(options.maxRowsPerGroup)
     ? Math.max(1, Number(options.maxRowsPerGroup))
     : 10
+  const playerTeamIndex = buildPlayerTeamIndex(safeRows)
 
   const gameRows = safeRows.filter((row) => String(row?.marketFamily || "") === "game")
   const specialRows = safeRows.filter((row) => String(row?.marketFamily || "") === "special")
@@ -688,12 +942,12 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     return (family === "standard" || family === "ladder") && row?.isPitcherMarket === true && String(row?.player || "").trim()
   })
 
-  const bestHitters = rankRows(hitterRows, { groupType: "hitters", maxRows: maxRowsPerGroup })
-  const bestPitchers = rankRows(pitcherRows, { groupType: "pitchers", maxRows: maxRowsPerGroup, perMarketKeyMax: 2 })
-  const bestSpecials = rankRows(specialRows, { groupType: "specials", maxRows: maxRowsPerGroup })
-  const bestHomeRunPlays = buildBestHomeRunPlays(safeRows, { maxRows: Math.min(maxRowsPerGroup, 6) })
-  const bestLongshotPlays = buildBestLongshotPlays(hitterRows, { maxRows: Math.min(maxRowsPerGroup, 6) })
-  const bestGameMarkets = rankRows(gameRows, { groupType: "game", maxRows: maxRowsPerGroup })
+  const bestHitters = rankRows(hitterRows, { groupType: "hitters", maxRows: maxRowsPerGroup, playerTeamIndex })
+  const bestPitchers = rankRows(pitcherRows, { groupType: "pitchers", maxRows: maxRowsPerGroup, perMarketKeyMax: 2, playerTeamIndex })
+  const bestSpecials = rankRows(specialRows, { groupType: "specials", maxRows: maxRowsPerGroup, playerTeamIndex })
+  const bestHomeRunPlays = buildBestHomeRunPlays(safeRows, { maxRows: Math.min(maxRowsPerGroup, 6), playerTeamIndex })
+  const bestLongshotPlays = buildBestLongshotPlays(hitterRows, { maxRows: Math.min(maxRowsPerGroup, 6), playerTeamIndex })
+  const bestGameMarkets = rankRows(gameRows, { groupType: "game", maxRows: maxRowsPerGroup, playerTeamIndex })
 
   const bestOverall = buildBalancedOverallBoard({
     bestHitters,
@@ -714,10 +968,10 @@ function buildMlbSurfaceBoard(rows, options = {}) {
 
   const tierMax = Math.max(3, Math.round(maxRowsPerGroup * 0.65))
 
-  const safeHitters = rankRows(safeHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2 })
-  const safePitchers = rankRows(safePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2 })
-  const upsideHitters = rankRows(upsideHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2 })
-  const upsidePitchers = rankRows(upsidePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2 })
+  const safeHitters = rankRows(safeHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
+  const safePitchers = rankRows(safePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
+  const upsideHitters = rankRows(upsideHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
+  const upsidePitchers = rankRows(upsidePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
 
   // Separate safe/upside pools for specials and game lines used in the combined overall boards.
   const safeSpecialPool = specialRows.filter((r) => {
@@ -742,17 +996,38 @@ function buildMlbSurfaceBoard(rows, options = {}) {
   const bestOverallSafe = buildBalancedOverallBoard({
     bestHitters: safeHitters,
     bestPitchers: safePitchers,
-    bestSpecials: rankRows(safeSpecialPool, { groupType: "specials", maxRows: 3 }),
-    bestGameMarkets: rankRows(safeGamePool, { groupType: "game", maxRows: 2 }),
+    bestSpecials: rankRows(safeSpecialPool, { groupType: "specials", maxRows: 3, playerTeamIndex }),
+    bestGameMarkets: rankRows(safeGamePool, { groupType: "game", maxRows: 2, playerTeamIndex }),
     maxRows: overallTierMax
   })
 
   const bestOverallUpside = buildBalancedOverallBoard({
     bestHitters: upsideHitters,
     bestPitchers: upsidePitchers,
-    bestSpecials: rankRows(upsideSpecialPool, { groupType: "specials", maxRows: 3 }),
-    bestGameMarkets: rankRows(upsideGamePool, { groupType: "game", maxRows: 2 }),
+    bestSpecials: rankRows(upsideSpecialPool, { groupType: "specials", maxRows: 3, playerTeamIndex }),
+    bestGameMarkets: rankRows(upsideGamePool, { groupType: "game", maxRows: 2, playerTeamIndex }),
     maxRows: overallTierMax
+  })
+
+  const supportRows = rankRows(
+    [...bestOverallSafe, ...bestHitters, ...bestPitchers],
+    { groupType: "overall", maxRows: 14, perMarketKeyMax: 3, playerTeamIndex }
+  )
+
+  const bestBombPairTickets = buildBestBombPairTickets({
+    bombRows: bestHomeRunPlays,
+    limit: 6
+  })
+  const bestBombPlusSupportTickets = buildBestBombPlusSupportTickets({
+    bombRows: bestHomeRunPlays,
+    supportRows,
+    pitcherRows: bestPitchers,
+    limit: 8
+  })
+  const bestPitcherPlusBombTickets = buildBestPitcherPlusBombTickets({
+    bombRows: bestHomeRunPlays,
+    pitcherRows: bestPitchers,
+    limit: 6
   })
 
   return {
@@ -769,6 +1044,9 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     upsidePitchers,
     bestOverallSafe,
     bestOverallUpside,
+    bestBombPairTickets,
+    bestBombPlusSupportTickets,
+    bestPitcherPlusBombTickets,
     counts: {
       bestHitters: bestHitters.length,
       bestPitchers: bestPitchers.length,
@@ -782,25 +1060,30 @@ function buildMlbSurfaceBoard(rows, options = {}) {
       upsideHitters: upsideHitters.length,
       upsidePitchers: upsidePitchers.length,
       bestOverallSafe: bestOverallSafe.length,
-      bestOverallUpside: bestOverallUpside.length
+      bestOverallUpside: bestOverallUpside.length,
+      bestBombPairTickets: bestBombPairTickets.length,
+      bestBombPlusSupportTickets: bestBombPlusSupportTickets.length,
+      bestPitcherPlusBombTickets: bestPitcherPlusBombTickets.length
     }
   }
 }
 
 function buildGroupView(rows, sampleLimit) {
   const safeRows = Array.isArray(rows) ? rows : []
+  const playerTeamIndex = buildPlayerTeamIndex(safeRows)
   return {
     count: safeRows.length,
     byBook: countBy(safeRows, (row) => row?.book),
     byMarketKey: countBy(safeRows, (row) => row?.marketKey),
     byMatchup: countBy(safeRows, (row) => row?.matchup),
-    sampleRows: safeRows.slice(0, sampleLimit).map(compactMlbRow)
+    sampleRows: safeRows.slice(0, sampleLimit).map((row) => compactMlbRow(row, { playerTeamIndex }))
   }
 }
 
 function buildMlbInspectionBoard({ snapshot, sampleLimit = 10, topLimit = 20 }) {
   const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : []
   const surfaced = buildMlbSurfaceBoard(rows, { maxRowsPerGroup: sampleLimit })
+  const allRowsPlayerTeamIndex = buildPlayerTeamIndex(rows)
 
   const gameRows = rows.filter((row) => String(row?.marketFamily || "") === "game")
   const specialRows = rows.filter((row) => String(row?.marketFamily || "") === "special")
@@ -846,7 +1129,7 @@ function buildMlbInspectionBoard({ snapshot, sampleLimit = 10, topLimit = 20 }) 
       otherMarkets: buildGroupView(otherRows, sampleLimit)
     },
     surfaced,
-    sampleRows: rows.slice(0, sampleLimit).map(compactMlbRow)
+    sampleRows: rows.slice(0, sampleLimit).map((row) => compactMlbRow(row, { playerTeamIndex: allRowsPlayerTeamIndex }))
   }
 }
 
