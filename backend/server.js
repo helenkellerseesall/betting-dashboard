@@ -9028,6 +9028,399 @@ app.get("/api/best-available", (req, res) => {
     curatedBestUpsideWithCeiling: curatedBestUpside.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length
   })
 
+  const toFiniteNumber = (value, fallback = null) => {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : fallback
+  }
+
+  const toDecimalOddsForTicket = (americanOdds) => {
+    const odds = Number(americanOdds)
+    if (!Number.isFinite(odds) || odds === 0) return 1
+    if (odds > 0) return 1 + (odds / 100)
+    return 1 + (100 / Math.abs(odds))
+  }
+
+  const normalizeNbaSurfaceTeam = (row, candidateTeam) => {
+    const team = String(candidateTeam || "").trim()
+    if (!team) return null
+    if (isLikelyMatchupText(team)) return null
+    if (rowTeamMatchesMatchup({ ...row, team })) return team
+    return null
+  }
+
+  const inferNbaOutcomeTier = (row, boardFamily = "") => {
+    const family = String(boardFamily || "").toLowerCase()
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propVariant = String(row?.propVariant || "base").toLowerCase()
+    const odds = Number(row?.odds)
+    const isFirstEventFamily =
+      marketKey.includes("first_basket") ||
+      marketKey.includes("first_team_basket") ||
+      family.includes("firstbasket") ||
+      family.includes("firstteambasket")
+
+    if (isFirstEventFamily) return "nuke"
+    if (marketKey.includes("triple_double")) return "nuke"
+    if (marketKey.includes("double_double")) return "ceiling"
+    if (!Number.isFinite(odds)) return "ceiling"
+    if (odds >= 360) return "nuke"
+    if (odds >= 170) return "ceiling"
+    if (propVariant !== "base" && propVariant !== "default") return "ceiling"
+    return "support"
+  }
+
+  const toNbaSurfacedPlayRow = (row, options = {}) => {
+    const boardFamily = String(options.boardFamily || "unknown")
+    const sourceLane = options.sourceLane || boardFamily
+    const outcomeTier = options.outcomeTier || inferNbaOutcomeTier(row, boardFamily)
+    const readable = buildReadableSurfaceRow(row, { sourceLane, defaultLane: sourceLane })
+    const impliedProb = impliedProbabilityFromAmerican(row?.odds)
+    const confidenceScore = Number(
+      Math.max(0, Math.min(1,
+        toFiniteNumber(readable?.confidenceScore, null) != null
+          ? Number(readable.confidenceScore)
+          : (toFiniteNumber(row?.playerConfidenceScore, null) != null
+            ? Number(row.playerConfidenceScore) / 100
+            : (toFiniteNumber(row?.adjustedConfidenceScore, null) != null
+              ? Number(row.adjustedConfidenceScore) / 100
+              : 0.5)
+          )
+      )).toFixed(4)
+    )
+
+    return {
+      player: readable?.player || row?.player || null,
+      team: normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam),
+      marketKey: readable?.marketKey || row?.marketKey || null,
+      propType: readable?.propType || row?.propType || null,
+      side: readable?.side || row?.side || null,
+      line: readable?.line ?? row?.line ?? null,
+      odds: readable?.odds ?? row?.odds ?? null,
+      matchup: readable?.matchup || row?.matchup || row?.eventId || null,
+      confidenceScore,
+      modelHitProb: toFiniteNumber(row?.modelHitProb, null),
+      impliedProb: Number.isFinite(impliedProb) ? Number(impliedProb.toFixed(4)) : null,
+      edgeGap: toFiniteNumber(row?.edgeGap, null),
+      outcomeTier,
+      boardFamily,
+      decisionSummary: readable?.decisionSummary || row?.decisionSummary || row?.playDecision || null
+    }
+  }
+
+  const layerBestValue = (Array.isArray(curatedBestValue) ? curatedBestValue : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestValue", sourceLane: "bestValue" }))
+  const layerBestUpside = (Array.isArray(curatedBestUpside) ? curatedBestUpside : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestUpside", sourceLane: "bestUpside" }))
+  const layerBestLadders = (Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestLadders", sourceLane: "bestLadders" }))
+
+  const layerFirstBasket = (Array.isArray(typeAwareSpecials.bestFirstBasket) ? typeAwareSpecials.bestFirstBasket : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestFirstBasket", sourceLane: "bestSpecials" }))
+  const layerFirstTeamBasket = (Array.isArray(typeAwareSpecials.bestFirstTeamBasket) ? typeAwareSpecials.bestFirstTeamBasket : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestFirstTeamBasket", sourceLane: "bestSpecials" }))
+  const layerDoubleDoubles = (Array.isArray(typeAwareSpecials.bestDoubleDoubles) ? typeAwareSpecials.bestDoubleDoubles : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestDoubleDoubles", sourceLane: "bestSpecials" }))
+  const layerTripleDoubles = (Array.isArray(typeAwareSpecials.bestTripleDoubles) ? typeAwareSpecials.bestTripleDoubles : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestTripleDoubles", sourceLane: "bestSpecials" }))
+  const layerBestSpecials = (Array.isArray(surfacedBestSpecials) ? surfacedBestSpecials : [])
+    .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSpecials", sourceLane: "bestSpecials" }))
+
+  const layerBestLongshotPlays = (() => {
+    const candidates = [
+      ...(Array.isArray(lottoPicks) ? lottoPicks : []),
+      ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+    ]
+    const out = []
+    const seen = new Set()
+    for (const row of candidates) {
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      if (marketKey.includes("first_basket") || marketKey.includes("first_team_basket") || marketKey.includes("double_double") || marketKey.includes("triple_double")) continue
+      const surfaced = toNbaSurfacedPlayRow(row, { boardFamily: "bestLongshotPlays", sourceLane: "bestLadders" })
+      if (surfaced.outcomeTier === "support") continue
+      const key = [
+        String(surfaced.player || "").toLowerCase(),
+        String(surfaced.marketKey || "").toLowerCase(),
+        String(surfaced.side || "").toLowerCase(),
+        String(surfaced.line ?? "")
+      ].join("|")
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      out.push(surfaced)
+      if (out.length >= 10) break
+    }
+    return out
+  })()
+
+  const convictionRowsSource = [
+    ...(Array.isArray(mustPlayCandidates) ? mustPlayCandidates : []),
+    ...(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : []),
+    ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+  ]
+
+  const layeredConvictions = (() => {
+    const byPlayer = new Map()
+    for (const row of convictionRowsSource) {
+      const player = String(row?.player || "").trim()
+      if (!player) continue
+      if (!byPlayer.has(player)) byPlayer.set(player, [])
+      byPlayer.get(player).push(row)
+    }
+
+    const rows = []
+    for (const [player, playerRows] of byPlayer.entries()) {
+      const surfacedRows = playerRows
+        .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "convictions", sourceLane: row?.mustPlaySourceLane || "bestSingles" }))
+        .sort((a, b) => Number(b.confidenceScore || 0) - Number(a.confidenceScore || 0))
+      const top = surfacedRows[0] || {}
+      const oddsValues = surfacedRows.map((r) => Number(r?.odds)).filter(Number.isFinite)
+      const minOdds = oddsValues.length ? Math.min(...oddsValues) : 0
+      const maxOdds = oddsValues.length ? Math.max(...oddsValues) : 0
+      const volatilityScore = Number(Math.max(0, Math.min(1, Math.abs(maxOdds - minOdds) / 700)).toFixed(4))
+      const confidenceScore = Number(top?.confidenceScore || 0.5)
+      const ceilingScore = Number(Math.max(0, Math.min(1, ((maxOdds || 100) + 300) / 1100)).toFixed(4))
+      const floorScore = Number(Math.max(0, Math.min(1, 1 - volatilityScore)).toFixed(4))
+      const spikeScore = Number(Math.max(0, Math.min(1, (ceilingScore + confidenceScore) / 2)).toFixed(4))
+      const playerConvictionScore = Number(((confidenceScore * 0.52) + (ceilingScore * 0.2) + (floorScore * 0.16) + (spikeScore * 0.12)).toFixed(4))
+
+      rows.push({
+        player,
+        team: top?.team || null,
+        playerConvictionScore,
+        confidenceScore,
+        ceilingScore,
+        floorScore,
+        spikeScore,
+        volatilityScore,
+        bestFamilyForPlayer: String(top?.boardFamily || "bestSingles"),
+        topOutcomeCandidates: surfacedRows.slice(0, 3)
+      })
+    }
+
+    return rows.sort((a, b) => Number(b.playerConvictionScore || 0) - Number(a.playerConvictionScore || 0)).slice(0, 10)
+  })()
+
+  const ladderCandidateRows = [
+    ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []),
+    ...(Array.isArray(curatedBestUpside) ? curatedBestUpside : []),
+    ...(Array.isArray(lottoPicks) ? lottoPicks : [])
+  ]
+
+  const buildLadderTierRows = (tier) => {
+    const byPlayer = new Map()
+    for (const row of ladderCandidateRows) {
+      const player = String(row?.player || "").trim()
+      if (!player) continue
+      const surfaced = toNbaSurfacedPlayRow(row, { boardFamily: "bestLadders", sourceLane: "bestLadders" })
+      if (surfaced.outcomeTier !== tier) continue
+      const existing = byPlayer.get(player)
+      if (!existing || Number(surfaced.confidenceScore || 0) > Number(existing.confidenceScore || 0)) {
+        byPlayer.set(player, surfaced)
+      }
+    }
+    return Array.from(byPlayer.values())
+      .sort((a, b) => Number(b.confidenceScore || 0) - Number(a.confidenceScore || 0))
+      .slice(0, 10)
+  }
+
+  const layeredLadders = {
+    bestSupportOutcomes: buildLadderTierRows("support"),
+    bestCeilingOutcomes: buildLadderTierRows("ceiling"),
+    bestNukeOutcomes: buildLadderTierRows("nuke")
+  }
+
+  const buildTicketLeg = (row, role) => ({
+    role,
+    player: row?.player || null,
+    team: row?.team || null,
+    marketKey: row?.marketKey || null,
+    side: row?.side || null,
+    line: row?.line ?? null,
+    odds: row?.odds ?? null,
+    outcomeTier: row?.outcomeTier || inferNbaOutcomeTier(row, "tickets"),
+    confidenceScore: toFiniteNumber(row?.confidenceScore, 0.5),
+    matchup: row?.matchup || null
+  })
+
+  const buildTicketCandidate = (legs, ticketType) => {
+    const safeLegs = (Array.isArray(legs) ? legs : []).filter(Boolean)
+    if (safeLegs.length < 2) return null
+    const players = safeLegs.map((leg) => String(leg?.player || "").trim().toLowerCase()).filter(Boolean)
+    if (new Set(players).size !== players.length) return null
+
+    const avgConfidence = safeLegs.reduce((sum, leg) => sum + Number(leg?.confidenceScore || 0), 0) / safeLegs.length
+    const payoutDecimal = safeLegs.reduce((acc, leg) => acc * toDecimalOddsForTicket(leg?.odds), 1)
+    const payoutSignal = Math.max(0, Math.min(1, (payoutDecimal - 2.2) / 8))
+    const ticketScore = Number(((avgConfidence * 0.68) + (payoutSignal * 0.32)).toFixed(4))
+
+    return {
+      ticketType,
+      legCount: safeLegs.length,
+      ticketScore,
+      estimatedPayoutDecimal: Number(payoutDecimal.toFixed(2)),
+      legs: safeLegs
+    }
+  }
+
+  const selectLayeredTickets = (candidates, limit, constraints = {}) => {
+    const safeCandidates = (Array.isArray(candidates) ? candidates : [])
+      .filter(Boolean)
+      .sort((a, b) => Number(b?.ticketScore || 0) - Number(a?.ticketScore || 0))
+
+    const selected = []
+    const seenTicketKeys = new Set()
+    const playerUses = new Map()
+    const matchupUses = new Map()
+    const playerCap = Math.max(1, Number(constraints?.maxPlayerUsesAfterFirst || 1))
+    const matchupCap = Math.max(1, Number(constraints?.maxMatchupUsesAcrossSurfacedTickets || 2))
+
+    for (const ticket of safeCandidates) {
+      const key = (Array.isArray(ticket?.legs) ? ticket.legs : [])
+        .map((leg) => [String(leg?.player || ""), String(leg?.marketKey || ""), String(leg?.line ?? "")].join("|"))
+        .sort()
+        .join("||")
+      if (!key || seenTicketKeys.has(key)) continue
+
+      if (selected.length > 0) {
+        let blocked = false
+        for (const leg of ticket.legs || []) {
+          const playerKey = String(leg?.player || "").trim().toLowerCase()
+          const matchupKey = String(leg?.matchup || "").trim().toLowerCase()
+          if (playerKey && (playerUses.get(playerKey) || 0) >= playerCap) {
+            blocked = true
+            break
+          }
+          if (matchupKey && (matchupUses.get(matchupKey) || 0) >= matchupCap) {
+            blocked = true
+            break
+          }
+        }
+        if (blocked) continue
+      }
+
+      seenTicketKeys.add(key)
+      selected.push(ticket)
+      for (const leg of ticket.legs || []) {
+        const playerKey = String(leg?.player || "").trim().toLowerCase()
+        const matchupKey = String(leg?.matchup || "").trim().toLowerCase()
+        if (playerKey) playerUses.set(playerKey, (playerUses.get(playerKey) || 0) + 1)
+        if (matchupKey) matchupUses.set(matchupKey, (matchupUses.get(matchupKey) || 0) + 1)
+      }
+
+      if (selected.length >= Math.max(1, Number(limit || 6))) break
+    }
+
+    return selected
+  }
+
+  const ticketSupportPool = [
+    ...layerBestValue,
+    ...(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : []).map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "bestSingles" }))
+  ]
+    .filter((row) => row?.outcomeTier === "support")
+    .slice(0, 12)
+
+  const ticketBombPool = [
+    ...layerBestLongshotPlays,
+    ...layerBestUpside.filter((row) => row?.outcomeTier !== "support")
+  ].slice(0, 12)
+
+  const ticketFirstEventPool = [
+    ...layerFirstBasket,
+    ...layerFirstTeamBasket
+  ].slice(0, 10)
+
+  const buildBombPairTickets = () => {
+    const candidates = []
+    for (let i = 0; i < ticketBombPool.length; i += 1) {
+      for (let j = i + 1; j < ticketBombPool.length; j += 1) {
+        const ticket = buildTicketCandidate([
+          buildTicketLeg(ticketBombPool[i], "bomb"),
+          buildTicketLeg(ticketBombPool[j], "bomb")
+        ], "bombPair")
+        if (ticket) candidates.push(ticket)
+      }
+    }
+    return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+  }
+
+  const buildBombPlusSupportTickets = () => {
+    const candidates = []
+    for (const bomb of ticketBombPool.slice(0, 8)) {
+      for (const support of ticketSupportPool.slice(0, 10)) {
+        const ticket = buildTicketCandidate([
+          buildTicketLeg(bomb, "bomb"),
+          buildTicketLeg(support, "support")
+        ], "bombPlusSupport")
+        if (ticket) candidates.push(ticket)
+      }
+    }
+    return selectLayeredTickets(candidates, 8, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+  }
+
+  const buildSafePairTickets = () => {
+    const candidates = []
+    const safeRows = ticketSupportPool.slice(0, 12)
+    for (let i = 0; i < safeRows.length; i += 1) {
+      for (let j = i + 1; j < safeRows.length; j += 1) {
+        const ticket = buildTicketCandidate([
+          buildTicketLeg(safeRows[i], "support"),
+          buildTicketLeg(safeRows[j], "support")
+        ], "safePair")
+        if (ticket) candidates.push(ticket)
+      }
+    }
+    return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+  }
+
+  const buildFirstEventClusterTickets = () => {
+    const candidates = []
+    for (let i = 0; i < ticketFirstEventPool.length; i += 1) {
+      for (let j = i + 1; j < ticketFirstEventPool.length; j += 1) {
+        const ticket = buildTicketCandidate([
+          buildTicketLeg(ticketFirstEventPool[i], "firstEvent"),
+          buildTicketLeg(ticketFirstEventPool[j], "firstEvent")
+        ], "firstEventCluster")
+        if (ticket) candidates.push(ticket)
+      }
+    }
+    return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+  }
+
+  const layeredSurfaced = {
+    convictions: {
+      bestPlayerConvictions: layeredConvictions
+    },
+    ladders: layeredLadders,
+    boards: {
+      bestValue: layerBestValue,
+      bestUpside: layerBestUpside,
+      bestLongshotPlays: layerBestLongshotPlays,
+      bestLadders: layerBestLadders,
+      bestFirstBasket: layerFirstBasket,
+      bestFirstTeamBasket: layerFirstTeamBasket,
+      bestDoubleDoubles: layerDoubleDoubles,
+      bestTripleDoubles: layerTripleDoubles,
+      bestSpecials: layerBestSpecials
+    },
+    tickets: {
+      bestBombPairTickets: buildBombPairTickets(),
+      bestBombPlusSupportTickets: buildBombPlusSupportTickets(),
+      bestSafePairTickets: buildSafePairTickets(),
+      bestFirstEventClusterTickets: buildFirstEventClusterTickets()
+    },
+    execution: {
+      bestBookByPlay: [],
+      bestBookByTicket: [],
+      ticketBuildableBooks: []
+    },
+    recovery: {
+      bestRecoveryPlay: [],
+      bestRecoveryTicket: [],
+      bestAnchorLeg: [],
+      bestAnchorTicket: []
+    }
+  }
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -9062,6 +9455,7 @@ app.get("/api/best-available", (req, res) => {
       bestFirstTeamBasket: typeAwareSpecials.bestFirstTeamBasket,
       bestLongshotPlays: typeAwareSpecials.bestLongshotPlays,
       bestLongshotSpecials: typeAwareSpecials.bestLongshotSpecials,
+      surfaced: layeredSurfaced,
       tonightsPlays: {
         bestSingles: tonightsBestSingles,
         bestLadders: tonightsBestLadders,
@@ -9073,6 +9467,7 @@ app.get("/api/best-available", (req, res) => {
           bestUpside: curatedBestUpside
         },
         boardProgress,
+        surfaced: layeredSurfaced,
         counts: {
           bestSingles: tonightsBestSingles.length,
           bestLadders: tonightsBestLadders.length,
