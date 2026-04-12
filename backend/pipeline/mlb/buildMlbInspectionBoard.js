@@ -1,5 +1,7 @@
 "use strict"
 
+const { getMlbTeamNameByAbbr } = require("../resolution/mlbTeamResolution")
+
 function toKey(value, fallback = "unknown") {
   const key = String(value == null ? "" : value).trim()
   return key || fallback
@@ -29,37 +31,93 @@ function isLikelyMatchupLabel(value) {
   return lower.includes("@") || lower.includes(" vs ") || lower.includes(" vs.")
 }
 
+function normalizeTeamCandidate(team, awayTeam, homeTeam) {
+  const candidate = String(team || "").trim()
+  if (!candidate || isLikelyMatchupLabel(candidate)) return null
+
+  const away = String(awayTeam || "").trim()
+  const home = String(homeTeam || "").trim()
+  const candidateUpper = candidate.toUpperCase()
+  const expanded = String(getMlbTeamNameByAbbr(candidateUpper) || "").trim()
+  const candidateOptions = [candidate, expanded].filter(Boolean)
+
+  if (!away && !home) {
+    // With no event context, only trust full team names (or mapped abbreviations).
+    if (expanded) return expanded
+    if (candidate.includes(" ")) return candidate
+    return null
+  }
+
+  for (const option of candidateOptions) {
+    const lc = option.toLowerCase()
+    if (away && away.toLowerCase() === lc) return away
+    if (home && home.toLowerCase() === lc) return home
+  }
+
+  return null
+}
+
+function getPreferredTeamCandidates(row) {
+  const hasPlayer = String(row?.player || "").trim().length > 0
+  if (hasPlayer) {
+    // Player rows should trust external identity resolution first and avoid raw row.team leakage.
+    return [row?.teamResolved, row?.teamCode]
+  }
+
+  return [row?.team, row?.teamResolved, row?.teamName, row?.teamCode]
+}
+
 function buildPlayerTeamIndex(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
-  const playerTeamCounts = {}
+  const playerEventTeamCounts = {}
 
   for (const row of safeRows) {
     const player = String(row?.player || "").trim()
-    const team = String(row?.team || row?.teamResolved || row?.teamName || row?.teamCode || "").trim()
-    if (!player || !team || isLikelyMatchupLabel(team)) continue
+    if (!player) continue
 
-    if (!playerTeamCounts[player]) playerTeamCounts[player] = {}
-    playerTeamCounts[player][team] = Number(playerTeamCounts[player][team] || 0) + 1
+    const awayTeam = String(row?.awayTeam || "").trim()
+    const homeTeam = String(row?.homeTeam || "").trim()
+
+    const eventKey = toKey(row?.eventId, "")
+    if (!eventKey) continue
+
+    let normalizedTeam = null
+    for (const candidate of getPreferredTeamCandidates(row)) {
+      normalizedTeam = normalizeTeamCandidate(candidate, awayTeam, homeTeam)
+      if (normalizedTeam) break
+    }
+
+    if (!normalizedTeam) continue
+
+    const playerEventKey = `${player}|${eventKey}`
+    if (!playerEventTeamCounts[playerEventKey]) playerEventTeamCounts[playerEventKey] = {}
+    playerEventTeamCounts[playerEventKey][normalizedTeam] = Number(playerEventTeamCounts[playerEventKey][normalizedTeam] || 0) + 1
   }
 
-  const out = {}
-  for (const [player, teamCounts] of Object.entries(playerTeamCounts)) {
+  const byPlayerEvent = {}
+  for (const [playerEventKey, teamCounts] of Object.entries(playerEventTeamCounts)) {
     const winner = Object.entries(teamCounts).sort((a, b) => b[1] - a[1])[0]
-    if (winner?.[0]) out[player] = winner[0]
+    if (winner?.[0]) byPlayerEvent[playerEventKey] = winner[0]
   }
 
-  return out
+  return {
+    byPlayerEvent
+  }
 }
 
 function inferSurfaceTeamLabel(row, playerTeamIndex = {}) {
-  const directCandidates = [row?.team, row?.teamResolved, row?.teamName, row?.teamCode]
+  const awayTeam = String(row?.awayTeam || "").trim()
+  const homeTeam = String(row?.homeTeam || "").trim()
+  const directCandidates = getPreferredTeamCandidates(row)
   for (const candidate of directCandidates) {
-    const directTeam = String(candidate || "").trim()
-    if (directTeam && !isLikelyMatchupLabel(directTeam)) return directTeam
+    const directTeam = normalizeTeamCandidate(candidate, awayTeam, homeTeam)
+    if (directTeam) return directTeam
   }
 
   const player = String(row?.player || "").trim()
-  if (player && playerTeamIndex[player]) return playerTeamIndex[player]
+  const eventKey = toKey(row?.eventId, "")
+  const byPlayerEvent = playerTeamIndex?.byPlayerEvent || {}
+  if (player && eventKey && byPlayerEvent[`${player}|${eventKey}`]) return byPlayerEvent[`${player}|${eventKey}`]
 
   return null
 }
@@ -84,6 +142,14 @@ function compactMlbRow(row, options = {}) {
     isPitcherMarket: row?.isPitcherMarket === true,
     teamMatchesMatchup: row?.teamMatchesMatchup !== false
   }
+}
+
+function isRowTypeMatch(row, expectedType = "") {
+  const type = String(expectedType || "").toLowerCase()
+  if (!type) return true
+  if (type === "hitter") return row?.isPitcherMarket !== true
+  if (type === "pitcher") return row?.isPitcherMarket === true
+  return true
 }
 
 function toNumberOrNull(value) {
@@ -1074,6 +1140,187 @@ function buildBestPitcherPlusBombTickets({ bombRows, pitcherRows, limit = 6 }) {
   })
 }
 
+function inferOutcomeTier(row, boardFamily = "") {
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds)) return "ceiling"
+
+  const family = String(boardFamily || "").toLowerCase()
+  if (family.includes("special")) return odds >= 500 ? "nuke" : "ceiling"
+  if (family.includes("home") || family.includes("longshot") || family.includes("bomb")) {
+    if (odds >= 380) return "nuke"
+    if (odds >= 180) return "ceiling"
+    return "support"
+  }
+  if (family.includes("pitcher")) {
+    if (odds >= 250) return "ceiling"
+    return "support"
+  }
+
+  if (odds >= 420) return "nuke"
+  if (odds >= 180) return "ceiling"
+  return "support"
+}
+
+function inferDecisionSummary(row, boardFamily = "", outcomeTier = "") {
+  const player = String(row?.player || "")
+  const marketKey = String(row?.marketKey || "")
+  const side = String(row?.side || "")
+  const odds = toNumberOrNull(row?.odds)
+  const oddsText = Number.isFinite(odds) ? `${odds >= 0 ? "+" : ""}${odds}` : "NA"
+  return `${player} ${marketKey} ${side} ${oddsText} | ${boardFamily || "board"} ${outcomeTier || "ceiling"}`.trim()
+}
+
+function toSurfacedPlayRow(row, options = {}) {
+  const boardFamily = String(options.boardFamily || "")
+  const forcedOutcomeTier = String(options.outcomeTier || "")
+  const outcomeTier = forcedOutcomeTier || inferOutcomeTier(row, boardFamily)
+  const confidenceScore = clamp(
+    toNumberOrNull(row?.homeRunPathScore) != null
+      ? Number(row.homeRunPathScore)
+      : (toNumberOrNull(row?.surfaceScore) != null ? Number(row.surfaceScore) : 0.5),
+    0,
+    1
+  )
+
+  return {
+    player: row?.player || null,
+    team: row?.team || null,
+    marketKey: row?.marketKey || null,
+    propType: row?.propType || null,
+    side: row?.side || null,
+    line: row?.line,
+    odds: row?.odds,
+    matchup: row?.matchup || null,
+    confidenceScore,
+    modelHitProb: null,
+    impliedProb: impliedProbabilityFromAmerican(row?.odds),
+    edgeGap: null,
+    outcomeTier,
+    boardFamily,
+    decisionSummary: inferDecisionSummary(row, boardFamily, outcomeTier)
+  }
+}
+
+function buildPlayerConvictions(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const boardFamily = String(options.boardFamily || "")
+  const limit = Math.max(1, Number(options.limit) || 8)
+  const byPlayer = {}
+
+  for (const row of safeRows) {
+    const player = String(row?.player || "").trim()
+    if (!player) continue
+    if (!byPlayer[player]) byPlayer[player] = []
+    byPlayer[player].push(row)
+  }
+
+  const convictions = Object.entries(byPlayer)
+    .map(([player, playerRows]) => {
+      const sorted = [...playerRows].sort((a, b) => Number(b?.surfaceScore || b?.homeRunPathScore || 0) - Number(a?.surfaceScore || a?.homeRunPathScore || 0))
+      const top = sorted[0] || {}
+      const confidenceScore = clamp(Number(top?.surfaceScore || top?.homeRunPathScore || 0.5), 0, 1)
+      const oddsValues = sorted.map((r) => toNumberOrNull(r?.odds)).filter(Number.isFinite)
+      const minOdds = oddsValues.length ? Math.min(...oddsValues) : 0
+      const maxOdds = oddsValues.length ? Math.max(...oddsValues) : 0
+      const volatilityScore = clamp(Math.abs(maxOdds - minOdds) / 800, 0, 1)
+      const ceilingScore = clamp((oddsValues.length ? Math.max(...oddsValues) : 100) / 1200, 0, 1)
+      const floorScore = clamp(1 - volatilityScore, 0, 1)
+      const spikeScore = clamp((Number(top?.homeRunPathScore || 0) + ceilingScore) / 2, 0, 1)
+
+      return {
+        player,
+        team: top?.team || null,
+        playerConvictionScore: Number(((confidenceScore * 0.52) + (ceilingScore * 0.2) + (floorScore * 0.16) + (spikeScore * 0.12)).toFixed(4)),
+        confidenceScore,
+        ceilingScore,
+        floorScore,
+        spikeScore,
+        volatilityScore,
+        bestFamilyForPlayer: boardFamily,
+        topOutcomeCandidates: sorted.slice(0, 3).map((row) => toSurfacedPlayRow(row, { boardFamily }))
+      }
+    })
+    .sort((a, b) => Number(b.playerConvictionScore || 0) - Number(a.playerConvictionScore || 0))
+
+  return convictions.slice(0, limit)
+}
+
+function buildLadderRows(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const boardFamily = String(options.boardFamily || "")
+  const outcomeTier = String(options.outcomeTier || "support")
+  const expectedType = String(options.expectedType || "")
+  const limit = Math.max(1, Number(options.limit) || 10)
+
+  const filtered = safeRows.filter((row) => isRowTypeMatch(row, expectedType) && inferOutcomeTier(row, boardFamily) === outcomeTier)
+  const byPlayer = {}
+  for (const row of filtered) {
+    const player = String(row?.player || "").trim()
+    if (!player) continue
+    if (!byPlayer[player]) byPlayer[player] = []
+    byPlayer[player].push(row)
+  }
+
+  const picks = []
+  for (const rowsForPlayer of Object.values(byPlayer)) {
+    const best = [...rowsForPlayer].sort((a, b) => Number(b?.surfaceScore || b?.homeRunPathScore || 0) - Number(a?.surfaceScore || a?.homeRunPathScore || 0))[0]
+    if (best) picks.push(best)
+  }
+
+  return picks
+    .sort((a, b) => Number(b?.surfaceScore || b?.homeRunPathScore || 0) - Number(a?.surfaceScore || a?.homeRunPathScore || 0))
+    .slice(0, limit)
+    .map((row) => toSurfacedPlayRow(row, { boardFamily, outcomeTier }))
+}
+
+function withTicketLegFields(ticket = {}) {
+  const legs = Array.isArray(ticket?.legs) ? ticket.legs : []
+  return {
+    ticketType: ticket?.ticketType || null,
+    legCount: Number(ticket?.legCount || legs.length || 0),
+    ticketScore: toNumberOrNull(ticket?.ticketScore),
+    estimatedPayoutDecimal: toNumberOrNull(ticket?.estimatedPayoutDecimal),
+    legs: legs.map((leg) => ({
+      role: leg?.role || null,
+      player: leg?.player || null,
+      team: leg?.team || null,
+      marketKey: leg?.marketKey || null,
+      side: leg?.side || null,
+      line: leg?.line,
+      odds: leg?.odds,
+      outcomeTier: inferOutcomeTier(leg, String(leg?.role || "ticket")),
+      confidenceScore: clamp(toNumberOrNull(leg?.homeRunPathScore) != null ? Number(leg.homeRunPathScore) : Number(leg?.surfaceScore || 0.5), 0, 1),
+      matchup: leg?.matchup || null
+    }))
+  }
+}
+
+function buildBestSafePairTickets(rows, limit = 6) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const maxRows = Math.max(1, Number(limit) || 6)
+  const candidates = []
+
+  for (let i = 0; i < safeRows.length; i += 1) {
+    for (let j = i + 1; j < safeRows.length; j += 1) {
+      const ticket = buildTicketCandidate([
+        toTicketLeg(safeRows[i], "support"),
+        toTicketLeg(safeRows[j], "support")
+      ], "safePair")
+      if (ticket) candidates.push(ticket)
+    }
+  }
+
+  const selected = selectSurfacedTicketsHard(candidates, maxRows, {
+    maxSupportPlayerUsesAfterFirst: 1,
+    maxPitcherSupportPlayerUsesAfterFirst: 1,
+    maxBombPlayerUsesAfterFirst: 1,
+    maxExactPlayerMarketComboUses: 1,
+    maxMatchupUsesAcrossSurfacedTickets: 2
+  })
+
+  return selected.map(withTicketLegFields)
+}
+
 function buildMlbSurfaceBoard(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRowsPerGroup = Number.isFinite(options.maxRowsPerGroup)
@@ -1180,40 +1427,76 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     limit: 6
   })
 
+  const bestSafePairTickets = buildBestSafePairTickets(bestOverallSafe, 6)
+
+  const bestLongshotHitters = bestLongshotPlays
+    .map((row) => toSurfacedPlayRow(row, { boardFamily: "longshotHitters" }))
+
+  const layeredSurfaced = {
+    convictions: {
+      bestHitterConvictions: buildPlayerConvictions(bestHitters, { boardFamily: "hitters", limit: 8 }),
+      bestPitcherConvictions: buildPlayerConvictions(bestPitchers, { boardFamily: "pitchers", limit: 8 })
+    },
+    ladders: {
+      bestHitterSupportOutcomes: buildLadderRows([...bestHitters, ...bestOverallSafe], { boardFamily: "hitters", outcomeTier: "support", expectedType: "hitter", limit: 10 }),
+      bestHitterCeilingOutcomes: buildLadderRows([...bestHomeRunPlays, ...bestLongshotPlays, ...bestHitters], { boardFamily: "hitters", outcomeTier: "ceiling", expectedType: "hitter", limit: 10 }),
+      bestHitterNukeOutcomes: buildLadderRows([...bestHomeRunPlays, ...bestLongshotPlays], { boardFamily: "hitters", outcomeTier: "nuke", expectedType: "hitter", limit: 10 }),
+      bestPitcherSupportOutcomes: buildLadderRows([...bestPitchers, ...bestOverallSafe], { boardFamily: "pitchers", outcomeTier: "support", expectedType: "pitcher", limit: 10 }),
+      bestPitcherCeilingOutcomes: buildLadderRows([...bestPitchers, ...upsidePitchers], { boardFamily: "pitchers", outcomeTier: "ceiling", expectedType: "pitcher", limit: 10 })
+    },
+    boards: {
+      bestHitters: bestHitters.map((row) => toSurfacedPlayRow(row, { boardFamily: "hitters" })),
+      bestPitchers: bestPitchers.map((row) => toSurfacedPlayRow(row, { boardFamily: "pitchers" })),
+      bestHomeRunPlays: bestHomeRunPlays.map((row) => toSurfacedPlayRow(row, { boardFamily: "homeRunPlays" })),
+      bestLongshotHitters,
+      bestSpecials: bestSpecials.map((row) => toSurfacedPlayRow(row, { boardFamily: "specials" }))
+    },
+    tickets: {
+      bestBombPairTickets: bestBombPairTickets.map(withTicketLegFields),
+      bestBombPlusSupportTickets: bestBombPlusSupportTickets.map(withTicketLegFields),
+      bestPitcherPlusBombTickets: bestPitcherPlusBombTickets.map(withTicketLegFields),
+      bestSafePairTickets
+    },
+    execution: {
+      bestBookByPlay: [],
+      bestBookByTicket: [],
+      ticketBuildableBooks: []
+    },
+    recovery: {
+      bestRecoveryPlay: [],
+      bestRecoveryTicket: [],
+      bestAnchorLeg: [],
+      bestAnchorTicket: []
+    }
+  }
+
   return {
-    bestHitters,
-    bestPitchers,
-    bestSpecials,
-    bestHomeRunPlays,
-    bestLongshotPlays,
-    bestGameMarkets,
-    bestOverall,
-    safeHitters,
-    safePitchers,
-    upsideHitters,
-    upsidePitchers,
-    bestOverallSafe,
-    bestOverallUpside,
-    bestBombPairTickets,
-    bestBombPlusSupportTickets,
-    bestPitcherPlusBombTickets,
+    ...layeredSurfaced,
     counts: {
-      bestHitters: bestHitters.length,
-      bestPitchers: bestPitchers.length,
-      bestSpecials: bestSpecials.length,
-      bestHomeRunPlays: bestHomeRunPlays.length,
-      bestLongshotPlays: bestLongshotPlays.length,
-      bestGameMarkets: bestGameMarkets.length,
-      bestOverall: bestOverall.length,
-      safeHitters: safeHitters.length,
-      safePitchers: safePitchers.length,
-      upsideHitters: upsideHitters.length,
-      upsidePitchers: upsidePitchers.length,
-      bestOverallSafe: bestOverallSafe.length,
-      bestOverallUpside: bestOverallUpside.length,
-      bestBombPairTickets: bestBombPairTickets.length,
-      bestBombPlusSupportTickets: bestBombPlusSupportTickets.length,
-      bestPitcherPlusBombTickets: bestPitcherPlusBombTickets.length
+      convictions: {
+        bestHitterConvictions: layeredSurfaced.convictions.bestHitterConvictions.length,
+        bestPitcherConvictions: layeredSurfaced.convictions.bestPitcherConvictions.length
+      },
+      ladders: {
+        bestHitterSupportOutcomes: layeredSurfaced.ladders.bestHitterSupportOutcomes.length,
+        bestHitterCeilingOutcomes: layeredSurfaced.ladders.bestHitterCeilingOutcomes.length,
+        bestHitterNukeOutcomes: layeredSurfaced.ladders.bestHitterNukeOutcomes.length,
+        bestPitcherSupportOutcomes: layeredSurfaced.ladders.bestPitcherSupportOutcomes.length,
+        bestPitcherCeilingOutcomes: layeredSurfaced.ladders.bestPitcherCeilingOutcomes.length
+      },
+      boards: {
+        bestHitters: layeredSurfaced.boards.bestHitters.length,
+        bestPitchers: layeredSurfaced.boards.bestPitchers.length,
+        bestHomeRunPlays: layeredSurfaced.boards.bestHomeRunPlays.length,
+        bestLongshotHitters: layeredSurfaced.boards.bestLongshotHitters.length,
+        bestSpecials: layeredSurfaced.boards.bestSpecials.length
+      },
+      tickets: {
+        bestBombPairTickets: layeredSurfaced.tickets.bestBombPairTickets.length,
+        bestBombPlusSupportTickets: layeredSurfaced.tickets.bestBombPlusSupportTickets.length,
+        bestPitcherPlusBombTickets: layeredSurfaced.tickets.bestPitcherPlusBombTickets.length,
+        bestSafePairTickets: layeredSurfaced.tickets.bestSafePairTickets.length
+      }
     }
   }
 }

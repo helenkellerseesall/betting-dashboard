@@ -51,6 +51,16 @@ function normalizeNameForAlias(value) {
     .trim()
 }
 
+function candidateMatchesPlayerAliases(candidate, aliasKeySet, playerNameNormalized) {
+  const candidatePlayerKey = String(candidate?.playerKey || "").trim()
+  if (candidatePlayerKey && aliasKeySet.has(candidatePlayerKey)) return true
+
+  const candidateNameNormalized = normalizeNameForAlias(String(candidate?.playerName || ""))
+  if (candidateNameNormalized && playerNameNormalized && candidateNameNormalized === playerNameNormalized) return true
+
+  return false
+}
+
 function buildPlayerKeyAliases(playerName) {
   const original = String(playerName || "").trim()
   const aliases = new Set()
@@ -224,6 +234,8 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
   const matchupContext = deriveMatchupContext(safeRow)
   const playerKey = normalizeMlbPlayerKey(player)
   const aliasKeys = buildPlayerKeyAliases(player)
+  const aliasKeySet = new Set(aliasKeys)
+  const playerNameNormalized = normalizeNameForAlias(player)
 
   // Non-player game markets still get team/opponent context fields for consistency.
   if (!player || marketFamily === "game") {
@@ -261,10 +273,11 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
 
   const keyCandidates = dedupeCandidates(keyCandidateRows)
   const probablePitcherCandidates = collectProbablePitcherCandidates({ probablePitchersByEventId, eventId })
-  const eventCandidates = dedupeCandidates([
+  const eventCandidatesRaw = dedupeCandidates([
     ...normalizeArray(playersByEventId[eventId]),
     ...probablePitcherCandidates
   ])
+  const eventCandidates = eventCandidatesRaw.filter((candidate) => candidateMatchesPlayerAliases(candidate, aliasKeySet, playerNameNormalized))
 
   const chosen = pickBestCandidateTeamAware({
     eventCandidates,
@@ -302,6 +315,25 @@ function resolveMlbIdentityForRow({ row, externalSnapshot }) {
   }
 
   const candidateTeam = String(candidate.teamResolved || "").trim() || null
+  const teamMatchesEvent = candidateTeam
+    ? eventTeams.some((teamName) => normalizeMlbText(teamName) === normalizeMlbText(candidateTeam))
+    : false
+
+  // Keep null over wrong-team assignment when identity exists but event-team alignment is not trustworthy.
+  if (candidateTeam && eventTeams.length > 0 && !teamMatchesEvent) {
+    return {
+      playerKey: playerKey || candidate.playerKey || null,
+      teamResolved: null,
+      teamCode: null,
+      opponentTeam: null,
+      isHome: null,
+      playerIdExternal: candidate.playerIdExternal,
+      identityConfidence: 0,
+      identitySource: "unresolved-event-team-mismatch",
+      unresolvedReason: "candidate-team-not-in-event"
+    }
+  }
+
   const candidateTeamCode = String(candidate.teamCode || "").trim() || resolveTeamCode(candidateTeam)
 
   let isHome = null
