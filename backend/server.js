@@ -9040,6 +9040,27 @@ app.get("/api/best-available", (req, res) => {
     return 1 + (100 / Math.abs(odds))
   }
 
+  const ALLOWED_NBA_BOOKS = new Set([
+    "draftkings",
+    "fanduel",
+    "fanatics",
+    "betmgm",
+    "caesars"
+  ])
+
+  const isAllowedNbaBookRow = (row) => {
+    const normalizedBook = String(row?.book || "").trim().toLowerCase()
+    return normalizedBook && ALLOWED_NBA_BOOKS.has(normalizedBook)
+  }
+
+  const filterAllowedNbaBookRows = (rows) => (Array.isArray(rows) ? rows : []).filter((row) => isAllowedNbaBookRow(row))
+
+  const isLikelyMatchupText = (text) => {
+    const t = String(text || "").trim().toLowerCase()
+    if (!t) return false
+    return t.includes("@") || t.includes(" vs ") || t.includes(" vs.")
+  }
+
   const normalizeNbaSurfaceTeam = (row, candidateTeam) => {
     const team = String(candidateTeam || "").trim()
     if (!team) return null
@@ -9101,6 +9122,7 @@ app.get("/api/best-available", (req, res) => {
     return {
       player: readable?.player || row?.player || null,
       team: normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam),
+      book: readable?.book || row?.book || null,
       marketKey: readable?.marketKey || row?.marketKey || null,
       propType: readable?.propType || row?.propType || null,
       side: readable?.side || row?.side || null,
@@ -9118,29 +9140,37 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const layerBestValue = (Array.isArray(curatedBestValue) ? curatedBestValue : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestValue", sourceLane: "bestValue" }))
   const layerBestUpside = (Array.isArray(curatedBestUpside) ? curatedBestUpside : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestUpside", sourceLane: "bestUpside" }))
   const layerBestLadders = (Array.isArray(tonightsBestLadders) ? tonightsBestLadders : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .filter((row) => !isNbaSpecialMarketRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestLadders", sourceLane: "bestLadders" }))
 
   const layerFirstBasket = (Array.isArray(typeAwareSpecials.bestFirstBasket) ? typeAwareSpecials.bestFirstBasket : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestFirstBasket", sourceLane: "bestSpecials" }))
   const layerFirstTeamBasket = (Array.isArray(typeAwareSpecials.bestFirstTeamBasket) ? typeAwareSpecials.bestFirstTeamBasket : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestFirstTeamBasket", sourceLane: "bestSpecials" }))
   const layerDoubleDoubles = (Array.isArray(typeAwareSpecials.bestDoubleDoubles) ? typeAwareSpecials.bestDoubleDoubles : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestDoubleDoubles", sourceLane: "bestSpecials" }))
   const layerTripleDoubles = (Array.isArray(typeAwareSpecials.bestTripleDoubles) ? typeAwareSpecials.bestTripleDoubles : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestTripleDoubles", sourceLane: "bestSpecials" }))
   const layerBestSpecials = (Array.isArray(surfacedBestSpecials) ? surfacedBestSpecials : [])
+    .filter((row) => isAllowedNbaBookRow(row))
     .filter((row) => !isNbaSpecialMarketRow(row))
     .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSpecials", sourceLane: "bestSpecials" }))
 
   const layerBestLongshotPlays = (() => {
     const candidates = [
-      ...(Array.isArray(lottoPicks) ? lottoPicks : []),
-      ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row))
+      ...filterAllowedNbaBookRows(Array.isArray(lottoPicks) ? lottoPicks : []),
+      ...filterAllowedNbaBookRows(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row))
     ]
     const out = []
     const seen = new Set()
@@ -9164,9 +9194,9 @@ app.get("/api/best-available", (req, res) => {
   })()
 
   const convictionRowsSource = [
-    ...(Array.isArray(mustPlayCandidates) ? mustPlayCandidates : []).filter((row) => !isNbaSpecialMarketRow(row)),
-    ...(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : []),
-    ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row))
+    ...filterAllowedNbaBookRows((Array.isArray(mustPlayCandidates) ? mustPlayCandidates : []).filter((row) => !isNbaSpecialMarketRow(row))),
+    ...filterAllowedNbaBookRows(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : []),
+    ...filterAllowedNbaBookRows((Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row)))
   ]
 
   const layeredConvictions = (() => {
@@ -9212,9 +9242,9 @@ app.get("/api/best-available", (req, res) => {
   })()
 
   const ladderCandidateRows = [
-    ...(Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row)),
-    ...(Array.isArray(curatedBestUpside) ? curatedBestUpside : []).filter((row) => !isNbaSpecialMarketRow(row)),
-    ...(Array.isArray(lottoPicks) ? lottoPicks : []).filter((row) => !isNbaSpecialMarketRow(row))
+    ...filterAllowedNbaBookRows((Array.isArray(tonightsBestLadders) ? tonightsBestLadders : []).filter((row) => !isNbaSpecialMarketRow(row))),
+    ...filterAllowedNbaBookRows((Array.isArray(curatedBestUpside) ? curatedBestUpside : []).filter((row) => !isNbaSpecialMarketRow(row))),
+    ...filterAllowedNbaBookRows((Array.isArray(lottoPicks) ? lottoPicks : []).filter((row) => !isNbaSpecialMarketRow(row)))
   ]
 
   const buildLadderTierRows = (tier) => {
@@ -9244,6 +9274,7 @@ app.get("/api/best-available", (req, res) => {
     role,
     player: row?.player || null,
     team: row?.team || null,
+    book: row?.book || null,
     marketKey: row?.marketKey || null,
     side: row?.side || null,
     line: row?.line ?? null,
@@ -9253,11 +9284,16 @@ app.get("/api/best-available", (req, res) => {
     matchup: row?.matchup || null
   })
 
-  const buildTicketCandidate = (legs, ticketType) => {
+  const buildTicketCandidate = (legs, ticketType, options = {}) => {
     const safeLegs = (Array.isArray(legs) ? legs : []).filter(Boolean)
     if (safeLegs.length < 2) return null
     const players = safeLegs.map((leg) => String(leg?.player || "").trim().toLowerCase()).filter(Boolean)
     if (new Set(players).size !== players.length) return null
+
+    if (options?.requireSameBook === true) {
+      const books = [...new Set(safeLegs.map((leg) => String(leg?.book || "").trim()).filter(Boolean))]
+      if (books.length !== 1) return null
+    }
 
     const avgConfidence = safeLegs.reduce((sum, leg) => sum + Number(leg?.confidenceScore || 0), 0) / safeLegs.length
     const payoutDecimal = safeLegs.reduce((acc, leg) => acc * toDecimalOddsForTicket(leg?.odds), 1)
@@ -9327,21 +9363,28 @@ app.get("/api/best-available", (req, res) => {
   const ticketSupportPool = [
     ...layerBestValue,
     ...(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : [])
+      .filter((row) => isAllowedNbaBookRow(row))
       .filter((row) => !isNbaSpecialMarketRow(row))
       .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "bestSingles" }))
   ]
+    .filter((row) => isAllowedNbaBookRow(row))
     .filter((row) => row?.outcomeTier === "support")
     .slice(0, 12)
 
   const ticketBombPool = [
     ...layerBestLongshotPlays,
     ...layerBestUpside.filter((row) => row?.outcomeTier !== "support")
-  ].filter((row) => !isNbaSpecialMarketRow(row)).slice(0, 12)
+  ]
+    .filter((row) => isAllowedNbaBookRow(row))
+    .filter((row) => !isNbaSpecialMarketRow(row))
+    .slice(0, 12)
 
   const ticketFirstEventPool = [
     ...layerFirstBasket,
     ...layerFirstTeamBasket
-  ].slice(0, 10)
+  ]
+    .filter((row) => isAllowedNbaBookRow(row))
+    .slice(0, 10)
 
   const buildBombPairTickets = () => {
     const candidates = []
@@ -9350,7 +9393,7 @@ app.get("/api/best-available", (req, res) => {
         const ticket = buildTicketCandidate([
           buildTicketLeg(ticketBombPool[i], "bomb"),
           buildTicketLeg(ticketBombPool[j], "bomb")
-        ], "bombPair")
+        ], "bombPair", { requireSameBook: true })
         if (ticket) candidates.push(ticket)
       }
     }
@@ -9364,7 +9407,7 @@ app.get("/api/best-available", (req, res) => {
         const ticket = buildTicketCandidate([
           buildTicketLeg(bomb, "bomb"),
           buildTicketLeg(support, "support")
-        ], "bombPlusSupport")
+        ], "bombPlusSupport", { requireSameBook: true })
         if (ticket) candidates.push(ticket)
       }
     }
@@ -9379,7 +9422,7 @@ app.get("/api/best-available", (req, res) => {
         const ticket = buildTicketCandidate([
           buildTicketLeg(safeRows[i], "support"),
           buildTicketLeg(safeRows[j], "support")
-        ], "safePair")
+        ], "safePair", { requireSameBook: true })
         if (ticket) candidates.push(ticket)
       }
     }
@@ -9393,7 +9436,7 @@ app.get("/api/best-available", (req, res) => {
         const ticket = buildTicketCandidate([
           buildTicketLeg(ticketFirstEventPool[i], "firstEvent"),
           buildTicketLeg(ticketFirstEventPool[j], "firstEvent")
-        ], "firstEventCluster")
+        ], "firstEventCluster", { requireSameBook: true })
         if (ticket) candidates.push(ticket)
       }
     }
