@@ -379,6 +379,55 @@ function classifyRowTier(row) {
   return null
 }
 
+function isWeakHitterUnderSupportRow(row) {
+  if (row?.isPitcherMarket === true) return false
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+
+  if (side !== "under") return false
+  if (!marketKey.startsWith("batter_")) return false
+
+  // Explicit weak/filler under shapes we do not want driving support/safe pools.
+  if (marketKey === "batter_hits") return true
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line <= 1.5) return true
+  if (marketKey === "batter_walks") return true
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line <= 0.5) return true
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line <= 0.5) return true
+  if (marketKey.includes("home_run")) return true
+
+  // Generic hitter-under fallback guard.
+  return true
+}
+
+function isStrictSupportHitterRow(row) {
+  if (row?.isPitcherMarket === true) return false
+  if (isWeakHitterUnderSupportRow(row)) return false
+
+  const family = String(row?.marketFamily || "")
+  if (family !== "standard" && family !== "ladder") return false
+
+  const side = String(row?.side || "").toLowerCase()
+  if (!(side === "over" || side === "yes" || side === "to hit" || side === "hit")) return false
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  if (!marketKey.startsWith("batter_")) return false
+
+  return true
+}
+
+function selectSupportHitterPool(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const minStrictRows = Math.max(1, Number(options.minStrictRows) || 4)
+
+  const strictRows = safeRows.filter((row) => isStrictSupportHitterRow(row))
+  if (strictRows.length >= minStrictRows) return strictRows
+
+  const fallbackRows = safeRows.filter((row) => !isWeakHitterUnderSupportRow(row))
+  return fallbackRows.length ? fallbackRows : strictRows
+}
+
 function buildBalancedOverallBoard({ bestHitters, bestPitchers, bestSpecials, bestGameMarkets, maxRows }) {
   const hitters = Array.isArray(bestHitters) ? bestHitters : []
   const pitchers = Array.isArray(bestPitchers) ? bestPitchers : []
@@ -615,15 +664,87 @@ function isHomeRunProxyCandidateRow(row) {
   return false
 }
 
-function getHomeRunProxyTier(row) {
-  if (isStandardHomeRunPropRow(row)) return "hr"
+function isTrueHomeRunBombRow(row) {
+  if (!isStandardHomeRunPropRow(row)) return false
+
+  const player = String(row?.player || "").trim()
+  const side = String(row?.side || "").toLowerCase()
+  const odds = toNumberOrNull(row?.odds)
+  if (!player || !Number.isFinite(odds)) return false
+
+  if (!(side === "yes" || side === "over" || side === "to hit" || side === "hit")) return false
+  if (odds < 200 || odds > 2200) return false
+
+  return true
+}
+
+function getStrongBombProxyShape(row) {
   if (!isHomeRunProxyCandidateRow(row)) return null
 
   const marketKey = String(row?.marketKey || "").toLowerCase()
   const line = toNumberOrNull(row?.line)
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds) || odds < 150 || odds > 1400) return null
 
-  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 2.5) return "strong"
-  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 2.5) return "strong"
+  // Strong non-HR bomb expressions: upper-tail thresholds across multiple hitter markets.
+  if ((marketKey === "batter_total_bases" || marketKey.includes("batter_total_bases_alternate")) && Number.isFinite(line) && line >= 2.5) return "tb"
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line >= 1.5) return "rbi"
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line >= 1.5) return "runs"
+  if (marketKey.includes("batter_hits_alternate") && Number.isFinite(line) && line >= 2.5) return "hits"
+
+  return null
+}
+
+function isFallbackBombProxyRow(row) {
+  if (!isHomeRunProxyCandidateRow(row)) return false
+  if (getStrongBombProxyShape(row)) return false
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds) || odds < 120 || odds > 1200) return false
+
+  if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 1.5) return true
+  if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 1.5) return true
+  if (marketKey === "batter_rbis" && Number.isFinite(line) && line >= 0.5) return true
+  if (marketKey === "batter_runs_scored" && Number.isFinite(line) && line >= 0.5) return true
+  if (marketKey.includes("batter_hits_alternate") && Number.isFinite(line) && line >= 1.5) return true
+
+  return false
+}
+
+function buildBombUniverses(rows, options = {}) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  const strictMinCount = Number.isFinite(options.strictMinCount)
+    ? Math.max(1, Number(options.strictMinCount))
+    : 4
+
+  const trueHomeRunRows = safeRows.filter((row) => isTrueHomeRunBombRow(row))
+  const strongProxyRows = safeRows.filter((row) => !!getStrongBombProxyShape(row))
+  const fallbackProxyRows = safeRows.filter((row) => isFallbackBombProxyRow(row))
+
+  const strictPool = [...trueHomeRunRows, ...strongProxyRows]
+  const useFallback = strictPool.length < strictMinCount
+  const selectedPool = useFallback ? [...strictPool, ...fallbackProxyRows] : strictPool
+
+  return {
+    trueHomeRunRows,
+    strongProxyRows,
+    fallbackProxyRows,
+    strictPool,
+    selectedPool,
+    useFallback
+  }
+}
+
+function getHomeRunProxyTier(row) {
+  if (isTrueHomeRunBombRow(row)) return "hr"
+  if (!isHomeRunProxyCandidateRow(row)) return null
+
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  if (getStrongBombProxyShape(row)) return "strong"
+  if (!isFallbackBombProxyRow(row)) return null
 
   if (marketKey.includes("batter_total_bases_alternate") && Number.isFinite(line) && line >= 1.5) return "medium"
   if (marketKey === "batter_total_bases" && Number.isFinite(line) && line >= 1.5) return "medium"
@@ -660,36 +781,8 @@ function buildBestHomeRunPlays(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
 
-  const trueHomeRunRows = safeRows.filter((row) => {
-    if (!isStandardHomeRunPropRow(row)) return false
-
-    const player = String(row?.player || "").trim()
-    const side = String(row?.side || "").toLowerCase()
-    const odds = toNumberOrNull(row?.odds)
-    if (!player || !Number.isFinite(odds)) return false
-
-    if (!(side === "yes" || side === "over" || side === "to hit" || side === "hit")) return false
-
-    // Avoid fake bombs and dead chalk.
-    if (odds < 200 || odds > 2200) return false
-
-    return true
-  })
-
-  const strongProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "strong")
-  const mediumProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "medium")
-  const softProxyRows = safeRows.filter((row) => getHomeRunProxyTier(row) === "soft")
-
-  let homeRunRows = [...trueHomeRunRows, ...strongProxyRows, ...mediumProxyRows]
-  if (homeRunRows.length < maxRows) {
-    homeRunRows = [...homeRunRows, ...softProxyRows]
-  }
-
-  // Hard correction: if the live feed has no standard HR markets tonight,
-  // fall back to strong HR-proxy hitter production rows instead of surfacing an empty lane.
-  if (!homeRunRows.length) {
-    homeRunRows = safeRows.filter((row) => isHomeRunProxyCandidateRow(row))
-  }
+  const bombUniverses = buildBombUniverses(safeRows, { strictMinCount: Math.min(4, maxRows) })
+  const homeRunRows = bombUniverses.selectedPool
 
   const byBook = countBy(homeRunRows, (row) => row?.book)
   const maxBookCount = Math.max(1, ...Object.values(byBook))
@@ -768,7 +861,8 @@ function buildBestHomeRunPlays(rows, options = {}) {
     out.push({
       ...compactMlbRow(row, { playerTeamIndex: options.playerTeamIndex }),
       homeRunPathScore: candidate.homeRunPathScore,
-      surfaceScore: candidate.homeRunPathScore
+      surfaceScore: candidate.homeRunPathScore,
+      bombTier: getHomeRunProxyTier(row) || null
     })
 
     if (out.length >= maxRows) break
@@ -780,10 +874,12 @@ function buildBestHomeRunPlays(rows, options = {}) {
 function buildBestLongshotPlays(rows, options = {}) {
   const safeRows = Array.isArray(rows) ? rows : []
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
+  const bombUniverses = buildBombUniverses(safeRows, { strictMinCount: Math.min(4, maxRows) })
+  const universeRows = bombUniverses.selectedPool
 
   const homeRunCore = buildBestHomeRunPlays(safeRows, { maxRows, playerTeamIndex: options.playerTeamIndex })
   const longshotCandidates = rankRows(
-    safeRows.filter((row) => {
+    universeRows.filter((row) => {
       if (String(row?.isPitcherMarket) === "true" || row?.isPitcherMarket === true) return false
       const odds = toNumberOrNull(row?.odds)
       if (!Number.isFinite(odds)) return false
@@ -805,7 +901,10 @@ function buildBestLongshotPlays(rows, options = {}) {
     const key = buildCandidateKey(row)
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(row)
+    out.push({
+      ...row,
+      bombTier: row?.bombTier || getHomeRunProxyTier(row) || null
+    })
     if (out.length >= maxRows) break
   }
 
@@ -841,7 +940,7 @@ function toTicketLeg(row, role) {
     odds: row?.odds,
     surfaceScore: toNumberOrNull(row?.surfaceScore),
     homeRunPathScore: toNumberOrNull(row?.homeRunPathScore),
-    bombTier: row?.bombTier || null
+    bombTier: row?.bombTier || (role === "bomb" ? getHomeRunProxyTier(row) : null)
   }
 }
 
@@ -1195,6 +1294,7 @@ function toSurfacedPlayRow(row, options = {}) {
     modelHitProb: null,
     impliedProb: impliedProbabilityFromAmerican(row?.odds),
     edgeGap: null,
+    bombTier: row?.bombTier || null,
     outcomeTier,
     boardFamily,
     decisionSummary: inferDecisionSummary(row, boardFamily, outcomeTier)
@@ -1288,6 +1388,7 @@ function withTicketLegFields(ticket = {}) {
       side: leg?.side || null,
       line: leg?.line,
       odds: leg?.odds,
+      bombTier: leg?.bombTier || null,
       outcomeTier: inferOutcomeTier(leg, String(leg?.role || "ticket")),
       confidenceScore: clamp(toNumberOrNull(leg?.homeRunPathScore) != null ? Number(leg.homeRunPathScore) : Number(leg?.surfaceScore || 0.5), 0, 1),
       matchup: leg?.matchup || null
@@ -1358,12 +1459,14 @@ function buildMlbSurfaceBoard(rows, options = {}) {
   // Pre-filter each prop pool by tier before ranking so the resulting lists are
   // meaningfully distinct rather than just score-ordered sub-slices of the same pool.
 
-  const safeHitterPool = hitterRows.filter((r) => classifyRowTier(r) === "safe")
+  const safeHitterPoolRaw = hitterRows.filter((r) => classifyRowTier(r) === "safe")
   const upsideHitterPool = hitterRows.filter((r) => classifyRowTier(r) === "upside")
   const safePitcherPool = pitcherRows.filter((r) => classifyRowTier(r) === "safe")
   const upsidePitcherPool = pitcherRows.filter((r) => classifyRowTier(r) === "upside")
 
   const tierMax = Math.max(3, Math.round(maxRowsPerGroup * 0.65))
+
+  const safeHitterPool = selectSupportHitterPool(safeHitterPoolRaw, { minStrictRows: Math.max(4, Math.round(tierMax * 0.5)) })
 
   const safeHitters = rankRows(safeHitterPool, { groupType: "hitters", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
   const safePitchers = rankRows(safePitcherPool, { groupType: "pitchers", maxRows: tierMax, perMarketKeyMax: 2, playerTeamIndex })
@@ -1406,8 +1509,10 @@ function buildMlbSurfaceBoard(rows, options = {}) {
     maxRows: overallTierMax
   })
 
+  const supportHitterRows = selectSupportHitterPool(bestHitters, { minStrictRows: Math.max(3, Math.round(maxRowsPerGroup * 0.35)) })
+
   const supportRows = rankRows(
-    [...bestOverallSafe, ...bestHitters, ...bestPitchers],
+    [...bestOverallSafe, ...supportHitterRows, ...bestPitchers],
     { groupType: "overall", maxRows: 14, perMarketKeyMax: 3, playerTeamIndex }
   )
 
@@ -1438,7 +1543,7 @@ function buildMlbSurfaceBoard(rows, options = {}) {
       bestPitcherConvictions: buildPlayerConvictions(bestPitchers, { boardFamily: "pitchers", limit: 8 })
     },
     ladders: {
-      bestHitterSupportOutcomes: buildLadderRows([...bestHitters, ...bestOverallSafe], { boardFamily: "hitters", outcomeTier: "support", expectedType: "hitter", limit: 10 }),
+      bestHitterSupportOutcomes: buildLadderRows([...supportHitterRows, ...bestOverallSafe], { boardFamily: "hitters", outcomeTier: "support", expectedType: "hitter", limit: 10 }),
       bestHitterCeilingOutcomes: buildLadderRows([...bestHomeRunPlays, ...bestLongshotPlays, ...bestHitters], { boardFamily: "hitters", outcomeTier: "ceiling", expectedType: "hitter", limit: 10 }),
       bestHitterNukeOutcomes: buildLadderRows([...bestHomeRunPlays, ...bestLongshotPlays], { boardFamily: "hitters", outcomeTier: "nuke", expectedType: "hitter", limit: 10 }),
       bestPitcherSupportOutcomes: buildLadderRows([...bestPitchers, ...bestOverallSafe], { boardFamily: "pitchers", outcomeTier: "support", expectedType: "pitcher", limit: 10 }),
