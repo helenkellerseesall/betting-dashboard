@@ -206,6 +206,22 @@ function payloadHasMarketKey(payload, marketKey) {
   return false
 }
 
+function payloadHasAnyMarketKey(payload, marketKeys) {
+  const safeMarketKeys = Array.isArray(marketKeys) ? marketKeys : []
+  for (const key of safeMarketKeys) {
+    if (payloadHasMarketKey(payload, key)) return true
+  }
+  return false
+}
+
+const ANYTIME_HOME_RUN_MARKET_KEYS = [
+  "batter_home_runs",
+  "player_home_runs",
+  "anytime_home_run",
+  "to_hit_home_run",
+  "home_runs"
+]
+
 function addCount(bucket, key) {
   const normalizedKey = String(key || "Unknown")
   bucket[normalizedKey] = Number(bucket[normalizedKey] || 0) + 1
@@ -374,6 +390,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   const invalidMarketsDetected = new Set()
   const fallbackRetryEvents = []
   const emptyBookmakerFallbackEvents = []
+  const supplementalAnytimeHomeRunFetchEvents = []
   const supplementalSpecialFetchEvents = []
   const payloadShapes = []
 
@@ -473,6 +490,40 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       payloadShapes.push({ eventId, source: "primary", ...payloadShape })
 
       const payloadsForNormalization = [oddsPayload]
+
+      // Preserve true anytime-HR availability even when configured books are sparse.
+      // We supplement with all-books anytime-HR if primary payload does not contain it.
+      if (!payloadHasAnyMarketKey(oddsPayload, ANYTIME_HOME_RUN_MARKET_KEYS)) {
+        try {
+          const supplementalAnytimeResponse = await fetchMlbEventOdds({
+            oddsApiKey,
+            eventId,
+            marketsCsv: "batter_home_runs"
+          })
+          const supplementalAnytimePayload = extractOddsPayload(supplementalAnytimeResponse?.data, eventId)
+          const supplementalAnytimeBookCount = Array.isArray(supplementalAnytimePayload?.bookmakers)
+            ? supplementalAnytimePayload.bookmakers.length
+            : 0
+
+          if (supplementalAnytimeBookCount > 0 && payloadHasAnyMarketKey(supplementalAnytimePayload, ANYTIME_HOME_RUN_MARKET_KEYS)) {
+            payloadsForNormalization.push(supplementalAnytimePayload)
+            payloadShapes.push({
+              eventId,
+              source: "supplemental-anytime-hr",
+              ...describePayloadShape(supplementalAnytimeResponse?.data, supplementalAnytimePayload)
+            })
+            supplementalAnytimeHomeRunFetchEvents.push({
+              eventId,
+              matchup: event?.matchup || null,
+              bookmakers: supplementalAnytimeBookCount,
+              market: "batter_home_runs",
+              added: true
+            })
+          }
+        } catch (_) {
+          // Non-fatal: true HR supplemental is additive for inspection/surfacing only.
+        }
+      }
 
       // Preserve a special lane even when configured books focus on standard props.
       // We supplement with all-books first-home-run if primary payload does not contain it.
@@ -614,6 +665,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       fallbackRetryEvents,
       emptyBookmakerFallbackEventCount: emptyBookmakerFallbackEvents.length,
       emptyBookmakerFallbackEvents,
+      supplementalAnytimeHomeRunFetchEventCount: supplementalAnytimeHomeRunFetchEvents.length,
+      supplementalAnytimeHomeRunFetchEvents,
       supplementalSpecialFetchEventCount: supplementalSpecialFetchEvents.length,
       supplementalSpecialFetchEvents,
       enrichmentCoverage: enrichmentResult?.diagnostics || {

@@ -783,6 +783,7 @@ function buildBestHomeRunPlays(rows, options = {}) {
 
   const bombUniverses = buildBombUniverses(safeRows, { strictMinCount: Math.min(4, maxRows) })
   const homeRunRows = bombUniverses.selectedPool
+  const hasTrueHomeRuns = bombUniverses.trueHomeRunRows.length > 0
 
   const byBook = countBy(homeRunRows, (row) => row?.book)
   const maxBookCount = Math.max(1, ...Object.values(byBook))
@@ -840,18 +841,20 @@ function buildBestHomeRunPlays(rows, options = {}) {
   const perMatchup = {}
   const perMarket = {}
 
-  for (const candidate of scored) {
+  const tryPushCandidate = (candidate) => {
     const row = candidate.row
     const key = buildCandidateKey(row)
-    if (seen.has(key)) continue
+    if (seen.has(key)) return false
 
     const player = toKey(row?.player, "")
     const matchup = toKey(row?.matchup, "unknown")
     const marketKey = toKey(row?.marketKey, "unknown")
+    const bombTier = getHomeRunProxyTier(row)
+    const perMarketCap = hasTrueHomeRuns && bombTier !== "hr" ? 2 : 4
 
-    if (player && Number(perPlayer[player] || 0) >= 1) continue
-    if (Number(perMatchup[matchup] || 0) >= 2) continue
-    if (Number(perMarket[marketKey] || 0) >= 4) continue
+    if (player && Number(perPlayer[player] || 0) >= 1) return false
+    if (Number(perMatchup[matchup] || 0) >= 2) return false
+    if (Number(perMarket[marketKey] || 0) >= perMarketCap) return false
 
     seen.add(key)
     if (player) perPlayer[player] = Number(perPlayer[player] || 0) + 1
@@ -862,9 +865,25 @@ function buildBestHomeRunPlays(rows, options = {}) {
       ...compactMlbRow(row, { playerTeamIndex: options.playerTeamIndex }),
       homeRunPathScore: candidate.homeRunPathScore,
       surfaceScore: candidate.homeRunPathScore,
-      bombTier: getHomeRunProxyTier(row) || null
+      bombTier: bombTier || null
     })
 
+    return true
+  }
+
+  const trueHrPriorityTarget = hasTrueHomeRuns
+    ? Math.min(bombUniverses.trueHomeRunRows.length, Math.max(1, Math.ceil(maxRows / 2)))
+    : 0
+
+  if (trueHrPriorityTarget > 0) {
+    for (const candidate of scored.filter((entry) => getHomeRunProxyTier(entry?.row) === "hr")) {
+      tryPushCandidate(candidate)
+      if (out.length >= trueHrPriorityTarget) break
+    }
+  }
+
+  for (const candidate of scored) {
+    tryPushCandidate(candidate)
     if (out.length >= maxRows) break
   }
 
@@ -876,9 +895,10 @@ function buildBestLongshotPlays(rows, options = {}) {
   const maxRows = Number.isFinite(options.maxRows) ? Math.max(1, Number(options.maxRows)) : 6
   const bombUniverses = buildBombUniverses(safeRows, { strictMinCount: Math.min(4, maxRows) })
   const universeRows = bombUniverses.selectedPool
+  const hasTrueHomeRuns = bombUniverses.trueHomeRunRows.length > 0
 
   const homeRunCore = buildBestHomeRunPlays(safeRows, { maxRows, playerTeamIndex: options.playerTeamIndex })
-  const longshotCandidates = rankRows(
+  const rankedLongshotCandidates = rankRows(
     universeRows.filter((row) => {
       if (String(row?.isPitcherMarket) === "true" || row?.isPitcherMarket === true) return false
       const odds = toNumberOrNull(row?.odds)
@@ -893,6 +913,17 @@ function buildBestLongshotPlays(rows, options = {}) {
       perMarketKeyMax: 2
     }
   )
+
+  const longshotCandidates = hasTrueHomeRuns
+    ? [
+      ...rankedLongshotCandidates.filter((row) => getHomeRunProxyTier(row) === "hr"),
+      ...rankedLongshotCandidates.filter((row) => getHomeRunProxyTier(row) === "strong"),
+      ...rankedLongshotCandidates.filter((row) => {
+        const tier = getHomeRunProxyTier(row)
+        return tier !== "hr" && tier !== "strong"
+      })
+    ]
+    : rankedLongshotCandidates
 
   const out = []
   const seen = new Set()
