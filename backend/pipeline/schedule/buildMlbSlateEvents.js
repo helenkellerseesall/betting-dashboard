@@ -40,6 +40,7 @@ const {
 function normalizeMlbSlateEvent(event) {
   const eventId = getEventIdForSchedule(event)
   const eventTime = getEventTimeForSchedule(event)
+  const detroitDateKey = toDetroitDateKey(eventTime)
   const awayTeam = event?.away_team || event?.awayTeam || event?.teams?.[0] || ""
   const homeTeam = event?.home_team || event?.homeTeam || event?.teams?.[1] || ""
 
@@ -55,6 +56,7 @@ function normalizeMlbSlateEvent(event) {
     commence_time: event?.commence_time || eventTime,
     gameTime: event?.gameTime || eventTime,
     startTime: event?.startTime || eventTime,
+    detroitDateKey: event?.detroitDateKey || detroitDateKey || null,
     away_team: event?.away_team || awayTeam,
     awayTeam: event?.awayTeam || awayTeam,
     home_team: event?.home_team || homeTeam,
@@ -86,7 +88,8 @@ async function buildMlbSlateEvents({
   now = Date.now(),
   events
 }) {
-  const slateDateKey = toDetroitDateKey(now)
+  const todayDateKey = toDetroitDateKey(now)
+  const tomorrowDateKey = toDetroitDateKey(now + 24 * 60 * 60 * 1000)
   let fetchedEvents = Array.isArray(events) ? events : null
 
   if (!Array.isArray(fetchedEvents)) {
@@ -114,13 +117,32 @@ async function buildMlbSlateEvents({
     }))
   })
 
-  const scheduledEvents = allEvents.filter((event) => {
+  const getEventDetroitDateKey = (event) => {
+    const normalizedKey = String(event?.detroitDateKey || "").trim()
+    if (normalizedKey) return normalizedKey
     const eventTime = getEventTimeForSchedule(event)
-    return toDetroitDateKey(eventTime) === slateDateKey
-  })
+    const computed = toDetroitDateKey(eventTime)
+    return computed || ""
+  }
+
+  const todayEvents = allEvents.filter((event) => getEventDetroitDateKey(event) === todayDateKey)
+  const tomorrowEvents = allEvents.filter((event) => getEventDetroitDateKey(event) === tomorrowDateKey)
+
+  // MLB boards can be posted mostly for the next Detroit date during overnight windows.
+  // If no same-day events exist, roll to tomorrow rather than returning an empty slate.
+  let chosenSlateDateKey = todayDateKey
+  let scheduledEvents = todayEvents
+  if (!scheduledEvents.length && tomorrowEvents.length) {
+    chosenSlateDateKey = tomorrowDateKey
+    scheduledEvents = tomorrowEvents
+  }
 
   console.log("[MLB-SCHEDULED-EVENTS-FINAL-DEBUG]", {
-    slateDateKey,
+    slateDateKey: chosenSlateDateKey,
+    todayDateKey,
+    tomorrowDateKey,
+    todayEventCount: todayEvents.length,
+    tomorrowEventCount: tomorrowEvents.length,
     totalEvents: scheduledEvents.length,
     events: scheduledEvents.map((event) => ({
       eventId: getEventIdForSchedule(event),
@@ -131,7 +153,7 @@ async function buildMlbSlateEvents({
   })
 
   return {
-    slateDateKey,
+    slateDateKey: chosenSlateDateKey,
     allEvents,
     scheduledEvents
   }
