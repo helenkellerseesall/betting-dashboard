@@ -1212,7 +1212,10 @@ function buildBestBombPairTickets({ bombRows, limit = 6 }) {
 
 function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, limit = 8 }) {
   const bombs = (Array.isArray(bombRows) ? bombRows : []).slice(0, 8)
-  const supports = (Array.isArray(supportRows) ? supportRows : []).slice(0, 10)
+  const supports = (Array.isArray(supportRows) ? supportRows : [])
+    // Hard exclusion: HR-style props are bomb-leg expressions, not support legs.
+    .filter((row) => !isHomeRunMarketRow(row) && !isFirstHomeRunSpecialRow(row))
+    .slice(0, 10)
   const pitchers = (Array.isArray(pitcherRows) ? pitcherRows : []).slice(0, 6)
   const candidates = []
 
