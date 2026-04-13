@@ -965,6 +965,7 @@ function toTicketLeg(row, role) {
     player: row?.player || null,
     team: row?.team || null,
     matchup: row?.matchup || null,
+    book: row?.book || null,
     marketKey: row?.marketKey || null,
     side: row?.side || null,
     line: row?.line,
@@ -1318,6 +1319,7 @@ function toSurfacedPlayRow(row, options = {}) {
   return {
     player: row?.player || null,
     team: row?.team || null,
+    book: row?.book || null,
     marketKey: row?.marketKey || null,
     propType: row?.propType || null,
     side: row?.side || null,
@@ -1418,6 +1420,7 @@ function withTicketLegFields(ticket = {}) {
       role: leg?.role || null,
       player: leg?.player || null,
       team: leg?.team || null,
+      book: leg?.book || null,
       marketKey: leg?.marketKey || null,
       side: leg?.side || null,
       line: leg?.line,
