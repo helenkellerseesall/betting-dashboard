@@ -2,9 +2,22 @@
 
 const { getMlbTeamNameByAbbr } = require("../resolution/mlbTeamResolution")
 
+const ALLOWED_MLB_BOOKS = new Set([
+  "draftkings",
+  "fanduel",
+  "fanatics",
+  "betmgm",
+  "caesars"
+])
+
 function toKey(value, fallback = "unknown") {
   const key = String(value == null ? "" : value).trim()
   return key || fallback
+}
+
+function isAllowedMlbBookRow(row) {
+  const normalizedBook = String(row?.book || "").trim().toLowerCase()
+  return normalizedBook && ALLOWED_MLB_BOOKS.has(normalizedBook)
 }
 
 function countBy(rows, keyFn) {
@@ -1007,11 +1020,20 @@ function isOverstackedByMarket(legs) {
   return maxCount >= Math.max(3, (legs || []).length)
 }
 
-function buildTicketCandidate(legs, ticketType) {
+function buildTicketCandidate(legs, ticketType, options = {}) {
   const safeLegs = Array.isArray(legs) ? legs : []
   if (!safeLegs.length) return null
   if (hasDuplicatePlayers(safeLegs)) return null
   if (isOverstackedByMarket(safeLegs)) return null
+
+  if (options?.requireSameBook === true) {
+    const legBooks = uniqueList(
+      safeLegs
+        .map((leg) => String(leg?.book || "").trim())
+        .filter(Boolean)
+    )
+    if (legBooks.length !== 1) return null
+  }
 
   const qualityScores = safeLegs.map((leg) => {
     const hr = toNumberOrNull(leg?.homeRunPathScore)
@@ -1197,7 +1219,7 @@ function buildBestBombPairTickets({ bombRows, limit = 6 }) {
       const ticket = buildTicketCandidate([
         toTicketLeg({ ...bombs[i], bombTier: getHomeRunProxyTier(bombs[i]) }, "bomb"),
         toTicketLeg({ ...bombs[j], bombTier: getHomeRunProxyTier(bombs[j]) }, "bomb")
-      ], "bombPair")
+      ], "bombPair", { requireSameBook: true })
       if (ticket) candidates.push(ticket)
     }
   }
@@ -1225,7 +1247,7 @@ function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, l
       const twoLeg = buildTicketCandidate([
         toTicketLeg({ ...bomb, bombTier: getHomeRunProxyTier(bomb) }, "bomb"),
         toTicketLeg(support, "support")
-      ], "bombPlusSupport")
+      ], "bombPlusSupport", { requireSameBook: true })
       if (twoLeg) candidates.push(twoLeg)
     }
 
@@ -1235,7 +1257,7 @@ function buildBestBombPlusSupportTickets({ bombRows, supportRows, pitcherRows, l
           toTicketLeg({ ...bomb, bombTier: getHomeRunProxyTier(bomb) }, "bomb"),
           toTicketLeg(support, "support"),
           toTicketLeg(pitcher, "pitcherSupport")
-        ], "bombPlusSupport")
+        ], "bombPlusSupport", { requireSameBook: true })
         if (threeLeg) candidates.push(threeLeg)
       }
     }
@@ -1443,7 +1465,7 @@ function buildBestSafePairTickets(rows, limit = 6) {
       const ticket = buildTicketCandidate([
         toTicketLeg(safeRows[i], "support"),
         toTicketLeg(safeRows[j], "support")
-      ], "safePair")
+      ], "safePair", { requireSameBook: true })
       if (ticket) candidates.push(ticket)
     }
   }
@@ -1460,7 +1482,7 @@ function buildBestSafePairTickets(rows, limit = 6) {
 }
 
 function buildMlbSurfaceBoard(rows, options = {}) {
-  const safeRows = Array.isArray(rows) ? rows : []
+  const safeRows = (Array.isArray(rows) ? rows : []).filter((row) => isAllowedMlbBookRow(row))
   const maxRowsPerGroup = Number.isFinite(options.maxRowsPerGroup)
     ? Math.max(1, Number(options.maxRowsPerGroup))
     : 10
