@@ -35,16 +35,24 @@ Rules:
 
 LIVE VS SNAPSHOT:
 - Use current runtime/snapshot first
-- Max 1 forced refresh
 - Recognize timing issues:
   - early slate (books not posted)
   - late slate (games started)
 - Missing data does NOT always mean bug
 
+LIVE / VERIFICATION RULES:
+- Local code inspection, grep, diffing, and file reads are unrestricted.
+- Local backend restart is allowed when needed for verification.
+- External API-triggering refresh calls must be minimized.
+- Default to at most 1 forced refresh per task.
+- Only exceed 1 forced refresh if the task explicitly requires additional live verification and the extra calls are necessary.
+- Do not use loops/retries that spam external APIs.
+- Prefer existing runtime/snapshot data whenever possible.
+
 API RULES:
 - Do not repeatedly call external APIs
-- No retry loops
-- Minimize refresh calls
+- No retry loops that spam external APIs
+- Minimize refresh calls that trigger external data fetches
 - Avoid unnecessary endpoint hits
 
 SLATE QUALITY:

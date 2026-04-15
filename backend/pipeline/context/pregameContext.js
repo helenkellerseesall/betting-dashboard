@@ -20,6 +20,142 @@ function uniqShortTags(tags, max = 6) {
   return out
 }
 
+/** Map surfaced propType labels (incl. "Points Ladder") to core stat buckets. */
+function nbaCeilingPropKind(propTypeRaw) {
+  const p = String(propTypeRaw || "")
+    .toLowerCase()
+    .replace(/\s+ladder\b/g, "")
+    .trim()
+  if (p.includes("pra")) return "PRA"
+  if (p.includes("three") || p.includes("3pt")) return "Threes"
+  if (p.includes("assist")) return "Assists"
+  if (p.includes("rebound")) return "Rebounds"
+  if (p.includes("point")) return "Points"
+  return ""
+}
+
+/**
+ * NBA-only: derive lightweight ceiling "trigger" flags from existing row fields.
+ * Over-side stat triggers encode high-end outcome setups; usage spike is side-agnostic.
+ */
+function deriveNbaCeilingTriggers(row, form) {
+  const out = {
+    scoringCeilingTrigger: false,
+    threePointCeilingTrigger: false,
+    assistCeilingTrigger: false,
+    reboundCeilingTrigger: false,
+    usageSpikeTrigger: false,
+    ceilingTriggerCount: 0,
+    ceilingTriggerScore: 0
+  }
+  if (!row || typeof row !== "object") return out
+
+  const propKind = nbaCeilingPropKind(row?.propType)
+  const side = String(row?.side || "").toLowerCase()
+  const isUnder = side === "under"
+  const variant = String(row?.propVariant || "base").toLowerCase()
+
+  const line = num(row?.line)
+  const r5 = num(row?.recent5Avg)
+  const r3 = num(row?.recent3Avg)
+  const l10 = num(row?.l10Avg)
+  const ref = Number.isFinite(r5) ? r5 : l10
+  const recentFormVsLine = form?.recentFormVsLine
+
+  const ceilingScore = num(row?.ceilingScore)
+  const lpi = num(row?.longshotPredictiveIndex)
+  const roleSpike = num(row?.roleSpikeScore)
+  const oppSpike = num(row?.opportunitySpikeScore)
+  const lineupCtx = num(row?.lineupContextScore)
+  const edgePts = num(row?.edge)
+  const marketLag = num(row?.marketLagScore)
+  const bookDis = num(row?.bookDisagreementScore)
+  const edgeGap = num(row?.edgeGap)
+
+  const overFormRaw =
+    !isUnder &&
+    Number.isFinite(line) &&
+    line > 0 &&
+    Number.isFinite(ref) &&
+    ref >= line * 1.06
+  const overFormVsLine = !isUnder && Number.isFinite(recentFormVsLine) && recentFormVsLine >= 1.05
+  const overFormShort = !isUnder && Number.isFinite(r3) && Number.isFinite(line) && line > 0 && r3 >= line * 1.08
+
+  const marketTailwind =
+    (Number.isFinite(marketLag) && marketLag >= 0.52) ||
+    (Number.isFinite(bookDis) && bookDis >= 0.28)
+  const edgeTail =
+    (Number.isFinite(edgePts) && edgePts >= 2) ||
+    (Number.isFinite(edgeGap) && edgeGap >= 0.025)
+
+  const ceilingBand = Number.isFinite(ceilingScore) && ceilingScore >= 0.55
+  const ceilingHot = Number.isFinite(ceilingScore) && ceilingScore >= 0.64
+  const lpiHot = Number.isFinite(lpi) && lpi >= 0.52
+  const lpiWarm = Number.isFinite(lpi) && lpi >= 0.46
+
+  out.usageSpikeTrigger =
+    (Number.isFinite(roleSpike) && roleSpike >= 0.38) ||
+    (Number.isFinite(oppSpike) && oppSpike >= 0.4) ||
+    (Number.isFinite(roleSpike) &&
+      Number.isFinite(oppSpike) &&
+      roleSpike >= 0.28 &&
+      oppSpike >= 0.34) ||
+    (Number.isFinite(roleSpike) &&
+      Number.isFinite(lineupCtx) &&
+      Number.isFinite(oppSpike) &&
+      roleSpike >= 0.26 &&
+      lineupCtx >= 0.28 &&
+      oppSpike >= 0.3)
+
+  const ladderish = variant === "alt-mid" || variant === "alt-high" || variant === "alt-max"
+  const overForm = overFormRaw || overFormVsLine || overFormShort
+  const spikeOrMarket = out.usageSpikeTrigger || marketTailwind || edgeTail
+
+  const statCeilingCore =
+    !isUnder &&
+    overForm &&
+    (ceilingHot ||
+      (ceilingBand && lpiHot) ||
+      (ceilingBand && lpiWarm && spikeOrMarket) ||
+      (ladderish && ceilingBand && (lpiWarm || spikeOrMarket)))
+
+  if (propKind === "Points" || propKind === "PRA") {
+    const highLinePoints = propKind === "Points" && Number.isFinite(line) && line >= 22
+    out.scoringCeilingTrigger =
+      Boolean(statCeilingCore) ||
+      (!isUnder &&
+        highLinePoints &&
+        ceilingHot &&
+        (spikeOrMarket || lpiHot))
+  }
+
+  if (propKind === "Threes") {
+    const volumeLine = Number.isFinite(line) && line >= 3
+    out.threePointCeilingTrigger =
+      Boolean(statCeilingCore) ||
+      (!isUnder && volumeLine && ceilingBand && (overForm || lpiHot) && (spikeOrMarket || lpiWarm))
+  }
+
+  if (propKind === "Assists") {
+    out.assistCeilingTrigger = Boolean(statCeilingCore)
+  }
+
+  if (propKind === "Rebounds") {
+    out.reboundCeilingTrigger = Boolean(statCeilingCore)
+  }
+
+  let count = 0
+  if (out.scoringCeilingTrigger) count += 1
+  if (out.threePointCeilingTrigger) count += 1
+  if (out.assistCeilingTrigger) count += 1
+  if (out.reboundCeilingTrigger) count += 1
+  if (out.usageSpikeTrigger) count += 1
+  out.ceilingTriggerCount = count
+  out.ceilingTriggerScore = Number((count / 5).toFixed(3))
+
+  return out
+}
+
 function emptyShell(sport) {
   return {
     sport: sport || "unknown",
@@ -105,11 +241,19 @@ function buildNbaPregameContext(row) {
 
   const ceilingScore = num(row?.ceilingScore)
   const lpi = num(row?.longshotPredictiveIndex)
+  const triggers = deriveNbaCeilingTriggers(row, { recentFormVsLine })
   ctx.ceilingContext = {
     ceilingScore,
     longshotPredictiveIndex: lpi,
     outcomeTier: row?.outcomeTier != null ? String(row.outcomeTier) : null,
-    propVariant: row?.propVariant != null ? String(row.propVariant) : null
+    propVariant: row?.propVariant != null ? String(row.propVariant) : null,
+    scoringCeilingTrigger: triggers.scoringCeilingTrigger,
+    threePointCeilingTrigger: triggers.threePointCeilingTrigger,
+    assistCeilingTrigger: triggers.assistCeilingTrigger,
+    reboundCeilingTrigger: triggers.reboundCeilingTrigger,
+    usageSpikeTrigger: triggers.usageSpikeTrigger,
+    ceilingTriggerCount: triggers.ceilingTriggerCount,
+    ceilingTriggerScore: triggers.ceilingTriggerScore
   }
 
   const tags = []
@@ -125,7 +269,17 @@ function buildNbaPregameContext(row) {
     if (minutesRisk === "low") tags.push("stable minutes")
     if (injuryRisk === "low") tags.push("low injury risk")
   } else {
-    if (Number.isFinite(ceilingScore) && ceilingScore >= 0.72) tags.push("high ceilingScore")
+    const anyStatCeiling =
+      triggers.scoringCeilingTrigger ||
+      triggers.threePointCeilingTrigger ||
+      triggers.assistCeilingTrigger ||
+      triggers.reboundCeilingTrigger
+    if (triggers.scoringCeilingTrigger) tags.push("scoring ceiling setup")
+    if (triggers.threePointCeilingTrigger) tags.push("3PT volume spike")
+    if (triggers.assistCeilingTrigger) tags.push("assist opportunity spike")
+    if (triggers.reboundCeilingTrigger) tags.push("rebound ceiling setup")
+    if (triggers.usageSpikeTrigger) tags.push("usage spike setup")
+    if (!anyStatCeiling && Number.isFinite(ceilingScore) && ceilingScore >= 0.72) tags.push("high ceilingScore")
     if (Number.isFinite(lpi) && lpi >= 0.55) tags.push("strong predictive ceiling index")
     if (Number.isFinite(ctx.roleContext.roleSpikeScore) && ctx.roleContext.roleSpikeScore >= 0.28) tags.push("role / minutes spike")
     if (Number.isFinite(ctx.roleContext.opportunitySpikeScore) && ctx.roleContext.opportunitySpikeScore >= 0.35) tags.push("opportunity spike")
@@ -146,7 +300,7 @@ function buildNbaPregameContext(row) {
     tags.push(`availability: ${availabilityStatus}`)
   }
 
-  ctx.explanationTags = uniqShortTags(tags, 6)
+  ctx.explanationTags = uniqShortTags(tags, 8)
   return ctx
 }
 

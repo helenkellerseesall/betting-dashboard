@@ -9640,6 +9640,8 @@ app.get("/api/best-available", (req, res) => {
     const sweetSpotLift = rawOdds >= 200 && rawOdds <= 520 ? 24 : 0
     const upperBandPenalty = rawOdds > 680 ? (rawOdds - 680) * 0.11 : 0
     const oddsOnlyPenalty = predictiveIdx < 0.14 && rawOdds >= 200 ? (0.14 - predictiveIdx) * 55 : 0
+    const ceilingTriggerTie =
+      (Number(row?.pregameContext?.ceilingContext?.ceilingTriggerCount) || 0) * 0.002
     return (
       (oddsForRank * 0.082) +
       (confidence * 40) +
@@ -9653,7 +9655,8 @@ app.get("/api/best-available", (req, res) => {
       payoutBandBonus * 0.88 +
       sweetSpotLift -
       upperBandPenalty -
-      oddsOnlyPenalty
+      oddsOnlyPenalty +
+      ceilingTriggerTie
     )
   }
 
@@ -9870,10 +9873,12 @@ app.get("/api/best-available", (req, res) => {
         line: surfaced.line ?? row?.line,
         side: surfaced.side ?? row?.side
       }
+      const longshotPredictiveIndex = Number(computeNbaLongshotPredictiveIndex(surfaced).toFixed(4))
+      surfaced = { ...surfaced, longshotPredictiveIndex }
       const pregameContext = buildPregameContext({ sport: "nba", row: surfaced })
       surfaced = {
         ...surfaced,
-        longshotPredictiveIndex: Number(computeNbaLongshotPredictiveIndex(surfaced).toFixed(4)),
+        longshotPredictiveIndex,
         pregameContext,
         explanationTags: pregameContext.explanationTags
       }
