@@ -20,6 +20,124 @@ function uniqShortTags(tags, max = 6) {
   return out
 }
 
+function normalizeNbaStatusText(status) {
+  return String(status || "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Bucket player availability from runtime string fields only (no API).
+ * Mirrors server-side runtime normalization intent.
+ */
+function deriveNbaAvailabilityBucket(row) {
+  const raw = row?.availabilityStatus || row?.playerStatus || row?.status || row?.injuryStatus || ""
+  const n = normalizeNbaStatusText(raw)
+  if (!n) return { bucket: null, rawPrimary: null }
+  const rawPrimary = String(raw).trim()
+  if (n.includes("questionable") || n.includes("game time decision") || n.includes("gtd")) {
+    return { bucket: "questionable", rawPrimary }
+  }
+  if (n.includes("doubtful")) return { bucket: "doubtful", rawPrimary }
+  if (
+    n.includes("probable") ||
+    n.includes("returning") ||
+    n.includes("minutes restriction") ||
+    n.includes("limited")
+  ) {
+    return { bucket: "probable", rawPrimary }
+  }
+  if (
+    n.includes("available") ||
+    n.includes("active") ||
+    n.includes("cleared") ||
+    n.includes("healthy") ||
+    n.includes("will play")
+  ) {
+    return { bucket: "active", rawPrimary }
+  }
+  const isOut =
+    /\bout\b/.test(n) ||
+    n.includes("inactive") ||
+    n.includes("suspended") ||
+    n.includes("not with team") ||
+    /^dnp/.test(n) ||
+    n.includes("dnp ")
+  if (isOut) return { bucket: "out", rawPrimary }
+  return { bucket: null, rawPrimary }
+}
+
+function deriveNbaStarterBucket(row) {
+  const raw =
+    row?.starterStatus ||
+    row?.lineupStatus ||
+    row?.startingStatus ||
+    row?.startingRole ||
+    row?.roleTag ||
+    ""
+  const n = normalizeNbaStatusText(raw)
+  const ctx = normalizeNbaStatusText(row?.contextTag || row?.mustPlayContextTag || "")
+  if (!n && !ctx) return null
+  if (n.includes("starter") || n.includes("starting") || n.includes("first unit")) return "starter"
+  if (n.includes("bench") || n.includes("reserve") || n.includes("non starter") || n.includes("second unit")) return "bench"
+  if (ctx.includes("starter") || ctx.includes("starting")) return "starter"
+  return null
+}
+
+function injuryRiskLabelToScore(label) {
+  const s = String(label || "").trim().toLowerCase()
+  if (s === "high") return 0.85
+  if (s === "medium") return 0.5
+  if (s === "low") return 0.18
+  return null
+}
+
+function deriveInjuryRiskScore(row, availabilityBucket) {
+  let score = injuryRiskLabelToScore(row?.injuryRisk)
+  if (availabilityBucket === "questionable") score = score == null ? 0.45 : Math.max(score, 0.52)
+  if (availabilityBucket === "doubtful") score = score == null ? 0.62 : Math.max(score, 0.68)
+  if (availabilityBucket === "probable") score = score == null ? 0.32 : Math.max(score, 0.3)
+  if (!Number.isFinite(score)) return null
+  return Number(Math.min(1, Math.max(0, score)).toFixed(3))
+}
+
+function joinNbaReasonBlob(row) {
+  return [
+    row?.decisionSummary,
+    row?.playDecision,
+    row?.modelSummary,
+    row?.contextTag,
+    row?.mustPlayContextTag,
+    row?.statusTag
+  ]
+    .filter(Boolean)
+    .map((x) => String(x).toLowerCase())
+    .join(" ")
+}
+
+function teammateAbsenceFromBlob(blob) {
+  if (!blob) return false
+  if (blob.includes("teammate") && (blob.includes("out") || blob.includes("injured") || blob.includes("absence")))
+    return true
+  if (blob.includes("injury") && (blob.includes("opens") || blob.includes("opportunity") || blob.includes("vacuum")))
+    return true
+  if (blob.includes("ruled out") && (blob.includes("starter") || blob.includes("star"))) return true
+  if (blob.includes("absence") && blob.includes("rotation")) return true
+  return false
+}
+
+function deriveMinutesTrendScore(avgMin, recent5MinAvg, recent3MinAvg) {
+  if (!Number.isFinite(recent3MinAvg) || !Number.isFinite(recent5MinAvg)) return null
+  const shortDelta = recent3MinAvg - recent5MinAvg
+  let w = shortDelta / 6
+  if (Number.isFinite(avgMin) && avgMin > 1) {
+    w += (recent5MinAvg - avgMin) / Math.max(avgMin, 12)
+  }
+  return Number(Math.max(-1, Math.min(1, w)).toFixed(3))
+}
+
 /** Map surfaced propType labels (incl. "Points Ladder") to core stat buckets. */
 function nbaCeilingPropKind(propTypeRaw) {
   const p = String(propTypeRaw || "")
@@ -179,24 +297,53 @@ function buildNbaPregameContext(row) {
   const minutesRisk = String(row?.minutesRisk || "").trim().toLowerCase() || null
   const injuryRisk = String(row?.injuryRisk || "").trim().toLowerCase() || null
   const trendRisk = String(row?.trendRisk || "").trim().toLowerCase() || null
-  const availabilityStatus = String(row?.availabilityStatus || row?.playerStatus || "").trim().toLowerCase() || null
-  const starterStatus = String(row?.starterStatus || "").trim().toLowerCase() || null
+
+  const { bucket: availabilityBucket, rawPrimary: availabilityRawPrimary } = deriveNbaAvailabilityBucket(row)
+  const starterBucket = deriveNbaStarterBucket(row)
+  const starterStatus =
+    starterBucket ||
+    (row?.starterStatus != null && String(row.starterStatus).trim()
+      ? String(row.starterStatus).trim().toLowerCase()
+      : null)
+
+  const avgMinN = num(row?.avgMin)
+  const recent5MinAvgN = num(row?.recent5MinAvg)
+  const recent3MinAvgN = num(row?.recent3MinAvg)
+  const minutesTrendScore = deriveMinutesTrendScore(avgMinN, recent5MinAvgN, recent3MinAvgN)
+  const highMinutesFlag = Boolean(
+    (Number.isFinite(avgMinN) && avgMinN >= 30) ||
+      (Number.isFinite(recent5MinAvgN) &&
+        recent5MinAvgN >= 32 &&
+        Number.isFinite(avgMinN) &&
+        avgMinN >= 26)
+  )
+
+  const injuryRiskScore = deriveInjuryRiskScore(row, availabilityBucket)
+  const reasonBlob = joinNbaReasonBlob(row)
+  const teammateAbsenceHint = teammateAbsenceFromBlob(reasonBlob)
+  const ctxTagLower = String(row?.contextTag || "").toLowerCase()
 
   ctx.availabilityContext = {
     minutesRisk,
     injuryRisk,
     trendRisk,
-    availabilityStatus,
-    starterStatus
+    availabilityStatus: availabilityBucket,
+    availabilityStatusRaw: availabilityRawPrimary || null,
+    playerStatus: row?.playerStatus != null && String(row.playerStatus).trim() ? String(row.playerStatus).trim() : null,
+    injuryStatus: row?.injuryStatus != null && String(row.injuryStatus).trim() ? String(row.injuryStatus).trim() : null,
+    starterStatus,
+    injuryRiskScore
   }
 
   ctx.roleContext = {
     roleSpikeScore: num(row?.roleSpikeScore),
     opportunitySpikeScore: num(row?.opportunitySpikeScore),
     lineupContextScore: num(row?.lineupContextScore),
-    avgMin: num(row?.avgMin),
-    recent5MinAvg: num(row?.recent5MinAvg),
-    recent3MinAvg: num(row?.recent3MinAvg)
+    avgMin: avgMinN,
+    recent5MinAvg: recent5MinAvgN,
+    recent3MinAvg: recent3MinAvgN,
+    minutesTrendScore,
+    highMinutesFlag
   }
 
   const line = num(row?.line)
@@ -219,9 +366,12 @@ function buildNbaPregameContext(row) {
     hitRateLabel: row?.hitRate != null ? String(row.hitRate) : null
   }
 
+  const dvpN = num(row?.dvpScore)
   ctx.matchupContext = {
+    matchup: row?.matchup != null ? String(row.matchup) : null,
+    opponentTeam: row?.opponentTeam != null ? String(row.opponentTeam) : null,
     matchupEdgeScore: num(row?.matchupEdgeScore),
-    dvpScore: num(row?.dvpScore),
+    dvpScore: dvpN,
     gameEnvironmentScore: num(row?.gameEnvironmentScore),
     bookValueScore: num(row?.bookValueScore),
     volatilityScore: num(row?.volatilityScore)
@@ -257,6 +407,12 @@ function buildNbaPregameContext(row) {
   }
 
   const tags = []
+  const matchupE = ctx.matchupContext.matchupEdgeScore
+  const gameEnv = ctx.matchupContext.gameEnvironmentScore
+  const opp = num(row?.opportunitySpikeScore)
+  const lineupC = num(row?.lineupContextScore)
+  const propKindForDvp = nbaCeilingPropKind(row?.propType)
+
   if (outcomeTier === "support") {
     const confidence = num(row?.confidenceScore) != null ? Number(row.confidenceScore) : null
     const hitRate = typeof row?.hitRate === "string" && row.hitRate.includes("/")
@@ -288,19 +444,57 @@ function buildNbaPregameContext(row) {
       if (side !== "under" && recentFormVsLine >= 1.08) tags.push("recent form over line")
       if (side === "under" && recentFormVsLine >= 1.08) tags.push("recent form supports under")
     }
-    if (Number.isFinite(ctx.matchupContext.matchupEdgeScore) && ctx.matchupContext.matchupEdgeScore >= 0.32) tags.push("matchup edge signal")
-    if (Number.isFinite(ctx.matchupContext.gameEnvironmentScore) && ctx.matchupContext.gameEnvironmentScore >= 0.55) tags.push("favorable game environment")
     if (Number.isFinite(ctx.marketContext.marketLagScore) && ctx.marketContext.marketLagScore >= 0.62) tags.push("market lag signal")
     if (Number.isFinite(ctx.marketContext.bookDisagreementScore) && ctx.marketContext.bookDisagreementScore >= 0.35) tags.push("book disagreement")
     if (Number.isFinite(ctx.marketContext.edgeGap) && ctx.marketContext.edgeGap >= 0.03) tags.push("positive model edge gap")
     if (minutesRisk === "low") tags.push("stable minutes")
     if (injuryRisk === "low") tags.push("low injury risk")
   }
-  if (availabilityStatus && availabilityStatus !== "available" && availabilityStatus !== "") {
-    tags.push(`availability: ${availabilityStatus}`)
+
+  if (highMinutesFlag && minutesRisk !== "high") tags.push("high minutes role")
+  if (Number.isFinite(minutesTrendScore) && minutesTrendScore >= 0.12) tags.push("minutes trending up")
+  if (
+    minutesRisk === "high" ||
+    (trendRisk === "high" &&
+      Number.isFinite(minutesTrendScore) &&
+      Math.abs(minutesTrendScore) >= 0.15) ||
+    (Number.isFinite(minutesTrendScore) && Math.abs(minutesTrendScore) >= 0.42)
+  ) {
+    tags.push("minutes volatility risk")
   }
 
-  ctx.explanationTags = uniqShortTags(tags, 8)
+  if (Number.isFinite(matchupE) && matchupE >= 0.42) tags.push("favorable matchup")
+  else if (Number.isFinite(matchupE) && matchupE >= 0.32) tags.push("matchup edge signal")
+
+  if (Number.isFinite(gameEnv) && gameEnv >= 0.55) tags.push("fast-paced game environment")
+
+  if (propKindForDvp && Number.isFinite(dvpN) && (dvpN >= 0.55 || dvpN === 1)) {
+    tags.push("defensive weakness vs prop type")
+  }
+
+  if (teammateAbsenceHint || ctxTagLower.includes("absence")) {
+    tags.push("teammate absence opportunity")
+  }
+
+  if (
+    (availabilityBucket === "probable" && Number.isFinite(opp) && opp >= 0.32) ||
+    (Number.isFinite(opp) &&
+      opp >= 0.38 &&
+      Number.isFinite(lineupC) &&
+      lineupC >= 0.28 &&
+      injuryRisk !== "high" &&
+      minutesRisk !== "high")
+  ) {
+    tags.push("injury/rotation boost")
+  }
+
+  if (availabilityBucket && availabilityBucket !== "active") {
+    tags.push(`availability: ${availabilityBucket}`)
+  } else if (availabilityBucket == null && availabilityRawPrimary && availabilityRawPrimary.length <= 36) {
+    tags.push(`availability: ${availabilityRawPrimary}`)
+  }
+
+  ctx.explanationTags = uniqShortTags(tags, 14)
   return ctx
 }
 

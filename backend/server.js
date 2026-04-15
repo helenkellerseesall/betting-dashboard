@@ -10085,24 +10085,29 @@ app.get("/api/best-available", (req, res) => {
     bestNukeOutcomes: buildLadderTierRows("nuke")
   }
 
-  const buildTicketLeg = (row, role) => ({
-    role,
-    player: row?.player || null,
-    team: row?.team || null,
-    book: row?.book || null,
-    marketKey: row?.marketKey || null,
-    propType: row?.propType || null,
-    side: row?.side || null,
-    line: row?.line ?? null,
-    odds: row?.odds ?? null,
-    outcomeTier: row?.outcomeTier || inferNbaOutcomeTier(row, "tickets"),
-    confidenceScore: toFiniteNumber(row?.confidenceScore, 0.5),
-    matchup: row?.matchup || null,
-    playDecision: row?.playDecision ?? null,
-    propVariant: row?.propVariant ?? null,
-    ceilingScore: toFiniteNumber(row?.ceilingScore, null),
-    pregameContext: buildPregameContext({ sport: "nba", row })
-  })
+  const buildTicketLeg = (row, role) => {
+    const base = row && typeof row === "object" ? { ...row } : {}
+    const merged = { ...base, role }
+    return {
+      ...merged,
+      role,
+      player: merged.player ?? null,
+      team: merged.team ?? null,
+      book: merged.book ?? null,
+      marketKey: merged.marketKey ?? null,
+      propType: merged.propType ?? null,
+      side: merged.side ?? null,
+      line: merged.line ?? null,
+      odds: merged.odds ?? null,
+      outcomeTier: merged.outcomeTier || inferNbaOutcomeTier(merged, "tickets"),
+      confidenceScore: toFiniteNumber(merged.confidenceScore, 0.5),
+      matchup: merged.matchup ?? null,
+      playDecision: merged.playDecision ?? null,
+      propVariant: merged.propVariant ?? null,
+      ceilingScore: toFiniteNumber(merged.ceilingScore, null),
+      pregameContext: buildPregameContext({ sport: "nba", row: merged })
+    }
+  }
 
   const buildTicketCandidate = (legs, ticketType, options = {}) => {
     const safeLegs = (Array.isArray(legs) ? legs : []).filter(Boolean)
