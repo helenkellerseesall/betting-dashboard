@@ -31,6 +31,7 @@ const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOffi
 const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
 const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
 const { buildMlbInspectionBoard } = require("./pipeline/mlb/buildMlbInspectionBoard")
+const { buildPregameContext } = require("./pipeline/context/pregameContext")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -9869,9 +9870,12 @@ app.get("/api/best-available", (req, res) => {
         line: surfaced.line ?? row?.line,
         side: surfaced.side ?? row?.side
       }
+      const pregameContext = buildPregameContext({ sport: "nba", row: surfaced })
       surfaced = {
         ...surfaced,
-        longshotPredictiveIndex: Number(computeNbaLongshotPredictiveIndex(surfaced).toFixed(4))
+        longshotPredictiveIndex: Number(computeNbaLongshotPredictiveIndex(surfaced).toFixed(4)),
+        pregameContext,
+        explanationTags: pregameContext.explanationTags
       }
       scored.push(surfaced)
     }
@@ -10091,7 +10095,8 @@ app.get("/api/best-available", (req, res) => {
     matchup: row?.matchup || null,
     playDecision: row?.playDecision ?? null,
     propVariant: row?.propVariant ?? null,
-    ceilingScore: toFiniteNumber(row?.ceilingScore, null)
+    ceilingScore: toFiniteNumber(row?.ceilingScore, null),
+    pregameContext: buildPregameContext({ sport: "nba", row })
   })
 
   const buildTicketCandidate = (legs, ticketType, options = {}) => {
@@ -10494,6 +10499,92 @@ app.get("/api/best-available", (req, res) => {
       return Math.max(0, Math.min(1, (ceilingIdx * 0.72) + (confidence * 0.28)))
     }
 
+    const buildLegReasoning = (leg) => {
+      const fromCtx = Array.isArray(leg?.pregameContext?.explanationTags) ? leg.pregameContext.explanationTags : []
+      if (fromCtx.length) {
+        return Array.from(new Set(fromCtx.map((t) => String(t || "").trim()).filter(Boolean))).slice(0, 4)
+      }
+
+      const out = []
+      const role = String(leg?.role || "").toLowerCase()
+      const marketKey = String(leg?.marketKey || "").toLowerCase()
+      const propType = String(leg?.propType || "").toLowerCase()
+      const odds = Number(leg?.odds)
+      const line = Number(leg?.line)
+      const ceilingScore = toFiniteNumber(leg?.ceilingScore, null)
+      const roleSpikeScore = toFiniteNumber(leg?.roleSpikeScore, null)
+      const opportunitySpikeScore = toFiniteNumber(leg?.opportunitySpikeScore, null)
+      const lineupContextScore = toFiniteNumber(leg?.lineupContextScore, null)
+      const marketLagScore = toFiniteNumber(leg?.marketLagScore, null)
+      const bookDisagreementScore = toFiniteNumber(leg?.bookDisagreementScore, null)
+      const edgeGap = toFiniteNumber(getModelEdgeSignal(leg), null)
+      const lpi = toFiniteNumber(leg?.longshotPredictiveIndex, null)
+      const recent5 = toFiniteNumber(leg?.recent5Avg, null)
+      const l10 = toFiniteNumber(leg?.l10Avg, null)
+      const ref = Number.isFinite(recent5) ? recent5 : l10
+      const isUnder = String(leg?.side || "").toLowerCase() === "under"
+
+      if (role !== "support") {
+        if (marketKey.includes("alternate") || propType.includes("ladder") || marketKey.includes("alt")) out.push("high-ceiling ladder/alt")
+        if (Number.isFinite(odds) && odds >= 400) out.push("big payout band")
+        if (Number.isFinite(lpi) && lpi >= 0.55) out.push("strong ceiling signal")
+        else if (Number.isFinite(ceilingScore) && ceilingScore >= 0.68) out.push("high ceilingScore")
+        if (Number.isFinite(roleSpikeScore) && roleSpikeScore >= 0.28) out.push("role/minutes spike signal")
+        if (Number.isFinite(opportunitySpikeScore) && opportunitySpikeScore >= 0.35) out.push("opportunity spike")
+        if (Number.isFinite(lineupContextScore) && lineupContextScore >= 0.28) out.push("lineup context boost")
+        if (Number.isFinite(ref) && Number.isFinite(line) && line > 0) {
+          if (!isUnder && ref >= line * 1.08) out.push("recent form over line")
+          if (isUnder && ref <= line * 0.92) out.push("recent form under line")
+        }
+        if (Number.isFinite(marketLagScore) && marketLagScore >= 0.62) out.push("market lag signal")
+        if (Number.isFinite(bookDisagreementScore) && bookDisagreementScore >= 0.35) out.push("book disagreement")
+      } else {
+        const confidence = normalizeConfidence01(leg)
+        const hitRate = getRowHitRate(leg)
+        if (confidence >= 0.58) out.push("high confidence")
+        if (Number.isFinite(hitRate) && hitRate >= 0.55) out.push("high hit-rate")
+        if (Number.isFinite(edgeGap) && edgeGap >= 0.03) out.push("positive model edge")
+        if (Number.isFinite(odds) && odds <= 120 && odds >= -185) out.push("support-priced")
+      }
+
+      // Deduplicate + cap
+      return Array.from(new Set(out)).slice(0, 4)
+    }
+
+    const buildTicketReasoningSummary = (ticketType, legs, meta) => {
+      const safeLegs = Array.isArray(legs) ? legs : []
+      const matchups = new Set(safeLegs.map((l) => String(l?.matchup || "").trim()).filter(Boolean))
+      const books = new Set(safeLegs.map((l) => String(l?.book || "").trim()).filter(Boolean))
+      const avg = toFiniteNumber(meta?.avgCeilingSignal, null)
+      const min = toFiniteNumber(meta?.minLegSignal, null)
+      const coherence = toFiniteNumber(meta?.coherence, null)
+      const parts = []
+      if (ticketType === "bombPair") parts.push("2 high-ceiling legs")
+      if (ticketType === "bombSupport") parts.push("1 bomb + 1 support anchor")
+      if (ticketType === "ceilingTriple") parts.push("3-leg ceiling stack")
+      if (matchups.size >= 2) parts.push(`${matchups.size} games`)
+      if (books.size === 1) parts.push("same-book executable")
+      if (Number.isFinite(avg)) parts.push(`avgCeiling ${Number(avg).toFixed(2)}`)
+      if (Number.isFinite(min)) parts.push(`minLeg ${Number(min).toFixed(2)}`)
+      if (Number.isFinite(coherence)) parts.push(`coherence ${Number(coherence).toFixed(2)}`)
+      const signalTags = []
+      const seenTag = new Set()
+      for (const l of safeLegs) {
+        for (const t of Array.isArray(l?.pregameContext?.explanationTags) ? l.pregameContext.explanationTags : []) {
+          const s = String(t || "").trim()
+          if (!s) continue
+          const k = s.toLowerCase()
+          if (seenTag.has(k)) continue
+          seenTag.add(k)
+          signalTags.push(s)
+          if (signalTags.length >= 2) break
+        }
+        if (signalTags.length >= 2) break
+      }
+      if (signalTags.length) parts.push(`signals: ${signalTags.join(", ")}`)
+      return parts.slice(0, 5).join(" • ")
+    }
+
     const buildBangerCandidate = (legs, ticketType) => {
       const safeLegs = (Array.isArray(legs) ? legs : []).filter(Boolean)
       if (safeLegs.length < 2) return null
@@ -10563,7 +10654,13 @@ app.get("/api/best-available", (req, res) => {
           uniqueMatchups: uniqueMatchups.size,
           uniqueTeams: uniqueTeams.size,
           uniquePropTypes: uniquePropTypes.size
-        }
+        },
+        legs: safeLegs.map((leg) => ({ ...leg, reasoning: buildLegReasoning(leg) })),
+        ticketReasoningSummary: buildTicketReasoningSummary(ticketType, safeLegs, {
+          avgCeilingSignal: Number(avgSignal.toFixed(4)),
+          minLegSignal: Number(minSignal.toFixed(4)),
+          coherence: Number(coherence.toFixed(4))
+        })
       }
     }
 
@@ -23936,22 +24033,27 @@ app.get("/mlb/board", (req, res) => {
 
   const sampleRows = rows
     .slice(0, limit)
-    .map((row) => ({
-      sport: row?.sport || "mlb",
-      eventId: row?.eventId || null,
-      matchup: row?.matchup || null,
-      gameTime: row?.gameTime || null,
-      book: row?.book || null,
-      marketKey: row?.marketKey || null,
-      marketFamily: row?.marketFamily || null,
-      propType: row?.propType || null,
-      player: row?.player || null,
-      side: row?.side || null,
-      line: row?.line,
-      odds: row?.odds,
-      isPitcherMarket: row?.isPitcherMarket === true,
-      teamMatchesMatchup: row?.teamMatchesMatchup !== false
-    }))
+    .map((row) => {
+      const pregameContext = buildPregameContext({ sport: "mlb", row })
+      return {
+        sport: row?.sport || "mlb",
+        eventId: row?.eventId || null,
+        matchup: row?.matchup || null,
+        gameTime: row?.gameTime || null,
+        book: row?.book || null,
+        marketKey: row?.marketKey || null,
+        marketFamily: row?.marketFamily || null,
+        propType: row?.propType || null,
+        player: row?.player || null,
+        side: row?.side || null,
+        line: row?.line,
+        odds: row?.odds,
+        isPitcherMarket: row?.isPitcherMarket === true,
+        teamMatchesMatchup: row?.teamMatchesMatchup !== false,
+        pregameContext,
+        explanationTags: pregameContext.explanationTags
+      }
+    })
 
   return res.json({
     ok: true,
