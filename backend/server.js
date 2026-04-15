@@ -10082,6 +10082,7 @@ app.get("/api/best-available", (req, res) => {
     team: row?.team || null,
     book: row?.book || null,
     marketKey: row?.marketKey || null,
+    propType: row?.propType || null,
     side: row?.side || null,
     line: row?.line ?? null,
     odds: row?.odds ?? null,
@@ -10511,14 +10512,43 @@ app.get("/api/best-available", (req, res) => {
 
       const legSignals = safeLegs.map((l) => {
         const type = ticketType === "bombSupport"
-          ? (String(l?.outcomeTier || "").toLowerCase() === "support" ? "support" : "bomb")
+          ? (String(l?.role || "").toLowerCase() === "support" ? "support" : "bomb")
           : "bomb"
         return legTicketSignal(l, type)
       })
       const avgSignal = legSignals.reduce((a, b) => a + b, 0) / legSignals.length
+      const minSignal = legSignals.length ? Math.min(...legSignals) : 0
+
+      const matchups = safeLegs.map((l) => String(l?.matchup || "").trim().toLowerCase()).filter(Boolean)
+      const teams = safeLegs.map((l) => String(l?.team || "").trim().toLowerCase()).filter(Boolean)
+      const marketKeys = safeLegs.map((l) => String(l?.marketKey || "").trim().toLowerCase()).filter(Boolean)
+      const propTypes = safeLegs.map((l) => String(l?.propType || "").trim().toLowerCase()).filter(Boolean)
+      const uniqueMatchups = new Set(matchups)
+      const uniqueTeams = new Set(teams)
+      const uniquePropTypes = new Set(propTypes)
+
+      let coherence = 1
+      const sameMatchup = uniqueMatchups.size <= 1
+      const sameTeam = uniqueTeams.size <= 1
+      const altCount = marketKeys.filter((mk) => mk.includes("alternate") || mk.includes("alt")).length
+      const altHeavy = altCount >= Math.max(1, Math.floor(safeLegs.length * 0.75))
+
+      // Light coherence rules: avoid obvious over-correlation when avoidable.
+      if (slateGames >= 3 && sameMatchup) coherence -= 0.22
+      if (slateGames < 3 && sameMatchup) coherence -= 0.12
+      if (sameTeam) coherence -= 0.12
+      if (uniquePropTypes.size <= 1 && safeLegs.length >= 2) coherence -= 0.08
+      if (altHeavy && safeLegs.length >= 2) coherence -= 0.06
+
+      // Reward cross-game diversity when available.
+      if (slateGames >= safeLegs.length && uniqueMatchups.size === safeLegs.length) coherence += 0.08
+      if (uniquePropTypes.size >= Math.min(2, safeLegs.length)) coherence += 0.03
+
+      coherence = Math.max(0, Math.min(1, coherence))
       const payoutDecimal = Number(base?.estimatedPayoutDecimal || 1)
-      const payoutSignal = Math.max(0, Math.min(1, (payoutDecimal - 2.4) / 10))
-      const ticketScore = Number(((avgSignal * 0.72) + (payoutSignal * 0.28)).toFixed(4))
+      const payoutSignal = Math.max(0, Math.min(1, (payoutDecimal - 2.6) / 12))
+      // Quality-first: prioritize ceiling signal + weakest-leg protection, with small payout + coherence.
+      const ticketScore = Number(((avgSignal * 0.64) + (minSignal * 0.16) + (coherence * 0.12) + (payoutSignal * 0.08)).toFixed(4))
       const estimatedOddsAmerican = decimalToAmerican(payoutDecimal)
 
       return {
@@ -10527,7 +10557,12 @@ app.get("/api/best-available", (req, res) => {
         estimatedOddsAmerican,
         ticketMeta: {
           slateMode,
-          avgCeilingSignal: Number(avgSignal.toFixed(4))
+          avgCeilingSignal: Number(avgSignal.toFixed(4)),
+          minLegSignal: Number(minSignal.toFixed(4)),
+          coherence: Number(coherence.toFixed(4)),
+          uniqueMatchups: uniqueMatchups.size,
+          uniqueTeams: uniqueTeams.size,
+          uniquePropTypes: uniquePropTypes.size
         }
       }
     }
@@ -10590,26 +10625,27 @@ app.get("/api/best-available", (req, res) => {
       }
     }
 
-    const selected = selectLayeredTickets(candidates, limits.total, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
-    // Keep type balance: take best N per type in order, then fill.
-    const byType = selected.reduce((acc, t) => {
-      const key = String(t?.ticketType || "unknown")
-      if (!acc[key]) acc[key] = []
-      acc[key].push(t)
-      return acc
-    }, {})
-    const out = [
-      ...(byType.bombPair || []).slice(0, limits.bombPair),
-      ...(byType.bombSupport || []).slice(0, limits.bombSupport),
-      ...(byType.ceilingTriple || []).slice(0, limits.ceilingTriple)
-    ]
+    const selected = selectLayeredTickets(candidates, Math.max(8, limits.total * 3), { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+    const caps = {
+      bombPair: Math.max(0, Number(limits.bombPair || 0)),
+      bombSupport: Math.max(0, Number(limits.bombSupport || 0)),
+      ceilingTriple: Math.max(0, Number(limits.ceilingTriple || 0))
+    }
+    const usedByType = { bombPair: 0, bombSupport: 0, ceilingTriple: 0 }
+    const out = []
+    for (const t of selected) {
+      if (out.length >= limits.total) break
+      const type = String(t?.ticketType || "")
+      if (!type) continue
+      if (type in caps && usedByType[type] >= caps[type]) continue
+      out.push(t)
+      if (type in usedByType) usedByType[type] += 1
+    }
+    // If we couldn't fill due to type caps, relax caps but stay honest about quality.
     if (out.length < limits.total) {
-      const usedKeys = new Set(out.map((t) => String(t?.ticketType || "") + "|" + String(t?.book || "") + "|" + String(t?.estimatedPayoutDecimal || "")))
       for (const t of selected) {
         if (out.length >= limits.total) break
-        const key = String(t?.ticketType || "") + "|" + String(t?.book || "") + "|" + String(t?.estimatedPayoutDecimal || "")
-        if (usedKeys.has(key)) continue
-        usedKeys.add(key)
+        if (out.includes(t)) continue
         out.push(t)
       }
     }
