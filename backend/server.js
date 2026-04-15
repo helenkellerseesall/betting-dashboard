@@ -9225,16 +9225,44 @@ app.get("/api/best-available", (req, res) => {
       )).toFixed(4)
     )
 
+    const inferOpponentTeamFromMatchup = (matchup, team) => {
+      const m = String(matchup || "").trim()
+      if (!m) return null
+      const parts = m.split("@").map((s) => String(s || "").trim()).filter(Boolean)
+      if (parts.length !== 2) return null
+      const away = parts[0]
+      const home = parts[1]
+      const t = String(team || "").trim().toLowerCase()
+      if (!t) return null
+      if (t === away.toLowerCase()) return home
+      if (t === home.toLowerCase()) return away
+      // looser includes-match fallback for cases like "Los Angeles Clippers"
+      if (away.toLowerCase().includes(t) || t.includes(away.toLowerCase())) return home
+      if (home.toLowerCase().includes(t) || t.includes(home.toLowerCase())) return away
+      return null
+    }
+
+    const surfacedTeam = normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam)
+    const matchupText = readable?.matchup || row?.matchup || row?.eventId || null
+    const opponentTeam =
+      row?.opponentTeam ||
+      (row?.awayTeam || row?.homeTeam ? getOpponentForRow({ ...row, team: row?.team || surfacedTeam }) : null) ||
+      inferOpponentTeamFromMatchup(matchupText, surfacedTeam)
+
     return {
       player: readable?.player || row?.player || null,
-      team: normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam),
+      team: surfacedTeam,
       book: readable?.book || row?.book || null,
       marketKey: readable?.marketKey || row?.marketKey || null,
       propType: readable?.propType || row?.propType || null,
       side: readable?.side || row?.side || null,
       line: readable?.line ?? row?.line ?? null,
       odds: readable?.odds ?? row?.odds ?? null,
-      matchup: readable?.matchup || row?.matchup || row?.eventId || null,
+      matchup: matchupText,
+      opponentTeam: opponentTeam != null && String(opponentTeam).trim() ? String(opponentTeam).trim() : null,
+      awayTeam: row?.awayTeam ?? null,
+      homeTeam: row?.homeTeam ?? null,
+      gameTime: row?.gameTime ?? null,
       confidenceScore,
       modelHitProb: toFiniteNumber(row?.modelHitProb, null),
       impliedProb: Number.isFinite(impliedProb) ? Number(impliedProb.toFixed(4)) : null,
@@ -9248,6 +9276,19 @@ app.get("/api/best-available", (req, res) => {
       hitRate: row?.hitRate ?? null,
       score: toFiniteNumber(row?.score, null),
       edge: toFiniteNumber(row?.edge, null),
+      avgMin: toFiniteNumber(row?.avgMin, null),
+      recent5MinAvg: toFiniteNumber(row?.recent5MinAvg, null),
+      recent3MinAvg: toFiniteNumber(row?.recent3MinAvg, null),
+      minutesRisk: row?.minutesRisk ?? null,
+      trendRisk: row?.trendRisk ?? null,
+      injuryRisk: row?.injuryRisk ?? null,
+      playerStatus: row?.playerStatus ?? null,
+      injuryStatus: row?.injuryStatus ?? null,
+      availabilityStatus: row?.availabilityStatus ?? null,
+      contextTag: row?.contextTag ?? null,
+      matchupEdgeScore: toFiniteNumber(row?.matchupEdgeScore, null),
+      gameEnvironmentScore: toFiniteNumber(row?.gameEnvironmentScore, null),
+      dvpScore: toFiniteNumber(row?.dvpScore, null),
       ceilingScore: toFiniteNumber(row?.ceilingScore, null),
       roleSpikeScore: toFiniteNumber(row?.roleSpikeScore, null),
       marketLagScore: toFiniteNumber(row?.marketLagScore, null),
@@ -20216,6 +20257,26 @@ app.get("/refresh-snapshot", async (req, res) => {
   })
 }
 
+const scoredPropsSlateMode = detectSlateMode({
+  sportKey: "nba",
+  snapshotMeta: { snapshotSlateGameCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0 },
+  snapshot: { events: scheduledEvents, rawProps: rawPropsRows, props: activeBookRawPropsRows, bestProps: [] },
+  runtime: { loadedSlateQualityPassEnabled: true }
+})
+const scoredPropsFilters = (() => {
+  const m = String(scoredPropsSlateMode.mode || "").toLowerCase()
+  // Thin slate: relax pre-tier eligibility slightly to avoid artificial collapse.
+  if (m === "thin") {
+    return { minAvgMin: 12, minHitRate: 0.35, minGamesUsed: 3, lineDiffScale: 1.5 }
+  }
+  return { minAvgMin: 18, minHitRate: 0.5, minGamesUsed: 6, lineDiffScale: 1.0 }
+})()
+console.log("[SCORED-PROPS-SLATE-FILTERS]", {
+  path: "refresh-snapshot",
+  mode: scoredPropsSlateMode.mode,
+  filters: scoredPropsFilters
+})
+
 const scoredProps = deduped
   .filter((row) => playerFitsMatchup(row))
   .filter((row) => {
@@ -20226,9 +20287,9 @@ const scoredProps = deduped
     )
   })
   .filter((row) => row.l10Avg !== null)
-  .filter((row) => row.avgMin !== null && row.avgMin >= 18)
-  .filter((row) => parseHitRate(row.hitRate) >= 0.5)
-  .filter((row) => row.gamesUsed >= 6)
+  .filter((row) => row.avgMin !== null && row.avgMin >= scoredPropsFilters.minAvgMin)
+  .filter((row) => parseHitRate(row.hitRate) >= scoredPropsFilters.minHitRate)
+  .filter((row) => row.gamesUsed >= scoredPropsFilters.minGamesUsed)
   .filter((row) => {
     const gameTime = new Date(row.gameTime)
     if (!(gameTime.getTime() > Date.now())) return false
@@ -20242,19 +20303,29 @@ const scoredProps = deduped
   .filter((row) => {
     const diff = Math.abs(Number(row.line) - Number(row.l10Avg))
 
-    if (row.propType === "Points") return diff <= 10
-    if (row.propType === "Rebounds") return diff <= 5
-    if (row.propType === "Assists") return diff <= 5
-    if (row.propType === "Threes") return diff <= 2.5
-    if (row.propType === "PRA") return diff <= 12
+    const scale = Number(scoredPropsFilters.lineDiffScale || 1)
+    if (row.propType === "Points") return diff <= 10 * scale
+    if (row.propType === "Rebounds") return diff <= 5 * scale
+    if (row.propType === "Assists") return diff <= 5 * scale
+    if (row.propType === "Threes") return diff <= 2.5 * scale
+    if (row.propType === "PRA") return diff <= 12 * scale
 
     return true
   })
   .filter((row) => {
-    if (row.propType === "Assists" && Number(row.line) > 11.5) return false
-    if (row.propType === "Rebounds" && Number(row.line) > 15.5) return false
-    if (row.propType === "Points" && Number(row.line) > 36.5) return false
-    if (row.propType === "PRA" && Number(row.line) > 47.5) return false
+    const thin = String(scoredPropsSlateMode.mode || "").toLowerCase() === "thin"
+    if (!thin) {
+      if (row.propType === "Assists" && Number(row.line) > 11.5) return false
+      if (row.propType === "Rebounds" && Number(row.line) > 15.5) return false
+      if (row.propType === "Points" && Number(row.line) > 36.5) return false
+      if (row.propType === "PRA" && Number(row.line) > 47.5) return false
+      return true
+    }
+    // Thin: allow slightly wider high-line set to avoid empty boards.
+    if (row.propType === "Assists" && Number(row.line) > 12.5) return false
+    if (row.propType === "Rebounds" && Number(row.line) > 16.5) return false
+    if (row.propType === "Points" && Number(row.line) > 38.5) return false
+    if (row.propType === "PRA" && Number(row.line) > 50.5) return false
     return true
   })
   .map((row) => {
@@ -20382,36 +20453,102 @@ const getInjuryRisk = (row) => String(row.injuryRisk || "").toLowerCase()
 const TIER_BOOKS = ["FanDuel", "DraftKings"]
 const TIER_STAT_TYPES = ["Points", "Rebounds", "Assists", "Threes", "PRA"]
 
-const qualifiesEliteTier = (row) => {
-  const hit = parseHitRate(row.hitRate)
-  return (
-    hit >= 0.72 &&
-    getTierScore(row) >= 88 &&
-    (row.minFloor === null || row.minFloor >= 24) &&
-    (row.minStd === null || row.minStd <= 7.5) &&
-    (row.valueStd === null ||
-      (
-        (row.propType === "Points" || row.propType === "PRA")
-          ? row.valueStd <= 10.5
-          : row.valueStd <= 5.5
-      ))
-  )
+const tierThresholdsForSlateMode = (mode) => {
+  const m = String(mode || "").toLowerCase()
+  // Defaults tuned for normal/light/heavy behavior.
+  const base = {
+    elite: { minHit: 0.72, minScore: 88, minFloor: 24, maxMinStd: 7.5, maxValueStdBig: 10.5, maxValueStdSmall: 5.5 },
+    strong: { minHit: 0.61, minScore: 62, minFloor: 22, maxMinStd: 9.5, maxValueStdBig: 12, maxValueStdSmall: 6.5 },
+    playable: { minHit: 0.5, minScore: 42, edgeBad: -0.75, edgeBadScore: 34, hitAlt1: 0.62, hitAlt2: 0.59, edgeAlt2: 0.2, hitAlt3: 0.57, scoreAlt3: 34 },
+    bestSource: { minHit: 0.46, minScore: 30, edgeBad: -1.0, edgeBadScore: 30, hitAlt1: 0.53, hitAlt2: 0.56, edgeAlt2: 0.05 }
+  }
+
+  // Thin slates: relax proportionally to prevent collapse, without flat overriding.
+  // We keep lane separation by only slightly lowering floors and allowing a
+  // "ceiling-supported" elite/strong path.
+  if (m === "thin") {
+    return {
+      ...base,
+      elite: { ...base.elite, minHit: 0.69, minScore: 84, minFloor: 22, maxMinStd: 8.5, maxValueStdBig: 12.0, maxValueStdSmall: 6.2 },
+      strong: { ...base.strong, minHit: 0.58, minScore: 56, minFloor: 20, maxMinStd: 10.5, maxValueStdBig: 13.5, maxValueStdSmall: 7.2 },
+      playable: { ...base.playable, minScore: 38, hitAlt1: 0.60, hitAlt2: 0.57, hitAlt3: 0.55, scoreAlt3: 32, edgeBadScore: 32 },
+      bestSource: { ...base.bestSource, minHit: 0.44, minScore: 26, hitAlt1: 0.50, hitAlt2: 0.54 }
+    }
+  }
+
+  return base
 }
 
-const qualifiesStrongTier = (row) => {
+const qualifiesEliteTier = (row, slateMode) => {
+  const t = tierThresholdsForSlateMode(slateMode).elite
   const hit = parseHitRate(row.hitRate)
-  return (
-    hit >= 0.61 &&
-    getTierScore(row) >= 62 &&
-    (row.minFloor === null || row.minFloor >= 22) &&
-    (row.minStd === null || row.minStd <= 9.5) &&
-    (row.valueStd === null ||
-      (
-        (row.propType === "Points" || row.propType === "PRA")
-          ? row.valueStd <= 12
-          : row.valueStd <= 6.5
-      ))
+  const score = getTierScore(row)
+  const valueStdCap = (row.propType === "Points" || row.propType === "PRA") ? t.maxValueStdBig : t.maxValueStdSmall
+
+  const baseGate = (
+    hit >= t.minHit &&
+    score >= t.minScore &&
+    (row.minFloor === null || row.minFloor >= t.minFloor) &&
+    (row.minStd === null || row.minStd <= t.maxMinStd) &&
+    (row.valueStd === null || row.valueStd <= valueStdCap)
   )
+
+  if (baseGate) return true
+
+  // Thin-slate exception: allow true ceiling-supported elites through (still quality gated).
+  const m = String(slateMode || "").toLowerCase()
+  if (m === "thin") {
+    const ceilingScore = Number(row?.ceilingScore || 0)
+    const lpi = Number(row?.longshotPredictiveIndex || 0)
+    const roleSpike = Number(row?.roleSpikeScore || 0)
+    if (
+      ceilingScore >= 0.7 &&
+      (lpi >= 0.18 || roleSpike >= 0.18) &&
+      hit >= 0.6 &&
+      score >= 74 &&
+      (row.minFloor === null || row.minFloor >= 18) &&
+      (row.minStd === null || row.minStd <= 10.5)
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+const qualifiesStrongTier = (row, slateMode) => {
+  const t = tierThresholdsForSlateMode(slateMode).strong
+  const hit = parseHitRate(row.hitRate)
+  const score = getTierScore(row)
+  const valueStdCap = (row.propType === "Points" || row.propType === "PRA") ? t.maxValueStdBig : t.maxValueStdSmall
+
+  const baseGate = (
+    hit >= t.minHit &&
+    score >= t.minScore &&
+    (row.minFloor === null || row.minFloor >= t.minFloor) &&
+    (row.minStd === null || row.minStd <= t.maxMinStd) &&
+    (row.valueStd === null || row.valueStd <= valueStdCap)
+  )
+
+  if (baseGate) return true
+
+  const m = String(slateMode || "").toLowerCase()
+  if (m === "thin") {
+    const ceilingScore = Number(row?.ceilingScore || 0)
+    const lpi = Number(row?.longshotPredictiveIndex || 0)
+    const roleSpike = Number(row?.roleSpikeScore || 0)
+    if (
+      ceilingScore >= 0.58 &&
+      (lpi >= 0.18 || roleSpike >= 0.16) &&
+      hit >= 0.54 &&
+      score >= 50 &&
+      (row.minFloor === null || row.minFloor >= 18)
+    ) {
+      return true
+    }
+  }
+
+  return false
 }
 
 const bestPropsCompositeScore = (row) => {
@@ -20426,7 +20563,8 @@ const bestPropsCompositeScore = (row) => {
   return hitRate * 0.5 + edgeComponent * 0.25 + scoreComponent * 0.15 + lowRiskBonuses
 }
 
-const qualifiesPlayableTier = (row) => {
+const qualifiesPlayableTier = (row, slateMode) => {
+  const t = tierThresholdsForSlateMode(slateMode).playable
   const hit = parseHitRate(row.hitRate)
   const edge = getTierEdge(row)
   const score = getTierScore(row)
@@ -20435,16 +20573,17 @@ const qualifiesPlayableTier = (row) => {
 
   if (minutesRisk === "high") return false
   if (injuryRisk === "high") return false
-  if (hit < 0.5) return false
-  if (edge < -0.75 && score < 34) return false
-  if (score >= 42) return true
-  if (hit >= 0.62) return true
-  if (hit >= 0.59 && edge >= 0.2) return true
-  if (hit >= 0.57 && score >= 34) return true
+  if (hit < t.minHit) return false
+  if (edge < t.edgeBad && score < t.edgeBadScore) return false
+  if (score >= t.minScore) return true
+  if (hit >= t.hitAlt1) return true
+  if (hit >= t.hitAlt2 && edge >= t.edgeAlt2) return true
+  if (hit >= t.hitAlt3 && score >= t.scoreAlt3) return true
   return false
 }
 
-const qualifiesBestPropsSource = (row) => {
+const qualifiesBestPropsSource = (row, slateMode) => {
+  const t = tierThresholdsForSlateMode(slateMode).bestSource
   const hit = parseHitRate(row.hitRate)
   const edge = getTierEdge(row)
   const score = getTierScore(row)
@@ -20453,9 +20592,9 @@ const qualifiesBestPropsSource = (row) => {
 
   if (minutesRisk === "high") return false
   if (injuryRisk === "high") return false
-  if (hit < 0.46) return false
-  if (edge < -1.0 && score < 30) return false
-  return score >= 30 || hit >= 0.53 || (hit >= 0.56 && edge >= 0.05)
+  if (hit < t.minHit) return false
+  if (edge < t.edgeBad && score < t.edgeBadScore) return false
+  return score >= t.minScore || hit >= t.hitAlt1 || (hit >= t.hitAlt2 && edge >= t.edgeAlt2)
 }
 
 const summarizeTierBucket = (rows) => {
@@ -20538,13 +20677,29 @@ const logTierAssignmentDebug = (pathLabel, rawRows, tierRows, filterCounts = {})
   })
 }
 
-const eliteProps = scoredProps.filter((row) => qualifiesEliteTier(row))
+const tierSlateMode = detectSlateMode({
+  sportKey: "nba",
+  snapshotMeta: { snapshotSlateGameCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0 },
+  snapshot: { events: scheduledEvents, rawProps: rawPropsRows, props: activeBookRawPropsRows, bestProps: [] },
+  runtime: { loadedSlateQualityPassEnabled: true }
+})
+console.log("[TIER-SLATE-MODE]", {
+  path: "refresh-snapshot",
+  mode: tierSlateMode.mode,
+  metrics: tierSlateMode.metrics
+})
+
+const eliteProps = scoredProps.filter((row) => qualifiesEliteTier(row, tierSlateMode.mode))
 logFunnelStage("refresh-snapshot", "eliteProps-from-scoredProps", scoredProps, eliteProps, { threshold: "hit>=0.72,score>=88,minFloor>=24,minStd<=7.5,valueStd<=10.5/5.5" })
 logFunnelExcluded("refresh-snapshot", "eliteProps-from-scoredProps", scoredProps, eliteProps)
 
-const strongProps = scoredProps.filter((row) => qualifiesStrongTier(row))
+const strongProps = scoredProps.filter((row) => qualifiesStrongTier(row, tierSlateMode.mode))
 logFunnelStage("refresh-snapshot", "strongProps-from-scoredProps", scoredProps, strongProps, { threshold: "hit>=0.61,score>=62,minFloor>=22,minStd<=9.5,valueStd<=12/6.5" })
 logFunnelExcluded("refresh-snapshot", "strongProps-from-scoredProps", scoredProps, strongProps)
+
+const playableProps = scoredProps.filter((row) => qualifiesPlayableTier(row, tierSlateMode.mode))
+logFunnelStage("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps, { threshold: "slateMode-aware playable gate" })
+logFunnelExcluded("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps)
 
 const BEST_PROPS_BALANCE_CONFIG = {
   totalCap: 140,
@@ -21507,12 +21662,9 @@ const ensureBestPropsBookPresence = (finalRows, sourceRows, options = {}) => {
   }
 }
 
-const playableProps = scoredProps.filter((row) => qualifiesPlayableTier(row))
-logFunnelStage("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps, { threshold: "mins/injury!=high and (score>=42 or hit>=0.62 or hit/edge support or hit/score support)" })
-logFunnelExcluded("refresh-snapshot", "playableProps-from-scoredProps", scoredProps, playableProps)
-  debugPipelineStages.afterPlayableProps = summarizePropPipelineRows(playableProps)
-  debugPipelineStages.afterStrongProps = summarizePropPipelineRows(strongProps)
-  debugPipelineStages.afterEliteProps = summarizePropPipelineRows(eliteProps)
+debugPipelineStages.afterPlayableProps = summarizePropPipelineRows(playableProps)
+debugPipelineStages.afterStrongProps = summarizePropPipelineRows(strongProps)
+debugPipelineStages.afterEliteProps = summarizePropPipelineRows(eliteProps)
 logPropPipelineStep("refresh-snapshot", "after-playableProps-assignment", playableProps)
 logPropPipelineStep("refresh-snapshot", "after-strongProps-assignment", strongProps)
 logPropPipelineStep("refresh-snapshot", "after-eliteProps-assignment", eliteProps)
@@ -21735,6 +21887,36 @@ logBestStage("refresh-snapshot:afterRankingSortAndCap", bestProps)
 logBestPropsCapExcluded("refresh-snapshot", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
 logFunnelStage("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps, { sortComposite: true, cap: BEST_PROPS_BALANCE_CONFIG.totalCap, minPerBook: BEST_PROPS_BALANCE_CONFIG.minPerBook, matchupCap: BEST_PROPS_BALANCE_CONFIG.maxPerMatchup, playerCap: BEST_PROPS_BALANCE_CONFIG.maxPerPlayer })
 logFunnelExcluded("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSource, bestProps)
+
+// Thin slate adaptation: if bestProps collapses but we have playable-quality rows,
+// promote a limited number to keep boards/tickets alive (no junk: playable gate).
+{
+  const mode = String(tierSlateMode?.mode || "").toLowerCase()
+  const shouldPromote = mode === "thin" && Array.isArray(bestProps) && bestProps.length < 25 && Array.isArray(playableProps) && playableProps.length > 0
+  if (shouldPromote) {
+    const target = Math.min(32, Math.max(16, 25))
+    const existing = new Set(bestProps.map((r) => `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}`))
+    let added = 0
+    const rankedPlayable = [...playableProps].sort((a, b) => bestPropsCompositeScore(b) - bestPropsCompositeScore(a))
+    for (const r of rankedPlayable) {
+      if (bestProps.length >= target) break
+      const key = `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}`
+      if (!key || existing.has(key)) continue
+      if (!playerFitsMatchup(r) || shouldRemoveLegForPlayerStatus(r)) continue
+      bestProps.push(r)
+      existing.add(key)
+      added += 1
+    }
+    bestProps = dedupeSlipLegs(bestProps).slice(0, BEST_PROPS_BALANCE_CONFIG.totalCap)
+    console.log("[THIN-SLATE-BESTPROPS-PROMOTION]", {
+      path: "refresh-snapshot",
+      mode,
+      target,
+      added,
+      finalBestProps: bestProps.length
+    })
+  }
+}
 
 const nextRawPropsCount = Array.isArray(rawPropsRows) ? rawPropsRows.length : 0
 const nextPropsCount = Array.isArray(activeBookRawPropsRows) ? activeBookRawPropsRows.length : 0
@@ -23262,23 +23444,34 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       sample: badTeamAssignmentRows
     })
 
-    const scoredPropsBase = matchupValidProps.map((row) => ({
-      ...row,
-      score: scorePropRow(row),
-      dvpScore: scorePropRowForDvp(row),
-      avgMin: getPlayerAvgMin(row.player, statsCache.get(row.player) || []),
-      minFloor: getPlayerMinFloor(row.player, statsCache.get(row.player) || []),
-      minStd: getPlayerMinStd(row.player, statsCache.get(row.player) || []),
-      valueStd: getPlayerValueStd(row.player, statsCache.get(row.player) || [], row.propType),
-      recent3Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 3, row.propType),
-      recent5Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 5, row.propType),
-      l10Avg: getPlayerRecentAvg(row.player, statsCache.get(row.player) || [], 10, row.propType),
-      minutesRisk: getPlayerMinutesRisk(row.player, statsCache.get(row.player) || []),
-      trendRisk: getPlayerTrendRisk(row.player, statsCache.get(row.player) || [], row.propType),
-      injuryRisk: getPlayerInjuryRisk(row.player, statsCache.get(row.player) || []),
-      hitRate: getPlayerHitRate(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side),
-      edge: getPlayerEdge(row.player, statsCache.get(row.player) || [], row.propType, row.line, row.side, row.odds)
-    }))
+    const scoredPropsBase = matchupValidProps.map((row) => {
+      const logs = statsCache.get(row.player) || []
+      const mins = (Array.isArray(logs) ? logs : [])
+        .map((log) => Number(log?.min || 0))
+        .filter((v) => Number.isFinite(v) && v > 0)
+      const recent5MinAvg = avg(mins.slice(-5))
+      const recent3MinAvg = avg(mins.slice(-3))
+
+      return {
+        ...row,
+        score: scorePropRow(row),
+        dvpScore: scorePropRowForDvp(row),
+        avgMin: getPlayerAvgMin(row.player, logs),
+        recent5MinAvg: recent5MinAvg == null ? null : Number(recent5MinAvg.toFixed(1)),
+        recent3MinAvg: recent3MinAvg == null ? null : Number(recent3MinAvg.toFixed(1)),
+        minFloor: getPlayerMinFloor(row.player, logs),
+        minStd: getPlayerMinStd(row.player, logs),
+        valueStd: getPlayerValueStd(row.player, logs, row.propType),
+        recent3Avg: getPlayerRecentAvg(row.player, logs, 3, row.propType),
+        recent5Avg: getPlayerRecentAvg(row.player, logs, 5, row.propType),
+        l10Avg: getPlayerRecentAvg(row.player, logs, 10, row.propType),
+        minutesRisk: getPlayerMinutesRisk(row.player, logs),
+        trendRisk: getPlayerTrendRisk(row.player, logs, row.propType),
+        injuryRisk: getPlayerInjuryRisk(row.player, logs),
+        hitRate: getPlayerHitRate(row.player, logs, row.propType, row.line, row.side),
+        edge: getPlayerEdge(row.player, logs, row.propType, row.line, row.side, row.odds)
+      }
+    })
     const scoredProps = scoredPropsBase.map((row) => {
       const edgeProfile = {
         gameEnvironmentScore: inferGameEnvironmentScore(row),
@@ -23393,7 +23586,19 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }))
     })
 
-    const bestPropsSource = dedupedBestCandidates.filter((row) => qualifiesBestPropsSource(row))
+    const hardResetTierSlateMode = detectSlateMode({
+      sportKey: "nba",
+      snapshotMeta: { snapshotSlateGameCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0 },
+      snapshot: { events: scheduledEvents, rawProps: rawPropsRows, props: activeBookRawPropsRows, bestProps: [] },
+      runtime: { loadedSlateQualityPassEnabled: true }
+    })
+    console.log("[TIER-SLATE-MODE]", {
+      path: "refresh-snapshot-hard-reset",
+      mode: hardResetTierSlateMode.mode,
+      metrics: hardResetTierSlateMode.metrics
+    })
+
+    const bestPropsSource = dedupedBestCandidates.filter((row) => qualifiesBestPropsSource(row, hardResetTierSlateMode.mode))
     logBestStage("refresh-snapshot-hard-reset:sourcePool", bestPropsSource)
     console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot-hard-reset sourceCount=${bestPropsSource.length}`)
     const bestPropsCapResult = buildBestPropsBalancedPool(bestPropsSource, { pathLabel: "refresh-snapshot-hard-reset" })
@@ -23422,13 +23627,42 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     })
     logBestStage("refresh-snapshot-hard-reset:afterRankingSortAndCap", bestProps)
     logBestPropsCapExcluded("refresh-snapshot-hard-reset", bestPropsSource, bestProps, bestPropsCapResult.diagnostics)
-    const eliteProps = bestProps.filter((row) => qualifiesEliteTier(row))
+
+    // Thin slate adaptation: same as refresh-snapshot path.
+    {
+      const mode = String(hardResetTierSlateMode?.mode || "").toLowerCase()
+      const shouldPromote = mode === "thin" && Array.isArray(bestProps) && bestProps.length < 25 && Array.isArray(playableProps) && playableProps.length > 0
+      if (shouldPromote) {
+        const target = Math.min(32, Math.max(16, 25))
+        const existing = new Set(bestProps.map((r) => `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}`))
+        let added = 0
+        const rankedPlayable = [...playableProps].sort((a, b) => bestPropsCompositeScore(b) - bestPropsCompositeScore(a))
+        for (const r of rankedPlayable) {
+          if (bestProps.length >= target) break
+          const key = `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}`
+          if (!key || existing.has(key)) continue
+          if (!playerFitsMatchup(r) || shouldRemoveLegForPlayerStatus(r)) continue
+          bestProps.push(r)
+          existing.add(key)
+          added += 1
+        }
+        bestProps = dedupeSlipLegs(bestProps).slice(0, BEST_PROPS_BALANCE_CONFIG.totalCap)
+        console.log("[THIN-SLATE-BESTPROPS-PROMOTION]", {
+          path: "refresh-snapshot-hard-reset",
+          mode,
+          target,
+          added,
+          finalBestProps: bestProps.length
+        })
+      }
+    }
+    const eliteProps = bestProps.filter((row) => qualifiesEliteTier(row, hardResetTierSlateMode.mode))
     logFunnelStage("refresh-snapshot-hard-reset", "eliteProps-from-bestProps", bestProps, eliteProps, { threshold: "hit>=0.72,score>=88,minFloor>=24,minStd<=7.5,valueStd<=10.5/5.5" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "eliteProps-from-bestProps", bestProps, eliteProps)
-    const strongProps = bestProps.filter((row) => qualifiesStrongTier(row))
+    const strongProps = bestProps.filter((row) => qualifiesStrongTier(row, hardResetTierSlateMode.mode))
     logFunnelStage("refresh-snapshot-hard-reset", "strongProps-from-bestProps", bestProps, strongProps, { threshold: "hit>=0.61,score>=62,minFloor>=22,minStd<=9.5,valueStd<=12/6.5" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "strongProps-from-bestProps", bestProps, strongProps)
-    const playableProps = bestProps.filter((row) => qualifiesPlayableTier(row))
+    const playableProps = bestProps.filter((row) => qualifiesPlayableTier(row, hardResetTierSlateMode.mode))
     logFunnelStage("refresh-snapshot-hard-reset", "playableProps-from-bestProps", bestProps, playableProps, { threshold: "mins/injury!=high and (score>=42 or hit>=0.62 or hit/edge support or hit/score support)" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "playableProps-from-bestProps", bestProps, playableProps)
     debugPipelineStages.afterPlayableProps = summarizePropPipelineRows(playableProps)
