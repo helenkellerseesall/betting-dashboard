@@ -10458,6 +10458,164 @@ app.get("/api/best-available", (req, res) => {
     return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
   }
 
+  const buildBangerTickets = () => {
+    const slateMode = nbaRowQualityAudit?.slateMode?.mode || "unknown"
+    const slateGames = Number(nbaRowQualityAudit?.slateMode?.metrics?.games || snapshotSlateGameCount || 0)
+    const isHeavy = slateMode === "heavy"
+    const isLight = slateMode === "light"
+    const isThin = slateMode === "thin"
+    const isThinBad = slateMode === "thinBad"
+
+    const limits = (() => {
+      if (isThinBad) return { total: 0, bombPair: 0, bombSupport: 0, ceilingTriple: 0 }
+      if (isThin) return { total: 3, bombPair: 1, bombSupport: 1, ceilingTriple: 1 }
+      if (isLight) return { total: 6, bombPair: 2, bombSupport: 2, ceilingTriple: 2 }
+      if (isHeavy) return { total: 10, bombPair: 4, bombSupport: 4, ceilingTriple: 3 }
+      return { total: 6, bombPair: 2, bombSupport: 2, ceilingTriple: 2 }
+    })()
+
+    const legOutcomeKey = (leg) => [
+      String(leg?.player || "").trim().toLowerCase(),
+      String(leg?.marketKey || "").trim().toLowerCase(),
+      String(leg?.side || "").trim().toLowerCase(),
+      String(leg?.line ?? "")
+    ].join("|")
+
+    const legTicketSignal = (leg, legType) => {
+      if (legType === "support") {
+        const confidence = normalizeConfidence01(leg)
+        const hitRate = getRowHitRate(leg)
+        const edge = Math.max(0, Math.min(1, Math.abs(toFiniteNumber(getModelEdgeSignal(leg), 0)) * 10))
+        return Math.max(0, Math.min(1, (confidence * 0.62) + (hitRate * 0.28) + (edge * 0.1)))
+      }
+      const confidence = normalizeConfidence01(leg)
+      const ceilingIdx = computeNbaLongshotPredictiveIndex(leg)
+      return Math.max(0, Math.min(1, (ceilingIdx * 0.72) + (confidence * 0.28)))
+    }
+
+    const buildBangerCandidate = (legs, ticketType) => {
+      const safeLegs = (Array.isArray(legs) ? legs : []).filter(Boolean)
+      if (safeLegs.length < 2) return null
+      if (new Set(safeLegs.map((l) => String(l?.player || "").trim().toLowerCase()).filter(Boolean)).size !== safeLegs.length) return null
+      if (new Set(safeLegs.map((l) => legOutcomeKey(l))).size !== safeLegs.length) return null
+
+      // Prefer cross-game when slate allows, but don't force emptiness on thin slates.
+      if (slateGames >= 3) {
+        const matchups = new Set(safeLegs.map((l) => String(l?.matchup || "").trim().toLowerCase()).filter(Boolean))
+        if (ticketType === "ceilingTriple" && matchups.size < Math.min(3, slateGames)) return null
+        if (ticketType !== "ceilingTriple" && matchups.size < 2) return null
+      }
+
+      const base = buildTicketCandidate(legs, ticketType, { requireSameBook: true })
+      if (!base) return null
+
+      const legSignals = safeLegs.map((l) => {
+        const type = ticketType === "bombSupport"
+          ? (String(l?.outcomeTier || "").toLowerCase() === "support" ? "support" : "bomb")
+          : "bomb"
+        return legTicketSignal(l, type)
+      })
+      const avgSignal = legSignals.reduce((a, b) => a + b, 0) / legSignals.length
+      const payoutDecimal = Number(base?.estimatedPayoutDecimal || 1)
+      const payoutSignal = Math.max(0, Math.min(1, (payoutDecimal - 2.4) / 10))
+      const ticketScore = Number(((avgSignal * 0.72) + (payoutSignal * 0.28)).toFixed(4))
+      const estimatedOddsAmerican = decimalToAmerican(payoutDecimal)
+
+      return {
+        ...base,
+        ticketScore,
+        estimatedOddsAmerican,
+        ticketMeta: {
+          slateMode,
+          avgCeilingSignal: Number(avgSignal.toFixed(4))
+        }
+      }
+    }
+
+    const bombRows = ticketBombPool.slice(0, 14)
+    const supportRows = ticketSupportPool.slice(0, 12)
+
+    const candidates = []
+
+    // bombPair
+    if (limits.bombPair > 0) {
+      for (let i = 0; i < bombRows.length; i += 1) {
+        for (let j = i + 1; j < bombRows.length; j += 1) {
+          const ticket = buildBangerCandidate([
+            buildTicketLeg(bombRows[i], "bomb"),
+            buildTicketLeg(bombRows[j], "bomb")
+          ], "bombPair")
+          if (ticket) candidates.push(ticket)
+        }
+      }
+    }
+
+    // bombSupport
+    if (limits.bombSupport > 0) {
+      for (const bomb of bombRows.slice(0, 10)) {
+        for (const support of supportRows.slice(0, 12)) {
+          if (String(support?.book || "").trim() !== String(bomb?.book || "").trim()) continue
+          const ticket = buildBangerCandidate([
+            buildTicketLeg(bomb, "bomb"),
+            buildTicketLeg(support, "support")
+          ], "bombSupport")
+          if (ticket) candidates.push(ticket)
+        }
+      }
+    }
+
+    // ceilingTriple (3 bombs/ceiling legs)
+    if (limits.ceilingTriple > 0) {
+      const triplePool = bombRows.slice(0, 12)
+      const byBook = new Map()
+      for (const row of triplePool) {
+        const book = String(row?.book || "").trim()
+        if (!book) continue
+        if (!byBook.has(book)) byBook.set(book, [])
+        byBook.get(book).push(row)
+      }
+      for (const rows of byBook.values()) {
+        for (let i = 0; i < rows.length; i += 1) {
+          for (let j = i + 1; j < rows.length; j += 1) {
+            for (let k = j + 1; k < rows.length; k += 1) {
+              const ticket = buildBangerCandidate([
+                buildTicketLeg(rows[i], "bomb"),
+                buildTicketLeg(rows[j], "bomb"),
+                buildTicketLeg(rows[k], "bomb")
+              ], "ceilingTriple")
+              if (ticket) candidates.push(ticket)
+            }
+          }
+        }
+      }
+    }
+
+    const selected = selectLayeredTickets(candidates, limits.total, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+    // Keep type balance: take best N per type in order, then fill.
+    const byType = selected.reduce((acc, t) => {
+      const key = String(t?.ticketType || "unknown")
+      if (!acc[key]) acc[key] = []
+      acc[key].push(t)
+      return acc
+    }, {})
+    const out = [
+      ...(byType.bombPair || []).slice(0, limits.bombPair),
+      ...(byType.bombSupport || []).slice(0, limits.bombSupport),
+      ...(byType.ceilingTriple || []).slice(0, limits.ceilingTriple)
+    ]
+    if (out.length < limits.total) {
+      const usedKeys = new Set(out.map((t) => String(t?.ticketType || "") + "|" + String(t?.book || "") + "|" + String(t?.estimatedPayoutDecimal || "")))
+      for (const t of selected) {
+        if (out.length >= limits.total) break
+        const key = String(t?.ticketType || "") + "|" + String(t?.book || "") + "|" + String(t?.estimatedPayoutDecimal || "")
+        if (usedKeys.has(key)) continue
+        usedKeys.add(key)
+        out.push(t)
+      }
+    }
+    return out.slice(0, limits.total)
+  }
+
   const buildFirstEventClusterTickets = () => {
     const candidates = []
     for (let i = 0; i < ticketFirstEventPool.length; i += 1) {
@@ -10587,6 +10745,8 @@ app.get("/api/best-available", (req, res) => {
     }
   }
 
+  const bestBangerTickets = buildBangerTickets()
+
   const nbaSurfacedLongshotTop = (Array.isArray(layerBestLongshotPlays) && layerBestLongshotPlays.length)
     ? layerBestLongshotPlays[0]
     : null
@@ -10650,6 +10810,7 @@ app.get("/api/best-available", (req, res) => {
       bestFirstTeamBasket: typeAwareSpecials.bestFirstTeamBasket,
       bestLongshotPlays: layerBestLongshotPlays,
       bestLongshotSpecials: layerBestLongshotPlays,
+      bestBangerTickets,
       surfaced: layeredSurfaced,
       tonightsPlays: {
         bestSingles: tonightsBestSingles,

@@ -84,3 +84,27 @@ SUCCESS:
 - real bomb plays
 - clean, buildable tickets
 - outputs reflect actual prediction intent, not forced structure
+
+SLATE ADAPTATION RULES:
+- The model must adapt behavior based on slateMode.
+
+heavy:
+- prioritize diversity
+- use stricter filtering
+- deeper boards are expected
+
+light:
+- allow moderate repetition
+- smaller board size is acceptable
+- maintain lane separation
+
+thin:
+- allow higher repetition
+- smaller lane counts are acceptable
+- do not treat lack of diversity as an automatic bug
+
+thinBad:
+- do not over-patch
+- output best available plays only
+- prefer honest low-volume output over fake depth
+
