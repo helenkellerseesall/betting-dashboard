@@ -184,7 +184,11 @@ const MLB_MARKET_TYPE_RULES = [
     family: "standard",
     matches: [
       "player_rbis",
+      "player_runs_batted_in",
       "batter_rbis",
+      "batter_rbi",
+      "batter_rbi_alternate",
+      "batter_rbis_alternate",
       "rbis",
       "runs batted in",
       "rbi"
@@ -195,6 +199,7 @@ const MLB_MARKET_TYPE_RULES = [
     family: "standard",
     matches: [
       "player_runs",
+      "player_runs_scored",
       "batter_runs",
       "batter_runs_scored",
       "runs scored",
