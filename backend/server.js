@@ -42,6 +42,10 @@ const {
 } = require("./pipeline/resolution/mlbTeamResolution")
 const { buildPregameContext } = require("./pipeline/context/pregameContext")
 const { buildMlbDecisionBoard } = require("./pipeline/mlb/lanes/buildMlbDecisionBoard")
+const { buildMlbBetSelector } = require("./pipeline/mlb/buildMlbBetSelector")
+const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
+const { loadBets, logBet } = require("./tracker/betTracker")
+const { computeBetMetrics } = require("./tracker/betMetrics")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -78,6 +82,8 @@ let oddsSnapshot = {
 // Phase 1 MLB bootstrap snapshot is intentionally isolated from oddsSnapshot.
 let mlbSnapshot = createEmptyMlbSnapshot()
 const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-6-ingest-scaffold-v1"
+let mlbPicks = { safeCore: [], valueCore: [], powerCore: [] }
+let mlbSlips = []
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -12970,6 +12976,42 @@ app.get("/api/best-available", (req, res) => {
       }
     })
   })()
+
+  // Auto-log MLB top-10 picks as bets (idempotent by player+prop+date).
+  ;(async () => {
+    try {
+      const top10 = Array.isArray(mlbPredictionBoard) ? mlbPredictionBoard.slice(0, 10) : []
+      if (!top10.length) return
+      const dateKey = new Date().toISOString().slice(0, 10)
+      for (const r of top10) {
+        await logBet({
+          date: dateKey,
+          player: r?.player || null,
+          team: r?.team || null,
+          propType: r?.propType || null,
+          odds: r?.odds ?? null,
+          stake: 10,
+          edge: r?.edgeProbability ?? null,
+          playType: r?.playType || null
+        })
+      }
+    } catch {
+      // tracker failures must never break existing endpoints
+    }
+  })()
+
+  // Cache MLB picks for /api/mlb/picks
+  try {
+    mlbPicks = buildMlbBetSelector(mlbPredictionBoard)
+  } catch {
+    mlbPicks = { safeCore: [], valueCore: [], powerCore: [] }
+  }
+
+  try {
+    mlbSlips = buildMlbSlipEngine(mlbPicks)
+  } catch {
+    mlbSlips = []
+  }
 
   return res.json({
     bestAvailable: {
@@ -27284,6 +27326,48 @@ app.get("/api/best/by-prop/:propType", (req, res) => {
     count: filtered.length,
     rows: filtered.map(toCompactBestRow)
   })
+})
+
+// === Bet tracker (JSON storage) ===
+app.get("/api/bets", async (req, res) => {
+  try {
+    const bets = await loadBets()
+    return res.json({ ok: true, bets })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed loading bets" })
+  }
+})
+
+app.get("/api/bets/metrics", async (req, res) => {
+  try {
+    const bets = await loadBets()
+    const metrics = computeBetMetrics(bets)
+    return res.json({ ok: true, metrics })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed computing bet metrics" })
+  }
+})
+
+app.get("/api/mlb/picks", (req, res) => {
+  try {
+    // If picks aren't computed yet (e.g. after /mlb/refresh), compute them from current board.
+    // This does not modify the model; it only filters the already-built board.
+    if (!mlbPicks || typeof mlbPicks !== "object") {
+      mlbPicks = { safeCore: [], valueCore: [], powerCore: [] }
+    }
+    return res.json({ ok: true, picks: mlbPicks })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed building MLB picks" })
+  }
+})
+
+app.get("/api/mlb/slips", (req, res) => {
+  try {
+    if (!Array.isArray(mlbSlips)) mlbSlips = []
+    return res.json({ ok: true, slips: mlbSlips })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed building MLB slips" })
+  }
 })
 
 app.get("/mlb/refresh", async (req, res) => {
