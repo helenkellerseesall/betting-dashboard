@@ -30,7 +30,12 @@ const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildA
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
 const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
 const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
-const { buildMlbInspectionBoard } = require("./pipeline/mlb/buildMlbInspectionBoard")
+const {
+  buildMlbInspectionBoard,
+  buildPlayerTeamIndex,
+  inferSurfaceTeamLabel
+} = require("./pipeline/mlb/buildMlbInspectionBoard")
+const { resolveMlbTeamFromDiskCacheRow } = require("./pipeline/resolution/mlbTeamResolution")
 const { buildPregameContext } = require("./pipeline/context/pregameContext")
 
 // Initialize ML scorer (loads trained model if available)
@@ -7715,19 +7720,170 @@ app.get("/api/best-available", (req, res) => {
     ...(Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps : [])
   ])
   const nbaEnrichmentLegLookup = buildNbaEnrichmentLegLookup(nbaEnrichmentHydrationSources)
-  const bestPayloadCandidatesHydrated = (Array.isArray(bestPayloadCandidates) ? bestPayloadCandidates : []).map((row) =>
-    mergeNbaExportRowWithEnrichmentLookup(row, nbaEnrichmentLegLookup)
+  const nbaTeamByPlayerEvent = buildNbaTeamByPlayerEventMap(oddsSnapshot)
+  const nbaTeamByPlayerSingleEvent = buildNbaTeamByPlayerSingleEventMap(oddsSnapshot)
+  // --- Build BROADER post-hydration COMPLETE universe (system rule) ---
+  // We must not build core outputs off the small `bestProps` seed. Instead, use the full scored
+  // board-source universe, then enforce dataState gates.
+  const hydrateRowForState = (row) => {
+    const merged = mergeNbaExportRowWithEnrichmentLookup(row, nbaEnrichmentLegLookup)
+    const recovered = recoverNbaExportRowTeamAndVenue(merged)
+    const indexed = fillNbaRowTeamFromSingleEventMap(
+      fillNbaRowTeamFromPlayerEventMap(recovered, nbaTeamByPlayerEvent),
+      nbaTeamByPlayerSingleEvent
+    )
+    if (String(indexed?.team || "").trim()) return withNbaRowDataState(indexed)
+    const t = resolveCanonicalPlayerTeamForRow(indexed)
+    return withNbaRowDataState(t ? { ...indexed, team: t } : indexed)
+  }
+
+  const isAllowedNbaBookInline = (row) => {
+    const b = String(row?.book || "").trim().toLowerCase()
+    return b === "draftkings" || b === "fanduel" || b === "fanatics" || b === "betmgm" || b === "caesars"
+  }
+  const isNbaSpecialMarketInline = (row) => {
+    const marketKey = String(row?.marketKey || "").toLowerCase()
+    const propType = String(row?.propType || "").toLowerCase()
+    return (
+      marketKey.includes("first_basket") ||
+      marketKey.includes("first_team_basket") ||
+      marketKey.includes("double_double") ||
+      marketKey.includes("triple_double") ||
+      propType.includes("first basket") ||
+      propType.includes("first team basket") ||
+      propType.includes("double double") ||
+      propType.includes("triple double")
+    )
+  }
+
+  const bestPropsCountSnapshot = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+  // If bestProps is empty, generate a scored fallback pool from props so COMPLETE rows exist
+  // for core outputs (still gated by dataState === "complete").
+  const fallbackScoredCoreRows = (() => {
+    if (bestPropsCountSnapshot > 0) return []
+    const propsPool = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    if (!propsPool.length) return []
+    const fb = buildBestPropsFallbackRows(propsPool, 80)
+    const safe = Array.isArray(fb) ? fb : []
+    const allowedBases = new Set(["points", "rebounds", "assists", "threes", "pra"])
+    const out = []
+    for (let i = 0; i < safe.length; i += 1) {
+      const r = safe[i]
+      if (!r) continue
+      // Only bootstrap bettable standard props (specials like double-double don't help core best/safePair).
+      if (!allowedBases.has(normalizePropTypeBase(r?.propType))) continue
+      if (!Number.isFinite(Number(r?.line)) || !Number.isFinite(Number(r?.odds))) continue
+      const scoreExisting = Number(r?.score)
+      const edgeExisting = Number(r?.edge)
+      const pv = Number(r?.projectedValue)
+      // Use a deterministic rank-based score when the row lacks a model score.
+      const score =
+        Number.isFinite(scoreExisting)
+          ? scoreExisting
+          : Number((120 - (i * 0.35)).toFixed(1))
+      const edge =
+        Number.isFinite(edgeExisting)
+          ? edgeExisting
+          : (Number.isFinite(pv) ? pv : 0)
+      out.push({
+        ...r,
+        score,
+        edge,
+        __fallbackScoredCore: true
+      })
+    }
+    return out.slice(0, 60)
+  })()
+
+  const postHydrationUniverse = dedupeBoardRows(
+    [
+      ...fallbackScoredCoreRows,
+      ...(Array.isArray(nbaEnrichmentHydrationSources) ? nbaEnrichmentHydrationSources : [])
+    ].map(hydrateRowForState)
   )
-  bestPayloadRowsForTickets = bestPayloadCandidatesHydrated.map((row) =>
-    attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row))
-  )
-  bestPayloadRows = dedupeSlipLegs(bestPayloadCandidatesHydrated)
+  const stateCounts = postHydrationUniverse.reduce((acc, r) => {
+    const k = String(r?.dataState || "unknown")
+    acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
+
+  const completeUniverse = postHydrationUniverse.filter((r) => r?.dataState === "complete")
+  const partialUniverse = postHydrationUniverse.filter((r) => r?.dataState === "partial")
+  const invalidUniverse = postHydrationUniverse.filter((r) => r?.dataState === "invalid")
+
+  const nbaRowStateDistForPayload = {
+    complete: completeUniverse.length,
+    partial: partialUniverse.length,
+    invalid: invalidUniverse.length
+  }
+
+  // Core best universe: COMPLETE + standard props only (no ladders/specials).
+  const allowedBestVariants = new Set(["base", "alt-low", "alt-mid", "alt-high"])
+  const completeBettableNonSpecial = completeUniverse
+    .filter((row) => isAllowedNbaBookInline(row))
+    .filter((row) => !isNbaSpecialMarketInline(row))
+    .filter((row) => allowedBestVariants.has(String(row?.propVariant || "base").toLowerCase()))
+    // Core bettable requirement (separate from dataState): you can't export a core pick without line+odds.
+    .filter((row) => Number.isFinite(Number(row?.line)) && Number.isFinite(Number(row?.odds)))
+
+  // Keep legacy-core prop types as the preferred best universe.
+  const allowedBestPropTypeBases = new Set(["points", "rebounds", "assists", "threes", "pra"])
+  const completeCoreStandard = completeBettableNonSpecial
+    .filter((row) => allowedBestPropTypeBases.has(normalizePropTypeBase(row?.propType)))
+
+  const completeCoreBaseOnly = completeCoreStandard
+    .filter((row) => String(row?.propVariant || "base").toLowerCase() === "base")
+
+  const coreFallbackActivated = bestPropsCountSnapshot === 0 && (Array.isArray(fallbackScoredCoreRows) ? fallbackScoredCoreRows.length : 0) > 0
+
+  // Permanent rule: exported core best uses COMPLETE rows only.
+  // Diversify to avoid one-player domination on thin slates (without additional "ceiling" gates).
+  const selectDiversifiedBestFromComplete = (rows, cap) => {
+    const sorted = [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+      const s = Number(b?.score || 0) - Number(a?.score || 0)
+      if (s !== 0) return s
+      const e = Number(b?.edge || 0) - Number(a?.edge || 0)
+      if (e !== 0) return e
+      return Number(b?.odds || 0) - Number(a?.odds || 0)
+    })
+    const out = []
+    const perPlayer = new Map()
+    const perPlayerProp = new Set()
+    const maxPerPlayer = exportSlateMode.mode === "thin" || exportSlateMode.mode === "thinBad" ? 2 : 2
+    const maxPerPlayerPropType = 1
+    for (const r of sorted) {
+      if (out.length >= cap) break
+      const playerKey = normalizePlayerName(String(r?.player || ""))
+      if (!playerKey) continue
+      const pCount = perPlayer.get(playerKey) || 0
+      if (pCount >= maxPerPlayer) continue
+      const pt = normalizePropTypeBase(r?.propType)
+      const ppKey = pt ? `${playerKey}|${pt}` : null
+      if (ppKey && perPlayerProp.has(ppKey)) continue
+      out.push(r)
+      perPlayer.set(playerKey, pCount + 1)
+      if (ppKey) perPlayerProp.add(ppKey)
+    }
+    return out
+  }
+
+  // If snapshot bestProps is empty but COMPLETE pool exists, build from COMPLETE pool anyway.
+  const bestSelectionSource = completeCoreStandard.length ? completeCoreStandard : completeBettableNonSpecial
+  const selectedBestComplete = selectDiversifiedBestFromComplete(bestSelectionSource, bestExportCap)
+
+  bestPayloadRows = selectedBestComplete
+    .map((row) => attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row)))
+
+  // Ticket/support safe-pair path: COMPLETE only (system rule), but broader than best export.
+  // Keep enough depth so safe pairs can populate when the slate truly has 2+ complete support legs.
+  bestPayloadRowsForTickets = completeCoreBaseOnly.length ? completeCoreBaseOnly : completeBettableNonSpecial
+    .slice()
     .sort((a, b) => {
       const s = Number(b?.score || 0) - Number(a?.score || 0)
       if (s !== 0) return s
       return Number(b?.edge || 0) - Number(a?.edge || 0)
     })
-    .slice(0, bestExportCap)
+    .slice(0, 28)
     .map((row) => attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row)))
 
   const firstBestHydrationProbe = bestPayloadRows[0] || null
@@ -7747,10 +7903,28 @@ app.get("/api/best-available", (req, res) => {
     hydrationSourceRows: nbaEnrichmentHydrationSources.length,
     lookupPrimarySize: nbaEnrichmentLegLookup.byPrimary.size,
     lookupPropTypeSize: nbaEnrichmentLegLookup.byPropType.size,
+    teamIndexSize: nbaTeamByPlayerEvent.size,
+    singleEventTeamIndexSize: nbaTeamByPlayerSingleEvent.size,
+    exportGateIn: postHydrationUniverse.length,
+    exportGatePass: completeUniverse.length,
+    exportBestQuality: completeCoreStandard.length,
+    exportGateOut: completeCoreStandard.length,
+    completeUniverse: completeUniverse.length,
+    completeBettableNonSpecial: completeBettableNonSpecial.length,
+    completeCoreStandard: completeCoreStandard.length,
+    bestPropsCountSnapshot,
+    coreFallbackActivated,
     exportBestLen: bestPayloadRows.length,
     sampleSourceCeiling: firstBestHydrationSource ? Number(firstBestHydrationSource.ceilingScore) : null,
     sampleExportCeiling: firstBestHydrationProbe ? Number(firstBestHydrationProbe.ceilingScore) : null,
     sampleExportAvgMin: firstBestHydrationProbe ? firstBestHydrationProbe.avgMin : null
+  })
+
+  console.log("[NBA-ROW-DATASTATE-DISTRIBUTION]", {
+    complete: completeUniverse.length,
+    partial: partialUniverse.length,
+    invalid: invalidUniverse.length,
+    byState: stateCounts
   })
 
   console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
@@ -9903,6 +10077,8 @@ app.get("/api/best-available", (req, res) => {
       homeTeam: row?.homeTeam ?? null,
       gameTime: row?.gameTime ?? null,
       confidenceScore,
+      dataState: row?.dataState || null,
+      qualitySignalCount: Number.isFinite(Number(row?.qualitySignalCount)) ? Number(row.qualitySignalCount) : null,
       modelHitProb: toFiniteNumber(row?.modelHitProb, null),
       impliedProb: Number.isFinite(impliedProb) ? Number(impliedProb.toFixed(4)) : null,
       edgeGap: toFiniteNumber(row?.edgeGap, null),
@@ -11023,7 +11199,43 @@ app.get("/api/best-available", (req, res) => {
       (!Number.isFinite(edgeSignal) || edgeSignal >= -0.03)
   }
 
-  const ticketSupportCandidates = dedupeNbaRowsByLegSignature([
+  const hydrateForCoreTickets = (row) => {
+    const merged = mergeNbaExportRowWithEnrichmentLookup(row, nbaEnrichmentLegLookup)
+    const recovered = recoverNbaExportRowTeamAndVenue(merged)
+    const indexed = fillNbaRowTeamFromSingleEventMap(
+      fillNbaRowTeamFromPlayerEventMap(recovered, nbaTeamByPlayerEvent),
+      nbaTeamByPlayerSingleEvent
+    )
+    if (String(indexed?.team || "").trim()) return withNbaRowDataState(indexed)
+    const t = resolveCanonicalPlayerTeamForRow(indexed)
+    return withNbaRowDataState(t ? { ...indexed, team: t } : indexed)
+  }
+
+  const supportBackfillCandidates = (() => {
+    const source = Array.isArray(nbaEnrichmentHydrationSources) ? nbaEnrichmentHydrationSources : []
+    const rows = source
+      .filter((row) => isAllowedNbaBookRow(row))
+      .filter((row) => !isNbaSpecialMarketRow(row))
+      .map((row) => withNbaRowDataState(row))
+      .filter((row) => String(row?.dataState || "") === "complete")
+      .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "supportBackfill" }))
+      .filter((row) => String(row?.outcomeTier || "").toLowerCase() === "support")
+      .sort((a, b) => supportLegQualityScore(b) - supportLegQualityScore(a))
+    return rows.slice(0, 24)
+  })()
+
+  const supportCompleteBackfill = (() => {
+    const source = Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []
+    const rows = source
+      .map((row) => withNbaRowDataState(row))
+      .filter((row) => String(row?.dataState || "") === "complete")
+      .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "completeCoreSupportBackfill" }))
+      .filter((row) => String(row?.outcomeTier || "").toLowerCase() === "support")
+      .sort((a, b) => supportLegQualityScore(b) - supportLegQualityScore(a))
+    return rows.slice(0, 24)
+  })()
+
+  const ticketSupportCandidatesBase = dedupeNbaRowsByLegSignature([
     ...(Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : [])
       .filter((row) => isAllowedNbaBookRow(row))
       .filter((row) => !isNbaSpecialMarketRow(row))
@@ -11031,11 +11243,18 @@ app.get("/api/best-available", (req, res) => {
     ...(Array.isArray(tonightsBestSingles) ? tonightsBestSingles : [])
       .filter((row) => isAllowedNbaBookRow(row))
       .filter((row) => !isNbaSpecialMarketRow(row))
-      .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "bestSingles" })),
-    ...layerBestValue
+      .map((row) => toNbaSurfacedPlayRow(hydrateForCoreTickets(row), { boardFamily: "bestSingles", sourceLane: "bestSingles" })),
+    ...(Array.isArray(layerBestValue) ? layerBestValue : []).map((row) => hydrateForCoreTickets(row)),
+    ...supportBackfillCandidates,
+    ...supportCompleteBackfill
   ])
     .filter((row) => isAllowedNbaBookRow(row))
     .filter((row) => String(row?.outcomeTier || "").toLowerCase() === "support")
+
+  // Support/safePair ticket seeds: never allow INVALID rows.
+  // Prefer COMPLETE rows; allow PARTIAL only if needed to avoid empty safe pairs on thin slates.
+  const ticketSupportCandidatesScored = ticketSupportCandidatesBase
+    .filter((row) => String(row?.dataState || "") !== "invalid")
     .sort((a, b) => supportLegQualityScore(b) - supportLegQualityScore(a))
 
   const ticketBombCandidates = dedupeNbaRowsByLegSignature([
@@ -11054,8 +11273,8 @@ app.get("/api/best-available", (req, res) => {
     .filter((row) => isAllowedNbaBookRow(row))
     .sort((a, b) => firstEventLegQualityScore(b) - firstEventLegQualityScore(a))
 
-  const ticketSupportStrict = ticketSupportCandidates.filter((row) => isStrongSupportLeg(row, true))
-  const ticketSupportRelaxed = ticketSupportCandidates.filter((row) => isStrongSupportLeg(row, false))
+  const ticketSupportStrict = ticketSupportCandidatesScored.filter((row) => isStrongSupportLeg(row, true))
+  const ticketSupportRelaxed = ticketSupportCandidatesScored.filter((row) => isStrongSupportLeg(row, false))
   const ticketBombStrict = ticketBombCandidates.filter((row) => isBombTicketLeg(row, true))
   const ticketBombRelaxed = ticketBombCandidates.filter((row) => isBombTicketLeg(row, false))
   const ticketFirstEventStrict = ticketFirstEventCandidates.filter((row) => isQualityFirstEventLeg(row, true))
@@ -11072,7 +11291,7 @@ app.get("/api/best-available", (req, res) => {
     ticketBombPool = ticketBombRelaxed.slice(0, 14)
   }
 
-  if (ticketSupportPool.length === 0) ticketSupportPool = ticketSupportCandidates.slice(0, 12)
+  if (ticketSupportPool.length === 0) ticketSupportPool = ticketSupportCandidatesScored.slice(0, 12)
   if (ticketBombPool.length === 0) {
     const shapeOk = ticketBombCandidates
       .filter((row) => !isNbaChalkHeavyLeg(row))
@@ -11085,8 +11304,8 @@ app.get("/api/best-available", (req, res) => {
   }
   if (ticketFirstEventPool.length === 0) ticketFirstEventPool = ticketFirstEventCandidates.slice(0, 10)
 
-  if (!nbaSameBookPairPossible(ticketSupportPool) && ticketSupportCandidates.length >= 3) {
-    const relaxedForPairs = ticketSupportRelaxed.length ? ticketSupportRelaxed : ticketSupportCandidates
+  if (!nbaSameBookPairPossible(ticketSupportPool) && ticketSupportCandidatesScored.length >= 3) {
+    const relaxedForPairs = ticketSupportRelaxed.length ? ticketSupportRelaxed : ticketSupportCandidatesScored
     ticketSupportPool = clusterNbaSupportPoolByBook(relaxedForPairs, 12)
   }
 
@@ -11146,8 +11365,8 @@ app.get("/api/best-available", (req, res) => {
     // `ticketSupportPool` can collapse to repeated players after strict/relaxed gates; safe pairs
     // need two different players. Prefer the pre-gate candidate stream (includes bestPayload + singles + value lane).
     const safeRows =
-      ticketSupportCandidates.length >= 2
-        ? ticketSupportCandidates.slice(0, 20)
+      ticketSupportCandidatesScored.length >= 2
+        ? ticketSupportCandidatesScored.slice(0, 20)
         : ticketSupportPool.slice(0, 12)
     const buildPairs = (requireSameBook) => {
       const candidates = []
@@ -11507,7 +11726,7 @@ app.get("/api/best-available", (req, res) => {
       bestValueRowsBlockedByStrictGate: Math.max(0, curatedBestValueRaw.length - bestValueLaneQuality.strictCount),
       bestUpsideRowsBlockedByStrictGate: Math.max(0, curatedBestUpsideRaw.length - bestUpsideLaneQuality.strictCount),
       bombCandidatesBlockedByStrictGate: Math.max(0, ticketBombCandidates.length - ticketBombStrict.length),
-      supportCandidatesBlockedByStrictGate: Math.max(0, ticketSupportCandidates.length - ticketSupportStrict.length),
+      supportCandidatesBlockedByStrictGate: Math.max(0, ticketSupportCandidatesScored.length - ticketSupportStrict.length),
       firstEventCandidatesBlockedByStrictGate: Math.max(0, ticketFirstEventCandidates.length - ticketFirstEventStrict.length)
     },
     lanes: {
@@ -11647,6 +11866,650 @@ app.get("/api/best-available", (req, res) => {
     })
   })()
 
+  // === MLB prediction board (Phase 3: sharper shaping + diversity) ===
+  const mlbPredictionBoard = (() => {
+    const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+    if (!rows.length) return []
+
+    const playerTeamIndex = buildPlayerTeamIndex(rows)
+
+    const buildMlbPlayerEventTeamVote = (allRows) => {
+      const tallies = new Map()
+      for (const row of allRows) {
+        const ev = String(row?.eventId || "").trim()
+        const pl = String(row?.player || "").toLowerCase().trim()
+        if (!ev || !pl) continue
+        const key = `${ev}|${pl}`
+        const candidates = [
+          String(row?.team || "").trim(),
+          inferSurfaceTeamLabel(row, playerTeamIndex),
+          String(row?.teamResolved || "").trim(),
+          resolveTeamNameForRowFromCode(row?.teamCode, row),
+          resolveMlbTeamFromDiskCacheRow(row)
+        ].filter((t) => t && String(t).trim())
+
+        for (const t of candidates) {
+          const label = String(t).trim()
+          if (!tallies.has(key)) tallies.set(key, new Map())
+          const m = tallies.get(key)
+          m.set(label, (m.get(label) || 0) + 1)
+        }
+      }
+      const winners = new Map()
+      for (const [key, m] of tallies.entries()) {
+        let bestLabel = null
+        let bestCount = 0
+        for (const [label, c] of m.entries()) {
+          if (c > bestCount) {
+            bestCount = c
+            bestLabel = label
+          }
+        }
+        if (bestLabel) winners.set(key, bestLabel)
+      }
+      return winners
+    }
+
+    const playerEventTeamVote = buildMlbPlayerEventTeamVote(rows)
+
+    const likelyTeamFromMatchupContext = (row) => {
+      const away = String(row?.awayTeam || "").trim()
+      const home = String(row?.homeTeam || "").trim()
+      if (away && !home) return away
+      if (home && !away) return home
+      if (away && home) {
+        // Odds API convention is typically "Away @ Home"; use road as weak prior when roster is missing.
+        return away
+      }
+      const mu = String(row?.matchup || "").trim()
+      const m = mu.match(/^(.+?)\s+@\s+(.+)$/)
+      if (m) return String(m[1] || "").trim() || null
+      return null
+    }
+
+    const resolveMlbPredictionRowTeam = (row) => {
+      const ev = String(row?.eventId || "").trim()
+      const pl = String(row?.player || "").toLowerCase().trim()
+      const voteKey = ev && pl ? `${ev}|${pl}` : null
+
+      return (
+        String(row?.team || "").trim() ||
+        inferSurfaceTeamLabel(row, playerTeamIndex) ||
+        String(row?.teamResolved || "").trim() ||
+        resolveTeamNameForRowFromCode(row?.teamCode, row) ||
+        resolveMlbTeamFromDiskCacheRow(row) ||
+        (voteKey ? playerEventTeamVote.get(voteKey) : null) ||
+        likelyTeamFromMatchupContext(row) ||
+        null
+      )
+    }
+
+    const classifyBoardPropFamily = (row) => {
+      const mk = String(row?.marketKey || "").toLowerCase()
+      const pt = String(row?.propType || "").toLowerCase()
+
+      if (mk.includes("first_home_run") || pt.includes("first home run")) return "first_hr"
+      if (mk.includes("home_run") || mk.includes("home_runs") || mk.includes("to_hit_home_run") || pt.includes("home run")) {
+        return "hr"
+      }
+      if (mk.includes("total_bases") || pt.includes("total bases")) return "tb"
+      if (mk.includes("hits") || pt.includes("hits")) return "hits"
+      if (mk.includes("rbi") || pt.includes("rbi")) return "rbi"
+      if (mk.includes("runs") || pt.includes("runs")) return "runs"
+      return "other"
+    }
+
+    const getMlbMarketImpactScore = (row) => {
+      const fam = classifyBoardPropFamily(row)
+      const line = toNumberOrNull(row?.line)
+      const odds = toNumberOrNull(row?.odds)
+
+      if (fam === "first_hr") return 0.98
+      if (fam === "hr") {
+        let s = 0.94
+        if (Number.isFinite(line) && line <= 0.5) s = 0.99
+        return clamp(Number(s.toFixed(4)), 0.9, 1.0)
+      }
+      if (fam === "tb") {
+        let s = 0.72
+        if (Number.isFinite(line) && line >= 2.5) s = 0.85
+        else if (Number.isFinite(line) && line >= 1.5) s = 0.8
+        if (Number.isFinite(odds) && odds >= 450) s = Math.min(0.85, s + 0.03)
+        return clamp(Number(s.toFixed(4)), 0.7, 0.85)
+      }
+      if (fam === "rbi") return clamp(0.68, 0.6, 0.75)
+      if (fam === "runs") return clamp(0.64, 0.58, 0.72)
+      if (fam === "hits") {
+        let s = 0.58
+        if (Number.isFinite(line) && line <= 0.5) s = 0.52
+        return clamp(Number(s.toFixed(4)), 0.5, 0.65)
+      }
+      return 0.5
+    }
+
+    const getMlbPlayType = (row, fam) => {
+      const odds = toNumberOrNull(row?.odds)
+      if (fam === "hr" || fam === "first_hr") return "boom"
+      if (fam === "tb" && Number.isFinite(odds) && odds >= 350) return "boom"
+      if (fam === "hits") return "safe"
+      return "value"
+    }
+
+    const computeMlbDecisionScore = (edgeProbability, signalScore, marketImpactScore) => {
+      const edge = Number.isFinite(edgeProbability) ? edgeProbability : 0
+      const sig = Number.isFinite(signalScore) ? signalScore : 0
+      const mi = Number.isFinite(marketImpactScore) ? marketImpactScore : 0
+      return Number((edge * 0.5 + sig * 0.3 + mi * 0.2).toFixed(6))
+    }
+
+    const cmpDecisionBoardRows = (a, b) => {
+      const dA = Number.isFinite(a?.decisionScore) ? a.decisionScore : -999
+      const dB = Number.isFinite(b?.decisionScore) ? b.decisionScore : -999
+      if (dB !== dA) return dB - dA
+      const eA = Number.isFinite(a?.edgeProbability) ? a.edgeProbability : -999
+      const eB = Number.isFinite(b?.edgeProbability) ? b.edgeProbability : -999
+      if (eB !== eA) return eB - eA
+      const sA = Number.isFinite(a?.signalScore) ? a.signalScore : -999
+      const sB = Number.isFinite(b?.signalScore) ? b.signalScore : -999
+      if (sB !== sA) return sB - sA
+      const oA = Number.isFinite(Number(a?.odds)) ? Number(a.odds) : -999
+      const oB = Number.isFinite(Number(b?.odds)) ? Number(b.odds) : -999
+      return oB - oA
+    }
+
+    const isBoardCandidateRow = (row) => {
+      if (!row) return false
+      if (row?.isPitcherMarket === true) return false
+      if (!String(row?.player || "").trim()) return false
+      if (!String(row?.propType || "").trim()) return false
+      if (row?.odds == null) return false
+
+      const side = String(row?.side || "").trim().toLowerCase()
+      if (!(side === "over" || side === "yes")) return false
+
+      const family = classifyBoardPropFamily(row)
+      return family !== "other"
+    }
+
+    const toRoundedLineKey = (line) => {
+      const n = toNumberOrNull(line)
+      if (!Number.isFinite(n)) return "na"
+      return String(Number(n.toFixed(2)))
+    }
+
+    const rowQualityPenalty = (row) => {
+      const mk = String(row?.marketKey || "").toLowerCase()
+      const line = toNumberOrNull(row?.line)
+      const dispersion = toNumberOrNull(row?.bookImpliedDispersion)
+      const vsConsensus = Math.abs(toNumberOrNull(row?.bookVsConsensusDelta) || 0)
+
+      let penalty = 0
+      // Low-information / mushy shapes (common source of repetitive "looks good" rows)
+      if ((mk.includes("batter_hits") || mk.includes("player_hits")) && Number.isFinite(line) && line <= 0.5) penalty += 0.12
+      if ((mk.includes("batter_rbis") || mk.includes("player_rbis") || mk.includes("batter_rbi")) && Number.isFinite(line) && line <= 0.5) {
+        penalty += 0.08
+      }
+      if ((mk.includes("runs") || mk.includes("runs_scored")) && Number.isFinite(line) && line <= 0.5) penalty += 0.08
+
+      // If books basically agree, don't let tiny arithmetic gaps dominate the board.
+      if (Number.isFinite(dispersion) && dispersion < 0.004 && vsConsensus < 0.006) penalty += 0.06
+
+      return penalty
+    }
+
+    const marketPreferenceScore = (row) => {
+      const family = classifyBoardPropFamily(row)
+      const mk = String(row?.marketKey || "").toLowerCase()
+      const line = toNumberOrNull(row?.line)
+      const edge = toNumberOrNull(row?.edgeProbability) || 0
+      const dispersion = toNumberOrNull(row?.bookImpliedDispersion) || 0
+
+      // Base preference: prioritize true HR markets, then TB, then counting overs.
+      const base =
+        family === "hr" ? 0.95 :
+        family === "first_hr" ? 0.78 :
+        family === "tb" ? 0.62 :
+        family === "hits" ? 0.52 :
+        family === "rbi" ? 0.50 :
+        family === "runs" ? 0.48 :
+        0.40
+
+      // TB spam control: TB is great, but it shouldn't drown the board unless it's clearly special.
+      let tbAdjust = 0
+      if (family === "tb") {
+        const meaningfulLine = Number.isFinite(line) && line >= 1.5
+        const strongEdge = edge >= 0.06
+        const disagree = dispersion >= 0.01
+        tbAdjust -= meaningfulLine ? 0 : 0.10
+        tbAdjust += strongEdge ? 0.06 : 0
+        tbAdjust += disagree ? 0.04 : 0
+      }
+
+      // HR yes/no thresholding: tiny HR thresholds are more actionable than generic TB ladders at similar edges.
+      let hrAdjust = 0
+      if (family === "hr" && Number.isFinite(line) && line <= 0.5) hrAdjust += 0.05
+
+      // Slight preference for primary-ish markets vs obvious alt ladders when everything else is close.
+      const altish = mk.includes("alternate") || mk.includes("_alternate") || mk.endsWith("_alt")
+      const ladderish = String(row?.marketFamily || "").toLowerCase() === "ladder"
+      const altPenalty = (altish || ladderish) ? 0.04 : 0
+
+      return base + tbAdjust + hrAdjust - altPenalty - rowQualityPenalty(row)
+    }
+
+    const compositeRankScore = (row) => {
+      const edge = toNumberOrNull(row?.edgeProbability) || 0
+      const sig = toNumberOrNull(row?.signalScore) || 0
+      const mp = marketPreferenceScore(row)
+      // Tie-breakers are handled later; this is the scalar sort key for dedupe "best of group".
+      return (edge * 1.0) + (sig * 0.35) + (mp * 0.08)
+    }
+
+    const candidates = rows
+      .filter((row) => isBoardCandidateRow(row))
+      .map((row) => {
+        const impliedProbability =
+          row?.impliedProbability != null ? Number(row.impliedProbability) : null
+        const predictedProbability =
+          row?.predictedProbability != null ? Number(row.predictedProbability) : null
+        const edgeProbability =
+          row?.edgeProbability != null ? Number(row.edgeProbability) : null
+        const signalScore =
+          row?.signalScore != null ? Number(row.signalScore) : null
+        const signalStrengthTag =
+          row?.signalStrengthTag != null ? String(row.signalStrengthTag) : null
+
+        const fam = classifyBoardPropFamily(row)
+        const teamSurfaced = resolveMlbPredictionRowTeam(row)
+        const marketImpactScore = getMlbMarketImpactScore(row)
+        const playType = getMlbPlayType(row, fam)
+        const decisionScore = computeMlbDecisionScore(
+          Number.isFinite(edgeProbability) ? edgeProbability : null,
+          Number.isFinite(signalScore) ? signalScore : null,
+          marketImpactScore
+        )
+
+        return {
+          __src: row,
+          player: row?.player || null,
+          team: teamSurfaced,
+          propType: row?.propType || null,
+          odds: row?.odds ?? null,
+          predictedProbability: Number.isFinite(predictedProbability) ? predictedProbability : null,
+          impliedProbability: Number.isFinite(impliedProbability) ? impliedProbability : null,
+          edgeProbability: Number.isFinite(edgeProbability) ? edgeProbability : null,
+          signalScore: Number.isFinite(signalScore) ? signalScore : null,
+          signalStrengthTag: signalStrengthTag || "neutral",
+          marketImpactScore,
+          decisionScore,
+          playType,
+          __family: fam,
+          __rank: compositeRankScore(row)
+        }
+      })
+      .filter((row) => row.player && row.propType && row.odds != null)
+
+    // Dedupe: keep strongest row per player within the same surfaced prop family.
+    // (Prevents alt-line / ladder spam within TB/Hits/etc before family-capped board selection.)
+    const dedupMap = new Map()
+    for (const row of candidates) {
+      const side = String(row?.__src?.side || "").trim().toLowerCase()
+      const fam = row.__family || "other"
+      const key = [
+        String(row.player || "").toLowerCase(),
+        fam,
+        side
+      ].join("|")
+
+      const prev = dedupMap.get(key)
+      if (!prev || cmpDecisionBoardRows(prev, row) > 0) dedupMap.set(key, row)
+    }
+    const deduped = [...dedupMap.values()]
+
+    const cmpBoardRows = cmpDecisionBoardRows
+
+    // Global ranking + soft per-family caps + one surfaced pick per player per prop family.
+    const target = 60
+    const caps = {
+      // TB is often the densest ladder lane; keep it represented without crowding out HR/counting markets.
+      tb: 14,
+      hits: 16,
+      rbi: 14,
+      runs: 14,
+      hr: 14,
+      first_hr: 8,
+      other: 6
+    }
+
+    const ranked = deduped.sort(cmpBoardRows)
+
+    const buildBoard = (ignoreCaps = false) => {
+      const out = []
+      const used = new Set()
+      const counts = {}
+
+      const capFor = (fam) => (ignoreCaps ? Infinity : (caps[fam] ?? caps.other))
+
+      for (const row of ranked) {
+        if (out.length >= target) break
+        const fam = row.__family || "other"
+        if (counts[fam] == null) counts[fam] = 0
+        if (!ignoreCaps && counts[fam] >= capFor(fam)) continue
+
+        const playerKey = String(row.player || "").toLowerCase()
+        if (!playerKey) continue
+        // One surfaced pick per player per prop family (prevents TB spam duplicates),
+        // while still allowing the same player to appear across HR/TB/Hits/etc when warranted.
+        const slotKey = `p:${playerKey}:fam:${fam}`
+        if (used.has(slotKey)) continue
+
+        used.add(slotKey)
+        counts[fam] += 1
+        out.push(row)
+      }
+
+      return out
+    }
+
+    let finalBoard = buildBoard(false)
+    if (finalBoard.length < target) {
+      finalBoard = buildBoard(true)
+    }
+
+    // If HRs exist but get crowded out by near-tie counting markets, swap a few tail rows in
+    // the most over-represented families for close HR edges (no new data; board shaping only).
+    const enrichUnderrepresentedHr = (board) => {
+      if (!Array.isArray(board) || board.length < 10) return board
+
+      const famCounts = {}
+      for (const row of board) {
+        const fam = row?.__family || "other"
+        famCounts[fam] = (famCounts[fam] || 0) + 1
+      }
+
+      const hrPool = ranked.filter((r) => r.__family === "hr")
+      if (!hrPool.length) return board
+
+      const minHrWant = Math.min(6, hrPool.length, board.length)
+      if ((famCounts.hr || 0) >= minHrWant) return board
+
+      const donorOrder = ["tb", "hits", "rbi", "runs", "first_hr", "other"]
+      const edgeDelta = 0.028
+
+      const usedSlots = new Set(
+        board.map((row) => {
+          const fam = row?.__family || "other"
+          const playerKey = String(row.player || "").toLowerCase()
+          return `p:${playerKey}:fam:${fam}`
+        })
+      )
+
+      const victimScore = (row) => (Number.isFinite(row?.decisionScore) ? row.decisionScore : -999)
+
+      const nextHrCandidate = (victimEdge) => {
+        for (const hrRow of hrPool) {
+          const playerKey = String(hrRow.player || "").toLowerCase()
+          if (!playerKey) continue
+          const slotKey = `p:${playerKey}:fam:hr`
+          if (usedSlots.has(slotKey)) continue
+
+          const hrEdge = Number.isFinite(hrRow.edgeProbability) ? hrRow.edgeProbability : -999
+          if (!Number.isFinite(victimEdge) || !Number.isFinite(hrEdge)) continue
+          if (hrEdge < victimEdge - edgeDelta) continue
+
+          return { hrRow, slotKey }
+        }
+        return null
+      }
+
+      const boardOut = [...board]
+      let hrCount = famCounts.hr || 0
+
+      for (const donorFam of donorOrder) {
+        while (hrCount < minHrWant) {
+          const donorIdx = boardOut
+            .map((row, idx) => ({ row, idx }))
+            .filter(({ row }) => (row?.__family || "other") === donorFam)
+            .sort((a, b) => victimScore(a.row) - victimScore(b.row))[0]?.idx
+
+          if (donorIdx == null) break
+
+          const victim = boardOut[donorIdx]
+          const victimEdge = Number.isFinite(victim?.edgeProbability) ? victim.edgeProbability : -999
+          const pick = nextHrCandidate(victimEdge)
+          if (!pick) break
+
+          const donorFamOld = victim?.__family || "other"
+          const donorPlayerKey = String(victim.player || "").toLowerCase()
+          usedSlots.delete(`p:${donorPlayerKey}:fam:${donorFamOld}`)
+          boardOut[donorIdx] = pick.hrRow
+          usedSlots.add(pick.slotKey)
+          hrCount += 1
+        }
+        if (hrCount >= minHrWant) break
+      }
+
+      return boardOut.sort(cmpBoardRows)
+    }
+
+    finalBoard = enrichUnderrepresentedHr(finalBoard)
+
+    // Top-window power mix: allow HR/TB into the first rows when they are legitimately close on edge/signal
+    // to counting overs, without re-ranking the full board or breaking per-player top-10 uniqueness.
+    const shapeTopWindowForPowerMix = (board, windowSize = 10) => {
+      if (!Array.isArray(board) || board.length <= windowSize) return board
+
+      const countingFamilies = new Set(["hits", "rbi", "runs"])
+      const tbFamily = new Set(["tb"])
+
+      const rowMerit = (row) => (Number.isFinite(row?.decisionScore) ? row.decisionScore : -999)
+
+      const isClosePowerVsVictim = (champ, victim, wantFam, edgeTol, sigTol) => {
+        const eC = Number(champ?.edgeProbability)
+        const eV = Number(victim?.edgeProbability)
+        const sC = Number(champ?.signalScore)
+        const sV = Number(victim?.signalScore)
+        if (!Number.isFinite(eC) || !Number.isFinite(eV)) return false
+        // HR vs TB: edges often line up while TB proxy signal runs hotter — trust edge-first closeness.
+        if (wantFam === "hr" && victim?.__family === "tb") {
+          if (!Number.isFinite(sC) || !Number.isFinite(sV)) return eC >= eV - edgeTol
+          return eC >= eV - Math.max(edgeTol, 0.048) && sC >= sV - 0.34
+        }
+        if (!Number.isFinite(sC) || !Number.isFinite(sV)) return eC >= eV - edgeTol
+        return eC >= eV - edgeTol && sC >= sV - sigTol
+      }
+
+      const tryPromoteFamily = (out, wantFam, { victimFamilies, edgeTol, sigTol }) => {
+        if (out.slice(0, windowSize).some((r) => r.__family === wantFam)) return false
+
+        let victimIdx = -1
+        let victimMerit = Infinity
+        for (let i = 0; i < windowSize; i++) {
+          if (!victimFamilies.has(out[i]?.__family)) continue
+          const m = rowMerit(out[i])
+          if (m < victimMerit) {
+            victimMerit = m
+            victimIdx = i
+          }
+        }
+        if (victimIdx < 0) return false
+
+        const victim = out[victimIdx]
+        const windowPlayers = new Set()
+        for (let j = 0; j < windowSize; j++) {
+          if (j === victimIdx) continue
+          const pk = String(out[j]?.player || "").toLowerCase().trim()
+          if (pk) windowPlayers.add(pk)
+        }
+
+        let bestIdx = -1
+        let bestMerit = -Infinity
+        for (let i = windowSize; i < out.length; i++) {
+          if (out[i]?.__family !== wantFam) continue
+          const pk = String(out[i]?.player || "").toLowerCase().trim()
+          if (!pk || windowPlayers.has(pk)) continue
+          if (!isClosePowerVsVictim(out[i], victim, wantFam, edgeTol, sigTol)) continue
+          const m = rowMerit(out[i])
+          if (m > bestMerit) {
+            bestMerit = m
+            bestIdx = i
+          }
+        }
+        if (bestIdx < 0) return false
+
+        const tmp = out[victimIdx]
+        out[victimIdx] = out[bestIdx]
+        out[bestIdx] = tmp
+        return true
+      }
+
+      const out = [...board]
+
+      // TB: tight closeness vs counting overs
+      tryPromoteFamily(out, "tb", {
+        victimFamilies: countingFamilies,
+        edgeTol: 0.028,
+        sigTol: 0.09
+      })
+
+      // HR: first pass vs counting
+      tryPromoteFamily(out, "hr", {
+        victimFamilies: countingFamilies,
+        edgeTol: 0.03,
+        sigTol: 0.095
+      })
+
+      // HR: second pass — allow bumping a weaker TB slot if HR is still missing from the window
+      if (!out.slice(0, windowSize).some((r) => r.__family === "hr")) {
+        tryPromoteFamily(out, "hr", {
+          victimFamilies: new Set([...countingFamilies, ...tbFamily]),
+          edgeTol: 0.045,
+          sigTol: 0.11
+        })
+      }
+
+      // Same-player TB -> HR in the window: HR signal runs colder than TB; edge closeness is the honest lever.
+      if (!out.slice(0, windowSize).some((r) => r.__family === "hr")) {
+        const tbIdx = out.slice(0, windowSize).findIndex((r) => r?.__family === "tb")
+        if (tbIdx >= 0) {
+          const victim = out[tbIdx]
+          const pk = String(victim?.player || "").toLowerCase().trim()
+          if (pk) {
+            let hrIdx = -1
+            for (let i = windowSize; i < out.length; i++) {
+              if (out[i]?.__family !== "hr") continue
+              if (String(out[i]?.player || "").toLowerCase().trim() !== pk) continue
+              hrIdx = i
+              break
+            }
+            if (hrIdx >= 0) {
+              const champ = out[hrIdx]
+              const eC = Number(champ?.edgeProbability)
+              const eV = Number(victim?.edgeProbability)
+              if (Number.isFinite(eC) && Number.isFinite(eV) && eC >= eV - 0.055) {
+                const tmp = out[tbIdx]
+                out[tbIdx] = out[hrIdx]
+                out[hrIdx] = tmp
+              }
+            }
+          }
+        }
+      }
+
+      // Competitive power floor in top-10: keep 1–3 HR/TB rows when their edge is within ~0.05 of the window leader.
+      {
+        const power = new Set(["hr", "tb"])
+        const countingOnly = new Set(["hits", "rbi", "runs"])
+        const edgeTol = 0.05
+
+        const powerCount = () => out.slice(0, windowSize).filter((r) => power.has(r?.__family)).length
+        const refEdge = () => Math.max(0, ...out.slice(0, windowSize).map((r) => Number(r?.edgeProbability) || 0))
+
+        const pickVictimIdx = (victimFamilies) => {
+          let victimIdx = -1
+          let worstD = Infinity
+          for (let i = 0; i < windowSize; i++) {
+            if (!victimFamilies.has(out[i]?.__family)) continue
+            const d = Number(out[i]?.decisionScore) || 0
+            if (d < worstD) {
+              worstD = d
+              victimIdx = i
+            }
+          }
+          return victimIdx
+        }
+
+        const tryPowerSwap = (victimFamilies) => {
+          const topRef = refEdge()
+          const victimIdx = pickVictimIdx(victimFamilies)
+          if (victimIdx < 0) return false
+
+          const windowPlayers = new Set()
+          for (let j = 0; j < windowSize; j++) {
+            if (j === victimIdx) continue
+            const pk = String(out[j]?.player || "").toLowerCase().trim()
+            if (pk) windowPlayers.add(pk)
+          }
+
+          let bestIdx = -1
+          let bestD = -Infinity
+          for (let i = windowSize; i < out.length; i++) {
+            if (!power.has(out[i]?.__family)) continue
+            const pk = String(out[i]?.player || "").toLowerCase().trim()
+            if (!pk || windowPlayers.has(pk)) continue
+            const e = Number(out[i]?.edgeProbability)
+            if (!Number.isFinite(e) || e < topRef - edgeTol) continue
+            const d = Number(out[i]?.decisionScore) || 0
+            if (d > bestD) {
+              bestD = d
+              bestIdx = i
+            }
+          }
+          if (bestIdx < 0) return false
+
+          const tmp = out[victimIdx]
+          out[victimIdx] = out[bestIdx]
+          out[bestIdx] = tmp
+          return true
+        }
+
+        while (powerCount() < 1) {
+          const victimFamilies = new Set([...countingFamilies, ...tbFamily])
+          if (!tryPowerSwap(victimFamilies)) break
+        }
+        while (powerCount() < 3) {
+          if (!tryPowerSwap(countingOnly)) break
+        }
+      }
+
+      const head = out.slice(0, windowSize).sort(cmpBoardRows)
+      return head.concat(out.slice(windowSize))
+    }
+
+    finalBoard = shapeTopWindowForPowerMix(finalBoard)
+
+    return finalBoard.map((row, idx) => {
+      const { __src, __family, __rank, ...rest } = row
+      let teamOut = rest.team
+      if (idx < 20 && (!teamOut || !String(teamOut).trim())) {
+        teamOut =
+          likelyTeamFromMatchupContext(__src || {}) ||
+          String(__src?.awayTeam || "").trim() ||
+          String(__src?.homeTeam || "").trim() ||
+          "TBD"
+      }
+
+      return {
+        ...rest,
+        team: teamOut,
+        eventId: __src?.eventId ?? rest.eventId ?? null,
+        matchup: __src?.matchup ?? rest.matchup ?? null,
+        awayTeam: __src?.awayTeam ?? rest.awayTeam ?? null,
+        homeTeam: __src?.homeTeam ?? rest.homeTeam ?? null
+      }
+    })
+  })()
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -11658,6 +12521,7 @@ app.get("/api/best-available", (req, res) => {
       aggressive,
       lotto,
       slateMode: nbaRowQualityAudit?.slateMode || null,
+      mlbPredictionBoard,
       longshotTop: nbaSurfacedLongshotTop,
       safePairTop: nbaSurfacedSafePairTop,
       superstarCeilingBoard,
@@ -11672,7 +12536,34 @@ app.get("/api/best-available", (req, res) => {
       highestHitRate10,
       payoutFitPortfolio,
       moneyMakerPortfolio,
-      diagnostics: mergedBestAvailableDiagnostics,
+      diagnostics: {
+        ...(mergedBestAvailableDiagnostics && typeof mergedBestAvailableDiagnostics === "object"
+          ? mergedBestAvailableDiagnostics
+          : {}),
+        nbaRowStateDist: typeof nbaRowStateDistForPayload === "object" ? nbaRowStateDistForPayload : null,
+        nbaCorePools: {
+          bestPropsCountSnapshot: typeof bestPropsCountSnapshot === "number" ? bestPropsCountSnapshot : null,
+          coreFallbackActivated: typeof coreFallbackActivated === "boolean" ? coreFallbackActivated : null,
+          fallbackScoredCoreRows: typeof fallbackScoredCoreRows?.length === "number" ? fallbackScoredCoreRows.length : null,
+          completeUniverse: typeof completeUniverse?.length === "number" ? completeUniverse.length : null,
+          completeBettableNonSpecial: typeof completeBettableNonSpecial?.length === "number" ? completeBettableNonSpecial.length : null,
+          completeCoreStandard: typeof completeCoreStandard?.length === "number" ? completeCoreStandard.length : null,
+          selectedBestLen: typeof bestPayloadRows?.length === "number" ? bestPayloadRows.length : null,
+          sampleCompleteUniverse: Array.isArray(completeUniverse)
+            ? completeUniverse.slice(0, 6).map((r) => ({
+                player: r?.player || null,
+                propType: r?.propType || null,
+                marketKey: r?.marketKey || null,
+                propVariant: r?.propVariant || null,
+                line: r?.line ?? null,
+                odds: r?.odds ?? null,
+                book: r?.book || null,
+                matchup: r?.matchup || null,
+                qualitySignalCount: r?.qualitySignalCount ?? null
+              }))
+            : []
+        }
+      },
       poolDiagnostics: mergedBestAvailablePoolDiagnostics,
       specialProps: enrichedSpecialProps,
       bettingNow,
@@ -13284,6 +14175,26 @@ function buildNbaEnrichmentLegLookup(rows) {
   return { byPrimary, byPropType }
 }
 
+const NBA_EXPORT_CORE_BACKFILL_KEYS = [
+  "team",
+  "playerTeam",
+  "awayTeam",
+  "homeTeam",
+  "matchup",
+  "eventId",
+  "score",
+  "edge",
+  "projectedValue",
+  "hitRate",
+  "playerConfidenceScore",
+  "adjustedConfidenceScore",
+  "confidenceScore",
+  "modelHitProb",
+  "gameTime",
+  "marketKey",
+  "side"
+]
+
 function mergeNbaExportRowWithEnrichmentLookup(skinny, lookup) {
   if (!skinny || typeof skinny !== "object" || !lookup) return skinny
   let rich = null
@@ -13303,7 +14214,198 @@ function mergeNbaExportRowWithEnrichmentLookup(skinny, lookup) {
     const sMissing = s === null || s === undefined || s === ""
     if (sMissing && r !== null && r !== undefined && r !== "") out[key] = r
   }
+  for (const key of NBA_EXPORT_CORE_BACKFILL_KEYS) {
+    const s = out[key]
+    const r = rich[key]
+    const sMissing = s === null || s === undefined || s === ""
+    if (sMissing && r !== null && r !== undefined && r !== "") out[key] = r
+  }
   return out
+}
+
+function splitNbaMatchupVenueSides(matchup) {
+  const m = String(matchup || "").trim()
+  if (!m) return null
+  let parts = null
+  if (m.includes("@")) {
+    parts = m.split("@").map((s) => String(s || "").trim()).filter(Boolean)
+  } else if (/\bvs\.?\b/i.test(m)) {
+    parts = m.split(/\bvs\.?\b/i).map((s) => String(s || "").trim()).filter(Boolean)
+  }
+  if (!parts || parts.length < 2) return null
+  return { awayTeam: parts[0], homeTeam: parts[1] }
+}
+
+function recoverNbaExportRowTeamAndVenue(row) {
+  if (!row || typeof row !== "object") return row
+  const out = { ...row }
+  const sides = splitNbaMatchupVenueSides(out.matchup)
+  if (sides) {
+    if (!String(out.awayTeam || "").trim()) out.awayTeam = sides.awayTeam
+    if (!String(out.homeTeam || "").trim()) out.homeTeam = sides.homeTeam
+  }
+  if (String(out.team || "").trim()) return out
+  const away = String(out.awayTeam || "").trim()
+  const home = String(out.homeTeam || "").trim()
+  const pt = String(out.playerTeam || "").trim()
+  if (away && home && pt) {
+    const aAb = String(teamAbbr(away) || "").toUpperCase()
+    const hAb = String(teamAbbr(home) || "").toUpperCase()
+    const ptk = pt.toUpperCase()
+    if (aAb && ptk === aAb) {
+      out.team = away
+      return out
+    }
+    if (hAb && ptk === hAb) {
+      out.team = home
+      return out
+    }
+  }
+  return out
+}
+
+function buildNbaTeamByPlayerEventMap(snapshot) {
+  const m = new Map()
+  const pool = [
+    ...(Array.isArray(snapshot?.props) ? snapshot.props : []),
+    ...(Array.isArray(snapshot?.rawProps) ? snapshot.rawProps : [])
+  ]
+  for (const pl of pool) {
+    const t = String(pl?.team || "").trim()
+    if (!t) continue
+    const eid = String(pl?.eventId || "").trim()
+    const player = String(pl?.player || "").trim()
+    if (!eid || !player) continue
+    const key = `${eid}|${normalizePlayerName(player)}`
+    if (!m.has(key)) m.set(key, t)
+  }
+  return m
+}
+
+function fillNbaRowTeamFromPlayerEventMap(row, teamByPlayerEvent) {
+  if (!row || typeof row !== "object" || !teamByPlayerEvent || teamByPlayerEvent.size === 0) return row
+  if (String(row.team || "").trim()) return row
+  const eid = String(row.eventId || "").trim()
+  const player = String(row.player || "").trim()
+  if (!eid || !player) return row
+  const hit = teamByPlayerEvent.get(`${eid}|${normalizePlayerName(player)}`)
+  if (!hit) return row
+  return { ...row, team: hit }
+}
+
+function buildNbaTeamByPlayerSingleEventMap(snapshot) {
+  const props = [...(Array.isArray(snapshot?.props) ? snapshot.props : [])]
+  const eids = new Set(props.map((p) => String(p?.eventId || "").trim()).filter(Boolean))
+  if (eids.size !== 1) return new Map()
+  const m = new Map()
+  for (const pl of props) {
+    const t = String(pl?.team || "").trim()
+    const p = normalizePlayerName(String(pl?.player || ""))
+    if (!t || !p) continue
+    if (!m.has(p)) m.set(p, t)
+  }
+  return m
+}
+
+function fillNbaRowTeamFromSingleEventMap(row, teamByPlayer) {
+  if (!row || typeof row !== "object" || !teamByPlayer || teamByPlayer.size === 0) return row
+  if (String(row.team || "").trim()) return row
+  const p = normalizePlayerName(String(row.player || ""))
+  const hit = teamByPlayer.get(p)
+  if (!hit) return row
+  return { ...row, team: hit }
+}
+
+// === NBA row-state system (post-hydration) ===
+// "complete": core identity present + >= 2 real quality signals
+// "partial":  core identity present + exactly 1 real quality signal
+// "invalid":  missing core identity OR 0 quality signals
+function countNbaRowQualitySignals(row) {
+  if (!row || typeof row !== "object") return 0
+  // Some signals can be legitimately 0 (e.g. dvpScore=0), so treat finite as "present"
+  // for those, while keeping >0 rules for minutes/ceiling/spike scores.
+  let n = 0
+  const avgMin = Number(row?.avgMin)
+  if (Number.isFinite(avgMin) && avgMin > 0) n += 1
+  const ceilingScore = Number(row?.ceilingScore)
+  if (Number.isFinite(ceilingScore) && ceilingScore > 0) n += 1
+  const score = row?.score
+  if (score !== null && score !== undefined && Number.isFinite(Number(score))) n += 1
+  const edge = row?.edge
+  if (edge !== null && edge !== undefined && Number.isFinite(Number(edge))) n += 1
+  const roleSpikeScore = Number(row?.roleSpikeScore)
+  if (Number.isFinite(roleSpikeScore) && roleSpikeScore > 0) n += 1
+  const opportunitySpikeScore = Number(row?.opportunitySpikeScore)
+  if (Number.isFinite(opportunitySpikeScore) && opportunitySpikeScore > 0) n += 1
+  const marketLagScore = Number(row?.marketLagScore)
+  if (Number.isFinite(marketLagScore) && Math.abs(marketLagScore) >= 0.05) n += 1
+  const matchupEdgeScore = Number(row?.matchupEdgeScore)
+  if (Number.isFinite(matchupEdgeScore) && Math.abs(matchupEdgeScore) >= 0.05) n += 1
+  const gameEnvironmentScore = Number(row?.gameEnvironmentScore)
+  if (Number.isFinite(gameEnvironmentScore) && Math.abs(gameEnvironmentScore) >= 0.05) n += 1
+  const dvpScore = Number(row?.dvpScore)
+  if (Number.isFinite(dvpScore) && Math.abs(dvpScore) >= 0.05) n += 1
+  return n
+}
+
+function classifyNbaRowDataState(row) {
+  const r = recoverNbaExportRowTeamAndVenue(row)
+  const hasCoreIdentity =
+    Boolean(String(r?.player || "").trim()) &&
+    Boolean(String(r?.matchup || "").trim()) &&
+    Boolean(String(r?.propType || "").trim()) &&
+    Boolean(String(r?.book || "").trim())
+  if (!hasCoreIdentity) return "invalid"
+  // Hard invalid: "hollow shells" (no minutes/ceiling/score/edge), even if context scores exist.
+  const hasCoreQualityAnchor =
+    (r?.avgMin !== null && r?.avgMin !== undefined && Number.isFinite(Number(r?.avgMin))) ||
+    (r?.ceilingScore !== null && r?.ceilingScore !== undefined && Number.isFinite(Number(r?.ceilingScore))) ||
+    (r?.score !== null && r?.score !== undefined && Number.isFinite(Number(r?.score))) ||
+    (r?.edge !== null && r?.edge !== undefined && Number.isFinite(Number(r?.edge)))
+  if (!hasCoreQualityAnchor) return "invalid"
+  const signals = countNbaRowQualitySignals(r)
+  if (signals >= 2) return "complete"
+  if (signals === 1) return "partial"
+  return "invalid"
+}
+
+function withNbaRowDataState(row) {
+  if (!row || typeof row !== "object") return row
+  const recovered = recoverNbaExportRowTeamAndVenue(row)
+  const qualitySignalCount = countNbaRowQualitySignals(recovered)
+  const dataState = classifyNbaRowDataState(recovered)
+  return { ...recovered, dataState, qualitySignalCount }
+}
+
+function hasMeaningfulNbaScoreSignal(row) {
+  if (!row || typeof row !== "object") return false
+  if (row.__forceInclude) return true
+  return countNbaRowQualitySignals(row) >= 1
+}
+
+const NBA_EXPORT_LINE_REQUIRED_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+
+function isNbaExportRowGate(row) {
+  const r = recoverNbaExportRowTeamAndVenue(row)
+  if (r.__forceInclude) return true
+  if (!String(r?.player || "").trim()) return false
+  if (!String(r?.matchup || "").trim()) return false
+  if (!String(r?.propType || "").trim()) return false
+  if (!String(r?.book || "").trim()) return false
+  const sigs = countNbaRowQualitySignals(r)
+  // If we can't recover team, require stronger signal to avoid "hollow shells" contaminating exports.
+  if (!String(r?.team || "").trim() && sigs < 2) return false
+  if (NBA_EXPORT_LINE_REQUIRED_PROP_TYPES.has(String(r?.propType || "")) && !Number.isFinite(Number(r?.line))) return false
+  if (sigs < 1) return false
+  return true
+}
+
+function selectNbaExportGateReadyRows(rows, { minKeep = 3 } = {}) {
+  const safe = Array.isArray(rows) ? rows : []
+  const gated = safe.filter((r) => isNbaExportRowGate(r))
+  if (gated.length >= minKeep) return gated
+  if (gated.length > 0) return gated
+  return safe
 }
 
 function stripStaleNbaPregameFieldsForRebuild(row) {
@@ -16707,6 +17809,392 @@ function impliedProbabilityFromAmerican(americanOdds) {
   return Math.abs(odds) / (Math.abs(odds) + 100)
 }
 
+// MLB probability foundation helper (American odds -> implied prob)
+// Kept as a wrapper so MLB code doesn't need to know NBA naming.
+function impliedProbabilityFromOdds(odds) {
+  return impliedProbabilityFromAmerican(odds)
+}
+
+function toNumberOrNull(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function isMlbPhase2PowerMarket(row) {
+  const mk = String(row?.marketKey || "").toLowerCase()
+  const pt = String(row?.propType || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const directionOk = side === "over" || side === "yes"
+
+  if (mk.includes("first_home_run") || pt.includes("first home run")) return true
+  if (mk.includes("home_run") || mk.includes("home_runs") || mk.includes("to_hit_home_run") || pt.includes("home run")) {
+    return true
+  }
+
+  // Power-adjacent lane (still "power universe", not generic counting stats)
+  if (mk.includes("total_bases") || pt.includes("total bases")) return true
+
+  // Core counting overs (board diversity + actionable offense markets)
+  if (!directionOk) return false
+  if (mk.includes("batter_hits") || mk.includes("player_hits") || pt.includes("hits")) return true
+  if (mk.includes("batter_rbis") || mk.includes("player_rbis") || pt.includes("rbi")) return true
+  if (mk.includes("batter_runs") || mk.includes("runs_scored") || mk.includes("player_runs") || pt.includes("runs")) return true
+
+  return false
+}
+
+function computeMlbHrPathProxyScore(row) {
+  // Lightweight, odds+shape-driven proxy for HR-ish markets when homeRunPathScore isn't present on the row.
+  // Intentionally small + stable (not a full model).
+  const mk = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds) || odds === 0) return null
+
+  const implied = impliedProbabilityFromOdds(odds)
+  const impliedSignal = implied == null ? 0.25 : clamp((implied - 0.05) / 0.13, 0, 1)
+
+  const payoutSignal =
+    odds >= 450 && odds <= 1200 ? 1 :
+    odds >= 300 && odds < 450 ? 0.82 :
+    odds > 1200 && odds <= 1800 ? 0.7 :
+    odds > 1800 && odds <= 2200 ? 0.42 :
+    odds >= 200 && odds < 300 ? 0.54 :
+    0.2
+
+  const directionOk = side === "over" || side === "yes" || side === "to hit" || side === "hit" || side === ""
+  if (!directionOk) return clamp(impliedSignal * 0.55, 0, 1)
+
+  let marketShape = 0.55
+  if (mk.includes("home_run") || mk.includes("home_runs") || mk.includes("to_hit_home_run")) {
+    marketShape = Number.isFinite(line) && line <= 0.5 ? 0.95 : 0.78
+  } else if (mk.includes("total_bases")) {
+    if (!Number.isFinite(line)) marketShape = 0.55
+    else if (line >= 2.5) marketShape = 0.9
+    else if (line >= 1.5) marketShape = 0.74
+    else marketShape = 0.55
+  }
+
+  const extremeLongshotPenalty = odds > 1700 ? 0.12 : 0
+  const chalkPenalty = odds < -200 ? 0.18 : odds < -120 ? 0.08 : 0
+
+  const score = clamp(
+    impliedSignal * 0.42 + payoutSignal * 0.28 + marketShape * 0.30 - extremeLongshotPenalty - chalkPenalty,
+    0,
+    1
+  )
+  return Number(score.toFixed(6))
+}
+
+function computeMlbOverCountingProxyScore(row) {
+  const mk = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  const line = toNumberOrNull(row?.line)
+  const odds = toNumberOrNull(row?.odds)
+  if (!Number.isFinite(odds) || odds === 0) return null
+  if (!(side === "over" || side === "yes")) return null
+
+  const implied = impliedProbabilityFromOdds(odds)
+  const impliedSignal = implied == null ? 0.25 : clamp((implied - 0.35) / 0.35, 0, 1)
+
+  const payoutSignal =
+    odds >= 140 && odds <= 260 ? 0.95 :
+    odds >= 105 && odds < 140 ? 0.78 :
+    odds > 260 && odds <= 420 ? 0.72 :
+    odds > 420 && odds <= 700 ? 0.55 :
+    0.35
+
+  let lineSignal = 0.55
+  if (mk.includes("hits")) {
+    if (!Number.isFinite(line)) lineSignal = 0.55
+    else if (line >= 2.5) lineSignal = 0.92
+    else if (line >= 1.5) lineSignal = 0.78
+    else if (line >= 0.5) lineSignal = 0.62
+    else lineSignal = 0.45
+  } else if (mk.includes("rbis") || mk.includes("rbi")) {
+    if (!Number.isFinite(line)) lineSignal = 0.55
+    else if (line >= 1.5) lineSignal = 0.9
+    else if (line >= 0.5) lineSignal = 0.72
+    else lineSignal = 0.48
+  } else if (mk.includes("runs") || mk.includes("runs_scored")) {
+    if (!Number.isFinite(line)) lineSignal = 0.55
+    else if (line >= 1.5) lineSignal = 0.9
+    else if (line >= 0.5) lineSignal = 0.72
+    else lineSignal = 0.48
+  }
+
+  const chalkPenalty = odds < -200 ? 0.18 : odds < -130 ? 0.08 : 0
+  const mushPenalty = odds >= -160 && odds <= -105 ? 0.06 : 0
+
+  const score = clamp(
+    impliedSignal * 0.34 + payoutSignal * 0.30 + lineSignal * 0.36 - chalkPenalty - mushPenalty,
+    0,
+    1
+  )
+  return Number(score.toFixed(6))
+}
+
+function normalizeLineupSpotSignal(battingOrderIndex) {
+  const idx = toNumberOrNull(battingOrderIndex)
+  if (!Number.isFinite(idx)) return null
+  // 1 (leadoff) -> 1.0, 9 -> ~0.11
+  return clamp((10 - idx) / 9, 0, 1)
+}
+
+function normalizeOddsStrengthSignal(impliedProbability) {
+  const p = toNumberOrNull(impliedProbability)
+  if (!Number.isFinite(p)) return null
+  // We want "strong but not absurd chalk" to score well for power outcomes.
+  // Center around ~0.10-0.18 (common HR yes band) and softly downweight extremes.
+  // Map p in [0.05..0.30] to [0..1] with a peak near 0.16.
+  const centered = 1 - Math.abs(p - 0.16) / 0.14
+  return clamp(centered, 0, 1)
+}
+
+function normalizePowerMarketBonus(row) {
+  const mk = String(row?.marketKey || "").toLowerCase()
+  const pt = String(row?.propType || "").toLowerCase()
+  const odds = toNumberOrNull(row?.odds)
+
+  const isHr =
+    mk.includes("home_run") ||
+    mk.includes("home_runs") ||
+    mk.includes("to_hit_home_run") ||
+    pt.includes("home run")
+  const isFirstHr = mk.includes("first_home_run") || pt.includes("first home run")
+
+  if (!isHr || isFirstHr) return null
+
+  // Reward realistic HR "yes" prices; penalize extreme tails a bit.
+  if (!Number.isFinite(odds)) return 0.5
+  if (odds >= 300 && odds <= 1200) return 1
+  if (odds >= 200 && odds < 300) return 0.75
+  if (odds > 1200 && odds <= 1800) return 0.65
+  if (odds > 1800) return 0.4
+  return 0.55
+}
+
+function getMlbSignalStrengthTag(signalScore) {
+  const s = toNumberOrNull(signalScore)
+  if (!Number.isFinite(s)) return "neutral"
+  if (s >= 0.78) return "elite power"
+  if (s >= 0.62) return "strong"
+  if (s >= 0.48) return "neutral"
+  return "weak"
+}
+
+function getMlbPowerSignals(row) {
+  // Return 0..1. Must be robust to missing fields.
+  // Uses only already-available runtime data (no new API requirements).
+  if (!row || typeof row !== "object") return 0.5
+  if (!isMlbPhase2PowerMarket(row)) return 0.5
+
+  const implied = impliedProbabilityFromOdds(row?.odds)
+  const ctx = buildPregameContext({ sport: "mlb", row })
+
+  const signals = []
+
+  // 1) Odds strength (baseline, but not the whole model)
+  const oddsStrength = normalizeOddsStrengthSignal(implied)
+  if (oddsStrength != null) signals.push({ v: oddsStrength, w: 0.22 })
+
+  // 1b) Cross-book disagreement / mispricing vs consensus (same slate, no new APIs)
+  const dispersion = toNumberOrNull(row?.bookImpliedDispersion)
+  if (Number.isFinite(dispersion)) {
+    const dispSignal = clamp(dispersion / 0.06, 0, 1)
+    signals.push({ v: dispSignal, w: 0.18 })
+  }
+
+  const vsConsensus = toNumberOrNull(row?.bookVsConsensusDelta)
+  if (Number.isFinite(vsConsensus)) {
+    const mispriceSignal = clamp(0.5 + vsConsensus / 0.06, 0, 1)
+    signals.push({ v: mispriceSignal, w: 0.14 })
+  }
+
+  // 2) Power proxies (if present)
+  const mk = String(row?.marketKey || "").toLowerCase()
+  const isHrOrTb =
+    mk.includes("home_run") ||
+    mk.includes("home_runs") ||
+    mk.includes("to_hit_home_run") ||
+    mk.includes("total_bases")
+
+  if (isHrOrTb) {
+    const hrPath = toNumberOrNull(ctx?.powerContext?.homeRunPathScore)
+    if (Number.isFinite(hrPath)) signals.push({ v: clamp(hrPath, 0, 1), w: 0.22 })
+    else {
+      const proxy = computeMlbHrPathProxyScore(row)
+      if (proxy != null) signals.push({ v: proxy, w: 0.18 })
+    }
+  } else {
+    const countingProxy = computeMlbOverCountingProxyScore(row)
+    if (countingProxy != null) signals.push({ v: countingProxy, w: 0.20 })
+  }
+
+  const surface = toNumberOrNull(ctx?.powerContext?.surfaceScore)
+  if (Number.isFinite(surface)) signals.push({ v: clamp(surface, 0, 1), w: 0.15 })
+
+  // 3) Lineup position (if present on row; external pipeline may attach later)
+  const lineupSpot = normalizeLineupSpotSignal(row?.battingOrderIndex || row?.lineupSpot || row?.battingOrder || null)
+  if (lineupSpot != null) signals.push({ v: lineupSpot, w: 0.10 })
+
+  // 4) Context nudges (home spot, identity confidence, matchup sanity)
+  const isHome = ctx?.matchupContext?.isHome
+  if (isHome === true) signals.push({ v: 0.62, w: 0.04 })
+  if (isHome === false) signals.push({ v: 0.48, w: 0.04 })
+
+  const teamMatches = ctx?.matchupContext?.teamMatchesMatchup
+  if (teamMatches === false) signals.push({ v: 0.25, w: 0.06 })
+
+  const idc = toNumberOrNull(ctx?.availabilityContext?.identityConfidence)
+  if (Number.isFinite(idc)) {
+    const idSignal = clamp((idc - 0.55) / 0.35, 0, 1)
+    signals.push({ v: idSignal, w: 0.05 })
+  }
+
+  // 5) HR market-shape bonus (keeps HR lane from being purely implied-based)
+  const hrMarket = normalizePowerMarketBonus(row)
+  if (hrMarket != null) signals.push({ v: hrMarket, w: 0.05 })
+
+  if (!signals.length) return 0.5
+
+  const weightSum = signals.reduce((acc, s) => acc + s.w, 0) || 1
+  const score = signals.reduce((acc, s) => acc + s.v * s.w, 0) / weightSum
+  // Mild stretch to reduce "everyone lands at ~0.50" clustering.
+  const stretched = clamp(0.08 + score * 1.18, 0, 1)
+  return clamp(Number(stretched.toFixed(6)), 0, 1)
+}
+
+function estimateMlbHrProbability(row, context = {}) {
+  // Phase 2: signal-driven probability.
+  // predictedProbability = (impliedProbability * 0.6) + (signalScore * 0.4)
+  const consensusProb = context?.consensusProbability
+  const implied = impliedProbabilityFromOdds(row?.odds)
+
+  const impliedBase =
+    Number.isFinite(Number(consensusProb)) ? Number(consensusProb) :
+    implied !== null ? implied :
+    null
+  if (impliedBase === null) return null
+
+  if (!isMlbPhase2PowerMarket(row)) {
+    // Keep non-power markets stable: probability follows this row's posted price.
+    const bookImplied = implied
+    return bookImplied == null ? null : clamp(Number(bookImplied.toFixed(6)), 0, 1)
+  }
+
+  const signalScore =
+    Number.isFinite(toNumberOrNull(context?.signalScore))
+      ? toNumberOrNull(context.signalScore)
+      : getMlbPowerSignals(row)
+
+  const predictedProbability = (impliedBase * 0.6) + (signalScore * 0.4)
+  return clamp(Number(predictedProbability.toFixed(6)), 0, 1)
+}
+
+function hydrateMlbProbabilityLayer(rows) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  if (!safeRows.length) return []
+
+  const buildConsensusKey = (row) => ([
+    String(row?.eventId || ""),
+    String(row?.playerKey || row?.player || ""),
+    String(row?.marketKey || ""),
+    String(row?.propType || ""),
+    String(row?.side || ""),
+    String(row?.line ?? "")
+  ].join("|"))
+
+  const consensusByKey = new Map()
+  for (const row of safeRows) {
+    const implied = impliedProbabilityFromOdds(row?.odds)
+    if (implied === null) continue
+    const key = buildConsensusKey(row)
+    if (!key) continue
+    if (!consensusByKey.has(key)) consensusByKey.set(key, [])
+    consensusByKey.get(key).push(implied)
+  }
+
+  const consensusMeanByKey = new Map()
+  const consensusDispersionByKey = new Map()
+  for (const [key, probs] of consensusByKey.entries()) {
+    if (!Array.isArray(probs) || probs.length === 0) continue
+    const sum = probs.reduce((acc, v) => acc + Number(v || 0), 0)
+    const mean = sum / probs.length
+    if (!Number.isFinite(mean)) continue
+    consensusMeanByKey.set(key, clamp(mean, 0, 1))
+
+    const finite = probs.filter((p) => Number.isFinite(Number(p)))
+    if (finite.length >= 2) {
+      let min = Infinity
+      let max = -Infinity
+      for (const p of finite) {
+        const n = Number(p)
+        if (n < min) min = n
+        if (n > max) max = n
+      }
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        consensusDispersionByKey.set(key, clamp(max - min, 0, 1))
+      }
+    } else {
+      consensusDispersionByKey.set(key, 0)
+    }
+  }
+
+  const playerTeamIndex = buildPlayerTeamIndex(safeRows)
+
+  return safeRows.map((row) => {
+    const impliedProbability = impliedProbabilityFromOdds(row?.odds)
+    const consensusKey = buildConsensusKey(row)
+    const consensusProbability = consensusKey ? consensusMeanByKey.get(consensusKey) : null
+    const bookImpliedDispersion = consensusKey ? (consensusDispersionByKey.get(consensusKey) ?? null) : null
+    const bookVsConsensusDelta =
+      impliedProbability != null && consensusProbability != null
+        ? Number((impliedProbability - consensusProbability).toFixed(6))
+        : null
+
+    const rowForSignals = {
+      ...row,
+      consensusImpliedProbability: consensusProbability,
+      bookImpliedDispersion,
+      bookVsConsensusDelta
+    }
+
+    const signalScore = isMlbPhase2PowerMarket(rowForSignals) ? getMlbPowerSignals(rowForSignals) : null
+    const signalStrengthTag = isMlbPhase2PowerMarket(rowForSignals) ? getMlbSignalStrengthTag(signalScore) : "neutral"
+    const predictedProbability = estimateMlbHrProbability(rowForSignals, {
+      consensusProbability,
+      signalScore: signalScore == null ? undefined : signalScore
+    })
+    const edgeProbability =
+      predictedProbability !== null && impliedProbability !== null
+        ? Number((predictedProbability - impliedProbability).toFixed(6))
+        : null
+
+    const teamSurfaced =
+      String(row?.team || "").trim() ||
+      inferSurfaceTeamLabel(row, playerTeamIndex) ||
+      String(row?.teamResolved || "").trim() ||
+      resolveTeamNameForRowFromCode(row?.teamCode, row) ||
+      resolveMlbTeamFromDiskCacheRow(row) ||
+      null
+
+    return {
+      ...row,
+      team: teamSurfaced,
+      consensusImpliedProbability: consensusProbability,
+      bookImpliedDispersion,
+      bookVsConsensusDelta,
+      impliedProbability,
+      predictedProbability,
+      edgeProbability,
+      signalScore,
+      signalStrengthTag
+    }
+  })
+}
+
 function estimateLegTrueProbability(row) {
   const hitRate = parseHitRate(row.hitRate)
   const edge = Number(row.edge || 0)
@@ -20017,11 +21505,21 @@ app.get("/refresh-snapshot", async (req, res) => {
       const eventMs = new Date(getEventTime(event)).getTime()
       return Number.isFinite(eventMs) && eventMs > slateNow
     })
+    // Live slate fallback: if games already started, "upcoming" can be empty even though
+    // props are live and we still need a primary slate for downstream boards.
+    // Keep events that started within the last ~8 hours (NBA window) so we don't resurrect stale games.
+    const LIVE_SLATE_WINDOW_MS = 8 * 60 * 60 * 1000
+    const todayLiveOrUpcoming = todayEvents.filter((event) => {
+      const eventMs = new Date(getEventTime(event)).getTime()
+      return Number.isFinite(eventMs) && eventMs > (slateNow - LIVE_SLATE_WINDOW_MS)
+    })
 
     let chosenSlateDateKey = todayDateKey
-    let scheduledEvents = todayPregameEligible
+    // Prefer true upcoming; otherwise fall back to live-or-upcoming within the same Detroit day.
+    let scheduledEvents = todayPregameEligible.length ? todayPregameEligible : todayLiveOrUpcoming
 
-    if (todayPregameEligible.length === 0 && tomorrowEvents.length > 0) {
+    // Only fall forward to tomorrow if there are truly no viable events for "today".
+    if (scheduledEvents.length === 0 && tomorrowEvents.length > 0) {
       chosenSlateDateKey = tomorrowDateKey
       scheduledEvents = tomorrowEvents
     }
@@ -23825,8 +25323,22 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
 
     const {
       allEvents,
-      scheduledEvents
+      scheduledEvents: rawScheduledEvents
     } = await fetchNbaUnrestrictedSlateEvents()
+    const slateNow = Date.now()
+    const todayDateKey = toDetroitDateKey(slateNow)
+    const getEventTime = (event) =>
+      event?.commence_time || event?.gameTime || event?.startTime || event?.start_time || event?.game_time || ""
+    const LIVE_SLATE_WINDOW_MS = 8 * 60 * 60 * 1000
+    const todayLiveOrUpcoming = (Array.isArray(allEvents) ? allEvents : []).filter((event) => {
+      const eventMs = new Date(getEventTime(event)).getTime()
+      return Number.isFinite(eventMs) &&
+        toDetroitDateKey(getEventTime(event)) === todayDateKey &&
+        eventMs > (slateNow - LIVE_SLATE_WINDOW_MS)
+    })
+    const scheduledEvents = (Array.isArray(rawScheduledEvents) ? rawScheduledEvents : []).length
+      ? rawScheduledEvents
+      : todayLiveOrUpcoming
     let dkScopedFetchedEvents = null
     if (ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH) {
       try {
@@ -25324,7 +26836,10 @@ app.get("/mlb/refresh", async (req, res) => {
         })
       }
 
-      mlbSnapshot = replaySnapshot
+      mlbSnapshot = {
+        ...replaySnapshot,
+        rows: hydrateMlbProbabilityLayer(replaySnapshot?.rows)
+      }
 
       return res.status(200).json(buildMlbReplayRefreshResponse(replaySnapshot))
     }
@@ -25409,6 +26924,11 @@ app.get("/mlb/board", (req, res) => {
         side: row?.side || null,
         line: row?.line,
         odds: row?.odds,
+        impliedProbability: row?.impliedProbability ?? null,
+        predictedProbability: row?.predictedProbability ?? null,
+        edgeProbability: row?.edgeProbability ?? null,
+        signalScore: row?.signalScore ?? null,
+        signalStrengthTag: row?.signalStrengthTag ?? null,
         isPitcherMarket: row?.isPitcherMarket === true,
         teamMatchesMatchup: row?.teamMatchesMatchup !== false,
         pregameContext,

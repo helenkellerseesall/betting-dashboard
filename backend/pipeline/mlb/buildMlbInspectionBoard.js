@@ -1733,5 +1733,7 @@ function buildMlbInspectionBoard({ snapshot, sampleLimit = 10, topLimit = 20 }) 
 module.exports = {
   buildMlbInspectionBoard,
   compactMlbRow,
-  buildMlbSurfaceBoard
+  buildMlbSurfaceBoard,
+  buildPlayerTeamIndex,
+  inferSurfaceTeamLabel
 }

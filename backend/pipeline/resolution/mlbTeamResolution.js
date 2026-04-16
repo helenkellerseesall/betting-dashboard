@@ -1,5 +1,9 @@
 "use strict"
 
+const fs = require("fs")
+const path = require("path")
+const { normalizeMlbPlayerKey } = require("../mlb/enrichment/mlbPlayerKey")
+
 /**
  * MLB Team Resolution
  *
@@ -259,6 +263,137 @@ function buildMlbPlayerTeamIndex(rows) {
   return output
 }
 
+// ---------------------------------------------------------------------------
+// Disk cache roster hints (mlb-external-cache.json) — no network; best-effort
+// team labels when live identity resolution is empty but cached lineups exist.
+// ---------------------------------------------------------------------------
+
+const MLB_EXTERNAL_CACHE_PATH = path.join(__dirname, "..", "..", "mlb-external-cache.json")
+
+let diskTeamLookupMemo = null
+
+function buildMlbDiskCacheTeamLookup() {
+  const byEventPlayer = new Map()
+  const byMatchupPlayer = new Map()
+  const byPlayerKeySingleTeam = new Map()
+
+  let cacheRoot = {}
+  try {
+    const raw = fs.readFileSync(MLB_EXTERNAL_CACHE_PATH, "utf8")
+    cacheRoot = JSON.parse(raw)
+  } catch {
+    return { byEventPlayer, byMatchupPlayer: new Map(), byPlayerKeySingleTeam }
+  }
+
+  const normalizeMatchupKey = (value) => {
+    const t = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+    return t || ""
+  }
+
+  const ingestEventCandidates = (eventId, matchupLabel, candidates) => {
+    const eid = String(eventId || "").trim()
+    const mk = normalizeMatchupKey(matchupLabel)
+    if (!Array.isArray(candidates)) return
+    for (const c of candidates) {
+      const team = String(c?.teamResolved || "").trim()
+      if (!team) continue
+      const pkCand = String(c?.playerKey || "").trim().toLowerCase()
+      const nameKey = normalizeMlbPlayerKey(String(c?.playerName || c?.name || c?.player || ""))
+      if (eid && pkCand) byEventPlayer.set(`${eid}|pk:${pkCand}`, team)
+      if (eid && nameKey) byEventPlayer.set(`${eid}|nk:${nameKey}`, team)
+      if (mk && pkCand) byMatchupPlayer.set(`${mk}|pk:${pkCand}`, team)
+      if (mk && nameKey) byMatchupPlayer.set(`${mk}|nk:${nameKey}`, team)
+    }
+  }
+
+  for (const wrap of Object.values(cacheRoot)) {
+    const data = wrap?.data
+    if (!data || typeof data !== "object") continue
+
+    const eventCtx = data.eventContextByEventId
+    const matchupByEventId = {}
+    if (eventCtx && typeof eventCtx === "object") {
+      for (const [eid, ev] of Object.entries(eventCtx)) {
+        const mu = String(ev?.matchup || "").trim()
+        if (mu) matchupByEventId[String(eid).trim()] = mu
+      }
+    }
+
+    const pbe = data.playersByEventId
+    if (pbe && typeof pbe === "object") {
+      for (const [eid, arr] of Object.entries(pbe)) {
+        const eidStr = String(eid || "").trim()
+        ingestEventCandidates(eidStr, matchupByEventId[eidStr] || "", arr)
+      }
+    }
+
+    const pbk = data.playersByPlayerKey
+    if (pbk && typeof pbk === "object") {
+      for (const [key, arr] of Object.entries(pbk)) {
+        const list = Array.isArray(arr) ? arr : []
+        const teamCounts = new Map()
+        for (const c of list) {
+          const t = String(c?.teamResolved || "").trim()
+          if (!t) continue
+          teamCounts.set(t, (teamCounts.get(t) || 0) + 1)
+        }
+        if (teamCounts.size === 1) {
+          const onlyTeam = teamCounts.keys().next().value
+          const pk = String(key || "").trim().toLowerCase()
+          if (pk && onlyTeam) byPlayerKeySingleTeam.set(pk, onlyTeam)
+        }
+      }
+    }
+  }
+
+  return { byEventPlayer, byMatchupPlayer, byPlayerKeySingleTeam }
+}
+
+function getMlbDiskCacheTeamLookup() {
+  if (!diskTeamLookupMemo) diskTeamLookupMemo = buildMlbDiskCacheTeamLookup()
+  return diskTeamLookupMemo
+}
+
+function resolveMlbTeamFromDiskCacheRow(row) {
+  const { byEventPlayer, byMatchupPlayer, byPlayerKeySingleTeam } = getMlbDiskCacheTeamLookup()
+  const eid = String(row?.eventId || "").trim()
+  const rowPk = String(row?.playerKey || "").trim().toLowerCase()
+  const nameKey = normalizeMlbPlayerKey(String(row?.player || ""))
+  const mk = String(row?.matchup || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+
+  if (eid && rowPk) {
+    const t = byEventPlayer.get(`${eid}|pk:${rowPk}`)
+    if (t) return t
+  }
+  if (eid && nameKey) {
+    const t = byEventPlayer.get(`${eid}|nk:${nameKey}`)
+    if (t) return t
+  }
+  if (mk && rowPk) {
+    const t = byMatchupPlayer.get(`${mk}|pk:${rowPk}`)
+    if (t) return t
+  }
+  if (mk && nameKey) {
+    const t = byMatchupPlayer.get(`${mk}|nk:${nameKey}`)
+    if (t) return t
+  }
+  if (rowPk) {
+    const t = byPlayerKeySingleTeam.get(rowPk)
+    if (t) return t
+  }
+  if (nameKey) {
+    const t = byPlayerKeySingleTeam.get(nameKey)
+    if (t) return t
+  }
+  return null
+}
+
 module.exports = {
   MLB_TEAM_ABBR_MAP,
   getMlbTeamNameByAbbr,
@@ -266,5 +401,6 @@ module.exports = {
   parseMlbMatchupTeams,
   mlbRowTeamMatchesMatchup,
   getMlbBadTeamAssignmentRows,
-  buildMlbPlayerTeamIndex
+  buildMlbPlayerTeamIndex,
+  resolveMlbTeamFromDiskCacheRow
 }
