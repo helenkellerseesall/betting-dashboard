@@ -40,8 +40,10 @@ function normalizeLeg(row) {
   const propType = String(row?.propType || "").trim()
   const playType = String(row?.playType || "").trim()
   const odds = row?.odds ?? null
+  const eventId = String(row?.eventId || "").trim() || null
+  const predictedProbability = row?.predictedProbability ?? null
   if (!player || !team || !propType || odds == null || !playType) return null
-  return { player, team, propType, odds, playType }
+  return { player, team, propType, odds, playType, eventId, predictedProbability }
 }
 
 function dedupePlayers(legs) {
@@ -57,26 +59,91 @@ function dedupePlayers(legs) {
   return out
 }
 
+function isTrueSafe(row) {
+  const pred = toNum(row?.predictedProbability)
+  const odds = toNum(row?.odds)
+  if (!Number.isFinite(pred) || pred < 0.55) return false
+  if (!Number.isFinite(odds) || odds > 300) return false
+  return true
+}
+
+function canAddLeg(existingLegs, nextLeg) {
+  if (!nextLeg) return false
+  const playerKey = String(nextLeg.player || "").toLowerCase().trim()
+  if (!playerKey) return false
+  if (existingLegs.some((l) => String(l?.player || "").toLowerCase().trim() === playerKey)) return false
+
+  const eid = String(nextLeg.eventId || "").trim()
+  if (!eid) return true
+
+  const sameEvent = existingLegs.filter((l) => String(l?.eventId || "").trim() === eid)
+  if (!sameEvent.length) return true
+
+  // Correlation rule:
+  // Allow >1 same-game only when BOTH plays are value AND from same team.
+  const nextIsValue = String(nextLeg.playType || "").toLowerCase() === "value"
+  const nextTeam = String(nextLeg.team || "").trim().toLowerCase()
+  for (const l of sameEvent) {
+    const lIsValue = String(l?.playType || "").toLowerCase() === "value"
+    const lTeam = String(l?.team || "").trim().toLowerCase()
+    const okStack = nextIsValue && lIsValue && nextTeam && lTeam && nextTeam === lTeam
+    if (!okStack) return false
+  }
+  return true
+}
+
+function pickFromLane(sourceRows, { max = 1, filterFn = null }, existingLegs) {
+  const out = []
+  const safeRows = Array.isArray(sourceRows) ? sourceRows : []
+  for (const r of safeRows) {
+    if (out.length >= max) break
+    if (typeof filterFn === "function" && !filterFn(r)) continue
+    const leg = normalizeLeg(r)
+    if (!leg) continue
+    if (!canAddLeg(existingLegs.concat(out), leg)) continue
+    out.push(leg)
+  }
+  return out
+}
+
 function buildMlbSlipEngine(picks) {
   const safeCore = Array.isArray(picks?.safeCore) ? picks.safeCore : []
   const valueCore = Array.isArray(picks?.valueCore) ? picks.valueCore : []
   const powerCore = Array.isArray(picks?.powerCore) ? picks.powerCore : []
 
-  const safeLegs = dedupePlayers(safeCore.map(normalizeLeg).filter(Boolean)).slice(0, 2)
+  // SAFE slip: only include truly safe bets.
+  const safeLegs = pickFromLane(safeCore, { max: 2, filterFn: isTrueSafe }, [])
 
-  const balancedLegs = dedupePlayers(
-    [safeCore[0], valueCore[0], powerCore[0]].map(normalizeLeg).filter(Boolean)
-  ).slice(0, 3)
+  // BALANCED slip: value → safe → power (value must be first priority).
+  const balancedLegs = []
+  balancedLegs.push(...pickFromLane(valueCore, { max: 1 }, balancedLegs))
+  // Safe here means playType === "safe" (selector lane); true-safe filtering applies only to the SAFE slip.
+  balancedLegs.push(...pickFromLane(safeCore, { max: 1 }, balancedLegs))
+  balancedLegs.push(...pickFromLane(powerCore, { max: 1 }, balancedLegs))
 
-  const upsideLegs = dedupePlayers(
-    [
-      safeCore[0],
-      valueCore[0],
-      valueCore[1],
-      powerCore[0],
-      powerCore[1]
-    ].map(normalizeLeg).filter(Boolean)
-  ).slice(0, 5)
+  // UPSIDE slip: max 4 legs, must include at least 1 safe and 1 value, at most 2 boom.
+  const upsideLegs = []
+  upsideLegs.push(...pickFromLane(safeCore, { max: 1 }, upsideLegs))
+  upsideLegs.push(...pickFromLane(valueCore, { max: 2 }, upsideLegs))
+  upsideLegs.push(...pickFromLane(powerCore, { max: 2 }, upsideLegs))
+  // Cap to 4 legs.
+  let cappedUpside = upsideLegs.slice(0, 4)
+  // Ensure at most 2 boom in upside (drop excess boom legs first).
+  while (cappedUpside.filter((l) => String(l?.playType || "").toLowerCase() === "boom").length > 2) {
+    const idx = cappedUpside.findIndex((l) => String(l?.playType || "").toLowerCase() === "boom")
+    if (idx < 0) break
+    cappedUpside = cappedUpside.slice(0, idx).concat(cappedUpside.slice(idx + 1))
+  }
+  // Ensure at least one value in upside if possible.
+  if (!cappedUpside.some((l) => String(l?.playType || "").toLowerCase() === "value")) {
+    const add = pickFromLane(valueCore, { max: 1 }, cappedUpside)
+    if (add.length) cappedUpside = cappedUpside.concat(add).slice(0, 4)
+  }
+  // Ensure at least one true safe in upside if possible.
+  if (!cappedUpside.some((l) => String(l?.playType || "").toLowerCase() === "safe")) {
+    const add = pickFromLane(safeCore, { max: 1 }, cappedUpside)
+    if (add.length) cappedUpside = cappedUpside.concat(add).slice(0, 4)
+  }
 
   const slips = [
     {
@@ -91,8 +158,8 @@ function buildMlbSlipEngine(picks) {
     },
     {
       type: "upside",
-      legs: upsideLegs,
-      combinedOdds: upsideLegs.length >= 2 ? combineAmericanOdds(upsideLegs) : null
+      legs: cappedUpside,
+      combinedOdds: cappedUpside.length >= 2 ? combineAmericanOdds(cappedUpside) : null
     }
   ]
 

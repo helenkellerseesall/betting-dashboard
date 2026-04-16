@@ -44,6 +44,8 @@ const { buildPregameContext } = require("./pipeline/context/pregameContext")
 const { buildMlbDecisionBoard } = require("./pipeline/mlb/lanes/buildMlbDecisionBoard")
 const { buildMlbBetSelector } = require("./pipeline/mlb/buildMlbBetSelector")
 const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
+const { buildMlbOomphEngine } = require("./pipeline/mlb/buildMlbOomphEngine")
+const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
 
@@ -84,6 +86,8 @@ let mlbSnapshot = createEmptyMlbSnapshot()
 const MLB_BOOTSTRAP_CLASSIFICATION_VERSION = "phase-6-ingest-scaffold-v1"
 let mlbPicks = { safeCore: [], valueCore: [], powerCore: [] }
 let mlbSlips = []
+let mlbOomphSlips = null
+let mlbSpikePlayers = { spikePlayers: [] }
 
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
@@ -13011,6 +13015,18 @@ app.get("/api/best-available", (req, res) => {
     mlbSlips = buildMlbSlipEngine(mlbPicks)
   } catch {
     mlbSlips = []
+  }
+
+  try {
+    mlbOomphSlips = buildMlbOomphEngine(mlbPredictionBoard)
+  } catch {
+    mlbOomphSlips = null
+  }
+
+  try {
+    mlbSpikePlayers = buildMlbSpikeEngine(mlbPredictionBoard, { topN: 10 })
+  } catch {
+    mlbSpikePlayers = { spikePlayers: [] }
   }
 
   return res.json({
@@ -27367,6 +27383,22 @@ app.get("/api/mlb/slips", (req, res) => {
     return res.json({ ok: true, slips: mlbSlips })
   } catch (error) {
     return res.status(500).json({ ok: false, error: error?.message || "Failed building MLB slips" })
+  }
+})
+
+app.get("/api/mlb/oomph", (req, res) => {
+  try {
+    return res.json({ ok: true, oomph: mlbOomphSlips })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed building MLB oomph" })
+  }
+})
+
+app.get("/api/mlb/spikes", (req, res) => {
+  try {
+    return res.json({ ok: true, spikes: mlbSpikePlayers })
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || "Failed building MLB spikes" })
   }
 })
 
