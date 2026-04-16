@@ -1,6 +1,8 @@
 "use strict"
 
 function num(value) {
+  if (value == null) return null
+  if (typeof value === "string" && !value.trim()) return null
   const n = Number(value)
   return Number.isFinite(n) ? n : null
 }
@@ -309,6 +311,10 @@ function buildNbaPregameContext(row) {
   const avgMinN = num(row?.avgMin)
   const recent5MinAvgN = num(row?.recent5MinAvg)
   const recent3MinAvgN = num(row?.recent3MinAvg)
+  const hasRealMinutes =
+    (Number.isFinite(avgMinN) && avgMinN > 0) ||
+    (Number.isFinite(recent5MinAvgN) && recent5MinAvgN > 0) ||
+    (Number.isFinite(recent3MinAvgN) && recent3MinAvgN > 0)
   const minutesTrendScore = deriveMinutesTrendScore(avgMinN, recent5MinAvgN, recent3MinAvgN)
   const highMinutesFlag = Boolean(
     (Number.isFinite(avgMinN) && avgMinN >= 30) ||
@@ -437,7 +443,9 @@ function buildNbaPregameContext(row) {
     if (triggers.usageSpikeTrigger) tags.push("usage spike setup")
     if (!anyStatCeiling && Number.isFinite(ceilingScore) && ceilingScore >= 0.72) tags.push("high ceilingScore")
     if (Number.isFinite(lpi) && lpi >= 0.55) tags.push("strong predictive ceiling index")
-    if (Number.isFinite(ctx.roleContext.roleSpikeScore) && ctx.roleContext.roleSpikeScore >= 0.28) tags.push("role / minutes spike")
+    if (hasRealMinutes && Number.isFinite(ctx.roleContext.roleSpikeScore) && ctx.roleContext.roleSpikeScore >= 0.28) {
+      tags.push("role / minutes spike")
+    }
     if (Number.isFinite(ctx.roleContext.opportunitySpikeScore) && ctx.roleContext.opportunitySpikeScore >= 0.35) tags.push("opportunity spike")
     if (Number.isFinite(ctx.roleContext.lineupContextScore) && ctx.roleContext.lineupContextScore >= 0.28) tags.push("lineup context boost")
     if (Number.isFinite(recentFormVsLine)) {
@@ -451,10 +459,10 @@ function buildNbaPregameContext(row) {
     if (injuryRisk === "low") tags.push("low injury risk")
   }
 
-  if (highMinutesFlag && minutesRisk !== "high") tags.push("high minutes role")
-  if (Number.isFinite(minutesTrendScore) && minutesTrendScore >= 0.12) tags.push("minutes trending up")
+  if (hasRealMinutes && highMinutesFlag && minutesRisk !== "high") tags.push("high minutes role")
+  if (hasRealMinutes && Number.isFinite(minutesTrendScore) && minutesTrendScore >= 0.12) tags.push("minutes trending up")
   if (
-    minutesRisk === "high" ||
+    (hasRealMinutes && minutesRisk === "high") ||
     (trendRisk === "high" &&
       Number.isFinite(minutesTrendScore) &&
       Math.abs(minutesTrendScore) >= 0.15) ||

@@ -1,4 +1,4 @@
-require("dotenv").config()
+require("dotenv").config({ path: require("path").join(__dirname, ".env") })
 const express = require("express")
 const cors = require("cors")
 const axios = require("axios")
@@ -2286,7 +2286,33 @@ function buildBestPropVariantPool(rows = []) {
 }
 
 function buildMixedBestAvailableBuckets(rows = [], options = {}) {
-  const sourceRows = dedupeSlipLegs((Array.isArray(rows) ? rows : []).filter(Boolean))
+  const sourceRowsRaw = dedupeSlipLegs((Array.isArray(rows) ? rows : []).filter(Boolean))
+  // Filter out low-impact / low-ceiling rows from best-available buckets.
+  // Keep only true exceptions (very high score/edge) to preserve honesty on thin slates.
+  const sourceRows = sourceRowsRaw.filter((row) => {
+    const ceiling = Number(row?.ceilingScore || 0)
+    const hit = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge || 0)
+    const score = Number(row?.score || 0)
+    const propType = String(row?.propType || "")
+    const line = Number(row?.line || 0)
+
+    if (propType === "Threes" && line > 0 && line <= 1.5 && ceiling < 0.62) return false
+
+    if (ceiling > 0 && ceiling < 0.5) {
+      const eliteException =
+        (score >= 95 && hit >= 0.62) ||
+        (Math.abs(edge) >= 6.5 && hit >= 0.6)
+      return eliteException
+    }
+    return true
+  })
+  if (sourceRowsRaw.length !== sourceRows.length) {
+    console.log("[BEST-AVAILABLE-SOURCE-FILTER]", {
+      dropped: sourceRowsRaw.length - sourceRows.length,
+      kept: sourceRows.length
+    })
+  }
   if (!sourceRows.length) {
     return {
       safe: null,
@@ -2628,6 +2654,516 @@ function buildMixedBestAvailableBuckets(rows = [], options = {}) {
   return output
 }
 
+function shapeExportBestBoard(rows = [], options = {}) {
+  const safe = dedupeSlipLegs(Array.isArray(rows) ? rows : []).filter(Boolean)
+  const mode = String(options?.slateMode || "").toLowerCase()
+  const targetCount = Number.isFinite(options?.targetCount) ? Number(options.targetCount) : safe.length
+  if (!safe.length) return []
+
+  const maxPerPlayer = Number.isFinite(options?.maxPerPlayer)
+    ? Number(options.maxPerPlayer)
+    : (mode === "thin" ? 2 : 2)
+  const maxPerPlayerPropType = 1
+  const praSoftCap = Number.isFinite(options?.praSoftCap)
+    ? Number(options.praSoftCap)
+    : Math.max(2, Math.min(4, Math.floor(targetCount * (mode === "thin" ? 0.45 : 0.35))))
+
+  const normalizedProp = (p) => String(p || "").trim()
+  const isPRA = (row) => normalizedProp(row?.propType) === "PRA"
+
+  const rankKey = (row) => {
+    const baseScore = Number(row?.score || 0)
+    // Shaping-only: small preference for distinct single-stat markets vs PRA when close.
+    const typeBias = isPRA(row) ? -2 : 2
+    const ceiling = Number(row?.ceilingScore || 0)
+    const ceilingBias = ceiling >= 0.7 ? 2 : ceiling >= 0.58 ? 1 : 0
+    return baseScore + typeBias + ceilingBias
+  }
+
+  const sorted = [...safe].sort((a, b) => {
+    const d = rankKey(b) - rankKey(a)
+    if (d !== 0) return d
+    const s = Number(b?.score || 0) - Number(a?.score || 0)
+    if (s !== 0) return s
+    const e = Number(b?.edge || 0) - Number(a?.edge || 0)
+    if (e !== 0) return e
+    return Number(b?.odds || 0) - Number(a?.odds || 0)
+  })
+
+  const out = []
+  const playerCounts = new Map()
+  const playerPropCounts = new Map() // player -> Map(propType -> count)
+  let praCount = 0
+
+  const playerKey = (row) => String(row?.player || "").trim().toLowerCase()
+  const propKey = (row) => String(row?.propType || "").trim().toLowerCase()
+
+  const canTake = (row, phase = "main") => {
+    const pk = playerKey(row)
+    if (!pk) return false
+    const pCount = playerCounts.get(pk) || 0
+    if (pCount >= maxPerPlayer) return false
+
+    const pt = propKey(row)
+    const ptMap = playerPropCounts.get(pk) || new Map()
+    const ptCount = pt ? (ptMap.get(pt) || 0) : 0
+    if (pt && ptCount >= maxPerPlayerPropType) return false
+
+    if (phase !== "fill" && isPRA(row) && praCount >= praSoftCap) return false
+
+    return true
+  }
+
+  const record = (row) => {
+    const pk = playerKey(row)
+    const pt = propKey(row)
+    playerCounts.set(pk, (playerCounts.get(pk) || 0) + 1)
+    if (pt) {
+      const ptMap = playerPropCounts.get(pk) || new Map()
+      ptMap.set(pt, (ptMap.get(pt) || 0) + 1)
+      playerPropCounts.set(pk, ptMap)
+    }
+    if (isPRA(row)) praCount += 1
+  }
+
+  // Phase 1: prefer one distinct non-PRA per player (if available).
+  for (const row of sorted) {
+    if (out.length >= targetCount) break
+    if (isPRA(row)) continue
+    const pk = playerKey(row)
+    if (!pk) continue
+    if ((playerCounts.get(pk) || 0) >= 1) continue
+    if (!canTake(row, "main")) continue
+    out.push(row)
+    record(row)
+  }
+
+  // Phase 2: fill with best remaining, respecting soft PRA cap + player caps.
+  for (const row of sorted) {
+    if (out.length >= targetCount) break
+    const key = `${row?.player}-${row?.propType}-${row?.side}-${Number(row?.line)}-${row?.book}`
+    if (out.some((r) => `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}` === key)) continue
+    if (!canTake(row, "main")) continue
+    out.push(row)
+    record(row)
+  }
+
+  // Phase 3 (thin honesty): if we’re still short, allow PRA beyond soft cap but keep player/prop caps.
+  if (out.length < Math.min(targetCount, 8)) {
+    for (const row of sorted) {
+      if (out.length >= targetCount) break
+      const key = `${row?.player}-${row?.propType}-${row?.side}-${Number(row?.line)}-${row?.book}`
+      if (out.some((r) => `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}` === key)) continue
+      if (!canTake(row, "fill")) continue
+      out.push(row)
+      record(row)
+    }
+  }
+
+  return out
+}
+
+function diversifySuperstarCeilingBoard(rows = [], options = {}) {
+  const maxRows = Math.max(1, Number(options.maxRows || 16))
+  const maxPerPlayer = Math.max(1, Number(options.maxPerPlayer || 2))
+  const maxLinesPerPlayerProp = Math.max(1, Number(options.maxLinesPerPlayerProp || 1))
+  const list = Array.isArray(rows) ? rows : []
+  const picked = []
+  const playerUses = new Map()
+  const playerPropUses = new Map()
+
+  for (const row of list) {
+    const pk = String(row?.player || "").trim().toLowerCase()
+    if (!pk) continue
+    if ((playerUses.get(pk) || 0) >= maxPerPlayer) continue
+    const pt = String(row?.propType || "").trim().toLowerCase()
+    const propKey = `${pk}|${pt}`
+    if ((playerPropUses.get(propKey) || 0) >= maxLinesPerPlayerProp) continue
+    picked.push(row)
+    playerUses.set(pk, (playerUses.get(pk) || 0) + 1)
+    playerPropUses.set(propKey, (playerPropUses.get(propKey) || 0) + 1)
+    if (picked.length >= maxRows) break
+  }
+  return picked
+}
+
+/** OOMPH export: diversify then enforce max 2 / player with distinct propTypes (non-destructive vs other boards). */
+function selectOomphExportBalanced(rows = [], maxRows = 16) {
+  const list = Array.isArray(rows) ? rows : []
+  const strip = (row) => {
+    if (!row || typeof row !== "object") return row
+    const { _oomphRank, _oomphTier, ...rest } = row
+    return rest
+  }
+  const sorted = [...list].sort((a, b) => (Number(b?._oomphRank) || 0) - (Number(a?._oomphRank) || 0))
+  const poolCap = Math.min(sorted.length, Math.max(maxRows * 3, maxRows + 12))
+  const diversified = diversifySuperstarCeilingBoard(sorted.slice(0, poolCap), {
+    maxRows: Math.max(maxRows, Math.min(poolCap, 24)),
+    maxPerPlayer: 2,
+    maxLinesPerPlayerProp: 1
+  })
+  const out = []
+  const propsByPlayer = new Map()
+  for (const row of diversified) {
+    const pk = String(row?.player || "").trim().toLowerCase()
+    if (!pk) continue
+    const used = propsByPlayer.get(pk) || []
+    if (used.length >= 2) continue
+    const pt = String(row?.propType || "")
+    if (!pt || used.includes(pt)) continue
+    out.push(strip(row))
+    used.push(pt)
+    propsByPlayer.set(pk, used)
+    if (out.length >= maxRows) break
+  }
+  return out
+}
+
+function oomphLadderTierMeta(propType, threshold) {
+  const t = Number(threshold)
+  const pt = String(propType || "")
+  if (pt === "Points") {
+    if (t >= 40) return { tier: "nuclear", boost: 68 }
+    if (t >= 35) return { tier: "mid", boost: 48 }
+    if (t >= 30) return { tier: "mid", boost: 32 }
+    return { tier: "low", boost: 6 }
+  }
+  if (pt === "Threes") {
+    if (t >= 5) return { tier: "nuclear", boost: 64 }
+    if (t >= 4) return { tier: "mid", boost: 42 }
+    return { tier: "low", boost: 5 }
+  }
+  if (pt === "Assists") {
+    if (t >= 12) return { tier: "nuclear", boost: 62 }
+    if (t >= 10) return { tier: "mid", boost: 38 }
+    return { tier: "low", boost: 7 }
+  }
+  if (pt === "Rebounds") {
+    if (t >= 15) return { tier: "nuclear", boost: 66 }
+    if (t >= 12) return { tier: "mid", boost: 40 }
+    return { tier: "low", boost: 8 }
+  }
+  return { tier: "mid", boost: 20 }
+}
+
+/** OOMPH row tags: only stat-relevant ceiling triggers (no assist tags on Points rows). */
+function buildOomphTagsForLadder(propType, ladderTag, seed, cc, breakoutCandidate) {
+  const pt = String(propType || "")
+  const ceiling = Number(seed?.ceilingScore || 0)
+  const lpi = Number(seed?.longshotPredictiveIndex || 0)
+  const tags = []
+  if (ceiling >= 0.72 || lpi >= 0.35) tags.push("superstar ceiling")
+  else tags.push("ceiling setup")
+  if (breakoutCandidate) tags.push("breakout candidate")
+  if (pt === "Points") {
+    if (cc?.scoringCeilingTrigger) tags.push("scoring ceiling")
+    if (cc?.usageSpikeTrigger) tags.push("usage spike")
+  } else if (pt === "Threes") {
+    if (cc?.threePointCeilingTrigger) tags.push("threes spike")
+    if (cc?.usageSpikeTrigger) tags.push("usage spike")
+  } else if (pt === "Assists") {
+    if (cc?.assistCeilingTrigger) tags.push("assist spike")
+    if (cc?.usageSpikeTrigger) tags.push("usage spike")
+  } else if (pt === "Rebounds") {
+    if (cc?.reboundCeilingTrigger) tags.push("rebound spike")
+    if (cc?.usageSpikeTrigger) tags.push("usage spike")
+  }
+  if (ladderTag) tags.push(String(ladderTag).trim())
+  return [...new Set(tags.filter(Boolean))]
+}
+
+function computeMinutesTrendScore(avgMin, recent5MinAvg, recent3MinAvg) {
+  const a = Number(avgMin)
+  const r5 = Number(recent5MinAvg)
+  const r3 = Number(recent3MinAvg)
+  if (!Number.isFinite(r3) || !Number.isFinite(r5)) return null
+  const shortDelta = r3 - r5
+  let w = shortDelta / 6
+  if (Number.isFinite(a) && a > 1) {
+    w += (r5 - a) / Math.max(a, 12)
+  }
+  return Number(Math.max(-1, Math.min(1, w)).toFixed(3))
+}
+
+function buildNbaSuperstarCeilingBoard({ poolRows = [], propsRows = [], slateMode = "unknown" } = {}) {
+  const mode = String(slateMode || "").toLowerCase()
+  const maxPlayers = mode === "thin" ? 6 : 8
+  const maxRows = mode === "thin" ? 10 : 16
+
+  const safePool = Array.isArray(poolRows) ? poolRows : []
+  const safeProps = Array.isArray(propsRows) ? propsRows : []
+  const byPlayer = new Map()
+
+  const consider = (row) => {
+    if (!row) return
+    const player = String(row?.player || "").trim()
+    if (!player) return
+    const ceiling = Number(row?.ceilingScore || 0)
+    const lpi = Number(row?.longshotPredictiveIndex || 0)
+    const roleSpike = Number(row?.roleSpikeScore || 0)
+    const oppSpike = Number(row?.opportunitySpikeScore || 0)
+    const avgMin = Number(row?.avgMin || 0)
+    const minutesRisk = String(row?.minutesRisk || "").toLowerCase()
+
+    const spikeOverride = roleSpike >= 0.3 || oppSpike >= 0.38
+    if (!spikeOverride && avgMin > 0 && avgMin < 26) return
+    if (minutesRisk === "high" && !spikeOverride) return
+
+    // Hard gate: no low-ceiling plays on oomph board (slightly looser than row-level so more players qualify).
+    if (ceiling > 0 && ceiling < 0.56 && lpi < 0.21 && roleSpike < 0.2) return
+
+    const rank =
+      (ceiling * 100) +
+      (lpi * 70) +
+      (roleSpike * 55) +
+      (oppSpike * 45) +
+      (avgMin >= 32 ? 6 : avgMin >= 28 ? 3 : 0)
+
+    const prev = byPlayer.get(player)
+    if (!prev || rank > prev.rank) byPlayer.set(player, { player, seed: row, rank })
+  }
+
+  for (const r of safePool) consider(r)
+  for (const r of safeProps) consider(r)
+
+  const topPlayers = Array.from(byPlayer.values())
+    .sort((a, b) => b.rank - a.rank)
+    .slice(0, maxPlayers)
+
+  const findAlt = (player, propType, threshold) => {
+    const matches = safeProps
+      .filter((r) => String(r?.player || "") === player)
+      .filter((r) => String(r?.propType || "") === propType)
+      .filter((r) => String(r?.side || "") === "Over")
+      .filter((r) => Number.isFinite(Number(r?.line)) && Number(r.line) >= threshold)
+      .sort((a, b) => {
+        const dl = Math.abs(Number(a.line) - threshold) - Math.abs(Number(b.line) - threshold)
+        if (dl !== 0) return dl
+        // prefer closer odds band (use higher payout if same line distance)
+        return Number(b?.odds || 0) - Number(a?.odds || 0)
+      })
+    return matches[0] || null
+  }
+
+  const baseLineByPlayerProp = (player, propType) => {
+    const base = safeProps
+      .filter((r) => String(r?.player || "") === player)
+      .filter((r) => String(r?.propType || "") === propType)
+      .filter((r) => String(r?.marketKey || "").includes("_alternate") === false)
+      .sort((a, b) => {
+        const s = Number(b?.score || 0) - Number(a?.score || 0)
+        if (s !== 0) return s
+        return Number(b?.edge || 0) - Number(a?.edge || 0)
+      })[0]
+    return base ? Number(base.line || 0) : 0
+  }
+
+  const out = []
+  const pushRow = (seed, propType, threshold, altRow, tags, playerPregameContext, ladderMeta, breakoutCandidate) => {
+    const ceiling = Number(seed?.ceilingScore || 0)
+    const lpi = Number(seed?.longshotPredictiveIndex || 0)
+    if (ceiling > 0 && ceiling < 0.55 && (!Number.isFinite(lpi) || lpi < 0.21)) return
+    const ladderLine = `${threshold}+`
+    const teamOut = normalizeNbaExportTeamForRow(seed) || seed?.team || null
+    const ctx =
+      playerPregameContext && typeof playerPregameContext === "object"
+        ? playerPregameContext
+        : buildPregameContext({ sport: "nba", row: { ...seed, team: teamOut || seed?.team } })
+    const rs = Number(seed?.roleSpikeScore || 0)
+    const os = Number(seed?.opportunitySpikeScore || 0)
+    const boost = Number(ladderMeta?.boost || 0)
+    const _oomphTier = ladderMeta?.tier || "mid"
+    const _oomphRank =
+      ceiling * 118 +
+      lpi * 86 +
+      rs * 62 +
+      os * 50 +
+      boost +
+      (breakoutCandidate ? 16 : 0)
+    out.push({
+      player: seed?.player || null,
+      team: teamOut,
+      propType,
+      ladderLine,
+      estimatedOdds: altRow?.odds ?? null,
+      book: altRow?.book ?? null,
+      ceilingScore: Number.isFinite(ceiling) ? Number(ceiling.toFixed(3)) : null,
+      longshotPredictiveIndex: Number.isFinite(lpi) ? Number(lpi.toFixed(3)) : null,
+      roleSpikeScore: Number.isFinite(Number(seed?.roleSpikeScore)) ? Number(seed.roleSpikeScore) : null,
+      opportunitySpikeScore: Number.isFinite(Number(seed?.opportunitySpikeScore)) ? Number(seed.opportunitySpikeScore) : null,
+      pregameContext: ctx,
+      // OOMPH rows: keep explanationTags aligned with prop-scoped `tags` (pregameContext can mix stat triggers).
+      explanationTags: Array.isArray(tags) ? [...tags] : [],
+      tags: Array.isArray(tags) ? [...tags] : [],
+      _oomphRank,
+      _oomphTier
+    })
+  }
+
+  for (const entry of topPlayers) {
+    const seed = entry.seed || {}
+    const player = String(seed?.player || "").trim()
+    if (!player) continue
+
+    const ctx = buildPregameContext({ sport: "nba", row: seed })
+    const cc = ctx?.ceilingContext || {}
+    const minutesTrendScore = computeMinutesTrendScore(seed?.avgMin, seed?.recent5MinAvg, seed?.recent3MinAvg)
+    const rs = Number(seed?.roleSpikeScore || 0)
+    const os = Number(seed?.opportunitySpikeScore || 0)
+    const breakoutCandidate =
+      rs >= 0.34 ||
+      os >= 0.4 ||
+      (Number(seed?.lineupContextScore || 0) >= 0.32 && Number.isFinite(minutesTrendScore) && minutesTrendScore >= 0.12)
+
+    const pointsBase = baseLineByPlayerProp(player, "Points")
+    const threesBase = baseLineByPlayerProp(player, "Threes")
+    const astBase = baseLineByPlayerProp(player, "Assists")
+    const rebBase = baseLineByPlayerProp(player, "Rebounds")
+
+    const ceiling = Number(seed?.ceilingScore || 0)
+    const lpi = Number(seed?.longshotPredictiveIndex || 0)
+    // Mid-high ceiling entries (30+, 4+, 10+, 12+ reb): ceiling ~0.60+ OR solid LPI.
+    const midHigh = ceiling >= 0.6 || lpi >= 0.25 || breakoutCandidate
+    const extremeGate =
+      ceiling >= 0.69 ||
+      lpi >= 0.33 ||
+      (breakoutCandidate && ceiling >= 0.6 && lpi >= 0.26)
+
+    const allowPoints = pointsBase >= 19 || ceiling >= 0.58 || lpi >= 0.26 || breakoutCandidate
+    const allowThrees = threesBase >= 2.4 || cc.threePointCeilingTrigger || lpi >= 0.26
+    const allowAssists = astBase >= 6.8 || cc.assistCeilingTrigger || breakoutCandidate
+    const allowRebounds = rebBase >= 8.8 || (cc.reboundCeilingTrigger && ceiling >= 0.58)
+
+    if (allowPoints) {
+      const tiers = [
+        {
+          t: 30,
+          gate: () =>
+            midHigh ||
+            lpi >= 0.24 ||
+            pointsBase >= 22.5 ||
+            cc.scoringCeilingTrigger ||
+            (breakoutCandidate && pointsBase >= 21),
+          tag: "points ladder"
+        },
+        {
+          t: 35,
+          gate: () =>
+            ceiling >= 0.57 ||
+            lpi >= 0.26 ||
+            cc.scoringCeilingTrigger ||
+            (breakoutCandidate && pointsBase >= 19),
+          tag: "superstar scoring ladder"
+        },
+        {
+          t: 40,
+          gate: () =>
+            extremeGate ||
+            cc.scoringCeilingTrigger ||
+            (breakoutCandidate && ceiling >= 0.58 && (lpi >= 0.24 || pointsBase >= 21)),
+          tag: "nuclear points ladder"
+        }
+      ]
+      for (const { t, gate, tag } of tiers) {
+        if (!gate()) continue
+        const alt = findAlt(player, "Points", t)
+        const rowTags = buildOomphTagsForLadder("Points", tag, seed, cc, breakoutCandidate)
+        pushRow(seed, "Points", t, alt, rowTags, ctx, oomphLadderTierMeta("Points", t), breakoutCandidate)
+      }
+    }
+    if (allowThrees) {
+      const tiers = [
+        {
+          t: 4,
+          gate: () =>
+            midHigh ||
+            lpi >= 0.24 ||
+            threesBase >= 2.45 ||
+            cc.threePointCeilingTrigger ||
+            (breakoutCandidate && threesBase >= 2.35),
+          tag: "threes ladder"
+        },
+        {
+          t: 5,
+          gate: () =>
+            ceiling >= 0.6 ||
+            lpi >= 0.28 ||
+            cc.threePointCeilingTrigger ||
+            threesBase >= 2.75 ||
+            (breakoutCandidate && ceiling >= 0.56 && threesBase >= 2.5),
+          tag: "nuclear threes ladder"
+        }
+      ]
+      for (const { t, gate, tag } of tiers) {
+        if (!gate()) continue
+        const alt = findAlt(player, "Threes", t)
+        const rowTags = buildOomphTagsForLadder("Threes", tag, seed, cc, breakoutCandidate)
+        pushRow(seed, "Threes", t, alt, rowTags, ctx, oomphLadderTierMeta("Threes", t), breakoutCandidate)
+      }
+    }
+    if (allowAssists) {
+      const tiers = [
+        {
+          t: 10,
+          gate: () =>
+            midHigh ||
+            (astBase >= 6.6 && (ceiling >= 0.56 || lpi >= 0.22)) ||
+            cc.assistCeilingTrigger,
+          tag: "assists ladder"
+        },
+        {
+          t: 12,
+          gate: () =>
+            ceiling >= 0.6 ||
+            lpi >= 0.26 ||
+            cc.assistCeilingTrigger ||
+            (breakoutCandidate && astBase >= 7.3),
+          tag: "nuclear assists ladder"
+        }
+      ]
+      for (const { t, gate, tag } of tiers) {
+        if (!gate()) continue
+        const alt = findAlt(player, "Assists", t)
+        const rowTags = buildOomphTagsForLadder("Assists", tag, seed, cc, breakoutCandidate)
+        pushRow(seed, "Assists", t, alt, rowTags, ctx, oomphLadderTierMeta("Assists", t), breakoutCandidate)
+      }
+    }
+    if (allowRebounds) {
+      const tiers = [
+        {
+          t: 12,
+          gate: () =>
+            (midHigh && rebBase >= 8.2) ||
+            cc.reboundCeilingTrigger ||
+            (breakoutCandidate && rebBase >= 8.8),
+          tag: "rebounds ladder"
+        },
+        {
+          t: 15,
+          gate: () =>
+            extremeGate ||
+            (cc.reboundCeilingTrigger && ceiling >= 0.6) ||
+            (breakoutCandidate && rebBase >= 10.5 && ceiling >= 0.56),
+          tag: "nuclear rebounds ladder"
+        }
+      ]
+      for (const { t, gate, tag } of tiers) {
+        if (!gate()) continue
+        const alt = findAlt(player, "Rebounds", t)
+        const rowTags = buildOomphTagsForLadder("Rebounds", tag, seed, cc, breakoutCandidate)
+        pushRow(seed, "Rebounds", t, alt, rowTags, ctx, oomphLadderTierMeta("Rebounds", t), breakoutCandidate)
+      }
+    }
+  }
+
+  const rankedAll = out.filter((r) => {
+    const c = Number(r?.ceilingScore || 0)
+    const l = Number(r?.longshotPredictiveIndex || 0)
+    return c >= 0.55 || l >= 0.22
+  })
+  return selectOomphExportBalanced(rankedAll, maxRows)
+}
+
 function buildLiveDualBestAvailablePayload() {
   console.log("[PAYLOAD-DEBUG] ENTER buildLiveDualBestAvailablePayload")
   // CORE_ONLY_REFRESH_MODE was introduced as a temporary stability switch, but
@@ -2668,14 +3204,30 @@ function buildLiveDualBestAvailablePayload() {
   const snapshotBest = getAvailablePrimarySlateRows(oddsSnapshot.bestProps || []).map((row) => normalizeBestPropVariant(row, "base"))
   const usingFallback = snapshotBest.length === 0
   const fallbackBest = usingFallback ? buildBestPropsFallbackRows(expandedEligibleRows, Math.min(60, expandedEligibleRows.length || 60)) : []
-  const best = usingFallback ? fallbackBest : snapshotBest
+  const thinSnapshotBestPropsMerge =
+    !usingFallback &&
+    snapshotBest.length > 0 &&
+    snapshotBest.length < 6 &&
+    Array.isArray(expandedEligibleRows) &&
+    expandedEligibleRows.length > 0
+  const fallbackMergeRows = thinSnapshotBestPropsMerge
+    ? buildBestPropsFallbackRows(expandedEligibleRows, Math.min(60, expandedEligibleRows.length || 60))
+    : []
+  const best = usingFallback
+    ? fallbackBest
+    : thinSnapshotBestPropsMerge && fallbackMergeRows.length
+      ? dedupeSlipLegs([...snapshotBest, ...fallbackMergeRows])
+      : snapshotBest
 
   console.log("[PAYLOAD-DEBUG] best.length:", best.length)
   logPayloadDebugExclusions("bestProps→best", oddsSnapshot.bestProps || [], snapshotBest)
   console.log("[BEST-PROPS-FALLBACK-DEBUG]", {
     snapshotBest: snapshotBest.length,
     fallbackBest: fallbackBest.length,
-    usingFallback
+    usingFallback,
+    thinSnapshotBestPropsMerge: Boolean(thinSnapshotBestPropsMerge),
+    fallbackMergeRows: fallbackMergeRows.length,
+    mergedBest: best.length
   })
   console.log("[BEST-PROPS-VISIBLE-COUNTS]", {
     sourceAssigned: (oddsSnapshot.bestProps || []).length,
@@ -6482,9 +7034,15 @@ app.get("/api/best-available", (req, res) => {
 
   const effectiveBestProps = (() => {
     const snapshotBest = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
-    if (snapshotBest.length > 0) return snapshotBest
-    const fallbackBest = Array.isArray(oddsSnapshot.props) ? buildBestPropsFallbackRows(oddsSnapshot.props, 60) : []
-    return Array.isArray(fallbackBest) ? fallbackBest : []
+    const propsPool = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
+    const fallbackBest = propsPool.length ? buildBestPropsFallbackRows(propsPool, 60) : []
+    if (snapshotBest.length === 0) return Array.isArray(fallbackBest) ? fallbackBest : []
+    // Non-empty but tiny bestProps (common ingestion glitch) must not starve the best board,
+    // support/safe-pair seeds, or ticket builders — same recovery as empty bestProps.
+    if (snapshotBest.length < 6 && Array.isArray(fallbackBest) && fallbackBest.length) {
+      return dedupeSlipLegs([...snapshotBest, ...fallbackBest]).filter(Boolean)
+    }
+    return snapshotBest
   })()
 
   const LEGACY_STANDARD_PROP_TYPES = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
@@ -6511,7 +7069,10 @@ app.get("/api/best-available", (req, res) => {
       return false
     }
 
-    if (!row?.player || !row?.team || !row?.matchup || !row?.propType || !row?.book) {
+    // Team is nice-to-have on merged fallback legs; many props rows omit `team` while still
+    // carrying matchup + book + line. Requiring team here was starving the board when bestProps
+    // was merged up from `props`.
+    if (!row?.player || !row?.matchup || !row?.propType || !row?.book) {
       legacyBestFilterDebug.excludedMissingCoreFields += 1
       return false
     }
@@ -7012,7 +7573,7 @@ app.get("/api/best-available", (req, res) => {
       .filter(Boolean)
   )
 
-  const bestPayloadRows = legacyStandardBestProps.filter((row) => {
+  const bestPayloadRowsUnfiltered = legacyStandardBestProps.filter((row) => {
     if (!row) return false
     if (shouldRemoveLegForPlayerStatus(row)) return false
 
@@ -7023,26 +7584,31 @@ app.get("/api/best-available", (req, res) => {
     return scheduledBestEventIdSet.has(eventId)
   })
 
-  console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
-    beforeTotal: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
-    afterLegacyStandardFilter: Array.isArray(legacyStandardBestProps) ? legacyStandardBestProps.length : 0,
-    afterTotal: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0,
-    excludedSpecialFromLegacyBestProps: legacyBestFilterDebug.excludedSpecialMarketFamily,
-    excludedNonStandardFromLegacyBestProps: legacyBestFilterDebug.excludedNonStandardPropType,
-    excludedMissingCoreFieldsFromLegacyBestProps: legacyBestFilterDebug.excludedMissingCoreFields,
-    forceIncludedSpecialExcludedFromLegacyBestProps: legacyBestFilterDebug.forceIncludedSpecialExcluded
+  // Final best board shaping: avoid low-impact / low-ceiling legs dominating "best".
+  // (No fake fills; if slate is truly thin, list may be smaller.)
+  const bestPayloadCandidates = bestPayloadRowsUnfiltered.filter((row) => {
+    const ceiling = Number(row?.ceilingScore || 0)
+    const propType = String(row?.propType || "")
+    const line = Number(row?.line || 0)
+    if (propType === "Threes" && line > 0 && line <= 1.5 && ceiling < 0.62) return false
+    if (ceiling > 0 && ceiling < 0.5) return false
+    return true
   })
-
-  if (bestAvailablePayload) {
-    bestAvailablePayload.best = bestPayloadRows
-    if (bestAvailablePayload.availableCounts) {
-      bestAvailablePayload.availableCounts.best = {
-        total: bestPayloadRows.length,
-        fanduel: bestPayloadRows.filter((row) => row?.book === "FanDuel").length,
-        draftkings: bestPayloadRows.filter((row) => row?.book === "DraftKings").length
-      }
+  const exportSlateMode = detectSlateMode({
+    sportKey: "nba",
+    snapshotMeta: buildSnapshotMeta(),
+    snapshot: oddsSnapshot,
+    runtime: {
+      // Don't require loaded-slate pass; we only need games->mode behavior here.
+      loadedSlateQualityPassEnabled: Boolean(oddsSnapshot?.props && oddsSnapshot.props.length)
     }
-  }
+  })
+  // Ticket/longshot/support pools must NOT use export-shaped `best` (too small); use full export candidates.
+  // `bestPayloadRows` / `bestPayloadRowsForTickets` are finalized after `boardSourceRowsWithGameRole` so we can
+  // hydrate thin/fallback legs from the scored board row pool (export integrity).
+  const bestExportCap = exportSlateMode.mode === "thin" || exportSlateMode.mode === "thinBad" ? 8 : 14
+  let bestPayloadRowsForTickets = []
+  let bestPayloadRows = []
 
   console.log("[FINAL-PLAYABLE-RUNTIME-CHECK]", {
     ladderPool: Array.isArray(ladderPool) ? ladderPool.length : -1,
@@ -7143,6 +7709,71 @@ app.get("/api/best-available", (req, res) => {
     ...row,
     decisionSummary: buildDecisionSummary(row)
   }))
+  const nbaEnrichmentHydrationSources = dedupeBoardRows([
+    ...boardSourceRowsWithGameRole,
+    ...(Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []),
+    ...(Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps : [])
+  ])
+  const nbaEnrichmentLegLookup = buildNbaEnrichmentLegLookup(nbaEnrichmentHydrationSources)
+  const bestPayloadCandidatesHydrated = (Array.isArray(bestPayloadCandidates) ? bestPayloadCandidates : []).map((row) =>
+    mergeNbaExportRowWithEnrichmentLookup(row, nbaEnrichmentLegLookup)
+  )
+  bestPayloadRowsForTickets = bestPayloadCandidatesHydrated.map((row) =>
+    attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row))
+  )
+  bestPayloadRows = dedupeSlipLegs(bestPayloadCandidatesHydrated)
+    .sort((a, b) => {
+      const s = Number(b?.score || 0) - Number(a?.score || 0)
+      if (s !== 0) return s
+      return Number(b?.edge || 0) - Number(a?.edge || 0)
+    })
+    .slice(0, bestExportCap)
+    .map((row) => attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row)))
+
+  const firstBestHydrationProbe = bestPayloadRows[0] || null
+  const firstBestHydrationSourceKey = firstBestHydrationProbe
+    ? (String(firstBestHydrationProbe?.marketKey || "").trim()
+      ? buildNbaExportHydrationKey(firstBestHydrationProbe)
+      : buildNbaExportHydrationKeyPropType(firstBestHydrationProbe))
+    : null
+  const firstBestHydrationSource =
+    firstBestHydrationSourceKey && nbaEnrichmentLegLookup.byPrimary.has(firstBestHydrationSourceKey)
+      ? nbaEnrichmentLegLookup.byPrimary.get(firstBestHydrationSourceKey)
+      : firstBestHydrationSourceKey && nbaEnrichmentLegLookup.byPropType.has(firstBestHydrationSourceKey)
+        ? nbaEnrichmentLegLookup.byPropType.get(firstBestHydrationSourceKey)
+        : null
+
+  console.log("[BEST-EXPORT-HYDRATION-DEBUG]", {
+    hydrationSourceRows: nbaEnrichmentHydrationSources.length,
+    lookupPrimarySize: nbaEnrichmentLegLookup.byPrimary.size,
+    lookupPropTypeSize: nbaEnrichmentLegLookup.byPropType.size,
+    exportBestLen: bestPayloadRows.length,
+    sampleSourceCeiling: firstBestHydrationSource ? Number(firstBestHydrationSource.ceilingScore) : null,
+    sampleExportCeiling: firstBestHydrationProbe ? Number(firstBestHydrationProbe.ceilingScore) : null,
+    sampleExportAvgMin: firstBestHydrationProbe ? firstBestHydrationProbe.avgMin : null
+  })
+
+  console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
+    beforeTotal: Array.isArray(effectiveBestProps) ? effectiveBestProps.length : 0,
+    afterLegacyStandardFilter: Array.isArray(legacyStandardBestProps) ? legacyStandardBestProps.length : 0,
+    afterTotal: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0,
+    excludedSpecialFromLegacyBestProps: legacyBestFilterDebug.excludedSpecialMarketFamily,
+    excludedNonStandardFromLegacyBestProps: legacyBestFilterDebug.excludedNonStandardPropType,
+    excludedMissingCoreFieldsFromLegacyBestProps: legacyBestFilterDebug.excludedMissingCoreFields,
+    forceIncludedSpecialExcludedFromLegacyBestProps: legacyBestFilterDebug.forceIncludedSpecialExcluded
+  })
+
+  if (bestAvailablePayload) {
+    bestAvailablePayload.best = bestPayloadRows
+    if (bestAvailablePayload.availableCounts) {
+      bestAvailablePayload.availableCounts.best = {
+        total: bestPayloadRows.length,
+        fanduel: bestPayloadRows.filter((row) => row?.book === "FanDuel").length,
+        draftkings: bestPayloadRows.filter((row) => row?.book === "DraftKings").length
+      }
+    }
+  }
+
   const ladderPresentationAlternateMarketKeys = new Set([
     "player_points_alternate",
     "player_rebounds_alternate",
@@ -9127,14 +9758,20 @@ app.get("/api/best-available", (req, res) => {
   })
 
   console.log("[CEILING-SIGNAL-EMIT-DEBUG]", {
-    bestPayloadRowsWithCeiling: (Array.isArray(bestPayloadRows) ? bestPayloadRows : []).filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
-    bestPayloadRowsWithRoleSpike: (Array.isArray(bestPayloadRows) ? bestPayloadRows : []).filter((row) => Number.isFinite(Number(row?.roleSpikeScore))).length,
+    bestExportRows: Array.isArray(bestPayloadRows) ? bestPayloadRows.length : 0,
+    bestTicketPoolRows: Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets.length : 0,
+    bestPayloadRowsWithCeiling: (Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []).filter((row) =>
+      Number.isFinite(Number(row?.ceilingScore))).length,
+    bestPayloadRowsWithRoleSpike: (Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []).filter((row) =>
+      Number.isFinite(Number(row?.roleSpikeScore))).length,
     curatedMostLikelyWithCeiling: curatedMostLikelyToHit.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
     curatedBestValueWithCeiling: curatedBestValueRaw.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length,
     curatedBestUpsideWithCeiling: curatedBestUpsideRaw.filter((row) => Number.isFinite(Number(row?.ceilingScore))).length
   })
 
   const toFiniteNumber = (value, fallback = null) => {
+    if (value == null) return fallback
+    if (typeof value === "string" && !value.trim()) return fallback
     const n = Number(value)
     return Number.isFinite(n) ? n : fallback
   }
@@ -9242,7 +9879,9 @@ app.get("/api/best-available", (req, res) => {
       return null
     }
 
-    const surfacedTeam = normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam)
+    const surfacedTeamRaw = normalizeNbaSurfaceTeam(row, readable?.team || row?.team || row?.playerTeam)
+    const surfacedTeam =
+      normalizeNbaExportTeamForRow({ ...row, team: surfacedTeamRaw }) || surfacedTeamRaw
     const matchupText = readable?.matchup || row?.matchup || row?.eventId || null
     const opponentTeam =
       row?.opponentTeam ||
@@ -9779,7 +10418,7 @@ app.get("/api/best-available", (req, res) => {
 
   const longshotExplosionFeed = dedupeNbaRowsByLegSignature(
     filterAllowedNbaBookRows([
-      ...(Array.isArray(bestPayloadRows) ? bestPayloadRows : []),
+      ...(Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []),
       ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
       ...(Array.isArray(standardCandidates) ? standardCandidates : []),
       ...(Array.isArray(ladderPool) ? ladderPool : []),
@@ -9809,7 +10448,7 @@ app.get("/api/best-available", (req, res) => {
       if (!teamByPlayer.has(playerKey)) teamByPlayer.set(playerKey, finalTeam)
     }
     for (const r of Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []) registerPlayerTeam(r)
-    for (const r of Array.isArray(bestPayloadRows) ? bestPayloadRows : []) registerPlayerTeam(r)
+    for (const r of Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []) registerPlayerTeam(r)
     for (const r of candidates) registerPlayerTeam(r)
 
     const ceilingContextByPlayer = new Map()
@@ -9826,7 +10465,7 @@ app.get("/api/best-available", (req, res) => {
       if (!prevHasTeam && nextHasTeam && c >= prevC - 0.02) return ceilingContextByPlayer.set(k, r)
     }
     for (const r of liveRowsForQualityMode) maybeSetCeilingContext(r)
-    for (const r of Array.isArray(bestPayloadRows) ? bestPayloadRows : []) maybeSetCeilingContext(r)
+    for (const r of Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []) maybeSetCeilingContext(r)
     for (const r of Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []) maybeSetCeilingContext(r)
     for (const r of candidates) maybeSetCeilingContext(r)
     const getCeilingContextRow = (row) => {
@@ -10129,6 +10768,8 @@ app.get("/api/best-available", (req, res) => {
   const buildTicketLeg = (row, role) => {
     const base = row && typeof row === "object" ? { ...row } : {}
     const merged = { ...base, role }
+    const teamNorm = normalizeNbaExportTeamForRow(merged)
+    if (teamNorm) merged.team = teamNorm
     return {
       ...merged,
       role,
@@ -10156,7 +10797,8 @@ app.get("/api/best-available", (req, res) => {
     const players = safeLegs.map((leg) => String(leg?.player || "").trim().toLowerCase()).filter(Boolean)
     if (new Set(players).size !== players.length) return null
 
-    const uniqueBooks = [...new Set(safeLegs.map((leg) => String(leg?.book || "").trim()).filter(Boolean))]
+    const bookKey = (leg) => String(leg?.book || "").trim().toLowerCase()
+    const uniqueBooks = [...new Set(safeLegs.map((leg) => bookKey(leg)).filter(Boolean))]
 
     if (options?.requireSameBook === true) {
       if (uniqueBooks.length !== 1) return null
@@ -10169,7 +10811,7 @@ app.get("/api/best-available", (req, res) => {
 
     const ticketBook =
       uniqueBooks.length === 1
-        ? uniqueBooks[0]
+        ? String(safeLegs[0]?.book || "").trim() || uniqueBooks[0]
         : (String(safeLegs[0]?.book || "").trim() || null)
 
     return {
@@ -10382,7 +11024,7 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const ticketSupportCandidates = dedupeNbaRowsByLegSignature([
-    ...(Array.isArray(bestPayloadRows) ? bestPayloadRows : [])
+    ...(Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : [])
       .filter((row) => isAllowedNbaBookRow(row))
       .filter((row) => !isNbaSpecialMarketRow(row))
       .map((row) => toNbaSurfacedPlayRow(row, { boardFamily: "bestSingles", sourceLane: "bestPayload" })),
@@ -10501,23 +11143,58 @@ app.get("/api/best-available", (req, res) => {
   }
 
   const buildSafePairTickets = () => {
-    const candidates = []
-    const safeRows = ticketSupportPool.slice(0, 12)
-    for (let i = 0; i < safeRows.length; i += 1) {
-      for (let j = i + 1; j < safeRows.length; j += 1) {
-        const ticket = buildTicketCandidate([
-          buildTicketLeg(safeRows[i], "support"),
-          buildTicketLeg(safeRows[j], "support")
-        ], "safePair", { requireSameBook: true })
-        if (ticket) candidates.push(ticket)
+    // `ticketSupportPool` can collapse to repeated players after strict/relaxed gates; safe pairs
+    // need two different players. Prefer the pre-gate candidate stream (includes bestPayload + singles + value lane).
+    const safeRows =
+      ticketSupportCandidates.length >= 2
+        ? ticketSupportCandidates.slice(0, 20)
+        : ticketSupportPool.slice(0, 12)
+    const buildPairs = (requireSameBook) => {
+      const candidates = []
+      for (let i = 0; i < safeRows.length; i += 1) {
+        for (let j = i + 1; j < safeRows.length; j += 1) {
+          const ticket = buildTicketCandidate(
+            [
+              buildTicketLeg(safeRows[i], "support"),
+              buildTicketLeg(safeRows[j], "support")
+            ],
+            "safePair",
+            { requireSameBook }
+          )
+          if (ticket) candidates.push(ticket)
+        }
       }
+      return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
     }
-    return selectLayeredTickets(candidates, 6, { maxPlayerUsesAfterFirst: 1, maxMatchupUsesAcrossSurfacedTickets: 2 })
+
+    const sameBook = buildPairs(true)
+    if (sameBook.length) return sameBook
+
+    // 1–2 game slates often split "support" legs across books 1+1; same-book pairs then vanish entirely.
+    if (snapshotSlateGameCount <= 2 && safeRows.length >= 2) {
+      return buildPairs(false)
+    }
+
+    return sameBook
   }
 
   const buildBangerTickets = () => {
-    const slateMode = nbaRowQualityAudit?.slateMode?.mode || "unknown"
-    const slateGames = Number(nbaRowQualityAudit?.slateMode?.metrics?.games || snapshotSlateGameCount || 0)
+    const slateModeRaw = nbaRowQualityAudit?.slateMode?.mode || "unknown"
+    const slateReasons = Array.isArray(nbaRowQualityAudit?.slateMode?.reasons)
+      ? nbaRowQualityAudit.slateMode.reasons
+      : []
+    const metrics = nbaRowQualityAudit?.slateMode?.metrics || {}
+    const propsCount = Number(metrics.propsCount ?? 0)
+    const slateGames = Number(metrics.games || snapshotSlateGameCount || 0)
+    const deadSlate =
+      slateReasons.includes("no-games") ||
+      slateReasons.includes("no-props") ||
+      slateReasons.includes("no-raw-props")
+    // Quality-pass alone must not zero-out executable bangers when games+props are live.
+    let slateMode = slateModeRaw
+    if (slateModeRaw === "thinBad" && !deadSlate && slateGames > 0 && propsCount > 0) {
+      slateMode = slateGames <= 2 ? "thin" : "light"
+    }
     const isHeavy = slateMode === "heavy"
     const isLight = slateMode === "light"
     const isThin = slateMode === "thin"
@@ -10939,6 +11616,37 @@ app.get("/api/best-available", (req, res) => {
     : []
   const nbaSurfacedSafePairTop = nbaSurfacedSafePairTickets[0] || null
 
+  // === NBA OOMPH (superstarCeilingBoard): export-only mirror of longshot rows — no pools, no ladders, no ticket coupling.
+  const superstarCeilingBoard = (() => {
+    const raw = dedupeNbaRowsByLegSignature(
+      filterAllowedNbaBookRows(Array.isArray(layerBestLongshotPlays) ? layerBestLongshotPlays : [])
+    ).slice(0, 8)
+    return raw.map((row) => {
+      const teamOut = normalizeNbaExportTeamForRow(row) || row?.team || null
+      const merged = { ...row, team: teamOut || row?.team }
+      const ctx =
+        merged.pregameContext && typeof merged.pregameContext === "object"
+          ? merged.pregameContext
+          : buildPregameContext({ sport: "nba", row: merged })
+      const ce = Number(merged?.ceilingScore)
+      const lpi = Number(merged?.longshotPredictiveIndex)
+      return {
+        player: merged.player ?? null,
+        team: teamOut,
+        book: merged.book ?? null,
+        propType: merged.propType ?? null,
+        side: merged.side ?? null,
+        line: merged.line ?? null,
+        odds: merged.odds ?? null,
+        ceilingScore: Number.isFinite(ce) ? Number(ce.toFixed(3)) : null,
+        longshotPredictiveIndex: Number.isFinite(lpi) ? Number(lpi.toFixed(3)) : null,
+        pregameContext: ctx,
+        explanationTags: Array.isArray(ctx?.explanationTags) ? [...ctx.explanationTags] : [],
+        tags: ["oomph export mirror (longshot)"]
+      }
+    })
+  })()
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -10952,6 +11660,7 @@ app.get("/api/best-available", (req, res) => {
       slateMode: nbaRowQualityAudit?.slateMode || null,
       longshotTop: nbaSurfacedLongshotTop,
       safePairTop: nbaSurfacedSafePairTop,
+      superstarCeilingBoard,
       highestHitRate2,
       highestHitRate3,
       highestHitRate4,
@@ -12482,6 +13191,125 @@ function teamAbbr(teamName) {
   }
 
   return map[teamName] || teamName
+}
+
+/**
+ * Normalize team labels on exported NBA rows to full franchise names when possible
+ * (e.g. LAC -> Los Angeles Clippers) using away/home on the row. Does not change mapping logic.
+ */
+function normalizeNbaExportTeamForRow(row) {
+  const raw = String(row?.team || "").trim()
+  if (!raw) return null
+  const lower = raw.toLowerCase()
+  const away = String(row?.awayTeam || "").trim()
+  const home = String(row?.homeTeam || "").trim()
+  if (away && lower === away.toLowerCase()) return away
+  if (home && lower === home.toLowerCase()) return home
+  const code = raw.toUpperCase()
+  if (away) {
+    const ab = String(teamAbbr(away) || "").toUpperCase()
+    if (ab && code === ab) return away
+  }
+  if (home) {
+    const hb = String(teamAbbr(home) || "").toUpperCase()
+    if (hb && code === hb) return home
+  }
+  if (raw.length > 5 || raw.includes(" ")) return raw
+  return raw
+}
+
+function attachNbaPregameExportFields(row) {
+  if (!row || typeof row !== "object") return row
+  const teamNorm = normalizeNbaExportTeamForRow(row)
+  const base = teamNorm ? { ...row, team: teamNorm } : { ...row }
+  if (base.pregameContext && typeof base.pregameContext === "object") return base
+  const ctx = buildPregameContext({ sport: "nba", row: base })
+  return {
+    ...base,
+    pregameContext: ctx,
+    explanationTags: Array.isArray(base.explanationTags) && base.explanationTags.length
+      ? base.explanationTags
+      : ctx.explanationTags
+  }
+}
+
+// --- NBA export hydration: merge thin best/fallback legs onto scored board rows (same leg key) ---
+const NBA_EXPORT_ENRICHMENT_NUMERIC_KEYS = [
+  "avgMin",
+  "recent5MinAvg",
+  "recent3MinAvg",
+  "ceilingScore",
+  "roleSpikeScore",
+  "opportunitySpikeScore",
+  "marketLagScore",
+  "matchupEdgeScore",
+  "gameEnvironmentScore",
+  "dvpScore",
+  "bookDisagreementScore",
+  "longshotPredictiveIndex",
+  "lineupContextScore"
+]
+
+function buildNbaExportHydrationKey(row) {
+  return [
+    String(row?.player || "").trim().toLowerCase(),
+    String(row?.marketKey || "").trim().toLowerCase(),
+    String(row?.side || "").trim().toLowerCase(),
+    String(row?.line ?? ""),
+    String(row?.book || "").trim().toLowerCase()
+  ].join("|")
+}
+
+function buildNbaExportHydrationKeyPropType(row) {
+  return [
+    String(row?.player || "").trim().toLowerCase(),
+    String(row?.propType || "").trim().toLowerCase(),
+    String(row?.side || "").trim().toLowerCase(),
+    String(row?.line ?? ""),
+    String(row?.book || "").trim().toLowerCase()
+  ].join("|")
+}
+
+function buildNbaEnrichmentLegLookup(rows) {
+  const byPrimary = new Map()
+  const byPropType = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (String(row?.marketKey || "").trim()) {
+      const pk = buildNbaExportHydrationKey(row)
+      if (pk && !byPrimary.has(pk)) byPrimary.set(pk, row)
+    }
+    const qk = buildNbaExportHydrationKeyPropType(row)
+    if (qk && !byPropType.has(qk)) byPropType.set(qk, row)
+  }
+  return { byPrimary, byPropType }
+}
+
+function mergeNbaExportRowWithEnrichmentLookup(skinny, lookup) {
+  if (!skinny || typeof skinny !== "object" || !lookup) return skinny
+  let rich = null
+  if (String(skinny?.marketKey || "").trim()) {
+    const pk = buildNbaExportHydrationKey(skinny)
+    rich = pk ? lookup.byPrimary.get(pk) : null
+  }
+  if (!rich) {
+    const qk = buildNbaExportHydrationKeyPropType(skinny)
+    rich = qk ? lookup.byPropType.get(qk) : null
+  }
+  if (!rich || rich === skinny) return skinny
+  const out = { ...skinny }
+  for (const key of NBA_EXPORT_ENRICHMENT_NUMERIC_KEYS) {
+    const s = out[key]
+    const r = rich[key]
+    const sMissing = s === null || s === undefined || s === ""
+    if (sMissing && r !== null && r !== undefined && r !== "") out[key] = r
+  }
+  return out
+}
+
+function stripStaleNbaPregameFieldsForRebuild(row) {
+  if (!row || typeof row !== "object") return row
+  const { pregameContext, explanationTags, ...rest } = row
+  return rest
 }
 
 function getDetroitDateParts(dateString) {
@@ -14163,6 +14991,8 @@ function scorePropRow(row) {
   const edge = Number(row.edge || 0)
   const odds = Number(row.odds || 0)
   const avgMin = Number(row.avgMin || 0)
+  const recent5MinAvg = Number(row.recent5MinAvg || 0)
+  const recent3MinAvg = Number(row.recent3MinAvg || 0)
   const minStd = Number(row.minStd || 0)
   const valueStd = Number(row.valueStd || 0)
   const minFloor = Number(row.minFloor || 0)
@@ -14174,6 +15004,11 @@ function scorePropRow(row) {
   const minutesRisk = String(row.minutesRisk || "")
   const trendRisk = String(row.trendRisk || "")
   const injuryRisk = String(row.injuryRisk || "")
+  const roleSpikeScore = Number(row?.roleSpikeScore || 0)
+  const opportunitySpikeScore = Number(row?.opportunitySpikeScore || 0)
+  const ceilingScore = Number(row?.ceilingScore || 0)
+  const longshotPredictiveIndex = Number(row?.longshotPredictiveIndex || 0)
+  const propType = String(row?.propType || "")
 
   let score = 0
 
@@ -14193,9 +15028,55 @@ function scorePropRow(row) {
     else score -= 10
   }
 
+  // --- Minutes/role quality guardrail (prevents low-role hitRate/edge mirages) ---
+  const spikeOverride =
+    roleSpikeScore >= 0.3 ||
+    opportunitySpikeScore >= 0.38
+
+  // Hard penalty for low-minute roles unless we have a real spike signal.
+  const lowAvgMinutes = row.avgMin !== null && avgMin > 0 && avgMin < 20
+  const lowRecentMinutes = row.recent5MinAvg !== null && recent5MinAvg > 0 && recent5MinAvg < 20
+  if (!spikeOverride && (lowAvgMinutes || lowRecentMinutes)) {
+    const depth = Math.max(0, 20 - Math.max(avgMin || 0, recent5MinAvg || 0))
+    score -= 18 + Math.min(12, depth * 0.9)
+  }
+  if (!spikeOverride && String(minutesRisk || "").toLowerCase() === "high") {
+    score -= 12
+  }
+  // Bench spike exception still shouldn't look like an "elite" rotation play unless ceiling supports it.
+  if (spikeOverride && (lowAvgMinutes || lowRecentMinutes) && ceilingScore < 0.52) {
+    score -= 8
+  }
+
+  // Reward stable minutes; penalize volatile minutes (recent3 vs recent5 vs avg).
+  if (row.avgMin !== null && row.recent5MinAvg !== null && row.recent3MinAvg !== null) {
+    const v1 = Math.abs(recent3MinAvg - recent5MinAvg)
+    const v2 = Math.abs(recent5MinAvg - avgMin)
+    const vol = v1 + v2
+    if (avgMin >= 24 && recent5MinAvg >= 24 && vol <= 3) score += 5
+    else if (avgMin >= 22 && recent5MinAvg >= 22 && vol <= 4.5) score += 2
+    else if (vol >= 8) score -= 8
+    else if (vol >= 6) score -= 4
+  }
+
   if (odds >= -135 && odds <= 110) score += 6
   else if (odds < -170) score -= 10
   else if (odds < -150) score -= 5
+
+  // --- Prop-type shaping (favor impactful markets, reduce PRA dominance) ---
+  if (propType === "PRA") score -= 8
+  else if (propType === "Points") score += 4
+  else if (propType === "Threes") score += 5
+  else if (propType === "Assists") score += 3
+  else if (propType === "Rebounds") {
+    if (ceilingScore >= 0.58) score += 4
+    else score += 1
+  }
+
+  // Penalize very low-impact low lines unless true ceiling setup.
+  if (propType === "Threes" && line > 0 && line <= 1.5 && ceilingScore < 0.62) {
+    score -= 18
+  }
 
   const dvp = getDvpScore(getOpponentForRow(row), row.propType)
   if (row.side === "Over") score += dvp * 5
@@ -14314,6 +15195,21 @@ function scorePropRow(row) {
   score += getPracticalSafetyBonus(row)
   score += getMarketEdgeBonus(row)
 
+  // --- Ceiling emphasis (prefer breakout/ceiling profiles over purely safe blends) ---
+  if (Number.isFinite(ceilingScore) && ceilingScore > 0) {
+    score += ceilingScore * 18
+    // De-rank low-ceiling plays from top boards unless spike-supported.
+    const spikeOverride =
+      roleSpikeScore >= 0.3 ||
+      opportunitySpikeScore >= 0.38
+    if (!spikeOverride && ceilingScore < 0.5) {
+      score -= (0.5 - ceilingScore) * 65
+    }
+  }
+  if (Number.isFinite(longshotPredictiveIndex) && longshotPredictiveIndex > 0) {
+    score += longshotPredictiveIndex * 10
+  }
+
   // market movement adjustments
   if (row.side === "Over") {
     if (lineMove >= 1) score -= 8
@@ -14393,6 +15289,132 @@ function dedupeSlipLegs(rows) {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(row)
+  }
+
+  return out
+}
+
+function normalizePropTypeBase(propType) {
+  const p = String(propType || "").trim().toLowerCase()
+  if (!p) return ""
+  // Collapse ladder labels + aliases into the same core key.
+  return p.replace(/\s+ladder\b/g, "").trim()
+}
+
+function diversifyBestProps(bestProps, options = {}) {
+  const safe = dedupeSlipLegs(Array.isArray(bestProps) ? bestProps : []).filter(Boolean)
+  const mode = String(options?.slateMode || "").toLowerCase()
+  const totalCap = Number.isFinite(options?.totalCap) ? Number(options.totalCap) : safe.length
+  const maxPerPlayer = Number.isFinite(options?.maxPerPlayer)
+    ? Number(options.maxPerPlayer)
+    : (mode === "thin" ? 3 : 2)
+  const maxPerPlayerPropType = Number.isFinite(options?.maxPerPlayerPropType)
+    ? Number(options.maxPerPlayerPropType)
+    : 1
+
+  const clamp01 = (v) => Math.max(0, Math.min(1, Number(v || 0)))
+  const composite = (row) => {
+    const hitRate = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge ?? row?.projectedValue ?? 0)
+    const score = Number(row?.score || 0)
+    const edgeComponent = clamp01((edge + 2) / 8)
+    const scoreComponent = clamp01(score / 120)
+    const lowRiskBonuses =
+      (String(row?.minutesRisk || "").toLowerCase() === "low" ? 0.035 : 0) +
+      (String(row?.injuryRisk || "").toLowerCase() === "low" ? 0.03 : 0) +
+      (String(row?.trendRisk || "").toLowerCase() === "low" ? 0.02 : 0)
+    return hitRate * 0.5 + edgeComponent * 0.25 + scoreComponent * 0.15 + lowRiskBonuses
+  }
+
+  const sorted = [...safe].sort((a, b) => {
+    const c = composite(b) - composite(a)
+    if (c !== 0) return c
+    const s = Number(b?.score || 0) - Number(a?.score || 0)
+    if (s !== 0) return s
+    const e = Number(b?.edge || 0) - Number(a?.edge || 0)
+    if (e !== 0) return e
+    return Number(b?.odds || 0) - Number(a?.odds || 0)
+  })
+
+  const out = []
+  const playerCounts = new Map()
+  const playerPropCounts = new Map() // player -> Map(propTypeBase -> count)
+
+  const canTake = (row) => {
+    const player = String(row?.player || "").trim().toLowerCase()
+    if (!player) return false
+    const pCount = playerCounts.get(player) || 0
+    if (pCount >= maxPerPlayer) return false
+
+    // Prefer true ceiling/impact rows for bestProps shaping.
+    const ceiling = Number(row?.ceilingScore || 0)
+    const hit = parseHitRate(row?.hitRate)
+    const edge = Number(row?.edge ?? 0)
+    const score = Number(row?.score || 0)
+    if (ceiling > 0 && ceiling < 0.5) {
+      const eliteException =
+        (score >= 95 && hit >= 0.62) ||
+        (Math.abs(edge) >= 6.5 && hit >= 0.6)
+      if (!eliteException) return false
+    }
+    const ptRaw = String(row?.propType || "")
+    const line = Number(row?.line || 0)
+    if (ptRaw === "Threes" && line > 0 && line <= 1.5 && ceiling < 0.62) return false
+
+    const pt = normalizePropTypeBase(row?.propType)
+    const ptMap = playerPropCounts.get(player) || new Map()
+    const ptCount = pt ? (ptMap.get(pt) || 0) : 0
+    if (pt && ptCount >= maxPerPlayerPropType) return false
+
+    return true
+  }
+
+  const record = (row) => {
+    const player = String(row?.player || "").trim().toLowerCase()
+    const pt = normalizePropTypeBase(row?.propType)
+    playerCounts.set(player, (playerCounts.get(player) || 0) + 1)
+    if (pt) {
+      const ptMap = playerPropCounts.get(player) || new Map()
+      ptMap.set(pt, (ptMap.get(pt) || 0) + 1)
+      playerPropCounts.set(player, ptMap)
+    }
+  }
+
+  for (const row of sorted) {
+    if (!canTake(row)) continue
+    out.push(row)
+    record(row)
+    if (out.length >= totalCap) break
+  }
+
+  // Thin slate fallback: if we pruned too hard, allow a second propType repeat per player
+  // to avoid empty boards, but still respect maxPerPlayer.
+  if (mode === "thin" && out.length < Math.min(totalCap, 16)) {
+    const relaxedOut = [...out]
+    const relaxedCounts = new Map(playerCounts)
+    const relaxedPlayerPropCounts = new Map(playerPropCounts)
+    const allowRepeat = (row) => {
+      const player = String(row?.player || "").trim().toLowerCase()
+      if (!player) return false
+      if ((relaxedCounts.get(player) || 0) >= maxPerPlayer) return false
+      return true
+    }
+    for (const row of sorted) {
+      if (relaxedOut.length >= totalCap) break
+      const key = `${row?.player}-${row?.propType}-${row?.side}-${Number(row?.line)}-${row?.book}`
+      if (relaxedOut.some((r) => `${r?.player}-${r?.propType}-${r?.side}-${Number(r?.line)}-${r?.book}` === key)) continue
+      if (!allowRepeat(row)) continue
+      relaxedOut.push(row)
+      const player = String(row?.player || "").trim().toLowerCase()
+      relaxedCounts.set(player, (relaxedCounts.get(player) || 0) + 1)
+      const pt = normalizePropTypeBase(row?.propType)
+      if (pt) {
+        const ptMap = relaxedPlayerPropCounts.get(player) || new Map()
+        ptMap.set(pt, (ptMap.get(pt) || 0) + 1)
+        relaxedPlayerPropCounts.set(player, ptMap)
+      }
+    }
+    return relaxedOut
   }
 
   return out
@@ -20570,9 +21592,17 @@ const qualifiesPlayableTier = (row, slateMode) => {
   const score = getTierScore(row)
   const minutesRisk = getMinutesRisk(row)
   const injuryRisk = getInjuryRisk(row)
+  const avgMin = Number(row?.avgMin || 0)
+  const recent5MinAvg = Number(row?.recent5MinAvg || 0)
+  const roleSpike = Number(row?.roleSpikeScore || 0)
+  const oppSpike = Number(row?.opportunitySpikeScore || 0)
+  const spikeOverride = roleSpike >= 0.3 || oppSpike >= 0.38
 
   if (minutesRisk === "high") return false
   if (injuryRisk === "high") return false
+  if (!spikeOverride) {
+    if ((row?.avgMin != null && avgMin > 0 && avgMin < 18) || (row?.recent5MinAvg != null && recent5MinAvg > 0 && recent5MinAvg < 18)) return false
+  }
   if (hit < t.minHit) return false
   if (edge < t.edgeBad && score < t.edgeBadScore) return false
   if (score >= t.minScore) return true
@@ -20589,9 +21619,35 @@ const qualifiesBestPropsSource = (row, slateMode) => {
   const score = getTierScore(row)
   const minutesRisk = getMinutesRisk(row)
   const injuryRisk = getInjuryRisk(row)
+  const avgMin = Number(row?.avgMin || 0)
+  const recent5MinAvg = Number(row?.recent5MinAvg || 0)
+  const roleSpike = Number(row?.roleSpikeScore || 0)
+  const oppSpike = Number(row?.opportunitySpikeScore || 0)
+  const ceiling = Number(row?.ceilingScore || 0)
+  const spikeOverride = roleSpike >= 0.3 || oppSpike >= 0.38
+  const propType = String(row?.propType || "")
+  const line = Number(row?.line || 0)
 
   if (minutesRisk === "high") return false
   if (injuryRisk === "high") return false
+  if (!spikeOverride) {
+    if ((row?.avgMin != null && avgMin > 0 && avgMin < 18) || (row?.recent5MinAvg != null && recent5MinAvg > 0 && recent5MinAvg < 18)) return false
+  } else if (ceiling < 0.5 && ((avgMin > 0 && avgMin < 18) || (recent5MinAvg > 0 && recent5MinAvg < 18))) {
+    // bench spike without ceiling support should not enter bestProps
+    return false
+  }
+  // Require minimum ceiling support for top board unless the play is truly elite by hit/score/edge.
+  // This prevents low-impact / safe blend markets from dominating bestProps.
+  if (ceiling > 0 && ceiling < 0.5) {
+    const eliteException =
+      (score >= 95 && hit >= 0.62) ||
+      (Math.abs(edge) >= 6.5 && hit >= 0.6)
+    if (!eliteException) return false
+  }
+  // Extra guard: very low threes lines are low-impact unless ceiling-supported.
+  if (propType === "Threes" && line > 0 && line <= 1.5 && ceiling < 0.62 && !spikeOverride) {
+    return false
+  }
   if (hit < t.minHit) return false
   if (edge < t.edgeBad && score < t.edgeBadScore) return false
   return score >= t.minScore || hit >= t.hitAlt1 || (hit >= t.hitAlt2 && edge >= t.edgeAlt2)
@@ -21812,6 +22868,7 @@ const bestPropsSourceRaw = Array.isArray(scoredProps) ? scoredProps : []
 const bestPropsSource = []
 const excludedSpecials = []
 const excludedMalformed = []
+const excludedLowRoleQuality = []
 for (const row of bestPropsSourceRaw) {
   const isStandard = STANDARD_PROP_TYPES.has(String(row?.propType || ""))
   const hasAllFields = (
@@ -21834,6 +22891,11 @@ for (const row of bestPropsSourceRaw) {
     excludedMalformed.push(row)
     continue
   }
+  // Role/minutes quality gate (slateMode-aware) to prevent low-minute mirages.
+  if (!qualifiesBestPropsSource(row, tierSlateMode.mode)) {
+    excludedLowRoleQuality.push(row)
+    continue
+  }
   bestPropsSource.push(row)
 }
 logBestStage("refresh-snapshot:sourcePool", bestPropsSource)
@@ -21841,6 +22903,7 @@ console.log(`[BEST-PROPS-SOURCE-DEBUG] path=refresh-snapshot sourceCount=${bestP
 console.log("[BEST-PROPS-EXCLUDED-DEBUG]", {
   excludedSpecials: excludedSpecials.length,
   excludedMalformed: excludedMalformed.length,
+  excludedLowRoleQuality: excludedLowRoleQuality.length,
   sampleSpecials: excludedSpecials.slice(0, 5).map(r => ({ player: r?.player, propType: r?.propType, book: r?.book, line: r?.line })),
   sampleMalformed: excludedMalformed.slice(0, 5).map(r => ({ player: r?.player, propType: r?.propType, book: r?.book, line: r?.line, hitRate: r?.hitRate, score: r?.score, team: r?.team }))
 })
@@ -21916,6 +22979,25 @@ logFunnelExcluded("refresh-snapshot", "bestProps-from-scoredProps", bestPropsSou
       finalBestProps: bestProps.length
     })
   }
+}
+
+// Final bestProps diversification (player cap + per-propType cap).
+{
+  const mode = String(tierSlateMode?.mode || "").toLowerCase()
+  const before = Array.isArray(bestProps) ? bestProps.length : 0
+  const diversified = diversifyBestProps(bestProps, {
+    slateMode: mode,
+    totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+    maxPerPlayer: mode === "thin" ? 3 : 2,
+    maxPerPlayerPropType: 1
+  })
+  bestProps = diversified
+  console.log("[BEST-PROPS-DIVERSIFY]", {
+    path: "refresh-snapshot",
+    mode,
+    before,
+    after: Array.isArray(bestProps) ? bestProps.length : 0
+  })
 }
 
 const nextRawPropsCount = Array.isArray(rawPropsRows) ? rawPropsRows.length : 0
@@ -22226,7 +23308,24 @@ console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
   ...finalBestPropsGateDebug
 })
 
-oddsSnapshot.bestProps = dedupeByLegSignature(bestPropsAfterFinalLegacyGate)
+// Final-best shaping: enforce diversification and ceiling/impact exclusions after any
+// force-includes and final gate logic.
+{
+  const mode = String(tierSlateMode?.mode || "").toLowerCase()
+  const diversifiedFinal = diversifyBestProps(bestPropsAfterFinalLegacyGate, {
+    slateMode: mode,
+    totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+    maxPerPlayer: mode === "thin" ? 3 : 2,
+    maxPerPlayerPropType: 1
+  })
+  oddsSnapshot.bestProps = dedupeByLegSignature(diversifiedFinal)
+  console.log("[BEST-PROPS-FINAL-DIVERSIFY]", {
+    path: "refresh-snapshot",
+    mode,
+    before: bestPropsAfterFinalLegacyGate.length,
+    after: oddsSnapshot.bestProps.length
+  })
+}
 oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
 const bestPropsBookSoftFloor = Math.max(
   4,
@@ -23655,6 +24754,24 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
           finalBestProps: bestProps.length
         })
       }
+    }
+
+    // Final bestProps diversification (player cap + per-propType cap).
+    {
+      const mode = String(hardResetTierSlateMode?.mode || "").toLowerCase()
+      const before = Array.isArray(bestProps) ? bestProps.length : 0
+      bestProps = diversifyBestProps(bestProps, {
+        slateMode: mode,
+        totalCap: BEST_PROPS_BALANCE_CONFIG.totalCap,
+        maxPerPlayer: mode === "thin" ? 3 : 2,
+        maxPerPlayerPropType: 1
+      })
+      console.log("[BEST-PROPS-DIVERSIFY]", {
+        path: "refresh-snapshot-hard-reset",
+        mode,
+        before,
+        after: Array.isArray(bestProps) ? bestProps.length : 0
+      })
     }
     const eliteProps = bestProps.filter((row) => qualifiesEliteTier(row, hardResetTierSlateMode.mode))
     logFunnelStage("refresh-snapshot-hard-reset", "eliteProps-from-bestProps", bestProps, eliteProps, { threshold: "hit>=0.72,score>=88,minFloor>=24,minStd<=7.5,valueStd<=10.5/5.5" })
