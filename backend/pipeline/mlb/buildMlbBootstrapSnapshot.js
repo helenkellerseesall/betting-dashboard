@@ -221,9 +221,10 @@ function normalizePowerMarketBonus(row) {
 function getMlbSignalStrengthTag(signalScore) {
   const s = Number(signalScore)
   if (!Number.isFinite(s)) return "neutral"
-  if (s >= 0.78) return "elite power"
-  if (s >= 0.62) return "strong"
-  if (s >= 0.48) return "neutral"
+  // Narrow the neutral band to create more visible separation.
+  if (s >= 0.75) return "elite power"
+  if (s >= 0.6) return "strong"
+  if (s >= 0.42) return "neutral"
   return "weak"
 }
 

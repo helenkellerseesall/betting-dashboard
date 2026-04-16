@@ -63,6 +63,16 @@ async function fetchOfficialGameFeed({ gamePk }) {
   return ensureObject(response?.data)
 }
 
+async function fetchOfficialTeamRoster({ teamId }) {
+  const response = await axios.get(`${MLB_STATS_API_BASE_URL}/teams/${teamId}/roster`, {
+    params: {
+      rosterType: "active"
+    },
+    timeout: MLB_STATS_TIMEOUT_MS
+  })
+  return ensureArray(response?.data?.roster)
+}
+
 function toProbablePitcher(person, source) {
   if (!person || typeof person !== "object") return null
   const playerName = String(person?.fullName || person?.name || "").trim()
@@ -82,22 +92,47 @@ function extractLineupPlayersFromFeed(teamBoxscore, teamName) {
   const players = ensureObject(safeTeamBoxscore?.players)
   const out = []
 
-  for (const batterId of battingOrder) {
-    const playerKey = `ID${String(batterId || "").trim()}`
-    const player = ensureObject(players[playerKey])
-    const person = ensureObject(player?.person)
-    const playerName = String(person?.fullName || player?.name || "").trim()
-    if (!playerName) continue
-
+  const pushCandidate = (player, orderIndex) => {
+    const safePlayer = ensureObject(player)
+    const person = ensureObject(safePlayer?.person)
+    const playerName = String(person?.fullName || safePlayer?.name || "").trim()
+    if (!playerName) return
     out.push({
       playerIdExternal: person?.id ?? null,
       playerName,
       playerKey: normalizeMlbPlayerKey(playerName),
       teamResolved: String(teamName || "").trim() || null,
       teamCode: resolveTeamCode(teamName || "") || null,
-      battingOrderIndex: out.length + 1,
+      battingOrderIndex: Number.isFinite(orderIndex) ? orderIndex : out.length + 1,
       source: "mlb-official-lineup-feed"
     })
+  }
+
+  // Primary path: battingOrder array (in-game and some pregame states).
+  for (const batterId of battingOrder) {
+    const playerKey = `ID${String(batterId || "").trim()}`
+    const player = ensureObject(players[playerKey])
+    if (!Object.keys(player).length) continue
+    pushCandidate(player, out.length + 1)
+  }
+
+  // Fallback path (pregame): some feeds populate per-player battingOrder fields
+  // even when the battingOrder array is empty.
+  if (out.length === 0) {
+    const inferred = []
+    for (const player of Object.values(players)) {
+      const safePlayer = ensureObject(player)
+      const bo = String(safePlayer?.battingOrder || "").trim()
+      if (!bo) continue
+      // StatsAPI uses "100", "200", ... for lineup slots; ignore "0"/"000".
+      const n = Number(bo)
+      if (!Number.isFinite(n) || n <= 0) continue
+      inferred.push({ n, player: safePlayer })
+    }
+    inferred.sort((a, b) => a.n - b.n)
+    for (let i = 0; i < Math.min(9, inferred.length); i++) {
+      pushCandidate(inferred[i].player, i + 1)
+    }
   }
 
   return out
@@ -139,6 +174,8 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
   let liveFeedCalls = 0
   let liveFeedLineupEvents = 0
   let liveFeedProbablePitcherEvents = 0
+  let rosterCalls = 0
+  let rosterPlayersAdded = 0
 
   const eventByMatchKey = new Map()
   const requestDateKeys = new Set()
@@ -252,6 +289,78 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
         liveFeedLineupEvents += 1
       }
 
+      // If lineups are not posted yet, fall back to active rosters for each club.
+      // This stays within the same MLB official data source and dramatically improves
+      // player→team mapping integrity vs leaving all rows unresolved.
+      if (awayPlayers.length === 0 && homePlayers.length === 0) {
+        const awayTeamId = Number(scheduleGame?.teams?.away?.team?.id)
+        const homeTeamId = Number(scheduleGame?.teams?.home?.team?.id)
+        const rosterCandidates = []
+        try {
+          if (Number.isFinite(awayTeamId)) {
+            rosterCalls += 1
+            const roster = await fetchOfficialTeamRoster({ teamId: awayTeamId })
+            for (const rr of roster) {
+              const person = ensureObject(rr?.person)
+              const playerName = String(person?.fullName || "").trim()
+              if (!playerName) continue
+              rosterCandidates.push({
+                playerIdExternal: person?.id ?? null,
+                playerName,
+                playerKey: normalizeMlbPlayerKey(playerName),
+                teamResolved: awayTeamName,
+                teamCode: resolveTeamCode(awayTeamName || "") || null,
+                source: "mlb-official-active-roster",
+                eventIds: [eventId]
+              })
+            }
+          }
+        } catch (error) {
+          fetchErrors.push({
+            stage: "official-active-roster-away",
+            eventId,
+            teamId: awayTeamId,
+            error: String(error?.response?.data?.message || error?.message || error)
+          })
+        }
+        try {
+          if (Number.isFinite(homeTeamId)) {
+            rosterCalls += 1
+            const roster = await fetchOfficialTeamRoster({ teamId: homeTeamId })
+            for (const rr of roster) {
+              const person = ensureObject(rr?.person)
+              const playerName = String(person?.fullName || "").trim()
+              if (!playerName) continue
+              rosterCandidates.push({
+                playerIdExternal: person?.id ?? null,
+                playerName,
+                playerKey: normalizeMlbPlayerKey(playerName),
+                teamResolved: homeTeamName,
+                teamCode: resolveTeamCode(homeTeamName || "") || null,
+                source: "mlb-official-active-roster",
+                eventIds: [eventId]
+              })
+            }
+          }
+        } catch (error) {
+          fetchErrors.push({
+            stage: "official-active-roster-home",
+            eventId,
+            teamId: homeTeamId,
+            error: String(error?.response?.data?.message || error?.message || error)
+          })
+        }
+
+        if (rosterCandidates.length > 0) {
+          if (!Array.isArray(playersByEventId[eventId])) playersByEventId[eventId] = []
+          for (const candidateRow of rosterCandidates) {
+            playersByEventId[eventId].push(candidateRow)
+            appendCandidate(playersByPlayerKey, candidateRow)
+            rosterPlayersAdded += 1
+          }
+        }
+      }
+
       for (const candidate of [...awayPlayers, ...homePlayers]) {
         const candidateRow = {
           playerIdExternal: candidate.playerIdExternal,
@@ -287,6 +396,9 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
   }
   if (liveFeedLineupEvents === 0) {
     notes.push("MLB official live feed returned no posted batting orders for matched events in current window.")
+  }
+  if (rosterPlayersAdded === 0) {
+    notes.push("MLB official roster fallback added no players for matched events in current window.")
   }
 
   return {
@@ -325,6 +437,8 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
         liveFeedCalls,
         liveFeedLineupEvents,
         liveFeedProbablePitcherEvents,
+          rosterCalls,
+          rosterPlayersAdded,
         sourceContribution: {
           playersByEventCount: Object.keys(playersByEventId).length,
           playersByPlayerKeyCount: Object.keys(playersByPlayerKey).length,

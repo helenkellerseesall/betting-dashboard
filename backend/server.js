@@ -35,8 +35,13 @@ const {
   buildPlayerTeamIndex,
   inferSurfaceTeamLabel
 } = require("./pipeline/mlb/buildMlbInspectionBoard")
-const { resolveMlbTeamFromDiskCacheRow } = require("./pipeline/resolution/mlbTeamResolution")
+const {
+  resolveMlbTeamFromDiskCacheRow,
+  getMlbTeamTokenSet,
+  parseMlbMatchupTeams
+} = require("./pipeline/resolution/mlbTeamResolution")
 const { buildPregameContext } = require("./pipeline/context/pregameContext")
+const { buildMlbDecisionBoard } = require("./pipeline/mlb/lanes/buildMlbDecisionBoard")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -11867,6 +11872,8 @@ app.get("/api/best-available", (req, res) => {
   })()
 
   // === MLB prediction board (Phase 3: sharper shaping + diversity) ===
+  let teamResolutionDiagnostics = null
+  let mlbDecisionBoardDiagnostics = null
   const mlbPredictionBoard = (() => {
     const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
     if (!rows.length) return []
@@ -11912,19 +11919,25 @@ app.get("/api/best-available", (req, res) => {
 
     const playerEventTeamVote = buildMlbPlayerEventTeamVote(rows)
 
-    const likelyTeamFromMatchupContext = (row) => {
-      const away = String(row?.awayTeam || "").trim()
-      const home = String(row?.homeTeam || "").trim()
-      if (away && !home) return away
-      if (home && !away) return home
-      if (away && home) {
-        // Odds API convention is typically "Away @ Home"; use road as weak prior when roster is missing.
-        return away
+    const normalizedMatchupTeams = (row) => {
+      const parsed = parseMlbMatchupTeams(row?.matchup)
+      const away = String(row?.awayTeam || parsed.away || "").trim()
+      const home = String(row?.homeTeam || parsed.home || "").trim()
+      return { away, home }
+    }
+
+    const teamTokensMatchEvent = (teamLabel, row) => {
+      const t = String(teamLabel || "").trim()
+      if (!t) return false
+      const { away, home } = normalizedMatchupTeams(row)
+      const awayTokens = getMlbTeamTokenSet(away)
+      const homeTokens = getMlbTeamTokenSet(home)
+      const teamTokens = getMlbTeamTokenSet(t)
+      if (!awayTokens.size && !homeTokens.size) return false
+      for (const tok of teamTokens) {
+        if (awayTokens.has(tok) || homeTokens.has(tok)) return true
       }
-      const mu = String(row?.matchup || "").trim()
-      const m = mu.match(/^(.+?)\s+@\s+(.+)$/)
-      if (m) return String(m[1] || "").trim() || null
-      return null
+      return false
     }
 
     const resolveMlbPredictionRowTeam = (row) => {
@@ -11932,16 +11945,67 @@ app.get("/api/best-available", (req, res) => {
       const pl = String(row?.player || "").toLowerCase().trim()
       const voteKey = ev && pl ? `${ev}|${pl}` : null
 
-      return (
-        String(row?.team || "").trim() ||
-        inferSurfaceTeamLabel(row, playerTeamIndex) ||
-        String(row?.teamResolved || "").trim() ||
-        resolveTeamNameForRowFromCode(row?.teamCode, row) ||
-        resolveMlbTeamFromDiskCacheRow(row) ||
-        (voteKey ? playerEventTeamVote.get(voteKey) : null) ||
-        likelyTeamFromMatchupContext(row) ||
-        null
-      )
+      const candidateSources = [
+        { source: "row.team", v: String(row?.team || "").trim(), confidence: 0.95, strong: true },
+        { source: "inferSurfaceTeamLabel", v: inferSurfaceTeamLabel(row, playerTeamIndex), confidence: 0.75, strong: false },
+        { source: "teamResolved", v: String(row?.teamResolved || "").trim(), confidence: 0.9, strong: true },
+        { source: "teamCode", v: resolveTeamNameForRowFromCode(row?.teamCode, row), confidence: 0.85, strong: true },
+        { source: "diskCache", v: resolveMlbTeamFromDiskCacheRow(row), confidence: 0.7, strong: true },
+        { source: "playerEventVote", v: voteKey ? playerEventTeamVote.get(voteKey) : null, confidence: 0.55, strong: false }
+      ]
+
+      // Confidence rule: only assign a team if at least 2 independent sources
+      // agree AND the team belongs to the event (away/home).
+      const byTeam = new Map() // teamLc -> { teamLabel, hits, maxConf, sources:Set, strongHit }
+      for (const c of candidateSources) {
+        const team = String(c?.v || "").trim()
+        if (!team) continue
+        if (!teamTokensMatchEvent(team, row)) continue
+        const key = team.toLowerCase()
+        const cur = byTeam.get(key) || { teamLabel: team, hits: 0, maxConf: 0, sources: new Set(), strongHit: false }
+        cur.hits += 1
+        cur.maxConf = Math.max(cur.maxConf, Number(c.confidence) || 0)
+        cur.sources.add(c.source)
+        if (c.strong) cur.strongHit = true
+        byTeam.set(key, cur)
+      }
+
+      let best = null
+      for (const v of byTeam.values()) {
+        // If we have corroboration, take it.
+        if (v.hits >= 2 && v.strongHit) {
+          if (!best) best = v
+          else if (v.hits > best.hits) best = v
+          else if (v.hits === best.hits && v.maxConf > best.maxConf) best = v
+          continue
+        }
+        // Otherwise allow a single strong, event-consistent source (disk/teamCode/teamResolved/row.team).
+        if (v.hits === 1 && v.strongHit && v.maxConf >= 0.7) {
+          if (!best) best = v
+          else if (v.maxConf > best.maxConf) best = v
+        }
+      }
+
+      if (best) {
+        return {
+          team: best.teamLabel,
+          teamConfidence: clamp(Number(best.maxConf || 0.7), 0.7, 0.98),
+          teamSource: `multi:${Array.from(best.sources).sort().join("+")}`
+        }
+      }
+
+      // Safe fallback: when we can’t map player→side, at least surface the matchup teams
+      // (explicitly ambiguous) instead of inventing a single club.
+      const { away, home } = normalizedMatchupTeams(row)
+      if (away && home) {
+        return {
+          team: `${away} / ${home}`,
+          teamConfidence: 0.15,
+          teamSource: "matchup-ambiguous"
+        }
+      }
+
+      return { team: null, teamConfidence: 0, teamSource: "unresolved" }
     }
 
     const classifyBoardPropFamily = (row) => {
@@ -11966,9 +12030,17 @@ app.get("/api/best-available", (req, res) => {
 
       if (fam === "first_hr") return 0.98
       if (fam === "hr") {
-        let s = 0.94
-        if (Number.isFinite(line) && line <= 0.5) s = 0.99
-        return clamp(Number(s.toFixed(4)), 0.9, 1.0)
+        // Keep HR high-impact, but avoid a flat near-constant that compresses decisionScore.
+        // Use odds/line to introduce natural variability (shorter HR odds = higher impact).
+        let s = 0.9
+        if (Number.isFinite(line) && line <= 0.5) s += 0.03
+        if (Number.isFinite(odds)) {
+          if (odds >= 250 && odds <= 550) s += 0.04
+          else if (odds > 550 && odds <= 850) s += 0.02
+          else if (odds > 850) s += 0.0
+          else if (odds < 250) s += 0.02
+        }
+        return clamp(Number(s.toFixed(4)), 0.88, 0.96)
       }
       if (fam === "tb") {
         let s = 0.72
@@ -11996,10 +12068,23 @@ app.get("/api/best-available", (req, res) => {
     }
 
     const computeMlbDecisionScore = (edgeProbability, signalScore, marketImpactScore) => {
+      // Preserve the decisionScore framework, but reduce compression:
+      // - stretch edge/signal (non-linear)
+      // - reduce the absolute “offset” contributed by marketImpactScore by centering it
       const edge = Number.isFinite(edgeProbability) ? edgeProbability : 0
       const sig = Number.isFinite(signalScore) ? signalScore : 0
       const mi = Number.isFinite(marketImpactScore) ? marketImpactScore : 0
-      return Number((edge * 0.5 + sig * 0.3 + mi * 0.2).toFixed(6))
+
+      const edgeNorm = clamp(edge / 0.22, 0, 1) // typical MLB edge ranges fit here
+      const sigNorm = clamp(sig, 0, 1)
+      const miCentered = clamp(mi - 0.5, 0, 0.5) // 0..0.5 instead of 0.5..1.0
+
+      // Slightly stronger stretching to widen top-10 separation.
+      const edgeAdj = Math.pow(edgeNorm, 1.55)
+      const sigAdj = Math.pow(sigNorm, 1.55)
+
+      const score = edgeAdj * 0.58 + sigAdj * 0.34 + miCentered * 0.08
+      return Number(score.toFixed(6))
     }
 
     const cmpDecisionBoardRows = (a, b) => {
@@ -12105,6 +12190,13 @@ app.get("/api/best-available", (req, res) => {
       return (edge * 1.0) + (sig * 0.35) + (mp * 0.08)
     }
 
+    teamResolutionDiagnostics = {
+      confidentlyResolved: 0,
+      ambiguousPrevented: 0,
+      placeholderUsed: 0,
+      matchupAmbiguousLabelUsed: 0
+    }
+
     const candidates = rows
       .filter((row) => isBoardCandidateRow(row))
       .map((row) => {
@@ -12120,7 +12212,13 @@ app.get("/api/best-available", (req, res) => {
           row?.signalStrengthTag != null ? String(row.signalStrengthTag) : null
 
         const fam = classifyBoardPropFamily(row)
-        const teamSurfaced = resolveMlbPredictionRowTeam(row)
+        const teamRes = resolveMlbPredictionRowTeam(row)
+        if (teamRes.team) {
+          if (String(teamRes.teamSource) === "matchup-ambiguous") teamResolutionDiagnostics.matchupAmbiguousLabelUsed += 1
+          else if (Number(teamRes.teamConfidence) >= 0.7) teamResolutionDiagnostics.confidentlyResolved += 1
+        } else {
+          teamResolutionDiagnostics.ambiguousPrevented += 1
+        }
         const marketImpactScore = getMlbMarketImpactScore(row)
         const playType = getMlbPlayType(row, fam)
         const decisionScore = computeMlbDecisionScore(
@@ -12132,7 +12230,9 @@ app.get("/api/best-available", (req, res) => {
         return {
           __src: row,
           player: row?.player || null,
-          team: teamSurfaced,
+          team: teamRes.team,
+          teamConfidence: teamRes.teamConfidence,
+          teamSource: teamRes.teamSource,
           propType: row?.propType || null,
           odds: row?.odds ?? null,
           predictedProbability: Number.isFinite(predictedProbability) ? predictedProbability : null,
@@ -12486,17 +12586,378 @@ app.get("/api/best-available", (req, res) => {
       return head.concat(out.slice(windowSize))
     }
 
-    finalBoard = shapeTopWindowForPowerMix(finalBoard)
+    // Prevent a single player from occupying multiple top slots.
+    // (Duplicates can still exist lower, but top-10 should read like decisions, not variants.)
+    const enforceUniquePlayersInTopWindow = (board, windowSize = 10) => {
+      const out = [...board]
+      const seen = new Map() // playerLc -> keptIdx
+      for (let i = 0; i < Math.min(windowSize, out.length); i++) {
+        const p = String(out[i]?.player || "").toLowerCase().trim()
+        if (!p) continue
+        if (!seen.has(p)) {
+          seen.set(p, i)
+          continue
+        }
+        // Duplicate detected: try to swap with the next unique row.
+        let j = i + 1
+        while (j < out.length) {
+          const pj = String(out[j]?.player || "").toLowerCase().trim()
+          if (pj && !seen.has(pj)) break
+          j++
+        }
+        if (j < out.length) {
+          const tmp = out[i]
+          out[i] = out[j]
+          out[j] = tmp
+          const pNew = String(out[i]?.player || "").toLowerCase().trim()
+          if (pNew) seen.set(pNew, i)
+        }
+      }
+      const head = out.slice(0, windowSize).sort(cmpBoardRows)
+      return head.concat(out.slice(windowSize))
+    }
+
+    const applyMlbTop10Policy = (board, windowSize = 10) => {
+      const policy = {
+        windowSize,
+        // Soft caps: enforced via swaps, with dominance exceptions.
+        maxByFamily: { hr: 5, first_hr: 2, hits: 5, tb: 4 },
+        // Soft targets for play type balance (min/max).
+        playTypeTarget: { boom: { min: 2, max: 5 }, safe: { min: 2, max: 6 }, value: { min: 1, max: 7 } },
+        // Swap tolerances (edge-first, then decisionScore).
+        edgeTolFromBest: 0.06,
+        decisionDegradeMax: 0.035,
+        balanceEdgeTolFromBest: 0.09,
+        balanceDecisionDegradeMax: 0.06,
+        // “Dominant” rows are allowed to bust caps.
+        dominance: { edgeDelta: 0.015, decisionDelta: 0.01 }
+      }
+
+      const out = [...board]
+      if (out.length <= policy.windowSize) return out
+
+      const head = () => out.slice(0, policy.windowSize)
+      const tail = () => out.slice(policy.windowSize)
+      const bestEdge = () => Math.max(...head().map((r) => (Number.isFinite(r?.edgeProbability) ? r.edgeProbability : -999)))
+      const bestDecision = () => Math.max(...head().map((r) => (Number.isFinite(r?.decisionScore) ? r.decisionScore : -999)))
+
+      const countBy = (fn) =>
+        head().reduce((acc, r) => {
+          const k = fn(r)
+          acc[k] = Number(acc[k] || 0) + 1
+          return acc
+        }, {})
+
+      const playerSetInHead = (skipIdx = -1) => {
+        const s = new Set()
+        for (let i = 0; i < policy.windowSize; i++) {
+          if (i === skipIdx) continue
+          const pk = String(out[i]?.player || "").toLowerCase().trim()
+          if (pk) s.add(pk)
+        }
+        return s
+      }
+
+      const isDominant = (row) => {
+        const e = Number.isFinite(row?.edgeProbability) ? row.edgeProbability : -999
+        const d = Number.isFinite(row?.decisionScore) ? row.decisionScore : -999
+        return e >= bestEdge() - policy.dominance.edgeDelta && d >= bestDecision() - policy.dominance.decisionDelta
+      }
+
+      const swapAt = (iHead, iTail) => {
+        const tmp = out[iHead]
+        out[iHead] = out[iTail]
+        out[iTail] = tmp
+      }
+
+      const pickTailCandidate = ({
+        wantFamily = null,
+        excludeFamily = null,
+        wantPlayType = null,
+        excludePlayType = null,
+        victimIdx,
+        edgeTolFromBest = policy.edgeTolFromBest,
+        decisionDegradeMax = policy.decisionDegradeMax
+      }) => {
+        const usedPlayers = playerSetInHead(victimIdx)
+        const be = bestEdge()
+        const victim = out[victimIdx]
+        const vD = Number.isFinite(victim?.decisionScore) ? victim.decisionScore : -999
+
+        let bestIdx = -1
+        let bestRow = null
+        for (let i = policy.windowSize; i < out.length; i++) {
+          const r = out[i]
+          const fam = String(r?.__family || "")
+          const pt = String(r?.playType || "")
+          if (wantFamily && fam !== wantFamily) continue
+          if (excludeFamily && fam === excludeFamily) continue
+          if (wantPlayType && pt !== wantPlayType) continue
+          if (excludePlayType && pt === excludePlayType) continue
+
+          const pk = String(r?.player || "").toLowerCase().trim()
+          if (!pk || usedPlayers.has(pk)) continue
+
+          const e = Number.isFinite(r?.edgeProbability) ? r.edgeProbability : -999
+          if (e < be - edgeTolFromBest) continue
+
+          const d = Number.isFinite(r?.decisionScore) ? r.decisionScore : -999
+          if (d < vD - decisionDegradeMax) continue
+
+          if (!bestRow || cmpBoardRows(r, bestRow) < 0) {
+            bestRow = r
+            bestIdx = i
+          }
+        }
+        return bestIdx
+      }
+
+      const diagnostics = {
+        policy: {
+          maxByFamily: policy.maxByFamily,
+          playTypeTarget: policy.playTypeTarget,
+          edgeTolFromBest: policy.edgeTolFromBest,
+          decisionDegradeMax: policy.decisionDegradeMax,
+          balanceEdgeTolFromBest: policy.balanceEdgeTolFromBest,
+          balanceDecisionDegradeMax: policy.balanceDecisionDegradeMax,
+          dominance: policy.dominance
+        },
+        swaps: {
+          familyCap: {},
+          playTypeBalance: {},
+          hrInclusion: 0
+        },
+        top10Before: null,
+        top10After: null
+      }
+
+      // Start from unique players in the window.
+      let shaped = enforceUniquePlayersInTopWindow(out, policy.windowSize)
+      for (let i = 0; i < out.length; i++) out[i] = shaped[i]
+      diagnostics.top10Before = head().map((r) => ({ fam: r?.__family, playType: r?.playType }))
+
+      const enforceFamilyCap = (familyKey, maxAllowed, replacementFamilyPreference = null) => {
+        const famCount = () =>
+          head().filter((r) => String(r?.__family || "") === familyKey).length
+
+        while (famCount() > maxAllowed) {
+          const victims = head()
+            .map((r, i) => ({ r, i }))
+            .filter(({ r }) => String(r?.__family || "") === familyKey)
+            // For hits, prefer stability/readability over letting “near-ties” dominate.
+            .filter(({ r }) => (familyKey === "hits" ? true : !isDominant(r)))
+            .sort((a, b) => cmpBoardRows(b.r, a.r)) // strongest first
+          const victim = victims[victims.length - 1]
+          if (!victim) break
+
+          // Prefer TB/RBI/Runs when trimming Hits; otherwise any non-dominant family.
+          let tailIdx = -1
+          if (replacementFamilyPreference) {
+            for (const wantFam of replacementFamilyPreference) {
+              tailIdx = pickTailCandidate({
+                wantFamily: wantFam,
+                victimIdx: victim.i,
+                edgeTolFromBest: policy.balanceEdgeTolFromBest,
+                decisionDegradeMax: policy.balanceDecisionDegradeMax
+              })
+              if (tailIdx >= 0) break
+            }
+          }
+          if (tailIdx < 0) {
+            tailIdx = pickTailCandidate({
+              excludeFamily: familyKey,
+              victimIdx: victim.i,
+              edgeTolFromBest: policy.balanceEdgeTolFromBest,
+              decisionDegradeMax: policy.balanceDecisionDegradeMax
+            })
+          }
+          if (tailIdx < 0) break
+
+          swapAt(victim.i, tailIdx)
+          diagnostics.swaps.familyCap[familyKey] = Number(diagnostics.swaps.familyCap[familyKey] || 0) + 1
+        }
+      }
+
+      const enforcePlayTypeMin = (playType, minWant) => {
+        const ptCount = () => head().filter((r) => String(r?.playType || "") === playType).length
+        while (ptCount() < minWant) {
+          // Replace the weakest row of an overrepresented playType (or just weakest non-matching row).
+          const counts = countBy((r) => String(r?.playType || ""))
+          const overTypes = Object.entries(counts)
+            .filter(([k, c]) => {
+              const tgt = policy.playTypeTarget[k]
+              return tgt && Number(c) > Number(tgt.max)
+            })
+            .map(([k]) => k)
+
+          const victimPool = head()
+            .map((r, i) => ({ r, i }))
+            .filter(({ r }) => String(r?.playType || "") !== playType)
+            .filter(({ r }) => !isDominant(r))
+            .sort((a, b) => cmpBoardRows(b.r, a.r))
+
+          let victim = victimPool[victimPool.length - 1] || null
+          if (overTypes.length) {
+            const v2 = victimPool.filter(({ r }) => overTypes.includes(String(r?.playType || "")))[0]
+            if (v2) victim = v2
+          }
+          if (!victim) break
+
+          const tailIdx = pickTailCandidate({
+            wantPlayType: playType,
+            victimIdx: victim.i,
+            edgeTolFromBest: policy.balanceEdgeTolFromBest,
+            decisionDegradeMax: policy.balanceDecisionDegradeMax
+          })
+          if (tailIdx < 0) break
+
+          swapAt(victim.i, tailIdx)
+          diagnostics.swaps.playTypeBalance[playType] = Number(diagnostics.swaps.playTypeBalance[playType] || 0) + 1
+        }
+      }
+
+      // 1) Family dominance control (prevents all-HR and all-Hits walls).
+      enforceFamilyCap("hr", policy.maxByFamily.hr, ["tb", "rbi", "runs"])
+      enforceFamilyCap("hits", policy.maxByFamily.hits, ["tb", "rbi", "runs"])
+      enforceFamilyCap("tb", policy.maxByFamily.tb, ["rbi", "runs", "hits"])
+
+      // 2) PlayType balance (keeps the board actionable).
+      enforcePlayTypeMin("boom", policy.playTypeTarget.boom.min)
+      enforcePlayTypeMin("value", policy.playTypeTarget.value.min)
+      enforcePlayTypeMin("safe", policy.playTypeTarget.safe.min)
+
+      // 3) Competitive HR inclusion rule:
+      // If no HR is present in the top 10, include 1 HR when there's a competitive candidate.
+      {
+        const hrInWindow = head().some((r) => String(r?.__family || "") === "hr" || String(r?.__family || "") === "first_hr")
+        if (!hrInWindow) {
+          const be = bestEdge()
+          const headRows = head()
+          const tailWorstD = Math.min(
+            ...headRows.map((r) => (Number.isFinite(r?.decisionScore) ? r.decisionScore : Infinity))
+          )
+
+          // find best competitive HR in tail
+          let bestHrIdx = -1
+          let bestHrRow = null
+          const usedPlayers = playerSetInHead(-1)
+          for (let i = policy.windowSize; i < out.length; i++) {
+            const r = out[i]
+            const fam = String(r?.__family || "")
+            if (!(fam === "hr" || fam === "first_hr")) continue
+            const pk = String(r?.player || "").toLowerCase().trim()
+            if (!pk || usedPlayers.has(pk)) continue
+            const e = Number.isFinite(r?.edgeProbability) ? r.edgeProbability : -999
+            const d = Number.isFinite(r?.decisionScore) ? r.decisionScore : -999
+            if (e < be - 0.085) continue
+            if (d < tailWorstD - 0.065) continue
+            if (!bestHrRow || cmpBoardRows(r, bestHrRow) < 0) {
+              bestHrRow = r
+              bestHrIdx = i
+            }
+          }
+
+          if (bestHrIdx >= 0) {
+            // swap with weakest non-dominant safe/hits (prefer trimming hits first)
+            const victim = headRows
+              .map((r, i) => ({ r, i }))
+              .filter(({ r }) => !isDominant(r))
+              .sort((a, b) => {
+                const famA = String(a.r?.__family || "")
+                const famB = String(b.r?.__family || "")
+                const pri = (fam) => (fam === "hits" ? 3 : fam === "tb" ? 2 : 1)
+                if (pri(famA) !== pri(famB)) return pri(famA) - pri(famB) // lower pri first = better victim
+                return cmpBoardRows(a.r, b.r)
+              })[0]
+
+            if (victim && victim.i != null) {
+              const vD = Number.isFinite(victim.r?.decisionScore) ? victim.r.decisionScore : -999
+              const cD = Number.isFinite(bestHrRow?.decisionScore) ? bestHrRow.decisionScore : -999
+              if (cD >= vD - 0.07) {
+                swapAt(victim.i, bestHrIdx)
+                diagnostics.swaps.hrInclusion += 1
+              }
+            }
+          }
+        }
+      }
+
+      // Re-apply uniqueness after swaps, and normalize head ordering.
+      shaped = enforceUniquePlayersInTopWindow(out, policy.windowSize)
+      for (let i = 0; i < out.length; i++) out[i] = shaped[i]
+      diagnostics.top10After = head().map((r) => ({ fam: r?.__family, playType: r?.playType }))
+
+      const finalHead = out.slice(0, policy.windowSize).sort(cmpBoardRows)
+      const merged = finalHead.concat(out.slice(policy.windowSize))
+
+      mlbDecisionBoardDiagnostics = mlbDecisionBoardDiagnostics && typeof mlbDecisionBoardDiagnostics === "object"
+        ? { ...mlbDecisionBoardDiagnostics, top10Policy: diagnostics }
+        : { top10Policy: diagnostics }
+
+      return merged
+    }
+
+    // === MLB lane-based decision board (stable top-10 policy) ===
+    // Replace ad hoc top-window shaping with explicit lanes.
+    {
+      const { board: laneTop10, diagnostics: laneDiagnostics } = buildMlbDecisionBoard(finalBoard, {
+        topN: 10,
+        power: 3,
+        safe: 3,
+        value: 3
+      })
+
+      const merged = [...laneTop10, ...finalBoard]
+      const seen = new Set()
+      const deduped = []
+      for (const r of merged) {
+        const key = String(r?.player || "").toLowerCase().trim()
+        if (!key) continue
+        if (seen.has(key)) continue
+        seen.add(key)
+        deduped.push(r)
+      }
+      finalBoard = deduped
+
+      mlbDecisionBoardDiagnostics = {
+        ...(mlbDecisionBoardDiagnostics && typeof mlbDecisionBoardDiagnostics === "object" ? mlbDecisionBoardDiagnostics : {}),
+        laneDecisionBoard: laneDiagnostics
+      }
+    }
+
+    // Minimal decision board diagnostics (for verification).
+    const top10 = finalBoard.slice(0, 10)
+    const scores = top10.map((r) => (Number.isFinite(r?.decisionScore) ? r.decisionScore : null)).filter((v) => v != null)
+    const minS = scores.length ? Math.min(...scores) : null
+    const maxS = scores.length ? Math.max(...scores) : null
+    const hrTop10 = top10.filter((r) => String(r?.__family || "") === "hr" || String(r?.__family || "") === "first_hr").length
+    const famCounts = top10.reduce((acc, r) => {
+      const fam = String(r?.__family || "other")
+      acc[fam] = Number(acc[fam] || 0) + 1
+      return acc
+    }, {})
+    mlbDecisionBoardDiagnostics = {
+      ...(mlbDecisionBoardDiagnostics && typeof mlbDecisionBoardDiagnostics === "object" ? mlbDecisionBoardDiagnostics : {}),
+      top10DecisionScoreRange: scores.length ? Number((maxS - minS).toFixed(6)) : null,
+      top10HrCount: hrTop10,
+      top10NonHrCount: top10.length - hrTop10,
+      top10FamilyMix: famCounts,
+      top10PlayTypeMix: top10.reduce((acc, r) => {
+        const k = String(r?.playType || "unknown")
+        acc[k] = Number(acc[k] || 0) + 1
+        return acc
+      }, {})
+    }
 
     return finalBoard.map((row, idx) => {
       const { __src, __family, __rank, ...rest } = row
       let teamOut = rest.team
       if (idx < 20 && (!teamOut || !String(teamOut).trim())) {
-        teamOut =
-          likelyTeamFromMatchupContext(__src || {}) ||
-          String(__src?.awayTeam || "").trim() ||
-          String(__src?.homeTeam || "").trim() ||
-          "TBD"
+        // Prefer correctness over forced mapping. If we can't confirm a team
+        // within the event context, keep a neutral placeholder instead of
+        // silently assigning away/home.
+        teamOut = "TBD"
+        teamResolutionDiagnostics.placeholderUsed += 1
       }
 
       return {
@@ -12541,6 +13002,8 @@ app.get("/api/best-available", (req, res) => {
           ? mergedBestAvailableDiagnostics
           : {}),
         nbaRowStateDist: typeof nbaRowStateDistForPayload === "object" ? nbaRowStateDistForPayload : null,
+        mlbTeamResolution: typeof teamResolutionDiagnostics === "object" ? teamResolutionDiagnostics : null,
+        mlbDecisionBoard: typeof mlbDecisionBoardDiagnostics === "object" ? mlbDecisionBoardDiagnostics : null,
         nbaCorePools: {
           bestPropsCountSnapshot: typeof bestPropsCountSnapshot === "number" ? bestPropsCountSnapshot : null,
           coreFallbackActivated: typeof coreFallbackActivated === "boolean" ? coreFallbackActivated : null,
@@ -17978,9 +18441,10 @@ function normalizePowerMarketBonus(row) {
 function getMlbSignalStrengthTag(signalScore) {
   const s = toNumberOrNull(signalScore)
   if (!Number.isFinite(s)) return "neutral"
-  if (s >= 0.78) return "elite power"
-  if (s >= 0.62) return "strong"
-  if (s >= 0.48) return "neutral"
+  // Narrow the neutral band to create more visible separation.
+  if (s >= 0.75) return "elite power"
+  if (s >= 0.6) return "strong"
+  if (s >= 0.42) return "neutral"
   return "weak"
 }
 

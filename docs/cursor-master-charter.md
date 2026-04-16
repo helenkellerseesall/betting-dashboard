@@ -72,6 +72,32 @@ ENGINEERING RULES:
 - Do not refactor unrelated areas
 - Do not introduce new systems unless required
 
+REPEATED BUG / SHARED-PATH FIX RULE (CRITICAL):
+- When an issue has already had one or more partial or failed fixes:
+  - Do NOT force a minimal line-edit patch
+  - Do NOT stop at the first plausible fix
+  - Do NOT return a theory-only explanation
+
+- Instead:
+  - Trace the full active execution path related to the issue
+  - Patch the smallest coherent system required to fully resolve the problem
+  - Ensure all connected breakpoints in that path are addressed in the same pass
+
+MANDATORY COMPLETION CRITERIA:
+- A fix is NOT complete unless:
+  - Live :4000 verification confirms the issue is resolved
+  - Target fields/outputs are correct and stable
+  - No fallback masking (e.g. "TBD", silent defaults) is hiding the issue
+
+- If verification fails:
+  - Continue tracing and patch again before stopping
+  - Do NOT return control with a partial fix
+
+INTENT:
+- Prevent repeated partial fixes and masked bugs
+- Enable faster resolution of shared-path issues
+- Maintain pipeline integrity and forward progress
+
 VERIFICATION RULES:
 Must verify on live :4000:
 - lane populations correct
@@ -115,4 +141,3 @@ thinBad:
 - do not over-patch
 - output best available plays only
 - prefer honest low-volume output over fake depth
-
