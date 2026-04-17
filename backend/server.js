@@ -13189,17 +13189,25 @@ app.get("/api/best-available", (req, res) => {
 
   const now = Date.now()
   function isGameBettable(row) {
-    const gameTime = new Date(row.gameTime || row.commence_time || 0).getTime()
+    const rawTime = row.gameTime || row.commence_time
+    const gameTime = rawTime ? new Date(rawTime).getTime() : null
+
+    console.log("[TIME DEBUG]", {
+      player: row.player,
+      rawTime,
+      parsedGameTime: gameTime,
+      now,
+      minutesSinceStart: gameTime ? (now - gameTime) / (1000 * 60) : null
+    })
 
     if (!gameTime) return false
 
+    // if game is in the future → ALWAYS allow
+    if (gameTime > now) return true
+
     const minutesSinceStart = (now - gameTime) / (1000 * 60)
 
-    // exclude games already started > 15 min ago
     if (minutesSinceStart > 15) return false
-
-    // exclude games that already ended (just in case)
-    if (minutesSinceStart > 300) return false
 
     return true
   }

@@ -1,5 +1,18 @@
 [
   {
+    "id": "c70995f4-98a2-4e05-aa7a-bc5944b0397d",
+    "date": "2026-04-17",
+    "player": "Jose Fernandez",
+    "team": "Arizona Diamondbacks",
+    "propType": "Home Runs",
+    "odds": 525,
+    "stake": 10,
+    "edge": 0.228604,
+    "playType": "boom",
+    "result": null,
+    "payout": null
+  },
+  {
     "id": "b2ae210d-81d7-4e63-83d8-f60fd8261725",
     "date": "2026-04-17",
     "player": "Will Benson",
