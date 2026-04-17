@@ -1,5 +1,18 @@
 [
   {
+    "id": "c72ae4d8-ee11-4d0d-9bf6-5168a89d1b1d",
+    "date": "2026-04-17",
+    "player": "Jose Ramirez",
+    "team": "Cleveland Guardians",
+    "propType": "Total Bases",
+    "odds": 650,
+    "stake": 10,
+    "edge": 0.198524,
+    "playType": "boom",
+    "result": null,
+    "payout": null
+  },
+  {
     "id": "49edc9eb-a36d-4fba-a715-41edb754167e",
     "date": "2026-04-17",
     "player": "Samuel Basallo",

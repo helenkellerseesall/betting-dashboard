@@ -46,6 +46,11 @@ const { buildMlbBetSelector } = require("./pipeline/mlb/buildMlbBetSelector")
 const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
 const { buildMlbOomphEngine } = require("./pipeline/mlb/buildMlbOomphEngine")
 const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
+const {
+  buildMlbCorrelationClusters,
+  buildMlbUpsideClusters,
+  isHighUpsideRow: isMlbHighUpsideRow
+} = require("./pipeline/mlb/buildMlbCorrelationEngine")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
 
@@ -102,6 +107,8 @@ let mlbPicks = { safeCore: [], valueCore: [], powerCore: [] }
 let mlbSlips = []
 let mlbOomphSlips = null
 let mlbSpikePlayers = { spikePlayers: [] }
+let mlbCorrelationClusters = []
+let mlbUpsideClusters = []
 
 // MLB line movement tracker (in-memory across refreshes).
 // Keyed by a stable leg signature so we can compute openingOdds + movement
@@ -13140,6 +13147,7 @@ app.get("/api/best-available", (req, res) => {
     }
 
     const exported = finalBoard.map((row, idx) => {
+      const isHighUpside = Boolean(isMlbHighUpsideRow(row))
       const { __src, __family, __rank, ...rest } = row
       let teamOut = rest.team
       if (idx < 20 && (!teamOut || !String(teamOut).trim())) {
@@ -13153,7 +13161,9 @@ app.get("/api/best-available", (req, res) => {
       return {
         ...rest,
         team: teamOut,
+        side: __src?.side ?? rest.side ?? null,
         eventId: __src?.eventId ?? rest.eventId ?? null,
+        isHighUpside,
         // Preserve new matchup context object as `matchup`; keep the old text label separately.
         matchupLabel: __src?.matchup ?? (typeof rest.matchup === "string" ? rest.matchup : null),
         awayTeam: __src?.awayTeam ?? rest.awayTeam ?? null,
@@ -13212,6 +13222,18 @@ app.get("/api/best-available", (req, res) => {
     mlbSpikePlayers = { spikePlayers: [] }
   }
 
+  try {
+    mlbCorrelationClusters = buildMlbCorrelationClusters(mlbPredictionBoard, { maxClusters: 10, maxLegs: 3 })
+  } catch {
+    mlbCorrelationClusters = []
+  }
+
+  try {
+    mlbUpsideClusters = buildMlbUpsideClusters(mlbPredictionBoard, { maxClusters: 10, maxLegs: 4, minUpsideLegs: 2 })
+  } catch {
+    mlbUpsideClusters = []
+  }
+
   // FINAL sanitize step (must be last mutation before response):
   // ensure no invalid rows leak into bestAvailable payload.
   const mlbPredictionBoardFinal = (Array.isArray(mlbPredictionBoard) ? mlbPredictionBoard : []).filter((row) =>
@@ -13237,6 +13259,8 @@ app.get("/api/best-available", (req, res) => {
       lotto,
       slateMode: nbaRowQualityAudit?.slateMode || null,
       mlbPredictionBoard: mlbPredictionBoardFinal,
+      mlbCorrelationClusters: Array.isArray(mlbCorrelationClusters) ? mlbCorrelationClusters : [],
+      mlbUpsideClusters: Array.isArray(mlbUpsideClusters) ? mlbUpsideClusters : [],
       longshotTop: nbaSurfacedLongshotTop,
       safePairTop: nbaSurfacedSafePairTop,
       superstarCeilingBoard,
