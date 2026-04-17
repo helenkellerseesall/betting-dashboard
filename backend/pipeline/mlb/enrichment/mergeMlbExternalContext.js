@@ -110,9 +110,120 @@ function buildMlbEnrichmentDiagnostics(rows) {
   }
 }
 
+const cleanName = (name) =>
+  String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")
+
+const isNameMatch = (a, b) => {
+  const nameA = cleanName(a)
+  const nameB = cleanName(b)
+
+  if (!nameA || !nameB) return false
+
+  // exact
+  if (nameA === nameB) return true
+
+  // substring
+  if (nameA.includes(nameB) || nameB.includes(nameA)) return true
+
+  // first + last name match (tokenize raw strings; cleanName strips spaces)
+  const rawA = String(a || "").trim().split(/\s+/).filter(Boolean)
+  const rawB = String(b || "").trim().split(/\s+/).filter(Boolean)
+  const partsA = rawA.map((t) => cleanName(t)).filter(Boolean)
+  const partsB = rawB.map((t) => cleanName(t)).filter(Boolean)
+
+  const firstA = partsA[0]
+  const lastA = partsA[partsA.length - 1]
+
+  const firstB = partsB[0]
+  const lastB = partsB[partsB.length - 1]
+
+  if (firstA && lastA && firstB && lastB && firstA === firstB && lastA === lastB) return true
+
+  return false
+}
+
+function lineupPositionFromExternalPlayer(p) {
+  if (!p || typeof p !== "object") return null
+  if (Number.isFinite(Number(p.lineupPosition))) {
+    const lp = Number(p.lineupPosition)
+    if (lp >= 1 && lp <= 9) return lp
+  }
+  const raw = Number(p.battingOrderIndex)
+  if (!Number.isFinite(raw) || raw <= 0) return null
+  const normalized = raw > 20 ? Math.floor(raw / 100) : raw
+  if (Number.isFinite(normalized) && normalized >= 1 && normalized <= 9) return normalized
+  return null
+}
+
+function buildExternalLineupIndexForEvent({ playersByEventId, eventId }) {
+  const players = Array.isArray(playersByEventId?.[eventId]) ? playersByEventId[eventId] : []
+  const byId = {}
+
+  for (const p of players) {
+    const id = String(p?.playerIdExternal ?? p?.playerId ?? "").trim()
+    const lp = lineupPositionFromExternalPlayer(p)
+    if (id && lp != null) byId[id] = { ...p, lineupPosition: lp }
+  }
+
+  return { byId, players }
+}
+
+function resolveLineupPositionFromExternal({ row, identity, externalIndex }) {
+  let lineupPosition = null
+
+  const idCandidates = [
+    String(identity?.playerIdExternal || "").trim(),
+    String(row?.playerIdExternal || "").trim(),
+    String(row?.__src?.playerIdExternal || "").trim()
+  ].filter(Boolean)
+
+  for (const id of idCandidates) {
+    if (externalIndex.byId[id]) {
+      lineupPosition = lineupPositionFromExternalPlayer(externalIndex.byId[id])
+      if (lineupPosition != null) return lineupPosition
+    }
+  }
+
+  const externalPlayers = (externalIndex.players || []).filter(
+    (p) => lineupPositionFromExternalPlayer(p) != null
+  )
+  const matches = externalPlayers.filter((p) =>
+    isNameMatch(p.name || p.playerName, row.player)
+  )
+  if (!matches.length) return null
+  if (matches.length === 1) return lineupPositionFromExternalPlayer(matches[0])
+
+  const teamNorm = cleanName(identity?.teamResolved || row?.teamResolved || row?.team || "")
+  if (teamNorm) {
+    const teamMatches = matches.filter((p) => {
+      const pt = cleanName(p?.teamResolved || p?.team || "")
+      return pt && (pt === teamNorm || pt.includes(teamNorm) || teamNorm.includes(pt))
+    })
+    if (teamMatches.length === 1) return lineupPositionFromExternalPlayer(teamMatches[0])
+    if (teamMatches.length > 0) return lineupPositionFromExternalPlayer(teamMatches[0])
+  }
+
+  return lineupPositionFromExternalPlayer(matches[0])
+}
+
 function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
   const safeRows = Array.isArray(rows) ? rows : []
   const normalizedExternalSnapshot = normalizeMlbExternalSnapshotShape(externalSnapshot)
+
+  console.log("[ENRICH INPUT SAMPLE]", safeRows.slice(0, 5).map((r) => ({
+    player: r.player,
+    eventId: r.eventId
+  })))
+
+  console.log("[LINEUP SOURCE SAMPLE]", Object.values(normalizedExternalSnapshot?.playersByEventId || {})?.[0]?.slice?.(0, 5))
+
+  const playersByEventId = normalizedExternalSnapshot?.playersByEventId || {}
+  const externalIndexByEventId = new Map()
+  for (const eventId of Object.keys(playersByEventId)) {
+    externalIndexByEventId.set(eventId, buildExternalLineupIndexForEvent({ playersByEventId, eventId }))
+  }
 
   const enrichedRows = safeRows.map((row) => {
     const identity = resolveMlbIdentityForRow({
@@ -134,6 +245,29 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
     const gameTotal = row?.gameTotal ?? eventCtx?.gameTotal ?? null
     const impliedTeamTotal = row?.impliedTeamTotal ?? eventCtx?.impliedTeamTotal ?? null
 
+    const rawBattingOrder = Number(identity?.battingOrderIndex)
+    let lineupFromIdentity = null
+    if (Number.isFinite(rawBattingOrder) && rawBattingOrder > 0) {
+      const normalized =
+        rawBattingOrder > 20
+          ? Math.floor(rawBattingOrder / 100)
+          : rawBattingOrder
+      if (Number.isFinite(normalized) && normalized >= 1 && normalized <= 9) {
+        lineupFromIdentity = normalized
+      }
+    }
+
+    let lineupFromExternal = null
+    if (eventIdKey) {
+      const externalIndex = externalIndexByEventId.get(eventIdKey)
+      if (externalIndex) {
+        lineupFromExternal = resolveLineupPositionFromExternal({ row, identity, externalIndex })
+      }
+    }
+
+    const lineupPosition =
+      lineupFromExternal != null ? lineupFromExternal : lineupFromIdentity
+
     return {
       ...row,
       playerKey: identity.playerKey,
@@ -144,7 +278,8 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       gameTotal,
       impliedTeamTotal,
       batterHand: identity?.batterHand ?? null,
-      battingOrderIndex: identity?.battingOrderIndex ?? null,
+      battingOrderIndex: lineupPosition ?? null,
+      lineupPosition: lineupPosition ?? null,
       opposingPitcher: pitcher?.playerName ?? null,
       pitcherHand: pitcher?.throws ?? null,
       playerIdExternal: identity.playerIdExternal,
@@ -152,6 +287,16 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       identitySource: identity.identitySource,
       unresolvedReason: identity.unresolvedReason || null
     }
+  })
+
+  console.log("[LINEUP MATCH RESULT]", enrichedRows.slice(0, 10).map((r) => ({
+    player: r.player,
+    lineupPosition: r.lineupPosition
+  })))
+
+  console.log("[MATCH SUCCESS RATE]", {
+    total: enrichedRows.length,
+    matched: enrichedRows.filter((r) => r.lineupPosition != null).length
   })
 
   return {

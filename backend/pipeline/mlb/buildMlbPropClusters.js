@@ -100,6 +100,36 @@ function computeHrClusterScore(row) {
   return Number(score) || 0
 }
 
+function computeRbiClusterScore(row) {
+  let score = 0
+
+  const predicted = Number(row?.predictedProbability || 0)
+  const edge = Number(row?.edgeProbability || 0)
+  const decision = Number(row?.decisionScore || 0)
+  const teamTotal = Number(row?.impliedTeamTotal || 0)
+  const lineup = Number(row?.lineupPosition || 9)
+  const platoon = row?.isPlatoonAdvantage ? 1 : 0
+  const odds = Number(row?.odds || 0)
+
+  score += predicted * 5
+  score += edge * 4
+  score += decision * 2
+
+  // RBI = VERY team dependent
+  score += teamTotal * 1.5
+
+  // lineup matters more here than HR
+  if (lineup <= 5) score += 2
+  if (lineup <= 3) score += 1
+
+  if (platoon) score += 1
+
+  // small odds bump
+  score += Math.min(odds / 200, 2)
+
+  return Number(score) || 0
+}
+
 function buildMlbPropClusters(rows, opts = {}) {
   if (!Array.isArray(rows)) {
     return {
@@ -236,14 +266,42 @@ function buildMlbPropClusters(rows, opts = {}) {
   })))
 
   // === RBI cluster (require impliedTeamTotal >= 4.5) ===
-  const rbiCluster = [...byBucket.rbi]
-    .filter((r) => {
-      const itt = toNum(r?.impliedTeamTotal)
-      return itt != null && itt >= 4.5
+  const rbiCluster = []
+  for (const row of byBucket.rbi) {
+    const itt = toNum(row?.impliedTeamTotal)
+    if (itt == null || itt < 4.5) continue
+
+    const rbiClusterScore = computeRbiClusterScore(row)
+    rbiCluster.push({
+      player: row?.player ?? null,
+      team: row?.team ?? null,
+      propType: row?.propType ?? null,
+      line: row?.line ?? null,
+      odds: row?.odds ?? null,
+      eventId: getEventId(row),
+      isHighUpside: Boolean(isHighUpsideRow(row, "rbi")),
+      rbiClusterScore,
+      predictedProbability: row?.predictedProbability ?? null,
+      edgeProbability: row?.edgeProbability ?? null,
+      impliedTeamTotal: row?.impliedTeamTotal ?? null,
+      lineupPosition: row?.lineupPosition ?? null,
+      isPlatoonAdvantage: row?.isPlatoonAdvantage ?? null
     })
-    .sort(sortByProbThenOddsDesc)
-    .slice(0, rbiTarget)
-    .map((r) => projectRow(r, "rbi"))
+  }
+
+  rbiCluster.sort((a, b) => {
+    return (b.rbiClusterScore || 0) - (a.rbiClusterScore || 0)
+  })
+
+  rbiCluster.splice(rbiTarget)
+
+  console.log("[RBI CLUSTER DEBUG]", rbiCluster.slice(0, 10).map((r) => ({
+    player: r.player,
+    odds: r.odds,
+    score: r.rbiClusterScore,
+    teamTotal: r.impliedTeamTotal,
+    lineup: r.lineupPosition
+  })))
 
   // === TB cluster (prefer line >= 3.5) ===
   const tbSorted = [...byBucket.tb].sort((a, b) => {

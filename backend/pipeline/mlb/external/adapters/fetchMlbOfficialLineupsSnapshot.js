@@ -141,7 +141,14 @@ function extractLineupPlayersFromFeed(teamBoxscore, teamName) {
     }
     inferred.sort((a, b) => a.n - b.n)
     for (let i = 0; i < Math.min(9, inferred.length); i++) {
-      pushCandidate(inferred[i].player, i + 1)
+      const order = Number(inferred[i]?.n || 0)
+      const lineupPosition = order > 0 ? Math.floor(order / 100) : null
+      const idxFallback = i + 1
+      const orderIndex =
+        Number.isFinite(lineupPosition) && lineupPosition >= 1 && lineupPosition <= 9
+          ? lineupPosition
+          : idxFallback
+      pushCandidate(inferred[i].player, orderIndex)
     }
   }
 

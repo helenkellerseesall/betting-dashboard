@@ -12350,7 +12350,19 @@ app.get("/api/best-available", (req, res) => {
         const gameTotal = row?.gameTotal ?? null
         const impliedTeamTotal = row?.impliedTeamTotal ?? null
         const parkFactor = row?.parkFactor ?? null
-        const lineupPosition = Number.isFinite(Number(row?.battingOrderIndex)) ? Number(row.battingOrderIndex) : null
+        const lineupPosition =
+          Number(row?.lineupPosition) ||
+          Number(row?.battingOrderIndex) ||
+          null
+
+        if (lineupPosition === 0) {
+          console.log("[FINAL LINEUP CHECK]", {
+            player: row?.player,
+            raw: row?.lineupPosition,
+            battingIndex: row?.battingOrderIndex,
+            final: lineupPosition
+          })
+        }
         if (teamRes.team) {
           if (String(teamRes.teamSource) === "matchup-ambiguous") teamResolutionDiagnostics.matchupAmbiguousLabelUsed += 1
           else if (Number(teamRes.teamConfidence) >= 0.7) teamResolutionDiagnostics.confidentlyResolved += 1
@@ -13175,6 +13187,30 @@ app.get("/api/best-available", (req, res) => {
     return exported.filter(isValidMlbBoardExportRow)
   })()
 
+  const now = Date.now()
+  function isGameBettable(row) {
+    const gameTime = new Date(row.gameTime || row.commence_time || 0).getTime()
+
+    if (!gameTime) return false
+
+    const minutesSinceStart = (now - gameTime) / (1000 * 60)
+
+    // exclude games already started > 15 min ago
+    if (minutesSinceStart > 15) return false
+
+    // exclude games that already ended (just in case)
+    if (minutesSinceStart > 300) return false
+
+    return true
+  }
+
+  const bettableMlbBoard = (Array.isArray(mlbPredictionBoard) ? mlbPredictionBoard : []).filter(isGameBettable)
+
+  console.log("[BETTABLE FILTER]", {
+    before: Array.isArray(mlbPredictionBoard) ? mlbPredictionBoard.length : 0,
+    after: bettableMlbBoard.length
+  })
+
   // Auto-log MLB top-10 picks as bets (idempotent by player+prop+date).
   ;(async () => {
     try {
@@ -13224,13 +13260,13 @@ app.get("/api/best-available", (req, res) => {
   }
 
   try {
-    mlbCorrelationClusters = buildMlbCorrelationClusters(mlbPredictionBoard, { maxClusters: 10, maxLegs: 3 })
+    mlbCorrelationClusters = buildMlbCorrelationClusters(bettableMlbBoard, { maxClusters: 10, maxLegs: 3 })
   } catch {
     mlbCorrelationClusters = []
   }
 
   try {
-    mlbUpsideClusters = buildMlbUpsideClusters(mlbPredictionBoard, { maxClusters: 10, maxLegs: 4, minUpsideLegs: 2 })
+    mlbUpsideClusters = buildMlbUpsideClusters(bettableMlbBoard, { maxClusters: 10, maxLegs: 4, minUpsideLegs: 2 })
   } catch {
     mlbUpsideClusters = []
   }
@@ -13250,22 +13286,18 @@ app.get("/api/best-available", (req, res) => {
 
   let mlbPropClusters = {}
   try {
-    const safeBoard = Array.isArray(mlbPredictionBoardFinal)
-      ? mlbPredictionBoardFinal
-      : []
-
-    mlbPropClusters = buildMlbPropClusters(safeBoard)
+    mlbPropClusters = buildMlbPropClusters(bettableMlbBoard)
 
     console.log("[MLB PROP CLUSTERS DEBUG]", {
-      inputRows: safeBoard.length,
-      sampleRow: safeBoard[0],
+      inputRows: bettableMlbBoard.length,
+      sampleRow: bettableMlbBoard[0],
       hr: Array.isArray(mlbPropClusters?.hrCluster) ? mlbPropClusters.hrCluster.length : 0,
       rbi: Array.isArray(mlbPropClusters?.rbiCluster) ? mlbPropClusters.rbiCluster.length : 0,
       tb: Array.isArray(mlbPropClusters?.tbCluster) ? mlbPropClusters.tbCluster.length : 0,
       hits: Array.isArray(mlbPropClusters?.hitsCluster) ? mlbPropClusters.hitsCluster.length : 0
     })
 
-    if (safeBoard.length === 0) {
+    if (bettableMlbBoard.length === 0) {
       console.log("[MLB PROP CLUSTERS ERROR] EMPTY INPUT BOARD")
     } else {
       const hrLen = Array.isArray(mlbPropClusters?.hrCluster) ? mlbPropClusters.hrCluster.length : 0
@@ -13275,7 +13307,7 @@ app.get("/api/best-available", (req, res) => {
 
       if (hrLen === 0 && rbiLen === 0 && tbLen === 0 && hitsLen === 0) {
         console.log("[PROP TYPE DISTRIBUTION]",
-          safeBoard.map((r) => r?.propType).slice(0, 50)
+          bettableMlbBoard.map((r) => r?.propType).slice(0, 50)
         )
       }
     }
