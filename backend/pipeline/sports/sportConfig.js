@@ -65,34 +65,31 @@ const SPORT_CONFIG = {
     label: "MLB",
     activeBooks: ["DraftKings", "FanDuel"],
     baseMarkets: [
+      // PITCHERS (exact keys)
+      "pitcher_strikeouts",
+      "pitcher_outs",
+      "pitcher_earned_runs",
+      "pitcher_walks",
+
+      // HITTERS (exact keys)
       "batter_hits",
       "batter_total_bases",
-      "batter_home_runs",
       "batter_rbis",
-      "batter_rbi",
-      "player_rbis",
-      "player_runs_batted_in",
-      "batter_walks",
-      "player_runs_scored",
-      "player_runs",
-      "batter_runs",
-      "pitcher_strikeouts",
-      "pitcher_hits_allowed",
-      "pitcher_earned_runs",
-      "pitcher_outs"
+      "batter_runs_scored",
+
+      // SPECIALS (exact keys)
+      "batter_stolen_bases",
+
+      // Retain working HR market (explicitly requested)
+      "batter_home_runs"
     ],
     extraMarkets: [
+      // ALT / LADDER MARKETS (exact keys)
       "batter_hits_alternate",
       "batter_total_bases_alternate",
-      "pitcher_strikeouts_alternate",
-      "batter_runs_scored",
-      "batter_runs_alternate",
-      "batter_rbi_alternate",
       "batter_rbis_alternate",
-      "player_runs_scored",
-      "player_runs_batted_in",
-      "batter_strikeouts",
-      "pitcher_walks",
+
+      // Keep existing special if available (already wired elsewhere)
       "batter_first_home_run"
     ],
     specialMarketKeys: new Set([

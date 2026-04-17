@@ -66,6 +66,20 @@ let lastForceRefreshAt = null
 
 const ENABLE_DISK_SNAPSHOT_LOAD = String(process.env.ENABLE_DISK_SNAPSHOT_LOAD || "false").toLowerCase() === "true"
 
+function sanitizeSnapshotRows(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((r) =>
+    r &&
+    typeof r.propType === "string" &&
+    r.propType !== "0" &&
+    typeof r.team === "string" &&
+    r.team !== "0" &&
+    Number.isFinite(Number(r.odds)) &&
+    Number(r.odds) !== 0 &&
+    Number.isFinite(Number(r.line)) &&
+    Number(r.line) !== 0
+  )
+}
+
 let oddsSnapshot = {
   updatedAt: null,
   events: [],
@@ -12026,6 +12040,11 @@ app.get("/api/best-available", (req, res) => {
       if (mk.includes("home_run") || mk.includes("home_runs") || mk.includes("to_hit_home_run") || pt.includes("home run")) {
         return "hr"
       }
+      if (mk.includes("stolen_bases") || pt.includes("stolen bases")) return "stolen_bases"
+      if (mk.includes("pitcher_strikeouts") || pt === "strikeouts") return "pitcher_k"
+      if (mk.includes("pitcher_outs") || pt === "outs") return "pitcher_outs"
+      if (mk.includes("pitcher_earned_runs") || pt === "earned runs") return "pitcher_er"
+      if (mk.includes("pitcher_walks") || pt === "walks") return "pitcher_walks"
       if (mk.includes("total_bases") || pt.includes("total bases")) return "tb"
       if (mk.includes("hits") || pt.includes("hits")) return "hits"
       if (mk.includes("rbi") || pt.includes("rbi")) return "rbi"
@@ -12073,6 +12092,9 @@ app.get("/api/best-available", (req, res) => {
       const odds = toNumberOrNull(row?.odds)
       if (fam === "hr" || fam === "first_hr") return "boom"
       if (fam === "tb" && Number.isFinite(odds) && odds >= 350) return "boom"
+      if (fam === "stolen_bases") return "boom"
+      if (fam === "pitcher_k" || fam === "pitcher_outs") return "safe"
+      if (fam === "pitcher_er" || fam === "pitcher_walks") return "value"
       if (fam === "hits") return "safe"
       return "value"
     }
@@ -12114,7 +12136,6 @@ app.get("/api/best-available", (req, res) => {
 
     const isBoardCandidateRow = (row) => {
       if (!row) return false
-      if (row?.isPitcherMarket === true) return false
       if (!String(row?.player || "").trim()) return false
       if (!String(row?.propType || "").trim()) return false
       if (row?.odds == null) return false
@@ -12210,6 +12231,13 @@ app.get("/api/best-available", (req, res) => {
     const candidates = rows
       .filter((row) => isBoardCandidateRow(row))
       .map((row) => {
+        // Source-level invalid row guard: never admit poison rows into the board.
+        // (Keep final sanitize too, but prevent bad rows from being created/appended.)
+        if (row?.propType === 0 || String(row?.propType || "").trim() === "0") return null
+        if (row?.team === 0 || String(row?.team || "").trim() === "0") return null
+        if (row?.odds === 0 || (Number.isFinite(Number(row?.odds)) && Number(row.odds) === 0)) return null
+        if (row?.line === 0 || (Number.isFinite(Number(row?.line)) && Number(row.line) === 0)) return null
+
         const impliedProbability =
           row?.impliedProbability != null ? Number(row.impliedProbability) : null
         const predictedProbability =
@@ -12244,6 +12272,8 @@ app.get("/api/best-available", (req, res) => {
           teamConfidence: teamRes.teamConfidence,
           teamSource: teamRes.teamSource,
           propType: row?.propType || null,
+          marketKey: row?.marketKey || null,
+          line: row?.line ?? null,
           odds: row?.odds ?? null,
           predictedProbability: Number.isFinite(predictedProbability) ? predictedProbability : null,
           impliedProbability: Number.isFinite(impliedProbability) ? impliedProbability : null,
@@ -12257,7 +12287,7 @@ app.get("/api/best-available", (req, res) => {
           __rank: compositeRankScore(row)
         }
       })
-      .filter((row) => row.player && row.propType && row.odds != null)
+      .filter((row) => row && row.player && row.propType && row.odds != null)
 
     // Dedupe: keep strongest row per player within the same surfaced prop family.
     // (Prevents alt-line / ladder spam within TB/Hits/etc before family-capped board selection.)
@@ -12935,6 +12965,32 @@ app.get("/api/best-available", (req, res) => {
       }
     }
 
+    // Ensure newly ingested markets (pitchers, specials) are represented in the surfaced board.
+    // This is inclusion-only: it appends the best available row per family when missing.
+    {
+      const wantFamilies = ["pitcher_k", "pitcher_outs", "pitcher_er", "pitcher_walks", "stolen_bases"]
+      const present = new Set(finalBoard.map((r) => String(r?.__family || "")))
+      const usedPlayers = new Set(finalBoard.map((r) => String(r?.player || "").toLowerCase().trim()).filter(Boolean))
+
+      const picks = []
+      for (const fam of wantFamilies) {
+        if (present.has(fam)) continue
+        const candidate = ranked.find((r) => {
+          if (String(r?.__family || "") !== fam) return false
+          const pk = String(r?.player || "").toLowerCase().trim()
+          if (!pk || usedPlayers.has(pk)) return false
+          const side = String(r?.__src?.side || "").trim().toLowerCase()
+          return side === "over" || side === "yes"
+        })
+        if (candidate) {
+          picks.push(candidate)
+          usedPlayers.add(String(candidate?.player || "").toLowerCase().trim())
+          present.add(fam)
+        }
+      }
+      if (picks.length) finalBoard = finalBoard.concat(picks)
+    }
+
     // Minimal decision board diagnostics (for verification).
     const top10 = finalBoard.slice(0, 10)
     const scores = top10.map((r) => (Number.isFinite(r?.decisionScore) ? r.decisionScore : null)).filter((v) => v != null)
@@ -12959,7 +13015,23 @@ app.get("/api/best-available", (req, res) => {
       }, {})
     }
 
-    return finalBoard.map((row, idx) => {
+    const isValidMlbBoardExportRow = (row) => {
+      if (!row || typeof row !== "object") return false
+      const propType = row?.propType
+      if (typeof propType !== "string") return false
+      if (!propType.trim() || propType.trim() === "0") return false
+      const player = String(row?.player || "").trim()
+      if (!player) return false
+      const team = String(row?.team || "").trim()
+      if (!team || team === "0") return false
+      const odds = Number(row?.odds)
+      if (!Number.isFinite(odds) || odds === 0) return false
+      const line = Number(row?.line)
+      if (!Number.isFinite(line) || line === 0) return false
+      return true
+    }
+
+    const exported = finalBoard.map((row, idx) => {
       const { __src, __family, __rank, ...rest } = row
       let teamOut = rest.team
       if (idx < 20 && (!teamOut || !String(teamOut).trim())) {
@@ -12979,6 +13051,8 @@ app.get("/api/best-available", (req, res) => {
         homeTeam: __src?.homeTeam ?? rest.homeTeam ?? null
       }
     })
+    // Hard final sanitize: drop any invalid/zero rows before downstream consumers.
+    return exported.filter(isValidMlbBoardExportRow)
   })()
 
   // Auto-log MLB top-10 picks as bets (idempotent by player+prop+date).
@@ -13029,6 +13103,19 @@ app.get("/api/best-available", (req, res) => {
     mlbSpikePlayers = { spikePlayers: [] }
   }
 
+  // FINAL sanitize step (must be last mutation before response):
+  // ensure no invalid rows leak into bestAvailable payload.
+  const mlbPredictionBoardFinal = (Array.isArray(mlbPredictionBoard) ? mlbPredictionBoard : []).filter((row) =>
+    row &&
+    typeof row.propType === "string" &&
+    row.propType !== "0" &&
+    String(row.player || "").trim() &&
+    typeof row.team === "string" &&
+    String(row.team || "").trim() !== "0" &&
+    Number.isFinite(Number(row.odds)) && Number(row.odds) !== 0 &&
+    Number.isFinite(Number(row.line)) && Number(row.line) !== 0
+  )
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -13040,7 +13127,7 @@ app.get("/api/best-available", (req, res) => {
       aggressive,
       lotto,
       slateMode: nbaRowQualityAudit?.slateMode || null,
-      mlbPredictionBoard,
+      mlbPredictionBoard: mlbPredictionBoardFinal,
       longshotTop: nbaSurfacedLongshotTop,
       safePairTop: nbaSurfacedSafePairTop,
       superstarCeilingBoard,
@@ -25096,6 +25183,7 @@ bestProps = applyPersistentLineHistory(bestProps, previousBestPropsForHistory, l
 oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
 oddsSnapshot.rawProps = rawPropsRowsWithHistory
 oddsSnapshot.props = activeBookRawPropsRowsWithHistory
+oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props)
 oddsSnapshot.snapshotGeneratedAt = oddsSnapshot.updatedAt || null
 oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
 oddsSnapshot.snapshotSlateDateLocal = chosenSlateDateKey || (oddsSnapshot.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null)
@@ -25230,12 +25318,15 @@ console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   }))
 })
 oddsSnapshot.eliteProps = applyPersistentLineHistory(eliteCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
+oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps)
 logFunnelStage("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
 oddsSnapshot.strongProps = applyPersistentLineHistory(strongCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
+oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps)
 logFunnelStage("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
 oddsSnapshot.playableProps = applyPersistentLineHistory(playableCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
+oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps)
 logFunnelStage("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
 logPropStageByBookDebug("refresh-snapshot:afterTierAssignment", {
@@ -25339,6 +25430,7 @@ console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
     maxPerPlayerPropType: 1
   })
   oddsSnapshot.bestProps = dedupeByLegSignature(diversifiedFinal)
+  oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
   console.log("[BEST-PROPS-FINAL-DIVERSIFY]", {
     path: "refresh-snapshot",
     mode,
@@ -25403,6 +25495,7 @@ const refreshPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
 oddsSnapshot.bestProps = dedupeByLegSignature(
   Array.isArray(refreshPlayableFanDuelPromotion.rows) ? refreshPlayableFanDuelPromotion.rows : []
 )
+oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
 oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
 logBestStage("refresh-snapshot:afterBookBalance", refreshPlayableFanDuelPromotion.rows)
 console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
@@ -26849,6 +26942,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
     oddsSnapshot.rawProps = rawPropsRows
     oddsSnapshot.props = activeBookRawPropsRows
+    oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props)
     console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       targets: targetMissingEventStages.map((stage) => ({
@@ -26858,12 +26952,15 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }))
     })
     oddsSnapshot.eliteProps = eliteCapped.filter((row) => playerFitsMatchup(row))
+    oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps)
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
     oddsSnapshot.strongProps = strongCapped.filter((row) => playerFitsMatchup(row))
+    oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps)
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
     oddsSnapshot.playableProps = playableCapped.filter((row) => playerFitsMatchup(row))
+    oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps)
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
     logPropStageByBookDebug("refresh-snapshot-hard-reset:afterTierAssignment", {
@@ -26900,6 +26997,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     }
 
     oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
+    oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
     const hardResetBestPropsBookSoftFloor = Math.max(
       4,
       Math.min(10, Math.floor((Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0) * 0.3))

@@ -6,7 +6,8 @@ const { getSportConfig } = require("../sports/sportConfig")
 const { buildMlbSlateEvents } = require("../schedule/buildMlbSlateEvents")
 const {
   inferMlbMarketTypeFromKey,
-  isMlbPitcherMarketKey
+  isMlbPitcherMarketKey,
+  classifyMlbPropFamilyKey
 } = require("../markets/mlbClassification")
 const { buildPregameContext } = require("../context/pregameContext")
 const { mlbRowTeamMatchesMatchup } = require("../resolution/mlbTeamResolution")
@@ -372,6 +373,23 @@ function buildRowOutcomeName(outcome) {
   return description || name || ""
 }
 
+function canonicalizeMlbPropType(marketKey, internalType) {
+  const mk = String(marketKey || "").trim().toLowerCase()
+  const it = String(internalType || "").trim()
+  if (!it) return null
+
+  // Canonical pitcher prop labels (used downstream in bestProps displays).
+  if (mk.startsWith("pitcher_strikeouts")) return "Strikeouts"
+  if (mk.startsWith("pitcher_outs")) return "Outs"
+  if (mk.startsWith("pitcher_earned_runs")) return "Earned Runs"
+  if (mk.startsWith("pitcher_walks")) return "Walks"
+
+  // Canonical specials
+  if (mk.startsWith("batter_stolen_bases")) return "Stolen Bases"
+
+  return it
+}
+
 function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
   const bookmakers = Array.isArray(oddsPayload?.bookmakers) ? oddsPayload.bookmakers : []
   const matchup = String(event?.matchup || `${event?.away_team || event?.awayTeam || ""} @ ${event?.home_team || event?.homeTeam || ""}`).trim()
@@ -411,6 +429,20 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
 
         const side = normalizeSide(outcome?.name)
         const player = resolvePlayerName(outcome, side)
+        const odds = toNumberOrNull(outcome?.price)
+        const line = toNumberOrNull(outcome?.point)
+        const propType = canonicalizeMlbPropType(marketKey, inferred.internalType || null)
+
+        // Clean skipping rules (never break pipeline):
+        // - player must exist (otherwise can't be tracked/selected)
+        // - propType must be a non-empty string (avoid "0" or null)
+        // - odds must exist
+        // - for standard/ladder markets, line must exist (0.5/1.5/2.5 are valid)
+        if (!String(player || "").trim()) continue
+        if (!String(propType || "").trim() || String(propType).trim() === "0") continue
+        if (!Number.isFinite(Number(odds))) continue
+        if ((inferred.family === "standard" || inferred.family === "ladder") && !Number.isFinite(Number(line))) continue
+
         const row = {
           sport: "mlb",
           source: "odds-api-v4",
@@ -425,14 +457,15 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
           book,
           marketKey,
           marketFamily: inferred.family,
-          propType: inferred.internalType || null,
+          propType,
+          propFamilyKey: classifyMlbPropFamilyKey(marketKey, inferred.internalType || null),
           marketName: String(market?.name || marketKey || "").trim() || null,
 
           player,
           team: null,
           side,
-          line: toNumberOrNull(outcome?.point),
-          odds: toNumberOrNull(outcome?.price),
+          line,
+          odds,
           outcomeName: buildRowOutcomeName(outcome),
 
           isPitcherMarket: isMlbPitcherMarketKey(marketKey)

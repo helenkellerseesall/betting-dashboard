@@ -68,6 +68,17 @@ const MLB_MARKET_TYPE_RULES = [
     family: "special",
     matches: ["batter_first_hit", "first hit", "first_hit"]
   },
+  {
+    internalType: "Stolen Bases",
+    family: "special",
+    matches: [
+      "batter_stolen_bases",
+      "player_stolen_bases",
+      "stolen bases",
+      "stolen_bases",
+      "sb"
+    ]
+  },
 
   // --- Pitcher standard ---
   {
@@ -132,6 +143,36 @@ const MLB_MARKET_TYPE_RULES = [
       "player_pitcher_strikeouts_alternate",
       "pitcher strikeouts alternate",
       "alternate pitcher strikeouts"
+    ]
+  },
+  {
+    internalType: "Pitcher Walks Ladder",
+    family: "ladder",
+    matches: [
+      "pitcher_walks_alternate",
+      "player_pitcher_walks_alternate",
+      "pitcher walks alternate",
+      "alternate pitcher walks"
+    ]
+  },
+  {
+    internalType: "Pitcher Outs Ladder",
+    family: "ladder",
+    matches: [
+      "pitcher_outs_alternate",
+      "player_pitcher_outs_alternate",
+      "pitcher outs alternate",
+      "alternate pitcher outs"
+    ]
+  },
+  {
+    internalType: "Pitcher Earned Runs Ladder",
+    family: "ladder",
+    matches: [
+      "pitcher_earned_runs_alternate",
+      "player_pitcher_earned_runs_alternate",
+      "earned runs alternate",
+      "alternate earned runs"
     ]
   },
 
@@ -359,5 +400,26 @@ module.exports = {
   MLB_GAME_LINE_TYPES,
   inferMlbMarketTypeFromKey,
   isMlbPitcherMarketKey,
-  isMlbStandardBatterType
+  isMlbStandardBatterType,
+  // Lightweight prop-family key for downstream grouping/lanes (sport-agnostic output).
+  // This does NOT change any model scoring; it only provides a normalized label.
+  classifyMlbPropFamilyKey: (marketKey, internalType) => {
+    const mk = String(marketKey || "").toLowerCase()
+    const it = String(internalType || "").toLowerCase()
+
+    if (mk.includes("pitcher_strikeouts") || it.includes("pitcher strikeouts")) return "pitcher_k"
+    if (mk.includes("pitcher_outs") || it.includes("pitcher outs")) return "pitcher_outs"
+    if (mk.includes("pitcher_earned_runs") || it.includes("pitcher earned runs")) return "pitcher_er"
+    if (mk.includes("pitcher_walks") || it.includes("pitcher walks")) return "pitcher_walks"
+
+    if (mk.includes("batter_hits") || it === "hits" || it.includes("hits ladder")) return "hits"
+    if (mk.includes("batter_total_bases") || it === "total bases" || it.includes("total bases ladder")) return "total_bases"
+    if (mk.includes("batter_rbis") || it === "rbis") return "rbis"
+
+    if (mk.includes("batter_stolen_bases") || it === "stolen bases") return "special"
+    if (mk.includes("batter_home_runs") || it === "home runs") return "boom"
+    if (mk.includes("batter_first_home_run") || it === "first home run") return "special"
+
+    return "other"
+  }
 }
