@@ -63,6 +63,43 @@ function projectRow(row, bucket) {
   }
 }
 
+function computeHrClusterScore(row) {
+  const pred = toNum(row?.predictedProbability) ?? 0
+  const edge = toNum(row?.edgeProbability) ?? 0
+  const decision = toNum(row?.decisionScore) ?? 0
+  const itt = toNum(row?.impliedTeamTotal) ?? 0
+  const lineupPos = toNum(row?.lineupPosition)
+  const platoon = row?.isPlatoonAdvantage === true ? 1 : 0
+  const odds = toNum(row?.odds) ?? 0
+
+  // Normalize pieces into roughly comparable ranges.
+  const predScore = Math.max(0, Math.min(1, pred)) * 6.0
+  const edgeScore = Math.max(-0.08, Math.min(0.12, edge)) * 18.0 // -1.44..2.16
+  const decisionScore = Math.max(0, Math.min(1, decision)) * 3.0
+
+  // Environment: 4.0+ team total matters, but shouldn’t dominate.
+  const envScore = Math.max(0, Math.min(2.0, itt - 3.6)) * 1.25 // 0..2.5
+
+  // Lineup: prefer 1–5, then 6–7 mild, otherwise neutral.
+  let lineupScore = 0
+  if (Number.isFinite(lineupPos)) {
+    if (lineupPos >= 1 && lineupPos <= 5) lineupScore = 1.2
+    else if (lineupPos >= 6 && lineupPos <= 7) lineupScore = 0.5
+    else lineupScore = 0
+  }
+
+  const platoonScore = platoon ? 0.6 : 0
+
+  // Odds: upside matters, but must not dominate. Cap influence heavily.
+  const oddsBoost = Math.max(0, Math.min(1.0, (odds - 250) / 600)) * 0.9 // 0..0.9
+
+  // Light sanity: penalize extreme longshots unless supported by probability.
+  const longshotPenalty = (odds >= 800 && pred < 0.12) ? -0.8 : (odds >= 650 && pred < 0.1) ? -0.45 : 0
+
+  const score = predScore + edgeScore + decisionScore + envScore + lineupScore + platoonScore + oddsBoost + longshotPenalty
+  return Number(score) || 0
+}
+
 function buildMlbPropClusters(rows, opts = {}) {
   if (!Array.isArray(rows)) {
     return {
@@ -85,6 +122,7 @@ function buildMlbPropClusters(rows, opts = {}) {
   let total = 0
   let afterEvent = 0
   let afterType = 0
+  let hrCluster = []
 
   const base = (Array.isArray(rows) ? rows : []).filter((row) => {
     total += 1
@@ -100,7 +138,7 @@ function buildMlbPropClusters(rows, opts = {}) {
     if (!ev) return false
     afterEvent += 1
     if (isUnderSide(row)) return false
-    const isHR = propType.includes("homerun")
+    const isHR = propType.includes("homerun") || propType.includes("hr")
     const isRBI = propType.includes("rbi")
     const isTB = propType.includes("totalbase") || propType.includes("tb")
     const isHits = propType.includes("hit")
@@ -125,7 +163,7 @@ function buildMlbPropClusters(rows, opts = {}) {
     const rawPropType = String(row?.propType || "")
     const propType = rawPropType.toLowerCase().replace(/[^a-z]/g, "")
 
-    const isHR = propType.includes("homerun")
+    const isHR = propType.includes("homerun") || propType.includes("hr")
     const isRBI = propType.includes("rbi")
     const isTB = propType.includes("totalbase") || propType.includes("tb")
     const isHits = propType.includes("hit")
@@ -142,8 +180,60 @@ function buildMlbPropClusters(rows, opts = {}) {
   byBucket.tb = uniqByKey(byBucket.tb, dedupeKey)
   byBucket.hits = uniqByKey(byBucket.hits, dedupeKey)
 
-  // === HR cluster ===
-  const hrCluster = [...byBucket.hr].sort(sortByProbThenOddsDesc).slice(0, hrTarget).map((r) => projectRow(r, "hr"))
+  // === TRUE HR cluster (slate-wide; no team/game/side requirement) ===
+  for (const row of rows) {
+    const rawPropType = String(row?.propType || "")
+    const propType = rawPropType.toLowerCase().replace(/[^a-z]/g, "")
+    const isHR = propType.includes("homerun") || propType.includes("hr")
+    if (!isHR) continue
+
+    if (!String(row?.player || "").trim()) continue
+    const odds = Number(row?.odds)
+    if (!Number.isFinite(odds)) continue
+
+    const hrClusterScore = computeHrClusterScore(row)
+
+    hrCluster.push({
+      player: row.player,
+      team: row.team,
+      propType: row.propType,
+      line: row.line,
+      odds: row.odds,
+      eventId:
+        row.eventId ||
+        row.__src?.eventId ||
+        row.gameId ||
+        null,
+      isHighUpside: row.isHighUpside ?? (Number(row.odds) >= 300),
+      hrClusterScore,
+      predictedProbability: row.predictedProbability ?? null,
+      edgeProbability: row.edgeProbability ?? null,
+      impliedTeamTotal: row.impliedTeamTotal ?? null,
+      lineupPosition: row.lineupPosition ?? null,
+      isPlatoonAdvantage: row.isPlatoonAdvantage ?? null
+    })
+  }
+
+  hrCluster.sort((a, b) => {
+    return (b.hrClusterScore || 0) - (a.hrClusterScore || 0)
+  })
+
+  hrCluster = hrCluster.slice(0, 10)
+  console.log("[HR CLUSTER SIZE]", hrCluster.length)
+  console.log("[HR SCORE CHECK]", hrCluster.slice(0, 5).map((r) => ({
+    player: r.player,
+    score: r.hrClusterScore
+  })))
+  console.log("[HR CLUSTER DEBUG]", hrCluster.slice(0, 10).map((r) => ({
+    player: r.player,
+    odds: r.odds,
+    hrClusterScore: r.hrClusterScore,
+    predictedProbability: r.predictedProbability,
+    edgeProbability: r.edgeProbability,
+    impliedTeamTotal: r.impliedTeamTotal,
+    lineupPosition: r.lineupPosition,
+    isPlatoonAdvantage: r.isPlatoonAdvantage
+  })))
 
   // === RBI cluster (require impliedTeamTotal >= 4.5) ===
   const rbiCluster = [...byBucket.rbi]
@@ -176,10 +266,10 @@ function buildMlbPropClusters(rows, opts = {}) {
   console.log("[PROP TYPE SAMPLE]", rows.slice(0, 5).map((r) => r?.propType))
 
   return {
-    hrCluster,
-    rbiCluster,
-    tbCluster,
-    hitsCluster
+    hrCluster: hrCluster || [],
+    rbiCluster: rbiCluster || [],
+    tbCluster: tbCluster || [],
+    hitsCluster: hitsCluster || []
   }
 }
 
