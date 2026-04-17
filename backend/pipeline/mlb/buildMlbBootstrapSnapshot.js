@@ -794,6 +794,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     if (!eventId) continue
 
     try {
+      const startedAtMs = Date.now()
       let response
       let marketsUsed = marketRequestList
 
@@ -1014,6 +1015,19 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       totalBookmakersSeen += eventBookmakersSeen
       totalMarketsSeen += eventMarketsSeen
       totalOutcomesSeen += eventOutcomesSeen
+
+      if (eventRows.length === 0) {
+        console.log("[MLB-EVENT-ODDS-DEBUG]", {
+          eventId,
+          matchup: event?.matchup || null,
+          ms: Date.now() - startedAtMs,
+          bookmakersSeen: eventBookmakersSeen,
+          marketsSeen: eventMarketsSeen,
+          outcomesSeen: eventOutcomesSeen,
+          rowsProduced: eventRows.length,
+          payloadShape
+        })
+      }
     } catch (error) {
       failedEvents.push({
         eventId,
@@ -1164,6 +1178,19 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   })
 
   const summary = summarizeRows(enrichedRows)
+
+  console.log("[MLB PIPELINE DEBUG]", {
+    events: Array.isArray(scheduledEventsSafe) ? scheduledEventsSafe.length : 0,
+    props: Number(totalOutcomesSeen || 0),
+    rows: Array.isArray(rowsWithProbability) ? rowsWithProbability.length : 0,
+    rawOddsEvents: Array.isArray(rawOddsEvents) ? rawOddsEvents.length : 0,
+    totalBookmakersSeen,
+    totalMarketsSeen,
+    totalOutcomesSeen,
+    failedEvents: Array.isArray(failedEvents) ? failedEvents.length : 0,
+    payloadShapes: Array.isArray(payloadShapes) ? payloadShapes.length : 0,
+    samplePayloadShapes: Array.isArray(payloadShapes) ? payloadShapes.slice(0, 4) : []
+  })
 
   return {
     sport: "mlb",

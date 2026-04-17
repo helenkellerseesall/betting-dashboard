@@ -46,6 +46,7 @@ const { buildMlbBetSelector } = require("./pipeline/mlb/buildMlbBetSelector")
 const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
 const { buildMlbOomphEngine } = require("./pipeline/mlb/buildMlbOomphEngine")
 const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
+const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
 const {
   buildMlbCorrelationClusters,
   buildMlbUpsideClusters,
@@ -13247,6 +13248,48 @@ app.get("/api/best-available", (req, res) => {
     Number.isFinite(Number(row.line)) && Number(row.line) !== 0
   )
 
+  let mlbPropClusters = {}
+  try {
+    const safeBoard = Array.isArray(mlbPredictionBoardFinal)
+      ? mlbPredictionBoardFinal
+      : []
+
+    mlbPropClusters = buildMlbPropClusters(safeBoard)
+
+    console.log("[MLB PROP CLUSTERS DEBUG]", {
+      inputRows: safeBoard.length,
+      sampleRow: safeBoard[0],
+      hr: Array.isArray(mlbPropClusters?.hrCluster) ? mlbPropClusters.hrCluster.length : 0,
+      rbi: Array.isArray(mlbPropClusters?.rbiCluster) ? mlbPropClusters.rbiCluster.length : 0,
+      tb: Array.isArray(mlbPropClusters?.tbCluster) ? mlbPropClusters.tbCluster.length : 0,
+      hits: Array.isArray(mlbPropClusters?.hitsCluster) ? mlbPropClusters.hitsCluster.length : 0
+    })
+
+    if (safeBoard.length === 0) {
+      console.log("[MLB PROP CLUSTERS ERROR] EMPTY INPUT BOARD")
+    } else {
+      const hrLen = Array.isArray(mlbPropClusters?.hrCluster) ? mlbPropClusters.hrCluster.length : 0
+      const rbiLen = Array.isArray(mlbPropClusters?.rbiCluster) ? mlbPropClusters.rbiCluster.length : 0
+      const tbLen = Array.isArray(mlbPropClusters?.tbCluster) ? mlbPropClusters.tbCluster.length : 0
+      const hitsLen = Array.isArray(mlbPropClusters?.hitsCluster) ? mlbPropClusters.hitsCluster.length : 0
+
+      if (hrLen === 0 && rbiLen === 0 && tbLen === 0 && hitsLen === 0) {
+        console.log("[PROP TYPE DISTRIBUTION]",
+          safeBoard.map((r) => r?.propType).slice(0, 50)
+        )
+      }
+    }
+
+  } catch (e) {
+    console.log("[MLB PROP CLUSTERS ERROR]", e.message)
+    mlbPropClusters = {
+      hrCluster: [],
+      rbiCluster: [],
+      tbCluster: [],
+      hitsCluster: []
+    }
+  }
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -13261,6 +13304,7 @@ app.get("/api/best-available", (req, res) => {
       mlbPredictionBoard: mlbPredictionBoardFinal,
       mlbCorrelationClusters: Array.isArray(mlbCorrelationClusters) ? mlbCorrelationClusters : [],
       mlbUpsideClusters: Array.isArray(mlbUpsideClusters) ? mlbUpsideClusters : [],
+      mlbPropClusters: mlbPropClusters || {},
       longshotTop: nbaSurfacedLongshotTop,
       safePairTop: nbaSurfacedSafePairTop,
       superstarCeilingBoard,
