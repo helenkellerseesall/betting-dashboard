@@ -78,10 +78,14 @@ function toProbablePitcher(person, source) {
   const playerName = String(person?.fullName || person?.name || "").trim()
   if (!playerName) return null
 
+  const rawPitchHand = String(person?.pitchHand?.code || person?.pitchHand || "").trim().toUpperCase()
+  const throwsHand = rawPitchHand === "L" || rawPitchHand === "R" ? rawPitchHand : null
+
   return {
     playerName,
     playerIdExternal: person?.id ?? null,
     playerKey: normalizeMlbPlayerKey(playerName),
+    throws: throwsHand,
     source
   }
 }
@@ -97,6 +101,10 @@ function extractLineupPlayersFromFeed(teamBoxscore, teamName) {
     const person = ensureObject(safePlayer?.person)
     const playerName = String(person?.fullName || safePlayer?.name || "").trim()
     if (!playerName) return
+    const rawBatSide = String(safePlayer?.batSide?.code || safePlayer?.batSide || "").trim().toUpperCase()
+    const batterHand = rawBatSide === "L" || rawBatSide === "R" ? rawBatSide : null
+    const rawPitchHand = String(safePlayer?.pitchHand?.code || safePlayer?.pitchHand || "").trim().toUpperCase()
+    const pitcherHand = rawPitchHand === "L" || rawPitchHand === "R" ? rawPitchHand : null
     out.push({
       playerIdExternal: person?.id ?? null,
       playerName,
@@ -104,6 +112,8 @@ function extractLineupPlayersFromFeed(teamBoxscore, teamName) {
       teamResolved: String(teamName || "").trim() || null,
       teamCode: resolveTeamCode(teamName || "") || null,
       battingOrderIndex: Number.isFinite(orderIndex) ? orderIndex : out.length + 1,
+      batterHand,
+      pitcherHand,
       source: "mlb-official-lineup-feed"
     })
   }
@@ -184,11 +194,22 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
     if (!eventId) continue
     const awayTeam = toTeamFromEvent(event, "away")
     const homeTeam = toTeamFromEvent(event, "home")
-    const dateKey = toUtcDateKey(event?.gameTime || event?.commence_time)
+    const eventTime = event?.gameTime || event?.commence_time
+    const dateKey = toUtcDateKey(eventTime)
     if (!dateKey) continue
 
+    const dt = new Date(eventTime)
+    const prevKey = toUtcDateKey(dt.getTime() - 24 * 60 * 60 * 1000)
+    const nextKey = toUtcDateKey(dt.getTime() + 24 * 60 * 60 * 1000)
+
     requestDateKeys.add(dateKey)
+    if (prevKey) requestDateKeys.add(prevKey)
+    if (nextKey) requestDateKeys.add(nextKey)
+
+    // Primary (exact) match key, plus +/-1 day fallbacks for timezone/overnight slates.
     eventByMatchKey.set(buildMatchKey(awayTeam, homeTeam, dateKey), { eventId, awayTeam, homeTeam, dateKey })
+    if (prevKey) eventByMatchKey.set(buildMatchKey(awayTeam, homeTeam, prevKey), { eventId, awayTeam, homeTeam, dateKey: prevKey })
+    if (nextKey) eventByMatchKey.set(buildMatchKey(awayTeam, homeTeam, nextKey), { eventId, awayTeam, homeTeam, dateKey: nextKey })
   }
 
   const scheduleByMatchKey = new Map()
@@ -213,6 +234,18 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
     }
   }
 
+  // Team-only fallback: if date keys disagree, we can still pick the closest scheduled game.
+  const scheduleByTeamsKey = new Map()
+  for (const game of scheduleByMatchKey.values()) {
+    const teamsKey = [
+      normalizeMlbText(game?.teams?.away?.team?.name),
+      normalizeMlbText(game?.teams?.home?.team?.name)
+    ].join("|")
+    if (!teamsKey || teamsKey === "|") continue
+    if (!Array.isArray(scheduleByTeamsKey.get(teamsKey))) scheduleByTeamsKey.set(teamsKey, [])
+    scheduleByTeamsKey.get(teamsKey).push(game)
+  }
+
   for (const event of safeEvents) {
     const eventId = toEventId(event)
     if (!eventId) continue
@@ -223,7 +256,32 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
       toUtcDateKey(event?.gameTime || event?.commence_time)
     )
 
-    const scheduleGame = scheduleByMatchKey.get(matchKey)
+    let scheduleGame = scheduleByMatchKey.get(matchKey)
+    if (!scheduleGame) {
+      const teamsKey = [
+        normalizeMlbText(toTeamFromEvent(event, "away")),
+        normalizeMlbText(toTeamFromEvent(event, "home"))
+      ].join("|")
+      const candidates = scheduleByTeamsKey.get(teamsKey) || []
+      if (candidates.length > 0) {
+        const eventTs = new Date(event?.gameTime || event?.commence_time).getTime()
+        let best = null
+        let bestDelta = Infinity
+        for (const g of candidates) {
+          const gts = new Date(g?.gameDate).getTime()
+          if (!Number.isFinite(gts) || !Number.isFinite(eventTs)) continue
+          const delta = Math.abs(gts - eventTs)
+          if (delta < bestDelta) {
+            bestDelta = delta
+            best = g
+          }
+        }
+        // Only accept if the scheduled start time is reasonably close (handles midnight UTC flips).
+        if (best && bestDelta <= 36 * 60 * 60 * 1000) {
+          scheduleGame = best
+        }
+      }
+    }
     if (!scheduleGame) continue
     scheduleGamesMatchedToSlate += 1
 
@@ -237,23 +295,73 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
       const awayTeamName = String(scheduleGame?.teams?.away?.team?.name || toTeamFromEvent(event, "away") || "").trim() || null
       const homeTeamName = String(scheduleGame?.teams?.home?.team?.name || toTeamFromEvent(event, "home") || "").trim() || null
 
-      const awayProbable = toProbablePitcher(scheduleGame?.teams?.away?.probablePitcher, "mlb-official-schedule-probable")
-      const homeProbable = toProbablePitcher(scheduleGame?.teams?.home?.probablePitcher, "mlb-official-schedule-probable")
+      const feedPlayers = ensureObject(liveFeed?.gameData?.players)
+      const handFromFeedPlayer = (playerId) => {
+        const safeId = String(playerId || "").trim()
+        if (!safeId) return { fullName: null, throws: null }
+        const feedPlayer = ensureObject(feedPlayers[`ID${safeId}`])
+        const fullName = String(feedPlayer?.fullName || "").trim() || null
+        const rawPitchHand = String(feedPlayer?.pitchHand?.code || feedPlayer?.pitchHand || "").trim().toUpperCase()
+        const throwsHand = rawPitchHand === "L" || rawPitchHand === "R" ? rawPitchHand : null
+        return { fullName, throws: throwsHand }
+      }
+      const batFromFeedPlayer = (playerId) => {
+        const safeId = String(playerId || "").trim()
+        if (!safeId) return null
+        const feedPlayer = ensureObject(feedPlayers[`ID${safeId}`])
+        const rawBat = String(feedPlayer?.batSide?.code || feedPlayer?.batSide || "").trim().toUpperCase()
+        return rawBat === "L" || rawBat === "R" ? rawBat : null
+      }
+
+      const probableFromLive = ensureObject(liveFeed?.gameData?.probablePitchers)
+      const awayProbableId = probableFromLive?.away?.id ?? null
+      const homeProbableId = probableFromLive?.home?.id ?? null
+      const awayFromFeed = handFromFeedPlayer(awayProbableId)
+      const homeFromFeed = handFromFeedPlayer(homeProbableId)
+
+      const awayProbable =
+        awayFromFeed.fullName
+          ? {
+              playerName: awayFromFeed.fullName,
+              playerIdExternal: awayProbableId,
+              playerKey: normalizeMlbPlayerKey(awayFromFeed.fullName),
+              throws: awayFromFeed.throws,
+              source: "mlb-official-live-probable"
+            }
+          : toProbablePitcher(scheduleGame?.teams?.away?.probablePitcher, "mlb-official-schedule-probable")
+
+      const homeProbable =
+        homeFromFeed.fullName
+          ? {
+              playerName: homeFromFeed.fullName,
+              playerIdExternal: homeProbableId,
+              playerKey: normalizeMlbPlayerKey(homeFromFeed.fullName),
+              throws: homeFromFeed.throws,
+              source: "mlb-official-live-probable"
+            }
+          : toProbablePitcher(scheduleGame?.teams?.home?.probablePitcher, "mlb-official-schedule-probable")
+
       if (awayProbable || homeProbable) {
         probablePitchersByEventId[eventId] = {
-          away: awayProbable ? {
-            playerName: awayProbable.playerName,
-            playerIdExternal: awayProbable.playerIdExternal,
-            playerKey: awayProbable.playerKey,
-            source: awayProbable.source
-          } : null,
-          home: homeProbable ? {
-            playerName: homeProbable.playerName,
-            playerIdExternal: homeProbable.playerIdExternal,
-            playerKey: homeProbable.playerKey,
-            source: homeProbable.source
-          } : null,
-          source: "mlb-official-schedule-probable"
+          away: awayProbable
+            ? {
+                playerName: awayProbable.playerName,
+                playerIdExternal: awayProbable.playerIdExternal,
+                playerKey: awayProbable.playerKey,
+                throws: awayProbable.throws ?? null,
+                source: awayProbable.source
+              }
+            : null,
+          home: homeProbable
+            ? {
+                playerName: homeProbable.playerName,
+                playerIdExternal: homeProbable.playerIdExternal,
+                playerKey: homeProbable.playerKey,
+                throws: homeProbable.throws ?? null,
+                source: homeProbable.source
+              }
+            : null,
+          source: awayProbable?.source || homeProbable?.source || "mlb-official-live-probable"
         }
         liveFeedProbablePitcherEvents += 1
       }
@@ -310,6 +418,7 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
                 playerKey: normalizeMlbPlayerKey(playerName),
                 teamResolved: awayTeamName,
                 teamCode: resolveTeamCode(awayTeamName || "") || null,
+                batterHand: batFromFeedPlayer(person?.id ?? null),
                 source: "mlb-official-active-roster",
                 eventIds: [eventId]
               })
@@ -337,6 +446,7 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
                 playerKey: normalizeMlbPlayerKey(playerName),
                 teamResolved: homeTeamName,
                 teamCode: resolveTeamCode(homeTeamName || "") || null,
+                batterHand: batFromFeedPlayer(person?.id ?? null),
                 source: "mlb-official-active-roster",
                 eventIds: [eventId]
               })
@@ -370,6 +480,8 @@ async function fetchMlbOfficialLineupsSnapshot({ events = [], now = Date.now() }
           teamCode: candidate.teamCode,
           source: candidate.source,
           battingOrderIndex: candidate.battingOrderIndex,
+          batterHand: candidate.batterHand ?? batFromFeedPlayer(candidate?.playerIdExternal),
+          pitcherHand: candidate.pitcherHand ?? null,
           eventIds: [eventId]
         }
         if (!Array.isArray(playersByEventId[eventId])) {

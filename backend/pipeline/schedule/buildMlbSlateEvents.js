@@ -132,7 +132,22 @@ async function buildMlbSlateEvents({
   // If no same-day events exist, roll to tomorrow rather than returning an empty slate.
   let chosenSlateDateKey = todayDateKey
   let scheduledEvents = todayEvents
-  if (!scheduledEvents.length && tomorrowEvents.length) {
+
+  const nowMs = Number(now)
+  const hasUpcoming = (evts) => {
+    const safe = Array.isArray(evts) ? evts : []
+    for (const e of safe) {
+      const t = new Date(getEventTimeForSchedule(e)).getTime()
+      if (Number.isFinite(t) && (!Number.isFinite(nowMs) || t >= nowMs)) return true
+    }
+    return false
+  }
+
+  // If today's Detroit slate exists but is already finished (no upcoming starts),
+  // treat it as empty and roll to tomorrow.
+  const todayUsable = scheduledEvents.length > 0 && hasUpcoming(scheduledEvents)
+
+  if ((!scheduledEvents.length || !todayUsable) && tomorrowEvents.length) {
     chosenSlateDateKey = tomorrowDateKey
     scheduledEvents = tomorrowEvents
   }

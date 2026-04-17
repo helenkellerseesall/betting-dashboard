@@ -103,6 +103,11 @@ let mlbSlips = []
 let mlbOomphSlips = null
 let mlbSpikePlayers = { spikePlayers: [] }
 
+// MLB line movement tracker (in-memory across refreshes).
+// Keyed by a stable leg signature so we can compute openingOdds + movement
+// without touching scoring or selection logic.
+const mlbOpeningOddsByLegKey = new Map()
+
 const WATCHED_PLAYER_NAMES = [
   "Luka Doncic",
   "Luka Dončić"
@@ -12221,6 +12226,61 @@ app.get("/api/best-available", (req, res) => {
       return (edge * 1.0) + (sig * 0.35) + (mp * 0.08)
     }
 
+    const buildMlbMatchupContext = (row, resolvedTeamLabel) => {
+      const opposingTeamFromRow = String(row?.opponentTeam || "").trim() || null
+      const opposingPitcherFromRow = String(row?.opposingPitcher || "").trim() || null
+      const pitcherHandFromRow = String(row?.pitcherHand || "").trim().toUpperCase()
+      const batterHandFromRow = String(row?.batterHand || "").trim().toUpperCase()
+      const pitcherHand =
+        pitcherHandFromRow === "L" || pitcherHandFromRow === "R" ? pitcherHandFromRow : null
+      const batterHand =
+        batterHandFromRow === "L" || batterHandFromRow === "R" ? batterHandFromRow : null
+      if (opposingTeamFromRow) {
+        return {
+          opposingTeam: opposingTeamFromRow,
+          opposingPitcher: opposingPitcherFromRow,
+          pitcherHand,
+          batterHand,
+          pitcherKRate: null,
+          pitcherHRRate: null,
+          pitcherWalkRate: null
+        }
+      }
+
+      const { away, home } = normalizedMatchupTeams(row)
+      const resolved = String(resolvedTeamLabel || "").trim()
+      let opposingTeam = null
+      if (resolved && away && home) {
+        const resolvedTokens = getMlbTeamTokenSet(resolved)
+        const awayTokens = getMlbTeamTokenSet(away)
+        const homeTokens = getMlbTeamTokenSet(home)
+        let matchesAway = false
+        let matchesHome = false
+        for (const tok of resolvedTokens) {
+          if (awayTokens.has(tok)) matchesAway = true
+          if (homeTokens.has(tok)) matchesHome = true
+        }
+        if (matchesAway && !matchesHome) opposingTeam = home
+        else if (matchesHome && !matchesAway) opposingTeam = away
+      }
+
+      if (!opposingTeam && away && home) {
+        // When the batter's team can't be disambiguated, still surface the matchup context
+        // (so consumers always have something stable to render/use).
+        opposingTeam = `${away} / ${home}`
+      }
+
+      return {
+        opposingTeam,
+        opposingPitcher: opposingPitcherFromRow,
+        pitcherHand,
+        batterHand,
+        pitcherKRate: null,
+        pitcherHRRate: null,
+        pitcherWalkRate: null
+      }
+    }
+
     teamResolutionDiagnostics = {
       confidentlyResolved: 0,
       ambiguousPrevented: 0,
@@ -12251,6 +12311,38 @@ app.get("/api/best-available", (req, res) => {
 
         const fam = classifyBoardPropFamily(row)
         const teamRes = resolveMlbPredictionRowTeam(row)
+        const matchup = buildMlbMatchupContext(row, teamRes.team)
+
+        const currentOdds = Number(row?.odds)
+        const sideKey = String(row?.side || row?.__side || "").trim().toLowerCase()
+        const bookKey = String(row?.book || "").trim()
+        const legKey = [
+          String(row?.eventId || ""),
+          String(row?.player || "").toLowerCase().trim(),
+          String(row?.marketKey || row?.propType || "").toLowerCase().trim(),
+          String(row?.line ?? ""),
+          sideKey,
+          bookKey
+        ].join("|")
+        let openingOdds = null
+        if (legKey && Number.isFinite(currentOdds) && currentOdds != 0) {
+          if (!mlbOpeningOddsByLegKey.has(legKey)) mlbOpeningOddsByLegKey.set(legKey, currentOdds)
+          openingOdds = mlbOpeningOddsByLegKey.get(legKey) ?? null
+        }
+        const lineMovement =
+          Number.isFinite(currentOdds) && Number.isFinite(Number(openingOdds))
+            ? Number((currentOdds - Number(openingOdds)).toFixed(0))
+            : null
+        const isSteamMove = Number.isFinite(lineMovement) ? Math.abs(lineMovement) > 20 : null
+        const movementDirection =
+          Number.isFinite(lineMovement)
+            ? (lineMovement > 0 ? "up" : lineMovement < 0 ? "down" : "flat")
+            : null
+
+        const gameTotal = row?.gameTotal ?? null
+        const impliedTeamTotal = row?.impliedTeamTotal ?? null
+        const parkFactor = row?.parkFactor ?? null
+        const lineupPosition = Number.isFinite(Number(row?.battingOrderIndex)) ? Number(row.battingOrderIndex) : null
         if (teamRes.team) {
           if (String(teamRes.teamSource) === "matchup-ambiguous") teamResolutionDiagnostics.matchupAmbiguousLabelUsed += 1
           else if (Number(teamRes.teamConfidence) >= 0.7) teamResolutionDiagnostics.confidentlyResolved += 1
@@ -12265,12 +12357,28 @@ app.get("/api/best-available", (req, res) => {
           marketImpactScore
         )
 
+        const pitcherHand = matchup?.pitcherHand ? String(matchup.pitcherHand).toUpperCase() : null
+        const batterHand = matchup?.batterHand ? String(matchup.batterHand).toUpperCase() : null
+        const isPlatoonAdvantage = pitcherHand && batterHand ? batterHand !== pitcherHand : null
+        const isSameHand = pitcherHand && batterHand ? batterHand === pitcherHand : null
+
         return {
           __src: row,
           player: row?.player || null,
           team: teamRes.team,
           teamConfidence: teamRes.teamConfidence,
           teamSource: teamRes.teamSource,
+          matchup,
+          isPlatoonAdvantage,
+          isSameHand,
+          openingOdds,
+          lineMovement,
+          isSteamMove,
+          movementDirection,
+          gameTotal,
+          impliedTeamTotal,
+          parkFactor,
+          lineupPosition,
           propType: row?.propType || null,
           marketKey: row?.marketKey || null,
           line: row?.line ?? null,
@@ -13046,7 +13154,8 @@ app.get("/api/best-available", (req, res) => {
         ...rest,
         team: teamOut,
         eventId: __src?.eventId ?? rest.eventId ?? null,
-        matchup: __src?.matchup ?? rest.matchup ?? null,
+        // Preserve new matchup context object as `matchup`; keep the old text label separately.
+        matchupLabel: __src?.matchup ?? (typeof rest.matchup === "string" ? rest.matchup : null),
         awayTeam: __src?.awayTeam ?? rest.awayTeam ?? null,
         homeTeam: __src?.homeTeam ?? rest.homeTeam ?? null
       }

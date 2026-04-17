@@ -120,6 +120,20 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       externalSnapshot: normalizedExternalSnapshot
     })
 
+    const eventIdKey = String(row?.eventId || "")
+    const probableByEventId = normalizedExternalSnapshot?.probablePitchersByEventId || {}
+    const probable = probableByEventId[eventIdKey] || null
+    const pitcher = identity?.isHome === true
+      ? probable?.away
+      : identity?.isHome === false
+        ? probable?.home
+        : null
+
+    const eventCtx = normalizedExternalSnapshot?.eventContextByEventId?.[eventIdKey] || null
+    // Attach-only: pass through existing values; do not recompute here.
+    const gameTotal = row?.gameTotal ?? eventCtx?.gameTotal ?? null
+    const impliedTeamTotal = row?.impliedTeamTotal ?? eventCtx?.impliedTeamTotal ?? null
+
     return {
       ...row,
       playerKey: identity.playerKey,
@@ -127,6 +141,12 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
       teamCode: identity.teamCode,
       opponentTeam: identity.opponentTeam,
       isHome: identity.isHome,
+      gameTotal,
+      impliedTeamTotal,
+      batterHand: identity?.batterHand ?? null,
+      battingOrderIndex: identity?.battingOrderIndex ?? null,
+      opposingPitcher: pitcher?.playerName ?? null,
+      pitcherHand: pitcher?.throws ?? null,
       playerIdExternal: identity.playerIdExternal,
       identityConfidence: identity.identityConfidence,
       identitySource: identity.identitySource,

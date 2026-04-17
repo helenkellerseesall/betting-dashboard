@@ -468,7 +468,12 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
           odds,
           outcomeName: buildRowOutcomeName(outcome),
 
-          isPitcherMarket: isMlbPitcherMarketKey(marketKey)
+          isPitcherMarket: isMlbPitcherMarketKey(marketKey),
+
+          // Game context (populated later per-event; attached here as placeholders so rows have stable keys)
+          gameTotal: null,
+          moneylineHomeOdds: null,
+          moneylineAwayOdds: null
         }
 
         row.teamMatchesMatchup = mlbRowTeamMatchesMatchup(row)
@@ -529,6 +534,74 @@ function payloadHasAnyMarketKey(payload, marketKeys) {
     if (payloadHasMarketKey(payload, key)) return true
   }
   return false
+}
+
+function extractMlbGameContextFromOddsPayload({ oddsPayload, event }) {
+  const bookmakers = Array.isArray(oddsPayload?.bookmakers) ? oddsPayload.bookmakers : []
+  const awayTeam = String(event?.awayTeam || event?.away_team || "").trim()
+  const homeTeam = String(event?.homeTeam || event?.home_team || "").trim()
+  const awayNorm = awayTeam ? String(awayTeam).trim().toLowerCase() : ""
+  const homeNorm = homeTeam ? String(homeTeam).trim().toLowerCase() : ""
+
+  let gameTotal = null
+  let moneylineHomeOdds = null
+  let moneylineAwayOdds = null
+
+  const preferredBooks = new Set(["DraftKings", "FanDuel", "draftkings", "fanduel"])
+
+  const scan = (preferBookmakers) => {
+    for (const bookmaker of preferBookmakers) {
+      const markets = Array.isArray(bookmaker?.markets) ? bookmaker.markets : []
+      for (const market of markets) {
+        const key = String(market?.key || market?.name || "").trim().toLowerCase()
+        const outcomes = Array.isArray(market?.outcomes) ? market.outcomes : []
+
+        if (key === "totals" && gameTotal == null) {
+          const pts = []
+          for (const o of outcomes) {
+            const p = toNumberOrNull(o?.point)
+            // Ignore bogus/empty totals (0/negative). MLB totals should be > 0.
+            if (Number.isFinite(Number(p)) && Number(p) > 0.5) pts.push(Number(p))
+          }
+          if (pts.length) {
+            // Use the most common line if multiple are present.
+            const counts = new Map()
+            for (const p of pts) counts.set(p, (counts.get(p) || 0) + 1)
+            let best = pts[0]
+            let bestC = 0
+            for (const [p, c] of counts.entries()) {
+              if (c > bestC) {
+                bestC = c
+                best = p
+              }
+            }
+            gameTotal = best
+          }
+        }
+
+        if (key === "h2h" && (moneylineHomeOdds == null || moneylineAwayOdds == null)) {
+          for (const o of outcomes) {
+            const name = String(o?.name || "").trim()
+            const nameNorm = name ? String(name).trim().toLowerCase() : ""
+            const price = toNumberOrNull(o?.price)
+            if (!Number.isFinite(Number(price))) continue
+            if (homeNorm && nameNorm && nameNorm == homeNorm) moneylineHomeOdds = price
+            if (awayNorm && nameNorm && nameNorm == awayNorm) moneylineAwayOdds = price
+          }
+        }
+      }
+    }
+  }
+
+  const preferred = bookmakers.filter((b) => preferredBooks.has(String(b?.title || b?.key || "").trim()))
+  scan(preferred.length ? preferred : bookmakers)
+  if (preferred.length) scan(bookmakers) // fill gaps
+
+  return {
+    gameTotal: gameTotal != null && Number.isFinite(Number(gameTotal)) ? Number(gameTotal) : null,
+    moneylineHomeOdds: moneylineHomeOdds != null && Number.isFinite(Number(moneylineHomeOdds)) ? Number(moneylineHomeOdds) : null,
+    moneylineAwayOdds: moneylineAwayOdds != null && Number.isFinite(Number(moneylineAwayOdds)) ? Number(moneylineAwayOdds) : null
+  }
 }
 
 const ANYTIME_HOME_RUN_MARKET_KEYS = [
@@ -875,6 +948,23 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
         }
       }
 
+      // Game context (totals + moneylines) is attach-only. Fetch it separately so
+      // game-market availability/shape cannot degrade the player-prop request list.
+      const payloadsForGameContext = [...payloadsForNormalization]
+      try {
+        const ctxResponse = await fetchMlbEventOdds({
+          oddsApiKey,
+          eventId,
+          marketsCsv: "h2h,totals"
+        })
+        const ctxPayload = extractOddsPayload(ctxResponse?.data, eventId)
+        if (ctxPayload && Array.isArray(ctxPayload?.bookmakers) && ctxPayload.bookmakers.length > 0) {
+          payloadsForGameContext.push(ctxPayload)
+        }
+      } catch (_) {
+        // Non-fatal: context is additive only.
+      }
+
       rawOddsEvents.push({
         eventId,
         awayTeam: event?.awayTeam || event?.away_team || "",
@@ -890,13 +980,29 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       let eventMarketsSeen = 0
       let eventOutcomesSeen = 0
 
+      // Attach game context (totals + moneylines) to every player prop row for this event.
+      // This is enrichment only; scoring/selection layers may choose to use it later.
+      let mergedGameCtx = { gameTotal: null, moneylineHomeOdds: null, moneylineAwayOdds: null }
+      for (const payloadForCtx of payloadsForGameContext) {
+        const ctx = extractMlbGameContextFromOddsPayload({ oddsPayload: payloadForCtx, event })
+        if (mergedGameCtx.gameTotal == null && ctx.gameTotal != null) mergedGameCtx.gameTotal = ctx.gameTotal
+        if (mergedGameCtx.moneylineHomeOdds == null && ctx.moneylineHomeOdds != null) mergedGameCtx.moneylineHomeOdds = ctx.moneylineHomeOdds
+        if (mergedGameCtx.moneylineAwayOdds == null && ctx.moneylineAwayOdds != null) mergedGameCtx.moneylineAwayOdds = ctx.moneylineAwayOdds
+      }
+
       for (const payloadForNormalization of payloadsForNormalization) {
         const normalized = normalizeMlbEventRows({
           event,
           oddsPayload: payloadForNormalization,
           observedAtIso
         })
-        eventRowsMerged.push(...(Array.isArray(normalized?.rows) ? normalized.rows : []))
+        const normalizedRows = Array.isArray(normalized?.rows) ? normalized.rows : []
+        for (const r of normalizedRows) {
+          r.gameTotal = mergedGameCtx.gameTotal
+          r.moneylineHomeOdds = mergedGameCtx.moneylineHomeOdds
+          r.moneylineAwayOdds = mergedGameCtx.moneylineAwayOdds
+        }
+        eventRowsMerged.push(...normalizedRows)
         eventBookmakersSeen += Number(normalized?.counters?.bookmakers || 0)
         eventMarketsSeen += Number(normalized?.counters?.markets || 0)
         eventOutcomesSeen += Number(normalized?.counters?.outcomes || 0)
@@ -1018,6 +1124,22 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
         ? Number((predictedProbability - impliedProbability).toFixed(6))
         : null
 
+    const gameTotal = toNumberOrNull(row?.gameTotal)
+    const mlHome = toNumberOrNull(row?.moneylineHomeOdds)
+    const mlAway = toNumberOrNull(row?.moneylineAwayOdds)
+    let impliedTeamTotal = null
+    if (Number.isFinite(Number(gameTotal)) && Number.isFinite(Number(mlHome)) && Number.isFinite(Number(mlAway))) {
+      const pHome = impliedProbabilityFromOdds(mlHome)
+      const pAway = impliedProbabilityFromOdds(mlAway)
+      if (pHome != null && pAway != null && (pHome + pAway) > 0) {
+        const shareHome = pHome / (pHome + pAway)
+        const homeRuns = Number((Number(gameTotal) * shareHome).toFixed(3))
+        const awayRuns = Number((Number(gameTotal) - homeRuns).toFixed(3))
+        if (row?.isHome === true) impliedTeamTotal = homeRuns
+        else if (row?.isHome === false) impliedTeamTotal = awayRuns
+      }
+    }
+
     const teamSurfaced =
       String(row?.team || "").trim() ||
       inferSurfaceTeamLabel(row, playerTeamIndex) ||
@@ -1027,6 +1149,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
 
     return {
       ...row,
+      gameTotal: gameTotal,
+      impliedTeamTotal,
       team: teamSurfaced,
       consensusImpliedProbability: consensusProbability,
       bookImpliedDispersion,
