@@ -25,18 +25,115 @@ function isHighUpsideRow(row, bucket) {
   return odds != null && odds >= 300
 }
 
-function isMediumUpsideRow(row) {
-  const odds = toNum(row?.odds)
-  return odds != null && odds >= 180 && odds <= 299
+function normalizePropTypeKey(row) {
+  return String(row?.propType || "").toLowerCase().replace(/[^a-z]/g, "")
 }
 
-function sortByProbThenOddsDesc(a, b) {
-  const pA = toNum(a?.predictedProbability) ?? -999
-  const pB = toNum(b?.predictedProbability) ?? -999
+function classifyRowBuckets(propType) {
+  const isHR = propType.includes("homerun") || propType.includes("hr")
+  const isRBI = propType.includes("rbi")
+  const isTB = propType.includes("totalbase") || propType.includes("tb")
+  const isHits = propType.includes("hit")
+  return { isHR, isRBI, isTB, isHits, propType }
+}
+
+function passesHardQualityFilter(row, { isHR, isRBI, isTB, isHits }) {
+  const pred = toNum(row?.predictedProbability)
+  const edge = toNum(row?.edgeProbability)
+  const decision = toNum(row?.decisionScore)
+  const itt = toNum(row?.impliedTeamTotal)
+  const lp = toNum(row?.lineupPosition)
+
+  if (isHits || isTB) {
+    return (pred != null && pred >= 0.45) || (decision != null && decision >= 0.5)
+  }
+  if (isRBI) {
+    return (
+      itt != null &&
+      itt >= 4.5 &&
+      (lp == null || lp <= 5)
+    )
+  }
+  if (isHR) {
+    return (pred != null && pred >= 0.12) || (edge != null && edge >= 0.08)
+  }
+  return false
+}
+
+function computeHrClusterScore(row) {
+  const pred = toNum(row?.predictedProbability) ?? 0
+  const edge = toNum(row?.edgeProbability) ?? 0
+  const odds = toNum(row?.odds) ?? 0
+  let hrScore = pred * 0.5 + edge * 0.3 + Math.min(odds / 1000, 1) * 0.2
+  if (pred < 0.08) hrScore *= 0.5
+  return Number(hrScore) || 0
+}
+
+function computeRbiClusterScore(row) {
+  let score = 0
+
+  const predicted = Number(row?.predictedProbability || 0)
+  const edge = Number(row?.edgeProbability || 0)
+  const decision = Number(row?.decisionScore || 0)
+  const teamTotal = Number(row?.impliedTeamTotal || 0)
+  const lineup = Number(row?.lineupPosition || 9)
+  const platoon = row?.isPlatoonAdvantage ? 1 : 0
+  const odds = Number(row?.odds || 0)
+
+  score += predicted * 5
+  score += edge * 4
+  score += decision * 2
+
+  score += teamTotal * 1.5
+
+  if (lineup <= 5) score += 2
+  if (lineup <= 3) score += 1
+
+  if (platoon) score += 1
+
+  score += Math.min(odds / 200, 2)
+
+  return Number(score) || 0
+}
+
+/** Pick score for “best prop per player” across buckets (each row only matches one bucket). */
+function clusterPickScoreForRow(row, { isHR, isRBI, isTB, isHits }) {
+  if (isHR) return computeHrClusterScore(row)
+  if (isRBI) return computeRbiClusterScore(row)
+  if (isTB || isHits) {
+    const p = toNum(row?.predictedProbability) ?? 0
+    const e = toNum(row?.edgeProbability) ?? 0
+    const d = toNum(row?.decisionScore) ?? 0
+    const o = toNum(row?.odds) ?? 0
+    return p * 2 + e * 2 + d * 2 + Math.min(o / 1000, 1) * 0.15
+  }
+  return 0
+}
+
+function sortControlledFinal(a, b) {
+  const predA = toNum(a?.predictedProbability)
+  const predB = toNum(b?.predictedProbability)
+  const pA = predA != null ? predA : -1
+  const pB = predB != null ? predB : -1
   if (pB !== pA) return pB - pA
-  const oA = toNum(a?.odds) ?? -999
-  const oB = toNum(b?.odds) ?? -999
-  return oB - oA
+
+  const edgeA = toNum(a?.edgeProbability)
+  const edgeB = toNum(b?.edgeProbability)
+  const eA = edgeA != null ? edgeA : -1
+  const eB = edgeB != null ? edgeB : -1
+  if (eB !== eA) return eB - eA
+
+  const decA = toNum(a?.decisionScore)
+  const decB = toNum(b?.decisionScore)
+  const dA = decA != null ? decA : -1
+  const dB = decB != null ? decB : -1
+  if (dB !== dA) return dB - dA
+
+  const oA = toNum(a?.odds)
+  const oB = toNum(b?.odds)
+  const oddsA = oA != null ? oA : 1e9
+  const oddsB = oB != null ? oB : 1e9
+  return oddsA - oddsB
 }
 
 function uniqByKey(rows, keyFn) {
@@ -63,71 +160,42 @@ function projectRow(row, bucket) {
   }
 }
 
-function computeHrClusterScore(row) {
-  const pred = toNum(row?.predictedProbability) ?? 0
-  const edge = toNum(row?.edgeProbability) ?? 0
-  const decision = toNum(row?.decisionScore) ?? 0
-  const itt = toNum(row?.impliedTeamTotal) ?? 0
-  const lineupPos = toNum(row?.lineupPosition)
-  const platoon = row?.isPlatoonAdvantage === true ? 1 : 0
-  const odds = toNum(row?.odds) ?? 0
+function computeMixSliceSizes({ hitsTarget, tbTarget, rbiTarget, hrTarget }) {
+  const T = hitsTarget + tbTarget + rbiTarget + hrTarget
+  const minNonHr = 4
 
-  // Normalize pieces into roughly comparable ranges.
-  const predScore = Math.max(0, Math.min(1, pred)) * 6.0
-  const edgeScore = Math.max(-0.08, Math.min(0.12, edge)) * 18.0 // -1.44..2.16
-  const decisionScore = Math.max(0, Math.min(1, decision)) * 3.0
+  let slotHitsTb = Math.round(0.4 * T)
+  let slotRbi = Math.round(0.35 * T)
+  let slotHr = Math.round(0.25 * T)
 
-  // Environment: 4.0+ team total matters, but shouldn’t dominate.
-  const envScore = Math.max(0, Math.min(2.0, itt - 3.6)) * 1.25 // 0..2.5
+  const drift = T - (slotHitsTb + slotRbi + slotHr)
+  slotRbi += drift
 
-  // Lineup: prefer 1–5, then 6–7 mild, otherwise neutral.
-  let lineupScore = 0
-  if (Number.isFinite(lineupPos)) {
-    if (lineupPos >= 1 && lineupPos <= 5) lineupScore = 1.2
-    else if (lineupPos >= 6 && lineupPos <= 7) lineupScore = 0.5
-    else lineupScore = 0
+  const maxNonHrSlots = hitsTarget + tbTarget + rbiTarget
+  const nonHrPlanned = Math.min(maxNonHrSlots, slotHitsTb + slotRbi)
+  if (nonHrPlanned < minNonHr) {
+    const deficit = minNonHr - nonHrPlanned
+    slotHr = Math.max(0, slotHr - deficit)
+  }
+  slotHr = Math.min(slotHr, hrTarget, Math.max(0, T - minNonHr))
+
+  const denom = hitsTarget + tbTarget || 1
+  let hitsSlice = Math.min(hitsTarget, Math.round(slotHitsTb * (hitsTarget / denom)))
+  let tbSlice = Math.min(tbTarget, Math.max(0, slotHitsTb - hitsSlice))
+  if (hitsSlice === 0 && hitsTarget > 0 && slotHitsTb > 0) hitsSlice = Math.min(hitsTarget, slotHitsTb)
+  if (tbSlice === 0 && tbTarget > 0 && slotHitsTb > 0) tbSlice = Math.min(tbTarget, slotHitsTb - hitsSlice)
+  hitsSlice = Math.min(hitsSlice, hitsTarget)
+  tbSlice = Math.min(tbSlice, tbTarget)
+  let rbiSlice = Math.min(rbiTarget, slotRbi)
+  let hrSlice = Math.min(hrTarget, slotHr)
+
+  const used = hitsSlice + tbSlice + rbiSlice + hrSlice
+  if (used < T) {
+    const extra = T - used
+    rbiSlice = Math.min(rbiTarget, rbiSlice + extra)
   }
 
-  const platoonScore = platoon ? 0.6 : 0
-
-  // Odds: upside matters, but must not dominate. Cap influence heavily.
-  const oddsBoost = Math.max(0, Math.min(1.0, (odds - 250) / 600)) * 0.9 // 0..0.9
-
-  // Light sanity: penalize extreme longshots unless supported by probability.
-  const longshotPenalty = (odds >= 800 && pred < 0.12) ? -0.8 : (odds >= 650 && pred < 0.1) ? -0.45 : 0
-
-  const score = predScore + edgeScore + decisionScore + envScore + lineupScore + platoonScore + oddsBoost + longshotPenalty
-  return Number(score) || 0
-}
-
-function computeRbiClusterScore(row) {
-  let score = 0
-
-  const predicted = Number(row?.predictedProbability || 0)
-  const edge = Number(row?.edgeProbability || 0)
-  const decision = Number(row?.decisionScore || 0)
-  const teamTotal = Number(row?.impliedTeamTotal || 0)
-  const lineup = Number(row?.lineupPosition || 9)
-  const platoon = row?.isPlatoonAdvantage ? 1 : 0
-  const odds = Number(row?.odds || 0)
-
-  score += predicted * 5
-  score += edge * 4
-  score += decision * 2
-
-  // RBI = VERY team dependent
-  score += teamTotal * 1.5
-
-  // lineup matters more here than HR
-  if (lineup <= 5) score += 2
-  if (lineup <= 3) score += 1
-
-  if (platoon) score += 1
-
-  // small odds bump
-  score += Math.min(odds / 200, 2)
-
-  return Number(score) || 0
+  return { hitsSlice, tbSlice, rbiSlice, hrSlice }
 }
 
 function buildMlbPropClusters(rows, opts = {}) {
@@ -152,7 +220,6 @@ function buildMlbPropClusters(rows, opts = {}) {
   let total = 0
   let afterEvent = 0
   let afterType = 0
-  let hrCluster = []
 
   const base = (Array.isArray(rows) ? rows : []).filter((row) => {
     total += 1
@@ -168,10 +235,7 @@ function buildMlbPropClusters(rows, opts = {}) {
     if (!ev) return false
     afterEvent += 1
     if (isUnderSide(row)) return false
-    const isHR = propType.includes("homerun") || propType.includes("hr")
-    const isRBI = propType.includes("rbi")
-    const isTB = propType.includes("totalbase") || propType.includes("tb")
-    const isHits = propType.includes("hit")
+    const { isHR, isRBI, isTB, isHits } = classifyRowBuckets(propType)
     if (isHR || isRBI || isTB || isHits) afterType += 1
     return true
   })
@@ -182,6 +246,40 @@ function buildMlbPropClusters(rows, opts = {}) {
     afterType
   })
 
+  const filteredRows = []
+  for (const row of base) {
+    const { isHR, isRBI, isTB, isHits, propType } = classifyRowBuckets(normalizePropTypeKey(row))
+    if (!(isHR || isRBI || isTB || isHits)) continue
+    if (!passesHardQualityFilter(row, { isHR, isRBI, isTB, isHits })) continue
+    filteredRows.push(row)
+  }
+
+  const scoredForPick = filteredRows
+    .map((row) => {
+      const { isHR, isRBI, isTB, isHits } = classifyRowBuckets(normalizePropTypeKey(row))
+      const score = clusterPickScoreForRow(row, { isHR, isRBI, isTB, isHits })
+      return { row, score, isHR, isRBI, isTB, isHits }
+    })
+    .sort((a, b) => b.score - a.score)
+
+  const bestPropByPlayer = {}
+  for (const { row, score, isHR, isRBI, isTB, isHits } of scoredForPick) {
+    const playerKey = norm(row?.player)
+    if (!playerKey) continue
+    const prev = bestPropByPlayer[playerKey]
+    if (!prev || score > prev.score) {
+      bestPropByPlayer[playerKey] = { row, score, isHR, isRBI, isTB, isHits }
+    }
+  }
+
+  const dedupedRows = Object.values(bestPropByPlayer).map((x) => x.row)
+
+  console.log("[CONTROLLED AGGRESSION]", {
+    totalRows: rows.length,
+    afterFilter: filteredRows.length,
+    playersSelected: Object.keys(bestPropByPlayer).length
+  })
+
   const byBucket = {
     hr: [],
     rbi: [],
@@ -189,15 +287,8 @@ function buildMlbPropClusters(rows, opts = {}) {
     hits: []
   }
 
-  for (const row of base) {
-    const rawPropType = String(row?.propType || "")
-    const propType = rawPropType.toLowerCase().replace(/[^a-z]/g, "")
-
-    const isHR = propType.includes("homerun") || propType.includes("hr")
-    const isRBI = propType.includes("rbi")
-    const isTB = propType.includes("totalbase") || propType.includes("tb")
-    const isHits = propType.includes("hit")
-
+  for (const row of dedupedRows) {
+    const { isHR, isRBI, isTB, isHits } = classifyRowBuckets(normalizePropTypeKey(row))
     if (isHR) byBucket.hr.push(row)
     else if (isRBI) byBucket.rbi.push(row)
     else if (isTB) byBucket.tb.push(row)
@@ -210,20 +301,22 @@ function buildMlbPropClusters(rows, opts = {}) {
   byBucket.tb = uniqByKey(byBucket.tb, dedupeKey)
   byBucket.hits = uniqByKey(byBucket.hits, dedupeKey)
 
-  // === TRUE HR cluster (slate-wide; no team/game/side requirement) ===
-  for (const row of rows) {
-    const rawPropType = String(row?.propType || "")
-    const propType = rawPropType.toLowerCase().replace(/[^a-z]/g, "")
-    const isHR = propType.includes("homerun") || propType.includes("hr")
-    if (!isHR) continue
+  const { hitsSlice, tbSlice, rbiSlice, hrSlice } = computeMixSliceSizes({
+    hitsTarget,
+    tbTarget,
+    rbiTarget,
+    hrTarget
+  })
 
-    if (!String(row?.player || "").trim()) continue
+  const hrRowsSorted = [...byBucket.hr].filter((row) => {
+    if (!String(row?.player || "").trim()) return false
     const odds = Number(row?.odds)
-    if (!Number.isFinite(odds)) continue
+    return Number.isFinite(odds)
+  }).sort(sortControlledFinal)
 
+  let hrCluster = hrRowsSorted.slice(0, hrSlice).map((row) => {
     const hrClusterScore = computeHrClusterScore(row)
-
-    hrCluster.push({
+    return {
       player: row.player,
       team: row.team,
       propType: row.propType,
@@ -241,14 +334,9 @@ function buildMlbPropClusters(rows, opts = {}) {
       impliedTeamTotal: row.impliedTeamTotal ?? null,
       lineupPosition: row.lineupPosition ?? null,
       isPlatoonAdvantage: row.isPlatoonAdvantage ?? null
-    })
-  }
-
-  hrCluster.sort((a, b) => {
-    return (b.hrClusterScore || 0) - (a.hrClusterScore || 0)
+    }
   })
 
-  hrCluster = hrCluster.slice(0, 10)
   console.log("[HR CLUSTER SIZE]", hrCluster.length)
   console.log("[HR SCORE CHECK]", hrCluster.slice(0, 5).map((r) => ({
     player: r.player,
@@ -265,14 +353,14 @@ function buildMlbPropClusters(rows, opts = {}) {
     isPlatoonAdvantage: r.isPlatoonAdvantage
   })))
 
-  // === RBI cluster (require impliedTeamTotal >= 4.5) ===
-  const rbiCluster = []
-  for (const row of byBucket.rbi) {
+  const rbiRowsSorted = [...byBucket.rbi].filter((row) => {
     const itt = toNum(row?.impliedTeamTotal)
-    if (itt == null || itt < 4.5) continue
+    return itt != null && itt >= 4.5
+  }).sort(sortControlledFinal)
 
+  const rbiOut = rbiRowsSorted.slice(0, rbiSlice).map((row) => {
     const rbiClusterScore = computeRbiClusterScore(row)
-    rbiCluster.push({
+    return {
       player: row?.player ?? null,
       team: row?.team ?? null,
       propType: row?.propType ?? null,
@@ -286,16 +374,10 @@ function buildMlbPropClusters(rows, opts = {}) {
       impliedTeamTotal: row?.impliedTeamTotal ?? null,
       lineupPosition: row?.lineupPosition ?? null,
       isPlatoonAdvantage: row?.isPlatoonAdvantage ?? null
-    })
-  }
-
-  rbiCluster.sort((a, b) => {
-    return (b.rbiClusterScore || 0) - (a.rbiClusterScore || 0)
+    }
   })
 
-  rbiCluster.splice(rbiTarget)
-
-  console.log("[RBI CLUSTER DEBUG]", rbiCluster.slice(0, 10).map((r) => ({
+  console.log("[RBI CLUSTER DEBUG]", rbiOut.slice(0, 10).map((r) => ({
     player: r.player,
     odds: r.odds,
     score: r.rbiClusterScore,
@@ -303,33 +385,20 @@ function buildMlbPropClusters(rows, opts = {}) {
     lineup: r.lineupPosition
   })))
 
-  // === TB cluster (prefer line >= 3.5) ===
-  const tbSorted = [...byBucket.tb].sort((a, b) => {
-    const aPref = (toNum(a?.line) ?? -999) >= 3.5 ? 1 : 0
-    const bPref = (toNum(b?.line) ?? -999) >= 3.5 ? 1 : 0
-    if (bPref !== aPref) return bPref - aPref
-    return sortByProbThenOddsDesc(a, b)
-  })
-  const tbCluster = tbSorted.slice(0, tbTarget).map((r) => projectRow(r, "tb"))
+  const tbSorted = [...byBucket.tb].sort(sortControlledFinal)
+  const tbCluster = tbSorted.slice(0, tbSlice).map((r) => projectRow(r, "tb"))
 
-  // === Hits cluster (prefer line >= 2.5) ===
-  const hitsSorted = [...byBucket.hits].sort((a, b) => {
-    const aPref = (toNum(a?.line) ?? -999) >= 2.5 ? 1 : 0
-    const bPref = (toNum(b?.line) ?? -999) >= 2.5 ? 1 : 0
-    if (bPref !== aPref) return bPref - aPref
-    return sortByProbThenOddsDesc(a, b)
-  })
-  const hitsCluster = hitsSorted.slice(0, hitsTarget).map((r) => projectRow(r, "hits"))
+  const hitsSorted = [...byBucket.hits].sort(sortControlledFinal)
+  const hitsCluster = hitsSorted.slice(0, hitsSlice).map((r) => projectRow(r, "hits"))
 
   console.log("[PROP TYPE SAMPLE]", rows.slice(0, 5).map((r) => r?.propType))
 
   return {
     hrCluster: hrCluster || [],
-    rbiCluster: rbiCluster || [],
+    rbiCluster: rbiOut || [],
     tbCluster: tbCluster || [],
     hitsCluster: hitsCluster || []
   }
 }
 
 module.exports = { buildMlbPropClusters }
-

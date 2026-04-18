@@ -1,0 +1,46 @@
+{
+  "metadata": {
+    "date": "2026-04-18",
+    "generatedAt": "2026-04-18T09:05:23.751Z",
+    "source": "tracked",
+    "trackedPath": "/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/tracked_props_2026-04-18.json",
+    "gradedPath": "/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/graded_props_2026-04-18.json",
+    "version": "tracking-phase-1"
+  },
+  "summary": {
+    "date": "2026-04-18",
+    "totalTracked": 96,
+    "totalRecommended": 62,
+    "settledCount": 0,
+    "unsettledCount": 96,
+    "wins": 0,
+    "losses": 0,
+    "pushes": 0,
+    "voids": 0,
+    "bySport": {
+      "nba": 96
+    },
+    "byPropType": {
+      "Assists": 9,
+      "PRA": 9,
+      "Rebounds": 4,
+      "Points": 6,
+      "Double Double": 6,
+      "First Basket": 29,
+      "First Team Basket": 28,
+      "Triple Double": 5
+    },
+    "byBook": {
+      "DraftKings": 88,
+      "FanDuel": 8
+    },
+    "byBoardOrBucket": {
+      "nba.completeUniverse": 95,
+      "boards.lottoBoard": 1
+    },
+    "recommendedVsAll": {
+      "recommendedCount": 62,
+      "allCount": 96
+    }
+  }
+}

@@ -52,6 +52,9 @@ const {
   buildMlbUpsideClusters,
   isHighUpsideRow: isMlbHighUpsideRow
 } = require("./pipeline/mlb/buildMlbCorrelationEngine")
+const { saveTrackedSlateSnapshot } = require("./pipeline/tracking/saveTrackedSlateSnapshot")
+const { gradeTrackedSlateSnapshot } = require("./pipeline/tracking/gradeTrackedSlateSnapshot")
+const { buildTrackedSlateSummary } = require("./pipeline/tracking/buildTrackedSlateSummary")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
 
@@ -13330,6 +13333,35 @@ app.get("/api/best-available", (req, res) => {
     }
   }
 
+  // === Tracking (Phase 1): persist daily tracked + surfaced props (JSON runtime only). ===
+  try {
+    const slateDate = new Date().toISOString().slice(0, 10)
+
+    const collections = [
+      // NBA: track the scored universe and surfaced lanes when available.
+      { sport: "nba", source: "nba.completeUniverse", rows: Array.isArray(completeUniverse) ? completeUniverse : [], recommended: false },
+      { sport: "nba", source: "bestAvailable.safe", rows: Array.isArray(safe) ? safe : [], recommended: true },
+      { sport: "nba", source: "bestAvailable.balanced", rows: Array.isArray(balanced) ? balanced : [], recommended: true },
+      { sport: "nba", source: "bestAvailable.aggressive", rows: Array.isArray(aggressive) ? aggressive : [], recommended: true },
+      { sport: "nba", source: "bestAvailable.lotto", rows: Array.isArray(lotto) ? lotto : [], recommended: true },
+      { sport: "nba", source: "boards.corePropsBoard", rows: Array.isArray(corePropsBoard) ? corePropsBoard : [], recommended: true },
+      { sport: "nba", source: "boards.ladderBoard", rows: Array.isArray(ladderBoard) ? ladderBoard : [], recommended: true },
+      { sport: "nba", source: "boards.specialBoard", rows: Array.isArray(specialBoard) ? specialBoard : [], recommended: true },
+      { sport: "nba", source: "boards.lottoBoard", rows: Array.isArray(lottoBoard) ? lottoBoard : [], recommended: true },
+
+      // MLB: track the sanitized board plus surfaced selectors/clusters inputs.
+      { sport: "mlb", source: "mlb.mlbPredictionBoard", rows: Array.isArray(mlbPredictionBoardFinal) ? mlbPredictionBoardFinal : [], recommended: false },
+      { sport: "mlb", source: "mlb.picks.safeCore", rows: Array.isArray(mlbPicks?.safeCore) ? mlbPicks.safeCore : [], recommended: true },
+      { sport: "mlb", source: "mlb.picks.valueCore", rows: Array.isArray(mlbPicks?.valueCore) ? mlbPicks.valueCore : [], recommended: true },
+      { sport: "mlb", source: "mlb.picks.powerCore", rows: Array.isArray(mlbPicks?.powerCore) ? mlbPicks.powerCore : [], recommended: true }
+    ]
+
+    // Fire-and-forget; must never block or break the endpoint.
+    saveTrackedSlateSnapshot({ date: slateDate, collections }).catch(() => {})
+  } catch {
+    // bestAvailable must never fail due to tracking
+  }
+
   return res.json({
     bestAvailable: {
       ...bestAvailablePayloadBoardFirst,
@@ -13459,6 +13491,93 @@ app.get("/api/best-available", (req, res) => {
     slateStateValidator: oddsSnapshot?.slateStateValidator || null,
     lineHistorySummary: oddsSnapshot?.lineHistorySummary || null
   })
+})
+
+// === Tracking (Phase 1): read-only inspection endpoints ===
+app.get("/api/tracking/summary", async (req, res) => {
+  const date = typeof req.query?.date === "string" ? req.query.date : null
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+
+  const runtimeDir = path.join(__dirname, "runtime", "tracking")
+  const summaryPath = path.join(runtimeDir, `tracking_summary_${dateKey}.json`)
+  const trackedPath = path.join(runtimeDir, `tracked_props_${dateKey}.json`)
+  const gradedPath = path.join(runtimeDir, `graded_props_${dateKey}.json`)
+
+  const diagnostics = {
+    date: dateKey,
+    hasSummary: fs.existsSync(summaryPath),
+    hasTracked: fs.existsSync(trackedPath),
+    hasGraded: fs.existsSync(gradedPath)
+  }
+
+  try {
+    if (diagnostics.hasSummary) {
+      const raw = fs.readFileSync(summaryPath, "utf8")
+      const json = JSON.parse(raw)
+      return res.json({ ok: true, date: dateKey, summary: json?.summary || null, metadata: json?.metadata || null, diagnostics })
+    }
+
+    // If missing, try to build from tracked/graded.
+    const built = await buildTrackedSlateSummary({ date: dateKey })
+    if (!built?.ok) {
+      return res.json({ ok: false, date: dateKey, summary: null, metadata: null, diagnostics: { ...diagnostics, error: "unable to build summary" } })
+    }
+
+    return res.json({
+      ok: true,
+      date: dateKey,
+      summary: built.payload?.summary || null,
+      metadata: built.payload?.metadata || null,
+      diagnostics: { ...diagnostics, built: true, summaryPath: built.path }
+    })
+  } catch (e) {
+    return res.json({ ok: false, date: dateKey, summary: null, metadata: null, diagnostics: { ...diagnostics, error: String(e?.message || e) } })
+  }
+})
+
+app.get("/api/tracking/tracked", (req, res) => {
+  const date = typeof req.query?.date === "string" ? req.query.date : null
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const runtimeDir = path.join(__dirname, "runtime", "tracking")
+  const filePath = path.join(runtimeDir, `tracked_props_${dateKey}.json`)
+  if (!fs.existsSync(filePath)) {
+    return res.json({ ok: false, date: dateKey, error: "tracked file not found", path: filePath })
+  }
+  try {
+    const raw = fs.readFileSync(filePath, "utf8")
+    return res.json({ ok: true, date: dateKey, tracked: JSON.parse(raw) })
+  } catch (e) {
+    return res.json({ ok: false, date: dateKey, error: String(e?.message || e), path: filePath })
+  }
+})
+
+app.get("/api/tracking/graded", async (req, res) => {
+  const date = typeof req.query?.date === "string" ? req.query.date : null
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const runtimeDir = path.join(__dirname, "runtime", "tracking")
+  const filePath = path.join(runtimeDir, `graded_props_${dateKey}.json`)
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      // If graded is missing but tracked exists, allow manual on-demand grading.
+      const trackedPath = path.join(runtimeDir, `tracked_props_${dateKey}.json`)
+      if (fs.existsSync(trackedPath)) {
+        await gradeTrackedSlateSnapshot({ date: dateKey })
+      }
+    }
+  } catch {
+    // never hard-fail
+  }
+
+  if (!fs.existsSync(filePath)) {
+    return res.json({ ok: false, date: dateKey, error: "graded file not found", path: filePath })
+  }
+  try {
+    const raw = fs.readFileSync(filePath, "utf8")
+    return res.json({ ok: true, date: dateKey, graded: JSON.parse(raw) })
+  } catch (e) {
+    return res.json({ ok: false, date: dateKey, error: String(e?.message || e), path: filePath })
+  }
 })
 
 const PORT = process.env.PORT || 4000
