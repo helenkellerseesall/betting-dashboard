@@ -51,6 +51,7 @@ const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
 const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
 const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
 const { recordMlbBestProps, evaluateMlbPerformance } = require("./pipeline/mlb/phase4Tracking")
+const { buildMlbParlays } = require("./pipeline/mlb/buildMlbParlays")
 const {
   buildMlbCorrelationClusters,
   buildMlbUpsideClusters,
@@ -7768,6 +7769,13 @@ app.get("/api/best-available", async (req, res) => {
       })
     }
 
+    const parlays = buildMlbParlays(Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : [])
+    console.log("[MLB PARLAYS]", {
+      safe: Array.isArray(parlays?.safe) ? parlays.safe.length : 0,
+      mixed: Array.isArray(parlays?.mixed) ? parlays.mixed.length : 0,
+      lotto: Array.isArray(parlays?.lotto) ? parlays.lotto.length : 0
+    })
+
     const dedupeMlbBoardRows = (rows) => {
       const safeRows = Array.isArray(rows) ? rows : []
       const seen = new Set()
@@ -7857,6 +7865,7 @@ app.get("/api/best-available", async (req, res) => {
         ...bestAvailablePayload,
         slateMode: "mlb"
       },
+      parlays,
       ladderPool: [],
       routePlayableSeed: [],
       finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows) ? bestAvailablePayload.finalPlayableRows : (Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []),
