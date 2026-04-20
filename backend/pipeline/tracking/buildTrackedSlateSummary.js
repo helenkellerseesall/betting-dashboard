@@ -3,7 +3,12 @@
 const fs = require("fs/promises")
 const path = require("path")
 
-const RUNTIME_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
+const {
+  isHomeRunProp,
+  isSpecial,
+  classifyPropCategory,
+  build2LegCombos
+} = require("./buildTrackedCombos")
 
 function toDateKey(dateLike) {
   if (typeof dateLike === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateLike)) return dateLike
@@ -12,10 +17,6 @@ function toDateKey(dateLike) {
 
 function norm(v) {
   return String(v == null ? "" : v).trim()
-}
-
-function normLc(v) {
-  return norm(v).toLowerCase()
 }
 
 function toNumOrNull(v) {
@@ -35,34 +36,27 @@ function americanToDecimal(odds) {
   return 1 + 100 / Math.abs(o)
 }
 
-function isHrRow(r) {
-  const pt = normLc(r?.propType)
-  const mk = normLc(r?.marketKey)
-  return pt.includes("home run") || pt.includes("homerun") || mk.includes("home_run") || mk.includes("to_hit_home_run")
+async function ensureRuntimeDir(runtimeTrackingDir) {
+  await fs.mkdir(runtimeTrackingDir, { recursive: true })
 }
 
-async function ensureRuntimeDir() {
-  await fs.mkdir(RUNTIME_DIR, { recursive: true })
-}
+async function readJsonIfExists(p) {
+  const fs = require("fs/promises");
+  const fsSync = require("fs");
 
-async function readJsonIfExists(filePath) {
   try {
-    const raw = await fs.readFile(filePath, "utf8")
-    return JSON.parse(raw)
-  } catch {
-    return null
+    if (!fsSync.existsSync(p)) return null;
+
+    const raw = await fs.readFile(p, "utf8");  // IMPORTANT: utf8 encoding
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error("[TRACKING-READ-ERROR]", p, err.message);
+    return null;
   }
 }
 
-function pickRowsFromTrackedOrGraded(json) {
-  if (!json || typeof json !== "object") return []
-  if (Array.isArray(json.gradedProps)) return json.gradedProps
-  if (Array.isArray(json.allTrackedProps)) return json.allTrackedProps
-  return []
-}
-
 function buildHrSummary(rows) {
-  const hrRows = rows.filter(isHrRow)
+  const hrRows = rows.filter(isHomeRunProp)
   if (!hrRows.length) return null
 
   const winningHr = hrRows.filter((r) => String(r?.status) === "settled" && String(r?.result) === "win")
@@ -113,23 +107,38 @@ function buildHrSummary(rows) {
 
 async function buildTrackedSlateSummary({ date }) {
   const slateDate = toDateKey(date)
-  await ensureRuntimeDir()
 
-  const trackedPath = path.join(RUNTIME_DIR, `tracked_props_${slateDate}.json`)
-  const gradedPath = path.join(RUNTIME_DIR, `graded_props_${slateDate}.json`)
-  const summaryPath = path.join(RUNTIME_DIR, `tracking_summary_${slateDate}.json`)
+  // Must match saveTrackedSlateSnapshot / gradeTrackedSlateSnapshot / server tracking routes:
+  // __dirname is backend/pipeline/tracking → ../../runtime/tracking === backend/runtime/tracking.
+  // process.cwd()-based paths break when the server is started with cwd=backend/ (wrong: backend/backend/...).
+  const runtimeTrackingDir = path.join(__dirname, "..", "..", "runtime", "tracking")
+
+  const trackedPath = path.join(runtimeTrackingDir, `tracked_props_${slateDate}.json`)
+  const gradedPath = path.join(runtimeTrackingDir, `graded_props_${slateDate}.json`)
+  const summaryPath = path.join(runtimeTrackingDir, `tracking_summary_${slateDate}.json`)
+
+  await ensureRuntimeDir(runtimeTrackingDir)
+
+  const trackedData = await readJsonIfExists(trackedPath)
+
+  const allTracked = Array.isArray(trackedData?.allTrackedProps)
+    ? trackedData.allTrackedProps
+    : []
+
+  const recommended = Array.isArray(trackedData?.recommendedProps)
+    ? trackedData.recommendedProps
+    : []
 
   const graded = await readJsonIfExists(gradedPath)
-  const tracked = graded ? null : await readJsonIfExists(trackedPath)
 
-  const rows = pickRowsFromTrackedOrGraded(graded || tracked)
+  const outcomeRows = Array.isArray(graded?.gradedProps) ? graded.gradedProps : allTracked
 
   const bySport = {}
   const byPropType = {}
   const byBook = {}
   const byBoardOrBucket = {}
 
-  let totalRecommended = 0
+  const totalRecommended = recommended.length
   let settledCount = 0
   let unsettledCount = 0
   let wins = 0
@@ -137,9 +146,7 @@ async function buildTrackedSlateSummary({ date }) {
   let pushes = 0
   let voids = 0
 
-  const recommendedRows = []
-  const allRows = Array.isArray(rows) ? rows : []
-  for (const r of allRows) {
+  for (const r of allTracked) {
     inc(bySport, r?.sport || "unknown")
     inc(byPropType, r?.propType || "unknown")
     inc(byBook, r?.book || "unknown")
@@ -147,13 +154,9 @@ async function buildTrackedSlateSummary({ date }) {
     const surfaced = Array.isArray(r?.surfacedIn) ? r.surfacedIn : []
     const bucket = norm(r?.bucket) || (surfaced.length ? surfaced[0] : "unknown")
     inc(byBoardOrBucket, bucket || "unknown")
+  }
 
-    const recommended = r?.recommended === true
-    if (recommended) {
-      totalRecommended += 1
-      recommendedRows.push(r)
-    }
-
+  for (const r of outcomeRows) {
     const status = String(r?.status || "unknown")
     const result = String(r?.result || "unknown")
     if (status === "settled") {
@@ -167,11 +170,32 @@ async function buildTrackedSlateSummary({ date }) {
     }
   }
 
-  const hrSummary = buildHrSummary(allRows)
+  const hrSummary = buildHrSummary(allTracked)
+
+  const propCategoryBreakdown = { core: 0, ladder: 0, special: 0, hr: 0 }
+  for (const r of allTracked) {
+    const cat = classifyPropCategory(r)
+    if (propCategoryBreakdown[cat] != null) propCategoryBreakdown[cat] += 1
+  }
+
+  const winningRows = outcomeRows.filter(
+    (r) => String(r?.status) === "settled" && String(r?.result) === "win"
+  )
+  const allWinningProps = winningRows
+  const recommendedWinningProps = winningRows.filter((r) => r?.recommended === true)
+  const winningHRProps = winningRows.filter(isHomeRunProp)
+  const winningSpecialProps = winningRows.filter(isSpecial)
+
+  const comboSummary = {
+    bestOverallPairs: build2LegCombos(allWinningProps, { maxResults: 20, maxInputRows: 50 }),
+    bestRecommendedPairs: build2LegCombos(recommendedWinningProps, { maxResults: 20, maxInputRows: 50 }),
+    bestHRPairs: build2LegCombos(winningHRProps, { maxResults: 20, maxInputRows: 50 }),
+    bestSpecialPairs: build2LegCombos(winningSpecialProps, { maxResults: 20, maxInputRows: 50 })
+  }
 
   const summary = {
     date: slateDate,
-    totalTracked: allRows.length,
+    totalTracked: allTracked.length,
     totalRecommended,
     settledCount,
     unsettledCount,
@@ -185,19 +209,21 @@ async function buildTrackedSlateSummary({ date }) {
     byBoardOrBucket,
     recommendedVsAll: {
       recommendedCount: totalRecommended,
-      allCount: allRows.length
+      allCount: allTracked.length
     },
-    hrSummary: hrSummary || undefined
+    hrSummary: hrSummary || undefined,
+    propCategoryBreakdown,
+    comboSummary
   }
 
   const payload = {
     metadata: {
       date: slateDate,
       generatedAt: new Date().toISOString(),
-      source: graded ? "graded" : tracked ? "tracked" : "missing",
+      source: graded ? "graded" : trackedData ? "tracked" : "missing",
       trackedPath,
       gradedPath,
-      version: "tracking-phase-1"
+      version: "tracking-phase-2"
     },
     summary
   }

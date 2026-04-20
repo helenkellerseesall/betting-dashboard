@@ -13512,12 +13512,24 @@ app.get("/api/tracking/summary", async (req, res) => {
 
   try {
     if (diagnostics.hasSummary) {
-      const raw = fs.readFileSync(summaryPath, "utf8")
-      const json = JSON.parse(raw)
-      return res.json({ ok: true, date: dateKey, summary: json?.summary || null, metadata: json?.metadata || null, diagnostics })
+      try {
+        const raw = fs.readFileSync(summaryPath, "utf8")
+        const json = JSON.parse(raw)
+        const versionOk = json?.metadata?.version === "tracking-phase-2"
+        const hasPhase2SummaryShape =
+          json?.summary &&
+          typeof json.summary === "object" &&
+          json.summary.comboSummary != null &&
+          json.summary.propCategoryBreakdown != null
+        if (versionOk && hasPhase2SummaryShape) {
+          return res.json({ ok: true, date: dateKey, summary: json?.summary || null, metadata: json?.metadata || null, diagnostics })
+        }
+      } catch {
+        // stale or invalid cache — rebuild below
+      }
     }
 
-    // If missing, try to build from tracked/graded.
+    // If missing or stale cache, build from tracked/graded (same paths as writers: __dirname-based runtime dir).
     const built = await buildTrackedSlateSummary({ date: dateKey })
     if (!built?.ok) {
       return res.json({ ok: false, date: dateKey, summary: null, metadata: null, diagnostics: { ...diagnostics, error: "unable to build summary" } })
