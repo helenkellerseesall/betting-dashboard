@@ -50,6 +50,7 @@ const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
 const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
 const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
 const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
+const { recordMlbBestProps, evaluateMlbPerformance } = require("./pipeline/mlb/phase4Tracking")
 const {
   buildMlbCorrelationClusters,
   buildMlbUpsideClusters,
@@ -3703,6 +3704,16 @@ function buildMlbLiveDualBestAvailablePayload() {
     bestLength: safeBest.length,
     finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0
   })
+
+  // Phase 4: tracking + validation (MLB only). Additive, never breaks payload.
+  try {
+    const tracking = recordMlbBestProps(safeBest)
+    console.log("[MLB TRACKING]", tracking)
+    const perf = evaluateMlbPerformance()
+    console.log("[MLB PERFORMANCE]", perf)
+  } catch (e) {
+    console.log("[MLB TRACKING ERROR]", e?.message || e)
+  }
 
   return {
     availableCounts,
