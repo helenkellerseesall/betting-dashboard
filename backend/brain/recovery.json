@@ -1,0 +1,9 @@
+{
+  "onFailure": [
+    "STOP immediately",
+    "DO NOT add new logic",
+    "identify exact layer",
+    "revert last change"
+  ],
+  "rollbackEnabled": true
+}

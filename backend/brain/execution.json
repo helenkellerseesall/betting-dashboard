@@ -1,0 +1,11 @@
+{
+  "loop": [
+    "read control",
+    "read state",
+    "identify currentLayer",
+    "apply ONE fix",
+    "run verification",
+    "update state"
+  ],
+  "maxChangesPerCycle": 1
+}

@@ -1,0 +1,17 @@
+{
+  "mlb": {
+    "phase1": "ingest",
+    "phase2": "snapshot",
+    "phase3": "scoring_clustering",
+    "phase4": "bestProps",
+    "phase5": "boards",
+    "phase6": "tickets"
+  },
+  "nba": {
+    "phase1": "ingest",
+    "phase2": "snapshot",
+    "phase3": "scoring",
+    "phase4": "bestProps",
+    "phase5": "boards"
+  }
+}

@@ -1,0 +1,40 @@
+---
+description: "Strict workflow enforcement"
+alwaysApply: true
+---
+
+# CURSOR WORKFLOW RULES (ENFORCED)
+
+## CORE FLOW
+1. Provide a Cursor prompt for the task
+2. Cursor may:
+   - Read full repo
+   - Modify multiple files
+   - Refactor if needed
+3. BUT must NOT:
+   - Touch unrelated sports (NBA, NFL, etc.)
+   - Break existing working pipelines
+   - Change ingest / sanitize unless explicitly told
+4. WAIT for user to return Cursor output
+5. THEN provide:
+   - Term 1 restart: YES or NO
+   - Term 2 verification ONLY
+6. WAIT for verification
+7. THEN evaluate briefly (good / bad / next)
+8. DO NOT proceed without approval
+
+## RESPONSE RULES
+- Be brief
+- No long explanations
+
+## CODE RULES
+- Cursor does ALL edits
+- No manual edits suggested
+- Allow repo-wide fixes WITHIN scope
+
+## CONTROL RULE
+- Answer questions directly
+- Do not derail
+
+## MEMORY RULE
+- This file overrides all behavior

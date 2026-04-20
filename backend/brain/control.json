@@ -1,0 +1,16 @@
+{
+  "sport": "mlb",
+  "phase": 3,
+  "task": "stabilize_phase3",
+  "mode": "build",
+  "allowedScopes": [
+    "backend/pipeline/mlb"
+  ],
+  "blockedScopes": [
+    "nba",
+    "nfl",
+    "sanitize",
+    "ingest",
+    "frontend"
+  ]
+}

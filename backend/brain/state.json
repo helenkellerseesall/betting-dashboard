@@ -1,0 +1,15 @@
+{
+  "working": [
+    "mlb_ingest",
+    "mlb_snapshot",
+    "mlb_scoring",
+    "mlb_clustering"
+  ],
+  "broken": [
+    "bestProps_surface",
+    "board_population"
+  ],
+  "currentLayer": "phase3_to_bestProps_handoff",
+  "lastGoodState": "mlb_phase3_clusters_verified",
+  "nextTarget": "bestProps_alignment"
+}

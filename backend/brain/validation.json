@@ -1,0 +1,9 @@
+{
+  "checks": {
+    "clusters": "each >= 10",
+    "bestProps": "length > 0",
+    "finalPlayableRows": "length > 0",
+    "boards": "not empty"
+  },
+  "blockProgressIfFail": true
+}

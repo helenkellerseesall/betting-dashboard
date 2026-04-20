@@ -1,0 +1,13 @@
+{
+  "hardRules": [
+    "ONE change per step",
+    "NO phase jumping",
+    "NO cross-sport edits",
+    "VERIFY before continuing",
+    "DO NOT rewrite large systems"
+  ],
+  "chatBehavior": [
+    "short direct answers only",
+    "no moving forward without user approval"
+  ]
+}

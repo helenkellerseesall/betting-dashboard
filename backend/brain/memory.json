@@ -1,0 +1,16 @@
+{
+  "criticalPatterns": [
+    "never rely on oddsSnapshot.props alone",
+    "always fallback to finalPlayableRows",
+    "single source of truth prevents board collapse"
+  ],
+  "knownBugs": [
+    "boards empty when props empty",
+    "split pool sources causing desync"
+  ],
+  "fixHistory": [
+    "introduced baseRows",
+    "rerouted board visibility to baseRows",
+    "patched expanded pool fallbacks"
+  ]
+}

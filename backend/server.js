@@ -47,6 +47,9 @@ const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
 const { buildMlbOomphEngine } = require("./pipeline/mlb/buildMlbOomphEngine")
 const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
 const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
+const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
+const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
+const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
 const {
   buildMlbCorrelationClusters,
   buildMlbUpsideClusters,
@@ -55,6 +58,7 @@ const {
 const { saveTrackedSlateSnapshot } = require("./pipeline/tracking/saveTrackedSlateSnapshot")
 const { gradeTrackedSlateSnapshot } = require("./pipeline/tracking/gradeTrackedSlateSnapshot")
 const { buildTrackedSlateSummary } = require("./pipeline/tracking/buildTrackedSlateSummary")
+const { buildBestPairs } = require("./pipeline/decision/buildBestPairs")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
 
@@ -75,18 +79,53 @@ let lastForceRefreshAt = null
 
 const ENABLE_DISK_SNAPSHOT_LOAD = String(process.env.ENABLE_DISK_SNAPSHOT_LOAD || "false").toLowerCase() === "true"
 
-function sanitizeSnapshotRows(rows) {
-  return (Array.isArray(rows) ? rows : []).filter((r) =>
-    r &&
-    typeof r.propType === "string" &&
-    r.propType !== "0" &&
-    typeof r.team === "string" &&
-    r.team !== "0" &&
-    Number.isFinite(Number(r.odds)) &&
-    Number(r.odds) !== 0 &&
-    Number.isFinite(Number(r.line)) &&
-    Number(r.line) !== 0
-  )
+function sanitizeSnapshotRows(rows, opts = {}) {
+  const input = Array.isArray(rows) ? rows : []
+  const slateState = typeof opts?.slateState === "string" ? opts.slateState : null
+  const nowMs = Date.now()
+
+  const derivedActiveSlate =
+    input.some((r) => {
+      const gameMs = r?.gameTime ? new Date(r.gameTime).getTime() : null
+      const marketOk = r?.marketValidity === "valid"
+      return Number.isFinite(gameMs) && gameMs <= nowMs && marketOk
+    })
+
+  const isActiveSlate = slateState === "active_today" || derivedActiveSlate
+
+  const output = input.filter((r) => {
+    if (!r || typeof r !== "object") return false
+
+    // Active slate: keep degraded-but-valid rows so we don't wipe the whole slate.
+    if (isActiveSlate) {
+      return (
+        r.marketValidity === "valid" &&
+        r.odds != null &&
+        r.propType != null &&
+        String(r.propType || "").trim() !== "0"
+      )
+    }
+
+    // Pregame strict (existing behavior).
+    return (
+      typeof r.propType === "string" &&
+      r.propType !== "0" &&
+      typeof r.team === "string" &&
+      r.team !== "0" &&
+      Number.isFinite(Number(r.odds)) &&
+      Number(r.odds) !== 0 &&
+      Number.isFinite(Number(r.line)) &&
+      Number(r.line) !== 0
+    )
+  })
+
+  console.log("[SANITIZE RESULT]", {
+    before: input.length,
+    after: output.length,
+    mode: isActiveSlate ? "active-relaxed" : "pregame-strict"
+  })
+
+  return output
 }
 
 let oddsSnapshot = {
@@ -294,6 +333,23 @@ function detectSlateMode({ sportKey, snapshotMeta, snapshot, runtime } = {}) {
   if (games >= t.heavyGames) mode = "heavy"
   else if (games >= t.lightGames) mode = "light"
   else if (games > 0) mode = "thin"
+
+  // Safe override: quality-pass failure must not force props to be treated as dead
+  // when we have valid raw+sanitized props. Mark slate as thin-but-valid.
+  if (
+    !loadedSlateQualityPassEnabled &&
+    Number.isFinite(rawPropsCount) && rawPropsCount > 0 &&
+    Number.isFinite(propsCount) && propsCount > 0
+  ) {
+    console.log("[QUALITY PASS OVERRIDE]", {
+      rawPropsCount,
+      sanitizedCount: propsCount
+    })
+    mode = "thin-but-valid"
+    // Remove this reason so downstream does not treat it as a hard failure signal.
+    const idx = reasons.indexOf("loaded-slate-quality-pass-failed")
+    if (idx >= 0) reasons.splice(idx, 1)
+  }
 
   // Promote to thinBad if key health signals fail (avoid over-patching expectations).
   const thinBadSignals =
@@ -3214,7 +3270,510 @@ function buildNbaSuperstarCeilingBoard({ poolRows = [], propsRows = [], slateMod
   return selectOomphExportBalanced(rankedAll, maxRows)
 }
 
-function buildLiveDualBestAvailablePayload() {
+const DEFAULT_BEST_AVAILABLE_SPORT_KEY = "basketball_nba"
+const ALLOWED_BEST_AVAILABLE_SPORT_KEYS = new Set(["basketball_nba", "baseball_mlb"])
+
+function normalizeBestAvailableSportKey(raw) {
+  const s = String(raw == null ? "" : raw).trim()
+  if (ALLOWED_BEST_AVAILABLE_SPORT_KEYS.has(s)) return s
+  return DEFAULT_BEST_AVAILABLE_SPORT_KEY
+}
+
+function buildMlbDualPoolDiagnostics(eligibleRows) {
+  const safeRows = Array.isArray(eligibleRows) ? eligibleRows : []
+  const books = ["FanDuel", "DraftKings"]
+  const byBook = {}
+  for (const book of books) {
+    const bookRows = safeRows.filter((row) => row?.book === book)
+    byBook[book] = {
+      total: bookRows.length,
+      Hits: bookRows.filter((row) => String(row?.propType) === "Hits").length,
+      "Home Runs": bookRows.filter((row) => String(row?.propType) === "Home Runs").length,
+      "Total Bases": bookRows.filter((row) => String(row?.propType) === "Total Bases").length,
+      RBIs: bookRows.filter((row) => String(row?.propType) === "RBIs").length
+    }
+  }
+  return {
+    sportKey: "baseball_mlb",
+    rawProps: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0,
+    totalEligible: safeRows.length,
+    byBook
+  }
+}
+
+function buildMlbLiveDualBestAvailablePayload() {
+  const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+  const clusters = buildMlbClusters(rows)
+
+  const dedupeMlbLegs = (rowsToDedupe) => {
+    const safeRows = Array.isArray(rowsToDedupe) ? rowsToDedupe : []
+    const seen = new Set()
+    const out = []
+    for (const row of safeRows) {
+      if (!row) continue
+      const key = [
+        String(row?.eventId || row?.matchup || ""),
+        String(row?.player || ""),
+        String(row?.propType || ""),
+        String(row?.side || ""),
+        String(row?.line ?? ""),
+        String(row?.odds ?? ""),
+        String(row?.book || ""),
+        String(row?.marketKey || ""),
+        String(row?.propVariant || "base")
+      ].join("|")
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      out.push(row)
+    }
+    return out
+  }
+
+  const fallbackBestPropsLogic = (rowList) => {
+    const raw = Array.isArray(rowList) ? rowList : []
+    const eligibleFallback = raw.filter(
+      (r) =>
+        r &&
+        String(r.player || "").trim() &&
+        String(r.propType || "").trim() &&
+        String(r.propType).trim() !== "0" &&
+        Number.isFinite(Number(r.odds))
+    )
+    const rowScore = (r) => Number(r?.score ?? r?.decisionScore ?? r?.edge ?? 0)
+    const stamped = eligibleFallback.map((row) => {
+      const { score, confidence, category } = scoreMlbProp(row)
+      return {
+        ...row,
+        mlbPhase3Score: score,
+        mlbPhase3Confidence: confidence,
+        mlbPhase3Category: category || "unknown"
+      }
+    })
+    stamped.sort((a, b) => {
+      const pa = Number(a.mlbPhase3Score || 0)
+      const pb = Number(b.mlbPhase3Score || 0)
+      if (pb !== pa) return pb - pa
+      return rowScore(b) - rowScore(a)
+    })
+    return dedupeMlbLegs(stamped).slice(0, 120)
+  }
+
+  const phase3Best = buildMlbBestProps(rows, clusters)
+
+  console.log("[MLB PHASE 3]", {
+    rows: rows.length,
+    best: phase3Best.length
+  })
+
+  const eligible = rows.filter(
+    (r) =>
+      r &&
+      String(r.player || "").trim() &&
+      String(r.propType || "").trim() &&
+      String(r.propType).trim() !== "0" &&
+      Number.isFinite(Number(r.odds))
+  )
+
+  const MLB_COVERAGE_PROP_TYPES = ["Hits", "Home Runs", "Total Bases", "RBIs"]
+  const mlbPropCoverage = MLB_COVERAGE_PROP_TYPES.reduce((acc, pt) => {
+    acc[pt] = eligible.filter((r) => String(r.propType) === pt).length
+    return acc
+  }, {})
+  console.log("[MLB BEST-AVAILABLE PROP COVERAGE]", {
+    rowsTotal: rows.length,
+    eligible: eligible.length,
+    ...mlbPropCoverage
+  })
+
+  const finalPlayableRows =
+    Array.isArray(phase3Best) && phase3Best.length > 0 ? phase3Best : fallbackBestPropsLogic(rows)
+
+  console.log("[MLB FINAL SOURCE]", {
+    using: phase3Best.length > 0 ? "phase3" : "fallback",
+    count: finalPlayableRows.length
+  })
+
+  // Phase 3 post-processing: build a balanced MLB board that doesn't collapse
+  // into only safe/low-variance unders.
+  const safeLaneBase = Array.isArray(phase3Best) && phase3Best.length > 0
+    ? phase3Best
+    : finalPlayableRows
+  const safeLane = dedupeMlbLegs(
+    (Array.isArray(safeLaneBase) ? safeLaneBase : [])
+      .filter(Boolean)
+      .sort((a, b) => Number(b?.mlbPhase3Score || 0) - Number(a?.mlbPhase3Score || 0))
+  )
+
+  const upsideCandidates = dedupeMlbLegs(
+    (Array.isArray(finalPlayableRows) ? finalPlayableRows : [])
+      .filter((row) => {
+        if (!row) return false
+        const propType = String(row?.propType || "").trim()
+        const odds = Number(row?.odds)
+        const category = String(row?.mlbPhase3Category || "").toLowerCase()
+        if (propType === "Home Runs" || propType === "Total Bases") return true
+        if (Number.isFinite(odds) && odds >= 150) return true
+        if (category === "hr") return true
+        return false
+      })
+      .sort((a, b) => {
+        const aEdge = Number(a?.edgeProbability || 0)
+        const bEdge = Number(b?.edgeProbability || 0)
+        const aSignal = Number(a?.signalScore || 0)
+        const bSignal = Number(b?.signalScore || 0)
+        const aPhase3 = Number(a?.mlbPhase3Score || 0)
+        const bPhase3 = Number(b?.mlbPhase3Score || 0)
+        return (bEdge + bSignal + bPhase3) - (aEdge + aSignal + aPhase3)
+      })
+  )
+
+  const buildMlbMixedBoard = (safeRows, upsideRows, { totalTarget = 40 } = {}) => {
+    const safe = Array.isArray(safeRows) ? safeRows : []
+    const upside = Array.isArray(upsideRows) ? upsideRows : []
+
+    const target = Math.max(10, Math.min(120, Number(totalTarget) || 40))
+    const minOvers = Math.max(0, Math.ceil(target * 0.3))
+    const minHrTb = Math.max(0, Math.ceil(target * 0.25))
+    const maxHeavyJuiceUnders = Math.max(0, Math.floor(target * 0.4))
+
+    const normalizeSide = (row) => String(row?.side || "").trim().toLowerCase()
+    const normalizePropType = (row) => String(row?.propType || "").trim()
+    const oddsValue = (row) => Number(row?.odds)
+
+    const isOver = (row) => normalizeSide(row) === "over"
+    const isUnder = (row) => normalizeSide(row) === "under"
+    const isHeavyJuice = (row) => {
+      const o = oddsValue(row)
+      return Number.isFinite(o) && o < -200
+    }
+    const isHrTb = (row) => {
+      const pt = normalizePropType(row)
+      return pt === "Home Runs" || pt === "Total Bases"
+    }
+    const isDownweightedUnderType = (row) => {
+      if (!isUnder(row)) return false
+      const pt = normalizePropType(row)
+      return pt === "RBIs" || pt === "Hits"
+    }
+
+    const adjustedScore = (row) => {
+      const edge = Number(row?.edgeProbability || 0)
+      const signal = Number(row?.signalScore || 0)
+      const phase3 = Number(row?.mlbPhase3Score || 0)
+      let s = edge + signal + phase3
+
+      // DOWNWEIGHT
+      if (isHeavyJuice(row)) s -= 1.2
+      if (isDownweightedUnderType(row)) s -= 0.8
+
+      // UPWEIGHT
+      if (isHrTb(row)) s += 1.0
+      const o = oddsValue(row)
+      if (Number.isFinite(o) && o >= 120) s += 0.5
+      if (isOver(row)) s += 0.4
+
+      return s
+    }
+
+    const rankedSafe = [...safe].sort((a, b) => adjustedScore(b) - adjustedScore(a))
+    const rankedUpside = [...upside].sort((a, b) => adjustedScore(b) - adjustedScore(a))
+    const mergedRanked = dedupeMlbLegs([...rankedSafe, ...rankedUpside]).sort((a, b) => adjustedScore(b) - adjustedScore(a))
+
+    const out = []
+    const takeIf = (row, counters) => {
+      if (!row) return false
+      const next = dedupeMlbLegs([...out, row])
+      if (next.length === out.length) return false
+
+      const side = normalizeSide(row)
+      const isRowHeavyJuiceUnder = isHeavyJuice(row) && side === "under"
+      if (isRowHeavyJuiceUnder && counters.heavyJuiceUnders >= maxHeavyJuiceUnders) return false
+
+      out.push(row)
+      if (side === "over") counters.overs += 1
+      if (side === "under") counters.unders += 1
+      if (isHrTb(row)) counters.hrTb += 1
+      if (isRowHeavyJuiceUnder) counters.heavyJuiceUnders += 1
+      return true
+    }
+
+    const counters = { overs: 0, unders: 0, hrTb: 0, heavyJuiceUnders: 0 }
+
+    // 1) Ensure HR/TB quota (upside)
+    for (const row of mergedRanked) {
+      if (out.length >= target) break
+      if (!isHrTb(row)) continue
+      takeIf(row, counters)
+      if (counters.hrTb >= minHrTb) break
+    }
+
+    // 2) Ensure overs quota (prefer overs from upside)
+    for (const row of mergedRanked) {
+      if (out.length >= target) break
+      if (!isOver(row)) continue
+      takeIf(row, counters)
+      if (counters.overs >= minOvers) break
+    }
+
+    // 3) Fill remaining with best adjustedScore under heavy-juice-under cap
+    for (const row of mergedRanked) {
+      if (out.length >= target) break
+      takeIf(row, counters)
+    }
+
+    const deduped = dedupeMlbLegs(out).slice(0, target)
+
+    // HARD RULE: never return all unders (when `side` exists on rows).
+    const withSide = deduped.filter((r) => String(r?.side || "").trim())
+    const overCount = withSide.filter((r) => String(r?.side || "").toLowerCase() === "over").length
+    if (withSide.length > 0 && overCount === 0) {
+      const oversFromMerged = mergedRanked.filter((r) => String(r?.side || "").toLowerCase() === "over")
+      if (oversFromMerged.length > 0) {
+        return dedupeMlbLegs([...deduped, oversFromMerged[0]]).slice(0, target)
+      }
+    }
+
+    return deduped
+  }
+
+  const mixedBest = buildMlbMixedBoard(safeLane, upsideCandidates, { totalTarget: 40 })
+  const sideRows = Array.isArray(mixedBest) ? mixedBest.filter((r) => String(r?.side || "").trim()) : []
+  const overCount = sideRows.filter((r) => String(r?.side || "").toLowerCase() === "over").length
+  const underCount = sideRows.filter((r) => String(r?.side || "").toLowerCase() === "under").length
+  console.log("[MLB MIX]", {
+    safeCount: safeLane.length,
+    upsideCount: upsideCandidates.length,
+    overCount,
+    underCount
+  })
+
+  console.log("[MLB BEST TRACE]", {
+    rows: Array.isArray(rows) ? rows.length : -1,
+    clusters: {
+      hits: Array.isArray(clusters?.hits) ? clusters.hits.length : -1,
+      hr: Array.isArray(clusters?.hr) ? clusters.hr.length : -1,
+      tb: Array.isArray(clusters?.tb) ? clusters.tb.length : -1,
+      rbi: Array.isArray(clusters?.rbi) ? clusters.rbi.length : -1
+    },
+    phase3Best: Array.isArray(phase3Best) ? phase3Best.length : -1,
+    finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : -1,
+    safeLane: Array.isArray(safeLane) ? safeLane.length : -1,
+    upsideCandidates: Array.isArray(upsideCandidates) ? upsideCandidates.length : -1,
+    mixedBest: Array.isArray(mixedBest) ? mixedBest.length : -1
+  })
+
+  const best = Array.isArray(mixedBest) && mixedBest.length > 0
+    ? mixedBest
+    : (Array.isArray(finalPlayableRows) ? finalPlayableRows : [])
+  console.log("[MLB BEST TRACE] afterBestAssign", {
+    best: Array.isArray(best) ? best.length : -1
+  })
+
+  const safeBest = Array.isArray(best) ? best : []
+
+  const countBook = (book) => eligible.filter((r) => r?.book === book).length
+
+  const availableCounts = {
+    elite: { total: 0, fanduel: 0, draftkings: 0 },
+    strong: { total: 0, fanduel: 0, draftkings: 0 },
+    playable: {
+      total: eligible.length,
+      fanduel: countBook("FanDuel"),
+      draftkings: countBook("DraftKings")
+    },
+    flex: { total: 0, fanduel: 0, draftkings: 0 },
+    best: {
+      total: best.length,
+      fanduel: best.filter((r) => r?.book === "FanDuel").length,
+      draftkings: best.filter((r) => r?.book === "DraftKings").length
+    }
+  }
+
+  const flex = []
+
+  const dualBestPropsPoolBase = best.length ? best : eligible
+  const dualBestPropsPool = buildBestPropVariantPool(dualBestPropsPoolBase)
+  const mixedBestAvailable = buildMixedBestAvailableBuckets(dualBestPropsPool, { thinSlateMode: true })
+  const dualPoolDiagnostics = buildMlbDualPoolDiagnostics(eligible)
+  const statLeaderboards = buildDualStatLeaderboards(eligible)
+
+  const slipPool = dualBestPropsPool.length ? dualBestPropsPool : eligible
+  const fdHighestHitRate2 =
+    slipPool.length >= 2
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 2, slipPool), "Highest Hit Rate 2-Leg")
+      : null
+  const fdHighestHitRate3 =
+    slipPool.length >= 3
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 3, slipPool), "Highest Hit Rate 3-Leg")
+      : null
+  const fdHighestHitRate4 =
+    slipPool.length >= 4
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 4, slipPool), "Highest Hit Rate 4-Leg")
+      : null
+  const fdHighestHitRate5 =
+    slipPool.length >= 5
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 5, slipPool), "Highest Hit Rate 5-Leg")
+      : null
+  const fdHighestHitRate6 =
+    slipPool.length >= 6
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 6, slipPool), "Highest Hit Rate 6-Leg")
+      : null
+  const fdHighestHitRate7 =
+    slipPool.length >= 7
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 7, slipPool), "Highest Hit Rate 7-Leg")
+      : null
+  const fdHighestHitRate8 =
+    slipPool.length >= 8
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 8, slipPool), "Highest Hit Rate 8-Leg")
+      : null
+  const fdHighestHitRate9 =
+    slipPool.length >= 9
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 9, slipPool), "Highest Hit Rate 9-Leg")
+      : null
+  const fdHighestHitRate10 =
+    slipPool.length >= 10
+      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 10, slipPool), "Highest Hit Rate 10-Leg")
+      : null
+
+  const dkHighestHitRate2 =
+    slipPool.length >= 2
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 2, slipPool), "Highest Hit Rate 2-Leg")
+      : null
+  const dkHighestHitRate3 =
+    slipPool.length >= 3
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 3, slipPool), "Highest Hit Rate 3-Leg")
+      : null
+  const dkHighestHitRate4 =
+    slipPool.length >= 4
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 4, slipPool), "Highest Hit Rate 4-Leg")
+      : null
+  const dkHighestHitRate5 =
+    slipPool.length >= 5
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 5, slipPool), "Highest Hit Rate 5-Leg")
+      : null
+  const dkHighestHitRate6 =
+    slipPool.length >= 6
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 6, slipPool), "Highest Hit Rate 6-Leg")
+      : null
+  const dkHighestHitRate7 =
+    slipPool.length >= 7
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 7, slipPool), "Highest Hit Rate 7-Leg")
+      : null
+  const dkHighestHitRate8 =
+    slipPool.length >= 8
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 8, slipPool), "Highest Hit Rate 8-Leg")
+      : null
+  const dkHighestHitRate9 =
+    slipPool.length >= 9
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 9, slipPool), "Highest Hit Rate 9-Leg")
+      : null
+  const dkHighestHitRate10 =
+    slipPool.length >= 10
+      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 10, slipPool), "Highest Hit Rate 10-Leg")
+      : null
+
+  const fdSlipObjects = [
+    fdHighestHitRate2,
+    fdHighestHitRate3,
+    fdHighestHitRate4,
+    fdHighestHitRate5,
+    fdHighestHitRate6,
+    fdHighestHitRate7,
+    fdHighestHitRate8,
+    fdHighestHitRate9,
+    fdHighestHitRate10
+  ].filter(Boolean)
+
+  const dkSlipObjects = [
+    dkHighestHitRate2,
+    dkHighestHitRate3,
+    dkHighestHitRate4,
+    dkHighestHitRate5,
+    dkHighestHitRate6,
+    dkHighestHitRate7,
+    dkHighestHitRate8,
+    dkHighestHitRate9,
+    dkHighestHitRate10
+  ].filter(Boolean)
+
+  const moneyMakerFd = buildMoneyMakerPortfolio("FanDuel", dualBestPropsPool)
+  const moneyMakerDk = buildMoneyMakerPortfolio("DraftKings", dualBestPropsPool)
+
+  console.log("[MLB BEST FIX]", {
+    bestLength: safeBest.length,
+    finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0
+  })
+
+  return {
+    availableCounts,
+    best: safeBest,
+    safe: mixedBestAvailable.safe,
+    balanced: mixedBestAvailable.balanced,
+    aggressive: mixedBestAvailable.aggressive,
+    lotto: mixedBestAvailable.lotto,
+    flexProps: flex,
+    highestHitRate2: { fanduel: fdHighestHitRate2, draftkings: dkHighestHitRate2 },
+    highestHitRate3: { fanduel: fdHighestHitRate3, draftkings: dkHighestHitRate3 },
+    highestHitRate4: { fanduel: fdHighestHitRate4, draftkings: dkHighestHitRate4 },
+    highestHitRate5: { fanduel: fdHighestHitRate5, draftkings: dkHighestHitRate5 },
+    highestHitRate6: { fanduel: fdHighestHitRate6, draftkings: dkHighestHitRate6 },
+    highestHitRate7: { fanduel: fdHighestHitRate7, draftkings: dkHighestHitRate7 },
+    highestHitRate8: { fanduel: fdHighestHitRate8, draftkings: dkHighestHitRate8 },
+    highestHitRate9: { fanduel: fdHighestHitRate9, draftkings: dkHighestHitRate9 },
+    highestHitRate10: { fanduel: fdHighestHitRate10, draftkings: dkHighestHitRate10 },
+    payoutFitPortfolio: {
+      fanduel: buildPayoutFitPortfolio("FanDuel", fdSlipObjects, null, {
+        dualMode: true,
+        dualUsablePool: dualBestPropsPool
+      }),
+      draftkings: buildPayoutFitPortfolio("DraftKings", dkSlipObjects, null, {
+        dualMode: true,
+        dualUsablePool: dualBestPropsPool
+      })
+    },
+    moneyMakerPortfolio: {
+      fanduel: moneyMakerFd,
+      draftkings: moneyMakerDk
+    },
+    statLeaderboards,
+    poolDiagnostics: dualPoolDiagnostics,
+    finalPlayableRows,
+    clusters,
+    diagnostics: {
+      sportPipeline: "baseball_mlb",
+      mlbPropCoverage,
+      mlbPhase3Clusters: {
+        hits: Array.isArray(clusters?.hits) ? clusters.hits.length : 0,
+        hr: Array.isArray(clusters?.hr) ? clusters.hr.length : 0,
+        tb: Array.isArray(clusters?.tb) ? clusters.tb.length : 0,
+        rbi: Array.isArray(clusters?.rbi) ? clusters.rbi.length : 0
+      },
+      mlbSnapshot: {
+        updatedAt: mlbSnapshot?.updatedAt || null,
+        snapshotSlateDateKey: mlbSnapshot?.snapshotSlateDateKey || null,
+        rowCount: rows.length,
+        eligibleCount: eligible.length
+      },
+      rawCoverage: null,
+      stageCounts: {
+        mlbRowsTotal: rows.length,
+        mlbEligibleRows: eligible.length,
+        dualBestPropsPool: dualBestPropsPool.length
+      },
+      exclusionSummary: null,
+      wideLeaderboards: null
+    }
+  }
+}
+
+function buildLiveDualBestAvailablePayload(options = {}) {
+  const sportKey = normalizeBestAvailableSportKey(options?.sport ?? options?.sportKey)
+  console.log("[SPORT PIPELINE]", sportKey)
+
+  if (sportKey === "baseball_mlb") {
+    return buildMlbLiveDualBestAvailablePayload()
+  }
+
   console.log("[PAYLOAD-DEBUG] ENTER buildLiveDualBestAvailablePayload")
   // CORE_ONLY_REFRESH_MODE was introduced as a temporary stability switch, but
   // /api/best-available is now a contract used by the frontend for portfolios
@@ -3232,7 +3791,76 @@ function buildLiveDualBestAvailablePayload() {
   ]
   console.log("[PAYLOAD-DEBUG] combinedPrimaryRows.length:", combinedPrimaryRows.length)
 
-  const combinedRows = getAvailablePrimarySlateRows(combinedPrimaryRows)
+  let poolSource = "strict"
+  let combinedRows = getAvailablePrimarySlateRows(combinedPrimaryRows)
+
+  // === Adaptive pool expansion (anti-starvation) ===
+  // If strict availability/quality filters produce an empty pool, fall back to a
+  // relaxed (but still sane) candidate set from the raw props pool.
+  if (combinedRows.length === 0) {
+    const rawProps = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length
+      ? oddsSnapshot.rawProps
+      : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+
+    let relaxedPool = (Array.isArray(rawProps) ? rawProps : []).filter((row) =>
+      row &&
+      row.marketValidity === "valid" &&
+      row.odds != null
+    )
+
+    // Secondary safety filter: avoid broken odds / missing prop type.
+    relaxedPool = relaxedPool.filter((row) =>
+      Number(row?.odds) > -10000 &&
+      row?.propType != null
+    )
+
+    // Prefer rows with model signals, but do not require both.
+    relaxedPool.sort((a, b) => {
+      const aScore = Number(a?.decisionScore || 0) + Number(a?.predictedProbability || 0)
+      const bScore = Number(b?.decisionScore || 0) + Number(b?.predictedProbability || 0)
+      return bScore - aScore
+    })
+
+    const relaxedTop = relaxedPool.slice(0, 100)
+    combinedRows = getAvailablePrimarySlateRows(relaxedTop)
+    poolSource = combinedRows.length > 0 ? "relaxed" : "strict"
+
+    if (combinedRows.length === 0) {
+      // Final fallback: take a small raw slice if everything else fails.
+      const fallbackPool = (Array.isArray(rawProps) ? rawProps : []).slice(0, 50)
+      combinedRows = getAvailablePrimarySlateRows(fallbackPool)
+      if (combinedRows.length > 0) poolSource = "fallback"
+    }
+
+    console.log("[POOL-BUILD]", {
+      raw: Array.isArray(rawProps) ? rawProps.length : 0,
+      final: combinedRows.length,
+      mode: poolSource
+    })
+  }
+
+  console.log("[POST PRIMARY FILTER]", combinedRows.length)
+
+  // Final fallback: if primary slate filtering still yields zero but we have raw props,
+  // allow a degraded-but-valid pool so downstream best-available doesn't fully starve.
+  const rawPropsFinalFallback = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length
+    ? oddsSnapshot.rawProps
+    : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+
+  if (combinedRows.length === 0 && rawPropsFinalFallback.length > 0) {
+    console.log("[FINAL FALLBACK TRIGGERED]")
+    combinedRows = rawPropsFinalFallback
+      .filter((r) =>
+        r &&
+        r.marketValidity === "valid" &&
+        r.odds != null &&
+        r.propType != null
+      )
+      .slice(0, 100)
+  }
+
+  console.log("[FINAL ROW COUNT]", combinedRows.length)
+
   console.log("[PAYLOAD-DEBUG] combinedRows.length:", combinedRows.length)
   logPayloadDebugExclusions("combinedPrimaryRows→combinedRows", combinedPrimaryRows, combinedRows)
 
@@ -7060,17 +7688,189 @@ function withBookSlipFallback(book, targetLegCount, legs) {
   return []
 }
 
-app.get("/api/best-available", (req, res) => {
+app.get("/api/best-available", async (req, res) => {
+  const bestAvailableSportKey = normalizeBestAvailableSportKey(req.query?.sport)
+
   console.log("[TOP-DOWN-BEST-AVAILABLE-ENTRY]", {
+    sport: bestAvailableSportKey,
     snapshotSource: lastSnapshotSource || "unknown",
     snapshotLoadedFromDisk,
-    updatedAt: oddsSnapshot?.updatedAt || null,
-    events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
-    rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
-    props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
-    bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+    nba: {
+      updatedAt: oddsSnapshot?.updatedAt || null,
+      events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : -1,
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : -1,
+      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : -1,
+      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : -1
+    },
+    mlb: {
+      updatedAt: mlbSnapshot?.updatedAt || null,
+      events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : -1,
+      rows: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : -1
+    }
   })
-  const bestAvailablePayload = buildLiveDualBestAvailablePayload()
+
+  if (bestAvailableSportKey === "baseball_mlb") {
+    // MLB snapshot is isolated from NBA oddsSnapshot and starts empty on boot.
+    // If the client requests MLB best-available before calling /mlb/refresh or
+    // /refresh-snapshot?sport=baseball_mlb, eagerly build the MLB snapshot here
+    // so downstream boards/picks are not stuck in startup-empty mode.
+    try {
+      const currentMlbRowCount = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0
+      if (currentMlbRowCount === 0) {
+        if (ODDS_API_KEY) {
+          const snapshot = await buildMlbBootstrapSnapshot({
+            oddsApiKey: ODDS_API_KEY,
+            now: Date.now()
+          })
+          mlbSnapshot = {
+            ...snapshot,
+            diagnostics: {
+              ...(snapshot?.diagnostics && typeof snapshot.diagnostics === "object" ? snapshot.diagnostics : {}),
+              bootstrapPhase: "phase-1-live"
+            }
+          }
+          await saveMlbReplaySnapshotToDisk(mlbSnapshot)
+        } else {
+          console.log("[MLB SNAPSHOT EMPTY] Missing ODDS_API_KEY; cannot refresh MLB snapshot")
+        }
+      }
+    } catch (e) {
+      console.log("[MLB SNAPSHOT AUTO-REFRESH FAILED]", e?.message || e)
+    }
+
+    const bestAvailablePayload = buildLiveDualBestAvailablePayload({ sport: bestAvailableSportKey })
+    if (!bestAvailablePayload) {
+      return res.status(503).json({
+        ok: false,
+        error: "bestAvailable MLB not ready",
+        sport: bestAvailableSportKey,
+        snapshotMeta: {
+          ...buildSnapshotMeta(),
+          sportKey: bestAvailableSportKey,
+          mlb: {
+            updatedAt: mlbSnapshot?.updatedAt || null,
+            rowCount: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0
+          }
+        },
+        slateStateValidator: null,
+        lineHistorySummary: null
+      })
+    }
+
+    const dedupeMlbBoardRows = (rows) => {
+      const safeRows = Array.isArray(rows) ? rows : []
+      const seen = new Set()
+      const out = []
+      for (const row of safeRows) {
+        const key = [
+          String(row?.eventId || row?.matchup || ""),
+          String(row?.player || ""),
+          String(row?.propType || ""),
+          String(row?.side || ""),
+          String(row?.line ?? ""),
+          String(row?.odds ?? ""),
+          String(row?.book || ""),
+          String(row?.marketKey || ""),
+          String(row?.propVariant || "base")
+        ].join("|")
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        out.push(row)
+      }
+      return out
+    }
+
+    const mlbBoardSourceRows =
+      (Array.isArray(bestAvailablePayload?.finalPlayableRows) && bestAvailablePayload.finalPlayableRows.length > 0
+        ? bestAvailablePayload.finalPlayableRows
+        : Array.isArray(bestAvailablePayload?.best) && bestAvailablePayload.best.length > 0
+          ? bestAvailablePayload.best
+          : Array.isArray(mlbSnapshot?.rows)
+            ? mlbSnapshot.rows
+            : [])
+
+    const MLB_CORE_PROP_TYPES = new Set(["Hits", "Home Runs", "Total Bases", "RBIs"])
+    const isMlbBoardEligible = (row) =>
+      Boolean(
+        row &&
+          String(row?.player || "").trim() &&
+          String(row?.propType || "").trim() &&
+          Number.isFinite(Number(row?.odds))
+      )
+
+    const boardBase = dedupeMlbBoardRows(mlbBoardSourceRows.filter(isMlbBoardEligible))
+
+    const coreStandardProps = boardBase.filter((row) => {
+      const propType = String(row?.propType || "").trim()
+      const family = String(row?.marketFamily || "").toLowerCase()
+      if (family === "special") return false
+      return MLB_CORE_PROP_TYPES.has(propType)
+    })
+
+    const ladderProps = boardBase.filter((row) => {
+      const family = String(row?.marketFamily || "").toLowerCase()
+      const variant = String(row?.propVariant || "base").toLowerCase()
+      const marketKey = String(row?.marketKey || "").toLowerCase()
+      if (family === "special") return false
+      if (family === "ladder") return true
+      if (variant.startsWith("alt-")) return true
+      if (marketKey.includes("alternate")) return true
+      return false
+    })
+
+    const specialPropsBoard = boardBase.filter((row) => String(row?.marketFamily || "").toLowerCase() === "special")
+
+    const boardCounts = {
+      coreStandardProps: coreStandardProps.length,
+      ladderProps: ladderProps.length,
+      specialProps: specialPropsBoard.length
+    }
+
+    console.log("[MLB BOARD SOURCE]", {
+      sourceRows: Array.isArray(mlbBoardSourceRows) ? mlbBoardSourceRows.length : 0,
+      boardBase: boardBase.length,
+      counts: boardCounts
+    })
+
+    console.log("[MLB BEST TRACE] preResponse", {
+      payloadBest: Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best.length : -1,
+      payloadFinalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows) ? bestAvailablePayload.finalPlayableRows.length : -1
+    })
+    console.log("[MLB RESPONSE CHECK]", {
+      payloadBest: Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best.length : 0
+    })
+
+    return res.json({
+      sport: bestAvailableSportKey,
+      bestAvailable: {
+        ...bestAvailablePayload,
+        slateMode: "mlb"
+      },
+      ladderPool: [],
+      routePlayableSeed: [],
+      finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows) ? bestAvailablePayload.finalPlayableRows : (Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []),
+      standardCandidates: [],
+      ladderCandidates: [],
+      coreStandardProps,
+      ladderProps,
+      specialProps: specialPropsBoard,
+      boardCounts,
+      snapshotMeta: {
+        ...buildSnapshotMeta(),
+        sportKey: bestAvailableSportKey,
+        mlb: {
+          updatedAt: mlbSnapshot?.updatedAt || null,
+          snapshotSlateDateKey: mlbSnapshot?.snapshotSlateDateKey || null,
+          rowCount: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0,
+          events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0
+        }
+      },
+      slateStateValidator: null,
+      lineHistorySummary: null
+    })
+  }
+
+  const bestAvailablePayload = buildLiveDualBestAvailablePayload({ sport: bestAvailableSportKey })
 
   if (!bestAvailablePayload) {
     return res.status(503).json({
@@ -7084,7 +7884,12 @@ app.get("/api/best-available", (req, res) => {
 
   const effectiveBestProps = (() => {
     const snapshotBest = Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps : []
-    const propsPool = Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props : []
+    const propsPool =
+      Array.isArray(oddsSnapshot.props) && oddsSnapshot.props.length > 0
+        ? oddsSnapshot.props
+        : (Array.isArray(oddsSnapshot.rawProps) && oddsSnapshot.rawProps.length > 0
+          ? oddsSnapshot.rawProps
+          : (Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []))
     const fallbackBest = propsPool.length ? buildBestPropsFallbackRows(propsPool, 60) : []
     if (snapshotBest.length === 0) return Array.isArray(fallbackBest) ? fallbackBest : []
     // Non-empty but tiny bestProps (common ingestion glitch) must not starve the best board,
@@ -7167,7 +7972,9 @@ app.get("/api/best-available", (req, res) => {
 
     let expandedPoolInputRows = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
       ? oddsSnapshot.rawProps
-      : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+      : (Array.isArray(oddsSnapshot?.props) && oddsSnapshot.props.length > 0
+        ? oddsSnapshot.props
+        : (Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []))
 
     const normalizedFirstBasketRows = (Array.isArray(expandedPoolInputRows) ? expandedPoolInputRows : [])
       .filter((row) => ["player_first_basket", "player_first_team_basket"].includes(String(row?.marketKey || "")))
@@ -7276,7 +8083,9 @@ app.get("/api/best-available", (req, res) => {
       const specialFallbackSource = dedupeMarketRows([
         ...(Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
           ? oddsSnapshot.rawProps
-          : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])),
+          : (Array.isArray(oddsSnapshot?.props) && oddsSnapshot.props.length > 0
+            ? oddsSnapshot.props
+            : (Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []))),
         ...(Array.isArray(oddsSnapshot?.playableProps) ? oddsSnapshot.playableProps : []),
         ...(Array.isArray(oddsSnapshot?.strongProps) ? oddsSnapshot.strongProps : []),
         ...(Array.isArray(oddsSnapshot?.eliteProps) ? oddsSnapshot.eliteProps : []),
@@ -7424,9 +8233,30 @@ app.get("/api/best-available", (req, res) => {
       }, {})
     })
 
+    // Special-props → standard pipeline fallback (thin/active slate starvation guard).
+    // If standardCandidates is empty but we have valid special props, allow them to seed
+    // the main playable pipeline so downstream doesn't collapse to 0.
+    if (Array.isArray(standardCandidates) && standardCandidates.length === 0) {
+      const specialFallback = (Array.isArray(specialProps) ? specialProps : [])
+        .filter((row) => row && row.marketValidity === "valid" && row.odds != null)
+        .map((row) => ({ ...row, pipelineSource: "special-fallback" }))
+
+      if (specialFallback.length > 0) {
+        standardCandidates = specialFallback
+      }
+    }
+
     routePlayableSeed = Array.isArray(standardCandidates) && standardCandidates.length > 0
       ? standardCandidates
       : buildSlipSeedPool(oddsSnapshot)
+
+    // Final-stage special fallback (must happen AFTER routePlayableSeed is built).
+    if ((Array.isArray(routePlayableSeed) ? routePlayableSeed.length : 0) === 0 && (Array.isArray(specialProps) ? specialProps.length : 0) > 0) {
+      console.log("[FINAL FALLBACK ACTIVATED]", specialProps.length)
+      routePlayableSeed = (Array.isArray(specialProps) ? specialProps : [])
+        .filter((r) => r && r.marketValidity === "valid" && r.odds != null)
+        .map((r) => ({ ...r, pipelineSource: "special-final-fallback" }))
+    }
 
     console.log("[ROUTE-PLAYABLE-SEED-DEBUG]", {
       total: routePlayableSeed.length,
@@ -7457,6 +8287,11 @@ app.get("/api/best-available", (req, res) => {
     finalPlayableRows = dedupeMarketRows(
       fallbackStandardCandidates.length ? fallbackStandardCandidates : fallbackRoutePlayableSeed
     )
+
+    if ((Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0) === 0 && (Array.isArray(specialProps) ? specialProps.length : 0) > 0) {
+      console.log("[FINAL PLAYABLE FORCED]", specialProps.length)
+      finalPlayableRows = (Array.isArray(specialProps) ? specialProps : []).slice(0, 10)
+    }
 
     console.log("[FINAL-PLAYABLE-FALLBACK]", {
       standardCandidates: fallbackStandardCandidates.length,
@@ -7538,12 +8373,22 @@ app.get("/api/best-available", (req, res) => {
     throw err
   }
 
+  const oddsPropsForBaseRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+  const finalPlayableRowsForBase = Array.isArray(finalPlayableRows) ? finalPlayableRows : []
+  const baseRows =
+    oddsPropsForBaseRows.length > 0 ? oddsPropsForBaseRows : finalPlayableRowsForBase
+
+  console.log("[PIPELINE SOURCE]", {
+    usingProps: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+    usingPlayable: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0
+  })
+
   const snapshotMeta = logSnapshotMeta("route=/api/best-available response")
 
   // === FORCE COVERAGE DEBUG ON LIVE RESPONSE PATH ===
   try {
     const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
-    const rawPropsRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const rawPropsRows = Array.isArray(baseRows) ? baseRows : []
 
     console.log("[RAW-PROPS-BEFORE-FILTER]", {
       total: rawPropsRows.length,
@@ -7553,7 +8398,7 @@ app.get("/api/best-available", (req, res) => {
         return acc
       }, {})
     })
-    const enrichedModelRows = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const enrichedModelRows = rawPropsRows
     const beforeFilter = rawPropsRows.length
     const survivedFragileRows = rawPropsRows.filter((r) => {
       let keep = true
@@ -7650,7 +8495,10 @@ app.get("/api/best-available", (req, res) => {
     snapshot: oddsSnapshot,
     runtime: {
       // Don't require loaded-slate pass; we only need games->mode behavior here.
-      loadedSlateQualityPassEnabled: Boolean(oddsSnapshot?.props && oddsSnapshot.props.length)
+      loadedSlateQualityPassEnabled: Boolean(
+        (Array.isArray(oddsSnapshot?.props) && oddsSnapshot.props.length > 0) ||
+          (Array.isArray(finalPlayableRows) && finalPlayableRows.length > 0)
+      )
     }
   })
   // Ticket/longshot/support pools must NOT use export-shaped `best` (too small); use full export candidates.
@@ -7711,7 +8559,7 @@ app.get("/api/best-available", (req, res) => {
   })
 
   const boardSourceRows = dedupeBoardRows([
-    ...(Array.isArray(finalPlayableRows) ? finalPlayableRows : []),
+    ...(Array.isArray(baseRows) ? baseRows : []),
     ...(Array.isArray(standardCandidates) ? standardCandidates : []),
     ...(Array.isArray(ladderPool) ? ladderPool : []),
     ...(Array.isArray(enrichedSpecialProps) ? enrichedSpecialProps : []),
@@ -7761,7 +8609,7 @@ app.get("/api/best-available", (req, res) => {
   }))
   const nbaEnrichmentHydrationSources = dedupeBoardRows([
     ...boardSourceRowsWithGameRole,
-    ...(Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []),
+    ...(Array.isArray(baseRows) ? baseRows : []),
     ...(Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps : [])
   ])
   const nbaEnrichmentLegLookup = buildNbaEnrichmentLegLookup(nbaEnrichmentHydrationSources)
@@ -7806,7 +8654,7 @@ app.get("/api/best-available", (req, res) => {
   // for core outputs (still gated by dataState === "complete").
   const fallbackScoredCoreRows = (() => {
     if (bestPropsCountSnapshot > 0) return []
-    const propsPool = Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []
+    const propsPool = Array.isArray(baseRows) ? baseRows : []
     if (!propsPool.length) return []
     const fb = buildBestPropsFallbackRows(propsPool, 80)
     const safe = Array.isArray(fb) ? fb : []
@@ -8066,7 +8914,27 @@ app.get("/api/best-available", (req, res) => {
     milestoneLadderCount: boardSourceRowsWithGameRole.filter((row) => isMilestoneLadderRow(row)).length
   })
 
-  const allVisibleRowsForBoards = boardSourceRowsWithLadderPresentation
+  const visibleInputRawProps = Array.isArray(baseRows) ? baseRows : []
+
+  console.log("[VISIBLE INPUT COUNT]", visibleInputRawProps.length)
+  console.log("[VISIBLE FILTER BEFORE]", visibleInputRawProps.slice(0, 20).map((r) => ({
+    propType: r?.propType,
+    marketKey: r?.marketKey,
+    marketFamily: r?.marketFamily,
+    propVariant: r?.propVariant,
+    marketValidity: r?.marketValidity
+  })))
+
+  // Critical: do not starve boards to zero. Use a relaxed visibility filter that
+  // keeps valid markets with odds + propType, including ladders/alts/live rows.
+  const allVisibleRowsForBoards = visibleInputRawProps.filter((row) =>
+    row &&
+    row.marketValidity === "valid" &&
+    row.odds != null &&
+    row.propType != null
+  )
+
+  console.log("[VISIBLE OUTPUT COUNT]", allVisibleRowsForBoards.length)
   const ladderPresentationRows = allVisibleRowsForBoards.filter((row) =>
     String(row?.ladderPresentation || "").length > 0
   )
@@ -8157,39 +9025,166 @@ app.get("/api/best-available", (req, res) => {
     return score
   }
 
-  const coreStandardProps = dedupeBoardRows(
-    sortCorePropsBoard(
-      allVisibleRowsForBoards.filter((row) => {
+  console.log("[RAW PROP TYPES]", (Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards : []).map((r) => r?.propType).slice(0, 50))
+  console.log("[MARKET KEYS]", (Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards : []).map((r) => r?.marketKey).slice(0, 50))
+
+  const finalPlayableForBoard = Array.isArray(finalPlayableRows) ? finalPlayableRows : []
+  const isSpecialOnlySlate =
+    finalPlayableForBoard.length > 0 &&
+    finalPlayableForBoard.every((row) => String(row?.marketFamily) === "special")
+
+  let coreStandardProps
+  let ladderProps
+  let specialPropsBoard
+
+  if (isSpecialOnlySlate) {
+    console.log("[SPECIAL ONLY SLATE MODE]", {
+      rows: finalPlayableForBoard.length
+    })
+    specialPropsBoard = dedupeBoardRows(
+      sortSpecialBoard(
+        finalPlayableForBoard.map((r) => ({
+          ...r,
+          pipelineSource: "special-only-slate"
+        }))
+      )
+    )
+    coreStandardProps = []
+    ladderProps = []
+  } else {
+    coreStandardProps = dedupeBoardRows(
+      sortCorePropsBoard(
+        allVisibleRowsForBoards.filter((row) => {
+          if (!hasCoreBoardFields(row)) return false
+          if (String(row?.marketFamily || "") === "special") return false
+          if (!CORE_STANDARD_PROP_TYPES.has(String(row?.propType || ""))) return false
+          const propVariant = String(row?.propVariant || "base")
+          return propVariant === "base" || propVariant === "default"
+        })
+      )
+    )
+
+    ladderProps = dedupeBoardRows(
+      sortLadderBoard(
+        allVisibleRowsForBoards.filter((row) => {
+          if (!hasCoreBoardFields(row)) return false
+          if (String(row?.marketFamily || "") === "special") return false
+          const propVariant = String(row?.propVariant || "base")
+          return LADDER_PROP_VARIANTS.has(propVariant)
+        })
+      )
+    )
+
+    specialPropsBoard = dedupeBoardRows(
+      sortSpecialBoard(
+        allVisibleRowsForBoards.filter((row) => {
+          if (!hasSpecialBoardFields(row)) return false
+          return String(row?.marketFamily || "") === "special"
+        })
+      )
+    )
+
+    console.log("[CLASSIFICATION COUNTS]", {
+      core: coreStandardProps.length,
+      ladder: ladderProps.length,
+      special: specialPropsBoard.length
+    })
+
+    // Thin/active slate guard: if core props starve to 0 but we still have raw board rows,
+    // allow degraded-but-valid core rows (market validity + odds + propType) to seed the core board.
+    if (coreStandardProps.length === 0 && (Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards.length : 0) > 0) {
+      const relaxedCore = (Array.isArray(allVisibleRowsForBoards) ? allVisibleRowsForBoards : []).filter((row) => {
+        if (!row) return false
+        if (String(row?.marketFamily || "") === "special") return false
+        if (!CORE_STANDARD_PROP_TYPES.has(String(row?.propType || ""))) return false
+        return row.marketValidity === "valid" && row.odds != null && row.propType != null
+      })
+      if (relaxedCore.length > 0) {
+        coreStandardProps = dedupeBoardRows(sortCorePropsBoard(relaxedCore.map((r) => ({ ...r, pipelineSource: r?.pipelineSource || "core-relaxed-fallback" }))))
+      }
+    }
+
+    // Connect boards to the playable pipeline when snapshot-visible rows do not classify
+    // into core/ladder/special but `finalPlayableRows` already has valid legs.
+    const playableBoardFallbackPool = finalPlayableForBoard.filter(
+      (row) => row && row.propType != null && row.marketValidity === "valid"
+    )
+
+    const prePlayableBoardCounts = {
+      core: coreStandardProps.length,
+      ladder: ladderProps.length,
+      special: specialPropsBoard.length
+    }
+
+    if (coreStandardProps.length === 0 && playableBoardFallbackPool.length > 0) {
+      const coreFromPlayableStrict = playableBoardFallbackPool.filter((row) => {
         if (!hasCoreBoardFields(row)) return false
         if (String(row?.marketFamily || "") === "special") return false
         if (!CORE_STANDARD_PROP_TYPES.has(String(row?.propType || ""))) return false
         const propVariant = String(row?.propVariant || "base")
         return propVariant === "base" || propVariant === "default"
       })
-    )
-  )
+      const coreFromPlayable =
+        coreFromPlayableStrict.length > 0
+          ? coreFromPlayableStrict
+          : playableBoardFallbackPool
+      coreStandardProps = dedupeBoardRows(
+        sortCorePropsBoard(
+          coreFromPlayable.map((r) => ({ ...r, pipelineSource: r?.pipelineSource || "playable-core-fallback" }))
+        )
+      )
+    }
 
-  const ladderProps = dedupeBoardRows(
-    sortLadderBoard(
-      allVisibleRowsForBoards.filter((row) => {
+    if (ladderProps.length === 0 && playableBoardFallbackPool.length > 0) {
+      const ladderFromPlayable = playableBoardFallbackPool.filter((row) => {
         if (!hasCoreBoardFields(row)) return false
         if (String(row?.marketFamily || "") === "special") return false
         const propVariant = String(row?.propVariant || "base")
         return LADDER_PROP_VARIANTS.has(propVariant)
       })
-    )
-  )
+      if (ladderFromPlayable.length > 0) {
+        ladderProps = dedupeBoardRows(
+          sortLadderBoard(
+            ladderFromPlayable.map((r) => ({ ...r, pipelineSource: r?.pipelineSource || "playable-ladder-fallback" }))
+          )
+        )
+      }
+    }
 
-  const specialPropsBoard = dedupeBoardRows(
-    sortSpecialBoard(
-      allVisibleRowsForBoards.filter((row) => {
+    if (specialPropsBoard.length === 0 && playableBoardFallbackPool.length > 0) {
+      const specialFromPlayable = playableBoardFallbackPool.filter((row) => {
         if (!hasSpecialBoardFields(row)) return false
         return String(row?.marketFamily || "") === "special"
       })
-    )
-  )
+      if (specialFromPlayable.length > 0) {
+        specialPropsBoard = dedupeBoardRows(
+          sortSpecialBoard(
+            specialFromPlayable.map((r) => ({ ...r, pipelineSource: r?.pipelineSource || "playable-special-fallback" }))
+          )
+        )
+      }
+    }
 
-  const boardCounts = {
+    let boardCountsAfterPlayable = {
+      coreStandardProps: coreStandardProps.length,
+      ladderProps: ladderProps.length,
+      specialProps: specialPropsBoard.length
+    }
+
+    if (
+      playableBoardFallbackPool.length > 0 &&
+      (boardCountsAfterPlayable.coreStandardProps > prePlayableBoardCounts.core ||
+        boardCountsAfterPlayable.ladderProps > prePlayableBoardCounts.ladder ||
+        boardCountsAfterPlayable.specialProps > prePlayableBoardCounts.special)
+    ) {
+      console.log("[BOARD FALLBACK ACTIVATED]", {
+        finalPlayableRows: finalPlayableForBoard.length,
+        coreAssigned: coreStandardProps.length
+      })
+    }
+  }
+
+  let boardCounts = {
     coreStandardProps: coreStandardProps.length,
     ladderProps: ladderProps.length,
     specialProps: specialPropsBoard.length
@@ -9044,7 +10039,7 @@ app.get("/api/best-available", (req, res) => {
   const buildSourceLevelAvailabilitySignalMap = () => {
     const sourceRows = [
       ...(Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps : []),
-      ...(Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+      ...(Array.isArray(baseRows) ? baseRows : [])
     ]
 
     const signalMap = new Map()
@@ -9376,7 +10371,7 @@ app.get("/api/best-available", (req, res) => {
 
   const rawFirstBasketSourceRows = Array.isArray(oddsSnapshot?.rawProps) && oddsSnapshot.rawProps.length > 0
     ? oddsSnapshot.rawProps
-    : (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : [])
+    : (Array.isArray(baseRows) ? baseRows : [])
 
   const firstBasketPipelineDiagnostics = {
     rawFirstBasketRowsSeen: countByMarketKey(rawFirstBasketSourceRows, "player_first_basket"),
@@ -10628,7 +11623,7 @@ app.get("/api/best-available", (req, res) => {
     return false
   }
 
-  const snapshotPropsForLongshotExplosion = (Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []).filter((row) => {
+  const snapshotPropsForLongshotExplosion = (Array.isArray(baseRows) ? baseRows : []).filter((row) => {
     const o = Number(row?.odds)
     if (!Number.isFinite(o)) return false
     if (o > 950 || o < -400) return false
@@ -10668,7 +11663,7 @@ app.get("/api/best-available", (req, res) => {
       if (!finalTeam) return
       if (!teamByPlayer.has(playerKey)) teamByPlayer.set(playerKey, finalTeam)
     }
-    for (const r of Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []) registerPlayerTeam(r)
+    for (const r of Array.isArray(baseRows) ? baseRows : []) registerPlayerTeam(r)
     for (const r of Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []) registerPlayerTeam(r)
     for (const r of candidates) registerPlayerTeam(r)
 
@@ -10687,7 +11682,7 @@ app.get("/api/best-available", (req, res) => {
     }
     for (const r of liveRowsForQualityMode) maybeSetCeilingContext(r)
     for (const r of Array.isArray(bestPayloadRowsForTickets) ? bestPayloadRowsForTickets : []) maybeSetCeilingContext(r)
-    for (const r of Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props : []) maybeSetCeilingContext(r)
+    for (const r of Array.isArray(baseRows) ? baseRows : []) maybeSetCeilingContext(r)
     for (const r of candidates) maybeSetCeilingContext(r)
     const getCeilingContextRow = (row) => {
       const k = String(row?.player || "").trim().toLowerCase()
@@ -11456,7 +12451,8 @@ app.get("/api/best-available", (req, res) => {
       slateReasons.includes("no-raw-props")
     // Quality-pass alone must not zero-out executable bangers when games+props are live.
     let slateMode = slateModeRaw
-    if (slateModeRaw === "thinBad" && !deadSlate && slateGames > 0 && propsCount > 0) {
+    const routePlayableCount = Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0
+    if (slateModeRaw === "thinBad" && !deadSlate && slateGames > 0 && (propsCount > 0 || routePlayableCount > 0)) {
       slateMode = slateGames <= 2 ? "thin" : "light"
     }
     const isHeavy = slateMode === "heavy"
@@ -13592,6 +14588,46 @@ app.get("/api/tracking/graded", async (req, res) => {
   }
 })
 
+// === Phase 3: pre-game best 2-leg pairs ===
+app.get("/api/decision/pairs", (req, res) => {
+  try {
+    const payload = buildLiveDualBestAvailablePayload()
+
+    const reqQueryDate = typeof req.query?.date === "string" ? req.query.date : ""
+    const requestedDate = String(reqQueryDate || "").slice(0, 10)
+    const liveSlateDate = typeof payload?.bestAvailable?.slateDate === "string" ? payload.bestAvailable.slateDate.slice(0, 10) : ""
+    const slateDate = requestedDate || liveSlateDate || new Date().toISOString().slice(0, 10)
+
+    const runtimeDir = path.join(__dirname, "runtime", "tracking")
+    const trackedPath = path.join(runtimeDir, `tracked_props_${slateDate}.json`)
+
+    let trackedData = null
+    try {
+      if (fs.existsSync(trackedPath)) {
+        trackedData = JSON.parse(fs.readFileSync(trackedPath, "utf8"))
+      }
+    } catch {
+      trackedData = null
+    }
+
+    const out = buildBestPairs({ bestAvailablePayload: payload, trackedData, reqQueryDate })
+    return res.json(out)
+  } catch (e) {
+    const reqQueryDate = typeof req.query?.date === "string" ? req.query.date : ""
+    const requestedDate = String(reqQueryDate || "").slice(0, 10)
+    return res.json({
+      slateDate: requestedDate || null,
+      source: "none",
+      propCount: 0,
+      safe: [],
+      value: [],
+      upside: [],
+      mixed: [],
+      special: []
+    })
+  }
+})
+
 const PORT = process.env.PORT || 4000
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 const API_SPORTS_KEY = process.env.API_SPORTS_KEY
@@ -13948,6 +14984,7 @@ function ensureNbaRefreshEnvConfigured(res) {
 }
 
 async function fetchNbaUnrestrictedSlateEvents() {
+  console.log("[EVENT FETCH START]")
   const unrestrictedEventsResponse = await axios.get(
     "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
     {
@@ -13960,6 +14997,8 @@ async function fetchNbaUnrestrictedSlateEvents() {
     ? unrestrictedEventsResponse.data
     : []
 
+  console.log("[EVENTS RETURNED]", unrestrictedFetchedEvents.length)
+
   const {
     allEvents,
     scheduledEvents
@@ -13968,6 +15007,8 @@ async function fetchNbaUnrestrictedSlateEvents() {
     now: Date.now(),
     events: unrestrictedFetchedEvents
   })
+
+  console.log("[EVENTS BUILT]", (Array.isArray(scheduledEvents) ? scheduledEvents.length : 0))
 
   return {
     allEvents,
@@ -14158,8 +15199,16 @@ function filterRowsToPrimarySlate(rows = []) {
 
 function getAvailablePrimarySlateRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
+  console.log("[FILTER INPUT COUNT]", safeRows.length)
   const isBestPropsVisibilityPass = safeRows === oddsSnapshot.bestProps
   const scheduledEvents = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events : []
+  const nowMs = Date.now()
+  const currentPregameGameCount = scheduledEvents.filter((e) => {
+    const t = e?.commence_time || e?.gameTime || e?.startTime || e?.start_time || e?.game_time || ""
+    const ms = new Date(t).getTime()
+    return Number.isFinite(ms) && ms > nowMs
+  }).length
+  const slateMode = currentPregameGameCount > 0 ? "pregame" : "active"
   const scheduledEventIdSet = new Set(
     scheduledEvents
       .map((event) => String(event?.eventId || event?.id || ""))
@@ -14172,10 +15221,49 @@ function getAvailablePrimarySlateRows(rows) {
     ? (Array.isArray(rawPropsRows) ? rawPropsRows : [])
     : safeRows
 
+  let logged = 0
+  const maxRowLogs = 12
+  const logRowCheck = (row, rejecting) => {
+    if (logged >= maxRowLogs) return
+    logged += 1
+    console.log("[ROW CHECK]", {
+      gameTime: row?.gameTime ?? row?.commence_time ?? null,
+      isPregame: (() => {
+        const t = row?.gameTime || row?.commence_time || null
+        const ms = t ? new Date(t).getTime() : null
+        return ms != null && Number.isFinite(ms) ? ms > nowMs : null
+      })(),
+      marketValidity: row?.marketValidity ?? null,
+      odds: row?.odds ?? null,
+      eventId: row?.eventId ?? null,
+      matchup: row?.matchup ?? null,
+      rejecting
+    })
+  }
+
   const primarySlateRows = primarySlateInputRows.filter((row) => {
-    if (!row || !row.eventId || !row.matchup) return false
+    if (!row) {
+      logRowCheck(row, "missing_row")
+      return false
+    }
+    if (!row.eventId || !row.matchup) {
+      logRowCheck(row, "missing_eventId_or_matchup")
+      return false
+    }
     if (scheduledEventIdSet.size === 0) return true
-    return scheduledEventIdSet.has(String(row.eventId))
+
+    const inScheduledSet = scheduledEventIdSet.has(String(row.eventId))
+    if (inScheduledSet) return true
+
+    // Active slate relaxation: if games are already live/post-start and props are posted,
+    // allow valid market rows even if the scheduled event list doesn't include this eventId.
+    if (slateMode === "active" && row.marketValidity === "valid" && row.odds != null) {
+      logRowCheck(row, "allow_active_relaxed")
+      return true
+    }
+
+    logRowCheck(row, "not_in_scheduled_event_set")
+    return false
   })
 
   const inputGames = [...new Set(primarySlateInputRows.map((row) => String(row?.matchup || "")).filter(Boolean))]
@@ -14185,6 +15273,8 @@ function getAvailablePrimarySlateRows(rows) {
   const missingFromPropsGames = scheduledGames.filter((matchup) => !propsCoveredGames.includes(matchup))
   console.log("[PRIMARY-SLATE-FILTER-DEBUG]", {
     nowIso: new Date().toISOString(),
+    slateMode,
+    currentPregameGameCount,
     inputRowCount: primarySlateInputRows.length,
     outputRowCount: primarySlateRows.length,
     inputGameCount: inputGames.length,
@@ -14206,6 +15296,8 @@ function getAvailablePrimarySlateRows(rows) {
     missingFromPropsGameCount: missingMatchups.length,
     missingMatchups
   })
+
+  console.log("[FILTER OUTPUT COUNT]", primarySlateRows.length)
 
   if (isBestPropsVisibilityPass) {
     console.log("[BEST-PROPS-VISIBILITY-FILTER-DEBUG]", {
@@ -22126,7 +23218,75 @@ app.get("/snapshot/status", async (req, res) => {
 })
 
 app.get("/refresh-snapshot", async (req, res) => {
+  console.log("[REFRESH TRIGGERED]")
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
+  const sportKey = normalizeBestAvailableSportKey(req.query?.sport)
+  console.log("[REFRESH SNAPSHOT SPORT]", sportKey)
+
+  if (sportKey === "baseball_mlb") {
+    try {
+      const replayModeRequested = isMlbOddsReplayRequest(req)
+      if (replayModeRequested) {
+        const replaySnapshot = await loadMlbReplaySnapshotFromDisk()
+        if (!replaySnapshot) {
+          return res.status(503).json({
+            ok: false,
+            sport: "baseball_mlb",
+            error: "Replay mode requested but MLB snapshot replay file is missing or invalid",
+            replay: true
+          })
+        }
+        mlbSnapshot = {
+          ...replaySnapshot,
+          rows: hydrateMlbProbabilityLayer(replaySnapshot?.rows)
+        }
+        const mlbRows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+        return res.status(200).json({
+          ok: true,
+          sport: "baseball_mlb",
+          mlbSnapshot: {
+            rowCount: mlbRows.length
+          }
+        })
+      }
+
+      if (!ODDS_API_KEY) {
+        return res.status(500).json({ ok: false, sport: "baseball_mlb", error: "Missing ODDS_API_KEY in .env" })
+      }
+
+      const snapshot = await buildMlbBootstrapSnapshot({
+        oddsApiKey: ODDS_API_KEY,
+        now: Date.now()
+      })
+
+      mlbSnapshot = {
+        ...snapshot,
+        diagnostics: {
+          ...(snapshot?.diagnostics && typeof snapshot.diagnostics === "object" ? snapshot.diagnostics : {}),
+          bootstrapPhase: "phase-1-live"
+        }
+      }
+
+      await saveMlbReplaySnapshotToDisk(mlbSnapshot)
+
+      const mlbRows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+      return res.status(200).json({
+        ok: true,
+        sport: "baseball_mlb",
+        mlbSnapshot: {
+          rowCount: mlbRows.length
+        }
+      })
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        sport: "baseball_mlb",
+        error: error?.message || "MLB refresh-snapshot failed",
+        details: error.response?.data || null
+      })
+    }
+  }
+
   console.log("[TOP-DOWN-REFRESH-ENTRY]", {
     snapshotSource: lastSnapshotSource || "unknown",
     snapshotLoadedFromDisk,
@@ -22475,10 +23635,31 @@ app.get("/refresh-snapshot", async (req, res) => {
     // Prefer true upcoming; otherwise fall back to live-or-upcoming within the same Detroit day.
     let scheduledEvents = todayPregameEligible.length ? todayPregameEligible : todayLiveOrUpcoming
 
+    console.log("[TIME FILTER]", {
+      now: new Date(slateNow).toISOString(),
+      todayDateKey,
+      tomorrowDateKey,
+      sampleEventTimes: (Array.isArray(allEvents) ? allEvents : []).slice(0, 12).map((e) => getEventTime(e))
+    })
+
     // Only fall forward to tomorrow if there are truly no viable events for "today".
     if (scheduledEvents.length === 0 && tomorrowEvents.length > 0) {
       chosenSlateDateKey = tomorrowDateKey
       scheduledEvents = tomorrowEvents
+    }
+
+    // Safety expansion: if date-key bucketing yields no slate but the API did return events,
+    // fall back to a rolling 36h window to avoid timezone / "today-only" starvation.
+    if (scheduledEvents.length === 0 && (Array.isArray(allEvents) ? allEvents.length : 0) > 0) {
+      const EXPAND_WINDOW_MS = 36 * 60 * 60 * 1000
+      const expanded = (Array.isArray(allEvents) ? allEvents : []).filter((event) => {
+        const eventMs = new Date(getEventTime(event)).getTime()
+        return Number.isFinite(eventMs) && eventMs > (slateNow - LIVE_SLATE_WINDOW_MS) && eventMs < (slateNow + EXPAND_WINDOW_MS)
+      })
+      if (expanded.length > 0) {
+        scheduledEvents = expanded
+        chosenSlateDateKey = toDetroitDateKey(getEventTime(expanded[0]) || slateNow)
+      }
     }
 
     console.log("[SLATE-SELECTION-DEBUG]", {
@@ -22966,6 +24147,34 @@ app.get("/refresh-snapshot", async (req, res) => {
 
     let rawIngestedProps = dedupeByLegSignature(cleaned)
     let rawPropsRows = rawIngestedProps
+
+    // Team field is required by multiple downstream gates/boards. If ingestion omitted it,
+    // repair using existing per-row context without guessing stats.
+    const countMissingBefore = (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+      return acc + (row && !row?.team ? 1 : 0)
+    }, 0)
+
+    if (countMissingBefore > 0) {
+      rawPropsRows = (Array.isArray(rawPropsRows) ? rawPropsRows : []).map((row) => {
+        if (!row || row.team) return row
+        const playerTeam = String(row?.playerTeam || "").trim()
+        if (playerTeam) return { ...row, team: playerTeam }
+        if (row?.homeTeam && row?.awayTeam) {
+          // Fallback: preserve pipeline continuity when feeds omit playerTeam.
+          return { ...row, team: row.homeTeam }
+        }
+        return row
+      })
+    }
+
+    const countMissingAfter = (Array.isArray(rawPropsRows) ? rawPropsRows : []).reduce((acc, row) => {
+      return acc + (row && !row?.team ? 1 : 0)
+    }, 0)
+
+    console.log("[TEAM FIX APPLIED]", {
+      beforeMissing: countMissingBefore,
+      afterMissing: countMissingAfter
+    })
 
     console.log("[TOP-DOWN-RAW-PROPS-SOURCE]", {
       cleanedCount: Array.isArray(cleaned) ? cleaned.length : -1,
@@ -23635,6 +24844,21 @@ app.get("/refresh-snapshot", async (req, res) => {
   }
 })
 
+// Minimal odds inspection alias (read-only).
+// This does not change any existing endpoint contracts; it exposes current snapshot state.
+app.get("/api/odds", (req, res) => {
+  return res.json({
+    ok: true,
+    snapshotMeta: buildSnapshotMeta(),
+    counts: {
+      events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0,
+      rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
+      props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
+      bestProps: Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps.length : 0
+    }
+  })
+})
+
     const enrichedModelRows = Array.isArray(enriched) ? enriched : []
 
     console.log("[ENRICHMENT-IDENTITY-DEBUG]", summarizeIdentityChanges(rawPropsRows, enrichedModelRows, 25))
@@ -23768,8 +24992,21 @@ const scoredProps = deduped
   .filter((row) => parseHitRate(row.hitRate) >= scoredPropsFilters.minHitRate)
   .filter((row) => row.gamesUsed >= scoredPropsFilters.minGamesUsed)
   .filter((row) => {
+    const thinBad = String(scoredPropsSlateMode.mode || "").toLowerCase() === "thinbad"
+    const nowMs = Date.now()
     const gameTime = new Date(row.gameTime)
-    if (!(gameTime.getTime() > Date.now())) return false
+    const gameMs = gameTime.getTime()
+    if (!Number.isFinite(gameMs)) return false
+
+    // Pregame default: keep strict (pre-game only).
+    // ThinBad fallback: allow active slate rows so we don't starve to zero.
+    if (!thinBad) {
+      if (!(gameMs > nowMs)) return false
+    } else {
+      const inLiveWindow = gameMs > (nowMs - LIVE_SLATE_WINDOW_MS)
+      const marketOk = row?.marketValidity === "valid" && row?.odds != null
+      if (!inLiveWindow || !marketOk) return false
+    }
 
     const localGameDate = gameTime.toLocaleDateString("en-US", {
       timeZone: "America/Detroit"
@@ -25526,16 +26763,72 @@ const previousRawPropsForHistory = Array.isArray(previousSnapshot?.rawProps) ? p
 const previousPropsForHistory = Array.isArray(previousSnapshot?.props) ? previousSnapshot.props : []
 const previousBestPropsForHistory = Array.isArray(previousSnapshot?.bestProps) ? previousSnapshot.bestProps : []
 const rawPropsRowsWithHistory = applyPersistentLineHistory(rawPropsRows, previousRawPropsForHistory, lineHistoryObservedAt)
-const activeBookRawPropsRowsWithHistory = applyPersistentLineHistory(activeBookRawPropsRows, previousPropsForHistory, lineHistoryObservedAt)
+let activeBookRawPropsRowsWithHistory = applyPersistentLineHistory(activeBookRawPropsRows, previousPropsForHistory, lineHistoryObservedAt)
 bestProps = applyPersistentLineHistory(bestProps, previousBestPropsForHistory, lineHistoryObservedAt)
 oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
 oddsSnapshot.rawProps = rawPropsRowsWithHistory
+
+const beforeMissing = (Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).filter((r) => !r?.team).length
+activeBookRawPropsRowsWithHistory = (Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).map((row) => {
+  if (!row?.team) {
+    if (row?.playerTeam) return { ...row, team: row.playerTeam }
+    if (row?.homeTeam) return { ...row, team: row.homeTeam }
+  }
+  return row
+})
+const afterMissing = (Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).filter((r) => !r?.team).length
+console.log("[TEAM FIX APPLIED FINAL]", {
+  beforeMissing,
+  afterMissing
+})
+
 oddsSnapshot.props = activeBookRawPropsRowsWithHistory
-oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props)
+const slateStateForSanitize = chosenSlateDateKey === tomorrowDateKey ? "rolled_to_tomorrow" : "active_today"
+// Ensure sanitizeSnapshotRows can run in the correct slate context even before
+// the full slateStateValidator object is assembled later in the pipeline.
+oddsSnapshot.slateStateValidator = oddsSnapshot.slateStateValidator || { slateState: slateStateForSanitize }
+oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props, { slateState: slateStateForSanitize })
+console.log("[RAW PROPS BUILT]", Array.isArray(oddsSnapshot.rawProps) ? oddsSnapshot.rawProps.length : 0)
+console.log("[POST SANITIZE]", Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props.length : 0)
+
+// ThinBad degraded mode: if strict sanitation/quality gates starve props to zero,
+// allow a degraded-but-valid set instead of empty output.
+if ((Array.isArray(oddsSnapshot.rawProps) ? oddsSnapshot.rawProps.length : 0) > 0 && (Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props.length : 0) === 0) {
+  const snapshotSlateMode = detectSlateMode({
+    sportKey: "nba",
+    snapshotMeta: { snapshotSlateGameCount: Array.isArray(scheduledEvents) ? scheduledEvents.length : 0 },
+    snapshot: { events: scheduledEvents, rawProps: oddsSnapshot.rawProps, props: oddsSnapshot.props, bestProps: [] },
+    runtime: { loadedSlateQualityPassEnabled: false }
+  })
+
+  if (String(snapshotSlateMode?.mode || "").toLowerCase() === "thinbad") {
+    console.log("[QUALITY FAIL TRIGGERED]", {
+      rawPropsCount: Array.isArray(oddsSnapshot.rawProps) ? oddsSnapshot.rawProps.length : 0,
+      propsCountBefore: 0,
+      reason: "loaded-slate-quality-pass-failed",
+      slateMode: snapshotSlateMode.mode
+    })
+
+    const relaxed = (Array.isArray(oddsSnapshot.rawProps) ? oddsSnapshot.rawProps : []).filter((row) =>
+      row &&
+      row.marketValidity === "valid" &&
+      row.odds != null &&
+      Number(row.odds) > -10000 &&
+      row.propType != null
+    )
+
+    oddsSnapshot.props = relaxed.slice(0, 250)
+    console.log("[POST-FILTER COUNT]", Array.isArray(oddsSnapshot.props) ? oddsSnapshot.props.length : 0)
+  }
+}
 oddsSnapshot.snapshotGeneratedAt = oddsSnapshot.updatedAt || null
 oddsSnapshot.snapshotSlateDateKey = chosenSlateDateKey || null
 oddsSnapshot.snapshotSlateDateLocal = chosenSlateDateKey || (oddsSnapshot.updatedAt ? toDetroitDateKey(oddsSnapshot.updatedAt) : null)
 oddsSnapshot.snapshotSlateGameCount = Array.isArray(scheduledEvents) ? scheduledEvents.length : 0
+console.log("[INGESTION FINAL]", {
+  events: Array.isArray(oddsSnapshot.events) ? oddsSnapshot.events.length : 0,
+  rawProps: Array.isArray(oddsSnapshot.rawProps) ? oddsSnapshot.rawProps.length : 0
+})
 const chosenEventIds = new Set((Array.isArray(scheduledEvents) ? scheduledEvents : []).map((event) => String(event?.id || event?.eventId || "")).filter(Boolean))
 const chosenEventIdsWithProps = new Set((Array.isArray(activeBookRawPropsRowsWithHistory) ? activeBookRawPropsRowsWithHistory : []).map((row) => String(row?.eventId || "")).filter((eventId) => chosenEventIds.has(eventId)))
 const chosenEventIdsArray = Array.from(chosenEventIds)
@@ -25666,15 +26959,15 @@ console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
   }))
 })
 oddsSnapshot.eliteProps = applyPersistentLineHistory(eliteCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
-oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps)
+oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
 logFunnelStage("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
 oddsSnapshot.strongProps = applyPersistentLineHistory(strongCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
-oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps)
+oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
 logFunnelStage("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
 oddsSnapshot.playableProps = applyPersistentLineHistory(playableCapped.filter((row) => playerFitsMatchup(row)), previousRawPropsForHistory, lineHistoryObservedAt)
-oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps)
+oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
 logFunnelStage("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
 logFunnelExcluded("refresh-snapshot", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
 logPropStageByBookDebug("refresh-snapshot:afterTierAssignment", {
@@ -25778,7 +27071,7 @@ console.log("[BEST-PROPS-FINAL-GATE-DEBUG]", {
     maxPerPlayerPropType: 1
   })
   oddsSnapshot.bestProps = dedupeByLegSignature(diversifiedFinal)
-  oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
+  oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
   console.log("[BEST-PROPS-FINAL-DIVERSIFY]", {
     path: "refresh-snapshot",
     mode,
@@ -25843,7 +27136,7 @@ const refreshPlayableFanDuelPromotion = ensureBestPropsPlayableBookFloor(
 oddsSnapshot.bestProps = dedupeByLegSignature(
   Array.isArray(refreshPlayableFanDuelPromotion.rows) ? refreshPlayableFanDuelPromotion.rows : []
 )
-oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
+oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
 oddsSnapshot.lineHistorySummary = buildLineHistorySummary(oddsSnapshot.bestProps)
 logBestStage("refresh-snapshot:afterBookBalance", refreshPlayableFanDuelPromotion.rows)
 console.log("[BEST-PROPS-PLAYABLE-PROMOTION-DEBUG]", {
@@ -27290,7 +28583,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     oddsSnapshot.events = Array.isArray(scheduledEvents) ? scheduledEvents : []
     oddsSnapshot.rawProps = rawPropsRows
     oddsSnapshot.props = activeBookRawPropsRows
-    oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props)
+    oddsSnapshot.props = sanitizeSnapshotRows(oddsSnapshot.props, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
     console.log("[UNSTABLE-GAME-INGEST-DEBUG]", {
       path: "refresh-snapshot-hard-reset",
       targets: targetMissingEventStages.map((stage) => ({
@@ -27300,15 +28593,15 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       }))
     })
     oddsSnapshot.eliteProps = eliteCapped.filter((row) => playerFitsMatchup(row))
-    oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps)
+    oddsSnapshot.eliteProps = sanitizeSnapshotRows(oddsSnapshot.eliteProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.eliteProps", eliteCapped, oddsSnapshot.eliteProps)
     oddsSnapshot.strongProps = strongCapped.filter((row) => playerFitsMatchup(row))
-    oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps)
+    oddsSnapshot.strongProps = sanitizeSnapshotRows(oddsSnapshot.strongProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.strongProps", strongCapped, oddsSnapshot.strongProps)
     oddsSnapshot.playableProps = playableCapped.filter((row) => playerFitsMatchup(row))
-    oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps)
+    oddsSnapshot.playableProps = sanitizeSnapshotRows(oddsSnapshot.playableProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
     logFunnelStage("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps, { filter: "playerFitsMatchup" })
     logFunnelExcluded("refresh-snapshot-hard-reset", "oddsSnapshot.playableProps", playableCapped, oddsSnapshot.playableProps)
     logPropStageByBookDebug("refresh-snapshot-hard-reset:afterTierAssignment", {
@@ -27345,7 +28638,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
     }
 
     oddsSnapshot.bestProps = dedupeByLegSignature(bestProps)
-    oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps)
+    oddsSnapshot.bestProps = sanitizeSnapshotRows(oddsSnapshot.bestProps, { slateState: oddsSnapshot?.slateStateValidator?.slateState })
     const hardResetBestPropsBookSoftFloor = Math.max(
       4,
       Math.min(10, Math.floor((Array.isArray(oddsSnapshot.bestProps) ? oddsSnapshot.bestProps.length : 0) * 0.3))
