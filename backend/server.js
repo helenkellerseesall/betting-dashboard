@@ -52,6 +52,7 @@ const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
 const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
 const { recordMlbBestProps, evaluateMlbPerformance } = require("./pipeline/mlb/phase4Tracking")
 const { buildMlbParlays } = require("./pipeline/mlb/buildMlbParlays")
+const { buildMlbPlayerModelContext, modelMlbPredictedProbability } = require("./pipeline/mlb/playerModel")
 const {
   buildMlbCorrelationClusters,
   buildMlbUpsideClusters,
@@ -20212,6 +20213,8 @@ function hydrateMlbProbabilityLayer(rows) {
   }
 
   const playerTeamIndex = buildPlayerTeamIndex(safeRows)
+  const playerModelCtx = buildMlbPlayerModelContext(safeRows)
+  let playerModelLogged = 0
 
   return safeRows.map((row) => {
     const impliedProbability = impliedProbabilityFromOdds(row?.odds)
@@ -20232,10 +20235,27 @@ function hydrateMlbProbabilityLayer(rows) {
 
     const signalScore = isMlbPhase2PowerMarket(rowForSignals) ? getMlbPowerSignals(rowForSignals) : null
     const signalStrengthTag = isMlbPhase2PowerMarket(rowForSignals) ? getMlbSignalStrengthTag(signalScore) : "neutral"
-    const predictedProbability = estimateMlbHrProbability(rowForSignals, {
+    const predictedProbabilityBase = estimateMlbHrProbability(rowForSignals, {
       consensusProbability,
       signalScore: signalScore == null ? undefined : signalScore
     })
+    const predictedProbability = modelMlbPredictedProbability(rowForSignals, {
+      impliedProbability,
+      basePredictedProbability: predictedProbabilityBase,
+      ctx: playerModelCtx
+    })
+    if (playerModelLogged < 10) {
+      playerModelLogged += 1
+      console.log("[MLB PLAYER MODEL]", {
+        player: row?.player || null,
+        propType: row?.propType || null,
+        side: row?.side || null,
+        odds: row?.odds ?? null,
+        impliedProbability,
+        oldPredictedProbability: predictedProbabilityBase,
+        newPredictedProbability: predictedProbability
+      })
+    }
     const edgeProbability =
       predictedProbability !== null && impliedProbability !== null
         ? Number((predictedProbability - impliedProbability).toFixed(6))
