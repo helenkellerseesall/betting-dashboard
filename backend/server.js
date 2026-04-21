@@ -3312,7 +3312,22 @@ function buildMlbDualPoolDiagnostics(eligibleRows) {
 
 function buildMlbLiveDualBestAvailablePayload() {
   const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+  console.log("[MLB PIPELINE TRACE]", { stage: "rawProps", count: rows.length })
   const clusters = buildMlbClusters(rows)
+  console.log("[MLB PIPELINE TRACE]", {
+    stage: "after_scoring",
+    count:
+      (Array.isArray(clusters?.hits) ? clusters.hits.length : 0) +
+      (Array.isArray(clusters?.hr) ? clusters.hr.length : 0) +
+      (Array.isArray(clusters?.tb) ? clusters.tb.length : 0) +
+      (Array.isArray(clusters?.rbi) ? clusters.rbi.length : 0),
+    buckets: {
+      hits: Array.isArray(clusters?.hits) ? clusters.hits.length : 0,
+      hr: Array.isArray(clusters?.hr) ? clusters.hr.length : 0,
+      tb: Array.isArray(clusters?.tb) ? clusters.tb.length : 0,
+      rbi: Array.isArray(clusters?.rbi) ? clusters.rbi.length : 0,
+    },
+  })
 
   const dedupeMlbLegs = (rowsToDedupe) => {
     const safeRows = Array.isArray(rowsToDedupe) ? rowsToDedupe : []
@@ -3382,6 +3397,7 @@ function buildMlbLiveDualBestAvailablePayload() {
       String(r.propType).trim() !== "0" &&
       Number.isFinite(Number(r.odds))
   )
+  console.log("[MLB PIPELINE TRACE]", { stage: "after_filters", count: eligible.length })
 
   const MLB_COVERAGE_PROP_TYPES = ["Hits", "Home Runs", "Total Bases", "RBIs"]
   const mlbPropCoverage = MLB_COVERAGE_PROP_TYPES.reduce((acc, pt) => {
@@ -3400,6 +3416,11 @@ function buildMlbLiveDualBestAvailablePayload() {
   console.log("[MLB FINAL SOURCE]", {
     using: phase3Best.length > 0 ? "phase3" : "fallback",
     count: finalPlayableRows.length
+  })
+  console.log("[MLB PIPELINE TRACE]", {
+    stage: "bestProps",
+    phase3Best: Array.isArray(phase3Best) ? phase3Best.length : 0,
+    finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0,
   })
 
   // Phase 3 post-processing: build a balanced MLB board that doesn't collapse
@@ -3602,7 +3623,74 @@ function buildMlbLiveDualBestAvailablePayload() {
 
   const dualBestPropsPoolBase = best.length ? best : eligible
   const dualBestPropsPool = buildBestPropVariantPool(dualBestPropsPoolBase)
-  const mixedBestAvailable = buildMixedBestAvailableBuckets(dualBestPropsPool, { thinSlateMode: true })
+  let mixedBestAvailable = buildMixedBestAvailableBuckets(dualBestPropsPool, { thinSlateMode: true })
+  // MLB rows don't carry NBA hitRate/ceilingScore fields, so the generic mixed buckets can collapse to null.
+  // Keep Phase 3 stable by emitting simple lane objects when the generic builder yields nothing.
+  if (
+    !mixedBestAvailable ||
+    (!mixedBestAvailable.safe && !mixedBestAvailable.balanced && !mixedBestAvailable.aggressive && !mixedBestAvailable.lotto)
+  ) {
+    const pool = Array.isArray(best) ? best : []
+    const sorted = [...pool].sort((a, b) => {
+      const aS = Number(a?.mlbPhase3Score ?? a?.score ?? 0)
+      const bS = Number(b?.mlbPhase3Score ?? b?.score ?? 0)
+      if (bS !== aS) return bS - aS
+      const aE = Number(a?.edgeProbability ?? 0)
+      const bE = Number(b?.edgeProbability ?? 0)
+      if (bE !== aE) return bE - aE
+      return Number(b?.odds ?? 0) - Number(a?.odds ?? 0)
+    })
+
+    const pick = (filterFn, n) => dedupeSlipLegs(sorted.filter(filterFn)).slice(0, n)
+    let safeLegs = pick((r) => {
+      const o = Number(r?.odds)
+      return Number.isFinite(o) && o < 0 && o >= -220 && o <= -102
+    }, 4)
+    if (safeLegs.length < 3) {
+      safeLegs = pick((r) => {
+        const o = Number(r?.odds)
+        return Number.isFinite(o) && o < 0 && o >= -500 && o <= -101
+      }, 4)
+    }
+    if (safeLegs.length < 3) safeLegs = dedupeSlipLegs(sorted).slice(0, 4)
+
+    let balancedLegs = pick((r) => {
+      const o = Number(r?.odds)
+      return Number.isFinite(o) && o >= -160 && o <= 220
+    }, 4)
+    if (balancedLegs.length < 3) balancedLegs = dedupeSlipLegs(sorted).slice(0, 4)
+    const aggressiveLegs = pick((r) => {
+      const o = Number(r?.odds)
+      return Number.isFinite(o) && o >= 150
+    }, 5)
+    const lottoLegs = pick((r) => {
+      const o = Number(r?.odds)
+      return Number.isFinite(o) && o >= 350
+    }, 6)
+
+    mixedBestAvailable = {
+      safe: safeLegs.length >= 3 ? { book: "MLB", tag: "safe", legs: safeLegs } : null,
+      balanced: balancedLegs.length >= 3 ? { book: "MLB", tag: "balanced", legs: balancedLegs } : null,
+      aggressive: aggressiveLegs.length >= 3 ? { book: "MLB", tag: "aggressive", legs: aggressiveLegs } : null,
+      lotto: lottoLegs.length >= 3 ? { book: "MLB", tag: "lotto", legs: lottoLegs } : null,
+    }
+    console.log("[MLB PHASE 3 LANES]", {
+      mode: "fallback-simple-lanes",
+      best: pool.length,
+      safe: mixedBestAvailable.safe?.legs?.length || 0,
+      balanced: mixedBestAvailable.balanced?.legs?.length || 0,
+      aggressive: mixedBestAvailable.aggressive?.legs?.length || 0,
+      lotto: mixedBestAvailable.lotto?.legs?.length || 0,
+    })
+  }
+  console.log("[MLB PIPELINE TRACE]", {
+    stage: "final_boards",
+    best: Array.isArray(safeBest) ? safeBest.length : 0,
+    safe: Array.isArray(mixedBestAvailable?.safe) ? mixedBestAvailable.safe.length : 0,
+    balanced: Array.isArray(mixedBestAvailable?.balanced) ? mixedBestAvailable.balanced.length : 0,
+    aggressive: Array.isArray(mixedBestAvailable?.aggressive) ? mixedBestAvailable.aggressive.length : 0,
+    lotto: Array.isArray(mixedBestAvailable?.lotto) ? mixedBestAvailable.lotto.length : 0,
+  })
   const dualPoolDiagnostics = buildMlbDualPoolDiagnostics(eligible)
   const statLeaderboards = buildDualStatLeaderboards(eligible)
 

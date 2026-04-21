@@ -357,8 +357,20 @@
       sampleEventTimes: (Array.isArray(allEvents) ? allEvents : []).slice(0, 12).map((e) => getEventTime(e))
     })
 
-    // Only fall forward to tomorrow if there are truly no viable events for "today".
-    if (scheduledEvents.length === 0 && tomorrowEvents.length > 0) {
+    // Rollover rule:
+    // - If today has ANY pregame games -> use today
+    // - If today has ZERO pregame games and tomorrow has >0 pregame -> use tomorrow
+    // - Otherwise fallback to today (including live-or-upcoming within today)
+    const tomorrowPregameEligible = tomorrowEvents.filter((event) => {
+      const eventMs = new Date(getEventTime(event)).getTime()
+      return Number.isFinite(eventMs) && eventMs > slateNow
+    })
+    if (todayPregameEligible.length === 0 && tomorrowPregameEligible.length > 0) {
+      console.log("[SLATE ROLLOVER]", { from: "today", to: "tomorrow", reason: "no_pregame_today" })
+      chosenSlateDateKey = tomorrowDateKey
+      scheduledEvents = tomorrowPregameEligible
+    } else if (scheduledEvents.length === 0 && tomorrowEvents.length > 0) {
+      // Only fall forward to tomorrow if there are truly no viable events for "today".
       chosenSlateDateKey = tomorrowDateKey
       scheduledEvents = tomorrowEvents
     }

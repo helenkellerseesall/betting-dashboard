@@ -600,6 +600,24 @@
       .map((event) => String(event?.eventId || event?.id || ""))
       .filter(Boolean)
   )
+  const scheduledEventTimeById = new Map(
+    scheduledEventsForBestPayload
+      .map((e) => {
+        const id = String(e?.eventId || e?.id || "")
+        const t = e?.commence_time || e?.gameTime || e?.startTime || e?.start_time || e?.game_time || null
+        const ms = t ? new Date(t).getTime() : NaN
+        return [id, ms]
+      })
+      .filter(([id, ms]) => Boolean(id) && Number.isFinite(ms))
+  )
+  const isPregameBySnapshotEvent = (row) => {
+    const nowMs = Date.now()
+    const eventId = String(row?.eventId || "")
+    const ms =
+      row?.gameTime ? new Date(row.gameTime).getTime()
+        : (eventId && scheduledEventTimeById.has(eventId) ? scheduledEventTimeById.get(eventId) : NaN)
+    return Number.isFinite(ms) && ms > nowMs
+  }
 
   const bestPayloadRowsUnfiltered = legacyStandardBestProps.filter((row) => {
     if (!row) return false
@@ -848,6 +866,7 @@
   const completeBettableNonSpecial = completeUniverse
     .filter((row) => isAllowedNbaBookInline(row))
     .filter((row) => !isNbaSpecialMarketInline(row))
+    .filter((row) => isPregameBySnapshotEvent(row))
     .filter((row) => allowedBestVariants.has(String(row?.propVariant || "base").toLowerCase()))
     // Core bettable requirement (separate from dataState): you can't export a core pick without line+odds.
     .filter((row) => Number.isFinite(Number(row?.line)) && Number.isFinite(Number(row?.odds)))
@@ -1058,14 +1077,151 @@
     marketValidity: r?.marketValidity
   })))
 
-  // Critical: do not starve boards to zero. Use a relaxed visibility filter that
-  // keeps valid markets with odds + propType, including ladders/alts/live rows.
-  const allVisibleRowsForBoards = visibleInputRawProps.filter((row) =>
-    row &&
-    row.marketValidity === "valid" &&
-    row.odds != null &&
-    row.propType != null
-  )
+  const buildPregameEventIdSet = () => {
+    const nowMs = Date.now()
+    const events = Array.isArray(currentSnapshot?.events) ? currentSnapshot.events : []
+    const ids = new Set()
+    for (const e of events) {
+      const id = String(e?.eventId || e?.id || "")
+      if (!id) continue
+      const t = e?.commence_time || e?.gameTime || e?.startTime || e?.start_time || e?.game_time || null
+      const ms = t ? new Date(t).getTime() : NaN
+      if (Number.isFinite(ms) && ms > nowMs) ids.add(id)
+    }
+    return ids
+  }
+
+  const buildEventTimeById = () => {
+    const events = Array.isArray(currentSnapshot?.events) ? currentSnapshot.events : []
+    const m = new Map()
+    for (const e of events) {
+      const id = String(e?.eventId || e?.id || "")
+      if (!id) continue
+      const t = e?.commence_time || e?.gameTime || e?.startTime || e?.start_time || e?.game_time || null
+      const ms = t ? new Date(t).getTime() : NaN
+      if (Number.isFinite(ms)) m.set(id, ms)
+    }
+    return m
+  }
+
+  const pregameEventIds = buildPregameEventIdSet()
+  const eventTimeById = buildEventTimeById()
+  const isPregameRow = (row) => {
+    const nowMs = Date.now()
+    const eventId = String(row?.eventId || "")
+    const directTime =
+      row?.gameTime ||
+      row?.commence_time ||
+      row?.startTime ||
+      row?.start_time ||
+      row?.game_time ||
+      null
+    const ms =
+      directTime ? new Date(directTime).getTime()
+        : (eventId && eventTimeById.has(eventId) ? eventTimeById.get(eventId) : NaN)
+    if (!Number.isFinite(ms) || ms <= nowMs) return false
+    if (pregameEventIds.size === 0) return true
+    return Boolean(eventId) && pregameEventIds.has(eventId)
+  }
+
+  const shapeCleanBettableBoardRows = (rows) => {
+    const input = Array.isArray(rows) ? rows : []
+    const counts = {
+      input: input.length,
+      removedNotValid: 0,
+      removedNoOdds: 0,
+      removedNoPropType: 0,
+      removedNotPregame: 0,
+      removedWeak: 0,
+      removedDupPlayer: 0,
+    }
+
+    // 1) Hard bettable gates.
+    let out = input.filter((row) => {
+      if (!row) return false
+      if (row.marketValidity === "invalid") {
+        counts.removedNotValid += 1
+        return false
+      }
+      if (row.odds == null) {
+        counts.removedNoOdds += 1
+        return false
+      }
+      if (row.propType == null) {
+        counts.removedNoPropType += 1
+        return false
+      }
+      if (!isPregameRow(row)) {
+        counts.removedNotPregame += 1
+        return false
+      }
+      return true
+    })
+
+    // 2) Quality floor (selection-only; no scoring changes).
+    out = out.filter((row) => {
+      const score = Number(row?.score ?? row?.decisionScore ?? 0)
+      const hit = parseHitRate(row?.hitRate)
+      const edge = Number(row?.edge ?? 0)
+      const pred = Number(row?.predictedProbability ?? 0)
+      // Keep strong signals; drop obvious low-signal dumps.
+      const ok =
+        (Number.isFinite(score) && score >= 35) ||
+        (Number.isFinite(hit) && hit >= 0.48) ||
+        (Number.isFinite(edge) && edge >= 1.0) ||
+        (Number.isFinite(pred) && pred >= 0.53)
+      if (!ok) counts.removedWeak += 1
+      return ok
+    })
+
+    // 3) De-dupe per player (keep the strongest row).
+    const bestByPlayer = new Map()
+    for (const row of out) {
+      const playerKey = normalizePlayerName(String(row?.player || ""))
+      if (!playerKey) continue
+      const score = Number(row?.score ?? row?.decisionScore ?? 0)
+      const edge = Number(row?.edge ?? 0)
+      const rank = (Number.isFinite(score) ? score : 0) * 1.0 + (Number.isFinite(edge) ? edge : 0) * 0.25
+      const prev = bestByPlayer.get(playerKey)
+      if (!prev || rank > prev.rank) bestByPlayer.set(playerKey, { rank, row })
+      else counts.removedDupPlayer += 1
+    }
+    out = Array.from(bestByPlayer.values()).map((x) => x.row)
+
+    console.log("[NBA BOARD SHAPE]", JSON.stringify({
+      input: counts.input,
+      output: out.length,
+      sampleTimeProbe: input.slice(0, 3).map((r) => {
+        const eventId = String(r?.eventId || "")
+        const directTime =
+          r?.gameTime ||
+          r?.commence_time ||
+          r?.startTime ||
+          r?.start_time ||
+          r?.game_time ||
+          null
+        return {
+          eventId: eventId || null,
+          rowTime: directTime ? String(directTime) : null,
+          rowMs: directTime ? new Date(directTime).getTime() : null,
+          eventMs: eventId && eventTimeById.has(eventId) ? eventTimeById.get(eventId) : null
+        }
+      }),
+      removed: {
+        notValid: counts.removedNotValid,
+        noOdds: counts.removedNoOdds,
+        noPropType: counts.removedNoPropType,
+        notPregame: counts.removedNotPregame,
+        weak: counts.removedWeak,
+        dupPlayer: counts.removedDupPlayer,
+      }
+    }))
+
+    return out
+  }
+
+  // Selection-only shaping: pregame-only + bettable + de-duped + quality floor.
+  const allVisibleRowsForBoards = shapeCleanBettableBoardRows(visibleInputRawProps)
 
   console.log("[VISIBLE OUTPUT COUNT]", allVisibleRowsForBoards.length)
   const ladderPresentationRows = allVisibleRowsForBoards.filter((row) =>
