@@ -884,12 +884,64 @@
   // Permanent rule: exported core best uses COMPLETE rows only.
   // Diversify to avoid one-player domination on thin slates (without additional "ceiling" gates).
   const selectDiversifiedBestFromComplete = (rows, cap) => {
+    console.log("[MODEL REBALANCE ACTIVE]", {
+      bias: "probability-first",
+      longshotReduced: true
+    })
+
+    const impliedFromAmerican = (o) => {
+      const odds = Number(o)
+      if (!Number.isFinite(odds) || odds === 0) return null
+      if (odds > 0) return 100 / (odds + 100)
+      return Math.abs(odds) / (Math.abs(odds) + 100)
+    }
+
+    const likelihoodScore = (row) => {
+      const pred = Number(row?.predictedProbability)
+      if (Number.isFinite(pred) && pred > 0 && pred < 1) return pred
+      const hit = parseHitRate(row?.hitRate)
+      if (Number.isFinite(hit) && hit > 0 && hit < 1) return hit
+      const implied = impliedFromAmerican(row?.odds)
+      return Number.isFinite(implied) ? implied : 0
+    }
+
+    const propPriority = (row) => {
+      // NBA: consistency first (points/rebounds > assists > threes > volatile/special)
+      const base = normalizePropTypeBase(row?.propType)
+      if (base === "points") return 4
+      if (base === "rebounds") return 4
+      if (base === "pra") return 3
+      if (base === "assists") return 2
+      if (base === "threes") return 1
+      return 0
+    }
+
+    const realismPenalty = (row) => {
+      const line = Number(row?.line)
+      if (!Number.isFinite(line)) return 0
+      const avgMin = Number(row?.avgMin)
+      const avgMax = Number(row?.avgMax)
+      const side = String(row?.side || "").toLowerCase()
+      const over = side === "over"
+      if (Number.isFinite(avgMax) && over && line > avgMax + 2) return 0.04
+      if (Number.isFinite(avgMin) && !over && line < avgMin - 2) return 0.04
+      return 0
+    }
+
     const sorted = [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
-      const s = Number(b?.score || 0) - Number(a?.score || 0)
-      if (s !== 0) return s
+      // Priority: likelihood to hit > value > payout (not payout-first)
+      const la = likelihoodScore(a) + (propPriority(a) * 0.01) - realismPenalty(a)
+      const lb = likelihoodScore(b) + (propPriority(b) * 0.01) - realismPenalty(b)
+      if (lb !== la) return lb - la
       const e = Number(b?.edge || 0) - Number(a?.edge || 0)
       if (e !== 0) return e
-      return Number(b?.odds || 0) - Number(a?.odds || 0)
+      const s = Number(b?.score || 0) - Number(a?.score || 0)
+      if (s !== 0) return s
+      // Lower payout preferred last (higher implied probability)
+      const ia = impliedFromAmerican(a?.odds)
+      const ib = impliedFromAmerican(b?.odds)
+      if (Number.isFinite(ib) && Number.isFinite(ia) && ib !== ia) return ib - ia
+      return Number(a?.odds || 0) - Number(b?.odds || 0)
     })
     const out = []
     const perPlayer = new Map()
@@ -924,9 +976,15 @@
   bestPayloadRowsForTickets = completeCoreBaseOnly.length ? completeCoreBaseOnly : completeBettableNonSpecial
     .slice()
     .sort((a, b) => {
-      const s = Number(b?.score || 0) - Number(a?.score || 0)
-      if (s !== 0) return s
-      return Number(b?.edge || 0) - Number(a?.edge || 0)
+      // Priority: likelihood > value > payout (tickets should be realistic)
+      const predA = Number(a?.predictedProbability)
+      const predB = Number(b?.predictedProbability)
+      const la = (Number.isFinite(predA) ? predA : parseHitRate(a?.hitRate))
+      const lb = (Number.isFinite(predB) ? predB : parseHitRate(b?.hitRate))
+      if (Number.isFinite(lb) && Number.isFinite(la) && lb !== la) return lb - la
+      const e = Number(b?.edge || 0) - Number(a?.edge || 0)
+      if (e !== 0) return e
+      return Number(b?.score || 0) - Number(a?.score || 0)
     })
     .slice(0, 28)
     .map((row) => attachNbaPregameExportFields(stripStaleNbaPregameFieldsForRebuild(row)))

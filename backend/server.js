@@ -3310,10 +3310,263 @@ function buildMlbDualPoolDiagnostics(eligibleRows) {
   }
 }
 
+function __mlbLocalTrackingDateKey(nowMs = Date.now()) {
+  const d = new Date(nowMs)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function __mlbReadTrackedBestLearning(nowMs = Date.now()) {
+  const dateKey = __mlbLocalTrackingDateKey(nowMs)
+  const filePath = path.join(__dirname, "runtime", "tracking", `mlb_tracked_best_${dateKey}.json`)
+
+  const emptyBucket = () => ({ totalBets: 0, wins: 0, losses: 0, hitRate: 0 })
+  const bump = (map, key, entry) => {
+    const k = String(key || "unknown")
+    if (!map[k]) map[k] = emptyBucket()
+    map[k].totalBets += 1
+    if (entry?.result === "win") map[k].wins += 1
+    if (entry?.result === "loss") map[k].losses += 1
+  }
+  const finalize = (map) => {
+    const out = {}
+    for (const [k, v] of Object.entries(map)) {
+      const decided = (v.wins || 0) + (v.losses || 0)
+      out[k] = {
+        totalBets: v.totalBets,
+        wins: v.wins,
+        losses: v.losses,
+        hitRate: decided > 0 ? v.wins / decided : 0,
+      }
+    }
+    return out
+  }
+
+  const normalizePropTypeKey = (pt) => {
+    const s = String(pt || "").trim()
+    if (!s) return "unknown"
+    if (s === "Home Runs") return "HR"
+    if (s === "Hits") return "Hits"
+    if (s === "Total Bases") return "TB"
+    if (s === "RBIs") return "RBI"
+    return s
+  }
+
+  const edgeBucket = (edge) => {
+    const e = Number(edge)
+    if (!Number.isFinite(e)) return "unknown"
+    if (e < 0.1) return "0-0.1"
+    if (e < 0.2) return "0.1-0.2"
+    if (e < 0.3) return "0.2-0.3"
+    if (e < 0.4) return "0.3-0.4"
+    return "0.4+"
+  }
+
+  const oddsBucket = (odds) => {
+    const o = Number(odds)
+    if (!Number.isFinite(o) || o === 0) return "unknown"
+    if (o < 0) {
+      if (o >= -110) return "fav_-110_to_-101"
+      if (o >= -150) return "fav_-150_to_-111"
+      if (o >= -250) return "fav_-250_to_-151"
+      return "fav_-250+"
+    }
+    if (o <= 120) return "plus_+1_to_+120"
+    if (o <= 200) return "plus_+121_to_+200"
+    if (o <= 400) return "plus_+201_to_+400"
+    return "plus_+401+"
+  }
+
+  let raw = null
+  try {
+    if (fs.existsSync(filePath)) raw = JSON.parse(fs.readFileSync(filePath, "utf8"))
+  } catch (_) {
+    raw = null
+  }
+
+  const entries = Array.isArray(raw?.entries)
+    ? raw.entries.filter((e) => e?.sport === "mlb" && e?.bucket === "mlb.bestAvailable.best")
+    : []
+
+  const byPropTypeMap = {}
+  const byEdgeBucketMap = {}
+  const byOddsBucketMap = {}
+  for (const e of entries) {
+    bump(byPropTypeMap, normalizePropTypeKey(e?.propType), e)
+    bump(byEdgeBucketMap, edgeBucket(e?.edgeProbability), e)
+    bump(byOddsBucketMap, oddsBucket(e?.odds), e)
+  }
+
+  const wins = entries.filter((e) => e?.result === "win").length
+  const losses = entries.filter((e) => e?.result === "loss").length
+  const decided = wins + losses
+  const overallHit = decided > 0 ? wins / decided : 0.5
+
+  return {
+    ok: Boolean(raw),
+    dateKey,
+    filePath,
+    totals: { totalBets: entries.length, wins, losses, decided, hitRate: overallHit },
+    learning: {
+      byPropType: finalize(byPropTypeMap),
+      byEdgeBucket: finalize(byEdgeBucketMap),
+      byOddsBucket: finalize(byOddsBucketMap),
+    },
+    overallHit,
+  }
+}
+
+function __mlbLearningMultiplier(row, learningPack) {
+  const learning = learningPack?.learning
+  let m = 1
+
+  // Selection prior only (not model scoring): long + money is structurally noisy.
+  const american = Number(row?.odds)
+  if (Number.isFinite(american) && american >= 600) m *= 0.94
+  else if (Number.isFinite(american) && american >= 400) m *= 0.955
+
+  if (!learning || typeof learning !== "object") return Math.min(1.06, Math.max(0.94, m))
+
+  const ptKey = (() => {
+    const s = String(row?.propType || "").trim()
+    if (s === "Home Runs") return "HR"
+    if (s === "Hits") return "Hits"
+    if (s === "Total Bases") return "TB"
+    if (s === "RBIs") return "RBI"
+    return "unknown"
+  })()
+
+  const edgeKey = (() => {
+    const e = Number(row?.edgeProbability)
+    if (!Number.isFinite(e)) return "unknown"
+    if (e < 0.1) return "0-0.1"
+    if (e < 0.2) return "0.1-0.2"
+    if (e < 0.3) return "0.2-0.3"
+    if (e < 0.4) return "0.3-0.4"
+    return "0.4+"
+  })()
+
+  const oddsKey = (() => {
+    const o = Number(row?.odds)
+    if (!Number.isFinite(o) || o === 0) return "unknown"
+    if (o < 0) {
+      if (o >= -110) return "fav_-110_to_-101"
+      if (o >= -150) return "fav_-150_to_-111"
+      if (o >= -250) return "fav_-250_to_-151"
+      return "fav_-250+"
+    }
+    if (o <= 120) return "plus_+1_to_+120"
+    if (o <= 200) return "plus_+121_to_+200"
+    if (o <= 400) return "plus_+201_to_+400"
+    return "plus_+401+"
+  })()
+
+  const bucketHit = (obj, key) => {
+    const b = obj?.[key]
+    const decidedLocal = (b?.wins || 0) + (b?.losses || 0)
+    if (!b || decidedLocal < 3) return null
+    return Number(b.hitRate || 0)
+  }
+
+  const baseline = Number(learningPack.overallHit || 0.5)
+
+  const ptHit = bucketHit(learning.byPropType, ptKey)
+  if (ptHit != null) {
+    if (ptHit < baseline - 0.05) m *= 0.96
+    else if (ptHit > baseline + 0.05) m *= 1.04
+  }
+
+  const edgeHit = bucketHit(learning.byEdgeBucket, edgeKey)
+  if (edgeHit != null) {
+    if (edgeHit < baseline - 0.05) m *= 0.97
+    else if (edgeHit > baseline + 0.05) m *= 1.03
+  }
+
+  const oddsHit = bucketHit(learning.byOddsBucket, oddsKey)
+  if (oddsHit != null) {
+    if (oddsKey === "plus_+401+" && oddsHit < baseline) m *= 0.95
+    else if (oddsHit < baseline - 0.05) m *= 0.98
+    else if (oddsHit > baseline + 0.05) m *= 1.02
+  }
+
+  return Math.min(1.06, Math.max(0.94, m))
+}
+
+/**
+ * Apply tracked-bucket learning as small multipliers on the rows that actually ship
+ * as `best` / `finalPlayableRows` (same shapes as API `tracking.learning` buckets).
+ * Logs one line every request for grep-friendly ops visibility.
+ */
+function __mlbApplyLearningToFinalBoardRows(rowArrays, learningPack, primaryResortIndex = 0) {
+  const seen = new WeakSet()
+  const boosted = {}
+  const reduced = {}
+  let neutral = 0
+  let touched = 0
+
+  for (const arr of rowArrays) {
+    if (!Array.isArray(arr)) continue
+    for (const row of arr) {
+      if (!row || seen.has(row)) continue
+      seen.add(row)
+      touched += 1
+      const mul = __mlbLearningMultiplier(row, learningPack)
+      const before = Number(row.mlbPhase3Score || 0)
+      row.mlbPhase3Score = before * mul
+      if (Number.isFinite(Number(row?.score))) {
+        row.score = Number(row.score) * mul
+      }
+      const label = `${String(row?.propType || "").trim()}|${Number(row?.odds)}`
+      if (mul > 1.001) boosted[label] = (boosted[label] || 0) + 1
+      else if (mul < 0.999) reduced[label] = (reduced[label] || 0) + 1
+      else neutral += 1
+    }
+  }
+
+  const primary = rowArrays[primaryResortIndex]
+  if (Array.isArray(primary) && primary.length > 1) {
+    primary.sort((a, b) => Number(b?.mlbPhase3Score || 0) - Number(a?.mlbPhase3Score || 0))
+  }
+
+  console.log(
+    "[MLB ADJUSTMENT] " +
+      JSON.stringify({
+        boosted,
+        reduced,
+        neutral,
+        touched,
+        decided: learningPack?.totals?.decided ?? null,
+        baselineHit: learningPack?.overallHit ?? null,
+        filePath: learningPack?.filePath ?? null,
+      }),
+  )
+}
+
 function buildMlbLiveDualBestAvailablePayload() {
   const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
   console.log("[MLB PIPELINE TRACE]", { stage: "rawProps", count: rows.length })
+  const learningPack = __mlbReadTrackedBestLearning()
   const clusters = buildMlbClusters(rows)
+  // === MLB adjustment layer (must always run) ===
+  // Inserted directly before Phase 3 best selection so it is guaranteed in the MLB request path.
+  console.log("[MLB ADJUSTMENT HIT]")
+  try {
+    // No guards: run even with missing/minimal learning data.
+    __mlbApplyLearningToFinalBoardRows(
+      [clusters?.hits, clusters?.hr, clusters?.tb, clusters?.rbi],
+      learningPack && typeof learningPack === "object" ? learningPack : {},
+      0
+    )
+  } catch (e) {
+    console.log("[MLB ADJUSTMENT ERROR]", e?.message || e)
+  }
+  for (const k of ["hits", "hr", "tb", "rbi"]) {
+    if (Array.isArray(clusters?.[k])) {
+      clusters[k].sort((a, b) => Number(b?.mlbPhase3Score || 0) - Number(a?.mlbPhase3Score || 0))
+    }
+  }
   console.log("[MLB PIPELINE TRACE]", {
     stage: "after_scoring",
     count:
@@ -3351,6 +3604,80 @@ function buildMlbLiveDualBestAvailablePayload() {
       out.push(row)
     }
     return out
+  }
+
+  // MLB compatibility: downstream bucket/slip builders assume NBA fields (hitRate/edge/score).
+  // For MLB we use Phase 3 `mlbPhase3Score` and treat NBA-only fields as optional.
+  console.log("[MLB FINAL FILTER MODE]", {
+    using: "mlbPhase3Score",
+    skippedHitRateChecks: true
+  })
+
+  const __mlbSortByPhase3 = (list) => {
+    const safe = Array.isArray(list) ? list.filter(Boolean) : []
+    return safe.sort((a, b) => Number(b?.mlbPhase3Score || 0) - Number(a?.mlbPhase3Score || 0))
+  }
+
+  const buildMlbMixedBestAvailableBuckets = (rowsPool, { thinSlateMode = true } = {}) => {
+    const pool = dedupeMlbLegs(__mlbSortByPhase3(rowsPool))
+    if (!pool.length) return { safe: null, balanced: null, aggressive: null, lotto: null }
+
+    const pickLegs = (filterFn, n) => dedupeMlbLegs(pool.filter(filterFn)).slice(0, n)
+    const odds = (r) => Number(r?.odds)
+
+    // Keep the return shape identical to the generic builder: { safe, balanced, aggressive, lotto }.
+    // No hitRate/edge/score floors; use odds ranges + `mlbPhase3Score` ordering.
+    const safeLegs = pickLegs((r) => {
+      const o = odds(r)
+      return Number.isFinite(o) && o < 0 && o >= -220 && o <= -102
+    }, 4)
+
+    const balancedLegs = pickLegs((r) => {
+      const o = odds(r)
+      return Number.isFinite(o) && o >= -160 && o <= 220
+    }, 4)
+
+    const aggressiveLegs = pickLegs((r) => {
+      const o = odds(r)
+      return Number.isFinite(o) && o >= 150 && o < 400
+    }, 5)
+
+    const lottoLegs = pickLegs((r) => {
+      const o = odds(r)
+      return Number.isFinite(o) && o >= 400
+    }, 6)
+
+    const out = {
+      safe: safeLegs.length >= 3 ? { book: "MLB", tag: "safe", legs: safeLegs } : null,
+      balanced: balancedLegs.length >= 3 ? { book: "MLB", tag: "balanced", legs: balancedLegs } : null,
+      aggressive: aggressiveLegs.length >= 3 ? { book: "MLB", tag: "aggressive", legs: aggressiveLegs } : null,
+      lotto: lottoLegs.length >= 3 ? { book: "MLB", tag: "lotto", legs: lottoLegs } : null,
+    }
+    // Never return all-null buckets when we have a real pool.
+    if (!out.safe && !out.balanced && !out.aggressive && !out.lotto && pool.length >= 3) {
+      out.balanced = { book: "MLB", tag: "balanced", legs: pool.slice(0, 4) }
+    }
+    return out
+  }
+
+  const buildMlbTopPhase3BookSlip = (book, targetLegCount, sourceRows) => {
+    const pool = Array.isArray(sourceRows) ? sourceRows : []
+    const ranked = dedupeSlipLegs(__mlbSortByPhase3(pool.filter((r) => r?.book === book)))
+    if (!ranked.length) return null
+
+    const out = []
+    const usedPlayers = new Set()
+    for (const row of ranked) {
+      if (!row || shouldRemoveLegForPlayerStatus(row)) continue
+      const player = String(row.player || row.playerName || "")
+      if (!player) continue
+      if (usedPlayers.has(player)) continue
+      if (hasConflict(out, row)) continue
+      out.push(row)
+      usedPlayers.add(player)
+      if (out.length >= targetLegCount) break
+    }
+    return out.length === targetLegCount ? out : null
   }
 
   const fallbackBestPropsLogic = (rowList) => {
@@ -3422,6 +3749,9 @@ function buildMlbLiveDualBestAvailablePayload() {
     phase3Best: Array.isArray(phase3Best) ? phase3Best.length : 0,
     finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0,
   })
+
+  // Apply learning BEFORE mixed-board selection so it can change membership (not just reorder output).
+  __mlbApplyLearningToFinalBoardRows([finalPlayableRows], learningPack, 0)
 
   // Phase 3 post-processing: build a balanced MLB board that doesn't collapse
   // into only safe/low-variance unders.
@@ -3495,11 +3825,14 @@ function buildMlbLiveDualBestAvailablePayload() {
       // DOWNWEIGHT
       if (isHeavyJuice(row)) s -= 1.2
       if (isDownweightedUnderType(row)) s -= 0.8
+      const o = oddsValue(row)
+      // Additional selection shaping: reduce extreme longshots so they don't dominate final boards.
+      if (Number.isFinite(o) && o >= 600) s -= 1.3
+      else if (Number.isFinite(o) && o >= 400) s -= 0.9
 
       // UPWEIGHT
       if (isHrTb(row)) s += 1.0
-      const o = oddsValue(row)
-      if (Number.isFinite(o) && o >= 120) s += 0.5
+      if (Number.isFinite(o) && o >= 120 && o < 400) s += 0.5
       if (isOver(row)) s += 0.4
 
       return s
@@ -3621,75 +3954,702 @@ function buildMlbLiveDualBestAvailablePayload() {
 
   const flex = []
 
+  // === MLB boards (hitRate-free): use Phase 3 score + odds distribution ===
+  const __mlbBoardPoolBase = Array.isArray(finalPlayableRows) && finalPlayableRows.length
+    ? finalPlayableRows
+    : (Array.isArray(phase3Best) && phase3Best.length ? phase3Best : safeBest)
+
+  const __mlbBoardPool = dedupeMlbLegs((Array.isArray(__mlbBoardPoolBase) ? __mlbBoardPoolBase : []).filter(Boolean))
+    .filter((r) =>
+      r &&
+      String(r?.player || "").trim() &&
+      String(r?.propType || "").trim() &&
+      Number.isFinite(Number(r?.odds)) &&
+      Number.isFinite(Number(r?.mlbPhase3Score))
+    )
+    .sort((a, b) => Number(b?.mlbPhase3Score || 0) - Number(a?.mlbPhase3Score || 0))
+
+  const __mlbOnePerPlayer = (rowsIn) => {
+    const rows = Array.isArray(rowsIn) ? rowsIn : []
+    const used = new Set()
+    const out = []
+    for (const r of rows) {
+      const p = String(r?.player || "").trim().toLowerCase()
+      if (!p) continue
+      if (used.has(p)) continue
+      used.add(p)
+      out.push(r)
+    }
+    return out
+  }
+
+  const __mlbFill = (target, primaryFilter, fallbackPool) => {
+    const primary = __mlbOnePerPlayer(__mlbBoardPool.filter(primaryFilter))
+    const base = primary.slice(0, target)
+    if (base.length >= target) return base
+    const need = target - base.length
+    const fallback = __mlbOnePerPlayer((Array.isArray(fallbackPool) ? fallbackPool : __mlbBoardPool))
+      .filter((r) => !base.some((x) => String(x?.player || "").trim().toLowerCase() === String(r?.player || "").trim().toLowerCase()))
+      .slice(0, need)
+    return base.concat(fallback)
+  }
+
+  const N = __mlbBoardPool.length
+  const sizeSafe = Math.max(1, Math.round(N * 0.28))
+  const sizeBalanced = Math.max(1, Math.round(N * 0.28))
+  const sizeAggressive = Math.max(1, Math.round(N * 0.24))
+  const sizeLotto = Math.max(1, Math.max(0, N - (sizeSafe + sizeBalanced + sizeAggressive)))
+
+  const odds = (r) => Number(r?.odds)
+  let safe = __mlbFill(
+    sizeSafe,
+    (r) => {
+      const o = odds(r)
+      return Number.isFinite(o) && (o < 0 || o < 200)
+    },
+    __mlbBoardPool
+  )
+
+  const remainingAfterSafe = __mlbBoardPool.filter((r) => !safe.some((x) => String(x?.player || "").trim().toLowerCase() === String(r?.player || "").trim().toLowerCase()))
+  let balanced = __mlbOnePerPlayer(remainingAfterSafe.filter((r) => {
+    const o = odds(r)
+    return Number.isFinite(o) && o >= -180 && o <= 350
+  })).slice(0, sizeBalanced)
+  if (!balanced.length) balanced = __mlbOnePerPlayer(remainingAfterSafe).slice(0, sizeBalanced)
+
+  const usedPlayersAgg = new Set([...safe, ...balanced].map((r) => String(r?.player || "").trim().toLowerCase()))
+  const remainingAfterBalanced = __mlbBoardPool.filter((r) => !usedPlayersAgg.has(String(r?.player || "").trim().toLowerCase()))
+  let aggressive = __mlbOnePerPlayer(remainingAfterBalanced.filter((r) => {
+    const o = odds(r)
+    return Number.isFinite(o) && o >= 200 && o < 400
+  })).slice(0, sizeAggressive)
+  if (!aggressive.length) aggressive = __mlbOnePerPlayer(remainingAfterBalanced).slice(0, sizeAggressive)
+
+  const usedPlayersLotto = new Set([...safe, ...balanced, ...aggressive].map((r) => String(r?.player || "").trim().toLowerCase()))
+  const remainingAfterAggressive = __mlbBoardPool.filter((r) => !usedPlayersLotto.has(String(r?.player || "").trim().toLowerCase()))
+  let lotto = __mlbOnePerPlayer(remainingAfterAggressive.filter((r) => {
+    const o = odds(r)
+    return Number.isFinite(o) && o >= 400
+  })).slice(0, Math.max(1, sizeLotto))
+  if (!lotto.length) lotto = __mlbOnePerPlayer(remainingAfterAggressive).slice(0, Math.max(1, sizeLotto))
+
+  // Guarantee: if best > 0, no board is empty.
+  if (safeBest.length > 0) {
+    if (!safe.length) safe = __mlbOnePerPlayer(__mlbBoardPool).slice(0, 1)
+    if (!balanced.length) balanced = __mlbOnePerPlayer(__mlbBoardPool.filter((r) => !safe.includes(r))).slice(0, 1)
+    if (!aggressive.length) aggressive = __mlbOnePerPlayer(__mlbBoardPool.filter((r) => !safe.includes(r) && !balanced.includes(r))).slice(0, 1)
+    if (!lotto.length) lotto = __mlbOnePerPlayer(__mlbBoardPool.filter((r) => !safe.includes(r) && !balanced.includes(r) && !aggressive.includes(r))).slice(0, 1)
+  }
+
+  console.log("[MLB BOARD BUILT]", {
+    safe: safe.length,
+    balanced: balanced.length,
+    aggressive: aggressive.length,
+    lotto: lotto.length
+  })
+
+  console.log("[MODEL REBALANCE ACTIVE]", {
+    bias: "probability-first",
+    longshotReduced: true
+  })
+
+  console.log("[SOFT BIAS ACTIVE]", {
+    mode: "realistic selection",
+    rigidRulesRemoved: true
+  })
+
+  // === MLB auto parlay generation (board-only; no ingest/scoring/learning changes) ===
+  const buildMlbAutoParlays = ({ safe: bSafe, balanced: bBalanced, aggressive: bAggressive, lotto: bLotto }) => {
+    const toLeg = (r) => ({
+      player: r?.player ?? null,
+      team: r?.team ?? null,
+      propType: r?.propType ?? null,
+      line: r?.line ?? null,
+      odds: r?.odds ?? null,
+    })
+
+    const impliedFromAmerican = (o) => {
+      const odds = Number(o)
+      if (!Number.isFinite(odds) || odds === 0) return null
+      if (odds > 0) return 100 / (odds + 100)
+      return Math.abs(odds) / (Math.abs(odds) + 100)
+    }
+
+    const americanFromProbability = (p) => {
+      const prob = Number(p)
+      if (!Number.isFinite(prob) || prob <= 0 || prob >= 1) return null
+      if (prob >= 0.5) return Math.round((-prob / (1 - prob)) * 100)
+      return Math.round(((1 - prob) / prob) * 100)
+    }
+
+    const estimateParlayOdds = (legs) => {
+      const probs = (Array.isArray(legs) ? legs : [])
+        .map((l) => impliedFromAmerican(l?.odds))
+        .filter((p) => Number.isFinite(p) && p > 0 && p < 1)
+      if (!probs.length) return null
+      const p = probs.reduce((acc, v) => acc * v, 1)
+      return americanFromProbability(p)
+    }
+
+    const startMs = (r) => {
+      const raw =
+        r?.eventStartTime ||
+        r?.commenceTime ||
+        r?.startTime ||
+        r?.gameTime ||
+        r?.eventTime ||
+        null
+      const t = raw ? new Date(raw).getTime() : NaN
+      return Number.isFinite(t) ? t : null
+    }
+
+    const windowKey = (r) => {
+      const ms = startMs(r)
+      if (!Number.isFinite(ms)) return "unknown"
+      const d = new Date(ms)
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, "0")
+      const dd = String(d.getDate()).padStart(2, "0")
+      const h = d.getHours()
+      const slot = h < 16 ? "early" : (h < 19 ? "mid" : "late")
+      return `${yyyy}-${mm}-${dd}:${slot}`
+    }
+
+    const propPriority = (row) => {
+      const pt = String(row?.propType || "").trim()
+      // MLB: consistency first (hits > TB > RBI > HR)
+      if (pt === "Hits") return 4
+      if (pt === "Total Bases") return 3
+      if (pt === "RBIs") return 2
+      if (pt === "Home Runs") return 1
+      return 0
+    }
+
+    const likelihoodScore = (row) => {
+      const pred = Number(row?.predictedProbability)
+      if (Number.isFinite(pred) && pred > 0 && pred < 1) return pred
+      // Fallback: implied from odds (lower payout => higher implied probability)
+      const p = impliedFromAmerican(row?.odds)
+      return Number.isFinite(p) ? p : 0
+    }
+
+    const propVolatilityPenalty = (row) => {
+      const pt = String(row?.propType || "").trim()
+      if (pt === "Home Runs") return 0.05
+      if (pt === "RBIs") return 0.02
+      return 0
+    }
+
+    const oddsVolatilityPenalty = (row) => {
+      const o = Number(row?.odds)
+      if (!Number.isFinite(o)) return 0
+      if (o >= 600) return 0.05
+      if (o >= 400) return 0.03
+      if (o >= 250) return 0.015
+      return 0
+    }
+
+    const lowLineBonus = (row) => {
+      const line = Number(row?.line)
+      if (!Number.isFinite(line)) return 0
+      const pt = String(row?.propType || "").trim()
+      // Gentle preference for lower lines (never blocks).
+      if (pt === "Hits") return line <= 1 ? 0.02 : (line <= 2 ? 0.01 : 0)
+      if (pt === "Total Bases") return line <= 1.5 ? 0.02 : (line <= 2.5 ? 0.01 : 0)
+      if (pt === "RBIs") return line <= 0.5 ? 0.015 : 0
+      if (pt === "Home Runs") return line <= 0.5 ? 0.005 : 0
+      return 0
+    }
+
+    const realismPenalty = (row) => {
+      // Soft check: if we have any "typical" stat fields, avoid extreme lines for the player.
+      const line = Number(row?.line)
+      const avg =
+        Number(row?.avg) ||
+        Number(row?.seasonAvg) ||
+        Number(row?.statAvg) ||
+        Number(row?.projection) ||
+        Number(row?.projectedStat) ||
+        NaN
+      if (!Number.isFinite(line) || !Number.isFinite(avg) || avg <= 0) return 0
+      const side = String(row?.side || "").toLowerCase()
+      const over = side === "over"
+      const ratio = line / avg
+      if (over && ratio >= 1.9) return 0.06
+      if (over && ratio >= 1.6) return 0.03
+      return 0
+    }
+
+    const softMetric = (row) => {
+      return (
+        likelihoodScore(row) +
+        (propPriority(row) * 0.01) +
+        lowLineBonus(row) -
+        realismPenalty(row) -
+        propVolatilityPenalty(row) -
+        oddsVolatilityPenalty(row)
+      )
+    }
+
+    const rankByScore = (rows) =>
+      (Array.isArray(rows) ? rows : [])
+        .filter(Boolean)
+        .sort((a, b) => {
+          // Priority: likelihood > value > payout (soft)
+          const la = softMetric(a)
+          const lb = softMetric(b)
+          if (lb !== la) return lb - la
+          const ea = Number(a?.edgeProbability ?? a?.edge ?? 0)
+          const eb = Number(b?.edgeProbability ?? b?.edge ?? 0)
+          if (eb !== ea) return eb - ea
+          const sa = Number(a?.mlbPhase3Score || 0)
+          const sb = Number(b?.mlbPhase3Score || 0)
+          if (sb !== sa) return sb - sa
+          // Prefer lower payout last (higher implied prob)
+          return Number(a?.odds ?? 0) - Number(b?.odds ?? 0)
+        })
+
+    const bestWindow = (rows) => {
+      const counts = new Map()
+      for (const r of Array.isArray(rows) ? rows : []) {
+        const k = windowKey(r)
+        counts.set(k, (counts.get(k) || 0) + 1)
+      }
+      let bestK = "unknown"
+      let bestC = -1
+      for (const [k, c] of counts.entries()) {
+        if (c > bestC) {
+          bestC = c
+          bestK = k
+        }
+      }
+      return bestK
+    }
+
+    const pickTicket = (rowsIn, {
+      minLegs,
+      maxLegs,
+      sameStatOnly = false,
+      allowMultiHr = false,
+      preferDifferentTeams = false,
+      diversityBias = false,
+      diversityTolerance = 0.04,
+    } = {}) => {
+      const rowsRanked = rankByScore(rowsIn)
+      if (!rowsRanked.length) return null
+
+      const win = bestWindow(rowsRanked)
+      const sameWindowFirst = rowsRanked.filter((r) => windowKey(r) === win)
+      // Prefer same window for cashout convenience, but do not sacrifice role balance.
+      const poolPreferred = sameWindowFirst.length >= minLegs ? sameWindowFirst : rowsRanked
+      const pool = poolPreferred
+
+      const usedPlayers = new Set()
+      const usedPropTypes = new Set()
+      const usedTeams = new Set()
+      const out = []
+
+      const canAdd = (r) => {
+        if (!r) return false
+        const player = String(r?.player || "").trim().toLowerCase()
+        if (!player) return false
+        if (usedPlayers.has(player)) return false
+
+        const pt = String(r?.propType || "").trim()
+        if (sameStatOnly && out.length > 0) {
+          const base = String(out[0]?.propType || "").trim()
+          if (pt !== base) return false
+        }
+        if (!allowMultiHr && pt === "Home Runs" && usedPropTypes.has("Home Runs")) return false
+
+        const team = String(r?.team || "").trim().toLowerCase()
+        if (preferDifferentTeams && team && usedTeams.has(team)) return false
+        return true
+      }
+
+      const tryAdd = (r) => {
+        if (!r) return false
+        const player = String(r?.player || "").trim().toLowerCase()
+        if (!player) return false
+        if (usedPlayers.has(player)) return false
+
+        const pt = String(r?.propType || "").trim()
+        if (sameStatOnly && out.length > 0) {
+          const base = String(out[0]?.propType || "").trim()
+          if (pt !== base) return false
+        }
+        if (!allowMultiHr && pt === "Home Runs" && usedPropTypes.has("Home Runs")) return false
+
+        const team = String(r?.team || "").trim().toLowerCase()
+        if (preferDifferentTeams && team && usedTeams.has(team)) return false
+
+        out.push(toLeg(r))
+        usedPlayers.add(player)
+        if (pt) usedPropTypes.add(pt)
+        if (team) usedTeams.add(team)
+        return true
+      }
+
+      // First pass: prefer prop-type variety when close in quality (soft bias, not a hard rule).
+      // (Never applied to sameStatOnly fun tickets.)
+      const remaining = [...pool]
+      while (out.length < maxLegs && remaining.length) {
+        // Find the first acceptable as the baseline best.
+        let bestIdx = -1
+        for (let i = 0; i < remaining.length; i++) {
+          if (canAdd(remaining[i])) {
+            bestIdx = i
+            break
+          }
+        }
+        if (bestIdx === -1) break
+
+        const bestRow = remaining[bestIdx]
+        const bestMetric = softMetric(bestRow)
+        const bestPt = String(bestRow?.propType || "").trim()
+
+        let chosenRow = bestRow
+        if (diversityBias && !sameStatOnly && out.length > 0 && bestPt && usedPropTypes.has(bestPt)) {
+          // Look for a near-equal candidate with a different prop type.
+          for (let j = 0; j < Math.min(30, remaining.length); j++) {
+            const cand = remaining[j]
+            const candPt = String(cand?.propType || "").trim()
+            if (!candPt || candPt === bestPt) continue
+            if (usedPropTypes.has(candPt)) continue
+            const m = softMetric(cand)
+            const lp = likelihoodScore(cand)
+            const lb = likelihoodScore(bestRow)
+            const closeInLikelihood = Number.isFinite(lp) && Number.isFinite(lb) ? (lp >= lb - 0.02) : false
+            if (m >= bestMetric - diversityTolerance || closeInLikelihood) {
+              chosenRow = cand
+              break
+            }
+          }
+        }
+
+        // Actually add the chosen row (may still fail; if it does, discard it and continue).
+        if (!canAdd(chosenRow) || !tryAdd(chosenRow)) {
+          remaining.splice(bestIdx, 1)
+          continue
+        }
+
+        // Remove the chosen row from remaining.
+        const removeIdx = remaining.indexOf(chosenRow)
+        if (removeIdx >= 0) remaining.splice(removeIdx, 1)
+
+        if (out.length >= minLegs && (!diversityBias || sameStatOnly || usedPropTypes.size >= Math.min(3, out.length))) {
+          break
+        }
+      }
+
+      // Second pass: fill remaining.
+      for (const r of pool) {
+        if (out.length >= maxLegs) break
+        tryAdd(r)
+      }
+
+      if (out.length < minLegs) return null
+      const legs = out.slice(0, maxLegs)
+      return { legs, estimatedOdds: estimateParlayOdds(legs) }
+    }
+
+    // Ticket construction logic: role-based, stacking-aware (soft; never blocks globally).
+    const pickTicketWithRoles = (rowsIn, { minLegs, maxLegs } = {}) => {
+      const rowsRanked = rankByScore(rowsIn)
+      if (!rowsRanked.length) return null
+
+      const win = bestWindow(rowsRanked)
+      const sameWindowFirst = rowsRanked.filter((r) => windowKey(r) === win)
+      // Prefer same window for cashout convenience, but do not sacrifice role balance.
+      const poolPreferred = sameWindowFirst.length >= minLegs ? sameWindowFirst : rowsRanked
+      const pool = poolPreferred
+
+      const usedPlayers = new Set()
+      const propCounts = new Map()
+      const outRows = []
+
+      const roleOf = (row) => {
+        const pt = String(row?.propType || "").trim()
+        const o = Number(row?.odds)
+        const p = likelihoodScore(row)
+        const line = Number(row?.line)
+
+        // UPSIDE: volatile payout drivers
+        if (pt === "Home Runs") return "UPSIDE"
+        if (Number.isFinite(o) && o >= 450) return "UPSIDE"
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 3.5) return "UPSIDE"
+        if (pt === "Hits" && Number.isFinite(line) && line >= 2.5) return "UPSIDE"
+
+        // FOUNDATION: highest probability / consistency leaning
+        if (Number.isFinite(p) && p >= 0.60) return "FOUNDATION"
+        if (pt === "Hits" && Number.isFinite(line) && line <= 1.5) return "FOUNDATION"
+        if (pt === "Total Bases" && Number.isFinite(line) && line <= 1.5) return "FOUNDATION"
+
+        // SUPPORT: solid, but not elite
+        return "SUPPORT"
+      }
+
+      const canUse = (row) => {
+        const player = String(row?.player || "").trim().toLowerCase()
+        if (!player || usedPlayers.has(player)) return false
+        return true
+      }
+
+      const add = (row) => {
+        if (!row || !canUse(row)) return false
+        const pt = String(row?.propType || "").trim() || "unknown"
+        const count = propCounts.get(pt) || 0
+        const role = roleOf(row)
+
+        // Stack control: avoid defaulting into repeated SUPPORT legs (esp. same propType).
+        // Still allow if the leg is very strong (near top).
+        if (role === "SUPPORT" && count >= 2) {
+          const m = softMetric(row)
+          const top = pool.length ? softMetric(pool[0]) : m
+          if (m < top - 0.05) return false
+        }
+
+        outRows.push(row)
+        usedPlayers.add(String(row?.player || "").trim().toLowerCase())
+        propCounts.set(pt, count + 1)
+        return true
+      }
+
+      const target = Math.max(minLegs || 2, Math.min(maxLegs || 4, maxLegs || 4))
+      const bucketsFrom = (list) => ({
+        foundations: list.filter((r) => roleOf(r) === "FOUNDATION"),
+        supports: list.filter((r) => roleOf(r) === "SUPPORT"),
+        upsides: list.filter((r) => roleOf(r) === "UPSIDE"),
+      })
+
+      let { foundations, supports, upsides } = bucketsFrom(poolPreferred)
+      // If the preferred window pool is too one-dimensional, fall back to the full ranked pool for roles.
+      if (foundations.length < 1 || supports.length < 1) {
+        ;({ foundations, supports, upsides } = bucketsFrom(rowsRanked))
+      }
+
+      // CORE role targets:
+      // - 1–2 FOUNDATION
+      // - 0–1 SUPPORT
+      // - 0–1 UPSIDE
+      const wantFoundation = Math.min(2, Math.max(1, target >= 3 ? 2 : 1))
+      const wantSupport = target >= 3 ? 1 : 0
+      const wantUpside = target >= 3 ? 1 : 0
+
+      // 1) Foundations (if missing, allow SUPPORT as fallback foundation — soft).
+      for (const r of foundations) {
+        if (outRows.length >= wantFoundation) break
+        add(r)
+      }
+      if (outRows.length < wantFoundation) {
+        for (const r of supports) {
+          if (outRows.length >= wantFoundation) break
+          add(r)
+        }
+      }
+
+      // 2) Optional support (prefer different prop type than existing when close).
+      if (wantSupport && outRows.length < target) {
+        const usedTypes = new Set(outRows.map((r) => String(r?.propType || "").trim()))
+        for (const r of supports) {
+          const pt = String(r?.propType || "").trim()
+          if (pt && usedTypes.has(pt)) continue
+          if (add(r)) break
+        }
+      }
+
+      // 3) Optional upside (one payout driver).
+      if (wantUpside && outRows.length < target) {
+        const usedTypes = new Set(outRows.map((r) => String(r?.propType || "").trim()))
+        for (const r of upsides) {
+          const pt = String(r?.propType || "").trim()
+          if (pt && usedTypes.has(pt)) continue
+          // Only skip if it's far below top quality; otherwise allow.
+          const m = softMetric(r)
+          const top = pool.length ? softMetric(pool[0]) : m
+          if (m < top - 0.18) continue
+          if (add(r)) break
+        }
+        if (outRows.length < target) {
+          for (const r of upsides) {
+            if (add(r)) break
+          }
+        }
+      }
+
+      // 4) Fill remaining (rare; still stacking-aware), preferring FOUNDATION > SUPPORT > UPSIDE.
+      for (const r of [...foundations, ...supports, ...upsides]) {
+        if (outRows.length >= target) break
+        add(r)
+      }
+
+      if (outRows.length < (minLegs || 2)) return null
+      const legs = outRows.slice(0, maxLegs || outRows.length).map(toLeg)
+      return { legs, estimatedOdds: estimateParlayOdds(legs) }
+    }
+
+    const core = []
+    const safeRows = rankByScore(bSafe)
+    const balancedRows = rankByScore(bBalanced)
+    const aggressiveRows = rankByScore(bAggressive)
+
+    // CORE: "most likely combination of plays today" — no hard exclusions.
+    // Use soft-bias ranking from safe + balanced rows, but NEVER block HR / higher lines / longshots.
+    const corePoolRawBase = [...(safeRows || []), ...(balancedRows || [])]
+    // If safe/balanced boards are empty on a thin MLB slate, allow core to seed from aggressive too
+    // (still ranked with probability-first soft bias; no props are blocked).
+    const corePoolRaw = rankByScore(corePoolRawBase.length ? corePoolRawBase : [...(aggressiveRows || []), ...corePoolRawBase])
+    // Soft foundation: take top legs, but gently broaden prop-type coverage when quality is close.
+    const safeCandidates = (() => {
+      const out = []
+      const usedPlayers = new Set()
+      const propCounts = new Map()
+      const topMetric = corePoolRaw.length ? softMetric(corePoolRaw[0]) : 0
+      for (const r of corePoolRaw) {
+        if (out.length >= 18) break
+        const player = String(r?.player || "").trim().toLowerCase()
+        if (!player || usedPlayers.has(player)) continue
+        const pt = String(r?.propType || "").trim() || "unknown"
+        const m = softMetric(r)
+        const closeToTop = m >= topMetric - 0.06
+        const count = propCounts.get(pt) || 0
+        // Prefer introducing new prop types when close in quality.
+        const prefer = closeToTop && count === 0
+        if (prefer || out.length < 6) {
+          out.push(r)
+          usedPlayers.add(player)
+          propCounts.set(pt, count + 1)
+        } else if (closeToTop && count < 4) {
+          out.push(r)
+          usedPlayers.add(player)
+          propCounts.set(pt, count + 1)
+        }
+      }
+      return out.length ? out : corePoolRaw.slice(0, 18)
+    })()
+
+    console.log("[MLB FOUNDATION POOL]", {
+      count: safeCandidates.length
+    })
+
+    console.log("[VARIETY BIAS ACTIVE]", {
+      diversityApplied: true
+    })
+
+    console.log("[TICKET LOGIC ACTIVE]", {
+      stackingControlled: true
+    })
+
+    console.log("[ROLE ENGINE ACTIVE]", {
+      rolesApplied: true
+    })
+
+    const pushCore = (t) => {
+      if (!t) return
+      core.push(t)
+    }
+
+    const buildCoreTicketWithFoundation = ({ minLegs, maxLegs, foundationMin = 1 } = {}) => {
+      if (!corePoolRaw.length) return null
+      const base = []
+      const usedPlayers = new Set()
+
+      for (const r of safeCandidates) {
+        if (base.length >= foundationMin) break
+        const player = String(r?.player || "").trim().toLowerCase()
+        if (!player || usedPlayers.has(player)) continue
+        base.push(r)
+        usedPlayers.add(player)
+      }
+
+      const fillPool = corePoolRaw.filter((r) => !usedPlayers.has(String(r?.player || "").trim().toLowerCase()))
+      const ticket = pickTicket(fillPool, { minLegs: Math.max(0, minLegs - base.length), maxLegs: Math.max(0, maxLegs - base.length), allowMultiHr: true })
+      const legs = [...base.map(toLeg), ...((ticket?.legs || []).slice(0, Math.max(0, maxLegs - base.length)))]
+      if (legs.length < minLegs) return null
+      return { legs: legs.slice(0, maxLegs), estimatedOdds: estimateParlayOdds(legs.slice(0, maxLegs)) }
+    }
+
+    // 2–3 legs (safe-ish)
+    pushCore(
+      pickTicketWithRoles(corePoolRaw, { minLegs: 2, maxLegs: 3 }) ||
+        buildCoreTicketWithFoundation({ minLegs: 2, maxLegs: 3, foundationMin: 1 }) ||
+        pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true })
+    )
+    // 3–4 legs (balanced)
+    pushCore(
+      pickTicketWithRoles(corePoolRaw, { minLegs: 3, maxLegs: 4 }) ||
+        buildCoreTicketWithFoundation({ minLegs: 3, maxLegs: 4, foundationMin: 2 }) ||
+        pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true })
+    )
+    if (core.length < 2) {
+      pushCore(pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true }))
+      pushCore(pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true }))
+    }
+    if (!core.length) {
+      // As a last resort, allow core to draw from the full (safe+balanced+aggressive) set, still ranked with soft bias.
+      const wideCorePool = rankByScore([...(safeRows || []), ...(balancedRows || []), ...(aggressiveRows || [])])
+      pushCore(pickTicket(wideCorePool, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true }))
+      pushCore(pickTicket(wideCorePool, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true }))
+    }
+
+    const fun = []
+    const funPool = rankByScore([...(safeRows || []), ...(balancedRows || []), ...(aggressiveRows || [])])
+    const byPropType = (pt) => funPool.filter((r) => String(r?.propType || "").trim() === pt)
+
+    // FUN: stat-pattern tickets (same stat only)
+    const hrTicket = pickTicket(byPropType("Home Runs"), { minLegs: 2, maxLegs: 4, sameStatOnly: true, allowMultiHr: true, preferDifferentTeams: true })
+    if (hrTicket) fun.push(hrTicket)
+    const rbiTicket = pickTicket(byPropType("RBIs"), { minLegs: 3, maxLegs: 5, sameStatOnly: true, preferDifferentTeams: true })
+    if (rbiTicket) fun.push(rbiTicket)
+    const hitsTicket = pickTicket(byPropType("Hits"), { minLegs: 4, maxLegs: 6, sameStatOnly: true, preferDifferentTeams: true })
+    if (hitsTicket) fun.push(hitsTicket)
+
+    const lotto = []
+    // LOTTO: still prioritized for riskier legs, but no hard blocking.
+    const lottoPool = rankByScore([...(aggressiveRows || []), ...(rankByScore(bLotto) || [])])
+
+    const lotto3 = pickTicket(lottoPool, { minLegs: 3, maxLegs: 5, allowMultiHr: true })
+    if (lotto3) lotto.push(lotto3)
+    const lotto4 = pickTicket(lottoPool, { minLegs: 4, maxLegs: 5, allowMultiHr: true })
+    if (lotto4) lotto.push(lotto4)
+
+    // Reassign: anything with huge payout estimate should not sit in core.
+    const coreKept = []
+    const coreMoved = []
+    for (const t of core) {
+      const est = Number(t?.estimatedOdds)
+      const legs = Array.isArray(t?.legs) ? t.legs : []
+      const allLongshot = legs.length > 0 && legs.every((l) => Number(l?.odds) >= 400)
+      if (Number.isFinite(est) && est > 5000 && allLongshot) coreMoved.push(t)
+      else coreKept.push(t)
+    }
+    // Keep at least one core ticket to preserve structure on extreme slates.
+    if (!coreKept.length && coreMoved.length) {
+      coreMoved.sort((a, b) => Number(a?.estimatedOdds ?? 0) - Number(b?.estimatedOdds ?? 0))
+      coreKept.push(coreMoved.shift())
+    }
+    for (const t of coreMoved) lotto.push(t)
+
+    console.log("[MLB PARLAY ENGINE]", {
+      core: coreKept.length,
+      fun: fun.length,
+      lotto: lotto.length
+    })
+
+    return { core: coreKept, fun, lotto }
+  }
+
+  const parlays = buildMlbAutoParlays({ safe, balanced, aggressive, lotto })
+
   const dualBestPropsPoolBase = best.length ? best : eligible
   const dualBestPropsPool = buildBestPropVariantPool(dualBestPropsPoolBase)
-  let mixedBestAvailable = buildMixedBestAvailableBuckets(dualBestPropsPool, { thinSlateMode: true })
-  // MLB rows don't carry NBA hitRate/ceilingScore fields, so the generic mixed buckets can collapse to null.
-  // Keep Phase 3 stable by emitting simple lane objects when the generic builder yields nothing.
-  if (
-    !mixedBestAvailable ||
-    (!mixedBestAvailable.safe && !mixedBestAvailable.balanced && !mixedBestAvailable.aggressive && !mixedBestAvailable.lotto)
-  ) {
-    const pool = Array.isArray(best) ? best : []
-    const sorted = [...pool].sort((a, b) => {
-      const aS = Number(a?.mlbPhase3Score ?? a?.score ?? 0)
-      const bS = Number(b?.mlbPhase3Score ?? b?.score ?? 0)
-      if (bS !== aS) return bS - aS
-      const aE = Number(a?.edgeProbability ?? 0)
-      const bE = Number(b?.edgeProbability ?? 0)
-      if (bE !== aE) return bE - aE
-      return Number(b?.odds ?? 0) - Number(a?.odds ?? 0)
-    })
-
-    const pick = (filterFn, n) => dedupeSlipLegs(sorted.filter(filterFn)).slice(0, n)
-    let safeLegs = pick((r) => {
-      const o = Number(r?.odds)
-      return Number.isFinite(o) && o < 0 && o >= -220 && o <= -102
-    }, 4)
-    if (safeLegs.length < 3) {
-      safeLegs = pick((r) => {
-        const o = Number(r?.odds)
-        return Number.isFinite(o) && o < 0 && o >= -500 && o <= -101
-      }, 4)
-    }
-    if (safeLegs.length < 3) safeLegs = dedupeSlipLegs(sorted).slice(0, 4)
-
-    let balancedLegs = pick((r) => {
-      const o = Number(r?.odds)
-      return Number.isFinite(o) && o >= -160 && o <= 220
-    }, 4)
-    if (balancedLegs.length < 3) balancedLegs = dedupeSlipLegs(sorted).slice(0, 4)
-    const aggressiveLegs = pick((r) => {
-      const o = Number(r?.odds)
-      return Number.isFinite(o) && o >= 150
-    }, 5)
-    const lottoLegs = pick((r) => {
-      const o = Number(r?.odds)
-      return Number.isFinite(o) && o >= 350
-    }, 6)
-
-    mixedBestAvailable = {
-      safe: safeLegs.length >= 3 ? { book: "MLB", tag: "safe", legs: safeLegs } : null,
-      balanced: balancedLegs.length >= 3 ? { book: "MLB", tag: "balanced", legs: balancedLegs } : null,
-      aggressive: aggressiveLegs.length >= 3 ? { book: "MLB", tag: "aggressive", legs: aggressiveLegs } : null,
-      lotto: lottoLegs.length >= 3 ? { book: "MLB", tag: "lotto", legs: lottoLegs } : null,
-    }
-    console.log("[MLB PHASE 3 LANES]", {
-      mode: "fallback-simple-lanes",
-      best: pool.length,
-      safe: mixedBestAvailable.safe?.legs?.length || 0,
-      balanced: mixedBestAvailable.balanced?.legs?.length || 0,
-      aggressive: mixedBestAvailable.aggressive?.legs?.length || 0,
-      lotto: mixedBestAvailable.lotto?.legs?.length || 0,
-    })
-  }
   console.log("[MLB PIPELINE TRACE]", {
     stage: "final_boards",
     best: Array.isArray(safeBest) ? safeBest.length : 0,
-    safe: Array.isArray(mixedBestAvailable?.safe) ? mixedBestAvailable.safe.length : 0,
-    balanced: Array.isArray(mixedBestAvailable?.balanced) ? mixedBestAvailable.balanced.length : 0,
-    aggressive: Array.isArray(mixedBestAvailable?.aggressive) ? mixedBestAvailable.aggressive.length : 0,
-    lotto: Array.isArray(mixedBestAvailable?.lotto) ? mixedBestAvailable.lotto.length : 0,
+    safe: Array.isArray(safe) ? safe.length : 0,
+    balanced: Array.isArray(balanced) ? balanced.length : 0,
+    aggressive: Array.isArray(aggressive) ? aggressive.length : 0,
+    lotto: Array.isArray(lotto) ? lotto.length : 0,
   })
   const dualPoolDiagnostics = buildMlbDualPoolDiagnostics(eligible)
   const statLeaderboards = buildDualStatLeaderboards(eligible)
@@ -3697,76 +4657,76 @@ function buildMlbLiveDualBestAvailablePayload() {
   const slipPool = dualBestPropsPool.length ? dualBestPropsPool : eligible
   const fdHighestHitRate2 =
     slipPool.length >= 2
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 2, slipPool), "Highest Hit Rate 2-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 2, slipPool), "Highest Hit Rate 2-Leg")
       : null
   const fdHighestHitRate3 =
     slipPool.length >= 3
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 3, slipPool), "Highest Hit Rate 3-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 3, slipPool), "Highest Hit Rate 3-Leg")
       : null
   const fdHighestHitRate4 =
     slipPool.length >= 4
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 4, slipPool), "Highest Hit Rate 4-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 4, slipPool), "Highest Hit Rate 4-Leg")
       : null
   const fdHighestHitRate5 =
     slipPool.length >= 5
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 5, slipPool), "Highest Hit Rate 5-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 5, slipPool), "Highest Hit Rate 5-Leg")
       : null
   const fdHighestHitRate6 =
     slipPool.length >= 6
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 6, slipPool), "Highest Hit Rate 6-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 6, slipPool), "Highest Hit Rate 6-Leg")
       : null
   const fdHighestHitRate7 =
     slipPool.length >= 7
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 7, slipPool), "Highest Hit Rate 7-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 7, slipPool), "Highest Hit Rate 7-Leg")
       : null
   const fdHighestHitRate8 =
     slipPool.length >= 8
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 8, slipPool), "Highest Hit Rate 8-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 8, slipPool), "Highest Hit Rate 8-Leg")
       : null
   const fdHighestHitRate9 =
     slipPool.length >= 9
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 9, slipPool), "Highest Hit Rate 9-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 9, slipPool), "Highest Hit Rate 9-Leg")
       : null
   const fdHighestHitRate10 =
     slipPool.length >= 10
-      ? makeSlipObject("FanDuel", buildHighestHitRateBookSlip("FanDuel", 10, slipPool), "Highest Hit Rate 10-Leg")
+      ? makeSlipObject("FanDuel", buildMlbTopPhase3BookSlip("FanDuel", 10, slipPool), "Highest Hit Rate 10-Leg")
       : null
 
   const dkHighestHitRate2 =
     slipPool.length >= 2
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 2, slipPool), "Highest Hit Rate 2-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 2, slipPool), "Highest Hit Rate 2-Leg")
       : null
   const dkHighestHitRate3 =
     slipPool.length >= 3
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 3, slipPool), "Highest Hit Rate 3-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 3, slipPool), "Highest Hit Rate 3-Leg")
       : null
   const dkHighestHitRate4 =
     slipPool.length >= 4
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 4, slipPool), "Highest Hit Rate 4-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 4, slipPool), "Highest Hit Rate 4-Leg")
       : null
   const dkHighestHitRate5 =
     slipPool.length >= 5
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 5, slipPool), "Highest Hit Rate 5-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 5, slipPool), "Highest Hit Rate 5-Leg")
       : null
   const dkHighestHitRate6 =
     slipPool.length >= 6
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 6, slipPool), "Highest Hit Rate 6-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 6, slipPool), "Highest Hit Rate 6-Leg")
       : null
   const dkHighestHitRate7 =
     slipPool.length >= 7
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 7, slipPool), "Highest Hit Rate 7-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 7, slipPool), "Highest Hit Rate 7-Leg")
       : null
   const dkHighestHitRate8 =
     slipPool.length >= 8
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 8, slipPool), "Highest Hit Rate 8-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 8, slipPool), "Highest Hit Rate 8-Leg")
       : null
   const dkHighestHitRate9 =
     slipPool.length >= 9
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 9, slipPool), "Highest Hit Rate 9-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 9, slipPool), "Highest Hit Rate 9-Leg")
       : null
   const dkHighestHitRate10 =
     slipPool.length >= 10
-      ? makeSlipObject("DraftKings", buildHighestHitRateBookSlip("DraftKings", 10, slipPool), "Highest Hit Rate 10-Leg")
+      ? makeSlipObject("DraftKings", buildMlbTopPhase3BookSlip("DraftKings", 10, slipPool), "Highest Hit Rate 10-Leg")
       : null
 
   const fdSlipObjects = [
@@ -3819,10 +4779,11 @@ function buildMlbLiveDualBestAvailablePayload() {
   return {
     availableCounts,
     best: safeBest,
-    safe: mixedBestAvailable.safe,
-    balanced: mixedBestAvailable.balanced,
-    aggressive: mixedBestAvailable.aggressive,
-    lotto: mixedBestAvailable.lotto,
+    safe,
+    balanced,
+    aggressive,
+    lotto,
+    parlays,
     flexProps: flex,
     highestHitRate2: { fanduel: fdHighestHitRate2, draftkings: dkHighestHitRate2 },
     highestHitRate3: { fanduel: fdHighestHitRate3, draftkings: dkHighestHitRate3 },
@@ -7905,6 +8866,10 @@ function __getNbaRefreshSnapshotHandler() {
   return __nbaCompiledRefreshHandler
 }
 
+// === Refresh guard (global): prevent repeated Odds API calls ===
+let __refreshInProgress = false
+let __lastRefreshTime = 0
+
 app.get("/api/best-available", async (req, res) => {
   const bestAvailableSportKey = normalizeBestAvailableSportKey(req.query?.sport)
 
@@ -7957,14 +8922,27 @@ app.get("/api/best-available", async (req, res) => {
     // Keep it simple: trigger the existing refresh endpoint in-process, then serve best-available.
     // This avoids duplicating the refresh pipeline here.
     try {
+      const now = Date.now()
+      if (__refreshInProgress) {
+        console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
+      } else if (now - __lastRefreshTime < 2 * 60 * 1000) {
+        console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
+      } else {
+        __refreshInProgress = true
+        __lastRefreshTime = now
+        console.log("[REFRESH GUARD]", { skipped: false, reason: null })
+
       const port = Number(process.env.PORT || 4000)
       const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
       await axios.get(`http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=${sportParam}`, { timeout: 120000 })
+      }
     } catch (e) {
       console.warn("[NBA SNAPSHOT POLICY] refresh failed", {
         message: e?.message || String(e),
         status: e?.response?.status || null,
       })
+    } finally {
+      __refreshInProgress = false
     }
   } else {
     console.log("[NBA SNAPSHOT POLICY]", {
@@ -16830,6 +17808,25 @@ app.get("/snapshot/status", async (req, res) => {
 })
 
 app.get("/refresh-snapshot", async (req, res) => {
+  // === HARD refresh guard (global) ===
+  // Must run at the very top of the active refresh route.
+  let __refreshInProgress = global.__refreshInProgress || false
+  let __lastRefreshTime = global.__lastRefreshTime || 0
+
+  if (__refreshInProgress) {
+    console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
+    return res.json({ skipped: true, reason: "in_progress" })
+  }
+
+  if (Date.now() - __lastRefreshTime < 120000) {
+    console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
+    return res.json({ skipped: true, reason: "cooldown" })
+  }
+
+  global.__refreshInProgress = true
+  try {
+    // Existing refresh logic below (do not change)
+    global.__lastRefreshTime = Date.now()
   console.log("[REFRESH TRIGGERED]")
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
   const sportKey = normalizeBestAvailableSportKey(req.query?.sport)
@@ -16856,6 +17853,10 @@ app.get("/refresh-snapshot", async (req, res) => {
     props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
     rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
   })
+  } finally {
+    global.__refreshInProgress = false
+    console.log("[REFRESH GUARD]", { skipped: false })
+  }
 })
 
 app.get("/refresh-snapshot/hard-reset", async (req, res) => {

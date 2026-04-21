@@ -1,5 +1,18 @@
 [
   {
+    "id": "7aa856cb-da8f-4696-aa99-8fd79006f901",
+    "date": "2026-04-21",
+    "player": "Amed Rosario",
+    "team": "New York Yankees",
+    "propType": "RBIs",
+    "odds": 550,
+    "stake": 10,
+    "edge": 0.276522,
+    "playType": "value",
+    "result": null,
+    "payout": null
+  },
+  {
     "id": "f5f66c74-573e-4e32-b8e6-2a003ef064ed",
     "date": "2026-04-20",
     "player": "Chandler Simpson",

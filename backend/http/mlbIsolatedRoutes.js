@@ -133,12 +133,10 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     console.log("[MLB TRACK ERROR]", e?.message || e)
   }
 
-  const parlays = buildMlbParlays(Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : [])
-  console.log("[MLB PARLAYS]", {
-    safe: Array.isArray(parlays?.safe) ? parlays.safe.length : 0,
-    mixed: Array.isArray(parlays?.mixed) ? parlays.mixed.length : 0,
-    lotto: Array.isArray(parlays?.lotto) ? parlays.lotto.length : 0,
-  })
+  const parlays =
+    bestAvailablePayload?.parlays && typeof bestAvailablePayload.parlays === "object"
+      ? bestAvailablePayload.parlays
+      : { core: [], fun: [], lotto: [] }
 
   const mlbSnap = getMlbSnapshot()
   const mlbBoardSourceRows =
