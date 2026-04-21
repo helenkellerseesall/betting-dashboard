@@ -50,7 +50,7 @@ const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
 const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
 const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
 const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
-const { recordMlbBestProps, evaluateMlbPerformance, readMlbTrackedBestSnapshot } = require("./pipeline/mlb/phase4Tracking")
+const { recordMlbBestProps, evaluateMlbPerformance, readMlbTrackedBestSnapshot, recordMlbDailyPicks, evaluateMlbPicks } = require("./pipeline/mlb/phase4Tracking")
 const {
   normalizeBestAvailableSportKey,
   isMlbBestAvailableSportKey
@@ -3807,6 +3807,11 @@ function buildMlbLiveDualBestAvailablePayload() {
     console.log("[MLB TRACKING]", tracking)
     const perf = evaluateMlbPerformance()
     console.log("[MLB PERFORMANCE]", perf)
+
+    const picks = recordMlbDailyPicks(safeBest)
+    console.log("[MLB PICKS]", picks)
+    const picksEval = evaluateMlbPicks()
+    console.log("[MLB PICKS EVAL]", picksEval)
   } catch (e) {
     console.log("[MLB TRACKING ERROR]", e?.message || e)
   }
@@ -7919,6 +7924,8 @@ app.get("/api/best-available", async (req, res) => {
       buildLiveDualBestAvailablePayload,
       buildMlbParlays,
       buildSnapshotMeta,
+      recordMlbBestProps,
+      evaluateMlbPerformance,
     })
   }
 

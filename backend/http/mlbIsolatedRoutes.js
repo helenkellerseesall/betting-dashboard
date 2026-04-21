@@ -48,6 +48,8 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     buildLiveDualBestAvailablePayload,
     buildMlbParlays,
     buildSnapshotMeta,
+    recordMlbBestProps,
+    evaluateMlbPerformance,
   } = deps
 
   console.log("[TOP-DOWN-BEST-AVAILABLE-ENTRY]", {
@@ -111,6 +113,24 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       slateStateValidator: null,
       lineHistorySummary: null,
     })
+  }
+
+  // Phase 4 tracking (MLB only): must execute before the response is returned.
+  let perf = null
+  try {
+    const bestRows = Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : []
+    const tracking = typeof recordMlbBestProps === "function" ? recordMlbBestProps(bestRows) : null
+    console.log("[MLB TRACK WRITE]", {
+      count: bestRows.length,
+      path: tracking?.path || null,
+      ok: tracking?.ok ?? null,
+      added: tracking?.added ?? null,
+      totalMlbBest: tracking?.totalMlbBest ?? null,
+    })
+    perf = typeof evaluateMlbPerformance === "function" ? evaluateMlbPerformance() : null
+    console.log("[MLB TRACK READ]", { file: perf?.file || null, count: perf?.totalBets ?? null })
+  } catch (e) {
+    console.log("[MLB TRACK ERROR]", e?.message || e)
   }
 
   const parlays = buildMlbParlays(Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : [])
@@ -188,7 +208,9 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     bestAvailable: {
       ...bestAvailablePayload,
       slateMode: "mlb",
+      tracking: perf,
     },
+    tracking: perf,
     parlays,
     ladderPool: [],
     routePlayableSeed: [],
