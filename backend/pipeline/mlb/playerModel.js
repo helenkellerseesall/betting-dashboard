@@ -101,12 +101,16 @@ function buildMlbPlayerModelContext(rows) {
  * @param {{
  *   impliedProbability: number|null,
  *   basePredictedProbability: number|null,
+ *   signalScore?: number|null,
+ *   tuneLog?: boolean,
  *   ctx: ReturnType<typeof buildMlbPlayerModelContext>
  * }} input
  */
 function modelMlbPredictedProbability(row, input) {
   const implied = safeNumber(input?.impliedProbability)
   const base = safeNumber(input?.basePredictedProbability)
+  const signalScore = safeNumber(input?.signalScore)
+  const tuneLog = Boolean(input?.tuneLog)
   const ctx = input?.ctx || {}
 
   const baseProb =
@@ -126,21 +130,90 @@ function modelMlbPredictedProbability(row, input) {
   const zLineupRaw = zScore(lineup, ctx?.lineup?.mean, ctx?.lineup?.std)
   const zLineup = Number.isFinite(zLineupRaw) ? -zLineupRaw : null
 
-  // Convert into bounded deltas (small, conservative).
-  let delta = 0
-  if (Number.isFinite(zPerf)) delta += 0.06 * tanh(zPerf / 2)
-  if (Number.isFinite(zTeam)) delta += 0.04 * tanh(zTeam / 2)
-  if (Number.isFinite(zLineup)) delta += 0.03 * tanh(zLineup / 2)
+  const zSignals = [zPerf, zTeam, zLineup].filter((z) => Number.isFinite(z))
+  const dataConfidence =
+    zSignals.length >= 3 ? 1 : zSignals.length === 2 ? 2 / 3 : zSignals.length === 1 ? 1 / 3 : 0
 
-  // If nothing is available, keep base stable.
-  if (delta === 0) return clamp(baseProb, 0.01, 0.85)
+  // Softer coefficients + global scale (reduces multiplier / tail spikes).
+  let delta = 0
+  if (Number.isFinite(zPerf)) delta += 0.04 * tanh(zPerf / 2)
+  if (Number.isFinite(zTeam)) delta += 0.025 * tanh(zTeam / 2)
+  if (Number.isFinite(zLineup)) delta += 0.018 * tanh(zLineup / 2)
+  delta *= 0.6
+  delta *= 0.4 + 0.6 * dataConfidence
+
+  const hasImplied = Number.isFinite(implied)
+
+  // If nothing is available, keep base stable (still respect implied band when logging).
+  if (delta === 0) {
+    const flat = clamp(baseProb, 0.01, 0.85)
+    const maxDeltaDown = 0.18
+    const maxDeltaUpStrong = 0.18
+    const maxDeltaUpWeak = 0.09
+    const maxDeltaUp =
+      Number.isFinite(signalScore) && signalScore >= 0.7 ? maxDeltaUpStrong : maxDeltaUpWeak
+    let out = flat
+    if (hasImplied) {
+      const lo = implied - maxDeltaDown
+      const hi = implied + maxDeltaUp
+      out = clamp(flat, lo, hi)
+    }
+    out = clamp(Number(out.toFixed(6)), 0.01, 0.85)
+    if (tuneLog) {
+      const dBefore = hasImplied ? Number((flat - implied).toFixed(6)) : null
+      const dAfter = hasImplied ? Number((out - implied).toFixed(6)) : null
+      console.log("[MLB MODEL TUNE]", {
+        implied: hasImplied ? Number(implied.toFixed(6)) : null,
+        predictedBeforeClamp: flat,
+        predictedAfterClamp: out,
+        deltaBeforeClamp: dBefore,
+        deltaAfterClamp: dAfter,
+        signalScore: Number.isFinite(signalScore) ? Number(signalScore.toFixed(4)) : null,
+        dataConfidence: Number(dataConfidence.toFixed(3))
+      })
+    }
+    return out
+  }
 
   const raw = clamp(baseProb + delta, 0.01, 0.85)
 
   // Blend back toward implied to avoid extreme deviations without strong evidence.
-  const hasImplied = Number.isFinite(implied)
-  const blended = hasImplied ? (raw * 0.65 + implied * 0.35) : raw
-  return clamp(Number(blended.toFixed(6)), 0.01, 0.85)
+  const blended = hasImplied ? (raw * 0.55 + implied * 0.45) : raw
+  const predictedBeforeImpliedClamp = clamp(Number(blended.toFixed(6)), 0.01, 0.85)
+
+  // Hard cap vs implied: asymmetric positive cap unless signal confirms a large boost.
+  const maxDeltaDown = 0.18
+  const maxDeltaUpStrong = 0.18
+  const maxDeltaUpWeak = 0.09
+  const maxDeltaUp =
+    Number.isFinite(signalScore) && signalScore >= 0.7 ? maxDeltaUpStrong : maxDeltaUpWeak
+
+  let predictedAfterImpliedClamp = predictedBeforeImpliedClamp
+  if (hasImplied) {
+    const lo = implied - maxDeltaDown
+    const hi = implied + maxDeltaUp
+    predictedAfterImpliedClamp = clamp(predictedBeforeImpliedClamp, lo, hi)
+  }
+
+  const out = clamp(Number(predictedAfterImpliedClamp.toFixed(6)), 0.01, 0.85)
+
+  if (tuneLog) {
+    const deltaBeforeClamp = hasImplied
+      ? Number((predictedBeforeImpliedClamp - implied).toFixed(6))
+      : null
+    const deltaAfterClamp = hasImplied ? Number((out - implied).toFixed(6)) : null
+    console.log("[MLB MODEL TUNE]", {
+      implied: hasImplied ? Number(implied.toFixed(6)) : null,
+      predictedBeforeClamp: predictedBeforeImpliedClamp,
+      predictedAfterClamp: out,
+      deltaBeforeClamp,
+      deltaAfterClamp,
+      signalScore: Number.isFinite(signalScore) ? Number(signalScore.toFixed(4)) : null,
+      dataConfidence: Number(dataConfidence.toFixed(3))
+    })
+  }
+
+  return out
 }
 
 module.exports = {

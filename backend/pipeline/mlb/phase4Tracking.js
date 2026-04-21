@@ -3,8 +3,23 @@
 const fs = require("fs")
 const path = require("path")
 
+const MLB_TRACKED_BEST_PREFIX = "mlb_tracked_best_"
+const LEGACY_TRACKED_PREFIX = "tracked_props_"
+
 function dateKeyFromNow(now = Date.now()) {
   return new Date(now).toISOString().slice(0, 10)
+}
+
+function runtimeTrackingDir() {
+  return path.join(__dirname, "..", "..", "runtime", "tracking")
+}
+
+function mlbTrackedBestPath(slateDate) {
+  return path.join(runtimeTrackingDir(), `${MLB_TRACKED_BEST_PREFIX}${slateDate}.json`)
+}
+
+function legacyTrackedPropsPath(slateDate) {
+  return path.join(runtimeTrackingDir(), `${LEGACY_TRACKED_PREFIX}${slateDate}.json`)
 }
 
 function ensureDirSync(dirPath) {
@@ -31,6 +46,60 @@ function safeWriteJson(filePath, payload) {
     return true
   } catch (_) {
     return false
+  }
+}
+
+function isMlbBestAvailableEntry(e) {
+  return e?.sport === "mlb" && e?.bucket === "mlb.bestAvailable.best"
+}
+
+/**
+ * Normalize persisted MLB tracking JSON to `{ metadata, entries }`.
+ * Accepts legacy shapes that used `allTrackedProps` inside the MLB-only file.
+ */
+function normalizeMlbTrackedPayload(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { metadata: {}, entries: [] }
+  }
+  let entries = []
+  if (Array.isArray(raw.entries)) {
+    entries = raw.entries.filter(isMlbBestAvailableEntry)
+  } else if (Array.isArray(raw.allTrackedProps)) {
+    entries = raw.allTrackedProps.filter(isMlbBestAvailableEntry)
+  }
+  return { metadata: raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {}, entries }
+}
+
+function loadLegacyMlbBestEntries(slateDate) {
+  const legacyPath = legacyTrackedPropsPath(slateDate)
+  const legacy = safeReadJson(legacyPath)
+  const rows = Array.isArray(legacy?.allTrackedProps) ? legacy.allTrackedProps : []
+  return rows.filter(isMlbBestAvailableEntry)
+}
+
+/**
+ * Read MLB best-available tracking for a slate date (dedicated file only).
+ * @param {string} slateDate YYYY-MM-DD
+ * @returns {{ ok: boolean, path: string, payload: { metadata: object, entries: object[] } }}
+ */
+function readMlbTrackedBestSnapshot(slateDate) {
+  const date =
+    typeof slateDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(slateDate)
+      ? slateDate
+      : dateKeyFromNow()
+  const filePath = mlbTrackedBestPath(date)
+  const raw = safeReadJson(filePath)
+  const { metadata, entries } = normalizeMlbTrackedPayload(raw)
+  const meta = {
+    sport: "mlb",
+    slateDate: date,
+    ...metadata,
+    slateDate: metadata.slateDate || date
+  }
+  return {
+    ok: Boolean(raw),
+    path: filePath,
+    payload: { metadata: meta, entries }
   }
 }
 
@@ -74,8 +143,8 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
 
 /**
  * Record MLB best props for Phase 4 tracking.
- * Appends/merges into backend/runtime/tracking/tracked_props_<date>.json without
- * overwriting existing NBA tracking entries.
+ * Writes only to `backend/runtime/tracking/mlb_tracked_best_<date>.json` (MLB-only, queryable).
+ * On first create, seeds from legacy `tracked_props_<date>.json` MLB rows if present (one-time carryover).
  *
  * @param {object[]} bestProps
  * @param {{ now?: number }} options
@@ -86,35 +155,32 @@ function recordMlbBestProps(bestProps, options = {}) {
   const slateDate = dateKeyFromNow(now)
   const timestamp = new Date(now).toISOString()
 
-  const runtimeDir = path.join(__dirname, "..", "..", "runtime", "tracking")
+  const runtimeDir = runtimeTrackingDir()
   ensureDirSync(runtimeDir)
-  const filePath = path.join(runtimeDir, `tracked_props_${slateDate}.json`)
+  const filePath = mlbTrackedBestPath(slateDate)
 
-  const existing = safeReadJson(filePath)
-  const payload = existing && typeof existing === "object"
-    ? existing
-    : {
-        metadata: {
-          slateDate,
-          generatedAt: timestamp,
-          version: "tracking-phase-4-mlb"
-        },
-        allTrackedProps: []
-      }
+  const existingRaw = safeReadJson(filePath)
+  let { metadata, entries } = normalizeMlbTrackedPayload(existingRaw)
 
-  if (!payload.metadata || typeof payload.metadata !== "object") {
-    payload.metadata = { slateDate, generatedAt: timestamp, version: "tracking-phase-4-mlb" }
+  if (!existingRaw && entries.length === 0) {
+    entries = loadLegacyMlbBestEntries(slateDate)
   }
-  payload.metadata.slateDate = payload.metadata.slateDate || slateDate
-  payload.metadata.generatedAt = timestamp
-  payload.metadata.version = payload.metadata.version || "tracking-phase-4-mlb"
 
-  if (!Array.isArray(payload.allTrackedProps)) payload.allTrackedProps = []
+  const payload = {
+    metadata: {
+      ...(metadata && typeof metadata === "object" ? metadata : {}),
+      sport: "mlb",
+      slateDate,
+      generatedAt: timestamp,
+      version: "tracking-phase-4-mlb",
+      bucket: "mlb.bestAvailable.best",
+      storage: "mlb_tracked_best",
+    },
+    entries: [...entries],
+  }
 
   const incoming = Array.isArray(bestProps) ? bestProps : []
-  const existingMlbBest = payload.allTrackedProps.filter((e) => e?.sport === "mlb" && e?.bucket === "mlb.bestAvailable.best")
-
-  const seen = new Set(existingMlbBest.map((e) => legKey(e)))
+  const seen = new Set(entries.map((e) => legKey(e)))
   let added = 0
 
   for (const row of incoming) {
@@ -122,23 +188,24 @@ function recordMlbBestProps(bestProps, options = {}) {
     if (!key || key === "|||||") continue
     if (seen.has(key)) continue
     seen.add(key)
-    payload.allTrackedProps.push(toTrackedMlbBestEntry(row, { slateDate, timestamp }))
+    payload.entries.push(toTrackedMlbBestEntry(row, { slateDate, timestamp }))
     added += 1
   }
 
   const ok = safeWriteJson(filePath, payload)
-  const totalMlbBestAfter = payload.allTrackedProps.filter((e) => e?.sport === "mlb" && e?.bucket === "mlb.bestAvailable.best").length
+  const totalMlbBestAfter = payload.entries.length
   return { ok, path: filePath, added, totalMlbBest: totalMlbBestAfter }
 }
 
 /**
  * Evaluate MLB tracked performance (Phase 4).
- * Reads backend/runtime/tracking/tracked_props_<date>.json.
+ * Reads `mlb_tracked_best_<date>.json`; falls back to legacy rows inside `tracked_props_<date>.json` if empty.
  *
  * @param {{ date?: string, now?: number }} options
  * @returns {{
  *   ok: boolean,
  *   date: string,
+ *   source: string,
  *   totalBets: number,
  *   wins: number,
  *   losses: number,
@@ -153,11 +220,14 @@ function evaluateMlbPerformance(options = {}) {
     ? options.date
     : dateKeyFromNow(now)
 
-  const runtimeDir = path.join(__dirname, "..", "..", "runtime", "tracking")
-  const filePath = path.join(runtimeDir, `tracked_props_${date}.json`)
-  const payload = safeReadJson(filePath)
-  const rows = Array.isArray(payload?.allTrackedProps) ? payload.allTrackedProps : []
-  const mlb = rows.filter((e) => e?.sport === "mlb" && e?.bucket === "mlb.bestAvailable.best")
+  const snap = readMlbTrackedBestSnapshot(date)
+  let mlb = Array.isArray(snap.payload?.entries) ? snap.payload.entries : []
+  let source = snap.ok && mlb.length ? "mlb_tracked_best" : "none"
+
+  if (!mlb.length) {
+    mlb = loadLegacyMlbBestEntries(date)
+    source = mlb.length ? "tracked_props_legacy" : "none"
+  }
 
   const totalBets = mlb.length
   const wins = mlb.filter((e) => e?.result === "win").length
@@ -174,17 +244,18 @@ function evaluateMlbPerformance(options = {}) {
   return {
     ok: true,
     date,
+    source,
     totalBets,
     wins,
     losses,
     hitRate,
     avgOdds,
-    avgEdge
+    avgEdge,
   }
 }
 
 module.exports = {
+  readMlbTrackedBestSnapshot,
   recordMlbBestProps,
-  evaluateMlbPerformance
+  evaluateMlbPerformance,
 }
-
