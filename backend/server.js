@@ -7834,6 +7834,53 @@ app.get("/api/best-available", async (req, res) => {
     })
   }
 
+  // NBA snapshot policy (simple): never use obviously bad/stale data.
+  // - rawProps === 0 -> refresh
+  // - events === 0 -> refresh
+  // - snapshot age > ~8 minutes -> refresh
+  const snapshotEventsCount = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0
+  const snapshotRawPropsCount = Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0
+  const snapshotUpdatedAtMs = oddsSnapshot?.updatedAt ? new Date(oddsSnapshot.updatedAt).getTime() : null
+  const snapshotAgeMinutes = Number.isFinite(snapshotUpdatedAtMs)
+    ? (Date.now() - snapshotUpdatedAtMs) / 60000
+    : Infinity
+
+  const refreshReasons = []
+  if (snapshotEventsCount === 0) refreshReasons.push("events_zero")
+  if (snapshotRawPropsCount === 0) refreshReasons.push("rawProps_zero")
+  if (snapshotAgeMinutes > 8) refreshReasons.push("stale_over_8m")
+
+  if (refreshReasons.length) {
+    console.log("[NBA SNAPSHOT POLICY]", {
+      action: "refresh",
+      reasons: refreshReasons,
+      ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
+      events: snapshotEventsCount,
+      rawProps: snapshotRawPropsCount,
+    })
+
+    // Keep it simple: trigger the existing refresh endpoint in-process, then serve best-available.
+    // This avoids duplicating the refresh pipeline here.
+    try {
+      const port = Number(process.env.PORT || 4000)
+      const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
+      await axios.get(`http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=${sportParam}`, { timeout: 120000 })
+    } catch (e) {
+      console.warn("[NBA SNAPSHOT POLICY] refresh failed", {
+        message: e?.message || String(e),
+        status: e?.response?.status || null,
+      })
+    }
+  } else {
+    console.log("[NBA SNAPSHOT POLICY]", {
+      action: "use_snapshot",
+      reasons: [],
+      ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
+      events: snapshotEventsCount,
+      rawProps: snapshotRawPropsCount,
+    })
+  }
+
   return __getNbaBestAvailableHandler()(req, res, buildNbaBestAvailableRouteDeps(bestAvailableSportKey), oddsSnapshot)
 
 })
