@@ -4060,6 +4060,11 @@ function buildMlbLiveDualBestAvailablePayload() {
 
   // === MLB auto parlay generation (board-only; no ingest/scoring/learning changes) ===
   const buildMlbAutoParlays = ({ safe: bSafe, balanced: bBalanced, aggressive: bAggressive, lotto: bLotto }) => {
+    console.log("[PROBABILITY TIERS ACTIVE]")
+    console.log("[SOFT LINE BIAS TUNED]")
+    console.log("[FOUNDATION BOOST ACTIVE]")
+    console.log("[FOUNDATION FINAL TUNE]")
+
     const toLeg = (r) => ({
       player: r?.player ?? null,
       team: r?.team ?? null,
@@ -4133,6 +4138,104 @@ function buildMlbLiveDualBestAvailablePayload() {
       return Number.isFinite(p) ? p : 0
     }
 
+    const mlbRowLine = (row) => {
+      const line = Number(row?.line)
+      return Number.isFinite(line) ? line : NaN
+    }
+
+    const isMlbStrongLineupSpot = (row) => {
+      const bo = Number(row?.battingOrderIndex ?? row?.lineupSpot ?? row?.battingOrder ?? NaN)
+      if (Number.isFinite(bo) && bo >= 1 && bo <= 5) return true
+      const sig = Number(row?.signalScore)
+      if (Number.isFinite(sig) && sig >= 0.56) return true
+      const pred = Number(row?.predictedProbability)
+      if (Number.isFinite(pred) && pred >= 0.56) return true
+      return false
+    }
+
+    /**
+     * True probability tiers (hitter overs):
+     * foundation — 1+ hit (line 0.5), TB 1.5, RBI 0.5 in a strong lineup spot
+     * support — Hits 1.5, RBI 1.5, TB 2.5
+     * upside — HR, high lines, extreme plus money
+     */
+    const getMlbProbabilityTier = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      const over = side !== "under"
+      const o = Number(row?.odds)
+
+      if (pt === "Home Runs") return "upside"
+      if (Number.isFinite(o) && o >= 450) return "upside"
+
+      if (!over) {
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 3) return "upside"
+        return "support"
+      }
+
+      if (pt === "Hits") {
+        if (!Number.isFinite(line)) return "support"
+        if (line < 1.0) return "foundation"
+        if (line < 2.25) return "support"
+        return "upside"
+      }
+
+      if (pt === "Total Bases") {
+        if (!Number.isFinite(line)) return "support"
+        if (line <= 1.5) return "foundation"
+        if (line < 3.5) return "support"
+        return "upside"
+      }
+
+      if (pt === "RBIs") {
+        if (!Number.isFinite(line)) return "support"
+        if (line <= 0.5) return isMlbStrongLineupSpot(row) ? "foundation" : "support"
+        if (line < 2.25) return "support"
+        return "upside"
+      }
+
+      const p = likelihoodScore(row)
+      if (Number.isFinite(p) && p >= 0.72 && Number.isFinite(o) && o < 280) return "foundation"
+      return "support"
+    }
+
+    const isMlbMediumHitsSupportRow = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      return pt === "Hits" && Number.isFinite(line) && line >= 1.0 && line < 2.25
+    }
+
+    const isMlbMidLineRbiRow = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      if (side === "under") return false
+      return pt === "RBIs" && Number.isFinite(line) && line >= 1.0 && line < 2.25
+    }
+
+    const isMlbMidLineTbRow = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      if (side === "under") return false
+      return pt === "Total Bases" && Number.isFinite(line) && line >= 2.25 && line < 3.5
+    }
+
+    const isMlbMidLineCountingRow = (row) =>
+      isMlbMediumHitsSupportRow(row) || isMlbMidLineRbiRow(row) || isMlbMidLineTbRow(row)
+
+    const sortSupportRowsForStacking = (supports, chosenRows) => {
+      const chosen = Array.isArray(chosenRows) ? chosenRows : []
+      if (!chosen.some(isMlbMidLineCountingRow)) return supports
+      return [...supports].sort((a, b) => {
+        const aMid = isMlbMidLineCountingRow(a)
+        const bMid = isMlbMidLineCountingRow(b)
+        if (aMid === bMid) return 0
+        return aMid ? 1 : -1
+      })
+    }
+
     const propVolatilityPenalty = (row) => {
       const pt = String(row?.propType || "").trim()
       if (pt === "Home Runs") return 0.05
@@ -4150,14 +4253,95 @@ function buildMlbLiveDualBestAvailablePayload() {
     }
 
     const lowLineBonus = (row) => {
-      const line = Number(row?.line)
+      const line = mlbRowLine(row)
       if (!Number.isFinite(line)) return 0
       const pt = String(row?.propType || "").trim()
-      // Gentle preference for lower lines (never blocks).
-      if (pt === "Hits") return line <= 1 ? 0.02 : (line <= 2 ? 0.01 : 0)
-      if (pt === "Total Bases") return line <= 1.5 ? 0.02 : (line <= 2.5 ? 0.01 : 0)
-      if (pt === "RBIs") return line <= 0.5 ? 0.015 : 0
+      // Gentle preference aligned with probability tiers (never blocks).
+      if (pt === "Hits") {
+        if (line < 1.0) return 0.064
+        if (line < 2.25) return 0.002
+        return 0
+      }
+      if (pt === "Total Bases") {
+        if (line <= 1.5) return 0.06
+        if (line <= 2.5) return 0.004
+        if (line < 3.5) return 0.001
+        return 0
+      }
+      if (pt === "RBIs") {
+        if (line <= 0.5) return isMlbStrongLineupSpot(row) ? 0.026 : 0.01
+        if (line < 2.25) return 0.001
+        return 0
+      }
       if (pt === "Home Runs") return line <= 0.5 ? 0.005 : 0
+      return 0
+    }
+
+    /**
+     * Final-selection-only soft line difficulty (never blocks).
+     * Penalties shrink when model signal / likelihood is strong so high lines can still rank up.
+     */
+    const lineSignalBlendForSoftBias = (row) => {
+      let m = likelihoodScore(row)
+      const pred = Number(row?.predictedProbability)
+      const sig = Number(row?.signalScore)
+      const edge = Number(row?.edgeProbability ?? row?.edge)
+      if (Number.isFinite(pred) && pred > 0 && pred < 1) m = Math.max(m, pred)
+      if (Number.isFinite(sig) && sig >= 0 && sig <= 1) m = Math.max(m, sig)
+      if (Number.isFinite(edge) && edge > 0 && edge < 1) m = Math.max(m, edge * 0.85)
+      return Math.min(1, Math.max(0, m))
+    }
+
+    const softLineDifficultyBias = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      if (side === "under") return 0
+
+      let adj = 0
+      if (pt === "Hits" && Number.isFinite(line)) {
+        if (line < 1.0) adj += 0.025
+        if (line >= 1.5) adj -= Math.min(0.024, 0.009 + (line - 1.5) * 0.023)
+      } else if (pt === "Total Bases" && Number.isFinite(line)) {
+        if (line <= 1.5) adj += 0.023
+        if (line >= 2.5 && line < 3.5) adj -= 0.006
+        if (line >= 3.5) adj -= Math.min(0.02, 0.009 + (line - 3.5) * 0.006)
+      } else if (pt === "RBIs" && Number.isFinite(line)) {
+        if (line <= 0.5) adj += 0.009
+        if (line >= 1.5) adj -= Math.min(0.022, 0.008 + (line - 1.5) * 0.018)
+      } else if (pt === "Home Runs" && Number.isFinite(line) && line > 0.5) {
+        adj -= Math.min(0.012, (line - 0.5) * 0.012)
+      }
+
+      if (adj < 0) {
+        const blend = lineSignalBlendForSoftBias(row)
+        adj *= 1 - 0.68 * blend
+      }
+      return adj
+    }
+
+    /** Higher = easier line; used only when softMetric scores are within a tight band (no blocks). */
+    const mlbLineTieNudge = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      if (side === "under" || !Number.isFinite(line)) return 0
+      if (pt === "Hits") {
+        if (line < 1.0) return 0.132 - line * 0.048
+        if (line >= 1.5) return -0.062 - (line - 1.5) * 0.052
+        return -0.024 - (line - 1.0) * 0.065
+      }
+      if (pt === "Total Bases") {
+        if (line <= 1.5) return 0.112 - line * 0.024
+        if (line < 3.5) return -0.02 - (line - 1.5) * 0.028
+        return -0.09 - (line - 3.5) * 0.025
+      }
+      if (pt === "RBIs") {
+        if (line <= 0.5) return 0.09 - line * 0.06
+        if (line >= 1.5) return -0.06 - (line - 1.5) * 0.045
+        return -0.015 - (line - 0.5) * 0.05
+      }
+      if (pt === "Home Runs") return line <= 0.5 ? 0.04 : -0.04 - (line - 0.5) * 0.06
       return 0
     }
 
@@ -4180,11 +4364,35 @@ function buildMlbLiveDualBestAvailablePayload() {
       return 0
     }
 
+    const foundationConsistencyBonus = (row) => {
+      if (getMlbProbabilityTier(row) !== "foundation") return 0
+      let b = 0
+      const hr = Number(row?.hitRate)
+      if (Number.isFinite(hr) && hr >= 0.56) b += 0.0045
+      const sig = Number(row?.signalScore)
+      if (Number.isFinite(sig) && sig >= 0.52) b += 0.004
+      const pred = Number(row?.predictedProbability)
+      if (Number.isFinite(pred) && pred >= 0.58) b += 0.0035
+      const recent = row?.recentHitRate ?? row?.l5HitRate ?? row?.last5HitRate
+      const r = Number(recent)
+      if (Number.isFinite(r) && r >= 0.52) b += 0.003
+      return Math.min(0.02, b)
+    }
+
     const softMetric = (row) => {
+      const tier = getMlbProbabilityTier(row)
+      const tierBoost =
+        tier === "foundation" ? 0.037 :
+        tier === "support" ? -0.0065 :
+        tier === "upside" ? -0.006 :
+        0
       return (
         likelihoodScore(row) +
         (propPriority(row) * 0.01) +
-        lowLineBonus(row) -
+        lowLineBonus(row) +
+        tierBoost +
+        foundationConsistencyBonus(row) +
+        softLineDifficultyBias(row) -
         realismPenalty(row) -
         propVolatilityPenalty(row) -
         oddsVolatilityPenalty(row)
@@ -4198,7 +4406,12 @@ function buildMlbLiveDualBestAvailablePayload() {
           // Priority: likelihood > value > payout (soft)
           const la = softMetric(a)
           const lb = softMetric(b)
-          if (lb !== la) return lb - la
+          const diff = lb - la
+          const closeBand = 0.03
+          if (Math.abs(diff) >= closeBand) return diff
+          const nudge = mlbLineTieNudge(b) - mlbLineTieNudge(a)
+          if (Math.abs(nudge) > 1e-12) return nudge
+          if (diff !== 0) return diff
           const ea = Number(a?.edgeProbability ?? a?.edge ?? 0)
           const eb = Number(b?.edgeProbability ?? b?.edge ?? 0)
           if (eb !== ea) return eb - ea
@@ -4248,6 +4461,15 @@ function buildMlbLiveDualBestAvailablePayload() {
       const usedPropTypes = new Set()
       const usedTeams = new Set()
       const out = []
+
+      const legIsMidLineRisk = (leg) => {
+        const rowLike = {
+          propType: leg?.propType,
+          line: leg?.line,
+          side: "over",
+        }
+        return isMlbMidLineCountingRow(rowLike)
+      }
 
       const canAdd = (r) => {
         if (!r) return false
@@ -4327,6 +4549,27 @@ function buildMlbLiveDualBestAvailablePayload() {
           }
         }
 
+        // Soft mid-line spread: if a ticket already has a mid-risk line, prefer a foundation / non-mid leg when close in score (no blocks).
+        if (diversityBias && !sameStatOnly && out.length > 0 && out.some(legIsMidLineRisk) && isMlbMidLineCountingRow(chosenRow)) {
+          const blendChosen = lineSignalBlendForSoftBias(chosenRow)
+          const tol = 0.056 + 0.068 * blendChosen
+          for (let j = 0; j < Math.min(52, remaining.length); j++) {
+            const cand = remaining[j]
+            if (!canAdd(cand)) continue
+            if (isMlbMidLineCountingRow(cand)) continue
+            const m = softMetric(cand)
+            const tier = getMlbProbabilityTier(cand)
+            if (tier === "foundation" && m >= bestMetric - tol - 0.006) {
+              chosenRow = cand
+              break
+            }
+            if (tier !== "foundation" && m >= bestMetric - tol) {
+              chosenRow = cand
+              break
+            }
+          }
+        }
+
         // Actually add the chosen row (may still fail; if it does, discard it and continue).
         if (!canAdd(chosenRow) || !tryAdd(chosenRow)) {
           remaining.splice(bestIdx, 1)
@@ -4369,23 +4612,9 @@ function buildMlbLiveDualBestAvailablePayload() {
       const outRows = []
 
       const roleOf = (row) => {
-        const pt = String(row?.propType || "").trim()
-        const o = Number(row?.odds)
-        const p = likelihoodScore(row)
-        const line = Number(row?.line)
-
-        // UPSIDE: volatile payout drivers
-        if (pt === "Home Runs") return "UPSIDE"
-        if (Number.isFinite(o) && o >= 450) return "UPSIDE"
-        if (pt === "Total Bases" && Number.isFinite(line) && line >= 3.5) return "UPSIDE"
-        if (pt === "Hits" && Number.isFinite(line) && line >= 2.5) return "UPSIDE"
-
-        // FOUNDATION: highest probability / consistency leaning
-        if (Number.isFinite(p) && p >= 0.60) return "FOUNDATION"
-        if (pt === "Hits" && Number.isFinite(line) && line <= 1.5) return "FOUNDATION"
-        if (pt === "Total Bases" && Number.isFinite(line) && line <= 1.5) return "FOUNDATION"
-
-        // SUPPORT: solid, but not elite
+        const tier = getMlbProbabilityTier(row)
+        if (tier === "foundation") return "FOUNDATION"
+        if (tier === "upside") return "UPSIDE"
         return "SUPPORT"
       }
 
@@ -4399,15 +4628,8 @@ function buildMlbLiveDualBestAvailablePayload() {
         if (!row || !canUse(row)) return false
         const pt = String(row?.propType || "").trim() || "unknown"
         const count = propCounts.get(pt) || 0
-        const role = roleOf(row)
 
-        // Stack control: avoid defaulting into repeated SUPPORT legs (esp. same propType).
-        // Still allow if the leg is very strong (near top).
-        if (role === "SUPPORT" && count >= 2) {
-          const m = softMetric(row)
-          const top = pool.length ? softMetric(pool[0]) : m
-          if (m < top - 0.05) return false
-        }
+        // Stack control is soft-only: probability tiers + support row ordering (no hard blocks).
 
         outRows.push(row)
         usedPlayers.add(String(row?.player || "").trim().toLowerCase())
@@ -4427,6 +4649,8 @@ function buildMlbLiveDualBestAvailablePayload() {
       if (foundations.length < 1 || supports.length < 1) {
         ;({ foundations, supports, upsides } = bucketsFrom(rowsRanked))
       }
+
+      supports = sortSupportRowsForStacking(supports, outRows)
 
       // CORE role targets:
       // - 1–2 FOUNDATION
@@ -4450,6 +4674,7 @@ function buildMlbLiveDualBestAvailablePayload() {
 
       // 2) Optional support (prefer different prop type than existing when close).
       if (wantSupport && outRows.length < target) {
+        supports = sortSupportRowsForStacking(supports, outRows)
         const usedTypes = new Set(outRows.map((r) => String(r?.propType || "").trim()))
         for (const r of supports) {
           const pt = String(r?.propType || "").trim()
@@ -4478,6 +4703,7 @@ function buildMlbLiveDualBestAvailablePayload() {
       }
 
       // 4) Fill remaining (rare; still stacking-aware), preferring FOUNDATION > SUPPORT > UPSIDE.
+      supports = sortSupportRowsForStacking(supports, outRows)
       for (const r of [...foundations, ...supports, ...upsides]) {
         if (outRows.length >= target) break
         add(r)
@@ -4525,8 +4751,92 @@ function buildMlbLiveDualBestAvailablePayload() {
           propCounts.set(pt, count + 1)
         }
       }
-      return out.length ? out : corePoolRaw.slice(0, 18)
+      return out.length ? rankByScore(out) : corePoolRaw.slice(0, 18)
     })()
+
+    const rowIsTrueLowHitsOrTb15 = (row) => {
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      if (side === "under") return false
+      if (pt === "Hits" && Number.isFinite(line) && line < 1.0) return true
+      if (pt === "Total Bases" && Number.isFinite(line) && line <= 1.5) return true
+      return false
+    }
+
+    const legIsTrueLowHitsOrTb15 = (leg) =>
+      rowIsTrueLowHitsOrTb15({ propType: leg?.propType, line: leg?.line, side: "over" })
+
+    const legIsMidLineCoreRisk = (leg) =>
+      isMlbMidLineCountingRow({ propType: leg?.propType, line: leg?.line, side: "over" })
+
+    const findCorePoolRowForLeg = (leg) => {
+      const pk = String(leg?.player || "").trim().toLowerCase()
+      const pt = String(leg?.propType || "").trim()
+      const line = Number(leg?.line)
+      return corePoolRaw.find((r) =>
+        String(r?.player || "").trim().toLowerCase() === pk &&
+        String(r?.propType || "").trim() === pt &&
+        Number.isFinite(Number(r?.line)) &&
+        Number.isFinite(line) &&
+        Math.abs(Number(r?.line) - line) < 1e-6
+      ) || null
+    }
+
+    /** Soft core-only: swap one mid-line leg for Hits 0.5 / TB 1.5 when similar softMetric (no blocks). */
+    const softSwapOneMidLegForLowLineCore = (ticket) => {
+      if (!ticket || !Array.isArray(ticket.legs) || ticket.legs.length < 2) return ticket
+      const legs = ticket.legs.map((l) => ({ ...l }))
+      const midIdxs = legs.map((l, i) => (legIsMidLineCoreRisk(l) ? i : -1)).filter((i) => i >= 0)
+      if (!midIdxs.length) return ticket
+      if (legs.some(legIsTrueLowHitsOrTb15)) return ticket
+
+      const scoreTol = 0.068
+      let victimIdx = -1
+      let worst = Infinity
+      for (const i of midIdxs) {
+        const row = findCorePoolRowForLeg(legs[i])
+        const m = row ? softMetric(row) : likelihoodScore({ odds: legs[i]?.odds })
+        if (m < worst) {
+          worst = m
+          victimIdx = i
+        }
+      }
+      if (victimIdx < 0) return ticket
+
+      const victimRow = findCorePoolRowForLeg(legs[victimIdx])
+      const victimMetric = victimRow ? softMetric(victimRow) : worst
+      const pk = String(legs[victimIdx]?.player || "").trim().toLowerCase()
+
+      const pickBest = (cands) =>
+        (Array.isArray(cands) ? cands : [])
+          .filter(Boolean)
+          .sort((a, b) => softMetric(b) - softMetric(a))[0] || null
+
+      let repl = pickBest(
+        corePoolRaw.filter(
+          (r) =>
+            String(r?.player || "").trim().toLowerCase() === pk &&
+            rowIsTrueLowHitsOrTb15(r) &&
+            softMetric(r) >= victimMetric - scoreTol,
+        ),
+      )
+
+      if (!repl && midIdxs.length >= 2) {
+        const used = new Set(legs.map((l) => String(l?.player || "").trim().toLowerCase()).filter(Boolean))
+        repl = pickBest(
+          corePoolRaw.filter((r) => {
+            const rpk = String(r?.player || "").trim().toLowerCase()
+            if (!rpk || used.has(rpk)) return false
+            return rowIsTrueLowHitsOrTb15(r) && softMetric(r) >= victimMetric - scoreTol - 0.014
+          }),
+        )
+      }
+
+      if (!repl) return ticket
+      legs[victimIdx] = toLeg(repl)
+      return { legs, estimatedOdds: estimateParlayOdds(legs) }
+    }
 
     console.log("[MLB FOUNDATION POOL]", {
       count: safeCandidates.length
@@ -4590,6 +4900,11 @@ function buildMlbLiveDualBestAvailablePayload() {
       const wideCorePool = rankByScore([...(safeRows || []), ...(balancedRows || []), ...(aggressiveRows || [])])
       pushCore(pickTicket(wideCorePool, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true }))
       pushCore(pickTicket(wideCorePool, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true }))
+    }
+
+    for (let ci = 0; ci < core.length; ci += 1) {
+      const upgraded = softSwapOneMidLegForLowLineCore(core[ci])
+      if (upgraded) core[ci] = upgraded
     }
 
     const fun = []

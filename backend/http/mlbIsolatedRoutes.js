@@ -29,6 +29,47 @@ function dedupeMlbBoardRows(rows) {
 }
 
 /**
+ * Top-level snapshotMeta fields (events, rowCount, ageMinutes) for MLB must come from
+ * the MLB snapshot only — not from NBA oddsSnapshot inside buildSnapshotMeta().
+ */
+function buildMlbSnapshotMetaExtras(mlbSnap) {
+  const rows = Array.isArray(mlbSnap?.rows) ? mlbSnap.rows : []
+  const eventsArr = Array.isArray(mlbSnap?.events) ? mlbSnap.events : []
+
+  const eventIds = new Set()
+  for (const e of eventsArr) {
+    const id = e?.id ?? e?.eventId ?? e?.event_id ?? e?.game_id ?? e?.gameId
+    if (id != null && String(id).trim()) eventIds.add(String(id).trim())
+  }
+  if (eventIds.size === 0) {
+    for (const r of rows) {
+      const id = r?.eventId ?? r?.event_id ?? r?.gameId ?? r?.game_id
+      if (id != null && String(id).trim()) eventIds.add(String(id).trim())
+    }
+  }
+
+  const rowCount = rows.length
+  const events = eventIds.size > 0 ? eventIds.size : eventsArr.length
+
+  const updatedAt =
+    mlbSnap?.updatedAt != null
+      ? mlbSnap.updatedAt
+      : mlbSnap?.snapshotGeneratedAt != null
+        ? mlbSnap.snapshotGeneratedAt
+        : null
+  const updatedAtMs = updatedAt ? new Date(updatedAt).getTime() : NaN
+  const hasSnapshot = rowCount > 0 || eventsArr.length > 0
+  let ageMinutes = null
+  if (Number.isFinite(updatedAtMs)) {
+    ageMinutes = Math.max(0, Math.round((Date.now() - updatedAtMs) / 60000))
+  } else if (hasSnapshot) {
+    ageMinutes = 0
+  }
+
+  return { events, rowCount, ageMinutes }
+}
+
+/**
  * GET /api/best-available?sport=baseball_mlb
  * @param {import("express").Request} req
  * @param {import("express").Response} res
@@ -98,16 +139,22 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   const bestAvailablePayload = buildLiveDualBestAvailablePayload({ sport: bestAvailableSportKey })
   if (!bestAvailablePayload) {
     const snap = getMlbSnapshot()
+    const mlbExtra = buildMlbSnapshotMetaExtras(snap)
+    const mlbTime = snap?.updatedAt ?? snap?.snapshotGeneratedAt ?? null
     return res.status(503).json({
       ok: false,
       error: "bestAvailable MLB not ready",
       sport: bestAvailableSportKey,
       snapshotMeta: {
         ...buildSnapshotMeta(),
+        ...(mlbTime ? { updatedAt: mlbTime } : {}),
+        ...mlbExtra,
         sportKey: bestAvailableSportKey,
         mlb: {
           updatedAt: snap?.updatedAt || null,
-          rowCount: Array.isArray(snap?.rows) ? snap.rows.length : 0,
+          snapshotSlateDateKey: snap?.snapshotSlateDateKey || null,
+          rowCount: mlbExtra.rowCount,
+          events: mlbExtra.events,
         },
       },
       slateStateValidator: null,
@@ -139,6 +186,8 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       : { core: [], fun: [], lotto: [] }
 
   const mlbSnap = getMlbSnapshot()
+  const mlbSnapshotMetaExtras = buildMlbSnapshotMetaExtras(mlbSnap)
+  const mlbSnapshotTime = mlbSnap?.updatedAt ?? mlbSnap?.snapshotGeneratedAt ?? null
   const mlbBoardSourceRows =
     Array.isArray(bestAvailablePayload?.finalPlayableRows) && bestAvailablePayload.finalPlayableRows.length > 0
       ? bestAvailablePayload.finalPlayableRows
@@ -225,12 +274,14 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     boardCounts,
     snapshotMeta: {
       ...buildSnapshotMeta(),
+      ...(mlbSnapshotTime ? { updatedAt: mlbSnapshotTime } : {}),
+      ...mlbSnapshotMetaExtras,
       sportKey: bestAvailableSportKey,
       mlb: {
         updatedAt: mlbSnap?.updatedAt || null,
         snapshotSlateDateKey: mlbSnap?.snapshotSlateDateKey || null,
-        rowCount: Array.isArray(mlbSnap?.rows) ? mlbSnap.rows.length : 0,
-        events: Array.isArray(mlbSnap?.events) ? mlbSnap.events.length : 0,
+        rowCount: mlbSnapshotMetaExtras.rowCount,
+        events: mlbSnapshotMetaExtras.events,
       },
     },
     slateStateValidator: null,
