@@ -262,6 +262,11 @@ async function handleMlbBestAvailableGet(req, res, deps) {
         ? parlays.liveTickets
         : { safe: [], leverage: [], value: [], spike: [] }
 
+  const ceilingPlays =
+    Array.isArray(bestAvailablePayload?.ceilingPlays) ? bestAvailablePayload.ceilingPlays :
+    Array.isArray(parlays?.ceilingPlays) ? parlays.ceilingPlays :
+    []
+
   return res.json({
     sport: bestAvailableSportKey,
     bestAvailable: {
@@ -273,6 +278,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     parlays,
     topPlays,
     liveTickets,
+    ceilingPlays,
     ladderPool: [],
     routePlayableSeed: [],
     finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows)

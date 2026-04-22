@@ -4172,20 +4172,105 @@ function buildMlbLiveDualBestAvailablePayload() {
       const valuePool = [...rows]
         .filter((r) => isOdds(r) && odds(r) >= -180 && odds(r) <= 300)
         .sort((a, b) => valueScore(b) - valueScore(a))
+      const isUpsideLeg = (r) => {
+        const pt = String(r?.propType || "").trim()
+        const line = Number(r?.line)
+        if (pt === "Home Runs") return true
+        if (pt === "RBIs" && Number.isFinite(line) && line >= 1.5) return true
+        if (pt === "Hits" && Number.isFinite(line) && line >= 1.5) return true
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 2.5) return true
+        return Number.isFinite(odds(r)) && odds(r) >= 200
+      }
+
+      const isStabilizerLeg = (r) => {
+        const pt = String(r?.propType || "").trim()
+        const line = Number(r?.line)
+        const side = String(r?.side || "over").trim().toLowerCase()
+        if (side === "under") return false
+        return (pt === "Hits" && Number.isFinite(line) && line <= 0.5) ||
+          (pt === "Total Bases" && Number.isFinite(line) && line <= 1.5)
+      }
+
       const spikePool = [...rows]
-        .filter((r) => isOdds(r) && (String(r?.propType || "").trim() === "Home Runs" || odds(r) >= 200))
-        .sort((a, b) => valueScore(b) - valueScore(a))
+        .filter((r) => isOdds(r))
+        .sort((a, b) => {
+          const au = isUpsideLeg(a) ? 1 : 0
+          const bu = isUpsideLeg(b) ? 1 : 0
+          if (bu !== au) return bu - au
+          const av = valueScore(a)
+          const bv = valueScore(b)
+          if (bv !== av) return bv - av
+          return odds(b) - odds(a)
+        })
+
+      const buildSpikeTickets = () => {
+        const candidates = spikePool
+        const upside = candidates.filter(isUpsideLeg)
+        const stabilizers = candidates.filter(isStabilizerLeg)
+
+        const make = ({ legsTarget, includeStabilizer }) => {
+          const legs = []
+          const usedPlayers = new Set()
+          const usedTeams = new Set()
+
+          const add = (r) => {
+            if (!r) return false
+            const pk = String(r?.player || "").trim().toLowerCase()
+            if (!pk || usedPlayers.has(pk)) return false
+            const tk = String(r?.team || "").trim().toLowerCase()
+            if (tk && usedTeams.has(tk) && legs.length < 2) return false
+            legs.push(toLeg(r))
+            usedPlayers.add(pk)
+            if (tk) usedTeams.add(tk)
+            return true
+          }
+
+          // Ensure at least one upside leg; if none exist, use the highest-odds leg as the "upside" proxy.
+          const upsidePick = upside[0] || candidates.slice().sort((a, b) => odds(b) - odds(a))[0] || null
+          add(upsidePick)
+
+          if (includeStabilizer) {
+            const stab = stabilizers.find((r) => !usedPlayers.has(String(r?.player || "").trim().toLowerCase())) || null
+            add(stab)
+          }
+
+          for (const r of candidates) {
+            if (legs.length >= legsTarget) break
+            add(r)
+          }
+
+          // If we somehow couldn't fill, relax team reuse.
+          if (legs.length < Math.min(2, legsTarget)) {
+            for (const r of candidates) {
+              if (legs.length >= legsTarget) break
+              const pk = String(r?.player || "").trim().toLowerCase()
+              if (!pk || usedPlayers.has(pk)) continue
+              legs.push(toLeg(r))
+              usedPlayers.add(pk)
+            }
+          }
+
+          if (legs.length < 2) return null
+          const trimmed = legs.slice(0, Math.max(2, Math.min(4, legsTarget)))
+          const est = estimateParlayFromLegs(trimmed, { stake: 100 })
+          return { legs: trimmed, ...est }
+        }
+
+        const t1 = make({ legsTarget: 3, includeStabilizer: true })
+        const t2 = make({ legsTarget: 4, includeStabilizer: false })
+        return [t1, t2].filter(Boolean)
+      }
 
       const safeTicket = pickLegs(safePool, { minLegs: 2, maxLegs: 2, preferDifferentTeams: true })
       const leverageTicket = pickLegs(leveragePool, { minLegs: 3, maxLegs: 3, preferDifferentTeams: true })
       const valueTicket = pickLegs(valuePool, { minLegs: 3, maxLegs: 4, preferDifferentTeams: true })
-      const spikeTicket = pickLegs(spikePool, { minLegs: 3, maxLegs: 4, preferDifferentTeams: true })
+      const spikeTickets = buildSpikeTickets()
 
       return {
         safe: safeTicket ? [safeTicket] : [],
         leverage: leverageTicket ? [leverageTicket] : [],
         value: valueTicket ? [valueTicket] : [],
-        spike: spikeTicket ? [spikeTicket] : [],
+        spike: spikeTickets.length ? spikeTickets : [],
       }
     }
 
@@ -4777,6 +4862,119 @@ function buildMlbLiveDualBestAvailablePayload() {
       return pickDiverseTopPlays(merged, maxTake)
     }
 
+    const buildCeilingPlaysFromAllRows = (rowsIn) => {
+      const rows = Array.isArray(rowsIn) ? rowsIn : []
+      const ctx = buildGameContextMap(rowsIn)
+      const out = []
+      const seen = new Set()
+
+      const rowKey = (r) =>
+        [
+          String(r?.player || "").trim().toLowerCase(),
+          String(r?.propType || "").trim(),
+          String(r?.line ?? ""),
+          String(r?.book || "").trim(),
+          String(r?.side || "").trim(),
+        ].join("|")
+
+      const ceilingScore = (r) => {
+        const pt = String(r?.propType || "").trim()
+        const line = Number(r?.line)
+        const o = Number(r?.odds)
+        const sig = Number(r?.signalScore)
+        const p3 = Number(r?.mlbPhase3Score)
+        const hr = Number(r?.hitRate)
+        const gcb = Number(r?.gameContextBoost)
+
+        let s = 0
+        // Prefer upside prop types / alt lines.
+        if (pt === "Home Runs") s += 1.45
+        if (pt === "Total Bases") s += 0.55
+        if (pt === "RBIs") s += 0.5
+        if (pt === "Hits") s += 0.25
+
+        if (pt === "RBIs" && Number.isFinite(line) && line >= 1.5) s += 0.85
+        if (pt === "Hits" && Number.isFinite(line) && line >= 1.5) s += 0.75
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 2.5) s += 0.8
+
+        // Favor plus money / higher payout (ceiling).
+        if (Number.isFinite(o) && o >= 250) s += 0.75
+        else if (Number.isFinite(o) && o >= 160) s += 0.5
+        else if (Number.isFinite(o) && o >= 110) s += 0.28
+        else if (Number.isFinite(o) && o <= -300) s -= 0.25
+
+        // "Strong hitter" proxies (not probability-first).
+        if (Number.isFinite(sig) && sig >= 0.62) s += 0.28
+        else if (Number.isFinite(sig) && sig >= 0.54) s += 0.14
+        if (Number.isFinite(p3) && p3 >= 82) s += 0.22
+        else if (Number.isFinite(p3) && p3 >= 74) s += 0.12
+        if (Number.isFinite(hr) && hr >= 0.56) s += 0.14
+
+        // High-scoring environment helps ceiling outcomes.
+        if (Number.isFinite(gcb) && gcb > 0) s += gcb * 6
+
+        // Allow some randomness / boom-bust mix.
+        s += (Math.random() - 0.5) * 0.22
+        return s
+      }
+
+      for (const r of rows) {
+        if (!r) continue
+        if (!String(r?.player || "").trim() || !String(r?.propType || "").trim()) continue
+        const k = rowKey(r)
+        if (seen.has(k)) continue
+        seen.add(k)
+        const gk = gameKeyForRow(r)
+        const tk = String(r?.team || r?.teamResolved || "").trim().toLowerCase() || "unknown"
+        const gameContextBoost = ctx.get(gk)?.teamBoost?.get?.(tk) ?? 0
+        out.push({ ...r, gameContextBoost })
+      }
+
+      // Keep only ceiling-ish prop families (no safety filtering).
+      const ceilingUniverse = out.filter((r) => {
+        const pt = String(r?.propType || "").trim()
+        const line = Number(r?.line)
+        if (pt === "Home Runs") return true
+        if (pt === "RBIs" && Number.isFinite(line) && line >= 0.5) return true
+        if (pt === "Hits" && Number.isFinite(line) && line >= 0.5) return true
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 1.5) return true
+        return false
+      })
+
+      ceilingUniverse.sort((a, b) => ceilingScore(b) - ceilingScore(a))
+
+      // Diversity: one per player, soft team spread.
+      const usedPlayers = new Set()
+      const teamCounts = new Map()
+      const pick = []
+      for (const r of ceilingUniverse) {
+        if (pick.length >= 25) break
+        const pk = String(r?.player || "").trim().toLowerCase()
+        if (!pk || usedPlayers.has(pk)) continue
+        const tk = String(r?.team || "").trim().toLowerCase() || "unknown"
+        const tc = teamCounts.get(tk) || 0
+        if (tc >= 3) continue
+        usedPlayers.add(pk)
+        teamCounts.set(tk, tc + 1)
+        pick.push(r)
+      }
+
+      // If we didn't reach a good mix, allow more from teams while still keeping one per player.
+      if (pick.length < 18) {
+        for (const r of ceilingUniverse) {
+          if (pick.length >= 25) break
+          const pk = String(r?.player || "").trim().toLowerCase()
+          if (!pk || usedPlayers.has(pk)) continue
+          usedPlayers.add(pk)
+          pick.push(r)
+        }
+      }
+
+      // Re-sort after randomized scoring for a clean output ordering.
+      pick.sort((a, b) => ceilingScore(b) - ceilingScore(a))
+      return pick
+    }
+
     /** Cross-core-ticket reuse (soft). Extremely strong rows keep most of their score. */
     const globalCorePlayerCounts = new Map()
 
@@ -5149,8 +5347,18 @@ function buildMlbLiveDualBestAvailablePayload() {
       line: r?.line ?? null,
       odds: r?.odds ?? null,
     }))
+    const ceilingPlayRows = buildCeilingPlaysFromAllRows(bAllRows)
+    const ceilingPlays = ceilingPlayRows.map((r) => ({
+      player: r?.player ?? null,
+      team: r?.team ?? null,
+      propType: r?.propType ?? null,
+      line: r?.line ?? null,
+      odds: r?.odds ?? null,
+    }))
     const liveTickets = buildLiveTicketsFromTopPlays(topPlayRows)
     console.log("[LIVE EXECUTION LAYER ACTIVE]")
+    console.log("[SPIKE BUILDER ACTIVE]", { sample: liveTickets.spike?.[0] })
+    console.log("[CEILING ENGINE ACTIVE]", { sample: ceilingPlays.slice(0, 5) })
     console.log("[BETTABLE FILTER ACTIVE]")
     console.log("[TOP PLAYS ACTIVE]", { count: topPlays.length })
     console.log("[VALUE ENGINE ACTIVE]", { sample: topPlays.slice(0, 5) })
@@ -5406,7 +5614,7 @@ function buildMlbLiveDualBestAvailablePayload() {
       lotto: lotto.length
     })
 
-    return { core: coreKept, fun, lotto, topPlays, liveTickets }
+    return { core: coreKept, fun, lotto, topPlays, liveTickets, ceilingPlays }
   }
 
   const parlays = buildMlbAutoParlays({ allRows: eligible })
@@ -5556,6 +5764,7 @@ function buildMlbLiveDualBestAvailablePayload() {
     parlays,
     topPlays: Array.isArray(parlays?.topPlays) ? parlays.topPlays : [],
     liveTickets: (parlays?.liveTickets && typeof parlays.liveTickets === "object") ? parlays.liveTickets : { safe: [], leverage: [], value: [], spike: [] },
+    ceilingPlays: Array.isArray(parlays?.ceilingPlays) ? parlays.ceilingPlays : [],
     flexProps: flex,
     highestHitRate2: { fanduel: fdHighestHitRate2, draftkings: dkHighestHitRate2 },
     highestHitRate3: { fanduel: fdHighestHitRate3, draftkings: dkHighestHitRate3 },
