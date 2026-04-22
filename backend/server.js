@@ -4471,6 +4471,45 @@ function buildMlbLiveDualBestAvailablePayload() {
 
       const gcb = Number(row?.gameContextBoost)
       const gameAdj = Number.isFinite(gcb) ? Math.max(-0.04, Math.min(0.04, gcb)) : 0
+
+      // Opportunity + role layer (Top Plays only): prefer meaningful lineup roles and impact profiles.
+      const lineupPosRaw = Number(row?.lineupPosition ?? row?.battingOrderIndex ?? row?.lineupSpot)
+      let lineupTier = "unknown"
+      if (Number.isFinite(lineupPosRaw) && lineupPosRaw >= 1 && lineupPosRaw <= 9) {
+        if (lineupPosRaw <= 3) lineupTier = "top"
+        else if (lineupPosRaw <= 6) lineupTier = "middle"
+        else lineupTier = "bottom"
+      } else {
+        // Approximate role when lineup is missing: use strong-signal/importance proxies.
+        const sig = Number(row?.signalScore)
+        const hr = Number(row?.hitRate)
+        const p3 = Number(row?.mlbPhase3Score)
+        const strong = isMlbStrongLineupSpot(row) || (Number.isFinite(hr) && hr >= 0.56) || (Number.isFinite(sig) && sig >= 0.58) || (Number.isFinite(p3) && p3 >= 78)
+        const elite = (hasModelPred && predRaw >= 0.64) || (Number.isFinite(sig) && sig >= 0.64) || (Number.isFinite(p3) && p3 >= 86)
+        lineupTier = elite ? "top" : strong ? "middle" : "bottom"
+      }
+
+      let roleAdj = 0
+      if (lineupTier === "top") roleAdj += 0.03
+      else if (lineupTier === "middle") roleAdj += 0.015
+      else if (lineupTier === "bottom") roleAdj -= 0.02
+
+      let productionAdj = 0
+      const sig = Number(row?.signalScore)
+      const p3 = Number(row?.mlbPhase3Score)
+      if (pt === "Home Runs") productionAdj += 0.012
+      if (pt === "RBIs") productionAdj += 0.008
+      if (Number.isFinite(sig) && sig >= 0.58) productionAdj += 0.012
+      else if (Number.isFinite(sig) && sig >= 0.52) productionAdj += 0.006
+      if (Number.isFinite(p3) && p3 >= 80) productionAdj += 0.009
+      else if (Number.isFinite(p3) && p3 >= 72) productionAdj += 0.004
+      if (Number.isFinite(sig) && sig < 0.45 && Number.isFinite(p3) && p3 < 58) productionAdj -= 0.012
+
+      // Amplify role when game environment is strong; soften it when game environment is weak.
+      const env = Number.isFinite(gameAdj) ? gameAdj : 0
+      const amplify = env > 0 ? (1 + env * 10) : (1 + env * 6) // env is already clamped [-0.04, 0.04]
+      const opportunityAdj = (roleAdj * amplify) + (productionAdj * (env > 0 ? 1.15 : 1.0))
+
       const probBlend = hasModelPred ? like * 0.84 + soft * 0.12 : like * 0.62 + soft * 0.24
       return (
         probBlend +
@@ -4482,7 +4521,8 @@ function buildMlbLiveDualBestAvailablePayload() {
         valueAdj +
         targetBandAdj +
         heavyFavAdj +
-        gameAdj
+        gameAdj +
+        opportunityAdj
       )
     }
 
@@ -5020,6 +5060,7 @@ function buildMlbLiveDualBestAvailablePayload() {
     console.log("[BETTABLE FILTER ACTIVE]")
     console.log("[TOP PLAYS ACTIVE]", { count: topPlays.length })
     console.log("[VALUE ENGINE ACTIVE]", { sample: topPlays.slice(0, 5) })
+    console.log("[OPPORTUNITY LAYER ACTIVE]", { sample: topPlays.slice(0, 5) })
 
     // CORE / FUN / LOTTO: tickets draw only from the Top Plays pool (same universe as the list).
     const corePoolRaw = rankByScore(topPlayRows)
