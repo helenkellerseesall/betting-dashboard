@@ -4059,11 +4059,12 @@ function buildMlbLiveDualBestAvailablePayload() {
   })
 
   // === MLB auto parlay generation (board-only; no ingest/scoring/learning changes) ===
-  const buildMlbAutoParlays = ({ safe: bSafe, balanced: bBalanced, aggressive: bAggressive, lotto: bLotto }) => {
+  const buildMlbAutoParlays = ({ allRows: bAllRows }) => {
     console.log("[PROBABILITY TIERS ACTIVE]")
     console.log("[SOFT LINE BIAS TUNED]")
     console.log("[FOUNDATION BOOST ACTIVE]")
     console.log("[FOUNDATION FINAL TUNE]")
+    console.log("[PLAYER DIVERSITY ACTIVE]")
 
     const toLeg = (r) => ({
       player: r?.player ?? null,
@@ -4399,13 +4400,279 @@ function buildMlbLiveDualBestAvailablePayload() {
       )
     }
 
-    const rankByScore = (rows) =>
+    /**
+     * Truth-list score: predictedProbability-first when present, plus consistency + realistic lines.
+     */
+    const topPlayTruthScore = (row) => {
+      if (!row) return -1
+      const predRaw = Number(row?.predictedProbability)
+      const hasModelPred = Number.isFinite(predRaw) && predRaw > 0 && predRaw < 1
+      const like = likelihoodScore(row)
+      const soft = softMetric(row)
+      let lineBoost = 0
+      const pt = String(row?.propType || "").trim()
+      const line = mlbRowLine(row)
+      const side = String(row?.side || "over").trim().toLowerCase()
+      const over = side !== "under"
+      if (over) {
+        if (pt === "Hits" && Number.isFinite(line) && line < 1) lineBoost += 0.095
+        if (pt === "Total Bases" && Number.isFinite(line) && line <= 1.5) lineBoost += 0.088
+        if (pt === "RBIs" && Number.isFinite(line) && line <= 0.5 && isMlbStrongLineupSpot(row)) lineBoost += 0.075
+        if (pt === "RBIs" && Number.isFinite(line) && line <= 0.5 && !isMlbStrongLineupSpot(row)) lineBoost -= 0.042
+        if (pt === "Hits" && Number.isFinite(line) && line >= 1.5) lineBoost -= 0.062
+        if (pt === "RBIs" && Number.isFinite(line) && line >= 1.5) lineBoost -= 0.058
+        if (pt === "Total Bases" && Number.isFinite(line) && line >= 3.5) lineBoost -= 0.062
+      }
+      const hr = Number(row?.hitRate)
+      const consistency =
+        Number.isFinite(hr) && hr >= 0.56 ? 0.048 : Number.isFinite(hr) && hr >= 0.52 ? 0.024 : 0
+      const recent = Number(row?.recentHitRate ?? row?.l5HitRate ?? row?.last5HitRate)
+      const recentBump =
+        Number.isFinite(recent) && recent >= 0.58 ? 0.022 : Number.isFinite(recent) && recent >= 0.52 ? 0.011 : 0
+      const o = Number(row?.odds)
+      const extremePlusMoney =
+        Number.isFinite(o) && o >= 550 ? -0.07 : Number.isFinite(o) && o >= 420 ? -0.035 : 0
+
+      // Top plays should be likely AND bettable. Do not block extreme odds; just down-rank them.
+      // Preference band: -150 to +300. Soft penalties: worse than -500; strong penalties: worse than -1000.
+      let bettableAdj = 0
+      if (Number.isFinite(o)) {
+        if (o <= -1000) bettableAdj -= 0.42
+        else if (o <= -500) bettableAdj -= 0.16
+        else if (o >= -150 && o <= 300) bettableAdj += 0.028
+        else if (o >= 301 && o <= 420) bettableAdj += 0.01
+      }
+
+      // Value engine: model probability vs odds-implied probability.
+      const implied = impliedFromAmerican(o)
+      const edge = Number(row?.edgeProbability ?? row?.edge ?? NaN)
+      let modelP = hasModelPred ? predRaw : like
+      if (!hasModelPred && Number.isFinite(implied) && Number.isFinite(edge)) {
+        modelP = Math.max(0.01, Math.min(0.99, implied + edge))
+      }
+      const valueScore =
+        Number.isFinite(implied) && Number.isFinite(modelP) ? (modelP - implied) : 0
+      const valueAdj = Math.max(-0.08, Math.min(0.10, valueScore * 0.7))
+
+      // Target odds band: prefer -120 to +200. Allow safer (-200) if signal is strong.
+      let targetBandAdj = 0
+      if (Number.isFinite(o)) {
+        if (o >= -120 && o <= 200) targetBandAdj += 0.028
+        else if (o >= -200 && o < -120) targetBandAdj += 0.012
+        else if (o > 200 && o <= 320) targetBandAdj += 0.006
+      }
+
+      // Avoid over-prioritizing heavy favorites without clear advantage.
+      let heavyFavAdj = 0
+      if (Number.isFinite(o) && o <= -300) {
+        if (valueScore < 0.015) heavyFavAdj -= 0.11
+        else if (valueScore < 0.03) heavyFavAdj -= 0.05
+      }
+
+      const gcb = Number(row?.gameContextBoost)
+      const gameAdj = Number.isFinite(gcb) ? Math.max(-0.04, Math.min(0.04, gcb)) : 0
+      const probBlend = hasModelPred ? like * 0.84 + soft * 0.12 : like * 0.62 + soft * 0.24
+      return (
+        probBlend +
+        lineBoost +
+        consistency +
+        recentBump +
+        extremePlusMoney +
+        bettableAdj +
+        valueAdj +
+        targetBandAdj +
+        heavyFavAdj +
+        gameAdj
+      )
+    }
+
+    const rowIdentityKey = (r) =>
+      [
+        String(r?.player || "").trim().toLowerCase(),
+        String(r?.propType || "").trim(),
+        String(r?.line ?? ""),
+        String(r?.book || "").trim(),
+        String(r?.side || "").trim(),
+      ].join("|")
+
+    const pickDiverseTopPlays = (sortedDesc, maxTake) => {
+      const pool = [...sortedDesc]
+      const out = []
+      const usedPlayers = new Set()
+      const teamCounts = new Map()
+      const teamKey = (r) => String(r?.team || "").trim().toLowerCase() || "unknown"
+
+      while (out.length < maxTake && pool.length) {
+        let bestI = -1
+        let bestAdj = -Infinity
+        for (let i = 0; i < pool.length; i++) {
+          const r = pool[i]
+          const pk = String(r?.player || "").trim().toLowerCase()
+          if (!pk || usedPlayers.has(pk)) continue
+          const tk = teamKey(r)
+          const tc = teamCounts.get(tk) || 0
+          const adj = topPlayTruthScore(r) - tc * 0.017 - Math.max(0, tc - 2) * 0.012
+          if (adj > bestAdj) {
+            bestAdj = adj
+            bestI = i
+          }
+        }
+        if (bestI < 0) break
+        const r = pool.splice(bestI, 1)[0]
+        const pk = String(r?.player || "").trim().toLowerCase()
+        usedPlayers.add(pk)
+        const tk = teamKey(r)
+        teamCounts.set(tk, (teamCounts.get(tk) || 0) + 1)
+        out.push(r)
+      }
+      out.sort((a, b) => topPlayTruthScore(b) - topPlayTruthScore(a))
+      return out
+    }
+
+    const gameKeyForRow = (r) => String(r?.eventId || r?.gameId || r?.matchup || "").trim() || "unknown"
+    const safeNum = (v) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+    const clamp01 = (x) => Math.max(0, Math.min(1, Number(x) || 0))
+
+    const buildGameContextMap = (rowsIn) => {
+      const rows = Array.isArray(rowsIn) ? rowsIn : []
+      const byGame = new Map()
+
+      const push = (gk, teamKey, row) => {
+        if (!byGame.has(gk)) {
+          byGame.set(gk, {
+            teams: new Map(),
+            gameTotals: [],
+            moneylines: [],
+          })
+        }
+        const g = byGame.get(gk)
+        const teamK = teamKey || "unknown"
+        if (!g.teams.has(teamK)) g.teams.set(teamK, { implied: [], recentRuns: [] })
+        const t = g.teams.get(teamK)
+
+        const itt = safeNum(row?.impliedTeamTotal ?? row?.teamImpliedTotal ?? row?.impliedTeamRuns ?? row?.teamTotal)
+        if (Number.isFinite(itt)) t.implied.push(itt)
+
+        const gt = safeNum(row?.gameTotal)
+        if (Number.isFinite(gt)) g.gameTotals.push(gt)
+
+        const ml = safeNum(row?.moneylineOdds ?? row?.teamMoneylineOdds ?? row?.moneylineHomeOdds ?? row?.moneylineAwayOdds)
+        if (Number.isFinite(ml)) g.moneylines.push(ml)
+
+        const rr =
+          safeNum(row?.teamRecentRunsAvg) ??
+          safeNum(row?.recentTeamRunsAvg) ??
+          safeNum(row?.teamRunsL5) ??
+          safeNum(row?.teamRunsLast5) ??
+          safeNum(row?.l5Runs) ??
+          safeNum(row?.last5Runs)
+        if (Number.isFinite(rr)) t.recentRuns.push(rr)
+      }
+
+      for (const r of rows) {
+        if (!r) continue
+        const gk = gameKeyForRow(r)
+        const teamK = String(r?.team || r?.teamResolved || "").trim().toLowerCase()
+        push(gk, teamK, r)
+      }
+
+      const mean = (vals) => {
+        const v = (Array.isArray(vals) ? vals : []).filter((n) => Number.isFinite(n))
+        if (!v.length) return null
+        return v.reduce((a, b) => a + b, 0) / v.length
+      }
+
+      const out = new Map()
+      for (const [gk, g] of byGame.entries()) {
+        const gt = mean(g.gameTotals)
+        const ml = mean(g.moneylines)
+        const teamBoost = new Map()
+        for (const [tk, t] of g.teams.entries()) {
+          const itt = mean(t.implied)
+          const rr = mean(t.recentRuns)
+
+          // Very conservative: small bounded nudges only.
+          let b = 0
+          if (Number.isFinite(itt)) {
+            // Typical MLB team implied totals cluster ~3.5–5.5. Favor higher environments.
+            const normalized = clamp01((itt - 3.6) / 2.0) // 0 at 3.6, 1 at 5.6+
+            b += (normalized - 0.5) * 0.05 // [-0.025, +0.025]
+          }
+          if (Number.isFinite(gt)) {
+            const high = clamp01((gt - 7.5) / 3.0) // 0 at 7.5, 1 at 10.5+
+            b += (high - 0.5) * 0.02 // [-0.01, +0.01]
+          }
+          if (Number.isFinite(ml)) {
+            // Being a favorite is a mild positive environment signal.
+            if (ml < -140) b += 0.006
+            else if (ml > 140) b -= 0.004
+          }
+          if (Number.isFinite(rr)) {
+            const hot = clamp01((rr - 3.8) / 2.2) // 0 at 3.8, 1 at 6.0+
+            b += (hot - 0.5) * 0.02 // [-0.01, +0.01]
+          }
+          teamBoost.set(tk || "unknown", Math.max(-0.04, Math.min(0.04, b)))
+        }
+
+        out.set(gk, { teamBoost })
+      }
+      return out
+    }
+
+    /** Full eligible slate → truth-ranked list (15–25 when possible), one row per player, team spread. */
+    const buildTopPlaysFromAllRows = (rowsIn) => {
+      const byKey = new Map()
+      const ctx = buildGameContextMap(rowsIn)
+      console.log("[GAME CONTEXT ACTIVE]")
+      for (const r of Array.isArray(rowsIn) ? rowsIn : []) {
+        if (!r) continue
+        if (!String(r?.player || "").trim() || !String(r?.propType || "").trim()) continue
+        const gk = gameKeyForRow(r)
+        const tk = String(r?.team || r?.teamResolved || "").trim().toLowerCase() || "unknown"
+        const gameContextBoost = ctx.get(gk)?.teamBoost?.get?.(tk) ?? 0
+        const rowWithContext = gameContextBoost ? { ...r, gameContextBoost } : { ...r, gameContextBoost: 0 }
+        const k = rowIdentityKey(r)
+        const prev = byKey.get(k)
+        if (!prev || topPlayTruthScore(rowWithContext) > topPlayTruthScore(prev)) byKey.set(k, rowWithContext)
+      }
+      const merged = [...byKey.values()]
+      merged.sort((a, b) => topPlayTruthScore(b) - topPlayTruthScore(a))
+      const n = merged.length
+      const maxTake = n >= 25 ? 25 : n
+      return pickDiverseTopPlays(merged, maxTake)
+    }
+
+    /** Cross-core-ticket reuse (soft). Extremely strong rows keep most of their score. */
+    const globalCorePlayerCounts = new Map()
+
+    const isExtremeCoreReuseSignal = (row) => {
+      const b = lineSignalBlendForSoftBias(row)
+      const p3 = Number(row?.mlbPhase3Score || 0)
+      const e = Number(row?.edgeProbability ?? row?.edge ?? 0)
+      return b >= 0.82 || p3 >= 80 || (Number.isFinite(e) && e >= 0.32)
+    }
+
+    const corePlayerCrossTicketPenalty = (row) => {
+      const pk = String(row?.player || "").trim().toLowerCase()
+      if (!pk) return 0
+      const n = Number(globalCorePlayerCounts.get(pk) || 0)
+      if (n <= 0) return 0
+      if (isExtremeCoreReuseSignal(row)) return n * 0.008
+      return n * 0.036
+    }
+
+    const softMetricCoreDiverse = (row) => softMetric(row) - corePlayerCrossTicketPenalty(row)
+
+    const rankByScore = (rows, scoreRow = softMetric) =>
       (Array.isArray(rows) ? rows : [])
         .filter(Boolean)
         .sort((a, b) => {
           // Priority: likelihood > value > payout (soft)
-          const la = softMetric(a)
-          const lb = softMetric(b)
+          const la = scoreRow(a)
+          const lb = scoreRow(b)
           const diff = lb - la
           const closeBand = 0.03
           if (Math.abs(diff) >= closeBand) return diff
@@ -4447,8 +4714,10 @@ function buildMlbLiveDualBestAvailablePayload() {
       preferDifferentTeams = false,
       diversityBias = false,
       diversityTolerance = 0.04,
+      playerDiversityCore = false,
     } = {}) => {
-      const rowsRanked = rankByScore(rowsIn)
+      const rowScore = playerDiversityCore ? softMetricCoreDiverse : softMetric
+      const rowsRanked = rankByScore(rowsIn, rowScore)
       if (!rowsRanked.length) return null
 
       const win = bestWindow(rowsRanked)
@@ -4516,18 +4785,32 @@ function buildMlbLiveDualBestAvailablePayload() {
       // (Never applied to sameStatOnly fun tickets.)
       const remaining = [...pool]
       while (out.length < maxLegs && remaining.length) {
-        // Find the first acceptable as the baseline best.
         let bestIdx = -1
+        let bestSc = -Infinity
+        let bestReuse = Infinity
         for (let i = 0; i < remaining.length; i++) {
-          if (canAdd(remaining[i])) {
+          if (!canAdd(remaining[i])) continue
+          const sc = rowScore(remaining[i])
+          if (!playerDiversityCore) {
             bestIdx = i
+            bestSc = sc
             break
+          }
+          const pk = String(remaining[i]?.player || "").trim().toLowerCase()
+          const reuse = pk ? Number(globalCorePlayerCounts.get(pk) || 0) : 0
+          if (sc > bestSc + 1e-9) {
+            bestSc = sc
+            bestIdx = i
+            bestReuse = reuse
+          } else if (Math.abs(sc - bestSc) < 0.019 && reuse < bestReuse) {
+            bestIdx = i
+            bestReuse = reuse
           }
         }
         if (bestIdx === -1) break
 
         const bestRow = remaining[bestIdx]
-        const bestMetric = softMetric(bestRow)
+        const bestMetric = rowScore(bestRow)
         const bestPt = String(bestRow?.propType || "").trim()
 
         let chosenRow = bestRow
@@ -4538,7 +4821,7 @@ function buildMlbLiveDualBestAvailablePayload() {
             const candPt = String(cand?.propType || "").trim()
             if (!candPt || candPt === bestPt) continue
             if (usedPropTypes.has(candPt)) continue
-            const m = softMetric(cand)
+            const m = rowScore(cand)
             const lp = likelihoodScore(cand)
             const lb = likelihoodScore(bestRow)
             const closeInLikelihood = Number.isFinite(lp) && Number.isFinite(lb) ? (lp >= lb - 0.02) : false
@@ -4557,7 +4840,7 @@ function buildMlbLiveDualBestAvailablePayload() {
             const cand = remaining[j]
             if (!canAdd(cand)) continue
             if (isMlbMidLineCountingRow(cand)) continue
-            const m = softMetric(cand)
+            const m = rowScore(cand)
             const tier = getMlbProbabilityTier(cand)
             if (tier === "foundation" && m >= bestMetric - tol - 0.006) {
               chosenRow = cand
@@ -4597,8 +4880,9 @@ function buildMlbLiveDualBestAvailablePayload() {
     }
 
     // Ticket construction logic: role-based, stacking-aware (soft; never blocks globally).
-    const pickTicketWithRoles = (rowsIn, { minLegs, maxLegs } = {}) => {
-      const rowsRanked = rankByScore(rowsIn)
+    const pickTicketWithRoles = (rowsIn, { minLegs, maxLegs, playerDiversityCore = false } = {}) => {
+      const rowScore = playerDiversityCore ? softMetricCoreDiverse : softMetric
+      const rowsRanked = rankByScore(rowsIn, rowScore)
       if (!rowsRanked.length) return null
 
       const win = bestWindow(rowsRanked)
@@ -4637,6 +4921,9 @@ function buildMlbLiveDualBestAvailablePayload() {
         return true
       }
 
+      const sortBucketByRowScore = (arr) =>
+        [...(Array.isArray(arr) ? arr : [])].sort((a, b) => rowScore(b) - rowScore(a))
+
       const target = Math.max(minLegs || 2, Math.min(maxLegs || 4, maxLegs || 4))
       const bucketsFrom = (list) => ({
         foundations: list.filter((r) => roleOf(r) === "FOUNDATION"),
@@ -4648,6 +4935,12 @@ function buildMlbLiveDualBestAvailablePayload() {
       // If the preferred window pool is too one-dimensional, fall back to the full ranked pool for roles.
       if (foundations.length < 1 || supports.length < 1) {
         ;({ foundations, supports, upsides } = bucketsFrom(rowsRanked))
+      }
+
+      if (playerDiversityCore) {
+        foundations = sortBucketByRowScore(foundations)
+        supports = sortBucketByRowScore(supports)
+        upsides = sortBucketByRowScore(upsides)
       }
 
       supports = sortSupportRowsForStacking(supports, outRows)
@@ -4690,8 +4983,8 @@ function buildMlbLiveDualBestAvailablePayload() {
           const pt = String(r?.propType || "").trim()
           if (pt && usedTypes.has(pt)) continue
           // Only skip if it's far below top quality; otherwise allow.
-          const m = softMetric(r)
-          const top = pool.length ? softMetric(pool[0]) : m
+          const m = rowScore(r)
+          const top = pool.length ? rowScore(pool[0]) : m
           if (m < top - 0.18) continue
           if (add(r)) break
         }
@@ -4715,16 +5008,21 @@ function buildMlbLiveDualBestAvailablePayload() {
     }
 
     const core = []
-    const safeRows = rankByScore(bSafe)
-    const balancedRows = rankByScore(bBalanced)
-    const aggressiveRows = rankByScore(bAggressive)
 
-    // CORE: "most likely combination of plays today" — no hard exclusions.
-    // Use soft-bias ranking from safe + balanced rows, but NEVER block HR / higher lines / longshots.
-    const corePoolRawBase = [...(safeRows || []), ...(balancedRows || [])]
-    // If safe/balanced boards are empty on a thin MLB slate, allow core to seed from aggressive too
-    // (still ranked with probability-first soft bias; no props are blocked).
-    const corePoolRaw = rankByScore(corePoolRawBase.length ? corePoolRawBase : [...(aggressiveRows || []), ...corePoolRawBase])
+    const topPlayRows = buildTopPlaysFromAllRows(bAllRows)
+    const topPlays = topPlayRows.map((r) => ({
+      player: r?.player ?? null,
+      team: r?.team ?? null,
+      propType: r?.propType ?? null,
+      line: r?.line ?? null,
+      odds: r?.odds ?? null,
+    }))
+    console.log("[BETTABLE FILTER ACTIVE]")
+    console.log("[TOP PLAYS ACTIVE]", { count: topPlays.length })
+    console.log("[VALUE ENGINE ACTIVE]", { sample: topPlays.slice(0, 5) })
+
+    // CORE / FUN / LOTTO: tickets draw only from the Top Plays pool (same universe as the list).
+    const corePoolRaw = rankByScore(topPlayRows)
     // Soft foundation: take top legs, but gently broaden prop-type coverage when quality is close.
     const safeCandidates = (() => {
       const out = []
@@ -4854,9 +5152,22 @@ function buildMlbLiveDualBestAvailablePayload() {
       rolesApplied: true
     })
 
+    const recordTicketLegPlayersToCoreCounts = (ticket) => {
+      for (const leg of ticket?.legs || []) {
+        const pk = String(leg?.player || "").trim().toLowerCase()
+        if (pk) globalCorePlayerCounts.set(pk, (globalCorePlayerCounts.get(pk) || 0) + 1)
+      }
+    }
+
+    const rebuildGlobalCorePlayerCounts = () => {
+      globalCorePlayerCounts.clear()
+      for (const t of core) recordTicketLegPlayersToCoreCounts(t)
+    }
+
     const pushCore = (t) => {
       if (!t) return
       core.push(t)
+      recordTicketLegPlayersToCoreCounts(t)
     }
 
     const buildCoreTicketWithFoundation = ({ minLegs, maxLegs, foundationMin = 1 } = {}) => {
@@ -4873,7 +5184,12 @@ function buildMlbLiveDualBestAvailablePayload() {
       }
 
       const fillPool = corePoolRaw.filter((r) => !usedPlayers.has(String(r?.player || "").trim().toLowerCase()))
-      const ticket = pickTicket(fillPool, { minLegs: Math.max(0, minLegs - base.length), maxLegs: Math.max(0, maxLegs - base.length), allowMultiHr: true })
+      const ticket = pickTicket(fillPool, {
+        minLegs: Math.max(0, minLegs - base.length),
+        maxLegs: Math.max(0, maxLegs - base.length),
+        allowMultiHr: true,
+        playerDiversityCore: true,
+      })
       const legs = [...base.map(toLeg), ...((ticket?.legs || []).slice(0, Math.max(0, maxLegs - base.length)))]
       if (legs.length < minLegs) return null
       return { legs: legs.slice(0, maxLegs), estimatedOdds: estimateParlayOdds(legs.slice(0, maxLegs)) }
@@ -4881,34 +5197,34 @@ function buildMlbLiveDualBestAvailablePayload() {
 
     // 2–3 legs (safe-ish)
     pushCore(
-      pickTicketWithRoles(corePoolRaw, { minLegs: 2, maxLegs: 3 }) ||
+      pickTicketWithRoles(corePoolRaw, { minLegs: 2, maxLegs: 3, playerDiversityCore: true }) ||
         buildCoreTicketWithFoundation({ minLegs: 2, maxLegs: 3, foundationMin: 1 }) ||
-        pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true })
+        pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true, playerDiversityCore: true })
     )
     // 3–4 legs (balanced)
     pushCore(
-      pickTicketWithRoles(corePoolRaw, { minLegs: 3, maxLegs: 4 }) ||
+      pickTicketWithRoles(corePoolRaw, { minLegs: 3, maxLegs: 4, playerDiversityCore: true }) ||
         buildCoreTicketWithFoundation({ minLegs: 3, maxLegs: 4, foundationMin: 2 }) ||
-        pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true })
+        pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true, playerDiversityCore: true })
     )
     if (core.length < 2) {
-      pushCore(pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true }))
-      pushCore(pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true }))
+      pushCore(pickTicket(corePoolRaw, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true, playerDiversityCore: true }))
+      pushCore(pickTicket(corePoolRaw, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true, playerDiversityCore: true }))
     }
     if (!core.length) {
-      // As a last resort, allow core to draw from the full (safe+balanced+aggressive) set, still ranked with soft bias.
-      const wideCorePool = rankByScore([...(safeRows || []), ...(balancedRows || []), ...(aggressiveRows || [])])
-      pushCore(pickTicket(wideCorePool, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true }))
-      pushCore(pickTicket(wideCorePool, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true }))
+      const wideCorePool = rankByScore(topPlayRows)
+      pushCore(pickTicket(wideCorePool, { minLegs: 2, maxLegs: 3, allowMultiHr: true, diversityBias: true, playerDiversityCore: true }))
+      pushCore(pickTicket(wideCorePool, { minLegs: 3, maxLegs: 4, allowMultiHr: true, diversityBias: true, playerDiversityCore: true }))
     }
 
     for (let ci = 0; ci < core.length; ci += 1) {
       const upgraded = softSwapOneMidLegForLowLineCore(core[ci])
       if (upgraded) core[ci] = upgraded
     }
+    rebuildGlobalCorePlayerCounts()
 
     const fun = []
-    const funPool = rankByScore([...(safeRows || []), ...(balancedRows || []), ...(aggressiveRows || [])])
+    const funPool = rankByScore(topPlayRows)
     const byPropType = (pt) => funPool.filter((r) => String(r?.propType || "").trim() === pt)
 
     // FUN: stat-pattern tickets (same stat only)
@@ -4920,8 +5236,12 @@ function buildMlbLiveDualBestAvailablePayload() {
     if (hitsTicket) fun.push(hitsTicket)
 
     const lotto = []
-    // LOTTO: still prioritized for riskier legs, but no hard blocking.
-    const lottoPool = rankByScore([...(aggressiveRows || []), ...(rankByScore(bLotto) || [])])
+    const lottoPool = rankByScore(topPlayRows, (r) => {
+      const o = Number(r?.odds)
+      const longNudge =
+        Number.isFinite(o) && o >= 360 ? 0.045 : Number.isFinite(o) && o >= 280 ? 0.025 : 0
+      return softMetric(r) + longNudge
+    })
 
     const lotto3 = pickTicket(lottoPool, { minLegs: 3, maxLegs: 5, allowMultiHr: true })
     if (lotto3) lotto.push(lotto3)
@@ -4951,10 +5271,10 @@ function buildMlbLiveDualBestAvailablePayload() {
       lotto: lotto.length
     })
 
-    return { core: coreKept, fun, lotto }
+    return { core: coreKept, fun, lotto, topPlays }
   }
 
-  const parlays = buildMlbAutoParlays({ safe, balanced, aggressive, lotto })
+  const parlays = buildMlbAutoParlays({ allRows: eligible })
 
   const dualBestPropsPoolBase = best.length ? best : eligible
   const dualBestPropsPool = buildBestPropVariantPool(dualBestPropsPoolBase)
@@ -5099,6 +5419,7 @@ function buildMlbLiveDualBestAvailablePayload() {
     aggressive,
     lotto,
     parlays,
+    topPlays: Array.isArray(parlays?.topPlays) ? parlays.topPlays : [],
     flexProps: flex,
     highestHitRate2: { fanduel: fdHighestHitRate2, draftkings: dkHighestHitRate2 },
     highestHitRate3: { fanduel: fdHighestHitRate3, draftkings: dkHighestHitRate3 },

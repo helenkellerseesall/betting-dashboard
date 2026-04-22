@@ -183,7 +183,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   const parlays =
     bestAvailablePayload?.parlays && typeof bestAvailablePayload.parlays === "object"
       ? bestAvailablePayload.parlays
-      : { core: [], fun: [], lotto: [] }
+      : { core: [], fun: [], lotto: [], topPlays: [] }
 
   const mlbSnap = getMlbSnapshot()
   const mlbSnapshotMetaExtras = buildMlbSnapshotMetaExtras(mlbSnap)
@@ -250,6 +250,11 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     payloadBest: Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best.length : 0,
   })
 
+  const topPlays =
+    Array.isArray(bestAvailablePayload?.topPlays) ? bestAvailablePayload.topPlays :
+    Array.isArray(parlays?.topPlays) ? parlays.topPlays :
+    []
+
   return res.json({
     sport: bestAvailableSportKey,
     bestAvailable: {
@@ -259,6 +264,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     },
     tracking: perf,
     parlays,
+    topPlays,
     ladderPool: [],
     routePlayableSeed: [],
     finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows)
