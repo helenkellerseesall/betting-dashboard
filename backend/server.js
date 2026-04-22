@@ -4097,6 +4097,98 @@ function buildMlbLiveDualBestAvailablePayload() {
       return americanFromProbability(p)
     }
 
+    const decimalFromAmerican = (o) => {
+      const odds = Number(o)
+      if (!Number.isFinite(odds) || odds === 0) return null
+      if (odds > 0) return 1 + (odds / 100)
+      return 1 + (100 / Math.abs(odds))
+    }
+
+    const americanFromDecimal = (d) => {
+      const dec = Number(d)
+      if (!Number.isFinite(dec) || dec <= 1) return null
+      const p = 1 / dec
+      return americanFromProbability(p)
+    }
+
+    const estimateParlayFromLegs = (legs, { stake = 100 } = {}) => {
+      const decs = (Array.isArray(legs) ? legs : [])
+        .map((l) => decimalFromAmerican(l?.odds))
+        .filter((d) => Number.isFinite(d) && d > 1)
+      if (!decs.length) return { estimatedDecimal: null, estimatedOdds: null, estimatedPayout: null }
+      const estimatedDecimal = decs.reduce((acc, v) => acc * v, 1)
+      const estimatedOdds = americanFromDecimal(estimatedDecimal)
+      const s = Number(stake)
+      const estimatedPayout = Number.isFinite(s) ? Number((s * estimatedDecimal).toFixed(2)) : null
+      return {
+        estimatedDecimal: Number(estimatedDecimal.toFixed(4)),
+        estimatedOdds,
+        estimatedPayout,
+      }
+    }
+
+    const buildLiveTicketsFromTopPlays = (rowsIn) => {
+      const rows = Array.isArray(rowsIn) ? rowsIn.filter(Boolean) : []
+
+      const pickLegs = (pool, { minLegs, maxLegs, preferDifferentTeams = true } = {}) => {
+        const ticket = pickTicket(pool, {
+          minLegs,
+          maxLegs,
+          allowMultiHr: true,
+          diversityBias: true,
+          preferDifferentTeams,
+          playerDiversityCore: true,
+        })
+        if (!ticket || !Array.isArray(ticket.legs)) return null
+        const legs = ticket.legs.slice(0, maxLegs || ticket.legs.length)
+        if (legs.length < (minLegs || 2)) return null
+        const est = estimateParlayFromLegs(legs, { stake: 100 })
+        return { legs, ...est }
+      }
+
+      const isOdds = (r) => Number.isFinite(Number(r?.odds))
+      const odds = (r) => Number(r?.odds)
+      const implied = (r) => impliedFromAmerican(r?.odds)
+      const pred = (r) => {
+        const p = Number(r?.predictedProbability)
+        if (Number.isFinite(p) && p > 0 && p < 1) return p
+        const lp = likelihoodScore(r)
+        return Number.isFinite(lp) ? lp : null
+      }
+
+      const valueScore = (r) => {
+        const p = pred(r)
+        const ip = implied(r)
+        if (!Number.isFinite(p) || !Number.isFinite(ip)) return -Infinity
+        return p - ip
+      }
+
+      const safePool = rankByScore(
+        rows.filter((r) => isOdds(r) && odds(r) >= -260 && odds(r) <= 220),
+      )
+      const leveragePool = rankByScore(
+        rows.filter((r) => isOdds(r) && odds(r) >= -220 && odds(r) <= 320),
+      )
+      const valuePool = [...rows]
+        .filter((r) => isOdds(r) && odds(r) >= -180 && odds(r) <= 300)
+        .sort((a, b) => valueScore(b) - valueScore(a))
+      const spikePool = [...rows]
+        .filter((r) => isOdds(r) && (String(r?.propType || "").trim() === "Home Runs" || odds(r) >= 200))
+        .sort((a, b) => valueScore(b) - valueScore(a))
+
+      const safeTicket = pickLegs(safePool, { minLegs: 2, maxLegs: 2, preferDifferentTeams: true })
+      const leverageTicket = pickLegs(leveragePool, { minLegs: 3, maxLegs: 3, preferDifferentTeams: true })
+      const valueTicket = pickLegs(valuePool, { minLegs: 3, maxLegs: 4, preferDifferentTeams: true })
+      const spikeTicket = pickLegs(spikePool, { minLegs: 3, maxLegs: 4, preferDifferentTeams: true })
+
+      return {
+        safe: safeTicket ? [safeTicket] : [],
+        leverage: leverageTicket ? [leverageTicket] : [],
+        value: valueTicket ? [valueTicket] : [],
+        spike: spikeTicket ? [spikeTicket] : [],
+      }
+    }
+
     const startMs = (r) => {
       const raw =
         r?.eventStartTime ||
@@ -5057,6 +5149,8 @@ function buildMlbLiveDualBestAvailablePayload() {
       line: r?.line ?? null,
       odds: r?.odds ?? null,
     }))
+    const liveTickets = buildLiveTicketsFromTopPlays(topPlayRows)
+    console.log("[LIVE EXECUTION LAYER ACTIVE]")
     console.log("[BETTABLE FILTER ACTIVE]")
     console.log("[TOP PLAYS ACTIVE]", { count: topPlays.length })
     console.log("[VALUE ENGINE ACTIVE]", { sample: topPlays.slice(0, 5) })
@@ -5312,7 +5406,7 @@ function buildMlbLiveDualBestAvailablePayload() {
       lotto: lotto.length
     })
 
-    return { core: coreKept, fun, lotto, topPlays }
+    return { core: coreKept, fun, lotto, topPlays, liveTickets }
   }
 
   const parlays = buildMlbAutoParlays({ allRows: eligible })
@@ -5461,6 +5555,7 @@ function buildMlbLiveDualBestAvailablePayload() {
     lotto,
     parlays,
     topPlays: Array.isArray(parlays?.topPlays) ? parlays.topPlays : [],
+    liveTickets: (parlays?.liveTickets && typeof parlays.liveTickets === "object") ? parlays.liveTickets : { safe: [], leverage: [], value: [], spike: [] },
     flexProps: flex,
     highestHitRate2: { fanduel: fdHighestHitRate2, draftkings: dkHighestHitRate2 },
     highestHitRate3: { fanduel: fdHighestHitRate3, draftkings: dkHighestHitRate3 },

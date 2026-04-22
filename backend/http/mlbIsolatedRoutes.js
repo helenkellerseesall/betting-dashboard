@@ -255,6 +255,13 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     Array.isArray(parlays?.topPlays) ? parlays.topPlays :
     []
 
+  const liveTickets =
+    bestAvailablePayload?.liveTickets && typeof bestAvailablePayload.liveTickets === "object"
+      ? bestAvailablePayload.liveTickets
+      : (parlays?.liveTickets && typeof parlays.liveTickets === "object")
+        ? parlays.liveTickets
+        : { safe: [], leverage: [], value: [], spike: [] }
+
   return res.json({
     sport: bestAvailableSportKey,
     bestAvailable: {
@@ -265,6 +272,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     tracking: perf,
     parlays,
     topPlays,
+    liveTickets,
     ladderPool: [],
     routePlayableSeed: [],
     finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows)
