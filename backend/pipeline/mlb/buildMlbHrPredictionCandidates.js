@@ -109,6 +109,18 @@ function hrContactScore(row) {
   return Number.isFinite(contactScore) ? contactScore : 0
 }
 
+function getPlayerPower(player) {
+  const name = norm(player)
+  if (!name) return null
+  const m = mlbPlayerPower?.[name]
+  if (!m || typeof m !== "object") return null
+  return {
+    barrelRate: toNum(m.barrelRate),
+    hardHitRate: toNum(m.hardHitRate),
+    avgExitVelocity: toNum(m.avgExitVelocity),
+  }
+}
+
 function hrFinalScore(row, valueWeight) {
   const baseScore = toNum(row?.predictedProbability) || 0
   const ctx = hrContextScore(row)
@@ -135,7 +147,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
 
   const hrRows = rows.filter((r) => r && norm(r?.propType) === "Home Runs" && Number.isFinite(Number(r?.odds)))
 
-  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null }>} */
+  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null, gameTotal: number | null, hr9Allowed: number | null, flyBallRateAllowed: number | null, power: { barrelRate: number | null, hardHitRate: number | null, avgExitVelocity: number | null } | null }>} */
   const bestByPlayerEvent = new Map()
   for (const row of hrRows) {
     const player = norm(row?.player)
@@ -151,6 +163,10 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const impliedTeamTotal = toNum(row?.impliedTeamTotal)
     const battingOrder = getBattingOrderIndex(row)
     const edgeProbability = toNum(row?.edgeProbability)
+    const gameTotal = toNum(row?.gameTotal)
+    const hr9Allowed = getPitcherHrRate(row)
+    const flyBallRateAllowed = getPitcherFlyBallRate(row)
+    const power = getPlayerPower(player)
     const entry = {
       player,
       team,
@@ -163,6 +179,10 @@ function buildMlbHrPredictionCandidates(input = {}) {
       impliedTeamTotal,
       battingOrder,
       edgeProbability,
+      gameTotal,
+      hr9Allowed,
+      flyBallRateAllowed,
+      power,
     }
     const prev = bestByPlayerEvent.get(dedupeKey)
     if (!prev || (entry.hrScore || 0) > (prev.hrScore || 0)) bestByPlayerEvent.set(dedupeKey, entry)
@@ -186,6 +206,23 @@ function buildMlbHrPredictionCandidates(input = {}) {
     if (Number.isFinite(odds) && odds >= 450) tag = "LOTTO"
     if (Number.isFinite(impl) && impl <= 0.1) tag = "LOTTO"
 
+    const reasonsArray = []
+    const power = r.power
+    if (Number.isFinite(power?.barrelRate) && power.barrelRate >= 0.15) reasonsArray.push("elite barrel rate")
+    if (Number.isFinite(power?.hardHitRate) && power.hardHitRate >= 0.45) reasonsArray.push("high hard-hit rate")
+    if (Number.isFinite(power?.avgExitVelocity) && power.avgExitVelocity >= 91) reasonsArray.push("strong exit velocity")
+
+    if (Number.isFinite(r.hr9Allowed) && r.hr9Allowed >= 1.35) reasonsArray.push("high HR/9 pitcher")
+    if (Number.isFinite(r.flyBallRateAllowed) && r.flyBallRateAllowed >= 0.38) reasonsArray.push("fly-ball prone pitcher")
+
+    if (Number.isFinite(r.impliedTeamTotal) && r.impliedTeamTotal >= 5) reasonsArray.push("high team total")
+    if (Number.isFinite(r.battingOrder) && r.battingOrder <= 5) reasonsArray.push("top lineup spot")
+    if (Number.isFinite(r.gameTotal) && r.gameTotal >= 8.5) reasonsArray.push("high game total")
+
+    if (Number.isFinite(r.edgeProbability) && r.edgeProbability > 0.05) reasonsArray.push("positive betting edge")
+
+    const reasons = Array.isArray(reasonsArray) ? reasonsArray : []
+
     return {
       player: r.player,
       team: r.team,
@@ -194,6 +231,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       predictedProbability: r.predictedProbability,
       hrScore: r.hrScore,
       tag,
+      reasons,
       _reasoning: {
         matchupScore: r.matchupScore,
         impliedTeamTotal: r.impliedTeamTotal,
@@ -204,9 +242,17 @@ function buildMlbHrPredictionCandidates(input = {}) {
   })
 
   const candidates = candidatesWithMeta.map((r) => {
-    const out = { ...r }
-    delete out._reasoning
-    return out
+    // Final output (source of truth): explicitly include reasons on each object.
+    return {
+      player: r.player,
+      team: r.team,
+      eventId: r.eventId,
+      odds: r.odds,
+      predictedProbability: r.predictedProbability,
+      hrScore: r.hrScore,
+      tag: r.tag,
+      reasons: Array.isArray(r?.reasons) ? r.reasons : [],
+    }
   })
 
   const mostLikelyHr = [...candidatesWithMeta]
@@ -228,6 +274,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
         predictedProbability: r.predictedProbability,
         hrScore: r.hrScore,
         tag: r.tag,
+        reasons: Array.isArray(r?.reasons) ? r.reasons : [],
         hasStrongMatchup: matchupScore > 0,
         strongContext,
         valueEdge: Number.isFinite(edgeProbability) && edgeProbability > 0,
