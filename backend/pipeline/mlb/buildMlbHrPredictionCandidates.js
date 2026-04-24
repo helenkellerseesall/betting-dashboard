@@ -1,5 +1,7 @@
 "use strict"
 
+const mlbPlayerPower = require("../../data/mlbPlayerPower.json")
+
 function norm(v) {
   return String(v == null ? "" : v).trim()
 }
@@ -86,12 +88,34 @@ function hrValueScore(row, weight = 2.5) {
   return edge * weight
 }
 
+function hrContactScore(row) {
+  const player = norm(row?.player)
+  if (!player) return 0
+  const m = mlbPlayerPower?.[player]
+  if (!m || typeof m !== "object") return 0
+
+  const barrelRate = toNum(m.barrelRate)
+  const hardHitRate = toNum(m.hardHitRate)
+  const avgExitVelocity = toNum(m.avgExitVelocity)
+
+  if (!Number.isFinite(barrelRate) && !Number.isFinite(hardHitRate) && !Number.isFinite(avgExitVelocity)) return 0
+
+  const barrelComponent = (Number.isFinite(barrelRate) ? barrelRate : 0) * 30 // primary driver
+  const hardHitComponent = (Number.isFinite(hardHitRate) ? hardHitRate : 0) * 10
+  const evComponent = (Number.isFinite(avgExitVelocity) ? (avgExitVelocity - 85) : 0) * 0.4
+
+  let contactScore = barrelComponent + hardHitComponent + evComponent
+  contactScore = contactScore * 0.7
+  return Number.isFinite(contactScore) ? contactScore : 0
+}
+
 function hrFinalScore(row, valueWeight) {
   const baseScore = toNum(row?.predictedProbability) || 0
   const ctx = hrContextScore(row)
   const matchup = hrMatchupScore(row)
   const value = hrValueScore(row, valueWeight)
-  return baseScore + ctx + matchup + value
+  const contact = hrContactScore(row)
+  return baseScore + ctx + matchup + value + contact
 }
 
 function getEventId(row) {
