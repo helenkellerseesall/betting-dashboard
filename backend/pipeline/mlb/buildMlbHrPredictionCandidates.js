@@ -2,6 +2,7 @@
 
 const mlbPlayerPower = require("../../data/mlbPlayerPower.json")
 const gameWeather = require("../../data/mlbGameWeather.json")
+const parkFactors = require("../../data/mlbParkFactors.json")
 
 console.log("[WEATHER DEBUG] weather keys:", Object.keys(gameWeather || {}).slice(0, 5))
 
@@ -150,7 +151,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
 
   const hrRows = rows.filter((r) => r && norm(r?.propType) === "Home Runs" && Number.isFinite(Number(r?.odds)))
 
-  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null, gameTotal: number | null, hr9Allowed: number | null, flyBallRateAllowed: number | null, power: { barrelRate: number | null, hardHitRate: number | null, avgExitVelocity: number | null } | null, _weatherScore: number | null }>} */
+  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null, gameTotal: number | null, hr9Allowed: number | null, flyBallRateAllowed: number | null, power: { barrelRate: number | null, hardHitRate: number | null, avgExitVelocity: number | null } | null, _weatherScore: number | null, _parkScore: number | null }>} */
   const bestByPlayerEvent = new Map()
   for (const row of hrRows) {
     console.log("[WEATHER DEBUG] row.eventId:", row.eventId)
@@ -197,11 +198,38 @@ function buildMlbHrPredictionCandidates(input = {}) {
       row._weatherScore = weatherScore
     }
 
+    let parkScore = 0
+    const parkKey = (row?.homeTeam || "").trim().toLowerCase()
+    const parkData = parkKey ? parkFactors?.[parkKey] : null
+    if (parkData) {
+      const factor = toNum(parkData.hrFactor)
+      if (Number.isFinite(factor)) {
+        if (factor >= 1.2) {
+          parkScore += 2.5
+        } else if (factor >= 1.1) {
+          parkScore += 1.5
+        } else if (factor >= 1.05) {
+          parkScore += 0.75
+        } else if (factor <= 0.9) {
+          parkScore -= 2
+        } else if (factor <= 0.95) {
+          parkScore -= 1
+        }
+      }
+    }
+
+    hrScore = hrScore + parkScore
+
+    if (parkScore !== 0) {
+      row._parkScore = parkScore
+    }
+
     const entry = {
       player,
       team,
       eventId,
       _weatherScore: weatherScore !== 0 ? weatherScore : null,
+      _parkScore: parkScore,
       odds: row?.odds ?? null,
       predictedProbability: row?.predictedProbability ?? null,
       impliedProbability: implied,
@@ -264,6 +292,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       tag,
       reasons,
       _weatherScore: r._weatherScore ?? null,
+      _parkScore: r._parkScore ?? null,
       _reasoning: {
         matchupScore: r.matchupScore,
         impliedTeamTotal: r.impliedTeamTotal,
@@ -285,6 +314,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       tag: r.tag,
       reasons: Array.isArray(r?.reasons) ? r.reasons : [],
       _weatherScore: r._weatherScore ?? null,
+      _parkScore: toNum(r._parkScore) ?? 0,
     }
   })
 
@@ -309,6 +339,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
         tag: r.tag,
         reasons: Array.isArray(r?.reasons) ? r.reasons : [],
         _weatherScore: r._weatherScore ?? null,
+        _parkScore: toNum(r._parkScore) ?? 0,
         hasStrongMatchup: matchupScore > 0,
         strongContext,
         valueEdge: Number.isFinite(edgeProbability) && edgeProbability > 0,
