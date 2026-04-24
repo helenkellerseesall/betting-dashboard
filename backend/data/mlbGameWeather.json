@@ -1,0 +1,18 @@
+{
+  "55fa28ecac0b985cde7ea3ed079986e0": {
+    "windOut": true,
+    "windSpeed": 10,
+    "temperature": 78
+  },
+  "7b000b2feb3413984543d3be6ccd448b": {
+    "windIn": true,
+    "windSpeed": 9,
+    "temperature": 60
+  },
+  "8a412fa061b10c75d57bc591bf081271": {
+    "windOut": true,
+    "windSpeed": 12,
+    "temperature": 80
+  }
+}
+

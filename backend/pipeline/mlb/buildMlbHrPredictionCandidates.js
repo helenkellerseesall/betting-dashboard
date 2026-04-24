@@ -1,6 +1,9 @@
 "use strict"
 
 const mlbPlayerPower = require("../../data/mlbPlayerPower.json")
+const gameWeather = require("../../data/mlbGameWeather.json")
+
+console.log("[WEATHER DEBUG] weather keys:", Object.keys(gameWeather || {}).slice(0, 5))
 
 function norm(v) {
   return String(v == null ? "" : v).trim()
@@ -147,9 +150,11 @@ function buildMlbHrPredictionCandidates(input = {}) {
 
   const hrRows = rows.filter((r) => r && norm(r?.propType) === "Home Runs" && Number.isFinite(Number(r?.odds)))
 
-  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null, gameTotal: number | null, hr9Allowed: number | null, flyBallRateAllowed: number | null, power: { barrelRate: number | null, hardHitRate: number | null, avgExitVelocity: number | null } | null }>} */
+  /** @type {Map<string, { player: string, team: string | null, eventId: string | null, odds: any, predictedProbability: any, impliedProbability: number | null, hrScore: number, matchupScore: number, impliedTeamTotal: number | null, battingOrder: number | null, edgeProbability: number | null, gameTotal: number | null, hr9Allowed: number | null, flyBallRateAllowed: number | null, power: { barrelRate: number | null, hardHitRate: number | null, avgExitVelocity: number | null } | null, _weatherScore: number | null }>} */
   const bestByPlayerEvent = new Map()
   for (const row of hrRows) {
+    console.log("[WEATHER DEBUG] row.eventId:", row.eventId)
+
     const player = norm(row?.player)
     if (!player) continue
     const team = norm(row?.team) || null
@@ -157,7 +162,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const eventKey = norm(eventId || "")
     const dedupeKey = [player, team || "", eventKey].join("|")
 
-    const hrScore = hrFinalScore(row, valueWeight)
+    let hrScore = hrFinalScore(row, valueWeight)
     const implied = getImpliedProbability(row)
     const matchupScore = hrMatchupScore(row)
     const impliedTeamTotal = toNum(row?.impliedTeamTotal)
@@ -167,10 +172,36 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const hr9Allowed = getPitcherHrRate(row)
     const flyBallRateAllowed = getPitcherFlyBallRate(row)
     const power = getPlayerPower(player)
+
+    let weatherScore = 0
+    const weather = gameWeather?.[row?.eventId]
+    console.log("[WEATHER DEBUG] lookup:", row.eventId, weather)
+    if (weather) {
+      if (weather.windOut && Number.isFinite(toNum(weather.windSpeed)) && toNum(weather.windSpeed) >= 8) {
+        weatherScore += 2
+      }
+      if (weather.windIn && Number.isFinite(toNum(weather.windSpeed)) && toNum(weather.windSpeed) >= 8) {
+        weatherScore -= 2
+      }
+      if (Number.isFinite(toNum(weather.temperature)) && toNum(weather.temperature) >= 75) {
+        weatherScore += 1.5
+      }
+      if (Number.isFinite(toNum(weather.temperature)) && toNum(weather.temperature) <= 55) {
+        weatherScore -= 1
+      }
+    }
+
+    hrScore = hrScore + weatherScore
+
+    if (weatherScore !== 0) {
+      row._weatherScore = weatherScore
+    }
+
     const entry = {
       player,
       team,
       eventId,
+      _weatherScore: weatherScore !== 0 ? weatherScore : null,
       odds: row?.odds ?? null,
       predictedProbability: row?.predictedProbability ?? null,
       impliedProbability: implied,
@@ -232,6 +263,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       hrScore: r.hrScore,
       tag,
       reasons,
+      _weatherScore: r._weatherScore ?? null,
       _reasoning: {
         matchupScore: r.matchupScore,
         impliedTeamTotal: r.impliedTeamTotal,
@@ -252,6 +284,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       hrScore: r.hrScore,
       tag: r.tag,
       reasons: Array.isArray(r?.reasons) ? r.reasons : [],
+      _weatherScore: r._weatherScore ?? null,
     }
   })
 
@@ -275,6 +308,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
         hrScore: r.hrScore,
         tag: r.tag,
         reasons: Array.isArray(r?.reasons) ? r.reasons : [],
+        _weatherScore: r._weatherScore ?? null,
         hasStrongMatchup: matchupScore > 0,
         strongContext,
         valueEdge: Number.isFinite(edgeProbability) && edgeProbability > 0,
