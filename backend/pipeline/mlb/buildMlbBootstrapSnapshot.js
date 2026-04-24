@@ -737,6 +737,7 @@ function buildMarketRequestList(mlbConfig) {
 }
 
 async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externalSnapshot = null, externalSourceName = null }) {
+  console.log("[MLB INGEST START]")
   const mlbConfig = getSportConfig("mlb")
   if (!mlbConfig) {
     throw new Error("MLB sport config missing")
@@ -774,7 +775,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       detroitDateKey: event?.detroitDateKey || null
     }))
 
-  const rows = []
+  const baseOddsRows = []
+  const eventOddsRows = []
   const rawOddsEvents = []
   const failedEvents = []
   const invalidMarketsDetected = new Set()
@@ -1010,7 +1012,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       }
 
       const eventRows = dedupeMlbRows(eventRowsMerged)
-      rows.push(...eventRows)
+      eventOddsRows.push(...eventRows)
 
       totalBookmakersSeen += eventBookmakersSeen
       totalMarketsSeen += eventMarketsSeen
@@ -1036,6 +1038,17 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       })
     }
   }
+
+  const rows = [
+    ...baseOddsRows,
+    ...eventOddsRows
+  ]
+  console.log("[MLB FETCH CHECK]", {
+    baseOddsRows: baseOddsRows.length,
+    eventOddsRows: eventOddsRows.length,
+  })
+  console.log("[MLB INGEST TOTAL ROWS]", rows.length)
+  console.log("[MLB ROW COUNT]", rows.length)
 
   let resolvedExternalSnapshot
   if (externalSnapshot && typeof externalSnapshot === "object") {
@@ -1064,6 +1077,10 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   })
 
   const enrichedRows = Array.isArray(enrichmentResult?.rows) ? enrichmentResult.rows : []
+  console.log("[MLB STAGE]", {
+    raw: Array.isArray(rows) ? rows.length : 0,
+    enriched: Array.isArray(enrichedRows) ? enrichedRows.length : 0,
+  })
 
   // -------------------------------------------------------------------------
   // Phase 2: Signal-driven probability for HR/power markets

@@ -5,6 +5,10 @@
  * No NBA oddsSnapshot reads/writes here — only mlbSnapshot and MLB builders.
  */
 
+const { buildMlbAutoTickets } = require("../pipeline/mlb/buildMlbAutoTickets")
+const { buildMlbHrPredictionCandidates } = require("../pipeline/mlb/buildMlbHrPredictionCandidates")
+const { buildMlbHrStacks } = require("../pipeline/mlb/buildMlbHrStacks")
+
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
   const seen = new Set()
@@ -85,6 +89,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     setMlbSnapshot,
     ODDS_API_KEY,
     buildMlbBootstrapSnapshot,
+    hydrateMlbProbabilityLayer,
     saveMlbReplaySnapshotToDisk,
     buildLiveDualBestAvailablePayload,
     buildMlbParlays,
@@ -122,6 +127,9 @@ async function handleMlbBestAvailableGet(req, res, deps) {
         })
         setMlbSnapshot({
           ...snapshot,
+          rows: typeof hydrateMlbProbabilityLayer === "function"
+            ? hydrateMlbProbabilityLayer(snapshot?.rows)
+            : snapshot?.rows,
           diagnostics: {
             ...(snapshot?.diagnostics && typeof snapshot.diagnostics === "object" ? snapshot.diagnostics : {}),
             bootstrapPhase: "phase-1-live",
@@ -267,45 +275,103 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     Array.isArray(parlays?.ceilingPlays) ? parlays.ceilingPlays :
     []
 
+  const mlbSnapshot = getMlbSnapshot()
+  const finalPlayableRows = Array.isArray(bestAvailablePayload?.finalPlayableRows) ? bestAvailablePayload.finalPlayableRows : null
+  const payloadBest = Array.isArray(bestAvailablePayload?.best) ? bestAvailablePayload.best : null
+
+  console.log("[MLB OUTPUT]", {
+    raw: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0,
+    best: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : (Array.isArray(payloadBest) ? payloadBest.length : 0)
+  })
+
+  console.log("[MLB STAGE]", {
+    raw: Array.isArray(mlbSnap?.rows) ? mlbSnap.rows.length : 0,
+    finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0,
+    payloadBest: Array.isArray(payloadBest) ? payloadBest.length : 0,
+  })
+
+  mlbSnapshot.props = finalPlayableRows || payloadBest || []
+  mlbSnapshot.updatedAt = new Date().toISOString()
+  console.log("[MLB FINAL ASSIGNMENT]", mlbSnapshot.props?.length)
+
+  console.log("[MLB DEBUG]", {
+    props: mlbSnapshot?.props?.length,
+    sameRef: mlbSnapshot === getMlbSnapshot()
+  })
+
+  console.log("[MLB RETURN DEBUG]", {
+    hasSnapshot: !!mlbSnapshot,
+    props: mlbSnapshot?.props?.length
+  })
+
+  const coreProps = Array.isArray(mlbSnapshot?.props) ? mlbSnapshot.props : []
+  const upsideProps = Array.isArray(mlbSnap?.rows) ? mlbSnap.rows : []
+
+  let autoTickets = { ok: false, counts: { bestProps: 0, allProps: 0 }, buckets: { hits: 0, tb: 0, rbi: 0, hr: 0, alt: 0 }, tickets: [] }
+  try {
+    autoTickets = buildMlbAutoTickets({
+      bestProps: finalPlayableRows || payloadBest || [],
+      allProps: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
+    })
+  } catch (e) {
+    console.log("[MLB AUTO TICKETS ERROR]", e?.message || e)
+  }
+
+  // HR prediction debug (safe execution)
+  console.log("[HR DEBUG] snapshot rows:", mlbSnapshot?.rows?.length)
+
+  let hrPredictionToday = { topHrCandidatesToday: [], mostLikelyHr: [] }
+  try {
+    if (mlbSnapshot?.rows?.length > 0) {
+      hrPredictionToday = buildMlbHrPredictionCandidates({
+        rows: mlbSnapshot.rows
+      })
+    } else {
+      console.log("[HR DEBUG] No rows passed to HR builder")
+    }
+  } catch (err) {
+    console.log("[HR ERROR]", err?.message || err)
+  }
+
+  console.log("[HR DEBUG] candidates:", hrPredictionToday.topHrCandidatesToday?.length)
+  console.log("[HR DEBUG] mostLikely:", hrPredictionToday.mostLikelyHr?.length)
+
+  let hrStacks = { sameGameStacks: [], crossGameLotto: [], hybridStacks: [] }
+  try {
+    if (hrPredictionToday?.topHrCandidatesToday?.length > 0) {
+      hrStacks = buildMlbHrStacks({
+        candidates: hrPredictionToday.topHrCandidatesToday,
+        topHrCandidatesToday: hrPredictionToday.topHrCandidatesToday,
+      })
+    }
+  } catch (err) {
+    console.log("[HR STACK ERROR]", err?.message || err)
+  }
+
+  console.log("[HR STACK DEBUG ROUTE]", {
+    sameGame: hrStacks.sameGameStacks?.length,
+    crossGame: hrStacks.crossGameLotto?.length,
+    hybrid: hrStacks.hybridStacks?.length,
+  })
+
+  hrPredictionToday.stacks = {
+    sameGame: hrStacks.sameGameStacks || [],
+    crossGame: hrStacks.crossGameLotto || [],
+    hybrid: hrStacks.hybridStacks || [],
+  }
+
+  console.log("[MLB RESPONSE KEYS]", Object.keys({
+    snapshot: mlbSnapshot,
+    bestProps: finalPlayableRows || payloadBest || [],
+    allProps: mlbSnapshot.rows || [],
+    hrPredictionToday,
+  }))
+
   return res.json({
-    sport: bestAvailableSportKey,
-    bestAvailable: {
-      ...bestAvailablePayload,
-      slateMode: "mlb",
-      tracking: perf,
-    },
-    tracking: perf,
-    parlays,
-    topPlays,
-    liveTickets,
-    ceilingPlays,
-    ladderPool: [],
-    routePlayableSeed: [],
-    finalPlayableRows: Array.isArray(bestAvailablePayload?.finalPlayableRows)
-      ? bestAvailablePayload.finalPlayableRows
-      : Array.isArray(bestAvailablePayload?.best)
-        ? bestAvailablePayload.best
-        : [],
-    standardCandidates: [],
-    ladderCandidates: [],
-    coreStandardProps,
-    ladderProps,
-    specialProps: specialPropsBoard,
-    boardCounts,
-    snapshotMeta: {
-      ...buildSnapshotMeta(),
-      ...(mlbSnapshotTime ? { updatedAt: mlbSnapshotTime } : {}),
-      ...mlbSnapshotMetaExtras,
-      sportKey: bestAvailableSportKey,
-      mlb: {
-        updatedAt: mlbSnap?.updatedAt || null,
-        snapshotSlateDateKey: mlbSnap?.snapshotSlateDateKey || null,
-        rowCount: mlbSnapshotMetaExtras.rowCount,
-        events: mlbSnapshotMetaExtras.events,
-      },
-    },
-    slateStateValidator: null,
-    lineHistorySummary: null,
+    snapshot: mlbSnapshot,
+    bestProps: finalPlayableRows || payloadBest || [],
+    allProps: mlbSnapshot.rows || [],
+    hrPredictionToday,
   })
 }
 

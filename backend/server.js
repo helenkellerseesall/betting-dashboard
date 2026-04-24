@@ -4274,6 +4274,332 @@ function buildMlbLiveDualBestAvailablePayload() {
       }
     }
 
+    const buildCeilingComboTicketsFromCeilingPlays = (rowsIn) => {
+      const rows = Array.isArray(rowsIn) ? rowsIn.filter(Boolean) : []
+      if (!rows.length) return []
+
+      const odds = (r) => Number(r?.odds)
+      const isOdds = (r) => Number.isFinite(odds(r))
+      const pt = (r) => String(r?.propType || "").trim()
+      const line = (r) => Number(r?.line)
+      const playerKey = (r) => String(r?.player || "").trim().toLowerCase()
+      const teamKey = (r) => String(r?.team || "").trim().toLowerCase()
+      const gameKey = (r) => String(r?.eventId || r?.gameId || r?.matchup || "").trim() || "unknown"
+
+      const lineupPos = (r) => {
+        const n = Number(r?.lineupPosition ?? r?.battingOrderIndex ?? r?.lineupSpot)
+        return Number.isFinite(n) ? n : NaN
+      }
+      const lineupTier = (r) => {
+        const lp = lineupPos(r)
+        if (Number.isFinite(lp) && lp >= 1 && lp <= 3) return "top"
+        if (Number.isFinite(lp) && lp >= 4 && lp <= 6) return "middle"
+        if (Number.isFinite(lp) && lp >= 7 && lp <= 9) return "bottom"
+        return "unknown"
+      }
+
+      const qualityScore = (r) => {
+        // Light bias only (still chaotic): lineup role + power/impact proxies.
+        let s = 0
+        const tier = lineupTier(r)
+        if (tier === "top") s += 0.22
+        else if (tier === "middle") s += 0.12
+        else if (tier === "bottom") s -= 0.1
+
+        const sig = Number(r?.signalScore)
+        const p3 = Number(r?.mlbPhase3Score)
+        if (Number.isFinite(sig) && sig >= 0.6) s += 0.12
+        else if (Number.isFinite(sig) && sig >= 0.52) s += 0.06
+        else if (Number.isFinite(sig) && sig < 0.45) s -= 0.05
+
+        if (Number.isFinite(p3) && p3 >= 82) s += 0.08
+        else if (Number.isFinite(p3) && p3 < 58) s -= 0.06
+
+        const p = pt(r)
+        if (p === "Home Runs") s += 0.18
+        if (p === "RBIs") s += 0.08
+        if (p === "Total Bases") s += 0.06
+
+        const gcb = Number(r?.gameContextBoost)
+        if (Number.isFinite(gcb) && gcb > 0) s += Math.min(0.12, gcb * 3)
+        return s
+      }
+
+      const pickWeighted = (arr, usedPlayers, usedTeams, { maxTeamReuseEarly = 1 } = {}) => {
+        const candidates = (Array.isArray(arr) ? arr : []).filter(Boolean).filter((r) => {
+          const pk = playerKey(r)
+          if (!pk || usedPlayers.has(pk)) return false
+          const tk = teamKey(r)
+          if (tk && usedTeams.has(tk) && usedTeams.size <= maxTeamReuseEarly) return false
+          return true
+        })
+        if (!candidates.length) return null
+        // Weight = upside payout factor * (1 + light quality bias) * randomness
+        const weights = candidates.map((r) => {
+          const o = odds(r)
+          const payout = Number.isFinite(o) ? (o >= 600 ? 1.25 : o >= 350 ? 1.12 : o >= 200 ? 1.06 : 1.0) : 1.0
+          const q = qualityScore(r)
+          const w = payout * (1 + Math.max(-0.25, Math.min(0.35, q))) * (0.85 + Math.random() * 0.45)
+          return Math.max(0.01, w)
+        })
+        const total = weights.reduce((a, b) => a + b, 0)
+        let roll = Math.random() * total
+        for (let i = 0; i < candidates.length; i++) {
+          roll -= weights[i]
+          if (roll <= 0) return candidates[i]
+        }
+        return candidates[candidates.length - 1]
+      }
+
+      const isHighCeilingLeg = (r) => {
+        const p = pt(r)
+        const l = line(r)
+        if (p === "Home Runs") return true
+        if (p === "RBIs" && Number.isFinite(l) && l >= 1.5) return true
+        if (p === "Hits" && Number.isFinite(l) && l >= 1.5) return true
+        if (p === "Total Bases" && Number.isFinite(l) && l >= 2.5) return true
+        return Number.isFinite(odds(r)) && odds(r) >= 250
+      }
+
+      const shuffle = (arr) => {
+        const a = [...arr]
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1))
+          ;[a[i], a[j]] = [a[j], a[i]]
+        }
+        return a
+      }
+
+      const upside = rows.filter((r) => isOdds(r) && isHighCeilingLeg(r))
+      const hrOnly = upside.filter((r) => pt(r) === "Home Runs")
+
+      const stabilizers = rows.filter((r) => {
+        const p = pt(r)
+        const l = line(r)
+        const side = String(r?.side || "over").trim().toLowerCase()
+        if (side === "under") return false
+        return (p === "Hits" && Number.isFinite(l) && l <= 0.5) || (p === "Total Bases" && Number.isFinite(l) && l <= 1.5)
+      })
+
+      const groups = new Map()
+      for (const r of upside) {
+        const gk = gameKey(r)
+        if (!groups.has(gk)) groups.set(gk, [])
+        groups.get(gk).push(r)
+      }
+
+      const legNote = (r) => {
+        const p = pt(r)
+        const gcb = Number(r?.gameContextBoost)
+        if (Number.isFinite(gcb) && gcb > 0.012 && Math.random() < 0.55) return "good matchup"
+        if (p === "Home Runs" || (p === "Total Bases" && Number.isFinite(line(r)) && line(r) >= 2.5)) return "power hitter"
+        if (Number.isFinite(odds(r)) && odds(r) >= 400 && Math.random() < 0.5) return "high upside bat"
+        if (lineupTier(r) === "top" || line(r) >= 1.5) return "high upside bat"
+        return "high upside bat"
+      }
+
+      const finalizeTicket = (legsIn, reason) => {
+        const raw = (Array.isArray(legsIn) ? legsIn : []).slice(0, 5)
+        if (raw.length < 3) return null
+        if (!raw.some(isHighCeilingLeg)) return null
+        const legs = raw.map((r) => ({ ...toLeg(r), note: legNote(r) }))
+        const est = estimateParlayFromLegs(legs, { stake: 100 })
+        return { legs, ...est, reason: String(reason || "").trim() || "Ceiling parlay — HR and high-line upside mix." }
+      }
+
+      const ticketSigFromLegs = (legs) =>
+        (Array.isArray(legs) ? legs : [])
+          .map((l) =>
+            [
+              String(l?.player || "").trim().toLowerCase(),
+              String(l?.propType || "").trim(),
+              String(l?.line ?? ""),
+              String(l?.odds ?? ""),
+            ].join(":"),
+          )
+          .filter(Boolean)
+          .sort()
+          .join("|")
+
+      const buildOneGameStack = () => {
+        const viableGames = [...groups.entries()].filter(([, arr]) => arr.length >= 2)
+        if (!viableGames.length) return null
+        viableGames.sort((a, b) => {
+          const aRows = a[1]
+          const bRows = b[1]
+          const aHr = aRows.filter((r) => pt(r) === "Home Runs").length
+          const bHr = bRows.filter((r) => pt(r) === "Home Runs").length
+          if (bHr !== aHr) return bHr - aHr
+          const aCtx = aRows.reduce((acc, r) => acc + (Number(r?.gameContextBoost) || 0), 0)
+          const bCtx = bRows.reduce((acc, r) => acc + (Number(r?.gameContextBoost) || 0), 0)
+          return bCtx - aCtx
+        })
+        const topGames = viableGames.slice(0, Math.min(6, viableGames.length))
+        const pickGame = topGames[Math.floor(Math.random() * topGames.length)]
+        const pool = shuffle(pickGame[1]).sort((a, b) =>
+          (pt(b) === "Home Runs") - (pt(a) === "Home Runs") ||
+          qualityScore(b) - qualityScore(a) ||
+          odds(b) - odds(a)
+        )
+        const chosen = []
+        const usedPlayers = new Set()
+        const usedTeams = new Set()
+        const stackSize = 2 + Math.floor(Math.random() * 2) // 2–3 same-game
+        for (const r of pool) {
+          if (chosen.length >= stackSize) break
+          const pk = playerKey(r)
+          if (!pk || usedPlayers.has(pk)) continue
+          usedPlayers.add(pk)
+          const tk = teamKey(r)
+          if (tk) usedTeams.add(tk)
+          chosen.push(r)
+        }
+        const fillPool = shuffle(upside)
+        const legTarget = 3 + Math.floor(Math.random() * 3) // 3–5
+        while (chosen.length < legTarget) {
+          const pick = pickWeighted(fillPool, usedPlayers, usedTeams, { maxTeamReuseEarly: 2 })
+          if (!pick) break
+          usedPlayers.add(playerKey(pick))
+          const tk = teamKey(pick)
+          if (tk) usedTeams.add(tk)
+          chosen.push(pick)
+        }
+        if (chosen.length < legTarget && stabilizers.length && Math.random() < 0.45) {
+          const stab = stabilizers.find((r) => !usedPlayers.has(playerKey(r)))
+          if (stab) chosen.push(stab)
+        }
+        const teamLabel = chosen[0]?.team || "Same-game"
+        const hrCt = chosen.filter((r) => pt(r) === "Home Runs").length
+        const reason =
+          `${teamLabel} game stack — ${stackSize}+ bats from one matchup leaning HR/high-line (${hrCt} HR leg${hrCt === 1 ? "" : "s"}) with ceiling upside.`
+        return finalizeTicket(chosen.slice(0, 5), reason)
+      }
+
+      const buildOnePowerStack = () => {
+        const pool = shuffle(hrOnly.length ? hrOnly : upside).sort((a, b) =>
+          (pt(b) === "Home Runs") - (pt(a) === "Home Runs") ||
+          qualityScore(b) - qualityScore(a) ||
+          odds(b) - odds(a)
+        )
+        const chosen = []
+        const usedPlayers = new Set()
+        const usedTeams = new Set()
+        const legTarget = 3 + Math.floor(Math.random() * 3) // 3–5
+        while (chosen.length < legTarget) {
+          const pick = pickWeighted(pool, usedPlayers, usedTeams, { maxTeamReuseEarly: 0 })
+          if (!pick) break
+          const pk = playerKey(pick)
+          const tk = teamKey(pick)
+          usedPlayers.add(pk)
+          if (tk) usedTeams.add(tk)
+          chosen.push(pick)
+        }
+        if (hrOnly.length) {
+          const hrCount = chosen.filter((r) => pt(r) === "Home Runs").length
+          if (hrCount < 2) {
+            for (const r of shuffle(hrOnly)) {
+              if (chosen.length >= 5) break
+              const pk = playerKey(r)
+              const tk = teamKey(r)
+              if (!pk || usedPlayers.has(pk)) continue
+              if (tk && usedTeams.has(tk)) continue
+              usedPlayers.add(pk)
+              if (tk) usedTeams.add(tk)
+              chosen.push(r)
+              if (chosen.filter((x) => pt(x) === "Home Runs").length >= 2) break
+            }
+          }
+        }
+        if (chosen.length < legTarget && stabilizers.length && Math.random() < 0.3) {
+          const stab = stabilizers.find((r) => !usedPlayers.has(playerKey(r)))
+          if (stab) chosen.push(stab)
+        }
+        const names = chosen
+          .slice(0, 3)
+          .map((r) => String(r?.player || "").trim())
+          .filter(Boolean)
+          .join(", ")
+        const reason = `Power combo — ${names || "spread"} across teams, HR-heavy and high-ceiling bats in good spots.`
+        return finalizeTicket(chosen.slice(0, 5), reason)
+      }
+
+      const buildOneChaosStack = () => {
+        const chaosPool = shuffle(
+          upside.filter((r) => {
+            const o = odds(r)
+            return Number.isFinite(o) && o >= 450
+          }),
+        )
+        const chosen = []
+        const usedPlayers = new Set()
+        const usedTeams = new Set()
+        const legTarget = 3 + Math.floor(Math.random() * 3) // 3–5
+        for (const r of chaosPool) {
+          if (chosen.length >= legTarget) break
+          const pk = playerKey(r)
+          if (!pk || usedPlayers.has(pk)) continue
+          if (qualityScore(r) < -0.12 && Math.random() < 0.55) continue
+          usedPlayers.add(pk)
+          const tk = teamKey(r)
+          if (tk) usedTeams.add(tk)
+          chosen.push(r)
+        }
+        const fill = shuffle(upside)
+        while (chosen.length < legTarget) {
+          const pick = pickWeighted(fill, usedPlayers, usedTeams, { maxTeamReuseEarly: 2 })
+          if (!pick) break
+          usedPlayers.add(playerKey(pick))
+          const tk = teamKey(pick)
+          if (tk) usedTeams.add(tk)
+          chosen.push(pick)
+        }
+        if (chosen.length < legTarget && stabilizers.length && Math.random() < 0.35) {
+          const stab = stabilizers.find((r) => !usedPlayers.has(playerKey(r)))
+          if (stab) chosen.push(stab)
+        }
+        const reason =
+          "Chaos mix — high-odds HR and ceiling legs thrown together for a lottery-style payout swing."
+        return finalizeTicket(chosen.slice(0, 5), reason)
+      }
+
+      const targetCount = Math.min(10, Math.max(5, 5 + Math.floor(Math.random() * 6))) // 5–10
+      const out = []
+      const seen = new Set()
+      const tryPush = (t) => {
+        if (!t) return
+        const sig = ticketSigFromLegs(t.legs)
+        if (seen.has(sig)) return
+        seen.add(sig)
+        out.push(t)
+      }
+
+      let guard = 0
+      while (out.length < targetCount && guard < 80) {
+        guard += 1
+        const roll = Math.random()
+        if (roll < 0.34) tryPush(buildOneGameStack())
+        else if (roll < 0.68) tryPush(buildOnePowerStack())
+        else tryPush(buildOneChaosStack())
+      }
+
+      while (out.length < targetCount && guard < 200) {
+        guard += 1
+        tryPush(buildOneChaosStack())
+        tryPush(buildOnePowerStack())
+        tryPush(buildOneGameStack())
+      }
+
+      if (!out.length) {
+        const fallback = shuffle(upside.length ? upside : rows).slice(0, 4)
+        const t = finalizeTicket(
+          fallback,
+          "Ceiling fallback — best available upside legs from the ceiling pool.",
+        )
+        return t ? [t] : []
+      }
+      return out.slice(0, targetCount)
+    }
+
     const startMs = (r) => {
       const raw =
         r?.eventStartTime ||
@@ -5356,9 +5682,14 @@ function buildMlbLiveDualBestAvailablePayload() {
       odds: r?.odds ?? null,
     }))
     const liveTickets = buildLiveTicketsFromTopPlays(topPlayRows)
+    // Ceiling combination engine: replace spike slips using ceilingPlays (HR/lotto focused).
+    liveTickets.spike = buildCeilingComboTicketsFromCeilingPlays(ceilingPlayRows)
+    console.log("[MULTI SPIKE + EXPLANATION ACTIVE]", { count: liveTickets.spike.length })
     console.log("[LIVE EXECUTION LAYER ACTIVE]")
     console.log("[SPIKE BUILDER ACTIVE]", { sample: liveTickets.spike?.[0] })
     console.log("[CEILING ENGINE ACTIVE]", { sample: ceilingPlays.slice(0, 5) })
+    console.log("[CEILING COMBO ENGINE ACTIVE]")
+    console.log("[CEILING REFINEMENT ACTIVE]")
     console.log("[BETTABLE FILTER ACTIVE]")
     console.log("[TOP PLAYS ACTIVE]", { count: topPlays.length })
     console.log("[VALUE ENGINE ACTIVE]", { sample: topPlays.slice(0, 5) })
@@ -9852,20 +10183,24 @@ let __refreshInProgress = false
 let __lastRefreshTime = 0
 
 app.get("/api/best-available", async (req, res) => {
-  const bestAvailableSportKey = normalizeBestAvailableSportKey(req.query?.sport)
+  const sportKey = normalizeBestAvailableSportKey(req.query?.sport)
 
-  if (isMlbBestAvailableSportKey(bestAvailableSportKey)) {
+  if (isMlbBestAvailableSportKey(sportKey)) {
+    console.log("[ROUTING] MLB handler triggered")
     return handleMlbBestAvailableGet(req, res, {
-      bestAvailableSportKey,
+      bestAvailableSportKey: "baseball_mlb",
       lastSnapshotSource,
       snapshotLoadedFromDisk,
       oddsSnapshot,
       getMlbSnapshot: () => mlbSnapshot,
       setMlbSnapshot: (snap) => {
-        mlbSnapshot = snap
+        if (!snap || typeof snap !== "object") return
+        for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+        Object.assign(mlbSnapshot, snap)
       },
       ODDS_API_KEY,
       buildMlbBootstrapSnapshot,
+      hydrateMlbProbabilityLayer,
       saveMlbReplaySnapshotToDisk,
       buildLiveDualBestAvailablePayload,
       buildMlbParlays,
@@ -9875,67 +10210,104 @@ app.get("/api/best-available", async (req, res) => {
     })
   }
 
-  // NBA snapshot policy (simple): never use obviously bad/stale data.
-  // - rawProps === 0 -> refresh
-  // - events === 0 -> refresh
-  // - snapshot age > ~8 minutes -> refresh
-  const snapshotEventsCount = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0
-  const snapshotRawPropsCount = Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0
-  const snapshotUpdatedAtMs = oddsSnapshot?.updatedAt ? new Date(oddsSnapshot.updatedAt).getTime() : null
-  const snapshotAgeMinutes = Number.isFinite(snapshotUpdatedAtMs)
-    ? (Date.now() - snapshotUpdatedAtMs) / 60000
-    : Infinity
+  const sport = String(req.query?.sport || "").trim()
+  const bestAvailableSportKey = normalizeBestAvailableSportKey(sport)
 
-  const refreshReasons = []
-  if (snapshotEventsCount === 0) refreshReasons.push("events_zero")
-  if (snapshotRawPropsCount === 0) refreshReasons.push("rawProps_zero")
-  if (snapshotAgeMinutes > 8) refreshReasons.push("stale_over_8m")
+  const handlers = {
+    basketball_nba: async (req, res) => {
+      // NBA snapshot policy (simple): never use obviously bad/stale data.
+      // - rawProps === 0 -> refresh
+      // - events === 0 -> refresh
+      // - snapshot age > ~8 minutes -> refresh
+      const snapshotEventsCount = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0
+      const snapshotRawPropsCount = Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0
+      const snapshotUpdatedAtMs = oddsSnapshot?.updatedAt ? new Date(oddsSnapshot.updatedAt).getTime() : null
+      const snapshotAgeMinutes = Number.isFinite(snapshotUpdatedAtMs)
+        ? (Date.now() - snapshotUpdatedAtMs) / 60000
+        : Infinity
 
-  if (refreshReasons.length) {
-    console.log("[NBA SNAPSHOT POLICY]", {
-      action: "refresh",
-      reasons: refreshReasons,
-      ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
-      events: snapshotEventsCount,
-      rawProps: snapshotRawPropsCount,
-    })
+      const refreshReasons = []
+      if (snapshotEventsCount === 0) refreshReasons.push("events_zero")
+      if (snapshotRawPropsCount === 0) refreshReasons.push("rawProps_zero")
+      if (snapshotAgeMinutes > 8) refreshReasons.push("stale_over_8m")
 
-    // Keep it simple: trigger the existing refresh endpoint in-process, then serve best-available.
-    // This avoids duplicating the refresh pipeline here.
-    try {
-      const now = Date.now()
-      if (__refreshInProgress) {
-        console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
-      } else if (now - __lastRefreshTime < 2 * 60 * 1000) {
-        console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
+      if (refreshReasons.length) {
+        console.log("[NBA SNAPSHOT POLICY]", {
+          action: "refresh",
+          reasons: refreshReasons,
+          ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
+          events: snapshotEventsCount,
+          rawProps: snapshotRawPropsCount,
+        })
+
+        // Keep it simple: trigger the existing refresh endpoint in-process, then serve best-available.
+        // This avoids duplicating the refresh pipeline here.
+        try {
+          const now = Date.now()
+          if (__refreshInProgress) {
+            console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
+          } else if (now - __lastRefreshTime < 2 * 60 * 1000) {
+            console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
+          } else {
+            __refreshInProgress = true
+            __lastRefreshTime = now
+            console.log("[REFRESH GUARD]", { skipped: false, reason: null })
+
+            const port = Number(process.env.PORT || 4000)
+            const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
+            await axios.get(`http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=${sportParam}`, { timeout: 120000 })
+          }
+        } catch (e) {
+          console.warn("[NBA SNAPSHOT POLICY] refresh failed", {
+            message: e?.message || String(e),
+            status: e?.response?.status || null,
+          })
+        } finally {
+          __refreshInProgress = false
+        }
       } else {
-        __refreshInProgress = true
-        __lastRefreshTime = now
-        console.log("[REFRESH GUARD]", { skipped: false, reason: null })
-
-      const port = Number(process.env.PORT || 4000)
-      const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
-      await axios.get(`http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=${sportParam}`, { timeout: 120000 })
+        console.log("[NBA SNAPSHOT POLICY]", {
+          action: "use_snapshot",
+          reasons: [],
+          ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
+          events: snapshotEventsCount,
+          rawProps: snapshotRawPropsCount,
+        })
       }
-    } catch (e) {
-      console.warn("[NBA SNAPSHOT POLICY] refresh failed", {
-        message: e?.message || String(e),
-        status: e?.response?.status || null,
+
+      return __getNbaBestAvailableHandler()(req, res, buildNbaBestAvailableRouteDeps(bestAvailableSportKey), oddsSnapshot)
+    },
+    baseball_mlb: async (req, res) => {
+      return handleMlbBestAvailableGet(req, res, {
+        bestAvailableSportKey: "baseball_mlb",
+        lastSnapshotSource,
+        snapshotLoadedFromDisk,
+        oddsSnapshot,
+        getMlbSnapshot: () => mlbSnapshot,
+        setMlbSnapshot: (snap) => {
+          if (!snap || typeof snap !== "object") return
+          for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+          Object.assign(mlbSnapshot, snap)
+        },
+        ODDS_API_KEY,
+        buildMlbBootstrapSnapshot,
+        hydrateMlbProbabilityLayer,
+        saveMlbReplaySnapshotToDisk,
+        buildLiveDualBestAvailablePayload,
+        buildMlbParlays,
+        buildSnapshotMeta,
+        recordMlbBestProps,
+        evaluateMlbPerformance,
       })
-    } finally {
-      __refreshInProgress = false
     }
-  } else {
-    console.log("[NBA SNAPSHOT POLICY]", {
-      action: "use_snapshot",
-      reasons: [],
-      ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
-      events: snapshotEventsCount,
-      rawProps: snapshotRawPropsCount,
-    })
   }
 
-  return __getNbaBestAvailableHandler()(req, res, buildNbaBestAvailableRouteDeps(bestAvailableSportKey), oddsSnapshot)
+  const handler = handlers[bestAvailableSportKey]
+  if (handler) {
+    return handler(req, res)
+  }
+
+  return res.status(400).json({ error: "Unsupported sport" })
 
 })
 
@@ -18810,10 +19182,12 @@ app.get("/refresh-snapshot", async (req, res) => {
     global.__lastRefreshTime = Date.now()
   console.log("[REFRESH TRIGGERED]")
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
-  const sportKey = normalizeBestAvailableSportKey(req.query?.sport)
+  const sport = String(req.query?.sport || "").trim()
+  const sportKey = normalizeBestAvailableSportKey(sport)
   console.log("[REFRESH SNAPSHOT SPORT]", sportKey)
 
-  if (isMlbBestAvailableSportKey(sportKey)) {
+  if (sport === "baseball_mlb") {
+    console.log("[MLB INGEST CALLED]")
     return handleMlbRefreshSnapshotGet(req, res, {
       isMlbOddsReplayRequest,
       loadMlbReplaySnapshotFromDisk,
@@ -18823,9 +19197,47 @@ app.get("/refresh-snapshot", async (req, res) => {
       saveMlbReplaySnapshotToDisk,
       getMlbSnapshot: () => mlbSnapshot,
       setMlbSnapshot: (snap) => {
-        mlbSnapshot = snap
+        if (!snap || typeof snap !== "object") return
+        for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+        Object.assign(mlbSnapshot, snap)
       },
     })
+  }
+
+  // MLB snapshot is isolated from `oddsSnapshot` (NBA). Refresh it here whenever the
+  // general NBA refresh runs so /api/best-available?sport=baseball_mlb is not starved.
+  if (ODDS_API_KEY) {
+    try {
+      console.log("[MLB INGEST CALLED] refresh-snapshot (nba path) START")
+      const mlbFresh = await buildMlbBootstrapSnapshot({
+        oddsApiKey: ODDS_API_KEY,
+        now: Date.now(),
+      })
+      const nextMlbSnapshot = {
+        ...mlbFresh,
+        rows: hydrateMlbProbabilityLayer(mlbFresh?.rows),
+        diagnostics: {
+          ...(mlbFresh?.diagnostics && typeof mlbFresh.diagnostics === "object" ? mlbFresh.diagnostics : {}),
+          bootstrapPhase: "phase-1-live-with-refresh-snapshot",
+        },
+      }
+      const mlbRows = Array.isArray(nextMlbSnapshot?.rows) ? nextMlbSnapshot.rows : []
+      nextMlbSnapshot.props = mlbRows || []
+      nextMlbSnapshot.updatedAt = new Date().toISOString()
+      console.log("[MLB ROWS TYPE]", Array.isArray(mlbRows), mlbRows?.length)
+      for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+      Object.assign(mlbSnapshot, nextMlbSnapshot)
+      console.log("[MLB SNAPSHOT SIZE]", mlbRows.length)
+      await saveMlbReplaySnapshotToDisk(mlbSnapshot)
+      console.log("[MLB SNAPSHOT WITH-REFRESH-SNAPSHOT]", {
+        rows: Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows.length : 0,
+        events: Array.isArray(mlbSnapshot?.events) ? mlbSnapshot.events.length : 0,
+      })
+    } catch (e) {
+      console.log("[MLB SNAPSHOT WITH-REFRESH-SNAPSHOT FAILED]", e?.message || e)
+    }
+  } else {
+    console.log("[MLB SNAPSHOT WITH-REFRESH-SNAPSHOT] skipped (no ODDS_API_KEY)")
   }
 
   await __getNbaRefreshSnapshotHandler()(req, res, buildNbaRefreshSnapshotDepsWithBindings(sportKey))
@@ -20471,10 +20883,16 @@ app.get("/mlb/refresh", async (req, res) => {
         })
       }
 
-      mlbSnapshot = {
+      const nextMlbSnapshot = {
         ...replaySnapshot,
         rows: hydrateMlbProbabilityLayer(replaySnapshot?.rows)
       }
+      const mlbRows = Array.isArray(nextMlbSnapshot?.rows) ? nextMlbSnapshot.rows : []
+      nextMlbSnapshot.props = mlbRows || []
+      nextMlbSnapshot.updatedAt = new Date().toISOString()
+      console.log("[MLB ROWS TYPE]", Array.isArray(mlbRows), mlbRows?.length)
+      for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+      Object.assign(mlbSnapshot, nextMlbSnapshot)
 
       return res.status(200).json(buildMlbReplayRefreshResponse(replaySnapshot))
     }
@@ -20488,13 +20906,20 @@ app.get("/mlb/refresh", async (req, res) => {
       now: Date.now()
     })
 
-    mlbSnapshot = {
+    const nextMlbSnapshot = {
       ...snapshot,
+      rows: hydrateMlbProbabilityLayer(snapshot?.rows),
       diagnostics: {
         ...(snapshot?.diagnostics && typeof snapshot.diagnostics === "object" ? snapshot.diagnostics : {}),
         bootstrapPhase: "phase-1-live"
       }
     }
+    const mlbRows = Array.isArray(nextMlbSnapshot?.rows) ? nextMlbSnapshot.rows : []
+    nextMlbSnapshot.props = mlbRows || []
+    nextMlbSnapshot.updatedAt = new Date().toISOString()
+    console.log("[MLB ROWS TYPE]", Array.isArray(mlbRows), mlbRows?.length)
+    for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
+    Object.assign(mlbSnapshot, nextMlbSnapshot)
 
     await saveMlbReplaySnapshotToDisk(mlbSnapshot)
 

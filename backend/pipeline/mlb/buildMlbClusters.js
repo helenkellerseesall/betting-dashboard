@@ -4,7 +4,6 @@ const { scoreMlbProp } = require("./scoreMlbProp")
 
 const BUCKET_KEYS = ["hits", "hr", "tb", "rbi"]
 const MAX_JUICE = -250
-const MIN_EDGE = 0.015
 
 /**
  * Phase 3 MLB clustering: bucket scored rows by stat category, sort by score desc, cap 25.
@@ -28,28 +27,15 @@ function buildMlbClusters(rows) {
 
   let afterEdgeFilter = 0
   let afterJuiceFilter = 0
-  let afterProbEdgeFilter = 0
 
   const buckets = { hits: [], hr: [], tb: [], rbi: [] }
 
   for (const row of valid) {
-    const edgeProbability = Number(row?.edgeProbability || 0)
-    const predictedProbability = Number(row?.predictedProbability || 0)
-    const impliedProbability = impliedProbabilityFromRow(row)
     const odds = Number(row?.odds)
 
-    // Hard filters: must be +EV and not extreme juice.
-    if (!(edgeProbability > 0)) continue
-    if (edgeProbability < MIN_EDGE) continue
-    afterEdgeFilter += 1
-
+    // Keep juice sanity (do not starve the MLB prop universe).
     if (Number.isFinite(odds) && odds < MAX_JUICE) continue
     afterJuiceFilter += 1
-
-    if (!Number.isFinite(predictedProbability)) continue
-    if (!Number.isFinite(impliedProbability)) continue
-    if (predictedProbability <= impliedProbability) continue
-    afterProbEdgeFilter += 1
 
     const { score, confidence, category } = scoreMlbProp(row)
     if (!category || !buckets[category]) continue
@@ -77,7 +63,6 @@ function buildMlbClusters(rows) {
     validRows: valid.length,
     afterEdgeFilter,
     afterJuiceFilter,
-    afterProbEdgeFilter,
     finalPlayableRows
   })
 
