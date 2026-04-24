@@ -2,7 +2,7 @@
   "metadata": {
     "sport": "mlb",
     "slateDate": "2026-04-24",
-    "generatedAt": "2026-04-24T10:18:34.107Z",
+    "generatedAt": "2026-04-24T10:43:31.904Z",
     "version": "tracking-phase-4-mlb",
     "bucket": "mlb.bestAvailable.best",
     "storage": "mlb_tracked_best"
@@ -2906,6 +2906,46 @@
       "clv": null,
       "book": "BetOnline.ag",
       "marketKey": "batter_home_runs",
+      "bucket": "mlb.bestAvailable.best"
+    },
+    {
+      "slateDate": "2026-04-24",
+      "sport": "mlb",
+      "player": "Cam Smith",
+      "team": "Houston Astros",
+      "propType": "Total Bases",
+      "side": "Over",
+      "line": 3.5,
+      "odds": 550,
+      "predictedProbability": 0.243846,
+      "edgeProbability": 0.09,
+      "mlbPhase3Score": 1.302185366276923,
+      "timestamp": "2026-04-24T10:34:03.053Z",
+      "result": null,
+      "closingOdds": null,
+      "clv": null,
+      "book": "FanDuel",
+      "marketKey": "batter_total_bases_alternate",
+      "bucket": "mlb.bestAvailable.best"
+    },
+    {
+      "slateDate": "2026-04-24",
+      "sport": "mlb",
+      "player": "Patrick Bailey",
+      "team": "San Francisco Giants",
+      "propType": "Hits",
+      "side": "Over",
+      "line": 1.5,
+      "odds": 473,
+      "predictedProbability": 0.297015,
+      "edgeProbability": 0.122495,
+      "mlbPhase3Score": 1.5906945960416667,
+      "timestamp": "2026-04-24T10:34:03.053Z",
+      "result": null,
+      "closingOdds": null,
+      "clv": null,
+      "book": "DraftKings",
+      "marketKey": "batter_hits_alternate",
       "bucket": "mlb.bestAvailable.best"
     }
   ]

@@ -8,6 +8,7 @@
 const { buildMlbAutoTickets } = require("../pipeline/mlb/buildMlbAutoTickets")
 const { buildMlbHrPredictionCandidates } = require("../pipeline/mlb/buildMlbHrPredictionCandidates")
 const { buildMlbHrStacks } = require("../pipeline/mlb/buildMlbHrStacks")
+const buildMlbHrSlips = require("../pipeline/mlb/buildMlbHrSlips")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -360,11 +361,14 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     hybrid: hrStacks.hybridStacks || [],
   }
 
+  const hrSlips = buildMlbHrSlips({ hrPredictionToday })
+
   console.log("[MLB RESPONSE KEYS]", Object.keys({
     snapshot: mlbSnapshot,
     bestProps: finalPlayableRows || payloadBest || [],
     allProps: mlbSnapshot.rows || [],
     hrPredictionToday,
+    hrSlips,
   }))
 
   return res.json({
@@ -372,6 +376,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     bestProps: finalPlayableRows || payloadBest || [],
     allProps: mlbSnapshot.rows || [],
     hrPredictionToday,
+    hrSlips,
   })
 }
 
