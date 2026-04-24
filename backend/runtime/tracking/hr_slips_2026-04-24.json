@@ -1,0 +1,429 @@
+{
+  "date": "2026-04-24",
+  "createdAt": "2026-04-24T20:00:54.385Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 180,
+          "predictedProbability": 0.381374,
+          "hrScore": 19.548,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Aaron Judge",
+          "team": "New York Yankees",
+          "eventId": "7b000b2feb3413984543d3be6ccd448b",
+          "odds": 200,
+          "predictedProbability": 0.381106,
+          "hrScore": 15.2485,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": -2,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Teoscar Hernandez",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 300,
+          "predictedProbability": 0.348375,
+          "hrScore": 16.7263,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "stackSlips": [
+      [
+        {
+          "player": "Matt Olson",
+          "team": "Atlanta Braves",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 330,
+          "hrScore": 19.6832
+        },
+        {
+          "player": "Bryce Harper",
+          "team": "Philadelphia Phillies",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 400,
+          "hrScore": 18.2143
+        },
+        {
+          "player": "Ronald Acuna Jr.",
+          "team": "Atlanta Braves",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 370,
+          "hrScore": 17.9256
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Yordan Alvarez",
+          "team": "Houston Astros",
+          "eventId": "7b000b2feb3413984543d3be6ccd448b",
+          "odds": 225,
+          "predictedProbability": 0.33724,
+          "hrScore": 11.6331,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": -2,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Juan Soto",
+          "team": "New York Mets",
+          "eventId": "1daf20445fbf24373621ac69d10909d6",
+          "odds": 300,
+          "predictedProbability": 0.335451,
+          "hrScore": 11.7751,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Oneil Cruz",
+          "team": "Pittsburgh Pirates",
+          "eventId": "0bbbb2fddbaa8b74fdca003a5d074d6f",
+          "odds": 280,
+          "predictedProbability": 0.313829,
+          "hrScore": 11.5905,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Marcell Ozuna",
+          "team": "Pittsburgh Pirates",
+          "eventId": "0bbbb2fddbaa8b74fdca003a5d074d6f",
+          "odds": 350,
+          "predictedProbability": 0.312222,
+          "hrScore": 11.0932,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 400,
+          "predictedProbability": 0.311198,
+          "hrScore": 17.3012,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": {
+    "safeSlips": [
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 180,
+          "predictedProbability": 0.381374,
+          "hrScore": 19.548,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "HIT"
+        },
+        {
+          "player": "Aaron Judge",
+          "team": "New York Yankees",
+          "eventId": "7b000b2feb3413984543d3be6ccd448b",
+          "odds": 200,
+          "predictedProbability": 0.381106,
+          "hrScore": 15.2485,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": -2,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "HIT"
+        },
+        {
+          "player": "Teoscar Hernandez",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 300,
+          "predictedProbability": 0.348375,
+          "hrScore": 16.7263,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        }
+      ]
+    ],
+    "stackSlips": [
+      [
+        {
+          "player": "Matt Olson",
+          "team": "Atlanta Braves",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 330,
+          "hrScore": 19.6832,
+          "result": "MISS"
+        },
+        {
+          "player": "Bryce Harper",
+          "team": "Philadelphia Phillies",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 400,
+          "hrScore": 18.2143,
+          "result": "MISS"
+        },
+        {
+          "player": "Ronald Acuna Jr.",
+          "team": "Atlanta Braves",
+          "eventId": "8a412fa061b10c75d57bc591bf081271",
+          "odds": 370,
+          "hrScore": 17.9256,
+          "result": "MISS"
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Yordan Alvarez",
+          "team": "Houston Astros",
+          "eventId": "7b000b2feb3413984543d3be6ccd448b",
+          "odds": 225,
+          "predictedProbability": 0.33724,
+          "hrScore": 11.6331,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": -2,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        },
+        {
+          "player": "Juan Soto",
+          "team": "New York Mets",
+          "eventId": "1daf20445fbf24373621ac69d10909d6",
+          "odds": 300,
+          "predictedProbability": 0.335451,
+          "hrScore": 11.7751,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        },
+        {
+          "player": "Oneil Cruz",
+          "team": "Pittsburgh Pirates",
+          "eventId": "0bbbb2fddbaa8b74fdca003a5d074d6f",
+          "odds": 280,
+          "predictedProbability": 0.313829,
+          "hrScore": 11.5905,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        },
+        {
+          "player": "Marcell Ozuna",
+          "team": "Pittsburgh Pirates",
+          "eventId": "0bbbb2fddbaa8b74fdca003a5d074d6f",
+          "odds": 350,
+          "predictedProbability": 0.312222,
+          "hrScore": 11.0932,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        },
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "55fa28ecac0b985cde7ea3ed079986e0",
+          "odds": 400,
+          "predictedProbability": 0.311198,
+          "hrScore": 17.3012,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 3.5,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true,
+          "result": "MISS"
+        }
+      ]
+    ]
+  },
+  "summary": {
+    "totalPicks": 11,
+    "hits": 2,
+    "misses": 9,
+    "hitRate": "0.182"
+  }
+}

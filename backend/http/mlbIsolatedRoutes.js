@@ -9,6 +9,8 @@ const { buildMlbAutoTickets } = require("../pipeline/mlb/buildMlbAutoTickets")
 const { buildMlbHrPredictionCandidates } = require("../pipeline/mlb/buildMlbHrPredictionCandidates")
 const { buildMlbHrStacks } = require("../pipeline/mlb/buildMlbHrStacks")
 const buildMlbHrSlips = require("../pipeline/mlb/buildMlbHrSlips")
+const trackMlbHrSlips = require("../pipeline/mlb/trackMlbHrSlips")
+const gradeMlbHrSlips = require("../pipeline/mlb/gradeMlbHrSlips")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -362,6 +364,12 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   }
 
   const hrSlips = buildMlbHrSlips({ hrPredictionToday })
+  const today = new Date().toISOString().slice(0, 10)
+  console.log('[TRACK VERIFY] hrSlips:', hrSlips)
+  trackMlbHrSlips({
+    hrSlips,
+    date: today
+  })
 
   console.log("[MLB RESPONSE KEYS]", Object.keys({
     snapshot: mlbSnapshot,
@@ -458,7 +466,30 @@ async function handleMlbRefreshSnapshotGet(req, res, deps) {
   }
 }
 
+/**
+ * TEMP: manual HR grading route handler (replace later).
+ * GET /grade-hr-test
+ */
+function handleMlbGradeHrTestGet(req, res) {
+  const testDate = "2026-04-24"
+
+  // TEMP MANUAL DATA (replace later with real feed)
+  const actualHrPlayers = [
+    "Aaron Judge",
+    "Shohei Ohtani",
+    "Kyle Schwarber"
+  ]
+
+  gradeMlbHrSlips({
+    date: testDate,
+    actualHrPlayers
+  })
+
+  return res.json({ success: true })
+}
+
 module.exports = {
   handleMlbBestAvailableGet,
   handleMlbRefreshSnapshotGet,
+  handleMlbGradeHrTestGet,
 }

@@ -73,6 +73,7 @@ const { buildTrackedSlateSummary } = require("./pipeline/tracking/buildTrackedSl
 const { buildBestPairs } = require("./pipeline/decision/buildBestPairs")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
+const mlbRoutes = require("./routes/mlbIsolatedRoutes")
 
 // Initialize ML scorer (loads trained model if available)
 const modelPath = path.join(__dirname, "ml", "model.json")
@@ -81,6 +82,7 @@ const mlScorer = new MLScorer(modelPath)
 
 app.use(cors())
 app.use(express.json())
+app.use("/", mlbRoutes)
 console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
 
 let snapshotLoadedFromDisk = false
@@ -10452,6 +10454,22 @@ app.get("/api/tracking/graded", async (req, res) => {
     return res.json({ ok: false, date: dateKey, error: String(e?.message || e), path: filePath })
   }
 })
+
+app.get('/grade-hr-test', async (req, res) => {
+  const gradeMlbHrSlips = require('./pipeline/mlb/gradeMlbHrSlips');
+  const fetchMlbHrResults = require('./pipeline/mlb/fetchMlbHrResults');
+
+  const testDate = '2026-04-24';
+
+  const actualHrPlayers = await fetchMlbHrResults(testDate);
+
+  gradeMlbHrSlips({
+    date: testDate,
+    actualHrPlayers
+  });
+
+  res.json({ success: true });
+});
 
 // === Phase 3: pre-game best 2-leg pairs ===
 app.get("/api/decision/pairs", (req, res) => {
