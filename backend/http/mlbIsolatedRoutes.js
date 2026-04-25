@@ -326,7 +326,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   let hrPredictionToday = { topHrCandidatesToday: [], mostLikelyHr: [] }
   try {
     if (mlbSnapshot?.rows?.length > 0) {
-      hrPredictionToday = buildMlbHrPredictionCandidates({
+      hrPredictionToday = await buildMlbHrPredictionCandidates({
         rows: mlbSnapshot.rows
       })
     } else {

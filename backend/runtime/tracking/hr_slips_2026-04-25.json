@@ -1,6 +1,6 @@
 {
   "date": "2026-04-25",
-  "createdAt": "2026-04-25T07:07:00.137Z",
+  "createdAt": "2026-04-25T08:43:30.205Z",
   "slips": {
     "safeSlips": [
       [
@@ -8,39 +8,19 @@
           "player": "Shohei Ohtani",
           "team": "Los Angeles Dodgers",
           "eventId": "0230d646bd78d15e54bbc955a0e7d747",
-          "odds": 174,
-          "predictedProbability": 0.390878,
-          "hrScore": 16.0617,
+          "odds": 150,
+          "predictedProbability": 0.415599,
+          "hrScore": 53.2046,
           "tag": "ELITE",
           "reasons": [
-            "elite barrel rate",
-            "high hard-hit rate",
-            "strong exit velocity",
+            "strong power profile",
             "high team total",
             "top lineup spot",
             "high game total"
           ],
           "_weatherScore": null,
           "_parkScore": 0.75,
-          "hasStrongMatchup": true,
-          "strongContext": true,
-          "valueEdge": true
-        },
-        {
-          "player": "Corbin Carroll",
-          "team": "Arizona Diamondbacks",
-          "eventId": "08936c478449a51f7fe13f0d1640984f",
-          "odds": 220,
-          "predictedProbability": 0.335225,
-          "hrScore": 12.316,
-          "tag": "ELITE",
-          "reasons": [
-            "high team total",
-            "top lineup spot",
-            "high game total"
-          ],
-          "_weatherScore": null,
-          "_parkScore": 0.75,
+          "powerScore": 47,
           "hasStrongMatchup": true,
           "strongContext": true,
           "valueEdge": true
@@ -50,68 +30,18 @@
           "team": "Philadelphia Phillies",
           "eventId": "4231dc4bed4b8aac32157bce916837c9",
           "odds": 250,
-          "predictedProbability": 0.316152,
-          "hrScore": 13.7122,
-          "tag": "ELITE",
+          "predictedProbability": 0.311157,
+          "hrScore": 49.8748,
+          "tag": "STRONG",
           "reasons": [
-            "elite barrel rate",
-            "high hard-hit rate",
-            "strong exit velocity",
+            "strong power profile",
             "top lineup spot",
             "high game total"
           ],
           "_weatherScore": null,
           "_parkScore": 1.5,
+          "powerScore": 45,
           "hasStrongMatchup": true,
-          "strongContext": true,
-          "valueEdge": true
-        }
-      ]
-    ],
-    "stackSlips": [
-      [
-        {
-          "player": "Kyle Tucker",
-          "team": "Los Angeles Dodgers",
-          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
-          "odds": 475,
-          "hrScore": 13.6924
-        },
-        {
-          "player": "Freddie Freeman",
-          "team": "Los Angeles Dodgers",
-          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
-          "odds": 350,
-          "hrScore": 13.3851
-        },
-        {
-          "player": "Teoscar Hernandez",
-          "team": "Los Angeles Dodgers",
-          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
-          "odds": 400,
-          "hrScore": 13.0591
-        }
-      ]
-    ],
-    "lottoSlips": [
-      [
-        {
-          "player": "Nolan Arenado",
-          "team": "Arizona Diamondbacks",
-          "eventId": "08936c478449a51f7fe13f0d1640984f",
-          "odds": 305,
-          "predictedProbability": 0.303779,
-          "hrScore": 11.6079,
-          "tag": "ELITE",
-          "reasons": [
-            "high team total",
-            "top lineup spot",
-            "high game total",
-            "positive betting edge"
-          ],
-          "_weatherScore": null,
-          "_parkScore": 0.75,
-          "hasStrongMatchup": false,
           "strongContext": true,
           "valueEdge": true
         },
@@ -120,19 +50,45 @@
           "team": "Atlanta Braves",
           "eventId": "4231dc4bed4b8aac32157bce916837c9",
           "odds": 300,
-          "predictedProbability": 0.302742,
-          "hrScore": 14.1606,
-          "tag": "ELITE",
+          "predictedProbability": 0.302758,
+          "hrScore": 50.9347,
+          "tag": "STRONG",
           "reasons": [
-            "elite barrel rate",
-            "high hard-hit rate",
-            "strong exit velocity",
+            "strong power profile",
             "top lineup spot",
             "high game total",
             "positive betting edge"
           ],
           "_weatherScore": null,
           "_parkScore": 1.5,
+          "powerScore": 46,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "stackSlips": [
+      []
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Vladimir Guerrero Jr.",
+          "team": "Toronto Blue Jays",
+          "eventId": "76173d6fb6052a6141d640d803185876",
+          "odds": 350,
+          "predictedProbability": 0.292481,
+          "hrScore": 47.2181,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "powerScore": 44,
           "hasStrongMatchup": true,
           "strongContext": true,
           "valueEdge": true
@@ -142,57 +98,77 @@
           "team": "Texas Rangers",
           "eventId": "637539eefe84344993cdd0d125a3e0fa",
           "odds": 305,
-          "predictedProbability": 0.290741,
-          "hrScore": 12.6083,
-          "tag": "ELITE",
+          "predictedProbability": 0.290747,
+          "hrScore": 46.9003,
+          "tag": "LOTTO",
           "reasons": [
-            "elite barrel rate",
-            "high hard-hit rate",
-            "strong exit velocity",
+            "strong power profile",
             "top lineup spot"
           ],
           "_weatherScore": null,
           "_parkScore": 1.5,
+          "powerScore": 43,
           "hasStrongMatchup": true,
           "strongContext": true,
           "valueEdge": true
         },
         {
-          "player": "Vladimir Guerrero Jr.",
-          "team": "Toronto Blue Jays",
-          "eventId": "76173d6fb6052a6141d640d803185876",
-          "odds": 330,
-          "predictedProbability": 0.290727,
-          "hrScore": 11.8241,
+          "player": "Yordan Alvarez",
+          "team": null,
+          "eventId": "b266f49858dc754c6db869ecff6d52d5",
+          "odds": 300,
+          "predictedProbability": 0.281864,
+          "hrScore": 51.1115,
           "tag": "ELITE",
           "reasons": [
-            "high hard-hit rate",
-            "strong exit velocity",
+            "strong power profile",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "powerScore": 48,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Pete Alonso",
+          "team": "Baltimore Orioles",
+          "eventId": "a06835fe8f4774ce140569b5ea8415bf",
+          "odds": 425,
+          "predictedProbability": 0.279017,
+          "hrScore": 49.2504,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
             "top lineup spot",
             "positive betting edge"
           ],
           "_weatherScore": null,
           "_parkScore": 0.75,
+          "powerScore": 46,
           "hasStrongMatchup": true,
           "strongContext": true,
           "valueEdge": true
         },
         {
-          "player": "Elly De La Cruz",
-          "team": "Cincinnati Reds",
-          "eventId": "923d805add7039794f2363537d65f6c3",
-          "odds": 400,
-          "predictedProbability": 0.285413,
-          "hrScore": 11.2929,
-          "tag": "ELITE",
+          "player": "Ronald Acuna Jr.",
+          "team": "Atlanta Braves",
+          "eventId": "4231dc4bed4b8aac32157bce916837c9",
+          "odds": 475,
+          "predictedProbability": 0.263913,
+          "hrScore": 48.9889,
+          "tag": "LOTTO",
           "reasons": [
-            "high hard-hit rate",
+            "strong power profile",
             "top lineup spot",
             "high game total",
             "positive betting edge"
           ],
           "_weatherScore": null,
           "_parkScore": 1.5,
+          "powerScore": 45,
           "hasStrongMatchup": false,
           "strongContext": true,
           "valueEdge": true

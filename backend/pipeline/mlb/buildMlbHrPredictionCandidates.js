@@ -1,10 +1,33 @@
 "use strict"
 
-const mlbPlayerPower = require("../../data/mlbPlayerPower.json")
 const gameWeather = require("../../data/mlbGameWeather.json")
 const parkFactors = require("../../data/mlbParkFactors.json")
+let statcastPower = {}
+try {
+  statcastPower = require("../../data/mlbStatcastPower.json")
+} catch (e) {
+  console.log("[STATCAST LOAD FAIL]", e?.message || e)
+}
+
+console.log("[STATCAST FILE SAMPLE]", Object.keys(statcastPower || {}).slice(0, 5))
+console.log("[TEST DIRECT]", statcastPower?.["shohei ohtani"])
 
 console.log("[WEATHER DEBUG] weather keys:", Object.keys(gameWeather || {}).slice(0, 5))
+
+function normalizeName(name) {
+  return name
+    ?.toLowerCase()
+    .replace(/\./g, "")
+    .replace(/jr|sr|ii|iii/g, "")
+    .replace(/[^a-z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+const normalizedMap = {}
+Object.entries(statcastPower || {}).forEach(([k, v]) => {
+  normalizedMap[normalizeName(k)] = v
+})
 
 function norm(v) {
   return String(v == null ? "" : v).trim()
@@ -93,36 +116,8 @@ function hrValueScore(row, weight = 2.5) {
 }
 
 function hrContactScore(row) {
-  const player = norm(row?.player)
-  if (!player) return 0
-  const m = mlbPlayerPower?.[player]
-  if (!m || typeof m !== "object") return 0
-
-  const barrelRate = toNum(m.barrelRate)
-  const hardHitRate = toNum(m.hardHitRate)
-  const avgExitVelocity = toNum(m.avgExitVelocity)
-
-  if (!Number.isFinite(barrelRate) && !Number.isFinite(hardHitRate) && !Number.isFinite(avgExitVelocity)) return 0
-
-  const barrelComponent = (Number.isFinite(barrelRate) ? barrelRate : 0) * 30 // primary driver
-  const hardHitComponent = (Number.isFinite(hardHitRate) ? hardHitRate : 0) * 10
-  const evComponent = (Number.isFinite(avgExitVelocity) ? (avgExitVelocity - 85) : 0) * 0.4
-
-  let contactScore = barrelComponent + hardHitComponent + evComponent
-  contactScore = contactScore * 0.7
-  return Number.isFinite(contactScore) ? contactScore : 0
-}
-
-function getPlayerPower(player) {
-  const name = norm(player)
-  if (!name) return null
-  const m = mlbPlayerPower?.[name]
-  if (!m || typeof m !== "object") return null
-  return {
-    barrelRate: toNum(m.barrelRate),
-    hardHitRate: toNum(m.hardHitRate),
-    avgExitVelocity: toNum(m.avgExitVelocity),
-  }
+  const powerScore = toNum(row?.powerScore)
+  return Number.isFinite(powerScore) ? powerScore : 0
 }
 
 function hrFinalScore(row, valueWeight) {
@@ -163,6 +158,19 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const eventKey = norm(eventId || "")
     const dedupeKey = [player, team || "", eventKey].join("|")
 
+    console.log("[ROW PLAYER]", row.player)
+    const normalizedPlayer = normalizeName(row.player)
+    console.log("[NORMALIZED PLAYER]", normalizedPlayer)
+    const playerPower = normalizedMap[normalizedPlayer]
+    console.log("[LOOKUP RESULT]", playerPower)
+    console.log("[LOOKUP]", row.player, normalizedPlayer, !!playerPower)
+    if (!playerPower || !playerPower.powerScore) {
+      continue
+    }
+    const powerScore = playerPower?.powerScore || 0
+    row.powerScore = powerScore
+    console.log("[POWER COMPUTED]", row.player, powerScore)
+
     let hrScore = hrFinalScore(row, valueWeight)
     const implied = getImpliedProbability(row)
     const matchupScore = hrMatchupScore(row)
@@ -172,7 +180,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const gameTotal = toNum(row?.gameTotal)
     const hr9Allowed = getPitcherHrRate(row)
     const flyBallRateAllowed = getPitcherFlyBallRate(row)
-    const power = getPlayerPower(player)
+    const power = playerPower ? { ...playerPower, powerScore } : { powerScore }
 
     let weatherScore = 0
     const weather = gameWeather?.[row?.eventId]
@@ -224,10 +232,13 @@ function buildMlbHrPredictionCandidates(input = {}) {
       row._parkScore = parkScore
     }
 
+    console.log("[POWER FINAL]", row.player, powerScore)
+
     const entry = {
       player,
       team,
       eventId,
+      powerScore,
       _weatherScore: weatherScore !== 0 ? weatherScore : null,
       _parkScore: parkScore,
       odds: row?.odds ?? null,
@@ -267,9 +278,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
 
     const reasonsArray = []
     const power = r.power
-    if (Number.isFinite(power?.barrelRate) && power.barrelRate >= 0.15) reasonsArray.push("elite barrel rate")
-    if (Number.isFinite(power?.hardHitRate) && power.hardHitRate >= 0.45) reasonsArray.push("high hard-hit rate")
-    if (Number.isFinite(power?.avgExitVelocity) && power.avgExitVelocity >= 91) reasonsArray.push("strong exit velocity")
+    if (Number.isFinite(toNum(power?.powerScore)) && toNum(power.powerScore) >= 6) reasonsArray.push("strong power profile")
 
     if (Number.isFinite(r.hr9Allowed) && r.hr9Allowed >= 1.35) reasonsArray.push("high HR/9 pitcher")
     if (Number.isFinite(r.flyBallRateAllowed) && r.flyBallRateAllowed >= 0.38) reasonsArray.push("fly-ball prone pitcher")
@@ -289,6 +298,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
       odds: r.odds,
       predictedProbability: r.predictedProbability,
       hrScore: r.hrScore,
+      powerScore: toNum(r?.powerScore) ?? toNum(r?.power?.powerScore) ?? 0,
       tag,
       reasons,
       _weatherScore: r._weatherScore ?? null,
@@ -311,12 +321,13 @@ function buildMlbHrPredictionCandidates(input = {}) {
       odds: r.odds,
       predictedProbability: r.predictedProbability,
       hrScore: r.hrScore,
+      powerScore: toNum(r?.powerScore) ?? 0,
       tag: r.tag,
       reasons: Array.isArray(r?.reasons) ? r.reasons : [],
       _weatherScore: r._weatherScore ?? null,
       _parkScore: toNum(r._parkScore) ?? 0,
     }
-  })
+  }).filter(Boolean)
 
   const mostLikelyHr = [...candidatesWithMeta]
     .sort((a, b) => (toNum(b?.predictedProbability) || 0) - (toNum(a?.predictedProbability) || 0))
@@ -340,6 +351,7 @@ function buildMlbHrPredictionCandidates(input = {}) {
         reasons: Array.isArray(r?.reasons) ? r.reasons : [],
         _weatherScore: r._weatherScore ?? null,
         _parkScore: toNum(r._parkScore) ?? 0,
+        powerScore: toNum(r?.powerScore) ?? toNum(r?.power?.powerScore) ?? 0,
         hasStrongMatchup: matchupScore > 0,
         strongContext,
         valueEdge: Number.isFinite(edgeProbability) && edgeProbability > 0,
