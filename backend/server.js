@@ -10471,6 +10471,16 @@ app.get('/grade-hr-test', async (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/analyze-hr-test', (req, res) => {
+  const analyzeMlbHrResults = require('./pipeline/mlb/analyzeMlbHrResults');
+
+  const date = '2026-04-24';
+
+  const analysis = analyzeMlbHrResults(date);
+
+  res.json(analysis);
+});
+
 // === Phase 3: pre-game best 2-leg pairs ===
 app.get("/api/decision/pairs", (req, res) => {
   try {

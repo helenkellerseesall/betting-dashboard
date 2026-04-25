@@ -1,0 +1,210 @@
+{
+  "date": "2026-04-25",
+  "createdAt": "2026-04-25T07:07:00.137Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
+          "odds": 174,
+          "predictedProbability": 0.390878,
+          "hrScore": 16.0617,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Corbin Carroll",
+          "team": "Arizona Diamondbacks",
+          "eventId": "08936c478449a51f7fe13f0d1640984f",
+          "odds": 220,
+          "predictedProbability": 0.335225,
+          "hrScore": 12.316,
+          "tag": "ELITE",
+          "reasons": [
+            "high team total",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Kyle Schwarber",
+          "team": "Philadelphia Phillies",
+          "eventId": "4231dc4bed4b8aac32157bce916837c9",
+          "odds": 250,
+          "predictedProbability": 0.316152,
+          "hrScore": 13.7122,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "high game total"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 1.5,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "stackSlips": [
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
+          "odds": 475,
+          "hrScore": 13.6924
+        },
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
+          "odds": 350,
+          "hrScore": 13.3851
+        },
+        {
+          "player": "Teoscar Hernandez",
+          "team": "Los Angeles Dodgers",
+          "eventId": "0230d646bd78d15e54bbc955a0e7d747",
+          "odds": 400,
+          "hrScore": 13.0591
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Nolan Arenado",
+          "team": "Arizona Diamondbacks",
+          "eventId": "08936c478449a51f7fe13f0d1640984f",
+          "odds": 305,
+          "predictedProbability": 0.303779,
+          "hrScore": 11.6079,
+          "tag": "ELITE",
+          "reasons": [
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Matt Olson",
+          "team": "Atlanta Braves",
+          "eventId": "4231dc4bed4b8aac32157bce916837c9",
+          "odds": 300,
+          "predictedProbability": 0.302742,
+          "hrScore": 14.1606,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 1.5,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Corey Seager",
+          "team": "Texas Rangers",
+          "eventId": "637539eefe84344993cdd0d125a3e0fa",
+          "odds": 305,
+          "predictedProbability": 0.290741,
+          "hrScore": 12.6083,
+          "tag": "ELITE",
+          "reasons": [
+            "elite barrel rate",
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 1.5,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Vladimir Guerrero Jr.",
+          "team": "Toronto Blue Jays",
+          "eventId": "76173d6fb6052a6141d640d803185876",
+          "odds": 330,
+          "predictedProbability": 0.290727,
+          "hrScore": 11.8241,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "strong exit velocity",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 0.75,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Elly De La Cruz",
+          "team": "Cincinnati Reds",
+          "eventId": "923d805add7039794f2363537d65f6c3",
+          "odds": 400,
+          "predictedProbability": 0.285413,
+          "hrScore": 11.2929,
+          "tag": "ELITE",
+          "reasons": [
+            "high hard-hit rate",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": null,
+          "_parkScore": 1.5,
+          "hasStrongMatchup": false,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": null,
+  "summary": {
+    "totalSlips": 3,
+    "hits": 0,
+    "misses": 0,
+    "roi": 0
+  }
+}

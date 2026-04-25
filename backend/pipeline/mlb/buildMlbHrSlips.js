@@ -1,5 +1,18 @@
 "use strict"
 
+function isEliteHrPlay(p) {
+  if (!p) return false
+
+  // CORE RULES
+  const strongScore = p.hrScore >= 12.5
+
+  const eliteCombo =
+    (p._weatherScore && p._weatherScore > 0) ||
+    (p._parkScore && p._parkScore > 1)
+
+  return strongScore && (eliteCombo || p.hasStrongMatchup)
+}
+
 module.exports = function buildMlbHrSlips({ hrPredictionToday }) {
   if (!hrPredictionToday) return {}
 
@@ -36,9 +49,15 @@ module.exports = function buildMlbHrSlips({ hrPredictionToday }) {
   }
 
   // Pools (limited)
-  const safePool = mostLikelyHr.slice(0, 3)
-  const stackPool = sameGame.slice(0, 3)
-  const lottoPoolBase = mostLikelyHr.slice(3, 10)
+  const filtered = (Array.isArray(mostLikelyHr) ? mostLikelyHr : []).filter(isEliteHrPlay)
+  const fallback = (Array.isArray(mostLikelyHr) ? mostLikelyHr : []).slice(0, 5)
+  const pool = filtered.length < 3 ? fallback : filtered
+
+  const safePool = pool.slice(0, 3)
+  const stackPool = (Array.isArray(sameGame) ? sameGame : [])
+    .filter((stack) => (stack.players || []).every(isEliteHrPlay))
+    .slice(0, 3)
+  const lottoPoolBase = pool.slice(3, 10)
 
   // SAFE SLIPS (3 controlled variants)
   const safeSlips = []
