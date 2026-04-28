@@ -2,7 +2,7 @@
   "metadata": {
     "sport": "mlb",
     "slateDate": "2026-04-28",
-    "generatedAt": "2026-04-28T06:57:23.974Z",
+    "generatedAt": "2026-04-28T07:07:06.087Z",
     "version": "tracking-phase-4-mlb",
     "bucket": "mlb.bestAvailable.best",
     "storage": "mlb_tracked_best"
@@ -1345,6 +1345,26 @@
       "closingOdds": null,
       "clv": null,
       "book": "BetOnline.ag",
+      "marketKey": "batter_home_runs",
+      "bucket": "mlb.bestAvailable.best"
+    },
+    {
+      "slateDate": "2026-04-28",
+      "sport": "mlb",
+      "player": "Andy Pages",
+      "team": "Los Angeles Dodgers",
+      "propType": "Home Runs",
+      "side": "Over",
+      "line": 0.5,
+      "odds": 475,
+      "predictedProbability": 0.263913,
+      "edgeProbability": 0.09,
+      "mlbPhase3Score": 1.254183867793478,
+      "timestamp": "2026-04-28T07:07:06.052Z",
+      "result": null,
+      "closingOdds": null,
+      "clv": null,
+      "book": "Caesars",
       "marketKey": "batter_home_runs",
       "bucket": "mlb.bestAvailable.best"
     }
