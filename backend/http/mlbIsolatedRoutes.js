@@ -10,7 +10,11 @@ const { buildMlbHrPredictionCandidates } = require("../pipeline/mlb/buildMlbHrPr
 const { buildMlbHrStacks } = require("../pipeline/mlb/buildMlbHrStacks")
 const buildMlbHrSlips = require("../pipeline/mlb/buildMlbHrSlips")
 const trackMlbHrSlips = require("../pipeline/mlb/trackMlbHrSlips")
+const { trackMlbHrProps } = require("../pipeline/mlb/trackMlbHrProps")
 const gradeMlbHrSlips = require("../pipeline/mlb/gradeMlbHrSlips")
+const { buildMlbPitcherCandidates } = require("../pipeline/mlb/buildMlbPitcherCandidates")
+const { buildMlbPitcherKsToday } = require("../pipeline/mlb/buildMlbPitcherKsProbabilityEngine")
+const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -323,6 +327,46 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   // HR prediction debug (safe execution)
   console.log("[HR DEBUG] snapshot rows:", mlbSnapshot?.rows?.length)
 
+  // Attach probable pitchers + temp matchup inputs (once per request)
+  try {
+    const today = new Date().toISOString().split("T")[0]
+    const slateDateKey = String(mlbSnapshot?.snapshotSlateDateKey || "").trim()
+    const pitcherDateKey = slateDateKey || today
+    const pitcherMap = await fetchProbablePitchers(pitcherDateKey)
+    console.log("ROW EVENT ID SAMPLE:", mlbSnapshot?.rows?.[0]?.eventId)
+    console.log("PITCHER MAP KEYS SAMPLE:", Object.keys(pitcherMap || {})[0])
+
+    if (Array.isArray(mlbSnapshot?.rows)) {
+      let matched = 0
+      let unmatched = 0
+      mlbSnapshot.rows.forEach((row) => {
+        const key = `${row.homeTeam}__${row.awayTeam}`
+        const game = pitcherMap?.[key]
+
+        if (!game) {
+          unmatched += 1
+          return
+        }
+        matched += 1
+
+        if (row.team === row.homeTeam) {
+          row.opposingPitcher = game.awayPitcher
+        } else {
+          row.opposingPitcher = game.homePitcher
+        }
+
+        // TEMP SIGNAL: ensure matchup inputs are non-zero
+        row.pitcherHrPer9 = 1.2
+        row.pitcherFlyBallRate = 0.35
+        row.pitcherHand = "R"
+      })
+      console.log("[JOIN CHECK] matched rows count", matched)
+      console.log("[JOIN CHECK] unmatched rows count", unmatched)
+    }
+  } catch (e) {
+    console.log("[PITCHER ENRICH ERROR]", e?.message || e)
+  }
+
   let hrPredictionToday = { topHrCandidatesToday: [], mostLikelyHr: [] }
   try {
     if (mlbSnapshot?.rows?.length > 0) {
@@ -336,8 +380,46 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     console.log("[HR ERROR]", err?.message || err)
   }
 
+  trackMlbHrProps(hrPredictionToday)
+  console.log("[TRACK] HR props tracked")
+
+  const pitcherCandidates = buildMlbPitcherCandidates({
+    rows: mlbSnapshot.rows
+  })
+
+  const pitcherKsToday = buildMlbPitcherKsToday({
+    rows: mlbSnapshot.rows
+  })
+  console.log("[KS LADDER VERIFY]", {
+    sample: pitcherKsToday?.topPitchers?.[0]
+      ? {
+          player: pitcherKsToday.topPitchers[0].player,
+          expectedKs: pitcherKsToday.topPitchers[0].expectedKs,
+          k5plus: pitcherKsToday.topPitchers[0].k5plus,
+          k6plus: pitcherKsToday.topPitchers[0].k6plus,
+          k7plus: pitcherKsToday.topPitchers[0].k7plus,
+          k8plus: pitcherKsToday.topPitchers[0].k8plus,
+        }
+      : null,
+  })
+
   console.log("[HR DEBUG] candidates:", hrPredictionToday.topHrCandidatesToday?.length)
   console.log("[HR DEBUG] mostLikely:", hrPredictionToday.mostLikelyHr?.length)
+
+  // One row per player for stacks/slips (preserve first-seen order = best rank in each list).
+  const uniqueTopPlayers = []
+  for (const p of hrPredictionToday.topHrCandidatesToday || []) {
+    if (!p?.player) continue
+    if (!uniqueTopPlayers.find((u) => u.player === p.player)) uniqueTopPlayers.push(p)
+  }
+  hrPredictionToday.topHrCandidatesToday = uniqueTopPlayers
+
+  const uniqueMostLikelyPlayers = []
+  for (const p of hrPredictionToday.mostLikelyHr || []) {
+    if (!p?.player) continue
+    if (!uniqueMostLikelyPlayers.find((u) => u.player === p.player)) uniqueMostLikelyPlayers.push(p)
+  }
+  hrPredictionToday.mostLikelyHr = uniqueMostLikelyPlayers
 
   let hrStacks = { sameGameStacks: [], crossGameLotto: [], hybridStacks: [] }
   try {
@@ -377,6 +459,10 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     allProps: mlbSnapshot.rows || [],
     hrPredictionToday,
     hrSlips,
+    pitcherPredictionToday: {
+      topPitchers: pitcherCandidates.slice(0, 10)
+    },
+    pitcherKsToday,
   }))
 
   return res.json({
@@ -385,6 +471,10 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     allProps: mlbSnapshot.rows || [],
     hrPredictionToday,
     hrSlips,
+    pitcherPredictionToday: {
+      topPitchers: pitcherCandidates.slice(0, 10)
+    },
+    pitcherKsToday,
   })
 }
 

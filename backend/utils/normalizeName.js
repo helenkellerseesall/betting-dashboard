@@ -1,14 +1,13 @@
-"use strict"
-
 module.exports = function normalizeName(name) {
-  if (!name) return ""
+  if (!name) return '';
 
-  return String(name)
+  return name
     .toLowerCase()
-    .replace(/\./g, "")
-    .replace(/jr|sr|ii|iii/g, "")
-    .replace(/[^a-z\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-}
+    .replace(/,/g, '')        // remove commas (Last, First)
+    .replace(/\./g, '')       // remove periods
+    .replace(/jr|sr|ii|iii/g, '') // remove suffixes
+    .replace(/[^a-z\s]/g, '') // remove all non letters
+    .replace(/\s+/g, ' ')     // collapse spaces
+    .trim();
+};
 

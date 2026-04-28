@@ -1,0 +1,643 @@
+{
+  "date": "2026-04-26",
+  "createdAt": "2026-04-26T23:55:17.444Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Jose Ramirez",
+          "team": "Cleveland Guardians",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.222736,
+          "modelProbability": 0.15616184385032378,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.022828510516990447,
+          "isValueBet": false,
+          "hrScore": 23.4243,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Junior Caminero",
+          "team": "Tampa Bay Rays",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.218241,
+          "modelProbability": 0.15100703818838968,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.017673704855056344,
+          "isValueBet": false,
+          "hrScore": 22.6511,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Jose Ramirez",
+          "team": "Cleveland Guardians",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.222736,
+          "modelProbability": 0.15616184385032378,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.022828510516990447,
+          "isValueBet": false,
+          "hrScore": 23.4243,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "balancedSlips": [
+      [
+        {
+          "player": "Junior Caminero",
+          "team": "Tampa Bay Rays",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.218241,
+          "modelProbability": 0.15100703818838968,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.017673704855056344,
+          "isValueBet": false,
+          "hrScore": 22.6511,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Max Muncy",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 800,
+          "predictedProbability": 0.200398,
+          "modelProbability": 0.19449123717896208,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.08338012606785097,
+          "isValueBet": true,
+          "hrScore": 29.1737,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Jose Ramirez",
+          "team": "Cleveland Guardians",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.222736,
+          "modelProbability": 0.15616184385032378,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.022828510516990447,
+          "isValueBet": false,
+          "hrScore": 23.4243,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 800,
+          "predictedProbability": 0.200398,
+          "modelProbability": 0.1935215258505711,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.08241041473946001,
+          "isValueBet": true,
+          "hrScore": 29.0282,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Jose Ramirez",
+          "team": "Cleveland Guardians",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 650,
+          "predictedProbability": 0.222736,
+          "modelProbability": 0.15616184385032378,
+          "impliedProbability": 0.13333333333333333,
+          "edge": 0.022828510516990447,
+          "isValueBet": false,
+          "hrScore": 23.4243,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Teoscar Hernandez",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 800,
+          "predictedProbability": 0.200398,
+          "modelProbability": 0.1827165326903469,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.0716054215792358,
+          "isValueBet": true,
+          "hrScore": 27.4075,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "aggressiveSlips": [
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Colson Montgomery",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 800,
+          "predictedProbability": 0.198221,
+          "modelProbability": 0.17004897836874516,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.05893786725763406,
+          "isValueBet": true,
+          "hrScore": 25.5073,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Ian Happ",
+          "team": "Chicago Cubs",
+          "eventId": "717163f13d80f9495ad5b88b9396ca1a",
+          "odds": 800,
+          "predictedProbability": 0.195622,
+          "modelProbability": 0.14946371392631672,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.03835260281520561,
+          "isValueBet": false,
+          "hrScore": 22.4196,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Shohei Ohtani",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 360,
+          "predictedProbability": 0.280144,
+          "modelProbability": 0.20750718943182192,
+          "impliedProbability": 0.21739130434782608,
+          "edge": -0.00988411491600416,
+          "isValueBet": false,
+          "hrScore": 31.1261,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 47,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Yandy Diaz",
+          "team": "Tampa Bay Rays",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 800,
+          "predictedProbability": 0.192666,
+          "modelProbability": 0.14122484155021947,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.030113730439108366,
+          "isValueBet": false,
+          "hrScore": 21.1837,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 14,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 900,
+          "predictedProbability": 0.187611,
+          "modelProbability": 0.19060681440245034,
+          "impliedProbability": 0.1,
+          "edge": 0.09060681440245033,
+          "isValueBet": true,
+          "hrScore": 28.591,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Fernando Tatis Jr.",
+          "team": "San Diego Padres",
+          "eventId": "717163f13d80f9495ad5b88b9396ca1a",
+          "odds": 800,
+          "predictedProbability": 0.195861,
+          "modelProbability": 0.1506061019798067,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.039494990868695595,
+          "isValueBet": false,
+          "hrScore": 22.5909,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Manny Machado",
+          "team": "San Diego Padres",
+          "eventId": "717163f13d80f9495ad5b88b9396ca1a",
+          "odds": 900,
+          "predictedProbability": 0.183073,
+          "modelProbability": 0.14660608360177924,
+          "impliedProbability": 0.1,
+          "edge": 0.04660608360177923,
+          "isValueBet": false,
+          "hrScore": 21.9909,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Rhys Hoskins",
+          "team": "Cleveland Guardians",
+          "eventId": "1a4159875887b1b0c4fe65b367df29a7",
+          "odds": 800,
+          "predictedProbability": 0.197161,
+          "modelProbability": 0.14618269428429595,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.035071583173184845,
+          "isValueBet": false,
+          "hrScore": 21.9274,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Colson Montgomery",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 800,
+          "predictedProbability": 0.198221,
+          "modelProbability": 0.17004897836874516,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.05893786725763406,
+          "isValueBet": true,
+          "hrScore": 25.5073,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Ian Happ",
+          "team": "Chicago Cubs",
+          "eventId": "717163f13d80f9495ad5b88b9396ca1a",
+          "odds": 800,
+          "predictedProbability": 0.195622,
+          "modelProbability": 0.14946371392631672,
+          "impliedProbability": 0.1111111111111111,
+          "edge": 0.03835260281520561,
+          "isValueBet": false,
+          "hrScore": 22.4196,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": null,
+  "summary": {
+    "totalSlips": 4,
+    "hits": 0,
+    "misses": 0,
+    "roi": 0
+  }
+}

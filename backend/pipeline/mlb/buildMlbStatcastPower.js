@@ -1,16 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-
-function normalizeName(name) {
-  return name
-    ?.toLowerCase()
-    .replace(/\./g, '')
-    .replace(/jr|sr|ii|iii/g, '')
-    .replace(/[^a-z\s]/g, '')
-    .replace(/\s+/g, ' ')   // collapse spaces
-    .trim();
-}
+const normalizeName = require('../../utils/normalizeName');
 
 module.exports = async function buildMlbStatcastPower() {
   try {

@@ -1,0 +1,670 @@
+{
+  "date": "2026-04-27",
+  "createdAt": "2026-04-27T06:15:59.102Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.25858524748951767,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.0681090570133272,
+          "isValueBet": true,
+          "hybridScore": 0.149725340848757,
+          "hrScore": 33.2773,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Andrew Benintendi",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 400,
+          "predictedProbability": 0.29,
+          "modelProbability": 0.23492183809667133,
+          "impliedProbability": 0.2,
+          "edge": 0.03492183809667132,
+          "isValueBet": false,
+          "hybridScore": 0.12793747047733706,
+          "hrScore": 30.7045,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 370,
+          "predictedProbability": 0.295035,
+          "modelProbability": 0.26350855317553884,
+          "impliedProbability": 0.2127659574468085,
+          "edge": 0.05074259572873033,
+          "isValueBet": true,
+          "hybridScore": 0.14697705530638852,
+          "hrScore": 33.9532,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Trent Grisham",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.21891153011272393,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02843533963653347,
+          "isValueBet": false,
+          "hybridScore": 0.11798636694732201,
+          "hrScore": 29.3164,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.25858524748951767,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.0681090570133272,
+          "isValueBet": true,
+          "hybridScore": 0.149725340848757,
+          "hrScore": 33.2773,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Jazz Chisholm Jr.",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.2185178307591106,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02804164028292014,
+          "isValueBet": false,
+          "hybridScore": 0.11767140746443135,
+          "hrScore": 29.2844,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "balancedSlips": [
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.25858524748951767,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.0681090570133272,
+          "isValueBet": true,
+          "hybridScore": 0.149725340848757,
+          "hrScore": 33.2773,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Andrew Benintendi",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 400,
+          "predictedProbability": 0.29,
+          "modelProbability": 0.23492183809667133,
+          "impliedProbability": 0.2,
+          "edge": 0.03492183809667132,
+          "isValueBet": false,
+          "hybridScore": 0.12793747047733706,
+          "hrScore": 30.7045,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Andy Pages",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.24328065454121975,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.05280446406502928,
+          "isValueBet": true,
+          "hybridScore": 0.13748166649011867,
+          "hrScore": 31.5195,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Andrew Benintendi",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 400,
+          "predictedProbability": 0.29,
+          "modelProbability": 0.23492183809667133,
+          "impliedProbability": 0.2,
+          "edge": 0.03492183809667132,
+          "isValueBet": false,
+          "hybridScore": 0.12793747047733706,
+          "hrScore": 30.7045,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.25858524748951767,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.0681090570133272,
+          "isValueBet": true,
+          "hybridScore": 0.149725340848757,
+          "hrScore": 33.2773,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Andrew Benintendi",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 400,
+          "predictedProbability": 0.29,
+          "modelProbability": 0.23492183809667133,
+          "impliedProbability": 0.2,
+          "edge": 0.03492183809667132,
+          "isValueBet": false,
+          "hybridScore": 0.12793747047733706,
+          "hrScore": 30.7045,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "aggressiveSlips": [
+      [
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 370,
+          "predictedProbability": 0.295035,
+          "modelProbability": 0.26350855317553884,
+          "impliedProbability": 0.2127659574468085,
+          "edge": 0.05074259572873033,
+          "isValueBet": true,
+          "hybridScore": 0.14697705530638852,
+          "hrScore": 33.9532,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Trent Grisham",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.21891153011272393,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02843533963653347,
+          "isValueBet": false,
+          "hybridScore": 0.11798636694732201,
+          "hrScore": 29.3164,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Andy Pages",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 425,
+          "predictedProbability": 0.280476,
+          "modelProbability": 0.24328065454121975,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.05280446406502928,
+          "isValueBet": true,
+          "hybridScore": 0.13748166649011867,
+          "hrScore": 31.5195,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Jazz Chisholm Jr.",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.2185178307591106,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02804164028292014,
+          "isValueBet": false,
+          "hybridScore": 0.11767140746443135,
+          "hrScore": 29.2844,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 370,
+          "predictedProbability": 0.295035,
+          "modelProbability": 0.26350855317553884,
+          "impliedProbability": 0.2127659574468085,
+          "edge": 0.05074259572873033,
+          "isValueBet": true,
+          "hybridScore": 0.14697705530638852,
+          "hrScore": 33.9532,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.21549100055915693,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.025014810082966465,
+          "isValueBet": false,
+          "hybridScore": 0.1152499433044684,
+          "hrScore": 29.0411,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Trent Grisham",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.21891153011272393,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02843533963653347,
+          "isValueBet": false,
+          "hybridScore": 0.11798636694732201,
+          "hrScore": 29.3164,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Kyle Stowers",
+          "team": "Miami Marlins",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 390,
+          "predictedProbability": 0.275454,
+          "modelProbability": 0.21358219973130899,
+          "impliedProbability": 0.20408163265306123,
+          "edge": 0.009500567078247757,
+          "isValueBet": false,
+          "hybridScore": 0.10964126998912882,
+          "hrScore": 28.89,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Jazz Chisholm Jr.",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.2185178307591106,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.02804164028292014,
+          "isValueBet": false,
+          "hybridScore": 0.11767140746443135,
+          "hrScore": 29.2844,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Colson Montgomery",
+          "team": "Chicago White Sox",
+          "eventId": "aede5ca829ddcbc5ee6726a1c0a03117",
+          "odds": 350,
+          "predictedProbability": 0.28561,
+          "modelProbability": 0.2228476613089441,
+          "impliedProbability": 0.2222222222222222,
+          "edge": 0.0006254390867218851,
+          "isValueBet": false,
+          "hybridScore": 0.11161146238048861,
+          "hrScore": 29.6412,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "371ff765cd40348073b510b2f45d81e9",
+          "odds": 425,
+          "predictedProbability": 0.279359,
+          "modelProbability": 0.21549100055915693,
+          "impliedProbability": 0.19047619047619047,
+          "edge": 0.025014810082966465,
+          "isValueBet": false,
+          "hybridScore": 0.1152499433044684,
+          "hrScore": 29.0411,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Kyle Stowers",
+          "team": "Miami Marlins",
+          "eventId": "65f2df473a540a92e7f974a290ed36fb",
+          "odds": 390,
+          "predictedProbability": 0.275454,
+          "modelProbability": 0.21358219973130899,
+          "impliedProbability": 0.20408163265306123,
+          "edge": 0.009500567078247757,
+          "isValueBet": false,
+          "hybridScore": 0.10964126998912882,
+          "hrScore": 28.89,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": null,
+  "summary": {
+    "totalSlips": 4,
+    "hits": 0,
+    "misses": 0,
+    "roi": 0
+  }
+}

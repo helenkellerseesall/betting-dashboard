@@ -1,6 +1,6 @@
 {
   "date": "2026-04-25",
-  "createdAt": "2026-04-25T08:43:30.205Z",
+  "createdAt": "2026-04-25T09:03:56.619Z",
   "slips": {
     "safeSlips": [
       [
@@ -9,8 +9,8 @@
           "team": "Los Angeles Dodgers",
           "eventId": "0230d646bd78d15e54bbc955a0e7d747",
           "odds": 150,
-          "predictedProbability": 0.415599,
-          "hrScore": 53.2046,
+          "predictedProbability": 0.410197,
+          "hrScore": 53.1857,
           "tag": "ELITE",
           "reasons": [
             "strong power profile",
@@ -30,8 +30,8 @@
           "team": "Philadelphia Phillies",
           "eventId": "4231dc4bed4b8aac32157bce916837c9",
           "odds": 250,
-          "predictedProbability": 0.311157,
-          "hrScore": 49.8748,
+          "predictedProbability": 0.3162,
+          "hrScore": 49.8924,
           "tag": "STRONG",
           "reasons": [
             "strong power profile",
@@ -50,8 +50,8 @@
           "team": "Atlanta Braves",
           "eventId": "4231dc4bed4b8aac32157bce916837c9",
           "odds": 300,
-          "predictedProbability": 0.302758,
-          "hrScore": 50.9347,
+          "predictedProbability": 0.302805,
+          "hrScore": 50.9348,
           "tag": "STRONG",
           "reasons": [
             "strong power profile",
@@ -78,8 +78,8 @@
           "team": "Toronto Blue Jays",
           "eventId": "76173d6fb6052a6141d640d803185876",
           "odds": 350,
-          "predictedProbability": 0.292481,
-          "hrScore": 47.2181,
+          "predictedProbability": 0.292521,
+          "hrScore": 47.2183,
           "tag": "LOTTO",
           "reasons": [
             "strong power profile",
@@ -98,8 +98,8 @@
           "team": "Texas Rangers",
           "eventId": "637539eefe84344993cdd0d125a3e0fa",
           "odds": 305,
-          "predictedProbability": 0.290747,
-          "hrScore": 46.9003,
+          "predictedProbability": 0.290791,
+          "hrScore": 46.9005,
           "tag": "LOTTO",
           "reasons": [
             "strong power profile",
@@ -117,7 +117,7 @@
           "team": null,
           "eventId": "b266f49858dc754c6db869ecff6d52d5",
           "odds": 300,
-          "predictedProbability": 0.281864,
+          "predictedProbability": 0.281866,
           "hrScore": 51.1115,
           "tag": "ELITE",
           "reasons": [
@@ -137,8 +137,8 @@
           "team": "Baltimore Orioles",
           "eventId": "a06835fe8f4774ce140569b5ea8415bf",
           "odds": 425,
-          "predictedProbability": 0.279017,
-          "hrScore": 49.2504,
+          "predictedProbability": 0.279051,
+          "hrScore": 49.2505,
           "tag": "LOTTO",
           "reasons": [
             "strong power profile",
