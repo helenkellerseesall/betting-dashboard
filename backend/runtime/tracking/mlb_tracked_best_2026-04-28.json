@@ -2,7 +2,7 @@
   "metadata": {
     "sport": "mlb",
     "slateDate": "2026-04-28",
-    "generatedAt": "2026-04-28T07:07:06.087Z",
+    "generatedAt": "2026-04-28T07:11:14.038Z",
     "version": "tracking-phase-4-mlb",
     "bucket": "mlb.bestAvailable.best",
     "storage": "mlb_tracked_best"
@@ -1366,6 +1366,26 @@
       "clv": null,
       "book": "Caesars",
       "marketKey": "batter_home_runs",
+      "bucket": "mlb.bestAvailable.best"
+    },
+    {
+      "slateDate": "2026-04-28",
+      "sport": "mlb",
+      "player": "Pete Crow-Armstrong",
+      "team": "Chicago Cubs",
+      "propType": "Total Bases",
+      "side": "Over",
+      "line": 3.5,
+      "odds": 390,
+      "predictedProbability": 0.293482,
+      "edgeProbability": 0.0894,
+      "mlbPhase3Score": 1.3946677346938774,
+      "timestamp": "2026-04-28T07:11:13.994Z",
+      "result": null,
+      "closingOdds": null,
+      "clv": null,
+      "book": "FanDuel",
+      "marketKey": "batter_total_bases_alternate",
       "bucket": "mlb.bestAvailable.best"
     }
   ]

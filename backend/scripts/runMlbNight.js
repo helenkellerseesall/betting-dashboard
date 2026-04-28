@@ -10,56 +10,131 @@ async function runAll() {
     const res = await fetch("http://localhost:4000/api/best-available?sport=baseball_mlb");
     const data = await res.json();
 
-    const hr = data.hrPredictionToday;
-    const slips = data.hrSlips;
-
-    console.log("\n🔍 VERIFY:");
-    console.log({
-      zeroPower: hr.mostLikelyHr.filter(p => p.powerScore === 0).length,
-      nullWeather: hr.mostLikelyHr.filter(p => p._weatherScore == null).length,
-    });
-
-    console.log("\n🌦️ WEATHER ENVIRONMENT");
-    const weatherAvg = hr.mostLikelyHr.length
-      ? hr.mostLikelyHr.reduce((a, b) => a + (b._weatherScore || 0), 0) /
-        hr.mostLikelyHr.length
-      : 0;
-
-    console.log("\n🌦️ WEATHER SCORE:", weatherAvg);
-
-    if (weatherAvg < 0) {
-      console.log("⚠️ BAD HR SLATE");
-    } else {
-      console.log("🔥 GOOD HR SLATE");
+    const board = data?.mlbInsightBoard || null;
+    if (!board || typeof board !== "object") {
+      throw new Error("Missing mlbInsightBoard in API response")
     }
 
-    console.log("\n🔥 TOP HR:");
-    hr.mostLikelyHr.slice(0, 5).forEach(p => {
-      const prob = Number.isFinite(Number(p.modelProbability))
-        ? Number(p.modelProbability)
-        : Math.min((Number(p.hrScore) || 0) / 250, 0.3);
-      const edge = Number.isFinite(Number(p.edge)) ? Number(p.edge) : null;
-      const pct = (prob * 100).toFixed(1);
-      const edgePct = edge == null ? "n/a" : (edge * 100).toFixed(1);
-      console.log(`${p.player} (${p.team}) | Probability: ${prob.toFixed(3)} (${pct}%) | Edge: ${edgePct}%`);
-    });
+    function toNum(v) {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
 
-    console.log("\n[PROB CHECK]");
-    hr.mostLikelyHr.slice(0, 5).forEach(p => {
-      console.log({ player: p.player, modelProbability: p.modelProbability, impliedProbability: p.impliedProbability, edge: p.edge });
-    });
+    function fmtSigned(x, digits = 3) {
+      const n = toNum(x)
+      if (!Number.isFinite(n)) return "n/a"
+      const s = n >= 0 ? "+" : ""
+      return `${s}${n.toFixed(digits)}`
+    }
 
-    console.log("\n💰 SLIPS:");
+    function fmtProb(x) {
+      const n = toNum(x)
+      if (!Number.isFinite(n)) return "n/a"
+      return n.toFixed(3)
+    }
 
-    Object.entries(slips).forEach(([type, arr]) => {
-      console.log(`\n${type.toUpperCase()}:`);
-      arr.forEach((slip, i) => {
-        console.log(`  Slip ${i + 1}:`);
-        slip.forEach(p => console.log(`    - ${p.player} (${p.team})`));
-      });
-    });
+    function fmtTeam(x) {
+      const s = String(x == null ? "" : x).trim()
+      return s ? s : "—"
+    }
 
-    console.log("\n✅ READY TO BET\n");
+    function fmtOdds(x) {
+      if (x == null) return "n/a"
+      const s = String(x).trim()
+      return s ? s : "n/a"
+    }
+
+    function playerName(x) {
+      return String(x?.player ?? x?.pitcher ?? "Unknown").trim() || "Unknown"
+    }
+
+    function extractLineOddsModelEdge(obj, propType) {
+      if (!obj || typeof obj !== "object") return { line: null, odds: null, modelProbability: null, edge: null }
+
+      // Prefer prop-specific aliases (Hits/RBI), else generic.
+      if (propType === "Hits") {
+        return {
+          line: obj.hitLine ?? obj.line ?? null,
+          odds: obj.hitOdds ?? obj.odds ?? null,
+          modelProbability: obj.hitProb ?? obj.modelProbability ?? null,
+          edge: obj.hitEdge ?? obj.edge ?? null,
+        }
+      }
+      if (propType === "RBIs") {
+        return {
+          line: obj.rbiLine ?? obj.line ?? null,
+          odds: obj.rbiOdds ?? obj.odds ?? null,
+          modelProbability: obj.rbiProb ?? obj.modelProbability ?? null,
+          edge: obj.rbiEdge ?? obj.edge ?? null,
+        }
+      }
+      return {
+        line: obj.line ?? null,
+        odds: obj.odds ?? null,
+        modelProbability: obj.modelProbability ?? null,
+        edge: obj.edge ?? null,
+      }
+    }
+
+    function printSection(title, list, propTypeOverride = null) {
+      console.log("\n--------------------------------------------------")
+      console.log(title)
+      console.log("--------------------------------------------------")
+
+      const arr = Array.isArray(list) ? list : []
+      if (!arr.length) {
+        console.log("(none)")
+        return
+      }
+
+      for (const item of arr) {
+        const propType =
+          propTypeOverride ||
+          (item && typeof item === "object" && item.propType ? String(item.propType) : null) ||
+          "—"
+
+        const ref = item && typeof item === "object" && item.ref ? item.ref : item
+        const { odds, modelProbability, edge } = extractLineOddsModelEdge(ref, propType)
+
+        const team = fmtTeam(ref?.team ?? ref?.teamResolved)
+        const oddsStr = odds == null ? "n/a" : fmtOdds(odds)
+
+        console.log(`${playerName(ref)} (${team}) — ${propType}`)
+        console.log(`Prob: ${fmtProb(modelProbability)} | Edge: ${fmtSigned(edge)} | Odds: ${oddsStr}`)
+        console.log("")
+      }
+    }
+
+    printSection("🔥 TOP HR", board.topHR, "HR")
+    printSection("📈 TOP HITS", board.topHits, "Hits")
+    printSection("💥 TOP RBI", board.topRBI, "RBIs")
+    printSection("🎯 TOP Ks", board.topKs, "Ks")
+
+    printSection("⭐ BEST OVERALL PLAYS", board.bestOverallPlays)
+    printSection("🧠 RR CORE (ROUND ROBIN POOL)", board.rrCandidates)
+    printSection("💰 LOTTO PLAYS", board.lottoCandidates)
+    printSection("🚫 FADES (AVOID)", board.fades)
+
+    console.log("\n--------------------------------------------------")
+    console.log("🎮 GAME INSIGHTS")
+    console.log("--------------------------------------------------")
+    const games = Array.isArray(board.gameInsights) ? board.gameInsights : []
+    if (!games.length) {
+      console.log("(none)")
+    } else {
+      for (const g of games) {
+        const id = String(g?.eventId ?? "—")
+        const notes = Array.isArray(g?.notes) ? g.notes : []
+        const counts = g?.counts && typeof g.counts === "object" ? g.counts : null
+        const countsStr = counts ? `HR:${counts.HR || 0} Hits:${counts.Hits || 0} RBI:${counts.RBIs || 0} Ks:${counts.Ks || 0}` : ""
+        const noteStr = notes.length ? notes.join(" | ") : "Mixed signals"
+        console.log(`${id} ${countsStr}`.trim())
+        console.log(`- ${noteStr}`)
+        console.log("")
+      }
+    }
+
+    console.log("\n✅ READY\n");
 
   } catch (e) {
     console.error("[RUN ERROR]", e);
