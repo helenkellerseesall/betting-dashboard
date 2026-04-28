@@ -17,6 +17,7 @@ const { buildMlbPitcherKsToday } = require("../pipeline/mlb/buildMlbPitcherKsPro
 const { buildMlbRbiToday } = require("../pipeline/mlb/buildMlbRbiProbabilityEngine")
 const { buildMlbHitsToday } = require("../pipeline/mlb/buildMlbHitsProbabilityEngine")
 const { buildMlbPlayerDataset } = require("../pipeline/mlb/buildMlbPlayerDataset")
+const { buildMlbInsightBoard } = require("../pipeline/mlb/buildMlbInsightBoard")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 const normalizeName = require("../utils/normalizeName")
 
@@ -408,6 +409,13 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     rows: mlbSnapshot.rows,
     playerMap,
   })
+
+  const mlbInsightBoard = buildMlbInsightBoard({
+    hrPredictionToday,
+    hitsToday,
+    rbiToday,
+    pitcherKsToday,
+  })
   console.log("[KS LADDER VERIFY]", {
     sample: pitcherKsToday?.topPitchers?.[0]
       ? {
@@ -483,6 +491,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     pitcherKsToday,
     hitsToday,
     rbiToday,
+    mlbInsightBoard,
   }))
 
   return res.json({
@@ -497,6 +506,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     pitcherKsToday,
     hitsToday,
     rbiToday,
+    mlbInsightBoard,
   })
 }
 

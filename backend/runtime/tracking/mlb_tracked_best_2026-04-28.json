@@ -2,7 +2,7 @@
   "metadata": {
     "sport": "mlb",
     "slateDate": "2026-04-28",
-    "generatedAt": "2026-04-28T06:45:49.586Z",
+    "generatedAt": "2026-04-28T06:57:23.974Z",
     "version": "tracking-phase-4-mlb",
     "bucket": "mlb.bestAvailable.best",
     "storage": "mlb_tracked_best"
@@ -1326,6 +1326,26 @@
       "clv": null,
       "book": "FanDuel",
       "marketKey": "batter_hits_alternate",
+      "bucket": "mlb.bestAvailable.best"
+    },
+    {
+      "slateDate": "2026-04-28",
+      "sport": "mlb",
+      "player": "Taylor Walls",
+      "team": "Tampa Bay Rays",
+      "propType": "Home Runs",
+      "side": "Over",
+      "line": 0.5,
+      "odds": 900,
+      "predictedProbability": 0.19,
+      "edgeProbability": 0.09,
+      "mlbPhase3Score": 1.2298280567999997,
+      "timestamp": "2026-04-28T06:50:40.560Z",
+      "result": null,
+      "closingOdds": null,
+      "clv": null,
+      "book": "BetOnline.ag",
+      "marketKey": "batter_home_runs",
       "bucket": "mlb.bestAvailable.best"
     }
   ]
