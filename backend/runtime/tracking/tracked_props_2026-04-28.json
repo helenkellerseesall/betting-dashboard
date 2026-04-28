@@ -1,27 +1,27 @@
 [
   {
-    "player": "Freddie Freeman",
-    "team": "Los Angeles Dodgers",
-    "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
-    "odds": 370,
-    "hrScore": 34.0135,
-    "powerScore": 20,
-    "weather": 0,
-    "park": 0.75,
-    "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
-  },
-  {
     "player": "Max Muncy",
     "team": "Los Angeles Dodgers",
     "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
-    "odds": 330,
-    "hrScore": 33.8033,
+    "odds": 305,
+    "hrScore": 33.367,
     "powerScore": 20,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
+  },
+  {
+    "player": "Freddie Freeman",
+    "team": "Los Angeles Dodgers",
+    "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
+    "odds": 350,
+    "hrScore": 33.3138,
+    "powerScore": 20,
+    "weather": 0,
+    "park": 0.75,
+    "tag": "ELITE",
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Kyle Tucker",
@@ -33,43 +33,91 @@
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
+  },
+  {
+    "player": "Elly De La Cruz",
+    "team": "Cincinnati Reds",
+    "eventId": "781a040a058473c689200f515770de83",
+    "odds": 370,
+    "hrScore": 32.4934,
+    "powerScore": 20,
+    "weather": 0,
+    "park": 1.5,
+    "tag": "ELITE",
+    "timestamp": "2026-04-28T06:45:49.876Z"
+  },
+  {
+    "player": "Sal Stewart",
+    "team": "Cincinnati Reds",
+    "eventId": "781a040a058473c689200f515770de83",
+    "odds": 330,
+    "hrScore": 32.3325,
+    "powerScore": 20,
+    "weather": 0,
+    "park": 1.5,
+    "tag": "ELITE",
+    "timestamp": "2026-04-28T06:45:49.876Z"
+  },
+  {
+    "player": "Spencer Steer",
+    "team": "Cincinnati Reds",
+    "eventId": "781a040a058473c689200f515770de83",
+    "odds": 400,
+    "hrScore": 32.2575,
+    "powerScore": 20,
+    "weather": 0,
+    "park": 1.5,
+    "tag": "ELITE",
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Will Smith",
     "team": "Los Angeles Dodgers",
     "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
-    "odds": 370,
-    "hrScore": 32.3972,
+    "odds": 390,
+    "hrScore": 31.9232,
     "powerScore": 20,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Teoscar Hernandez",
     "team": "Los Angeles Dodgers",
     "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
     "odds": 390,
-    "hrScore": 31.9152,
+    "hrScore": 31.9106,
     "powerScore": 20,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
+  },
+  {
+    "player": "Tyler Stephenson",
+    "team": "Cincinnati Reds",
+    "eventId": "781a040a058473c689200f515770de83",
+    "odds": 425,
+    "hrScore": 31.82,
+    "powerScore": 19,
+    "weather": 0,
+    "park": 1.5,
+    "tag": "ELITE",
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Drake Baldwin",
     "team": "Atlanta Braves",
     "eventId": "6015a24988595d49a325507fa8543243",
     "odds": 400,
-    "hrScore": 31.49,
+    "hrScore": 30.6102,
     "powerScore": 18,
     "weather": 0,
     "park": 1.5,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Andy Pages",
@@ -81,19 +129,19 @@
     "weather": 0,
     "park": 0.75,
     "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Gunnar Henderson",
     "team": "Baltimore Orioles",
     "eventId": "3c9ebf868da49e615e589bd0d839b640",
     "odds": 350,
-    "hrScore": 30.3921,
+    "hrScore": 30.3861,
     "powerScore": 18,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Yordan Alvarez",
@@ -105,7 +153,7 @@
     "weather": 0,
     "park": 0.75,
     "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Riley Greene",
@@ -117,66 +165,18 @@
     "weather": 0,
     "park": 1.5,
     "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
-  },
-  {
-    "player": "Alex Freeland",
-    "team": "Los Angeles Dodgers",
-    "eventId": "54e35854b4573f13cd3a3491cd75cfa1",
-    "odds": 625,
-    "hrScore": 29.1232,
-    "powerScore": 18,
-    "weather": 0,
-    "park": 0.75,
-    "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
-  },
-  {
-    "player": "Trent Grisham",
-    "team": "New York Yankees",
-    "eventId": "bb7e51c3ed5e76ca658d46e6b586c0fa",
-    "odds": 400,
-    "hrScore": 29.0194,
-    "powerScore": 18,
-    "weather": 0,
-    "park": 1.5,
-    "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
-  },
-  {
-    "player": "Austin Riley",
-    "team": "Atlanta Braves",
-    "eventId": "6015a24988595d49a325507fa8543243",
-    "odds": 425,
-    "hrScore": 28.9232,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 1.5,
-    "tag": "ELITE",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   },
   {
     "player": "Samuel Basallo",
     "team": "Baltimore Orioles",
     "eventId": "3c9ebf868da49e615e589bd0d839b640",
-    "odds": 500,
-    "hrScore": 28.9172,
+    "odds": 475,
+    "hrScore": 29.207,
     "powerScore": 17,
     "weather": 0,
     "park": 0.75,
     "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
-  },
-  {
-    "player": "Pete Crow-Armstrong",
-    "team": "Chicago Cubs",
-    "eventId": "d221d6de333533ced3489663067a588d",
-    "odds": 500,
-    "hrScore": 28.8822,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 0.75,
-    "tag": "LOTTO",
-    "timestamp": "2026-04-28T04:17:57.567Z"
+    "timestamp": "2026-04-28T06:45:49.876Z"
   }
 ]

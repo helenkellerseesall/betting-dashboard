@@ -4,6 +4,7 @@ const gameWeather = require("../../data/mlbGameWeather.json")
 const parkFactors = require("../../data/mlbParkFactors.json")
 const normalizeName = require("../../utils/normalizeName")
 const config = require("../../config/modelConfig")
+const { computeRobustStats, computeProbabilityFromScore } = require("../utils/probabilityScaling")
 let statcastPower = {}
 try {
   statcastPower = require("../../data/mlbStatcastPower.json")
@@ -123,14 +124,6 @@ function impliedProbabilityFromAmericanOdds(american) {
   if (!Number.isFinite(a) || a === 0) return null
   if (a > 0) return 100 / (a + 100)
   return Math.abs(a) / (Math.abs(a) + 100)
-}
-
-function sigmoid(x) {
-  const n = Number(x)
-  if (!Number.isFinite(n)) return 0.5
-  // clamp input to avoid overflow
-  const z = Math.max(-12, Math.min(12, n))
-  return 1 / (1 + Math.exp(-z))
 }
 
 function impliedProbability(odds) {
@@ -547,16 +540,9 @@ function buildMlbHrPredictionCandidates(input = {}) {
     statcastMin,
     statcastMax,
   })
-  // Convert hrScore (points) -> modelProbability (0..1) using a smooth, slate-relative compression.
-  // Use robust scaling (median + IQR) so small slates / tight spreads don't inflate probabilities.
-  const hrScoreNums = scored.map((r) => toNum(r?.hrScore)).filter((n) => Number.isFinite(n)).sort((a, b) => a - b)
-  const hrMean = hrScoreNums.length ? hrScoreNums.reduce((s, n) => s + n, 0) / hrScoreNums.length : 0
-  const hrMedian = hrScoreNums.length ? hrScoreNums[Math.floor((hrScoreNums.length - 1) * 0.5)] : hrMean
-  const hrP25 = hrScoreNums.length ? hrScoreNums[Math.floor((hrScoreNums.length - 1) * 0.25)] : hrMean
-  const hrP75 = hrScoreNums.length ? hrScoreNums[Math.floor((hrScoreNums.length - 1) * 0.75)] : hrMean
-  const hrIqr = Number.isFinite(hrP75) && Number.isFinite(hrP25) ? hrP75 - hrP25 : 0
-  // IQR -> ~std for normal: std ≈ IQR / 1.349
-  const hrScale = hrIqr > 0 ? hrIqr / 1.349 : 1
+  // Convert hrScore (points) -> modelProbability (0..1) using shared robust+logistic scaling.
+  const hrScoreNums = scored.map((r) => toNum(r?.hrScore)).filter((n) => Number.isFinite(n))
+  const hrStats = computeRobustStats(hrScoreNums)
 
   let probMin = Infinity
   let probMax = -Infinity
@@ -564,16 +550,14 @@ function buildMlbHrPredictionCandidates(input = {}) {
   let probCount = 0
 
   for (const r of scored) {
-    const raw = toNum(r?.hrScore) ?? hrMedian
-    const z = (raw - hrMedian) / (hrScale || 1)
-    // Logistic compression to realistic HR probability band.
-    // - floor ~0.05
-    // - soft ceiling ~0.30
-    // Parameters chosen to spread mid-tier while compressing the top tail.
-    const midpoint = 0.15
-    const k = 1.05
-    const p = 0.045 + 0.255 * sigmoid(k * (z - midpoint))
-    const modelProbability = clamp(p, 0.05, 0.3)
+    const raw = toNum(r?.hrScore)
+    const modelProbability = computeProbabilityFromScore(raw, {
+      stats: hrStats,
+      floor: 0.05,
+      ceiling: 0.3,
+      midpoint: 0.15,
+      k: 1.05,
+    })
 
     r.modelProbability = modelProbability
 
@@ -599,10 +583,9 @@ function buildMlbHrPredictionCandidates(input = {}) {
     max: Number.isFinite(probMax) ? Number(probMax.toFixed(4)) : null,
     avg: Number.isFinite(probAvg) ? Number(probAvg.toFixed(4)) : null,
     count: probCount,
-    hrMean: Number.isFinite(hrMean) ? Number(hrMean.toFixed(4)) : null,
-    hrMedian: Number.isFinite(hrMedian) ? Number(hrMedian.toFixed(4)) : null,
-    hrIqr: Number.isFinite(hrIqr) ? Number(hrIqr.toFixed(4)) : null,
-    hrScale: Number.isFinite(hrScale) ? Number(hrScale.toFixed(4)) : null,
+    hrMedian: Number.isFinite(hrStats?.median) ? Number(hrStats.median.toFixed(4)) : null,
+    hrIqr: Number.isFinite(hrStats?.iqr) ? Number(hrStats.iqr.toFixed(4)) : null,
+    hrScale: Number.isFinite(hrStats?.scale) ? Number(hrStats.scale.toFixed(4)) : null,
   })
 
   scored.sort((a, b) => scoreSortValue(b) - scoreSortValue(a))

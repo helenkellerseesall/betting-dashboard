@@ -15,7 +15,10 @@ const gradeMlbHrSlips = require("../pipeline/mlb/gradeMlbHrSlips")
 const { buildMlbPitcherCandidates } = require("../pipeline/mlb/buildMlbPitcherCandidates")
 const { buildMlbPitcherKsToday } = require("../pipeline/mlb/buildMlbPitcherKsProbabilityEngine")
 const { buildMlbRbiToday } = require("../pipeline/mlb/buildMlbRbiProbabilityEngine")
+const { buildMlbHitsToday } = require("../pipeline/mlb/buildMlbHitsProbabilityEngine")
+const { buildMlbPlayerDataset } = require("../pipeline/mlb/buildMlbPlayerDataset")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
+const normalizeName = require("../utils/normalizeName")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -391,8 +394,19 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   const pitcherKsToday = buildMlbPitcherKsToday({
     rows: mlbSnapshot.rows
   })
+  // ONE shared player dataset for all hitter models.
+  const { playerMap } = buildMlbPlayerDataset({ rows: mlbSnapshot.rows })
+
+  // Build Hits first (populates hitProb/expectedHits on shared player objects).
+  const hitsToday = buildMlbHitsToday({
+    rows: mlbSnapshot.rows,
+    playerMap,
+  })
+
+  // Then RBI updates the SAME objects (reads hitProb directly from them).
   const rbiToday = buildMlbRbiToday({
-    rows: mlbSnapshot.rows
+    rows: mlbSnapshot.rows,
+    playerMap,
   })
   console.log("[KS LADDER VERIFY]", {
     sample: pitcherKsToday?.topPitchers?.[0]
@@ -467,6 +481,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       topPitchers: pitcherCandidates.slice(0, 10)
     },
     pitcherKsToday,
+    hitsToday,
     rbiToday,
   }))
 
@@ -480,6 +495,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       topPitchers: pitcherCandidates.slice(0, 10)
     },
     pitcherKsToday,
+    hitsToday,
     rbiToday,
   })
 }
