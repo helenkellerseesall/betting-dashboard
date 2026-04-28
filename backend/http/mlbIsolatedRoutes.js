@@ -14,6 +14,7 @@ const { trackMlbHrProps } = require("../pipeline/mlb/trackMlbHrProps")
 const gradeMlbHrSlips = require("../pipeline/mlb/gradeMlbHrSlips")
 const { buildMlbPitcherCandidates } = require("../pipeline/mlb/buildMlbPitcherCandidates")
 const { buildMlbPitcherKsToday } = require("../pipeline/mlb/buildMlbPitcherKsProbabilityEngine")
+const { buildMlbRbiToday } = require("../pipeline/mlb/buildMlbRbiProbabilityEngine")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 
 function dedupeMlbBoardRows(rows) {
@@ -390,6 +391,9 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   const pitcherKsToday = buildMlbPitcherKsToday({
     rows: mlbSnapshot.rows
   })
+  const rbiToday = buildMlbRbiToday({
+    rows: mlbSnapshot.rows
+  })
   console.log("[KS LADDER VERIFY]", {
     sample: pitcherKsToday?.topPitchers?.[0]
       ? {
@@ -463,6 +467,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       topPitchers: pitcherCandidates.slice(0, 10)
     },
     pitcherKsToday,
+    rbiToday,
   }))
 
   return res.json({
@@ -475,6 +480,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
       topPitchers: pitcherCandidates.slice(0, 10)
     },
     pitcherKsToday,
+    rbiToday,
   })
 }
 
