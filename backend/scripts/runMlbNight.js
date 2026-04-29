@@ -247,6 +247,36 @@ async function runAll() {
       })
     }
 
+    // ADDITIONAL: TOTAL BASES
+    printHeader("TOTAL BASES")
+    const tb = Array.isArray(opp.tbCandidates) ? [...opp.tbCandidates].sort(sortByProbDesc) : []
+    if (!tb.length) console.log("(none)")
+    else {
+      tb.slice(0, 30).forEach((c) => {
+        console.log(`- ${fmtTeam(c.player)} (${fmtTeam(resolveTeam(c))}) — "${fmtTeam(c.ladder)}" — ${fmtProb(c.probability)} — ${fmtSignedEdge(c.edge)}`)
+      })
+    }
+
+    // ADDITIONAL: H+R+RBI
+    printHeader("H+R+RBI")
+    const hrrbi = Array.isArray(opp.hrrbiCandidates) ? [...opp.hrrbiCandidates].sort(sortByProbDesc) : []
+    if (!hrrbi.length) console.log("(none)")
+    else {
+      hrrbi.slice(0, 25).forEach((c) => {
+        console.log(`- ${fmtTeam(c.player)} (${fmtTeam(resolveTeam(c))}) — "${fmtTeam(c.ladder)}" — ${fmtProb(c.probability)} — ${fmtSignedEdge(c.edge)}`)
+      })
+    }
+
+    // ADDITIONAL: EXTRA BASE HITS
+    printHeader("EXTRA BASE HITS")
+    const xbh = Array.isArray(opp.xbhCandidates) ? [...opp.xbhCandidates].sort(sortByProbDesc) : []
+    if (!xbh.length) console.log("(none)")
+    else {
+      xbh.slice(0, 25).forEach((c) => {
+        console.log(`- ${fmtTeam(c.player)} (${fmtTeam(resolveTeam(c))}) — "${fmtTeam(c.ladder)}" — ${fmtProb(c.probability)} — ${fmtSignedEdge(c.edge)}`)
+      })
+    }
+
     // 4) Ks BOARD
     printHeader("Ks BOARD")
 
@@ -431,12 +461,18 @@ async function runAll() {
     const rbi1Count = Array.isArray(opp.rbi1plusCandidates) ? opp.rbi1plusCandidates.length : 0
     const rbi2Count = Array.isArray(opp.rbi2plusCandidates) ? opp.rbi2plusCandidates.length : 0
     const ksCount = Array.isArray(opp.ksCandidates) ? opp.ksCandidates.length : 0
+    const tbCount = Array.isArray(opp.tbCandidates) ? opp.tbCandidates.length : 0
+    const hrrbiCount = Array.isArray(opp.hrrbiCandidates) ? opp.hrrbiCandidates.length : 0
+    const xbhCount = Array.isArray(opp.xbhCandidates) ? opp.xbhCandidates.length : 0
 
     console.log(`- HR candidates: ${hrCount}`)
     console.log(`- 2+ hit candidates: ${hit2Count}`)
     console.log(`- RBI 1+ candidates: ${rbi1Count}`)
     console.log(`- RBI 2+ candidates: ${rbi2Count}`)
     console.log(`- Ks candidates: ${ksCount}`)
+    console.log(`- TB candidates: ${tbCount}`)
+    console.log(`- H+R+RBI candidates: ${hrrbiCount}`)
+    console.log(`- XBH candidates: ${xbhCount}`)
 
     console.log("\nDAILY REPORT COMPLETE\n")
   } catch (e) {

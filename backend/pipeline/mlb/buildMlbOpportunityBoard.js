@@ -16,6 +16,14 @@ function clampStr(v) {
   return s ? s : null
 }
 
+function clamp01(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  if (n <= 0) return 0
+  if (n >= 1) return 1
+  return n
+}
+
 function buildMlbOpportunityBoard(input = {}) {
   const hrPredictionToday = input?.hrPredictionToday && typeof input.hrPredictionToday === "object" ? input.hrPredictionToday : {}
   const pitcherKsToday = input?.pitcherKsToday && typeof input.pitcherKsToday === "object" ? input.pitcherKsToday : {}
@@ -60,6 +68,7 @@ function buildMlbOpportunityBoard(input = {}) {
   if (Array.isArray(hrPredictionToday?.mostLikelyHr)) hrSrc.push(...hrPredictionToday.mostLikelyHr)
 
   const hrCandidates = []
+  const hrByPlayer = new Map()
   const seenHr = new Set()
   for (const p of hrSrc) {
     const player = clampStr(p?.player)
@@ -82,6 +91,13 @@ function buildMlbOpportunityBoard(input = {}) {
       probability: prob,
       edge: toNum(p?.edge),
     })
+
+    if (!hrByPlayer.has(player)) {
+      hrByPlayer.set(player, {
+        probability: prob,
+        edge: toNum(p?.edge),
+      })
+    }
   }
 
   // ------------------------
@@ -93,6 +109,9 @@ function buildMlbOpportunityBoard(input = {}) {
   const rbi2plusCandidates = []
   const rbi1All = []
   const rbi2All = []
+  const tbCandidates = []
+  const hrrbiCandidates = []
+  const xbhCandidates = []
 
   if (playerMap) {
     for (const obj of playerMap.values()) {
@@ -173,6 +192,77 @@ function buildMlbOpportunityBoard(input = {}) {
           probability: r2,
         })
       }
+
+      // ------------------------
+      // ADDITIVE ADVANCED PROPS
+      // ------------------------
+      const hrMeta = hrByPlayer.get(player) || {}
+      const hrProb = toNum(hrMeta?.probability) ?? 0
+      const hrEdge = toNum(hrMeta?.edge) ?? 0
+      const power = toNum(obj?.powerScore)
+      const powerNorm = Number.isFinite(power) ? clamp01((power - 8) / 24) : 0.35
+      const bo = toNum(obj?.battingOrderIndex) ?? toNum(obj?.lineupPosition)
+      const lineupBoost = Number.isFinite(bo) ? (bo <= 4 ? 0.04 : bo <= 6 ? 0.015 : -0.02) : 0
+
+      // TOTAL BASES from hits ladder + HR proxy + power profile.
+      const tb2 = clamp01((toNum(h2) ?? 0) * 0.62 + hrProb * 0.25 + (toNum(h1) ?? 0) * 0.13 + powerNorm * 0.05)
+      const tb3 = clamp01((toNum(h2) ?? 0) * 0.45 + hrProb * 0.35 + (toNum(obj?.hit3plus) ?? 0) * 0.20 + powerNorm * 0.06)
+      const tb4 = clamp01(hrProb * 0.58 + (toNum(h2) ?? 0) * 0.22 + (toNum(obj?.hit3plus) ?? 0) * 0.10 + powerNorm * 0.10)
+      const tbEdge = Number.isFinite(he) ? he * 0.7 + hrEdge * 0.3 : hrEdge
+      if (tb2 >= 0.35) {
+        tbCandidates.push({ player, team, opponent, eventId, propType: "Total Bases", ladder: "2+ TB", probability: tb2, edge: tbEdge })
+      }
+      if (tb3 >= 0.20) {
+        tbCandidates.push({ player, team, opponent, eventId, propType: "Total Bases", ladder: "3+ TB", probability: tb3, edge: tbEdge })
+      }
+      if (tb4 >= 0.12) {
+        tbCandidates.push({ player, team, opponent, eventId, propType: "Total Bases", ladder: "4+ TB", probability: tb4, edge: tbEdge })
+      }
+
+      // H+R+RBI from hits + RBI + lineup adjustment.
+      const hrrbi2 = clamp01((toNum(h1) ?? 0) * 0.57 + (toNum(r1) ?? 0) * 0.43 + lineupBoost)
+      const hrrbi3 = clamp01((toNum(h1) ?? 0) * 0.46 + (toNum(r1) ?? 0) * 0.54 + lineupBoost - 0.10)
+      const hrriEdge = (Number.isFinite(he) ? he : 0) * 0.55 + (Number.isFinite(re) ? re : 0) * 0.45
+      if (hrrbi2 >= 0.40) {
+        hrrbiCandidates.push({
+          player,
+          team,
+          opponent,
+          eventId,
+          propType: "H+R+RBI",
+          ladder: "2+ H+R+RBI",
+          probability: hrrbi2,
+          edge: hrriEdge,
+        })
+      }
+      if (hrrbi3 >= 0.22) {
+        hrrbiCandidates.push({
+          player,
+          team,
+          opponent,
+          eventId,
+          propType: "H+R+RBI",
+          ladder: "3+ H+R+RBI",
+          probability: hrrbi3,
+          edge: hrriEdge,
+        })
+      }
+
+      // XBH proxy from HR + multi-hit + power.
+      const xbh1 = clamp01(hrProb * 0.50 + (toNum(h2) ?? 0) * 0.35 + powerNorm * 0.15)
+      const xbhEdge = hrEdge * 0.6 + (Number.isFinite(he) ? he * 0.4 : 0)
+      if (xbh1 >= 0.20) {
+        xbhCandidates.push({
+          player,
+          team,
+          opponent,
+          eventId,
+          propType: "XBH",
+          ladder: "1+ XBH",
+          probability: xbh1,
+          edge: xbhEdge,
+        })
+      }
     }
   }
 
@@ -249,6 +339,9 @@ function buildMlbOpportunityBoard(input = {}) {
     rbi1plusCandidates,
     rbi2plusCandidates,
     ksCandidates,
+    tbCandidates,
+    hrrbiCandidates,
+    xbhCandidates,
   }
 }
 
