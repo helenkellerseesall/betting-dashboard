@@ -176,7 +176,10 @@ function buildMlbRbiToday(input = {}) {
   if (!playerMap || !playerMap.size) {
     throw new Error("RBI model requires shared playerMap (missing/empty)")
   }
-  const rbiRows = rows.filter((r) => String(r?.propType || "") === "RBIs")
+  const rbiRows = rows.filter((r) => {
+    const pt = String(r?.propType || "").toLowerCase()
+    return pt.includes("rbi")
+  })
 
   const byPlayer = new Map()
   for (const r of rbiRows) {

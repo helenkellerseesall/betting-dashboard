@@ -18,6 +18,7 @@ const { buildMlbRbiToday } = require("../pipeline/mlb/buildMlbRbiProbabilityEngi
 const { buildMlbHitsToday } = require("../pipeline/mlb/buildMlbHitsProbabilityEngine")
 const { buildMlbPlayerDataset } = require("../pipeline/mlb/buildMlbPlayerDataset")
 const { buildMlbInsightBoard } = require("../pipeline/mlb/buildMlbInsightBoard")
+const { buildMlbOpportunityBoard } = require("../pipeline/mlb/buildMlbOpportunityBoard")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 const normalizeName = require("../utils/normalizeName")
 
@@ -372,6 +373,60 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     console.log("[PITCHER ENRICH ERROR]", e?.message || e)
   }
 
+  // Data hygiene: backfill missing team/opponent fields before model builders run.
+  // This is mapping-only (no scoring/probability logic).
+  if (Array.isArray(mlbSnapshot?.rows)) {
+    const playerTeamMap = new Map()
+    const playerOpponentMap = new Map()
+
+    for (const row of mlbSnapshot.rows) {
+      const key = normalizeName(row?.player)
+      if (!key) continue
+      const teamKnown = String(row?.teamResolved || row?.team || "").trim()
+      const oppKnown = String(row?.opponentTeam || "").trim()
+      if (teamKnown && !playerTeamMap.has(key)) playerTeamMap.set(key, teamKnown)
+      if (oppKnown && !playerOpponentMap.has(key)) playerOpponentMap.set(key, oppKnown)
+    }
+
+    for (const row of mlbSnapshot.rows) {
+      const key = normalizeName(row?.player)
+      const currentTeam = String(row?.teamResolved || row?.team || "").trim()
+      const currentOpp = String(row?.opponentTeam || "").trim()
+      const home = String(row?.homeTeam || "").trim()
+      const away = String(row?.awayTeam || "").trim()
+
+      let resolvedTeam = currentTeam
+      let resolvedOpp = currentOpp
+
+      // First, use known player-level mapping from other rows.
+      if (!resolvedTeam && key && playerTeamMap.has(key)) resolvedTeam = playerTeamMap.get(key) || ""
+      if (!resolvedOpp && key && playerOpponentMap.has(key)) resolvedOpp = playerOpponentMap.get(key) || ""
+
+      // Then infer from game fields when possible.
+      const isHome = row?.isHome
+      if (!resolvedTeam && typeof isHome === "boolean") resolvedTeam = isHome ? home : away
+      if (!resolvedOpp && typeof isHome === "boolean") resolvedOpp = isHome ? away : home
+
+      if (!resolvedTeam && resolvedOpp && home && away) {
+        if (resolvedOpp === home) resolvedTeam = away
+        else if (resolvedOpp === away) resolvedTeam = home
+      }
+
+      // Last-resort fallback to keep team non-empty for downstream displays.
+      if (!resolvedTeam) resolvedTeam = home || away || ""
+      if (!resolvedOpp && resolvedTeam && home && away) {
+        if (resolvedTeam === home) resolvedOpp = away
+        else if (resolvedTeam === away) resolvedOpp = home
+      }
+
+      if (resolvedTeam) {
+        row.teamResolved = resolvedTeam
+        row.team = row.team || resolvedTeam
+      }
+      if (resolvedOpp) row.opponentTeam = resolvedOpp
+    }
+  }
+
   let hrPredictionToday = { topHrCandidatesToday: [], mostLikelyHr: [] }
   try {
     if (mlbSnapshot?.rows?.length > 0) {
@@ -415,6 +470,13 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     hitsToday,
     rbiToday,
     pitcherKsToday,
+  })
+
+  const mlbOpportunityBoard = buildMlbOpportunityBoard({
+    hrPredictionToday,
+    pitcherKsToday,
+    playerMap,
+    rows: mlbSnapshot.rows,
   })
   console.log("[KS LADDER VERIFY]", {
     sample: pitcherKsToday?.topPitchers?.[0]
@@ -492,6 +554,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     hitsToday,
     rbiToday,
     mlbInsightBoard,
+    mlbOpportunityBoard,
   }))
 
   return res.json({
@@ -507,6 +570,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     hitsToday,
     rbiToday,
     mlbInsightBoard,
+    mlbOpportunityBoard,
   })
 }
 

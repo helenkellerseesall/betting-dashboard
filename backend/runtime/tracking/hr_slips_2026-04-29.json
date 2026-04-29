@@ -1,0 +1,669 @@
+{
+  "date": "2026-04-29",
+  "createdAt": "2026-04-29T02:54:30.717Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Dylan Beavers",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.24510553208958585,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.10717449760682723,
+          "isValueBet": true,
+          "hybridScore": 0.1547051153268411,
+          "hrScore": 27.1532,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Dustin Harris",
+          "team": "Houston Astros",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 750,
+          "predictedProbability": 0.207647,
+          "modelProbability": 0.2315042344885329,
+          "impliedProbability": 0.11764705882352941,
+          "edge": 0.1138571756650035,
+          "isValueBet": true,
+          "hybridScore": 0.14990926994376752,
+          "hrScore": 25.9919,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Dylan Beavers",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.24510553208958585,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.10717449760682723,
+          "isValueBet": true,
+          "hybridScore": 0.1547051153268411,
+          "hrScore": 27.1532,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "balancedSlips": [
+      [
+        {
+          "player": "Dylan Beavers",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.24510553208958585,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.10717449760682723,
+          "isValueBet": true,
+          "hybridScore": 0.1547051153268411,
+          "hrScore": 27.1532,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Samuel Basallo",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 475,
+          "predictedProbability": 0.263913,
+          "modelProbability": 0.26261472302491856,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.0887016795466577,
+          "isValueBet": true,
+          "hybridScore": 0.15791786537645658,
+          "hrScore": 29.0124,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Dylan Beavers",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.24510553208958585,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.10717449760682723,
+          "isValueBet": true,
+          "hybridScore": 0.1547051153268411,
+          "hrScore": 27.1532,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "aggressiveSlips": [
+      [
+        {
+          "player": "Dustin Harris",
+          "team": "Houston Astros",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 750,
+          "predictedProbability": 0.207647,
+          "modelProbability": 0.2315042344885329,
+          "impliedProbability": 0.11764705882352941,
+          "edge": 0.1138571756650035,
+          "isValueBet": true,
+          "hybridScore": 0.14990926994376752,
+          "hrScore": 25.9919,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Samuel Basallo",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 475,
+          "predictedProbability": 0.263913,
+          "modelProbability": 0.26261472302491856,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.0887016795466577,
+          "isValueBet": true,
+          "hybridScore": 0.15791786537645658,
+          "hrScore": 29.0124,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Dustin Harris",
+          "team": "Houston Astros",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 750,
+          "predictedProbability": 0.207647,
+          "modelProbability": 0.2315042344885329,
+          "impliedProbability": 0.11764705882352941,
+          "edge": 0.1138571756650035,
+          "isValueBet": true,
+          "hybridScore": 0.14990926994376752,
+          "hrScore": 25.9919,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 15,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Jose Altuve",
+          "team": "Houston Astros",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.22729470596306423,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.0893636714803056,
+          "isValueBet": true,
+          "hybridScore": 0.1404564544256238,
+          "hrScore": 25.6632,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Jeremiah Jackson",
+          "team": "Baltimore Orioles",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 625,
+          "predictedProbability": 0.227931,
+          "modelProbability": 0.22704284294056165,
+          "impliedProbability": 0.13793103448275862,
+          "edge": 0.08911180845780303,
+          "isValueBet": true,
+          "hybridScore": 0.14025496400762175,
+          "hrScore": 25.6439,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Carlos Correa",
+          "team": "Houston Astros",
+          "eventId": "7459efe5719c27130877cc640b75f8ba",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.23055719810314002,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08240904995499188,
+          "isValueBet": true,
+          "hybridScore": 0.14000131403806756,
+          "hrScore": 25.9169,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Mike Trout",
+          "team": "Los Angeles Angels",
+          "eventId": "abd0114b226ed04c6bd4daac824f5241",
+          "odds": 575,
+          "predictedProbability": 0.238148,
+          "modelProbability": 0.2305128067784673,
+          "impliedProbability": 0.14814814814814814,
+          "edge": 0.08236465863031917,
+          "isValueBet": true,
+          "hybridScore": 0.1399658009783294,
+          "hrScore": 25.9134,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": null,
+  "summary": {
+    "totalSlips": 4,
+    "hits": 0,
+    "misses": 0,
+    "roi": 0
+  }
+}

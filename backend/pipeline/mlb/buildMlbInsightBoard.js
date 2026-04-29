@@ -122,11 +122,35 @@ function hrReason(ref) {
 
 function predictionString(propType, line) {
   const ln = norm(line)
-  if (propType === "Hits") return `${ln} hits`
+  if (propType === "Hits") return `${ln} Hits`
   if (propType === "RBIs") return `${ln} RBI`
   if (propType === "Ks") return `${ln} Ks`
   if (propType === "HR") return "HR"
   return ln
+}
+
+function ladderPropType(propBase, line) {
+  const ln = norm(line)
+  if (!ln) return propBase
+  if (propBase === "Hits") return `${ln} Hits`
+  if (propBase === "RBIs") return `${ln} RBI`
+  if (propBase === "Ks") return `${ln} Ks`
+  return `${ln} ${propBase}`
+}
+
+function sortByProbThenEdgeDesc(a, b) {
+  const ap = toNum(a?.probability) ?? 0
+  const bp = toNum(b?.probability) ?? 0
+  if (bp !== ap) return bp - ap
+  const ae = toNum(a?.edge) ?? -999
+  const be = toNum(b?.edge) ?? -999
+  return be - ae
+}
+
+function buildRankingFromRefs(refs, mapFn, limit) {
+  const arr = Array.isArray(refs) ? refs.map(mapFn).filter((x) => x && x.player) : []
+  arr.sort(sortByProbThenEdgeDesc)
+  return typeof limit === "number" ? arr.slice(0, limit) : arr
 }
 
 function pickTop(list, n) {
@@ -357,6 +381,142 @@ function buildMlbInsightBoard(input = {}) {
   const rbiSrc = Array.isArray(input?.rbiToday?.topPlayers) ? input.rbiToday.topPlayers : []
   const ksSrc = Array.isArray(input?.pitcherKsToday?.topPitchers) ? input.pitcherKsToday.topPitchers : []
 
+  // ------------------------------------------------------------
+  // LADDER-SPECIFIC RANKINGS (structural fix)
+  // ------------------------------------------------------------
+  const hit1plusRankings = buildRankingFromRefs(
+    hitsSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Hits",
+      ladder: "1+",
+      probability: toNum(p?.hit1plus),
+      edge: playEdge(p, "Hits"),
+      ref: p,
+    }),
+    60
+  )
+  const hit2plusRankings = buildRankingFromRefs(
+    hitsSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Hits",
+      ladder: "2+",
+      probability: toNum(p?.hit2plus),
+      edge: playEdge(p, "Hits"),
+      ref: p,
+    }),
+    60
+  )
+  const hit3plusRankings = buildRankingFromRefs(
+    hitsSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Hits",
+      ladder: "3+",
+      probability: toNum(p?.hit3plus),
+      edge: playEdge(p, "Hits"),
+      ref: p,
+    }),
+    60
+  )
+
+  const rbi1plusRankings = buildRankingFromRefs(
+    rbiSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "RBIs",
+      ladder: "1+",
+      probability: toNum(p?.rbi1plus),
+      edge: playEdge(p, "RBIs"),
+      ref: p,
+    }),
+    50
+  )
+  const rbi2plusRankings = buildRankingFromRefs(
+    rbiSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "RBIs",
+      ladder: "2+",
+      probability: toNum(p?.rbi2plus),
+      edge: playEdge(p, "RBIs"),
+      ref: p,
+    }),
+    50
+  )
+  const rbi3plusRankings = buildRankingFromRefs(
+    rbiSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "RBIs",
+      ladder: "3+",
+      probability: toNum(p?.rbi3plus),
+      edge: playEdge(p, "RBIs"),
+      ref: p,
+    }),
+    50
+  )
+
+  const k4plusRankings = buildRankingFromRefs(
+    ksSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Ks",
+      ladder: "4+",
+      probability: toNum(p?.k4plus) ?? toNum(p?.k4) ?? toNum(p?.ladder?.["4+"]),
+      edge: playEdge(p, "Ks"),
+      ref: p,
+    }),
+    40
+  )
+  const k5plusRankings = buildRankingFromRefs(
+    ksSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Ks",
+      ladder: "5+",
+      probability: toNum(p?.k5plus) ?? toNum(p?.k5) ?? toNum(p?.ladder?.["5+"]),
+      edge: playEdge(p, "Ks"),
+      ref: p,
+    }),
+    40
+  )
+  const k6plusRankings = buildRankingFromRefs(
+    ksSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Ks",
+      ladder: "6+",
+      probability: toNum(p?.k6plus) ?? toNum(p?.k6) ?? toNum(p?.ladder?.["6+"]),
+      edge: playEdge(p, "Ks"),
+      ref: p,
+    }),
+    40
+  )
+  const k7plusRankings = buildRankingFromRefs(
+    ksSrc,
+    (p) => ({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      propType: "Ks",
+      ladder: "7+",
+      probability: toNum(p?.k7plus) ?? toNum(p?.k7) ?? toNum(p?.ladder?.["7+"]),
+      edge: playEdge(p, "Ks"),
+      ref: p,
+    }),
+    40
+  )
+
   const topHR = [...hrSrc].sort((a, b) => scorePlay(b, "HR") - scorePlay(a, "HR")).slice(0, 10)
   const topHits = [...hitsSrc].sort((a, b) => scorePlay(b, "Hits") - scorePlay(a, "Hits")).slice(0, 10)
   const topRBI = [...rbiSrc].sort((a, b) => scorePlay(b, "RBIs") - scorePlay(a, "RBIs")).slice(0, 10)
@@ -383,15 +543,14 @@ function buildMlbInsightBoard(input = {}) {
       ref: p, // reuse existing object
     }))
 
-  const hitsBoard = [...hitsSrc]
-    .sort((a, b) => {
-      const ap = toNum(a?.hit1plus) ?? playProb(a, "Hits") ?? 0
-      const bp = toNum(b?.hit1plus) ?? playProb(b, "Hits") ?? 0
-      // Default: hit1plus first, then edge
-      if (bp !== ap) return bp - ap
-      return (playEdge(b, "Hits") ?? 0) - (playEdge(a, "Hits") ?? 0)
-    })
-    .slice(0, 30)
+  // Hits board is built from ladder-specific pools (not global hitter ranking).
+  const hitsPool = new Map()
+  for (const r of [...hit1plusRankings.slice(0, 30), ...hit2plusRankings.slice(0, 30), ...hit3plusRankings.slice(0, 30)]) {
+    const key = norm(r?.player).toLowerCase()
+    if (!key) continue
+    hitsPool.set(key, r.ref)
+  }
+  const hitsBoard = [...hitsPool.values()]
     .map((p) => {
       const p1 = toNum(p?.hit1plus)
       const p2 = toNum(p?.hit2plus)
@@ -411,17 +570,29 @@ function buildMlbInsightBoard(input = {}) {
       return {
         player: p?.player ?? null,
         team: p?.team ?? null,
-        propType: "Hits",
+        propType: ladderPropType("Hits", line),
         prediction: predictionString("Hits", line),
         probability: prob,
+        edge: playEdge(p, "Hits"),
+        odds: p?.hitOdds ?? p?.odds ?? null,
         confidence: confidenceFromProb(prob),
         reason: hitsReason(p),
       }
     })
+    .filter((x) => x.player)
+    .sort((a, b) => sortByProbThenEdgeDesc(a, b))
+    .slice(0, 30)
 
   // RBI board: include variety (avoid one-team spam)
   const teamCap = 3
-  const rbiSorted = [...rbiSrc].sort((a, b) => scorePlay(b, "RBIs") - scorePlay(a, "RBIs"))
+  // RBI board is built from ladder-specific pools (not global RBI ranking).
+  const rbiPool = new Map()
+  for (const r of [...rbi1plusRankings.slice(0, 25), ...rbi2plusRankings.slice(0, 25), ...rbi3plusRankings.slice(0, 25)]) {
+    const key = norm(r?.player).toLowerCase()
+    if (!key) continue
+    rbiPool.set(key, r.ref)
+  }
+  const rbiSorted = [...rbiPool.values()].sort((a, b) => scorePlay(b, "RBIs") - scorePlay(a, "RBIs"))
   const rbiBoard = []
   const teamCounts = new Map()
   for (const p of rbiSorted) {
@@ -444,18 +615,25 @@ function buildMlbInsightBoard(input = {}) {
     rbiBoard.push({
       player: p?.player ?? null,
       team: p?.team ?? null,
-      propType: "RBIs",
+      propType: ladderPropType("RBIs", line),
       prediction: predictionString("RBIs", line),
       probability: prob,
+      edge: playEdge(p, "RBIs"),
+      odds: p?.rbiOdds ?? p?.odds ?? null,
       confidence: confidenceFromProb(prob),
       reason: rbiReason(p),
     })
     if (rbiBoard.length >= 20) break
   }
 
-  const ksBoard = [...ksSrc]
-    .sort((a, b) => scorePlay(b, "Ks") - scorePlay(a, "Ks"))
-    .slice(0, 30)
+  // Ks board is built from ladder-specific pools (not global pitcher ranking).
+  const ksPool = new Map()
+  for (const r of [...k4plusRankings.slice(0, 25), ...k5plusRankings.slice(0, 25), ...k6plusRankings.slice(0, 25), ...k7plusRankings.slice(0, 25)]) {
+    const key = norm(r?.player).toLowerCase()
+    if (!key) continue
+    ksPool.set(key, r.ref)
+  }
+  const ksBoard = [...ksPool.values()]
     .map((p) => {
       const k4 = toNum(p?.k4plus) ?? toNum(p?.k4) ?? toNum(p?.ladder?.["4+"]) ?? null
       const k5 = toNum(p?.k5plus) ?? toNum(p?.k5) ?? toNum(p?.ladder?.["5+"]) ?? null
@@ -471,19 +649,358 @@ function buildMlbInsightBoard(input = {}) {
         ],
         { safeThreshold: 0.55, target: 0.5, allowLowProb: true, minNonUpside: 0.4 }
       )
-      const line = pick.line || "over"
+      // Always output a ladder label (never generic "Ks"/"over").
+      const line = pick.line || (Number.isFinite(k5) ? "5+" : Number.isFinite(k4) ? "4+" : "5+")
       const prob = pick.prob ?? playProb(p, "Ks")
 
       return {
         player: p?.player ?? null,
         team: p?.team ?? null,
-        propType: "Ks",
+        propType: ladderPropType("Ks", line),
         prediction: predictionString("Ks", line),
         probability: prob,
+        edge: playEdge(p, "Ks"),
+        odds: p?.odds ?? null,
         confidence: confidenceFromProb(prob),
         reason: ksReason(p),
       }
     })
+    .filter((x) => x.player)
+    .sort((a, b) => sortByProbThenEdgeDesc(a, b))
+    .slice(0, 30)
+
+  // ------------------------------------------------------------
+  // SECONDARY SECTIONS (rebuilt from ladder-based predictions)
+  // ------------------------------------------------------------
+  function predictedFromHitsRef(p) {
+    const p1 = toNum(p?.hit1plus)
+    const p2 = toNum(p?.hit2plus)
+    const p3 = toNum(p?.hit3plus)
+    const pick = selectBestLadder(
+      [
+        { line: "1+", prob: p1, level: 1 },
+        { line: "2+", prob: p2, level: 2 },
+        { line: "3+", prob: p3, level: 3 },
+      ],
+      { safeThreshold: 0.55, target: 0.5, allowLowProb: false, minNonUpside: 0.4 }
+    )
+    const line = pick.line || "1+"
+    const prob = pick.prob
+    if (!Number.isFinite(prob)) return null
+    return {
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      opponent: p?.opponent ?? p?.opponentTeam ?? null,
+      eventId: p?.eventId ?? null,
+      propType: ladderPropType("Hits", line),
+      prediction: predictionString("Hits", line),
+      probability: prob,
+      edge: playEdge(p, "Hits"),
+      odds: p?.hitOdds ?? p?.odds ?? null,
+      confidence: confidenceFromProb(prob),
+      reason: hitsReason(p),
+      category: "hits",
+    }
+  }
+
+  function predictedFromRbiRef(p) {
+    const p1 = toNum(p?.rbi1plus)
+    const p2 = toNum(p?.rbi2plus)
+    const pick = selectBestLadder(
+      [
+        { line: "1+", prob: p1, level: 1 },
+        { line: "2+", prob: p2, level: 2 },
+      ],
+      { safeThreshold: 0.55, target: 0.5, allowLowProb: false, minNonUpside: 0.4 }
+    )
+    const line = pick.line || "1+"
+    const prob = pick.prob
+    if (!Number.isFinite(prob)) return null
+    return {
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      opponent: p?.opponent ?? p?.opponentTeam ?? null,
+      eventId: p?.eventId ?? null,
+      propType: ladderPropType("RBIs", line),
+      prediction: predictionString("RBIs", line),
+      probability: prob,
+      edge: playEdge(p, "RBIs"),
+      odds: p?.rbiOdds ?? p?.odds ?? null,
+      confidence: confidenceFromProb(prob),
+      reason: rbiReason(p),
+      category: "rbi",
+    }
+  }
+
+  function predictedFromKsRef(p) {
+    const k4 = toNum(p?.k4plus) ?? toNum(p?.k4) ?? toNum(p?.ladder?.["4+"]) ?? null
+    const k5 = toNum(p?.k5plus) ?? toNum(p?.k5) ?? toNum(p?.ladder?.["5+"]) ?? null
+    const k6 = toNum(p?.k6plus) ?? toNum(p?.k6) ?? toNum(p?.ladder?.["6+"]) ?? null
+    const k7 = toNum(p?.k7plus) ?? toNum(p?.k7) ?? toNum(p?.ladder?.["7+"]) ?? null
+    const pick = selectBestLadder(
+      [
+        { line: "4+", prob: k4, level: 4 },
+        { line: "5+", prob: k5, level: 5 },
+        { line: "6+", prob: k6, level: 6 },
+        { line: "7+", prob: k7, level: 7 },
+      ],
+      { safeThreshold: 0.55, target: 0.5, allowLowProb: true, minNonUpside: 0.4 }
+    )
+    const line = pick.line || (Number.isFinite(k5) ? "5+" : Number.isFinite(k4) ? "4+" : "5+")
+    const prob = pick.prob ?? playProb(p, "Ks")
+    if (!Number.isFinite(prob)) return null
+    return {
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      opponent: p?.opponent ?? null,
+      eventId: p?.eventId ?? null,
+      propType: ladderPropType("Ks", line),
+      prediction: predictionString("Ks", line),
+      probability: prob,
+      edge: playEdge(p, "Ks"),
+      odds: p?.odds ?? null,
+      confidence: confidenceFromProb(prob),
+      reason: ksReason(p),
+      category: "ks",
+    }
+  }
+
+  const predictedPlays = []
+  for (const p of hitsSrc) {
+    const x = predictedFromHitsRef(p)
+    if (x?.player && x?.prediction) predictedPlays.push(x)
+  }
+  for (const p of rbiSrc) {
+    const x = predictedFromRbiRef(p)
+    if (x?.player && x?.prediction) predictedPlays.push(x)
+  }
+  for (const p of ksSrc) {
+    const x = predictedFromKsRef(p)
+    if (x?.player && x?.prediction) predictedPlays.push(x)
+  }
+  for (const p of hrSrc) {
+    const prob = toNum(p?.modelProbability)
+    if (!Number.isFinite(prob)) continue
+    predictedPlays.push({
+      player: p?.player ?? null,
+      team: p?.team ?? null,
+      opponent: p?.opponent ?? p?.opponentTeam ?? null,
+      eventId: p?.eventId ?? null,
+      propType: "HR",
+      prediction: "HR",
+      probability: prob,
+      edge: toNum(p?.edge),
+      odds: p?.odds ?? null,
+      confidence: confidenceFromProb(prob),
+      reason: hrReason(p),
+      category: "hr",
+    })
+  }
+
+  function sortPredicted(a, b) {
+    const ae = toNum(a?.edge) ?? -999
+    const be = toNum(b?.edge) ?? -999
+    if (be !== ae) return be - ae
+    const ap = toNum(a?.probability) ?? 0
+    const bp = toNum(b?.probability) ?? 0
+    return bp - ap
+  }
+
+  function pickCategoryKey(p) {
+    if (p.category === "hr") return "HR"
+    const pr = String(p.prediction || "")
+    if (pr.endsWith("Hits")) return "Hits"
+    if (pr.endsWith("RBI")) return "RBIs"
+    if (pr.endsWith("Ks")) return "Ks"
+    return "Other"
+  }
+
+  function buildMixedMustPlays(pool, n = 10) {
+    const primary = pool
+      .filter((p) => (toNum(p?.probability) ?? 0) >= 0.55 && (toNum(p?.edge) ?? 0) > 0)
+      .sort(sortPredicted)
+
+    const fallback = [...pool].sort(sortPredicted)
+
+    const cats = ["HR", "Ks", "RBIs", "Hits"]
+    const out = []
+    const used = new Set()
+    const teamCounts = new Map()
+    const gamesUsed = new Set()
+
+    function teamKey(p) {
+      return norm(p?.team).toUpperCase()
+    }
+
+    function gameKey(p) {
+      const eid = norm(p?.eventId)
+      if (eid) return `e:${eid}`
+      const away = norm(p?.opponent)
+      const home = norm(p?.team)
+      if (away && home) return `m:${away}@${home}`
+      return ""
+    }
+
+    function canAdd(p) {
+      const tk = teamKey(p)
+      if (tk && (teamCounts.get(tk) || 0) >= 3) return false // hard team cap
+      return true
+    }
+
+    function addOut(p) {
+      const tk = teamKey(p)
+      if (tk) teamCounts.set(tk, (teamCounts.get(tk) || 0) + 1)
+      const gk = gameKey(p)
+      if (gk) gamesUsed.add(gk)
+      out.push({
+        ...p,
+        propType: p.propType ?? pickCategoryKey(p),
+        modelProbability: p.probability,
+        impliedProbability: null,
+        why: "Mixed-slate must play (ladder-based)",
+      })
+    }
+
+    function tryAdd(list) {
+      for (const p of list) {
+        const cat = pickCategoryKey(p)
+        const key = `${pickCategoryKey(p)}__${norm(p.player).toLowerCase()}__${norm(String(p.prediction))}`
+        if (used.has(key)) continue
+        if ((catCount[cat] || 0) >= (maxQuota[cat] || 99)) continue
+        if (!canAdd(p)) continue
+        used.add(key)
+        addOut(p)
+        catCount[cat] = (catCount[cat] || 0) + 1
+        if (out.length >= n) return true
+      }
+      return false
+    }
+
+    // Pass 1: enforce minimum prop mix: 2-3 Hits, 2 HR, 1-2 Ks, 1 RBI
+    const minQuota = { Hits: 2, HR: 2, Ks: 1, RBIs: 1 }
+    const maxQuota = { Hits: 3, HR: 3, Ks: 2, RBIs: 2 }
+    const catCount = { Hits: 0, HR: 0, Ks: 0, RBIs: 0 }
+    for (const cat of cats) {
+      const sub = primary.filter((p) => pickCategoryKey(p) === cat)
+      let need = minQuota[cat] || 0
+      for (const p of sub) {
+        if (need <= 0) break
+        const key = `${pickCategoryKey(p)}__${norm(p.player).toLowerCase()}__${norm(String(p.prediction))}`
+        if (used.has(key)) continue
+        if (!canAdd(p)) continue
+        used.add(key)
+        addOut(p)
+        catCount[cat] = (catCount[cat] || 0) + 1
+        need -= 1
+        if (out.length >= n) break
+      }
+      // If strict pool misses quota, use fallback within same category.
+      if (need > 0) {
+        const fb = fallback.filter((p) => pickCategoryKey(p) === cat)
+        for (const p of fb) {
+          if (need <= 0) break
+          const key = `${pickCategoryKey(p)}__${norm(p.player).toLowerCase()}__${norm(String(p.prediction))}`
+          if (used.has(key)) continue
+          if (!canAdd(p)) continue
+          used.add(key)
+          addOut(p)
+          catCount[cat] = (catCount[cat] || 0) + 1
+          need -= 1
+          if (out.length >= n) break
+        }
+      }
+      if (out.length >= n) break
+    }
+
+    // Pass 2: round-robin fill from primary across categories
+    let idx = 0
+    while (out.length < n && primary.length) {
+      const cat = cats[idx % cats.length]
+      idx += 1
+      const sub = primary.filter((p) => pickCategoryKey(p) === cat && (catCount[cat] || 0) < (maxQuota[cat] || 99))
+      if (!tryAdd(sub)) {
+        // no progress possible for this cat in primary; continue scanning
+        if (idx > cats.length * 50) break
+      }
+    }
+
+    // Pass 3: fallback fill (still mixed-first)
+    if (out.length < n) {
+      idx = 0
+      while (out.length < n && fallback.length) {
+        const cat = cats[idx % cats.length]
+        idx += 1
+        const sub = fallback.filter((p) => pickCategoryKey(p) === cat && (catCount[cat] || 0) < (maxQuota[cat] || 99))
+        if (!tryAdd(sub)) {
+          if (idx > cats.length * 80) break
+        }
+      }
+    }
+
+    // Pass 4: last resort (still not empty)
+    if (out.length < n) tryAdd(fallback)
+
+    // Pass 5: ensure game diversity (at least 6 distinct games when possible).
+    if (gamesUsed.size < 6) {
+      const byScore = [...fallback]
+        .filter((p) => {
+          const gk = gameKey(p)
+          if (!gk || gamesUsed.has(gk)) return false
+          return canAdd(p)
+        })
+        .sort(sortPredicted)
+      for (const p of byScore) {
+        if (gamesUsed.size >= 6) break
+        const key = `${pickCategoryKey(p)}__${norm(p.player).toLowerCase()}__${norm(String(p.prediction))}`
+        if (used.has(key)) continue
+        used.add(key)
+        addOut(p)
+      }
+    }
+
+    // Re-rank after constraints, then clip.
+    out.sort(sortPredicted)
+    return out.slice(0, n)
+  }
+
+  const bestOverallPlays = buildMixedMustPlays(predictedPlays, 10)
+
+  // rrCandidates: safe/consistent pool (no HR). Prefer 1+ Hits and 5+ Ks.
+  const rrPool = predictedPlays
+    .filter((p) => p.category !== "hr")
+    .filter((p) => (toNum(p?.probability) ?? 0) >= 0.6)
+    .filter((p) => p.prediction === "1+ Hits" || p.prediction === "5+ Ks" || p.prediction === "4+ Ks")
+    .sort((a, b) => (toNum(b?.probability) ?? 0) - (toNum(a?.probability) ?? 0))
+
+  let rrCandidates = rrPool.slice(0, 8)
+  if (!rrCandidates.length) {
+    // Fallback: any non-HR high-prob plays.
+    rrCandidates = predictedPlays
+      .filter((p) => p.category !== "hr")
+      .sort((a, b) => (toNum(b?.probability) ?? 0) - (toNum(a?.probability) ?? 0))
+      .slice(0, 8)
+  }
+
+  // lottoCandidates: HR + higher ladders with positive edge (lower prob allowed)
+  const lottoPool = predictedPlays
+    .filter((p) => (toNum(p?.edge) ?? 0) > 0)
+    .filter((p) => {
+      if (p.category === "hr") return true
+      const pr = String(p.prediction || "")
+      const prob = toNum(p?.probability) ?? 0
+      const isHighLadderHit = pr.startsWith("2+ Hits") || pr.startsWith("3+ Hits")
+      const isHighLadderKs = pr.startsWith("6+ Ks") || pr.startsWith("7+ Ks")
+      return (isHighLadderHit || isHighLadderKs) && prob < 0.55
+    })
+    .sort(sortPredicted)
+
+  let lottoCandidates = lottoPool.slice(0, 12)
+  if (!lottoCandidates.length) {
+    // Fallback: HR plays first, then next best edges.
+    const hr = predictedPlays.filter((p) => p.category === "hr").sort(sortPredicted).slice(0, 10)
+    const rest = predictedPlays.filter((p) => p.category !== "hr").sort(sortPredicted).slice(0, 10)
+    lottoCandidates = [...hr, ...rest].slice(0, 12)
+  }
 
   const allPlays = [
     ...topHR.map((ref) => ({ propType: "HR", ref })),
@@ -492,9 +1009,6 @@ function buildMlbInsightBoard(input = {}) {
     ...topKs.map((ref) => ({ propType: "Ks", ref })),
   ]
 
-  const bestOverallPlays = buildBestOverall(allPlays, 12)
-  const rrCandidates = buildRrCandidates(allPlays, 8)
-  const lottoCandidates = buildLottoCandidates(allPlays, 10)
   const fades = buildFades(allPlays, 10)
   const gameInsights = buildGameInsights(topHR, topHits, topRBI, topKs)
 
@@ -503,6 +1017,17 @@ function buildMlbInsightBoard(input = {}) {
     hitsBoard,
     rbiBoard,
     ksBoard,
+    // Ladder-specific rankings (for exploration)
+    hit1plusRankings,
+    hit2plusRankings,
+    hit3plusRankings,
+    rbi1plusRankings,
+    rbi2plusRankings,
+    rbi3plusRankings,
+    k4plusRankings,
+    k5plusRankings,
+    k6plusRankings,
+    k7plusRankings,
     topHR,
     topHits,
     topRBI,
