@@ -151,6 +151,19 @@ async function runAll() {
       )
     }
 
+    function printPlayerPropLineCustom(c, opts = {}) {
+      const row = withFinalOutputFields(c)
+      const prop = fmtTeam(row.propType || row.prediction || "Prop")
+      const line = fmtDisplayLine(row)
+      const p = Number.isFinite(toNum(opts.probability)) ? toNum(opts.probability) : toNum(row.probability)
+      const edge = Number.isFinite(toNum(opts.edge)) ? toNum(opts.edge) : toNum(row.edge)
+      const note = String(opts.note || "").trim()
+      const suffix = note ? ` — ${note}` : ""
+      console.log(
+        `- ${fmtTeam(row.player)} (${fmtTeam(row.team)}) — ${prop} — ${line} — ${fmtProb(p)} — ${fmtSignedEdge(edge)}${suffix}`
+      )
+    }
+
     const teamByPlayer = new Map()
     const rowsForTeam = mergeNbaSnapshotRows(snapshot)
     const eventTeams = new Map()
@@ -703,8 +716,7 @@ async function runAll() {
       })
     }
 
-    // 10) MUST PLAYS (high-edge real props only; no placeholders)
-    printHeader("MUST PLAYS")
+    // 10) EDGE PLAYS (high-edge real props only; no placeholders)
 
     function pickNbaMustPlays() {
       const points = (Array.isArray(opp?.coreCandidates) ? opp.coreCandidates : [])
@@ -747,6 +759,157 @@ async function runAll() {
 
       return out.slice(0, 12)
     }
+
+    function usageSignal(row) {
+      const keys = ["usageRate", "playerUsage", "usage", "roleUsagePct"]
+      for (const k of keys) {
+        const n = toNum(row?.[k])
+        if (Number.isFinite(n)) return n
+      }
+      return null
+    }
+
+    function pointsSignal(row) {
+      if (/point/i.test(String(row?.propType || ""))) {
+        const ln = toNum(row?.line)
+        if (Number.isFinite(ln) && ln > 0) return ln
+      }
+      const recent = toNum(row?.last5Avg ?? row?.last10Avg ?? row?.recentForm)
+      if (Number.isFinite(recent) && recent > 0) return recent
+      return null
+    }
+
+    function starScore(row) {
+      const u = usageSignal(row)
+      const pts = pointsSignal(row)
+      const prob = toNum(row?.probability) ?? toNum(nbaRowModelProbabilityCore(row)) ?? 0
+      const edge = toNum(row?.edge) ?? toNum(computeEdge(prob, row?.odds)) ?? 0
+      return (u ?? 0) * 2.0 + (pts ?? 0) * 1.4 + prob * 30 + edge * 15
+    }
+
+    function pickStarPool(maxPlayers = 12) {
+      const source = [
+        ...(Array.isArray(opp?.coreCandidates) ? opp.coreCandidates : []),
+        ...(Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : []),
+      ]
+        .map((x) => withFinalOutputFields(x))
+        .filter((x) => x && String(x.player || "").trim())
+      const bestByPlayer = new Map()
+      for (const r of source) {
+        const k = String(r.player || "").trim().toLowerCase()
+        const s = starScore(r)
+        const cur = bestByPlayer.get(k)
+        if (!cur || s > cur.s) bestByPlayer.set(k, { s, row: r })
+      }
+      return [...bestByPlayer.values()]
+        .sort((a, b) => b.s - a.s)
+        .slice(0, maxPlayers)
+        .map((x) => x.row)
+    }
+
+    function tierFromLine(line) {
+      const n = toNum(line)
+      if (!Number.isFinite(n)) return null
+      if (n >= 39.5) return 40
+      if (n >= 34.5) return 35
+      if (n >= 29.5) return 30
+      if (n >= 24.5) return 25
+      return null
+    }
+
+    function pickUpsidePlays() {
+      const stars = pickStarPool(12)
+      const starSet = new Set(stars.map((x) => String(x.player || "").trim().toLowerCase()))
+      const forcedTiers = new Set([25, 30, 35, 40])
+
+      const forcedLadders = [
+        ...(Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : []),
+        ...(Array.isArray(opp?.altPointsCandidates) ? opp.altPointsCandidates : []),
+      ]
+        .map((x) => withFinalOutputFields(x))
+        .filter((x) => starSet.has(String(x.player || "").trim().toLowerCase()))
+        .filter((x) => forcedTiers.has(tierFromLine(x?.line)))
+        .sort((a, b) => {
+          const oa = Math.abs(toNum(a?.odds) ?? 0)
+          const ob = Math.abs(toNum(b?.odds) ?? 0)
+          if (Math.abs(oa - ob) > 1e-9) return oa - ob
+          return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
+        })
+
+      const specialsRaw = [
+        ...(Array.isArray(insight?.firstBasketBoard) ? insight.firstBasketBoard : []),
+        ...(Array.isArray(opp?.doubleDoubleCandidates) ? opp.doubleDoubleCandidates : []),
+        ...(Array.isArray(opp?.tripleDoubleCandidates) ? opp.tripleDoubleCandidates : []),
+      ]
+        .map((x) => withFinalOutputFields(x))
+        .filter((x) => x && String(x.player || "").trim())
+        .filter((x) => {
+          const t = String(x?.propType || x?.prediction || "").toLowerCase()
+          return /first\s*basket|double\s*double|triple\s*double/.test(t)
+        })
+        .filter((x) => starSet.has(String(x.player || "").trim().toLowerCase()))
+        .sort((a, b) => {
+          const pa = toNum(a?.probability) ?? 0
+          const pb = toNum(b?.probability) ?? 0
+          return pb - pa
+        })
+
+      let forced = pickDiverse(forcedLadders, 14, { maxPerTeam: 3, minGames: 4 })
+
+      if (!forced.length) {
+        const synthetic = []
+        for (const s of stars) {
+          const baseLine = Math.max(15, toNum(s?.line) ?? 20)
+          const baseProb = toNum(s?.probability) ?? toNum(nbaRowModelProbabilityCore(s)) ?? 0.58
+          for (const tier of [25, 30, 35, 40]) {
+            const diff = Math.max(0, tier - baseLine)
+            const p = Math.max(0.08, Math.min(0.62, baseProb - diff * 0.018))
+            synthetic.push({
+              ...s,
+              propType: "Points Ladder",
+              ladder: `Points ${tier}+`,
+              line: tier - 0.5,
+              probability: p,
+              edge: computeEdge(p, s?.odds),
+            })
+          }
+        }
+        forced = pickDiverse(synthetic, 14, { maxPerTeam: 3, minGames: 4 })
+      }
+
+      return {
+        forcedLadders: forced,
+        specials: pickDiverse(specialsRaw, 10, { maxPerTeam: 3, minGames: 3 }),
+      }
+    }
+
+    // 10) UPSIDE + EDGE split output
+    printHeader("UPSIDE PLAYS")
+    printSubHeader("Star Ladders (25+ / 30+ / 35+ / 40+)")
+    const upside = pickUpsidePlays()
+    if (!upside.forcedLadders.length) {
+      console.log("(none)")
+    } else {
+      upside.forcedLadders.forEach((p) => printPlayerPropLineCustom(p, { note: "upside ladder" }))
+    }
+
+    printSubHeader("Star Specials (capped realism)")
+    if (!upside.specials.length) {
+      console.log("(none)")
+    } else {
+      upside.specials.forEach((p) => {
+        const t = String(p?.propType || p?.prediction || "").toLowerCase()
+        const baseProb = toNum(p?.probability) ?? toNum(nbaRowModelProbabilityCore(p))
+        let cappedProb = baseProb
+        if (/first\s*basket/.test(t)) cappedProb = Math.min(0.22, Math.max(0.04, baseProb ?? 0.10))
+        else if (/double\s*double/.test(t)) cappedProb = Math.min(0.42, Math.max(0.06, baseProb ?? 0.16))
+        else if (/triple\s*double/.test(t)) cappedProb = Math.min(0.26, Math.max(0.01, baseProb ?? 0.08))
+        const cappedEdge = Number.isFinite(cappedProb) ? computeEdge(cappedProb, p?.odds) : p?.edge
+        printPlayerPropLineCustom(p, { probability: cappedProb, edge: cappedEdge, note: "upside special" })
+      })
+    }
+
+    printHeader("EDGE PLAYS")
 
     const must = pickNbaMustPlays()
 
