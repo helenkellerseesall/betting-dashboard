@@ -1,0 +1,835 @@
+"use strict"
+
+/**
+ * NBA nightly report — mirrors `runMlbNight.js` flow and console style.
+ * GET /api/best-available?sport=basketball_nba → nbaOpportunityBoard + nbaInsightBoard (+ snapshot for slate / environment).
+ */
+
+const { praTierLabel, altPointsTierLabel } = require("../pipeline/nba/nbaExtendedOpportunityPools")
+const { computeEdge } = require("../pipeline/utils/edge")
+const { nbaRowModelProbabilityCore } = require("../pipeline/nba/nbaModelSignals")
+
+const EDGE_SURFACE_MIN = 0.003
+
+function mergeNbaSnapshotRows(snapshot) {
+  const chunks = []
+  const push = (arr) => {
+    if (Array.isArray(arr) && arr.length) chunks.push(...arr)
+  }
+  if (!snapshot || typeof snapshot !== "object") return chunks
+  push(snapshot.finalPlayableRows)
+  push(snapshot.bestProps)
+  push(snapshot.playableProps)
+  push(snapshot.strongProps)
+  push(snapshot.eliteProps)
+  push(snapshot.props)
+  push(snapshot.rawProps)
+  return chunks
+}
+
+function isPointsCorePropType(pt) {
+  const t = String(pt || "").toLowerCase()
+  if (!t) return false
+  if (/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return false
+  return /point/.test(t)
+}
+
+function isReboundsCorePropType(pt) {
+  return /rebound/.test(String(pt || "").toLowerCase())
+}
+
+function isAssistsCorePropType(pt) {
+  const t = String(pt || "").toLowerCase()
+  return /assist/.test(t) && !/points.*rebounds|pra/.test(t)
+}
+
+function isPraCorePropType(pt) {
+  const t = String(pt || "").toLowerCase()
+  return /pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)
+}
+
+function insightRowToCandidate(x) {
+  if (!x || typeof x !== "object") return null
+  const player = String(x.player || "").trim()
+  if (!player) return null
+  return {
+    player,
+    team: String(x.team || "").trim() || null,
+    opponent: String(x.opponent || "").trim() || null,
+    eventId: String(x.eventId || "").trim() || null,
+    propType: String(x.propType || "Prop").trim() || "Prop",
+    ladder: String(x.prediction || "").trim() || null,
+    line: x.line != null ? x.line : null,
+    probability: x.probability,
+    edge: x.edge,
+  }
+}
+
+async function runAll() {
+  try {
+    console.log("Refreshing snapshot (NBA path also refreshes MLB sidecar snapshot)...")
+    await fetch("http://localhost:4000/refresh-snapshot?force=1&sport=basketball_nba")
+
+    console.log("Fetching best available (NBA)...")
+    const res = await fetch("http://localhost:4000/api/best-available?sport=basketball_nba")
+    let data = await res.json()
+
+    let opp = data?.nbaOpportunityBoard && typeof data.nbaOpportunityBoard === "object" ? data.nbaOpportunityBoard : null
+    let insight = data?.nbaInsightBoard && typeof data.nbaInsightBoard === "object" ? data.nbaInsightBoard : null
+    let snapshot = data?.snapshot && typeof data.snapshot === "object" ? data.snapshot : null
+
+    // If snapshot is empty, retry after explicit NBA refresh so team/event context is available.
+    const snapEvents0 = Array.isArray(snapshot?.events) ? snapshot.events.length : 0
+    const snapRows0 = mergeNbaSnapshotRows(snapshot).length
+    if (snapEvents0 === 0 && snapRows0 === 0) {
+      await fetch("http://localhost:4000/refresh-snapshot?force=1&sport=basketball_nba")
+      const res2 = await fetch("http://localhost:4000/api/best-available?sport=basketball_nba")
+      data = await res2.json()
+      opp = data?.nbaOpportunityBoard && typeof data.nbaOpportunityBoard === "object" ? data.nbaOpportunityBoard : null
+      insight = data?.nbaInsightBoard && typeof data.nbaInsightBoard === "object" ? data.nbaInsightBoard : null
+      snapshot = data?.snapshot && typeof data.snapshot === "object" ? data.snapshot : null
+    }
+
+    if (!opp) throw new Error("Missing nbaOpportunityBoard in API response")
+    if (!insight) throw new Error("Missing nbaInsightBoard in API response")
+
+    function toNum(v) {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+
+    function fmtTeam(x) {
+      const s = String(x == null ? "" : x).trim()
+      return s ? s : "—"
+    }
+
+    function normalizeName(v) {
+      return String(v == null ? "" : v)
+        .toLowerCase()
+        .replace(/\./g, " ")
+        .replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
+        .replace(/[^a-z\s-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    }
+
+    function fmtProb(x) {
+      const n = toNum(x)
+      if (!Number.isFinite(n)) return "n/a"
+      return n.toFixed(3)
+    }
+
+    function fmtSignedEdge(x) {
+      const n = toNum(x)
+      if (!Number.isFinite(n)) return "n/a"
+      const sign = n >= 0 ? "+" : ""
+      const abs = Math.abs(n)
+      const digits = abs >= 0.01 ? 3 : abs >= 0.001 ? 4 : 6
+      return `${sign}${n.toFixed(digits)}`
+    }
+
+    function sortByProbDesc(a, b) {
+      return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
+    }
+
+    function fmtDisplayLine(c) {
+      const ln = toNum(c?.line)
+      if (Number.isFinite(ln) && ln > 0) return String(ln)
+      const lad = String(c?.ladder || "").trim()
+      if (lad && !/^alt-mid$/i.test(lad)) return lad
+      const pred = String(c?.prediction || "").trim()
+      if (pred && !/^alt-mid$/i.test(pred)) return pred
+      return "—"
+    }
+
+    function printPlayerPropLine(c) {
+      const row = withFinalOutputFields(c)
+      const prop = fmtTeam(row.propType || row.prediction || "Prop")
+      const line = fmtDisplayLine(row)
+      console.log(
+        `- ${fmtTeam(row.player)} (${fmtTeam(row.team)}) — ${prop} — ${line} — ${fmtProb(row.probability)} — ${fmtSignedEdge(row.edge)}`
+      )
+    }
+
+    const teamByPlayer = new Map()
+    const rowsForTeam = mergeNbaSnapshotRows(snapshot)
+    const eventTeams = new Map()
+
+    for (const ev of Array.isArray(snapshot?.events) ? snapshot.events : []) {
+      const eid = String(ev?.id ?? ev?.eventId ?? ev?.event_id ?? "").trim()
+      if (!eid) continue
+      let home = String(ev?.homeTeam ?? ev?.home_team ?? "").trim()
+      let away = String(ev?.awayTeam ?? ev?.away_team ?? "").trim()
+      const matchup = String(ev?.matchup || "").trim()
+      if ((!home || !away) && matchup.includes("@")) {
+        const parts = matchup.split("@").map((x) => String(x || "").trim())
+        if (parts.length === 2) {
+          if (!away && parts[0]) away = parts[0]
+          if (!home && parts[1]) home = parts[1]
+        }
+      }
+      if (!eventTeams.has(eid) && (home || away)) eventTeams.set(eid, { home, away })
+    }
+
+    for (const r of rowsForTeam) {
+      const key = normalizeName(r?.player)
+      if (!key) continue
+      if (!teamByPlayer.has(key)) {
+        const t = String(r?.teamResolved ?? r?.team ?? "").trim()
+        if (t) teamByPlayer.set(key, t)
+      }
+      const eid = String(r?.eventId || "").trim()
+      const home = String(r?.homeTeam ?? r?.home_team ?? "").trim()
+      const away = String(r?.awayTeam ?? r?.away_team ?? "").trim()
+      if (eid && !eventTeams.has(eid) && (home || away)) {
+        eventTeams.set(eid, { home, away })
+      }
+    }
+
+    function resolveTeam(candidate) {
+      const direct = String(candidate?.team || "").trim()
+      if (direct && direct !== "—") return direct
+      const key = normalizeName(candidate?.player)
+      if (key && teamByPlayer.has(key)) return teamByPlayer.get(key)
+
+      const eid = String(candidate?.eventId || "").trim()
+      if (eid && eventTeams.has(eid)) {
+        const t = eventTeams.get(eid)
+        const op = String(candidate?.opponent || "").trim()
+        if (op) {
+          if (t.home && t.home === op && t.away) return t.away
+          if (t.away && t.away === op && t.home) return t.home
+        }
+        return t.home || t.away || "—"
+      }
+      const op = String(candidate?.opponent || "").trim()
+      if (op) return op
+      return "NBA"
+    }
+
+    function withFinalOutputFields(row) {
+      if (!row || typeof row !== "object") return row
+      const out = { ...row }
+      const resolvedTeam = resolveTeam(out)
+      if (!String(out.team || "").trim() || String(out.team).trim() === "—") out.team = resolvedTeam
+      const p = toNum(nbaRowModelProbabilityCore(out))
+      if (Number.isFinite(p)) out.probability = p
+      out.edge = computeEdge(p, out?.odds)
+      return out
+    }
+
+    function edgeValue(x) {
+      const n = toNum(x?.edge)
+      return Number.isFinite(n) ? n : -999
+    }
+
+    function sanitizedForOutput(x) {
+      const row = withFinalOutputFields(x)
+      const lineDisp = fmtDisplayLine(row)
+      if (!lineDisp || lineDisp === "—") return null
+      return row
+    }
+
+    function sortByEdgeThenProbDesc(a, b) {
+      const e = edgeValue(b) - edgeValue(a)
+      if (Math.abs(e) > 1e-12) return e
+      return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
+    }
+
+    function topBoardRows(primaryRows, fallbackRows, n) {
+      const primary = (Array.isArray(primaryRows) ? primaryRows : [])
+        .map((x) => sanitizedForOutput(x))
+        .filter(Boolean)
+      if (primary.length) return primary.sort(sortByEdgeThenProbDesc).slice(0, n)
+
+      const fallback = (Array.isArray(fallbackRows) ? fallbackRows : [])
+        .map((x) => sanitizedForOutput(x))
+        .filter(Boolean)
+        .sort(sortByProbDesc)
+      return fallback.slice(0, n)
+    }
+
+    function gameKey(c) {
+      const eid = String(c?.eventId || "").trim()
+      if (eid) return `e:${eid}`
+      const away = String(c?.opponent || "").trim()
+      const home = String(c?.team || "").trim()
+      if (away && home) return `m:${away}@${home}`
+      return `t:${String(c?.team || "").trim().toUpperCase()}`
+    }
+
+    function pickDiverse(sortedCandidates, targetCount, opts = {}) {
+      const maxPerTeam = toNum(opts.maxPerTeam) ?? 4
+      const minGames = toNum(opts.minGames) ?? 5
+      const pool = Array.isArray(sortedCandidates)
+        ? sortedCandidates.map((x) => sanitizedForOutput(x)).filter(Boolean)
+        : []
+      const out = []
+      const usedKeys = new Set()
+      const teamPlayerCounts = new Map()
+
+      function teamKey(c) {
+        return String(c?.team || "").trim().toUpperCase()
+      }
+
+      function playerKey(c) {
+        return String(c?.player || "")
+          .trim()
+          .toLowerCase()
+      }
+
+      function uniqKey(c) {
+        return `${playerKey(c)}__${gameKey(c)}__${String(c?.ladder || c?.prediction || "").trim()}`
+      }
+
+      function gamesUsedCount() {
+        return new Set(out.map((x) => gameKey(x))).size
+      }
+
+      function teamCountFor(team) {
+        if (!team) return 0
+        return teamPlayerCounts.get(team)?.size || 0
+      }
+
+      function addPick(c) {
+        const k = uniqKey(c)
+        if (usedKeys.has(k)) return false
+        const t = teamKey(c)
+        const pk = playerKey(c)
+        if (t && pk) {
+          const set = teamPlayerCounts.get(t) || new Set()
+          if (set.has(pk)) return false
+          set.add(pk)
+          teamPlayerCounts.set(t, set)
+        }
+        usedKeys.add(k)
+        out.push(c)
+        return true
+      }
+
+      function scorePick(c, cap) {
+        const p = toNum(c?.probability) ?? 0
+        const e = toNum(c?.edge) ?? 0
+        const gk = gameKey(c)
+        const games = new Set(out.map((x) => gameKey(x)))
+        const newGame = games.has(gk) ? 0 : 1
+        const t = teamKey(c)
+        const tc = t ? teamCountFor(t) : 0
+        const overCap = t && tc >= cap ? 1 : 0
+        return p * 1000 + e * 50 + newGame * 35 - overCap * 500 - tc * 10
+      }
+
+      function pickPass(cap) {
+        const remaining = pool.filter((c) => !usedKeys.has(uniqKey(c)))
+        remaining.sort((a, b) => scorePick(b, cap) - scorePick(a, cap))
+        for (const c of remaining) {
+          if (out.length >= targetCount) return
+          const t = teamKey(c)
+          if (t && teamCountFor(t) >= cap) continue
+          addPick(c)
+        }
+      }
+
+      pickPass(maxPerTeam)
+
+      let relax = 0
+      while (out.length < targetCount && relax < 5) {
+        relax += 1
+        const cap = maxPerTeam + relax
+        if (gamesUsedCount() >= minGames && out.length >= Math.min(targetCount, pool.length)) break
+        pickPass(cap)
+      }
+
+      for (const c of pool) {
+        if (out.length >= targetCount) break
+        addPick(c)
+      }
+
+      out.sort(sortByEdgeThenProbDesc)
+      return out.slice(0, targetCount)
+    }
+
+    function printHeader(title) {
+      console.log("\n==== " + title + " ====")
+    }
+
+    function printSubHeader(label) {
+      console.log("\n--- " + label + " ---")
+    }
+
+    const insightCoreAsCandidates = (Array.isArray(insight.corePropsBoard) ? insight.corePropsBoard : [])
+      .map(insightRowToCandidate)
+      .filter(Boolean)
+
+    const allCoreOpp = Array.isArray(opp.coreCandidates) ? [...opp.coreCandidates].sort(sortByProbDesc) : []
+
+    function poolForCore(filterFn) {
+      const fromOpp = allCoreOpp.filter((c) => filterFn(c?.propType))
+      if (fromOpp.length) return fromOpp
+
+      const fromInsight = insightCoreAsCandidates.filter((c) => filterFn(c?.propType)).sort(sortByProbDesc)
+      if (fromInsight.length) return fromInsight
+
+      // Final fallback: mine ladder candidates by core stat type so CORE PROPS section is never empty.
+      const fromLadders = (Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : [])
+        .filter((c) => filterFn(c?.propType))
+        .sort(sortByProbDesc)
+      return fromLadders
+    }
+
+    // 1) CORE PROPS (Points / Rebounds / Assists / PRA)
+    printHeader("CORE PROPS")
+
+    const coreBuckets = [
+      { label: "Points", filter: isPointsCorePropType },
+      { label: "Rebounds", filter: isReboundsCorePropType },
+      { label: "Assists", filter: isAssistsCorePropType },
+      { label: "PRA", filter: isPraCorePropType },
+    ]
+
+    for (const { label, filter } of coreBuckets) {
+      printSubHeader(label)
+      const pool = topBoardRows(
+        poolForCore(filter),
+        Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates.filter((x) => filter(x?.propType)) : [],
+        20
+      )
+      if (!pool.length) {
+        console.log("(none)")
+        continue
+      }
+      pickDiverse(pool, 20, { maxPerTeam: 4, minGames: 5 }).forEach(printPlayerPropLine)
+    }
+
+    // 2) LADDERS (points+ / rebounds+ / assists+ / threes+ / PRA+)
+    printHeader("LADDERS")
+
+    const ladderBuckets = [
+      { label: "Points+", key: "pointsLadderCandidates" },
+      { label: "Rebounds+", key: "reboundsLadderCandidates" },
+      { label: "Assists+", key: "assistsLadderCandidates" },
+      { label: "Threes+", key: "threesLadderCandidates" },
+    ]
+
+    for (const { label, key } of ladderBuckets) {
+      printSubHeader(label)
+      const raw = topBoardRows(
+        Array.isArray(opp[key]) ? opp[key] : [],
+        Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : [],
+        20
+      )
+      if (!raw.length) {
+        console.log("(none)")
+        continue
+      }
+      pickDiverse(raw, 20, { maxPerTeam: 4, minGames: 5 }).forEach(printPlayerPropLine)
+    }
+
+    // 3) SPECIALS — double-double & triple-double (opportunity board; model uses scored Yes/Over rows)
+    printHeader("SPECIALS")
+
+    printSubHeader("Double-double")
+    const dd = topBoardRows(
+      Array.isArray(opp.doubleDoubleCandidates) ? opp.doubleDoubleCandidates : [],
+      Array.isArray(insight?.specialBoard) ? insight.specialBoard : [],
+      14
+    )
+    if (!dd.length) console.log("(none)")
+    else pickDiverse(dd, 28, { maxPerTeam: 4, minGames: 5 }).forEach(printPlayerPropLine)
+
+    printSubHeader("Triple-double")
+    const td = topBoardRows(Array.isArray(opp.tripleDoubleCandidates) ? opp.tripleDoubleCandidates : [], [], 10)
+    if (!td.length) console.log("(none)")
+    else pickDiverse(td, 22, { maxPerTeam: 4, minGames: 5 }).forEach(printPlayerPropLine)
+
+    // 4) PRA LADDER — combined PRA tiers (25+ / 30+ / 35+ / 40+)
+    printHeader("PRA LADDER")
+
+    const praPool = topBoardRows(
+      Array.isArray(opp.praCandidates) ? opp.praCandidates : [],
+      Array.isArray(opp?.praLadderCandidates) ? opp.praLadderCandidates : [],
+      40
+    )
+    const praTiers = [25, 30, 35, 40]
+    for (const tier of praTiers) {
+      printSubHeader(`PRA ${tier}+`)
+      const sub = praPool.filter((c) => praTierLabel(c?.line) === tier)
+      if (!sub.length) console.log("(none)")
+      else pickDiverse(sub, 24, { maxPerTeam: 4, minGames: 4 }).forEach(printPlayerPropLine)
+    }
+
+    // 5) ALT POINTS LADDER
+    printHeader("ALT POINTS LADDER")
+
+    const altPts = topBoardRows(
+      Array.isArray(opp.altPointsCandidates) ? opp.altPointsCandidates : [],
+      Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : [],
+      40
+    )
+    const altPtTiers = [20, 25, 30, 35, 40]
+    for (const tier of altPtTiers) {
+      printSubHeader(`Points ${tier}+`)
+      const sub = altPts.filter((c) => altPointsTierLabel(c?.line) === tier)
+      if (!sub.length) console.log("(none)")
+      else pickDiverse(sub, 24, { maxPerTeam: 4, minGames: 4 }).forEach(printPlayerPropLine)
+    }
+
+    // 6) ALT THREES
+    printHeader("ALT THREES")
+
+    const alt3 = topBoardRows(
+      Array.isArray(opp.altThreesCandidates) ? opp.altThreesCandidates : [],
+      Array.isArray(opp?.threesLadderCandidates) ? opp.threesLadderCandidates : [],
+      40
+    )
+    const threesTiers = [2, 3, 4, 5]
+    for (const tier of threesTiers) {
+      printSubHeader(`Threes ${tier}+`)
+      const sub = alt3.filter((c) => {
+        const n = toNum(c?.line)
+        if (!Number.isFinite(n)) return false
+        return n >= tier - 0.75 && n < tier + 1.25
+      })
+      if (!sub.length) console.log("(none)")
+      else pickDiverse(sub, 22, { maxPerTeam: 4, minGames: 4 }).forEach(printPlayerPropLine)
+    }
+
+    // 7) COMBO PROPS
+    printHeader("COMBO PROPS")
+
+    const combosOpp = topBoardRows(
+      Array.isArray(opp.comboCandidates) ? opp.comboCandidates : [],
+      Array.isArray(opp?.coreCandidates) ? opp.coreCandidates : [],
+      20
+    )
+    if (!combosOpp.length) console.log("(none)")
+    else pickDiverse(combosOpp, 30, { maxPerTeam: 4, minGames: 5 }).forEach(printPlayerPropLine)
+
+    // 8) FIRST BASKET (insight board)
+    printHeader("FIRST BASKET")
+
+    const fb = topBoardRows(
+      Array.isArray(insight.firstBasketBoard) ? insight.firstBasketBoard : [],
+      Array.isArray(insight?.specialBoard) ? insight.specialBoard : [],
+      20
+    )
+    if (!fb.length) console.log("(none)")
+    else fb.slice(0, 24).forEach((x) => printPlayerPropLine(x))
+
+    // 9) GAME ENVIRONMENTS (snapshot.events first; row-derived fallback by eventId)
+    printHeader("GAME ENVIRONMENTS")
+
+    const mergedRows = mergeNbaSnapshotRows(snapshot)
+    const byEvent = new Map()
+
+    function upsertEvent(eid, patch) {
+      if (!eid) return
+      const g = byEvent.get(eid) || {
+        eventId: eid,
+        homeTeam: null,
+        awayTeam: null,
+        matchup: null,
+        gameTotals: [],
+        teamTotals: [],
+      }
+      Object.assign(g, patch)
+      byEvent.set(eid, g)
+    }
+
+    for (const ev of Array.isArray(snapshot?.events) ? snapshot.events : []) {
+      const eid = String(ev?.id ?? ev?.eventId ?? ev?.event_id ?? "").trim()
+      if (!eid) continue
+      const homeTeam = ev?.homeTeam ?? ev?.home_team ?? null
+      const awayTeam = ev?.awayTeam ?? ev?.away_team ?? null
+      const matchup = String(ev?.matchup || "").trim() || (awayTeam && homeTeam ? `${awayTeam} @ ${homeTeam}` : null)
+      const eventPace = toNum(ev?.pace ?? ev?.projectedPace ?? ev?.gamePace)
+      const eventTotal = toNum(ev?.gameTotal ?? ev?.total ?? ev?.overUnder)
+      const eventSpread = toNum(ev?.spread ?? ev?.lineSpread)
+      upsertEvent(eid, {
+        homeTeam,
+        awayTeam,
+        matchup,
+        eventPace: Number.isFinite(eventPace) ? eventPace : null,
+        eventTotal: Number.isFinite(eventTotal) ? eventTotal : null,
+        eventSpread: Number.isFinite(eventSpread) ? eventSpread : null,
+      })
+    }
+
+    for (const r of mergedRows) {
+      const eid = String(r?.eventId || "").trim()
+      if (!eid) continue
+      const g = byEvent.get(eid) || {
+        eventId: eid,
+        homeTeam: r?.homeTeam ?? r?.home_team ?? null,
+        awayTeam: r?.awayTeam ?? r?.away_team ?? null,
+        matchup: String(r?.matchup || "").trim() || null,
+        eventPace: null,
+        eventTotal: null,
+        eventSpread: null,
+        gameTotals: [],
+        teamTotals: [],
+      }
+      if (!g.homeTeam && r?.homeTeam) g.homeTeam = r.homeTeam
+      if (!g.homeTeam && r?.home_team) g.homeTeam = r.home_team
+      if (!g.awayTeam && r?.awayTeam) g.awayTeam = r.awayTeam
+      if (!g.awayTeam && r?.away_team) g.awayTeam = r.away_team
+      if (!g.matchup && r?.matchup) g.matchup = String(r.matchup).trim()
+      const gt = toNum(r?.gameTotal)
+      if (Number.isFinite(gt)) g.gameTotals.push(gt)
+      const itt = toNum(r?.impliedTeamTotal)
+      if (Number.isFinite(itt)) g.teamTotals.push(itt)
+      byEvent.set(eid, g)
+    }
+
+    if (!byEvent.size) {
+      const candidatesForEnv = [
+        ...(Array.isArray(opp.ladderCandidates) ? opp.ladderCandidates : []),
+        ...(Array.isArray(opp.coreCandidates) ? opp.coreCandidates : []),
+        ...(Array.isArray(opp.praCandidates) ? opp.praCandidates : []),
+        ...(Array.isArray(opp.altPointsCandidates) ? opp.altPointsCandidates : []),
+        ...(Array.isArray(opp.altThreesCandidates) ? opp.altThreesCandidates : []),
+      ]
+      for (const c0 of candidatesForEnv) {
+        const c = withFinalOutputFields(c0)
+        const eid = String(c?.eventId || "").trim()
+        if (!eid) continue
+        const team = String(c?.team || "").trim()
+        const oppTeam = String(c?.opponent || "").trim()
+        const g = byEvent.get(eid) || {
+          eventId: eid,
+          homeTeam: null,
+          awayTeam: null,
+          matchup: null,
+          eventPace: null,
+          eventTotal: null,
+          eventSpread: null,
+          gameTotals: [],
+          teamTotals: [],
+        }
+        if (!g.matchup && team && oppTeam) g.matchup = `${team} vs ${oppTeam}`
+        const implied = toNum(c?.impliedTeamTotal ?? c?.teamTotal)
+        if (Number.isFinite(implied)) g.teamTotals.push(implied)
+        byEvent.set(eid, g)
+      }
+    }
+
+    // Build synthetic game totals/pace/spread proxies from event candidate distributions.
+    for (const [eid, g] of byEvent.entries()) {
+      if (Number.isFinite(g.eventTotal) && Number.isFinite(g.eventPace)) continue
+      const eventRows = [
+        ...(Array.isArray(opp.ladderCandidates) ? opp.ladderCandidates : []),
+        ...(Array.isArray(opp.coreCandidates) ? opp.coreCandidates : []),
+        ...(Array.isArray(opp.praCandidates) ? opp.praCandidates : []),
+      ]
+        .map((x) => withFinalOutputFields(x))
+        .filter((x) => String(x?.eventId || "").trim() === eid)
+
+      if (!eventRows.length) continue
+
+      const pointLines = eventRows
+        .filter((x) => /point/i.test(String(x?.propType || "")))
+        .map((x) => toNum(x?.line))
+        .filter((x) => Number.isFinite(x) && x > 0)
+
+      const praLines = eventRows
+        .filter((x) => /pra|points.*rebounds.*assists/i.test(String(x?.propType || "")))
+        .map((x) => toNum(x?.line))
+        .filter((x) => Number.isFinite(x) && x > 0)
+
+      const blendedLine =
+        (pointLines.length ? pointLines.reduce((a, b) => a + b, 0) / pointLines.length : null) ??
+        (praLines.length ? (praLines.reduce((a, b) => a + b, 0) / praLines.length) * 0.55 : null)
+
+      if (!Number.isFinite(g.eventTotal) && Number.isFinite(blendedLine)) {
+        g.eventTotal = Math.max(208, Math.min(244, blendedLine * 2 + 180))
+      }
+
+      const byTeam = new Map()
+      for (const r of eventRows) {
+        const team = String(r?.team || "").trim()
+        if (!team || team === "NBA") continue
+        const list = byTeam.get(team) || []
+        const v = toNum(r?.line)
+        if (Number.isFinite(v) && v > 0) list.push(v)
+        byTeam.set(team, list)
+      }
+      if (!Number.isFinite(g.eventSpread) && byTeam.size >= 2) {
+        const strengths = [...byTeam.values()].map((xs) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length))
+        strengths.sort((a, b) => b - a)
+        g.eventSpread = Math.max(1.5, Math.min(12.5, strengths[0] - strengths[1]))
+      }
+
+      if (!Number.isFinite(g.eventPace) && Number.isFinite(g.eventTotal)) {
+        const spreadAdj = Number.isFinite(g.eventSpread) ? g.eventSpread / 18 : 0
+        g.eventPace = Math.max(92, Math.min(107, 99 + (g.eventTotal - 220) / 3 - spreadAdj))
+      }
+
+      byEvent.set(eid, g)
+    }
+
+    const games = [...byEvent.values()].map((g) => {
+      const gtMax = g.gameTotals.length ? Math.max(...g.gameTotals) : null
+      const ttMax = g.teamTotals.length ? Math.max(...g.teamTotals) : null
+      const total = Number.isFinite(g.eventTotal) ? g.eventTotal : gtMax
+      const spread = Number.isFinite(g.eventSpread) ? g.eventSpread : null
+      const pace = Number.isFinite(g.eventPace)
+        ? g.eventPace
+        : Number.isFinite(total)
+          ? 99 + (total - 220) / 3 - (Number.isFinite(spread) ? spread / 20 : 0)
+          : null
+      const matchup =
+        g.matchup ||
+        (g.awayTeam && g.homeTeam ? `${fmtTeam(g.awayTeam)} @ ${fmtTeam(g.homeTeam)}` : fmtTeam(g.eventId))
+      let label = "Neutral pace / environment"
+      if (Number.isFinite(total) && total >= 232) label = "High game total environment"
+      else if (Number.isFinite(total) && total <= 215) label = "Lower total / grind environment"
+      else if (Number.isFinite(ttMax) && ttMax >= 118) label = "High implied team scoring"
+      return { matchup, gtMax, ttMax, label, pace, total, spread }
+    })
+
+    games.sort((a, b) => (toNum(b.gtMax) ?? -1) - (toNum(a.gtMax) ?? -1))
+
+    if (!games.length) {
+      console.log("(no snapshot events/rows available for game environments)")
+    } else {
+      games.forEach((g) => {
+        const gt = Number.isFinite(g.total) ? g.total.toFixed(1) : Number.isFinite(g.gtMax) ? g.gtMax.toFixed(1) : "n/a"
+        const tt = Number.isFinite(g.ttMax) ? g.ttMax.toFixed(1) : "n/a"
+        const pace = Number.isFinite(g.pace) ? g.pace.toFixed(1) : "n/a"
+        const spread = Number.isFinite(g.spread) ? g.spread.toFixed(1) : "n/a"
+        console.log(
+          `- ${g.matchup} | pace: ${pace} | gameTotal: ${gt} | spread: ${spread} | impliedTeamTotals(max): ${tt} | ${g.label}`
+        )
+      })
+    }
+
+    // 10) MUST PLAYS (high-edge real props only; no placeholders)
+    printHeader("MUST PLAYS")
+
+    function pickNbaMustPlays() {
+      const points = (Array.isArray(opp?.coreCandidates) ? opp.coreCandidates : [])
+        .filter((x) => /point/i.test(String(x?.propType || "")))
+        .map((x) => ({ ...x, cat: "points" }))
+      const pra = (Array.isArray(opp?.praCandidates) ? opp.praCandidates : []).map((x) => ({ ...x, cat: "pra" }))
+      const threes = (Array.isArray(opp?.altThreesCandidates) ? opp.altThreesCandidates : []).map((x) => ({ ...x, cat: "threes" }))
+      const ladders = (Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : []).map((x) => ({ ...x, cat: "ladder" }))
+
+      const pool = [...points, ...pra, ...threes, ...ladders]
+        .map((x) => sanitizedForOutput(x))
+        .filter(Boolean)
+        .filter((x) => !/^alt-mid$/i.test(String(x?.prediction || x?.ladder || "").trim()))
+        .sort(sortByEdgeThenProbDesc)
+
+      const out = []
+      const seen = new Set()
+      const minByCat = { points: 2, pra: 2, threes: 2, ladder: 2 }
+
+      for (const cat of Object.keys(minByCat)) {
+        let need = minByCat[cat]
+        for (const x of pool) {
+          if (need <= 0) break
+          if (String(x?.cat) !== cat) continue
+          const k = `${String(x.player || "").toLowerCase()}__${String(x.propType || "")}__${fmtDisplayLine(x)}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          out.push(x)
+          need -= 1
+        }
+      }
+
+      for (const x of pool) {
+        if (out.length >= 12) break
+        const k = `${String(x.player || "").toLowerCase()}__${String(x.propType || "")}__${fmtDisplayLine(x)}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        out.push(x)
+      }
+
+      return out.slice(0, 12)
+    }
+
+    const must = pickNbaMustPlays()
+
+    if (!must.length) console.log("(none)")
+    else {
+      must.forEach((p0) => {
+        const p = withFinalOutputFields(p0)
+        const prop =
+          typeof p?.prediction === "string" && p.prediction.trim()
+            ? p.prediction.trim()
+            : String(p?.propType || "play").trim() || "play"
+        const reason =
+          typeof p?.why === "string" && p.why.trim()
+            ? p.why.trim()
+            : typeof p?.note === "string" && p.note.trim()
+              ? p.note.trim()
+              : "AI curated"
+        const prob = toNum(p?.probability ?? p?.modelProbability)
+        const lineDisp = fmtDisplayLine(p)
+        console.log(
+          `- ${fmtTeam(p.player)} (${fmtTeam(p.team)}) — ${prop} — ${lineDisp} — ${fmtProb(prob)} — ${fmtSignedEdge(p.edge)} — ${reason}`
+        )
+      })
+    }
+
+    // 11) FREE BUILD POOL (candidate counts)
+    printHeader("FREE BUILD POOL")
+
+    const ladderAll = Array.isArray(opp.ladderCandidates) ? opp.ladderCandidates.length : 0
+    const ptsL = Array.isArray(opp.pointsLadderCandidates) ? opp.pointsLadderCandidates.length : 0
+    const rebL = Array.isArray(opp.reboundsLadderCandidates) ? opp.reboundsLadderCandidates.length : 0
+    const astL = Array.isArray(opp.assistsLadderCandidates) ? opp.assistsLadderCandidates.length : 0
+    const thrL = Array.isArray(opp.threesLadderCandidates) ? opp.threesLadderCandidates.length : 0
+    const praL = Array.isArray(opp.praLadderCandidates) ? opp.praLadderCandidates.length : 0
+    const praTierCt = Array.isArray(opp.praCandidates) ? opp.praCandidates.length : 0
+    const ddCt = Array.isArray(opp.doubleDoubleCandidates) ? opp.doubleDoubleCandidates.length : 0
+    const tdCt = Array.isArray(opp.tripleDoubleCandidates) ? opp.tripleDoubleCandidates.length : 0
+    const altPtCt = Array.isArray(opp.altPointsCandidates) ? opp.altPointsCandidates.length : 0
+    const alt3Ct = Array.isArray(opp.altThreesCandidates) ? opp.altThreesCandidates.length : 0
+    const comboCt = Array.isArray(opp.comboCandidates) ? opp.comboCandidates.length : 0
+    const coreCt = Array.isArray(opp.coreCandidates) ? opp.coreCandidates.length : 0
+    const metaUni = opp.meta && typeof opp.meta === "object" ? opp.meta.completeUniverseRows : null
+
+    console.log(`- Ladder candidates (all): ${ladderAll}`)
+    console.log(`- Points+ ladder candidates: ${ptsL}`)
+    console.log(`- Rebounds+ ladder candidates: ${rebL}`)
+    console.log(`- Assists+ ladder candidates: ${astL}`)
+    console.log(`- Threes+ ladder candidates: ${thrL}`)
+    console.log(`- PRA+ ladder candidates (all PRA ladders): ${praL}`)
+    console.log(`- PRA tier ladder candidates (25/30/35/40+): ${praTierCt}`)
+    console.log(`- Double-double candidates: ${ddCt}`)
+    console.log(`- Triple-double candidates: ${tdCt}`)
+    console.log(`- Alt points ladder candidates: ${altPtCt}`)
+    console.log(`- Alt threes candidates: ${alt3Ct}`)
+    console.log(`- Combo stat candidates: ${comboCt}`)
+    console.log(`- Core prop candidates: ${coreCt}`)
+    console.log(`- Complete universe rows: ${metaUni != null ? metaUni : "n/a"}`)
+    console.log(`- Insight best-overall rows: ${Array.isArray(insight.bestOverallPlays) ? insight.bestOverallPlays.length : 0}`)
+    console.log(`- Insight ladder rows: ${Array.isArray(insight.ladderBoard) ? insight.ladderBoard.length : 0}`)
+    console.log(`- Insight core rows: ${Array.isArray(insight.corePropsBoard) ? insight.corePropsBoard.length : 0}`)
+    console.log(`- Insight special rows: ${Array.isArray(insight.specialBoard) ? insight.specialBoard.length : 0}`)
+    console.log(`- Insight first-basket rows: ${Array.isArray(insight.firstBasketBoard) ? insight.firstBasketBoard.length : 0}`)
+
+    const edgeCheckPool = [
+      ...(Array.isArray(opp.ladderCandidates) ? opp.ladderCandidates : []),
+      ...(Array.isArray(opp.coreCandidates) ? opp.coreCandidates : []),
+      ...(Array.isArray(opp.doubleDoubleCandidates) ? opp.doubleDoubleCandidates : []),
+      ...(Array.isArray(opp.tripleDoubleCandidates) ? opp.tripleDoubleCandidates : []),
+      ...(Array.isArray(opp.praCandidates) ? opp.praCandidates : []),
+      ...(Array.isArray(opp.altPointsCandidates) ? opp.altPointsCandidates : []),
+      ...(Array.isArray(opp.altThreesCandidates) ? opp.altThreesCandidates : []),
+      ...(Array.isArray(opp.comboCandidates) ? opp.comboCandidates : []),
+    ].map((x) => withFinalOutputFields(x))
+
+    const edgePos = edgeCheckPool.filter((x) => Number.isFinite(Number(x?.edge)) && Number(x.edge) > 0).length
+    const edgeNeg = edgeCheckPool.filter((x) => Number.isFinite(Number(x?.edge)) && Number(x.edge) < 0).length
+    const edgeZero = edgeCheckPool.filter((x) => Number.isFinite(Number(x?.edge)) && Number(x.edge) === 0).length
+    console.log(`- Edge distribution (final-stage): +${edgePos} / -${edgeNeg} / 0:${edgeZero}`)
+
+    console.log("\nDAILY REPORT COMPLETE\n")
+  } catch (e) {
+    console.error("[RUN ERROR]", e)
+  }
+}
+
+runAll()

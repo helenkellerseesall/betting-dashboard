@@ -57,8 +57,8 @@ const {
 } = require("./pipeline/sports/bestAvailableSportDispatch")
 const { handleMlbBestAvailableGet, handleMlbRefreshSnapshotGet } = require("./http/mlbIsolatedRoutes")
 const {
-  getNbaBestAvailableSource,
-  getNbaRefreshSnapshotSource
+  handleNbaBestAvailableGet,
+  handleNbaRefreshSnapshotAfterMlbBranch
 } = require("./http/nbaIsolatedRoutes")
 const { buildMlbParlays } = require("./pipeline/mlb/buildMlbParlays")
 const { buildMlbPlayerModelContext, modelMlbPredictedProbability } = require("./pipeline/mlb/playerModel")
@@ -10075,111 +10075,6 @@ function withBookSlipFallback(book, targetLegCount, legs) {
   return []
 }
 
-/**
- * Snapshot of server module bindings required by `nbaBestAvailable.inlined.js` (compiled with `new Function`,
- * which does not close over this module). Keys must stay aligned with free identifiers in that slice.
- *
- * Every binding (except `bestAvailableSportKey`, which is per-request, and `oddsSnapshot`, passed as a
- * plain function argument each request) is exposed via a getter so `with (deps)` reads the current module value.
- */
-const __NBA_BEST_AVAILABLE_BINDING_KEYS = "__dirname,adaptAvailabilitySignal,applyGameAndRoleEdge,attachNbaPregameExportFields,bestValueSortValue,buildBestLadders,buildBestPropsFallbackRows,buildBestSpecials,buildCanonicalSpecialtyPlayerTeamIndex,buildCuratedLayer2BucketsHelper,buildDecisionLayer,buildDecisionSummary,buildExpandedMarketPools,buildExternalEdgeOverlay,buildFeaturedPlays,buildFirstBasketBoard,buildGameEdgeMap,buildLiveDualBestAvailablePayload,buildMlbBetSelector,buildMlbCorrelationClusters,buildMlbDecisionBoard,buildMlbOomphEngine,buildMlbPropClusters,buildMlbSlipEngine,buildMlbSpikeEngine,buildMlbUpsideClusters,buildNbaEnrichmentLegLookup,buildNbaExportHydrationKey,buildNbaExportHydrationKeyPropType,buildNbaTeamByPlayerEventMap,buildNbaTeamByPlayerSingleEventMap,buildPlayerTeamIndex,buildPregameContext,buildSelectiveBoard,buildSlipSeedPool,buildSnapshotMeta,buildSpecialtyOutputs,clamp,classifyBoardRow,createSurfaceRowBuilder,decimalToAmerican,dedupeMarketRows,dedupeSlipLegs,detectSlateMode,enrichSpecialPredictionRow,fillNbaRowTeamFromPlayerEventMap,fillNbaRowTeamFromSingleEventMap,filterSpecialRowsForBoard,finalizeRuntimeExternalOverlay,fs,getAvailablePrimarySlateRows,getLadderVariantsForRow,getMlbTeamTokenSet,getOpponentForRow,highestHitRateSortValue,impliedProbabilityFromAmerican,inferPlayDecision,inferSurfaceTeamLabel,ingestNbaOfficialInjuryReport,ingestRotoWireSignals,isCorePropRow,isFirstBasketLikeRow,isFragileLeg,isLadderRow,isLottoStyleRow,isMilestoneLadderRow,isMlbHighUpsideRow,isSpecialButNotFirstBasketRow,isTeamFirstBasketRow,lastSnapshotSource,logBet,logSnapshotMeta,mergeNbaExportRowWithEnrichmentLookup,mlbCorrelationClusters,mlbOomphSlips,mlbOpeningOddsByLegKey,mlbPicks,mlbSlips,mlbSnapshot,mlbSpikePlayers,mlbUpsideClusters,normalizeNbaExportTeamForRow,normalizePlayerName,normalizePlayerStatusValue,normalizePropTypeBase,parseHitRate,parseMlbMatchupTeams,path,recoverNbaExportRowTeamAndVenue,resolveCanonicalPlayerTeamForRow,resolveMlbTeamFromDiskCacheRow,resolveTeamNameForRowFromCode,rowTeamMatchesMatchup,runCurrentSlateCoverageDiagnostics,saveTrackedSlateSnapshot,shouldRemoveLegForPlayerStatus,snapshotLoadedFromDisk,sortByAdjustedConfidence,sortByPredictionStrength,sortCorePropsBoard,sortFirstBasketBoard,sortLadderBoard,sortLottoBoard,sortSpecialBoard,sortSpecialBoardSmart,SPECIAL_MARKET_KEYS,SPECIAL_PROP_TYPE_NAMES,stripStaleNbaPregameFieldsForRebuild,toNumberOrNull,toPlayerKey,withNbaRowDataState".split(",")
-
-function buildNbaBestAvailableRouteDeps(bestAvailableSportKey) {
-  const d = {}
-  d.bestAvailableSportKey = bestAvailableSportKey
-  for (let i = 0; i < __NBA_BEST_AVAILABLE_BINDING_KEYS.length; i += 1) {
-    const k = __NBA_BEST_AVAILABLE_BINDING_KEYS[i]
-    Object.defineProperty(d, k, {
-      get() {
-        return eval(k)
-      },
-      enumerable: true,
-      configurable: true
-    })
-  }
-  return d
-}
-
-let __nbaCompiledBestHandler = null
-let __nbaBestAvailableSrcPrepared = null
-function __getNbaBestAvailableHandler() {
-  if (!__nbaCompiledBestHandler) {
-    if (__nbaBestAvailableSrcPrepared == null) {
-      __nbaBestAvailableSrcPrepared = getNbaBestAvailableSource()
-    }
-    // Sloppy outer + `with (deps)` so names resolve to live getters (same as NBA refresh); avoid `let {…}=deps` snapshot.
-    __nbaCompiledBestHandler = new Function(
-      "req",
-      "res",
-      "deps",
-      "oddsSnapshot",
-      "return (function(req, res, deps, oddsSnapshot) {\n" +
-        "  with (deps) {\n" +
-        "    return (async function() {\n" +
-        __nbaBestAvailableSrcPrepared +
-        "\n    })();\n" +
-        "  }\n" +
-        "})(req, res, deps, oddsSnapshot);"
-    )
-  }
-  return __nbaCompiledBestHandler
-}
-
-// Module `let` bindings the isolated refresh body assigns — must use accessors so `with (deps)` writes hit server scope.
-const __NBA_REASSIGNABLE_REFRESH_MODULE_KEYS = new Set([
-  "oddsSnapshot",
-  "lastSnapshotSource",
-  "lastForceRefreshAt",
-  "lastSnapshotRefreshAt",
-  "lastMarketCoverageFocusDebug",
-])
-
-const __NBA_REFRESH_DEPS_KEYS = "__dirname,ACTIVE_BOOKS,aggregateMarketCoverageFocusDebug,aggregateWatchedCountsFromEventDebug,ALL_DK_MARKETS,app,applyPersistentLineHistory,avg,buildCeilingRoleSpikeSignals,buildDataDrivenWhyItRates,buildEvidence,buildExtraMarketRowsForEvents,buildLineHistorySummary,buildLineupRoleContextSignals,buildMarketContextSignals,buildMatchup,buildMixedBestAvailableBuckets,buildModelSummary,buildSlateEvents,buildSnapshotMeta,buildWatchedPlayersCoverage,clamp,dedupeBestProps,dedupeByLegSignature,dedupeMarketRows,dedupeSlipLegs,detectSlateMode,diversifyBestProps,ENABLE_DK_SCOPED_ODDS_DEBUG_FETCH,ENABLE_NBA_POST_EVENT_EXTRA_MARKET_REFETCH,enrichPredictionLayer,ensureNbaRefreshEnvConfigured,fetchApiSportsPlayerIdCached,fetchApiSportsPlayerStatsCached,fetchDkScopedEventsForDebug,fetchEventPlayerPropsWithCoverage,fetchNbaUnrestrictedSlateEvents,filterRowsToPrimarySlate,formatDetroitLocalTimestamp,fs,getAvailablePrimarySlateRows,getBadTeamAssignmentRows,getCurrentTeamCodeFromStats,getDistinctGameCount,getDvpScore,getEventIdForDebug,getEventMatchupForDebug,getEventTimeForDebug,getIngestRejectReason,getLocalSlateDateKey,getManualPlayerStatus,getOpponentForRow,getPrimarySlateDateKeyFromRows,getSlateModeFromEvents,getTeamOverride,inferBetTypeFit,inferBookValueScore,inferGameEnvironmentScore,inferMarketTypeFromKey,inferMatchupEdgeScore,inferVolatilityScore,isActiveBook,isFragileLeg,isLooseResolvedMatch,isManualOverridePlayer,isNbaOddsReplayRequest,isPregameEligibleRow,lastForceRefreshAt,lastMarketCoverageFocusDebug,lastSnapshotRefreshAt,lastSnapshotSource,logBestPropsCapDebug,logBestPropsCapExcluded,logFunnelDropSummary,logFunnelExcluded,logFunnelStage,logPlayerResolutionDiagnostics,logPropPipelineStep,logTopPropSample,minVal,maxVal,normalizeDebugPlayerName,normalizePropType,ODDS_API_KEY,oddsSnapshot,parseHitRate,propValueFromApiSportsLog,path,PLAYER_LOOKUP_CONCURRENCY,playerFitsMatchup,playerIdCache,playerLookupMissCache,playerStatsCache,resetFragileFilterAdjustedLogCount,rowTeamMatchesMatchup,runCurrentSlateCoverageDiagnostics,sanitizeSnapshotRows,scorePropRow,sendNbaReplayRefreshResponse,shouldRemoveLegForPlayerStatus,SNAPSHOT_COOLDOWN_MS,snapshotLoadedFromDisk,summarizeBestPropsCapPool,stddev,summarizeIdentityChanges,summarizeInterestingNormalizedRows,summarizeNormalizedMarketCoverage,summarizePropPipelineRows,teamAbbr,toDetroitDateKey,UNSTABLE_GAME_EVENT_IDS,WATCHED_PLAYER_NAMES".split(",")
-
-function buildNbaRefreshSnapshotDepsWithBindings(sportKey) {
-  const d = {}
-  d.sportKey = sportKey
-  for (let i = 0; i < __NBA_REFRESH_DEPS_KEYS.length; i += 1) {
-    const k = __NBA_REFRESH_DEPS_KEYS[i]
-    const reass = __NBA_REASSIGNABLE_REFRESH_MODULE_KEYS.has(k)
-    Object.defineProperty(d, k, {
-      get() {
-        return eval(k)
-      },
-      set: reass
-        ? function (v) {
-            eval(k + " = v")
-          }
-        : undefined,
-      enumerable: true,
-      configurable: true,
-    })
-  }
-  return d
-}
-
-let __nbaCompiledRefreshHandler = null
-function __getNbaRefreshSnapshotHandler() {
-  if (!__nbaCompiledRefreshHandler) {
-    const __src = getNbaRefreshSnapshotSource()
-    // Sloppy outer function so `with (deps)` is legal; inner async is strict but still resolves names through `with`.
-    // deps exposes module bindings (getters/setters) so assignments like `oddsSnapshot = …` update this module, not a shadow.
-    __nbaCompiledRefreshHandler = new Function(
-      "req",
-      "res",
-      "deps",
-      "return (function(req, res, deps) {\n" +
-        "  with (deps) {\n" +
-        "    return (async function() {\n" +
-        __src +
-        "\n    })();\n" +
-        "  }\n" +
-        "})(req, res, deps);"
-    )
-  }
-  return __nbaCompiledRefreshHandler
-}
-
 // === Refresh guard (global): prevent repeated Odds API calls ===
 let __refreshInProgress = false
 let __lastRefreshTime = 0
@@ -10212,101 +10107,29 @@ app.get("/api/best-available", async (req, res) => {
     })
   }
 
-  const sport = String(req.query?.sport || "").trim()
-  const bestAvailableSportKey = normalizeBestAvailableSportKey(sport)
-
-  const handlers = {
-    basketball_nba: async (req, res) => {
-      // NBA snapshot policy (simple): never use obviously bad/stale data.
-      // - rawProps === 0 -> refresh
-      // - events === 0 -> refresh
-      // - snapshot age > ~8 minutes -> refresh
-      const snapshotEventsCount = Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0
-      const snapshotRawPropsCount = Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0
-      const snapshotUpdatedAtMs = oddsSnapshot?.updatedAt ? new Date(oddsSnapshot.updatedAt).getTime() : null
-      const snapshotAgeMinutes = Number.isFinite(snapshotUpdatedAtMs)
-        ? (Date.now() - snapshotUpdatedAtMs) / 60000
-        : Infinity
-
-      const refreshReasons = []
-      if (snapshotEventsCount === 0) refreshReasons.push("events_zero")
-      if (snapshotRawPropsCount === 0) refreshReasons.push("rawProps_zero")
-      if (snapshotAgeMinutes > 8) refreshReasons.push("stale_over_8m")
-
-      if (refreshReasons.length) {
-        console.log("[NBA SNAPSHOT POLICY]", {
-          action: "refresh",
-          reasons: refreshReasons,
-          ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
-          events: snapshotEventsCount,
-          rawProps: snapshotRawPropsCount,
-        })
-
-        // Keep it simple: trigger the existing refresh endpoint in-process, then serve best-available.
-        // This avoids duplicating the refresh pipeline here.
-        try {
-          const now = Date.now()
-          if (__refreshInProgress) {
-            console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
-          } else if (now - __lastRefreshTime < 2 * 60 * 1000) {
-            console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
-          } else {
-            __refreshInProgress = true
-            __lastRefreshTime = now
-            console.log("[REFRESH GUARD]", { skipped: false, reason: null })
-
-            const port = Number(process.env.PORT || 4000)
-            const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
-            await axios.get(`http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=${sportParam}`, { timeout: 120000 })
-          }
-        } catch (e) {
-          console.warn("[NBA SNAPSHOT POLICY] refresh failed", {
-            message: e?.message || String(e),
-            status: e?.response?.status || null,
-          })
-        } finally {
-          __refreshInProgress = false
-        }
-      } else {
-        console.log("[NBA SNAPSHOT POLICY]", {
-          action: "use_snapshot",
-          reasons: [],
-          ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
-          events: snapshotEventsCount,
-          rawProps: snapshotRawPropsCount,
-        })
-      }
-
-      return __getNbaBestAvailableHandler()(req, res, buildNbaBestAvailableRouteDeps(bestAvailableSportKey), oddsSnapshot)
-    },
-    baseball_mlb: async (req, res) => {
-      return handleMlbBestAvailableGet(req, res, {
-        bestAvailableSportKey: "baseball_mlb",
-        lastSnapshotSource,
-        snapshotLoadedFromDisk,
-        oddsSnapshot,
-        getMlbSnapshot: () => mlbSnapshot,
-        setMlbSnapshot: (snap) => {
-          if (!snap || typeof snap !== "object") return
-          for (const k of Object.keys(mlbSnapshot)) delete mlbSnapshot[k]
-          Object.assign(mlbSnapshot, snap)
-        },
-        ODDS_API_KEY,
-        buildMlbBootstrapSnapshot,
-        hydrateMlbProbabilityLayer,
-        saveMlbReplaySnapshotToDisk,
-        buildLiveDualBestAvailablePayload,
-        buildMlbParlays,
-        buildSnapshotMeta,
-        recordMlbBestProps,
-        evaluateMlbPerformance,
-      })
+  const bestAvailableSportKey = normalizeBestAvailableSportKey(String(req.query?.sport || "").trim())
+  if (bestAvailableSportKey === "basketball_nba") {
+    const refreshGuard = {
+      get inProgress() {
+        return __refreshInProgress
+      },
+      set inProgress(v) {
+        __refreshInProgress = v
+      },
+      get lastRefreshTime() {
+        return __lastRefreshTime
+      },
+      set lastRefreshTime(v) {
+        __lastRefreshTime = v
+      },
     }
-  }
-
-  const handler = handlers[bestAvailableSportKey]
-  if (handler) {
-    return handler(req, res)
+    return handleNbaBestAvailableGet(req, res, {
+      axios,
+      oddsSnapshot,
+      normalizeBestAvailableSportKey,
+      refreshGuard,
+      snapshotPath: path.join(__dirname, "snapshot.json"),
+    })
   }
 
   return res.status(400).json({ error: "Unsupported sport" })
@@ -19268,7 +19091,15 @@ app.get("/refresh-snapshot", async (req, res) => {
     console.log("[MLB SNAPSHOT WITH-REFRESH-SNAPSHOT] skipped (no ODDS_API_KEY)")
   }
 
-  await __getNbaRefreshSnapshotHandler()(req, res, buildNbaRefreshSnapshotDepsWithBindings(sportKey))
+  await handleNbaRefreshSnapshotAfterMlbBranch(req, res, {
+    ODDS_API_KEY,
+    backendRoot: __dirname,
+    replaceOddsSnapshot: (snap) => {
+      if (!snap || typeof snap !== "object") return
+      for (const k of Object.keys(oddsSnapshot)) delete oddsSnapshot[k]
+      Object.assign(oddsSnapshot, snap)
+    },
+  })
   console.log("[NBA SNAPSHOT]", {
     events: Array.isArray(oddsSnapshot?.events) ? oddsSnapshot.events.length : 0,
     props: Array.isArray(oddsSnapshot?.props) ? oddsSnapshot.props.length : 0,
