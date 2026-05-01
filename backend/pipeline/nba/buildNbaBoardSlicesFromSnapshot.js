@@ -1,5 +1,7 @@
 "use strict"
 
+console.log("ACTIVE:", __filename)
+
 const {
   classifyBoardRow,
   isSpecialRow,
@@ -11,6 +13,38 @@ const { buildNbaEventTeamIndex, enrichNbaRowWithEventTeams } = require("./nbaEve
 const { inferNbaStatPropTypeFromMarket, isNbaStatLadderRow } = require("./nbaStatLadder")
 const { buildSpecialtyPlayerTeamIndex } = require("../resolution/playerTeamResolution")
 const fs = require("fs")
+const path = require("path")
+
+let _nbaProjectionsCache = null
+
+function normalizePlayerKey(name) {
+  return String(name || "").trim().toLowerCase()
+}
+
+function loadNbaPlayerProjections() {
+  if (_nbaProjectionsCache) return _nbaProjectionsCache
+  try {
+    const p = path.join(__dirname, "..", "..", "data", "nbaPlayerProjections.json")
+    if (!fs.existsSync(p)) {
+      _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19 }, players: {} }
+      return _nbaProjectionsCache
+    }
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"))
+    const defaults = raw?.defaults && typeof raw.defaults === "object" ? raw.defaults : {}
+    const players = raw?.players && typeof raw.players === "object" ? raw.players : {}
+    _nbaProjectionsCache = {
+      defaults: {
+        projectedMinutes: Number(defaults.projectedMinutes) || 26,
+        usageRate: Number(defaults.usageRate) || 19,
+      },
+      players,
+    }
+    return _nbaProjectionsCache
+  } catch {
+    _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19 }, players: {} }
+    return _nbaProjectionsCache
+  }
+}
 
 function loadNbaSnapshotFromDisk(snapshotPath) {
   try {
@@ -68,6 +102,25 @@ function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex) {
     const inferred = inferNbaStatPropTypeFromMarket(out)
     if (inferred) out = { ...out, propType: inferred }
   }
+
+  // Temporary projections layer: merge projectedMinutes + usageRate for realism ranking.
+  // This is intentionally explicit data (static JSON), not guessed per-row.
+  const proj = loadNbaPlayerProjections()
+  const key = normalizePlayerKey(out.player)
+  const p = proj.players[key]
+  const hasMinutes =
+    out.projectedMinutes != null || out.minutesProjection != null || out.minutes != null || out.expectedMinutes != null
+  const hasUsage = out.usageRate != null || out.playerUsage != null || out.usage != null || out.roleUsagePct != null
+
+  if (!hasMinutes) {
+    const m = Number(p?.projectedMinutes ?? proj.defaults.projectedMinutes)
+    if (Number.isFinite(m) && m > 0) out = { ...out, projectedMinutes: m }
+  }
+  if (!hasUsage) {
+    const u = Number(p?.usageRate ?? proj.defaults.usageRate)
+    if (Number.isFinite(u) && u > 0) out = { ...out, usageRate: u }
+  }
+
   return out
 }
 
@@ -125,10 +178,12 @@ function buildNbaBoardSlicesFromSnapshot(snapshot = {}) {
 
   return {
     completeUniverse,
-    corePropsBoard: sortRowsByModelDesc(corePropsBoard, 60),
-    ladderBoard: sortRowsByModelDesc(ladderBoard, 120),
-    specialBoard: sortRowsByModelDesc(specialBoard, 40),
-    firstBasketBoard: sortRowsByModelDesc(firstBasketBoard, 30),
+    // IMPORTANT: do not over-trim boards by probability — it collapses ladder tiers and
+    // over-selects low-line props. Keep broader boards and let downstream ranking decide.
+    corePropsBoard: sortRowsByModelDesc(corePropsBoard, 260),
+    ladderBoard: sortRowsByModelDesc(ladderBoard, 800),
+    specialBoard: sortRowsByModelDesc(specialBoard, 120),
+    firstBasketBoard: sortRowsByModelDesc(firstBasketBoard, 120),
   }
 }
 

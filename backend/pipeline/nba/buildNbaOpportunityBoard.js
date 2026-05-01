@@ -1,5 +1,7 @@
 "use strict"
 
+console.log("ACTIVE:", __filename)
+
 const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
 const { mineNbaExtendedOpportunityPools } = require("./nbaExtendedOpportunityPools")
@@ -19,25 +21,100 @@ function buildNbaOpportunityBoard(input = {}) {
   applyEdgeToNbaRows(completeUniverse)
 
   const TH = {
-    ladder: 0.52,
+    // Ladder probabilities are often 0.15–0.40 for meaningful rungs.
+    // Keeping this too high collapses ladder pools and destabilizes tiers.
+    ladder: 0.20,
     core: 0.58,
     edge: 0.02,
     doubleDouble: 0.48,
     tripleDouble: 0.28,
   }
 
+  // Build base threes line index (event+player) so threes ladders can be role-aware.
+  const threesBaseLineByPlayerEvent = new Map()
+  for (const row of completeUniverse) {
+    if (!row || typeof row !== "object") continue
+    const mk = String(row?.marketKey || "").toLowerCase()
+    const pv = String(row?.propVariant || "base").toLowerCase()
+    if (mk !== "player_threes" || (pv !== "base" && pv !== "default")) continue
+    const player = String(row?.player || "").trim().toLowerCase()
+    const eid = String(row?.eventId || "").trim()
+    const ln = Number(row?.line)
+    if (!player || !eid || !Number.isFinite(ln)) continue
+    threesBaseLineByPlayerEvent.set(`${eid}__${player}`, ln)
+  }
+  const candidateCtx = { threesBaseLineByPlayerEvent }
+
+  function isStatFamily(row, family) {
+    const mk = String(row?.marketKey || "").toLowerCase()
+    const pt = String(row?.propType || "").toLowerCase()
+    const s = `${pt} ${mk}`
+    if (family === "pra") return s.includes("points_rebounds_assists") || /\bpra\b/.test(s)
+    if (family === "rebounds") return s.includes("rebound")
+    if (family === "assists") return s.includes("assist")
+    if (family === "points") return s.includes("point")
+    if (family === "threes") return s.includes("three") || s.includes("3pt") || s.includes("threes")
+    if (family === "combo") {
+      if (s.includes("points_rebounds_assists")) return false
+      return (
+        s.includes("player_points_assists") ||
+        s.includes("player_points_rebounds") ||
+        s.includes("player_rebounds_assists") ||
+        /points.*assists|points.*rebounds|rebounds.*assists|pts.*ast|reb.*ast/i.test(s) ||
+        s.includes("combo")
+      )
+    }
+    return false
+  }
+
+  // Mine ladder-like rows directly from the scored universe to avoid pool starvation
+  // when ladderBoard is thin or probability-trimmed upstream.
+  function mineUniverseLadders({ family = null, minProb = TH.ladder, requireEdge = false } = {}) {
+    const out = []
+    for (const row of completeUniverse) {
+      if (!row || typeof row !== "object") continue
+      const mk = String(row?.marketKey || "").toLowerCase()
+      const pv = String(row?.propVariant || "base").toLowerCase()
+      const isLadderLike =
+        isNbaStatLadderRow(row) ||
+        mk.includes("alternate") ||
+        mk.includes("_alt") ||
+        mk.endsWith("_alternate") ||
+        (pv && pv !== "base" && pv !== "default")
+      if (!isLadderLike) continue
+      if (family && !isStatFamily(row, family)) continue
+      const c = ladderCandidateFromRow(row)
+      if (!c) continue
+      if (c.probability < minProb) continue
+      if (requireEdge && c.edge != null && Number.isFinite(c.edge) && c.edge < TH.edge) continue
+      out.push(c)
+    }
+    return out
+  }
+
   const ladderCandidates = []
   for (const row of ladderBoard) {
-    const c = ladderCandidateFromRow(row)
+    const c = ladderCandidateFromRow(row, candidateCtx)
     if (!c) continue
-    if (c.probability < TH.ladder) continue
+    // Avoid starving ladder pools: let finalWeight do the ranking.
+    if (c.probability < 0.14) continue
     if (c.edge != null && c.edge < TH.edge) continue
     ladderCandidates.push(c)
   }
 
+  // Always include universe ladder rows for key families so pools don't starve.
+  ladderCandidates.push(
+    ...mineUniverseLadders({ family: "points", minProb: 0.14 }),
+    ...mineUniverseLadders({ family: "rebounds", minProb: 0.16 }),
+    ...mineUniverseLadders({ family: "assists", minProb: 0.16 }),
+    ...mineUniverseLadders({ family: "threes", minProb: 0.12 }),
+    ...mineUniverseLadders({ family: "pra", minProb: 0.16 }),
+    ...mineUniverseLadders({ family: "combo", minProb: 0.14 })
+  )
+
   const coreCandidates = []
   for (const row of corePropsBoard) {
-    const c = ladderCandidateFromRow(row)
+    const c = ladderCandidateFromRow(row, candidateCtx)
     if (!c) continue
     if (c.probability < TH.core) continue
     coreCandidates.push(c)
@@ -52,7 +129,7 @@ function buildNbaOpportunityBoard(input = {}) {
       const isCore =
         /point/.test(pt) || /rebound/.test(pt) || /assist/.test(pt) || /pra|points.*rebounds.*assists/.test(pt)
       if (!isCore) continue
-      const c = ladderCandidateFromRow(row)
+      const c = ladderCandidateFromRow(row, candidateCtx)
       if (!c) continue
       if (c.probability < TH.core) continue
       coreCandidates.push(c)
@@ -64,9 +141,9 @@ function buildNbaOpportunityBoard(input = {}) {
   if (!ladderCandidates.length && completeUniverse.length) {
     for (const row of completeUniverse) {
       if (!isNbaStatLadderRow(row)) continue
-      const c = ladderCandidateFromRow(row)
+      const c = ladderCandidateFromRow(row, candidateCtx)
       if (!c) continue
-      if (c.probability < TH.ladder) continue
+      if (c.probability < 0.14) continue
       ladderUniverse.push(c)
     }
   }

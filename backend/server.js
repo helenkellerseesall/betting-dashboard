@@ -10109,6 +10109,7 @@ app.get("/api/best-available", async (req, res) => {
 
   const bestAvailableSportKey = normalizeBestAvailableSportKey(String(req.query?.sport || "").trim())
   if (bestAvailableSportKey === "basketball_nba") {
+    console.log("ACTIVE:", __filename, "route=/api/best-available sport=basketball_nba")
     const refreshGuard = {
       get inProgress() {
         return __refreshInProgress
@@ -19900,6 +19901,41 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
 
     const scoredPropsBase = matchupValidProps.map((row) => {
       const logs = statsCache.get(row.player) || []
+      const values = (Array.isArray(logs) ? logs : [])
+        .map((log) => propValueFromApiSportsLog(log, row.propType))
+        .filter((v) => v !== null && Number.isFinite(Number(v)))
+        .map(Number)
+      const last10Vals = values
+      const last5Vals = values.slice(-5)
+      const last10_avg = avg(last10Vals)
+      const last5_avg = avg(last5Vals)
+      const ln = Number(row?.line)
+      const isOver = row?.side === "Over"
+      const isUnder = row?.side === "Under"
+      const hitRate = (xs) => {
+        if (!xs.length) return null
+        if (!Number.isFinite(ln)) return null
+        if (!isOver && !isUnder) return null
+        let hits = 0
+        for (const v of xs) {
+          if (isOver && v >= ln) hits += 1
+          if (isUnder && v <= ln) hits += 1
+        }
+        return hits / xs.length
+      }
+      const recentForm =
+        Number.isFinite(last5_avg) && Number.isFinite(last10_avg)
+          ? {
+              last5_avg: Number(last5_avg.toFixed(2)),
+              last10_avg: Number(last10_avg.toFixed(2)),
+              last5_hit_rate: hitRate(last5Vals),
+              last10_hit_rate: hitRate(last10Vals),
+              trend_delta: Number((last5_avg - last10_avg).toFixed(2)),
+              source: "api-sports",
+              gamesUsed: values.length,
+            }
+          : null
+
       const mins = (Array.isArray(logs) ? logs : [])
         .map((log) => Number(log?.min || 0))
         .filter((v) => Number.isFinite(v) && v > 0)
@@ -19919,6 +19955,7 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
         recent3Avg: getPlayerRecentAvg(row.player, logs, 3, row.propType),
         recent5Avg: getPlayerRecentAvg(row.player, logs, 5, row.propType),
         l10Avg: getPlayerRecentAvg(row.player, logs, 10, row.propType),
+        recentForm,
         minutesRisk: getPlayerMinutesRisk(row.player, logs),
         trendRisk: getPlayerTrendRisk(row.player, logs, row.propType),
         injuryRisk: getPlayerInjuryRisk(row.player, logs),

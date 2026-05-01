@@ -1469,6 +1469,44 @@
     }
   }
 
+  // --- REAL RECENT FORM (from API-Sports game logs) ---
+  // Use the same real stat log values already loaded for enrichment.
+  // last10 = the 10 most recent games we fetched (values array)
+  // last5 = last 5 games within that window (recent5Values array)
+  let last5_hit_rate = null
+  let last10_hit_rate = null
+
+  if (values.length && Number.isFinite(Number(row.line))) {
+    const ln = Number(row.line)
+    const isOver = row.side === "Over"
+    const isUnder = row.side === "Under"
+    const hit = (v) => (isOver ? v >= ln : isUnder ? v <= ln : null)
+    const rate = (xs) => {
+      if (!xs.length) return null
+      if (!isOver && !isUnder) return null
+      let hits = 0
+      for (const v of xs) {
+        if (hit(v)) hits += 1
+      }
+      return hits / xs.length
+    }
+    last10_hit_rate = rate(values)
+    last5_hit_rate = rate(recent5Values)
+  }
+
+  const recentForm =
+    recent5Avg !== null && l10Avg !== null
+      ? {
+          last5_avg: Number(recent5Avg.toFixed(2)),
+          last10_avg: Number(l10Avg.toFixed(2)),
+          last5_hit_rate,
+          last10_hit_rate,
+          trend_delta: Number((recent5Avg - l10Avg).toFixed(2)),
+          source: "api-sports",
+          gamesUsed: values.length,
+        }
+      : null
+
   const teamCode = String(playerTeamMap.get(row.player) || "").toUpperCase()
   const validTeam =
     teamCode && (
@@ -1553,6 +1591,7 @@
     gamesUsed: values.length,
     recent5Avg: recent5Avg === null ? null : Number(recent5Avg.toFixed(1)),
     recent3Avg: recent3Avg === null ? null : Number(recent3Avg.toFixed(1)),
+    recentForm,
     minStd: minStd === null ? null : Number(minStd.toFixed(1)),
     valueStd: valueStd === null ? null : Number(valueStd.toFixed(1)),
     minFloor: minFloor === null ? null : Number(minFloor.toFixed(1)),

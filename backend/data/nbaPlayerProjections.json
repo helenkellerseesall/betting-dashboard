@@ -1,0 +1,14 @@
+{
+  "defaults": {
+    "projectedMinutes": 26,
+    "usageRate": 19
+  },
+  "players": {
+    "nikola jokic": { "projectedMinutes": 36, "usageRate": 29 },
+    "joel embiid": { "projectedMinutes": 35, "usageRate": 34 },
+    "jayson tatum": { "projectedMinutes": 36, "usageRate": 30 },
+    "jalen brunson": { "projectedMinutes": 36, "usageRate": 31 },
+    "tyrese maxey": { "projectedMinutes": 36, "usageRate": 28 }
+  }
+}
+

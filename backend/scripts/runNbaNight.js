@@ -1,13 +1,25 @@
 "use strict"
 
+console.log("ACTIVE:", __filename)
+
 /**
  * NBA nightly report — mirrors `runMlbNight.js` flow and console style.
  * GET /api/best-available?sport=basketball_nba → nbaOpportunityBoard + nbaInsightBoard (+ snapshot for slate / environment).
  */
 
+const fs = require("fs")
+const path = require("path")
+
 const { praTierLabel, altPointsTierLabel } = require("../pipeline/nba/nbaExtendedOpportunityPools")
 const { computeEdge } = require("../pipeline/utils/edge")
 const { nbaRowModelProbabilityCore } = require("../pipeline/nba/nbaModelSignals")
+const {
+  computeFinalWeight,
+  computeRealismScore,
+  readContextScore,
+  readMinutes,
+  readUsageRate,
+} = require("../pipeline/nba/nbaOpportunityCandidates")
 
 const EDGE_SURFACE_MIN = 0.003
 
@@ -113,6 +125,146 @@ async function runAll() {
         .trim()
     }
 
+    const API_SPORTS_CACHE_FOR_NIGHT = path.join(__dirname, "..", "api-sports-cache.json")
+
+    function statKeyFromPropTypeForRecentForm(propType) {
+      const t = String(propType || "").toLowerCase()
+      if (/three|threes|3pt/.test(t)) return "tpm"
+      if (/rebound/.test(t)) return "totReb"
+      if (/assist/.test(t)) return "assists"
+      if (/point/.test(t) && !/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return "points"
+      if (/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return "pra"
+      return null
+    }
+
+    function propValueFromApiSportsLogForRecentForm(log, statKey) {
+      if (!log || typeof log !== "object") return null
+      switch (statKey) {
+        case "points":
+          return toNum(log.points)
+        case "totReb":
+          return toNum(log.totReb)
+        case "assists":
+          return toNum(log.assists)
+        case "tpm":
+          return toNum(log.tpm)
+        case "pra": {
+          const p = toNum(log.points) ?? 0
+          const r = toNum(log.totReb) ?? 0
+          const a = toNum(log.assists) ?? 0
+          return p + r + a
+        }
+        default:
+          return null
+      }
+    }
+
+    function computeRecentFormFromLogsForRecentForm({ logs, statKey, line, side }) {
+      const ln = toNum(line)
+      const isOver = String(side || "").toLowerCase().includes("over")
+      const isUnder = String(side || "").toLowerCase().includes("under")
+
+      const sorted = [...(Array.isArray(logs) ? logs : [])].sort(
+        (a, b) => (toNum(b?.game?.id) ?? 0) - (toNum(a?.game?.id) ?? 0)
+      )
+
+      const valsAll = sorted
+        .map((g) => propValueFromApiSportsLogForRecentForm(g, statKey))
+        .filter((v) => Number.isFinite(v))
+
+      if (!valsAll.length) return null
+
+      const avg = (xs) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length)
+      const last5 = valsAll.slice(0, 5)
+      const last10 = valsAll.slice(0, 10)
+      const baseline = avg(valsAll)
+
+      const last5_avg = avg(last5)
+      const last10_avg = avg(last10)
+      const trend_delta = last5_avg - baseline
+
+      const hitRate = (xs) => {
+        if (!Number.isFinite(ln)) return null
+        if (!isOver && !isUnder) return null
+        let hits = 0
+        for (const v of xs) {
+          if (!Number.isFinite(v)) continue
+          if (isOver && v >= ln) hits += 1
+          if (isUnder && v <= ln) hits += 1
+        }
+        return hits / Math.max(1, xs.length)
+      }
+
+      return {
+        last5_avg,
+        last10_avg,
+        last5_hit_rate: hitRate(last5),
+        last10_hit_rate: hitRate(last10),
+        trend_delta,
+        baseline,
+        sampleSize5: last5.length,
+        sampleSize10: last10.length,
+        source: "api-sports-disk",
+      }
+    }
+
+    function buildStatsByPlayerMapFromDiskCache() {
+      const map = new Map()
+      try {
+        if (!fs.existsSync(API_SPORTS_CACHE_FOR_NIGHT)) return map
+        const parsed = JSON.parse(fs.readFileSync(API_SPORTS_CACHE_FOR_NIGHT, "utf8"))
+        const playerIdCache =
+          parsed?.playerIdCache && typeof parsed.playerIdCache === "object" ? parsed.playerIdCache : {}
+        const playerStatsCache =
+          parsed?.playerStatsCache && typeof parsed.playerStatsCache === "object" ? parsed.playerStatsCache : {}
+        for (const [playerName, info] of Object.entries(playerIdCache)) {
+          if (!info || typeof info !== "object") continue
+          const pid = toNum(info.id)
+          if (!Number.isFinite(pid)) continue
+          const logs = playerStatsCache[String(pid)]
+          if (Array.isArray(logs) && logs.length) map.set(String(playerName).trim(), logs)
+        }
+      } catch {
+        // ignore
+      }
+      return map
+    }
+
+    function getLogsForPlayerFromDiskMap(statsMap, player) {
+      const p = String(player || "").trim()
+      if (!p) return null
+      if (statsMap.has(p)) return statsMap.get(p)
+      const want = normalizeName(p)
+      if (!want) return null
+      for (const [k, logs] of statsMap) {
+        if (normalizeName(k) === want) return logs
+      }
+      return null
+    }
+
+    function enrichEdgePlaysWithRecentFormFromDisk(mustRows) {
+      const statsMap = buildStatsByPlayerMapFromDiskCache()
+      if (!statsMap.size) return
+      const formMemo = new Map()
+      for (const row of mustRows) {
+        if (!row || typeof row !== "object") continue
+        if (row.recentForm && typeof row.recentForm === "object" && Number.isFinite(Number(row.recentForm.trend_delta)))
+          continue
+        const player = String(row.player || "").trim()
+        const statKey = statKeyFromPropTypeForRecentForm(row.propType || row.marketKey)
+        if (!player || !statKey) continue
+        const logs = getLogsForPlayerFromDiskMap(statsMap, player)
+        if (!Array.isArray(logs) || !logs.length) continue
+        const memoKey = `${normalizeName(player)}__${statKey}__${String(row.line ?? "")}__${String(row.side ?? "")}`
+        let rf = formMemo.get(memoKey) || null
+        if (!rf) {
+          rf = computeRecentFormFromLogsForRecentForm({ logs, statKey, line: row.line, side: row.side })
+          if (rf) formMemo.set(memoKey, rf)
+        }
+        if (rf) row.recentForm = rf
+      }
+    }
+
     function fmtProb(x) {
       const n = toNum(x)
       if (!Number.isFinite(n)) return "n/a"
@@ -128,8 +280,8 @@ async function runAll() {
       return `${sign}${n.toFixed(digits)}`
     }
 
-    function sortByProbDesc(a, b) {
-      return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
+    function sortByFinalWeightOnlyDesc(a, b) {
+      return (toNum(b?.finalWeight) ?? 0) - (toNum(a?.finalWeight) ?? 0)
     }
 
     function fmtDisplayLine(c) {
@@ -231,34 +383,67 @@ async function runAll() {
       return out
     }
 
+    function ensureFinalWeight(x) {
+      if (!x || typeof x !== "object") return x
+      if (Number.isFinite(toNum(x.finalWeight))) return x
+
+      const out = { ...x }
+      const usageRate = readUsageRate(out) ?? 19
+      const minutes = readMinutes(out) ?? 26
+      const contextScore = readContextScore(out)
+      const prob = toNum(out.probability ?? nbaRowModelProbabilityCore(out)) ?? 0.5
+      const rawEdge = toNum(out.edge ?? computeEdge(prob, out?.odds)) ?? 0
+      const realismScore = computeRealismScore({ usageRate, minutes, row: out, propType: out?.propType })
+      const recentForm =
+        out.recentForm && typeof out.recentForm === "object" ? out.recentForm : null
+      const threesBL = toNum(out.threesBaseLine)
+
+      const fw = computeFinalWeight({
+        realismScore,
+        predictedProbability: prob,
+        edge: rawEdge,
+        contextScore,
+        line: out?.line,
+        minutes,
+        usageRate,
+        propType: out?.propType || out?.marketKey,
+        threesBaseLine: Number.isFinite(threesBL) ? threesBL : undefined,
+        recentForm,
+        player: out.player,
+        matchupRow: out,
+      })
+
+      out.usageRate = usageRate
+      out.minutes = minutes
+      out.contextScore = contextScore
+      out.realismScore = realismScore
+      out.edge = fw.edge
+      out.finalWeight = fw.finalWeight
+      return out
+    }
+
     function edgeValue(x) {
       const n = toNum(x?.edge)
       return Number.isFinite(n) ? n : -999
     }
 
     function sanitizedForOutput(x) {
-      const row = withFinalOutputFields(x)
+      const row = ensureFinalWeight(withFinalOutputFields(x))
       const lineDisp = fmtDisplayLine(row)
       if (!lineDisp || lineDisp === "—") return null
       return row
-    }
-
-    function sortByEdgeThenProbDesc(a, b) {
-      const e = edgeValue(b) - edgeValue(a)
-      if (Math.abs(e) > 1e-12) return e
-      return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
     }
 
     function topBoardRows(primaryRows, fallbackRows, n) {
       const primary = (Array.isArray(primaryRows) ? primaryRows : [])
         .map((x) => sanitizedForOutput(x))
         .filter(Boolean)
-      if (primary.length) return primary.sort(sortByEdgeThenProbDesc).slice(0, n)
+      if (primary.length) return primary.sort(sortByFinalWeightOnlyDesc).slice(0, n)
 
       const fallback = (Array.isArray(fallbackRows) ? fallbackRows : [])
         .map((x) => sanitizedForOutput(x))
         .filter(Boolean)
-        .sort(sortByProbDesc)
+        .sort(sortByFinalWeightOnlyDesc)
       return fallback.slice(0, n)
     }
 
@@ -321,15 +506,14 @@ async function runAll() {
       }
 
       function scorePick(c, cap) {
-        const p = toNum(c?.probability) ?? 0
-        const e = toNum(c?.edge) ?? 0
+        const fw = toNum(c?.finalWeight) ?? 0
         const gk = gameKey(c)
         const games = new Set(out.map((x) => gameKey(x)))
         const newGame = games.has(gk) ? 0 : 1
         const t = teamKey(c)
         const tc = t ? teamCountFor(t) : 0
         const overCap = t && tc >= cap ? 1 : 0
-        return p * 1000 + e * 50 + newGame * 35 - overCap * 500 - tc * 10
+        return fw * 1000 + newGame * 35 - overCap * 500 - tc * 10
       }
 
       function pickPass(cap) {
@@ -358,7 +542,7 @@ async function runAll() {
         addPick(c)
       }
 
-      out.sort(sortByEdgeThenProbDesc)
+      out.sort(sortByFinalWeightOnlyDesc)
       return out.slice(0, targetCount)
     }
 
@@ -374,19 +558,19 @@ async function runAll() {
       .map(insightRowToCandidate)
       .filter(Boolean)
 
-    const allCoreOpp = Array.isArray(opp.coreCandidates) ? [...opp.coreCandidates].sort(sortByProbDesc) : []
+    const allCoreOpp = Array.isArray(opp.coreCandidates) ? [...opp.coreCandidates].sort(sortByFinalWeightOnlyDesc) : []
 
     function poolForCore(filterFn) {
       const fromOpp = allCoreOpp.filter((c) => filterFn(c?.propType))
       if (fromOpp.length) return fromOpp
 
-      const fromInsight = insightCoreAsCandidates.filter((c) => filterFn(c?.propType)).sort(sortByProbDesc)
+      const fromInsight = insightCoreAsCandidates.filter((c) => filterFn(c?.propType)).sort(sortByFinalWeightOnlyDesc)
       if (fromInsight.length) return fromInsight
 
       // Final fallback: mine ladder candidates by core stat type so CORE PROPS section is never empty.
       const fromLadders = (Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : [])
         .filter((c) => filterFn(c?.propType))
-        .sort(sortByProbDesc)
+        .sort(sortByFinalWeightOnlyDesc)
       return fromLadders
     }
 
@@ -474,37 +658,91 @@ async function runAll() {
     // 5) ALT POINTS LADDER
     printHeader("ALT POINTS LADDER")
 
-    const altPts = topBoardRows(
-      Array.isArray(opp.altPointsCandidates) ? opp.altPointsCandidates : [],
-      Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : [],
-      40
-    )
+    // Build ONE unified global Points ladder pool (no split sources).
+    // Source-of-truth: opp.ladderCandidates, filtered to Points ladder rows only.
+    const globalPointsLadders = (() => {
+      const src = Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : []
+      const onlyPointsLadders = src.filter((c) => {
+        const pt = String(c?.propType || "").toLowerCase()
+        if (!/point/.test(pt) || /pra|points.*rebounds.*assists|pts.*reb.*ast/.test(pt)) return false
+        // Ladder-ish: ensure we're not mixing core/base points props into ladder tiers.
+        const mk = String(c?.marketKey || "").toLowerCase()
+        const lad = String(c?.ladder || c?.prediction || "").toLowerCase()
+        return mk.includes("alternate") || mk.includes("_alt") || /ladder|\\+/.test(lad)
+      })
+
+      // Dedupe player+line to prevent fragmented sources from double-printing.
+      const seen = new Set()
+      const out = []
+      for (const x of onlyPointsLadders) {
+        const row = sanitizedForOutput(x)
+        if (!row) continue
+        const k = `${String(row.player || "").toLowerCase()}__${toNum(row.line) ?? "n/a"}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        out.push(row)
+      }
+      return out.sort(sortByFinalWeightOnlyDesc)
+    })()
+
     const altPtTiers = [20, 25, 30, 35, 40]
     for (const tier of altPtTiers) {
       printSubHeader(`Points ${tier}+`)
-      const sub = altPts.filter((c) => altPointsTierLabel(c?.line) === tier)
+      const threshold = tier - 0.5
+      const sub = globalPointsLadders
+        .filter((c) => {
+          const n = toNum(c?.line)
+          return Number.isFinite(n) && n >= threshold
+        })
+        .slice(0, 24)
       if (!sub.length) console.log("(none)")
-      else pickDiverse(sub, 24, { maxPerTeam: 4, minGames: 4 }).forEach(printPlayerPropLine)
+      else sub.forEach(printPlayerPropLine)
     }
 
     // 6) ALT THREES
     printHeader("ALT THREES")
 
-    const alt3 = topBoardRows(
-      Array.isArray(opp.altThreesCandidates) ? opp.altThreesCandidates : [],
-      Array.isArray(opp?.threesLadderCandidates) ? opp.threesLadderCandidates : [],
-      40
-    )
-    const threesTiers = [2, 3, 4, 5]
-    for (const tier of threesTiers) {
-      printSubHeader(`Threes ${tier}+`)
-      const sub = alt3.filter((c) => {
-        const n = toNum(c?.line)
-        if (!Number.isFinite(n)) return false
-        return n >= tier - 0.75 && n < tier + 1.25
+    // Build ONE unified global Threes ladder pool (no split sources).
+    const globalThreesLadders = (() => {
+      const src = Array.isArray(opp?.ladderCandidates) ? opp.ladderCandidates : []
+      const onlyThreesLadders = src.filter((c) => {
+        const pt = String(c?.propType || "").toLowerCase()
+        if (!/three|threes|3pt/.test(pt)) return false
+        const mk = String(c?.marketKey || "").toLowerCase()
+        const lad = String(c?.ladder || c?.prediction || "").toLowerCase()
+        return mk.includes("alternate") || mk.includes("_alt") || /ladder|\+/.test(lad)
       })
+
+      const seen = new Set()
+      const out = []
+      for (const x of onlyThreesLadders) {
+        const row = sanitizedForOutput(x)
+        if (!row) continue
+        const k = `${String(row.player || "").toLowerCase()}__${toNum(row.line) ?? "n/a"}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        out.push(row)
+      }
+      return out.sort(sortByFinalWeightOnlyDesc)
+    })()
+
+    const threesTiers = [
+      { label: "Threes 2+", threshold: 1.5 },
+      { label: "Threes 3+", threshold: 2.5 },
+      { label: "Threes 4+", threshold: 3.5 },
+      { label: "Threes 5+", threshold: 4.5 },
+    ]
+
+    for (const t of threesTiers) {
+      printSubHeader(t.label)
+      const sub = globalThreesLadders
+        .filter((c) => {
+          const n = toNum(c?.line)
+          return Number.isFinite(n) && n >= t.threshold
+        })
+        .slice(0, 24)
       if (!sub.length) console.log("(none)")
-      else pickDiverse(sub, 22, { maxPerTeam: 4, minGames: 4 }).forEach(printPlayerPropLine)
+      else sub.forEach(printPlayerPropLine)
     }
 
     // 7) COMBO PROPS
@@ -730,7 +968,7 @@ async function runAll() {
         .map((x) => sanitizedForOutput(x))
         .filter(Boolean)
         .filter((x) => !/^alt-mid$/i.test(String(x?.prediction || x?.ladder || "").trim()))
-        .sort(sortByEdgeThenProbDesc)
+        .sort(sortByFinalWeightOnlyDesc)
 
       const out = []
       const seen = new Set()
@@ -760,49 +998,22 @@ async function runAll() {
       return out.slice(0, 12)
     }
 
-    function usageSignal(row) {
-      const keys = ["usageRate", "playerUsage", "usage", "roleUsagePct"]
-      for (const k of keys) {
-        const n = toNum(row?.[k])
-        if (Number.isFinite(n)) return n
-      }
-      return null
-    }
-
-    function pointsSignal(row) {
-      if (/point/i.test(String(row?.propType || ""))) {
-        const ln = toNum(row?.line)
-        if (Number.isFinite(ln) && ln > 0) return ln
-      }
-      const recent = toNum(row?.last5Avg ?? row?.last10Avg ?? row?.recentForm)
-      if (Number.isFinite(recent) && recent > 0) return recent
-      return null
-    }
-
-    function starScore(row) {
-      const u = usageSignal(row)
-      const pts = pointsSignal(row)
-      const prob = toNum(row?.probability) ?? toNum(nbaRowModelProbabilityCore(row)) ?? 0
-      const edge = toNum(row?.edge) ?? toNum(computeEdge(prob, row?.odds)) ?? 0
-      return (u ?? 0) * 2.0 + (pts ?? 0) * 1.4 + prob * 30 + edge * 15
-    }
-
     function pickStarPool(maxPlayers = 12) {
       const source = [
         ...(Array.isArray(opp?.coreCandidates) ? opp.coreCandidates : []),
         ...(Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : []),
       ]
-        .map((x) => withFinalOutputFields(x))
+        .map((x) => sanitizedForOutput(x))
         .filter((x) => x && String(x.player || "").trim())
       const bestByPlayer = new Map()
       for (const r of source) {
         const k = String(r.player || "").trim().toLowerCase()
-        const s = starScore(r)
+        const s = toNum(r?.finalWeight) ?? 0
         const cur = bestByPlayer.get(k)
         if (!cur || s > cur.s) bestByPlayer.set(k, { s, row: r })
       }
       return [...bestByPlayer.values()]
-        .sort((a, b) => b.s - a.s)
+        .sort((a, b) => (toNum(b?.row?.finalWeight) ?? 0) - (toNum(a?.row?.finalWeight) ?? 0))
         .slice(0, maxPlayers)
         .map((x) => x.row)
     }
@@ -826,33 +1037,24 @@ async function runAll() {
         ...(Array.isArray(opp?.pointsLadderCandidates) ? opp.pointsLadderCandidates : []),
         ...(Array.isArray(opp?.altPointsCandidates) ? opp.altPointsCandidates : []),
       ]
-        .map((x) => withFinalOutputFields(x))
+        .map((x) => sanitizedForOutput(x))
         .filter((x) => starSet.has(String(x.player || "").trim().toLowerCase()))
         .filter((x) => forcedTiers.has(tierFromLine(x?.line)))
-        .sort((a, b) => {
-          const oa = Math.abs(toNum(a?.odds) ?? 0)
-          const ob = Math.abs(toNum(b?.odds) ?? 0)
-          if (Math.abs(oa - ob) > 1e-9) return oa - ob
-          return (toNum(b?.probability) ?? -1) - (toNum(a?.probability) ?? -1)
-        })
+        .sort(sortByFinalWeightOnlyDesc)
 
       const specialsRaw = [
         ...(Array.isArray(insight?.firstBasketBoard) ? insight.firstBasketBoard : []),
         ...(Array.isArray(opp?.doubleDoubleCandidates) ? opp.doubleDoubleCandidates : []),
         ...(Array.isArray(opp?.tripleDoubleCandidates) ? opp.tripleDoubleCandidates : []),
       ]
-        .map((x) => withFinalOutputFields(x))
+        .map((x) => sanitizedForOutput(x))
         .filter((x) => x && String(x.player || "").trim())
         .filter((x) => {
           const t = String(x?.propType || x?.prediction || "").toLowerCase()
           return /first\s*basket|double\s*double|triple\s*double/.test(t)
         })
         .filter((x) => starSet.has(String(x.player || "").trim().toLowerCase()))
-        .sort((a, b) => {
-          const pa = toNum(a?.probability) ?? 0
-          const pb = toNum(b?.probability) ?? 0
-          return pb - pa
-        })
+        .sort(sortByFinalWeightOnlyDesc)
 
       let forced = pickDiverse(forcedLadders, 14, { maxPerTeam: 3, minGames: 4 })
 
@@ -874,7 +1076,7 @@ async function runAll() {
             })
           }
         }
-        forced = pickDiverse(synthetic, 14, { maxPerTeam: 3, minGames: 4 })
+        forced = pickDiverse(synthetic.map((x) => sanitizedForOutput(x)).filter(Boolean), 14, { maxPerTeam: 3, minGames: 4 })
       }
 
       return {
@@ -913,10 +1115,30 @@ async function runAll() {
 
     const must = pickNbaMustPlays()
 
+    enrichEdgePlaysWithRecentFormFromDisk(must)
+    for (const row of must) {
+      delete row.finalWeight
+      Object.assign(row, ensureFinalWeight(withFinalOutputFields(row)))
+    }
+    must.sort(sortByFinalWeightOnlyDesc)
+
     if (!must.length) console.log("(none)")
     else {
       must.forEach((p0) => {
         const p = withFinalOutputFields(p0)
+        const rf = p.recentForm && typeof p.recentForm === "object" ? p.recentForm : null
+        console.log("[EDGE PLAYS FINAL]", {
+          player: p.player,
+          finalWeight: p.finalWeight,
+          recentForm: rf
+            ? {
+                trend_delta: rf.trend_delta,
+                last5_avg: rf.last5_avg,
+                baseline: rf.baseline,
+                source: rf.source,
+              }
+            : null,
+        })
         const prop =
           typeof p?.prediction === "string" && p.prediction.trim()
             ? p.prediction.trim()
@@ -929,8 +1151,12 @@ async function runAll() {
               : "AI curated"
         const prob = toNum(p?.probability ?? p?.modelProbability)
         const lineDisp = fmtDisplayLine(p)
+        const formSuffix =
+          rf && Number.isFinite(Number(rf.trend_delta))
+            ? ` — recentForm Δ5 vs season ${Number(rf.trend_delta).toFixed(2)} (${String(rf.source || "n/a")})`
+            : ""
         console.log(
-          `- ${fmtTeam(p.player)} (${fmtTeam(p.team)}) — ${prop} — ${lineDisp} — ${fmtProb(prob)} — ${fmtSignedEdge(p.edge)} — ${reason}`
+          `- ${fmtTeam(p.player)} (${fmtTeam(p.team)}) — ${prop} — ${lineDisp} — ${fmtProb(prob)} — ${fmtSignedEdge(p.edge)} — ${reason}${formSuffix}`
         )
       })
     }

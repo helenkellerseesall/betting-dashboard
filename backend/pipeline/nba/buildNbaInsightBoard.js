@@ -1,5 +1,7 @@
 "use strict"
 
+console.log("ACTIVE:", __filename)
+
 const { computeEdge } = require("../utils/edge")
 const { nbaRowModelProbability, nbaRowEdge, nbaRowLadderLabel } = require("./nbaModelSignals")
 const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
@@ -38,6 +40,9 @@ function insightRowFromBoardRow(row, tag) {
   const w = Array.isArray(row.whyItRates) && row.whyItRates.length ? row.whyItRates.slice(0, 2) : []
   for (const x of w) whyParts.push(String(x))
 
+  const rf = row.recentForm && typeof row.recentForm === "object" ? { ...row.recentForm } : row.recentForm ?? null
+  const fw = Number.isFinite(Number(row.finalWeight)) ? Number(row.finalWeight) : null
+
   return {
     tag,
     player,
@@ -46,8 +51,13 @@ function insightRowFromBoardRow(row, tag) {
     eventId: clampStr(row.eventId),
     propType: clampStr(row.propType) || "Prop",
     prediction: nbaRowLadderLabel(row),
+    line: row.line != null && row.line !== "" ? row.line : null,
+    side: clampStr(row.side),
+    book: clampStr(row.book),
     probability: p,
     edge: Number.isFinite(edge) ? edge : null,
+    finalWeight: fw,
+    recentForm: rf,
     why: whyParts.length ? whyParts.join(" · ") : "model + market context",
   }
 }
@@ -72,6 +82,8 @@ function insightRowFromCoreCandidate(c) {
   const whyParts = []
   if (Number.isFinite(edge) && edge > 0) whyParts.push(`edge ${edge.toFixed(3)}`)
   if (clampStr(c.book)) whyParts.push(String(c.book))
+  const rf = c.recentForm && typeof c.recentForm === "object" ? { ...c.recentForm } : c.recentForm ?? null
+  const fw = Number.isFinite(Number(c.finalWeight)) ? Number(c.finalWeight) : null
   return {
     tag: "opportunity-core",
     player,
@@ -80,8 +92,13 @@ function insightRowFromCoreCandidate(c) {
     eventId: clampStr(c.eventId),
     propType,
     prediction,
+    line: line != null && line !== "" ? line : null,
+    side: clampStr(c.side),
+    book: clampStr(c.book),
     probability: p,
     edge: Number.isFinite(edge) ? edge : null,
+    finalWeight: fw,
+    recentForm: rf,
     why: whyParts.length ? whyParts.join(" · ") : "opportunity core",
   }
 }
@@ -111,6 +128,100 @@ function scoreRow(row) {
   return p * 1000 + e * 60
 }
 
+function canonicalStatForMatch(propType) {
+  const t = String(propType || "").toLowerCase()
+  if (/three|3-pt|3pt/.test(t)) return "threes"
+  if (/rebound/.test(t)) return "rebounds"
+  if (/assist/.test(t) && !/pra|points.*rebounds|pts.*reb.*ast/.test(t)) return "assists"
+  if (/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return "pra"
+  if (/point/.test(t)) return "points"
+  return t.trim() || "unknown"
+}
+
+function insightMatchKey(x) {
+  return [
+    String(x?.player || "").toLowerCase().trim(),
+    String(x?.eventId || "").trim(),
+    canonicalStatForMatch(x?.propType),
+    String(x?.line ?? "").trim(),
+    String(x?.side || "").toLowerCase().trim(),
+  ].join("|")
+}
+
+function insightLooseMatchKey(x) {
+  return [
+    String(x?.player || "").toLowerCase().trim(),
+    canonicalStatForMatch(x?.propType),
+    String(x?.line ?? "").trim(),
+    String(x?.side || "").toLowerCase().trim(),
+  ].join("|")
+}
+
+function buildOpportunityCandidateIndex(nbaOpportunityBoard) {
+  const idx = new Map()
+  const loose = new Map()
+  if (!nbaOpportunityBoard || typeof nbaOpportunityBoard !== "object") return { full: idx, loose }
+  const pools = [
+    nbaOpportunityBoard.ladderCandidates,
+    nbaOpportunityBoard.pointsLadderCandidates,
+    nbaOpportunityBoard.reboundsLadderCandidates,
+    nbaOpportunityBoard.assistsLadderCandidates,
+    nbaOpportunityBoard.threesLadderCandidates,
+    nbaOpportunityBoard.praLadderCandidates,
+    nbaOpportunityBoard.coreCandidates,
+  ]
+  for (const pool of pools) {
+    for (const c of Array.isArray(pool) ? pool : []) {
+      if (!c || typeof c !== "object") continue
+      idx.set(insightMatchKey(c), c)
+      const lk = insightLooseMatchKey(c)
+      if (!loose.has(lk)) loose.set(lk, c)
+    }
+  }
+  return { full: idx, loose }
+}
+
+function mergeInsightRowWithCandidate(ir, candByKey) {
+  if (!ir || typeof ir !== "object") return ir
+  const c =
+    candByKey.full.get(insightMatchKey(ir)) ||
+    candByKey.loose.get(insightLooseMatchKey(ir)) ||
+    null
+  if (!c) return ir
+  const rf =
+    ir.recentForm && typeof ir.recentForm === "object"
+      ? ir.recentForm
+      : c.recentForm && typeof c.recentForm === "object"
+        ? { ...c.recentForm }
+        : ir.recentForm ?? null
+  const irFw = ir.finalWeight
+  const cFw = c.finalWeight
+  const useCandFw =
+    ir.tag === "board" ||
+    irFw == null ||
+    !Number.isFinite(Number(irFw)) ||
+    Number(irFw) === 0
+  const fw = useCandFw && Number.isFinite(Number(cFw))
+    ? Number(cFw)
+    : Number.isFinite(Number(irFw))
+      ? Number(irFw)
+      : Number.isFinite(Number(cFw))
+        ? Number(cFw)
+        : null
+  return {
+    ...ir,
+    line: ir.line != null ? ir.line : c.line != null ? c.line : null,
+    side: ir.side || c.side || null,
+    book: ir.book || c.book || null,
+    finalWeight: fw,
+    recentForm: rf,
+  }
+}
+
+function enrichInsightRows(rows, candByKey) {
+  return (Array.isArray(rows) ? rows : []).map((r) => mergeInsightRowWithCandidate(r, candByKey))
+}
+
 /**
  * Core insight section: prefer `nbaOpportunityBoard.coreCandidates` (Points / Rebounds / Assists / Threes / PRA),
  * threshold + sort + cap — so insight core stays aligned when slice `corePropsBoard` is thin.
@@ -132,7 +243,7 @@ function buildCorePropsInsightsFromOpportunity(nbaOpportunityBoard, fallbackCore
     filtered = pool.filter((c) => Number.isFinite(Number(c.probability)))
   }
 
-  filtered.sort((a, b) => (Number(b.probability) || 0) - (Number(a.probability) || 0))
+  filtered.sort((a, b) => (b.finalWeight ?? 0) - (a.finalWeight ?? 0))
 
   const sliced = filtered.slice(0, CORE_INSIGHT_CAP)
   const out = sliced.map((c) => insightRowFromCoreCandidate(c)).filter(Boolean)
@@ -195,12 +306,14 @@ function buildNbaInsightBoard(input = {}) {
     score
   )
 
+  const candByKey = buildOpportunityCandidateIndex(nbaOpportunityBoard)
+
   return {
-    bestOverallPlays,
-    ladderBoard: ladderBoardInsights,
-    corePropsBoard: coreBoardInsights,
-    specialBoard: specialBoardInsights,
-    firstBasketBoard: firstBasketInsights,
+    bestOverallPlays: enrichInsightRows(bestOverallPlays, candByKey),
+    ladderBoard: enrichInsightRows(ladderBoardInsights, candByKey),
+    corePropsBoard: enrichInsightRows(coreBoardInsights, candByKey),
+    specialBoard: enrichInsightRows(specialBoardInsights, candByKey),
+    firstBasketBoard: enrichInsightRows(firstBasketInsights, candByKey),
   }
 }
 

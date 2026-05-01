@@ -1,6 +1,15 @@
 "use strict"
 
-const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
+const {
+  ladderCandidateFromRow,
+  computeFinalWeight,
+  computeRealismScore,
+  readContextScore,
+  readMinutes,
+  readUsageRate,
+  dedupeCandidates,
+  sortByProbDesc,
+} = require("./nbaOpportunityCandidates")
 
 function mkLower(row) {
   return String(row?.marketKey || "").toLowerCase()
@@ -173,6 +182,26 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
     // Use player-tail shape so DD/TD are differentiated and not static placeholders.
     const ddProb = Math.max(0.04, Math.min(0.48, Math.pow(ddProbRaw, 0.74)))
     if (ddProb >= Math.max(0.10, th.doubleDouble * 0.7)) {
+      const minutes = base.minutes ?? readMinutes(base)
+      const usageRate = base.usageRate ?? readUsageRate(base)
+      const contextScore = base.contextScore ?? readContextScore(base)
+      const realismScore = base.realismScore ?? computeRealismScore({
+        usageRate: usageRate == null ? 20 : usageRate,
+        minutes: minutes == null ? 24 : minutes,
+        row: base,
+        propType: "Double Double",
+      })
+      const fw = computeFinalWeight({
+        realismScore,
+        predictedProbability: ddProb,
+        edge: 0,
+        contextScore,
+        line: null,
+        minutes,
+        usageRate,
+        propType: "Double Double",
+        matchupRow: base,
+      })
       doubleDoubleCandidates.push({
         ...base,
         propType: "Double Double",
@@ -181,11 +210,38 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
         side: "Yes",
         marketKey: "synthetic_double_double",
         probability: ddProb,
+        edge: fw.edge,
+        minutes,
+        usageRate,
+        contextScore,
+        realismScore,
+        finalWeight: fw.finalWeight,
+        matchupAdj: Number.isFinite(fw.matchupAdj) ? fw.matchupAdj : 0,
       })
     }
 
     const tdProb = Math.max(0.006, Math.min(0.20, Math.pow(tdProbRaw, 0.90)))
     if (tdProb >= Math.max(0.015, th.tripleDouble * 0.45)) {
+      const minutes = base.minutes ?? readMinutes(base)
+      const usageRate = base.usageRate ?? readUsageRate(base)
+      const contextScore = base.contextScore ?? readContextScore(base)
+      const realismScore = base.realismScore ?? computeRealismScore({
+        usageRate: usageRate == null ? 20 : usageRate,
+        minutes: minutes == null ? 24 : minutes,
+        row: base,
+        propType: "Triple Double",
+      })
+      const fw = computeFinalWeight({
+        realismScore,
+        predictedProbability: tdProb,
+        edge: 0,
+        contextScore,
+        line: null,
+        minutes,
+        usageRate,
+        propType: "Triple Double",
+        matchupRow: base,
+      })
       tripleDoubleCandidates.push({
         ...base,
         propType: "Triple Double",
@@ -194,6 +250,13 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
         side: "Yes",
         marketKey: "synthetic_triple_double",
         probability: tdProb,
+        edge: fw.edge,
+        minutes,
+        usageRate,
+        contextScore,
+        realismScore,
+        finalWeight: fw.finalWeight,
+        matchupAdj: Number.isFinite(fw.matchupAdj) ? fw.matchupAdj : 0,
       })
     }
   }

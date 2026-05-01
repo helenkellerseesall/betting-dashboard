@@ -1,11 +1,14 @@
 "use strict"
 
+console.log("ACTIVE:", __filename)
+
 /**
  * NBA HTTP handlers — no `new Function`, no eval, no compiled `nbaRefreshSnapshot.inlined.js`.
  * Snapshot refresh uses `pipeline/nba/fetchNbaOddsSnapshot` (Odds API v4, same pattern as MLB bootstrap).
  */
 
 const path = require("path")
+const fs = require("fs")
 
 const { buildNbaOpportunityBoard } = require("../pipeline/nba/buildNbaOpportunityBoard")
 const { buildNbaInsightBoard } = require("../pipeline/nba/buildNbaInsightBoard")
@@ -16,6 +19,267 @@ const {
 const { fetchNbaOddsSnapshot, saveNbaSnapshotToDisk } = require("../pipeline/nba/fetchNbaOddsSnapshot")
 
 const DEFAULT_BACKEND_ROOT = path.join(__dirname, "..")
+const API_SPORTS_CACHE_FILE = path.join(DEFAULT_BACKEND_ROOT, "api-sports-cache.json")
+
+function toNum(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function normName(v) {
+  return String(v == null ? "" : v)
+    .toLowerCase()
+    .replace(/\./g, " ")
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
+    .replace(/[^a-z\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function statKeyFromPropType(propType) {
+  const t = String(propType || "").toLowerCase()
+  if (/three|threes|3pt/.test(t)) return "tpm"
+  if (/rebound/.test(t)) return "totReb"
+  if (/assist/.test(t)) return "assists"
+  if (/point/.test(t) && !/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return "points"
+  if (/pra|points.*rebounds.*assists|pts.*reb.*ast/.test(t)) return "pra"
+  return null
+}
+
+function propValueFromApiSportsLog(log, statKey) {
+  if (!log || typeof log !== "object") return null
+  switch (statKey) {
+    case "points":
+      return toNum(log.points)
+    case "totReb":
+      return toNum(log.totReb)
+    case "assists":
+      return toNum(log.assists)
+    case "tpm":
+      return toNum(log.tpm)
+    case "pra": {
+      const p = toNum(log.points) ?? 0
+      const r = toNum(log.totReb) ?? 0
+      const a = toNum(log.assists) ?? 0
+      return p + r + a
+    }
+    default:
+      return null
+  }
+}
+
+function loadApiSportsDiskCache() {
+  try {
+    if (!fs.existsSync(API_SPORTS_CACHE_FILE)) {
+      return { playerIdCache: {}, playerStatsCache: {} }
+    }
+    const parsed = JSON.parse(fs.readFileSync(API_SPORTS_CACHE_FILE, "utf8"))
+    return {
+      playerIdCache: parsed?.playerIdCache && typeof parsed.playerIdCache === "object" ? parsed.playerIdCache : {},
+      playerStatsCache: parsed?.playerStatsCache && typeof parsed.playerStatsCache === "object" ? parsed.playerStatsCache : {},
+    }
+  } catch {
+    return { playerIdCache: {}, playerStatsCache: {} }
+  }
+}
+
+function saveApiSportsDiskCache(next) {
+  try {
+    const prev = loadApiSportsDiskCache()
+    const merged = {
+      ...prev,
+      ...next,
+      playerIdCache: { ...(prev.playerIdCache || {}), ...(next.playerIdCache || {}) },
+      playerStatsCache: { ...(prev.playerStatsCache || {}), ...(next.playerStatsCache || {}) },
+    }
+    fs.writeFileSync(API_SPORTS_CACHE_FILE, JSON.stringify(merged))
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
+  const response = await axios.get("https://v2.nba.api-sports.io/players", {
+    params: { search: playerName },
+    headers: { "x-apisports-key": apiKey },
+    timeout: 20000,
+  })
+  const rows = response.data?.response || []
+  if (!Array.isArray(rows) || !rows.length) return null
+
+  const want = normName(playerName)
+  let best = null
+  for (const r of rows) {
+    const fn = String(r?.firstname || "").trim()
+    const ln = String(r?.lastname || "").trim()
+    const full = normName(`${fn} ${ln}`)
+    if (!full) continue
+    if (full === want) {
+      best = r
+      break
+    }
+    if (!best) best = r
+  }
+  const id = toNum(best?.id)
+  return Number.isFinite(id) ? { id, matchedName: best ? `${best.firstname || ""} ${best.lastname || ""}`.trim() : null } : null
+}
+
+async function fetchApiSportsPlayerStats({ axios, apiKey, playerId }) {
+  const response = await axios.get("https://v2.nba.api-sports.io/players/statistics", {
+    params: { id: playerId, season: 2025 },
+    headers: { "x-apisports-key": apiKey },
+    timeout: 20000,
+  })
+  const rows = response.data?.response || []
+  return Array.isArray(rows) ? rows : []
+}
+
+function computeRecentFormFromLogs({ logs, statKey, line, side }) {
+  const ln = toNum(line)
+  const isOver = String(side || "").toLowerCase().includes("over")
+  const isUnder = String(side || "").toLowerCase().includes("under")
+
+  const sorted = [...(Array.isArray(logs) ? logs : [])].sort(
+    (a, b) => (toNum(b?.game?.id) ?? 0) - (toNum(a?.game?.id) ?? 0)
+  )
+
+  const valsAll = sorted
+    .map((g) => propValueFromApiSportsLog(g, statKey))
+    .filter((v) => Number.isFinite(v))
+
+  if (!valsAll.length) return null
+
+  const avg = (xs) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length)
+  const last5 = valsAll.slice(0, 5)
+  const last10 = valsAll.slice(0, 10)
+  const baseline = avg(valsAll) // season-to-date average from available games
+
+  const last5_avg = avg(last5)
+  const last10_avg = avg(last10)
+  const trend_delta = last5_avg - baseline
+
+  const hitRate = (xs) => {
+    if (!Number.isFinite(ln)) return null
+    if (!isOver && !isUnder) return null
+    let hits = 0
+    for (const v of xs) {
+      if (!Number.isFinite(v)) continue
+      if (isOver && v >= ln) hits += 1
+      if (isUnder && v <= ln) hits += 1
+    }
+    return hits / Math.max(1, xs.length)
+  }
+
+  return {
+    last5_avg,
+    last10_avg,
+    last5_hit_rate: hitRate(last5),
+    last10_hit_rate: hitRate(last10),
+    trend_delta,
+    baseline,
+    sampleSize5: last5.length,
+    sampleSize10: last10.length,
+    source: "api-sports-live",
+  }
+}
+
+async function enrichRowsWithRecentForm({ axios, rows }) {
+  const apiKey = String(process.env.API_SPORTS_KEY || "").trim()
+  if (!apiKey) return
+
+  const disk = loadApiSportsDiskCache()
+  const playerIdCache = disk.playerIdCache || {}
+  const playerStatsCache = disk.playerStatsCache || {}
+
+  const uniquePlayers = Array.from(
+    new Set(
+      (Array.isArray(rows) ? rows : [])
+        .map((r) => String(r?.player || "").trim())
+        .filter(Boolean)
+    )
+  )
+
+  const statsByPlayer = new Map()
+
+  const concurrency = 6
+  for (let i = 0; i < uniquePlayers.length; i += concurrency) {
+    const batch = uniquePlayers.slice(i, i + concurrency)
+    await Promise.all(
+      batch.map(async (playerName) => {
+        try {
+          const cachedInfo = playerIdCache[playerName]
+          let pid = toNum(cachedInfo?.id)
+          if (!Number.isFinite(pid)) {
+            const resolved = await fetchApiSportsPlayerId({ axios, apiKey, playerName })
+            if (resolved?.id) {
+              pid = resolved.id
+              playerIdCache[playerName] = { id: pid, matchedName: resolved.matchedName, requestedName: playerName }
+            } else {
+              playerIdCache[playerName] = null
+              return
+            }
+          }
+
+          const cachedStats = playerStatsCache[String(pid)]
+          if (Array.isArray(cachedStats) && cachedStats.length) {
+            statsByPlayer.set(playerName, cachedStats)
+            return
+          }
+
+          const stats = await fetchApiSportsPlayerStats({ axios, apiKey, playerId: pid })
+          if (Array.isArray(stats) && stats.length) {
+            playerStatsCache[String(pid)] = stats
+            statsByPlayer.set(playerName, stats)
+          }
+        } catch {
+          // ignore player failures
+        }
+      })
+    )
+  }
+
+  saveApiSportsDiskCache({ playerIdCache, playerStatsCache })
+
+  const formMemo = new Map()
+  let __formLiveN = 0
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== "object") continue
+    if (row.recentForm && typeof row.recentForm === "object") continue
+    const player = String(row?.player || "").trim()
+    if (!player) continue
+    const statKey = statKeyFromPropType(row?.propType || row?.marketKey)
+    if (!statKey) continue
+    const logs = statsByPlayer.get(player)
+    if (!Array.isArray(logs) || !logs.length) continue
+
+    const memoKey = `${player}__${statKey}__${String(row?.line ?? "")}__${String(row?.side ?? "")}`
+    let rf = formMemo.get(memoKey) || null
+    if (!rf) {
+      rf = computeRecentFormFromLogs({ logs, statKey, line: row?.line, side: row?.side })
+      if (rf) formMemo.set(memoKey, rf)
+    }
+
+    if (rf) {
+      row.recentForm = rf
+      if (__formLiveN < 12) {
+        console.log("FORM DATA LIVE:", player, {
+          propType: row?.propType,
+          line: row?.line,
+          side: row?.side,
+          last5_avg: rf.last5_avg,
+          last10_avg: rf.last10_avg,
+          baseline: rf.baseline,
+          trend_delta: rf.trend_delta,
+          last5_hit_rate: rf.last5_hit_rate,
+          last10_hit_rate: rf.last10_hit_rate,
+          source: rf.source,
+        })
+        __formLiveN++
+      }
+    }
+  }
+}
 
 function snapshotHasBody(snap) {
   if (!snap || typeof snap !== "object") return false
@@ -37,6 +301,7 @@ function isNbaReplayQuery(req) {
  * GET /api/best-available?sport=basketball_nba
  */
 async function handleNbaBestAvailableGet(req, res, deps) {
+  console.log("TRACE BEST-AVAILABLE HIT (NBA):", { sport: req?.query?.sport })
   const { axios, oddsSnapshot, normalizeBestAvailableSportKey, refreshGuard, snapshotPath } = deps
 
   const bestAvailableSportKey = normalizeBestAvailableSportKey(String(req.query?.sport || "").trim())
@@ -107,6 +372,13 @@ async function handleNbaBestAvailableGet(req, res, deps) {
   }
 
   const slices = buildNbaBoardSlicesFromSnapshot(snap && typeof snap === "object" ? snap : {})
+
+  // REAL RECENT FORM: attach from API-Sports logs BEFORE candidate creation.
+  await enrichRowsWithRecentForm({
+    axios,
+    rows: slices?.completeUniverse,
+  })
+
   const nbaOpportunityBoard = buildNbaOpportunityBoard({
     ladderBoard: slices.ladderBoard,
     corePropsBoard: slices.corePropsBoard,
@@ -119,6 +391,45 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     firstBasketBoard: slices.firstBasketBoard,
     nbaOpportunityBoard,
   })
+
+  const __playerCheckPool = [
+    ...(Array.isArray(nbaInsightBoard?.bestOverallPlays) ? nbaInsightBoard.bestOverallPlays : []),
+    ...(Array.isArray(nbaInsightBoard?.corePropsBoard) ? nbaInsightBoard.corePropsBoard : []),
+    ...(Array.isArray(nbaInsightBoard?.ladderBoard) ? nbaInsightBoard.ladderBoard : []),
+  ]
+  const __seenChk = new Set()
+  const __dedupePush = (out, r) => {
+    if (!r || typeof r !== "object") return
+    const k = `${String(r.player || "")}|${String(r.propType || "")}|${String(r.line ?? "")}|${String(r.side || "")}`
+    if (__seenChk.has(k)) return
+    __seenChk.add(k)
+    out.push(r)
+  }
+  const __withRf = __playerCheckPool.filter(
+    (r) => r?.recentForm && typeof r.recentForm === "object" && Number.isFinite(Number(r.recentForm?.trend_delta))
+  )
+  const __neg = __withRf
+    .filter((r) => Number(r.recentForm.trend_delta) < 0)
+    .sort((a, b) => Number(a.recentForm.trend_delta) - Number(b.recentForm.trend_delta))
+  const __pos = __withRf
+    .filter((r) => Number(r.recentForm.trend_delta) > 0)
+    .sort((a, b) => Number(b.recentForm.trend_delta) - Number(a.recentForm.trend_delta))
+  const __playerCheck = []
+  for (const r of __neg.slice(0, 2)) __dedupePush(__playerCheck, r)
+  for (const r of __pos.slice(0, 2)) __dedupePush(__playerCheck, r)
+  for (const r of __withRf) {
+    __dedupePush(__playerCheck, r)
+    if (__playerCheck.length >= 5) break
+  }
+  if (__playerCheck.length < 5) {
+    for (const r of __playerCheckPool) {
+      __dedupePush(__playerCheck, r)
+      if (__playerCheck.length >= 5) break
+    }
+  }
+  for (const r of __playerCheck) {
+    console.log("PLAYER CHECK:", r.player, "finalWeight=", r.finalWeight, "recentForm=", r.recentForm)
+  }
 
   return res.json({
     nbaOpportunityBoard,
