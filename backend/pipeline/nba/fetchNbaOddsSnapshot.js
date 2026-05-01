@@ -12,6 +12,7 @@ const NBA_BASE_MARKETS = [
   "player_assists",
   "player_threes",
   "player_points_rebounds_assists",
+  "totals",
 ]
 
 const NBA_DK_EXTRA_MARKETS = [
@@ -180,6 +181,20 @@ async function fetchEventOddsRows(event, oddsApiKey) {
   const gameTime =
     String(event?.commence_time || event?.commenceTime || event?.gameTime || "").trim() || observedAtIso
 
+  let eventGameTotal = null
+  for (const book of books) {
+    for (const market of Array.isArray(book?.markets) ? book.markets : []) {
+      const mk = String(market?.key || market?.name || "").toLowerCase()
+      if (mk !== "totals") continue
+      const pts = (Array.isArray(market?.outcomes) ? market.outcomes : [])
+        .map((o) => Number(o?.point))
+        .filter((n) => Number.isFinite(n))
+      if (pts.length && eventGameTotal == null) {
+        eventGameTotal = pts[0]
+      }
+    }
+  }
+
   const rows = []
   for (const book of books) {
     const bookName = String(book?.title || book?.key || "Unknown").trim()
@@ -195,6 +210,15 @@ async function fetchEventOddsRows(event, oddsApiKey) {
         const player = String(outcome?.description || "").trim()
         const odds = Number(outcome?.price)
         const line = outcome?.point != null ? Number(outcome.point) : NaN
+
+        const part = outcome?.participant
+        let teamHint = null
+        if (typeof outcome?.team === "string" && outcome.team.trim()) teamHint = outcome.team.trim()
+        else if (typeof part === "string" && part.trim()) teamHint = part.trim()
+        else if (part && typeof part === "object") {
+          const t = String(part.team || part.name || "").trim()
+          teamHint = t || null
+        }
 
         const draftRow = {
           sport: "nba",
@@ -215,7 +239,8 @@ async function fetchEventOddsRows(event, oddsApiKey) {
           line: Number.isFinite(line) ? line : null,
           odds,
           propVariant: propVariantFromMarket(marketKey, inferredFamily),
-          team: null,
+          team: teamHint || null,
+          gameTotal: Number.isFinite(eventGameTotal) ? eventGameTotal : null,
         }
 
         if (shouldRejectRow(draftRow)) continue

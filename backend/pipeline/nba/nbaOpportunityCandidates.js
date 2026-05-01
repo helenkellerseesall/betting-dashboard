@@ -3,6 +3,7 @@
 console.log("ACTIVE:", __filename)
 
 const { nbaRowModelProbability, nbaRowEdge, nbaRowLadderLabel } = require("./nbaModelSignals")
+const { applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
 const { computeMatchupAdjustmentFromRow } = require("./nbaMatchupIntelligence")
 // recentForm is injected upstream during snapshot enrichment (real API-Sports logs)
 
@@ -213,8 +214,17 @@ function computeFinalWeight({
     w = w * (1 + matchupAdj)
 
     const pname = player || playerName
-    if (pname && Math.abs(matchupAdj) > 1e-6 && __matchupAppliedLogN < 80) {
-      console.log("MATCHUP APPLIED:", pname, m.opponent || "?", "adj", Number(matchupAdj.toFixed(5)))
+    // Same visibility contract as FORM APPLIED: log whenever this path runs (capped), adj may be 0 if neutral context.
+    if (pname && __matchupAppliedLogN < 80) {
+      console.log(
+        "MATCHUP APPLIED:",
+        pname,
+        m.opponent || "?",
+        "adj:",
+        Number(matchupAdj.toFixed(5)),
+        "final:",
+        w
+      )
       __matchupAppliedLogN++
     }
   }
@@ -223,6 +233,7 @@ function computeFinalWeight({
 }
 
 function ladderCandidateFromRow(row, ctx = null) {
+  row = applyTeamFallbackFromProjections(row)
   const player = clampStr(row?.player)
   if (!player) return null
   const probability = nbaRowModelProbability(row)
@@ -279,7 +290,7 @@ function ladderCandidateFromRow(row, ctx = null) {
           }
         })()
 
-  if (recentForm && __formDataLiveN < 25) {
+  if (recentForm && __formDataLiveN < 400) {
     console.log("FORM DATA LIVE:", player, {
       source: recentForm.source,
       last5_avg: recentForm.last5_avg,
@@ -309,10 +320,16 @@ function ladderCandidateFromRow(row, ctx = null) {
     matchupRow: row,
   })
 
+  const eventPace = toNum(row?.eventPace ?? row?.pace ?? row?.projectedPace)
+  const gameTotal = toNum(row?.gameTotal ?? row?.eventTotal ?? row?.total)
+
   return {
     player,
     team: clampStr(row?.team),
     opponent: clampStr(row?.opponent ?? row?.opponentTeam),
+    opponentTeam: clampStr(row?.opponent ?? row?.opponentTeam),
+    homeTeam: clampStr(row?.homeTeam),
+    awayTeam: clampStr(row?.awayTeam),
     eventId: clampStr(row?.eventId),
     propType: clampStr(row?.propType) || "Prop",
     ladder: nbaRowLadderLabel(row),
@@ -330,6 +347,8 @@ function ladderCandidateFromRow(row, ctx = null) {
     threesBaseLine,
     recentForm,
     matchupAdj: Number.isFinite(matchupAdj) ? matchupAdj : 0,
+    eventPace: Number.isFinite(eventPace) ? eventPace : null,
+    gameTotal: Number.isFinite(gameTotal) ? gameTotal : null,
     odds: Number.isFinite(Number(row?.odds)) ? Number(row.odds) : null,
   }
 }

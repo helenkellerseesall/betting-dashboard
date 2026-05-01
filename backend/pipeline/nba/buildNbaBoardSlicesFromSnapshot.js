@@ -9,7 +9,15 @@ const {
   isTeamFirstBasketRow,
 } = require("../markets/boardClassification")
 const { nbaRowModelProbability } = require("./nbaModelSignals")
-const { buildNbaEventTeamIndex, enrichNbaRowWithEventTeams } = require("./nbaEventTeamResolve")
+const {
+  buildNbaEventTeamIndex,
+  buildNbaEventGameContextMap,
+  inferNbaEventGameContextFromPropRows,
+  mergeNbaEventGameContextMaps,
+  enrichNbaRowWithEventTeams,
+  attachNbaEventGameContextToRow,
+  enrichNbaRowTeamFromVoteAfterContext,
+} = require("./nbaEventTeamResolve")
 const { inferNbaStatPropTypeFromMarket, isNbaStatLadderRow } = require("./nbaStatLadder")
 const { buildSpecialtyPlayerTeamIndex } = require("../resolution/playerTeamResolution")
 const fs = require("fs")
@@ -96,8 +104,21 @@ function mergeSnapshotRowPools(snapshot) {
   return dedupeNbaRows(chunks)
 }
 
-function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex) {
-  let out = enrichNbaRowWithEventTeams(row, eventIndex, playerTeamIndex)
+function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex, gameContextMap) {
+  const proj = loadNbaPlayerProjections()
+  const key = normalizePlayerKey(row?.player)
+  const p = proj.players[key]
+
+  let out = { ...row }
+  const teamFromProj = String(p?.team || "").trim()
+  if (!String(out.team || "").trim() && teamFromProj) {
+    out.team = teamFromProj
+  }
+
+  out = enrichNbaRowWithEventTeams(out, eventIndex, playerTeamIndex)
+  out = attachNbaEventGameContextToRow(out, gameContextMap)
+  out = enrichNbaRowTeamFromVoteAfterContext(out, playerTeamIndex)
+
   if (!String(out.propType || "").trim()) {
     const inferred = inferNbaStatPropTypeFromMarket(out)
     if (inferred) out = { ...out, propType: inferred }
@@ -105,9 +126,6 @@ function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex) {
 
   // Temporary projections layer: merge projectedMinutes + usageRate for realism ranking.
   // This is intentionally explicit data (static JSON), not guessed per-row.
-  const proj = loadNbaPlayerProjections()
-  const key = normalizePlayerKey(out.player)
-  const p = proj.players[key]
   const hasMinutes =
     out.projectedMinutes != null || out.minutesProjection != null || out.minutes != null || out.expectedMinutes != null
   const hasUsage = out.usageRate != null || out.playerUsage != null || out.usage != null || out.roleUsagePct != null
@@ -146,8 +164,11 @@ function sortRowsByModelDesc(rows, limit) {
 function buildNbaBoardSlicesFromSnapshot(snapshot = {}) {
   const eventIndex = buildNbaEventTeamIndex(snapshot?.events)
   const merged = mergeSnapshotRowPools(snapshot)
+  const gameContextFromEvents = buildNbaEventGameContextMap(snapshot?.events)
+  const gameContextFromProps = inferNbaEventGameContextFromPropRows(merged)
+  const gameContextMap = mergeNbaEventGameContextMaps(gameContextFromEvents, gameContextFromProps)
   const playerTeamIndex = buildSpecialtyPlayerTeamIndex(merged)
-  const completeUniverse = merged.map((r) => normalizeNbaSnapshotRow(r, eventIndex, playerTeamIndex))
+  const completeUniverse = merged.map((r) => normalizeNbaSnapshotRow(r, eventIndex, playerTeamIndex, gameContextMap))
   const pool = completeUniverse.filter(rowHasBoardBasics)
 
   const corePropsBoard = []

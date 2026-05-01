@@ -20,6 +20,7 @@ const {
   readMinutes,
   readUsageRate,
 } = require("../pipeline/nba/nbaOpportunityCandidates")
+const { applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 
 const EDGE_SURFACE_MIN = 0.003
 
@@ -387,7 +388,7 @@ async function runAll() {
       if (!x || typeof x !== "object") return x
       if (Number.isFinite(toNum(x.finalWeight))) return x
 
-      const out = { ...x }
+      const out = applyTeamFallbackFromProjections({ ...x })
       const usageRate = readUsageRate(out) ?? 19
       const minutes = readMinutes(out) ?? 26
       const contextScore = readContextScore(out)
@@ -419,6 +420,7 @@ async function runAll() {
       out.realismScore = realismScore
       out.edge = fw.edge
       out.finalWeight = fw.finalWeight
+      if (fw && typeof fw === "object" && Number.isFinite(Number(fw.matchupAdj))) out.matchupAdj = fw.matchupAdj
       return out
     }
 
