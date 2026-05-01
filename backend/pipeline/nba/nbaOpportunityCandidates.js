@@ -3,13 +3,15 @@
 console.log("ACTIVE:", __filename)
 
 const { nbaRowModelProbability, nbaRowEdge, nbaRowLadderLabel } = require("./nbaModelSignals")
-const { applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
+const { applyTeamFallbackFromProjections, enrichNbaRowStatLayerInputs } = require("./nbaEventTeamResolve")
 const { computeMatchupAdjustmentFromRow } = require("./nbaMatchupIntelligence")
+const { computeStatSpecificAdjustmentFromContext } = require("./nbaStatIntelligence")
 // recentForm is injected upstream during snapshot enrichment (real API-Sports logs)
 
 let __formActiveN = 0
 let __formDataLiveN = 0
 let __matchupAppliedLogN = 0
+let __statAdjustmentLogN = 0
 
 function clamp(min, max, v) {
   return Math.max(min, Math.min(max, v))
@@ -229,11 +231,35 @@ function computeFinalWeight({
     }
   }
 
-  return { finalWeight: w, edge: e, matchupAdj }
+  // --- STAT-SPECIFIC (rebounds / assists / threes / PRA) — after form + matchup ---
+  let statAdj = 0
+  if (matchupRow && typeof matchupRow === "object") {
+    statAdj = clamp(
+      -0.07,
+      0.07,
+      computeStatSpecificAdjustmentFromContext({
+        matchupRow,
+        propType,
+        usageRate,
+        minutes,
+        threesBaseLine,
+        line: ln,
+      })
+    )
+    w = w * (1 + statAdj)
+
+    const pname = player || playerName
+    if (pname && __statAdjustmentLogN < 120) {
+      console.log("STAT ADJUSTMENT:", pname, String(propType || "?").trim() || "?", Number(statAdj.toFixed(5)))
+      __statAdjustmentLogN++
+    }
+  }
+
+  return { finalWeight: w, edge: e, matchupAdj, statAdj }
 }
 
 function ladderCandidateFromRow(row, ctx = null) {
-  row = applyTeamFallbackFromProjections(row)
+  row = enrichNbaRowStatLayerInputs(applyTeamFallbackFromProjections(row))
   const player = clampStr(row?.player)
   if (!player) return null
   const probability = nbaRowModelProbability(row)
@@ -260,6 +286,9 @@ function ladderCandidateFromRow(row, ctx = null) {
     const k = `${String(eid || "").trim()}__${String(player).toLowerCase()}`
     const v = ctx.threesBaseLineByPlayerEvent.get(k)
     threesBaseLine = Number.isFinite(Number(v)) ? Number(v) : null
+  }
+  if (/three|threes|3pt/.test(ptLower) && threesBaseLine == null && Number.isFinite(line)) {
+    threesBaseLine = line
   }
 
   const parseHitRate = (v) => {
@@ -305,7 +334,7 @@ function ladderCandidateFromRow(row, ctx = null) {
     __formDataLiveN++
   }
 
-  const { finalWeight, edge, matchupAdj } = computeFinalWeight({
+  const { finalWeight, edge, matchupAdj, statAdj } = computeFinalWeight({
     realismScore,
     predictedProbability: probability,
     edge: rawEdge,
@@ -347,6 +376,7 @@ function ladderCandidateFromRow(row, ctx = null) {
     threesBaseLine,
     recentForm,
     matchupAdj: Number.isFinite(matchupAdj) ? matchupAdj : 0,
+    statAdj: Number.isFinite(statAdj) ? statAdj : 0,
     eventPace: Number.isFinite(eventPace) ? eventPace : null,
     gameTotal: Number.isFinite(gameTotal) ? gameTotal : null,
     odds: Number.isFinite(Number(row?.odds)) ? Number(row.odds) : null,

@@ -421,6 +421,7 @@ async function runAll() {
       out.edge = fw.edge
       out.finalWeight = fw.finalWeight
       if (fw && typeof fw === "object" && Number.isFinite(Number(fw.matchupAdj))) out.matchupAdj = fw.matchupAdj
+      if (fw && typeof fw === "object" && Number.isFinite(Number(fw.statAdj))) out.statAdj = fw.statAdj
       return out
     }
 

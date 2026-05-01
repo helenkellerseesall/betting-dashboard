@@ -3,7 +3,12 @@
 const fs = require("fs")
 const path = require("path")
 
+const { resolveDefenseProfile } = require("./nbaMatchupIntelligence")
 const { rowTeamMatchesMatchup } = require("../resolution/playerTeamResolution")
+
+/** League anchors when slate/row omit pace or total (keeps stat + matchup env terms non-degenerate). */
+const LEAGUE_ANCHOR_PACE = 100
+const LEAGUE_ANCHOR_TOTAL = 224
 
 function clampStr(v) {
   const s = String(v == null ? "" : v).trim()
@@ -144,11 +149,104 @@ function loadNbaPlayerProjectionsTeamFallback() {
   if (_nbaProjTeamFallbackCache) return _nbaProjTeamFallbackCache
   try {
     const fp = path.join(__dirname, "..", "..", "data", "nbaPlayerProjections.json")
-    _nbaProjTeamFallbackCache = JSON.parse(fs.readFileSync(fp, "utf8"))
+    const raw = JSON.parse(fs.readFileSync(fp, "utf8"))
+    const defaults = raw?.defaults && typeof raw.defaults === "object" ? raw.defaults : {}
+    _nbaProjTeamFallbackCache = {
+      defaults: {
+        projectedMinutes: Number(defaults.projectedMinutes) || 26,
+        usageRate: Number(defaults.usageRate) || 19,
+        role: String(defaults.role || "wing").trim().toLowerCase() || "wing",
+      },
+      players: raw?.players && typeof raw.players === "object" ? raw.players : {},
+    }
   } catch {
-    _nbaProjTeamFallbackCache = { players: {} }
+    _nbaProjTeamFallbackCache = {
+      defaults: { projectedMinutes: 26, usageRate: 19, role: "wing" },
+      players: {},
+    }
   }
   return _nbaProjTeamFallbackCache
+}
+
+function roleHintToPrimaryPosition(role) {
+  const r = String(role || "").trim().toLowerCase()
+  if (r === "guard") return "Point Guard"
+  if (r === "big") return "Center"
+  if (r === "wing") return "Small Forward"
+  return null
+}
+
+function inferOpponentFromParsedMatchup(team, matchup) {
+  const t = clampStr(team)
+  const { awayTeam, homeTeam } = parseMatchupTeams(matchup)
+  const a = clampStr(awayTeam)
+  const h = clampStr(homeTeam)
+  if (!t || !a || !h) return null
+  if (teamsLikelyEqual(t, a)) return h
+  if (teamsLikelyEqual(t, h)) return a
+  return null
+}
+
+/**
+ * Ensure stat-layer inputs exist on the row: usage, minutes, role (via primaryPosition), pace/total,
+ * opponent when derivable, and static defense lane scalars for observability.
+ */
+function enrichNbaRowStatLayerInputs(row) {
+  if (!row || typeof row !== "object") return row
+  const out = { ...row }
+  const proj = loadNbaPlayerProjectionsTeamFallback()
+  const pk = String(out.player || "")
+    .trim()
+    .toLowerCase()
+  const p = proj.players[pk]
+  const def = proj.defaults
+
+  const hasPos = String(out.position || out.primaryPosition || out.playerPosition || "").trim()
+  const roleHint = String(p?.role ?? def.role ?? "wing")
+    .trim()
+    .toLowerCase()
+  const rolePos = roleHintToPrimaryPosition(roleHint)
+  if (!hasPos && rolePos) out.primaryPosition = rolePos
+
+  const hasMinutes =
+    out.projectedMinutes != null ||
+    out.minutesProjection != null ||
+    out.minutes != null ||
+    out.expectedMinutes != null
+  if (!hasMinutes) {
+    const m = Number(p?.projectedMinutes ?? def.projectedMinutes)
+    if (Number.isFinite(m) && m > 0) out.projectedMinutes = m
+  }
+  const hasUsage =
+    out.usageRate != null || out.playerUsage != null || out.usage != null || out.roleUsagePct != null
+  if (!hasUsage) {
+    const u = Number(p?.usageRate ?? def.usageRate)
+    if (Number.isFinite(u) && u > 0) out.usageRate = u
+  }
+
+  if (!Number.isFinite(toNum(out.eventPace ?? out.pace ?? out.projectedPace ?? out.gamePace))) {
+    out.eventPace = LEAGUE_ANCHOR_PACE
+    out.pace = LEAGUE_ANCHOR_PACE
+  }
+  if (!Number.isFinite(toNum(out.gameTotal ?? out.eventTotal ?? out.total ?? out.projectedTotal))) {
+    out.gameTotal = LEAGUE_ANCHOR_TOTAL
+    if (out.eventTotal == null) out.eventTotal = LEAGUE_ANCHOR_TOTAL
+  }
+
+  if (!clampStr(out.opponent) && clampStr(out.team) && clampStr(out.matchup)) {
+    const oppM = inferOpponentFromParsedMatchup(out.team, out.matchup)
+    if (oppM) {
+      out.opponent = oppM
+      out.opponentTeam = oppM
+    }
+  }
+
+  const oppKey = String(out.opponent || out.opponentTeam || "").trim()
+  const prof = oppKey ? resolveDefenseProfile(oppKey) : null
+  out.vsGlass = prof && Number.isFinite(Number(prof.vsGlass)) ? Number(prof.vsGlass) : 0
+  out.vsPerimeter = prof && Number.isFinite(Number(prof.vsPerimeter)) ? Number(prof.vsPerimeter) : 0
+
+  return out
 }
 
 /**
@@ -404,5 +502,6 @@ module.exports = {
   attachNbaEventGameContextToRow,
   enrichNbaRowTeamFromVoteAfterContext,
   applyTeamFallbackFromProjections,
+  enrichNbaRowStatLayerInputs,
   inferOpponentFromEventSides,
 }

@@ -17,6 +17,7 @@ const {
   enrichNbaRowWithEventTeams,
   attachNbaEventGameContextToRow,
   enrichNbaRowTeamFromVoteAfterContext,
+  enrichNbaRowStatLayerInputs,
 } = require("./nbaEventTeamResolve")
 const { inferNbaStatPropTypeFromMarket, isNbaStatLadderRow } = require("./nbaStatLadder")
 const { buildSpecialtyPlayerTeamIndex } = require("../resolution/playerTeamResolution")
@@ -34,7 +35,7 @@ function loadNbaPlayerProjections() {
   try {
     const p = path.join(__dirname, "..", "..", "data", "nbaPlayerProjections.json")
     if (!fs.existsSync(p)) {
-      _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19 }, players: {} }
+      _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19, role: "wing" }, players: {} }
       return _nbaProjectionsCache
     }
     const raw = JSON.parse(fs.readFileSync(p, "utf8"))
@@ -44,12 +45,13 @@ function loadNbaPlayerProjections() {
       defaults: {
         projectedMinutes: Number(defaults.projectedMinutes) || 26,
         usageRate: Number(defaults.usageRate) || 19,
+        role: String(defaults.role || "wing").trim().toLowerCase() || "wing",
       },
       players,
     }
     return _nbaProjectionsCache
   } catch {
-    _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19 }, players: {} }
+    _nbaProjectionsCache = { defaults: { projectedMinutes: 26, usageRate: 19, role: "wing" }, players: {} }
     return _nbaProjectionsCache
   }
 }
@@ -138,6 +140,8 @@ function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex, gameContextMa
     const u = Number(p?.usageRate ?? proj.defaults.usageRate)
     if (Number.isFinite(u) && u > 0) out = { ...out, usageRate: u }
   }
+
+  out = enrichNbaRowStatLayerInputs(out)
 
   return out
 }
