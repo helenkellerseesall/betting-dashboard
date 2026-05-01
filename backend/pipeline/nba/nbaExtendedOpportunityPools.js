@@ -218,6 +218,8 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
         finalWeight: fw.finalWeight,
         matchupAdj: Number.isFinite(fw.matchupAdj) ? fw.matchupAdj : 0,
         statAdj: Number.isFinite(fw.statAdj) ? fw.statAdj : 0,
+        paceAdj: Number.isFinite(fw.paceAdj) ? fw.paceAdj : 0,
+        blowoutAdj: Number.isFinite(fw.blowoutAdj) ? fw.blowoutAdj : 0,
       })
     }
 
@@ -259,6 +261,8 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
         finalWeight: fw.finalWeight,
         matchupAdj: Number.isFinite(fw.matchupAdj) ? fw.matchupAdj : 0,
         statAdj: Number.isFinite(fw.statAdj) ? fw.statAdj : 0,
+        paceAdj: Number.isFinite(fw.paceAdj) ? fw.paceAdj : 0,
+        blowoutAdj: Number.isFinite(fw.blowoutAdj) ? fw.blowoutAdj : 0,
       })
     }
   }

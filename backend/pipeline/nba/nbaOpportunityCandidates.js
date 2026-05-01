@@ -6,12 +6,15 @@ const { nbaRowModelProbability, nbaRowEdge, nbaRowLadderLabel } = require("./nba
 const { applyTeamFallbackFromProjections, enrichNbaRowStatLayerInputs } = require("./nbaEventTeamResolve")
 const { computeMatchupAdjustmentFromRow } = require("./nbaMatchupIntelligence")
 const { computeStatSpecificAdjustmentFromContext } = require("./nbaStatIntelligence")
+const { computePaceContextAdj, computeBlowoutContextAdj } = require("./nbaGameContextWeight")
 // recentForm is injected upstream during snapshot enrichment (real API-Sports logs)
 
 let __formActiveN = 0
 let __formDataLiveN = 0
 let __matchupAppliedLogN = 0
 let __statAdjustmentLogN = 0
+let __paceContextLogN = 0
+let __blowoutContextLogN = 0
 
 function clamp(min, max, v) {
   return Math.max(min, Math.min(max, v))
@@ -255,7 +258,31 @@ function computeFinalWeight({
     }
   }
 
-  return { finalWeight: w, edge: e, matchupAdj, statAdj }
+  // --- PACE + BLOWOUT (game context) — after form, matchup, stat layer ---
+  let paceAdj = 0
+  let blowoutAdj = 0
+  if (matchupRow && typeof matchupRow === "object") {
+    const pRes = computePaceContextAdj(matchupRow, propType)
+    paceAdj = Number.isFinite(pRes.adj) ? pRes.adj : 0
+    const bRes = computeBlowoutContextAdj(matchupRow, propType, usageRate, minutes)
+    blowoutAdj = Number.isFinite(bRes.adj) ? bRes.adj : 0
+    const ctxBump = clamp(-0.075, 0.065, paceAdj + blowoutAdj)
+    w *= 1 + ctxBump
+
+    const pname = player || playerName
+    if (pname && __paceContextLogN < 120) {
+      const paceDisp = pRes.pace != null ? Number(pRes.pace.toFixed(2)) : "?"
+      console.log("PACE ADJUSTMENT:", pname, paceDisp, Number(paceAdj.toFixed(5)))
+      __paceContextLogN++
+    }
+    if (pname && __blowoutContextLogN < 120) {
+      const spreadDisp = bRes.spreadLabel != null ? bRes.spreadLabel : "?"
+      console.log("BLOWOUT ADJUSTMENT:", pname, spreadDisp, Number(blowoutAdj.toFixed(5)))
+      __blowoutContextLogN++
+    }
+  }
+
+  return { finalWeight: w, edge: e, matchupAdj, statAdj, paceAdj, blowoutAdj }
 }
 
 function ladderCandidateFromRow(row, ctx = null) {
@@ -334,7 +361,7 @@ function ladderCandidateFromRow(row, ctx = null) {
     __formDataLiveN++
   }
 
-  const { finalWeight, edge, matchupAdj, statAdj } = computeFinalWeight({
+  const { finalWeight, edge, matchupAdj, statAdj, paceAdj, blowoutAdj } = computeFinalWeight({
     realismScore,
     predictedProbability: probability,
     edge: rawEdge,
@@ -377,6 +404,8 @@ function ladderCandidateFromRow(row, ctx = null) {
     recentForm,
     matchupAdj: Number.isFinite(matchupAdj) ? matchupAdj : 0,
     statAdj: Number.isFinite(statAdj) ? statAdj : 0,
+    paceAdj: Number.isFinite(paceAdj) ? paceAdj : 0,
+    blowoutAdj: Number.isFinite(blowoutAdj) ? blowoutAdj : 0,
     eventPace: Number.isFinite(eventPace) ? eventPace : null,
     gameTotal: Number.isFinite(gameTotal) ? gameTotal : null,
     odds: Number.isFinite(Number(row?.odds)) ? Number(row.odds) : null,

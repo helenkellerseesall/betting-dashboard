@@ -43,14 +43,15 @@ function parseMatchupTeams(matchup) {
 }
 
 function toNum(v) {
+  if (v == null || v === "") return null
   const n = Number(v)
   return Number.isFinite(n) ? n : null
 }
 
 /**
- * Per-event pace / total + sides (for matchup + environment wiring onto prop rows).
+ * Per-event pace / total + sides + blowout inputs (for matchup + environment wiring onto prop rows).
  * @param {object[]} events
- * @returns {Map<string, { homeTeam: string|null, awayTeam: string|null, pace: number|null, gameTotal: number|null }>}
+ * @returns {Map<string, { homeTeam: string|null, awayTeam: string|null, pace: number|null, gameTotal: number|null, spread: number|null, moneylineHomeOdds: number|null, moneylineAwayOdds: number|null }>}
  */
 function buildNbaEventGameContextMap(events) {
   const map = new Map()
@@ -61,7 +62,19 @@ function buildNbaEventGameContextMap(events) {
     const awayTeam = clampStr(ev?.awayTeam ?? ev?.away_team ?? ev?.away)
     const pace = toNum(ev?.pace ?? ev?.projectedPace ?? ev?.gamePace ?? ev?.eventPace)
     const gameTotal = toNum(ev?.gameTotal ?? ev?.total ?? ev?.overUnder ?? ev?.eventTotal)
-    map.set(id, { homeTeam, awayTeam, pace, gameTotal })
+    const sp = toNum(ev?.spread ?? ev?.lineSpread ?? ev?.gameSpread)
+    const spread = Number.isFinite(sp) ? Math.abs(sp) : null
+    const moneylineHomeOdds = toNum(ev?.moneylineHomeOdds ?? ev?.moneyline_home_odds ?? ev?.moneylineHome)
+    const moneylineAwayOdds = toNum(ev?.moneylineAwayOdds ?? ev?.moneyline_away_odds ?? ev?.moneylineAway)
+    map.set(id, {
+      homeTeam,
+      awayTeam,
+      pace,
+      gameTotal,
+      spread,
+      moneylineHomeOdds: Number.isFinite(moneylineHomeOdds) ? moneylineHomeOdds : null,
+      moneylineAwayOdds: Number.isFinite(moneylineAwayOdds) ? moneylineAwayOdds : null,
+    })
   }
   return map
 }
@@ -83,6 +96,7 @@ function inferNbaEventGameContextFromPropRows(rows) {
         spreads: [],
         homeTeam: null,
         awayTeam: null,
+        mlPairs: [],
       })
     }
     const a = agg.get(eid)
@@ -92,6 +106,9 @@ function inferNbaEventGameContextFromPropRows(rows) {
     if (Number.isFinite(pc)) a.paces.push(pc)
     const sp = toNum(row?.spread ?? row?.gameSpread ?? row?.lineSpread)
     if (Number.isFinite(sp)) a.spreads.push(Math.abs(sp))
+    const mh = toNum(row?.moneylineHomeOdds)
+    const ma = toNum(row?.moneylineAwayOdds)
+    if (Number.isFinite(mh) && Number.isFinite(ma)) a.mlPairs.push({ h: mh, a: ma })
     const ht = clampStr(row?.homeTeam ?? row?.home_team)
     const at = clampStr(row?.awayTeam ?? row?.away_team)
     if (ht && !a.homeTeam) a.homeTeam = ht
@@ -106,7 +123,19 @@ function inferNbaEventGameContextFromPropRows(rows) {
       const spreadAdj = a.spreads.length ? Math.max(...a.spreads) / 18 : 0
       pace = Math.max(92, Math.min(107, 99 + (gameTotal - 220) / 3 - spreadAdj))
     }
-    map.set(eid, { homeTeam: a.homeTeam, awayTeam: a.awayTeam, pace, gameTotal })
+    const spread = a.spreads.length ? Math.max(...a.spreads) : null
+    const ml0 = a.mlPairs.length ? a.mlPairs[0] : null
+    const moneylineHomeOdds = ml0 && Number.isFinite(ml0.h) ? ml0.h : null
+    const moneylineAwayOdds = ml0 && Number.isFinite(ml0.a) ? ml0.a : null
+    map.set(eid, {
+      homeTeam: a.homeTeam,
+      awayTeam: a.awayTeam,
+      pace,
+      gameTotal,
+      spread: Number.isFinite(spread) ? spread : null,
+      moneylineHomeOdds,
+      moneylineAwayOdds,
+    })
   }
   return map
 }
@@ -118,12 +147,29 @@ function inferNbaEventGameContextFromPropRows(rows) {
 function mergeNbaEventGameContextMaps(fromEvents, fromProps) {
   const out = new Map(fromEvents)
   for (const [eid, pctx] of fromProps) {
-    const cur = out.get(eid) || { homeTeam: null, awayTeam: null, pace: null, gameTotal: null }
+    const cur = out.get(eid) || {
+      homeTeam: null,
+      awayTeam: null,
+      pace: null,
+      gameTotal: null,
+      spread: null,
+      moneylineHomeOdds: null,
+      moneylineAwayOdds: null,
+    }
+    const curSpread = toNum(cur.spread)
+    const pSpread = toNum(pctx.spread)
+    const curMh = toNum(cur.moneylineHomeOdds)
+    const curMa = toNum(cur.moneylineAwayOdds)
+    const pMh = toNum(pctx.moneylineHomeOdds)
+    const pMa = toNum(pctx.moneylineAwayOdds)
     out.set(eid, {
       homeTeam: cur.homeTeam || pctx.homeTeam,
       awayTeam: cur.awayTeam || pctx.awayTeam,
       pace: Number.isFinite(cur.pace) ? cur.pace : pctx.pace,
       gameTotal: Number.isFinite(cur.gameTotal) ? cur.gameTotal : pctx.gameTotal,
+      spread: Number.isFinite(curSpread) ? curSpread : Number.isFinite(pSpread) ? pSpread : null,
+      moneylineHomeOdds: Number.isFinite(curMh) ? curMh : Number.isFinite(pMh) ? pMh : null,
+      moneylineAwayOdds: Number.isFinite(curMa) ? curMa : Number.isFinite(pMa) ? pMa : null,
     })
   }
   return out
@@ -286,7 +332,7 @@ function applyTeamFallbackFromProjections(row) {
 /**
  * Copy slate pace/total onto the row and infer opponent when team + sides are known.
  * @param {object} row
- * @param {Map<string, { homeTeam: string|null, awayTeam: string|null, pace: number|null, gameTotal: number|null }>} gameMap
+ * @param {Map<string, { homeTeam: string|null, awayTeam: string|null, pace: number|null, gameTotal: number|null, spread: number|null, moneylineHomeOdds: number|null, moneylineAwayOdds: number|null }>} gameMap
  */
 function attachNbaEventGameContextToRow(row, gameMap) {
   if (!row || typeof row !== "object") return row
@@ -302,6 +348,18 @@ function attachNbaEventGameContextToRow(row, gameMap) {
   if (Number.isFinite(g.gameTotal)) {
     out.gameTotal = g.gameTotal
     if (out.eventTotal == null) out.eventTotal = g.gameTotal
+  }
+
+  const rowSpread = toNum(out.spread ?? out.gameSpread ?? out.lineSpread)
+  if (!Number.isFinite(rowSpread) && Number.isFinite(g.spread)) {
+    out.spread = g.spread
+    out.gameSpread = g.spread
+  }
+  if (out.moneylineHomeOdds == null && Number.isFinite(g.moneylineHomeOdds)) {
+    out.moneylineHomeOdds = g.moneylineHomeOdds
+  }
+  if (out.moneylineAwayOdds == null && Number.isFinite(g.moneylineAwayOdds)) {
+    out.moneylineAwayOdds = g.moneylineAwayOdds
   }
 
   if (g.homeTeam && !out.homeTeam) out.homeTeam = g.homeTeam

@@ -13,6 +13,8 @@ const NBA_BASE_MARKETS = [
   "player_threes",
   "player_points_rebounds_assists",
   "totals",
+  "spreads",
+  "h2h",
 ]
 
 const NBA_DK_EXTRA_MARKETS = [
@@ -130,6 +132,73 @@ function propVariantFromMarket(marketKey, inferredFamily) {
   return "base"
 }
 
+function toNum(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function normTeamKey(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ")
+}
+
+function teamLikelyEquals(a, b) {
+  const x = normTeamKey(a)
+  const y = normTeamKey(b)
+  if (!x || !y) return false
+  if (x === y) return true
+  if (x.length >= 3 && y.length >= 3 && (x.includes(y) || y.includes(x))) return true
+  return false
+}
+
+/**
+ * Game-level spread (absolute margin) + moneylines from Odds API book payloads.
+ * Attached to every player-prop row for blowout / game-context layers.
+ */
+function extractSpreadAndMoneylinesFromBooks(books, homeTeam, awayTeam) {
+  let spreadAbs = null
+  let moneylineHomeOdds = null
+  let moneylineAwayOdds = null
+
+  for (const book of Array.isArray(books) ? books : []) {
+    for (const market of Array.isArray(book?.markets) ? book.markets : []) {
+      const mk = String(market?.key || market?.name || "").toLowerCase()
+      if (mk === "spreads" && spreadAbs == null) {
+        let best = null
+        for (const o of Array.isArray(market?.outcomes) ? market.outcomes : []) {
+          const pt = toNum(o?.point)
+          if (Number.isFinite(pt)) {
+            const a = Math.abs(pt)
+            best = best == null ? a : Math.max(best, a)
+          }
+        }
+        if (best != null) spreadAbs = best
+      }
+      if (mk === "h2h" && (moneylineHomeOdds == null || moneylineAwayOdds == null)) {
+        let hOdd = null
+        let aOdd = null
+        for (const o of Array.isArray(market?.outcomes) ? market.outcomes : []) {
+          const name = String(o?.name || "").trim()
+          const price = toNum(o?.price)
+          if (!name || !Number.isFinite(price)) continue
+          if (teamLikelyEquals(name, homeTeam)) hOdd = price
+          else if (teamLikelyEquals(name, awayTeam)) aOdd = price
+        }
+        if (Number.isFinite(hOdd) && Number.isFinite(aOdd)) {
+          moneylineHomeOdds = hOdd
+          moneylineAwayOdds = aOdd
+        }
+      }
+    }
+    if (spreadAbs != null && moneylineHomeOdds != null && moneylineAwayOdds != null) break
+  }
+
+  return { spreadAbs, moneylineHomeOdds, moneylineAwayOdds }
+}
+
 function mergeBookmakers(baseBooks, extraBooks) {
   const byKey = new Map()
   for (const b of [...(Array.isArray(baseBooks) ? baseBooks : []), ...(Array.isArray(extraBooks) ? extraBooks : [])]) {
@@ -180,6 +249,12 @@ async function fetchEventOddsRows(event, oddsApiKey) {
   const matchup = buildMatchup(awayTeam, homeTeam)
   const gameTime =
     String(event?.commence_time || event?.commenceTime || event?.gameTime || "").trim() || observedAtIso
+
+  const { spreadAbs, moneylineHomeOdds, moneylineAwayOdds } = extractSpreadAndMoneylinesFromBooks(
+    books,
+    homeTeam,
+    awayTeam
+  )
 
   let eventGameTotal = null
   for (const book of books) {
@@ -241,6 +316,10 @@ async function fetchEventOddsRows(event, oddsApiKey) {
           propVariant: propVariantFromMarket(marketKey, inferredFamily),
           team: teamHint || null,
           gameTotal: Number.isFinite(eventGameTotal) ? eventGameTotal : null,
+          spread: Number.isFinite(spreadAbs) ? spreadAbs : null,
+          gameSpread: Number.isFinite(spreadAbs) ? spreadAbs : null,
+          moneylineHomeOdds: Number.isFinite(moneylineHomeOdds) ? moneylineHomeOdds : null,
+          moneylineAwayOdds: Number.isFinite(moneylineAwayOdds) ? moneylineAwayOdds : null,
         }
 
         if (shouldRejectRow(draftRow)) continue

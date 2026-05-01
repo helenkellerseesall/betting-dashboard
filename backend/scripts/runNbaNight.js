@@ -20,7 +20,14 @@ const {
   readMinutes,
   readUsageRate,
 } = require("../pipeline/nba/nbaOpportunityCandidates")
-const { applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
+const {
+  applyTeamFallbackFromProjections,
+  attachNbaEventGameContextToRow,
+  buildNbaEventGameContextMap,
+  enrichNbaRowStatLayerInputs,
+  inferNbaEventGameContextFromPropRows,
+  mergeNbaEventGameContextMaps,
+} = require("../pipeline/nba/nbaEventTeamResolve")
 
 const EDGE_SURFACE_MIN = 0.003
 
@@ -105,6 +112,16 @@ async function runAll() {
 
     if (!opp) throw new Error("Missing nbaOpportunityBoard in API response")
     if (!insight) throw new Error("Missing nbaInsightBoard in API response")
+
+    let nbaGameContextMapCache = null
+    function getNbaGameContextMap() {
+      if (nbaGameContextMapCache) return nbaGameContextMapCache
+      const mergedRows = mergeNbaSnapshotRows(snapshot)
+      const fromEvents = buildNbaEventGameContextMap(snapshot?.events)
+      const fromProps = inferNbaEventGameContextFromPropRows(mergedRows)
+      nbaGameContextMapCache = mergeNbaEventGameContextMaps(fromEvents, fromProps)
+      return nbaGameContextMapCache
+    }
 
     function toNum(v) {
       const n = Number(v)
@@ -388,7 +405,12 @@ async function runAll() {
       if (!x || typeof x !== "object") return x
       if (Number.isFinite(toNum(x.finalWeight))) return x
 
-      const out = applyTeamFallbackFromProjections({ ...x })
+      let out = applyTeamFallbackFromProjections({ ...x })
+      const gMap = getNbaGameContextMap()
+      if (gMap && gMap.size) {
+        out = attachNbaEventGameContextToRow(out, gMap)
+      }
+      out = enrichNbaRowStatLayerInputs(out)
       const usageRate = readUsageRate(out) ?? 19
       const minutes = readMinutes(out) ?? 26
       const contextScore = readContextScore(out)
@@ -422,6 +444,8 @@ async function runAll() {
       out.finalWeight = fw.finalWeight
       if (fw && typeof fw === "object" && Number.isFinite(Number(fw.matchupAdj))) out.matchupAdj = fw.matchupAdj
       if (fw && typeof fw === "object" && Number.isFinite(Number(fw.statAdj))) out.statAdj = fw.statAdj
+      if (fw && typeof fw === "object" && Number.isFinite(Number(fw.paceAdj))) out.paceAdj = fw.paceAdj
+      if (fw && typeof fw === "object" && Number.isFinite(Number(fw.blowoutAdj))) out.blowoutAdj = fw.blowoutAdj
       return out
     }
 
