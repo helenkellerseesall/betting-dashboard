@@ -6,6 +6,7 @@ const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
 const { mineNbaExtendedOpportunityPools } = require("./nbaExtendedOpportunityPools")
 const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
+const { buildNbaAiPicks } = require("./buildNbaAiPicks")
 
 /**
  * NBA analogue of `buildMlbOpportunityBoard`: ladder-first opportunity pools derived from
@@ -161,7 +162,7 @@ function buildNbaOpportunityBoard(input = {}) {
 
   const resolvedCore = dedupeCandidates(coreCandidates).sort(sortByProbDesc)
 
-  return {
+  const boardPayload = {
     ladderCandidates: primaryLadders,
     pointsLadderCandidates,
     reboundsLadderCandidates,
@@ -186,6 +187,10 @@ function buildNbaOpportunityBoard(input = {}) {
       completeUniverseRows: completeUniverse.length,
     },
   }
+
+  boardPayload.aiPicks = buildNbaAiPicks(boardPayload)
+
+  return boardPayload
 }
 
 module.exports = {

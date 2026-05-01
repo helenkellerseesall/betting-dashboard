@@ -1188,6 +1188,13 @@ async function runAll() {
       })
     }
 
+    printHeader("AI PICKS")
+    if (opp.aiPicks && typeof opp.aiPicks === "object" && typeof opp.aiPicks.formattedText === "string") {
+      console.log(String(opp.aiPicks.formattedText).trimEnd())
+    } else {
+      console.log("(no aiPicks on opportunity board — rebuild API snapshot)")
+    }
+
     // 11) FREE BUILD POOL (candidate counts)
     printHeader("FREE BUILD POOL")
 
