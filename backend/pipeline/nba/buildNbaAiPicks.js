@@ -1,6 +1,18 @@
 "use strict"
 
 const { dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
+const {
+  computeOutcomeRange,
+  resolveLegFromAiRange,
+  resolveLottoLegAboveCeiling,
+  overRungFromLine,
+} = require("./nbaAiOutcomeRange")
+const {
+  expandCandidatesByTopStatFamilies,
+  playerEventFamilyKey,
+  statFamilyKey,
+} = require("./nbaAiStatFamilyRank")
+const { filterPoolByDominanceGap } = require("./nbaAiDominanceGap")
 
 function toNum(v) {
   const n = Number(v)
@@ -11,6 +23,23 @@ function playerKey(c) {
   return String(c?.player || "")
     .trim()
     .toLowerCase()
+}
+
+/** Canonical stat label for AI pick copy — never sportsbook "Points Ladder" / "PRA Ladder" leakage. */
+function displayStatLabelForAiPick(c) {
+  const fam = statFamilyKey(c)
+  if (fam === "points") return "points"
+  if (fam === "pra") return "pra"
+  if (fam === "combo") return "combo"
+  if (fam === "threes") return "threes"
+  if (fam === "rebounds") return "rebounds"
+  if (fam === "assists") return "assists"
+  let s = String(c?.propType || c?.marketKey || "prop")
+    .trim()
+    .replace(/\s*ladder\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  return s ? s.toLowerCase() : "prop"
 }
 
 function collectPool(opp) {
@@ -48,6 +77,18 @@ function compositeRankScore(c) {
   return fw + 3.2 * e + 1.15 * m + 0.85 * p + 0.45 * b + 0.35 * s + formN
 }
 
+/** Same floor as STRONG tier candidates — ELITE/STRONG/range ctx must not use rows below this bar. */
+function passesAiPickScoredFloor(c, fwMed) {
+  const e = toNum(c.edge) ?? -9
+  const fw = toNum(c.finalWeight) ?? 0
+  const m = toNum(c.matchupAdj) ?? 0
+  const p = toNum(c.paceAdj) ?? 0
+  if (e < 0.018) return false
+  if (fw < fwMed - 0.065) return false
+  if (m < -0.028 && p < -0.012) return false
+  return true
+}
+
 function pickBestPerPlayer(sortedList, max, excludeKeys = new Set()) {
   const seen = new Set()
   const out = []
@@ -61,13 +102,120 @@ function pickBestPerPlayer(sortedList, max, excludeKeys = new Set()) {
   return out
 }
 
+function rungFromResolvedLeg(L) {
+  if (!L) return null
+  const lad = String(L.ladder || "").trim()
+  const m = /^(\d+)\+/.exec(lad)
+  if (m) return Number(m[1])
+  const r = overRungFromLine(L.line)
+  return Number.isFinite(r) ? r : null
+}
+
+function isLegacyBoardLadderLabel(lad) {
+  const ll = String(lad || "")
+    .trim()
+    .toLowerCase()
+  return ll === "alt-mid" || ll === "alt mid" || ll === "alt_mid" || /^alt$/i.test(ll)
+}
+
+/** Strip book-only ladder labels when we are not binding to resolveLeg output. */
+function stripLegacyBoardLadder(row) {
+  if (isLegacyBoardLadderLabel(row.ladder)) {
+    delete row.ladder
+  }
+}
+
+/**
+ * Mutates row: aiRangeResolved, aiRangeLottoLeg, canonical line/ladder from resolveLegFromAiRange (median),
+ * or from computed aiRange.median when the pool cannot bind the median leg (never raw PRA / alt-mid ladder).
+ */
+function attachAiPickRangeResolution(row, pool) {
+  const ar = row.aiRange
+  if (!ar || !ar.floor || !ar.median || !ar.ceiling) {
+    row.aiRangeResolved = null
+    row.aiRangeLottoLeg = null
+    stripLegacyBoardLadder(row)
+    row.propVariant = row.propVariant || "base"
+    return row
+  }
+
+  const pick = { ...row, aiRange: ar }
+  row.aiRangeResolved = {
+    floor: resolveLegFromAiRange(pick, pool, "floor"),
+    median: resolveLegFromAiRange(pick, pool, "median"),
+    ceiling: resolveLegFromAiRange(pick, pool, "ceiling"),
+  }
+  row.aiRangeLottoLeg = resolveLottoLegAboveCeiling(pick, pool)
+
+  const Lm = row.aiRangeResolved.median
+  if (Lm) {
+    row.line = Lm.line
+    row.ladder = Lm.ladder
+    row.propVariant = Lm.propVariant
+  } else {
+    row.line = ar.median.line
+    row.ladder = `${ar.median.rung}+`
+    row.propVariant = "base"
+  }
+  delete row.originalLadder
+  delete row.bookLadder
+  return row
+}
+
+/**
+ * Single pipeline for ELITE and STRONG: computeOutcomeRange → attachAiPickRangeResolution → headlines.
+ * `rankedPool` = scored opportunity rows only (same source for both tiers + range siblings).
+ * @param {'elite'|'strong'} aiTier
+ */
+function buildEliteOrStrongPick(c, rankedPool, aiTier) {
+  const ar = computeOutcomeRange(c, rankedPool)
+  const row = { ...c, aiRange: ar, aiTier }
+  attachAiPickRangeResolution(row, rankedPool)
+  return {
+    ...row,
+    aiReasoning: buildReasoning(row),
+    aiHeadline: formatPropHeadline(row),
+    aiRange: ar,
+  }
+}
+
+/**
+ * Headline text for a pick. When `aiRangeResolved` is set, only resolved `line` / `ladder` /
+ * `propVariant` (via attach) and the median leg may influence display — never book ladder,
+ * `originalLadder`, `marketLabel`, or alt-mid / PRA book labels.
+ */
 function formatPropHeadline(c) {
   const player = String(c.player || "").trim() || "Player"
-  const pt = String(c.propType || c.marketKey || "Prop").trim()
+  const pt = displayStatLabelForAiPick(c)
   const side = String(c.side || "").trim()
+  const tier = String(c.aiTier || "").toLowerCase()
+  const isTieredPick = tier === "elite" || tier === "strong"
+
+  if (c.aiRangeResolved != null && typeof c.aiRangeResolved === "object") {
+    const line = c.line != null && Number.isFinite(Number(c.line)) ? Number(c.line) : null
+    const ladder = String(c.ladder || "").trim()
+    const medLeg = c.aiRangeResolved.median
+    const medRung = medLeg ? rungFromResolvedLeg(medLeg) : null
+    const base = `${player} — ${pt}${side ? ` ${side}` : ""}`.trim()
+    if (Number.isFinite(medRung)) {
+      return `${player} — ${pt}${side ? ` ${side}` : ""} (${medRung}+)`.trim()
+    }
+    if (ladder && /^\d+\+$/.test(ladder)) {
+      return `${base} ${ladder}`.trim()
+    }
+    if (line != null && side) return `${player} — ${pt} ${side} ${line}`.trim()
+    if (line != null) return `${player} — ${pt} ${line}`.trim()
+    return base
+  }
+
   const line = c.line != null && Number.isFinite(Number(c.line)) ? Number(c.line) : null
-  const ladder = String(c.ladder || "").trim()
-  if (ladder) return `${player} — ${ladder}`
+  const ar = c.aiRange
+  if (ar && ar.floor && ar.median && ar.ceiling) {
+    return `${player} — ${pt}${side ? ` ${side}` : ""}`.trim()
+  }
+  if (isTieredPick) {
+    return `${player} — ${pt}${side ? ` ${side}` : ""}`.trim()
+  }
   if (line != null && side) return `${player} — ${pt} ${side} ${line}`
   if (line != null) return `${player} — ${pt} ${line}`
   return `${player} — ${pt}`
@@ -146,6 +294,35 @@ function buildFadeReasoning(c) {
   return `Fade angle — ${buildReasoning(c)}`
 }
 
+function formatPickHeadlineWithRange(c) {
+  let head = formatPropHeadline(c)
+  const res = c.aiRangeResolved
+  const ar = c.aiRange
+  let rf = null
+  let rm = null
+  let rc = null
+  if (res?.floor && res?.median && res?.ceiling) {
+    rf = rungFromResolvedLeg(res.floor)
+    rm = rungFromResolvedLeg(res.median)
+    rc = rungFromResolvedLeg(res.ceiling)
+  }
+  if (!(Number.isFinite(rf) && Number.isFinite(rm) && Number.isFinite(rc)) && ar?.floor && ar?.median && ar?.ceiling) {
+    rf = toNum(ar.floor.rung)
+    rm = toNum(ar.median.rung)
+    rc = toNum(ar.ceiling.rung)
+  }
+  if (Number.isFinite(rf) && Number.isFinite(rm) && Number.isFinite(rc)) {
+    head += `\n   Range:\n   ${rf} / ${rm} / ${rc}`
+    const rl =
+      rungFromResolvedLeg(c.aiRangeLottoLeg) ??
+      (ar?.lotto && Number.isFinite(toNum(ar.lotto.rung)) ? toNum(ar.lotto.rung) : null)
+    if (Number.isFinite(rl) && rl !== rc) {
+      head += `\n   Lotto cap: ${rl}+`
+    }
+  }
+  return head
+}
+
 function formatTierBlock(title, emoji, picks, reasonFn) {
   const rf = reasonFn || buildReasoning
   let s = `${emoji} ${title}\n`
@@ -154,7 +331,7 @@ function formatTierBlock(title, emoji, picks, reasonFn) {
     return s
   }
   picks.forEach((c, i) => {
-    s += `${i + 1}. ${formatPropHeadline(c)}\n`
+    s += `${i + 1}. ${formatPickHeadlineWithRange(c)}\n`
     s += `   ${rf(c)}\n\n`
   })
   return s
@@ -180,7 +357,15 @@ function buildFormattedBlock(elite, strong, fades, generatedAt) {
  */
 function buildNbaAiPicks(nbaOpportunityBoard) {
   const generatedAt = new Date().toISOString()
-  const pool = collectPool(nbaOpportunityBoard).sort(sortByProbDesc)
+  let pool = collectPool(nbaOpportunityBoard).sort(sortByProbDesc)
+  let dominanceEliteBlockedKeys = nbaOpportunityBoard?.dominanceGapEliteBlockedKeys
+  if (!nbaOpportunityBoard?.dominanceGapPoolFiltered) {
+    const gap = filterPoolByDominanceGap(pool)
+    pool = gap.pool.sort(sortByProbDesc)
+    dominanceEliteBlockedKeys = gap.eliteBlockedKeys
+  } else if (!(dominanceEliteBlockedKeys instanceof Set)) {
+    dominanceEliteBlockedKeys = new Set()
+  }
   if (!pool.length) {
     return {
       elite: [],
@@ -188,6 +373,7 @@ function buildNbaAiPicks(nbaOpportunityBoard) {
       fades: [],
       formattedText: buildFormattedBlock([], [], [], generatedAt),
       generatedAt,
+      rankedOpportunityPool: [],
     }
   }
 
@@ -195,7 +381,26 @@ function buildNbaAiPicks(nbaOpportunityBoard) {
   const fwMed = median(fws) ?? 1.0
   const fwTop = fws.length ? Math.max(...fws) * 0.92 : 1.0
 
-  const eliteCandidates = pool.filter((c) => {
+  let rankedCandidatePool = pool
+    .filter((c) => passesAiPickScoredFloor(c, fwMed))
+    .sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
+  if (!rankedCandidatePool.length) {
+    rankedCandidatePool = [...pool].sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
+  }
+
+  const fullRowsByPlayerEvent = new Map()
+  for (const c of rankedCandidatePool) {
+    const pk = playerKey(c)
+    const ek = String(c.eventId || "").trim()
+    if (!pk || !ek) continue
+    const k = `${pk}::${ek}`
+    if (!fullRowsByPlayerEvent.has(k)) fullRowsByPlayerEvent.set(k, [])
+    fullRowsByPlayerEvent.get(k).push(c)
+  }
+
+  const eliteCandidates = rankedCandidatePool.filter((c) => {
+    const pef = `${playerKey(c)}|${String(c.eventId || "").trim()}|${statFamilyKey(c)}`
+    if (dominanceEliteBlockedKeys instanceof Set && dominanceEliteBlockedKeys.has(pef)) return false
     const e = toNum(c.edge) ?? -9
     const fw = toNum(c.finalWeight) ?? 0
     const m = toNum(c.matchupAdj) ?? 0
@@ -213,28 +418,22 @@ function buildNbaAiPicks(nbaOpportunityBoard) {
     return e >= 0.048 && nearTopFw && (strongForm || strongMatchup || fw >= fwTop * 0.985)
   })
 
-  let eliteSorted = [...eliteCandidates].sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
-  if (!eliteSorted.length) {
-    eliteSorted = pool
+  let elitePool = [...eliteCandidates].sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
+  if (!elitePool.length) {
+    elitePool = rankedCandidatePool
       .filter((c) => (toNum(c.edge) ?? 0) >= 0.042 && (toNum(c.finalWeight) ?? 0) >= fwMed + 0.04)
       .sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
   }
-  const elite = pickBestPerPlayer(eliteSorted, 5, new Set())
+  const elite = expandCandidatesByTopStatFamilies(elitePool, 1, 14, "elite", fullRowsByPlayerEvent)
 
-  const eliteKeys = new Set(elite.map(playerKey))
-  const strongCandidates = pool.filter((c) => {
-    if (eliteKeys.has(playerKey(c))) return false
-    const e = toNum(c.edge) ?? -9
-    const fw = toNum(c.finalWeight) ?? 0
-    const m = toNum(c.matchupAdj) ?? 0
-    const p = toNum(c.paceAdj) ?? 0
-    if (e < 0.018) return false
-    if (fw < fwMed - 0.02) return false
-    if (m < -0.028 && p < -0.012) return false
+  const eliteFamilyKeys = new Set(elite.map((c) => playerEventFamilyKey(c)))
+  const strongCandidates = rankedCandidatePool.filter((c) => {
+    const pef = `${playerKey(c)}|${String(c.eventId || "").trim()}|${statFamilyKey(c)}`
+    if (eliteFamilyKeys.has(pef)) return false
     return true
   })
   const strongSorted = [...strongCandidates].sort((a, b) => compositeRankScore(b) - compositeRankScore(a))
-  const strong = pickBestPerPlayer(strongSorted, 6, new Set())
+  const strong = expandCandidatesByTopStatFamilies(strongSorted, 1, 18, "strong", fullRowsByPlayerEvent)
 
   const used = new Set([...elite.map(playerKey), ...strong.map(playerKey)])
   const fadeScored = pool
@@ -275,18 +474,9 @@ function buildNbaAiPicks(nbaOpportunityBoard) {
     )
   }
 
-  const eliteOut = elite.map((c) => ({
-    ...c,
-    aiTier: "elite",
-    aiReasoning: buildReasoning(c),
-    aiHeadline: formatPropHeadline(c),
-  }))
-  const strongOut = strong.map((c) => ({
-    ...c,
-    aiTier: "strong",
-    aiReasoning: buildReasoning(c),
-    aiHeadline: formatPropHeadline(c),
-  }))
+  // ELITE and STRONG share one builder only: computeOutcomeRange → attachAiPickRangeResolution → headline (no legacy elite path).
+  const eliteOut = elite.map((c) => buildEliteOrStrongPick(c, rankedCandidatePool, "elite"))
+  const strongOut = strong.map((c) => buildEliteOrStrongPick(c, rankedCandidatePool, "strong"))
   const fadesOut = fades.map((c) => ({
     ...c,
     aiTier: "fade",
@@ -300,6 +490,8 @@ function buildNbaAiPicks(nbaOpportunityBoard) {
     fades: fadesOut,
     formattedText: buildFormattedBlock(eliteOut, strongOut, fadesOut, generatedAt),
     generatedAt,
+    /** Scored floor + composite sort; used for range resolution + slips (no raw snapshot bleed). */
+    rankedOpportunityPool: rankedCandidatePool,
   }
 }
 

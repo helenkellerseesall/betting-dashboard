@@ -1195,6 +1195,13 @@ async function runAll() {
       console.log("(no aiPicks on opportunity board — rebuild API snapshot)")
     }
 
+    printHeader("SLIPS (AI)")
+    if (opp.aiSlips && typeof opp.aiSlips === "object" && typeof opp.aiSlips.formattedText === "string") {
+      console.log(String(opp.aiSlips.formattedText).trimEnd())
+    } else {
+      console.log("(no aiSlips on opportunity board)")
+    }
+
     // 11) FREE BUILD POOL (candidate counts)
     printHeader("FREE BUILD POOL")
 

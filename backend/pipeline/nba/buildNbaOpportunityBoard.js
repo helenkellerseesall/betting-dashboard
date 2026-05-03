@@ -7,6 +7,8 @@ const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./
 const { mineNbaExtendedOpportunityPools } = require("./nbaExtendedOpportunityPools")
 const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
 const { buildNbaAiPicks } = require("./buildNbaAiPicks")
+const { applyDominanceGapToOpportunityBoard } = require("./nbaAiDominanceGap")
+const { buildNbaAiSlips } = require("./buildNbaAiSlips")
 
 /**
  * NBA analogue of `buildMlbOpportunityBoard`: ladder-first opportunity pools derived from
@@ -188,7 +190,16 @@ function buildNbaOpportunityBoard(input = {}) {
     },
   }
 
+  applyDominanceGapToOpportunityBoard(boardPayload)
   boardPayload.aiPicks = buildNbaAiPicks(boardPayload)
+  boardPayload.aiPicksRankedPool = Array.isArray(boardPayload.aiPicks?.rankedOpportunityPool)
+    ? boardPayload.aiPicks.rankedOpportunityPool
+    : null
+  boardPayload.aiSlips = buildNbaAiSlips({
+    elite: boardPayload.aiPicks?.elite ?? [],
+    strong: boardPayload.aiPicks?.strong ?? [],
+    opportunityBoard: boardPayload,
+  })
 
   return boardPayload
 }
