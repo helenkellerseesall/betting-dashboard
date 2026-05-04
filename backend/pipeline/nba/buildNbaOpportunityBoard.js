@@ -9,6 +9,7 @@ const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
 const { buildNbaAiPicks } = require("./buildNbaAiPicks")
 const { applyDominanceGapToOpportunityBoard } = require("./nbaAiDominanceGap")
 const { buildNbaAiSlips } = require("./buildNbaAiSlips")
+const { buildNbaPipelineAudit, maybeLogNbaPipelineAudit } = require("./nbaPipelineAudit")
 
 /**
  * NBA analogue of `buildMlbOpportunityBoard`: ladder-first opportunity pools derived from
@@ -31,6 +32,7 @@ function buildNbaOpportunityBoard(input = {}) {
     edge: 0.02,
     doubleDouble: 0.48,
     tripleDouble: 0.28,
+    firstBasket: 0.08,
   }
 
   // Build base threes line index (event+player) so threes ladders can be role-aware.
@@ -38,13 +40,14 @@ function buildNbaOpportunityBoard(input = {}) {
   for (const row of completeUniverse) {
     if (!row || typeof row !== "object") continue
     const mk = String(row?.marketKey || "").toLowerCase()
-    const pv = String(row?.propVariant || "base").toLowerCase()
-    if (mk !== "player_threes" || (pv !== "base" && pv !== "default")) continue
+    if (!mk.includes("player_three") && !mk.includes("threes")) continue
     const player = String(row?.player || "").trim().toLowerCase()
     const eid = String(row?.eventId || "").trim()
     const ln = Number(row?.line)
     if (!player || !eid || !Number.isFinite(ln)) continue
-    threesBaseLineByPlayerEvent.set(`${eid}__${player}`, ln)
+    const k = `${eid}__${player}`
+    const prev = threesBaseLineByPlayerEvent.get(k)
+    if (prev == null || ln > prev) threesBaseLineByPlayerEvent.set(k, ln)
   }
   const candidateCtx = { threesBaseLineByPlayerEvent }
 
@@ -72,6 +75,22 @@ function buildNbaOpportunityBoard(input = {}) {
 
   // Mine ladder-like rows directly from the scored universe to avoid pool starvation
   // when ladderBoard is thin or probability-trimmed upstream.
+  /** Base / alt 3PM main lines (books often omit ladder shape on player_threes). */
+  function mineUniverseBaseThreesRows({ minProb = 0.06 } = {}) {
+    const out = []
+    for (const row of completeUniverse) {
+      if (!row || typeof row !== "object") continue
+      const mk = String(row?.marketKey || "").toLowerCase()
+      if (!mk.includes("player_three") && !mk.includes("threes")) continue
+      if (mk.includes("points") && mk.includes("rebounds")) continue
+      const c = ladderCandidateFromRow(row, candidateCtx)
+      if (!c) continue
+      if (c.probability < minProb) continue
+      out.push(c)
+    }
+    return out
+  }
+
   function mineUniverseLadders({ family = null, minProb = TH.ladder, requireEdge = false } = {}) {
     const out = []
     for (const row of completeUniverse) {
@@ -86,7 +105,7 @@ function buildNbaOpportunityBoard(input = {}) {
         (pv && pv !== "base" && pv !== "default")
       if (!isLadderLike) continue
       if (family && !isStatFamily(row, family)) continue
-      const c = ladderCandidateFromRow(row)
+      const c = ladderCandidateFromRow(row, candidateCtx)
       if (!c) continue
       if (c.probability < minProb) continue
       if (requireEdge && c.edge != null && Number.isFinite(c.edge) && c.edge < TH.edge) continue
@@ -112,7 +131,8 @@ function buildNbaOpportunityBoard(input = {}) {
     ...mineUniverseLadders({ family: "assists", minProb: 0.16 }),
     ...mineUniverseLadders({ family: "threes", minProb: 0.12 }),
     ...mineUniverseLadders({ family: "pra", minProb: 0.16 }),
-    ...mineUniverseLadders({ family: "combo", minProb: 0.14 })
+    ...mineUniverseLadders({ family: "combo", minProb: 0.14 }),
+    ...mineUniverseBaseThreesRows({ minProb: 0.06 })
   )
 
   const coreCandidates = []
@@ -157,7 +177,11 @@ function buildNbaOpportunityBoard(input = {}) {
   const pointsLadderCandidates = primaryLadders.filter((c) => /points/i.test(String(c.propType)))
   const reboundsLadderCandidates = primaryLadders.filter((c) => /rebounds/i.test(String(c.propType)))
   const assistsLadderCandidates = primaryLadders.filter((c) => /assists/i.test(String(c.propType)))
-  const threesLadderCandidates = primaryLadders.filter((c) => /three|3-pt|3pt/i.test(String(c.propType)))
+  const threesLadderCandidates = primaryLadders.filter((c) => {
+    const pt = String(c.propType || "")
+    const mk = String(c.marketKey || "").toLowerCase()
+    return /three|3-pt|3pt/i.test(pt) || mk.includes("threes") || mk.includes("player_three")
+  })
   const praLadderCandidates = primaryLadders.filter((c) => /pra/i.test(String(c.propType)))
 
   const extended = mineNbaExtendedOpportunityPools(completeUniverse, TH)
@@ -178,6 +202,7 @@ function buildNbaOpportunityBoard(input = {}) {
         ).sort(sortByProbDesc),
     doubleDoubleCandidates: extended.doubleDoubleCandidates,
     tripleDoubleCandidates: extended.tripleDoubleCandidates,
+    firstBasketCandidates: extended.firstBasketCandidates,
     praCandidates: extended.praCandidates,
     altPointsCandidates: extended.altPointsCandidates,
     altThreesCandidates: extended.altThreesCandidates,
@@ -200,6 +225,22 @@ function buildNbaOpportunityBoard(input = {}) {
     strong: boardPayload.aiPicks?.strong ?? [],
     opportunityBoard: boardPayload,
   })
+
+  const pipelineAudit = buildNbaPipelineAudit({
+    label: "buildNbaOpportunityBoard",
+    ingestRows: Array.isArray(input?.ingestRows) ? input.ingestRows : [],
+    ingestCoverage: input?.ingestDiagnostics?.ingestCoverage ?? null,
+    requestedBaseMarkets: input?.ingestDiagnostics?.baseMarkets ?? [],
+    requestedExtraMarkets: input?.ingestDiagnostics?.extraMarkets ?? [],
+    completeUniverse,
+    ladderBoard,
+    corePropsBoard,
+    opportunityBoard: boardPayload,
+    aiPicks: boardPayload.aiPicks,
+    aiSlips: boardPayload.aiSlips,
+  })
+  boardPayload.meta = { ...(boardPayload.meta || {}), pipelineAudit }
+  maybeLogNbaPipelineAudit(pipelineAudit)
 
   return boardPayload
 }

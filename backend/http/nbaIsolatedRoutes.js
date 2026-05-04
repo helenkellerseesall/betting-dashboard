@@ -513,10 +513,21 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     rows: slices?.completeUniverse,
   })
 
+  const ingestDiagnostics =
+    snap?.diagnostics && typeof snap.diagnostics === "object"
+      ? {
+          ingestCoverage: snap.diagnostics.ingestCoverage,
+          baseMarkets: snap.diagnostics.fetchAudit?.baseRequestMarkets,
+          extraMarkets: snap.diagnostics.fetchAudit?.extraRequestMarkets,
+        }
+      : {}
+
   const nbaOpportunityBoard = buildNbaOpportunityBoard({
     ladderBoard: slices.ladderBoard,
     corePropsBoard: slices.corePropsBoard,
     completeUniverse: slices.completeUniverse,
+    ingestDiagnostics,
+    ingestRows: Array.isArray(snap?.rawProps) ? snap.rawProps : Array.isArray(snap?.props) ? snap.props : [],
   })
   const nbaInsightBoard = buildNbaInsightBoard({
     ladderBoard: slices.ladderBoard,

@@ -1,12 +1,8 @@
 "use strict"
 
 const { dedupeCandidates } = require("./nbaOpportunityCandidates")
-const {
-  playerKey,
-  statFamilyKey,
-  statScoreRow,
-  inferVolumeArchetype,
-} = require("./nbaAiStatFamilyRank")
+const { statFamilyKey, isSpecialStatFamily } = require("./nbaAiOutcomeRange")
+const { playerKey, statScoreRow, inferVolumeArchetype } = require("./nbaAiStatFamilyRank")
 
 function eventKey(c) {
   return String(c?.eventId || "").trim()
@@ -49,7 +45,7 @@ function analyzeDominanceGapFromPool(mergedPool) {
     const familyBest = new Map()
     for (const r of rows) {
       const f = statFamilyKey(r)
-      if (f === "other") continue
+      if (f === "other" || isSpecialStatFamily(f)) continue
       const sc = statScoreRow(r, vol)
       const prev = familyBest.get(f)
       if (prev == null || sc > prev) familyBest.set(f, sc)
@@ -63,9 +59,13 @@ function analyzeDominanceGapFromPool(mergedPool) {
     const peripheralDrop = vol === "HIGH_USAGE_SCORER" ? HARD_DROP_PERIPHERAL_STAR : HARD_DROP_PERIPHERAL_DEFAULT
 
     for (const [f, best] of familyBest.entries()) {
-      const isPeripheral = f === "assists" || f === "threes" || f === "other"
+      // Threes: never hard-drop from merged pools — book 3PM ladders must remain addressable.
+      // Elite tier still gates weak 3PM vs primary via eliteBlockedFamilies (ELITE_RATIO).
+      const isPeripheral = f === "assists" || f === "other"
       let hardDrop = false
-      if (isPeripheral) {
+      if (f === "threes") {
+        // no hardDrop
+      } else if (isPeripheral) {
         if (best < primaryStatScore * peripheralDrop - 1e-9) hardDrop = true
       } else if (best < primaryStatScore * HARD_DROP_CORE_FLOOR - 1e-9) {
         hardDrop = true
@@ -93,7 +93,7 @@ function rowAllowedAfterDominanceGap(row, metaByBucket) {
   const m = metaByBucket.get(bk)
   if (!m) return true
   const f = statFamilyKey(row)
-  if (f === "other") return true
+  if (f === "other" || isSpecialStatFamily(f)) return true
   return !m.dropFamilies.has(f)
 }
 
@@ -122,6 +122,7 @@ function applyDominanceGapToOpportunityBoard(boardPayload) {
       .concat(boardPayload.comboCandidates || [])
       .concat(boardPayload.doubleDoubleCandidates || [])
       .concat(boardPayload.tripleDoubleCandidates || [])
+      .concat(boardPayload.firstBasketCandidates || [])
   )
 
   if (!merged.length) {
@@ -140,6 +141,7 @@ function applyDominanceGapToOpportunityBoard(boardPayload) {
   boardPayload.comboCandidates = filterCandidateList(boardPayload.comboCandidates, metaByBucket)
   boardPayload.doubleDoubleCandidates = filterCandidateList(boardPayload.doubleDoubleCandidates, metaByBucket)
   boardPayload.tripleDoubleCandidates = filterCandidateList(boardPayload.tripleDoubleCandidates, metaByBucket)
+  boardPayload.firstBasketCandidates = filterCandidateList(boardPayload.firstBasketCandidates, metaByBucket)
 
   boardPayload.pointsLadderCandidates = (boardPayload.pointsLadderCandidates || []).filter((r) =>
     rowAllowedAfterDominanceGap(r, metaByBucket)

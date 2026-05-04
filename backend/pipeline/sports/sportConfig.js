@@ -24,7 +24,10 @@ const SPORT_CONFIG = {
       "player_rebounds",
       "player_assists",
       "player_threes",
-      "player_points_rebounds_assists"
+      "player_points_rebounds_assists",
+      "player_points_rebounds",
+      "player_points_assists",
+      "player_rebounds_assists",
     ],
     extraMarkets: [
       "player_first_basket",
@@ -35,7 +38,10 @@ const SPORT_CONFIG = {
       "player_rebounds_alternate",
       "player_assists_alternate",
       "player_threes_alternate",
-      "player_points_rebounds_assists_alternate"
+      "player_points_rebounds_assists_alternate",
+      "player_points_rebounds_alternate",
+      "player_points_assists_alternate",
+      "player_rebounds_assists_alternate",
     ],
     specialMarketKeys: new Set([
       "player_first_basket",

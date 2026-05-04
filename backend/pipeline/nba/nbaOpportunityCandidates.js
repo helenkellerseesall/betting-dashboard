@@ -421,6 +421,7 @@ function dedupeCandidates(rows) {
       r.player,
       r.eventId || "",
       r.propType || "",
+      r.marketKey || "",
       r.ladder || "",
       String(r.line ?? ""),
       String(r.odds ?? ""),
@@ -444,6 +445,7 @@ module.exports = {
   readContextScore,
   readMinutes,
   readUsageRate,
+  readStarterish,
   dedupeCandidates,
   sortByProbDesc,
 }

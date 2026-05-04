@@ -50,6 +50,35 @@ function overRungFromLine(ln) {
   return Math.ceil(n - 0.49 + 1e-9)
 }
 
+/** Reject absurd slip legs (bad mapping / impossible milestones). */
+function slipLegPassesReality(L) {
+  if (!L || typeof L !== "object") return false
+  const t = propBlob(L)
+  const ln = toNum(L.line)
+  const rLine = overRungFromLine(ln)
+  const lad = String(L.ladder || "").trim()
+  const m = /^(\d+)/.exec(lad)
+  const rung = m ? Number(m[1]) : rLine
+  if (/rebound/i.test(t)) {
+    if (Number.isFinite(rung) && rung > 17) return false
+    if (Number.isFinite(ln) && ln > 16.5) return false
+  }
+  if (/assist/i.test(t) && !/point|rebound|pra/i.test(t)) {
+    if (Number.isFinite(rung) && rung > 15) return false
+  }
+  if (/three|3pt/i.test(t)) {
+    if (Number.isFinite(rung) && rung > 6) return false
+  }
+  if (/point/i.test(t) && !/rebound|assist|pra/i.test(t)) {
+    if (Number.isFinite(rung) && rung > 45) return false
+  }
+  return true
+}
+
+function filterSlipLegs(legs) {
+  return (Array.isArray(legs) ? legs : []).filter(slipLegPassesReality)
+}
+
 function ladderTierHigh(c) {
   if (!isNbaStatLadderRow(c)) return false
   const pb = propBlob(c)
@@ -106,6 +135,7 @@ function collectFullPool(opp) {
   push(opp.comboCandidates)
   push(opp.doubleDoubleCandidates)
   push(opp.tripleDoubleCandidates)
+  push(opp.firstBasketCandidates)
   return dedupeCandidates(chunks.filter((x) => x && typeof x === "object" && pk(x)))
 }
 
@@ -167,6 +197,19 @@ function isRangeResolvedLeg(L) {
   return Boolean(L && L.aiRangeSlot)
 }
 
+/** Prefer median for BALANCED; fall back when tier missing or binding fails. */
+function resolveBalancedTierLeg(pick, pool) {
+  const slots = ["median", "floor", "ceiling"]
+  for (const slot of slots) {
+    const L = resolveLegFromAiRange(pick, pool, slot)
+    if (L && isRangeResolvedLeg(L)) {
+      if (slot !== "median") L.slipBalancedTierFallback = slot
+      return L
+    }
+  }
+  return null
+}
+
 function gameCountByEvent(legs) {
   const m = new Map()
   for (const L of legs) {
@@ -208,8 +251,10 @@ function sortByCompositeDesc(xs) {
   return [...xs].sort((a, b) => compositeScore(b) - compositeScore(a))
 }
 
-function exposureAllows(exposure, pkVal) {
-  return (exposure.get(pkVal) || 0) < 2
+function exposureAllows(exposure, pkVal, cap = 2) {
+  const c = Number(cap)
+  const lim = Number.isFinite(c) && c > 0 ? c : 2
+  return (exposure.get(pkVal) || 0) < lim
 }
 
 function registerSlipPlayers(legs, exposure) {
@@ -296,13 +341,13 @@ function buildBalancedSlip(elite, strong, pool, exposure, usedAcrossSlips) {
   )
   if (!e0) return { type: "BALANCED", legs: [], note: "no_elite" }
   if (!exposureAllows(exposure, pk(e0))) return { type: "BALANCED", legs: [], note: "elite_exposure" }
-  const e0Leg = e0.aiRange ? resolveLegFromAiRange(e0, pool, "median") : null
+  const e0Leg = e0.aiRange ? resolveBalancedTierLeg(e0, pool) : null
   if (!e0Leg || !isRangeResolvedLeg(e0Leg)) return { type: "BALANCED", legs: [], note: "no_median" }
   const legs = [e0Leg]
   for (const c of str) {
     if (legs.length >= 3) break
     if (!exposureAllows(exposure, pk(c))) continue
-    const leg = c.aiRange ? resolveLegFromAiRange(c, pool, "median") : null
+    const leg = c.aiRange ? resolveBalancedTierLeg(c, pool) : null
     if (!leg || !isRangeResolvedLeg(leg)) continue
     if (!canAddLeg(legs, leg, { maxSameGame: 2, maxVolSum: 3.85, relaxSameGameForHighEnv: true })) continue
     legs.push(leg)
@@ -312,7 +357,7 @@ function buildBalancedSlip(elite, strong, pool, exposure, usedAcrossSlips) {
       if (legs.length >= 2) break
       if (legs.some((L) => pk(L) === pk(c))) continue
       if (!exposureAllows(exposure, pk(c))) continue
-      const leg = c.aiRange ? resolveLegFromAiRange(c, pool, "median") : null
+      const leg = c.aiRange ? resolveBalancedTierLeg(c, pool) : null
       if (!leg || !isRangeResolvedLeg(leg)) continue
       if (!canAddLeg(legs, leg, { maxSameGame: 2, maxVolSum: 3.85, relaxSameGameForHighEnv: true })) continue
       legs.push(leg)
@@ -371,6 +416,8 @@ function buildAggressiveSlip(elite, strong, pool, exposure, usedAcrossSlips) {
 }
 
 function buildLottoSlip(elite, strong, pool, exposure, usedAcrossSlips) {
+  /** LOTTO runs last; earlier slips consume exposure — allow slightly higher reuse so LOTTO is not structurally empty. */
+  const lottoExposureCap = 4
   const seed = [...(elite || []), ...(strong || [])].sort(
     (a, b) =>
       diversityRank(a, usedAcrossSlips) - diversityRank(b, usedAcrossSlips) ||
@@ -381,7 +428,7 @@ function buildLottoSlip(elite, strong, pool, exposure, usedAcrossSlips) {
   for (const c of seed) {
     const k = pk(c)
     if (!k || seen.has(k)) continue
-    if (!exposureAllows(exposure, k)) continue
+    if (!exposureAllows(exposure, k, lottoExposureCap)) continue
     seen.add(k)
     uniq.push(c)
     if (uniq.length >= 14) break
@@ -390,15 +437,20 @@ function buildLottoSlip(elite, strong, pool, exposure, usedAcrossSlips) {
   let threes = 0
   for (const base of uniq) {
     if (legs.length >= 3) break
-    if (!exposureAllows(exposure, pk(base))) continue
+    if (!exposureAllows(exposure, pk(base), lottoExposureCap)) continue
     let leg = null
-    if (base.aiRange) leg = resolveLottoLegAboveCeiling(base, pool)
-    else leg = findHighestHighLadderForPlayer(pk(base), eid(base), pool)
+    if (base.aiRange) {
+      leg = resolveLottoLegAboveCeiling(base, pool)
+      if (!leg) {
+        leg = resolveLegFromAiRange(base, pool, "ceiling")
+        if (leg && isRangeResolvedLeg(leg)) leg = { ...leg, slipLottoFallbackFromCeiling: true }
+      }
+    } else leg = findHighestHighLadderForPlayer(pk(base), eid(base), pool)
     if (!leg) continue
     if (base.aiRange) {
       if (!isRangeResolvedLeg(leg)) continue
     } else if (!isLottoCeilingLeg(leg)) continue
-    if (!exposureAllows(exposure, pk(leg))) continue
+    if (!exposureAllows(exposure, pk(leg), lottoExposureCap)) continue
     const t = `${leg.propType || ""} ${leg.marketKey || ""}`.toLowerCase()
     if (/three|3pt/.test(t) && threes >= 1 && legs.length >= 1) continue
     if (!canAddLeg(legs, leg, { maxSameGame: 2, maxVolSum: 3.55, relaxSameGameForHighEnv: true })) continue
@@ -411,7 +463,7 @@ function buildLottoSlip(elite, strong, pool, exposure, usedAcrossSlips) {
     (a, b) => lottoSeedScore(b) - lottoSeedScore(a) || compositeScore(b) - compositeScore(a)
   )) {
     if (usedPkL.has(pk(base))) continue
-    if (!exposureAllows(exposure, pk(base))) continue
+    if (!exposureAllows(exposure, pk(base), lottoExposureCap)) continue
     if (!base.aiRange) continue
     const leg = resolveLottoLegAboveCeiling(base, pool)
     if (!leg || !isRangeResolvedLeg(leg)) continue
@@ -423,7 +475,7 @@ function buildLottoSlip(elite, strong, pool, exposure, usedAcrossSlips) {
   while (legs.length < 3 && rangeFiller.length) {
     const c = rangeFiller.shift()
     if (!c || usedPkL.has(pk(c))) continue
-    if (!exposureAllows(exposure, pk(c))) continue
+    if (!exposureAllows(exposure, pk(c), lottoExposureCap)) continue
     const t = `${c.propType || ""} ${c.marketKey || ""}`.toLowerCase()
     if (/three|3pt/.test(t) && threes >= 1 && legs.length >= 1) continue
     if (!canAddLeg(legs, c, { maxSameGame: 2, maxVolSum: 3.55, relaxSameGameForHighEnv: true })) continue
@@ -489,6 +541,9 @@ function buildNbaAiSlips(input) {
   for (const L of lotto.legs || []) usedAcrossSlips.add(pk(L))
 
   const slips = [safe, balanced, aggressive, lotto]
+  for (const s of slips) {
+    if (s && Array.isArray(s.legs)) s.legs = filterSlipLegs(s.legs)
+  }
   if (aggressive.legs.length && lotto.legs.length && !slipsDiffer(aggressive, lotto)) {
     lotto.note = (lotto.note ? lotto.note + "; " : "") + "diversified_vs_aggressive"
     const oldLottoLegs = [...(lotto.legs || [])]
@@ -501,7 +556,7 @@ function buildNbaAiSlips(input) {
     for (const base of altSeeds) {
       if (altLegs.length >= 3) break
       if (banned.has(pk(base))) continue
-      if (!exposureAllows(exposure, pk(base))) continue
+      if (!exposureAllows(exposure, pk(base), 4)) continue
       const leg = base.aiRange ? resolveLottoLegAboveCeiling(base, pool) : null
       if (!leg || !isRangeResolvedLeg(leg)) continue
       if (!canAddLeg(altLegs, leg, { maxSameGame: 2, maxVolSum: 3.55, relaxSameGameForHighEnv: true })) continue
@@ -514,6 +569,11 @@ function buildNbaAiSlips(input) {
       lotto.legs = oldLottoLegs
       registerSlipPlayers(lotto.legs, exposure)
     }
+  }
+
+  if ((!lotto.legs || !lotto.legs.length) && aggressive.legs && aggressive.legs.length) {
+    lotto.legs = aggressive.legs.map((L) => ({ ...L, slipLottoStructuralFallback: true }))
+    lotto.note = (lotto.note ? `${lotto.note}; ` : "") + "lotto_mirrors_aggressive_pool_thin"
   }
 
   return {

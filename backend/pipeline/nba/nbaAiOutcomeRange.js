@@ -22,9 +22,55 @@ function overRungFromLine(ln) {
   return Math.ceil(n - 0.49 + 1e-9)
 }
 
+const LADDER_STAT_FAMILIES = new Set(["points", "pra", "combo", "threes", "rebounds", "assists"])
+
+function isLadderStatFamily(family) {
+  return typeof family === "string" && LADDER_STAT_FAMILIES.has(family)
+}
+
+/** First basket / DD / TD / alt combo — ranked with statScoreRow but never outcome-ranged like ladders. */
+function isSpecialStatFamily(family) {
+  return (
+    family === "first_basket" ||
+    family === "double_double" ||
+    family === "triple_double" ||
+    family === "alt_combo"
+  )
+}
+
+function rowLooksAlt(c) {
+  const mk = String(c?.marketKey || "").toLowerCase()
+  const pv = String(c?.propVariant || "base").toLowerCase()
+  if (pv && pv !== "base" && pv !== "default") return true
+  return mk.includes("alternate") || mk.includes("_alt") || mk.endsWith("_alternate")
+}
+
 function statFamilyKey(c) {
   const mk = String(c?.marketKey || "").toLowerCase()
   const pt = String(c?.propType || "").toLowerCase()
+
+  if (
+    mk.includes("player_first_basket") ||
+    mk.includes("first_basket") ||
+    (pt.includes("first basket") && !pt.includes("team"))
+  )
+    return "first_basket"
+
+  if (
+    mk.includes("double_double") ||
+    mk.includes("double double") ||
+    pt.includes("double double") ||
+    mk === "synthetic_double_double"
+  )
+    return "double_double"
+
+  if (
+    mk.includes("triple_double") ||
+    mk.includes("triple double") ||
+    pt.includes("triple double") ||
+    mk === "synthetic_triple_double"
+  )
+    return "triple_double"
 
   if (mk.includes("points_rebounds_assists") || mk.includes("player_pra")) return "pra"
 
@@ -33,7 +79,7 @@ function statFamilyKey(c) {
     (mk.includes("player_points_rebounds") && !mk.includes("assists")) ||
     mk.includes("player_rebounds_assists")
   )
-    return "combo"
+    return rowLooksAlt(c) ? "alt_combo" : "combo"
 
   if (mk.includes("player_threes") || mk.includes("player_three")) return "threes"
 
@@ -465,7 +511,7 @@ function computeOutcomeRange(pick, pool) {
   const family = statFamilyKey(pick)
   if (!pk || !eid) return null
 
-  if (family === "other") return null
+  if (!isLadderStatFamily(family)) return null
 
   const famPick = family
   const siblings = pool.filter((c) => {
@@ -473,7 +519,7 @@ function computeOutcomeRange(pick, pool) {
     if (String(c.eventId || "").trim() !== eid) return false
     const fk = statFamilyKey(c)
     if (fk !== famPick) return false
-    if (fk === "other") return false
+    if (!isLadderStatFamily(fk)) return false
     return Number.isFinite(toNum(c.line))
   })
 
@@ -538,7 +584,7 @@ function resolveLegFromAiRange(pick, pool, slot) {
 
   const famPick = statFamilyKey(pick)
   const rangeFam = range.family
-  if (!rangeFam || famPick !== rangeFam || famPick === "other") return null
+  if (!rangeFam || famPick !== rangeFam || !isLadderStatFamily(famPick)) return null
 
   const tier = range[slot]
   const target = toNum(tier.line)
@@ -603,7 +649,7 @@ function resolveLottoLegAboveCeiling(pick, pool) {
 
   const famPick = statFamilyKey(pick)
   const rangeFam = range.family
-  if (!rangeFam || famPick !== rangeFam || famPick === "other") return null
+  if (!rangeFam || famPick !== rangeFam || !isLadderStatFamily(famPick)) return null
 
   const ceilingRung = toNum(range.ceiling.rung) ?? overRungFromLine(toNum(range.ceiling.line))
   if (!Number.isFinite(ceilingRung)) return null
@@ -673,6 +719,8 @@ function resolveLottoLegAboveCeiling(pick, pool) {
 
 module.exports = {
   statFamilyKey,
+  isLadderStatFamily,
+  isSpecialStatFamily,
   predictedMedianOutcome,
   computeOutcomeRange,
   resolveLegFromAiRange,

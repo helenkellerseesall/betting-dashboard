@@ -4,29 +4,35 @@ const axios = require("axios")
 const fs = require("fs")
 const path = require("path")
 const { buildSlateEvents } = require("../schedule/buildSlateEvents")
-const { inferMarketTypeFromKey } = require("../markets/classification")
+const { inferMarketTypeFromKey, canonicalPropTypeFromInferred } = require("../markets/classification")
 
 const NBA_BASE_MARKETS = [
   "player_points",
   "player_rebounds",
   "player_assists",
   "player_threes",
+  "player_threes_alternate",
   "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
+  "player_first_basket",
+  "player_first_team_basket",
   "totals",
   "spreads",
   "h2h",
 ]
 
 const NBA_DK_EXTRA_MARKETS = [
-  "player_first_basket",
-  "player_first_team_basket",
   "player_double_double",
   "player_triple_double",
   "player_points_alternate",
   "player_rebounds_alternate",
   "player_assists_alternate",
-  "player_threes_alternate",
   "player_points_rebounds_assists_alternate",
+  "player_points_rebounds_alternate",
+  "player_points_assists_alternate",
+  "player_rebounds_assists_alternate",
 ]
 
 function buildMatchup(awayTeam, homeTeam) {
@@ -54,6 +60,51 @@ function dedupeByLegSignature(rows = []) {
     out.push(row)
   }
   return out
+}
+
+function buildNbaIngestCoverageDiagnostics(rows = []) {
+  const r = Array.isArray(rows) ? rows : []
+  const byMk = r.reduce((acc, row) => {
+    const k = String(row?.marketKey || "unknown")
+    acc[k] = (acc[k] || 0) + 1
+    return acc
+  }, {})
+  const n = (mk) => byMk[mk] || 0
+  const threesLadderish = r.filter(
+    (row) =>
+      String(row?.marketKey || "") === "player_threes_alternate" ||
+      String(row?.propType || "") === "Threes Ladder"
+  ).length
+  const assistsLadderish = r.filter(
+    (row) =>
+      String(row?.marketKey || "") === "player_assists_alternate" ||
+      String(row?.propType || "") === "Assists Ladder"
+  ).length
+  const comboCanon = new Set(["pra", "points_rebounds", "points_assists", "rebounds_assists"])
+  const comboLike = r.filter((row) => comboCanon.has(String(row?.canonicalPropType || ""))).length
+  return {
+    byMarketKey: byMk,
+    counts: {
+      player_threes: n("player_threes"),
+      player_threes_alternate: n("player_threes_alternate"),
+      player_assists: n("player_assists"),
+      player_assists_alternate: n("player_assists_alternate"),
+      player_points_alternate: n("player_points_alternate"),
+      player_first_basket: n("player_first_basket"),
+      player_double_double: n("player_double_double"),
+      player_triple_double: n("player_triple_double"),
+      player_points_rebounds: n("player_points_rebounds"),
+      player_points_assists: n("player_points_assists"),
+      player_rebounds_assists: n("player_rebounds_assists"),
+      player_points_rebounds_assists: n("player_points_rebounds_assists"),
+    },
+    poolChecks: {
+      threesLadderCandidates: threesLadderish,
+      assistsLadderCandidates: assistsLadderish,
+      firstBasketRows: n("player_first_basket"),
+      comboStatRows: comboLike,
+    },
+  }
 }
 
 function getIngestRejectReason(row) {
@@ -86,13 +137,25 @@ function getIngestRejectReason(row) {
     if (!hasUsableSide && !hasUsableLine) return "ladder_unusable_missing_side_and_line"
   }
 
-  const standardPropTypes = new Set(["Points", "Rebounds", "Assists", "Threes", "PRA"])
+  const standardPropTypes = new Set([
+    "Points",
+    "Rebounds",
+    "Assists",
+    "Threes",
+    "PRA",
+    "Points + Rebounds",
+    "Points + Assists",
+    "Rebounds + Assists",
+  ])
   const ladderPropTypes = new Set([
     "Points Ladder",
     "Rebounds Ladder",
     "Assists Ladder",
     "Threes Ladder",
     "PRA Ladder",
+    "Points + Rebounds Ladder",
+    "Points + Assists Ladder",
+    "Rebounds + Assists Ladder",
   ])
   const specialPropTypes = new Set(["First Basket", "First Team Basket", "Double Double", "Triple Double"])
   const allAllowedPropTypes = new Set([...standardPropTypes, ...ladderPropTypes, ...specialPropTypes])
@@ -229,7 +292,7 @@ async function fetchEventOddsRows(event, oddsApiKey) {
   const extraParams = {
     apiKey: oddsApiKey,
     regions: "us",
-    bookmakers: "draftkings",
+    bookmakers: "draftkings,fanduel",
     markets: NBA_DK_EXTRA_MARKETS.join(","),
     oddsFormat: "american",
   }
@@ -308,6 +371,7 @@ async function fetchEventOddsRows(event, oddsApiKey) {
           marketKey,
           marketFamily: inferredFamily,
           propType,
+          canonicalPropType: canonicalPropTypeFromInferred(propType, marketKey),
           player,
           side,
           playerStatus: null,
@@ -367,6 +431,8 @@ async function fetchNbaOddsSnapshot({ oddsApiKey, now = Date.now(), maxEvents = 
 
   const deduped = dedupeByLegSignature(rawProps)
   const updatedAt = new Date().toISOString()
+  const ingestCoverage = buildNbaIngestCoverageDiagnostics(deduped)
+  const marketKeysReturned = [...new Set(deduped.map((r) => String(r?.marketKey || "").trim()).filter(Boolean))].sort()
 
   return {
     updatedAt,
@@ -380,9 +446,24 @@ async function fetchNbaOddsSnapshot({ oddsApiKey, now = Date.now(), maxEvents = 
     bestProps: [],
     flexProps: [],
     diagnostics: {
-      nbaBootstrap: "fetchNbaOddsSnapshot-v1",
+      nbaBootstrap: "fetchNbaOddsSnapshot-v2",
       slateEventCount: normalizedEvents.length,
       rawPropCount: deduped.length,
+      ingestCoverage,
+      fetchAudit: {
+        /** Per-event odds only (not `/odds` summary); one HTTP GET per slate event. */
+        eventOddsEndpointTemplate:
+          "https://api.the-odds-api.com/v4/sports/basketball_nba/events/{eventId}/odds",
+        usesPerEventOdds: true,
+        baseRequestMarkets: NBA_BASE_MARKETS,
+        extraRequestMarkets: NBA_DK_EXTRA_MARKETS,
+        baseBookmakers: "fanduel,draftkings",
+        extraBookmakers: "draftkings,fanduel",
+        marketKeysReturned: marketKeysReturned.slice(0, 200),
+        marketKeysReturnedFullCount: marketKeysReturned.length,
+        marketKeysReturnedSample: marketKeysReturned.slice(0, 80),
+        marketKeysReturnedCount: marketKeysReturned.length,
+      },
     },
     parlays: null,
     dualParlays: null,
@@ -408,4 +489,5 @@ function saveNbaSnapshotToDisk(backendDir, snapshot) {
 module.exports = {
   fetchNbaOddsSnapshot,
   saveNbaSnapshotToDisk,
+  buildNbaIngestCoverageDiagnostics,
 }

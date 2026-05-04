@@ -194,7 +194,10 @@ const DK_EXTRA_MARKETS = [
   "player_rebounds_alternate",
   "player_assists_alternate",
   "player_threes_alternate",
-  "player_points_rebounds_assists_alternate"
+  "player_points_rebounds_assists_alternate",
+  "player_points_rebounds_alternate",
+  "player_points_assists_alternate",
+  "player_rebounds_assists_alternate",
 ]
 
 const BASE_MARKETS = [
@@ -202,7 +205,10 @@ const BASE_MARKETS = [
   "player_rebounds",
   "player_assists",
   "player_threes",
-  "player_points_rebounds_assists"
+  "player_points_rebounds_assists",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
 ]
 
 const ALL_DK_MARKETS = [...BASE_MARKETS, ...DK_EXTRA_MARKETS]
@@ -212,7 +218,13 @@ const MARKET_COVERAGE_FOCUS_KEYS = [
   "player_rebounds_alternate",
   "player_assists_alternate",
   "player_threes_alternate",
-  "player_points_rebounds_assists_alternate"
+  "player_points_rebounds_assists_alternate",
+  "player_points_rebounds_alternate",
+  "player_points_assists_alternate",
+  "player_rebounds_assists_alternate",
+  "player_points_rebounds",
+  "player_points_assists",
+  "player_rebounds_assists",
 ]
 let lastMarketCoverageFocusDebug = {
   marketCoverage: MARKET_COVERAGE_FOCUS_KEYS.map((marketKey) => ({
@@ -10853,6 +10865,10 @@ function normalizePropType(key) {
       return "First Basket"
     case "player_first_team_basket":
       return "First Team Basket"
+    case "player_double_double":
+      return "Double Double"
+    case "player_triple_double":
+      return "Triple Double"
     case "player_points_alternate":
       return "Points Ladder"
     case "player_rebounds_alternate":
@@ -10863,6 +10879,18 @@ function normalizePropType(key) {
       return "Threes Ladder"
     case "player_points_rebounds_assists_alternate":
       return "PRA Ladder"
+    case "player_points_rebounds":
+      return "Points + Rebounds"
+    case "player_points_assists":
+      return "Points + Assists"
+    case "player_rebounds_assists":
+      return "Rebounds + Assists"
+    case "player_points_rebounds_alternate":
+      return "Points + Rebounds Ladder"
+    case "player_points_assists_alternate":
+      return "Points + Assists Ladder"
+    case "player_rebounds_assists_alternate":
+      return "Rebounds + Assists Ladder"
     default:
       return null
   }
@@ -17462,7 +17490,13 @@ async function fetchEventPlayerPropsWithCoverage(event, previousOpenMap, options
     "player_rebounds_alternate",
     "player_assists_alternate",
     "player_threes_alternate",
-    "player_points_rebounds_assists_alternate"
+    "player_points_rebounds_assists_alternate",
+    "player_points_rebounds_alternate",
+    "player_points_assists_alternate",
+    "player_rebounds_assists_alternate",
+    "player_points_rebounds",
+    "player_points_assists",
+    "player_rebounds_assists",
   ]
   const focusedCoverageMap = new Map(
     (Array.isArray(coverageReport?.marketCoverage) ? coverageReport.marketCoverage : []).map((entry) => [

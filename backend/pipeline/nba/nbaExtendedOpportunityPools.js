@@ -7,6 +7,7 @@ const {
   readContextScore,
   readMinutes,
   readUsageRate,
+  readStarterish,
   dedupeCandidates,
   sortByProbDesc,
 } = require("./nbaOpportunityCandidates")
@@ -40,6 +41,16 @@ function isTripleDoubleRow(row) {
   const mk = mkLower(row)
   const pt = ptLower(row)
   return mk.includes("triple_double") || mk.includes("triple double") || pt.includes("triple double")
+}
+
+function isFirstBasketRow(row) {
+  const mk = mkLower(row)
+  const pt = ptLower(row)
+  return (
+    mk.includes("player_first_basket") ||
+    mk.includes("first_basket") ||
+    (pt.includes("first basket") && !pt.includes("team"))
+  )
 }
 
 /** PRA combined alternate / ladder rows at 25+ / 30+ / 35+ / 40+ style lines. */
@@ -273,6 +284,75 @@ function buildSyntheticDoubleTripleFromCore(universe, th) {
   }
 }
 
+function buildSyntheticFirstBasketFromCore(universe, th) {
+  const out = []
+  const seen = new Set()
+  const thFb = th.firstBasket ?? 0.08
+  for (const row of universe) {
+    if (!row || typeof row !== "object") continue
+    const mk = mkLower(row)
+    if (!mk.includes("player_points")) continue
+    if (mk.includes("rebounds") || mk.includes("assists") || mk.includes("pra")) continue
+    const c = ladderCandidateFromRow(row)
+    if (!c?.player || !c?.eventId) continue
+    const u = readUsageRate(c) ?? readUsageRate(row)
+    const m = readMinutes(c) ?? readMinutes(row)
+    if (!Number.isFinite(u) || u < 25.2) continue
+    if (!Number.isFinite(m) || m < 27) continue
+    const sk = `${c.eventId}__${String(c.player).toLowerCase()}`
+    if (seen.has(sk)) continue
+    seen.add(sk)
+
+    const starter = readStarterish(row)
+    let prob = 0.052 + (u - 25.2) * 0.0042 + (m - 27) * 0.0016
+    if (starter === 1) prob += 0.03
+    if (starter === 0) prob -= 0.02
+    prob = Math.max(0.042, Math.min(0.24, prob))
+    if (prob < Math.max(0.038, thFb * 0.34)) continue
+
+    const minutes = c.minutes ?? readMinutes(c)
+    const usageRate = c.usageRate ?? readUsageRate(c)
+    const contextScore = c.contextScore ?? readContextScore(c)
+    const realismScore = c.realismScore ?? computeRealismScore({
+      usageRate: usageRate == null ? 20 : usageRate,
+      minutes: minutes == null ? 24 : minutes,
+      row: c,
+      propType: "First basket",
+    })
+    const fw = computeFinalWeight({
+      realismScore,
+      predictedProbability: prob,
+      edge: 0,
+      contextScore,
+      line: null,
+      minutes,
+      usageRate,
+      propType: "First basket",
+      matchupRow: c,
+    })
+    out.push({
+      ...c,
+      propType: "First basket",
+      ladder: "First basket",
+      line: null,
+      side: c.side || "Yes",
+      marketKey: "synthetic_first_basket",
+      probability: prob,
+      edge: fw.edge,
+      minutes,
+      usageRate,
+      contextScore,
+      realismScore,
+      finalWeight: fw.finalWeight,
+      matchupAdj: Number.isFinite(fw.matchupAdj) ? fw.matchupAdj : 0,
+      statAdj: Number.isFinite(fw.statAdj) ? fw.statAdj : 0,
+      paceAdj: Number.isFinite(fw.paceAdj) ? fw.paceAdj : 0,
+      blowoutAdj: Number.isFinite(fw.blowoutAdj) ? fw.blowoutAdj : 0,
+    })
+  }
+  return dedupeCandidates(out).sort(sortByProbDesc)
+}
+
 /**
  * Extended NBA opportunity pools from scored `completeUniverse` (same rows as board slices).
  * Does not change core/ladder construction — additive pools only.
@@ -283,6 +363,7 @@ function mineNbaExtendedOpportunityPools(completeUniverse, thBase) {
     ...thBase,
     doubleDouble: thBase.doubleDouble ?? 0.48,
     tripleDouble: thBase.tripleDouble ?? 0.28,
+    firstBasket: thBase.firstBasket ?? 0.08,
   }
 
   let doubleDoubleCandidates = dedupeCandidates(
@@ -315,9 +396,18 @@ function mineNbaExtendedOpportunityPools(completeUniverse, thBase) {
     fillPoolRelaxed(universe, isComboStatRow, TH, TH.ladder)
   ).sort(sortByProbDesc)
 
+  const fbMinProb = Math.min(TH.firstBasket ?? 0.08, 0.042)
+  let firstBasketCandidates = dedupeCandidates(
+    fillPoolRelaxed(universe, isFirstBasketRow, TH, fbMinProb)
+  ).sort(sortByProbDesc)
+  if (!firstBasketCandidates.length) {
+    firstBasketCandidates = buildSyntheticFirstBasketFromCore(universe, TH)
+  }
+
   return {
     doubleDoubleCandidates,
     tripleDoubleCandidates,
+    firstBasketCandidates,
     praCandidates,
     altPointsCandidates,
     altThreesCandidates,
@@ -330,4 +420,5 @@ module.exports = {
   praTierLabel,
   altPointsTierLabel,
   isComboStatRow,
+  isFirstBasketRow,
 }
