@@ -34,5 +34,295 @@ function buildMlbPlayerDataset(input = {}) {
   return { playerMap }
 }
 
-module.exports = { buildMlbPlayerDataset }
+// ---- Player outcome bands (floor / median / ceiling) — unified with dataset module ----
+// ---- Stat families (consumed by buildMlbBestBetsBoard) ----
+const HITTER_STATS = ["hits", "totalBases", "hr", "rbis", "runs", "batterKs"]
+const PITCHER_STATS = ["ks", "outs", "hitsAllowed", "earnedRuns", "walks"]
 
+function num(x) {
+  const n = Number(x)
+  return Number.isFinite(n) ? n : null
+}
+
+function clamp(lo, hi, x) {
+  return Math.max(lo, Math.min(hi, x))
+}
+
+function clamp01(x) {
+  if (!Number.isFinite(Number(x))) return 0
+  return clamp(0, 1, Number(x))
+}
+
+function round1(x) {
+  return Math.round(Number(x) * 10) / 10
+}
+
+function playerSalt(player, eventId) {
+  const s = `${String(player || "").toLowerCase()}|${String(eventId || "")}`
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return (h % 1000) / 1000
+}
+
+/**
+ * Build hitter projection bands using ladder probabilities + power profile.
+ *
+ *   E[hits]     = p(1+) + p(2+) + p(3+)
+ *   E[TB]       = p(TB1+) + p(TB2+) + p(TB3+) + p(TB4+) + p(TB5+)?
+ *   E[HR]       = hrProbability (clamped to ~[0, 0.6])
+ *   E[RBIs]     = p(1+RBI) + p(2+RBI) + p(3+RBI)
+ *   E[runs]     ~ heuristic from lineup position + team implied runs
+ *   E[batterKs] ~ heuristic from opposing pitcher K-rate (defaults if unknown)
+ *
+ *  Floor = max(0, E - σ); Ceiling = E + 1.6σ. Sigma is family-specific.
+ */
+function projectHitterStats({ playerObj, hrProb, salt }) {
+  const h1 = num(playerObj?.hit1plus) ?? 0
+  const h2 = num(playerObj?.hit2plus) ?? 0
+  const h3 = num(playerObj?.hit3plus) ?? 0
+  const r1 = num(playerObj?.rbi1plus) ?? 0
+  const r2 = num(playerObj?.rbi2plus) ?? 0
+  const power = num(playerObj?.powerScore) ?? 8
+  const powerNorm = clamp(0, 1, (power - 8) / 24)
+  const bo = num(playerObj?.battingOrderIndex) ?? num(playerObj?.lineupPosition)
+  const lineupTop = Number.isFinite(bo) ? bo : 6
+
+  // Hits — band tightened so ceiling ~ median + 1 unless multi-hit prob is real.
+  const eHits = h1 + h2 + h3
+  const hitsMedian = round1(clamp(0, 4, eHits))
+  const hitsFloor = Math.max(0, Math.round((hitsMedian - 0.7) * 10) / 10)
+  const hitsCeiling = round1(clamp(1, 4, hitsMedian + 0.8 + (h3 > 0.18 ? 0.7 : 0) + (h2 > 0.45 ? 0.3 : 0)))
+  const hitsLadder = { 0.5: h1, 1.5: h2, 2.5: h3 }
+
+  // Total bases.
+  const tb2 = clamp01(h2 * 0.62 + hrProb * 0.25 + h1 * 0.13 + powerNorm * 0.05)
+  const tb3 = clamp01(h2 * 0.45 + hrProb * 0.35 + h3 * 0.2 + powerNorm * 0.06)
+  const tb4 = clamp01(hrProb * 0.58 + h2 * 0.22 + h3 * 0.1 + powerNorm * 0.1)
+  const eTB = h1 + tb2 + tb3 + tb4
+  const tbMedian = round1(clamp(0, 8, eTB))
+  const tbFloor = Math.max(0, round1(tbMedian - 0.9))
+  const tbCeiling = round1(clamp(2, 9, tbMedian + 1.4 + powerNorm * 1.0))
+  const tbLadder = { 0.5: h1, 1.5: tb2, 2.5: tb3, 3.5: tb4 }
+
+  // HR — direct probability is the single source of truth.
+  const hrMedian = 0
+  const hrFloor = 0
+  const hrCeiling = hrProb >= 0.2 ? 1 : 0
+  const hrLadder = {
+    0.5: hrProb,
+    1.5: Math.max(0.001, hrProb * hrProb),
+    2.5: Math.max(0.0005, Math.pow(hrProb, 3)),
+  }
+
+  // RBIs — tighter ceiling: only widen when 2+RBI prob has real signal.
+  const eRbi = r1 + r2 * 1.4
+  const rbiMedian = round1(clamp(0, 4, eRbi))
+  const rbiFloor = 0
+  const rbiCeiling = round1(clamp(1, 4, rbiMedian + 0.9 + (r2 > 0.20 ? 0.6 : 0)))
+  const rbiLadder = { 0.5: r1, 1.5: r2 }
+
+  // Runs — direct Bernoulli prior for P(≥1 run). MLB league average is ~0.30
+  // for a regular hitter, scaled by team total + lineup spot.
+  const teamRunsImplied = num(playerObj?.teamImpliedTotal) ?? 4.4
+  const lineupBoost =
+    lineupTop <= 2 ? 0.07 : lineupTop <= 4 ? 0.04 : lineupTop <= 6 ? 0.0 : -0.04
+  const p1run = clamp(0.15, 0.55, 0.3 + (teamRunsImplied - 4.4) * 0.04 + lineupBoost)
+  const eRuns = p1run + p1run * p1run * 0.4
+  const runsMedian = round1(eRuns)
+  const runsFloor = 0
+  const runsCeiling = round1(clamp(1, 3, runsMedian + 0.7))
+  const runsLadder = { 0.5: p1run, 1.5: Math.max(0.04, p1run * p1run * 0.6) }
+
+  // Batter Ks — opposing pitcher K rate scaled by typical 4.2 PA.
+  const oppKper9 = num(playerObj?.opposingPitcherKper9) ?? num(playerObj?.opposingKsPer9) ?? 8.5
+  const eBatterKs = clamp(0.4, 2.0, (oppKper9 / 9) * 4.2)
+  const saltedBatterKs = eBatterKs * (1 + (salt - 0.5) * 0.18)
+  const batterKsMedian = round1(saltedBatterKs)
+  const batterKsFloor = 0
+  const batterKsCeiling = round1(clamp(1, 4, batterKsMedian + 1.0))
+
+  return {
+    hits: { floor: hitsFloor, mostLikely: hitsMedian, ceiling: hitsCeiling, ladder: hitsLadder },
+    totalBases: { floor: tbFloor, mostLikely: tbMedian, ceiling: tbCeiling, ladder: tbLadder },
+    hr: { floor: hrFloor, mostLikely: hrMedian, ceiling: hrCeiling, hrProb, ladder: hrLadder },
+    rbis: { floor: rbiFloor, mostLikely: rbiMedian, ceiling: rbiCeiling, ladder: rbiLadder },
+    runs: { floor: runsFloor, mostLikely: runsMedian, ceiling: runsCeiling, ladder: runsLadder },
+    batterKs: { floor: batterKsFloor, mostLikely: batterKsMedian, ceiling: batterKsCeiling },
+  }
+}
+
+function projectPitcherStats({ pitcherObj, salt }) {
+  const expectedKs = num(pitcherObj?.expectedKs)
+  const ksLine = num(pitcherObj?.line)
+  const k5 = num(pitcherObj?.k5plus) ?? 0
+  const k6 = num(pitcherObj?.k6plus) ?? 0
+  const k7 = num(pitcherObj?.k7plus) ?? 0
+  const k8 = num(pitcherObj?.k8plus) ?? 0
+
+  // E[Ks] — prefer engine's expectedKs; otherwise derive from ladder.
+  let eKs = Number.isFinite(expectedKs) ? expectedKs : null
+  if (!Number.isFinite(eKs)) {
+    // Approximate E[Ks] via ladder probabilities.
+    const ladderSum = k5 + k6 + k7 + k8
+    eKs = clamp(2.5, 11, 4 + ladderSum * 1.4)
+  }
+  // Salt nudge ±5%.
+  eKs *= 1 + (salt - 0.5) * 0.1
+  const ksMedian = round1(clamp(2.5, 12, eKs))
+  const ksFloor = round1(clamp(0, 12, ksMedian - 2.4))
+  const ksCeiling = round1(clamp(3, 14, ksMedian + 3.0))
+
+  // Outs — assume starter projects ~5-6 IP = 15-18 outs.
+  const ipExpected = num(pitcherObj?.ipExpected) ?? num(pitcherObj?.expectedInnings) ?? null
+  const outsMedian = Number.isFinite(ipExpected) ? round1(ipExpected * 3) : 17
+  const outsFloor = round1(clamp(0, 27, outsMedian - 5))
+  const outsCeiling = round1(clamp(6, 27, outsMedian + 4))
+
+  // Hits allowed — derive from K rate (high K → fewer hits).
+  const hitsAllowedMedian = clamp(2, 8, 5.4 - (eKs - 6) * 0.18)
+  const hitsAllowedFloor = round1(Math.max(0, hitsAllowedMedian - 2.0))
+  const hitsAllowedCeiling = round1(clamp(3, 12, hitsAllowedMedian + 3.0))
+
+  // Earned runs — slight inverse to K rate.
+  const erMedian = round1(clamp(0.6, 4.5, 2.5 - (eKs - 6) * 0.12))
+  const erFloor = 0
+  const erCeiling = round1(clamp(1, 7, erMedian + 2.5))
+
+  // Walks — relatively stable, small band.
+  const walksMedian = round1(clamp(0.5, 4, 1.8 + (salt - 0.5) * 1.0))
+  const walksFloor = 0
+  const walksCeiling = round1(clamp(1, 6, walksMedian + 2.0))
+
+  // Pre-calibrated ladder probs from the pitcher Ks engine.
+  const ksLadder = { 4.5: k5, 5.5: k6, 6.5: k7, 7.5: k8 }
+
+  return {
+    ks: {
+      floor: ksFloor,
+      mostLikely: ksMedian,
+      ceiling: ksCeiling,
+      line: ksLine ?? null,
+      ladder: ksLadder,
+    },
+    outs: { floor: outsFloor, mostLikely: round1(outsMedian), ceiling: outsCeiling },
+    hitsAllowed: {
+      floor: hitsAllowedFloor,
+      mostLikely: round1(hitsAllowedMedian),
+      ceiling: hitsAllowedCeiling,
+    },
+    earnedRuns: { floor: erFloor, mostLikely: erMedian, ceiling: erCeiling },
+    walks: { floor: walksFloor, mostLikely: walksMedian, ceiling: walksCeiling },
+  }
+}
+
+function buildMlbPlayerOutcomePredictions(input = {}) {
+  const generatedAt = new Date().toISOString()
+  const playerMap = input?.playerMap instanceof Map ? input.playerMap : null
+  const hrPredictionToday = input?.hrPredictionToday || {}
+  const pitcherKsToday = input?.pitcherKsToday || {}
+  const rows = Array.isArray(input?.rows) ? input.rows : []
+
+  // Build a HR probability index for fast lookup.
+  const hrSrc = []
+  if (Array.isArray(hrPredictionToday?.topHrCandidatesToday)) hrSrc.push(...hrPredictionToday.topHrCandidatesToday)
+  if (Array.isArray(hrPredictionToday?.mostLikelyHr)) hrSrc.push(...hrPredictionToday.mostLikelyHr)
+  const hrIdx = new Map()
+  for (const p of hrSrc) {
+    const k = normalizeName(p?.player)
+    if (!k) continue
+    if (!hrIdx.has(k)) {
+      hrIdx.set(k, {
+        prob: num(p?.modelProbability) ?? 0,
+        edge: num(p?.edge) ?? 0,
+      })
+    }
+  }
+
+  // Build a meta lookup from snapshot rows for matchup/eventId fallback.
+  const metaIdx = new Map()
+  for (const r of rows) {
+    const k = normalizeName(r?.player)
+    if (!k || metaIdx.has(k)) continue
+    metaIdx.set(k, {
+      eventId: r?.eventId ?? null,
+      matchup: r?.matchup ?? null,
+      team: r?.teamResolved ?? r?.team ?? null,
+      opponent: r?.opponentTeam ?? null,
+      isHome: r?.isHome ?? null,
+    })
+  }
+
+  // -------- Hitters --------
+  const hitters = []
+  if (playerMap) {
+    for (const obj of playerMap.values()) {
+      const player = String(obj?.player || "").trim()
+      if (!player) continue
+      const k = normalizeName(player)
+      const meta = metaIdx.get(k) || {}
+      const eventId = obj?.eventId ?? meta.eventId ?? null
+      const matchup = obj?.matchup ?? meta.matchup ?? null
+      const team = obj?.team ?? meta.team ?? null
+      const opponent = obj?.opponent ?? obj?.opponentTeam ?? meta.opponent ?? null
+      const hrInfo = hrIdx.get(k) || { prob: 0, edge: 0 }
+      const salt = playerSalt(player, eventId)
+
+      const stats = projectHitterStats({ playerObj: obj, hrProb: hrInfo.prob, salt })
+      hitters.push({
+        player,
+        eventId,
+        matchup,
+        team,
+        opponent,
+        role: "hitter",
+        battingOrder: num(obj?.battingOrderIndex) ?? num(obj?.lineupPosition) ?? null,
+        stats,
+        hrProb: hrInfo.prob,
+        hrEdge: hrInfo.edge,
+        powerScore: num(obj?.powerScore) ?? null,
+      })
+    }
+  }
+
+  // -------- Pitchers --------
+  const pitchers = []
+  const pitcherSrc = Array.isArray(pitcherKsToday?.topPitchers) ? pitcherKsToday.topPitchers : []
+  for (const p of pitcherSrc) {
+    const player = String(p?.player || "").trim()
+    if (!player) continue
+    const k = normalizeName(player)
+    const meta = metaIdx.get(k) || {}
+    const eventId = p?.eventId ?? meta.eventId ?? null
+    const matchup = meta.matchup ?? null
+    const salt = playerSalt(player, eventId)
+    const stats = projectPitcherStats({ pitcherObj: p, salt })
+    pitchers.push({
+      player,
+      eventId,
+      matchup,
+      team: p?.team ?? meta.team ?? null,
+      opponent: p?.opponent ?? meta.opponent ?? null,
+      role: "pitcher",
+      stats,
+      expectedKs: num(p?.expectedKs) ?? null,
+      ksLine: num(p?.line) ?? null,
+    })
+  }
+
+  return {
+    engine: "mlb-player-outcome-predictions",
+    generatedAt,
+    hitters,
+    pitchers,
+    players: [...hitters, ...pitchers],
+    meta: {
+      hitterCount: hitters.length,
+      pitcherCount: pitchers.length,
+      hrIndexed: hrIdx.size,
+      hitterStats: HITTER_STATS,
+      pitcherStats: PITCHER_STATS,
+    },
+  }
+}
+
+module.exports = { buildMlbPlayerDataset, buildMlbPlayerOutcomePredictions, HITTER_STATS, PITCHER_STATS }

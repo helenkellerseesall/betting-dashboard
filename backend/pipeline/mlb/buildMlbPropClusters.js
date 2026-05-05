@@ -401,4 +401,660 @@ function buildMlbPropClusters(rows, opts = {}) {
   }
 }
 
-module.exports = { buildMlbPropClusters }
+
+
+// ---- Best bets board (edge / EV / tiers) — unified with prop clusters ----
+const STAT_FAMILIES = [
+  "hits",
+  "totalBases",
+  "hr",
+  "rbis",
+  "runs",
+  "batterKs",
+  "ks",
+  "outs",
+  "hitsAllowed",
+  "earnedRuns",
+  "walks",
+]
+
+function americanOddsToImpliedProb(odds) {
+  const n = Number(odds)
+  if (!Number.isFinite(n) || n === 0) return null
+  if (n < 0) return Math.abs(n) / (Math.abs(n) + 100)
+  return 100 / (n + 100)
+}
+
+function americanToDecimal(odds) {
+  const n = Number(odds)
+  if (!Number.isFinite(n) || n === 0) return null
+  if (n < 0) return 1 + 100 / Math.abs(n)
+  return 1 + n / 100
+}
+
+/**
+ * Sigma floors per stat family. MLB stats are integer / low-count Poisson-like,
+ * so sigma anchors are tight (much smaller than NBA's points/rebounds bands).
+ */
+function minSigmaByFamily(family) {
+  const f = String(family || "").toLowerCase()
+  if (f === "hr") return 0.45
+  if (f === "totalbases") return 0.7
+  if (f === "hits") return 0.55
+  if (f === "rbis") return 0.6
+  if (f === "runs") return 0.45
+  if (f === "batterks") return 0.55
+  if (f === "ks") return 1.2 // pitcher Ks (lowest-variance MLB stat)
+  if (f === "outs") return 1.6
+  if (f === "hitsallowed") return 0.9
+  if (f === "earnedruns") return 0.7
+  if (f === "walks") return 0.55
+  return 0.55
+}
+
+/**
+ * zScale (curve flattener) per family. Lower = sharper curve = stronger conviction
+ * when median is far from line. MLB ladder lines (1.5 hits, 0.5 HR, etc.) require
+ * a tight curve so 0.2-median vs 1.5-line lands well below 50%.
+ *
+ * Phase 9 priority: Pitcher Ks gets the sharpest curve, HR the flattest.
+ */
+function zScaleByFamily(family) {
+  const f = String(family || "").toLowerCase()
+  if (f === "hr") return 1.6
+  if (f === "totalbases") return 1.4
+  if (f === "hits") return 1.3
+  if (f === "rbis") return 1.4
+  if (f === "runs") return 1.4
+  if (f === "batterks") return 1.4
+  if (f === "ks") return 1.0 // most stable
+  if (f === "outs") return 1.2
+  if (f === "hitsallowed") return 1.4
+  if (f === "earnedruns") return 1.5
+  if (f === "walks") return 1.5
+  return 1.4
+}
+
+/**
+ * Probability shrink per family. NUMBER = how much of the deviation from 0.5
+ * is KEPT (1.0 = keep all, 0.0 = collapse to coin flip).
+ *
+ * MLB low-count stats need to KEEP most of the signal, otherwise the logistic
+ * output (already conservative) gets squashed back to ~0.5 and every market
+ * looks +EV.
+ */
+function probShrinkByFamily(family) {
+  const f = String(family || "").toLowerCase()
+  if (f === "hr") return 0.45 // HR is irreducibly variance-heavy
+  if (f === "totalbases") return 0.7
+  if (f === "hits") return 0.7
+  if (f === "rbis") return 0.6
+  if (f === "runs") return 0.55
+  if (f === "batterks") return 0.55
+  if (f === "ks") return 0.78 // pitcher Ks most stable → keep most signal
+  if (f === "outs") return 0.7
+  if (f === "hitsallowed") return 0.5
+  if (f === "earnedruns") return 0.45
+  if (f === "walks") return 0.45
+  return 0.55
+}
+
+/**
+ * Sigma derivation: anchored to the UPSIDE spread (ceiling − median) — for
+ * "over" bets that's the relevant side of the distribution. For low-count
+ * integer stats this keeps sigma tight so we don't over-flatten the curve.
+ */
+function deriveSigma(family, stat) {
+  const m = Number(stat?.mostLikely)
+  const c = Number(stat?.ceiling)
+  const f = Number(stat?.floor)
+  const upside = Number.isFinite(c) && Number.isFinite(m) ? Math.max(0.0001, c - m) : null
+  const downside = Number.isFinite(f) && Number.isFinite(m) ? Math.max(0.0001, m - f) : null
+  const half = upside != null ? upside : Math.abs(m) * 0.5
+  // Use 1.5x the upside half-band as the implied stdev. (Symmetric Gaussian
+  // would give ~2x, but our band is intentionally widish to capture variance.)
+  const derived = Math.max(half / 1.5, downside != null ? downside / 1.5 : 0)
+  return Math.max(minSigmaByFamily(family), derived)
+}
+
+/**
+ * Direct probability lookup for a ladder rung (e.g. hits over 1.5 → ladder[1.5]).
+ * Ladder probs come from MLB's already-calibrated probability engines (HR /
+ * hits / RBI / Ks), so when the line matches a rung the ladder value is the
+ * single source of truth and bypasses the synthetic band logistic.
+ *
+ * Returns null when no exact ladder match.
+ */
+function ladderProbForOver(stat, line) {
+  const ladder = stat?.ladder
+  if (!ladder || typeof ladder !== "object") return null
+  const ln = Number(line)
+  if (!Number.isFinite(ln)) return null
+  // Try exact match first.
+  if (Number.isFinite(Number(ladder[ln]))) return Number(ladder[ln])
+  if (Number.isFinite(Number(ladder[String(ln)]))) return Number(ladder[String(ln)])
+  // Look for closest ladder key within 0.05 (handles 0.5 vs "0.5" vs 0.50).
+  let bestKey = null
+  let bestDist = Infinity
+  for (const k of Object.keys(ladder)) {
+    const kn = Number(k)
+    if (!Number.isFinite(kn)) continue
+    const d = Math.abs(kn - ln)
+    if (d < 0.05 && d < bestDist) {
+      bestDist = d
+      bestKey = kn
+    }
+  }
+  if (bestKey != null) return Number(ladder[bestKey])
+  return null
+}
+
+function modelProbOver(family, stat, line) {
+  if (!stat || !Number.isFinite(line)) return null
+  const m = Number(stat.mostLikely)
+  if (!Number.isFinite(m)) return null
+
+  // Direct ladder lookup (HR / hits / total bases / RBIs / pitcher Ks).
+  const direct = ladderProbForOver(stat, line)
+  if (direct != null) {
+    return { value: Math.max(0.0001, Math.min(0.9999, direct)), source: "ladder" }
+  }
+
+  const sigma = deriveSigma(family, stat)
+  const z = (line - m) / (sigma * zScaleByFamily(family))
+  const pUnder = 1 / (1 + Math.exp(-z))
+  const pOverRaw = 1 - pUnder
+  return { value: Math.max(0.0001, Math.min(0.9999, pOverRaw)), source: "logistic" }
+}
+
+function modelProbForSide(family, stat, line, side, confidence = null) {
+  const probInfo = modelProbOver(family, stat, line)
+  if (probInfo == null) return null
+  const pOver = Number(probInfo.value)
+  const s = String(side || "").toLowerCase()
+
+  const m = Number(stat?.mostLikely)
+  if (!Number.isFinite(m)) return null
+  const sigma = deriveSigma(family, stat)
+  const dist = Math.abs(m - line)
+  const conf = Number.isFinite(Number(confidence)) ? Number(confidence) : null
+
+  const allowHigh = conf != null && conf >= 0.85 && dist >= sigma * 1.6
+  const isHr = family === "hr"
+  const maxP = isHr ? (allowHigh ? 0.55 : 0.5) : allowHigh ? 0.78 : 0.7
+
+  const pSideRaw = s.startsWith("u") ? 1 - pOver : pOver
+
+  // HR: ladder-only path; cap at 0.5 (variance). No shrink-to-50% layers.
+  if (family === "hr") {
+    return Math.max(0.0001, Math.min(maxP, pSideRaw))
+  }
+
+  if (probInfo.source === "ladder") {
+    const shrink = 0.65
+    const pSideShrunk = 0.5 + (pSideRaw - 0.5) * shrink
+    return Math.max(0.0001, Math.min(maxP, pSideShrunk))
+  }
+
+  const shrink = probShrinkByFamily(family)
+  const pSideShrunk = 0.5 + (pSideRaw - 0.5) * shrink
+  return Math.max(0.0001, Math.min(maxP, pSideShrunk))
+}
+
+function projectionConfidence(stat, line) {
+  if (!stat || !Number.isFinite(line)) return 0
+  const m = Number(stat.mostLikely)
+  const f = Number(stat.floor)
+  const c = Number(stat.ceiling)
+  if (!Number.isFinite(m)) return 0
+  const halfBand = Math.max(
+    0.5,
+    (Number.isFinite(c) && Number.isFinite(f) ? c - f : Math.abs(m) * 0.6) / 2
+  )
+  return Math.max(0, Math.min(1, Math.abs(m - line) / halfBand))
+}
+
+function volatilityGap(stat) {
+  if (!stat) return 0
+  const m = Number(stat.mostLikely)
+  const c = Number(stat.ceiling)
+  if (!Number.isFinite(m) || !Number.isFinite(c) || m <= 0) return 0
+  return Math.max(0, Math.min(1, (c - m) / m))
+}
+
+function scorePlay({ edge, ev, conf, vol, side, family }) {
+  const e = Number.isFinite(edge) ? edge : 0
+  const v = Number.isFinite(ev) ? ev : 0
+  const c = Number.isFinite(conf) ? conf : 0
+  const g = Number.isFinite(vol) ? vol : 0
+  const sideBoost = String(side || "").toLowerCase().startsWith("o") ? g * 0.15 : g * 0.05
+  // Phase 9 priority: pitcher Ks > hits/bases > HR.
+  const familyWeight =
+    family === "ks" ? 1.1 : family === "hits" || family === "totalBases" ? 1.05 : family === "hr" ? 0.85 : 1.0
+  return (e * 100 * 1.0 + v * 60 + c * 12 + sideBoost * 8) * familyWeight
+}
+
+function tierForPlay(edge, ev, conf, family) {
+  if (!Number.isFinite(edge) || !Number.isFinite(ev)) return "FADE"
+  if (ev <= 0) return "FADE"
+  if (edge < 0.04) return "FADE"
+  // HR is a variance trap — require larger edge to call ELITE.
+  const isHr = family === "hr"
+  if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.5) return "ELITE"
+  if (isHr && edge >= 0.12 && ev >= 0.08 && conf >= 0.5) return "ELITE"
+  if (edge >= 0.07 && ev >= 0.03) return "STRONG"
+  return "PLAYABLE"
+}
+
+/**
+ * Map MLB market strings to a normalized stat family.
+ */
+function resolveStatFamily(marketProp) {
+  const direct = String(marketProp?.statFamily || "").toLowerCase()
+  if (STAT_FAMILIES.map((s) => s.toLowerCase()).includes(direct)) {
+    // Canonicalize back to camelCase keys used in predictions.stats.
+    if (direct === "totalbases") return "totalBases"
+    if (direct === "batterks") return "batterKs"
+    if (direct === "hitsallowed") return "hitsAllowed"
+    if (direct === "earnedruns") return "earnedRuns"
+    return direct
+  }
+  const s = `${marketProp?.propType || ""} ${marketProp?.marketKey || ""} ${marketProp?.marketName || ""}`.toLowerCase()
+
+  // Pitcher markets first (more specific).
+  const isPitcherMarket = Boolean(marketProp?.isPitcherMarket)
+  if (isPitcherMarket && s.includes("strikeout")) return "ks"
+  if (s.includes("pitcher") && s.includes("strikeout")) return "ks"
+  if (s.includes("outs")) return "outs"
+  if (s.includes("hits allowed") || s.includes("hits_allowed")) return "hitsAllowed"
+  if (s.includes("earned run")) return "earnedRuns"
+  if (s.includes("walks") && (isPitcherMarket || s.includes("pitcher"))) return "walks"
+
+  // Hitter markets.
+  if (s.includes("home run") || /\bhr\b/.test(s) || s.includes("home_run")) return "hr"
+  if (s.includes("total bases") || s.includes("total_bases")) return "totalBases"
+  if (s.includes("rbi")) return "rbis"
+  if (s.includes("runs scored") || (s.includes("runs") && !s.includes("earned"))) return "runs"
+  if (s.includes("hit")) return "hits"
+  if (s.includes("strikeout") && !isPitcherMarket) return "batterKs"
+  return null
+}
+
+function normalizeKey(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+}
+
+function indexPredictions(predictions) {
+  const idx = new Map()
+  const players = Array.isArray(predictions?.players) ? predictions.players : []
+  for (const p of players) {
+    if (!p?.player) continue
+    const k1 = `${normalizeKey(p.player)}|${normalizeKey(p.eventId || "")}`
+    const k2 = `${normalizeKey(p.player)}|`
+    idx.set(k1, p)
+    if (!idx.has(k2)) idx.set(k2, p)
+  }
+  return idx
+}
+
+function buildReasoning({ family, side, line, stat, edge, ev, conf, vol }) {
+  const parts = []
+  parts.push(
+    `${family} proj ${stat?.floor ?? "?"} / ${stat?.mostLikely ?? "?"} / ${stat?.ceiling ?? "?"} vs line ${line}`
+  )
+  parts.push(`edge ${(edge * 100).toFixed(1)}% • EV ${ev.toFixed(3)}`)
+  if (conf >= 0.6) parts.push("high conf")
+  else if (conf >= 0.35) parts.push("medium conf")
+  else parts.push("low conf")
+  if (side === "over" && vol >= 0.35) parts.push("upside band")
+  if (side === "under" && vol <= 0.2) parts.push("tight ceiling")
+  return parts.join(" | ")
+}
+
+function isHrPropType(s) {
+  const t = String(s || "").toLowerCase()
+  return t.includes("home run") || t === "hr" || t.includes("home_run")
+}
+
+function buildMlbBestBetsBoard(input = {}) {
+  const generatedAt = new Date().toISOString()
+  const predictions = input?.predictions || null
+  const marketProps = Array.isArray(input?.marketProps) ? input.marketProps : []
+
+  if (!predictions || !Array.isArray(predictions.players) || !marketProps.length) {
+    return {
+      corePlays: [],
+      valuePlays: [],
+      upsidePlays: [],
+      fades: [],
+      allPlays: [],
+      longshotPlays: [],
+      altPlays: [],
+      meta: {
+        generatedAt,
+        evaluated: 0,
+        kept: 0,
+        dropped: 0,
+        reason: !predictions
+          ? "no_predictions"
+          : !marketProps.length
+            ? "no_market_props"
+            : "no_players",
+      },
+    }
+  }
+
+  const idx = indexPredictions(predictions)
+  const allPlays = []
+  const longshotPlays = []
+  const altPlays = []
+  const fades = []
+  let evaluated = 0
+  let dropped = 0
+
+  for (const mp of marketProps) {
+    if (!mp || typeof mp !== "object") continue
+    const family = resolveStatFamily(mp)
+    if (!family) continue
+    const player = mp.player
+    const eventId = mp.eventId || ""
+    const line = Number(mp.line)
+    const side = String(mp.side || "").toLowerCase()
+    const odds = Number(mp.oddsAmerican)
+    if (!player || !Number.isFinite(line) || !Number.isFinite(odds)) continue
+    if (side !== "over" && side !== "under" && side !== "yes" && side !== "no") continue
+
+    // Map yes/no (used for HR) to over/under for computation.
+    const sideNorm = side === "yes" ? "over" : side === "no" ? "under" : side
+
+    const k1 = `${normalizeKey(player)}|${normalizeKey(eventId)}`
+    const k2 = `${normalizeKey(player)}|`
+    const pred = idx.get(k1) || idx.get(k2)
+    if (!pred) continue
+    const stat = pred.stats?.[family]
+    if (!stat) continue
+
+    evaluated += 1
+
+    const impliedProb = americanOddsToImpliedProb(odds)
+    const decOdds = americanToDecimal(odds)
+    const conf = projectionConfidence(stat, line)
+    const modelProb = modelProbForSide(family, stat, line, sideNorm, conf)
+    if (impliedProb == null || decOdds == null || modelProb == null) {
+      dropped += 1
+      continue
+    }
+    const edge = modelProb - impliedProb
+    const ev = modelProb * (decOdds - 1) - (1 - modelProb)
+    const vol = volatilityGap(stat)
+
+    if (modelProb > 0.49 && modelProb < 0.51) {
+      dropped += 1
+      continue
+    }
+
+    const isLongshot = impliedProb < 0.1
+    const inCoreOddsBand = odds >= -300 && odds <= 300
+    const isHrProp = family === "hr" || isHrPropType(mp?.propType) || isHrPropType(mp?.marketKey)
+    const isAlternate =
+      /alternate/i.test(String(mp?.marketKey || "")) ||
+      /\bladder\b/i.test(String(mp?.propType || "")) ||
+      /alternate/i.test(String(mp?.propType || "")) ||
+      Boolean(mp?.ladder)
+
+    if (!isLongshot && !isAlternate) {
+      if (edge < 0.04 || ev <= 0) {
+        dropped += 1
+        continue
+      }
+      if (vol > 0.65 && edge < 0.06) {
+        dropped += 1
+        continue
+      }
+    }
+
+    const tier = tierForPlay(edge, ev, conf, family)
+    if (!isLongshot && !isAlternate && tier === "FADE") {
+      // Track explicit fades (e.g. -EV / negative edge) for "FADE" board section.
+      const fadePlay = makePlay({
+        pred,
+        mp,
+        family,
+        side: sideNorm,
+        line,
+        odds,
+        impliedProb,
+        modelProb,
+        edge,
+        ev,
+        conf,
+        vol,
+        stat,
+        tier: "FADE",
+        isLongshot,
+        isAlternate,
+        inCoreOddsBand,
+        isHrProp,
+        score: 0,
+      })
+      fades.push(fadePlay)
+      dropped += 1
+      continue
+    }
+
+    const score = scorePlay({ edge, ev, conf, vol, side: sideNorm, family })
+    const play = makePlay({
+      pred,
+      mp,
+      family,
+      side: sideNorm,
+      line,
+      odds,
+      impliedProb,
+      modelProb,
+      edge,
+      ev,
+      conf,
+      vol,
+      stat,
+      tier: isLongshot ? "LONGSHOT" : tier,
+      isLongshot,
+      isAlternate,
+      inCoreOddsBand,
+      isHrProp,
+      score,
+    })
+
+    if (isLongshot) longshotPlays.push(play)
+    else if (isAlternate || !inCoreOddsBand) altPlays.push(play)
+    else allPlays.push(play)
+  }
+
+  allPlays.sort((a, b) => b.score - a.score)
+  longshotPlays.sort((a, b) => b.score - a.score)
+  altPlays.sort((a, b) => b.score - a.score)
+
+  // CORE = ELITE/STRONG, non-HR or HR with major edge.
+  const corePlays = allPlays.filter(
+    (p) => p.inCoreOddsBand && !p.isAlternate && !p.isHrProp && (p.tier === "ELITE" || p.tier === "STRONG")
+  )
+  // VALUE = PLAYABLE in core odds band, non-HR.
+  const valuePlays = allPlays.filter(
+    (p) => p.inCoreOddsBand && !p.isAlternate && !p.isHrProp && p.tier === "PLAYABLE"
+  )
+  // UPSIDE / HR = HR plays + HR-flavored alternates (any tier above FADE).
+  const upsidePlays = allPlays
+    .filter((p) => p.isHrProp)
+    .concat(altPlays.filter((p) => p.isHrProp))
+    .concat(longshotPlays.filter((p) => p.isHrProp))
+  upsidePlays.sort((a, b) => b.score - a.score)
+
+  return {
+    corePlays,
+    valuePlays,
+    upsidePlays,
+    fades,
+    allPlays,
+    longshotPlays,
+    altPlays,
+    meta: {
+      generatedAt,
+      evaluated,
+      kept: allPlays.length,
+      longshots: longshotPlays.length,
+      alts: altPlays.length,
+      fades: fades.length,
+      dropped,
+      tierCounts: tierCountsOf(allPlays),
+      familyCounts: familyCountsOf(allPlays),
+    },
+  }
+}
+
+function makePlay(args) {
+  const {
+    pred,
+    mp,
+    family,
+    side,
+    line,
+    odds,
+    impliedProb,
+    modelProb,
+    edge,
+    ev,
+    conf,
+    vol,
+    stat,
+    tier,
+    isLongshot,
+    isAlternate,
+    inCoreOddsBand,
+    isHrProp,
+    score,
+  } = args
+  return {
+    player: pred.player,
+    eventId: pred.eventId || mp.eventId || null,
+    matchup: pred.matchup || null,
+    team: pred.team || null,
+    opponent: pred.opponent || null,
+    role: pred.role || null,
+    statFamily: family,
+    side,
+    line,
+    oddsAmerican: odds,
+    sportsbook: mp.sportsbook || mp.book || null,
+    propType: mp.propType || null,
+    marketKey: mp.marketKey || null,
+    ladder: mp.ladder || null,
+    impliedProb: round4(impliedProb),
+    modelProb: round4(modelProb),
+    edge: round4(edge),
+    ev: round4(ev),
+    confidence: round3(conf),
+    volatility: round3(vol),
+    tier,
+    isLongshot,
+    isAlternate,
+    inCoreOddsBand,
+    isHrProp,
+    score: round2(score),
+    range: {
+      floor: stat.floor ?? null,
+      mostLikely: stat.mostLikely ?? null,
+      ceiling: stat.ceiling ?? null,
+    },
+    reasoning: buildReasoning({ family, side, line, stat, edge, ev, conf, vol }),
+  }
+}
+
+function tierCountsOf(plays) {
+  const out = { ELITE: 0, STRONG: 0, PLAYABLE: 0, FADE: 0, LONGSHOT: 0 }
+  for (const p of plays) out[p.tier] = (out[p.tier] || 0) + 1
+  return out
+}
+
+function familyCountsOf(plays) {
+  const out = {}
+  for (const p of plays) out[p.statFamily] = (out[p.statFamily] || 0) + 1
+  return out
+}
+
+function round2(x) {
+  return Math.round(Number(x) * 100) / 100
+}
+function round3(x) {
+  return Math.round(Number(x) * 1000) / 1000
+}
+function round4(x) {
+  return Math.round(Number(x) * 10000) / 10000
+}
+
+/**
+ * Build marketProps from MLB snapshot rows.
+ * Handles MLB-specific propType strings and yes/no sides for HR.
+ */
+function marketPropsFromMlbRows(rows) {
+  if (!Array.isArray(rows)) return []
+  const out = []
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue
+    const player = row.player
+    if (!player) continue
+    const family = resolveStatFamily(row)
+    if (!family) continue
+    const line = Number(row.line)
+    const odds = Number(row.odds)
+    let side = String(row.side || row.outcomeName || "").toLowerCase()
+
+    // Normalize HR-style "yes"/"no" to over/under semantics.
+    if (side === "yes") side = "over"
+    if (side === "no") side = "under"
+    if (!side && family === "hr") {
+      // First Home Run / HR markets often have a single-side outcome; treat as "over" 0.5.
+      side = "over"
+    }
+
+    if (!Number.isFinite(odds)) continue
+    if (!Number.isFinite(line)) {
+      // Synthesize HR line (0.5) if missing — common for HR markets.
+      if (family === "hr") {
+        out.push({
+          player,
+          eventId: row.eventId || null,
+          statFamily: family,
+          line: 0.5,
+          oddsAmerican: odds,
+          side,
+          sportsbook: row.book || row.sportsbook || null,
+          propType: row.propType || null,
+          marketKey: row.marketKey || null,
+          ladder: row.ladder || null,
+          isPitcherMarket: Boolean(row.isPitcherMarket),
+        })
+      }
+      continue
+    }
+    if (side !== "over" && side !== "under") continue
+    out.push({
+      player,
+      eventId: row.eventId || null,
+      statFamily: family,
+      line,
+      oddsAmerican: odds,
+      side,
+      sportsbook: row.book || row.sportsbook || null,
+      propType: row.propType || null,
+      marketKey: row.marketKey || null,
+      ladder: row.ladder || null,
+      isPitcherMarket: Boolean(row.isPitcherMarket),
+    })
+  }
+  return out
+}
+
+module.exports = { buildMlbPropClusters, buildMlbBestBetsBoard, marketPropsFromMlbRows, americanOddsToImpliedProb, americanToDecimal, modelProbOver, STAT_FAMILIES }
+
