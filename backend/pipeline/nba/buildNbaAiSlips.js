@@ -3,6 +3,7 @@
 const { dedupeCandidates } = require("./nbaOpportunityCandidates")
 const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { resolveLegFromAiRange, resolveLottoLegAboveCeiling } = require("./nbaAiOutcomeRange")
+const { canAppendLegToSlip } = require("./nbaSlipLegConstraints")
 
 function toNum(v) {
   const n = Number(v)
@@ -50,30 +51,7 @@ function overRungFromLine(ln) {
   return Math.ceil(n - 0.49 + 1e-9)
 }
 
-/** Reject absurd slip legs (bad mapping / impossible milestones). */
-function slipLegPassesReality(L) {
-  if (!L || typeof L !== "object") return false
-  const t = propBlob(L)
-  const ln = toNum(L.line)
-  const rLine = overRungFromLine(ln)
-  const lad = String(L.ladder || "").trim()
-  const m = /^(\d+)/.exec(lad)
-  const rung = m ? Number(m[1]) : rLine
-  if (/rebound/i.test(t)) {
-    if (Number.isFinite(rung) && rung > 17) return false
-    if (Number.isFinite(ln) && ln > 16.5) return false
-  }
-  if (/assist/i.test(t) && !/point|rebound|pra/i.test(t)) {
-    if (Number.isFinite(rung) && rung > 15) return false
-  }
-  if (/three|3pt/i.test(t)) {
-    if (Number.isFinite(rung) && rung > 6) return false
-  }
-  if (/point/i.test(t) && !/rebound|assist|pra/i.test(t)) {
-    if (Number.isFinite(rung) && rung > 45) return false
-  }
-  return true
-}
+const { slipLegPassesReality } = require("./nbaSlipLegConstraints")
 
 function filterSlipLegs(legs) {
   return (Array.isArray(legs) ? legs : []).filter(slipLegPassesReality)
@@ -238,7 +216,7 @@ function effectiveMaxSameGame(legs, cand, baseMax) {
 
 function canAddLeg(legs, cand, opts = {}) {
   const { maxSameGame = 2, maxVolSum = 9, relaxSameGameForHighEnv = true } = opts
-  if (legs.some((L) => pk(L) === pk(cand))) return false
+  if (!canAppendLegToSlip(legs, cand, { maxPerPlayer: 1 })) return false
   const maxSg = relaxSameGameForHighEnv ? effectiveMaxSameGame(legs, cand, maxSameGame) : maxSameGame
   const next = [...legs, cand]
   if (maxPerGame(next) > maxSg) return false
@@ -590,4 +568,7 @@ function buildNbaAiSlips(input) {
 module.exports = {
   buildNbaAiSlips,
   formatLeg,
+  collectFullPool,
+  filterSlipLegs,
+  slipLegPassesReality,
 }

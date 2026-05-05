@@ -158,6 +158,50 @@ function isAltMidLabel(c) {
   return l === "alt-mid" || l === "alt mid" || l === "alt_mid" || pv === "alt-mid"
 }
 
+function outcomeNameFromRow(row) {
+  if (!row || typeof row !== "object") return ""
+  const o = row.outcome
+  if (o && typeof o === "object") {
+    const n = String(o.name || o.label || o.side || "").trim()
+    if (n) return n
+  }
+  return String(row.outcomeName || row.outcomeLabel || row.selectionName || "").trim()
+}
+
+/** Sportsbook-style label only (e.g. Over 24.5). Never "N+" milestone strings. */
+function ladderLabelFromBookRow(row) {
+  const ln = toNum(row?.line) ?? toNum(row?.point)
+  if (!Number.isFinite(ln)) return null
+  const name = outcomeNameFromRow(row)
+  if (name) {
+    if (name.includes(String(ln))) return name.replace(/\s+/g, " ").trim()
+    const lower = name.toLowerCase()
+    if (lower === "over" || lower === "under" || lower === "yes" || lower === "no") {
+      const cap = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
+      return `${cap} ${ln}`
+    }
+    return `${name} ${ln}`.trim()
+  }
+  const side = String(row?.side || "").trim()
+  if (side) {
+    const cap = side.charAt(0).toUpperCase() + side.slice(1).toLowerCase()
+    return `${cap} ${ln}`
+  }
+  return `Over ${ln}`
+}
+
+/** Slips: only return legs bound to a finite book line; never synthetic tier legs. */
+function resolvedBookLegOrNull(leg) {
+  if (!leg || typeof leg !== "object") return null
+  if (leg.aiRangeSyntheticLeg === true) return null
+  const ln = toNum(leg.line) ?? toNum(leg.point)
+  if (!Number.isFinite(ln)) return null
+  const lad = leg.ladder != null ? String(leg.ladder).trim() : ""
+  if (!lad) return null
+  if (/^\d+\+$/.test(lad)) return null
+  return leg
+}
+
 function mkRung(line) {
   const r = overRungFromLine(line)
   const rung = r != null ? r : Math.round(line)
@@ -556,21 +600,6 @@ function computeOutcomeRange(pick, pool) {
   return finalizeAiRangeFromSpread(spread, linesForSpread, famPick, family)
 }
 
-/** Tier-shaped leg when no book row binds (still shows Range + slips align on rungs). */
-function syntheticTierLeg(pick, tier, slot) {
-  const line = toNum(tier.line)
-  const rung = toNum(tier.rung) ?? overRungFromLine(line)
-  if (!Number.isFinite(line) || !Number.isFinite(rung)) return null
-  return {
-    ...pick,
-    line,
-    ladder: `${rung}+`,
-    propVariant: "base",
-    aiRangeSlot: slot,
-    aiRangeSyntheticLeg: true,
-  }
-}
-
 /**
  * @param {'floor'|'median'|'ceiling'|'lotto'} slot
  */
@@ -588,7 +617,6 @@ function resolveLegFromAiRange(pick, pool, slot) {
 
   const tier = range[slot]
   const target = toNum(tier.line)
-  const rung = toNum(tier.rung)
   if (!Number.isFinite(target)) return null
 
   const pk = playerKey(pick)
@@ -601,7 +629,7 @@ function resolveLegFromAiRange(pick, pool, slot) {
     return Number.isFinite(toNum(c.line))
   })
 
-  if (!baseCandidates.length) return syntheticTierLeg(pick, tier, slot)
+  if (!baseCandidates.length) return null
 
   let candidates = prefilterRangeBindingCandidates(baseCandidates, range, rangeFam)
   candidates = filterAltMidWhenBaseLineExists(candidates)
@@ -624,20 +652,18 @@ function resolveLegFromAiRange(pick, pool, slot) {
     }
   }
   if (!best || !best.row || rangeBindingSpikesInflated(best, range, maxAbs, slot)) {
-    return syntheticTierLeg(pick, tier, slot)
+    return null
   }
 
-  if (statFamilyKey(best.row) !== rangeFam) return syntheticTierLeg(pick, tier, slot)
-
-  const displayRung = Number.isFinite(rung) ? rung : overRungFromLine(target)
-  const displayLadder = Number.isFinite(displayRung) ? `${displayRung}+` : `${overRungFromLine(target) ?? Math.round(target)}+`
+  if (statFamilyKey(best.row) !== rangeFam) return null
 
   const row = { ...best.row }
   row.line = best.line
-  row.ladder = displayLadder
+  delete row.aiRangeSyntheticLeg
+  row.ladder = ladderLabelFromBookRow(row)
   row.propVariant = "base"
   row.aiRangeSlot = slot
-  return row
+  return resolvedBookLegOrNull(row)
 }
 
 /**
@@ -690,31 +716,18 @@ function resolveLottoLegAboveCeiling(pick, pool) {
   }
 
   if (!bestRow || bestR == null) {
-    const lt = range.lotto
-    if (lt) {
-      const ln = toNum(lt.line)
-      const lr = toNum(lt.rung) ?? overRungFromLine(ln)
-      if (Number.isFinite(ln) && Number.isFinite(lr) && lr > ceilingRung) {
-        return {
-          ...pick,
-          line: ln,
-          ladder: `${lr}+`,
-          propVariant: "base",
-          aiRangeSlot: "lotto",
-          aiRangeSyntheticLeg: true,
-        }
-      }
-    }
     return null
   }
 
-  return {
+  const lottoLeg = {
     ...bestRow,
     line: toNum(bestRow.line),
-    ladder: `${bestR}+`,
     propVariant: "base",
     aiRangeSlot: "lotto",
   }
+  delete lottoLeg.aiRangeSyntheticLeg
+  lottoLeg.ladder = ladderLabelFromBookRow(lottoLeg)
+  return resolvedBookLegOrNull(lottoLeg)
 }
 
 module.exports = {

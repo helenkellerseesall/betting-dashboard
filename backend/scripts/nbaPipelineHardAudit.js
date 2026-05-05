@@ -25,6 +25,7 @@ function pk(c) {
     .toLowerCase()
 }
 
+/** Max 1 prop per player per slip; flag if more than one leg for the same player. */
 function slipDuplicateIssues(slips) {
   const out = []
   for (const s of Array.isArray(slips) ? slips : []) {
@@ -34,8 +35,9 @@ function slipDuplicateIssues(slips) {
       if (!k) continue
       seen.set(k, (seen.get(k) || 0) + 1)
     }
+    const tag = String(s.type || s.label || "?")
     for (const [k, n] of seen.entries()) {
-      if (n > 1) out.push(`duplicate_player_in_slip:${String(s.type || "?")}:${k}`)
+      if (n > 1) out.push(`duplicate_player_in_slip:${tag}:${k}`)
     }
   }
   return out
@@ -86,7 +88,10 @@ function runOnePass(snapPath, snap) {
   const ingestStatFamilies = countIngestStatFamilies(rawIngest)
   const hardZero = ingestHardFailures(ingestStatFamilies)
   const blockIssues = blockingAuditIssues(audit.issues)
-  const dupSlip = slipDuplicateIssues(opp.aiSlips?.slips)
+  const dupSlip = slipDuplicateIssues([
+    ...(opp.aiSlips?.slips || []),
+    ...(opp.aiSlips?.slipVariations || []),
+  ])
 
   const threesIngest = ingestStatFamilies.threes > 0
   const threesLadder = (opp.threesLadderCandidates || []).length
@@ -95,8 +100,8 @@ function runOnePass(snapPath, snap) {
   const slipProblems = []
   for (const s of opp.aiSlips?.slips || []) {
     const t = String(s.type || "")
-    if (t === "BALANCED" && (s.legs || []).length === 0) slipProblems.push("balanced_slip_empty")
-    if (t === "LOTTO" && (s.legs || []).length === 0) slipProblems.push("lotto_slip_empty")
+    const n = (s.legs || []).length
+    if (!n) slipProblems.push(`empty_slip:${t}`)
   }
 
   const failures = [
@@ -116,6 +121,10 @@ function runOnePass(snapPath, snap) {
       universeRows: slices.completeUniverse?.length ?? 0,
       threesLadderCandidates: threesLadder,
       slips: (opp.aiSlips?.slips || []).map((s) => ({ type: s.type, legs: (s.legs || []).length, note: s.note || null })),
+      outcomePredictions:
+        opp.playerOutcomePredictions && Array.isArray(opp.playerOutcomePredictions.players)
+          ? { players: opp.playerOutcomePredictions.players.length }
+          : null,
     },
     failures,
     auditIssues: audit.issues,

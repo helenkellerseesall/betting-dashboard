@@ -8,7 +8,7 @@ const { mineNbaExtendedOpportunityPools } = require("./nbaExtendedOpportunityPoo
 const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
 const { buildNbaAiPicks } = require("./buildNbaAiPicks")
 const { applyDominanceGapToOpportunityBoard } = require("./nbaAiDominanceGap")
-const { buildNbaAiSlips } = require("./buildNbaAiSlips")
+const { buildNbaPlayerOutcomePredictions } = require("./buildNbaPlayerOutcomePredictions")
 const { buildNbaPipelineAudit, maybeLogNbaPipelineAudit } = require("./nbaPipelineAudit")
 
 /**
@@ -220,11 +220,8 @@ function buildNbaOpportunityBoard(input = {}) {
   boardPayload.aiPicksRankedPool = Array.isArray(boardPayload.aiPicks?.rankedOpportunityPool)
     ? boardPayload.aiPicks.rankedOpportunityPool
     : null
-  boardPayload.aiSlips = buildNbaAiSlips({
-    elite: boardPayload.aiPicks?.elite ?? [],
-    strong: boardPayload.aiPicks?.strong ?? [],
-    opportunityBoard: boardPayload,
-  })
+  boardPayload.playerOutcomePredictions = buildNbaPlayerOutcomePredictions(boardPayload)
+  boardPayload.aiSlips = null
 
   const pipelineAudit = buildNbaPipelineAudit({
     label: "buildNbaOpportunityBoard",
@@ -239,7 +236,11 @@ function buildNbaOpportunityBoard(input = {}) {
     aiPicks: boardPayload.aiPicks,
     aiSlips: boardPayload.aiSlips,
   })
-  boardPayload.meta = { ...(boardPayload.meta || {}), pipelineAudit }
+  boardPayload.meta = {
+    ...(boardPayload.meta || {}),
+    slipEngine: "outcome-prediction-only",
+    pipelineAudit,
+  }
   maybeLogNbaPipelineAudit(pipelineAudit)
 
   return boardPayload

@@ -1195,11 +1195,14 @@ async function runAll() {
       console.log("(no aiPicks on opportunity board — rebuild API snapshot)")
     }
 
-    printHeader("SLIPS (AI)")
-    if (opp.aiSlips && typeof opp.aiSlips === "object" && typeof opp.aiSlips.formattedText === "string") {
+    printHeader("OUTCOME PREDICTIONS (NBA)")
+    const pred = opp.playerOutcomePredictions
+    if (pred && typeof pred === "object" && typeof pred.formattedText === "string") {
+      console.log(String(pred.formattedText).trimEnd())
+    } else if (opp.aiSlips && typeof opp.aiSlips === "object" && typeof opp.aiSlips.formattedText === "string") {
       console.log(String(opp.aiSlips.formattedText).trimEnd())
     } else {
-      console.log("(no aiSlips on opportunity board)")
+      console.log("(no outcome predictions or slips on opportunity board)")
     }
 
     // 11) FREE BUILD POOL (candidate counts)

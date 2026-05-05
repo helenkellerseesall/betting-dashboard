@@ -65,7 +65,10 @@ const summary = {
     eliteCount: (opp.aiPicks?.elite || []).length,
     strongCount: (opp.aiPicks?.strong || []).length,
   },
-  slips: (opp.aiSlips?.slips || []).map((s) => ({ type: s.type, legs: (s.legs || []).length })),
+      slips: (opp.aiSlips?.slips || []).map((s) => ({ type: s.type, legs: (s.legs || []).length })),
+      outcomePredictions: opp.playerOutcomePredictions
+        ? { players: (opp.playerOutcomePredictions.players || []).length }
+        : null,
 }
 
 console.log(JSON.stringify(summary, null, 2))
