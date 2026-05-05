@@ -9,6 +9,16 @@ const { applyEdgeToNbaRows } = require("./applyNbaRowEdge")
 const { buildNbaAiPicks } = require("./buildNbaAiPicks")
 const { applyDominanceGapToOpportunityBoard } = require("./nbaAiDominanceGap")
 const { buildNbaPlayerOutcomePredictions } = require("./buildNbaPlayerOutcomePredictions")
+const { buildNbaBestBetsBoard, marketPropsFromPoolRows } = require("./buildNbaBestBetsBoard")
+const { buildNbaSlipComposer } = require("./buildNbaSlipComposer")
+const { buildNbaFirstBasketEngine } = require("./buildNbaFirstBasketEngine")
+const { buildNbaDefensiveProps } = require("./buildNbaDefensiveProps")
+const { buildNbaBankrollPlan } = require("./buildNbaBankrollPlan")
+const {
+  persistTrackedToday,
+  buildNbaTrackingSummary,
+  pruneOldTrackingFilesAsync,
+} = require("./buildNbaPerformanceTracking")
 const { buildNbaPipelineAudit, maybeLogNbaPipelineAudit } = require("./nbaPipelineAudit")
 
 /**
@@ -222,6 +232,76 @@ function buildNbaOpportunityBoard(input = {}) {
     : null
   boardPayload.playerOutcomePredictions = buildNbaPlayerOutcomePredictions(boardPayload)
   boardPayload.aiSlips = null
+
+  const marketRowsForBets = [
+    ...completeUniverse,
+    ...corePropsBoard,
+    ...ladderBoard,
+  ]
+  const marketPropsForBets = marketPropsFromPoolRows(marketRowsForBets)
+  boardPayload.bestBetsBoard = buildNbaBestBetsBoard({
+    predictions: boardPayload.playerOutcomePredictions,
+    marketProps: marketPropsForBets,
+  })
+
+  // FINAL EXECUTION LAYER — slips, first basket, defensive props (steals/blocks).
+  const slipPack = buildNbaSlipComposer({
+    bestBetsBoard: boardPayload.bestBetsBoard,
+  })
+  const firstBasketPack = buildNbaFirstBasketEngine({
+    predictions: boardPayload.playerOutcomePredictions,
+    completeUniverse,
+    firstBasketCandidates: boardPayload.firstBasketCandidates || [],
+  })
+  const defensivePack = buildNbaDefensiveProps({
+    predictions: boardPayload.playerOutcomePredictions,
+    completeUniverse,
+    marketProps: marketPropsForBets,
+  })
+  boardPayload.bestBetsBoard.slips = slipPack.slips
+  boardPayload.bestBetsBoard.slipsMeta = slipPack.meta
+  boardPayload.bestBetsBoard.firstBasket = {
+    teamProbabilities: firstBasketPack.teamProbabilities,
+    players: firstBasketPack.players,
+    plays: firstBasketPack.plays,
+    meta: firstBasketPack.meta,
+  }
+  boardPayload.bestBetsBoard.defensiveProps = {
+    players: defensivePack.players,
+    plays: defensivePack.plays,
+    meta: defensivePack.meta,
+  }
+
+  // Bankroll plan — only computed when caller provides a bankroll.
+  // Attached so the consumer can use bestBetsBoard.bankroll directly.
+  const bankrollInput = input?.bankroll
+  if (bankrollInput && Number(bankrollInput) > 0) {
+    boardPayload.bestBetsBoard.bankroll = buildNbaBankrollPlan({
+      bestBetsBoard: boardPayload.bestBetsBoard,
+      bankroll: Number(bankrollInput),
+      options: input?.bankrollOptions || {},
+    })
+  } else {
+    boardPayload.bestBetsBoard.bankroll = null
+  }
+
+  // PERFORMANCE TRACKING — always on, never blocks pipeline.
+  //   1. Fire-and-forget persistence of today's bets/slips.
+  //   2. Synchronous summary read of last 14 days (small files only).
+  //   3. Fire-and-forget prune of files older than 14 days.
+  // Tracking errors must never break the board build, so wrapped in try/catch.
+  try {
+    persistTrackedToday({ bestBetsBoard: boardPayload.bestBetsBoard })
+    boardPayload.bestBetsBoard.trackingSummary = buildNbaTrackingSummary({ windowDays: 14 })
+    pruneOldTrackingFilesAsync({ keepDays: 14 })
+  } catch (err) {
+    boardPayload.bestBetsBoard.trackingSummary = {
+      metadata: { error: String(err?.message || err), version: "nba-tracking-v1" },
+      bets: { total: 0 },
+      slips: { total: 0 },
+      confidenceAdjustments: { byStat: {}, byTier: {} },
+    }
+  }
 
   const pipelineAudit = buildNbaPipelineAudit({
     label: "buildNbaOpportunityBoard",
