@@ -34,3 +34,10 @@ backend/manual-outcomes.json
 node_modules/
 frontend/node_modules/
 backend/node_modules/
+
+# runtime/generated
+backend/runtime/
+backend/snapshot-mlb.json
+backend/mlb-external-cache.json
+*.log
+node_modules/
