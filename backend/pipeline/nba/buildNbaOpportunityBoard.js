@@ -20,6 +20,11 @@ const {
   pruneOldTrackingFilesAsync,
 } = require("./buildNbaPerformanceTracking")
 const { buildNbaPipelineAudit, maybeLogNbaPipelineAudit } = require("./nbaPipelineAudit")
+const {
+  buildLineShopping,
+  buildLadderShopping,
+  loadBookState,
+} = require("../shared/buildLineShoppingIntelligence")
 
 /**
  * NBA analogue of `buildMlbOpportunityBoard`: ladder-first opportunity pools derived from
@@ -322,6 +327,17 @@ function buildNbaOpportunityBoard(input = {}) {
     pipelineAudit,
   }
   maybeLogNbaPipelineAudit(pipelineAudit)
+
+  // ── Line Shopping (non-blocking, best-effort) ─────────────────────────────
+  try {
+    const ingestRows = Array.isArray(input?.ingestRows) ? input.ingestRows : []
+    const allRows = ingestRows.length ? ingestRows : completeUniverse
+    if (allRows.length) {
+      const bookState = loadBookState()
+      boardPayload.lineShopping = buildLineShopping(allRows, { sport: "nba", bookState })
+      boardPayload.ladderShopping = buildLadderShopping(allRows)
+    }
+  } catch (_) { /* never break board on shopping errors */ }
 
   return boardPayload
 }

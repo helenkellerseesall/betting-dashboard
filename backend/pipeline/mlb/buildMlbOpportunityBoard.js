@@ -9,6 +9,11 @@ const {
   buildMlbTrackingSummary,
   pruneOldTrackingFilesAsync,
 } = require("./phase4Tracking")
+const {
+  buildLineShopping,
+  buildLadderShopping,
+  loadBookState,
+} = require("../shared/buildLineShoppingIntelligence")
 
 function toNum(v) {
   const n = Number(v)
@@ -808,6 +813,15 @@ function buildMlbBankrollPlan(input = {}) {
     playerExposure[k] = round2((playerExposure[k] || 0) + Number(b.stake || 0))
   }
 
+  // ── Line Shopping (non-blocking, best-effort) ─────────────────────────────
+  let lineShopping = null
+  let ladderShopping = null
+  try {
+    const bookState = loadBookState()
+    lineShopping = buildLineShopping(rows, { sport: "mlb", bookState })
+    ladderShopping = buildLadderShopping(rows)
+  } catch (_) { /* never break board on shopping errors */ }
+
   return {
     bankroll: round2(bankroll),
     unitSize,
@@ -820,6 +834,8 @@ function buildMlbBankrollPlan(input = {}) {
     bets,
     slipBets,
     playerExposure,
+    lineShopping,
+    ladderShopping,
     meta: {
       generatedAt,
       betCount: bets.length,
