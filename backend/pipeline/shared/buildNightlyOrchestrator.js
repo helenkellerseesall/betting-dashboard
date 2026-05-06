@@ -334,7 +334,29 @@ function stepBuildReports(sport, date, snapshotRows = []) {
       }
     } catch (_) {}
 
-    return { ok: true, ledgerReport, bookReport, lineShopping, timingReport, portfolioResult }
+    // AI Slip construction from today's curated plays
+    let aiSlipResult = null
+    try {
+      const { buildAiSlips } = require("./buildSlipAi")
+      const bestFile  = path.join(TRACKING_DIR, `${sport}_tracked_best_${date}.json`)
+      const bestData  = readJsonSafe(bestFile, null)
+      const bestBets  = bestData?.entries || bestData || []
+      const trackedBetsFile = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
+      const trackedBets     = readJsonSafe(trackedBetsFile, []) || []
+      const candidates = [...trackedBets.filter((b) => Number(b.edge) > 0.04), ...bestBets]
+      if (candidates.length) {
+        aiSlipResult = buildAiSlips({
+          candidates,
+          timingResult,
+          bookState,
+          ledgerState: ledger,
+          portfolioBaseline: { bets: bestBets },
+          options: { sport, date, maxPerTier: 3 },
+        })
+      }
+    } catch (_) {}
+
+    return { ok: true, ledgerReport, bookReport, lineShopping, timingReport, portfolioResult, aiSlipResult }
   } catch (err) {
     return { ok: false, error: String(err?.message || err) }
   }

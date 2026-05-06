@@ -661,6 +661,29 @@ function buildBoard(opts = {}) {
     sections.push(sectionPortfolio(bets, slipBets, bankrollInfo, timingResult, bookState))
   }
 
+  // 10b. AI Slip construction
+  if (!compact) {
+    try {
+      const { buildAiSlips, formatSlipsSection } = require("./buildSlipAi")
+      const ledgerStateForAi = (() => {
+        try {
+          const ledger = require("./buildPersonalLedger")
+          return ledger.loadLedger ? ledger.loadLedger() : null
+        } catch (_) { return null }
+      })()
+      const aiResult = buildAiSlips({
+        candidates: bets,
+        timingResult, bookState,
+        ledgerState: ledgerStateForAi,
+        portfolioBaseline: { bets, slipBets },
+        options: { sport, date, maxPerTier: 3 },
+      })
+      sections.push(formatSlipsSection(aiResult, { maxPerTier: 3 }))
+    } catch (e) {
+      // soft-fail
+    }
+  }
+
   // 11. Process review
   if (ledgerReport) {
     const processSection = sectionProcessReview(ledgerReport)
@@ -694,7 +717,7 @@ function printBoard(opts = {}) {
 function loadAndBuildBoard({ sport = "mlb", date = null, compact = false } = {}) {
   const path = require("path")
   const fs   = require("fs")
-  const d    = date || todayKey()
+  let d      = date || todayKey()
   const dir  = path.join(__dirname, "..", "..", "runtime", "tracking")
 
   function safeRequire(p) {
@@ -709,10 +732,39 @@ function loadAndBuildBoard({ sport = "mlb", date = null, compact = false } = {})
     snapshotRows = snap?.data?.rows || snap?.rows || []
   } catch (_) {}
 
-  // Load tracked bets
-  const trackedBets = safeRequire(path.join(dir, `${sport}_tracked_bets_${d}.json`)) || []
-  const trackedBest = safeRequire(path.join(dir, `${sport}_tracked_best_${d}.json`))
-  const entries = trackedBest?.entries || []
+  // Load tracked bets/best for the requested day.
+  // If date not provided and today's files are empty/missing (common early in the day),
+  // fall back to the most recent day with data so the board doesn't look \"broken\".
+  function loadTrackedForDate(dayKey) {
+    const trackedBets = safeRequire(path.join(dir, `${sport}_tracked_bets_${dayKey}.json`)) || []
+    const trackedBest = safeRequire(path.join(dir, `${sport}_tracked_best_${dayKey}.json`))
+    const entries = trackedBest?.entries || []
+    return { trackedBets, trackedBest, entries }
+  }
+
+  let { trackedBets, trackedBest, entries } = loadTrackedForDate(d)
+
+  if (!date && (!entries.length && (!Array.isArray(trackedBets) || trackedBets.length === 0))) {
+    try {
+      const files = fs.readdirSync(dir)
+      const dayKeys = files
+        .filter((f) => f.startsWith(`${sport}_tracked_`) && f.endsWith(".json"))
+        .map((f) => (f.match(/_(\d{4}-\d{2}-\d{2})\.json$/) || [])[1])
+        .filter(Boolean)
+        .sort()
+        .reverse()
+      for (const dk of dayKeys) {
+        const cand = loadTrackedForDate(dk)
+        if (cand.entries.length || (Array.isArray(cand.trackedBets) && cand.trackedBets.length)) {
+          d = dk
+          trackedBets = cand.trackedBets
+          trackedBest = cand.trackedBest
+          entries = cand.entries
+          break
+        }
+      }
+    } catch (_) {}
+  }
 
   // Line shopping + timing
   let lineShopping = null
@@ -741,26 +793,34 @@ function loadAndBuildBoard({ sport = "mlb", date = null, compact = false } = {})
     ? { bankroll: trackedBest.metadata.bankroll, dailyRiskBudget: trackedBest.metadata.dailyRiskBudget }
     : null
 
-  // Use tracked_best entries enriched with tracked_bet data
-  const betMap = new Map()
-  for (const b of trackedBets) betMap.set(b.id, b)
-  const bets = entries.map((e) => {
-    const tb = trackedBets.find(
-      (b) => b.player === e.player && b.statFamily?.toLowerCase() === (e.propType || "").toLowerCase().replace(/\s+/g, "") && b.side?.[0] === (e.side || "")[0]?.toLowerCase()
-    )
-    return {
-      ...e,
-      edge:         e.edgeProbability,
-      modelProb:    e.predictedProbability,
-      statFamily:   e.propType?.toLowerCase().replace(/\s+/g, ""),
-      confidenceTier: e.bucket?.split(".").pop()?.toUpperCase() || "PLAYABLE",
-      sportsbook:   e.book,
-      odds:         e.odds,
-      confidence:   tb?.confidence,
-      tier:         tb?.tier,
-      oddsAmerican: e.odds,
-    }
-  })
+  // Primary board feed:
+  // - If tracked_best exists, use its curated entries (enriched) for high-signal board.
+  // - Otherwise (e.g., NBA on nights without tracked_best), fall back to tracked_bets
+  //   so downstream sections (including AI slips) still have eligible candidates.
+  let bets = []
+  if (entries.length) {
+    const betMap = new Map()
+    for (const b of trackedBets) betMap.set(b.id, b)
+    bets = entries.map((e) => {
+      const tb = trackedBets.find(
+        (b) => b.player === e.player && b.statFamily?.toLowerCase() === (e.propType || "").toLowerCase().replace(/\s+/g, "") && b.side?.[0] === (e.side || "")[0]?.toLowerCase()
+      )
+      return {
+        ...e,
+        edge:           e.edgeProbability,
+        modelProb:      e.predictedProbability,
+        statFamily:     e.propType?.toLowerCase().replace(/\s+/g, ""),
+        confidenceTier: e.bucket?.split(".").pop()?.toUpperCase() || "PLAYABLE",
+        sportsbook:     e.book,
+        odds:           e.odds,
+        confidence:     tb?.confidence,
+        tier:           tb?.tier,
+        oddsAmerican:   e.odds,
+      }
+    })
+  } else {
+    bets = trackedBets
+  }
 
   return buildBoard({ bets, lineShopping, timingResult, bookState, ledgerReport, sport, date: d, bankrollInfo, compact })
 }
