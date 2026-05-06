@@ -1,51 +1,75 @@
 [
   {
+    "player": "Juan Soto",
+    "team": "New York Mets",
+    "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
+    "odds": 290,
+    "hrScore": 34.9117,
+    "powerScore": 20,
+    "weather": 0,
+    "park": 2.5,
+    "tag": "ELITE",
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
     "player": "Trent Grisham",
     "team": "New York Yankees",
     "eventId": "895be7e0cbc697eeffc1f4c9fb60613b",
     "odds": 350,
-    "hrScore": 33.5359,
+    "hrScore": 33.5219,
     "powerScore": 19,
     "weather": 0,
     "park": 1.5,
     "tag": "ELITE",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
-    "player": "Ben Rice",
-    "team": "New York Yankees",
-    "eventId": "895be7e0cbc697eeffc1f4c9fb60613b",
-    "odds": 280,
-    "hrScore": 33.1499,
+    "player": "Kody Clemens",
+    "team": "Minnesota Twins",
+    "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
+    "odds": 330,
+    "hrScore": 33.3499,
     "powerScore": 19,
     "weather": 0,
-    "park": 1.5,
+    "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
     "player": "Jazz Chisholm Jr.",
     "team": "New York Yankees",
     "eventId": "895be7e0cbc697eeffc1f4c9fb60613b",
     "odds": 425,
-    "hrScore": 33.114,
+    "hrScore": 33.0999,
     "powerScore": 18,
     "weather": 0,
     "park": 1.5,
     "tag": "ELITE",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
-    "player": "Juan Soto",
+    "player": "Francisco Alvarez",
     "team": "New York Mets",
     "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
-    "odds": 575,
-    "hrScore": 32.9162,
-    "powerScore": 18,
+    "odds": 425,
+    "hrScore": 32.9139,
+    "powerScore": 19,
     "weather": 0,
     "park": 2.5,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "tag": "ELITE",
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
+    "player": "Mark Vientos",
+    "team": "New York Mets",
+    "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
+    "odds": 425,
+    "hrScore": 32.8338,
+    "powerScore": 19,
+    "weather": 0,
+    "park": 2.5,
+    "tag": "ELITE",
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
     "player": "Cody Bellinger",
@@ -57,7 +81,55 @@
     "weather": 0,
     "park": 1.5,
     "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
+    "player": "Bryce Harper",
+    "team": "Philadelphia Phillies",
+    "eventId": "8379550b6a949466b56d6ddffad2b2fe",
+    "odds": 390,
+    "hrScore": 32.6871,
+    "powerScore": 19,
+    "weather": 0,
+    "park": 0.75,
+    "tag": "ELITE",
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
+    "player": "Freddie Freeman",
+    "team": "Los Angeles Dodgers",
+    "eventId": "de734f0e0ca302bf4a6c20844ec6127c",
+    "odds": 390,
+    "hrScore": 32.5458,
+    "powerScore": 19,
+    "weather": 0,
+    "park": 0.75,
+    "tag": "ELITE",
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
+    "player": "Trevor Larnach",
+    "team": "Minnesota Twins",
+    "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
+    "odds": 450,
+    "hrScore": 32.4571,
+    "powerScore": 18,
+    "weather": 0,
+    "park": 0.75,
+    "tag": "LOTTO",
+    "timestamp": "2026-05-06T05:35:41.255Z"
+  },
+  {
+    "player": "Brett Baty",
+    "team": "New York Mets",
+    "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
+    "odds": 625,
+    "hrScore": 32.3548,
+    "powerScore": 18,
+    "weather": 0,
+    "park": 2.5,
+    "tag": "LOTTO",
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
     "player": "Ryan McMahon",
@@ -69,7 +141,7 @@
     "weather": 0,
     "park": 1.5,
     "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
     "player": "J.C. Escarra",
@@ -81,102 +153,30 @@
     "weather": 0,
     "park": 1.5,
     "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
     "player": "Josh Bell",
     "team": "Minnesota Twins",
     "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
     "odds": 390,
-    "hrScore": 31.1613,
+    "hrScore": 31.3686,
     "powerScore": 19,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   },
   {
-    "player": "MJ Melendez",
-    "team": "New York Mets",
-    "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
-    "odds": 750,
-    "hrScore": 30.9706,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 2.5,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "Ryan Jeffers",
-    "team": "Minnesota Twins",
-    "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
-    "odds": 475,
-    "hrScore": 30.3877,
-    "powerScore": 18,
-    "weather": 0,
-    "park": 0.75,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "Byron Buxton",
-    "team": "Minnesota Twins",
-    "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
-    "odds": 440,
-    "hrScore": 30.1333,
-    "powerScore": 18,
+    "player": "Adolis Garcia",
+    "team": "Philadelphia Phillies",
+    "eventId": "8379550b6a949466b56d6ddffad2b2fe",
+    "odds": 400,
+    "hrScore": 31.3143,
+    "powerScore": 19,
     "weather": 0,
     "park": 0.75,
     "tag": "ELITE",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "Jasson Domínguez",
-    "team": "New York Yankees",
-    "eventId": "895be7e0cbc697eeffc1f4c9fb60613b",
-    "odds": 575,
-    "hrScore": 29.6837,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 1.5,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "Joc Pederson",
-    "team": "Texas Rangers",
-    "eventId": "895be7e0cbc697eeffc1f4c9fb60613b",
-    "odds": 500,
-    "hrScore": 29.1499,
-    "powerScore": 16,
-    "weather": 0,
-    "park": 1.5,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "CJ Abrams",
-    "team": "Washington Nationals",
-    "eventId": "50bf885c9e829f1de48161f3ec47e5dc",
-    "odds": 500,
-    "hrScore": 28.7225,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 0.75,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
-  },
-  {
-    "player": "Mark Vientos",
-    "team": "New York Mets",
-    "eventId": "3d9ff7b926b247cb73447ca5c7a7428e",
-    "odds": 900,
-    "hrScore": 28.4942,
-    "powerScore": 17,
-    "weather": 0,
-    "park": 2.5,
-    "tag": "LOTTO",
-    "timestamp": "2026-05-06T03:42:37.590Z"
+    "timestamp": "2026-05-06T05:35:41.255Z"
   }
 ]
