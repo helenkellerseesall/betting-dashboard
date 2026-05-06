@@ -50,9 +50,28 @@ console.log("ACTIVE:", __filename)
  *   }
  */
 
+const fs = require("fs")
+const path = require("path")
+const {
+  refineFirstBasketPlays,
+  buildFirstBasketPortfolio,
+} = require("./buildNbaFirstBasketIntelligence")
+
 function num(x) {
   const n = Number(x)
   return Number.isFinite(n) ? n : null
+}
+
+// Compact, optional read of the rolling review-engine state for archetype trust.
+// Lightweight: reads ONE small JSON, falls back silently. No locking, no APIs.
+function loadReviewStateSafe() {
+  try {
+    const p = path.join(__dirname, "..", "..", "runtime", "tracking", "post_game_review_state_nba.json")
+    if (!fs.existsSync(p)) return null
+    return JSON.parse(fs.readFileSync(p, "utf8"))
+  } catch (_) {
+    return null
+  }
 }
 
 function clamp01(x) {
@@ -331,20 +350,42 @@ function buildNbaFirstBasketEngine(input = {}) {
 
   playersOut.sort((a, b) => b.modelProb - a.modelProb)
 
-  const plays = playersOut
+  // ── Opening-Possession Intelligence Refinement ─────────────────────────────
+  // Existing scoring above is preserved; intel layer evolves it via a
+  // confidence-weighted blend. Falls through silently on any failure.
+  let refinedPlayers = playersOut
+  let portfolio = null
+  try {
+    const reviewState = loadReviewStateSafe()
+    const refined = refineFirstBasketPlays({
+      players: playersOut,
+      teamProbabilities,
+      universeIdx,
+      reviewState,
+    })
+    refinedPlayers = refined.players
+    portfolio = buildFirstBasketPortfolio(refinedPlayers)
+  } catch (e) {
+    // never break the existing engine if intel layer hits an edge case
+    refinedPlayers = playersOut
+  }
+
+  const plays = refinedPlayers
     .filter((p) => p.edge != null && p.edge > 0 && Number(p.ev || 0) > 0)
     .sort((a, b) => b.edge - a.edge)
 
   return {
     teamProbabilities,
-    players: playersOut,
+    players: refinedPlayers,
     plays,
+    portfolio,
     meta: {
       generatedAt,
-      playerCount: playersOut.length,
-      starterCount: playersOut.length,
+      playerCount: refinedPlayers.length,
+      starterCount: refinedPlayers.length,
       marketRowsConsidered: firstBasketCandidates.length,
       playsWithEdge: plays.length,
+      intelEnabled: refinedPlayers !== playersOut,
     },
   }
 }

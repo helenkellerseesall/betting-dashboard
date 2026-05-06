@@ -88,13 +88,35 @@ function classifyMiss(bet, ctx) {
     if (overshot) tags.push("defensive playmaking spike")
   }
 
-  // First-basket / first-shot family.
+  // First-basket / first-shot family — opening possession intelligence tags.
   if (fam.includes("firstbasket") || fam.includes("firstshot") || fam === "first basket") {
     if (env.tipWinner != null && env.tipWinner !== bet.team && hit === false) {
       tags.push("first-basket tip-loss")
     }
     if (env.openingActionType && hit === false) {
       tags.push(`first-action: ${String(env.openingActionType)}`)
+    }
+    // First-touch ≠ first-shot distinction
+    if (env.firstTouchPlayer && env.firstShotPlayer
+        && env.firstTouchPlayer === bet.player
+        && env.firstShotPlayer !== bet.player
+        && hit === false) {
+      tags.push("first-touch deferred")
+    }
+    // Scripted opener targeted a different archetype
+    if (env.openingActionType && bet.firstBasketSnapshot?.archetype && hit === false) {
+      const action = String(env.openingActionType).toLowerCase()
+      const arch = String(bet.firstBasketSnapshot.archetype).toLowerCase()
+      if (action.includes("post") && !arch.includes("post") && !arch.includes("jump_ball")) {
+        tags.push("scripted-opener-mismatch")
+      }
+      if (action.includes("transition") && arch.includes("scripted")) {
+        tags.push("transition-opener-script-miss")
+      }
+    }
+    // Defensive mismatch exploited
+    if (env.defensiveMismatch === true && hit === false) {
+      tags.push("opening-defensive-mismatch")
     }
   }
 
@@ -115,6 +137,13 @@ function detectArchetypes(bet, ctx) {
   if (fam === "assists" && overshot) out.push("heliocentric initiator")
   if ((fam === "points" || fam === "pts") && overshot) out.push("transition scorer")
   if ((fam === "steals" || fam === "blocks") && overshot) out.push("defensive playmaker")
+
+  // First-basket archetype reinforcement: when an FB bet hits, reinforce its
+  // recorded archetype so the intel layer's archetype trust evolves over time.
+  if ((fam.includes("firstbasket") || fam === "first basket") && ctx?.hit === true) {
+    const arch = bet?.firstBasketSnapshot?.archetype
+    if (typeof arch === "string" && arch && arch !== "balanced") out.push(arch)
+  }
 
   // Stable / well-calibrated profile (small absolute delta on hit).
   if (Number.isFinite(delta) && Math.abs(delta) <= 0.5 && ctx?.hit === true) out.push("stable producer")

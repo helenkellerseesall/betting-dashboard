@@ -430,6 +430,15 @@ function normalizeBet(input) {
     projectedFirstTouchProb: fbSnap.projectedFirstTouchProb != null ? num(fbSnap.projectedFirstTouchProb) : null,
     tipWinExpectation: fbSnap.tipWinExpectation != null ? num(fbSnap.tipWinExpectation) : null,
     openingPossessionConf: fbSnap.openingPossessionConf != null ? num(fbSnap.openingPossessionConf) : null,
+    // Intel layer fields (may be null if intel didn't run)
+    archetype: fbSnap.archetype || null,
+    pFirstBasket: fbSnap.pFirstBasket != null ? num(fbSnap.pFirstBasket) : null,
+    components: fbSnap.components && typeof fbSnap.components === "object" ? {
+      pTipWin: num(fbSnap.components.pTipWin),
+      pFirstTouch: num(fbSnap.components.pFirstTouch),
+      pFirstShotGivenTouch: num(fbSnap.components.pFirstShotGivenTouch),
+      pMakeShot: num(fbSnap.components.pMakeShot),
+    } : null,
   } : null
 
   const base = {
