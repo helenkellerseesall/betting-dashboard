@@ -83,6 +83,7 @@ const mlScorer = new MLScorer(modelPath)
 app.use(cors())
 app.use(express.json())
 app.use("/", mlbRoutes)
+app.use("/api/ws", require("./routes/workstationRoutes"))
 console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
 
 let snapshotLoadedFromDisk = false

@@ -491,8 +491,20 @@ async function runAll() {
       const { buildNightlyReport } = require("../pipeline/shared/buildPersonalLedger")
 
       const rows      = Array.isArray(snapshot?.rows) ? snapshot.rows : []
-      const bets      = Array.isArray(opp?.bets)      ? opp.bets : []
-      const slipBets  = Array.isArray(opp?.slipBets)  ? opp.slipBets : []
+      // Source of truth for board candidates: bestBetsBoard.allPlays (full ranked
+      // singles universe) and bestBetsBoard.bankroll.bets (sized exposures).
+      // Previously read opp.bets / opp.slipBets which don't exist on this API
+      // response shape, leaving bets empty and starving the AI slip section.
+      const bbb       = (opp && typeof opp.bestBetsBoard === "object") ? opp.bestBetsBoard : null
+      const bankroll  = bbb?.bankroll || null
+      const bankrollBets = Array.isArray(bankroll?.bets) ? bankroll.bets : []
+      const allPlays  = Array.isArray(bbb?.allPlays) ? bbb.allPlays : []
+      const corePlays = Array.isArray(bbb?.corePlays) ? bbb.corePlays : []
+      const bets =
+        bankrollBets.length ? bankrollBets :
+        allPlays.length     ? allPlays :
+        corePlays
+      const slipBets  = Array.isArray(bankroll?.slipBets) ? bankroll.slipBets : []
 
       let lineShopping = opp?.lineShopping
       let timingResult = opp?.timingResult

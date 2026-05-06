@@ -51,16 +51,21 @@ const VOLATILITY_RULES = [
   // lotto first (high odds or inherently rare)
   { bucket: "lotto",      test: (b) => (num(b.odds || b.oddsAmerican) ?? 0) >= 350 },
   { bucket: "lotto",      test: (b) => normFam(b.statFamily || b.propType).includes("firstbasket") },
-  { bucket: "lotto",      test: (b) => ["homeruns","homeruns"].includes(normFam(b.statFamily||b.propType)) && (b.line ?? 0) >= 1.5 },
-  { bucket: "lotto",      test: (b) => ["totalbases"].includes(normFam(b.statFamily||b.propType)) && (b.line ?? 0) >= 3.5 },
+  { bucket: "lotto",      test: (b) => ["homeruns","hr","homers"].includes(normFam(b.statFamily||b.propType)) && (b.line ?? 0) >= 1.5 },
+  { bucket: "lotto",      test: (b) => normFam(b.statFamily||b.propType) === "totalbases" && (b.line ?? 0) >= 3.5 },
   { bucket: "lotto",      test: (b) => normFam(b.statFamily||b.propType).includes("threes") && (b.line ?? 0) >= 3.5 },
   // aggressive
-  { bucket: "aggressive", test: (b) => ["homeruns","hr"].includes(normFam(b.statFamily||b.propType)) },
+  { bucket: "aggressive", test: (b) => ["homeruns","hr","homers"].includes(normFam(b.statFamily||b.propType)) },
   { bucket: "aggressive", test: (b) => (num(b.odds || b.oddsAmerican) ?? 0) >= 200 },
   { bucket: "aggressive", test: (b) => normFam(b.statFamily||b.propType).includes("xbh") },
   { bucket: "aggressive", test: (b) => normFam(b.statFamily||b.propType).includes("combo") || normFam(b.statFamily||b.propType) === "pra" },
-  // balanced
-  { bucket: "balanced",   test: (b) => ["totalbases","assists","threes","rbis"].includes(normFam(b.statFamily||b.propType)) },
+  // balanced — hitter/game stats that were falling through to "safe":
+  // inflated featured volRealism + barred AGGRESSIVE slip legs.
+  { bucket: "balanced",   test: (b) => ["totalbases","assists","threes","rbis","hits","runs","points","rebounds","steals","blocks","doubles","triples","stolenbases","stolenbase"].includes(normFam(b.statFamily||b.propType)) },
+  { bucket: "balanced",   test: (b) => {
+    const f = normFam(b.statFamily||b.propType)
+    return (f.includes("h+r+rbi") || f.includes("hrrbi")) && !f.includes("pitcher")
+  } },
   { bucket: "balanced",   test: (b) => normFam(b.statFamily||b.propType).includes("pitcherk") || normFam(b.statFamily||b.propType).includes("strikeout") },
   // safe (default fallback)
   { bucket: "safe",       test: () => true },
@@ -133,14 +138,18 @@ function buildExposureMap(bets = [], slipBets = []) {
 
 // ── CORRELATION DETECTION ─────────────────────────────────────────────────────
 
+// Thresholds intentionally permissive — multiple prop ladders on a single player
+// (eg Bichette H over/under 1.5 + TB over 1.5) is a normal portfolio shape, not a
+// 5-alarm correlation. Real correlation risk is when a single archetype OR game
+// dominates the portfolio.
 const CORRELATION_THRESHOLDS = {
-  sameGame:    { warn: 3, critical: 5 },   // bets on same game
-  samePlayer:  { warn: 2, critical: 3 },   // bets on same player
-  sameStat:    { warn: 5, critical: 8 },   // bets on same stat family
+  sameGame:    { warn: 5, critical: 8 },   // bets on same game (was 3/5)
+  samePlayer:  { warn: 5, critical: 8 },   // bets on same player (was 2/3 — way too tight)
+  sameStat:    { warn: 8, critical: 14 },  // bets on same stat family (was 5/8)
   sameScript:  { warn: 4, critical: 6 },   // overs in same game (pace-linked)
-  fbConcentration: { warn: 2, critical: 3 }, // first basket bets
-  hrConcentration: { warn: 3, critical: 5 }, // HR bets
-  slipLegOverlap:  { warn: 2, critical: 3 }, // same player across multiple slips
+  fbConcentration: { warn: 3, critical: 5 }, // first basket bets (was 2/3)
+  hrConcentration: { warn: 5, critical: 8 }, // HR bets (was 3/5)
+  slipLegOverlap:  { warn: 3, critical: 5 }, // same player across multiple slips (was 2/3)
 }
 
 /**
@@ -165,10 +174,15 @@ function detectCorrelations(bets = [], slipBets = [], exposureMap = {}) {
     const unders    = gameBets.filter((b) => String(b.side || "").toLowerCase() === "under").length
     const level     = correlationLevel(gv.count, CORRELATION_THRESHOLDS.sameGame.warn, CORRELATION_THRESHOLDS.sameGame.critical)
     const scriptRisk = overs >= CORRELATION_THRESHOLDS.sameScript.warn
+    // Use matchup name if it looks like a real matchup ("TEAM vs TEAM"); otherwise
+    // fall back to a generic label. Avoid showing raw eventId hashes to the user.
+    const friendlyLabel = (gv.matchup && /[A-Za-z]/.test(gv.matchup) && gv.matchup.length < 30)
+      ? gv.matchup
+      : "this game"
     const cluster   = {
       type:     "same_game",
       key:      gk,
-      label:    gv.matchup || gk,
+      label:    friendlyLabel,
       count:    gv.count,
       level,
       players:  gv.players.slice(0, 6),
@@ -404,44 +418,64 @@ function buildSizingNudges(bets = [], correlations = {}, timingResult = null, bo
  * 0–100 portfolio health score.
  * 100 = perfectly diversified, low correlation, good volatility mix, no conflicts.
  */
+/**
+ * 0–100 portfolio health score.
+ *
+ * Grading is intentionally HELPFUL not punishing. We want users to understand
+ * concentration, not feel scolded. A typical curated nightly pool will sit
+ * 65–85 (B / B-).  Only true mistakes (multiple high-corr clusters with
+ * conflicts) should fall below 50.
+ */
 function buildPortfolioScore(exposureMap, correlations, conflicts) {
   let score = 100
 
-  // Correlation penalties
-  score -= correlations.highCount     * 12
-  score -= correlations.modCount      * 5
+  // Correlation penalties — softened
+  score -= correlations.highCount     * 8        // was 12
+  score -= correlations.modCount      * 3        // was 5
 
-  // Conflict penalties
-  score -= conflicts.length * 8
+  // Conflict penalties — softened slightly
+  score -= conflicts.length * 6                  // was 8
 
   // Volatility imbalance: too many lotto bets
   const total    = exposureMap.totalSingles || 1
   const lottoPct = (exposureMap.byVolatility?.lotto   || 0) / total
   const aggrPct  = (exposureMap.byVolatility?.aggressive || 0) / total
-  if (lottoPct > 0.4) score -= 10
-  if (aggrPct  > 0.5) score -= 8
+  if (lottoPct > 0.55) score -= 8                // was >0.4 / -10
+  else if (lottoPct > 0.40) score -= 4
+  if (aggrPct  > 0.65) score -= 6                // was >0.5 / -8
 
   // Concentration: one stat > 50% of bets
   const maxStatCount = Math.max(...Object.values(exposureMap.byStat || {}).map((v) => v.count), 0)
-  if (maxStatCount / total > 0.5) score -= 8
+  if (maxStatCount / total > 0.65) score -= 6    // was >0.5 / -8
+  else if (maxStatCount / total > 0.50) score -= 3
 
   // Concentration: one game > 40% of bets
   const maxGameCount = Math.max(...Object.values(exposureMap.byGame || {}).map((v) => v.count), 0)
-  if (maxGameCount / total > 0.4) score -= 10
+  if (maxGameCount / total > 0.55) score -= 8    // was >0.4 / -10
+  else if (maxGameCount / total > 0.40) score -= 4
 
   // Sportsbook concentration: single book > 70%
   const maxBookCount = Math.max(...Object.values(exposureMap.byBook || {}).map((v) => v.count), 0)
-  if (maxBookCount / total > 0.7) score -= 5
+  if (maxBookCount / total > 0.75) score -= 4    // was >0.7 / -5
 
   return Math.max(0, Math.min(100, Math.round(score)))
 }
 
 function portfolioGrade(score) {
-  if (score >= 85) return "A — Balanced"
-  if (score >= 70) return "B — Mostly Diversified"
-  if (score >= 55) return "C — Moderate Risk"
-  if (score >= 40) return "D — Concentrated"
-  return "F — High Correlation Risk"
+  if (score >= 85) return "Balanced"
+  if (score >= 72) return "Mostly Diversified"
+  if (score >= 60) return "Moderate Concentration"
+  if (score >= 45) return "Elevated Concentration"
+  return "High Correlation"
+}
+
+function portfolioMood(score) {
+  // Helpful tone for the UI — never "F" or "scolding"
+  if (score >= 85) return { tone: "good",     headline: "Healthy diversification" }
+  if (score >= 72) return { tone: "good",     headline: "Mostly diversified portfolio" }
+  if (score >= 60) return { tone: "neutral",  headline: "Some concentration to consider" }
+  if (score >= 45) return { tone: "watch",    headline: "Elevated game/player concentration" }
+  return                   { tone: "watch",    headline: "High correlation — consider trimming" }
 }
 
 // ── MAIN ENTRY POINT ──────────────────────────────────────────────────────────
@@ -469,21 +503,33 @@ function optimizePortfolio(opts = {}) {
   const { nudges, reasons } = buildSizingNudges(bets, correlations, timingResult, bookState)
   const score = buildPortfolioScore(exposureMap, correlations, conflicts)
   const grade = portfolioGrade(score)
+  const mood  = portfolioMood(score)
 
-  // Build warnings list
+  // Build warnings list (helpful, non-punishing tone)
   const warnings = []
-  for (const c of correlations.clusters) {
-    if (c.level === "high") warnings.push(`⚠️  HIGH CORR — ${c.note}`)
-    else if (c.level === "moderate") warnings.push(`🔶 MOD CORR  — ${c.note}`)
+  // Only surface notes when there is something genuinely actionable.
+  // Cap to the top few so the UI doesn't feel spammy.
+  const sortedClusters = (correlations.clusters || [])
+    .filter((c) => c.level === "high" || c.level === "moderate")
+    .slice(0, 5)
+  for (const c of sortedClusters) {
+    let label = c.note
+    // Descriptive phrasing — counts the bets, doesn't scold the user.
+    if (c.type === "same_game")          label = `${c.count} legs on ${c.label}`
+    else if (c.type === "same_player")   label = `${c.count} bets on ${c.label}`
+    else if (c.type === "stat_concentration") label = `${c.count} bets on ${c.label} (concentrated stat)`
+    else if (c.type === "fb_concentration")   label = `${c.count} first-basket bets`
+    else if (c.type === "hr_concentration")   label = `${c.count} HR bets`
+    warnings.push({ level: c.level, type: c.type, label, count: c.count })
   }
   for (const c of conflicts) {
-    warnings.push(`❌ CONFLICT  — ${c.note}`)
+    warnings.push({ level: "high", type: "conflict", label: c.note })
   }
   const total     = exposureMap.totalSingles
   const lottoPct  = Math.round((exposureMap.byVolatility.lotto   / Math.max(total, 1)) * 100)
   const aggrPct   = Math.round((exposureMap.byVolatility.aggressive / Math.max(total, 1)) * 100)
-  if (lottoPct > 40) warnings.push(`🎲 ${lottoPct}% lotto bets — high variance portfolio`)
-  if (aggrPct  > 50) warnings.push(`🎰 ${aggrPct}% aggressive bets — reduce if bankroll conservative`)
+  if (lottoPct > 40) warnings.push({ level: "moderate", type: "volatility", label: `${lottoPct}% lotto bets — aggressive variance mix` })
+  if (aggrPct  > 55) warnings.push({ level: "moderate", type: "volatility", label: `${aggrPct}% aggressive bets — high-variance night` })
 
   const report = buildPortfolioReport({
     exposureMap, correlations, conflicts, score, grade, warnings, nudges, reasons,
@@ -498,6 +544,7 @@ function optimizePortfolio(opts = {}) {
     reasons,
     score,
     grade,
+    mood,
     warnings,
     report,
   }
@@ -581,8 +628,12 @@ function buildPortfolioReport({ exposureMap, correlations, conflicts, score, gra
   // Warnings
   if (warnings?.length) {
     lines.push("")
-    lines.push(`  WARNINGS:`)
-    warnings.forEach((w) => lines.push(`    ${w}`))
+    lines.push(`  NOTES:`)
+    warnings.forEach((w) => {
+      const icon = w.level === "high" ? "⚠️ " : "🔶"
+      const text = typeof w === "string" ? w : (w.label || "")
+      lines.push(`    ${icon} ${text}`)
+    })
   }
 
   // Bankroll
@@ -606,4 +657,5 @@ module.exports = {
   buildSizingNudges,
   buildPortfolioScore,
   portfolioGrade,
+  portfolioMood,
 }

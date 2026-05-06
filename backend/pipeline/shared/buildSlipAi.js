@@ -241,6 +241,28 @@ function lookupTiming(leg, timingMap) {
   return null
 }
 
+/**
+ * Tie-break / soft rank bias for AGGRESSIVE + LOTTO slip assembly only.
+ * Prefer offensive-market legs with real edge + timing — NOT a fake overs boost:
+ * only nudges ordering when composite scores are similar.
+ */
+function offensiveAttackTextureBonus(leg, timingMap) {
+  const fam = normFam(leg.statFamily || leg.propType)
+  if (fam.includes("strikeout") || fam.includes("outs") || fam.includes("pitcherk")) return 0
+  const offensive =
+    fam.includes("hits") || fam.includes("runs") || fam.includes("totalbase") ||
+    fam.includes("rbi") || fam.includes("homerun") || fam === "hr" ||
+    fam.includes("xbh") || fam.includes("stolen") || fam.includes("steals") ||
+    fam.includes("points") || fam.includes("rebounds") || fam.includes("threes") ||
+    fam.includes("assists") || fam.includes("combo") || fam === "pra"
+  let b = 0
+  if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.032
+  if ((leg.volatility === "aggressive" || leg.volatility === "lotto") && (leg.edge ?? 0) > 0.04) b += 0.022
+  const tc = lookupTiming(leg, timingMap)
+  if (tc?.state === "steam" || tc?.urgency === "immediate") b += 0.014
+  return Math.min(0.07, b)
+}
+
 // ── LEG REASONING ─────────────────────────────────────────────────────────────
 
 function legReasoning(leg, score, timingMap) {
@@ -255,7 +277,9 @@ function legReasoning(leg, score, timingMap) {
   if (tc?.state   === "steam") tags.push("steam")
   if (f.book      >= 0.75) tags.push("soft book")
   if (f.archetype >= 0.75) tags.push("archetype trust")
-  if (leg.volatility === "safe")  tags.push("safe lane")
+  if (leg.volatility === "safe")       tags.push("safe lane")
+  else if (leg.volatility === "balanced") tags.push("balanced texture")
+  else if (leg.volatility === "aggressive") tags.push("attack lane")
   if (leg.volatility === "lotto") tags.push("lotto upside")
   return tags.slice(0, 3).join(" + ")
 }
@@ -384,17 +408,29 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     return true
   })
 
-  // Sort by composite score desc
-  eligible.sort((a, b) => b.composite - a.composite)
+  // Sort by composite; aggressive/lotto tiers add a tiny texture bias so seeds
+  // aren't always "balanced unders + one HR" when scores cluster.
+  const textureRank = (sl) =>
+    sl.composite + ((tier === "aggressive" || tier === "lotto") ? offensiveAttackTextureBonus(sl.leg, ctx.timingMap) : 0)
+  eligible.sort((a, b) => textureRank(b) - textureRank(a) || b.composite - a.composite)
 
   const slips = []
   const seenSignatures = new Set()
   const legUsageCount = new Map()  // legId -> times appeared across this tier's slips
 
+  // Cross-tier player cap: a single player can appear in at most 3 slips ACROSS
+  // ALL TIERS combined (safe + balanced + aggressive + lotto). This is what
+  // breaks "same-player slip spam" on the board.
+  const MAX_PLAYER_GLOBAL = 3
+  const playerKey = (leg) => String(leg.player || "").toLowerCase()
+  const globalCount = ctx.globalPlayerCount instanceof Map ? ctx.globalPlayerCount : null
+
   for (let i = 0; i < eligible.length && slips.length < maxSlips; i++) {
     const seed = eligible[i]
     // Don't re-seed the same leg
     if ((legUsageCount.get(seed.leg.id) || 0) >= 1) continue
+    // Skip if seed player already saturated globally
+    if (globalCount && (globalCount.get(playerKey(seed.leg)) || 0) >= MAX_PLAYER_GLOBAL) continue
     const slipLegs    = [seed.leg]
     const slipScores  = [seed]
     const seedUsed    = new Set([seed.leg.id])
@@ -407,6 +443,8 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
       if (seedUsed.has(cand.leg.id)) continue
       // Cap each leg's appearances across the tier's slips at 2
       if ((legUsageCount.get(cand.leg.id) || 0) >= 2) continue
+      // Skip if this candidate's player is globally saturated
+      if (globalCount && (globalCount.get(playerKey(cand.leg)) || 0) >= MAX_PLAYER_GLOBAL) continue
       const check = canAddLeg(slipLegs, cand.leg, tpl)
       if (!check.ok) continue
       slipLegs.push(cand.leg)
@@ -430,6 +468,7 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     // Build reasoning from top factors
     const avgFactors = aggregateFactors(slipScores)
     const reasoning  = slipReasoning(tier, avgFactors, slipLegs, ctx.timingMap)
+    const narrative  = slipNarrative(tier, avgFactors, slipLegs, ctx.timingMap)
 
     const id = `${ctx.date || ""}##${tier.toUpperCase()}##${slipLegs.map((l) => `${(l.player||"").toLowerCase()}|${normFam(l.statFamily)}|${l.side}|${l.line}`).join("__")}`
 
@@ -448,6 +487,7 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
       compositeScore:      r4(slipScores.reduce((s, x) => s + x.composite, 0) / slipScores.length),
       factors:             avgFactors,
       reasoning,
+      narrative,
       legReasonings:       slipScores.map((s) => ({
         legId:    s.leg.id,
         player:   s.leg.player,
@@ -458,6 +498,10 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     // Track usage so each leg appears in at most 2 slips and is only seed once
     for (const l of slipLegs) {
       legUsageCount.set(l.id, (legUsageCount.get(l.id) || 0) + 1)
+      if (globalCount) {
+        const pk = playerKey(l)
+        globalCount.set(pk, (globalCount.get(pk) || 0) + 1)
+      }
     }
   }
 
@@ -503,12 +547,54 @@ function slipReasoning(tier, factors, legs, timingMap) {
   const flavor = {
     safe:       "safe lane",
     balanced:   "balanced ladder",
-    aggressive: "aggressive upside",
-    lotto:      "lotto longshot",
+    aggressive: "attack surface mix",
+    lotto:      "explosive upside book",
   }[tier]
   if (flavor) tags.push(flavor)
 
   return tags.slice(0, 4).join(" + ")
+}
+
+/**
+ * Generate a longer-form explanation of why this slip exists.
+ * Used by the workstation UI's expanded slip card.
+ */
+function slipNarrative(tier, factors, legs, timingMap) {
+  const games = new Set(legs.map((l) => gameKey(l)).filter(Boolean))
+  const stats = new Set(legs.map((l) => normFam(l.statFamily)))
+  const books = new Set(legs.map((l) => String(l.book || "").toLowerCase()).filter(Boolean))
+
+  const bullets = []
+  // Game/stat diversity
+  if (games.size === legs.length) bullets.push(`${legs.length} legs across ${games.size} different games`)
+  else                            bullets.push(`${legs.length} legs (${games.size} games / ${stats.size} stat families)`)
+
+  if (factors.projection >= 0.65)         bullets.push("Strong combined edge with high model probability")
+  else if (factors.projection >= 0.45)    bullets.push("Solid edge above market implied probability")
+
+  if (factors.clv >= 0.75)                bullets.push("Historically strong CLV on these stat families")
+  else if (factors.clv <= 0.30)           bullets.push("Watch CLV — beats this market less consistently")
+
+  // Timing
+  const urgent = legs.filter((l) => {
+    const tc = lookupTiming(l, timingMap)
+    return tc?.urgency === "immediate" || tc?.state === "stale_window"
+  })
+  if (urgent.length) bullets.push(`${urgent.length} leg${urgent.length === 1 ? "" : "s"} with urgent timing — recommend placing now`)
+
+  if (factors.book >= 0.75)               bullets.push("Composed mostly of soft books with positive book CLV history")
+  if (books.size >= legs.length)          bullets.push("Each leg shopped to its best book")
+
+  // Tier flavor
+  const flavor = {
+    safe:       "Built around stable archetypes and short ladders",
+    balanced:   "Balanced ladder mix — moderate variance with EV",
+    aggressive: "Higher payout target — favors timing + offensive texture where edges cluster",
+    lotto:      "Longshot upside — small stake, asymmetric payoff",
+  }[tier]
+  if (flavor) bullets.push(flavor)
+
+  return bullets.slice(0, 5)
 }
 
 function serializeLeg(leg) {
@@ -624,7 +710,11 @@ function buildAiSlips(opts = {}) {
     return { leg, ...score }
   })
 
-  // Build slips per tier, in increasing aggressiveness so safer tiers get the best legs first
+  // Build slips per tier, in increasing aggressiveness so safer tiers get the best legs first.
+  // We share a global cross-tier player counter so the same player can't dominate
+  // every slip on the board.
+  const globalPlayerCount = new Map()
+  ctx.globalPlayerCount = globalPlayerCount
   const slips = {
     safe:       buildSlipsForTier("safe",       scored, ctx, maxPerTier),
     balanced:   buildSlipsForTier("balanced",   scored, ctx, maxPerTier),
