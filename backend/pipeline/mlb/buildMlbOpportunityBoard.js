@@ -14,6 +14,11 @@ const {
   buildLadderShopping,
   loadBookState,
 } = require("../shared/buildLineShoppingIntelligence")
+const {
+  buildMarketTiming,
+  enrichRowsWithTiming,
+  loadTimingState,
+} = require("../shared/buildMarketTimingIntelligence")
 
 function toNum(v) {
   const n = Number(v)
@@ -813,14 +818,34 @@ function buildMlbBankrollPlan(input = {}) {
     playerExposure[k] = round2((playerExposure[k] || 0) + Number(b.stake || 0))
   }
 
-  // ── Line Shopping (non-blocking, best-effort) ─────────────────────────────
-  let lineShopping = null
+  // ── Line Shopping + Timing (non-blocking, best-effort) ───────────────────
+  let lineShopping  = null
   let ladderShopping = null
+  let timingResult  = null
   try {
-    const bookState = loadBookState()
-    lineShopping = buildLineShopping(rows, { sport: "mlb", bookState })
+    const bookState   = loadBookState()
+    const timingState = loadTimingState()
+    lineShopping  = buildLineShopping(rows, { sport: "mlb", bookState })
     ladderShopping = buildLadderShopping(rows)
-  } catch (_) { /* never break board on shopping errors */ }
+    timingResult  = buildMarketTiming(rows, { lineShopping, timingState, bookState })
+
+    // Annotate top bets with urgency tags
+    const urgencyMap = new Map()
+    for (const tc of timingResult.timingClassifications) {
+      urgencyMap.set(tc.key, { urgency: tc.urgency, state: tc.state, signals: tc.signals })
+    }
+    for (const b of bets) {
+      const k = [
+        String(b.eventId || ""),
+        String(b.player || "").toLowerCase().trim(),
+        String(b.statFamily || "").toLowerCase(),
+        String(b.side || "").toLowerCase(),
+        String(b.line ?? "any"),
+      ].join("|")
+      const tc = urgencyMap.get(k)
+      if (tc) b.timingUrgency = tc
+    }
+  } catch (_) { /* never break board on shopping/timing errors */ }
 
   return {
     bankroll: round2(bankroll),
@@ -836,6 +861,7 @@ function buildMlbBankrollPlan(input = {}) {
     playerExposure,
     lineShopping,
     ladderShopping,
+    timingResult,
     meta: {
       generatedAt,
       betCount: bets.length,

@@ -47,6 +47,14 @@ const {
   loadBookState,
   saveBookState,
 }                                  = require("./buildLineShoppingIntelligence")
+const {
+  buildMarketTiming,
+  updateTimingOutcomesFromLedger,
+  updateConsensusSnapshot,
+  buildNightlyTimingReport,
+  loadTimingState,
+  saveTimingState,
+}                                  = require("./buildMarketTimingIntelligence")
 
 // Sport-specific tracking modules (lazy-loaded to keep require cost zero for unused sports)
 const SPORT_TRACKING = {
@@ -253,20 +261,53 @@ function stepBookSync(sport, snapshotRows = []) {
   }
 }
 
+function stepTimingSync(sport, snapshotRows = []) {
+  try {
+    const ledger      = loadLedger()
+    const bookState   = loadBookState()
+    let   timingState = loadTimingState()
+
+    // Update timing outcomes from settled ledger CLV data
+    timingState = updateTimingOutcomesFromLedger(ledger.bets, timingState)
+
+    let timingResult = null
+    if (snapshotRows.length) {
+      const lineShopping = buildLineShopping(snapshotRows, { sport, bookState })
+      timingResult = buildMarketTiming(snapshotRows, { lineShopping, timingState, bookState })
+      // Store current consensus as baseline for next nightly comparison
+      timingState = updateConsensusSnapshot(timingState, timingResult.newConsensusMap)
+    }
+
+    saveTimingState(timingState)
+    return {
+      ok: true,
+      immediateCount: timingResult?.meta?.immediateCount ?? 0,
+      soonCount:      timingResult?.meta?.soonCount ?? 0,
+      statProfiles:   Object.keys(timingState.statTimingProfiles || {}).length,
+      timingResult,
+    }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) }
+  }
+}
+
 function stepBuildReports(sport, date, snapshotRows = []) {
   try {
     // Ledger nightly report
     const ledgerReport = buildNightlyReport({ sport, date, windowDays: 30 })
 
     // Book intelligence report
-    const bookState  = loadBookState()
-    const ledger     = loadLedger()
-    let lineShopping = null
-    let ladderResult = null
+    const bookState   = loadBookState()
+    const timingState = loadTimingState()
+    const ledger      = loadLedger()
+    let lineShopping  = null
+    let ladderResult  = null
+    let timingResult  = null
 
     if (snapshotRows.length) {
       lineShopping = buildLineShopping(snapshotRows, { sport, bookState })
       ladderResult = buildLadderShopping(snapshotRows)
+      timingResult = buildMarketTiming(snapshotRows, { lineShopping, timingState, bookState })
     }
 
     const bookReport = buildNightlyBookReport({
@@ -276,7 +317,9 @@ function stepBuildReports(sport, date, snapshotRows = []) {
       ledgerBets: ledger.bets.filter((b) => b.date === date),
     })
 
-    return { ok: true, ledgerReport, bookReport, lineShopping }
+    const timingReport = buildNightlyTimingReport({ timingResult, timingState, ledgerBets: ledger.bets })
+
+    return { ok: true, ledgerReport, bookReport, lineShopping, timingReport }
   } catch (err) {
     return { ok: false, error: String(err?.message || err) }
   }
@@ -394,6 +437,13 @@ function runNightlyReview(opts = {}) {
       ? { skipped: true, reason: "dry_run" }
       : stepBookSync(sport, snapshotRows)
     log(elapsed("bookSync", t0))
+
+    // ── 7.5. Timing intelligence sync ────────────────────────────────────────
+    log("Step 7.5: timing sync")
+    steps.timingSync = dryRun
+      ? { skipped: true, reason: "dry_run" }
+      : stepTimingSync(sport, snapshotRows)
+    log(elapsed("timingSync", t0))
 
     // ── 8. Build all reports ──────────────────────────────────────────────────
     log("Step 8: build reports")
@@ -515,6 +565,7 @@ function buildNightlySummary({ sport, date, steps, elapsed: elapsedMs = 0 } = {}
       ledgerSettle:  stepsOk(steps.ledgerSettle),
       clvUpdate:     stepsOk(steps.clvUpdate),
       bookSync:      stepsOk(steps.bookSync),
+      timingSync:    stepsOk(steps.timingSync),
       reports:       stepsOk(steps.reports),
     },
   }

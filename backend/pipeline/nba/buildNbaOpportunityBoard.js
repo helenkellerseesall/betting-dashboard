@@ -25,6 +25,10 @@ const {
   buildLadderShopping,
   loadBookState,
 } = require("../shared/buildLineShoppingIntelligence")
+const {
+  buildMarketTiming,
+  loadTimingState,
+} = require("../shared/buildMarketTimingIntelligence")
 
 /**
  * NBA analogue of `buildMlbOpportunityBoard`: ladder-first opportunity pools derived from
@@ -328,16 +332,39 @@ function buildNbaOpportunityBoard(input = {}) {
   }
   maybeLogNbaPipelineAudit(pipelineAudit)
 
-  // ── Line Shopping (non-blocking, best-effort) ─────────────────────────────
+  // ── Line Shopping + Timing (non-blocking, best-effort) ───────────────────
   try {
     const ingestRows = Array.isArray(input?.ingestRows) ? input.ingestRows : []
-    const allRows = ingestRows.length ? ingestRows : completeUniverse
+    const allRows    = ingestRows.length ? ingestRows : completeUniverse
     if (allRows.length) {
-      const bookState = loadBookState()
-      boardPayload.lineShopping = buildLineShopping(allRows, { sport: "nba", bookState })
+      const bookState   = loadBookState()
+      const timingState = loadTimingState()
+      boardPayload.lineShopping   = buildLineShopping(allRows, { sport: "nba", bookState })
       boardPayload.ladderShopping = buildLadderShopping(allRows)
+      boardPayload.timingResult   = buildMarketTiming(allRows, {
+        lineShopping: boardPayload.lineShopping,
+        timingState,
+        bookState,
+      })
+
+      // Annotate ai picks with urgency
+      const urgencyMap = new Map()
+      for (const tc of boardPayload.timingResult.timingClassifications || []) {
+        urgencyMap.set(tc.key, { urgency: tc.urgency, state: tc.state, signals: tc.signals })
+      }
+      for (const pick of boardPayload.aiPicks || []) {
+        const k = [
+          String(pick.eventId || ""),
+          String(pick.player || "").toLowerCase().trim(),
+          String(pick.statFamily || pick.propType || "").toLowerCase(),
+          String(pick.side || "").toLowerCase(),
+          String(pick.line ?? "any"),
+        ].join("|")
+        const tc = urgencyMap.get(k)
+        if (tc) pick.timingUrgency = tc
+      }
     }
-  } catch (_) { /* never break board on shopping errors */ }
+  } catch (_) { /* never break board on shopping/timing errors */ }
 
   return boardPayload
 }
