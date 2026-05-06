@@ -475,6 +475,50 @@ async function runAll() {
     console.log(`- XBH candidates: ${xbhCount}`)
 
     console.log("\nDAILY REPORT COMPLETE\n")
+
+    // ── Intelligence board (presentation layer) ────────────────────────────
+    try {
+      const { buildBoard } = require("../pipeline/shared/buildIntelligencePresentation")
+      const {
+        buildLineShopping,
+        buildLadderShopping,
+        loadBookState,
+      } = require("../pipeline/shared/buildLineShoppingIntelligence")
+      const {
+        buildMarketTiming,
+        loadTimingState,
+      } = require("../pipeline/shared/buildMarketTimingIntelligence")
+      const { buildNightlyReport } = require("../pipeline/shared/buildPersonalLedger")
+
+      const rows      = Array.isArray(snapshot?.rows) ? snapshot.rows : []
+      const bets      = Array.isArray(opp?.bets)      ? opp.bets : []
+      const slipBets  = Array.isArray(opp?.slipBets)  ? opp.slipBets : []
+
+      let lineShopping = opp?.lineShopping
+      let timingResult = opp?.timingResult
+
+      if (rows.length && !lineShopping) {
+        const bookState = loadBookState()
+        lineShopping = buildLineShopping(rows, { sport: "mlb", bookState: bookState })
+        timingResult = buildMarketTiming(rows, { lineShopping, timingState: loadTimingState(), bookState })
+      }
+
+      const ledgerReport = (() => {
+        try { return buildNightlyReport({ sport: "mlb", windowDays: 30 }) } catch (_) { return null }
+      })()
+
+      const { printable } = buildBoard({
+        bets, slipBets, lineShopping, timingResult,
+        bookState: loadBookState(),
+        ledgerReport,
+        sport: "mlb",
+        bankrollInfo: opp,
+      })
+      console.log(printable)
+    } catch (boardErr) {
+      // Never break the nightly run on presentation errors
+      if (process.env.DEBUG) console.error("[BOARD ERROR]", boardErr)
+    }
   } catch (e) {
     console.error("[RUN ERROR]", e)
   }

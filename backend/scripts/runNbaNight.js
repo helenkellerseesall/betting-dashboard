@@ -1260,6 +1260,48 @@ async function runAll() {
     console.log(`- Edge distribution (final-stage): +${edgePos} / -${edgeNeg} / 0:${edgeZero}`)
 
     console.log("\nDAILY REPORT COMPLETE\n")
+
+    // ── Intelligence board (presentation layer) ────────────────────────────
+    try {
+      const { buildBoard } = require("../pipeline/shared/buildIntelligencePresentation")
+      const {
+        buildLineShopping,
+        loadBookState,
+      } = require("../pipeline/shared/buildLineShoppingIntelligence")
+      const {
+        buildMarketTiming,
+        loadTimingState,
+      } = require("../pipeline/shared/buildMarketTimingIntelligence")
+      const { buildNightlyReport } = require("../pipeline/shared/buildPersonalLedger")
+
+      const ingestRows = Array.isArray(data?.ingestRows) ? data.ingestRows : []
+      const bets      = Array.isArray(opp?.aiPicks)  ? opp.aiPicks  : []
+      const slipBets  = Array.isArray(opp?.aiSlips)  ? opp.aiSlips  : []
+
+      let lineShopping = opp?.lineShopping
+      let timingResult = opp?.timingResult
+
+      if (ingestRows.length && !lineShopping) {
+        const bookState = loadBookState()
+        lineShopping = buildLineShopping(ingestRows, { sport: "nba", bookState })
+        timingResult = buildMarketTiming(ingestRows, { lineShopping, timingState: loadTimingState(), bookState })
+      }
+
+      const ledgerReport = (() => {
+        try { return buildNightlyReport({ sport: "nba", windowDays: 30 }) } catch (_) { return null }
+      })()
+
+      const { printable } = buildBoard({
+        bets, slipBets, lineShopping, timingResult,
+        bookState: loadBookState(),
+        ledgerReport,
+        sport: "nba",
+        bankrollInfo: opp,
+      })
+      console.log(printable)
+    } catch (boardErr) {
+      if (process.env.DEBUG) console.error("[BOARD ERROR]", boardErr)
+    }
   } catch (e) {
     console.error("[RUN ERROR]", e)
   }
