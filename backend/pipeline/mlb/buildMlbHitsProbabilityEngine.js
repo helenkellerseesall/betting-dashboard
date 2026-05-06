@@ -280,6 +280,25 @@ function buildMlbHitsToday(input = {}) {
     obj.eventId = obj.eventId ?? (entry?.eventId ?? null)
     obj.opponent = obj.opponent ?? (entry?.opponent ?? null)
 
+    // Propagate lineup + team context onto shared player object (board / projections read these).
+    const boHit =
+      toNum(entry?.battingOrderIndex) ??
+      toNum(primary?.battingOrderIndex) ??
+      toNum(primary?.lineupPosition) ??
+      toNum(primary?.lineupSpot) ??
+      toNum(primary?.battingOrder)
+    if (Number.isFinite(boHit) && boHit >= 1 && boHit <= 9) {
+      obj.battingOrderIndex = boHit
+      obj.lineupPosition = boHit
+    }
+    const ittHit = toNum(entry?.impliedTeamTotal) ?? toNum(primary?.impliedTeamTotal)
+    if (Number.isFinite(ittHit)) {
+      obj.impliedTeamTotal = obj.impliedTeamTotal ?? ittHit
+      obj.teamImpliedTotal = obj.teamImpliedTotal ?? ittHit
+    }
+    const gtHit = toNum(primary?.gameTotal)
+    if (Number.isFinite(gtHit)) obj.gameTotal = obj.gameTotal ?? gtHit
+
     if (playerMap) playerMap.set(key, obj)
     topPlayers.push(obj)
     byPlayer[key] = obj

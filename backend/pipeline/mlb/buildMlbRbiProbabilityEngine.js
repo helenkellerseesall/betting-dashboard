@@ -167,6 +167,17 @@ function buildRbiRowFromPropRow(r, hits = null) {
     modelProbability: null,
     edge: null,
   })
+
+  const boR = toNum(r?.battingOrderIndex) ?? toNum(r?.lineupPosition) ?? toNum(r?.lineupSpot) ?? toNum(r?.battingOrder)
+  if (Number.isFinite(boR) && boR >= 1 && boR <= 9) {
+    out.battingOrderIndex = out.battingOrderIndex ?? boR
+    out.lineupPosition = out.lineupPosition ?? boR
+  }
+  const ittR = toNum(r?.impliedTeamTotal)
+  if (Number.isFinite(ittR)) {
+    out.impliedTeamTotal = out.impliedTeamTotal ?? ittR
+    out.teamImpliedTotal = out.teamImpliedTotal ?? ittR
+  }
   return out
 }
 

@@ -6,6 +6,44 @@ function norm(v) {
   return String(v == null ? "" : v).trim()
 }
 
+/** Normalize sportsbook / feed lineup signals to 1–9, or null. */
+function extractLineupSpotFromRow(r) {
+  if (!r || typeof r !== "object") return null
+  const keys = ["lineupPosition", "battingOrderIndex", "lineupSpot", "battingOrder", "battingOrderSpot"]
+  const tryObj = (o) => {
+    if (!o || typeof o !== "object") return null
+    for (const k of keys) {
+      const raw = Number(o[k])
+      if (!Number.isFinite(raw) || raw <= 0) continue
+      const n = raw > 20 ? Math.floor(raw / 100) : raw
+      if (n >= 1 && n <= 9) return n
+    }
+    return null
+  }
+  const direct = tryObj(r)
+  if (direct != null) return direct
+  return tryObj(r.__src)
+}
+
+function lineupCandidatePriority(e) {
+  const mk = String(e.marketKey || "").toLowerCase()
+  const pt = String(e.propType || "").toLowerCase()
+  if (mk === "batter_hits") return 100
+  if (pt === "hits" && !mk.includes("first")) return 95
+  if (mk.includes("total_bases") || pt.includes("total bases")) return 90
+  if (mk.includes("batter_rbis") || pt.includes("rbi")) return 85
+  if (mk.includes("batter_runs_scored") || (mk.includes("runs") && mk.includes("batter"))) return 82
+  if (mk.includes("batter_") || pt.includes("home run")) return 55
+  return 10
+}
+
+function pickPreferredLineupSpot(candidates) {
+  if (!Array.isArray(candidates) || !candidates.length) return null
+  const sorted = [...candidates].sort((a, b) => lineupCandidatePriority(b) - lineupCandidatePriority(a))
+  const top = sorted[0]
+  return Number.isFinite(top?.spot) ? top.spot : null
+}
+
 /**
  * Build ONE shared player dataset for the slate.
  * Keyed by normalized player name (single source of truth).
@@ -28,6 +66,33 @@ function buildMlbPlayerDataset(input = {}) {
         player: raw,
         team: r?.teamResolved ?? r?.team ?? null,
       })
+    }
+  }
+
+  // Second pass: attach batting order from any row (prefer main batter markets over novelty).
+  for (const r of rows) {
+    const raw = norm(r?.player)
+    if (!raw) continue
+    const key = normalizeName(raw)
+    if (!key || !playerMap.has(key)) continue
+    const spot = extractLineupSpotFromRow(r)
+    if (spot == null) continue
+    const o = playerMap.get(key)
+    if (!o._lineupCandidates) o._lineupCandidates = []
+    o._lineupCandidates.push({
+      spot,
+      eventId: r?.eventId ?? null,
+      marketKey: r?.marketKey ?? null,
+      propType: r?.propType ?? null,
+    })
+  }
+
+  for (const o of playerMap.values()) {
+    const chosen = pickPreferredLineupSpot(o._lineupCandidates || [])
+    delete o._lineupCandidates
+    if (chosen != null) {
+      o.battingOrderIndex = chosen
+      o.lineupPosition = chosen
     }
   }
 
@@ -215,6 +280,58 @@ function projectPitcherStats({ pitcherObj, salt }) {
   }
 }
 
+/**
+ * Merge HR lists into one entry per normalized player: keep the candidate with
+ * highest modelProbability (tie-break: higher hrScore). Avoids diverse-list
+ * ordering overwriting a stronger mostLikelyHr row.
+ */
+function mergeHrSourceIndex(hrSrc) {
+  const hrIdx = new Map()
+  for (const p of hrSrc) {
+    const k = normalizeName(p?.player)
+    if (!k) continue
+    const pr = num(p?.modelProbability)
+    const prob = Number.isFinite(pr) ? pr : 0
+    const ed = num(p?.edge)
+    const edge = Number.isFinite(ed) ? ed : 0
+    const hrSc = num(p?.hrScore)
+    const hy = num(p?.hybridScore)
+    const tag = typeof p?.tag === "string" ? p.tag : null
+    const implied = num(p?.impliedProbability)
+    const displayPlayer = String(p?.player || "").trim() || null
+    const cand = {
+      player: displayPlayer,
+      prob,
+      edge,
+      tag,
+      hybridScore: Number.isFinite(hy) ? hy : null,
+      hrScore: Number.isFinite(hrSc) ? hrSc : null,
+      impliedProbability: Number.isFinite(implied) ? implied : null,
+    }
+    const prev = hrIdx.get(k)
+    if (!prev) {
+      hrIdx.set(k, cand)
+      continue
+    }
+    const betterProb = prob > prev.prob + 1e-12
+    const tieProb = Math.abs(prob - prev.prob) <= 1e-12
+    const hrNew = Number.isFinite(hrSc) ? hrSc : -Infinity
+    const hrOld = Number.isFinite(prev.hrScore) ? prev.hrScore : -Infinity
+    if (betterProb || (tieProb && hrNew > hrOld)) hrIdx.set(k, cand)
+  }
+  return hrIdx
+}
+
+function hrConfidenceNumeric(tag, fallbackProb) {
+  const t = String(tag || "").toUpperCase()
+  if (t === "ELITE") return 0.82
+  if (t === "STRONG") return 0.66
+  if (t === "LOTTO") return 0.36
+  const fp = num(fallbackProb)
+  if (!Number.isFinite(fp) || fp <= 0) return null
+  return Math.max(0.12, Math.min(0.88, fp * 2.4))
+}
+
 function buildMlbPlayerOutcomePredictions(input = {}) {
   const generatedAt = new Date().toISOString()
   const playerMap = input?.playerMap instanceof Map ? input.playerMap : null
@@ -226,17 +343,7 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
   const hrSrc = []
   if (Array.isArray(hrPredictionToday?.topHrCandidatesToday)) hrSrc.push(...hrPredictionToday.topHrCandidatesToday)
   if (Array.isArray(hrPredictionToday?.mostLikelyHr)) hrSrc.push(...hrPredictionToday.mostLikelyHr)
-  const hrIdx = new Map()
-  for (const p of hrSrc) {
-    const k = normalizeName(p?.player)
-    if (!k) continue
-    if (!hrIdx.has(k)) {
-      hrIdx.set(k, {
-        prob: num(p?.modelProbability) ?? 0,
-        edge: num(p?.edge) ?? 0,
-      })
-    }
-  }
+  const hrIdx = mergeHrSourceIndex(hrSrc)
 
   // Build a meta lookup from snapshot rows for matchup/eventId fallback.
   const metaIdx = new Map()
@@ -264,10 +371,32 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
       const matchup = obj?.matchup ?? meta.matchup ?? null
       const team = obj?.team ?? meta.team ?? null
       const opponent = obj?.opponent ?? obj?.opponentTeam ?? meta.opponent ?? null
-      const hrInfo = hrIdx.get(k) || { prob: 0, edge: 0 }
+      const hrInfo = hrIdx.get(k) || {
+        prob: 0,
+        edge: 0,
+        tag: null,
+        hybridScore: null,
+        hrScore: null,
+        impliedProbability: null,
+      }
       const salt = playerSalt(player, eventId)
 
+      // Shared playerMap: keep HR engine outputs aligned with outcome projections (single path).
+      obj.hrModelProbability = hrInfo.prob
+      obj.hrEdge = hrInfo.edge
+      obj.hrConfidenceTag = hrInfo.tag
+      obj.hrHybridScore = hrInfo.hybridScore
+      obj.hrScoreFromEngine = hrInfo.hrScore
+
       const stats = projectHitterStats({ playerObj: obj, hrProb: hrInfo.prob, salt })
+      const hrConf = hrConfidenceNumeric(hrInfo.tag, hrInfo.prob)
+      const hyNum = num(hrInfo.hybridScore)
+      const hrEv = Number.isFinite(hyNum)
+        ? hyNum
+        : Number.isFinite(hrInfo.edge) && hrInfo.prob > 0
+          ? hrInfo.edge
+          : null
+
       hitters.push({
         player,
         eventId,
@@ -278,7 +407,10 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
         battingOrder: num(obj?.battingOrderIndex) ?? num(obj?.lineupPosition) ?? null,
         stats,
         hrProb: hrInfo.prob,
+        hrProbability: hrInfo.prob,
         hrEdge: hrInfo.edge,
+        hrConfidence: hrConf,
+        hrExpectedValue: hrEv,
         powerScore: num(obj?.powerScore) ?? null,
       })
     }
@@ -325,4 +457,10 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
   }
 }
 
-module.exports = { buildMlbPlayerDataset, buildMlbPlayerOutcomePredictions, HITTER_STATS, PITCHER_STATS }
+module.exports = {
+  buildMlbPlayerDataset,
+  buildMlbPlayerOutcomePredictions,
+  mergeHrSourceIndex,
+  HITTER_STATS,
+  PITCHER_STATS,
+}

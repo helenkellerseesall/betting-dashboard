@@ -579,9 +579,10 @@ function modelProbForSide(family, stat, line, side, confidence = null) {
   const dist = Math.abs(m - line)
   const conf = Number.isFinite(Number(confidence)) ? Number(confidence) : null
 
-  const allowHigh = conf != null && conf >= 0.85 && dist >= sigma * 1.6
+  // Calibrated confidence feeds this gate only — stricter = less fake ceiling on model prob.
+  const allowHigh = conf != null && conf >= 0.88 && dist >= sigma * 1.75
   const isHr = family === "hr"
-  const maxP = isHr ? (allowHigh ? 0.55 : 0.5) : allowHigh ? 0.78 : 0.7
+  const maxP = isHr ? (allowHigh ? 0.51 : 0.48) : allowHigh ? 0.76 : 0.68
 
   const pSideRaw = s.startsWith("u") ? 1 - pOver : pOver
 
@@ -614,6 +615,43 @@ function projectionConfidence(stat, line) {
   return Math.max(0, Math.min(1, Math.abs(m - line) / halfBand))
 }
 
+/**
+ * MLB variance-aware confidence: dampen displayed / tier confidence for high-variance
+ * props and unders on counting stats (reduces fake certainty without rewriting ladders).
+ */
+function calibrateMlbConfidence(family, line, side, vol, rawConf, mp) {
+  let r = Number(rawConf)
+  if (!Number.isFinite(r)) return 0
+  const f = String(family || "").toLowerCase()
+  const ln = Number(line)
+  const under = String(side || "").toLowerCase().startsWith("u")
+  const propTxt = `${mp?.propType || ""} ${mp?.marketKey || ""}`.toLowerCase()
+  const multiHit = f === "hits" && Number.isFinite(ln) && ln >= 1.5 - 1e-9
+  const xbhish = propTxt.includes("extra") || propTxt.includes("xbh") || propTxt.includes("extra_base")
+
+  let mult = 1
+  if (f === "hr") mult *= 0.68
+  else if (f === "rbis") mult *= 0.78
+  else if (f === "runs") mult *= 0.82
+  else if (f === "batterks") mult *= 0.76
+  else if (f === "totalbases") {
+    mult *= 0.87
+    if (xbhish) mult *= 0.82
+  } else if (f === "hits") mult *= multiHit ? 0.78 : 0.93
+  else if (f === "ks") mult *= 0.97
+  else if (f === "outs") mult *= 0.92
+  else mult *= 0.9
+
+  if (under && (f === "hits" || f === "totalbases" || f === "rbis")) mult *= 0.87
+  if (under && f === "hr") mult *= 0.84
+
+  const volN = Number.isFinite(vol) ? Math.max(0, Math.min(1, vol)) : 0
+  const volWt =
+    f === "hr" ? 0.38 : f === "rbis" || f === "runs" ? 0.22 : f === "totalbases" ? 0.14 : f === "hits" ? 0.12 : f === "ks" ? 0.06 : 0.15
+  r *= mult * (1 - volWt * volN)
+  return Math.max(0, Math.min(1, r))
+}
+
 function volatilityGap(stat) {
   if (!stat) return 0
   const m = Number(stat.mostLikely)
@@ -640,9 +678,10 @@ function tierForPlay(edge, ev, conf, family) {
   if (edge < 0.04) return "FADE"
   // HR is a variance trap — require larger edge to call ELITE.
   const isHr = family === "hr"
-  if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.5) return "ELITE"
-  if (isHr && edge >= 0.12 && ev >= 0.08 && conf >= 0.5) return "ELITE"
-  if (edge >= 0.07 && ev >= 0.03) return "STRONG"
+  // Uses volatility-calibrated conf: ~0.56+ ≈ strong separation; 0.65+ becomes rare.
+  if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.56) return "ELITE"
+  if (isHr && edge >= 0.125 && ev >= 0.085 && conf >= 0.45) return "ELITE"
+  if (edge >= 0.075 && ev >= 0.032 && conf >= 0.42) return "STRONG"
   return "PLAYABLE"
 }
 
@@ -705,8 +744,8 @@ function buildReasoning({ family, side, line, stat, edge, ev, conf, vol }) {
     `${family} proj ${stat?.floor ?? "?"} / ${stat?.mostLikely ?? "?"} / ${stat?.ceiling ?? "?"} vs line ${line}`
   )
   parts.push(`edge ${(edge * 100).toFixed(1)}% • EV ${ev.toFixed(3)}`)
-  if (conf >= 0.6) parts.push("high conf")
-  else if (conf >= 0.35) parts.push("medium conf")
+  if (conf >= 0.62) parts.push("high conf")
+  else if (conf >= 0.38) parts.push("medium conf")
   else parts.push("low conf")
   if (side === "over" && vol >= 0.35) parts.push("upside band")
   if (side === "under" && vol <= 0.2) parts.push("tight ceiling")
@@ -780,7 +819,9 @@ function buildMlbBestBetsBoard(input = {}) {
 
     const impliedProb = americanOddsToImpliedProb(odds)
     const decOdds = americanToDecimal(odds)
-    const conf = projectionConfidence(stat, line)
+    const confRaw = projectionConfidence(stat, line)
+    const vol = volatilityGap(stat)
+    const conf = calibrateMlbConfidence(family, line, sideNorm, vol, confRaw, mp)
     const modelProb = modelProbForSide(family, stat, line, sideNorm, conf)
     if (impliedProb == null || decOdds == null || modelProb == null) {
       dropped += 1
@@ -788,7 +829,6 @@ function buildMlbBestBetsBoard(input = {}) {
     }
     const edge = modelProb - impliedProb
     const ev = modelProb * (decOdds - 1) - (1 - modelProb)
-    const vol = volatilityGap(stat)
 
     if (modelProb > 0.49 && modelProb < 0.51) {
       dropped += 1
@@ -830,6 +870,7 @@ function buildMlbBestBetsBoard(input = {}) {
         edge,
         ev,
         conf,
+        confRaw,
         vol,
         stat,
         tier: "FADE",
@@ -857,6 +898,7 @@ function buildMlbBestBetsBoard(input = {}) {
       edge,
       ev,
       conf,
+      confRaw,
       vol,
       stat,
       tier: isLongshot ? "LONGSHOT" : tier,
@@ -926,6 +968,7 @@ function makePlay(args) {
     edge,
     ev,
     conf,
+    confRaw,
     vol,
     stat,
     tier,
@@ -955,6 +998,7 @@ function makePlay(args) {
     edge: round4(edge),
     ev: round4(ev),
     confidence: round3(conf),
+    confidenceRaw: round3(confRaw),
     volatility: round3(vol),
     tier,
     isLongshot,

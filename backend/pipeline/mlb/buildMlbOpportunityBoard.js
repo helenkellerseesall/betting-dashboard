@@ -1,7 +1,7 @@
 "use strict"
 
 const normalizeName = require("../../utils/normalizeName")
-const { buildMlbPlayerOutcomePredictions } = require("./buildMlbPlayerDataset")
+const { buildMlbPlayerOutcomePredictions, mergeHrSourceIndex } = require("./buildMlbPlayerDataset")
 const { buildMlbBestBetsBoard, marketPropsFromMlbRows } = require("./buildMlbPropClusters")
 const { buildMlbSlipComposer } = require("./buildMlbSlipEngine")
 const {
@@ -76,7 +76,6 @@ function buildMlbOpportunityBoard(input = {}) {
   if (Array.isArray(hrPredictionToday?.mostLikelyHr)) hrSrc.push(...hrPredictionToday.mostLikelyHr)
 
   const hrCandidates = []
-  const hrByPlayer = new Map()
   const seenHr = new Set()
   for (const p of hrSrc) {
     const player = clampStr(p?.player)
@@ -99,13 +98,22 @@ function buildMlbOpportunityBoard(input = {}) {
       probability: prob,
       edge: toNum(p?.edge),
     })
+  }
 
-    if (!hrByPlayer.has(player)) {
-      hrByPlayer.set(player, {
-        probability: prob,
-        edge: toNum(p?.edge),
-      })
-    }
+  // Best HR row per normalized player (same merge as outcome projections — no drift vs hrIdx).
+  const hrByPlayer = new Map()
+  for (const [nk, info] of mergeHrSourceIndex(hrSrc)) {
+    const prob = toNum(info?.prob)
+    if (!Number.isFinite(prob) || prob < TH.hr) continue
+    const display = clampStr(info?.player) || null
+    const fb = display ? fallbackMeta(display) : {}
+    hrByPlayer.set(nk, {
+      player: display,
+      probability: prob,
+      edge: toNum(info?.edge),
+      tag: info?.tag ?? null,
+      hybridScore: toNum(info?.hybridScore),
+    })
   }
 
   // ------------------------
@@ -204,7 +212,7 @@ function buildMlbOpportunityBoard(input = {}) {
       // ------------------------
       // ADDITIVE ADVANCED PROPS
       // ------------------------
-      const hrMeta = hrByPlayer.get(player) || {}
+      const hrMeta = hrByPlayer.get(normalizeName(player)) || {}
       const hrProb = toNum(hrMeta?.probability) ?? 0
       const hrEdge = toNum(hrMeta?.edge) ?? 0
       const power = toNum(obj?.powerScore)

@@ -1,0 +1,682 @@
+{
+  "date": "2026-05-05",
+  "createdAt": "2026-05-05T23:59:32.969Z",
+  "slips": {
+    "safeSlips": [
+      [
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 475,
+          "predictedProbability": 0.262661,
+          "modelProbability": 0.2747545903869905,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.10084154690872965,
+          "isValueBet": true,
+          "hybridScore": 0.16762975926611415,
+          "hrScore": 32.6722,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Nolan Schanuel",
+          "team": "Los Angeles Angels",
+          "eventId": "a3d49ab06b3c4cfdcaeec1ee6be2c11f",
+          "odds": 525,
+          "predictedProbability": 0.294368,
+          "modelProbability": 0.26256119535741357,
+          "impliedProbability": 0.16,
+          "edge": 0.10256119535741356,
+          "isValueBet": true,
+          "hybridScore": 0.16204895628593086,
+          "hrScore": 31.024,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 450,
+          "predictedProbability": 0.271818,
+          "modelProbability": 0.2752914619234993,
+          "impliedProbability": 0.18181818181818182,
+          "edge": 0.09347328010531747,
+          "isValueBet": true,
+          "hybridScore": 0.1656877149933449,
+          "hrScore": 32.7597,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 475,
+          "predictedProbability": 0.262661,
+          "modelProbability": 0.2747545903869905,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.10084154690872965,
+          "isValueBet": true,
+          "hybridScore": 0.16762975926611415,
+          "hrScore": 32.6722,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 475,
+          "predictedProbability": 0.262661,
+          "modelProbability": 0.2747545903869905,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.10084154690872965,
+          "isValueBet": true,
+          "hybridScore": 0.16762975926611415,
+          "hrScore": 32.6722,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Nolan Schanuel",
+          "team": "Los Angeles Angels",
+          "eventId": "a3d49ab06b3c4cfdcaeec1ee6be2c11f",
+          "odds": 525,
+          "predictedProbability": 0.294368,
+          "modelProbability": 0.26256119535741357,
+          "impliedProbability": 0.16,
+          "edge": 0.10256119535741356,
+          "isValueBet": true,
+          "hybridScore": 0.16204895628593086,
+          "hrScore": 31.024,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "balancedSlips": [
+      [
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 475,
+          "predictedProbability": 0.262661,
+          "modelProbability": 0.2747545903869905,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.10084154690872965,
+          "isValueBet": true,
+          "hybridScore": 0.16762975926611415,
+          "hrScore": 32.6722,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "James Wood",
+          "team": "Washington Nationals",
+          "eventId": "d1bb060e1d2465b94fde23b308c82f30",
+          "odds": 500,
+          "predictedProbability": 0.299865,
+          "modelProbability": 0.26605758920782163,
+          "impliedProbability": 0.16666666666666666,
+          "edge": 0.09939092254115497,
+          "isValueBet": true,
+          "hybridScore": 0.1628460713662573,
+          "hrScore": 31.443,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Kyle Tucker",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 450,
+          "predictedProbability": 0.271818,
+          "modelProbability": 0.2752914619234993,
+          "impliedProbability": 0.18181818181818182,
+          "edge": 0.09347328010531747,
+          "isValueBet": true,
+          "hybridScore": 0.1656877149933449,
+          "hrScore": 32.7597,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 19,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Trent Grisham",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 380,
+          "predictedProbability": 0.321271,
+          "modelProbability": 0.2885551317609862,
+          "impliedProbability": 0.20833333333333334,
+          "edge": 0.08022179842765284,
+          "isValueBet": true,
+          "hybridScore": 0.16834410540878894,
+          "hrScore": 35.7891,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Cody Bellinger",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 475,
+          "predictedProbability": 0.262661,
+          "modelProbability": 0.2747545903869905,
+          "impliedProbability": 0.17391304347826086,
+          "edge": 0.10084154690872965,
+          "isValueBet": true,
+          "hybridScore": 0.16762975926611415,
+          "hrScore": 32.6722,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 18,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Zach Cole",
+          "team": "Houston Astros",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 500,
+          "predictedProbability": 0.299145,
+          "modelProbability": 0.2656334512804376,
+          "impliedProbability": 0.16666666666666666,
+          "edge": 0.09896678461377093,
+          "isValueBet": true,
+          "hybridScore": 0.16250676102435008,
+          "hrScore": 31.3903,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 16,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "aggressiveSlips": [
+      [
+        {
+          "player": "Nolan Schanuel",
+          "team": "Los Angeles Angels",
+          "eventId": "a3d49ab06b3c4cfdcaeec1ee6be2c11f",
+          "odds": 525,
+          "predictedProbability": 0.294368,
+          "modelProbability": 0.26256119535741357,
+          "impliedProbability": 0.16,
+          "edge": 0.10256119535741356,
+          "isValueBet": true,
+          "hybridScore": 0.16204895628593086,
+          "hrScore": 31.024,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Andy Pages",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 400,
+          "predictedProbability": 0.309799,
+          "modelProbability": 0.27853562253993164,
+          "impliedProbability": 0.2,
+          "edge": 0.07853562253993163,
+          "isValueBet": true,
+          "hybridScore": 0.1628284980319453,
+          "hrScore": 33.3278,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Nolan Schanuel",
+          "team": "Los Angeles Angels",
+          "eventId": "a3d49ab06b3c4cfdcaeec1ee6be2c11f",
+          "odds": 525,
+          "predictedProbability": 0.294368,
+          "modelProbability": 0.26256119535741357,
+          "impliedProbability": 0.16,
+          "edge": 0.10256119535741356,
+          "isValueBet": true,
+          "hybridScore": 0.16204895628593086,
+          "hrScore": 31.024,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 400,
+          "predictedProbability": 0.277465,
+          "modelProbability": 0.2772415504141744,
+          "impliedProbability": 0.2,
+          "edge": 0.07724155041417441,
+          "isValueBet": true,
+          "hybridScore": 0.16179324033133954,
+          "hrScore": 33.0925,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Nolan Schanuel",
+          "team": "Los Angeles Angels",
+          "eventId": "a3d49ab06b3c4cfdcaeec1ee6be2c11f",
+          "odds": 525,
+          "predictedProbability": 0.294368,
+          "modelProbability": 0.26256119535741357,
+          "impliedProbability": 0.16,
+          "edge": 0.10256119535741356,
+          "isValueBet": true,
+          "hybridScore": 0.16204895628593086,
+          "hrScore": 31.024,
+          "tag": "LOTTO",
+          "reasons": [
+            "strong power profile",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Austin Wells",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 420,
+          "predictedProbability": 0.282308,
+          "modelProbability": 0.26874562139898645,
+          "impliedProbability": 0.19230769230769232,
+          "edge": 0.07643792909129413,
+          "isValueBet": true,
+          "hybridScore": 0.15730418942688146,
+          "hrScore": 31.7906,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ],
+    "lottoSlips": [
+      [
+        {
+          "player": "Andy Pages",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 400,
+          "predictedProbability": 0.309799,
+          "modelProbability": 0.27853562253993164,
+          "impliedProbability": 0.2,
+          "edge": 0.07853562253993163,
+          "isValueBet": true,
+          "hybridScore": 0.1628284980319453,
+          "hrScore": 33.3278,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Austin Wells",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 420,
+          "predictedProbability": 0.282308,
+          "modelProbability": 0.26874562139898645,
+          "impliedProbability": 0.19230769230769232,
+          "edge": 0.07643792909129413,
+          "isValueBet": true,
+          "hybridScore": 0.15730418942688146,
+          "hrScore": 31.7906,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Freddie Freeman",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 400,
+          "predictedProbability": 0.277465,
+          "modelProbability": 0.2772415504141744,
+          "impliedProbability": 0.2,
+          "edge": 0.07724155041417441,
+          "isValueBet": true,
+          "hybridScore": 0.16179324033133954,
+          "hrScore": 33.0925,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Austin Wells",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 420,
+          "predictedProbability": 0.282308,
+          "modelProbability": 0.26874562139898645,
+          "impliedProbability": 0.19230769230769232,
+          "edge": 0.07643792909129413,
+          "isValueBet": true,
+          "hybridScore": 0.15730418942688146,
+          "hrScore": 31.7906,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ],
+      [
+        {
+          "player": "Will Smith",
+          "team": "Los Angeles Dodgers",
+          "eventId": "6ce90524a09ef856d3a08a7038715209",
+          "odds": 400,
+          "predictedProbability": 0.285163,
+          "modelProbability": 0.27098485723419197,
+          "impliedProbability": 0.2,
+          "edge": 0.07098485723419196,
+          "isValueBet": true,
+          "hybridScore": 0.15678788578735356,
+          "hrScore": 32.1003,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "top lineup spot",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 0.75,
+          "powerScore": 20,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        },
+        {
+          "player": "Austin Wells",
+          "team": "New York Yankees",
+          "eventId": "642027e0dc5d6fe0e383f9c8b6453d6c",
+          "odds": 420,
+          "predictedProbability": 0.282308,
+          "modelProbability": 0.26874562139898645,
+          "impliedProbability": 0.19230769230769232,
+          "edge": 0.07643792909129413,
+          "isValueBet": true,
+          "hybridScore": 0.15730418942688146,
+          "hrScore": 31.7906,
+          "tag": "ELITE",
+          "reasons": [
+            "strong power profile",
+            "high team total",
+            "high game total",
+            "positive betting edge"
+          ],
+          "_weatherScore": 0,
+          "_parkScore": 1.5,
+          "powerScore": 17,
+          "hasStrongMatchup": true,
+          "strongContext": true,
+          "valueEdge": true
+        }
+      ]
+    ]
+  },
+  "results": null,
+  "summary": {
+    "totalSlips": 4,
+    "hits": 0,
+    "misses": 0,
+    "roi": 0
+  }
+}
