@@ -408,10 +408,19 @@ function sectionFirstBasket(bets, maps, limit = 8) {
   return lines.join("\n")
 }
 
-function sectionPortfolio(bets, slipBets = [], bankrollInfo = null) {
-  const lines = [divider("💰  PORTFOLIO SNAPSHOT")]
+function sectionPortfolio(bets, slipBets = [], bankrollInfo = null, timingResult = null, bookState = null) {
+  // Delegate to the portfolio optimizer for full intelligence
+  let portfolioReport = null
+  try {
+    const { optimizePortfolio } = require("./buildPortfolioOptimizer")
+    const result = optimizePortfolio({ bets, slipBets, timingResult, bookState, bankrollInfo })
+    portfolioReport = result.report
+  } catch (_) {}
 
-  // Exposure by stat
+  if (portfolioReport) return portfolioReport
+
+  // Fallback: basic snapshot if optimizer unavailable
+  const lines = [divider("💰  PORTFOLIO SNAPSHOT")]
   const byStatExposure = {}
   for (const b of bets) {
     const fam = String(b.statFamily || b.propFamilyKey || b.propType || "other").toLowerCase()
@@ -419,36 +428,14 @@ function sectionPortfolio(bets, slipBets = [], bankrollInfo = null) {
   }
   const statEntries = Object.entries(byStatExposure).sort((a, b) => b[1] - a[1])
   lines.push(`  STAT DISTRIBUTION  ${statEntries.map(([f, n]) => `${f}:${n}`).join("  ")}`)
-
-  // Tier distribution
-  const byTier = {}
-  for (const b of bets) {
-    const t = String(b.tier || b.confidenceTier || "?").toUpperCase()
-    byTier[t] = (byTier[t] || 0) + 1
-  }
-  const tierEntries = Object.entries(byTier).sort((a, b) => b[1] - a[1])
-  lines.push(`  TIER DISTRIBUTION  ${tierEntries.map(([t, n]) => `${t}:${n}`).join("  ")}`)
-
-  // Slip count
   if (slipBets.length) {
-    lines.push(`  SLIPS  total:${slipBets.length}`)
     const byType = {}
     for (const s of slipBets) { const t = s.type || "?"; byType[t] = (byType[t] || 0) + 1 }
-    lines.push(`    ${Object.entries(byType).map(([t, n]) => `${t}:${n}`).join("  ")}`)
+    lines.push(`  SLIPS  ${Object.entries(byType).map(([t, n]) => `${t}:${n}`).join("  ")}`)
   }
-
-  // Bankroll
-  if (bankrollInfo) {
-    const risk    = num(bankrollInfo.totalRisk)
-    const budget  = num(bankrollInfo.dailyRiskBudget)
-    const util    = num(bankrollInfo.riskUtilization)
-    const bankStr = bankrollInfo.bankroll != null ? `bankroll:$${r2(bankrollInfo.bankroll)}` : ""
-    const riskStr = risk != null ? `  risk:$${r2(risk)}` : ""
-    const budgStr = budget != null ? `  budget:$${r2(budget)}` : ""
-    const utilStr = util != null ? `  utilization:${(util * 100).toFixed(0)}%` : ""
-    if (bankStr || riskStr) lines.push(`  BANKROLL  ${bankStr}${riskStr}${budgStr}${utilStr}`)
+  if (bankrollInfo?.bankroll != null) {
+    lines.push(`  BANKROLL  $${r2(bankrollInfo.bankroll)}  risk:$${r2(bankrollInfo.totalRisk ?? 0)}`)
   }
-
   return lines.join("\n")
 }
 
@@ -671,7 +658,7 @@ function buildBoard(opts = {}) {
 
   // 10. Portfolio
   if (!compact) {
-    sections.push(sectionPortfolio(bets, slipBets, bankrollInfo))
+    sections.push(sectionPortfolio(bets, slipBets, bankrollInfo, timingResult, bookState))
   }
 
   // 11. Process review

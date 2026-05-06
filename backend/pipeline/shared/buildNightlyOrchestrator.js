@@ -319,7 +319,22 @@ function stepBuildReports(sport, date, snapshotRows = []) {
 
     const timingReport = buildNightlyTimingReport({ timingResult, timingState, ledgerBets: ledger.bets })
 
-    return { ok: true, ledgerReport, bookReport, lineShopping, timingReport }
+    // Portfolio optimization from today's curated plays (tracked_best) + slips
+    let portfolioResult = null
+    try {
+      const { optimizePortfolio } = require("./buildPortfolioOptimizer")
+      // Use tracked_best (curated 20-50 plays), not tracked_bets (full 900+ board)
+      const bestFile  = path.join(TRACKING_DIR, `${sport}_tracked_best_${date}.json`)
+      const slipsFile = path.join(TRACKING_DIR, `${sport}_tracked_slips_${date}.json`)
+      const bestData  = readJsonSafe(bestFile, null)
+      const bestBets  = bestData?.entries || bestData || []
+      const trackedSlips = readJsonSafe(slipsFile, []) || []
+      if (bestBets.length) {
+        portfolioResult = optimizePortfolio({ bets: bestBets, slipBets: trackedSlips, timingResult, bookState })
+      }
+    } catch (_) {}
+
+    return { ok: true, ledgerReport, bookReport, lineShopping, timingReport, portfolioResult }
   } catch (err) {
     return { ok: false, error: String(err?.message || err) }
   }
