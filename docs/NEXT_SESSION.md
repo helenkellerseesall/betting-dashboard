@@ -1,15 +1,16 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Priority 0 done — buildFeaturedPlays fork resolved; Fix 3 + Fix 4 unblocked)_
+_Last updated: 2026-05-07 (Session E: audit complete — Fix 3/4/5 patch order confirmed; Fix 6 greedy-fill queued)_
 
 ---
 
 ## CURRENT PROJECT PHASE
 
-**INTEGRITY + DE-RISK — Phase 7D (Fix 1 + Fix 2 + Priority 0 done; Fix 3 + Fix 4 now unblocked)**
+**INTEGRITY + DE-RISK — Phase 7E (Fix 1 + Fix 2 + Priority 0 done; Fix 3 + Fix 4 + Fix 5 now unblocked; Fix 6 queued)**
 
-Fix 1, Fix 2, and Priority 0 all applied 2026-05-07. One canonical featured-play path confirmed.
-Fix 3 (volRealism) and Fix 4 (lotto decimalOddsRange) are now unblocked.
+Session E audit confirmed two NEW compression points (CP7: aggressive ceiling, CP8: greedy fill).
+Correct patch order: Fix 3 → Fix 4+5 (batch, same file) → Fix 6 (separate session).
+All root causes proven with live data. No code changes this session.
 
 ---
 
@@ -68,7 +69,7 @@ node backend/storage/importHistoricalData.js   (macOS native fs required)
 
 ## IMMEDIATE NEXT PRIORITIES
 
-### 🟡 Ecology Fix 3 — Raise lotto/aggressive volRealism *(NOW UNBLOCKED)*
+### 🟡 Ecology Fix 3 — Raise lotto/aggressive volRealism *(DO FIRST — STANDALONE)*
 
 **File:** `backend/pipeline/shared/buildFeaturedPlays.js` ~line 226
 
@@ -86,29 +87,66 @@ f.volRealism = c.volatility === "safe"       ? 0.80 :
                0.56   // lotto
 ```
 
-Narrows the lotto penalty so textureBoost (+0.030) can actually compensate for it.
-Current gap (balanced-lotto) = 0.028 weighted. With fix: 0.018 weighted.
-Combined with Fix 1, lotto-volatility offensive edges can now naturally compete in
-tonightsBest and smartAggression when edge justifies it.
+Proven impact (Session E audit):
+- lotto offensive-over after fix: 0.056 + 0.030 textureBoost = 0.086 > balanced non-offensive 0.074 ✓
+- lotto non-offensive after fix: 0.056 (still below balanced 0.074 but much closer — correct)
+- aggressive offensive-over after fix: 0.066 + 0.030 = 0.096 > balanced best ✓
+- Hierarchy preserved: safe(0.80) > balanced(0.74) > aggressive(0.66) > lotto(0.56) ✓
 
 TERM 1 restart: YES
-TERM 2 verification: lotto entries should appear more often in tonightsBest / smartAggression.
-WARNING: verify textureBoost calibration still holds after this change — it was calibrated vs old gap.
+TERM 2 verification: lotto entries should appear in tonightsBest / smartAggression.
+WARNING: verify textureBoost calibration still holds — calibrated vs old gap.
 
-### 🟡 Ecology Fix 4 — Widen lotto decimalOddsRange *(LOW-MEDIUM VALUE)*
+### 🟡 Ecology Fix 4 + Fix 5 — Widen lotto + aggressive decimalOddsRange *(BATCH TOGETHER)*
 
-**File:** `backend/pipeline/shared/buildSlipAi.js` `TIER_TEMPLATES.lotto`
+**File:** `backend/pipeline/shared/buildSlipAi.js` `TIER_TEMPLATES`
 
+**Fix 4 — lotto range:**
 ```js
 // BEFORE
-decimalOddsRange: [25.0, 800.0],
-
+lotto: { ..., decimalOddsRange: [25.0, 800.0], ... }
 // AFTER
-decimalOddsRange: [20.0, 1500.0],
+lotto: { ..., decimalOddsRange: [20.0, 1500.0], ... }
 ```
 
-Current range allows 63 valid 4-leg combinations from the lotto pool.
-New range allows 393 (6× more). Allows lotto to reliably fill maxPerTier=4.
+Root cause proven (Session E): greedy fill to 5 legs → combined decimal ~3,061 → rejected.
+Only 1 of ~455 valid 3-leg combos survived [25, 800]. Widening to [20, 1500] allows 4-leg
+combos (dec~3.8 × 6.5 × 3.5 × 4.2 = 354 — well within range).
+
+**Fix 5 (NEW) — aggressive ceiling:**
+```js
+// BEFORE
+aggressive: { ..., decimalOddsRange: [6.0, 60.0], ... }
+// AFTER
+aggressive: { ..., decimalOddsRange: [6.0, 120.0], ... }
+```
+
+Root cause proven (Session E): volatile-seeded 4-leg aggressive combos (dec~3.8 × 3.2 × 3.6 × 3.1 = 136)
+blow past 60.0 ceiling. After legUsageCount exhausts Machado+Lee (cap=2 each), slips 3+4 have
+no surviving volatile combos → fall back to balanced unders. Widening to 120.0 allows most
+3-leg volatile combos (dec~5–60 range) and some 4-leg combos to survive.
+Floor stays at 6.0 — no change to minimum odds requirement.
+
+TERM 1 restart: YES (batch Fix 4 + Fix 5 in same restart)
+TERM 2 verification: lotto slips should produce 3–4 slips; aggressive slips 3+4 should contain volatile legs.
+
+### 🟡 Ecology Fix 6 — Greedy fill fallback: try min legs before max *(SEPARATE SESSION)*
+
+**File:** `backend/pipeline/shared/buildSlipAi.js` `buildSlipsForTier()` inner loop
+
+Root cause proven (Session E): builder fills to `legCountRange[1]` (max) before checking
+combined decimal range. For lotto (max=5, legs dec~3.1–10.0): 5-leg combo = ~3,061 >> 800.
+Fix 4 widens the ceiling but doesn't prevent 5-leg attempts from exhausting the combo space.
+
+**Approach**: In the inner fill loop, try building slips starting at `legCountRange[0]` (min legs),
+accept the first valid combined-decimal result, only extend to more legs if valid. If extending
+to max fails the decimal check, keep the min-legs slip.
+
+⚠️ This is the most complex fix — requires careful trace of the inner fill loop before touching.
+Do NOT batch with Fix 4+5. Separate session, Sonnet, trace first.
+
+TERM 1 restart: YES
+TERM 2 verification: lotto should now produce 4 slips reliably at 3–4 legs each.
 
 ### 🔴 Priority 1 — SQLite migration: `personal_ledger.json`
 
@@ -179,9 +217,12 @@ Requires ARCHITECTURE.md first to verify no hidden dependencies.
 | personal_ledger.json corruption | SQLite migration now overdue — do not defer further |
 | Fix 3 volRealism: hierarchy inversion | lotto=0.56 still below balanced=0.74 ✓ |
 | textureBoost + volRealism fix double-counting | textureBoost was calibrated for old gap — verify after Fix 3 |
-| Fix 4 lotto range: invalid combo explosion | 393 combos well within feasible range |
+| Fix 4 lotto range: invalid combo explosion | 4-leg combos ~354 dec well within [20,1500]; 5-leg still risks ceiling until Fix 6 |
+| Fix 5 aggressive ceiling: longer-odds slips | Ceiling 120 still requires floor≥6; spot-check aggressive slip odds post-change |
+| Fix 6 greedy fill: leg count regressions | DO NOT apply without full inner-loop trace; wrong leg count = invalid slips |
 | Premium-edge override admits clown plays into safe slips | Three gates: 12% edge AND 50% modelProb AND maxOdds 150 |
 | Cache (60s TTL) serving stale results | Wait for expiry; TERM 2 restart if needed |
+| Duplicate balanced slip (seenSignatures bug) | Do not add dedup workaround without tracing seenSignatures root cause |
 
 ---
 
@@ -199,6 +240,9 @@ Requires ARCHITECTURE.md first to verify no hidden dependencies.
 - Do NOT widen `maxPerGame` beyond 2 in anchors
 - Do NOT attempt server.js Phase B/C extraction without ARCHITECTURE.md global map
 - Do NOT touch `runMlbNight.js` without tracing candidate paths first
+- Do NOT apply Fix 6 (greedy fill) in same session as Fix 4+5 — separate session required
+- Do NOT touch the portfolio optimizer concentration penalty — it is informational only and working as designed
+- Do NOT change MAX_PLAYER_GLOBAL cap — tier FIFO ordering would need redesign, high regression risk
 
 ---
 
@@ -235,10 +279,12 @@ After any patch:
 |---|---|---|---|
 | CP1 | `buildCandidateDiversity.js:51` | Uncapped `(edge×4)×prob` sort — 1.87× TB-under bias | ✅ **FIXED** |
 | CP2 | `buildSlipAi.js` aggressive seeding | Balanced TB unders seed aggressive slips over lotto overs | ✅ **FIXED** |
-| CP3 | `buildFeaturedPlays.js` volRealism | lotto=0.46; textureBoost (+0.030) can't cover the gap | **PENDING** |
-| CP4 | `enrichBestEntry` ID match | tracked_best has no eventId → zero tier boosts | **PENDING** |
-| CP5 | `TIER_TEMPLATES.lotto.decimalOddsRange` | [25, 800] → only 63 valid 4-leg combos | **PENDING** |
+| CP3 | `buildFeaturedPlays.js` volRealism | lotto=0.46; textureBoost (+0.030) can't cover the gap | **Fix 3 — NEXT** |
+| CP4 | `enrichBestEntry` ID match | tracked_best has no eventId → zero tier boosts | **Priority 3** |
+| CP5 | `TIER_TEMPLATES.lotto.decimalOddsRange` | [25, 800] + greedy fill → 5-leg combo dec=3,061; only 1 slip | **Fix 4 — NEXT** |
 | CP6 | tracked_best upstream data | No eventId/matchup → game correlation blind | **Data quality** |
+| CP7 | `TIER_TEMPLATES.aggressive.decimalOddsRange` | [6.0, 60.0] ceiling kills volatile 4-leg combos; slips 3+4 revert to balanced | **Fix 5 — NEXT (batch w/ Fix 4)** |
+| CP8 | `buildSlipsForTier` greedy fill loop | Fills to max legs before checking combined decimal → near-total lotto rejection | **Fix 6 — separate session** |
 
 ---
 
@@ -247,7 +293,7 @@ After any patch:
 | Lever | Status |
 |---|---|
 | Side balance in featured buckets | Capped at 60% (anchors 55%) |
-| Stat concentration | maxPerStat:10 / maxPerStatSide:6 |
+| Stat concentration | maxPerStat:10 / maxPerStatSide:6 — working as designed |
 | Volatility taxonomy | Fixed — hits/runs/etc. → balanced |
 | Outs volatility | Fixed — outs → balanced |
 | modelProb compounding | Capped [0.50, 0.55] in featured + slipAi + diversity sort |
@@ -261,8 +307,11 @@ After any patch:
 | Featured safest premium-edge override | Active — same thresholds |
 | AI slip offense bias | Active in aggressive/lotto seed sort |
 | Aggressive slip volatile seeding | ✅ **FIXED** — volatile legs seed first, balanced fill |
-| Lotto volRealism | **PENDING FIX** — 0.46 too low, textureBoost can't compensate |
-| Lotto decimalOddsRange | **PENDING FIX** — [25,800] caps 4-leg combos at +400-500 odds |
+| Portfolio concentration penalty | Informational only — threshold (>65% one stat) never fires at current pool size |
+| Lotto volRealism | **PENDING Fix 3** — 0.46 too low, textureBoost can't compensate |
+| Lotto decimalOddsRange | **PENDING Fix 4** — greedy fill to 5 legs → dec=3,061 >> 800; only 1 slip survives |
+| Aggressive decimalOddsRange ceiling | **PENDING Fix 5** — [6.0, 60.0] kills volatile 4-leg combos after Fix 2 seeds |
+| Greedy fill architecture | **PENDING Fix 6** — fills to max before checking decimal; separate session |
 
 ---
 

@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Priority 0: buildFeaturedPlays fork resolved — one canonical path)_
+_Last updated: 2026-05-07 (Session E: Portfolio concentration + volRealism audit complete — Fix 3/4/5/6 root causes proven)_
 
 ---
 
@@ -175,14 +175,21 @@ Fix 2 (aggressive seeding) verified: volatile legs now at seed positions 1–N b
 
 ## ACTIVE BOTTLENECK
 
-**Remaining ecology compression points (Fix 3 + Fix 4 pending):**
+**Remaining ecology compression points (Fix 3 + Fix 4 + Fix 5 + Fix 6 pending — all root causes proven):**
 
 CP3: `buildFeaturedPlays.js` volRealism — lotto=0.46, textureBoost (+0.030) can't cover the gap. Fix: raise lotto→0.56, aggressive→0.66.
-CP4: `buildSlipAi.js` lotto decimalOddsRange [25,800] — only 63 valid 4-leg combos. Fix: widen to [20,1500].
+CP4: `buildSlipAi.js` lotto decimalOddsRange [25,800] — greedy fill to 5 legs produces combined decimal ~3,061; only 1 slip survives. Fix: widen to [20,1500].
 CP5: tracked_best missing eventId — zero tier boosts for offensive overs (upstream data quality).
-CP6: buildFeaturedPlays fork — server.js still imports old 407-line version (Priority 0, must fix before more scoring work).
+**NEW CP7: `buildSlipAi.js` aggressive decimalOddsRange [6.0, 60.0] ceiling** — 4-leg volatile combos blow past 60.0; volatile-seeded slips 3+4 default to balanced unders even after Fix 2. Fix: widen ceiling to 120.0.
+**NEW CP8: Greedy fill architecture in `buildSlipsForTier`** — fills to legCountRange[1] max legs before checking combined decimal range. Causes near-total lotto slip failure. Fix: try min legs first, work up to max.
 
 Fix 1 + Fix 2 address the two highest-impact compression points. Remaining under-heaviness in the raw pool (83% unders) is a projection-engine artifact, not addressable at the curation layer.
+
+**Live slip audit (2026-05-06, 9 slips: safe:1, balanced:3, aggr:4, lotto:1):**
+- Safe: Corbin outs over(balanced) + Buxton rbis under(balanced)
+- Balanced: 3 slips — all unders except Urena ks over; slips 2+3 are DUPLICATES (seenSignatures bug)
+- Aggressive: slips 1+2 have volatile seeds (Machado/Lee runs overs); slips 3+4 are 100% balanced unders (legUsageCount cap exhausts Machado/Lee by slip 2)
+- Lotto: only 1 slip (Freeman TB + Chourio TB + Machado runs + Lee runs) — 5-leg combos all fail decimal ceiling
 
 ---
 
@@ -192,12 +199,14 @@ Fix 1 + Fix 2 address the two highest-impact compression points. Remaining under
 2. **`pipeline/boards/buildFeaturedPlays.js` orphaned on disk** — dead import removed from `server.js`, zero remaining importers, needs manual `rm` from macOS terminal. Not a runtime risk (not loaded).
 3. **`personal_ledger.json` at 2,000 entries / 2.3MB — PAST SQLite migration trigger.** Write-race orphan `.tmp` file observed. Migration is overdue.
 4. **lotto volRealism=0.46** — textureBoost (+0.030) can't compensate the 0.028 weighted gap vs balanced. Fix 3 pending.
-5. **lotto decimalOddsRange [25,800]** — only 63 valid 4-leg combos. Fix 4 pending.
-6. **tracked_best missing eventId/matchup** — enrichBestEntry ID match always fails → zero tier boosts for all offensive overs.
-7. **`timing_intelligence_state.json` at 729KB, unbounded growth.** No pruning mechanism.
-8. **`isOffensiveAttackStat` duplicated** between `buildFeaturedPlays.js` and `buildSlipAi.js`. Drift risk.
-9. **`http/nbaBestAvailable.inlined.js` (6,867 lines) + `nbaRefreshSnapshot.inlined.js` (4,318 lines)** — may be dead code. Need audit.
-10. **Docs duplicated at repo root AND `docs/` folder.** Will diverge.
+5. **lotto decimalOddsRange [25,800] + greedy fill to max legs** — combined decimal ~3,061 on natural 5-leg build; only 1 of ~455 3-leg combos survives. Fix 4 + Fix 6 pending.
+6. **aggressive decimalOddsRange [6.0, 60.0] ceiling** — 4-leg volatile combos exceed 60.0; Fix 2 seeds volatile first but can't survive ceiling. Fix 5 pending.
+7. **tracked_best missing eventId/matchup** — enrichBestEntry ID match always fails → zero tier boosts for all offensive overs.
+8. **Duplicate balanced slip bug (seenSignatures)** — balanced slips 2+3 are identical despite unique IDs. seenSignatures not deduplicating correctly. Root cause: likely normalization quirk producing different IDs for same logical bet.
+9. **`timing_intelligence_state.json` at 729KB, unbounded growth.** No pruning mechanism.
+10. **`isOffensiveAttackStat` duplicated** between `buildFeaturedPlays.js` and `buildSlipAi.js`. Drift risk.
+11. **`http/nbaBestAvailable.inlined.js` (6,867 lines) + `nbaRefreshSnapshot.inlined.js` (4,318 lines)** — may be dead code. Need audit.
+12. **Docs duplicated at repo root AND `docs/` folder.** Will diverge.
 
 ---
 
