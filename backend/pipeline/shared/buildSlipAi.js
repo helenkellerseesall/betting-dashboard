@@ -216,11 +216,19 @@ function scoreLeg(leg, ctx = {}) {
   factors.diversification = r4(divScore)
   total += divScore * 0.05; weight += 0.05
 
-  // 9. Tier hint bonus (small)
+  // 9. Tier hint bonus (small).
+  //
+  // TRUST-QUALIFICATION FIX: halved (was 0.10 / 0.05). Tier assignment is
+  // modelProb-driven, so on MLB slates ELITE/STRONG tiers are 100%
+  // under-assigned (33 ELITE unders / 0 ELITE overs today). The full
+  // 0.10 boost gave a phantom +10 composite advantage to ELITE unders
+  // in slip ranking — preventing offensive overs from seed-winning even
+  // when their actual edge was higher. Mirrors the same fix applied to
+  // buildFeaturedPlays.scoreCandidate last session.
   let tierBoost = 0
   const tierStr = String(leg.tier || "").toUpperCase()
-  if (tierStr.includes("ELITE"))    tierBoost = 0.10
-  else if (tierStr.includes("STRONG"))   tierBoost = 0.05
+  if (tierStr.includes("ELITE"))    tierBoost = 0.05
+  else if (tierStr.includes("STRONG"))   tierBoost = 0.025
   else if (tierStr.includes("LOTTO"))    tierBoost = -0.05
   else if (tierStr.includes("FADE"))     tierBoost = -0.30
   factors.tierBoost = tierBoost
@@ -403,12 +411,31 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
   const tpl = TIER_TEMPLATES[tier]
   if (!tpl) return []
 
-  // Filter to candidates eligible for this tier
+  // Filter to candidates eligible for this tier.
+  //
+  // TRUST-QUALIFICATION FIX: safe tier accepts a premium-edge override —
+  // legs with modelProb >= 0.50 AND edge >= 0.12 qualify even if below the
+  // tier's standard minModelProb threshold (0.55) AND even if their
+  // volatility classification (aggressive) wouldn't normally pass the
+  // safe template's allowedVolatility list. Without this, offensive
+  // overs (whose modelProb is structurally compressed below 0.55 and
+  // whose volatility is often classified aggressive by line shape) can
+  // NEVER graduate into safe slips regardless of edge quality. The
+  // override admits genuinely premium edges (12%+) at a still-positive
+  // probability floor (50%+) — preserving safe identity while letting
+  // elite offense qualify when the process is high-conviction.
   const eligible = scoredLegs.filter((sl) => {
     const leg = sl.leg
-    if (tpl.allowedVolatility?.length && !tpl.allowedVolatility.includes(leg.volatility)) return false
+    const isPremiumEdgeForSafe = tier === "safe" &&
+      (leg.modelProb ?? 0) >= 0.50 &&
+      (leg.edge ?? 0) >= 0.12
+    if (tpl.allowedVolatility?.length && !tpl.allowedVolatility.includes(leg.volatility)) {
+      if (!isPremiumEdgeForSafe) return false
+    }
     if (tpl.forbidVolatility?.length  &&  tpl.forbidVolatility.includes(leg.volatility))  return false
-    if (tpl.minModelProb != null && (leg.modelProb ?? 0) < tpl.minModelProb) return false
+    if (tpl.minModelProb != null && (leg.modelProb ?? 0) < tpl.minModelProb) {
+      if (!isPremiumEdgeForSafe) return false
+    }
     if (tpl.maxOdds != null && Math.abs(leg.odds) > tpl.maxOdds && leg.odds > 0 && leg.odds > tpl.maxOdds) return false
     if (tier === "safe" && (leg.odds > tpl.maxOdds)) return false
     return true

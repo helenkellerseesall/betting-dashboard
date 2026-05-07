@@ -67,6 +67,14 @@ const VOLATILITY_RULES = [
     return (f.includes("h+r+rbi") || f.includes("hrrbi")) && !f.includes("pitcher")
   } },
   { bucket: "balanced",   test: (b) => normFam(b.statFamily||b.propType).includes("pitcherk") || normFam(b.statFamily||b.propType).includes("strikeout") },
+  // TRUST-QUALIFICATION FIX: pitcher "outs" was falling through to safe by
+  // default. Outs is structurally a suppression bet (pitcher dominance) that
+  // is volatile by nature — pitchers leave games, hooks happen, BPIP varies.
+  // Treating it as safe inflated volRealism (0.80) on pitcher-outs overs and
+  // caused them to monopolize the Safest featured bucket on every MLB slate.
+  // Reclassifying as balanced gives the right realism (0.74) and frees the
+  // Safest slot for genuinely lower-variance plays.
+  { bucket: "balanced",   test: (b) => normFam(b.statFamily||b.propType).includes("outs") },
   // safe (default fallback)
   { bucket: "safe",       test: () => true },
 ]

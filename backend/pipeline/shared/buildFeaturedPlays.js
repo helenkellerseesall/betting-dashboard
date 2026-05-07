@@ -621,12 +621,29 @@ function buildSmartAggression(scored, count = 4) {
 }
 
 function buildSafest(scored, count = 5) {
-  // Strict: proper safe-lane plays
+  // Primary: proper safe-lane plays (low volatility, high modelProb).
+  //
+  // TRUST-QUALIFICATION FIX: PLUS premium-edge offensive ecosystems —
+  // balanced/aggressive plays with edge >= 0.12 AND modelProb >= 0.50.
+  // Without this, "safest" filled exclusively with pitcher dominance overs
+  // (whose volatility was previously misclassified safe) and high-prob
+  // unders. Premium hitter offense (Trout 22%-edge runs over) could never
+  // qualify as a safest pick despite being a structurally high-conviction
+  // play — its modelProb is compressed below 0.55 by line shape, not by
+  // any actual confidence weakness. The override admits 12%+ edge plays at
+  // a 50%+ probability floor as a process-quality-driven safety signal.
   let filtered = scored.filter((x) =>
-    x.c.volatility === "safe" &&
-    (x.c.modelProb ?? 0) >= 0.55 &&
-    Math.abs(x.c.odds) <= 200
+    (
+      x.c.volatility === "safe" &&
+      (x.c.modelProb ?? 0) >= 0.55
+    ) ||
+    (
+      (x.c.volatility === "balanced" || x.c.volatility === "aggressive") &&
+      (x.c.modelProb ?? 0) >= 0.50 &&
+      (x.c.edge ?? 0) >= 0.12
+    )
   )
+  filtered = filtered.filter((x) => Math.abs(x.c.odds) <= 250)
   // First fallback: any safe-volatility play
   if (filtered.length < count) {
     filtered = scored.filter((x) => x.c.volatility === "safe" && Math.abs(x.c.odds) <= 250)

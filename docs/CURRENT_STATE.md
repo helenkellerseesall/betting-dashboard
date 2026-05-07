@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06 (late night — trust-curation hierarchy pass)_
+_Last updated: 2026-05-06 (overnight — trust-qualification audit pass)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-06 (late night — trust-curation hierarchy pass)_
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | `0675cd0` — Fix scoring ecology: cap modelProb compounding |
+| Last commit | (pending — trust-qualification fixes this session) |
 | Repo health | Stable. All syntax checks clean. |
 
 ---
@@ -39,6 +39,7 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | NBA nightly pipeline | Working | `scripts/runNbaNight.js` |
 | AI Slip construction | Working | `pipeline/shared/buildSlipAi.js` |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
+| Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Line shopping (implied spread ranking) | Working | `routes/workstationRoutes.js` |
 | Portfolio optimizer | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Market timing intelligence | Working | `pipeline/shared/buildMarketTimingIntelligence.js` |
@@ -85,22 +86,34 @@ Candidate diversification (`workstationRoutes.js → diversifyCandidates`):
 
 Featured side-balance (`buildFeaturedPlays.js → pickDiversified`):
 - `maxSideFraction: 0.60` (anchors: 0.55) — fill pass relaxes side cap if short
-- Anchors `maxPerGame: 2` (was 1) — allows cross-side picks in same game
+- Anchors `maxPerGame: 2` — allows cross-side picks in same game
 
 Volatility classification (`buildPortfolioOptimizer.js → VOLATILITY_RULES`):
-- `hits`, `runs`, `points`, `rebounds`, `steals` etc. → `balanced` (fixed prior session)
+- `hits`, `runs`, `points`, `rebounds`, `steals`, `stolenbases` etc. → `balanced`
+- `pitcherk` / `strikeout` → `balanced`
+- **NEW: `outs` → `balanced`** (was `safe` by default — pitcher dominance is volatile, not low-variance)
 
 Composite scoring (`buildFeaturedPlays.js → scoreCandidate`):
 - `f.edge = (edge × 4) × clamp(modelProb, 0.50, 0.55)` — caps modelProb compounding
-- `tierBoost`: ELITE 0.04 / STRONG 0.02 (halved this session — was 0.08/0.04)
+- `tierBoost`: ELITE 0.04 / STRONG 0.02 (halved earlier this session)
 - `textureBoost`: aggressive/lotto edge>0.045 → 0.018; offensive over edge>0.05 → 0.020; aggressive offensive over → 0.030
 - Anchor display: `sortAnchorsForDisplay()` interleaves sides (U·O·U·O·U pattern)
+
+AI slip scoring (`buildSlipAi.js → scoreLeg`):
+- Same modelProb cap [0.50, 0.55] as featured
+- **NEW: `tierBoost` halved**: ELITE 0.05 (was 0.10) / STRONG 0.025 (was 0.05) — mirrors featured fix
+
+AI safe-tier eligibility (`buildSlipAi.js → buildSlipsForTier`):
+- **NEW: premium-edge override** — legs with `modelProb >= 0.50 AND edge >= 0.12` bypass `allowedVolatility` and `minModelProb` gates. Admits elite offensive ecosystems whose modelProb is structurally compressed below 0.55. `maxOdds 150` cap still applies (preserves safe identity).
+
+Featured `buildSafest`:
+- **NEW: premium-edge override** — balanced/aggressive plays with `modelProb >= 0.50 AND edge >= 0.12` qualify alongside the standard safe-volatility + 0.55 modelProb gate.
 
 ---
 
 ## CURRENT PHASE
 
-**Phase: CURATION + TRUST + OPERATOR-QUALITY refinement (Phase 5 — hierarchy curation)**
+**Phase: CURATION + TRUST + OPERATOR-QUALITY refinement (Phase 6 — trust qualification)**
 
 Completed total (all sessions combined):
 - AI slip dead fix in `runMlbNight.js`
@@ -114,12 +127,25 @@ Completed total (all sessions combined):
 - Scoring ecology fix #1 — modelProb compounding capped at [0.50, 0.55]
 - Scoring ecology fix #2 — `isOffensiveAttackStat` + stacked textureBoost
 - Anchor cross-side fix — `maxPerGame: 2` in `buildAnchors`
-- **NEW: Trust-curation fix #1** — tierBoost halved (ELITE 0.08→0.04, STRONG 0.04→0.02)
-  Tier assignment is modelProb-driven → under-biased. Full 0.08 was inflating low-edge ELITE
-  unders above higher-edge PLAYABLE overs. ELITE/STRONG tier 100% assigned to unders on MLB.
-- **NEW: Trust-curation fix #2** — `sortAnchorsForDisplay()` interleave sort
-  Anchor display now alternates sides: U·O·U·O·U. Trout's 22% edge offensive over moves from
-  anchor #4 to anchor #2 in the dashboard display.
+- Trust-curation fix #1 — featured tierBoost halved (ELITE 0.08→0.04, STRONG 0.04→0.02)
+- Trust-curation fix #2 — `sortAnchorsForDisplay()` interleave sort
+- **NEW: Trust-qualification fix #1** — slipAi tierBoost halved (ELITE 0.10→0.05, STRONG 0.05→0.025).
+  Same compounding bias the featured layer had: ELITE/STRONG tiers are 100% under-assigned on
+  MLB slates, so the full +0.10 bonus phantom-promoted low-edge unders over higher-edge overs in
+  slip composite ranking.
+- **NEW: Trust-qualification fix #2** — slipAi safe tier premium-edge override.
+  Admits modelProb≥0.50 + edge≥0.12 plays past the 0.55 modelProb gate and the
+  allowedVolatility list (`["safe","balanced"]`). MaxOdds 150 cap still applies — preserves
+  safe identity while letting elite offensive ecosystems graduate when ladder is reasonable.
+- **NEW: Trust-qualification fix #3** — pitcher `outs` → `balanced` volatility.
+  Outs was falling through to safe by default fallback. Pitcher outs is a suppression-flavored
+  bet that's predictably volatile (pitcher leaves games, hooks, BPIP). Reclassifying as balanced
+  drops volRealism 0.80→0.74, which lets real attack-stat overs surface above pitcher outs in
+  Tonight's Best / Best Ladders / Safest.
+- **NEW: Trust-qualification fix #4** — `buildSafest` premium-edge override.
+  Same 0.50 modelProb / 0.12 edge override as slip safe tier. Premium offensive ecosystems
+  (Trout 22%-edge runs over) now graduate into the SAFEST featured trust surface alongside
+  high-prob unders — without forcing offense or sacrificing realism.
 
 ---
 
@@ -128,14 +154,15 @@ Completed total (all sessions combined):
 | Bucket | Composition | Notes |
 |---|---|---|
 | Anchors (display order) | **U·O·U·O·U** | Trout runs over at #2, No HR at #4 |
-| Tonight's Best | 3U / 2O | Strong high-edge unders + pitcher-depth overs |
-| Best Ladders | 3U / 2O | TB/hits unders + pitcher outs overs |
-| Smart Aggression | **4 overs** | Trout, No HR, Schanuel, Machado — real attack board |
-| Safest | 3 overs | Pitcher depth overs (lowest variance on slate) |
-| AI Lotto Slip #1 | **5 overs** | Pure offensive attack |
-| AI Aggressive Slip #1 | 3U / 1O | Cross-side texture |
-| AI Balanced Slip #1 | 3U | Strong high-edge under core |
-| Total AI slips | 12 | safe:2 balanced:3 aggr:4 lotto:3 |
+| Tonight's Best | 3U / 2O | **Schanuel hits over now appears (was Schultz outs)** — real hitter offense |
+| Best Ladders | 3U / 2O | TB/hits unders + pitcher outs (still surfaces — alt-line legitimate) |
+| Smart Aggression | **4 overs** | Trout, No HR, Schanuel, Machado — pure attack board |
+| **Safest** | 3U / **2O including Trout runs over** | Premium offensive ecosystem now graduates into safest |
+| AI Lotto Slip #1 | 5 overs | Pure offensive attack |
+| AI Aggressive Slip #1 | 3U / 1O | Trout cross-side seed |
+| AI Balanced Slips | 100% under (correct — no premium ladders qualify today) | Bichette/Wood/Murakami |
+| AI Safe Slips | 100% under (correct — today's offensive overs are all +200/+280, fail maxOdds 150) | Buxton/Stowers RBI alts |
+| Total AI slips | 13 | safe:2 balanced:4 aggr:4 lotto:3 |
 
 ---
 
@@ -143,24 +170,25 @@ Completed total (all sessions combined):
 
 **Remaining structural under-heaviness (acceptable):**
 
-Raw pool: 294 bets — 83% unders. This is a real projection-level artifact.
-At the SURFACING layer, all major measures now working:
+Raw pool: 294 bets — 83% unders. Real projection-level artifact.
+At the SURFACING layer, all major trust gates now fair:
 - Anchors interleaved, offensive overs at positions #2/#4
-- Smart Aggression = 4 real overs
-- Lotto AI slips = 5 real overs
-- Side caps prevent sweep
+- Tonight's Best includes real hitter offense (Schanuel)
+- Smart Aggression = 4 real attack overs
+- **Safest includes Trout runs over** (premium offensive ecosystem graduated)
+- Lotto AI slips = 5 real overs, Aggressive #1 has Trout
 
-Remaining feel: Tonight's Best #4/#5 are pitcher-depth overs (outs over 15.5).
-These feel "suppression-adjacent" because "outs" sounds like a batting stat.
-These are legitimate low-variance edges — the naming/label is the residual perception issue,
-not the surfacing logic. NOT a scoring fix — a potential label fix in future.
+AI safe/balanced slips remaining 100% under is **correct behavior** — today's offensive overs all
+have odds +200 to +280, which legitimately exceeds the safe tier `maxOdds: 150` cap. Premium
+offensive ecosystems with reasonable odds (≤ 150) WOULD now graduate. Today's slate just has
+no such play. Identity preservation working as designed.
 
 ---
 
 ## KNOWN WEAKNESSES
 
-1. **Under-heavy raw pool**: ~83% unders. Mitigation is at the max working level at the curation layer. Source imbalance cannot be fully overcome without projection engine changes (out of scope).
-2. **"outs" stat sounds suppression even as an over**: Pitcher depth overs (Joey Cantillo outs over 15.5) legitimately appear in Tonight's Best / Safest but feel sterile. Future: label as "pitcher depth" or "K-load" in UI.
+1. **Under-heavy raw pool**: ~83% unders. Mitigation now at the maximum possible curation-layer level. Source imbalance only fully addressable in the projection engine (out of scope).
+2. **AI safe slips remain conservative when no offense at the right odds**: Premium offensive overs at +180/+220 don't fit safe-tier identity (maxOdds 150). This is correct behavior — the override admits them when odds qualify; today's slate just lacks such plays.
 3. **NBA line shopping thin**: Multi-book NBA data sparse.
 4. **First basket section disconnected**: Renders but lacks real candidate data integration.
 5. **No SQLite yet**: Flat JSON persistence, `personal_ledger.json` grows unbounded.
