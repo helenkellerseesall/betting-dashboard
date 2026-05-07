@@ -252,11 +252,21 @@ function scoreCandidate(c, ctx) {
   }
   f.textureBoost = textureBoost
 
-  // tier hint
+  // Tier hint — small nudge from pipeline confidence tier.
+  //
+  // TRUST-CURATION FIX: halved tier boosts (was 0.08/0.04).
+  // On MLB slates the ELITE/STRONG tiers are assigned exclusively to under
+  // bets (33 ELITE unders, 0 ELITE overs today) because tier assignment is
+  // modelProb-driven and modelProb is structurally higher on shorter under
+  // lines. At full 0.08, the ELITE bonus creates a ~5.5-point composite gap
+  // between low-edge ELITE unders and equal/higher-edge PLAYABLE overs.
+  // Halving to 0.04/0.02 keeps the signal without letting it sweep the
+  // trust-curation hierarchy — a 9.5% edge offensive over can now naturally
+  // outrank a 5.5% edge ELITE under.
   const tier = String(c.tier || "").toUpperCase()
   let tierBoost = 0
-  if (tier.includes("ELITE")) tierBoost = 0.08
-  else if (tier.includes("STRONG")) tierBoost = 0.04
+  if (tier.includes("ELITE")) tierBoost = 0.04
+  else if (tier.includes("STRONG")) tierBoost = 0.02
   else if (tier.includes("LOTTO")) tierBoost = -0.05
   else if (tier.includes("FADE"))  tierBoost = -0.30
   f.tier = tierBoost
@@ -486,6 +496,26 @@ function pickDiversified(scored, count, opts = {}) {
  *  edge factor strong) must fire. Falls back progressively so a thin slate
  * still yields 3 anchors when the data supports it.
  */
+/**
+ * Re-orders already-selected anchor plays so sides alternate in the display
+ * (e.g. under → over → under → over → under). Composite scores are NOT
+ * changed — only the rendering sequence. This prevents all unders from
+ * stacking at positions #1-#3 even when the slate is suppression-heavy,
+ * giving offensive attack plays visibility in the first three anchor slots.
+ */
+function sortAnchorsForDisplay(picks) {
+  if (picks.length <= 2) return picks
+  const result = [picks[0]] // always preserve highest composite as #1 anchor
+  const remaining = picks.slice(1)
+  while (remaining.length) {
+    const lastSide = result[result.length - 1].c.side
+    const altIdx   = remaining.findIndex((p) => p.c.side !== lastSide)
+    if (altIdx >= 0) result.push(remaining.splice(altIdx, 1)[0])
+    else             result.push(remaining.shift())
+  }
+  return result
+}
+
 function buildAnchors(scored, count = 5) {
   const sorted = [...scored].sort((a, b) => b.score.composite - a.score.composite)
 
@@ -521,7 +551,13 @@ function buildAnchors(scored, count = 5) {
   // composite than later under picks. Side-balance cap (0.55) still
   // prevents same-side same-game spam — this only helps when the second
   // pick adds genuine cross-side texture.
-  return pickDiversified(pool, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2, maxSideFraction: 0.55 })
+  const picks = pickDiversified(pool, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2, maxSideFraction: 0.55 })
+
+  // DISPLAY FIX: interleave anchors by side so the board alternates rather
+  // than showing all unders first. Pure editorial sort — scores are
+  // untouched. Greedy: always pick the next play whose side differs from the
+  // last selected, falling back to remaining plays when no opposite exists.
+  return sortAnchorsForDisplay(picks)
 }
 
 function buildTonightsBest(scored, count = 5, exclude = new Set()) {

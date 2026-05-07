@@ -1,82 +1,80 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06 (late evening — scoring ecology pass)_
+_Last updated: 2026-05-06 (late night — trust-curation hierarchy pass)_
 
 ---
 
 ## CURRENT PROJECT PHASE
 
-**CURATION + TRUST + OPERATOR-QUALITY refinement — Phase 4 (scoring ecology)**
+**CURATION + TRUST + OPERATOR-QUALITY refinement — Phase 5 (trust hierarchy)**
 
 The workstation is structurally complete and functionally working.
-Scoring ecology has been corrected at the curation/surfacing layer.
-The projection engine is INTENTIONALLY untouched — projection-level balance
-is out of scope (would require model retraining; see WHAT NOT TO DO).
+The scoring ecology has been corrected at multiple layers.
+The trust-curation hierarchy is now significantly more balanced.
+Future work is refinement and infrastructure — NOT architecture.
 
 ---
 
 ## LAST SUCCESSFUL STATE
 
-Session completed 2026-05-06 (late evening). All patches verified clean (`node --check`).
+Session completed 2026-05-06 (late night). All patches verified clean (`node --check`).
 
-### Patches applied this session:
+### Patches applied this session (trust-curation hierarchy):
 
-1. **`buildFeaturedPlays.js`** — `scoreCandidate.f.edge` formula:
-   - OLD: `(edge × 4) × (modelProb || 0.5)` — compounded suppression advantage
-   - NEW: `(edge × 4) × clamp(modelProb, 0.50, 0.55)` — caps modelProb factor
-   - Removes 30% structural advantage that under bets received from probability compression
+1. **`buildFeaturedPlays.js`** — `scoreCandidate.tierBoost` halved:
+   - ELITE: 0.08 → 0.04
+   - STRONG: 0.04 → 0.02
+   - Root cause: ELITE/STRONG tiers are 100% under-biased on MLB slates (33 ELITE unders,
+     0 ELITE overs). At 0.08, inflated low-edge ELITE unders above higher-edge PLAYABLE overs.
+     At 0.04, a 9.5% edge over now naturally outranks a 5.5% edge ELITE under.
 
-2. **`buildSlipAi.js`** — `scoreLeg.projectionScore` formula:
-   - Same modelProb cap as featured (`[0.50, 0.55]`)
-   - Mirrors featured behavior in slip construction
-
-3. **`buildFeaturedPlays.js`** — added `isOffensiveAttackStat()` helper:
-   - Recognizes hitter offense (hits/runs/totalbases/HR/RBI/XBH/SB/etc)
-   - Excludes pitcher dominance flavors (outs/Ks/walks)
-   - Mirrors `buildSlipAi.offensiveAttackTextureBonus` recognition
-
-4. **`buildFeaturedPlays.js`** — `textureBoost` extended:
-   - Aggressive/lotto + edge>0.045: `0.018` (existing)
-   - Aggressive/lotto offensive overs: `0.030` (overcomes volRealism penalty)
-   - Balanced offensive overs (edge>0.05): `0.020` (new)
-   - Stacked into single value, not added — only one boost fires per candidate
-
-5. **`buildFeaturedPlays.js`** — `buildAnchors` `maxPerGame: 1 → 2`:
-   - On nights with both genuine attack + suppression edges in one game
-     (e.g. Trout runs over + Montgomery TB under in CHW@LAA), this allows
-     the second pick when it adds cross-side texture
-   - Side-balance cap (0.55) still prevents same-side same-game spam
+2. **`buildFeaturedPlays.js`** — added `sortAnchorsForDisplay()`:
+   - Pure editorial sort — composite scores unchanged
+   - Alternates anchor display sides: U·O·U·O·U pattern
+   - Ensures offensive attack plays appear at positions #2 and #4 rather than buried at #4/#5
+   - Highest-composite play always at #1 (quality anchor preserved)
 
 ### Verification (today's slate, 48 diversified candidates):
-- Anchors: 3U / 2O (Trout 22% edge over now surfaces)
-- Tonight's Best: 3U / 2O
-- Best Ladders: 3U / 2O
-- Smart Aggression: 4 overs (real offensive attack)
-- AI Aggressive Slip #1: 3U + 1 over (cross-side)
-- AI Lotto Slip #1: 5 pure-offensive overs
+- Anchor display order: U·O·U·O·U (was U·U·U·O·O)
+- Trout runs over (22% edge): now anchor #2 (was anchor #4)
+- Low-edge ELITE unders (Merrill 14.5%): dropped out of anchor tier entirely
+- Smart Aggression: 4 real overs (Trout, No HR, Schanuel, Machado)
+- AI Lotto: 5 pure offensive overs
+- All buckets populated, no regressions
 
 ---
 
 ## IMMEDIATE NEXT PRIORITIES
 
-### Priority 1 — Verify scoring ecology patch in live slate
-**TERM 2 action**: Hit `/api/ws/state?sport=mlb` after server cache expires (60s TTL).
+### Priority 1 — Verify trust-curation fix in live slate
+**TERM 2 action**: Hit `/api/ws/state?sport=mlb` after 60s server cache expires.
 Confirm:
-- Anchors contain real offensive overs when slate has them with edge >0.05
-- Aggressive/Lotto AI slips include offensive attack legs
-- Portfolio side mix improved vs prior session
+- Anchors now show U·O·U·O·U pattern in the command-center AnchorCard
+- Trout's runs over (or equivalent best offensive edge) appears at anchor #2
+- Smart Aggression cards show real offensive over content
+- "Tonight's Anchors" feels alive, not sterile
 
-### Priority 2 — `ARCHITECTURE.md` + PIPELINES docs
-After Priority 1 verification, create:
-- `/docs/ARCHITECTURE.md` — repo structure, extraction direction, scoring/orchestration domains
-- `/docs/PIPELINES/MLB.md` — MLB-specific systems, HR systems, ladders, weaknesses
+### Priority 2 — `ARCHITECTURE.md` + PIPELINES docs (infrastructure)
+Create the remaining docs:
+- `/docs/ARCHITECTURE.md` — repo structure, module domains, extraction direction
+- `/docs/PIPELINES/MLB.md` — MLB-specific systems, HR/TB/RBI pipeline, current weaknesses
 - `/docs/PIPELINES/NBA.md` — NBA boards, slips, orchestration, weaknesses
-- `/docs/PIPELINES/TRACKING.md` — tracking architecture, grading, CLV, future SQLite targets
+- `/docs/PIPELINES/TRACKING.md` — tracking, grading, CLV, future SQLite targets
 
-### Priority 3 — NBA scoring ecology audit (parallel to MLB fix)
-NBA candidate pools may have a similar (or inverse) imbalance.
-Apply the same audit lens: `edge × modelProb` compounding, volRealism gaps,
-side-balance, archetype recognition. Use today's NBA tracked_bets as source data.
+### Priority 3 — "Outs" label perception issue (optional cosmetic)
+Pitcher depth overs ("outs over 15.5") appear in Tonight's Best and Safest.
+These are legitimate low-variance edges but "outs" sounds suppression to users.
+Optional: in `compactStat()` or `buildReason()`, rename "outs" → "pitcher depth" or
+add a tag like "pitcher workload" when it's a pitcher-only context.
+NOT a scoring change — purely a presentation label.
+
+### Priority 4 — NBA scoring ecology audit
+Apply same lens as MLB audit:
+- `edge × modelProb` compounding in NBA tracked_bets
+- Tier distribution by side
+- volRealism gaps
+- Offensive over recognition
+Source: `nba_tracked_bets_2026-05-06.json`
 
 ---
 
@@ -84,26 +82,22 @@ side-balance, archetype recognition. Use today's NBA tracked_bets as source data
 
 | Risk | Avoidance |
 |---|---|
-| `maxPerGame: 2` in anchors causes same-game double-stacking when both picks are same side | Side cap (0.55) blocks this — confirmed by simulation |
-| `textureBoost` 0.030 inflates aggressive offensive overs unfairly | Boost only fires for edge>0.045 + true offensive stat — capped magnitude |
-| modelProb cap [0.50,0.55] reduces composite spread among unders | By design — neutralizes compression artifact, not real edge differences |
-| Cache (60s TTL) serving old results after patch | Wait for cache to expire or restart via TERM 2 |
-| Strict anchor gate (composite≥0.55 + corroboration) inert without ledger data | Known — fallback to composite≥0.50 always fires; not a regression |
+| `sortAnchorsForDisplay` breaks anchor quality by moving a low-composite over to #2 | Greedy: only moves an opposite-side play if it has high composite (picks best opposite-side next); the sort preserves #1 as highest-composite always |
+| Halved tierBoost makes ELITE tier signal too weak | ELITE is still +0.04 (+4 composite points); sufficient signal, just no longer overwhelming |
+| Tonight's Best now shows more pitcher-depth overs (displacing ELITE unders) | This is the correct behavior — pitcher workload overs with genuine edge > inflated low-edge unders |
+| Cache (60s TTL) serving stale results | Wait for cache to expire; TERM 2 restart if needed |
 
 ---
 
 ## WHAT NOT TO DO
 
-- **Do NOT touch the projection engine** to force over/under parity. Projection-level
-  imbalance is structural (probability compression on shorter lines is real). Fix at
-  curation, not source math.
-- Do NOT widen `maxPerGame` further — `2` is the cross-side compromise.
-- Do NOT raise `textureBoost` above 0.030 — already overcomes volRealism penalty.
-- Do NOT reduce the modelProb cap below 0.50 — would penalize legitimate low-prob bets.
-- Do NOT remove the modelProb cap upper bound — restoring uncapped multiplier reintroduces
-  the structural under-side compounding bias.
-- Do NOT widen scope into SQL migration during scoring ecology pass.
-- Do NOT touch `runMlbNight.js` or `runNbaNight.js` without verifying exact candidate paths.
+- Do NOT raise tierBoost back to 0.08 — it creates a structural under-side monopoly
+- Do NOT modify the interleave sort to force a specific number of overs — it's greedy, not hardcoded
+- Do NOT touch the projection engine to force over/under parity
+- Do NOT widen `maxPerGame` beyond 2 in anchors
+- Do NOT remove modelProb cap [0.50, 0.55] — would restore compounding bias
+- Do NOT widen scope into SQL migration during curation pass
+- Do NOT touch `runMlbNight.js` / `runNbaNight.js` without tracing candidate paths first
 
 ---
 
@@ -114,7 +108,7 @@ side-balance, archetype recognition. Use today's NBA tracked_bets as source data
 | Root-cause audit on unknown bug | **Opus** |
 | Implementing a verified fix | **Sonnet** |
 | Doc updates / CURRENT_STATE / NEXT_SESSION | **Auto or Sonnet** |
-| NBA ecology audit (Priority 3) | **Opus** — root cause first |
+| NBA ecology audit (Priority 4) | **Opus** — root cause first |
 
 ---
 
@@ -132,13 +126,29 @@ After any patch:
 
 ---
 
+## CALIBRATION DIRECTION (cumulative)
+
+| Lever | Status |
+|---|---|
+| Side balance in featured buckets | Capped at 60% (anchors 55%) |
+| Stat concentration | maxPerStat:10 / maxPerStatSide:6 |
+| Volatility taxonomy | Fixed — hits/runs/etc. → balanced |
+| modelProb compounding | Capped [0.50, 0.55] in featured + slipAi |
+| Offensive over recognition | Active — stacked textureBoost (0.020/0.030) |
+| Anchor cross-side | maxPerGame:2 — allows same-game cross-side |
+| Anchor display ordering | Interleaved U·O·U·O·U via sortAnchorsForDisplay |
+| Tier boost asymmetry | Halved — ELITE 0.04, STRONG 0.02 |
+| AI slip offense bias | Active in aggressive/lotto seed sort |
+
+---
+
 ## EXTRACTION PRIORITIES (when scope opens)
 
-1. Extract `isOffensiveAttackStat` into `pipeline/shared/normalizers.js` (or similar) — currently duplicated in `buildSlipAi.js` and `buildFeaturedPlays.js`
-2. Extract `diversifyCandidates` from `workstationRoutes.js` → `pipeline/shared/buildCandidateDiversity.js`
-3. Extract `compactLineShopping` from `workstationRoutes.js` → `pipeline/shared/buildLineShoppingCompact.js`
-4. Extract inline scoring helpers from `buildIntelligencePresentation.js` → dedicated shared modules
-5. Move `enrichBestEntry` + `buildCandidatePool` into a shared candidate factory
+1. Extract `isOffensiveAttackStat` into `pipeline/shared/normalizers.js` — duplicated in `buildSlipAi.js` and `buildFeaturedPlays.js`
+2. Extract `sortAnchorsForDisplay` into a shared display utility if anchors are used elsewhere
+3. Extract `diversifyCandidates` from `workstationRoutes.js` → `pipeline/shared/buildCandidateDiversity.js`
+4. Extract `compactLineShopping` from `workstationRoutes.js` → `pipeline/shared/buildLineShoppingCompact.js`
+5. Extract inline scoring helpers from `buildIntelligencePresentation.js` → dedicated shared modules
 
 ---
 
@@ -153,30 +163,6 @@ Trigger condition: ledger exceeds ~500 entries or explicit user request.
 
 ---
 
-## VALIDATION SYSTEM DIRECTION (future)
-
-- Add `node -e` smoke test for `scoreCandidate` + `scoreLeg` after any formula change
-  (verify Trout-over-Ohtani composite delta — regression-detect)
-- Add candidate pool distribution check (`sides`, `topStats`, `byVolatility`) to nightly report
-- Add assertion: featured anchors must never be 100% same-side when overs exist with edge>0.10
-- These are future tasks — do not build validation infra during curation pass
-
----
-
-## CALIBRATION DIRECTION
-
-| Lever | Status |
-|---|---|
-| Side balance | Capped at 60% (anchors 55%) |
-| Stat concentration | Capped at maxPerStat:10 / maxPerStatSide:6 |
-| Volatility taxonomy | Fixed prior session |
-| modelProb compounding | Capped this session [0.50, 0.55] |
-| Offensive over recognition | Active — stacked textureBoost |
-| Anchor cross-side | Allowed (maxPerGame: 2) |
-| AI slip offense bias | Active in aggressive/lotto seed sort |
-
----
-
 ## INFRASTRUCTURE STATUS
 
 | File | Status |
@@ -185,7 +171,7 @@ Trigger condition: ledger exceeds ~500 entries or explicit user request.
 | `docs/CURRENT_STATE.md` | Updated this session |
 | `docs/NEXT_SESSION.md` | Updated this session |
 | `docs/BOOTSTRAP_PROMPT.md` | Committed |
-| `.cursor/rules/workflow.mdc` | Committed — references operational docs |
+| `.cursor/rules/workflow.mdc` | Committed |
 | `docs/ARCHITECTURE.md` | Pending (Priority 2) |
 | `docs/PIPELINES/MLB.md` | Pending |
 | `docs/PIPELINES/NBA.md` | Pending |

@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06 (late evening — scoring ecology pass)_
+_Last updated: 2026-05-06 (late night — trust-curation hierarchy pass)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-06 (late evening — scoring ecology pass)_
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | `194a127` — Add CURRENT_STATE.md and NEXT_SESSION.md |
-| Repo health | Stable. Syntax clean on all touched files. |
+| Last commit | `0675cd0` — Fix scoring ecology: cap modelProb compounding |
+| Repo health | Stable. All syntax checks clean. |
 
 ---
 
@@ -88,71 +88,84 @@ Featured side-balance (`buildFeaturedPlays.js → pickDiversified`):
 - Anchors `maxPerGame: 2` (was 1) — allows cross-side picks in same game
 
 Volatility classification (`buildPortfolioOptimizer.js → VOLATILITY_RULES`):
-- `hits`, `runs`, `points`, `rebounds`, `steals`, `blocks`, `doubles`, `triples`, `stolenbases` → `balanced`
-- `pitcher Ks`, `outs`, `strikeouts` → `balanced`
-- Fixed prior session — was falling to `safe`, inflating volRealism
+- `hits`, `runs`, `points`, `rebounds`, `steals` etc. → `balanced` (fixed prior session)
 
-Composite scoring (this session):
+Composite scoring (`buildFeaturedPlays.js → scoreCandidate`):
 - `f.edge = (edge × 4) × clamp(modelProb, 0.50, 0.55)` — caps modelProb compounding
-- `textureBoost`: aggressive/lotto + edge>0.045 → 0.018; offensive over + edge>0.05 → 0.020; aggressive offensive over → 0.030
-- AI slip `projectionScore` uses same modelProb cap
+- `tierBoost`: ELITE 0.04 / STRONG 0.02 (halved this session — was 0.08/0.04)
+- `textureBoost`: aggressive/lotto edge>0.045 → 0.018; offensive over edge>0.05 → 0.020; aggressive offensive over → 0.030
+- Anchor display: `sortAnchorsForDisplay()` interleaves sides (U·O·U·O·U pattern)
 
 ---
 
 ## CURRENT PHASE
 
-**Phase: CURATION + TRUST + OPERATOR-QUALITY refinement (Phase 4 — scoring ecology)**
+**Phase: CURATION + TRUST + OPERATOR-QUALITY refinement (Phase 5 — hierarchy curation)**
 
-Completed this session:
-- Volatility taxonomy fix — `hits`/`runs`/`points`/`rebounds` etc. → `balanced`
-- Side-balance caps in `pickDiversified` (`maxSideFraction`)
-- Global stat+side orchestration (`maxPerStat` / `maxPerStatSide`)
-- Offensive texture bias in aggressive/lotto slip seeds (`offensiveAttackTextureBonus`)
-- `AnchorCard` premium display + `attackNote` field
-- Line shopping re-ranked by implied spread, novelty longshots filtered
+Completed total (all sessions combined):
 - AI slip dead fix in `runMlbNight.js`
 - Featured anchors vs strong supports two-tier system
-- **NEW: Scoring ecology fix #1** — modelProb compounding capped at [0.50, 0.55]
-  in `scoreCandidate` (featured) and `scoreLeg` (slip AI) — neutralizes structural
-  suppression-side advantage from probability compression on shorter under lines
-- **NEW: Scoring ecology fix #2** — `isOffensiveAttackStat` recognition with stacked
-  textureBoost (0.020 balanced offensive overs · 0.030 aggressive offensive overs)
-  surfaces real hitter offense over pitcher-dominance "overs"
-- **NEW: Anchor diversity fix** — `maxPerGame: 2` in `buildAnchors`, allowing
-  cross-side picks (e.g. Trout runs over + Montgomery TB under) when same game
-  has both genuine attack and suppression edges
+- Line shopping re-ranked by implied spread, novelty longshots filtered
+- Volatility taxonomy fix — `hits`/`runs`/`points` etc. → `balanced`
+- Side-balance caps in `pickDiversified` (`maxSideFraction`)
+- Global stat+side orchestration (`maxPerStat`/`maxPerStatSide`)
+- Offensive texture bias in aggressive/lotto slip seeds (`offensiveAttackTextureBonus`)
+- `AnchorCard` premium display + `attackNote` field
+- Scoring ecology fix #1 — modelProb compounding capped at [0.50, 0.55]
+- Scoring ecology fix #2 — `isOffensiveAttackStat` + stacked textureBoost
+- Anchor cross-side fix — `maxPerGame: 2` in `buildAnchors`
+- **NEW: Trust-curation fix #1** — tierBoost halved (ELITE 0.08→0.04, STRONG 0.04→0.02)
+  Tier assignment is modelProb-driven → under-biased. Full 0.08 was inflating low-edge ELITE
+  unders above higher-edge PLAYABLE overs. ELITE/STRONG tier 100% assigned to unders on MLB.
+- **NEW: Trust-curation fix #2** — `sortAnchorsForDisplay()` interleave sort
+  Anchor display now alternates sides: U·O·U·O·U. Trout's 22% edge offensive over moves from
+  anchor #4 to anchor #2 in the dashboard display.
+
+---
+
+## VERIFIED LIVE RESULTS (today's slate, 48 diversified candidates)
+
+| Bucket | Composition | Notes |
+|---|---|---|
+| Anchors (display order) | **U·O·U·O·U** | Trout runs over at #2, No HR at #4 |
+| Tonight's Best | 3U / 2O | Strong high-edge unders + pitcher-depth overs |
+| Best Ladders | 3U / 2O | TB/hits unders + pitcher outs overs |
+| Smart Aggression | **4 overs** | Trout, No HR, Schanuel, Machado — real attack board |
+| Safest | 3 overs | Pitcher depth overs (lowest variance on slate) |
+| AI Lotto Slip #1 | **5 overs** | Pure offensive attack |
+| AI Aggressive Slip #1 | 3U / 1O | Cross-side texture |
+| AI Balanced Slip #1 | 3U | Strong high-edge under core |
+| Total AI slips | 12 | safe:2 balanced:3 aggr:4 lotto:3 |
 
 ---
 
 ## ACTIVE BOTTLENECK
 
-**Suppression-heavy raw candidate pool (mitigated, not eliminated):**
+**Remaining structural under-heaviness (acceptable):**
 
-Today's pool: 294 bets — 243 under (83%) / 51 over (17%)
-Top raw stats: totalbases 98, hits 84, runs 57, outs 39
+Raw pool: 294 bets — 83% unders. This is a real projection-level artifact.
+At the SURFACING layer, all major measures now working:
+- Anchors interleaved, offensive overs at positions #2/#4
+- Smart Aggression = 4 real overs
+- Lotto AI slips = 5 real overs
+- Side caps prevent sweep
 
-Raw-pool source imbalance: MLB projections naturally produce more high-edge unders
-because shorter lines compress modelProb upward. This is a projection-engine-level
-behavior — **DO NOT touch projection** to fix balance. We mitigate at curation.
-
-**Verified mitigation impact (today's slate, post-fix):**
-- Anchors: 3 under / 2 over — Mike Trout's 22% edge runs over now surfaces
-- Tonight's Best: 3 under / 2 over
-- Best Ladders: 3 under / 2 over
-- Smart Aggression: 4 overs (Trout, "No HR", Schanuel, Machado — real attack)
-- Lotto AI slip: 5 overs (pure offensive attack lotto)
-- Aggressive AI slip #1: 3 under + 1 over (cross-side texture)
+Remaining feel: Tonight's Best #4/#5 are pitcher-depth overs (outs over 15.5).
+These feel "suppression-adjacent" because "outs" sounds like a batting stat.
+These are legitimate low-variance edges — the naming/label is the residual perception issue,
+not the surfacing logic. NOT a scoring fix — a potential label fix in future.
 
 ---
 
 ## KNOWN WEAKNESSES
 
-1. **Under-heavy raw pool**: ~83% unders today. Curation surfaces real overs when they exist with edge >0.05; cannot fully overcome a projection-level 5:1 source skew on suppression-leaning slates.
-2. **NBA line shopping thin**: Multi-book NBA data sparse; shopping view often empty for NBA.
-3. **First basket section disconnected**: Renders but lacks real candidate data integration outside FB-specific props.
-4. **No SQLite yet**: All persistence is flat JSON. `personal_ledger.json` grows unbounded.
-5. **`buildIntelligencePresentation.js` oversized**: Inline functions should be extracted to shared modules.
-6. **Anchor strict gate inert without ledger data**: Strict pool requires composite≥0.55 + corroboration; without populated ledger CLV/archetype data, fallback to composite≥0.50 always fires. Not a bug, but means strict tier rarely activates today.
+1. **Under-heavy raw pool**: ~83% unders. Mitigation is at the max working level at the curation layer. Source imbalance cannot be fully overcome without projection engine changes (out of scope).
+2. **"outs" stat sounds suppression even as an over**: Pitcher depth overs (Joey Cantillo outs over 15.5) legitimately appear in Tonight's Best / Safest but feel sterile. Future: label as "pitcher depth" or "K-load" in UI.
+3. **NBA line shopping thin**: Multi-book NBA data sparse.
+4. **First basket section disconnected**: Renders but lacks real candidate data integration.
+5. **No SQLite yet**: Flat JSON persistence, `personal_ledger.json` grows unbounded.
+6. **`buildIntelligencePresentation.js` oversized**: Should be extracted.
+7. **Strict anchor gate inert without ledger data**: Falls back to composite≥0.50 always; not a regression but means strict corroboration tier rarely activates.
 
 ---
 
