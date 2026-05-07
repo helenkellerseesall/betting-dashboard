@@ -41,3 +41,10 @@ backend/snapshot-mlb.json
 backend/mlb-external-cache.json
 *.log
 node_modules/
+
+# SQLite database files (schema/queries/importScript committed; .db files are local only)
+backend/storage/*.db
+backend/storage/*.db-shm
+backend/storage/*.db-wal
+backend/storage/*.db-journal
+backend/storage/test.txt

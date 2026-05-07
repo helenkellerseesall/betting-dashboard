@@ -447,6 +447,17 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     sl.composite + ((tier === "aggressive" || tier === "lotto") ? offensiveAttackTextureBonus(sl.leg, ctx.timingMap) : 0)
   eligible.sort((a, b) => textureRank(b) - textureRank(a) || b.composite - a.composite)
 
+  // For aggressive tier: re-order so volatile (aggressive/lotto volatility) legs
+  // seed first, balanced/safe legs fill supporting roles only.
+  // Preserves composite ordering within each subgroup — no score changes.
+  // Balanced legs remain available as fill; only seed position changes.
+  if (tier === "aggressive") {
+    const volSeeds = eligible.filter(sl => sl.leg.volatility === "aggressive" || sl.leg.volatility === "lotto")
+    const otherSeeds = eligible.filter(sl => sl.leg.volatility !== "aggressive" && sl.leg.volatility !== "lotto")
+    eligible.length = 0
+    eligible.push(...volSeeds, ...otherSeeds)
+  }
+
   const slips = []
   const seenSignatures = new Set()
   const legUsageCount = new Map()  // legId -> times appeared across this tier's slips

@@ -48,7 +48,8 @@ function diversifyCandidates(candidates, opts = {}) {
   const scored = candidates.map((c) => {
     const edge = Number(c.edge ?? c.edgeProbability ?? 0)
     const prob = Number(c.modelProb ?? c.predictedProbability ?? 0.5)
-    return { c, score: (edge * 4) * (prob || 0.5) }
+    const probCapped = Math.max(0.50, Math.min(0.55, prob || 0.5))
+    return { c, score: (edge * 4) * probCapped }
   })
   scored.sort((a, b) => b.score - a.score)
 

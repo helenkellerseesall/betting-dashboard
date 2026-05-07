@@ -18,7 +18,6 @@ const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline
 const { buildBestLadders } = require("./pipeline/boards/buildBestLadders")
 const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
 const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
-const { buildFeaturedPlays } = require("./pipeline/boards/buildFeaturedPlays")
 const { buildCuratedLayer2Buckets: buildCuratedLayer2BucketsHelper } = require("./pipeline/boards/buildCuratedLayer2Buckets")
 const { buildSpecialtyOutputs } = require("./pipeline/boards/buildSpecialtyOutputs")
 const { buildCeilingRoleSpikeSignals, buildLineupRoleContextSignals, buildMarketContextSignals } = require("./pipeline/signals/buildPredictiveSignals")
