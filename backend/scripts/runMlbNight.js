@@ -531,6 +531,23 @@ async function runAll() {
       // Never break the nightly run on presentation errors
       if (process.env.DEBUG) console.error("[BOARD ERROR]", boardErr)
     }
+
+    // ── Intelligence snapshot (additive — never breaks pipeline) ────────────
+    try {
+      const intel = require("../storage/intelligence")
+      const today = new Date().toISOString().slice(0, 10)
+      const intelBoard = opp?.bestBetsBoard
+      const intelPlays = Array.isArray(intelBoard?.allPlays) ? intelBoard.allPlays : []
+      const intelSlips = (intelBoard?.slips && typeof intelBoard.slips === "object") ? intelBoard.slips : {}
+      if (intelPlays.length) {
+        const snapResult = intel.snapshotPredictions(intelPlays, { sport: "mlb", date: today })
+        if (snapResult) console.log(`[intel] MLB predictions: ${snapResult.inserted} new, ${snapResult.skipped} skipped`)
+      }
+      intel.snapshotEcology(intelPlays, intelSlips, { sport: "mlb", date: today })
+      console.log("[intel] MLB ecology snapshot saved")
+    } catch (intelErr) {
+      console.warn("[intel] MLB intelligence snapshot skipped (non-fatal):", intelErr.message)
+    }
   } catch (e) {
     console.error("[RUN ERROR]", e)
   }

@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Session H: Intelligence Layer — prediction/outcome/ecology/slip tracking; SQLite schema + write/read functions; all smoke tests pass)_
+_Last updated: 2026-05-07 (Session I: Intelligence Layer live wiring — snapshotPredictions + snapshotEcology wired into runMlbNight.js + runNbaNight.js; live data verified)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-07 (Session H: Intelligence Layer — prediction/outcome/
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | Fix 3+4+5+6 + Intelligence Layer (pending — HEAD.lock requires manual `rm` from macOS terminal) |
+| Last commit | Fix 3+4+5+6 + Intelligence Layer + Live wiring (pending — HEAD.lock requires manual `rm` from macOS terminal) |
 | Repo health | Stable. All syntax checks clean. |
 
 ---
@@ -119,7 +119,7 @@ Featured `buildSafest`:
 
 ## CURRENT PHASE
 
-**Phase: INTEGRITY + DE-RISK — Phase 7H (Fix 1–6 done + Intelligence Layer — prediction/outcome tracking live)**
+**Phase: INTEGRITY + DE-RISK — Phase 7I (Fix 1–6 done + Intelligence Layer wired live into MLB + NBA runners)**
 
 Completed total (all sessions combined):
 - AI slip dead fix in `runMlbNight.js`
@@ -147,6 +147,14 @@ Completed total (all sessions combined):
   - `backend/storage/intelligence.js` — Write: `snapshotPredictions` (INSERT OR IGNORE, immutable), `snapshotEcology` (INSERT OR REPLACE), `recordOutcome`, `recordOutcomes`, `recordSlipOutcome`. Read: `getDeltaSummary` (groupBy dim), `getCalibrationBuckets`, `getArchetypePerf`, `getStatFamilyMisses`, `getEcologyHistory`, `getSlipPerformance`, `getPlayerIntelligence`. All gracefully degrade if SQLite unavailable.
   - Correctness fixes during Session H: opts.date→runDate bridging; `db.transaction()` replaced with `db.exec('BEGIN/COMMIT/ROLLBACK')` (node:sqlite has no `.transaction()` method); undefined→null coercion for node:sqlite bind strictness.
   - Smoke test: snapshotPredictions 3 inserted/re-run 3 skipped (idempotent ✓); recordOutcome delta_prob=−0.38 (math correct ✓); entropy=1.585=log2(3) (perfect diversity ✓); all 4 read functions returning structured data ✓.
+- **NEW: Intelligence Layer live wiring (Session I)**
+  - `snapshotPredictions` + `snapshotEcology` wired into `runMlbNight.js` (line 535) and `runNbaNight.js` (line 1306).
+  - Insertion point: after `boardErr` inner try/catch, before outer `catch (e)` — completely isolated from existing pipeline.
+  - Both runners access `opp.bestBetsBoard.allPlays` (full ranked candidate pool) and `opp.bestBetsBoard.slips` (by-tier slip map).
+  - Live data verification (2026-05-07): MLB 59 inserted / re-run 84 skipped (idempotent ✓); NBA 5 inserted / re-run 5 skipped ✓.
+  - Ecology: MLB entropy=2.025 (totalbases:31, runs:25, outs:17, rbis:7, hits:4); NBA entropy=0.971 (threes:3, assists:2). Zero null players/stats/dates.
+  - Graceful degradation verified: DB unavailable → null/false returns, no throws. Hard crash in intel block → `console.warn` + pipeline continues ✓.
+  - Runtime JSON outputs completely unchanged. No regression.
 - **NEW: Priority 0 — buildFeaturedPlays fork resolved.**
   Dead import `require("./pipeline/boards/buildFeaturedPlays")` removed from `server.js` line 21.
   `boards/buildFeaturedPlays.js` (407-line NBA-era version) orphaned — zero importers remaining.
@@ -251,6 +259,8 @@ CP4 residual: tracked_best eventId null — enrichBestEntry ID match still fails
 | `backend/storage/importHistoricalData.js` | Created 2026-05-07 |
 | `backend/storage/intelligenceSchema.js` | **Created 2026-05-07 (Session H)** |
 | `backend/storage/intelligence.js` | **Created 2026-05-07 (Session H)** |
+| `backend/scripts/runMlbNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
+| `backend/scripts/runNbaNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
 | `backend/pipeline/shared/buildCandidateDiversity.js` | **Fix 1 applied 2026-05-07** |
 | `backend/pipeline/shared/buildSlipAi.js` | **Fix 2 + Fix 4 + Fix 5 + Fix 6 applied 2026-05-07** |
 | `backend/pipeline/shared/buildFeaturedPlays.js` | **Fix 3 applied 2026-05-07** |

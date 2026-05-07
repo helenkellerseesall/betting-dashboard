@@ -1302,6 +1302,23 @@ async function runAll() {
     } catch (boardErr) {
       if (process.env.DEBUG) console.error("[BOARD ERROR]", boardErr)
     }
+
+    // ── Intelligence snapshot (additive — never breaks pipeline) ────────────
+    try {
+      const intel = require("../storage/intelligence")
+      const today = new Date().toISOString().slice(0, 10)
+      const intelBoard = opp?.bestBetsBoard
+      const intelPlays = Array.isArray(intelBoard?.allPlays) ? intelBoard.allPlays : []
+      const intelSlips = (intelBoard?.slips && typeof intelBoard.slips === "object") ? intelBoard.slips : {}
+      if (intelPlays.length) {
+        const snapResult = intel.snapshotPredictions(intelPlays, { sport: "nba", date: today })
+        if (snapResult) console.log(`[intel] NBA predictions: ${snapResult.inserted} new, ${snapResult.skipped} skipped`)
+      }
+      intel.snapshotEcology(intelPlays, intelSlips, { sport: "nba", date: today })
+      console.log("[intel] NBA ecology snapshot saved")
+    } catch (intelErr) {
+      console.warn("[intel] NBA intelligence snapshot skipped (non-fatal):", intelErr.message)
+    }
   } catch (e) {
     console.error("[RUN ERROR]", e)
   }

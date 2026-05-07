@@ -1,14 +1,15 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Session H: Intelligence Layer — prediction/outcome/ecology/slip tracking; all smoke tests pass; commit pending HEAD.lock manual step)_
+_Last updated: 2026-05-07 (Session I: Intelligence layer live wiring complete — MLB + NBA runners now persist predictions + ecology on every nightly run)_
 
 ---
 
 ## CURRENT PROJECT PHASE
 
-**INTEGRITY + DE-RISK — Phase 7H (Fix 1–6 done + Intelligence Layer complete)**
+**INTEGRITY + DE-RISK — Phase 7I (Fix 1–6 done + Intelligence Layer wired live)**
 
-All six ecology compression points addressed. Intelligence layer (Session H) fully implemented and smoke-tested.
+All six ecology compression points addressed. Intelligence layer (Session H) built and smoke-tested.
+Live wiring (Session I) complete: both nightly runners now persist predictions + ecology to SQLite.
 Remaining: Priority 1 (SQLite ledger migration, OVERDUE), Priority 3 (tracked_best eventId), commit pending HEAD.lock.
 
 ---
@@ -127,7 +128,8 @@ if (tier === "aggressive") {
 Verified: safe/balanced/lotto tiers unaffected. Aggressive tier now seeds from volatile legs first.
 
 ### SQLite Phase 1 — COMPLETE (storage layer; backfill pending)
-### SQLite Intelligence Layer — COMPLETE (Session H; commit pending)
+### SQLite Intelligence Layer — COMPLETE (Session H; built + smoke-tested)
+### Intelligence Layer live wiring — COMPLETE (Session I; MLB + NBA runners wired)
 
 **ACTION REQUIRED on next TERM 2 session (macOS terminal):**
 ```bash
@@ -135,9 +137,15 @@ cd ~/Desktop/betting-dashboard
 rm .git/HEAD.lock    # virtiofs blocks sandbox; must be done from macOS terminal
 rm backend/pipeline/boards/buildFeaturedPlays.js   # orphaned Priority 0 file
 git add -A
-git commit -m "Fix 3+4+5+6 + Intelligence Layer: ecology patches + prediction/outcome/ecology tracking"
+git commit -m "Fix 3+4+5+6 + Intelligence Layer + live wiring: ecology patches + MLB/NBA prediction/ecology tracking"
 node backend/storage/importHistoricalData.js   # SQLite historical backfill (macOS native fs required)
 ```
+
+**What now accumulates automatically on every nightly run:**
+- `prediction_snapshots`: each candidate in `bestBetsBoard.allPlays` (INSERT OR IGNORE — immutable, idempotent)
+- `ecology_snapshots`: pool composition, vol mix, stat distribution, Shannon entropy (INSERT OR REPLACE — upsert per run/sport)
+- MLB live test (2026-05-07): 59 unique predictions, entropy=2.025 (totalbases:31, runs:25, outs:17, rbis:7, hits:4)
+- NBA live test (2026-05-07): 5 unique predictions, entropy=0.971 (threes:3, assists:2)
 
 ---
 
@@ -382,6 +390,8 @@ After any patch:
 | `backend/storage/importHistoricalData.js` | Created 2026-05-07 |
 | `backend/storage/intelligenceSchema.js` | **Created 2026-05-07 (Session H)** |
 | `backend/storage/intelligence.js` | **Created 2026-05-07 (Session H)** |
+| `backend/scripts/runMlbNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
+| `backend/scripts/runNbaNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
 | `backend/pipeline/shared/buildCandidateDiversity.js` | **Fix 1 applied 2026-05-07** |
 | `backend/pipeline/shared/buildSlipAi.js` | **Fix 2 + Fix 4 + Fix 5 + Fix 6 applied 2026-05-07** |
 | `backend/pipeline/shared/buildFeaturedPlays.js` | **Fix 3 applied 2026-05-07** |
