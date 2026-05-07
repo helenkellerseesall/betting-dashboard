@@ -327,7 +327,7 @@ const TIER_TEMPLATES = {
     legCountRange:    [2, 4],
     minModelProb:     0.20,
     maxOdds:          600,
-    decimalOddsRange: [6.0, 60.0],
+    decimalOddsRange: [6.0, 120.0],
     allowedVolatility: ["balanced", "aggressive", "lotto"],
     forbidVolatility:  [],
     maxPerGame:        2,
@@ -338,7 +338,7 @@ const TIER_TEMPLATES = {
     legCountRange:    [3, 5],
     minModelProb:     0.10,
     maxOdds:          2000,
-    decimalOddsRange: [25.0, 800.0],
+    decimalOddsRange: [20.0, 1500.0],
     allowedVolatility: ["aggressive", "lotto"],
     forbidVolatility:  [],
     maxPerGame:        2,
@@ -498,41 +498,59 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
 
     if (slipLegs.length < targetMin) continue
 
-    // Skip if this exact leg-set already exists
-    const signature = slipLegs.map((l) => l.id).sort().join("##")
-    if (seenSignatures.has(signature)) continue
+    // Fix 6: try the longest leg subset that fits within decimalOddsRange, walking
+    // down from the built length to targetMin. Prevents 5-leg lotto combos
+    // (dec=8,000–25,000) from discarding viable 3-leg combos (dec=231–439),
+    // and stops aggressive slips from exploding past the 120 ceiling and falling
+    // back into balanced DNA. All tier constraints and odds validation still apply.
+    let validSlipLegs = null
+    let validCombined = null
+    for (let len = slipLegs.length; len >= targetMin; len--) {
+      const candidate = slipLegs.slice(0, len)
+      const comb = combineLegs(candidate)
+      if (!comb) continue
+      const dec = comb.combinedDecimalOdds
+      if (dec >= tpl.decimalOddsRange[0] && dec <= tpl.decimalOddsRange[1]) {
+        validSlipLegs = candidate
+        validCombined = comb
+        break
+      }
+    }
+    if (!validSlipLegs) continue
 
-    const combined = combineLegs(slipLegs)
-    if (!combined) continue
-    const dec = combined.combinedDecimalOdds
-    if (dec < tpl.decimalOddsRange[0] || dec > tpl.decimalOddsRange[1]) continue
+    // slipScores is parallel to slipLegs — trim to match the accepted leg count
+    const validSlipScores = slipScores.slice(0, validSlipLegs.length)
+
+    // Skip if this exact leg-set already exists
+    const signature = validSlipLegs.map((l) => l.id).sort().join("##")
+    if (seenSignatures.has(signature)) continue
 
     seenSignatures.add(signature)
 
     // Build reasoning from top factors
-    const avgFactors = aggregateFactors(slipScores)
-    const reasoning  = slipReasoning(tier, avgFactors, slipLegs, ctx.timingMap)
-    const narrative  = slipNarrative(tier, avgFactors, slipLegs, ctx.timingMap)
+    const avgFactors = aggregateFactors(validSlipScores)
+    const reasoning  = slipReasoning(tier, avgFactors, validSlipLegs, ctx.timingMap)
+    const narrative  = slipNarrative(tier, avgFactors, validSlipLegs, ctx.timingMap)
 
-    const id = `${ctx.date || ""}##${tier.toUpperCase()}##${slipLegs.map((l) => `${(l.player||"").toLowerCase()}|${normFam(l.statFamily)}|${l.side}|${l.line}`).join("__")}`
+    const id = `${ctx.date || ""}##${tier.toUpperCase()}##${validSlipLegs.map((l) => `${(l.player||"").toLowerCase()}|${normFam(l.statFamily)}|${l.side}|${l.line}`).join("__")}`
 
     slips.push({
       id,
       tier:               tier.toUpperCase(),
-      legCount:           slipLegs.length,
-      legs:               slipLegs.map(serializeLeg),
-      combinedDecimalOdds: combined.combinedDecimalOdds,
-      combinedAmericanOdds: combined.combinedAmericanOdds,
-      combinedModelProb:   combined.combinedModelProb,
-      combinedImpliedProb: combined.combinedImpliedProb,
-      edge:                combined.edge,
-      ev:                  combined.ev,
+      legCount:           validSlipLegs.length,
+      legs:               validSlipLegs.map(serializeLeg),
+      combinedDecimalOdds: validCombined.combinedDecimalOdds,
+      combinedAmericanOdds: validCombined.combinedAmericanOdds,
+      combinedModelProb:   validCombined.combinedModelProb,
+      combinedImpliedProb: validCombined.combinedImpliedProb,
+      edge:                validCombined.edge,
+      ev:                  validCombined.ev,
       volatility:          tier,
-      compositeScore:      r4(slipScores.reduce((s, x) => s + x.composite, 0) / slipScores.length),
+      compositeScore:      r4(validSlipScores.reduce((s, x) => s + x.composite, 0) / validSlipScores.length),
       factors:             avgFactors,
       reasoning,
       narrative,
-      legReasonings:       slipScores.map((s) => ({
+      legReasonings:       validSlipScores.map((s) => ({
         legId:    s.leg.id,
         player:   s.leg.player,
         reason:   legReasoning(s.leg, s, ctx.timingMap),
@@ -540,7 +558,7 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     })
 
     // Track usage so each leg appears in at most 2 slips and is only seed once
-    for (const l of slipLegs) {
+    for (const l of validSlipLegs) {
       legUsageCount.set(l.id, (legUsageCount.get(l.id) || 0) + 1)
       if (globalCount) {
         const pk = playerKey(l)

@@ -224,8 +224,8 @@ function scoreCandidate(c, ctx) {
   // classification fixed in buildPortfolioOptimizer — keep scoring sane here).
   f.volRealism = c.volatility === "safe" ? 0.80 :
                  c.volatility === "balanced" ? 0.74 :
-                 c.volatility === "aggressive" ? 0.63 :
-                 0.46
+                 c.volatility === "aggressive" ? 0.66 :
+                 0.56
   total += f.volRealism * 0.10; weight += 0.10
 
   // Upside-lane preservation: high-edge aggressive/lotto legs keep oxygen in

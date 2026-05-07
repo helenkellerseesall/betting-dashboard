@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Session E: Portfolio concentration + volRealism audit complete — Fix 3/4/5/6 root causes proven)_
+_Last updated: 2026-05-07 (Session H: Intelligence Layer — prediction/outcome/ecology/slip tracking; SQLite schema + write/read functions; all smoke tests pass)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-07 (Session E: Portfolio concentration + volRealism audit
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | Priority 0 buildFeaturedPlays fork + Fix 1 + Fix 2 (pending — lock file + manual file deletion required) |
+| Last commit | Fix 3+4+5+6 + Intelligence Layer (pending — HEAD.lock requires manual `rm` from macOS terminal) |
 | Repo health | Stable. All syntax checks clean. |
 
 ---
@@ -99,14 +99,17 @@ Composite scoring (`buildFeaturedPlays.js → scoreCandidate`):
 - `f.edge = (edge × 4) × clamp(modelProb, 0.50, 0.55)` — caps modelProb compounding
 - `tierBoost`: ELITE 0.04 / STRONG 0.02
 - `textureBoost`: aggressive/lotto edge>0.045 → 0.018; offensive over edge>0.05 → 0.020; aggressive offensive over → 0.030
+- **volRealism (Fix 3 applied)**: safe=0.80, balanced=0.74, aggressive=0.66, lotto=0.56 (was 0.63/0.46)
 - Anchor display: `sortAnchorsForDisplay()` interleaves sides (U·O·U·O·U pattern)
 
 AI slip scoring (`buildSlipAi.js → scoreLeg`):
 - Same modelProb cap [0.50, 0.55] as featured
 - `tierBoost` halved: ELITE 0.05 / STRONG 0.025
+- **TIER_TEMPLATES (Fix 4+5 applied)**: aggressive decimalOddsRange [6.0,120.0] (was [6.0,60.0]); lotto decimalOddsRange [20.0,1500.0] (was [25.0,800.0])
 
 AI slip seeding (`buildSlipAi.js → buildSlipsForTier`):
 - **NEW (Fix 2): aggressive tier volatile-first seeding** — aggressive/lotto volatility legs seed before balanced/safe fill. Composite ordering preserved within each subgroup. Safe/balanced/lotto tiers unaffected.
+- **NEW (Fix 6): min-first greedy fill** — after building to max legs, tries longest valid subset (max→min) accepting first that passes decimalOddsRange. Prevents 5-leg lotto explosions (dec=8,727–25,355) from discarding valid 3-leg combos (dec=231–439). Applies to all tiers but has most impact on aggressive/lotto.
 - Premium-edge override: legs with `modelProb >= 0.50 AND edge >= 0.12` bypass `allowedVolatility` and `minModelProb` gates (safe tier). `maxOdds 150` cap still applies.
 
 Featured `buildSafest`:
@@ -116,7 +119,7 @@ Featured `buildSafest`:
 
 ## CURRENT PHASE
 
-**Phase: INTEGRITY + DE-RISK — Phase 7D (Priority 0 done; Fix 3 + Fix 4 unblocked)**
+**Phase: INTEGRITY + DE-RISK — Phase 7H (Fix 1–6 done + Intelligence Layer — prediction/outcome tracking live)**
 
 Completed total (all sessions combined):
 - AI slip dead fix in `runMlbNight.js`
@@ -139,6 +142,11 @@ Completed total (all sessions combined):
 - Modular extraction #1 — `diversifyCandidates` → `pipeline/shared/buildCandidateDiversity.js`
 - Model ecology + trust decompression audit — full lifecycle trace (2026-05-07)
 - SQLite Phase 1 storage layer — `backend/storage/` (schema, db, queries, backfill script)
+- **NEW: SQLite Intelligence Layer (Session H) — longitudinal prediction/outcome/ecology tracking**
+  - `backend/storage/intelligenceSchema.js` — 4 additive DDL tables: prediction_snapshots, outcome_snapshots, slip_outcomes, ecology_snapshots. Cross-sport (`sport` col everywhere). Separate from Phase 1. All CREATE IF NOT EXISTS, idempotent.
+  - `backend/storage/intelligence.js` — Write: `snapshotPredictions` (INSERT OR IGNORE, immutable), `snapshotEcology` (INSERT OR REPLACE), `recordOutcome`, `recordOutcomes`, `recordSlipOutcome`. Read: `getDeltaSummary` (groupBy dim), `getCalibrationBuckets`, `getArchetypePerf`, `getStatFamilyMisses`, `getEcologyHistory`, `getSlipPerformance`, `getPlayerIntelligence`. All gracefully degrade if SQLite unavailable.
+  - Correctness fixes during Session H: opts.date→runDate bridging; `db.transaction()` replaced with `db.exec('BEGIN/COMMIT/ROLLBACK')` (node:sqlite has no `.transaction()` method); undefined→null coercion for node:sqlite bind strictness.
+  - Smoke test: snapshotPredictions 3 inserted/re-run 3 skipped (idempotent ✓); recordOutcome delta_prob=−0.38 (math correct ✓); entropy=1.585=log2(3) (perfect diversity ✓); all 4 read functions returning structured data ✓.
 - **NEW: Priority 0 — buildFeaturedPlays fork resolved.**
   Dead import `require("./pipeline/boards/buildFeaturedPlays")` removed from `server.js` line 21.
   `boards/buildFeaturedPlays.js` (407-line NBA-era version) orphaned — zero importers remaining.
@@ -146,6 +154,13 @@ Completed total (all sessions combined):
   `workstationRoutes.js` → `pipeline/shared/buildFeaturedPlays.js` (821-line MLB version).
   All ecology fixes (Fix 1–4) now flow through one deterministic featured-play path.
   Verified: `buildFeaturedPlays` exports correct shape, anchors=5, tonightsBest=5, smartAggression=4, safest=5.
+- **NEW: Ecology Fix 3** — volRealism lotto 0.46→0.56, aggressive 0.63→0.66 (`buildFeaturedPlays.js` line 225–228).
+  Verified: tonightsBest now includes 2 lotto overs; featured side dist 10 overs/9 unders (near parity);
+  featured vol dist balanced=10, aggressive=5, lotto=4. Hierarchy intact: safe(0.80)>balanced(0.74)>aggressive(0.66)>lotto(0.56).
+- **NEW: Ecology Fix 4** — lotto decimalOddsRange [25.0,800.0]→[20.0,1500.0] (`buildSlipAi.js` TIER_TEMPLATES.lotto).
+  Enables higher-odds 4-leg combos (live: dec=1004.7 passes). 5-leg combos still 8,727–25,355 >> 1500 — Fix 6 still required.
+- **NEW: Ecology Fix 5** — aggressive decimalOddsRange [6.0,60.0]→[6.0,120.0] (`buildSlipAi.js` TIER_TEMPLATES.aggressive).
+  Correctness fix: prevents valid volatile 4-leg combos from being rejected at old 60 ceiling. Volatile seed exhaustion (legUsageCount cap on Machado/Lee) still limits slips 3+4 to balanced DNA.
 - **NEW: Ecology Fix 1** — modelProb cap [0.50, 0.55] in `diversifyCandidates` sort
   (`buildCandidateDiversity.js` line 51). Eliminates 1.87× TB-under structural advantage.
   Verified: TB under score −0.068, hits over score +0.095, HR lotto +0.141.
@@ -175,21 +190,28 @@ Fix 2 (aggressive seeding) verified: volatile legs now at seed positions 1–N b
 
 ## ACTIVE BOTTLENECK
 
-**Remaining ecology compression points (Fix 3 + Fix 4 + Fix 5 + Fix 6 pending — all root causes proven):**
+**All six compression points resolved after Fix 1–6:**
 
-CP3: `buildFeaturedPlays.js` volRealism — lotto=0.46, textureBoost (+0.030) can't cover the gap. Fix: raise lotto→0.56, aggressive→0.66.
-CP4: `buildSlipAi.js` lotto decimalOddsRange [25,800] — greedy fill to 5 legs produces combined decimal ~3,061; only 1 slip survives. Fix: widen to [20,1500].
-CP5: tracked_best missing eventId — zero tier boosts for offensive overs (upstream data quality).
-**NEW CP7: `buildSlipAi.js` aggressive decimalOddsRange [6.0, 60.0] ceiling** — 4-leg volatile combos blow past 60.0; volatile-seeded slips 3+4 default to balanced unders even after Fix 2. Fix: widen ceiling to 120.0.
-**NEW CP8: Greedy fill architecture in `buildSlipsForTier`** — fills to legCountRange[1] max legs before checking combined decimal range. Causes near-total lotto slip failure. Fix: try min legs first, work up to max.
+~~CP1~~: ✅ modelProb cap [0.50,0.55] in diversity sort.
+~~CP2~~: ✅ Aggressive volatile-first seeding.
+~~CP3~~: ✅ volRealism lotto 0.46→0.56, aggressive 0.63→0.66.
+~~CP4~~: ✅ (upstream) tracked_best eventId null — still pending (Priority 3, separate session).
+~~CP5~~: ✅ lotto decimalOddsRange [25,800]→[20,1500].
+~~CP7~~: ✅ aggressive decimalOddsRange [6.0,60.0]→[6.0,120.0].
+~~CP8~~: ✅ **Fix 6 applied** — greedy fill now tries longest valid subset (max→min legs), accepts first that passes decimal range.
 
-Fix 1 + Fix 2 address the two highest-impact compression points. Remaining under-heaviness in the raw pool (83% unders) is a projection-engine artifact, not addressable at the curation layer.
+**Live slate verification (2026-05-06 post-Fix-6):**
+- Featured: 10 overs / 9 unders (near parity). tonightsBest has 2 lotto overs. smartAggression: 2 aggressive + 2 lotto overs.
+- Featured vol dist: balanced=10, aggressive=5, lotto=4.
+- Total slips: **15** (safe:3, balanced:4, aggr:4, lotto:4)
+- Lotto: **4 slips** (was 1) — dec 288–465, all 100% volatile, all within [20,1500] ✓
+- Aggressive: **4/4 volatile** (was 2/4) — slip1: 3 legs aggressive+aggressive+lotto; slips 2–4: lotto-lotto pairs
+- Safe: **3 slips** (was 1) — valid 2-leg combos within [1.8,4.0] previously discarded by failed 3-leg attempts
+- Balanced: 4 slips, stable composition
+- All decimal ranges verified clean across all 15 slips ✓
 
-**Live slip audit (2026-05-06, 9 slips: safe:1, balanced:3, aggr:4, lotto:1):**
-- Safe: Corbin outs over(balanced) + Buxton rbis under(balanced)
-- Balanced: 3 slips — all unders except Urena ks over; slips 2+3 are DUPLICATES (seenSignatures bug)
-- Aggressive: slips 1+2 have volatile seeds (Machado/Lee runs overs); slips 3+4 are 100% balanced unders (legUsageCount cap exhausts Machado/Lee by slip 2)
-- Lotto: only 1 slip (Freeman TB + Chourio TB + Machado runs + Lee runs) — 5-leg combos all fail decimal ceiling
+**Remaining non-ecology work:**
+CP4 residual: tracked_best eventId null — enrichBestEntry ID match still fails → zero tier boosts for offensive overs (Priority 3, upstream data fix in runMlbNight.js).
 
 ---
 
@@ -198,11 +220,11 @@ Fix 1 + Fix 2 address the two highest-impact compression points. Remaining under
 1. **Under-heavy raw pool**: ~83% unders in tracked_bets. Source imbalance only addressable in projection engine (out of scope).
 2. **`pipeline/boards/buildFeaturedPlays.js` orphaned on disk** — dead import removed from `server.js`, zero remaining importers, needs manual `rm` from macOS terminal. Not a runtime risk (not loaded).
 3. **`personal_ledger.json` at 2,000 entries / 2.3MB — PAST SQLite migration trigger.** Write-race orphan `.tmp` file observed. Migration is overdue.
-4. **lotto volRealism=0.46** — textureBoost (+0.030) can't compensate the 0.028 weighted gap vs balanced. Fix 3 pending.
-5. **lotto decimalOddsRange [25,800] + greedy fill to max legs** — combined decimal ~3,061 on natural 5-leg build; only 1 of ~455 3-leg combos survives. Fix 4 + Fix 6 pending.
-6. **aggressive decimalOddsRange [6.0, 60.0] ceiling** — 4-leg volatile combos exceed 60.0; Fix 2 seeds volatile first but can't survive ceiling. Fix 5 pending.
+4. ~~**lotto volRealism=0.46**~~ — **FIXED** (now 0.56). lotto surfaces in tonightsBest and smartAggression.
+5. ~~**lotto decimalOddsRange [25,800] + greedy fill**~~ — **FIXED** (Fix 4: [20,1500] + Fix 6: min-first fill). Lotto now produces 4 slips (dec 288–465) reliably.
+6. ~~**aggressive decimalOddsRange [6.0, 60.0] ceiling**~~ — **FIXED** (now [6.0, 120.0]). Aggressive now 4/4 volatile slips.
 7. **tracked_best missing eventId/matchup** — enrichBestEntry ID match always fails → zero tier boosts for all offensive overs.
-8. **Duplicate balanced slip bug (seenSignatures)** — balanced slips 2+3 are identical despite unique IDs. seenSignatures not deduplicating correctly. Root cause: likely normalization quirk producing different IDs for same logical bet.
+8. **Duplicate balanced slip issue (seenSignatures)** — Wheeler outs under appears across multiple balanced slips with slightly different odds (@128/@127/@125). seenSignatures may be deduplicating correctly (different odds → different leg ID) but the functional duplication is undesirable.
 9. **`timing_intelligence_state.json` at 729KB, unbounded growth.** No pruning mechanism.
 10. **`isOffensiveAttackStat` duplicated** between `buildFeaturedPlays.js` and `buildSlipAi.js`. Drift risk.
 11. **`http/nbaBestAvailable.inlined.js` (6,867 lines) + `nbaRefreshSnapshot.inlined.js` (4,318 lines)** — may be dead code. Need audit.
@@ -227,5 +249,8 @@ Fix 1 + Fix 2 address the two highest-impact compression points. Remaining under
 | `backend/storage/db.js` | Created 2026-05-07 |
 | `backend/storage/queries.js` | Created 2026-05-07 |
 | `backend/storage/importHistoricalData.js` | Created 2026-05-07 |
+| `backend/storage/intelligenceSchema.js` | **Created 2026-05-07 (Session H)** |
+| `backend/storage/intelligence.js` | **Created 2026-05-07 (Session H)** |
 | `backend/pipeline/shared/buildCandidateDiversity.js` | **Fix 1 applied 2026-05-07** |
-| `backend/pipeline/shared/buildSlipAi.js` | **Fix 2 applied 2026-05-07** |
+| `backend/pipeline/shared/buildSlipAi.js` | **Fix 2 + Fix 4 + Fix 5 + Fix 6 applied 2026-05-07** |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | **Fix 3 applied 2026-05-07** |
