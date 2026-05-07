@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06 (overnight — trust-qualification audit pass)_
+_Last updated: 2026-05-07 (early AM — controlled modular extraction pass)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-06 (overnight — trust-qualification audit pass)_
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | (pending — trust-qualification fixes this session) |
+| Last commit | `a662d4c` + extraction pending commit |
 | Repo health | Stable. All syntax checks clean. |
 
 ---
@@ -40,6 +40,7 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | AI Slip construction | Working | `pipeline/shared/buildSlipAi.js` |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
+| **Candidate diversification** | **Working — extracted** | **`pipeline/shared/buildCandidateDiversity.js`** |
 | Line shopping (implied spread ranking) | Working | `routes/workstationRoutes.js` |
 | Portfolio optimizer | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Market timing intelligence | Working | `pipeline/shared/buildMarketTimingIntelligence.js` |
@@ -146,6 +147,11 @@ Completed total (all sessions combined):
   Same 0.50 modelProb / 0.12 edge override as slip safe tier. Premium offensive ecosystems
   (Trout 22%-edge runs over) now graduate into the SAFEST featured trust surface alongside
   high-prob unders — without forcing offense or sacrificing realism.
+- **NEW: Modular extraction #1** — `diversifyCandidates` extracted from `workstationRoutes.js`
+  into `pipeline/shared/buildCandidateDiversity.js`. First controlled extraction from the
+  workstation route layer. workstationRoutes.js reduced from 622 → 577 lines (-45 inline lines,
+  logic now shared). Zero behavior change: same 48 candidates from 299 input, same caps,
+  same sort order.
 
 ---
 

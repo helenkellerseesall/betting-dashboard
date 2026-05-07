@@ -26,6 +26,7 @@
 const express = require("express")
 const fs = require("fs")
 const path = require("path")
+const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
 
 const router = express.Router()
 
@@ -126,53 +127,7 @@ function buildCandidatePool(sport, date) {
 }
 
 // ── Candidate diversification ────────────────────────────────────────────────
-// Curate the candidate pool to avoid spammy repeats of the same player/game/stat.
-//
-// Caps enforced (sorted by edge×prob, best first):
-//   maxPerPlayer    — 3 best plays per player
-//   maxPerGame      — 7 best plays per game
-//   maxPerStat      — 10 per stat family (prevents 27 totalbases props)
-//   maxPerStatSide  — 6 per (stat+side) combo (prevents 27 totalbases-under props)
-//
-// None of these hard-suppress genuine edge — they just ensure the pool
-// naturally represents a diverse range of games, stats, and bet directions
-// so downstream views (featured, AI slips, portfolio) don't start homogeneous.
-function diversifyCandidates(candidates, opts = {}) {
-  const maxPerPlayer   = opts.maxPerPlayer   ?? 3
-  const maxPerGame     = opts.maxPerGame     ?? 7
-  const maxPerStat     = opts.maxPerStat     ?? 10   // e.g. max 10 totalbases props
-  const maxPerStatSide = opts.maxPerStatSide ?? 6    // e.g. max 6 "totalbases under"
-  if (!Array.isArray(candidates) || candidates.length === 0) return []
-  const scored = candidates.map((c) => {
-    const edge = Number(c.edge ?? c.edgeProbability ?? 0)
-    const prob = Number(c.modelProb ?? c.predictedProbability ?? 0.5)
-    return { c, score: (edge * 4) * (prob || 0.5) }
-  })
-  scored.sort((a, b) => b.score - a.score)
-  const playerCount   = new Map()
-  const gameCount     = new Map()
-  const statCount     = new Map()
-  const statSideCount = new Map()
-  const out = []
-  for (const item of scored) {
-    const c    = item.c
-    const p    = String(c.player || "").toLowerCase()
-    const g    = c.eventId || (c.matchup ? String(c.matchup).toLowerCase() : "")
-    const sf   = String(c.statFamily || c.propType || "").toLowerCase().replace(/[\s_]+/g, "")
-    const side = String(c.side || "").toLowerCase()
-    const ss   = sf ? `${sf}|${side}` : ""
-    if (p  && (playerCount.get(p)   || 0) >= maxPerPlayer)   continue
-    if (g  && (gameCount.get(g)     || 0) >= maxPerGame)     continue
-    if (sf && (statCount.get(sf)    || 0) >= maxPerStat)     continue
-    if (ss && (statSideCount.get(ss)|| 0) >= maxPerStatSide) continue
-    out.push(c)
-    if (p)  playerCount.set(p, (playerCount.get(p) || 0) + 1)
-    if (g)  gameCount.set(g, (gameCount.get(g) || 0) + 1)
-    if (sf) statCount.set(sf, (statCount.get(sf) || 0) + 1)
-    if (ss) statSideCount.set(ss, (statSideCount.get(ss) || 0) + 1)
-  }
-  return out
-}
+// Extracted to pipeline/shared/buildCandidateDiversity.js — imported above.
 
 // ── load shared intelligence modules lazily ──────────────────────────────────
 

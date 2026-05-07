@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06 (overnight — trust-qualification audit pass)_
+_Last updated: 2026-05-07 (early AM — controlled modular extraction pass)_
 
 ---
 
@@ -72,21 +72,44 @@ Confirm:
 - AI Aggressive Slip #1 has at least 1 offensive over leg
 - Pitcher outs no longer monopolizes Safest
 
-### Priority 2 — `ARCHITECTURE.md` + PIPELINES docs (infrastructure)
-Create the remaining docs:
-- `/docs/ARCHITECTURE.md` — repo structure, module domains, extraction direction
-- `/docs/PIPELINES/MLB.md` — MLB-specific systems, HR/TB/RBI pipeline, current weaknesses
-- `/docs/PIPELINES/NBA.md` — NBA boards, slips, orchestration, weaknesses
-- `/docs/PIPELINES/TRACKING.md` — tracking, grading, CLV, future SQLite targets
+### Priority 2 — Modular extraction #2: compactors
+**Target**: `compactLineShopping` + `compactTiming` + `compactPortfolio` in `workstationRoutes.js`
+→ `pipeline/shared/buildWorkstationCompactors.js`
 
-### Priority 3 — "Outs" label perception issue (optional cosmetic)
-Even with volatility reclassified, "outs over 15.5" still appears in Best Ladders / Tonight's
-Best. The label "outs" still sounds suppression to users.
-Optional: in `compactStat()` or `buildReason()`, rename "outs" → "pitcher depth" or add a tag
-like "pitcher workload" when in pitcher context.
+Why: ~103 lines of pure serialization/formatting functions with no globals. Shares naturally
+with any future route or test that needs compact output format. Leaves workstationRoutes.js
+as a thin orchestrator (routes only, no inline logic).
+
+After this extraction, workstationRoutes.js would be ~475 lines (routes + 3-line stubs only).
+
+### Priority 3 — Modular extraction #3: server.js phase plan
+server.js (21,025 lines) contains 95% functions that close over globals (oddsSnapshot,
+expandedEligibleRows, __mlb*, app). These cannot be extracted without threading parameters.
+The safe extraction path is:
+
+**Phase A** (safe today): Pure utility block at lines 11379–11430
+  - `avg`, `stddev`, `minVal`, `maxVal`, `parseHitRate`, `normalizePlayerName`
+  - All pure, no globals, ~52 lines → `pipeline/shared/mathUtils.js`
+  - server.js already has many wrappers — these are the safest starting point
+
+**Phase B** (future, requires parameter threading):
+  - `buildRawCoverage`, `buildStageCounts`, `buildExclusionSummary` (lines 1507–2066)
+  - Need: convert `oddsSnapshot` global references → function parameters
+  - Then: extract to `pipeline/shared/buildDiagnostics.js`
+
+**Phase C** (future, larger scope):
+  - `scorePropRow` (lines 13909–14158) — 249 lines, references many globals
+  - `buildLiveDualBestAvailablePayload` (lines 6169–6602) — massive orchestrator
+  - These require a full global-to-parameter threading pass first
+
+### Priority 4 — "Outs" label perception issue (optional cosmetic)
+Pitcher depth overs ("outs over 15.5") still appear in Best Ladders / Tonight's Best.
+The label "outs" sounds suppression to users despite being a legitimate low-variance edge.
+Optional: in `compactStat()` or `buildReason()`, rename "outs" → "pitcher depth" or
+add a tag like "pitcher workload" when in pitcher context.
 NOT a scoring change — purely a presentation label.
 
-### Priority 4 — NBA scoring ecology audit
+### Priority 5 — NBA scoring ecology audit
 Apply same lens as MLB audit:
 - `edge × modelProb` compounding in NBA tracked_bets
 - Tier distribution by side
@@ -94,6 +117,13 @@ Apply same lens as MLB audit:
 - Offensive over recognition
 - Trust-qualification gates (slipAi tierBoost, safe-tier override applicability)
 Source: `nba_tracked_bets_2026-05-06.json`
+
+### Priority 6 — `ARCHITECTURE.md` + PIPELINES docs (infrastructure)
+Create the remaining docs:
+- `/docs/ARCHITECTURE.md` — repo structure, module domains, extraction direction
+- `/docs/PIPELINES/MLB.md` — MLB-specific systems, HR/TB/RBI pipeline, current weaknesses
+- `/docs/PIPELINES/NBA.md` — NBA boards, slips, orchestration, weaknesses
+- `/docs/PIPELINES/TRACKING.md` — tracking, grading, CLV, future SQLite targets
 
 ---
 
@@ -171,9 +201,10 @@ After any patch:
 
 1. Extract `isOffensiveAttackStat` into `pipeline/shared/normalizers.js` — duplicated in `buildSlipAi.js` and `buildFeaturedPlays.js`
 2. Extract `sortAnchorsForDisplay` into a shared display utility if anchors are used elsewhere
-3. Extract `diversifyCandidates` from `workstationRoutes.js` → `pipeline/shared/buildCandidateDiversity.js`
-4. Extract `compactLineShopping` from `workstationRoutes.js` → `pipeline/shared/buildLineShoppingCompact.js`
+3. ~~Extract `diversifyCandidates` from `workstationRoutes.js`~~ **DONE** → `pipeline/shared/buildCandidateDiversity.js`
+4. Extract `compactLineShopping` + `compactTiming` + `compactPortfolio` from `workstationRoutes.js` → `pipeline/shared/buildWorkstationCompactors.js`
 5. Extract inline scoring helpers from `buildIntelligencePresentation.js` → dedicated shared modules
+6. server.js phase plan — see Priority 3 above
 
 ---
 
