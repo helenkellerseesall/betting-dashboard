@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06_
+_Last updated: 2026-05-06 (evening)_
 
 ---
 
@@ -18,12 +18,15 @@ emotional texture, and portfolio intelligence.
 
 Session completed 2026-05-06. All patches verified clean (`node --check`).
 
-### Patches applied this session:
+### Patches applied this session (scoring/texture):
 1. `buildPortfolioOptimizer.js` — volatility taxonomy: `hits`/`runs`/`points`/`rebounds`/`steals`/`blocks`/`doubles`/`triples`/`stolenbases` → `balanced` (was falling to `safe`)
-2. `buildFeaturedPlays.js` — softer `volRealism` gap (0.85→0.80 safe, 0.55→0.63 aggressive); `textureBoost` +0.018 for agg/lotto legs with edge > 0.045; `buildSmartAggression` texture fallback for balanced + plus-money/steam
+2. `buildFeaturedPlays.js` — softer `volRealism` gap; `textureBoost` +0.018 for agg/lotto legs with edge > 0.045; `buildSmartAggression` texture fallback for balanced + plus-money/steam
 3. `buildSlipAi.js` — `offensiveAttackTextureBonus()` seed-ordering on aggressive/lotto tiers; sharpened leg/slip/narrative language
 4. `buildFeaturedPlays.js` — `scoreCandidate` uses `textureBoost` in composite calculation
-5. `docs/WORKFLOW_RULES.md` — created and committed to `stable-nba-engine`
+5. `docs/WORKFLOW_RULES.md` — created and committed
+6. `docs/CURRENT_STATE.md` + `docs/NEXT_SESSION.md` — created and committed
+7. `docs/BOOTSTRAP_PROMPT.md` — created (canonical session rehydration entrypoint)
+8. `.cursor/rules/workflow.mdc` — updated to reference operational docs, strengthened enforcement
 
 ---
 
@@ -147,8 +150,10 @@ Current calibration status: **active**
 | File | Status |
 |---|---|
 | `docs/WORKFLOW_RULES.md` | ✅ Committed |
-| `docs/CURRENT_STATE.md` | ✅ Created this session |
-| `docs/NEXT_SESSION.md` | ✅ Created this session |
+| `docs/CURRENT_STATE.md` | ✅ Committed + updated |
+| `docs/NEXT_SESSION.md` | ✅ Committed + updated |
+| `docs/BOOTSTRAP_PROMPT.md` | ✅ Created this session |
+| `.cursor/rules/workflow.mdc` | ✅ Updated — references operational docs |
 | `docs/ARCHITECTURE.md` | ❌ Next infrastructure task |
 | `docs/PIPELINES/MLB.md` | ❌ Pending |
 | `docs/PIPELINES/NBA.md` | ❌ Pending |

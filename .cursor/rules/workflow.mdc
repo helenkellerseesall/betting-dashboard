@@ -1,40 +1,86 @@
 ---
-description: "Strict workflow enforcement"
+description: "Strict workflow enforcement — always applied, overrides all behavior"
 alwaysApply: true
 ---
 
 # CURSOR WORKFLOW RULES (ENFORCED)
 
+## MANDATORY SESSION START
+
+At the start of every session, read these files first:
+- `/docs/WORKFLOW_RULES.md`
+- `/docs/CURRENT_STATE.md`
+- `/docs/NEXT_SESSION.md`
+
+If any file does not exist, state that explicitly and continue safely.
+Never proceed into code analysis or patching without reading current operational state.
+
+## MANDATORY SESSION END
+
+Before finishing any session that modified code or docs:
+- Update `/docs/CURRENT_STATE.md` (overwrite — not append)
+- Update `/docs/NEXT_SESSION.md` (overwrite — not append)
+
 ## CORE FLOW
-1. Provide a Cursor prompt for the task
-2. Cursor may:
-   - Read full repo
-   - Modify multiple files
-   - Refactor if needed
-3. BUT must NOT:
-   - Touch unrelated sports (NBA, NFL, etc.)
-   - Break existing working pipelines
-   - Change ingest / sanitize unless explicitly told
-4. WAIT for user to return Cursor output
-5. THEN provide:
-   - Term 1 restart: YES or NO
-   - Term 2 verification ONLY
-6. WAIT for verification
-7. THEN evaluate briefly (good / bad / next)
-8. DO NOT proceed without approval
+
+1. Read the three docs above
+2. Trace the real execution path before touching any code
+3. Reproduce the problem before patching
+4. Apply minimal verified fix only
+5. Run `node --check` on all modified `.js` files
+6. State: "TERM 1 restart: YES or NO"
+7. State: "TERM 2 verification: [exact command]"
+8. Update CURRENT_STATE.md and NEXT_SESSION.md
+9. DO NOT proceed to next task without operator confirmation
+
+## TERMINAL RULES
+
+- DO NOT start, stop, restart, or manage servers
+- ASSUME TERM 1 is already running the backend on port 4000
+- ASSUME TERM 2 is controlled manually by the operator
+
+## ARCHITECTURE RULES
+
+- No new frameworks
+- No parallel systems alongside existing ones
+- No new endpoints without explicit approval
+- Extend through `backend/pipeline/shared/` only
+- All workstation intelligence flows through `/api/ws/state`
+
+## PATCH RULES
+
+- Verify before patching — reproduce with `node -e` smoke test preferred
+- No speculative rewrites — only fix verified root causes
+- No "while I'm in here" changes — one problem per session
+- `node --check` all modified `.js` files
+- No new lint errors on modified `.tsx/.ts` files
+
+## MODEL DISCIPLINE
+
+- Deep audit / unknown bug → Opus
+- Implementing a verified fix → Sonnet
+- Doc updates / trivial edits → Auto
+- Never use Auto for scoring, pipeline, or orchestration logic
 
 ## RESPONSE RULES
+
 - Be brief
-- No long explanations
+- No long explanations unless asked
+- State restart/verify requirements clearly
+- Wait for operator confirmation before evaluating results
 
-## CODE RULES
-- Cursor does ALL edits
-- No manual edits suggested
-- Allow repo-wide fixes WITHIN scope
+## WHAT NOT TO DO
 
-## CONTROL RULE
-- Answer questions directly
-- Do not derail
+- Never rebuild projection engines to force score balance
+- Never hard-force over/under percentages
+- Never widen scope into SQL migration during active curation work
+- Never touch `runMlbNight.js` or `runNbaNight.js` without tracing candidate paths first
+- Never duplicate existing intelligence modules
+- Never add polling loops or always-on background workers
 
 ## MEMORY RULE
-- This file overrides all behavior
+
+This file and `/docs/WORKFLOW_RULES.md` together override all other behavior.
+`/docs/CURRENT_STATE.md` contains active bottlenecks and regression risks.
+`/docs/NEXT_SESSION.md` contains the exact next operational step.
+Read them. Trust them. Update them.

@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-06_
+_Last updated: 2026-05-06 (evening)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-06_
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | `f06f435` — Add WORKFLOW_RULES.md |
+| Last commit | `194a127` — Add CURRENT_STATE.md and NEXT_SESSION.md |
 | Repo health | Stable. No known broken tests or syntax errors. |
 
 ---
@@ -140,9 +140,11 @@ Remaining work: Scoring ecology review for over archetype representation
 
 | Item | State |
 |---|---|
-| `/docs/WORKFLOW_RULES.md` | ✅ Exists — committed to `stable-nba-engine` |
-| `/docs/CURRENT_STATE.md` | ✅ Being created now |
-| `/docs/NEXT_SESSION.md` | ✅ Being created now |
+| `/docs/WORKFLOW_RULES.md` | ✅ Committed |
+| `/docs/CURRENT_STATE.md` | ✅ Committed |
+| `/docs/NEXT_SESSION.md` | ✅ Committed |
+| `/docs/BOOTSTRAP_PROMPT.md` | ✅ Created this session |
+| `.cursor/rules/workflow.mdc` | ✅ Updated this session — references operational docs, `alwaysApply: true` |
 | `/docs/ARCHITECTURE.md` | ❌ Not yet created |
 | `/docs/PIPELINES/NBA.md` | ❌ Not yet created |
 | `/docs/PIPELINES/MLB.md` | ❌ Not yet created |
