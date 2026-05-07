@@ -126,10 +126,16 @@ function scoreLeg(leg, ctx = {}) {
   let total = 0
   let weight = 0
 
-  // 1. Projection strength (40%): edge × confidence
+  // 1. Projection strength (30%): edge × confidence.
+  //
+  // ECOLOGY FIX: cap modelProb factor to [0.50, 0.55] so suppression-side
+  // probability compression (under bets get 0.65+ modelProb just from line
+  // shape) does not unfairly inflate composite over true edge quality.
+  // Same fix as buildFeaturedPlays.scoreCandidate.
   const edge = leg.edge ?? 0
   const conf = leg.modelProb ?? leg.confidence ?? 0
-  const projectionScore = clamp(0, 1, (edge * 5) * (conf || 0.5))
+  const probFactor = Math.max(0.50, Math.min(0.55, conf || 0.5))
+  const projectionScore = clamp(0, 1, (edge * 5) * probFactor)
   factors.projection = r4(projectionScore)
   total += projectionScore * 0.30; weight += 0.30
 

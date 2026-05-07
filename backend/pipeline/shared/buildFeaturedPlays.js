@@ -52,6 +52,23 @@ function impliedFromAmerican(o) {
   return n > 0 ? 100 / (n + 100) : Math.abs(n) / (Math.abs(n) + 100)
 }
 
+/**
+ * True offensive attack stats — hitter offense, not pitcher dominance.
+ * Used to distinguish "real attack overs" from suppression-flavored overs
+ * (pitcher outs/Ks, walks). Mirrors the same recognition used by
+ * buildSlipAi.offensiveAttackTextureBonus.
+ */
+function isOffensiveAttackStat(fam) {
+  const f = normFam(fam)
+  if (!f) return false
+  if (f.includes("outs") || f.includes("strikeout") || f.includes("pitcherk") || f.includes("walks")) return false
+  return f.includes("hits") || f.includes("runs") || f.includes("totalbase") ||
+         f.includes("rbi") || f.includes("homerun") || f === "hr" || f.includes("xbh") ||
+         f.includes("stolen") || f.includes("steals") || f.includes("points") ||
+         f.includes("rebounds") || f.includes("threes") || f.includes("assists") ||
+         f.includes("combo") || f === "pra" || f.includes("doubles") || f.includes("triples")
+}
+
 function normalizeCandidate(raw) {
   if (!raw) return null
   const player    = raw.player || raw.playerName
@@ -143,10 +160,18 @@ function scoreCandidate(c, ctx) {
   const f = {}
   let total = 0, weight = 0
 
-  // edge × confidence (cap edge contribution at 25% to avoid edge-chasing)
+  // edge × confidence — cap edge contribution at 25% to avoid edge-chasing.
+  //
+  // ECOLOGY FIX: cap modelProb factor to [0.50, 0.55]. Without this cap, a
+  // 9% edge under at 0.65 modelProb scores 0.234 while a 9% edge over at
+  // 0.50 modelProb scores 0.180 — a 30% advantage to suppression bets that
+  // is purely structural (probability compression on shorter under lines),
+  // NOT a real quality difference. The cap neutralizes that compounding
+  // while still penalizing very low confidence (modelProb < 0.50).
   const edge = c.edge ?? 0
   const conf = c.modelProb ?? c.confidence ?? 0
-  f.edge = clamp(0, 1, (edge * 4) * (conf || 0.5))
+  const probFactor = Math.max(0.50, Math.min(0.55, conf || 0.5))
+  f.edge = clamp(0, 1, (edge * 4) * probFactor)
   total += f.edge * 0.25; weight += 0.25
 
   // archetype trust (rolling ROI by stat family)
@@ -203,11 +228,27 @@ function scoreCandidate(c, ctx) {
                  0.46
   total += f.volRealism * 0.10; weight += 0.10
 
-  // Upside-lane preservation (tiny): high-edge aggressive/lotto legs keep oxygen in
+  // Upside-lane preservation: high-edge aggressive/lotto legs keep oxygen in
   // curated pools — does NOT inject overs; only lifts proven volatile edges.
+  //
+  // ECOLOGY FIX (extended): recognize TRUE offensive attack candidates
+  // (hitter overs on offensive stats, not pitcher dominance). Without this,
+  // the side-balance fill pass selects pitcher outs/Ks "overs" — which are
+  // structurally suppression bets — to fill the over slot, leaving real
+  // hitter offense (Trout runs over, Bichette HR over) ranked below them.
+  //
+  // The two boosts stack into a single value rather than fall-through —
+  // aggressive offensive overs get a larger boost (0.030) to overcome the
+  // built-in volRealism penalty (aggressive 0.63 vs balanced 0.74 = -0.011
+  // weighted composite penalty), so that real attack edges can actually
+  // surface against equal-edge suppression bets. Balanced offensive overs
+  // get a smaller boost (0.020) since they have no volRealism penalty.
   let textureBoost = 0
+  const isOffenseOver = c.side === "over" && (c.edge ?? 0) > 0.05 && isOffensiveAttackStat(c.statFamily)
   if ((c.volatility === "aggressive" || c.volatility === "lotto") && (c.edge ?? 0) > 0.045) {
-    textureBoost = 0.018
+    textureBoost = isOffenseOver ? 0.030 : 0.018
+  } else if (isOffenseOver) {
+    textureBoost = 0.020
   }
   f.textureBoost = textureBoost
 
@@ -473,7 +514,14 @@ function buildAnchors(scored, count = 5) {
     pool = sorted
   }
 
-  return pickDiversified(pool, count, { maxPerPlayer: 1, maxPerGame: 1, maxPerStat: 2, maxSideFraction: 0.55 })
+  // ECOLOGY FIX: allow 2 per game in anchors (was 1). On nights where one
+  // game has a strong under AND a strong over (e.g. Montgomery TB under +
+  // Trout runs over in CHW@LAA), the strict 1-per-game cap forces the
+  // anchor pool into 5 unders even when Trout's offensive over has higher
+  // composite than later under picks. Side-balance cap (0.55) still
+  // prevents same-side same-game spam — this only helps when the second
+  // pick adds genuine cross-side texture.
+  return pickDiversified(pool, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2, maxSideFraction: 0.55 })
 }
 
 function buildTonightsBest(scored, count = 5, exclude = new Set()) {
