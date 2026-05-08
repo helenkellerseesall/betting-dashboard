@@ -40,10 +40,12 @@ const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 // ─────────────────────────────────────────────────────────────────────────────
 
 const { tryGetDb } = require("./db")
+const { applySchema } = require("./schema")
 const {
   insertManyTrackedProps,
   insertManyHrPredictions,
   insertManySlips,
+  upsertManyLedgerBets,
   recordNightlyRun,
 } = require("./queries")
 
@@ -157,6 +159,36 @@ function importSlips(db) {
   return totalInserted
 }
 
+function importPersonalLedger(db) {
+  console.log("\n── personal_ledger (personal_ledger.json → bets[]) ──")
+
+  const ledgerPath = path.join(TRACKING_DIR, "personal_ledger.json")
+  let data = null
+  try {
+    const raw = fs.readFileSync(ledgerPath, "utf8")
+    data = JSON.parse(raw)
+  } catch (e) {
+    console.warn(`  [skip] Cannot read personal_ledger.json: ${e.message}`)
+    return 0
+  }
+
+  const bets = Array.isArray(data?.bets) ? data.bets : []
+  if (bets.length === 0) {
+    console.log("  personal_ledger.json: 0 bets found — skipping")
+    return 0
+  }
+
+  const { upserted, errors } = upsertManyLedgerBets(db, bets)
+  console.log(`  personal_ledger.json: +${pad(upserted)} upserted, ${pad(errors)} errors (${bets.length} total bets)`)
+
+  if (errors > 0) {
+    console.warn(`  WARNING: ${errors} bets failed to upsert — check raw_json field shapes`)
+  }
+
+  console.log(`  TOTAL: +${upserted} upserted`)
+  return upserted
+}
+
 function importHrPredictions(db) {
   console.log("\n── hr_predictions (tracked_props_* + graded_props_*) ──")
 
@@ -195,6 +227,7 @@ function printVerification(db) {
     "hr_predictions",
     "slip_catalog",
     "nightly_runs",
+    "personal_ledger",
   ]
 
   for (const t of tables) {
@@ -232,6 +265,26 @@ function printVerification(db) {
     }
   }
 
+  // personal_ledger result + sport breakdown
+  const ledgerResults = db.prepare(
+    "SELECT result, COUNT(*) AS n FROM personal_ledger GROUP BY result"
+  ).all()
+  if (ledgerResults.length) {
+    console.log("  personal_ledger results:")
+    for (const r of ledgerResults) {
+      console.log(`    ${String(r.result || "null").padEnd(10)}: ${r.n}`)
+    }
+  }
+  const ledgerSports = db.prepare(
+    "SELECT sport, COUNT(*) AS n FROM personal_ledger GROUP BY sport"
+  ).all()
+  if (ledgerSports.length) {
+    console.log("  personal_ledger sports :")
+    for (const r of ledgerSports) {
+      console.log(`    ${String(r.sport || "null").padEnd(8)}: ${r.n}`)
+    }
+  }
+
   console.log(`\n  DB file: ${require("./db").dbPath()}`)
 }
 
@@ -241,7 +294,7 @@ function printVerification(db) {
 
 function main() {
   const t0 = Date.now()
-  console.log("=== importHistoricalData — SQLite Phase 1 backfill ===")
+  console.log("=== importHistoricalData — SQLite Phase 1+S backfill ===")
   console.log(`Tracking dir : ${TRACKING_DIR}`)
 
   const db = tryGetDb()
@@ -250,9 +303,13 @@ function main() {
     process.exit(1)
   }
 
+  // Ensure full schema is applied (includes personal_ledger table added in Session S)
+  applySchema(db)
+
   importTrackedBets(db)
   importSlips(db)
   importHrPredictions(db)
+  importPersonalLedger(db)
   printVerification(db)
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2)

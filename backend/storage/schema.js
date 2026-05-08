@@ -1,17 +1,30 @@
 "use strict"
 
 /**
- * SQLite schema — Phase 1
+ * SQLite schema — Phase 1 + Screenshot Intelligence Layer (Phase U)
  *
  * Tables mirror the flat JSON tracking files in backend/runtime/tracking/.
  * JSON files remain CANONICAL. SQLite is additive — analytics + history only.
  *
- * Table map:
+ * Table map (Phase 1):
  *   tracked_props   ← mlb_tracked_bets_*.json + nba_tracked_bets_*.json
  *   hr_predictions  ← tracked_props_*.json + graded_props_*.json
  *   slip_catalog    ← mlb_tracked_slips_*.json + nba_tracked_slips_*.json
  *   nightly_runs    ← populated by importHistoricalData.js, future: nightly runners
+ *   personal_ledger ← personal_ledger.json (added Session S)
+ *
+ * Table map (Screenshot Intelligence — Phase U):
+ *   screenshot_submissions ← screenshot ingestion events
+ *   parsed_slips           ← normalized slip extraction
+ *   slip_classifications   ← 10-dimension scored output + archetypes
+ *   bettor_profiles        ← longitudinal bettor model
+ *   outcome_links          ← per-leg grading linkage
+ *
+ * applySchema() calls applyScreenshotSchema() automatically — both schemas
+ * are applied together whenever the DB is initialized.
  */
+
+const { applyScreenshotSchema } = require("./screenshotSchema")
 
 const DDL = `
 
@@ -133,16 +146,83 @@ CREATE INDEX IF NOT EXISTS idx_nr_run_date   ON nightly_runs (run_date);
 CREATE INDEX IF NOT EXISTS idx_nr_sport      ON nightly_runs (sport);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nr_unique ON nightly_runs (run_date, sport, run_type);
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- personal_ledger
+-- Source: backend/runtime/tracking/personal_ledger.json → bets[]
+-- Shape:  one row per personal bet (mirror of the JSON bets array)
+--
+-- JSON remains CANONICAL for reads. This table is:
+--   (a) a durable write-through mirror — written atomically on every saveLedger()
+--   (b) the future primary store once one nightly run verifies end-to-end
+--
+-- Concurrency note: SQLite WAL mode + single-writer (Node process) is safe.
+-- The JSON file uses atomic rename; the DB write is transactional — both
+-- operations succeed or both are skipped.
+--
+-- ID: from personal bet stableId() — deterministic composite hash + timestamp suffix.
+--     INSERT OR REPLACE used so re-imports and updates are idempotent.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS personal_ledger (
+  id                TEXT    PRIMARY KEY,
+  date              TEXT    NOT NULL,      -- YYYY-MM-DD
+  sport             TEXT,                  -- mlb / nba / nfl / nhl
+  sportsbook        TEXT,
+  bet_type          TEXT    DEFAULT 'single',  -- single | slip
+  player            TEXT,
+  team              TEXT,
+  event_id          TEXT,
+  matchup           TEXT,
+  opponent          TEXT,
+  stat_family       TEXT,
+  prop              TEXT,
+  side              TEXT,                  -- over / under
+  line              REAL,
+  odds              INTEGER,               -- American odds
+  stake             REAL,
+  to_win            REAL,
+  implied_prob      REAL,
+  model_line        REAL,
+  model_odds        INTEGER,
+  model_prob        REAL,
+  model_tier        TEXT,
+  decision_type     TEXT,                  -- followed / modified / ignored / custom
+  aggression_delta  REAL,
+  confidence_tier   TEXT,
+  actual_stat       REAL,
+  result            TEXT    DEFAULT 'pending',  -- pending / win / loss / push / void
+  payout            REAL,
+  cashout           REAL,
+  settled_at        TEXT,
+  note              TEXT,
+  clv_score         REAL,                  -- from clvSnapshot.clv.clvScore (null until close set)
+  clv_quality       TEXT,                  -- from clvSnapshot.clv.quality
+  integrity_valid   INTEGER DEFAULT 1,     -- 1 = passed integrity gate
+  raw_json          TEXT,                  -- full bet object as JSON (forward compat)
+  imported_at       TEXT    DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pl_date       ON personal_ledger (date);
+CREATE INDEX IF NOT EXISTS idx_pl_sport      ON personal_ledger (sport);
+CREATE INDEX IF NOT EXISTS idx_pl_player     ON personal_ledger (player);
+CREATE INDEX IF NOT EXISTS idx_pl_stat       ON personal_ledger (stat_family);
+CREATE INDEX IF NOT EXISTS idx_pl_result     ON personal_ledger (result);
+CREATE INDEX IF NOT EXISTS idx_pl_decision   ON personal_ledger (decision_type);
+CREATE INDEX IF NOT EXISTS idx_pl_sportsbook ON personal_ledger (sportsbook);
+CREATE INDEX IF NOT EXISTS idx_pl_tier       ON personal_ledger (confidence_tier);
+
 `
 
 /**
  * Apply schema to an open DatabaseSync instance.
  * Safe to call multiple times — all statements use CREATE IF NOT EXISTS.
+ * Also applies the Screenshot Intelligence schema (Phase U tables).
  *
  * @param {DatabaseSync} db
  */
 function applySchema(db) {
   db.exec(DDL)
+  applyScreenshotSchema(db)
 }
 
 module.exports = { applySchema, DDL }

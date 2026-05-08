@@ -30,6 +30,64 @@ const MAX_BETS = 2000
 const MAX_BETS_IN_REPORT = 50
 const CURRENT_VERSION = "personal-ledger-v1"
 
+// ─── SQLite mirror (lazy init, graceful degradation) ─────────────────────────
+//
+// We require storage modules lazily so this file remains loadable even in
+// environments where the storage layer hasn't been initialized yet.
+// If SQLite is unavailable for any reason, all mirror writes silently skip —
+// JSON remains canonical and runtime is never disrupted.
+
+let _sqliteReady = null   // null=not tried, true=ok, false=failed
+
+function _tryGetLedgerDb() {
+  if (_sqliteReady === false) return null
+  try {
+    const { tryGetDb } = require("../../storage/db")
+    const db = tryGetDb()
+    if (!db) { _sqliteReady = false; return null }
+    // Ensure personal_ledger table exists (applySchema is idempotent)
+    const { applySchema } = require("../../storage/schema")
+    applySchema(db)
+    _sqliteReady = true
+    return db
+  } catch (_) {
+    _sqliteReady = false
+    return null
+  }
+}
+
+/**
+ * Mirror a single bet object to the personal_ledger SQLite table.
+ * Silent no-op if SQLite is unavailable.
+ */
+function _mirrorBetToSqlite(bet) {
+  try {
+    const db = _tryGetLedgerDb()
+    if (!db) return
+    const { upsertLedgerBet } = require("../../storage/queries")
+    upsertLedgerBet(db, bet)
+  } catch (_) {
+    // SQLite mirror failure must NEVER propagate — JSON write already succeeded
+  }
+}
+
+/**
+ * Mirror all bets in a ledger to SQLite in a single transaction.
+ * Used by saveLedger() to keep the DB in sync with the full bets array.
+ * Silent no-op if SQLite is unavailable.
+ */
+function _mirrorAllBetsToSqlite(bets) {
+  if (!Array.isArray(bets) || bets.length === 0) return
+  try {
+    const db = _tryGetLedgerDb()
+    if (!db) return
+    const { upsertManyLedgerBets } = require("../../storage/queries")
+    upsertManyLedgerBets(db, bets)
+  } catch (_) {
+    // SQLite mirror failure must NEVER propagate
+  }
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function readJsonSafe(p, fallback = null) {
@@ -41,10 +99,29 @@ function readJsonSafe(p, fallback = null) {
   }
 }
 
+/**
+ * Atomic JSON write: write to .tmp file then rename into place.
+ *
+ * On POSIX (macOS/Linux), rename(2) is atomic — the file is never visible
+ * in a partially-written state. This eliminates the .tmp orphan risk caused
+ * by writeFileSync being interrupted mid-write by a crash or signal.
+ *
+ * If rename fails (e.g. cross-device on some filesystems), falls back to
+ * direct writeFileSync so the write still succeeds.
+ */
 function writeJsonSync(p, data) {
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true })
-    fs.writeFileSync(p, JSON.stringify(data))
+    const tmp = p + ".tmp"
+    fs.writeFileSync(tmp, JSON.stringify(data))
+    try {
+      fs.renameSync(tmp, p)
+    } catch (_renameErr) {
+      // Rename failed (cross-device edge case) — fall back to direct write.
+      // The .tmp file was fully written so data integrity is preserved.
+      try { fs.unlinkSync(tmp) } catch (_) {}
+      fs.writeFileSync(p, JSON.stringify(data))
+    }
     return true
   } catch (_) {
     return false
@@ -664,10 +741,22 @@ function loadLedger() {
 }
 
 /**
- * Persist ledger to disk. Returns true on success.
+ * Persist ledger to disk (atomic JSON write) + mirror bets[] to SQLite.
+ *
+ * Migration strategy:
+ *   Phase S (current): JSON is canonical write target. SQLite is a write-through
+ *     mirror. Reads still come from JSON. One nightly run verifies end-to-end,
+ *     then Phase S+1 can cut read path over to SQLite.
+ *
+ * Returns true on success (JSON write succeeded; SQLite mirror is best-effort).
  */
 function saveLedger(ledger) {
-  return writeJsonSync(LEDGER_FILE, ledger)
+  const ok = writeJsonSync(LEDGER_FILE, ledger)
+  if (ok && Array.isArray(ledger.bets) && ledger.bets.length > 0) {
+    // Mirror full bets array to SQLite — upsertManyLedgerBets is idempotent
+    _mirrorAllBetsToSqlite(ledger.bets)
+  }
+  return ok
 }
 
 /**

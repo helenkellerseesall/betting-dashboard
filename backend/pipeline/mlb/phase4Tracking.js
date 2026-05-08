@@ -633,12 +633,24 @@ function idForSlip(date, slip) {
  * Strips projection / range / reasoning to keep the file small.
  */
 function leanBet(play, date) {
+  // Authoritative team resolution — priority order:
+  //   1. play.team      (teamResolved from current slate enrichment — most authoritative)
+  //   2. play.teamCode  (code form of same)
+  //   3. play.awayTeam / play.homeTeam (from sportsbook event row)
+  //   All four are carried through makePlay() from buildMlbPropClusters.
+  //   Persisting them here ensures every downstream consumer (correlation grouping,
+  //   ecology grouping, portfolio diversification, slip construction team gates)
+  //   gets the current-slate team assignment — not a stale cache or matchup parse.
   return {
     id: idForBet(date, play),
     date,
     player: play.player,
     eventId: play.eventId || null,
     matchup: play.matchup || null,
+    team: play.team ?? null,
+    teamCode: play.teamCode ?? null,
+    awayTeam: play.awayTeam ?? null,
+    homeTeam: play.homeTeam ?? null,
     prop: `${play.statFamily} ${play.side} ${play.line}`,
     statFamily: play.statFamily,
     side: play.side,
@@ -660,6 +672,10 @@ function leanSlip(slip, date) {
   const legs = (slip.legs || []).map((l) => ({
     id: idForSlipLeg(date, id, l),
     player: l.player,
+    team: l.team ?? null,
+    teamCode: l.teamCode ?? null,
+    eventId: l.eventId ?? null,
+    matchup: l.matchup ?? null,
     statFamily: l.statFamily,
     side: l.side,
     line: l.line,

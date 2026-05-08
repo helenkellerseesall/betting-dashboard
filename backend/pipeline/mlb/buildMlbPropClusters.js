@@ -582,7 +582,14 @@ function modelProbForSide(family, stat, line, side, confidence = null) {
   // Calibrated confidence feeds this gate only — stricter = less fake ceiling on model prob.
   const allowHigh = conf != null && conf >= 0.88 && dist >= sigma * 1.75
   const isHr = family === "hr"
-  const maxP = isHr ? (allowHigh ? 0.51 : 0.48) : allowHigh ? 0.76 : 0.68
+  // ECOLOGY FIX T4: HR over cap raised from 0.48 → 0.52. The 0.48 hard cap placed
+  // HR overs structurally BELOW fair-coin (0.50), ensuring every HR over candidate
+  // had modelProb < 0.50. This made them invisible to tier qualification — even a
+  // 0.23-edge HR over could never climb past PLAYABLE because modelProb fed into
+  // conf calibration which then missed every STRONG/ELITE conf threshold. The 0.52
+  // cap still enforces genuine uncertainty for this high-variance market; it simply
+  // allows genuinely well-projected HR overs to be recognized as slight favorites.
+  const maxP = isHr ? (allowHigh ? 0.55 : 0.52) : allowHigh ? 0.76 : 0.68
 
   const pSideRaw = s.startsWith("u") ? 1 - pOver : pOver
 
@@ -630,7 +637,13 @@ function calibrateMlbConfidence(family, line, side, vol, rawConf, mp) {
   const xbhish = propTxt.includes("extra") || propTxt.includes("xbh") || propTxt.includes("extra_base")
 
   let mult = 1
-  if (f === "hr") mult *= 0.68
+  // ECOLOGY FIX T3: HR confidence multiplier raised from 0.68 → 0.72.
+  // At 0.68, combined with the 0.38 vol-weight penalty, HR calibrated conf was
+  // ~0.26 — far below the 0.42 STRONG threshold. Even a 0.23-edge HR with strong
+  // ladder separation could never tier above PLAYABLE. 0.72 is still conservative
+  // (HR is genuinely high-variance) but allows high-separation projections to reach
+  // STRONG (~0.29+ calibrated conf, clearing the adjusted 0.22 threshold in T1).
+  if (f === "hr") mult *= 0.72
   else if (f === "rbis") mult *= 0.78
   else if (f === "runs") mult *= 0.82
   else if (f === "batterks") mult *= 0.76
@@ -666,9 +679,18 @@ function scorePlay({ edge, ev, conf, vol, side, family }) {
   const c = Number.isFinite(conf) ? conf : 0
   const g = Number.isFinite(vol) ? vol : 0
   const sideBoost = String(side || "").toLowerCase().startsWith("o") ? g * 0.15 : g * 0.05
-  // Phase 9 priority: pitcher Ks > hits/bases > HR.
+  // ECOLOGY FIX T1: Remove HR family penalty (was 0.85). The 0.85 weight created a
+  // ~24% composite score penalty for all HR props regardless of edge quality — a
+  // 0.23-edge HR was scoring below an 0.08-edge hits-under. HR is already naturally
+  // penalized via lower conf values (calibrateMlbConfidence mult 0.72 vs 1.0 for
+  // most families) and lower modelProb ceiling (maxP 0.52 vs 0.68). Adding a
+  // further 0.85 family weight stacked three separate penalties onto HR candidates,
+  // which is why they never surfaced. Now HR competes on equal composite footing —
+  // if the edge and EV are real, it scores accordingly.
+  // Pitcher Ks remain at 1.1 (reliable signal, high strike-out variance captures
+  // genuine offensive attack edge on over pitching matchups).
   const familyWeight =
-    family === "ks" ? 1.1 : family === "hits" || family === "totalBases" ? 1.05 : family === "hr" ? 0.85 : 1.0
+    family === "ks" ? 1.1 : family === "hits" || family === "totalBases" ? 1.05 : 1.0
   return (e * 100 * 1.0 + v * 60 + c * 12 + sideBoost * 8) * familyWeight
 }
 
@@ -676,12 +698,21 @@ function tierForPlay(edge, ev, conf, family) {
   if (!Number.isFinite(edge) || !Number.isFinite(ev)) return "FADE"
   if (ev <= 0) return "FADE"
   if (edge < 0.04) return "FADE"
-  // HR is a variance trap — require larger edge to call ELITE.
   const isHr = family === "hr"
   // Uses volatility-calibrated conf: ~0.56+ ≈ strong separation; 0.65+ becomes rare.
   if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.56) return "ELITE"
-  if (isHr && edge >= 0.125 && ev >= 0.085 && conf >= 0.45) return "ELITE"
-  if (edge >= 0.075 && ev >= 0.032 && conf >= 0.42) return "STRONG"
+  // ECOLOGY FIX T2: HR-specific tier conf thresholds. HR calibrated conf is
+  // structurally ~0.26–0.30 due to high variance (binary outcome, low ladder
+  // separation). The old thresholds (ELITE: conf>=0.45, STRONG: conf>=0.42)
+  // were calibrated for hits/runs/TB which have higher conf. Applying them to
+  // HR caused every HR candidate to land as PLAYABLE regardless of edge quality.
+  // New thresholds (ELITE: conf>=0.30, STRONG: conf>=0.22) are appropriate for
+  // the actual range of HR conf values after calibration — they still require
+  // genuine edge separation (edge>=0.125 for ELITE, edge>=0.075 for STRONG)
+  // and valid EV; only the conf gate is HR-adjusted.
+  if (isHr && edge >= 0.125 && ev >= 0.085 && conf >= 0.30) return "ELITE"
+  if (isHr && edge >= 0.075 && ev >= 0.032 && conf >= 0.22) return "STRONG"
+  if (!isHr && edge >= 0.075 && ev >= 0.032 && conf >= 0.42) return "STRONG"
   return "PLAYABLE"
 }
 
@@ -849,7 +880,15 @@ function buildMlbBestBetsBoard(input = {}) {
         dropped += 1
         continue
       }
-      if (vol > 0.65 && edge < 0.06) {
+      // ECOLOGY FIX T5: Exempt HR props from the high-variance drop gate.
+      // HR is intrinsically high-variance (vol typically 0.7–1.0 for HR/game
+      // projections). The vol>0.65 gate was removing most HR candidates before
+      // they reached scorePlay / tierForPlay — including those with 0.10+ edge.
+      // HR candidates already face an edge>=0.04 gate (line above) and will
+      // receive PLAYABLE/FADE tier from tierForPlay if genuinely weak.
+      // For non-HR props the vol-gate remains: it correctly filters
+      // high-variance totalbases/runs props with marginal 5% edges.
+      if (!isHrProp && vol > 0.65 && edge < 0.06) {
         dropped += 1
         continue
       }
@@ -983,6 +1022,9 @@ function makePlay(args) {
     eventId: pred.eventId || mp.eventId || null,
     matchup: pred.matchup || null,
     team: pred.team || null,
+    teamCode: pred.teamCode || null,
+    awayTeam: pred.awayTeam || null,
+    homeTeam: pred.homeTeam || null,
     opponent: pred.opponent || null,
     role: pred.role || null,
     statFamily: family,

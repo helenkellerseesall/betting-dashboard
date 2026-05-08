@@ -18,6 +18,13 @@ const {
 } = require("../pipeline/nba/buildNbaBoardSlicesFromSnapshot")
 const { fetchNbaOddsSnapshot, saveNbaSnapshotToDisk } = require("../pipeline/nba/fetchNbaOddsSnapshot")
 
+// Workstation intelligence modules — used to build featured boards + AI slips
+// from the same snapshot pool that feeds the insight board.
+const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
+const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
+const { buildFeaturedPlays } = require("../pipeline/shared/buildFeaturedPlays")
+const { buildAiSlips } = require("../pipeline/shared/buildSlipAi")
+
 const DEFAULT_BACKEND_ROOT = path.join(__dirname, "..")
 const API_SPORTS_CACHE_FILE = path.join(DEFAULT_BACKEND_ROOT, "api-sports-cache.json")
 
@@ -432,6 +439,79 @@ function isNbaReplayQuery(req) {
 }
 
 /**
+ * Score already-normalized corePropsBoard rows into workstation Candidate format.
+ * These rows come from buildNbaBoardSlicesFromSnapshot and are already enriched with
+ * game context (eventId, team, gameTotal, spread, etc.) — no further normalization needed.
+ *
+ * Mirrors buildNbaSnapshotCandidates in workstationRoutes.js but operates on
+ * already-normalized rows instead of raw snapshot rows.
+ * Gates: core odds (-200..+200), no alternate market keys, known stat family, mp≥0.35, edge≥0.03.
+ * Deduplicates by (player|statFamily|side) keeping best-edge entry per triple.
+ */
+function buildNbaBestAvailableWsCandidates(corePropsBoard) {
+  if (!Array.isArray(corePropsBoard) || !corePropsBoard.length) return []
+  const rawQualified = []
+
+  for (const r of corePropsBoard) {
+    const player = String(r?.player || "").trim()
+    if (!player) continue
+    const side = String(r?.side || "").toLowerCase()
+    if (!side || side === "unknown") continue
+    const odds = Number(r?.odds ?? r?.oddsAmerican)
+    if (!Number.isFinite(odds) || odds > 200 || odds < -200) continue
+
+    const mk = String(r?.marketKey || "").toLowerCase()
+    const pv = String(r?.propVariant || "base").toLowerCase()
+    if (mk.includes("alternate") || mk.includes("_alt") || (pv && pv !== "base" && pv !== "default")) continue
+
+    const propT = String(r?.propType || mk).toLowerCase()
+    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+      : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("points")   ? "points"
+      : propT.includes("rebounds") ? "rebounds"
+      : propT.includes("assists")  ? "assists"
+      : (propT.includes("threes") || propT.includes("three") || propT.includes("3pt")) ? "threes"
+      : null
+    if (!family) continue
+
+    const mp = nbaRowModelProbability(r)
+    if (!Number.isFinite(mp) || mp < 0.35) continue
+    const edge = nbaRowEdge(r)
+    if (!Number.isFinite(edge) || edge < 0.03) continue
+
+    rawQualified.push({
+      ...r,
+      id:           `ba|${player}|${family}|${side}|${r?.line ?? ""}|${odds}`,
+      player,
+      statFamily:   family,
+      propType:     r?.propType || family,
+      side,
+      line:         r?.line ?? null,
+      odds,
+      oddsAmerican: odds,
+      modelProb:    mp,
+      edge,
+      impliedProb:  odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
+      sportsbook:   r?.sportsbook || r?.book || null,
+      tier:         edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      volatility:   family === "pra" ? "lotto"
+                  : (family === "threes" || family === "first_basket") ? "aggressive"
+                  : "balanced",
+      confidence:   mp,
+      snapshotSourced: true,
+    })
+  }
+
+  // Dedup by (player|statFamily|side) keeping best-edge entry per triple.
+  const bestBySig = new Map()
+  for (const c of rawQualified) {
+    const sig = `${c.player}|${c.statFamily}|${c.side}`
+    if (!bestBySig.has(sig) || (c.edge ?? 0) > (bestBySig.get(sig).edge ?? 0)) bestBySig.set(sig, c)
+  }
+  return Array.from(bestBySig.values()).sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
+}
+
+/**
  * GET /api/best-available?sport=basketball_nba
  */
 async function handleNbaBestAvailableGet(req, res, deps) {
@@ -576,7 +656,56 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     console.log("PLAYER CHECK:", r.player, "finalWeight=", r.finalWeight, "recentForm=", r.recentForm)
   }
 
+  // Fix R1 Step 3 — build workstation candidates + featured + slips from corePropsBoard
+  const todayStr = new Date().toISOString().slice(0, 10)
+  let wsCandidates = []
+  let wsFeatured = null
+  let wsAiSlips = { slips: { safe: [], balanced: [], aggressive: [], lotto: [] } }
+
+  try {
+    const wsCandidatesRaw = buildNbaBestAvailableWsCandidates(slices.corePropsBoard || [])
+    wsCandidates = diversifyCandidates(wsCandidatesRaw, {
+      sport: "nba",
+      maxPerPlayer: 3,
+      maxPerGame: 12,
+      maxPerStat: 10,
+      maxPerStatSide: 6,
+    })
+    wsFeatured = buildFeaturedPlays({
+      candidates: wsCandidates,
+      sport: "nba",
+      date: todayStr,
+    })
+    wsAiSlips = buildAiSlips({
+      candidates: wsCandidates,
+      options: { sport: "nba", date: todayStr, maxPerTier: 4 },
+    })
+  } catch (wsErr) {
+    console.error("[nbaIsolatedRoutes] bestAvailable workstation build error:", wsErr?.message)
+  }
+
+  // Map insight rows into elite/strong/best buckets using probability field
+  const __allInsightRows = [
+    ...(Array.isArray(nbaInsightBoard?.bestOverallPlays) ? nbaInsightBoard.bestOverallPlays : []),
+    ...(Array.isArray(nbaInsightBoard?.corePropsBoard) ? nbaInsightBoard.corePropsBoard : []),
+  ]
+  const __elitePlays = __allInsightRows.filter((r) => Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0) >= 0.55)
+  const __strongPlays = __allInsightRows.filter((r) => {
+    const p = Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0)
+    return p >= 0.42 && p < 0.55
+  })
+
   return res.json({
+    bestAvailable: {
+      best: __elitePlays.slice(0, 10),
+      elite: __elitePlays.slice(0, 6),
+      strong: __strongPlays.slice(0, 8),
+      ladders: Array.isArray(nbaInsightBoard?.ladderBoard) ? nbaInsightBoard.ladderBoard.slice(0, 6) : [],
+      firstBasket: Array.isArray(nbaInsightBoard?.firstBasketBoard) ? nbaInsightBoard.firstBasketBoard.slice(0, 4) : [],
+      aiSlips: wsAiSlips?.slips ?? { safe: [], balanced: [], aggressive: [], lotto: [] },
+      featured: wsFeatured,
+      wsCandidates: wsCandidates.slice(0, 24),
+    },
     nbaOpportunityBoard,
     nbaInsightBoard,
   })

@@ -97,15 +97,19 @@ function insertManyTrackedProps(db, rows, hintSport) {
   let inserted = 0
   let skipped  = 0
 
-  const insert = db.transaction((batch) => {
-    for (const row of batch) {
+  db.exec("BEGIN")
+  try {
+    for (const row of rows) {
       const ok = insertTrackedProp(db, row, hintSport)
       if (ok) inserted++
       else skipped++
     }
-  })
+    db.exec("COMMIT")
+  } catch (err) {
+    try { db.exec("ROLLBACK") } catch (_) {}
+    console.warn("[queries] insertManyTrackedProps error:", err.message)
+  }
 
-  insert(rows)
   return { inserted, skipped }
 }
 
@@ -159,15 +163,19 @@ function insertManyHrPredictions(db, rows, runDate) {
   let inserted = 0
   let skipped  = 0
 
-  const insert = db.transaction((batch) => {
-    for (const row of batch) {
+  db.exec("BEGIN")
+  try {
+    for (const row of rows) {
       const ok = insertHrPrediction(db, row, runDate)
       if (ok) inserted++
       else skipped++
     }
-  })
+    db.exec("COMMIT")
+  } catch (err) {
+    try { db.exec("ROLLBACK") } catch (_) {}
+    console.warn("[queries] insertManyHrPredictions error:", err.message)
+  }
 
-  insert(rows)
   return { inserted, skipped }
 }
 
@@ -213,15 +221,19 @@ function insertManySlips(db, rows, hintSport) {
   let inserted = 0
   let skipped  = 0
 
-  const insert = db.transaction((batch) => {
-    for (const row of batch) {
+  db.exec("BEGIN")
+  try {
+    for (const row of rows) {
       const ok = insertSlip(db, row, hintSport)
       if (ok) inserted++
       else skipped++
     }
-  })
+    db.exec("COMMIT")
+  } catch (err) {
+    try { db.exec("ROLLBACK") } catch (_) {}
+    console.warn("[queries] insertManySlips error:", err.message)
+  }
 
-  insert(rows)
   return { inserted, skipped }
 }
 
@@ -304,6 +316,142 @@ function getSlipStatsByTier(db, sport, fromDate, toDate) {
   `).all(sport, fromDate, toDate)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// upsertLedgerBet(db, bet)
+//
+// INSERT OR REPLACE one personal_ledger bet row from a normalized bet object.
+// Used by buildPersonalLedger.js on every saveLedger() call (write-through).
+// Also used by importHistoricalData.js for the one-time backfill pass.
+//
+// Returns true on insert/replace, false on error.
+// ─────────────────────────────────────────────────────────────────────────────
+function upsertLedgerBet(db, bet) {
+  if (!bet || !bet.id) return false
+
+  const clvSnap = bet.clvSnapshot || {}
+  const clvScore   = safeNum(clvSnap.clv?.clvScore)
+  const clvQuality = safeStr(clvSnap.clv?.quality)
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO personal_ledger (
+      id, date, sport, sportsbook, bet_type,
+      player, team, event_id, matchup, opponent,
+      stat_family, prop, side, line, odds,
+      stake, to_win, implied_prob,
+      model_line, model_odds, model_prob, model_tier,
+      decision_type, aggression_delta, confidence_tier,
+      actual_stat, result, payout, cashout, settled_at,
+      note, clv_score, clv_quality, integrity_valid, raw_json
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?
+    )
+  `)
+
+  try {
+    stmt.run(
+      safeStr(bet.id),
+      safeStr(bet.date),
+      safeStr(bet.sport),
+      safeStr(bet.sportsbook),
+      safeStr(bet.betType) || "single",
+      safeStr(bet.player),
+      safeStr(bet.team),
+      safeStr(bet.eventId),
+      safeStr(bet.matchup),
+      safeStr(bet.opponent),
+      safeStr(bet.statFamily),
+      safeStr(bet.prop),
+      safeStr(bet.side),
+      safeNum(bet.line),
+      safeNum(bet.odds),
+      safeNum(bet.stake),
+      safeNum(bet.toWin),
+      safeNum(bet.impliedProb),
+      safeNum(bet.modelLine),
+      safeNum(bet.modelOdds),
+      safeNum(bet.modelProb),
+      safeStr(bet.modelTier),
+      safeStr(bet.decisionType),
+      safeNum(bet.aggressionDelta),
+      safeStr(bet.confidenceTier),
+      safeNum(bet.actualStat),
+      safeStr(bet.result) || "pending",
+      safeNum(bet.payout),
+      safeNum(bet.cashout),
+      safeStr(bet.settledAt),
+      safeStr(bet.note),
+      clvScore,
+      clvQuality,
+      bet.integrity?.valid === false ? 0 : 1,
+      JSON.stringify(bet)
+    )
+    return true
+  } catch (err) {
+    console.warn("[queries] upsertLedgerBet error:", err.message)
+    return false
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// upsertManyLedgerBets(db, bets)
+//
+// Batch upsert an array of ledger bets inside a single transaction.
+// Returns { upserted, errors } counts.
+// ─────────────────────────────────────────────────────────────────────────────
+function upsertManyLedgerBets(db, bets) {
+  if (!Array.isArray(bets) || bets.length === 0) return { upserted: 0, errors: 0 }
+
+  let upserted = 0
+  let errors   = 0
+
+  // node:sqlite uses exec("BEGIN/COMMIT") — no db.transaction() method
+  db.exec("BEGIN")
+  try {
+    for (const bet of bets) {
+      const ok = upsertLedgerBet(db, bet)
+      if (ok) upserted++
+      else errors++
+    }
+    db.exec("COMMIT")
+  } catch (err) {
+    try { db.exec("ROLLBACK") } catch (_) {}
+    console.warn("[queries] upsertManyLedgerBets transaction error:", err.message)
+  }
+
+  return { upserted, errors }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getLedgerBets(db, opts)
+//
+// Simple read helper — returns bets matching optional filters.
+// Primarily used for verification; runtime reads still use JSON.
+// ─────────────────────────────────────────────────────────────────────────────
+function getLedgerBets(db, opts = {}) {
+  const conditions = []
+  const params     = []
+
+  if (opts.sport)  { conditions.push("sport = ?");  params.push(opts.sport) }
+  if (opts.result) { conditions.push("result = ?"); params.push(opts.result) }
+  if (opts.fromDate) { conditions.push("date >= ?"); params.push(opts.fromDate) }
+  if (opts.toDate)   { conditions.push("date <= ?"); params.push(opts.toDate) }
+
+  const where = conditions.length ? "WHERE " + conditions.join(" AND ") : ""
+  const limit = opts.limit ? `LIMIT ${parseInt(opts.limit, 10)}` : ""
+
+  return db.prepare(
+    `SELECT id, date, sport, player, stat_family, side, line, odds, result, clv_score
+     FROM personal_ledger ${where} ORDER BY date DESC ${limit}`
+  ).all(...params)
+}
+
 module.exports = {
   insertTrackedProp,
   insertManyTrackedProps,
@@ -316,4 +464,7 @@ module.exports = {
   getPropsForPlayer,
   getStatFamilyStats,
   getSlipStatsByTier,
+  upsertLedgerBet,
+  upsertManyLedgerBets,
+  getLedgerBets,
 }

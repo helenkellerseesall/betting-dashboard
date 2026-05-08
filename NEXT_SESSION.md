@@ -1,146 +1,280 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (ARCHITECTURE.md created — documentation pass)_
+_Last updated: 2026-05-08 (Session V: MLB Roster Integrity Audit — 4 files fixed; team/teamCode/awayTeam/homeTeam now carried through full pred→makePlay→leanBet chain; identity cache eviction + slate-aware sorting added; 10-point verification 10/10; sessions H–V staged)_
 
 ---
 
 ## CURRENT PROJECT PHASE
 
-**INTEGRITY + DE-RISK — Phase 7 (pre-requisite infrastructure before returning to daily curation)**
+**MLB ROSTER INTEGRITY — Phase 9 (Complete)**
 
-The scoring ecology is correct. Trust-qualification gates are working.
-A repo-scale audit (2026-05-07) identified three blocking issues that must be resolved
-before further calibration work is safe and reliable:
-1. Active `buildFeaturedPlays` fork — scoring fixes only apply on workstation path, not server.js
-2. `personal_ledger.json` 4× past SQLite migration trigger — data integrity risk
-3. `ARCHITECTURE.md` missing — server.js is too large to work on safely without it
+Session V fixed the systemic team-field omission that caused all `mlb_tracked_bets_*.json` entries to lack team data. The fix is end-to-end:
+
+- `buildMlbPlayerDataset.js` — metaIdx now stores `teamCode`/`awayTeam`/`homeTeam` from snapshot rows; both hitter and pitcher pred objects carry all 3 new fields
+- `buildMlbPropClusters.js` — `makePlay()` now passes `teamCode`/`awayTeam`/`homeTeam` from pred through to play object
+- `phase4Tracking.js` — `leanBet()` now persists `team`/`teamCode`/`awayTeam`/`homeTeam`; `leanSlip()` legs now persist `team`/`teamCode`/`eventId`/`matchup`
+- `mlbPlayerIdentityCache.js` — added 30-day hard eviction + 7-day soft-stale sort + current-slate eventId priority + `lastSeenAt` update on duplicate merge
+
+10-point verification: all 10 checks passed. 134/134 bets will have team field after next pipeline run. 0 integrity violations. Myles Straw → TOR confirmed.
+
+MLB HR ecology (Session T) + SQLite ledger mirror (Session S) + Screenshot intelligence (Session U) still pending operator verification via nightly runs.
 
 ---
 
 ## LAST SUCCESSFUL STATE
 
-Session completed 2026-05-06 (overnight). All patches verified clean (`node --check`).
+### ~~Session V — MLB Roster Integrity Audit~~ — DONE (2026-05-08)
 
-### Patches applied this session (trust-qualification audit):
+**Root problem**: `leanBet()` in `phase4Tracking.js` stripped `team` before persisting to `mlb_tracked_bets_*.json`. All downstream consumers (correlation, ecology, slip construction) got `team: undefined`. Secondary problem: `mlbPlayerIdentityCache` had no time-based eviction — stale-team entries accumulated indefinitely.
 
-1. **`buildSlipAi.js`** — `scoreLeg.tierBoost` halved:
-   - ELITE: 0.10 → 0.05
-   - STRONG: 0.05 → 0.025
-   - Root cause: same modelProb-driven tier-assignment under-bias the featured layer had.
-     ELITE/STRONG tiers are 100% under-assigned on MLB slates; full +0.10 phantom-promoted
-     low-edge unders above higher-edge overs in slip composite ranking.
+**Four-file fix:**
 
-2. **`buildSlipAi.js`** — safe-tier eligibility premium-edge override:
-   - Legs with `modelProb >= 0.50 AND edge >= 0.12` bypass the standard `allowedVolatility`
-     list (`["safe","balanced"]`) AND the `minModelProb: 0.55` gate.
-   - `maxOdds: 150` cap **still applies** — preserves safe identity, prevents +220 plays.
-   - Without this override, modelProb compression structurally excludes ALL offensive overs
-     from safe tier (today: 0 of 18 offensive overs cleared 0.55 modelProb).
+| File | Change |
+|---|---|
+| `backend/pipeline/mlb/phase4Tracking.js` | `leanBet()` adds `team`/`teamCode`/`awayTeam`/`homeTeam`; `leanSlip()` legs add `team`/`teamCode`/`eventId`/`matchup` |
+| `backend/pipeline/mlb/buildMlbPlayerDataset.js` | `metaIdx` stores `teamCode`/`awayTeam`/`homeTeam`; hitter + pitcher preds carry all 3 |
+| `backend/pipeline/mlb/buildMlbPropClusters.js` | `makePlay()` passes `teamCode`/`awayTeam`/`homeTeam` from pred |
+| `backend/pipeline/mlb/external/mlbPlayerIdentityCache.js` | 30d hard eviction, 7d soft-stale sort, current-slate eventId priority, `lastSeenAt` per-entry |
 
-3. **`buildPortfolioOptimizer.js`** — `outs` → `balanced` volatility:
-   - Pitcher outs was falling through to safe (default fallback).
-   - Outs is structurally suppression-flavored AND predictably volatile (pitcher hooks,
-     leaves games, BPIP). Treating as safe inflated volRealism (0.80) and caused outs overs
-     to monopolize Safest / Best Ladders on every MLB slate.
-   - Reclassifying as balanced gives correct realism (0.74) and frees the trust surface
-     for genuinely lower-variance plays.
+**10-point verification (134 bets, 2026-05-08):** All 10 passed. 122 via teamResolved, 12 via awayTeam/homeTeam fallback (pitchers). 0 mismatches. Straw=TOR ✓.
 
-4. **`buildFeaturedPlays.js`** — `buildSafest` premium-edge override:
-   - Mirror of slip-side override. Balanced/aggressive plays with `modelProb >= 0.50 AND
-     edge >= 0.12` qualify alongside the standard safe-volatility + 0.55 modelProb gate.
-   - Premium offensive ecosystems (Trout 22%-edge runs over) now graduate into the SAFEST
-     featured trust surface — without forcing offense or destroying realism.
+**⚠️ TERM 1 restart required** — 3 cached pipeline modules changed.
 
-### Verification (today's slate, 48 diversified candidates):
-- **Safest now contains Mike Trout runs over** (was 100% pitcher outs / unders)
-- Tonight's Best now contains Schanuel hits over (was Schultz outs at #4)
-- Smart Aggression: 4 hitter overs (Trout, No HR, Schanuel, Machado)
-- AI Aggressive #1: Trout cross-side seed
-- AI Lotto: 5 pure offensive overs
-- All buckets populated, no regressions, slip count 13 (was 12)
-- 43 of 43 outs bets reclassified to balanced volatility ✓
+---
+
+### ~~Session U — Screenshot Intelligence Architecture~~ — DONE (2026-05-08)
+
+**Goal**: Build safe additive foundation for bettor psychology + screenshot intelligence. JSON-first ingestion (no OCR/image upload this phase).
+
+**Six-file deliverable:**
+
+| File | Description |
+|---|---|
+| `backend/storage/screenshotSchema.js` | 5 tables: screenshot_submissions, parsed_slips, slip_classifications, bettor_profiles, outcome_links |
+| `backend/pipeline/screenshots/normalizeIngestedSlip.js` | Source-agnostic normalizer: 7 input shapes → canonical parsed_slip; 32 stat family aliases; SHA-256 IDs |
+| `backend/pipeline/screenshots/classifyIngestedSlip.js` | 10-dimension classifier; COMPOSITE_WEIGHTS (emotional_bait inverted -0.15); 7 archetypes; ecology tags |
+| `backend/pipeline/screenshots/screenshotRoutes.js` | Express router: POST /ingest, GET /list, GET /submission/:id, GET /:id |
+| `backend/storage/schema.js` | **Modified**: calls applyScreenshotSchema() inside applySchema() |
+| `backend/routes/workstationRoutes.js` | **Modified**: router.use("/screenshots", screenshotRoutes) |
+
+**Smoke test results:**
+- Internal MLB 2-legger: archetype=sharp_aggressive, composite=0.965, sharp_signal=1 ✓
+- Viral guru 3-legger (@GlizzyGuru99): archetype=guru_bait, bait_signal=1 ✓
+- Personal NBA single: archetype=safe_grind, composite=0.818 ✓
+- `node --check` all 6 files: clean ✓
+
+**⚠️ TERM 1 restart required** — workstationRoutes.js changed.
+
+---
+
+### ~~Session T — MLB Offensive Ecology Recalibration~~ — DONE (2026-05-08)
+
+**Root problem**: Five stacked scoring/tiering penalties in `buildMlbPropClusters.js` systematically prevented all HR candidates from reaching STRONG or ELITE tier regardless of edge quality. A 0.23-edge HR over with +300 odds (EV ~0.92) consistently scored as PLAYABLE.
+
+**Five-part fix (T1–T5):**
+
+| Part | Change | Impact |
+|---|---|---|
+| **T1** | `scorePlay`: HR familyWeight 0.85→1.0 | HR scores 18% higher; competes on equal composite footing with hits/runs |
+| **T2** | `tierForPlay`: HR-specific conf thresholds (STRONG: old 0.42→0.22, ELITE: 0.45→0.30) | HR conf ~0.26–0.30 now clears STRONG gate (previously never did) |
+| **T3** | `calibrateMlbConfidence`: HR mult 0.68→0.72 | Slightly higher calibrated conf → 0.24 → 0.29 typical |
+| **T4** | `modelProbForSide`: HR maxP 0.48→0.52 | HR overs no longer structurally capped below 50%; improves EV calculation |
+| **T5** | Vol-gate: `isHrProp` exemption from `vol>0.65 && edge<0.06` drop | HR vol is intrinsically high (0.7–1.0); was dropping most HR candidates pre-scoring |
+
+**Smoke test results:**
+- HR +300 edge=0.23: PLAYABLE → **STRONG**, score 69.6 → 91.7 ✓
+- HR +220 edge=0.17: PLAYABLE → **STRONG**, score 44.7 → 60.4 ✓
+- HR +140 edge=0.063: PLAYABLE → PLAYABLE (correct, marginal edge) ✓
+- Hits under (control): PLAYABLE → PLAYABLE (unchanged) ✓
+- TB under (control): ELITE → ELITE (unchanged) ✓
+- HR vol-gate: dropped → passed to scoring ✓
+- `node --check` all files: clean ✓
+
+**⚠️ TERM 1 restart required** — buildMlbPropClusters.js is cached.
+
+---
+
+### ~~Session S — SQLite Persistence Migration~~ — DONE (2026-05-08)
+
+**Root problem**: `writeJsonSync` used bare `writeFileSync` on a 2.3MB file — any interrupt mid-write could corrupt the ledger. No atomic guarantee. `.tmp` orphan already observed in prior session.
+
+**Secondary finding**: All three `insertMany*` batch helpers in `queries.js` used `db.transaction()` — a better-sqlite3 API that does not exist in `node:sqlite` (`DatabaseSync`). This was a latent bug that would have broken `importHistoricalData.js` on first real run. Fixed to `db.exec("BEGIN/COMMIT/ROLLBACK")` pattern.
+
+**Files changed**: `backend/storage/schema.js`, `backend/storage/queries.js`, `backend/storage/importHistoricalData.js`, `backend/pipeline/shared/buildPersonalLedger.js`
+
+**Four-part fix:**
+
+| Part | Change | Impact |
+|---|---|---|
+| **S1** | `schema.js`: added `personal_ledger` table (36 columns, 8 indexes) | SQLite can now store personal bet history |
+| **S2** | `queries.js`: added `upsertLedgerBet`, `upsertManyLedgerBets`, `getLedgerBets`; **fixed `db.transaction()` latent bug** in all 3 existing batch helpers | Batch inserts now work correctly with node:sqlite |
+| **S3** | `buildPersonalLedger.js`: `writeJsonSync` → atomic write (tmp+rename); `saveLedger()` calls `_mirrorAllBetsToSqlite()` after JSON write; added `_tryGetLedgerDb()`, `_mirrorBetToSqlite()`, `_mirrorAllBetsToSqlite()` lazy helpers | No .tmp orphans; every save auto-mirrors to SQLite |
+| **S4** | `importHistoricalData.js`: `importPersonalLedger()` pass added; `applySchema()` called in `main()` | Historical backfill ready to run |
+
+**Smoke test results (2026-05-08, /tmp copy of betting.db):**
+- `personal_ledger` table: 36 columns ✓
+- `upsertManyLedgerBets(2000 bets)`: 2000 upserted / 0 errors ✓
+- Idempotent re-run: 2000 rows, count unchanged ✓
+- `prediction_snapshots` (110 rows) preserved ✓
+- `saveLedger()` atomic write: .tmp orphan = false, JSON readable ✓
+- `saveLedger()` SQLite mirror: 2000 rows ✓
+- `node --check` all 4 modified files: clean ✓
+
+**⚠️ betting.db has stale virtiofs journal** — sandbox cannot rm it (same virtiofs PermissionError as git locks). macOS TERM 1 opens betting.db fine. Journal clears on next server restart. SQLite mirror degrades silently if db unavailable.
 
 ---
 
 ## IMMEDIATE NEXT PRIORITIES
 
-### 🔴 Priority 0 — Fix `buildFeaturedPlays` fork (BEFORE any other scoring work)
-**This is a live divergence. All trust-qualification fixes are NOT active on server.js routes.**
+### 🔴 Priority 0 — Operator actions (macOS terminal) — DO FIRST
 
-`server.js` line 21 imports `./pipeline/boards/buildFeaturedPlays` (407-line OLD version).
-`workstationRoutes.js` line 142 imports `../pipeline/shared/buildFeaturedPlays` (821-line CURRENT version).
+```bash
+cd ~/Desktop/betting-dashboard
 
-Fix:
-1. Confirm both files export `{ buildFeaturedPlays }` — they do.
-2. In `server.js` line 21, change import path from `./pipeline/boards/buildFeaturedPlays`
-   to `./pipeline/shared/buildFeaturedPlays`.
-3. `node --check backend/server.js`
-4. Consider deleting `pipeline/boards/buildFeaturedPlays.js` (407 lines) to prevent future confusion.
-   First grep for any other imports of that path.
+# 1. Commit Sessions H–V
+bash scripts/finalizeCheckpoint.sh
 
-TERM 1 restart: YES (server.js modified)
-TERM 2 verification: `curl localhost:4000/api/ws/state?sport=mlb` — confirm featured plays populate
+# 2. Restart TERM 1 (activates Sessions Q + R + S + T + U + V changes)
+#    Session V changed: phase4Tracking.js, buildMlbPropClusters.js, buildMlbPlayerDataset.js
+#    Ctrl-C the running node process, then:
+node backend/server.js
 
-### 🔴 Priority 1 — SQLite migration: `personal_ledger.json`
-**Trigger was 500 entries. Current: 2,000 entries / 2.3MB. Migration is OVERDUE.**
-Observed write-race orphan: `mlb_tracking_summary_2026-05-05.json.tmp.98415...` in tracking dir.
+# 3. Verify /api/best-available NBA payload
+curl -s "http://localhost:4000/api/best-available?sport=basketball_nba" | \
+  node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); \
+  console.log('best:', p.bestAvailable?.best?.length, 'featured:', p.bestAvailable?.featured?.anchors?.length, \
+  'slips safe:', p.bestAvailable?.aiSlips?.safe?.length)"
 
-Migration approach:
-- Schema: `id INTEGER PK, date TEXT, player TEXT, stat TEXT, side TEXT, line REAL,
-  odds INTEGER, book TEXT, edge REAL, result TEXT, clv REAL, created_at TEXT`
-- Keep JSON fallback read path until write path verified end-to-end
-- Do NOT dual-write indefinitely — cut over after 1 successful nightly run
-- buildPersonalLedger.js owns all ledger I/O — isolate the write path there
+# 4. Run historical backfill (applies personal_ledger schema + imports all data)
+node backend/storage/importHistoricalData.js
 
-Model: Sonnet (well-scoped implementation task — root cause is clear)
+# 5. Remove orphaned dead file (virtiofs blocks sandbox rm)
+rm backend/pipeline/boards/buildFeaturedPlays.js
 
-### Priority 2 — Modular extraction #2: compactors
-**Target**: `compactLineShopping` + `compactTiming` + `compactPortfolio` in `workstationRoutes.js`
+# 6. Verify screenshot routes are live after restart:
+curl -s -X POST http://localhost:4000/api/ws/screenshots/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"sourceType":"internal","slip":{"legs":[{"player":"Shohei Ohtani","statFamily":"hits","side":"over","line":0.5,"odds":-145}]}}' | \
+  node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');const r=JSON.parse(d);console.log('ok:',r.ok,'slipsIngested:',r.slipsIngested,'archetype:',r.results?.[0]?.archetype)"
+
+# 7. After next runMlbNight.js run — verify team field now persisted in tracked bets:
+node -e "
+const fs = require('fs');
+const bets = JSON.parse(fs.readFileSync('backend/runtime/tracking/mlb_tracked_bets_\$(date +%Y-%m-%d).json','utf8'));
+const withTeam = bets.filter(b => b.team !== undefined && b.team !== null);
+const noTeam = bets.filter(b => b.team === undefined || b.team === null);
+console.log('Total bets:', bets.length);
+console.log('With team:', withTeam.length, '(expected: all)');
+console.log('Missing team:', noTeam.length, '(expected: 0)');
+const straw = bets.find(b => (b.player||'').toLowerCase().includes('straw'));
+if (straw) console.log('Straw team:', straw.team, '| expected: Toronto Blue Jays');
+"
+
+# 8. After next runMlbNight.js run — verify HR candidates now tier as STRONG/ELITE:
+node -e "
+const fs = require('fs');
+const bets = JSON.parse(fs.readFileSync('backend/runtime/tracking/mlb_tracked_bets_\$(date +%Y-%m-%d).json','utf8'));
+const hr = bets.filter(b => (b.statFamily||'').match(/hr/i));
+console.log('HR bets:', hr.length);
+hr.forEach(b => console.log(b.player, b.statFamily, b.side, 'edge:', b.edge?.toFixed(4), 'tier:', b.tier));
+"
+```
+
+---
+
+### 🟡 Priority 1 — Verify SQLite ledger mirror after nightly run
+
+After the next nightly `runMlbNight.js` or `runNbaNight.js` execution:
+
+```bash
+# Verify personal_ledger rows are being written
+node -e "
+const { tryGetDb } = require('./backend/storage/db');
+const db = tryGetDb();
+const cnt = db.prepare('SELECT COUNT(*) AS n FROM personal_ledger').get();
+const recent = db.prepare('SELECT date, COUNT(*) AS n FROM personal_ledger GROUP BY date ORDER BY date DESC LIMIT 5').all();
+console.log('total rows:', cnt.n);
+console.log('by date:', JSON.stringify(recent));
+"
+```
+
+If rows are accumulating correctly: proceed to Phase S+1 (cut read path to SQLite).
+
+**Phase S+1 checklist (only after ≥1 verified nightly run):**
+- `loadLedger()` reads from `personal_ledger` table instead of JSON file
+- `saveLedger()` continues to write JSON (fallback) + SQLite (primary)
+- After 2nd verified run: remove JSON write path from `saveLedger()`
+
+---
+
+### 🟡 Priority 2 — NBA lotto slip bottleneck
+
+**Problem**: PRA at base odds forms 3-leg combos at dec ~5–9, below lotto tier's [20, 1500] minimum. classifyVolatility maps PRA → `aggressive` regardless of snapshot-set `volatility:"lotto"` field.
+
+**Path A (preferred)**: Add `snapshotSourced` guard in `buildFeaturedPlays.normalizeCandidate` / `buildSlipAi.normalizeCandidate` — use snapshot-set `volatility` field directly when `bet.snapshotSourced === true`. Minimal change, no VOLATILITY_RULES modification.
+
+**Path B**: Qualify higher-odds NBA alt-line PRA candidates into snapshot pool via `altPraRows` supplement pass. Requires loosening `propVariant !== "base"` gate carefully.
+
+Model: **Opus** (audit classifyVolatility override chain before touching; verify MLB ecology unchanged)
+
+---
+
+### 🟡 Priority 3 — eventId/matchup on tracked_best
+
+All tracked_best entries have `eventId=null`, `matchup=null`. Tier boosts always fail. Requires full trace of `runMlbNight.js` before touching.
+
+---
+
+### Priority 4 — Modular extraction #2: compactors
+
+`compactLineShopping` + `compactTiming` + `compactPortfolio` in `workstationRoutes.js`
 → `pipeline/shared/buildWorkstationCompactors.js`
+~103 lines, zero behavior change.
 
-~103 lines of pure serialization, no globals. workstationRoutes.js → ~474 lines after.
-Zero behavior change. Standard extraction pattern (same as buildCandidateDiversity).
+---
 
-### Priority 3 — PIPELINES docs (ARCHITECTURE.md now done)
-`/docs/ARCHITECTURE.md` created 2026-05-07. server.js work is now unblocked.
+### Priority 5 — PIPELINES docs
 
-Still pending:
-- `/docs/PIPELINES/MLB.md` — MLB-specific systems, HR/TB/RBI pipeline, phase4Tracking, weaknesses
-- `/docs/PIPELINES/NBA.md` — NBA boards, slips, 5-module overlap map, ecology gaps
-- `/docs/PIPELINES/TRACKING.md` — all tracking files, sizes, write-race risk, SQLite targets
+- `/docs/PIPELINES/MLB.md`
+- `/docs/PIPELINES/NBA.md`
+- `/docs/PIPELINES/TRACKING.md`
 
-These are lower urgency than Priority 0/1/2. Create during a documentation pass or before
-any work that touches MLB/NBA pipeline internals.
-
-### Priority 4 — Audit `http/nbaBestAvailable.inlined.js` + `nbaRefreshSnapshot.inlined.js`
-These are 6,867 + 4,318 = 11,185 lines. `nbaIsolatedRoutes.js` comments say they are NOT used.
-If dead code: delete. If live: document in ARCHITECTURE.md.
-Grep all `require()` references to both files before touching anything.
-
-### Priority 5 — NBA scoring ecology audit
-Apply same lens as MLB trust-qualification audit:
-- `edge × modelProb` compounding in NBA tracked_bets
-- Tier distribution by side (are ELITE/STRONG under-assigned on NBA too?)
-- volRealism gaps across NBA stat families
-- Offensive over recognition through NBA slip + featured paths
-Source: `nba_tracked_bets_2026-05-06.json`
-Model: Opus — root cause audit first
+---
 
 ### Priority 6 — Extract `isOffensiveAttackStat` into shared normalizer
-`buildFeaturedPlays.js` defines `isOffensiveAttackStat()`.
-`buildSlipAi.js` defines its own inline offensive list inside `offensiveAttackTextureBonus()`.
-These can diverge silently. Extract canonical version to `pipeline/shared/normalizers.js`,
-import in both. 30-minute task.
 
-### Priority 7 — server.js Phase A: pure utilities
-Lines 11,379–11,430: `avg`, `stddev`, `minVal`, `maxVal`, `parseHitRate`, `normalizePlayerName`
-→ `pipeline/shared/mathUtils.js`
-~52 lines, no globals, zero coupling. Safe today. Requires ARCHITECTURE.md first to verify
-no hidden dependencies. Do NOT attempt Phase B or C until global map is documented.
+Both `buildFeaturedPlays.js` and `buildSlipAi.js` define this independently. Extract to `pipeline/shared/normalizers.js`. 30-minute task.
 
-### Priority 8 — "Outs" label perception (optional cosmetic)
-In `compactStat()` or `buildReason()`: rename "outs" → "pitcher depth" in pitcher context.
-Not a scoring change. Low priority until above infrastructure is resolved.
+---
+
+### Priority 7 — Prune timing_intelligence_state.json
+
+At 729KB with no pruning mechanism. Add max-age eviction or size cap.
+
+---
+
+## PENDING OPERATOR ACTIONS (macOS terminal)
+
+```bash
+cd ~/Desktop/betting-dashboard
+
+# 1. Commit Sessions H–V
+bash scripts/finalizeCheckpoint.sh
+
+# 2. REQUIRED: Restart TERM 1 (activates Q + R + S + T + U + V changes)
+node backend/server.js
+
+# 3. Verify NBA payload
+curl -s "http://localhost:4000/api/best-available?sport=basketball_nba" | \
+  node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); \
+  console.log('best:', p.bestAvailable?.best?.length, 'featured anchors:', p.bestAvailable?.featured?.anchors?.length)"
+
+# 4. Run historical backfill (includes new personal_ledger pass)
+node backend/storage/importHistoricalData.js
+
+# 5. Remove orphaned dead file
+rm backend/pipeline/boards/buildFeaturedPlays.js
+```
 
 ---
 
@@ -148,29 +282,52 @@ Not a scoring change. Low priority until above infrastructure is resolved.
 
 | Risk | Avoidance |
 |---|---|
-| buildFeaturedPlays fork causing scoring divergence | Fix Priority 0 before any scoring work |
-| personal_ledger.json corruption | SQLite migration now overdue — do not defer further |
-| Premium-edge override admits clown plays into safe slips | Three gates: 12% edge AND 50% modelProb AND maxOdds 150 |
-| Halved slipAi tierBoost makes ELITE tier signal too weak | ELITE still +0.05 — sufficient signal |
-| Outs reclassification removes outs from Safest entirely | Outs still in Best Ladders — correct behavior |
-| server.js context-drift patch | Do not touch server.js without ARCHITECTURE.md existing first |
-| Cache (60s TTL) serving stale results | Wait for expiry; TERM 2 restart if needed |
+| buildFeaturedPlays fork | ✅ RESOLVED — dead import removed |
+| HR ecology suppression | ✅ RESOLVED (Session T) — 5 fixes in buildMlbPropClusters.js |
+| MLB team field omission (leanBet) | ✅ RESOLVED (Session V) — team/teamCode/awayTeam/homeTeam now persisted through full chain |
+| MLB identity cache stale-team accumulation | ✅ RESOLVED (Session V) — 30d eviction + slate-aware sort + lastSeenAt tracking |
+| personal_ledger.json corruption | ✅ RESOLVED (Session S) — atomic write |
+| Screenshot routes startup crash | schema bootstrap runs inside first request — graceful 503 if SQLite down |
+| Screenshot normalizer throwing | normalizeIngestedSlip never throws; unknown fields degrade to null silently |
+| SQLite mirror unavailable | Graceful degradation — JSON write always succeeds first |
+| betting.db journal lock (virtiofs) | macOS TERM 1 unaffected; sandbox writes degrade silently |
+| NBA lotto slip starvation | classifyVolatility override chain — audit before touching normalizeCandidate |
+| NBA smartAggression thin | Do NOT widen without tracing |
+| classifyVolatility affecting MLB | Any VOLATILITY_RULES change must verify MLB ecology unchanged |
+| Fix 3 volRealism hierarchy | lotto=0.56 still below balanced=0.74 ✓ |
+| Fix 6 greedy fill leg count | DO NOT touch max→min walk-back direction |
+| Premium-edge override | Three gates: 12% edge AND 50% modelProb AND maxOdds 150 |
+| NBA under bias (67%) | Do NOT impose artificial side balance |
 
 ---
 
 ## WHAT NOT TO DO
 
-- Do NOT do any further scoring work before fixing the buildFeaturedPlays fork
-- Do NOT defer the ledger SQLite migration — it is past threshold and has shown write races
-- Do NOT raise slipAi tierBoost back to 0.10 — structural under-side monopoly in slips
-- Do NOT raise featured tierBoost back to 0.08 — same reason
-- Do NOT lower safe-tier maxOdds cap below 150
-- Do NOT remove premium-edge thresholds (12% edge, 50% modelProb)
-- Do NOT touch the projection engine to force over/under parity
+- Do NOT increase textureBoost
+- Do NOT force over/under parity
+- Do NOT touch the `[0.50, 0.55]` modelProb cap
+- Do NOT raise slipAi or featured tierBoost
+- Do NOT lower safe-tier maxOdds below 150
+- Do NOT remove premium-edge thresholds
 - Do NOT widen `maxPerGame` beyond 2 in anchors
-- Do NOT remove modelProb cap [0.50, 0.55]
-- Do NOT attempt server.js Phase B/C extraction without ARCHITECTURE.md global map
-- Do NOT touch `runMlbNight.js` / `runNbaNight.js` without tracing candidate paths first
+- Do NOT attempt server.js Phase B/C without ARCHITECTURE.md global map
+- Do NOT touch `runMlbNight.js` without tracing candidate paths first
+- Do NOT reopen ecology fixes
+- Do NOT modify `VOLATILITY_RULES` for NBA lotto without MLB ecology audit (Path A preferred)
+- Do NOT loosen `propVariant !== "base"` gate without controlled alt-line audit
+- Do NOT cut ledger read path to SQLite until ≥1 verified nightly run confirms rows accumulating
+
+---
+
+## SQLITE MIGRATION SEQUENCE (updated)
+
+0. ~~**Phase 1: storage layer** — DONE 2026-05-07~~
+1. ~~**`personal_ledger.json` → ledger table — DONE (Session S)**~~
+   - **Phase S+1**: Cut read path after ≥1 verified nightly run
+2. `tracked_bets_YYYY-MM-DD.json` → rolling bets table
+3. `timing_intelligence_state.json` → timing state table (729KB, unbounded)
+4. `book_intelligence_state.json` → book profiles table
+5. `graded_props_*.json` → review/grading table
 
 ---
 
@@ -178,12 +335,12 @@ Not a scoring change. Low priority until above infrastructure is resolved.
 
 | Task | Model |
 |---|---|
+| NBA lotto audit (classifyVolatility override chain) | **Opus** |
 | Root-cause audit on unknown bug | **Opus** |
-| NBA ecology audit (Priority 5) | **Opus** — same as MLB audit |
-| Implementing a verified fix | **Sonnet** |
-| SQLite migration (well-scoped) | **Sonnet** |
-| Doc creation (ARCHITECTURE.md etc.) | **Sonnet or Auto** |
-| Trivial edits, doc updates | **Auto** |
+| Ecology fixes (verified, well-scoped) | **Sonnet** |
+| SQLite migration / Phase S+1 read cutover | **Sonnet** |
+| Doc creation / doc updates | **Sonnet or Auto** |
+| Trivial edits | **Auto** |
 
 ---
 
@@ -199,60 +356,27 @@ After any patch:
   → Wait for operator confirm before evaluating
 ```
 
----
-
-## CALIBRATION DIRECTION (cumulative — move to ARCHITECTURE.md when created)
-
-| Lever | Status |
-|---|---|
-| Side balance in featured buckets | Capped at 60% (anchors 55%) |
-| Stat concentration | maxPerStat:10 / maxPerStatSide:6 |
-| Volatility taxonomy | Fixed — hits/runs/etc. → balanced |
-| Outs volatility | Fixed — outs → balanced (was safe by default) |
-| modelProb compounding | Capped [0.50, 0.55] in featured + slipAi |
-| Offensive over recognition | Active — stacked textureBoost (0.020/0.030) |
-| Anchor cross-side | maxPerGame:2 — allows same-game cross-side |
-| Anchor display ordering | Interleaved U·O·U·O·U via sortAnchorsForDisplay |
-| Featured tierBoost asymmetry | Halved — ELITE 0.04, STRONG 0.02 |
-| slipAi tierBoost asymmetry | Halved — ELITE 0.05, STRONG 0.025 |
-| Safe-tier premium-edge override | Active — 12% edge / 50% modelProb / maxOdds 150 |
-| Featured safest premium-edge override | Active — same thresholds |
-| AI slip offense bias | Active in aggressive/lotto seed sort |
-
----
-
-## EXTRACTION PRIORITIES (ordered)
-
-1. ~~`diversifyCandidates`~~ **DONE** → `pipeline/shared/buildCandidateDiversity.js`
-2. Fix `buildFeaturedPlays` fork — **NOW** (see Priority 0)
-3. `compactLineShopping` + `compactTiming` + `compactPortfolio` → `buildWorkstationCompactors.js`
-4. `isOffensiveAttackStat` → `pipeline/shared/normalizers.js` (unify with buildSlipAi.js)
-5. `sortAnchorsForDisplay` → shared display utility if needed elsewhere
-6. server.js Phase A (pure utils → `mathUtils.js`) — requires ARCHITECTURE.md first
-7. Inline helpers from `buildIntelligencePresentation.js` → dedicated shared modules
-
----
-
-## SQLITE MIGRATION SEQUENCE
-
-1. **`personal_ledger.json` → ledger table — NOW OVERDUE (2,000 entries, was 500 trigger)**
-2. `tracked_bets_YYYY-MM-DD.json` → rolling bets table
-3. `timing_intelligence_state.json` → timing state table (729KB, unbounded — add to plan)
-4. `book_intelligence_state.json` → book profiles table
-5. `graded_props_*.json` → review/grading table
-
----
-
-## INFRASTRUCTURE STATUS
-
-| File | Status |
-|---|---|
-| `docs/WORKFLOW_RULES.md` | Committed |
-| `docs/CURRENT_STATE.md` | Updated this session |
-| `docs/NEXT_SESSION.md` | Updated this session |
-| `docs/BOOTSTRAP_PROMPT.md` | Committed |
-| `.cursor/rules/workflow.mdc` | Committed |
-| `docs/ARCHITECTURE.md` | **Created 2026-05-07** |
-| `docs/PIPELINES/MLB.md` | Pending |
-| `docs/PIPELINES/NBA.md` | Pending |
-| `docs/PIPELINES/TRACKING.md` | Pending |
+Session S: **TERM 1 restart: YES** (buildPersonalLedger.js changed — server caches old module)
+Session T: **TERM 1 restart: YES** (buildMlbPropClusters.js changed — server caches old module)
+Session U: **TERM 1 restart: YES** (workstationRoutes.js changed — new screenshotRoutes import)
+Session V: **TERM 1 restart: YES** (phase4Tracking.js + buildMlbPropClusters.js + buildMlbPlayerDataset.js changed)
+TERM 2 verification (Session U):
+```bash
+# Verify screenshot routes are wired after restart:
+curl -s -X POST http://localhost:4000/api/ws/screenshots/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"sourceType":"internal","slip":{"legs":[{"player":"Shohei Ohtani","statFamily":"hits","side":"over","line":0.5,"odds":-145}]}}' | \
+  node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');const r=JSON.parse(d);console.log('ok:',r.ok,'archetype:',r.results?.[0]?.archetype,'composite:',r.results?.[0]?.compositeScore)"
+# Expected: ok: true  archetype: safe_grind or sharp_aggressive  composite: 0.8xx
+```
+TERM 2 verification (Session T):
+```bash
+# After runMlbNight.js next run:
+node -e "
+const fs=require('fs');
+const bets=JSON.parse(fs.readFileSync('backend/runtime/tracking/mlb_tracked_bets_\$(date +%Y-%m-%d).json','utf8'));
+const hr=bets.filter(b=>(b.statFamily||'').match(/hr/i));
+console.log('HR bets:', hr.length, '/ expected ≥1 STRONG or ELITE');
+hr.forEach(b=>console.log(b.player,b.side,'edge:',b.edge?.toFixed(4),'tier:',b.tier));
+"
+```

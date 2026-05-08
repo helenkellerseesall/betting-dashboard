@@ -38,6 +38,15 @@ async function getMlbPlayerIdentityCache() {
   }
 }
 
+// Eviction: candidates older than this many days are considered stale and deprioritized.
+const IDENTITY_CACHE_EVICT_DAYS = 30
+// Soft-stale: candidates older than this many days are moved behind fresh candidates.
+const IDENTITY_CACHE_SOFT_STALE_DAYS = 7
+
+function nowMs() {
+  return Date.now()
+}
+
 function toCandidate(value) {
   if (!value || typeof value !== "object") return null
   const playerName = String(value.playerName || "").trim()
@@ -53,11 +62,55 @@ function toCandidate(value) {
     source: String(value.source || "identity-cache").trim() || "identity-cache",
     eventIds: normalizeArray(value.eventIds)
       .map((eventId) => String(eventId || "").trim())
-      .filter(Boolean)
+      .filter(Boolean),
+    // Timestamp when this candidate was first observed — used for eviction.
+    firstSeenAt: value.firstSeenAt ?? null,
+    // Timestamp when this candidate was last confirmed on a current slate.
+    lastSeenAt: value.lastSeenAt ?? null,
   }
 }
 
-async function mergeMlbPlayerIdentityCache({ candidates = [] } = {}) {
+/**
+ * Evict hard-stale entries (> IDENTITY_CACHE_EVICT_DAYS since lastSeenAt).
+ * Entries with no lastSeenAt are kept (we cannot know when they were observed).
+ */
+function evictStaleEntries(rows, nowTimestamp) {
+  const cutoff = nowTimestamp - IDENTITY_CACHE_EVICT_DAYS * 24 * 60 * 60 * 1000
+  return rows.filter((row) => {
+    if (!row.lastSeenAt) return true  // no timestamp → keep (conservative)
+    return Number(row.lastSeenAt) >= cutoff
+  })
+}
+
+/**
+ * Sort candidates so the most-recently-seen current-slate entry wins.
+ * Priority order (ascending = lower index = higher priority):
+ *   1. Candidate whose eventIds overlap currentEventIds (current slate match)
+ *   2. Candidate with lastSeenAt within SOFT_STALE_DAYS (recently confirmed)
+ *   3. All others (oldest last)
+ *
+ * This ensures that when a player changes teams, the new-team candidate
+ * from today's slate is always at index 0 — without any hardcoding.
+ */
+function sortCandidatesByFreshness(rows, currentEventIds, nowTimestamp) {
+  const softStaleCutoff = nowTimestamp - IDENTITY_CACHE_SOFT_STALE_DAYS * 24 * 60 * 60 * 1000
+  const currentSet = new Set(normalizeArray(currentEventIds).map(String).filter(Boolean))
+
+  function priority(row) {
+    const eventMatch = currentSet.size > 0 &&
+      normalizeArray(row.eventIds).some((id) => currentSet.has(String(id)))
+    if (eventMatch) return 0
+
+    const lastSeen = Number(row.lastSeenAt || 0)
+    if (lastSeen >= softStaleCutoff) return 1
+
+    return 2
+  }
+
+  return [...rows].sort((a, b) => priority(a) - priority(b))
+}
+
+async function mergeMlbPlayerIdentityCache({ candidates = [], currentEventIds = [] } = {}) {
   const safeCandidates = normalizeArray(candidates).map(toCandidate).filter(Boolean)
   if (safeCandidates.length === 0) {
     const existing = await getMlbPlayerIdentityCache()
@@ -69,6 +122,7 @@ async function mergeMlbPlayerIdentityCache({ candidates = [] } = {}) {
 
   const cache = await readIdentityCacheFile()
   const playersByPlayerKey = normalizeObject(cache.playersByPlayerKey)
+  const now = nowMs()
   let added = 0
 
   for (const candidate of safeCandidates) {
@@ -79,24 +133,49 @@ async function mergeMlbPlayerIdentityCache({ candidates = [] } = {}) {
       playersByPlayerKey[key] = []
     }
 
-    const duplicate = playersByPlayerKey[key].some((existing) => {
+    // Find an existing entry with same player name + same team (dedup by identity).
+    const existingIdx = playersByPlayerKey[key].findIndex((existing) => {
       const sameName = String(existing?.playerName || "") === String(candidate.playerName || "")
       const sameTeam = String(existing?.teamResolved || "") === String(candidate.teamResolved || "")
       return sameName && sameTeam
     })
 
-    if (duplicate) continue
-    playersByPlayerKey[key].push(candidate)
-    added += 1
+    if (existingIdx >= 0) {
+      // Update lastSeenAt and merge any new eventIds onto the existing entry.
+      const existing = playersByPlayerKey[key][existingIdx]
+      const mergedEventIds = Array.from(
+        new Set([
+          ...normalizeArray(existing.eventIds),
+          ...normalizeArray(candidate.eventIds),
+        ])
+      )
+      playersByPlayerKey[key][existingIdx] = {
+        ...existing,
+        eventIds: mergedEventIds,
+        lastSeenAt: now,
+      }
+    } else {
+      // New candidate — stamp firstSeenAt and lastSeenAt.
+      playersByPlayerKey[key].push({
+        ...candidate,
+        firstSeenAt: candidate.firstSeenAt ?? now,
+        lastSeenAt: now,
+      })
+      added += 1
+    }
   }
 
+  // Evict hard-stale entries, sort by freshness, then cap at 10 per player.
+  const currentEventIdsNorm = normalizeArray(currentEventIds).map(String).filter(Boolean)
   const pruned = {}
   for (const [playerKey, rows] of Object.entries(playersByPlayerKey)) {
-    pruned[playerKey] = normalizeArray(rows).slice(0, 10)
+    const evicted = evictStaleEntries(normalizeArray(rows), now)
+    const sorted = sortCandidatesByFreshness(evicted, currentEventIdsNorm, now)
+    pruned[playerKey] = sorted.slice(0, 10)
   }
 
   await writeIdentityCacheFile({
-    savedAt: Date.now(),
+    savedAt: now,
     playersByPlayerKey: pruned
   })
 

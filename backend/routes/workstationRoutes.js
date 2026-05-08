@@ -29,8 +29,16 @@ const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
 const { enrichNbaRowStatLayerInputs } = require("../pipeline/nba/nbaEventTeamResolve")
+const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 
 const router = express.Router()
+
+// Screenshot intelligence layer — JSON ingestion + classification
+// POST /api/ws/screenshots/ingest
+// GET  /api/ws/screenshots/list
+// GET  /api/ws/screenshots/submission/:id
+// GET  /api/ws/screenshots/:id
+router.use("/screenshots", screenshotRoutes)
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 
@@ -140,11 +148,12 @@ function enrichBestEntry(e, betsById) {
  * Returns at most NBA_SNAPSHOT_TOP_N rows sorted by edge descending.
  */
 const NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD = 20
-const NBA_SNAPSHOT_TOP_N = 100
+// FIX Q2: increased from 100 → 150 to allow more family diversity in thin-pool supplement
+const NBA_SNAPSHOT_TOP_N = 150
 
 function buildNbaSnapshotCandidates(snapshotRows) {
   if (!Array.isArray(snapshotRows) || !snapshotRows.length) return []
-  const qualified = []
+  const rawQualified = []
 
   for (const r of snapshotRows) {
     const player = String(r?.player || "").trim()
@@ -175,7 +184,7 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     const edge = nbaRowEdge(enriched)
     if (!Number.isFinite(edge) || edge < 0.03) continue
 
-    qualified.push({
+    rawQualified.push({
       ...enriched,
       id:             `snap|${player}|${family}|${side}|${r?.line ?? ""}|${odds}|${r?.sportsbook || r?.book || ""}`,
       player,
@@ -190,14 +199,29 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       impliedProb:    odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       sportsbook:     r?.sportsbook || r?.book || null,
       tier:           edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
-      volatility:     family === "threes" || family === "first_basket" ? "aggressive" : "balanced",
+      // FIX Q4: PRA → lotto (enables lotto slip tier for NBA combo plays).
+      // threes + first_basket → aggressive (volatile outcome, high-var).
+      // All others (points/rebounds/assists) → balanced.
+      volatility:     family === "pra" ? "lotto"
+                    : (family === "threes" || family === "first_basket") ? "aggressive"
+                    : "balanced",
       confidence:     mp,
       snapshotSourced: true,  // auditable marker — not from tracked pipeline
     })
   }
 
-  qualified.sort((a, b) => b.edge - a.edge)
-  return qualified.slice(0, NBA_SNAPSHOT_TOP_N)
+  // FIX Q2: De-duplicate by (player|statFamily|side) keeping best-edge entry per triple.
+  // Without this, the same player×stat×side appears at multiple lines (e.g. rebounds 5.5 AND
+  // rebounds 4.5), wasting player capacity in diversifyCandidates and producing redundant picks.
+  // Before dedup: ~187 rows → After dedup: ~83 unique (player|family|side) combos.
+  const bestBySig = new Map()
+  for (const c of rawQualified) {
+    const sig = `${c.player}|${c.statFamily}|${c.side}`
+    if (!bestBySig.has(sig) || (c.edge ?? 0) > (bestBySig.get(sig).edge ?? 0)) bestBySig.set(sig, c)
+  }
+  const deduped = Array.from(bestBySig.values())
+  deduped.sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
+  return deduped.slice(0, NBA_SNAPSHOT_TOP_N)
 }
 
 function buildCandidatePool(sport, date) {
@@ -264,21 +288,36 @@ router.get("/state", (req, res) => {
         : null
 
       const rawCandidates = pool.enrichedBest.length ? pool.enrichedBest : pool.eligibleBets
-      // Supplement NBA pool from snapshot when tracked_bets/tracked_best is thin.
-      // Uses real model-scored snapshot rows (nbaRowModelProbability + nbaRowEdge).
-      // Core-odds only, no alternates, edge>=0.03 gate — no fake/hardcoded plays.
-      const supplementedCandidates = (sport === "nba" && rawCandidates.length < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD && snapshotRows.length)
+
+      // FIX Q1: Pre-compute snapshot supplement ONCE and reuse for both the portfolio
+      // candidate pool AND the featured/slip aiCandidates pool.
+      // BEFORE: buildNbaSnapshotCandidates was called only for supplementedCandidates
+      //   (used by portfolio). aiCandidatesRaw was set to [...eligibleBets,...enrichedBest]
+      //   (2–4 entries on thin slates) and never supplemented → featured boards and AI
+      //   slips always starved on nights without a full runNbaNight.js nightly run.
+      // AFTER: both paths share the same scored snapshot supplement, no double-compute.
+      const snapSupplement = (sport === "nba" && snapshotRows.length)
+        ? buildNbaSnapshotCandidates(snapshotRows)
+        : []
+
+      // Supplement portfolio pool when tracked pool is thin.
+      const supplementedCandidates = (rawCandidates.length < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD && snapSupplement.length)
         ? (() => {
-            const snapCands = buildNbaSnapshotCandidates(snapshotRows)
-            // De-duplicate: skip snapshot rows that match an existing tracked candidate
             const trackSig = new Set(rawCandidates.map(rc => `${rc.player}|${rc.statFamily}|${rc.side}`))
-            const novel = snapCands.filter(sc => !trackSig.has(`${sc.player}|${sc.statFamily}|${sc.side}`))
+            const novel = snapSupplement.filter(sc => !trackSig.has(`${sc.player}|${sc.statFamily}|${sc.side}`))
             return [...rawCandidates, ...novel]
           })()
         : rawCandidates
+
+      // FIX Q3: NBA playoff slates typically have 1–2 games per night.
+      // maxPerGame:7 × 2 games = hard ceiling of 14 candidates regardless of pool size.
+      // Raise to 12 for NBA so a 2-game slate yields up to 24 diversified candidates.
+      // MLB keeps the tighter 7 cap (15+ games per night, candidate explosion risk).
+      const nbaPerGame = sport === "nba" ? 12 : 7
+
       // Diversify before downstream views — caps repeats per player/game so the
       // workstation isn't dominated by 17 Donovan Mitchell legs.
-      const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: 7 })
+      const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
 
       // Portfolio analysis runs against the diversified candidate pool only.
       // Persisted slip catalog is intentionally NOT merged in — those are
@@ -291,8 +330,22 @@ router.get("/state", (req, res) => {
         bookState,
       })
 
-      const aiCandidatesRaw = [...pool.eligibleBets, ...pool.enrichedBest]
-      const aiCandidates = diversifyCandidates(aiCandidatesRaw, { maxPerPlayer: 3, maxPerGame: 7 })
+      // FIX Q1 (continued): Wire snapshot supplement into aiCandidates.
+      // aiCandidates feeds BOTH buildAiSlips AND buildFeaturedPlays — the two primary
+      // consumer-facing surfaces. Without this fix they see only 2–4 tracked entries.
+      const aiCandidatesTracked = [...pool.eligibleBets, ...pool.enrichedBest]
+      const aiCandidatesRaw = (sport === "nba" && aiCandidatesTracked.length < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD && snapSupplement.length)
+        ? (() => {
+            const trackSig = new Set(aiCandidatesTracked.map(rc =>
+              `${String(rc.player || "").toLowerCase()}|${String(rc.statFamily || rc.propType || "").toLowerCase()}|${String(rc.side || "").toLowerCase()}`
+            ))
+            const novel = snapSupplement.filter(sc =>
+              !trackSig.has(`${String(sc.player || "").toLowerCase()}|${sc.statFamily}|${sc.side}`)
+            )
+            return [...aiCandidatesTracked, ...novel]
+          })()
+        : aiCandidatesTracked
+      const aiCandidates = diversifyCandidates(aiCandidatesRaw, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
       let ledgerState = null
       try { ledgerState = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null } catch (_) {}
       const aiSlips = mods.slipAi.buildAiSlips({

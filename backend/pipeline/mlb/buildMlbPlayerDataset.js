@@ -354,6 +354,9 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
       eventId: r?.eventId ?? null,
       matchup: r?.matchup ?? null,
       team: r?.teamResolved ?? r?.team ?? null,
+      teamCode: r?.teamCode ?? null,
+      awayTeam: r?.awayTeam ?? null,
+      homeTeam: r?.homeTeam ?? null,
       opponent: r?.opponentTeam ?? null,
       isHome: r?.isHome ?? null,
     })
@@ -370,6 +373,9 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
       const eventId = obj?.eventId ?? meta.eventId ?? null
       const matchup = obj?.matchup ?? meta.matchup ?? null
       const team = obj?.team ?? meta.team ?? null
+      const teamCode = obj?.teamCode ?? meta.teamCode ?? null
+      const awayTeam = obj?.awayTeam ?? meta.awayTeam ?? null
+      const homeTeam = obj?.homeTeam ?? meta.homeTeam ?? null
       const opponent = obj?.opponent ?? obj?.opponentTeam ?? meta.opponent ?? null
       const hrInfo = hrIdx.get(k) || {
         prob: 0,
@@ -402,6 +408,9 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
         eventId,
         matchup,
         team,
+        teamCode,
+        awayTeam,
+        homeTeam,
         opponent,
         role: "hitter",
         battingOrder: num(obj?.battingOrderIndex) ?? num(obj?.lineupPosition) ?? null,
@@ -433,6 +442,9 @@ function buildMlbPlayerOutcomePredictions(input = {}) {
       eventId,
       matchup,
       team: p?.team ?? meta.team ?? null,
+      teamCode: p?.teamCode ?? meta.teamCode ?? null,
+      awayTeam: p?.awayTeam ?? meta.awayTeam ?? null,
+      homeTeam: p?.homeTeam ?? meta.homeTeam ?? null,
       opponent: p?.opponent ?? meta.opponent ?? null,
       role: "pitcher",
       stats,
