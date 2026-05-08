@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-07 (Session I: Intelligence Layer live wiring — snapshotPredictions + snapshotEcology wired into runMlbNight.js + runNbaNight.js; live data verified)_
+_Last updated: 2026-05-08 (Session P: Priority 1B — NBA featured-pool full unlock; Fix 1B-B nba_tracked_best; Fix 1B-C snapshot supplement; 185→14 diversified candidates; PRA/threes/rebounds/assists all surface)_
 
 ---
 
@@ -10,7 +10,7 @@ _Last updated: 2026-05-07 (Session I: Intelligence Layer live wiring — snapsho
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | Fix 3+4+5+6 + Intelligence Layer + Live wiring (pending — HEAD.lock requires manual `rm` from macOS terminal) |
+| Last commit | e076871 (Session I) — Sessions H/I/J/K staged, pending finalization via finalizeCheckpoint.sh |
 | Repo health | Stable. All syntax checks clean. |
 
 ---
@@ -41,14 +41,15 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | **Candidate diversification** | **Working — extracted + Fix 1 applied** | **`pipeline/shared/buildCandidateDiversity.js`** |
+| **NBA snapshot routing** | **Fixed (Session N) — readSnapshotRows fallback** | **`routes/workstationRoutes.js`** |
 | Line shopping (implied spread ranking) | Working | `routes/workstationRoutes.js` |
 | Portfolio optimizer | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Market timing intelligence | Working | `pipeline/shared/buildMarketTimingIntelligence.js` |
 | CLV tracking | Working | `pipeline/shared/buildClv.js` |
 | Personal ledger | Working | `pipeline/shared/buildPersonalLedger.js` |
-| Post-game review engine | Working | `pipeline/shared/buildPostGameReview.js` |
+| Post-game review engine | Working + **Intelligence settlement wired (Session J)** | `pipeline/shared/buildPostGameReview.js` |
 | Nightly orchestrator | Working | `pipeline/shared/buildNightlyOrchestrator.js` |
-| Workstation frontend | Working | `frontend/src/workstation/` |
+| Workstation frontend | Working — **bettor UX Phase 1+2+3 applied (Sessions L+M+N)** | `frontend/src/workstation/` |
 
 ---
 
@@ -63,7 +64,7 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | Line shopping | `sections/LineShoppingView.tsx` |
 | Portfolio view | `sections/PortfolioView.tsx` |
 | Process review | `sections/ProcessReviewView.tsx` |
-| First basket | `sections/FirstBasketView.tsx` |
+| First basket | `sections/FirstBasketView.tsx` — **premium rewrite Session N** |
 
 ---
 
@@ -119,7 +120,7 @@ Featured `buildSafest`:
 
 ## CURRENT PHASE
 
-**Phase: INTEGRITY + DE-RISK — Phase 7I (Fix 1–6 done + Intelligence Layer wired live into MLB + NBA runners)**
+**Phase: INTEGRITY + DE-RISK — Phase 7P (Fix 1–6 + Intelligence Layer + Checkpoint + Bettor UX Phase 1 + Phase 2 + NBA Phase 3 + NBA Pipeline Audit + SP Fix 1+2 + Priority 1B Featured Pool Unlock)**
 
 Completed total (all sessions combined):
 - AI slip dead fix in `runMlbNight.js`
@@ -155,6 +156,14 @@ Completed total (all sessions combined):
   - Ecology: MLB entropy=2.025 (totalbases:31, runs:25, outs:17, rbis:7, hits:4); NBA entropy=0.971 (threes:3, assists:2). Zero null players/stats/dates.
   - Graceful degradation verified: DB unavailable → null/false returns, no throws. Hard crash in intel block → `console.warn` + pipeline continues ✓.
   - Runtime JSON outputs completely unchanged. No regression.
+- **NEW: Outcome settlement wiring (Session J)**
+  - `recordOutcomes` + `recordSlipOutcome` wired into `buildPostGameReview.js → runPostGameReview`.
+  - Insertion point: after `classified` array, before rolling state update — fires on every settlement invocation (orchestrator Step 3, `updateMlbResults.js --full`, `updateNbaResults.js --full`).
+  - Bet settlement: reconstructs `predictionId(b.date||date, sport, player, statFamily, side, line, sportsbook)` for each settled bet. Filter: `b.result && b.result !== "pending"`.
+  - Slip settlement: `slip.tier || slip.type` bridges tracked-slip `type` field to intelligence `tier`. `legsHit` = count of `leg.result === "win"`. `payoutDec = slip.result === "win" ? combinedDecimalOdds : 0`. Filter: `slip.result !== "pending"`.
+  - predId verification: 3 live bets confirmed correct composite IDs (e.g. `2026-05-05|mlb|kazuma okamoto|rbis|over|1.5|draftkings`) matching snapshotPredictions format ✓.
+  - Smoke test: settlement block fires for 5 synthetic settled bets; `[intel] mlb outcomes: 0 recorded, 5 errors` (DB unavailable in sandbox — expected); no crash ✓.
+  - Graceful degradation: entire block in isolated try/catch; `console.warn` on any error; review pipeline unaffected. Runtime JSON outputs unchanged.
 - **NEW: Priority 0 — buildFeaturedPlays fork resolved.**
   Dead import `require("./pipeline/boards/buildFeaturedPlays")` removed from `server.js` line 21.
   `boards/buildFeaturedPlays.js` (407-line NBA-era version) orphaned — zero importers remaining.
@@ -178,6 +187,31 @@ Completed total (all sessions combined):
   legs seed first; balanced fill afterward. Composite ordering preserved within subgroups.
   Safe/balanced/lotto tiers: zero impact (guard: `if (tier === "aggressive")`).
   Effect: aggressive slips now seed from HR/hits/RBI overs, not TB unders.
+- **NEW: NBA Pipeline Audit + Suppression Fixes (Session O)**
+  - Full 12-stage NBA pipeline traced. Five suppression points (SP1–SP5) identified and documented.
+  - SP1: `fetchNbaOddsSnapshot.js` — `bestProps`/`eliteProps` hardcoded empty arrays; NBA never gets model-scored snapshot pool. (Future fix — requires full model scoring pass; out of scope this session.)
+  - SP2: `buildNbaPlayerOutcomePredictions.js` STAT_ORDER=4 — PRA/combo/first_basket/DD/TD all dropped at line 1680 (`if (!STAT_ORDER.includes(fam)) continue`). Largest single candidate loss.
+  - SP3: `buildNbaBestBetsBoard.js` pred.stats check — `pred.stats?.pra` was undefined (SP2 never wrote it) → `if (!stat) continue` dropped all PRA market props.
+  - SP4: `resolveStatFamily` in `buildNbaBestBetsBoard.js` — combo (PA/PR/RA) and first_basket return `null` → `if (!family) continue` drops them.
+  - SP5: `persistTrackedToday` in `buildNbaPerformanceTracking.js` — only `board.allPlays` tracked; `board.altPlays` (ladders/alternates) never written to tracked_bets.
+  - **SP Fix 1 applied** (`buildNbaPlayerOutcomePredictions.js` line 1909): After STAT_ORDER stats are built for each player, derive `st.pra = { floor, mostLikely, ceiling, betLabel: "over" }` by summing `st.points + st.rebounds + st.assists` components. `toPublicStats()` picks it up transparently. Smoke-tested: PRA floor=19.3/mostLikely=31.7/ceiling=45.5, all finite, correctly accessed by `buildNbaBestBetsBoard` ✓.
+  - **SP Fix 2 applied** (`buildNbaPerformanceTracking.js` line 224): `altQualified` = `board.altPlays` filtered by `edge > 0.03 && inCoreOddsBand !== false && tier !== "FADE"`. `trackedPlays = [...allPlays, ...altQualified]` — additive, no existing allPlays removed. Smoke-tested: 5-play alt pool → 2 pass gate, 3 correctly dropped (edge too low / FADE / outside band) ✓.
+  - SP4 (combo) and SP1 (bestProps scoring) are deferred — lower bettor-facing impact than SP2+SP5 fixes, require larger scope.
+- **NEW: Priority 1B — NBA Featured Pool Full Unlock (Session P)**
+  - Root cause audit complete: MLB gets featured richness from `phase4Tracking.js → mlb_tracked_best` (36 entries). NBA had no equivalent — workstation fell back to 2 `eligibleBets`, producing empty featured boards.
+  - **Fix 1B-B** (`buildNbaPerformanceTracking.js`): Added `leanBestEntry()` + `persistNbaTrackedBest(board, date)`. Called from `persistTrackedToday` after slips write. Writes `nba_tracked_best_{date}.json` in MLB-compatible format from `allPlays` + quality-gated `altPlays`. `enrichBestEntry` in workstationRoutes reads it correctly (`edgeProbability → edge`, `predictedProbability → modelProb`, `propType → statFamily`). Smoke-tested: 2 entries written, all fields present, eligibleBets gate passes ✓.
+  - **Fix 1B-C** (`workstationRoutes.js`): Added `buildNbaSnapshotCandidates(snapshotRows)` helper. Scores snapshot rows through `nbaRowModelProbability` + `nbaRowEdge`. Gates: core odds (-200..+200), no alternate market keys, player present, known stat family, mp≥0.35, edge≥0.03. Returns top 100 by edge. In `/state` route: when `sport=nba` AND `rawCandidates < 20` AND `snapshotRows.length > 0`, supplements with novel snapshot candidates (de-duplicated against tracked pool). Smoke-tested: 185 qualified → top 100 → 97 novel after de-dup → 14 diversified after `diversifyCandidates` ✓.
+  - **Before**: 2 reboundss-only candidates, empty featured boards. **After**: 14 ELITE/STRONG candidates across threes/rebounds/PRA/assists — PRA Nukes ☢️, High Confidence 🛡️, Tonight's Best 💎 all populate.
+  - Remaining: SP1 (NBA snapshot bestProps scoring — deferred), SP4 (combo families — deferred). Side distribution 64% under / 36% over — within ecology's 60% cap, ecology fixes handle balance.
+- **NEW: NBA Bettor Experience + Ecology Alignment (Session N)**
+  - Root-cause NBA audit complete: snapshot-nba.json missing → snapshotRows=[] for all NBA routes; snapshot.json uses `data.props` not `data.rows`; tracked_bets pool critically thin (17 bets/3 days: rebounds/threes/assists only); PRA/ladders/first basket never reach tracking; slips: rebounds×N and points×N monoculture; threes 5 under/1 over bias.
+  - `workstationRoutes.js`: `readSnapshotRows(sport)` helper — tries `snapshot-{sport}.json`, falls back to `snapshot.json` for NBA, handles `data.rows` OR `data.props` key; all 4 inline snapshot reads replaced; NBA now gets line shopping + timing enrichment from 5,489-prop pool.
+  - `buildFeaturedPlays.js`: added `buildBestPra()` (pra/pointsreboundsassists stat families) + `buildBestFirstBasket()` (firstbasket/firstteambasket); both in return value, empty fallback, and unique-id set.
+  - `types.ts` (`Featured`): added `bestPra: FeaturedPlay[]` and `bestFirstBasket: FeaturedPlay[]`.
+  - `Dashboard.tsx`: sport-aware spotlight grid — `NbaSpotlightGrid` (8 NBA buckets: PRA Nukes ☢️, First Basket Bombs 🏀, Ladder City 📈, Pace Attack ⚡, Books Sleeping 😴, High Confidence 🛡️, Act Now ⏱️, Tonight's Best 💎) and `MlbSpotlightGrid` (original 8 MLB buckets extracted as named component).
+  - `FirstBasketView.tsx`: full premium rewrite — hero card (TierBadge, attackNote narrative, odds/edge display, add-to-builder CTA), compact rest board, pipeline context strip, informative empty states.
+  - `workstation.css`: `ws-fb-*` CSS block — hero card with amber top-border, badge, two-column body, 26px odds, compact rest board rows.
+  - TypeScript: `npx tsc --noEmit` → zero errors ✓.
 
 ---
 
@@ -226,6 +260,10 @@ CP4 residual: tracked_best eventId null — enrichBestEntry ID match still fails
 ## KNOWN WEAKNESSES
 
 1. **Under-heavy raw pool**: ~83% unders in tracked_bets. Source imbalance only addressable in projection engine (out of scope).
+13. **NBA tracked_bets pool thin** — PRA and ladder tracking unlocked by SP Fix 1+2 (Session O). `nba_tracked_best` now written by Fix 1B-B (Session P). Snapshot supplement (Fix 1B-C) provides 14 diversified candidates immediately. Pool richness will grow further as SP Fix 1+2 accumulate nightly.
+14. **NBA stat monoculture** — slips are rebounds×N or points×N; threes 5 under/1 over. SP Fix 1 adds PRA predictions; ladders now track via SP Fix 2. Monoculture will ease as pool accumulates.
+15. **NBA SP4 (combo PA/PR/RA) still dropped** — `resolveStatFamily` returns null for combo markets; no model for these families yet. Deferred (lower bettor-facing impact). Future phase.
+16. **NBA SP1 (bestProps empty)** — `fetchNbaOddsSnapshot.js` hardcodes empty `bestProps`/`eliteProps` arrays; no model-scoring pass for NBA raw snapshot. Deferred — requires a full NBA model scoring step parallel to MLB's.
 2. **`pipeline/boards/buildFeaturedPlays.js` orphaned on disk** — dead import removed from `server.js`, zero remaining importers, needs manual `rm` from macOS terminal. Not a runtime risk (not loaded).
 3. **`personal_ledger.json` at 2,000 entries / 2.3MB — PAST SQLite migration trigger.** Write-race orphan `.tmp` file observed. Migration is overdue.
 4. ~~**lotto volRealism=0.46**~~ — **FIXED** (now 0.56). lotto surfaces in tonightsBest and smartAggression.
@@ -261,6 +299,28 @@ CP4 residual: tracked_best eventId null — enrichBestEntry ID match still fails
 | `backend/storage/intelligence.js` | **Created 2026-05-07 (Session H)** |
 | `backend/scripts/runMlbNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
 | `backend/scripts/runNbaNight.js` | **Intelligence wiring added 2026-05-07 (Session I)** |
+| `backend/pipeline/shared/buildPostGameReview.js` | **Outcome settlement wired 2026-05-07 (Session J)** |
+| `backend/scripts/checkpointRepo.js` | **Created 2026-05-07 (Session K)** |
+| `backend/scripts/finalizeCheckpoint.sh` | **Created 2026-05-07 (Session K)** |
+| `docs/WORKFLOW_RULES.md` | **Checkpoint protocol added 2026-05-07 (Session K)** |
+| `frontend/src/workstation/Workstation.tsx` | **Session L: header brand + all nav labels** |
+| `frontend/src/workstation/sections/Dashboard.tsx` | **Session L: KPI labels, section titles, empty states** |
+| `frontend/src/workstation/sections/AiSlipsView.tsx` | **Session L: tier branding, heading, CTA** |
+| `frontend/src/workstation/sections/ProcessReviewView.tsx` | **Session L: title, KPI labels, section headers** |
+| `frontend/src/workstation/sections/LineShoppingView.tsx` | **Session L: title, empty state** |
+| `frontend/src/workstation/sections/PortfolioView.tsx` | **Session L: title, section headings** |
+| `frontend/src/workstation/sections/FirstBasketView.tsx` | **Session L: title, MLB dead state** |
+| `frontend/src/workstation/workstation.css` | **Session L: urgency pulse, fire glow, anchor glow, ws-hot-label** · **Session M: hero/spotlight/chaos CSS** |
+| `frontend/src/workstation/components/HeroPickCard.tsx` | **Created Session M — nuclear pick hero card** |
+| `frontend/src/workstation/components/SpotlightCard.tsx` | **Created Session M — narrative-driven featured bucket card** |
 | `backend/pipeline/shared/buildCandidateDiversity.js` | **Fix 1 applied 2026-05-07** |
 | `backend/pipeline/shared/buildSlipAi.js` | **Fix 2 + Fix 4 + Fix 5 + Fix 6 applied 2026-05-07** |
-| `backend/pipeline/shared/buildFeaturedPlays.js` | **Fix 3 applied 2026-05-07** |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | **Fix 3 applied 2026-05-07** · **Session N: bestPra + bestFirstBasket added** |
+| `backend/routes/workstationRoutes.js` | **Session N: readSnapshotRows(sport) helper — NBA snapshot fallback + data.props key** |
+| `backend/pipeline/nba/buildNbaPlayerOutcomePredictions.js` | **Session O SP Fix 1: stats.pra derived from points+rebounds+assists components** |
+| `backend/pipeline/nba/buildNbaPerformanceTracking.js` | **Session O SP Fix 2: altPlays gate** · **Session P Fix 1B-B: persistNbaTrackedBest + leanBestEntry** |
+| `backend/routes/workstationRoutes.js` | **Session N: readSnapshotRows** · **Session P Fix 1B-C: buildNbaSnapshotCandidates + snapshot supplement** |
+| `frontend/src/workstation/types.ts` | **Session N: bestPra + bestFirstBasket added to Featured interface** |
+| `frontend/src/workstation/sections/Dashboard.tsx` | **Session N: NbaSpotlightGrid + MlbSpotlightGrid sport-aware swap** |
+| `frontend/src/workstation/sections/FirstBasketView.tsx` | **Session N: full premium rewrite — hero card, TierBadge, rest board** |
+| `frontend/src/workstation/workstation.css` | **Session N: ws-fb-* CSS block added** |

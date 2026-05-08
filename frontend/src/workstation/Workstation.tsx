@@ -15,14 +15,14 @@ import { ProcessReviewView } from "./sections/ProcessReviewView"
 type SectionId = "dashboard" | "slate" | "slips" | "shopping" | "portfolio" | "builder" | "fb" | "review"
 
 const NAV: { id: SectionId; label: string; icon: string }[] = [
-  { id: "dashboard", label: "Dashboard",     icon: "⚡" },
-  { id: "slate",     label: "Slate Browser", icon: "📊" },
-  { id: "slips",     label: "AI Slips",      icon: "🧠" },
-  { id: "shopping",  label: "Line Shopping", icon: "🏪" },
-  { id: "portfolio", label: "Portfolio",     icon: "💰" },
-  { id: "builder",   label: "Bet Builder",   icon: "🛠️" },
-  { id: "fb",        label: "First Basket",  icon: "🏀" },
-  { id: "review",    label: "Process Review",icon: "🔬" },
+  { id: "dashboard", label: "Tonight's Edge",  icon: "⚡" },
+  { id: "slate",     label: "Full Slate",       icon: "🎯" },
+  { id: "slips",     label: "AI Parlays",       icon: "🎲" },
+  { id: "shopping",  label: "Book Radar",       icon: "👁️" },
+  { id: "portfolio", label: "Risk Map",         icon: "📐" },
+  { id: "builder",   label: "Bet Builder",      icon: "🛠️" },
+  { id: "fb",        label: "First Basket",     icon: "🏀" },
+  { id: "review",    label: "Edge Log",         icon: "📈" },
 ]
 
 export function Workstation() {
@@ -61,7 +61,7 @@ export function Workstation() {
     <BuilderProvider>
       <div className="ws-app">
         <div className="ws-header">
-          <span className="ws-header-brand"><span>◉</span> BETTING WORKSTATION</span>
+          <span className="ws-header-brand"><span>◉</span> EDGE ROOM</span>
           <span className="ws-dim" style={{ fontSize: 12 }}>{state ? `${state.sport.toUpperCase()} · ${state.date}` : ""}</span>
           <div className="ws-header-controls">
             <span className="ws-pill" style={{ pointerEvents: "none" }}>

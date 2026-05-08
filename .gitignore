@@ -48,3 +48,6 @@ backend/storage/*.db-shm
 backend/storage/*.db-wal
 backend/storage/*.db-journal
 backend/storage/test.txt
+
+# Checkpoint state (local operational state — never commit)
+.checkpoint/

@@ -570,6 +570,24 @@ function buildBestHr(scored, count = 4) {
   return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 99 })
 }
 
+/** NBA: PRA (Points+Rebounds+Assists) combo plays — volatile upside, game-total sensitive */
+function buildBestPra(scored, count = 4) {
+  const filtered = scored.filter((x) => {
+    const f = normFam(x.c.statFamily)
+    return f === "pra" || f.includes("pra") || f === "pointsreboundsassists"
+  })
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 99 })
+}
+
+/** NBA: First basket props — highest-upside lotto plays on the board */
+function buildBestFirstBasket(scored, count = 4) {
+  const filtered = scored.filter((x) => {
+    const f = normFam(x.c.statFamily)
+    return f.includes("firstbasket") || f.includes("firstteambasket")
+  })
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 99 })
+}
+
 function buildBestLadders(scored, count = 5) {
   // Alt lines with realistic ladder height (line 2.5–4.5 for batter stats, plus high-EV unders)
   const filtered = scored.filter((x) => {
@@ -750,7 +768,7 @@ function buildFeaturedPlays(opts = {}) {
     return {
       sport, date,
       anchors: [],
-      tonightsBest: [], bestHr: [], bestLadders: [], smartAggression: [],
+      tonightsBest: [], bestHr: [], bestPra: [], bestFirstBasket: [], bestLadders: [], smartAggression: [],
       safest: [], bestClv: [], marketAgreement: [], timingWindows: [], bestBooks: [],
       summary: "No candidates available",
     }
@@ -786,6 +804,8 @@ function buildFeaturedPlays(opts = {}) {
 
   const tonightsBest    = buildTonightsBest(scored, 5, anchorIds).map((x) => compactPlay(x, ctx))
   const bestHr          = buildBestHr(scored).map((x) => compactPlay(x, ctx))
+  const bestPra         = buildBestPra(scored).map((x) => compactPlay(x, ctx))
+  const bestFirstBasket = buildBestFirstBasket(scored).map((x) => compactPlay(x, ctx))
   const bestLadders     = buildBestLadders(scored).map((x) => compactPlay(x, ctx))
   const smartAggression = buildSmartAggression(scored).map((x) => compactPlay(x, ctx))
   const safest          = buildSafest(scored).map((x) => compactPlay(x, ctx))
@@ -800,7 +820,7 @@ function buildFeaturedPlays(opts = {}) {
   // Count of UNIQUE plays surfaced (not bucket sum, which over-counts due to
   // the same play appearing in multiple lenses).
   const uniqueIds = new Set()
-  for (const list of [anchors, tonightsBest, bestHr, bestLadders, smartAggression,
+  for (const list of [anchors, tonightsBest, bestHr, bestPra, bestFirstBasket, bestLadders, smartAggression,
                       safest, bestClv, marketAgreement, timingWindows]) {
     for (const p of list) if (p?.id) uniqueIds.add(p.id)
   }
@@ -808,7 +828,7 @@ function buildFeaturedPlays(opts = {}) {
   return {
     sport, date,
     anchors,
-    tonightsBest, bestHr, bestLadders, smartAggression,
+    tonightsBest, bestHr, bestPra, bestFirstBasket, bestLadders, smartAggression,
     safest, bestClv, marketAgreement, timingWindows, bestBooks,
     summary: `${anchors.length} anchors · ${uniqueIds.size} curated plays across ${normalized.length} candidates`,
   }

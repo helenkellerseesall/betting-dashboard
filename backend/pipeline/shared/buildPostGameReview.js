@@ -404,6 +404,52 @@ function runPostGameReview({ sport, date, actuals = {}, write = true } = {}) {
     return Object.assign({}, b, { __classification: c })
   })
 
+  // ── Intelligence outcome settlement (additive — never breaks review pipeline) ─
+  try {
+    const intel = require("../../storage/intelligence")
+    // Bet outcomes — only settled (non-pending) entries
+    const settlements = classified
+      .filter((b) => b.result && b.result !== "pending")
+      .map((b) => {
+        const predId = intel.predictionId(
+          b.date || date, key,
+          b.player, b.statFamily, b.side, b.line, b.sportsbook
+        )
+        const hitFlag = b.__classification.hit
+        return {
+          id:          predId,
+          hit:         hitFlag != null ? (hitFlag ? 1 : 0) : null,
+          actualValue: b.actualStat ?? null,
+          settledAt:   b.settledAt || new Date().toISOString(),
+          notes:       b.result,
+        }
+      })
+    if (settlements.length) {
+      const r = intel.recordOutcomes(settlements, { sport: key, date })
+      console.log(`[intel] ${key} outcomes: ${r?.recorded} recorded, ${r?.errors} errors`)
+    }
+    // Slip outcomes — only settled (non-pending) slips
+    const settledSlips = slips.filter((s) => s.result && s.result !== "pending")
+    for (const slip of settledSlips) {
+      const legsHit = (slip.legs || []).filter((l) => l.result === "win").length
+      intel.recordSlipOutcome(
+        { ...slip, tier: slip.tier || slip.type },
+        {
+          legsHit,
+          result:    slip.result,
+          payoutDec: slip.result === "win" ? (slip.combinedDecimalOdds || 0) : 0,
+          settledAt: slip.settledAt || null,
+        },
+        { sport: key, date }
+      )
+    }
+    if (settledSlips.length) {
+      console.log(`[intel] ${key} slip outcomes: ${settledSlips.length} processed`)
+    }
+  } catch (intelErr) {
+    console.warn("[intel] outcome settlement skipped (non-fatal):", intelErr.message)
+  }
+
   const state = readJsonSafe(stateFile(key), null) || emptyState()
 
   // Update rolling state.

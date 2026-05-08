@@ -5,18 +5,18 @@ import { Badge } from "../components/Badges"
 import { useBuilder } from "../builderContext"
 
 const TIERS: { id: keyof AiSlips; label: string; color: string; emoji: string }[] = [
-  { id: "safe",       label: "Safe",       color: "var(--ws-vol-safe)",       emoji: "🛡️" },
-  { id: "balanced",   label: "Balanced",   color: "var(--ws-vol-balanced)",   emoji: "⚖️" },
-  { id: "aggressive", label: "Aggressive", color: "var(--ws-vol-aggressive)", emoji: "⚡" },
-  { id: "lotto",      label: "Lotto",      color: "var(--ws-vol-lotto)",      emoji: "🎲" },
+  { id: "safe",       label: "Core",        color: "var(--ws-vol-safe)",       emoji: "🛡️" },
+  { id: "balanced",   label: "Value Mix",   color: "var(--ws-vol-balanced)",   emoji: "⚖️" },
+  { id: "aggressive", label: "Fire Shots",  color: "var(--ws-vol-aggressive)", emoji: "🔥" },
+  { id: "lotto",      label: "Moon Shots",  color: "var(--ws-vol-lotto)",      emoji: "🌙" },
 ]
 
 function tierEmpty(tier: keyof AiSlips): string {
   switch (tier) {
-    case "safe":       return "No safe slip cleared the threshold tonight — slate may lean high-variance."
-    case "balanced":   return "No balanced slip viable — narrow odds windows or thin candidate pool."
-    case "aggressive": return "No aggressive slip met the trust filters — try the balanced tier."
-    case "lotto":      return "No lotto slip with positive process found — lotto pool may be empty tonight."
+    case "safe":       return "No Core parlay built tonight — slate leans volatile. Try Value Mix."
+    case "balanced":   return "No Value Mix parlay found — odds windows are tight or the pool is thin."
+    case "aggressive": return "No Fire Shot cleared tonight — volatile legs may be exhausted. Try Value Mix."
+    case "lotto":      return "No Moon Shot available tonight — lotto pool may be empty or lines moved."
   }
 }
 
@@ -49,7 +49,7 @@ function SlipCard({ slip, tier }: { slip: AiSlip; tier: string }) {
       ) : null}
       <div className="ws-slip-actions">
         <button className="ws-btn ws-btn-primary" onClick={() => builder.loadAllSlipLegs(slip.legs)}>
-          ➜ Load all into builder
+          ➜ Build this parlay
         </button>
       </div>
     </div>
@@ -93,7 +93,7 @@ export function AiSlipsView({ state }: { state: SportState | null }) {
   return (
     <div>
       <h2 className="ws-section-title">
-        AI Slip Center <small>{total} slips · {state.aiSlipsSummary?.summary || "—"}</small>
+        🎲 AI Parlay Engine <small>{total} parlays built · {state.aiSlipsSummary?.summary || "—"}</small>
       </h2>
 
       <div className="ws-filters">

@@ -41,6 +41,7 @@ const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 const BETS_PREFIX = "nba_tracked_bets_"
 const SLIPS_PREFIX = "nba_tracked_slips_"
 const SUMMARY_PREFIX = "nba_tracking_summary_"
+const BEST_PREFIX = "nba_tracked_best_"
 
 const DEFAULT_WINDOW_DAYS = 14
 const DEFAULT_PRUNE_KEEP_DAYS = 14
@@ -218,13 +219,103 @@ function leanSlip(slip, date) {
  * `result` for already-settled rows (so re-running the pipeline same day
  * doesn't reset graded results).
  */
+/**
+ * Convert a best-bets board play into the tracked_best entry shape that
+ * enrichBestEntry() in workstationRoutes.js can read. The field names mirror
+ * the MLB tracked_best format so the workstation's enrichedBest path works
+ * without changes.
+ */
+function leanBestEntry(play, date) {
+  return {
+    slateDate:             date,
+    sport:                 "nba",
+    player:                play.player,
+    team:                  play.team   || null,
+    eventId:               play.eventId || null,
+    matchup:               play.matchup || null,
+    propType:              play.statFamily || play.propType || null,  // enrichBestEntry reads as statFamily
+    side:                  play.side,
+    line:                  play.line   ?? null,
+    odds:                  play.oddsAmerican ?? null,                 // enrichBestEntry maps to oddsAmerican
+    book:                  play.sportsbook  || null,                  // enrichBestEntry maps to sportsbook
+    predictedProbability:  play.modelProb   ?? null,                  // enrichBestEntry maps to modelProb
+    edgeProbability:       play.edge        ?? null,                  // enrichBestEntry maps to edge
+    confidence:            play.confidence  ?? null,
+    tier:                  play.tier        || null,
+    bucket:                `nba.bestAvailable.${String(play.tier || "playable").toLowerCase()}`,
+    result:                "pending",
+    settledAt:             null,
+    timestamp:             new Date().toISOString(),
+  }
+}
+
+/**
+ * Write nba_tracked_best_{date}.json — mirrors what MLB's phase4Tracking.js
+ * writes for mlb_tracked_best. Sources from allPlays (already tracked in
+ * tracked_bets) and quality-gated altPlays. The workstation reads this file
+ * as enrichedBest, giving the featured layer a richer candidate pool than the
+ * raw eligibleBets fallback.
+ */
+function persistNbaTrackedBest(board, date) {
+  const allPlays   = Array.isArray(board.allPlays)  ? board.allPlays  : []
+  const altQualified = (Array.isArray(board.altPlays) ? board.altPlays : []).filter(
+    (p) => Number(p.edge ?? 0) > 0.03 &&
+           p.inCoreOddsBand !== false &&
+           String(p.tier || "").toUpperCase() !== "FADE"
+  )
+  const sourcePlays = [...allPlays, ...altQualified]
+  if (!sourcePlays.length) return
+
+  const bestPath = fileFor(BEST_PREFIX, date)
+  const existing = readJsonSafe(bestPath, null) || {}
+  const existingEntries = Array.isArray(existing.entries) ? existing.entries : []
+
+  // Merge: preserve graded results, upsert everything else by play signature
+  const legKey = (e) => `${e.player}|${String(e.propType||"").toLowerCase()}|${e.side}|${e.line}|${e.book}`
+  const byKey = new Map()
+  for (const e of existingEntries) byKey.set(legKey(e), e)
+  for (const play of sourcePlays) {
+    const entry = leanBestEntry(play, date)
+    const key   = legKey(entry)
+    const prev  = byKey.get(key)
+    if (prev && prev.result && prev.result !== "pending") {
+      byKey.set(key, { ...entry, result: prev.result, settledAt: prev.settledAt })
+    } else {
+      byKey.set(key, entry)
+    }
+  }
+
+  const payload = {
+    metadata: {
+      sport:       "nba",
+      slateDate:   date,
+      generatedAt: new Date().toISOString(),
+      version:     "tracking-nba-v1",
+      bucket:      "nba.bestAvailable.best",
+      storage:     "nba_tracked_best",
+    },
+    entries: Array.from(byKey.values()),
+  }
+  writeJsonSync(bestPath, payload)
+}
+
 function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
   if (!bestBetsBoard) return
   const board = bestBetsBoard
   const allPlays = Array.isArray(board.allPlays) ? board.allPlays : []
 
+  // Ladder/alternate plays — include quality-gated altPlays so they accumulate in tracked_bets.
+  // Gate: positive edge, within core odds band, not FADE tier. This is additive — no existing
+  // allPlays entries are removed or modified.
+  const altQualified = (Array.isArray(board.altPlays) ? board.altPlays : []).filter(
+    (p) => Number(p.edge ?? 0) > 0.03 &&
+           p.inCoreOddsBand !== false &&
+           String(p.tier || "").toUpperCase() !== "FADE"
+  )
+  const trackedPlays = [...allPlays, ...altQualified]
+
   // -------- Bets --------
-  const newBets = allPlays.map((p) => leanBet(p, date))
+  const newBets = trackedPlays.map((p) => leanBet(p, date))
   const betsPath = fileFor(BETS_PREFIX, date)
   const existingBets = Array.isArray(readJsonSafe(betsPath, [])) ? readJsonSafe(betsPath, []) : []
   const mergedBetsById = new Map()
@@ -264,6 +355,10 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
     }
   }
   writeJsonSync(slipsPath, Array.from(mergedSlipsById.values()))
+
+  // Write nba_tracked_best — mirrors MLB's phase4Tracking best-props file.
+  // The workstation reads this as enrichedBest, giving a richer featured pool.
+  persistNbaTrackedBest(board, date)
 }
 
 /**

@@ -43,14 +43,14 @@ export function LineShoppingView({ state }: { state: SportState | null }) {
 
   return (
     <div>
-      <h2 className="ws-section-title">Line Shopping <small>{rows.length} multi-book groups</small></h2>
+      <h2 className="ws-section-title">👁️ Book Radar <small>{rows.length} props across multiple books</small></h2>
       {totalGroups === 0 ? (
         <div className="ws-card" style={{ marginBottom: 14 }}>
-          <strong>No multi-book groups yet</strong>
+          <strong>No multi-book props yet</strong>
           <div className="ws-trust-note" style={{ marginTop: 6 }}>
             {sport === "nba"
-              ? "NBA snapshot may currently be single-book or sparse. Multi-book groups appear once two or more sportsbooks post the same prop with comparable lines."
-              : "Snapshot doesn't yet contain multi-book groups for this slate. Reload after the next ingest pass."}
+              ? "NBA market may be single-book right now. Multi-book groups appear once two or more sportsbooks post the same prop — check back after lines open up."
+              : "No multi-book coverage for this slate yet. Reload after the next ingest pass or once books post their full cards."}
           </div>
         </div>
       ) : null}

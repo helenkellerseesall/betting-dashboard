@@ -86,6 +86,47 @@ After a patch:
 
 ---
 
+## CHECKPOINT PROTOCOL (Session K — permanent)
+
+The Claude sandbox cannot unlink `.git/*.lock` files (virtiofs PermissionError).
+This protocol replaces the broken `git add / git commit` flow.
+
+### Claude's job (end of every session):
+
+```
+1. node scripts/checkpointRepo.js "commit message here"
+   — writes .checkpoint/pending.json
+   — NEVER touches .git/
+   — reports lock status + changed files
+
+2. Update CURRENT_STATE.md + NEXT_SESSION.md
+```
+
+### Operator's job (macOS terminal, once per session):
+
+```bash
+cd ~/Desktop/betting-dashboard
+bash scripts/finalizeCheckpoint.sh
+```
+
+This script:
+- Reads .checkpoint/pending.json for commit message
+- Detects stale locks (> 60s old AND no active git process)
+- Removes stale locks safely
+- Refuses to remove active locks (exits with clear error)
+- git add -A + git commit
+- Reports commit hash
+- Cleans up .checkpoint/pending.json
+
+### Rules:
+- Claude NEVER runs git add or git commit directly
+- Claude ALWAYS ends sessions with checkpointRepo.js
+- finalizeCheckpoint.sh is the ONLY thing that touches .git/ locks
+- Manual override: operator can always inspect .checkpoint/pending.json first
+- If no pending checkpoint: script exits with clear error (nothing to finalize)
+
+---
+
 ## ARCHITECTURE PRESERVATION
 
 ### Never create:

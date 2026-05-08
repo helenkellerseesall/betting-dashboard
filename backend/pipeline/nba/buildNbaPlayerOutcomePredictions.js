@@ -1906,6 +1906,13 @@ function buildNbaPlayerOutcomePredictions(opportunityBoard) {
       if (!passUsage && n >= 6) continue
       n += 1
       const { _roster, _peKey, _threesMeta, _archetype, stats: st, ...rest } = p
+      // Derive PRA projection from component stats (unlocks PRA market scoring downstream)
+      if (st.points && st.rebounds && st.assists) {
+        const praFloor     = Math.round(((st.points.floor      ?? 0) + (st.rebounds.floor      ?? 0) + (st.assists.floor      ?? 0)) * 10) / 10
+        const praMostLikely= Math.round(((st.points.mostLikely ?? 0) + (st.rebounds.mostLikely ?? 0) + (st.assists.mostLikely ?? 0)) * 10) / 10
+        const praCeiling   = Math.round(((st.points.ceiling    ?? 0) + (st.rebounds.ceiling    ?? 0) + (st.assists.ceiling    ?? 0)) * 10) / 10
+        st.pra = { floor: praFloor, mostLikely: praMostLikely, ceiling: praCeiling, betLabel: "over" }
+      }
       outPlayers.push({
         ...rest,
         stats: toPublicStats(st),

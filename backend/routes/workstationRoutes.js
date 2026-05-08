@@ -27,6 +27,8 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
+const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
+const { enrichNbaRowStatLayerInputs } = require("../pipeline/nba/nbaEventTeamResolve")
 
 const router = express.Router()
 
@@ -44,6 +46,22 @@ function readJsonSafe(p, fallback = null) {
     if (!fs.existsSync(p)) return fallback
     return JSON.parse(fs.readFileSync(p, "utf8"))
   } catch (_) { return fallback }
+}
+
+/**
+ * Read snapshot rows for a sport.
+ * - Tries snapshot-{sport}.json first (sport-specific file)
+ * - Falls back to snapshot.json for NBA (legacy file has data.props key)
+ * - Handles both data.rows (MLB) and data.props (NBA) key shapes
+ */
+function readSnapshotRows(sport) {
+  const sportFile = path.join(__dirname, "..", `snapshot-${sport}.json`)
+  let snap = readJsonSafe(sportFile, null)
+  // For NBA: fall back to snapshot.json which has data.props instead of data.rows
+  if (!snap && sport === "nba") {
+    snap = readJsonSafe(path.join(__dirname, "..", "snapshot.json"), null)
+  }
+  return snap?.data?.rows || snap?.data?.props || snap?.rows || []
 }
 
 function fileFor(sport, kind, date) {
@@ -111,6 +129,77 @@ function enrichBestEntry(e, betsById) {
   }
 }
 
+/**
+ * Score NBA snapshot rows through the independent model and return the top
+ * candidates by edge. Used to supplement the featured pool on nights where
+ * tracked_bets/tracked_best are thin (< NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD).
+ *
+ * Gates: core odds range (-200..+200), no alternate market keys, player present,
+ * known stat family, modelProb >= 0.35, edge >= 0.03.
+ *
+ * Returns at most NBA_SNAPSHOT_TOP_N rows sorted by edge descending.
+ */
+const NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD = 20
+const NBA_SNAPSHOT_TOP_N = 100
+
+function buildNbaSnapshotCandidates(snapshotRows) {
+  if (!Array.isArray(snapshotRows) || !snapshotRows.length) return []
+  const qualified = []
+
+  for (const r of snapshotRows) {
+    const player = String(r?.player || "").trim()
+    if (!player) continue
+    const side = String(r?.side || "").toLowerCase()
+    if (!side || side === "unknown") continue
+    const odds = Number(r?.odds ?? r?.oddsAmerican)
+    if (!Number.isFinite(odds) || odds > 200 || odds < -200) continue
+    // Skip alternate/ladder market rows — model edge not calibrated for extreme lines
+    const mk = String(r?.marketKey || "").toLowerCase()
+    const pv = String(r?.propVariant || "").toLowerCase()
+    if (mk.includes("alternate") || mk.includes("_alt") || (pv && pv !== "base" && pv !== "default")) continue
+
+    // Classify stat family
+    const propT = String(r?.propType || mk).toLowerCase()
+    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+      : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("points")   ? "points"
+      : propT.includes("rebounds") ? "rebounds"
+      : propT.includes("assists")  ? "assists"
+      : (propT.includes("threes") || propT.includes("three") || propT.includes("3pt")) ? "threes"
+      : null
+    if (!family) continue
+
+    const enriched = enrichNbaRowStatLayerInputs(r)
+    const mp = nbaRowModelProbability(enriched)
+    if (!Number.isFinite(mp) || mp < 0.35) continue
+    const edge = nbaRowEdge(enriched)
+    if (!Number.isFinite(edge) || edge < 0.03) continue
+
+    qualified.push({
+      ...enriched,
+      id:             `snap|${player}|${family}|${side}|${r?.line ?? ""}|${odds}|${r?.sportsbook || r?.book || ""}`,
+      player,
+      statFamily:     family,
+      propType:       r?.propType || family,
+      side,
+      line:           r?.line    ?? null,
+      odds,
+      oddsAmerican:   odds,
+      modelProb:      mp,
+      edge,
+      impliedProb:    odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
+      sportsbook:     r?.sportsbook || r?.book || null,
+      tier:           edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      volatility:     family === "threes" || family === "first_basket" ? "aggressive" : "balanced",
+      confidence:     mp,
+      snapshotSourced: true,  // auditable marker — not from tracked pipeline
+    })
+  }
+
+  qualified.sort((a, b) => b.edge - a.edge)
+  return qualified.slice(0, NBA_SNAPSHOT_TOP_N)
+}
+
 function buildCandidatePool(sport, date) {
   const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
   const trackedBest = readJsonSafe(fileFor(sport, "tracked_best", date), null)
@@ -162,11 +251,7 @@ router.get("/state", (req, res) => {
       const pool = buildCandidatePool(sport, date)
 
       // Snapshot rows for line shopping/timing
-      let snapshotRows = []
-      try {
-        const snap = readJsonSafe(path.join(__dirname, "..", `snapshot-${sport}.json`), null)
-        snapshotRows = snap?.data?.rows || snap?.rows || []
-      } catch (_) {}
+      const snapshotRows = readSnapshotRows(sport)
 
       const bookState    = mods.lineShop.loadBookState ? mods.lineShop.loadBookState() : null
       const timingState  = mods.timing.loadTimingState ? mods.timing.loadTimingState() : null
@@ -179,9 +264,21 @@ router.get("/state", (req, res) => {
         : null
 
       const rawCandidates = pool.enrichedBest.length ? pool.enrichedBest : pool.eligibleBets
+      // Supplement NBA pool from snapshot when tracked_bets/tracked_best is thin.
+      // Uses real model-scored snapshot rows (nbaRowModelProbability + nbaRowEdge).
+      // Core-odds only, no alternates, edge>=0.03 gate — no fake/hardcoded plays.
+      const supplementedCandidates = (sport === "nba" && rawCandidates.length < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD && snapshotRows.length)
+        ? (() => {
+            const snapCands = buildNbaSnapshotCandidates(snapshotRows)
+            // De-duplicate: skip snapshot rows that match an existing tracked candidate
+            const trackSig = new Set(rawCandidates.map(rc => `${rc.player}|${rc.statFamily}|${rc.side}`))
+            const novel = snapCands.filter(sc => !trackSig.has(`${sc.player}|${sc.statFamily}|${sc.side}`))
+            return [...rawCandidates, ...novel]
+          })()
+        : rawCandidates
       // Diversify before downstream views — caps repeats per player/game so the
       // workstation isn't dominated by 17 Donovan Mitchell legs.
-      const candidates = diversifyCandidates(rawCandidates, { maxPerPlayer: 3, maxPerGame: 7 })
+      const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: 7 })
 
       // Portfolio analysis runs against the diversified candidate pool only.
       // Persisted slip catalog is intentionally NOT merged in — those are
@@ -294,11 +391,7 @@ router.get("/featured", (req, res) => {
       const rawCandidates = [...pool.eligibleBets, ...pool.enrichedBest]
       const candidates = diversifyCandidates(rawCandidates, { maxPerPlayer: 4, maxPerGame: 8 })
 
-      let snapshotRows = []
-      try {
-        const snap = readJsonSafe(path.join(__dirname, "..", `snapshot-${sport}.json`), null)
-        snapshotRows = snap?.data?.rows || snap?.rows || []
-      } catch (_) {}
+      const snapshotRows = readSnapshotRows(sport)
       const bookState   = mods.lineShop.loadBookState   ? mods.lineShop.loadBookState()   : null
       const timingState = mods.timing.loadTimingState   ? mods.timing.loadTimingState()   : null
       const lineShopping = snapshotRows.length
@@ -325,8 +418,7 @@ router.get("/line-shopping", (req, res) => {
     const key = `lineshop:${sport}:${date}:${limit}`
     const out = cached(key, () => {
       const mods = loadSharedModules()
-      const snap = readJsonSafe(path.join(__dirname, "..", `snapshot-${sport}.json`), null)
-      const rows = snap?.data?.rows || snap?.rows || []
+      const rows = readSnapshotRows(sport)
       if (!rows.length) return { sport, date, groups: [], meta: {} }
       const bookState = mods.lineShop.loadBookState ? mods.lineShop.loadBookState() : null
       const ls = mods.lineShop.buildLineShopping(rows, { sport, bookState })
@@ -348,8 +440,7 @@ router.get("/timing", (req, res) => {
     const { sport, date } = resolveSportDate(req)
     const urgency = String(req.query.urgency || "").toLowerCase() || null
     const mods = loadSharedModules()
-    const snap = readJsonSafe(path.join(__dirname, "..", `snapshot-${sport}.json`), null)
-    const rows = snap?.data?.rows || snap?.rows || []
+    const rows = readSnapshotRows(sport)
     if (!rows.length) return res.json({ sport, date, classifications: [], meta: {} })
     const bookState   = mods.lineShop.loadBookState ? mods.lineShop.loadBookState() : null
     const timingState = mods.timing.loadTimingState ? mods.timing.loadTimingState() : null

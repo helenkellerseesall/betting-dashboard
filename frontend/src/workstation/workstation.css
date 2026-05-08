@@ -575,3 +575,653 @@ table.ws-table {
   font-family: var(--ws-sans);
   letter-spacing: 0.2px;
 }
+
+/* ── Visual polish additions ──────────────────────────────────────────────── */
+
+/* Urgency pulse — use on .ws-badge.now or any immediate-action element */
+@keyframes ws-pulse-urgent {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+  50%       { opacity: 0.9; box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+}
+.ws-badge.now {
+  animation: ws-pulse-urgent 1.8s ease-in-out infinite;
+}
+
+/* Fire tier — aggressive slip cards get a subtle hot glow */
+.ws-slip.tier-aggressive {
+  box-shadow: 0 0 0 1px rgba(245,158,11,0.18), inset 0 0 20px rgba(245,158,11,0.03);
+}
+
+/* Moon shot tier — lotto slips get a subtle purple depth */
+.ws-slip.tier-lotto {
+  box-shadow: 0 0 0 1px rgba(167,139,250,0.18), inset 0 0 20px rgba(167,139,250,0.03);
+}
+
+/* Anchor card — stronger glow to signal "act on these" */
+.ws-anchor-card {
+  box-shadow: 0 0 0 1px var(--ws-border-strong), 0 4px 24px rgba(56,189,248,0.06);
+}
+.ws-anchor-row:hover {
+  background: rgba(56,189,248,0.04) !important;
+}
+
+/* Hot label — inline badge for things that are live/moving right now */
+.ws-hot-label {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--ws-sans);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: rgba(239,68,68,0.15);
+  color: #fca5a5;
+  border: 1px solid #b91c1c;
+  animation: ws-pulse-urgent 1.8s ease-in-out infinite;
+}
+
+/* Nav active state — stronger accent left border */
+.ws-nav-btn.active {
+  border-left: 2px solid var(--ws-accent) !important;
+  padding-left: 10px;
+}
+
+/* Section title accent line */
+.ws-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ws-border);
+  margin-left: 4px;
+  opacity: 0.5;
+}
+
+/* KPI hover lift */
+.ws-kpi {
+  transition: border-color 0.15s, background 0.15s;
+}
+.ws-kpi:hover {
+  border-color: var(--ws-border-strong);
+  background: var(--ws-bg-3);
+}
+
+/* Featured card hover highlight */
+.ws-feat-card {
+  transition: border-color 0.15s;
+}
+.ws-feat-card:hover {
+  border-color: var(--ws-border-strong);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE 2 — Bettor-First UX Components
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Risk pulse strip ───────────────────────────────────────────────────── */
+.ws-risk-pulse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--ws-bg-1);
+  border: 1px solid var(--ws-border);
+  border-radius: var(--ws-radius);
+  font-size: 12px;
+}
+.ws-risk-warnings {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ws-risk-flag {
+  color: var(--ws-text-dim);
+  font-size: 11.5px;
+}
+
+/* ── Hero Pick Card ─────────────────────────────────────────────────────── */
+@keyframes ws-hero-border-pulse {
+  0%, 100% { border-color: rgba(239,68,68,0.6); box-shadow: 0 0 0 0 rgba(239,68,68,0.2); }
+  50%       { border-color: rgba(239,68,68,0.9); box-shadow: 0 0 12px 2px rgba(239,68,68,0.12); }
+}
+@keyframes ws-hero-soon-pulse {
+  0%, 100% { border-color: rgba(245,158,11,0.5); }
+  50%       { border-color: rgba(245,158,11,0.85); }
+}
+
+.ws-hero-card {
+  background: linear-gradient(140deg, #14202e 0%, #0e151f 60%, #0b0d10 100%);
+  border: 1px solid var(--ws-border-strong);
+  border-top: 3px solid var(--ws-accent);
+  border-radius: var(--ws-radius-lg);
+  padding: 18px 20px 16px;
+  position: relative;
+}
+.ws-hero-card.ws-hero-urgent {
+  border-top-color: var(--ws-urgency-immediate);
+  animation: ws-hero-border-pulse 2s ease-in-out infinite;
+}
+.ws-hero-card.ws-hero-soon {
+  border-top-color: var(--ws-urgency-soon);
+  animation: ws-hero-soon-pulse 2.5s ease-in-out infinite;
+}
+.ws-hero-card.ws-hero-card-empty {
+  border-top-color: var(--ws-bg-4);
+  background: var(--ws-bg-1);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+.ws-hero-empty-msg {
+  font-size: 12px;
+  color: var(--ws-text-dim);
+  font-style: italic;
+}
+
+.ws-hero-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ws-hero-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ws-accent);
+  font-family: var(--ws-sans);
+}
+.ws-hero-book {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ws-text-mute);
+  font-family: var(--ws-mono);
+}
+
+.ws-hero-player-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.ws-hero-player {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ws-text-strong);
+  font-family: var(--ws-sans);
+  line-height: 1.1;
+  letter-spacing: -0.3px;
+}
+.ws-hero-team {
+  font-size: 13px;
+  color: var(--ws-text-dim);
+  font-family: var(--ws-mono);
+}
+
+.ws-hero-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.ws-hero-prop {
+  font-size: 15px;
+  color: var(--ws-text);
+  font-family: var(--ws-mono);
+  font-weight: 500;
+}
+.ws-hero-odds {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ws-accent);
+  font-family: var(--ws-mono);
+}
+.ws-hero-edge {
+  font-size: 13px;
+  color: var(--ws-positive);
+  font-weight: 600;
+  font-family: var(--ws-mono);
+}
+.ws-hero-prob {
+  font-size: 12px;
+  color: var(--ws-text-dim);
+  font-family: var(--ws-mono);
+}
+
+/* The WHY — most emotionally important text on the page */
+.ws-hero-attack {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ws-text);
+  line-height: 1.6;
+  padding: 10px 14px;
+  background: rgba(56,189,248,0.07);
+  border-left: 3px solid var(--ws-accent);
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 10px;
+  font-family: var(--ws-sans);
+}
+.ws-hero-tags {
+  font-size: 11px;
+  color: var(--ws-text-dim);
+  font-family: var(--ws-sans);
+  margin-bottom: 12px;
+  letter-spacing: 0.2px;
+}
+
+.ws-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ws-hero-cta {
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ws-hero-more {
+  font-size: 11px;
+  color: var(--ws-text-mute);
+  font-style: italic;
+}
+.ws-hot-soon {
+  background: rgba(245,158,11,0.15) !important;
+  color: #fcd34d !important;
+  border-color: #b45309 !important;
+}
+
+/* ── Supporting picks section ───────────────────────────────────────────── */
+.ws-supporting-section {
+  padding: 2px 0;
+}
+.ws-supporting-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ws-text-mute);
+  margin-bottom: 8px;
+  font-family: var(--ws-sans);
+}
+.ws-supporting-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+@media (max-width: 900px) {
+  .ws-supporting-grid { grid-template-columns: 1fr; }
+}
+.ws-supporting-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto 28px;
+  gap: 6px;
+  align-items: start;
+  padding: 8px 10px;
+  background: var(--ws-bg-1);
+  border: 1px solid var(--ws-border);
+  border-radius: var(--ws-radius);
+  font-size: 12.5px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.ws-supporting-row:hover {
+  border-color: var(--ws-border-strong);
+  background: var(--ws-bg-2);
+}
+.ws-supporting-rank {
+  font-size: 11px;
+  color: var(--ws-text-mute);
+  font-family: var(--ws-mono);
+  padding-top: 2px;
+}
+.ws-supporting-body {
+  min-width: 0;
+}
+.ws-supporting-player {
+  font-weight: 600;
+  color: var(--ws-text-strong);
+  font-family: var(--ws-sans);
+  font-size: 13px;
+}
+.ws-supporting-prop {
+  color: var(--ws-text-dim);
+  font-size: 12px;
+  font-family: var(--ws-mono);
+}
+.ws-supporting-attack {
+  font-size: 11px;
+  color: var(--ws-text-dim);
+  font-style: italic;
+  margin-top: 3px;
+  grid-column: 1 / -1;
+  line-height: 1.4;
+}
+.ws-supporting-odds {
+  font-family: var(--ws-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text-strong);
+  white-space: nowrap;
+}
+
+/* ── Spotlight card grid ────────────────────────────────────────────────── */
+.ws-spotlight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (min-width: 1500px) {
+  .ws-spotlight-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 1100px) and (max-width: 1499px) {
+  .ws-spotlight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.ws-spotlight-card {
+  background: var(--ws-bg-1);
+  border: 1px solid var(--ws-border);
+  border-top: 3px solid var(--spotlight-accent, var(--ws-accent));
+  border-radius: var(--ws-radius-lg);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ws-spotlight-card:hover {
+  border-color: var(--ws-border-strong);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+
+.ws-spotlight-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ws-border);
+}
+.ws-spotlight-icon {
+  font-size: 16px;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--ws-bg-3);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.ws-spotlight-titles {
+  flex: 1;
+  min-width: 0;
+}
+.ws-spotlight-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text-strong);
+  display: block;
+}
+.ws-spotlight-tagline {
+  font-size: 10.5px;
+  color: var(--ws-text-mute);
+  font-style: italic;
+  display: block;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-spotlight-count {
+  font-size: 11px;
+  color: var(--ws-text-mute);
+  font-family: var(--ws-mono);
+  padding: 2px 6px;
+  background: var(--ws-bg-3);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+/* Top play — the featured play with narrative */
+.ws-spotlight-top {
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--ws-border);
+  margin-bottom: 8px;
+}
+.ws-spotlight-top-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.ws-spotlight-top-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ws-text-strong);
+  font-family: var(--ws-sans);
+}
+.ws-spotlight-top-team {
+  font-size: 11px;
+}
+.ws-spotlight-top-prop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.ws-spotlight-top-stat {
+  font-family: var(--ws-mono);
+  font-size: 12px;
+  color: var(--ws-text-dim);
+}
+.ws-spotlight-top-odds {
+  font-family: var(--ws-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ws-text-strong);
+}
+/* The narrative — identical pattern to hero attack note, smaller scale */
+.ws-spotlight-attack {
+  font-size: 11.5px;
+  color: var(--ws-text);
+  line-height: 1.55;
+  padding: 6px 10px;
+  background: rgba(56,189,248,0.05);
+  border-left: 2px solid var(--spotlight-accent, var(--ws-accent));
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 6px;
+  font-family: var(--ws-sans);
+  font-weight: 400;
+}
+.ws-spotlight-reasoning {
+  font-size: 11px;
+  color: var(--ws-text-dim);
+  font-style: italic;
+  margin-bottom: 6px;
+}
+.ws-spotlight-add {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+/* Secondary plays */
+.ws-spotlight-rest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-spotlight-rest-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--ws-border);
+  min-width: 0;
+}
+.ws-spotlight-rest-row:last-child { border-bottom: none; }
+.ws-spotlight-rest-row:hover { background: var(--ws-bg-2); border-radius: 4px; }
+.ws-spotlight-rest-name {
+  font-weight: 600;
+  color: var(--ws-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ws-sans);
+}
+.ws-spotlight-rest-stat {
+  font-size: 11px;
+  font-family: var(--ws-mono);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ws-spotlight-rest-odds {
+  font-family: var(--ws-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ws-text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Chaos Builder block ────────────────────────────────────────────────── */
+.ws-chaos-block {
+  background: linear-gradient(135deg, rgba(167,139,250,0.08) 0%, rgba(11,13,16,1) 50%);
+  border: 1px solid var(--ws-border-strong);
+  border-top: 3px solid var(--ws-vol-lotto);
+  border-radius: var(--ws-radius-lg);
+  padding: 14px 16px;
+}
+.ws-chaos-block.ws-chaos-empty {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--ws-bg-1);
+  border-top-color: var(--ws-bg-4);
+}
+.ws-chaos-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ws-chaos-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--ws-vol-lotto);
+  font-family: var(--ws-sans);
+}
+.ws-chaos-odds {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ws-vol-lotto);
+  font-family: var(--ws-mono);
+}
+.ws-chaos-reasoning {
+  font-size: 12px;
+  color: var(--ws-text-dim);
+  font-style: italic;
+  margin-bottom: 10px;
+  padding-left: 4px;
+  border-left: 2px solid var(--ws-vol-lotto);
+  padding-left: 8px;
+}
+.ws-chaos-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.ws-chaos-leg {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: rgba(167,139,250,0.05);
+  border-radius: var(--ws-radius);
+  font-size: 12px;
+}
+
+/* ── First Basket View ───────────────────────────────────────────────────── */
+.ws-fb-hero {
+  background: var(--ws-card-bg);
+  border: 1px solid var(--ws-border);
+  border-top: 3px solid var(--ws-warn);
+  border-radius: var(--ws-radius);
+  padding: 14px 16px;
+  margin-bottom: 0;
+  position: relative;
+}
+.ws-fb-hero-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ws-warn);
+  font-family: var(--ws-mono);
+  margin-bottom: 10px;
+}
+.ws-fb-hero-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.ws-fb-hero-left {
+  flex: 1;
+  min-width: 0;
+}
+.ws-fb-hero-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ws-fb-hero-player {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ws-text);
+  line-height: 1.1;
+}
+.ws-fb-hero-prop {
+  font-size: 13px;
+  color: var(--ws-text-dim);
+  margin-top: 4px;
+  font-family: var(--ws-mono);
+}
+.ws-fb-hero-odds {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ws-warn);
+  font-family: var(--ws-mono);
+  line-height: 1;
+}
+.ws-fb-rest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-fb-rest-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--ws-border);
+  font-size: 12px;
+}
+.ws-fb-rest-row:last-child {
+  border-bottom: none;
+}
+.ws-fb-rest-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -180,6 +180,8 @@ export interface Featured {
   anchors: FeaturedPlay[]
   tonightsBest: FeaturedPlay[]
   bestHr: FeaturedPlay[]
+  bestPra: FeaturedPlay[]
+  bestFirstBasket: FeaturedPlay[]
   bestLadders: FeaturedPlay[]
   smartAggression: FeaturedPlay[]
   safest: FeaturedPlay[]

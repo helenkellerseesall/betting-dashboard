@@ -67,7 +67,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
   return (
     <div>
       <h2 className="ws-section-title">
-        Portfolio <small>{candidates.length} candidates</small>
+        📐 Risk Map <small>{candidates.length} candidates</small>
       </h2>
 
       <div className="ws-grid ws-grid-3" style={{ marginBottom: 14 }}>
@@ -93,7 +93,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
         </div>
 
         <div className="ws-card">
-          <strong>Game Concentration</strong>
+          <strong>Game Exposure</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {topGames.length === 0 && <div className="ws-empty">No game exposure yet.</div>}
             {topGames.map((g: any) => (
@@ -106,7 +106,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
         </div>
 
         <div className="ws-card">
-          <strong>Player Concentration</strong>
+          <strong>Player Stacks</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {topPlayers.length === 0 && <div className="ws-empty">No player exposure yet.</div>}
             {topPlayers.map((p: any) => (
@@ -121,7 +121,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
 
       <div className="ws-grid ws-grid-2" style={{ marginBottom: 14 }}>
         <div className="ws-card">
-          <strong>Stat Exposure</strong>
+          <strong>Stat Mix</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {topStats.map((s: any) => (
               <div key={s.k} className="ws-row-between" style={{ fontFamily: "var(--ws-mono)", fontSize: 12 }}>
@@ -133,7 +133,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
         </div>
 
         <div className="ws-card">
-          <strong>Correlations</strong>
+          <strong>Correlation Risk</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {(portfolio?.correlations?.clusters || []).slice(0, 8).map((c, i) => (
               <div key={i} style={{ fontSize: 12 }}>
@@ -150,7 +150,7 @@ export function PortfolioView({ state }: { state: SportState | null }) {
 
       {portfolio?.warnings?.length ? (
         <div className="ws-card">
-          <strong>Notes</strong>
+          <strong>Risk Flags</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {portfolio.warnings.map((w, i) => {
               const text = typeof w === "string" ? w : w.label
@@ -164,13 +164,13 @@ export function PortfolioView({ state }: { state: SportState | null }) {
             })}
           </div>
           <div className="ws-trust-note">
-            Notes are informational, not punitive. Consider trimming when game/player concentration appears multiple times.
+            Flags are informational — they highlight concentration risk, not definite problems. Heavy overlap in one game or player stack is worth a second look before locking in.
           </div>
         </div>
       ) : (
         <div className="ws-card">
           <div className="ws-trust-note">
-            No concentration notes — portfolio looks balanced across players, games, stats, and books.
+            Clean risk profile — no concentration flags tonight. Spread across players, games, stats, and books looks balanced.
           </div>
         </div>
       )}
