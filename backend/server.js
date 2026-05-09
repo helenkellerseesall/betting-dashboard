@@ -19047,11 +19047,11 @@ app.get("/snapshot/status", async (req, res) => {
 })
 
 app.get("/refresh-snapshot", async (req, res) => {
-  // === HARD refresh guard (global) ===
-  // Must run at the very top of the active refresh route.
-  let __refreshInProgress = global.__refreshInProgress || false
-  let __lastRefreshTime = global.__lastRefreshTime || 0
-
+  // === HARD refresh guard ===
+  // Uses the module-level __refreshInProgress / __lastRefreshTime (line ~10091)
+  // — same mutex as /api/best-available. Previously used global.* (separate scope),
+  // which meant /refresh-snapshot and /api/best-available could run concurrently.
+  // Unified to module-level in Session Y (repo constitution cleanup).
   if (__refreshInProgress) {
     console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
     return res.json({ skipped: true, reason: "in_progress" })
@@ -19062,10 +19062,10 @@ app.get("/refresh-snapshot", async (req, res) => {
     return res.json({ skipped: true, reason: "cooldown" })
   }
 
-  global.__refreshInProgress = true
+  __refreshInProgress = true
   try {
     // Existing refresh logic below (do not change)
-    global.__lastRefreshTime = Date.now()
+    __lastRefreshTime = Date.now()
   console.log("[REFRESH TRIGGERED]")
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot")
   const sport = String(req.query?.sport || "").trim()
@@ -19141,7 +19141,7 @@ app.get("/refresh-snapshot", async (req, res) => {
     rawProps: Array.isArray(oddsSnapshot?.rawProps) ? oddsSnapshot.rawProps.length : 0,
   })
   } finally {
-    global.__refreshInProgress = false
+    __refreshInProgress = false
     console.log("[REFRESH GUARD]", { skipped: false })
   }
 })

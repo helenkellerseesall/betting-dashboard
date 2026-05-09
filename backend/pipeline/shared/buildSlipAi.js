@@ -35,6 +35,7 @@
  */
 
 const { classifyVolatility } = require("./buildPortfolioOptimizer")
+const { isOffensiveAttackStat } = require("./normalizers")
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,18 @@ function normalizeCandidate(raw) {
     archetype:     raw.archetype || raw.archetypeTag,
     closingOdds:   raw.closingOdds,
     clv:           raw.clv,
-    volatility:    classifyVolatility(raw),
+    // NBA-1: Preserve snapshotSourced volatility for lotto-stamped candidates.
+    // buildNbaSnapshotCandidates() (workstationRoutes.js FIX Q4) stamps
+    // volatility: "lotto" on PRA combo candidates and snapshotSourced: true.
+    // Without this guard, classifyVolatility() overwrites with "aggressive"
+    // (VOLATILITY_RULES: combo/pra → aggressive), blocking PRA from the lotto
+    // slip tier (TIER_TEMPLATES.lotto.allowedVolatility = ["aggressive","lotto"]).
+    // Guard is narrow: only preserves "lotto" stamps from confirmed snapshot
+    // source. MLB candidates never set snapshotSourced — no MLB behavior change.
+    // VOLATILITY_RULES itself is NOT modified.
+    volatility:    (raw.snapshotSourced === true && raw.volatility === "lotto")
+                     ? "lotto"
+                     : classifyVolatility(raw),
     raw,
   }
 }
@@ -261,14 +273,10 @@ function lookupTiming(leg, timingMap) {
  * only nudges ordering when composite scores are similar.
  */
 function offensiveAttackTextureBonus(leg, timingMap) {
-  const fam = normFam(leg.statFamily || leg.propType)
-  if (fam.includes("strikeout") || fam.includes("outs") || fam.includes("pitcherk")) return 0
-  const offensive =
-    fam.includes("hits") || fam.includes("runs") || fam.includes("totalbase") ||
-    fam.includes("rbi") || fam.includes("homerun") || fam === "hr" ||
-    fam.includes("xbh") || fam.includes("stolen") || fam.includes("steals") ||
-    fam.includes("points") || fam.includes("rebounds") || fam.includes("threes") ||
-    fam.includes("assists") || fam.includes("combo") || fam === "pra"
+  // isOffensiveAttackStat from normalizers.js — canonical shared definition.
+  // Handles exclusion of outs/strikeout/pitcherk/walks and includes doubles/triples
+  // (previously omitted from the inline check here — aligned with buildFeaturedPlays).
+  const offensive = isOffensiveAttackStat(leg.statFamily || leg.propType)
   let b = 0
   if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.032
   if ((leg.volatility === "aggressive" || leg.volatility === "lotto") && (leg.edge ?? 0) > 0.04) b += 0.022

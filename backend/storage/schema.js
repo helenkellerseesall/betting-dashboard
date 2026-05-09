@@ -25,6 +25,7 @@
  */
 
 const { applyScreenshotSchema } = require("./screenshotSchema")
+const { applyReviewSchema }     = require("./reviewSchema")
 
 const DDL = `
 
@@ -223,6 +224,7 @@ CREATE INDEX IF NOT EXISTS idx_pl_tier       ON personal_ledger (confidence_tier
 function applySchema(db) {
   db.exec(DDL)
   applyScreenshotSchema(db)
+  applyReviewSchema(db)     // Session W: Daily Intelligence Review tables
 }
 
 module.exports = { applySchema, DDL }

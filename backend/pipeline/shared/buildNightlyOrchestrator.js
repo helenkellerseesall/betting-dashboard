@@ -362,6 +362,30 @@ function stepBuildReports(sport, date, snapshotRows = []) {
   }
 }
 
+function stepDailyIntelligenceReview(sport, date) {
+  try {
+    // Lazy-loaded to keep startup cost zero if review pipeline not used
+    const { runDailyIntelligenceReview, writeDailyReportFile } = require("../review/buildDailyIntelligenceReview")
+    const result = runDailyIntelligenceReview({ sport, date, write: true, verbose: false })
+    if (result.ok) {
+      writeDailyReportFile(sport, date, result)
+    }
+    return {
+      ok: result.ok,
+      grades: result.grades || null,
+      majorFindings: result.majorFindings || [],
+      hrEruptionMiss: result.ecology?.hr?.hrEruptionMiss || false,
+      suppressedWinners: result.process?.summary?.suppressedWinners || 0,
+      eruptionCount: result.eruptions?.events?.length || 0,
+      brierScore: result.calibration?.brierScore || null,
+      elapsedMs: result.elapsedMs || null,
+      error: result.reason || null,
+    }
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) }
+  }
+}
+
 // ── MAIN ORCHESTRATOR ─────────────────────────────────────────────────────────
 
 /**
@@ -487,7 +511,19 @@ function runNightlyReview(opts = {}) {
     steps.reports = stepBuildReports(sport, date, snapshotRows)
     log(elapsed("reports", t0))
 
-    // ── 9. Write nightly summary ──────────────────────────────────────────────
+    // ── 9. Daily intelligence review ──────────────────────────────────────────
+    // Additive — never blocks summary write if this step fails.
+    // Answers the 18 daily intelligence questions:
+    //   calibration (Brier/ECE), ecology grading, volatility realization,
+    //   offensive eruption detection, process classification (10 archetypes),
+    //   HR suppression detection, implied-vs-actual divergence.
+    log("Step 9: daily intelligence review")
+    steps.dailyIntelligenceReview = dryRun
+      ? { skipped: true, reason: "dry_run" }
+      : stepDailyIntelligenceReview(sport, date)
+    log(elapsed("dailyIntelligenceReview", t0))
+
+    // ── 10. Write nightly summary ─────────────────────────────────────────────
     const summary = buildNightlySummary({ sport, date, steps, elapsed: Date.now() - t0 })
     steps.summary = summary
 
@@ -596,14 +632,15 @@ function buildNightlySummary({ sport, date, steps, elapsed: elapsedMs = 0 } = {}
     clvByBook,
     archetypeShifts: archetypes,
     stepHealth: {
-      applyResults:  stepsOk(steps.applyResults),
-      review:        stepsOk(steps.review),
-      ledgerImport:  stepsOk(steps.ledgerImport),
-      ledgerSettle:  stepsOk(steps.ledgerSettle),
-      clvUpdate:     stepsOk(steps.clvUpdate),
-      bookSync:      stepsOk(steps.bookSync),
-      timingSync:    stepsOk(steps.timingSync),
-      reports:       stepsOk(steps.reports),
+      applyResults:           stepsOk(steps.applyResults),
+      review:                 stepsOk(steps.review),
+      ledgerImport:           stepsOk(steps.ledgerImport),
+      ledgerSettle:           stepsOk(steps.ledgerSettle),
+      clvUpdate:              stepsOk(steps.clvUpdate),
+      bookSync:               stepsOk(steps.bookSync),
+      timingSync:             stepsOk(steps.timingSync),
+      reports:                stepsOk(steps.reports),
+      dailyIntelligenceReview: stepsOk(steps.dailyIntelligenceReview),
     },
   }
 }

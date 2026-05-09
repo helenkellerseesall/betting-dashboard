@@ -35,6 +35,7 @@
  */
 
 const { classifyVolatility } = require("./buildPortfolioOptimizer")
+const { isOffensiveAttackStat } = require("./normalizers")
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,22 +53,7 @@ function impliedFromAmerican(o) {
   return n > 0 ? 100 / (n + 100) : Math.abs(n) / (Math.abs(n) + 100)
 }
 
-/**
- * True offensive attack stats — hitter offense, not pitcher dominance.
- * Used to distinguish "real attack overs" from suppression-flavored overs
- * (pitcher outs/Ks, walks). Mirrors the same recognition used by
- * buildSlipAi.offensiveAttackTextureBonus.
- */
-function isOffensiveAttackStat(fam) {
-  const f = normFam(fam)
-  if (!f) return false
-  if (f.includes("outs") || f.includes("strikeout") || f.includes("pitcherk") || f.includes("walks")) return false
-  return f.includes("hits") || f.includes("runs") || f.includes("totalbase") ||
-         f.includes("rbi") || f.includes("homerun") || f === "hr" || f.includes("xbh") ||
-         f.includes("stolen") || f.includes("steals") || f.includes("points") ||
-         f.includes("rebounds") || f.includes("threes") || f.includes("assists") ||
-         f.includes("combo") || f === "pra" || f.includes("doubles") || f.includes("triples")
-}
+// isOffensiveAttackStat — imported from ./normalizers (canonical shared definition)
 
 function normalizeCandidate(raw) {
   if (!raw) return null
@@ -97,7 +83,18 @@ function normalizeCandidate(raw) {
     edge,
     confidence:  num(raw.calibratedConfidence ?? raw.confidence ?? raw.confidenceRaw),
     tier:        raw.tier || raw.confidenceTier || raw.bucket,
-    volatility:  classifyVolatility(raw),
+    // NBA-1: Preserve snapshotSourced volatility for lotto-stamped candidates.
+    // buildNbaSnapshotCandidates() (workstationRoutes.js FIX Q4) stamps
+    // volatility: "lotto" on PRA combo candidates and snapshotSourced: true.
+    // Without this guard, classifyVolatility() overwrites with "aggressive"
+    // (VOLATILITY_RULES: combo/pra → aggressive), blocking PRA from the lotto
+    // slip tier and penalizing it in volRealism scoring vs balanced stats.
+    // Guard is narrow: only preserves "lotto" stamps from confirmed snapshot
+    // source. MLB candidates never set snapshotSourced — no MLB behavior change.
+    // VOLATILITY_RULES itself is NOT modified.
+    volatility:  (raw.snapshotSourced === true && raw.volatility === "lotto")
+                   ? "lotto"
+                   : classifyVolatility(raw),
     raw,
   }
 }
@@ -222,9 +219,18 @@ function scoreCandidate(c, ctx) {
   // volatility realism — reward stable profiles without crushing balanced/aggressive
   // textures (prior hits/runs incorrectly classified "safe" and swept rankings;
   // classification fixed in buildPortfolioOptimizer — keep scoring sane here).
+  //
+  // NBA-1: lotto gets its own slot (0.65 ≈ aggressive 0.66) rather than the
+  // generic 0.56 fallthrough. Without this, PRA candidates correctly preserved
+  // as "lotto" via the snapshotSourced guard score ~0.01 lower than equivalent
+  // aggressive plays — a scoring regression that would suppress PRA ecosystem
+  // surfacing despite the classification fix. 0.65 reflects genuine high-upside
+  // process (not noise), near-peer with aggressive, below balanced. The generic
+  // fallthrough (any unknown classification) drops to 0.56.
   f.volRealism = c.volatility === "safe" ? 0.80 :
                  c.volatility === "balanced" ? 0.74 :
                  c.volatility === "aggressive" ? 0.66 :
+                 c.volatility === "lotto" ? 0.65 :
                  0.56
   total += f.volRealism * 0.10; weight += 0.10
 

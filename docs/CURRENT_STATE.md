@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-08 (Session R: NBA payload wiring audit — Fix R1: `handleNbaBestAvailableGet` now returns `bestAvailable` wrapper with `best/elite/strong/ladders/firstBasket/aiSlips/featured/wsCandidates`; smoke test 24 candidates / 22 featured / 11 slips confirmed; TERM 1 restart required for both Session Q + R)_
+_Last updated: 2026-05-09 (Session Z: NBA Ecology Constitution Audit — full 20-section philosophical + architectural audit complete; NBA Ecology Health Score 2.9/10; 7-phase evolution roadmap defined; no code changes, read-only audit)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-08 (Session R: NBA payload wiring audit — Fix R1: `hand
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–R staged, pending finalization via finalizeCheckpoint.sh |
-| Repo health | Stable. All syntax checks clean. |
+| Last commit | e076871 (Session I) — Sessions H–Z staged, pending finalization via finalizeCheckpoint.sh |
+| Repo health | **7.2/10 structural (unchanged — Session Z was read-only). NBA intelligence health: 2.9/10 (audited). Next major lever: NBA-1 PRA volatility fix + NBA-2 canonical path designation.** |
 
 ---
 
@@ -36,22 +36,31 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | System | Status | Owner file |
 |---|---|---|
 | MLB nightly pipeline | Working | `scripts/runMlbNight.js` |
+| **MLB HR candidate scoring** | **Fixed (Session T) — HR tiering/scoring recalibrated; STRONG HR now surfaces** | **`pipeline/mlb/buildMlbPropClusters.js`** |
+| **MLB roster integrity — team field** | **Fixed (Session V) — team/teamCode/awayTeam/homeTeam now persisted in leanBet/leanSlip** | **`pipeline/mlb/phase4Tracking.js`, `buildMlbPropClusters.js`, `buildMlbPlayerDataset.js`, `external/mlbPlayerIdentityCache.js`** |
 | NBA nightly pipeline | Working | `scripts/runNbaNight.js` |
 | AI Slip construction | Working | `pipeline/shared/buildSlipAi.js` |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
-| **Candidate diversification** | **Working — extracted + Fix 1 applied** | **`pipeline/shared/buildCandidateDiversity.js`** |
-| **NBA snapshot routing** | **Fixed (Session N) — readSnapshotRows fallback** | **`routes/workstationRoutes.js`** |
-| **NBA aiCandidates supplement** | **Fixed (Session Q Fix Q1) — snapshot wired into aiCandidates + featured/slip pools** | **`routes/workstationRoutes.js`** |
-| **`/api/best-available` NBA payload** | **Fixed (Session R Fix R1) — `bestAvailable` wrapper + workstation pipeline added to `handleNbaBestAvailableGet`** | **`http/nbaIsolatedRoutes.js`** |
-| Line shopping (implied spread ranking) | Working | `routes/workstationRoutes.js` |
+| Candidate diversification | Working | `pipeline/shared/buildCandidateDiversity.js` |
+| NBA snapshot routing | Fixed (Session N) | `routes/workstationRoutes.js` |
+| NBA aiCandidates supplement | Fixed (Session Q Fix Q1) | `routes/workstationRoutes.js` |
+| `/api/best-available` NBA payload | Fixed (Session R Fix R1) | `http/nbaIsolatedRoutes.js` |
+| Line shopping | Working | `routes/workstationRoutes.js` |
 | Portfolio optimizer | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Market timing intelligence | Working | `pipeline/shared/buildMarketTimingIntelligence.js` |
 | CLV tracking | Working | `pipeline/shared/buildClv.js` |
-| Personal ledger | Working | `pipeline/shared/buildPersonalLedger.js` |
-| Post-game review engine | Working + **Intelligence settlement wired (Session J)** | `pipeline/shared/buildPostGameReview.js` |
-| Nightly orchestrator | Working | `pipeline/shared/buildNightlyOrchestrator.js` |
-| Workstation frontend | Working — **bettor UX Phase 1+2+3 applied (Sessions L+M+N)** | `frontend/src/workstation/` |
+| **Personal ledger — JSON write** | **Fixed (Session S) — atomic rename, no .tmp orphan** | **`pipeline/shared/buildPersonalLedger.js`** |
+| **Personal ledger — SQLite mirror** | **Active (Session S) — write-through mirror on every saveLedger()** | **`pipeline/shared/buildPersonalLedger.js` + `storage/queries.js`** |
+| **Screenshot intelligence — ingestion** | **Active (Session U) — JSON slip ingest → normalize → classify → SQLite** | **`pipeline/screenshots/screenshotRoutes.js`** |
+| **Screenshot intelligence — normalizer** | **Active (Session U) — pure function, source-agnostic, 7 input shapes** | **`pipeline/screenshots/normalizeIngestedSlip.js`** |
+| **Screenshot intelligence — classifier** | **Active (Session U) — 10 dimensions, 7 archetypes, composite scoring** | **`pipeline/screenshots/classifyIngestedSlip.js`** |
+| Post-game review engine | Working + Intelligence settlement wired (Session J) | `pipeline/shared/buildPostGameReview.js` |
+| Nightly orchestrator | **Updated (Session W) — Step 9: dailyIntelligenceReview wired** | `pipeline/shared/buildNightlyOrchestrator.js` |
+| **Daily Intelligence Review Engine** | **NEW (Session W) — 8 modules; calibration, ecology, volatility, eruptions, process** | **`pipeline/review/`** |
+| **Offensive stat canonical** | **NEW (Session Y) — isOffensiveAttackStat() unified in normalizers.js** | **`pipeline/shared/normalizers.js`** |
+| **Workstation compactors** | **NEW (Session Y) — extracted from workstationRoutes.js** | **`pipeline/shared/buildWorkstationCompactors.js`** |
+| Workstation frontend | Working — bettor UX Phase 1+2+3 applied (Sessions L+M+N) | `frontend/src/workstation/` |
 
 ---
 
@@ -66,21 +75,165 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | Line shopping | `sections/LineShoppingView.tsx` |
 | Portfolio view | `sections/PortfolioView.tsx` |
 | Process review | `sections/ProcessReviewView.tsx` |
-| First basket | `sections/FirstBasketView.tsx` — **premium rewrite Session N** |
+| First basket | `sections/FirstBasketView.tsx` — premium rewrite Session N |
 
 ---
 
-## RUNTIME TRACKING FILES (today: 2026-05-08)
+## RUNTIME TRACKING FILES (today: 2026-05-09)
 
 | File | Contents |
 |---|---|
-| `mlb_tracked_bets_2026-05-08.json` | MLB bets |
+| `mlb_tracked_bets_2026-05-08.json` | MLB bets (134 bets, all pending — no results entered yet) |
 | `mlb_tracked_best_2026-05-08.json` | HR/TB/RBI overs attack board |
 | `mlb_tracked_slips_2026-05-08.json` | AI-generated slip catalog |
-| `nba_tracked_bets_2026-05-08.json` | 2 bets (rebounds only — thin; SP Fix 1+2 accumulate nightly) |
-| `personal_ledger.json` | Flat JSON personal bet ledger (~2,000 entries — SQLite migration OVERDUE) |
+| `nba_tracked_bets_2026-05-08.json` | 2 bets (rebounds only — thin) |
+| `personal_ledger.json` | **2,000 entries / 2.3MB — atomic JSON write + SQLite mirror** |
 | `book_intelligence_state.json` | Sportsbook CLV/profile rolling state |
-| `snapshot.json` | 9.47MB, 5,209 rows (876 base non-alt NBA props, 4,333 alt/ladder) |
+| `snapshot.json` | 9.47MB, 5,209 rows |
+
+---
+
+## SQLITE STATE
+
+| File | Status |
+|---|---|
+| `backend/storage/betting.db` | 782KB — has `prediction_snapshots` (110 rows), `ecology_snapshots` (4 rows); `personal_ledger` table (Session S); 6 review tables (Session W — auto-applied on next restart). |
+| `backend/storage/betting.db-journal` | **Stale virtiofs rollback journal — blocks sandbox access.** macOS TERM 1 can open betting.db normally. |
+
+**betting2.db + betting2.db-journal + storage/test.txt → DELETED (Session Y)**
+
+---
+
+## SESSION Y — Repo Constitution Cleanup (Phase 0 + Phase 2)
+
+### Scope (2026-05-09):
+Zero-regression structural stabilization. Dead code removal, duplication elimination, mutex integrity fix. No behavior changes to any scoring, ecology, or slip logic.
+
+### Phase 0 — Dead code deleted:
+
+| File | Lines removed | Reason |
+|---|---|---|
+| `backend/http/nbaBestAvailable.inlined.js` | 6,867 | Confirmed dead — explicitly excluded by nbaIsolatedRoutes.js. 0 importers. |
+| `backend/http/nbaRefreshSnapshot.inlined.js` | 4,318 | Confirmed dead — same. 0 importers. |
+| `backend/pipeline/enrich/index.js` | 0 (empty) | Empty stub, 0 importers |
+| `backend/pipeline/normalize/index.js` | 0 (empty) | Empty stub, 0 importers |
+| `backend/pipeline/validation/rows.js` | 0 (empty) | Empty stub, 0 importers |
+| `backend/pipeline/snapshot/buildSnapshot.js` | 0 (empty) | Empty stub, 0 importers |
+| `backend/storage/betting2.db` | — | Orphan test DB |
+| `backend/storage/betting2.db-journal` | — | Stale journal for orphan |
+| `backend/storage/test.txt` | — | Empty test artifact |
+
+**Total dead code removed: 11,185 lines. 9 files. 4 empty directories cleaned.**
+
+### Phase 2 — Tactical extractions:
+
+#### Task 1 — `isOffensiveAttackStat` unified
+
+| File | Change |
+|---|---|
+| `pipeline/shared/normalizers.js` | **NEW** — canonical `isOffensiveAttackStat(fam)` + `normFam(v)`. 54 lines. |
+| `pipeline/shared/buildFeaturedPlays.js` | **MODIFIED** — import from normalizers; local 16-line definition removed. |
+| `pipeline/shared/buildSlipAi.js` | **MODIFIED** — import from normalizers; inline 8-line `offensive` check replaced with single call. |
+
+**Alignment note**: buildSlipAi previously omitted `doubles` and `triples` from its offensive stat check (accidental omission vs buildFeaturedPlays). The canonical definition now correctly includes both. This is a legitimate alignment, not a regression — doubles/triples are genuine offensive attack stats. Impact is minimal (rare stat families, max +0.032 texture bonus).
+
+#### Task 2 — Compactors extracted
+
+| File | Change |
+|---|---|
+| `pipeline/shared/buildWorkstationCompactors.js` | **NEW** — `compactLineShopping`, `compactTiming`, `compactPortfolio`. 145 lines. Exact behavior preserved. |
+| `routes/workstationRoutes.js` | **MODIFIED** — import from buildWorkstationCompactors; 103-line inline block removed. 721 → 620 lines. |
+
+#### Task 3 — Dual-mutex fixed
+
+| File | Change |
+|---|---|
+| `backend/server.js` | **MODIFIED** — `/refresh-snapshot` route unified to module-level `__refreshInProgress` / `__lastRefreshTime`. Removed local `let` declarations (lines 19052–19053) and `global.*` assignments (lines 19065, 19068, 19144). Now shares mutex with `/api/best-available`. |
+
+**Mutex before**: `/refresh-snapshot` used `global.__refreshInProgress` (separate scope from module-level). `/api/best-available` used module-level. They could run concurrently.
+
+**Mutex after**: Both routes read/write the same module-level `__refreshInProgress` and `__lastRefreshTime`. Concurrent refresh is now impossible.
+
+### Session Y smoke test results (2026-05-09):
+
+| Test | Result |
+|---|---|
+| `node --check` all 6 modified/new files | ✓ 6/6 clean |
+| Zero deleted-file references remaining | ✓ (nbaRefreshSnapshot comment in nbaIsolatedRoutes is benign) |
+| normalizers.js — 23 `isOffensiveAttackStat` cases | ✓ 23/23 pass |
+| compactors — null safety + shape tests | ✓ all pass |
+| Module resolution (require all new imports) | ✓ all resolve |
+| global.* mutex references in server.js | ✓ 0 remaining |
+| http/ directory — 2 files only | ✓ mlbIsolatedRoutes.js + nbaIsolatedRoutes.js |
+| 4 empty stub directories removed | ✓ enrich/ normalize/ validation/ snapshot/ gone |
+
+**TERM 1 restart required** — server.js modified (mutex fix). workstationRoutes.js modified (compactor import).
+
+---
+
+## SESSION Z — NBA Ecology Constitution Audit (2026-05-09)
+
+**Scope**: Read-only philosophical + architectural audit. Zero code changes. Zero regressions. Zero TERM 1 restart required.
+
+**Output**: `docs/NBA_ECOLOGY_AUDIT_2026-05-09.md` — 20 sections, NBA Ecology Health Score 2.9/10.
+
+### NBA Ecology Health Score Summary:
+
+| Dimension | Score |
+|---|---|
+| Candidate diversity | 3.5/10 |
+| Volatility ecosystem richness | 2.0/10 |
+| Role-spike surfacing | 2.0/10 |
+| Ladder coherence | 2.5/10 |
+| Eruption environment | 1.0/10 |
+| First-basket ecosystem | 2.0/10 |
+| Aggression tier authenticity | 3.0/10 |
+| Same-game correlation logic | 4.0/10 |
+| **OVERALL** | **2.9/10** |
+
+### 8 Critical Failures Confirmed:
+
+1. **Two-path disconnect** — workstation uses MLB-calibrated shared path; NBA-specific builders orphaned
+2. **realismScore monoculture** — 70% weight guarantees star dominance; 3× edge cannot overcome gap
+3. **Lotto starvation** — structural failure on both paths; fallback mirrors aggressive
+4. **aiRange crippled** — alt line gate (`propVariant !== "base"`) kills floor/median/ceiling resolution
+5. **No ecology tier layer** — NBA has no equivalent of MLB's ELITE/STRONG stamps
+6. **Model signal weak** — nbaModelSignals.js is 82–92% market-following; can't detect role spikes
+7. **Eruption environment absent** — no NBA analog to MLB HR candidate ecosystem
+8. **Five overlapping builders** — philosophically incompatible; buildNbaSlipEngine.js is random, not intelligent
+
+### NBA Evolution Roadmap (7 phases):
+
+| Phase | Task | Model | Priority |
+|---|---|---|---|
+| NBA-1 | PRA volatility fix — Path A (snapshot-sourced field) | Sonnet | 🔴 Now |
+| NBA-2 | Designate buildNbaAiSlips as canonical workstation path | Opus audit first | 🔴 Now |
+| NBA-3 | Allow quality alt lines through workstation gate | Sonnet | 🟡 After NBA-2 |
+| NBA-4 | Build NBA Ecology Tier Layer (ELITE/STRONG stamps) | Sonnet | 🟡 After NBA-3 |
+| NBA-5 | Reduce realismScore weight 0.70 → 0.45; raise probability 0.15→0.25, edge 0.10→0.20 | Opus audit first | 🟡 After NBA-4 |
+| NBA-6 | Add eruption environment detection (role-spike, blowout-risk, pace escalation) | Sonnet | 🟢 After NBA-5 |
+| NBA-7 | Wire first basket to workstation (alt market accumulation) | Sonnet | 🟢 After NBA-6 |
+
+### What must eventually die (from audit):
+- `buildNbaSlipEngine.js` — random Math.random() picker, philosophically incompatible
+- `buildNbaSlipComposer.js` — field naming mismatches, requires `bestBetsBoard` format no longer current
+- `buildNbaDynamicSlipEngine.js` — parallel system with incompatible "lotto" semantics; absorb correlation logic into buildNbaAiSlips first
+
+### What must never change (from audit):
+- `pairwiseStackBoost()` correlation logic in DynamicSlipEngine (absorb into canonical path first)
+- aiRange resolution architecture (floor/median/ceiling/lotto leg resolution)
+- Lane separation (CORE_LANES vs COMBO_LANES vs special)
+- `roleStatScoreBump` logic in nbaAiStatFamilyRank.js
+- statStabilityWeight table
+- SAFE archetype two-leg / elite-only constraint
+- `maxSameGame` constraints
+- MLB ecology (any NBA changes must not touch MLB path)
+
+---
+
+## SESSION W — Daily Intelligence Review Engine
+
+See previous CURRENT_STATE for full Session W details. All Session W systems remain active.
 
 ---
 
@@ -88,165 +241,89 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 
 Candidate diversification (`buildCandidateDiversity.js → diversifyCandidates`):
 - `maxPerPlayer: 3` · `maxPerGame: 7 (MLB) / 12 (NBA)` · `maxPerStat: 10` · `maxPerStatSide: 6`
-- **Fix Q3**: NBA playoff slates get `nbaPerGame = 12` vs MLB's `7` — lifts hard 14-candidate ceiling to 24+
-- **Fix 1 (Session L)**: modelProb capped at [0.50, 0.55] in diversity sort — eliminates 1.87× TB-under structural advantage
 
 Featured side-balance (`buildFeaturedPlays.js → pickDiversified`):
-- `maxSideFraction: 0.60` (anchors: 0.55) — fill pass relaxes side cap if short
-- Anchors `maxPerGame: 2` — allows cross-side picks in same game
+- `maxSideFraction: 0.60` (anchors: 0.55)
 
 Volatility classification (`buildPortfolioOptimizer.js → VOLATILITY_RULES`):
 - `threes < 3.5 → balanced`, `threes >= 3.5 → lotto`, `PRA/combo → aggressive`, `odds >= 350 → lotto`
-- **NOTE**: `classifyVolatility(raw)` in `normalizeCandidate` overrides snapshot-set `volatility` field.
-  PRA snapshot volatility `"lotto"` (Fix Q4) → overridden to `"aggressive"` by classifyVolatility.
-  Effect: PRA still qualifies for lotto slips (allowedVolatility includes "aggressive"), but can't form [20,1500] combos at base odds (dec ~5–9 for 3-leg PRA). Lotto slips remain empty for NBA.
 
-NBA snapshot candidate pipeline (`workstationRoutes.js → buildNbaSnapshotCandidates`):
-- Gates: core odds (-200..+200), no alternate/ladder market keys, known stat family, mp≥0.35, edge≥0.03
-- **Fix Q2**: Deduplicates by (player|statFamily|side) keeping best-edge entry per triple
-- Top 150 by edge (was 100)
-- **Fix Q1**: Supplement cached once (`snapSupplement`), wired into BOTH `supplementedCandidates` (portfolio) AND `aiCandidatesRaw` (featured/slips) — this was the root fix
-
-Composite scoring (`buildFeaturedPlays.js → scoreCandidate`):
-- `f.edge = (edge × 4) × clamp(modelProb, 0.50, 0.55)` — caps modelProb compounding
-- `tierBoost`: ELITE 0.04 / STRONG 0.02
-- `textureBoost`: aggressive/lotto edge>0.045 → 0.018; offensive over edge>0.05 → 0.020; aggressive offensive over → 0.030
-- `volRealism (Fix 3)`: safe=0.80, balanced=0.74, aggressive=0.66, lotto=0.56
-
-AI slip scoring (`buildSlipAi.js → scoreLeg`):
-- Same modelProb cap [0.50, 0.55] as featured
-- `tierBoost` halved: ELITE 0.05 / STRONG 0.025
-- `TIER_TEMPLATES (Fix 4+5)`: aggressive decimalOddsRange [6.0,120.0]; lotto decimalOddsRange [20.0,1500.0]
-
-AI slip seeding (`buildSlipAi.js → buildSlipsForTier`):
-- Aggressive tier volatile-first seeding — aggressive/lotto legs seed first
-- Min-first greedy fill — tries longest valid subset (max→min legs)
+NBA snapshot candidate pipeline:
+- Gates: core odds (-200..+200), no alternate/ladder keys, known stat family, mp≥0.35, edge≥0.03
+- Top 150 by edge
 
 ---
 
-## CURRENT PHASE
+## ACTIVE BOTTLENECKS
 
-**Phase: INTEGRITY + DE-RISK — Phase 7R (Fix 1–6 + Intelligence Layer + Checkpoint + Bettor UX Phase 1+2+3 + NBA Pipeline Audit + SP Fix 1+2 + Priority 1B + Session Q NBA Density + Session R Payload Wiring)**
+**NBA lotto slips remain empty.** PRA at base odds dec ~5–9 < lotto [20, 1500] minimum. classifyVolatility maps PRA → `aggressive` regardless of snapshot `volatility` field. Path A preferred.
 
-### Session R fix (2026-05-08) — `http/nbaIsolatedRoutes.js`:
-
-| Fix | Description | Impact |
-|---|---|---|
-| **Fix R1** | `handleNbaBestAvailableGet` previously returned `{ nbaOpportunityBoard, nbaInsightBoard }` with no `bestAvailable` wrapper. App.tsx `payload?.bestAvailable` was always `undefined`. Added: `buildNbaBestAvailableWsCandidates()` helper to convert `slices.corePropsBoard` rows → Candidate format; called `diversifyCandidates`, `buildFeaturedPlays`, `buildAiSlips` inside handler; reshaped `res.json` to include `bestAvailable: { best, elite, strong, ladders, firstBasket, aiSlips, featured, wsCandidates }` | `/api/best-available?sport=nba` now returns populated payload |
-
-**Session R verified results (smoke test, 2026-05-08, correct snapshot path):**
-
-| Metric | Value |
-|---|---|
-| corePropsBoard rows | 260 |
-| qualified raw | 107 |
-| deduped candidates | 65 |
-| wsCandidates (diversified) | 24 |
-| Featured anchors | 4 |
-| Featured tonightsBest | 4 |
-| Featured bestPra | 4 |
-| Featured bestLadders | 4 |
-| Featured smartAggression | 2 |
-| Featured safest | 4 |
-| AI slips (safe) | 3 |
-| AI slips (balanced) | 4 |
-| AI slips (aggressive) | 4 |
-| AI slips (lotto) | 0 |
-| **Total featured** | **22** |
-| **Total slips** | **11** |
-
-**⚠️ TERM 1 restart required** — both Session Q (`workstationRoutes.js`) and Session R (`nbaIsolatedRoutes.js`) changes are on disk but the running server has old cached modules. Restart TERM 1 to activate.
-
-### Session Q fixes (2026-05-08) — all in `workstationRoutes.js`:
-
-| Fix | Description | Impact |
-|---|---|---|
-| **Fix Q1** | Cached `snapSupplement = buildNbaSnapshotCandidates(snapshotRows)` once; wired into `aiCandidatesRaw` (featured + slip pools). Previous sessions only wired into portfolio path. | Root fix — aiCandidates 2→24 |
-| **Fix Q2** | `buildNbaSnapshotCandidates` deduplicates by (player\|statFamily\|side), keeps best-edge triple. 187 raw qualified → 83 unique combos. | Maximizes distinct positions for diversity algo |
-| **Fix Q3** | `nbaPerGame = sport === "nba" ? 12 : 7` — NBA playoff slates use 12/game ceiling vs MLB's 7. | Lifts hard cap from 14 to 24 candidates |
-| **Fix Q4** | Snapshot rows: PRA → `volatility:"lotto"`, threes/first_basket → `"aggressive"`, others → `"balanced"` | Affects diversity sort; overridden by classifyVolatility in slip/featured normalization |
-
-### Session Q verified results (smoke tests, 2026-05-08):
-
-| Metric | Before | After |
-|---|---|---|
-| aiCandidates | 2–4 | 24 |
-| Candidate families | rebounds×2 | threes:10, assists:3, rebounds:4, pra:3, points:4 |
-| Candidate tiers | — | ELITE:14, STRONG:10 |
-| Featured anchors | 0 | 4 |
-| Featured tonightsBest | 0 | 4 |
-| Featured PRA Nukes ☢️ | 0 | 3 |
-| Featured Ladder City 📈 | 0 | 4 |
-| Featured smartAggression | 0 | 3 |
-| Featured safest | 0 | 4 |
-| **Total featured plays** | **0** | **22** |
-| AI slips (safe) | 0 | 3 |
-| AI slips (balanced) | 0 | 4 |
-| AI slips (aggressive) | 0 | 4 |
-| AI slips (lotto) | 0 | 0 (bottleneck — see below) |
-| **Total AI slips** | **0** | **11** |
-
----
-
-## ACTIVE BOTTLENECK
-
-**NBA lotto slips remain empty.** PRA at base odds (typically -120 to +150) forms 3-leg combos at dec ~5–9, below lotto tier's [20, 1500] minimum. classifyVolatility maps PRA → `aggressive` (not `lotto`), so lotto slip `allowedVolatility: ["aggressive","lotto"]` accepts PRA legs but dec range kills them. Only solvable by: (a) wiring higher-odds NBA alt-line or combo markets into the pool, or (b) allowing PRA-heavy 4-leg combos to clear dec≥20.
-
-**First basket bucket empty.** `first_basket` family not present in base snapshot props (all are alternate markets). Requires `altPlays` accumulation from `runNbaNight.js` live runs over future days.
-
-**All MLB ecology compression points resolved (Fix 1–6).**
+**First basket bucket empty.** `first_basket` family absent from base snapshot — alt markets only.
 
 ---
 
 ## KNOWN WEAKNESSES
 
-1. **Under-heavy raw NBA pool**: ~67% unders in snapshot-qualified candidates. Hash-based model produces higher edges for unders (systematic under-bias). Source imbalance only addressable in projection engine.
-2. **NBA lotto slips empty** — PRA base-odds dec ~5–9 < lotto minimum [20,1500]. New Priority.
-3. **NBA first basket bucket empty** — no `first_basket` family in base snapshot props; needs alt market accumulation.
-4. **NBA smartAggression limited** — only PRA gets `aggressive` classification (classifyVolatility); threes → `balanced`. Only 3 candidates for smartAggression bucket.
-5. **NBA tracked_bets pool thin** — 2 bets today. SP Fix 1+2 (Session O) accumulate PRA+ladder nightly. Pool richness grows incrementally.
-6. **NBA SP4 (combo PA/PR/RA) still dropped** — `resolveStatFamily` returns null for combo markets. Deferred.
-7. **NBA SP1 (bestProps empty)** — `fetchNbaOddsSnapshot.js` hardcodes empty `bestProps`/`eliteProps`. Deferred.
-8. **`pipeline/boards/buildFeaturedPlays.js` orphaned on disk** — needs manual `rm` from macOS terminal. Not a runtime risk.
-9. **`personal_ledger.json` at ~2,000 entries — PAST SQLite migration trigger.** Write-race orphan `.tmp` file observed. Migration is OVERDUE.
-10. **tracked_best missing eventId/matchup** — enrichBestEntry ID match always fails → zero tier boosts for offensive overs.
-11. **Duplicate balanced slip issue (seenSignatures)** — functional dedup of same player at slightly different odds undesirable.
-12. **`timing_intelligence_state.json` at 729KB, unbounded growth.** No pruning mechanism.
-13. **`isOffensiveAttackStat` duplicated** between `buildFeaturedPlays.js` and `buildSlipAi.js`. Drift risk.
-14. **Under-heavy raw MLB pool**: ~83% unders in tracked_bets. Source imbalance only addressable in projection engine.
+1. **NBA lotto slips empty** — Priority 1 (Path A: snapshot-sourced volatility field)
+2. **NBA first basket bucket empty** — needs alt market accumulation
+3. **NBA smartAggression limited** — only PRA gets `aggressive`
+4. **NBA tracked_bets pool thin** — 2 bets today
+5. **NBA SP4 (combo PA/PR/RA)** — resolveStatFamily returns null. Deferred.
+6. **NBA SP1 (bestProps empty)** — hardcoded empty. Deferred.
+7. **`personal_ledger.json` all 2,000 entries pending** — bets are importFromTrackedBets calls never settled
+8. **tracked_best missing eventId/matchup** — tier boosts always fail; Priority 3
+9. **Duplicate balanced slip issue (seenSignatures)** — deferred
+10. **`timing_intelligence_state.json` at 729KB, unbounded growth** — no pruning
+11. **Under-heavy raw NBA pool (~67% unders)** — source imbalance
+12. **Under-heavy raw MLB pool (~83% unders)** — same
+13. **Daily intelligence review calibration = 0** — bets are pending; activates after first results entry
+14. **Intelligence review steam/book answers empty** — steam_summary_json placeholder; needs line shopping data wired
+15. **NBA ecology — two-path disconnect** — workstation uses shared buildSlipAi.js (MLB-calibrated); 5 NBA-specific slip builders with correlation/aiRange run nightly but output orphaned. Canonical path: buildNbaAiSlips. See NBA_ECOLOGY_AUDIT_2026-05-09.md.
+16. **NBA monoculture root cause confirmed** — realismScore×0.70 weight mathematically guarantees star dominance. Star finalWeight ≈1.62, backup with 3× edge ≈1.25. Gap is structural.
+17. **NBA lotto starvation fully traced** — two failure paths: shared path (maxOdds 600 impossible at base), nightly path (aiRange requires alt lines killed by workstation gate). Fallback: copies aggressive.
+18. **NBA intelligence health: 2.9/10** — 8 critical failures audited. Full roadmap NBA-1→NBA-7 in docs/NBA_ECOLOGY_AUDIT_2026-05-09.md.
+19. **`tracker/betTracker.js` vs `buildPersonalLedger.js`** — two parallel bet tracking systems, no reconciliation (betTracker is legacy)
+
+**RESOLVED THIS SESSION:**
+- ~~NBA ecology audit not done~~ — full 20-section audit complete; health score 2.9/10; 7-phase roadmap defined ✓
+
+**RESOLVED SESSION Y:**
+- ~~`isOffensiveAttackStat` duplicated~~ — unified in normalizers.js ✓
+- ~~Compactors inline in workstationRoutes.js~~ — extracted to buildWorkstationCompactors.js ✓
+- ~~`__refreshInProgress` dual-mutex~~ — unified to module-level ✓
+- ~~11,185 lines of dead inlined NBA code~~ — deleted ✓
+- ~~4 empty stub directories~~ — deleted ✓
+- ~~betting2.db orphan artifacts~~ — deleted ✓
 
 ---
 
 ## INFRASTRUCTURE STATE
 
-| Item | State |
+| File | Status |
 |---|---|
-| `/docs/WORKFLOW_RULES.md` | Committed |
-| `/docs/CURRENT_STATE.md` | **Updated this session (Session Q)** |
-| `/docs/NEXT_SESSION.md` | **Updated this session (Session Q)** |
-| `/docs/BOOTSTRAP_PROMPT.md` | Committed |
-| `.cursor/rules/workflow.mdc` | Committed — `alwaysApply: true` |
-| `/docs/ARCHITECTURE.md` | Created 2026-05-07 |
-| `backend/storage/schema.js` | Created 2026-05-07 |
-| `backend/storage/db.js` | Created 2026-05-07 |
-| `backend/storage/queries.js` | Created 2026-05-07 |
-| `backend/storage/importHistoricalData.js` | Created 2026-05-07 |
-| `backend/storage/intelligenceSchema.js` | Created 2026-05-07 (Session H) |
-| `backend/storage/intelligence.js` | Created 2026-05-07 (Session H) |
-| `backend/scripts/runMlbNight.js` | Intelligence wiring added 2026-05-07 (Session I) |
-| `backend/scripts/runNbaNight.js` | Intelligence wiring added 2026-05-07 (Session I) |
-| `backend/pipeline/shared/buildPostGameReview.js` | Outcome settlement wired 2026-05-07 (Session J) |
-| `backend/scripts/checkpointRepo.js` | Created 2026-05-07 (Session K) |
-| `backend/scripts/finalizeCheckpoint.sh` | Created 2026-05-07 (Session K) |
-| `backend/pipeline/shared/buildCandidateDiversity.js` | Fix 1 applied 2026-05-07 |
-| `backend/pipeline/shared/buildSlipAi.js` | Fix 2 + Fix 4 + Fix 5 + Fix 6 applied 2026-05-07 |
-| `backend/pipeline/shared/buildFeaturedPlays.js` | Fix 3 applied 2026-05-07 · Session N: bestPra + bestFirstBasket |
-| `backend/pipeline/nba/buildNbaPlayerOutcomePredictions.js` | Session O SP Fix 1: stats.pra derived |
-| `backend/pipeline/nba/buildNbaPerformanceTracking.js` | Session O SP Fix 2: altPlays gate · Session P Fix 1B-B: persistNbaTrackedBest |
-| `backend/routes/workstationRoutes.js` | Session N: readSnapshotRows · Session P Fix 1B-C: buildNbaSnapshotCandidates · **Session Q Fix Q1–Q4: aiCandidates supplement + dedup + nbaPerGame:12 + PRA volatility** |
-| `backend/http/nbaIsolatedRoutes.js` | **Session R Fix R1: `bestAvailable` wrapper + workstation pipeline (candidates/featured/slips) added to `handleNbaBestAvailableGet`** |
-| `frontend/src/workstation/types.ts` | Session N: bestPra + bestFirstBasket |
-| `frontend/src/workstation/sections/Dashboard.tsx` | Session N: NbaSpotlightGrid + MlbSpotlightGrid |
-| `frontend/src/workstation/sections/FirstBasketView.tsx` | Session N: full premium rewrite |
-| `frontend/src/workstation/workstation.css` | Sessions L+M+N: full bettor UX CSS |
-| `backend/pipeline/boards/buildFeaturedPlays.js` | **Orphaned — needs manual `rm` from macOS terminal** |
+| `docs/WORKFLOW_RULES.md` | Committed |
+| `docs/CURRENT_STATE.md` | **Synced to root this session (Session Z)** |
+| `docs/NEXT_SESSION.md` | **Synced to root this session (Session Z)** |
+| `docs/BOOTSTRAP_PROMPT.md` | Committed |
+| `docs/ARCHITECTURE.md` | Needs update: line counts stale, http/ section changed |
+| `docs/ARCHITECTURE_AUDIT_2026-05-09.md` | Created Session X — Phase 0/2 items now complete |
+| `docs/NBA_ECOLOGY_AUDIT_2026-05-09.md` | **NEW (Session Z) — 20-section NBA intelligence audit; health 2.9/10; roadmap NBA-1→NBA-7** |
+| `backend/pipeline/shared/normalizers.js` | **NEW (Session Y)** |
+| `backend/pipeline/shared/buildWorkstationCompactors.js` | **NEW (Session Y)** |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | **Session Y: isOffensiveAttackStat imported from normalizers** |
+| `backend/pipeline/shared/buildSlipAi.js` | **Session Y: isOffensiveAttackStat imported from normalizers; inline block removed** |
+| `backend/routes/workstationRoutes.js` | **Session Y: compactors imported from buildWorkstationCompactors; 103-line inline removed** |
+| `backend/server.js` | **Session Y: /refresh-snapshot mutex unified to module-level** |
+| `backend/storage/reviewSchema.js` | NEW (Session W) |
+| `backend/storage/schema.js` | Session W: applyReviewSchema() wired |
+| `backend/pipeline/review/` | NEW (Session W) — 6 modules |
+| `backend/scripts/runDailyReview.js` | NEW (Session W) |
+| `backend/pipeline/shared/buildNightlyOrchestrator.js` | Session W: Step 9 wired |
+| `backend/storage/queries.js` | Session S: ledger upserts + transaction fix |
+| `backend/pipeline/shared/buildPersonalLedger.js` | Session S: atomic saveLedger() + SQLite mirror |
+| `backend/routes/workstationRoutes.js` | Session U: screenshotRoutes mounted |
+| `backend/http/nbaIsolatedRoutes.js` | Session R Fix R1 |
+| `backend/pipeline/mlb/buildMlbPropClusters.js` | Session T: HR scoring; Session V: team fields |
+| `backend/pipeline/mlb/phase4Tracking.js` | Session V: leanBet/leanSlip team fields |
+| `backend/storage/screenshotSchema.js` | NEW (Session U) |
+| `backend/pipeline/screenshots/` | NEW (Session U) — 3 modules |
