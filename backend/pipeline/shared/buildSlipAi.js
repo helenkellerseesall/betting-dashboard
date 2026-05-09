@@ -34,7 +34,7 @@
  *   }
  */
 
-const { classifyVolatility } = require("./buildPortfolioOptimizer")
+const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -109,18 +109,15 @@ function normalizeCandidate(raw) {
     archetype:     raw.archetype || raw.archetypeTag,
     closingOdds:   raw.closingOdds,
     clv:           raw.clv,
-    // NBA-1: Preserve snapshotSourced volatility for lotto-stamped candidates.
-    // buildNbaSnapshotCandidates() (workstationRoutes.js FIX Q4) stamps
-    // volatility: "lotto" on PRA combo candidates and snapshotSourced: true.
-    // Without this guard, classifyVolatility() overwrites with "aggressive"
-    // (VOLATILITY_RULES: combo/pra → aggressive), blocking PRA from the lotto
-    // slip tier (TIER_TEMPLATES.lotto.allowedVolatility = ["aggressive","lotto"]).
-    // Guard is narrow: only preserves "lotto" stamps from confirmed snapshot
-    // source. MLB candidates never set snapshotSourced — no MLB behavior change.
+    // NBA-2.B: volatility resolved by canonical NBA volatility resolver.
+    // pipeline/nba/nbaVolatilityResolver is the single source of truth for:
+    //   - snapshot-sourced stamp preservation (PRA→lotto, threes→aggressive,
+    //     points/rebounds/assists→balanced from buildNbaSnapshotCandidates FIX Q4)
+    //   - future role-spike / eruption-environment hooks (NBA-6 scope)
+    //   - VOLATILITY_RULES fallback for all other candidates
+    // MLB candidates always reach the VOLATILITY_RULES fallback path.
     // VOLATILITY_RULES itself is NOT modified.
-    volatility:    (raw.snapshotSourced === true && raw.volatility === "lotto")
-                     ? "lotto"
-                     : classifyVolatility(raw),
+    volatility:    resolveNbaVolatility(raw),
     raw,
   }
 }

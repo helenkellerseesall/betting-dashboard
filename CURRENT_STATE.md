@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AA: NBA-1 PRA Volatility Guard — snapshotSourced lotto guard added to buildFeaturedPlays.js + buildSlipAi.js; volRealism lotto slot 0.65 added; 3 surgical edits; 15/15 guard cases pass; MLB regression 0; TERM 1 restart required)_
+_Last updated: 2026-05-09 (Session AC: NBA-2.B Canonical Volatility Resolver — nbaVolatilityResolver.js created; classifyVolatility guards removed from buildFeaturedPlays + buildSlipAi; resolver is now sole canonical authority; 3 files; 20/20 tests pass; 0 MLB regressions; TERM 1 restart required)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-09 (Session AA: NBA-1 PRA Volatility Guard — snapshotSo
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–AA staged, pending finalization via finalizeCheckpoint.sh |
-| Repo health | **7.2/10 structural. NBA intelligence health: 2.9/10 (audited). NBA-1 complete. Next lever: NBA-2 canonical path designation (Opus audit required).** |
+| Last commit | e076871 (Session I) — Sessions H–AC staged, pending finalization via finalizeCheckpoint.sh |
+| Repo health | **7.2/10 structural. NBA intelligence health: 2.9/10 (audited). NBA routing health: 4.6/10 (Session AB). NBA-1 ✅, NBA-2 audit ✅, NBA-2.B ✅. Next lever: NBA-2.C (buildNbaSnapshotCandidates extraction).** |
 
 ---
 
@@ -168,6 +168,169 @@ Zero-regression structural stabilization. Dead code removal, duplication elimina
 | 4 empty stub directories removed | ✓ enrich/ normalize/ validation/ snapshot/ gone |
 
 **TERM 1 restart required** — server.js modified (mutex fix). workstationRoutes.js modified (compactor import).
+
+---
+
+## SESSION AC — NBA-2.B: Canonical Volatility Resolver Extraction (2026-05-09)
+
+**Scope**: Create `pipeline/nba/nbaVolatilityResolver.js` as the single canonical authority for NBA volatility interpretation. Replace fragmented inline guards in `buildFeaturedPlays.js` and `buildSlipAi.js` with a single resolver import. Extract, canonicalize, and eliminate all duplicate guard logic.
+
+### Files Changed (3 files):
+
+| File | Change |
+|---|---|
+| `pipeline/nba/nbaVolatilityResolver.js` | **NEW (95 lines)** — canonical authority; `nbaVolatilityResolve(raw)` + `resolveNbaVolatility(raw)` |
+| `pipeline/shared/buildFeaturedPlays.js` | Import: `classifyVolatility` → `resolveNbaVolatility`; inline guard (12 lines) → single resolver call |
+| `pipeline/shared/buildSlipAi.js` | Import: `classifyVolatility` → `resolveNbaVolatility`; inline guard (13 lines) → single resolver call |
+
+**`VOLATILITY_RULES` NOT modified. `classifyVolatility()` NOT modified. MLB behavior unchanged.**
+
+### Resolver Resolution Priority (first-match wins):
+
+```javascript
+// 1. Snapshot-sourced stamp preservation (any valid volatility from buildNbaSnapshotCandidates)
+if (raw.snapshotSourced === true && VALID_VOLATILITY.has(raw.volatility)) {
+  return { volatility: raw.volatility, source: "snapshot_stamped" }
+}
+// 2. Role-spike / eruption-environment hook [documented no-op — NBA-6 scope]
+// 3. VOLATILITY_RULES fallback — classifyVolatility(raw)
+return { volatility: classifyVolatility(raw), source: "rules" }
+```
+
+### Expansion vs NBA-1 guard:
+
+NBA-1 guard was narrow: `snapshotSourced === true && volatility === "lotto"` only.
+
+NBA-2.B resolver preserves ALL valid snapshotSourced stamps:
+- PRA → "lotto" (NBA-1 preserved — most critical)
+- threes / first_basket → "aggressive" (NEW: was silently reclassified to "balanced" by VOLATILITY_RULES threes-balanced rule)
+- points / rebounds / assists → "balanced" (already correct via VOLATILITY_RULES, now explicit)
+
+### Duplication Points Eliminated:
+
+| Previously | Now |
+|---|---|
+| 12-line inline guard in `buildFeaturedPlays.normalizeCandidate()` | Removed |
+| 13-line inline guard in `buildSlipAi.normalizeCandidate()` | Removed |
+| `classifyVolatility` imported directly in both shared modules | Removed from both |
+| Snapshotted volatility semantics split across 2 files | Unified in 1 resolver |
+
+### Verification Results:
+
+| Test | Result |
+|---|---|
+| `node --check` — 3 files | ✓ 3/3 clean |
+| Resolver logic — 20 cases (snapshot stamps, MLB, rules, edge cases, source tags) | ✓ 20/20 |
+| MLB regression — buildFeaturedPlays full run | ✓ 0 regressions |
+| NBA PRA snap → lotto via resolver | ✓ |
+| NBA threes snap → aggressive via resolver (NEW vs NBA-1) | ✓ |
+| Non-snapshot PRA → aggressive (VOLATILITY_RULES fallback) | ✓ |
+| buildSlipAi full run — PRA legs volatility preserved | ✓ |
+| Inline guards remaining outside resolver | ✓ 0 |
+| Global snapshotSourced guard count outside resolver | ✓ 0 |
+| MLB imports unchanged | ✓ |
+
+### Remaining Volatility Drift Risks:
+
+1. **buildNbaSnapshotCandidates still inline in workstationRoutes.js** — the PRODUCER of volatility stamps is not yet extracted. Phase 2.C. No behavioral risk; the resolver correctly consumes whatever stamps arrive.
+2. **Nightly path (buildNbaBestBetsBoard → buildNbaSlipComposer) does NOT call the resolver** — `bestBetsBoard.allPlays.volatility` is set without the resolver. Phase 2.F audit + wire required.
+3. **buildNbaAiSlips.js helper trio doesn't call the resolver** — `collectFullPool` / `filterSlipLegs` / `formatLeg` have their own `legVolatility()` numeric scale (0.92–1.18). These are consumed only by the dead orphan `buildNbaDynamicSlipEngine` and the currently-unused function bodies. Phase 2.D quarantine + Phase 2.E deletion.
+4. **VOLATILITY_RULES threes-balanced rule remains** — VOLATILITY_RULES maps `threes < 3.5` → balanced. The resolver correctly overrides this for snapshot-sourced candidates. Non-snapshot threes still land as balanced, which is correct behavior for MLB/non-snap NBA.
+
+### NBA-2.C Inheritance Notes:
+
+When `buildNbaSnapshotCandidates` is extracted to `pipeline/nba/buildNbaSnapshotCandidates.js` (Phase 2.C):
+- The inline volatility stamping logic (`family === "pra" ? "lotto" : ...`) should remain in that file as the producer
+- The resolver remains the consumer authority — the two roles are intentionally separate
+- No changes to the resolver required for 2.C
+
+**TERM 1 restart required** — `buildFeaturedPlays.js` and `buildSlipAi.js` both modified.
+
+---
+
+## SESSION AB — NBA-2: Canonical Path Constitution Audit (2026-05-09)
+
+**Scope**: Read-only Opus audit. Full importer trace of every NBA slip-related module. Constitutional designation of canonical-nightly + canonical-workstation slip surfaces. 20-section deliverable. Zero code changes. Zero TERM 1 restart.
+
+**Output**: `docs/NBA_CANONICAL_PATH_AUDIT_2026-05-09.md` — 20 sections, NBA Routing Health Score 4.6/10.
+
+### Critical structural correction to Session Z audit:
+
+The Session Z NBA Ecology Audit framing of "5 overlapping NBA slip builders" was misleading. Direct importer trace proves:
+
+| Module | True status | Importers (live) |
+|---|---|---|
+| `buildNbaSlipComposer.js` | **CANONICAL nightly slip engine** | `buildNbaOpportunityBoard.js:13` → called line 257 → output written to `nba_tracked_slips_*.json` via `persistTrackedToday` |
+| `buildNbaAiPicks.js` | **CANONICAL nightly pick scorer + aiRange attacher** | `buildNbaOpportunityBoard.js:9` → called line 238 |
+| `buildNbaPlayerOutcomePredictions.js` | **CANONICAL nightly prediction engine** | `buildNbaOpportunityBoard.js:11` → called line 242 |
+| `buildNbaBestBetsBoard.js` | **CANONICAL nightly board surface** | `buildNbaOpportunityBoard.js:12` → called line 251 |
+| `buildNbaAiSlips.js` | **UTILITY-ONLY** — `buildNbaAiSlips()` function has ZERO importers; only its helper trio is consumed | `buildNbaPlayerOutcomePredictions` (`collectFullPool`), `buildNbaDynamicSlipEngine` (`collectFullPool`/`filterSlipLegs`/`formatLeg`) |
+| `buildNbaDynamicSlipEngine.js` | **DEAD ORPHAN** with valuable correlation logic | zero importers (only comment-mention in nbaSlipLegConstraints.js) |
+| `buildNbaSlipEngine.js` | **DEAD ORPHAN** | zero importers (only comment-mention in nbaAiStatFamilyRank.js) |
+| `buildSlipAi.js` (shared) | **CANONICAL workstation slip regenerator** | `workstationRoutes.js:251` → called line 352 (every `/api/ws/state` request) |
+
+### NBA Routing Health Score:
+
+| Dimension | Score |
+|---|---|
+| Canonical-engine clarity | 4.5/10 |
+| Dead-code namespace pollution | 3.5/10 |
+| Workstation/nightly symmetry | 3.0/10 |
+| Correlation logic ownership | 2.0/10 |
+| aiRange resolution propagation | 5.0/10 |
+| snapshotSourced flow | 7.0/10 |
+| Volatility ownership | 4.5/10 |
+| Tier ownership | 3.5/10 |
+| Same-player suppression | 6.0/10 |
+| Workstation compatibility | 6.5/10 |
+| **OVERALL NBA ROUTING** | **4.6/10** |
+
+### Critical findings beyond Session Z:
+
+1. **`aiRange` is computed by `buildNbaAiPicks` but consumed by NEITHER active engine.** `buildSlipAi` doesn't import `nbaAiOutcomeRange`. `buildNbaSlipComposer` operates on `bestBetsBoard.allPlays` which doesn't carry `aiRange`. The two DEAD engines (`buildNbaAiSlips` + `buildNbaDynamicSlipEngine`) DO consume it. This is the single largest architectural gap — ladder ranges are computed and never reach the slip layer.
+
+2. **All correlation logic (pairwiseStackBoost, jointProbabilityWithCorrelation, isFastCashoutLeg, ensureFastLegsLead) lives in the orphan `buildNbaDynamicSlipEngine.js`.** The active path has zero correlation. Must be absorbed BEFORE deletion (Phase 2.G).
+
+3. **The NBA-1 snapshotSourced guard does NOT propagate to the nightly path.** `buildNbaSnapshotCandidates` (workstation only) is the sole setter of `snapshotSourced: true`. Nightly candidates flow through `classifyVolatility` unguarded. Phase 2.F audit + wiring required.
+
+4. **Two slip surfaces (`slipBets` + `aiSlips`) coexist in `/api/ws/state` with no constitutional documentation.** `slipBets` = nightly engine-grade (Composer output); `aiSlips` = workstation regenerated (buildSlipAi). Both reach the bettor.
+
+5. **`buildNbaSnapshotCandidates` is NBA-specific but lives inline in workstationRoutes.js** (~70 lines, pollutes the supposedly sport-agnostic routes file). Phase 2.C extraction prerequisite for NBA-3.
+
+### NBA-2 Migration Plan (9 phases, post-AB sessions):
+
+| Phase | Task | Model | Risk |
+|---|---|---|---|
+| 2.A | ARCHITECTURE.md + types.ts comments updated | Sonnet | Zero |
+| 2.B | Create `pipeline/nba/nbaVolatilityResolver.js`; replace inline NBA-1 guards | Sonnet | Low |
+| 2.C | Extract `buildNbaSnapshotCandidates` from workstationRoutes → `pipeline/nba/` | Sonnet | Near-zero |
+| 2.D | Create `pipeline/nba/nbaSlipUtils.js`; quarantine buildNbaAiSlips to shim | Sonnet | Low |
+| 2.E | Delete `buildNbaSlipEngine.js` + orphan function bodies in `buildNbaAiSlips.js` | Sonnet | Low |
+| 2.F | Audit + wire bestBetsBoard volatility to resolver | Sonnet | Medium |
+| 2.G | Extract `pipeline/nba/nbaCorrelation.js` from DynamicSlipEngine; wire into buildSlipAi NBA branch | **Opus** | Medium-high |
+| 2.H | Delete `buildNbaDynamicSlipEngine.js` (after 2.G stable) | Sonnet | Low |
+| 2.I | Wire aiRange into buildSlipAi NBA branch | **Opus** | High |
+
+### What must never change (from this audit):
+- `nbaAiOutcomeRange.js` (computeOutcomeRange, resolveLegFromAiRange, resolveLottoLegAboveCeiling)
+- `nbaAiStatFamilyRank.js` (role/stat alignment, statStabilityWeight table)
+- `nbaPropLanes.js` (CORE_LANES / COMBO_LANES taxonomy)
+- `passesEliteTierGate` numeric thresholds (NBA-4 scope only)
+- `compositeRankScore` weights (NBA-5 scope only)
+- NBA-1 snapshotSourced guard pattern (extracted to resolver but contract preserved)
+- `VOLATILITY_RULES` static table itself
+- `f.edge = (edge × 4) × clamp(modelProb, 0.50, 0.55)` cap (Sessions T-V)
+- `/api/ws/*` response shape (`slipBets`, `aiSlips`, `featured`)
+- `applyEdgeToNbaRows` apply order
+- `dominanceGap` filter
+- `pseudoThrees` logic in buildNbaAiPicks
+- `persistTrackedToday` atomic-rename pattern
+
+### Pending checkpoint:
+- Files added (1): `docs/NBA_CANONICAL_PATH_AUDIT_2026-05-09.md` (~1,150 lines)
+- Files modified (2): `CURRENT_STATE.md`, `NEXT_SESSION.md` (Session AB section + roadmap)
+- Code mutations: 0
+- TERM 1 restart: NO (read-only)
 
 ---
 
@@ -346,11 +509,22 @@ NBA snapshot candidate pipeline:
 12. **Under-heavy raw MLB pool (~83% unders)** — same
 13. **Daily intelligence review calibration = 0** — bets are pending; activates after first results entry
 14. **Intelligence review steam/book answers empty** — steam_summary_json placeholder; needs line shopping data wired
-15. **NBA ecology — two-path disconnect** — workstation uses shared buildSlipAi.js (MLB-calibrated); 5 NBA-specific slip builders with correlation/aiRange run nightly but output orphaned. Canonical path: buildNbaAiSlips. See NBA_ECOLOGY_AUDIT_2026-05-09.md.
+15. **NBA ecology — two-path disconnect** — workstation uses shared buildSlipAi.js (MLB-calibrated); nightly uses buildNbaSlipComposer (canonical-nightly, confirmed Session AB). The other 3 "NBA slip builders" are: buildNbaAiSlips (utility-only — function unused), buildNbaDynamicSlipEngine (DEAD orphan, but holds all correlation logic — must be absorbed not deleted), buildNbaSlipEngine (DEAD orphan). See NBA_CANONICAL_PATH_AUDIT_2026-05-09.md.
 16. **NBA monoculture root cause confirmed** — realismScore×0.70 weight mathematically guarantees star dominance. Star finalWeight ≈1.62, backup with 3× edge ≈1.25. Gap is structural.
 17. **NBA lotto starvation fully traced** — two failure paths: shared path (maxOdds 600 impossible at base), nightly path (aiRange requires alt lines killed by workstation gate). Fallback: copies aggressive.
 18. **NBA intelligence health: 2.9/10** — 8 critical failures audited. Full roadmap NBA-1→NBA-7 in docs/NBA_ECOLOGY_AUDIT_2026-05-09.md.
 19. **`tracker/betTracker.js` vs `buildPersonalLedger.js`** — two parallel bet tracking systems, no reconciliation (betTracker is legacy)
+
+**RESOLVED SESSION AC:**
+- ~~Inline snapshotSourced guards fragmented across 2 shared modules~~ — extracted to `pipeline/nba/nbaVolatilityResolver.js`; resolver is sole canonical authority ✓
+- ~~`classifyVolatility` imported directly by shared modules for NBA logic~~ — removed from both; resolver delegates internally ✓
+- ~~threes snap → aggressive silently reclassified to balanced~~ — resolver now preserves ALL valid snapshot stamps (not just "lotto") ✓
+
+**RESOLVED SESSION AB:**
+- ~~Canonical NBA slip path undesignated~~ — buildNbaSlipComposer canonical-nightly; buildSlipAi canonical-workstation; documented in NBA_CANONICAL_PATH_AUDIT_2026-05-09.md ✓
+- ~~Session Z misdesignation of "5 overlapping NBA slip builders"~~ — true picture: 2 active (buildNbaSlipComposer + buildSlipAi) + 1 utility (buildNbaAiSlips) + 2 dead (buildNbaSlipEngine + buildNbaDynamicSlipEngine) ✓
+- ~~aiRange consumption gap not surfaced~~ — confirmed: aiRange computed by buildNbaAiPicks, consumed by NEITHER active engine; absorbed only by orphans. Phase 2.I scope. ✓
+- ~~Correlation logic ownership undocumented~~ — confirmed living only in orphan buildNbaDynamicSlipEngine; Phase 2.G absorption plan defined ✓
 
 **RESOLVED SESSION AA:**
 - ~~NBA lotto slips empty (classification layer)~~ — snapshotSourced guard preserves "lotto" stamps in both normalizeCandidate() instances ✓
@@ -380,10 +554,12 @@ NBA snapshot candidate pipeline:
 | `docs/ARCHITECTURE.md` | Needs update: line counts stale, http/ section changed |
 | `docs/ARCHITECTURE_AUDIT_2026-05-09.md` | Created Session X — Phase 0/2 items now complete |
 | `docs/NBA_ECOLOGY_AUDIT_2026-05-09.md` | **NEW (Session Z) — 20-section NBA intelligence audit; health 2.9/10; roadmap NBA-1→NBA-7** |
+| `docs/NBA_CANONICAL_PATH_AUDIT_2026-05-09.md` | **NEW (Session AB) — 20-section NBA routing audit; health 4.6/10; canonical designations + 9-phase migration plan (2.A→2.I)** |
 | `backend/pipeline/shared/normalizers.js` | **NEW (Session Y)** |
 | `backend/pipeline/shared/buildWorkstationCompactors.js` | **NEW (Session Y)** |
-| `backend/pipeline/shared/buildFeaturedPlays.js` | **Session AA: snapshotSourced lotto guard + volRealism lotto 0.65 slot. Session Y: isOffensiveAttackStat imported from normalizers** |
-| `backend/pipeline/shared/buildSlipAi.js` | **Session AA: snapshotSourced lotto guard. Session Y: isOffensiveAttackStat imported from normalizers; inline block removed** |
+| `backend/pipeline/nba/nbaVolatilityResolver.js` | **NEW (Session AC) — canonical NBA volatility authority; resolveNbaVolatility() + nbaVolatilityResolve(); snapshotSourced preservation + NBA-6 hook + VOLATILITY_RULES fallback** |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | **Session AC: classifyVolatility import removed; resolveNbaVolatility import added; inline guard replaced with resolver call. Session AA: volRealism lotto 0.65 slot. Session Y: isOffensiveAttackStat imported from normalizers** |
+| `backend/pipeline/shared/buildSlipAi.js` | **Session AC: classifyVolatility import removed; resolveNbaVolatility import added; inline guard replaced with resolver call. Session Y: isOffensiveAttackStat imported from normalizers; inline block removed** |
 | `backend/routes/workstationRoutes.js` | **Session Y: compactors imported from buildWorkstationCompactors; 103-line inline removed** |
 | `backend/server.js` | **Session Y: /refresh-snapshot mutex unified to module-level** |
 | `backend/storage/reviewSchema.js` | NEW (Session W) |
