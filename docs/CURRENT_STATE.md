@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AH: Runtime Verification Constitution Lock — WORKFLOW_RULES.md updated with classification system, rebuild law, script governance, sport string law, script path corrections)_
+_Last updated: 2026-05-09 (Session AI: NBA-3 Alt-Line Liberation — quality alt-line gate in buildNbaSnapshotCandidates; threes/pra/points eligible; mp>=0.42 edge>=0.06; rebounds/assists/first_basket hard-killed; dedup 1 base + 1 alt per player-stat-side; volatility forced aggressive/lotto for alts)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-09 (Session AH: Runtime Verification Constitution Lock �
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–AH staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
-| Repo health | **7.2/10 structural. NBA intelligence health: 3.6/10 (sameTeam boosts active). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅. Operational verification constitutionalized (Session AH). Next lever: NBA-2.C.3 + MLB-1.** |
+| Last commit | e076871 (Session I) — Sessions H–AI staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
+| Repo health | **7.2/10 structural. NBA intelligence health: 4.0/10 (alt-lines now flow — threes/pra/points). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅ NBA-3 ✅ (pending TERM 2 verification). Next lever: NBA-2.C.3 + MLB-1.** |
 
 ---
 
@@ -42,6 +42,7 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | AI Slip construction | Working | `pipeline/shared/buildSlipAi.js` |
 | **NBA Correlation Engine** | **NEW (Session AE — NBA-2.C) — pairwiseStackBoost, jointProbability, cashout ordering, sort bonus wired into buildSlipAi NBA branch** | **`pipeline/nba/nbaCorrelationEngine.js`** |
 | **NBA team enrichment on snapshot candidates** | **Fixed (Session AG — NBA-2.C.2) — applyTeamFallbackFromProjections wired into buildNbaSnapshotCandidates; 18/24 candidates carry team; sameTeam pts+ast boosts now fire** | **`routes/workstationRoutes.js`** |
+| **NBA alt-line gate** | **NEW (Session AI — NBA-3) — quality alt-line gate in buildNbaSnapshotCandidates; threes/pra/points alts survive (mp>=0.42, edge>=0.06, odds<=-200..+800); rebounds/assists/first_basket remain hard-killed; dedup 1 base + 1 alt per player-stat-side; alt volatility forced aggressive/lotto** | **`routes/workstationRoutes.js`** |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Candidate diversification | Working | `pipeline/shared/buildCandidateDiversity.js` |

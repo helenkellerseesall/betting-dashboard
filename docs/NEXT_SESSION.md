@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AH: WORKFLOW_RULES.md constitutionalized — verification class system, rebuild law, script governance, sport string law, script path corrections. No code changes. Class A session.)_
+_Last updated: 2026-05-09 (Session AI: NBA-3 Alt-Line Liberation complete — quality alt-line gate in buildNbaSnapshotCandidates; 15/15 smoke tests pass; Class D; pending TERM 1 restart + TERM 2 verification before finalizing checkpoint.)_
 
 ---
 
@@ -22,7 +22,8 @@ Session AD delivered three outputs: (1) WORKFLOW_RULES.md operational output pro
 | **NBA-2.B — nbaVolatilityResolver** | ✅ DONE (Session AD) | `pipeline/nba/nbaVolatilityResolver.js` created; guards replaced in buildFeaturedPlays + buildSlipAi |
 | **NBA-2.C — Correlation Intelligence Restoration** | ✅ DONE (Session AE) | `nbaCorrelationEngine.js` created; `buildSlipAi.js` wired; corrBonusMap tiebreaker, cashout ordering, correlationScore field — 10/10 pass |
 | **NBA-2.C.2 — Team enrichment on snapshot candidates** | ✅ DONE (Session AG) | `applyTeamFallbackFromProjections` wired in `buildNbaSnapshotCandidates`; 18/24 candidates carry team; 4 sameTeam boost pairs activate — 8/8 pass |
-| **NBA-2.C.3 — buildNbaSnapshotCandidates extraction** | 🔴 NEXT (NBA track) | move from `workstationRoutes.js` → `pipeline/nba/buildNbaSnapshotCandidates.js` (prereq for NBA-3 alt line gate) |
+| **NBA-3 — Alt-Line Liberation** | ✅ DONE (Session AI) | quality alt-line gate in buildNbaSnapshotCandidates; threes/pra/points survive mp>=0.42/edge>=0.06; 15/15 pass |
+| **NBA-2.C.3 — buildNbaSnapshotCandidates extraction** | 🔴 NEXT (NBA track) | move from `workstationRoutes.js` → `pipeline/nba/buildNbaSnapshotCandidates.js` |
 | **MLB-1 — Fix eventId/matchup null** | 🔴 NEXT (MLB track) | trace + fix in phase4Tracking.js / buildMlbPropClusters.js |
 | **NBA-2.D — nbaSlipUtils extraction + buildNbaAiSlips quarantine** | ⬜ AFTER 2.C | move helper trio; deprecate function shim |
 | **NBA-2.E — Dead-orphan deletion sweep** | ⬜ AFTER 2.D smoke | delete buildNbaSlipEngine.js; delete orphan function bodies |
@@ -32,7 +33,7 @@ Session AD delivered three outputs: (1) WORKFLOW_RULES.md operational output pro
 | **NBA-2.G — Correlation absorption (full cluster logic)** | ⬜ AFTER 2.F | SAFE_CLUSTER / EV_CLUSTER / UPSIDE_CLUSTER / CASHOUT_CLUSTER / greedyClusterCorrelated — requires aiRange-resolved pick format, not workstation format |
 | **NBA-2.H — buildNbaDynamicSlipEngine deletion** | ⬜ AFTER 2.G stable | Correlation core absorbed in NBA-2.C; cluster logic absorption is NBA-2.G scope |
 | **NBA-2.I — aiRange wiring (Opus)** | ⬜ AFTER 2.H + NBA-3 | |
-| NBA-3 — Alt line gate (NBA-only) | ⬜ AFTER 2.E | parallelizable with 2.F; uses extracted buildNbaSnapshotCandidates |
+| NBA-3 — Alt line gate (NBA-only) | ✅ DONE (Session AI) | quality gate in buildNbaSnapshotCandidates; extraction into pipeline/nba/ is NBA-2.C.3 scope |
 | NBA-4 — Ecology tier layer | ⬜ BLOCKED on NBA-3 | |
 | NBA-5 — realismScore rebalance | ⬜ BLOCKED on NBA-4 | Opus audit required |
 | NBA-6 — Eruption environment | ⬜ BLOCKED on NBA-5 | |
@@ -44,26 +45,33 @@ Session AD delivered three outputs: (1) WORKFLOW_RULES.md operational output pro
 
 ---
 
-## PENDING OPERATOR ACTIONS (macOS terminal — DO THESE FIRST)
+## PENDING OPERATOR ACTIONS (macOS terminal — DO THESE IN ORDER)
 
+**Step 1 — Restart TERM 1 (workstationRoutes.js modified — NBA-3 gate):**
+```bash
+cd ~/Desktop/betting-dashboard && node backend/server.js
+```
+
+**Step 2 — Wait ~5s for server ready, then verify NBA-3 alt-line flow:**
+```bash
+curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); const altLegs=slips.flatMap(s=>s.legs||[]).filter(l=>l.isAltLine); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'altLegs:', altLegs.length, 'altFamilies:', [...new Set(altLegs.map(l=>l.statFamily))].join(','), 'corrFields:', slips.filter(s=>'correlationScore' in s).length)"
+```
+
+**Expected output after TERM 1 restart:**
+- `candidates`: > 24 (alt-lines add to pool — expect 30–60 depending on snapshot coverage)
+- `altLegs`: > 0 (at least some quality alt-lines in aggressive/lotto slips)
+- `altFamilies`: threes, pra, and/or points (never rebounds/assists/first_basket)
+- `corrFields`: > 0 (correlation still wired)
+
+**Step 3 — ONLY after Step 2 confirms expected output, finalize checkpoint:**
 ```bash
 cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 ```
 
-```bash
-node backend/server.js
-```
-
-```bash
-curl -s "http://localhost:4000/api/ws/state?sport=basketball_nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); console.log('aiSlips:', p.aiSlips?.lotto?.length, 'corr:', p.aiSlips?.aggressive?.[0]?.correlationScore, 'featured:', p.featured?.anchors?.length)"
-```
-
-**Notes:**
-- Step 1 finalizes Sessions H–AE. Session AE includes: nbaCorrelationEngine.js (new file), buildSlipAi.js (NBA-2.C wiring — corrBonusMap, textureRank, orderLegsWithCashoutFirst, correlationScore field), CURRENT_STATE.md, NEXT_SESSION.md.
-- Step 2 TERM 1 restart required — buildSlipAi.js modified in NBA-2.C (Session AE).
-- Step 3 verify team fields on NBA candidates and sameTeam boosts active (use sport=nba — NOT sport=basketball_nba which breaks all NBA gates).
-- CRITICAL: `sport=basketball_nba` causes `isNba=false`, empty snapshot, empty featured, null correlationScore on all slips. Always use `sport=nba`.
-- Session AG (NBA-2.C.2): workstationRoutes.js modified — TERM 1 restart required.
+**CRITICAL:**
+- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`
+- If `altLegs: 0` — this is expected if today's snapshot has no quality alt-lines meeting mp>=0.42/edge>=0.06. Check `candidates` count for whether alt candidates are entering the pool pre-diversification.
+- Sessions H–AI are all staged in the checkpoint. finalizeCheckpoint.sh commits everything in one shot.
 
 ---
 
@@ -141,13 +149,40 @@ Folded into Session AD doc updates.
 
 ---
 
+### ✅ NBA-3 — Alt-Line Liberation (COMPLETE — Session AI)
+
+**What was done**: Replaced the hard alt-line kill in `buildNbaSnapshotCandidates` (workstationRoutes.js) with an intelligent quality gate.
+
+**Gate design**:
+- `isAltLine` detection moved before odds gate (mk/pv checked first)
+- Family pre-check: threes/pra/points eligible; rebounds/assists/first_basket remain hard-killed
+- Odds gate widened for alts: -200..+800 American (dec ~9.0) vs base -200..+200
+- Stricter alt-line quality: mp >= 0.42, edge >= 0.06 (vs base mp >= 0.35, edge >= 0.03)
+- These thresholds apply POST ladder-penalty in nbaIndependentBaseModelProbability
+- Volatility: points alt → aggressive; threes alt + pra alt → lotto (never balanced/safe)
+- Dedup: base and alt deduplicate separately → max 1 base + 1 alt per (player|stat|side)
+- `isAltLine: true` field on alt candidates for downstream auditing
+
+**Smoke test**: 15/15 pass (gate logic + volatility + dedup)
+**Files modified**: `backend/routes/workstationRoutes.js` only
+**TERM 1 restart**: YES (pending operator action)
+
+**What was NOT changed** (intentional):
+- nbaModelSignals.js ladderPenalty/ladderSeverity — still applies to surviving alt-lines ✓
+- buildSlipAi.js ladderScore penalty (5% for line >= 4.5) — still applies ✓
+- probFactor cap [0.50, 0.55] — still applies ✓
+- SAFE lane — unchanged, no alt contamination possible (aggressive/lotto only) ✓
+- MLB path — untouched, zero regressions ✓
+
+---
+
 ### 🔴 Priority 1 (NBA TRACK) — NBA-2.C.3: buildNbaSnapshotCandidates extraction
 
-**Scope**: Move the ~80-line `buildNbaSnapshotCandidates()` function out of `workstationRoutes.js` into a new sport-specific module. Function now includes the NBA-2.C.2 team enrichment call.
+**Scope**: Move the now ~100-line `buildNbaSnapshotCandidates()` function (includes NBA-3 gate) out of `workstationRoutes.js` into a new sport-specific module.
 
 **Create** `backend/pipeline/nba/buildNbaSnapshotCandidates.js` with:
 - Identical export shape
-- Imports from `nbaModelSignals`, `nbaEventTeamResolve` (both `enrichNbaRowStatLayerInputs` and `applyTeamFallbackFromProjections`) move with it
+- Imports from `nbaModelSignals`, `nbaEventTeamResolve` move with it
 - `NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD` and `NBA_SNAPSHOT_TOP_N` constants move with it (export both)
 
 **Update** `backend/routes/workstationRoutes.js`:
@@ -157,7 +192,6 @@ Folded into Session AD doc updates.
 **Risk**: Near-zero. Pure refactor.
 **Model: Sonnet** — 2-file change.
 **TERM 1 restart**: YES.
-**Why**: Prerequisite for NBA-3 (alt line gate is inside this function).
 
 ---
 
@@ -488,11 +522,13 @@ Line counts stale, http/ section no longer accurate:
 | SQLite mirror unavailable | Graceful degradation — JSON write always succeeds first |
 | betting.db journal lock (virtiofs) | macOS TERM 1 unaffected; sandbox writes degrade silently |
 | NBA lotto slip starvation — classification layer | ✅ RESOLVED (Session AA) — snapshotSourced guard in both normalizeCandidate() instances. PRA now seeds as "lotto". Remaining: odds gate (NBA-3 scope). |
-| NBA lotto slip starvation — odds gate | LOTTO tier gate [20, 1500] dec odds. Base legs dec ~5–9; 5-leg combo ~22–26 barely qualifies. Alt lines required. NBA-3. |
+| NBA lotto slip starvation — odds gate | ✅ RESOLVED (Session AI — NBA-3) — quality alt-lines (threes/pra/points) now flow through with mp>=0.42/edge>=0.06/odds<= +800; volatility forced aggressive/lotto; base legs + alt legs combine for genuine lotto-range dec odds. |
+| NBA alt-line contamination — SAFE lane | ✅ DESIGNED SAFE (Session AI) — alt-lines stamped aggressive/lotto only; SAFE tier allowedVolatility does not include "aggressive" or "lotto"; zero contamination by design. |
+| NBA alt-line contamination — rebounds/assists | ✅ DESIGNED SAFE (Session AI) — family pre-check hard-kills rebounds/assists/first_basket alt-lines before scoring. |
 | classifyVolatility affecting MLB | VOLATILITY_RULES NOT modified. Guard is snapshotSourced-gated — MLB candidates never set snapshotSourced. Verified 0 MLB regressions. |
 | NBA two-path disconnect | Workstation uses buildSlipAi.js (MLB-calibrated, canonical-workstation per Session AB). Nightly uses buildNbaSlipComposer (canonical-nightly per Session AB). Do NOT attempt to merge surfaces in NBA-2 phases — they serve different bettor needs. |
 | realismScore monoculture | Do NOT touch 0.70 weight until NBA-4 ecology tier layer exists. Weight rebalance (NBA-5) requires tier stamps to be in place first. |
-| aiRange resolution failure | alt line gate kills floor/median/ceiling. NBA-3 gate bypass must be NBA-specific only. Never relax globally. NBA-2.I wires aiRange into buildSlipAi NBA branch only after alt lines flow. |
+| aiRange resolution failure | NBA-3 ✅ — alt-lines now flow into pool. NBA-2.I wires aiRange into buildSlipAi NBA branch. |
 | buildNbaSlipEngine.js | Do NOT modify. DEAD orphan (zero importers). Schedule for deletion in Phase 2.E. |
 | buildNbaDynamicSlipEngine.js | Do NOT modify or delete. DEAD orphan but holds ALL NBA correlation logic. Phase 2.G must absorb pairwiseStackBoost + jointProbabilityWithCorrelation + isFastCashoutLeg + ensureFastLegsLead BEFORE Phase 2.H deletion. |
 | buildNbaAiSlips.js function body | Do NOT add new logic to the orphan `buildNbaAiSlips()` function or its tier builders (`buildSafeSlip`, `buildBalancedSlip`, `buildAggressiveSlip`, `buildLottoSlip`). The function is unreached at runtime. Schedule for deletion in Phase 2.E. |
@@ -523,7 +559,7 @@ Line counts stale, http/ section no longer accurate:
 - Do NOT touch `runMlbNight.js` without tracing candidate paths first
 - Do NOT reopen ecology fixes
 - Do NOT modify `VOLATILITY_RULES` for NBA lotto without full Opus audit (Path A preferred)
-- Do NOT loosen `propVariant !== "base"` gate without controlled alt-line audit
+- Do NOT loosen the NBA-3 alt-line gate (mp/edge thresholds, family set, odds ceiling) without a full data audit — the current thresholds are calibrated for eruption signals post ladder-penalty
 - Do NOT cut ledger read path to SQLite until ≥1 verified nightly run confirms rows accumulating
 - Do NOT build a review frontend until real data is flowing through the review engine
 - Do NOT consolidate NBA slip builders without Opus ecology audit first

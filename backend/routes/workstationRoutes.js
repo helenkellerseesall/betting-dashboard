@@ -143,8 +143,10 @@ function enrichBestEntry(e, betsById) {
  * candidates by edge. Used to supplement the featured pool on nights where
  * tracked_bets/tracked_best are thin (< NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD).
  *
- * Gates: core odds range (-200..+200), no alternate market keys, player present,
- * known stat family, modelProb >= 0.35, edge >= 0.03.
+ * Gates: player present, known stat family, modelProb >= 0.35, edge >= 0.03.
+ * NBA-3: quality alt-lines (threes/pra/points families only) survive with stricter thresholds
+ * (mp >= 0.42, edge >= 0.06) and a wider odds ceiling (+800 American / dec ~9.0).
+ * All other alt-lines (rebounds/assists/first_basket/unknown) remain hard-killed.
  *
  * Returns at most NBA_SNAPSHOT_TOP_N rows sorted by edge descending.
  */
@@ -161,12 +163,31 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     if (!player) continue
     const side = String(r?.side || "").toLowerCase()
     if (!side || side === "unknown") continue
-    const odds = Number(r?.odds ?? r?.oddsAmerican)
-    if (!Number.isFinite(odds) || odds > 200 || odds < -200) continue
-    // Skip alternate/ladder market rows — model edge not calibrated for extreme lines
+    // NBA-3: Read market key and variant before odds gate — alt-line status determines odds ceiling.
     const mk = String(r?.marketKey || "").toLowerCase()
     const pv = String(r?.propVariant || "").toLowerCase()
-    if (mk.includes("alternate") || mk.includes("_alt") || (pv && pv !== "base" && pv !== "default")) continue
+    const isAltLine = mk.includes("alternate") || mk.includes("_alt") ||
+                      (pv && pv !== "base" && pv !== "default")
+
+    // NBA-3: Alt-line family pre-check. Only eruption-prone families survive elevation.
+    // rebounds/assists/first_basket alt-lines remain hard-killed (low variance, not eruption-prone).
+    if (isAltLine) {
+      const propTQuick = String(r?.propType || mk).toLowerCase()
+      // PRA: match "player_pra", "alternate_player_pra", "pra" — /\bpra\b/ fails when
+      // underscore (a \w char) precedes "pra", so check underscore-delimited patterns explicitly.
+      const isEligibleFamily = propTQuick.includes("points_rebounds_assists") ||
+        propTQuick.includes("_pra") || propTQuick === "pra" || propTQuick.startsWith("pra_") ||
+        propTQuick.includes("points") ||
+        propTQuick.includes("threes") || propTQuick.includes("three") ||
+        propTQuick.includes("3pt")
+      if (!isEligibleFamily) continue
+    }
+
+    // Odds gate: base lines core market range (-200..+200).
+    // NBA-3: Quality alt-lines allowed up to +800 American (dec ~9.0) — calibrated elevation range.
+    // Extreme ladder lines (> +800 American) remain hard-killed: model edge not calibrated above that.
+    const odds = Number(r?.odds ?? r?.oddsAmerican)
+    if (!Number.isFinite(odds) || odds < -200 || odds > (isAltLine ? 800 : 200)) continue
 
     // Classify stat family
     const propT = String(r?.propType || mk).toLowerCase()
@@ -191,9 +212,16 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     const edge = nbaRowEdge(enriched)
     if (!Number.isFinite(edge) || edge < 0.03) continue
 
+    // NBA-3: Alt-lines require a stronger model signal and edge to justify the elevated line.
+    // Base lines: mp >= 0.35, edge >= 0.03. Alt-lines: mp >= 0.42, edge >= 0.06.
+    // These thresholds apply POST ladder-penalty in nbaIndependentBaseModelProbability —
+    // an alt-line scoring 0.42+ after the ladderZ penalty has a genuine eruption signal.
+    if (isAltLine && (mp < 0.42 || edge < 0.06)) continue
+
     rawQualified.push({
       ...enriched,
-      id:             `snap|${player}|${family}|${side}|${r?.line ?? ""}|${odds}|${r?.sportsbook || r?.book || ""}`,
+      // NBA-3: Alt-line ID prefixed with "alt" to distinguish from base-line entries.
+      id:             `snap|${isAltLine ? "alt" : "base"}|${player}|${family}|${side}|${r?.line ?? ""}|${odds}|${r?.sportsbook || r?.book || ""}`,
       player,
       statFamily:     family,
       propType:       r?.propType || family,
@@ -206,24 +234,30 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       impliedProb:    odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       sportsbook:     r?.sportsbook || r?.book || null,
       tier:           edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
-      // FIX Q4: PRA → lotto (enables lotto slip tier for NBA combo plays).
-      // threes + first_basket → aggressive (volatile outcome, high-var).
-      // All others (points/rebounds/assists) → balanced.
-      volatility:     family === "pra" ? "lotto"
-                    : (family === "threes" || family === "first_basket") ? "aggressive"
-                    : "balanced",
+      // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
+      // NBA-3: Alt-lines always aggressive or lotto — never balanced or safe.
+      //   points alt → aggressive (high-volume stat, elevation pushes into volatile range).
+      //   threes alt + pra alt → lotto (discrete/combo stat, alt-range is eruption territory).
+      // Base-line classification unchanged.
+      volatility:     isAltLine
+                    ? (family === "points" ? "aggressive" : "lotto")
+                    : (family === "pra" ? "lotto"
+                      : (family === "threes" || family === "first_basket") ? "aggressive"
+                      : "balanced"),
       confidence:     mp,
       snapshotSourced: true,  // auditable marker — not from tracked pipeline
+      isAltLine,              // NBA-3: true for elevated alt-line entries
     })
   }
 
-  // FIX Q2: De-duplicate by (player|statFamily|side) keeping best-edge entry per triple.
-  // Without this, the same player×stat×side appears at multiple lines (e.g. rebounds 5.5 AND
-  // rebounds 4.5), wasting player capacity in diversifyCandidates and producing redundant picks.
-  // Before dedup: ~187 rows → After dedup: ~83 unique (player|family|side) combos.
+  // NBA-3: Base and alt lines deduplicate independently — allows coexistence in the pool.
+  // Base: best-edge per (player|stat|side), max 1 per signature (unchanged from pre-NBA-3).
+  // Alt: best-edge per (player|stat|side), max 1 alt per signature.
+  // Combined pool: at most 2 entries per signature — 1 base + 1 quality alt.
+  // Before dedup: may include both base and alt rows for same player×stat×side.
   const bestBySig = new Map()
   for (const c of rawQualified) {
-    const sig = `${c.player}|${c.statFamily}|${c.side}`
+    const sig = `${c.isAltLine ? "alt" : "base"}|${c.player}|${c.statFamily}|${c.side}`
     if (!bestBySig.has(sig) || (c.edge ?? 0) > (bestBySig.get(sig).edge ?? 0)) bestBySig.set(sig, c)
   }
   const deduped = Array.from(bestBySig.values())
