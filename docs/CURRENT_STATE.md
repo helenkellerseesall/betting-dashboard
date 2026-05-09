@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AB: NBA-2 Canonical Path Constitution Audit — read-only Opus audit; full importer trace; 20-section deliverable; canonical designations made; 9-phase migration plan (2.A→2.I); zero code changes; zero TERM 1 restart)_
+_Last updated: 2026-05-09 (Session AH: Runtime Verification Constitution Lock — WORKFLOW_RULES.md updated with classification system, rebuild law, script governance, sport string law, script path corrections)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-09 (Session AB: NBA-2 Canonical Path Constitution Audit �
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–AB staged, pending finalization via finalizeCheckpoint.sh |
-| Repo health | **7.2/10 structural. NBA intelligence health: 2.9/10 (audited). NBA routing health: 4.6/10 (Session AB). NBA-1 complete. NBA-2 audit complete. Next lever: Phase 2.A→2.D execution (Sonnet, surgical).** |
+| Last commit | e076871 (Session I) — Sessions H–AH staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
+| Repo health | **7.2/10 structural. NBA intelligence health: 3.6/10 (sameTeam boosts active). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅. Operational verification constitutionalized (Session AH). Next lever: NBA-2.C.3 + MLB-1.** |
 
 ---
 
@@ -40,6 +40,8 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | **MLB roster integrity — team field** | **Fixed (Session V) — team/teamCode/awayTeam/homeTeam now persisted in leanBet/leanSlip** | **`pipeline/mlb/phase4Tracking.js`, `buildMlbPropClusters.js`, `buildMlbPlayerDataset.js`, `external/mlbPlayerIdentityCache.js`** |
 | NBA nightly pipeline | Working | `scripts/runNbaNight.js` |
 | AI Slip construction | Working | `pipeline/shared/buildSlipAi.js` |
+| **NBA Correlation Engine** | **NEW (Session AE — NBA-2.C) — pairwiseStackBoost, jointProbability, cashout ordering, sort bonus wired into buildSlipAi NBA branch** | **`pipeline/nba/nbaCorrelationEngine.js`** |
+| **NBA team enrichment on snapshot candidates** | **Fixed (Session AG — NBA-2.C.2) — applyTeamFallbackFromProjections wired into buildNbaSnapshotCandidates; 18/24 candidates carry team; sameTeam pts+ast boosts now fire** | **`routes/workstationRoutes.js`** |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Candidate diversification | Working | `pipeline/shared/buildCandidateDiversity.js` |
@@ -168,6 +170,52 @@ Zero-regression structural stabilization. Dead code removal, duplication elimina
 | 4 empty stub directories removed | ✓ enrich/ normalize/ validation/ snapshot/ gone |
 
 **TERM 1 restart required** — server.js modified (mutex fix). workstationRoutes.js modified (compactor import).
+
+---
+
+## SESSION AD — Operational Protocol + NBA-2.B + MLB Construction Trace V1 (2026-05-09)
+
+**Scope**: Three deliverables. No TERM 1 restart required for Session AD (NBA-2.B requires restart — still pending from Session AC).
+
+### Part 1 — WORKFLOW_RULES.md: Operational Output Requirements (permanent law)
+New section "OPERATIONAL OUTPUT REQUIREMENTS (permanent law)" added permanently between TERMINAL WORKFLOW and CHECKPOINT PROTOCOL sections. Defines: single-line commands, copy/paste safe, one-paste→one-execution, TERM 1/TERM 2/checkpoint each get exactly one copy block.
+
+### Part 2 — NBA-2.B: nbaVolatilityResolver (Session AC → AD)
+**NEW FILE:** `backend/pipeline/nba/nbaVolatilityResolver.js` — 95 lines.
+- Canonical authority for NBA volatility interpretation
+- Imports `classifyVolatility` from `../shared/buildPortfolioOptimizer`
+- Resolution priority: (1) snapshotSourced + valid stamp → preserve; (2) role-spike hook [NBA-6, no-op]; (3) VOLATILITY_RULES fallback
+- Expansion vs NBA-1: preserves ALL valid snapshotSourced stamps (not just "lotto")
+- 20/20 test cases pass; 0 MLB regressions
+
+**MODIFIED:** `buildFeaturedPlays.js` + `buildSlipAi.js` — inline NBA-1 guards replaced with `resolveNbaVolatility(raw)` import.
+
+**TERM 1 restart: YES** — buildFeaturedPlays.js + buildSlipAi.js both modified.
+
+### Part 3 — MLB Construction Trace V1 (read-only audit)
+**NEW FILE:** `docs/MLB_CONSTRUCTION_TRACE_2026-05-09.md` — 18 sections.
+
+**MLB Construction Health Score: 3.2/10**
+
+Key findings:
+- SAFE tier: 0/115 candidates eligible (fails volatility + modelProb + maxOdds simultaneously)
+- BALANCED tier: 0/115 eligible (4 aggressive-classified RBI fail minModelProb=0.45)
+- AGGRESSIVE tier: ~60 eligible (lotto/aggressive pass; ~50 filtered by modelProb < 0.20); 2-leg minimum required (single HR at dec 5.0 below floor 6.0)
+- LOTTO tier: 115/115 eligible; 3-leg HR parlays produce dec 91–216, within [20, 1500]; ONLY functional lane
+- Volatility distribution: safe=0, balanced=0, aggressive=4, lotto=111
+- eventId=null on ALL 115 tracked_best entries → gameKey returns null → maxPerGame caps blind
+- Prob cap [0.50, 0.55] erases all model signal for MLB (all at 0.12–0.35)
+- No ELITE/STRONG stamps → tier boost never fires positively for any MLB candidate
+- enrichBestEntry passes `odds` through → VOLATILITY_RULES correctly classifies via odds gate
+
+5-phase evolution plan:
+- MLB-1: Fix eventId/matchup null (LOW RISK, no prerequisite)
+- MLB-2: ELITE/STRONG stamps in nightly pipeline (LOW RISK, after MLB-1)
+- MLB-3: Sport-specific probability floor [0.35, 0.45] for MLB offensive (LOW-MEDIUM)
+- MLB-4: Safe-candidate MLB pipeline (new data source, MEDIUM)
+- MLB-5: Sport-specific tier template overrides (HIGH, requires calibration data)
+
+**No code patches this session. TERM 1 restart: NO for trace phase.**
 
 ---
 
@@ -465,18 +513,20 @@ NBA snapshot candidate pipeline:
 
 | File | Status |
 |---|---|
-| `docs/WORKFLOW_RULES.md` | Committed |
-| `docs/CURRENT_STATE.md` | **Synced to root this session (Session Z)** |
-| `docs/NEXT_SESSION.md` | **Synced to root this session (Session Z)** |
+| `docs/WORKFLOW_RULES.md` | **Session AH: Verification Classification System + Runtime Rebuild Law + Script Governance + Sport String Law + script path corrections (backend/scripts/ not scripts/)** |
+| `docs/CURRENT_STATE.md` | **Synced Session AD** |
+| `docs/NEXT_SESSION.md` | **Synced Session AD** |
 | `docs/BOOTSTRAP_PROMPT.md` | Committed |
 | `docs/ARCHITECTURE.md` | Needs update: line counts stale, http/ section changed |
 | `docs/ARCHITECTURE_AUDIT_2026-05-09.md` | Created Session X — Phase 0/2 items now complete |
 | `docs/NBA_ECOLOGY_AUDIT_2026-05-09.md` | **NEW (Session Z) — 20-section NBA intelligence audit; health 2.9/10; roadmap NBA-1→NBA-7** |
 | `docs/NBA_CANONICAL_PATH_AUDIT_2026-05-09.md` | **NEW (Session AB) — 20-section NBA routing audit; health 4.6/10; canonical designations + 9-phase migration plan (2.A→2.I)** |
+| `docs/MLB_CONSTRUCTION_TRACE_2026-05-09.md` | **NEW (Session AD) — 18-section MLB construction audit; health 3.2/10; 5-phase MLB evolution plan (MLB-1→MLB-5)** |
+| `backend/pipeline/nba/nbaVolatilityResolver.js` | **NEW (Session AC/AD) — NBA-2.B canonical volatility resolver; 95 lines; replaces inline NBA-1 guards** |
 | `backend/pipeline/shared/normalizers.js` | **NEW (Session Y)** |
 | `backend/pipeline/shared/buildWorkstationCompactors.js` | **NEW (Session Y)** |
-| `backend/pipeline/shared/buildFeaturedPlays.js` | **Session AA: snapshotSourced lotto guard + volRealism lotto 0.65 slot. Session Y: isOffensiveAttackStat imported from normalizers** |
-| `backend/pipeline/shared/buildSlipAi.js` | **Session AA: snapshotSourced lotto guard. Session Y: isOffensiveAttackStat imported from normalizers; inline block removed** |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | **Session AD/AC (NBA-2.B): resolveNbaVolatility import replaces inline NBA-1 guard. Session AA: lotto volRealism 0.65 slot. Session Y: isOffensiveAttackStat from normalizers** |
+| `backend/pipeline/shared/buildSlipAi.js` | **Session AD/AC (NBA-2.B): resolveNbaVolatility import replaces inline NBA-1 guard. Session AA: lotto guard. Session Y: isOffensiveAttackStat from normalizers** |
 | `backend/routes/workstationRoutes.js` | **Session Y: compactors imported from buildWorkstationCompactors; 103-line inline removed** |
 | `backend/server.js` | **Session Y: /refresh-snapshot mutex unified to module-level** |
 | `backend/storage/reviewSchema.js` | NEW (Session W) |

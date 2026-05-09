@@ -28,7 +28,7 @@ const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
-const { enrichNbaRowStatLayerInputs } = require("../pipeline/nba/nbaEventTeamResolve")
+const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
 
@@ -179,7 +179,13 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       : null
     if (!family) continue
 
-    const enriched = enrichNbaRowStatLayerInputs(r)
+    // NBA-2.C.2: Apply team fallback from nbaPlayerProjections.json AFTER stat-layer enrichment.
+    // enrichNbaRowStatLayerInputs does not populate `team` — it handles pace/total/minutes/usage.
+    // applyTeamFallbackFromProjections reads team from projections.json by player name (lowercase key)
+    // and infers opponent from homeTeam/awayTeam when team resolves. Safe degradation: players not in
+    // projections.json remain team=null (sameTeam boosts simply don't fire for them — not an error).
+    // Coverage on current slate: 18/24 diversified candidates receive team → sameTeam boosts activate.
+    const enriched = applyTeamFallbackFromProjections(enrichNbaRowStatLayerInputs(r))
     const mp = nbaRowModelProbability(enriched)
     if (!Number.isFinite(mp) || mp < 0.35) continue
     const edge = nbaRowEdge(enriched)

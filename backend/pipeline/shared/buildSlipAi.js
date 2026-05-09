@@ -37,6 +37,15 @@
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
 
+// NBA-2.C: Correlation intelligence — lazy require, sport-gated to NBA only.
+// Pure functions — no active-runtime imports. Safe at module load time.
+// MLB candidates NEVER reach this code path (isNba gate in buildAiSlips).
+let _nbaCorr = null
+function getNbaCorr() {
+  if (!_nbaCorr) _nbaCorr = require("../nba/nbaCorrelationEngine")
+  return _nbaCorr
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function num(v) { if (v == null) return null; const n = Number(v); return Number.isFinite(n) ? n : null }
@@ -446,10 +455,27 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     return true
   })
 
+  // NBA-2.C: Precompute per-leg correlation sort bonus from same-game peer links.
+  // corrBonusMap: legId → tiebreaker nudge (cap 0.04, per nbaCorrelationSortBonus).
+  // Peer set = the full eligible pool for this tier.
+  // Non-NBA: corrBonusMap stays null → textureRank unchanged.
+  let corrBonusMap = null
+  if (ctx.isNba) {
+    const { nbaCorrelationSortBonus } = getNbaCorr()
+    corrBonusMap = new Map()
+    const peerLegs = eligible.map((sl) => sl.leg)
+    for (const sl of eligible) {
+      corrBonusMap.set(sl.leg.id, nbaCorrelationSortBonus(sl.leg, peerLegs, ctx.eventMetaMap))
+    }
+  }
+
   // Sort by composite; aggressive/lotto tiers add a tiny texture bias so seeds
   // aren't always "balanced unders + one HR" when scores cluster.
+  // NBA also gets the correlation tiebreaker nudge (max 0.04 — cannot override genuine score gaps).
   const textureRank = (sl) =>
-    sl.composite + ((tier === "aggressive" || tier === "lotto") ? offensiveAttackTextureBonus(sl.leg, ctx.timingMap) : 0)
+    sl.composite +
+    ((tier === "aggressive" || tier === "lotto") ? offensiveAttackTextureBonus(sl.leg, ctx.timingMap) : 0) +
+    (corrBonusMap ? (corrBonusMap.get(sl.leg.id) || 0) : 0)
   eligible.sort((a, b) => textureRank(b) - textureRank(a) || b.composite - a.composite)
 
   // For aggressive tier: re-order so volatile (aggressive/lotto volatility) legs
@@ -523,6 +549,24 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     }
     if (!validSlipLegs) continue
 
+    // NBA-2.C: Post-assembly NBA enrichment (applied before signature + serialisation).
+    //
+    // (a) orderLegsWithCashoutFirst — purely cosmetic reorder for bettor UX.
+    //     First basket / threes / low-line points move to position 0, giving the
+    //     bettor the earliest-resolving prop first on the ticket. Signature uses
+    //     sorted IDs so cosmetic reorder does NOT break deduplication.
+    //
+    // (b) correlationScore — pairBoostAvg from jointProbabilityWithCorrelation.
+    //     Exposes the correlation signal to bettor-facing UI. Not used in
+    //     selection or sorting — informational only. null for non-NBA slips.
+    let correlationScore = null
+    if (ctx.isNba) {
+      const corr = getNbaCorr()
+      validSlipLegs = corr.orderLegsWithCashoutFirst(validSlipLegs)
+      const { pairBoostAvg } = corr.jointProbabilityWithCorrelation(validSlipLegs, ctx.eventMetaMap)
+      correlationScore = pairBoostAvg
+    }
+
     // slipScores is parallel to slipLegs — trim to match the accepted leg count
     const validSlipScores = slipScores.slice(0, validSlipLegs.length)
 
@@ -550,6 +594,7 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
       combinedImpliedProb: validCombined.combinedImpliedProb,
       edge:                validCombined.edge,
       ev:                  validCombined.ev,
+      correlationScore,
       volatility:          tier,
       compositeScore:      r4(validSlipScores.reduce((s, x) => s + x.composite, 0) / validSlipScores.length),
       factors:             avgFactors,
@@ -769,7 +814,13 @@ function buildAiSlips(opts = {}) {
   // Roll up ledger stat history for CLV/archetype factors
   const ledgerStats = rollupLedgerStats(ledgerState)
 
-  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport }
+  // NBA-2.C: Build per-game correlation metadata for NBA slates only.
+  // eventMetaMap feeds pace / total / maxUsage to pairwiseStackBoost.
+  // isNba gates all NBA-specific code — MLB module load path is untouched.
+  const isNba = /^nba$/i.test(sport)
+  const eventMetaMap = isNba ? getNbaCorr().buildEventMetaMap(normalized) : null
+
+  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport, isNba, eventMetaMap }
 
   // Score every leg once
   const scored = normalized.map((leg) => {
