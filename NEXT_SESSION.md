@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AD: Historical Grading + Reconciliation Pipeline — 6 new files; MLB+NBA API fetchers; bet+slip settlement; ROI summary; backfill runner; 24/24 tests; 6/6 syntax clean; TERM 1 restart NOT required; run backfill now to unlock intelligence systems)_
+_Last updated: 2026-05-10 (Session AE: NBA Result Ingestion Repair — stats.nba.com replaced with ESPN public API; 37/37 tests; TERM 1 restart NOT required; TERM 2 = run NBA backfill live to verify games discovered + bets graded)_
 
 ---
 
@@ -43,45 +43,49 @@ Session AB completed the NBA-2 Canonical Path Constitution Audit (read-only Opus
 
 ```bash
 cd ~/Desktop/betting-dashboard
+```
 
-# 1. Finalize checkpoint — commits Sessions H–AD
-bash scripts/finalizeCheckpoint.sh
-# → Report the commit hash
+**Step 1 — Finalize checkpoint (Sessions H–AE):**
+```
+bash backend/scripts/finalizeCheckpoint.sh
+```
 
-# 2. TERM 1 restart: still pending from Session AA+AC if not yet done.
-#    (buildFeaturedPlays.js, buildSlipAi.js, server.js, workstationRoutes.js modified)
-#    Session AD: NO restart required (new files only).
-#    Check: ps aux | grep server.js — if pre-dates 2026-05-09:
+**Step 2 — TERM 1 restart (if not already restarted since Session AA+AC):**
+```
 node backend/server.js
+```
+Sessions AD+AE: no TERM 1 restart required (new/grading files only). If server pre-dates 2026-05-09, restart for AA+AC changes.
 
-# 3. 🔴 RUN HISTORICAL BACKFILL (Session AD — new, do this now):
-#    Grades all 1664 pending MLB bets + 27 NBA bets across 5 dates.
-#    Requires network access to statsapi.mlb.com and stats.nba.com.
-node backend/scripts/runHistoricalGrade.js --sport=all --backfill
-#    Expected output: 5 MLB dates + 5 NBA dates graded
-#    Expected MLB hit rates: ~55-65% on ELITE tier (based on model calibration)
-#    If NBA Stats API blocked (403): NBA bets stay "pending", MLB will still grade
+**Step 3 — TERM 2: Run NBA historical backfill (Session AE verification):**
+```
+node backend/scripts/runHistoricalGrade.js --sport=nba --backfill
+```
+Expected output: "ESPN scoreboard: N games" for each date, followed by settled counts.
 
-# 4. If any bets stay "unresolved" (player found, stat missing), retry:
+**Step 4 — Verify NBA bets graded (paste as one line):**
+```
+node -e "const b=JSON.parse(require('fs').readFileSync('backend/runtime/tracking/nba_tracked_bets_2026-05-08.json','utf8'));const s=b.filter(x=>['win','loss','push'].includes(x.result));const p=b.filter(x=>x.result==='pending');const u=b.filter(x=>x.result==='unresolved');console.log('settled:',s.length,'pending:',p.length,'unresolved:',u.length,'wins:',s.filter(x=>x.result==='win').length,'losses:',s.filter(x=>x.result==='loss').length)"
+```
+Expected: `settled: 4 pending: 0 unresolved: 0` (or similar — settled > 0 confirms repair).
+
+**Step 5 — Also run MLB backfill (if not already done from Session AD):**
+```
+node backend/scripts/runHistoricalGrade.js --sport=mlb --backfill
+```
+
+**Step 6 — If any "unresolved" appear (player found, stat missing), retry:**
+```
 node backend/scripts/runHistoricalGrade.js --sport=all --backfill --retry-unresolved
+```
 
-# 5. After backfill — verify results are populated:
-node -e "
-const bets = JSON.parse(require('fs').readFileSync('backend/runtime/tracking/mlb_tracked_bets_2026-05-08.json','utf8'))
-const settled = bets.filter(b => ['win','loss','push'].includes(b.result))
-const pending = bets.filter(b => b.result === 'pending')
-const unresolved = bets.filter(b => b.result === 'unresolved')
-console.log('settled:', settled.length, 'pending:', pending.length, 'unresolved:', unresolved.length)
-const wins = settled.filter(b => b.result==='win').length
-const losses = settled.filter(b => b.result==='loss').length
-console.log('hit rate:', (wins/(wins+losses)*100).toFixed(1) + '%')
-"
-
-# 6. After backfill — run daily review with real data (first real intelligence cycle):
+**Step 7 — After both sports graded, run daily intelligence review:**
+```
 node backend/scripts/runDailyReview.js --sport=mlb --date=2026-05-08 --verbose
+```
 
-# 7. Remove orphaned dead file:
-rm backend/pipeline/boards/buildFeaturedPlays.js
+**Step 8 — Checkpoint (ONLY after Step 4 confirms settled > 0):**
+```
+node backend/scripts/checkpointRepo.js "Session AE: NBA ingestion repair — ESPN replaces stats.nba.com"
 ```
 
 ---

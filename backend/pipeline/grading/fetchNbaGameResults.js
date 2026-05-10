@@ -1,47 +1,41 @@
 "use strict"
 
 /**
- * fetchNbaGameResults — fetches player stat lines from the NBA Stats API
- * for all players who appeared in games on a given date.
+ * fetchNbaGameResults — fetches player stat lines from the ESPN public API
+ * for all players who appeared in NBA games on a given date.
+ *
+ * INGESTION SOURCE: ESPN public API (site.api.espn.com)
+ *   Replaces: stats.nba.com — blocked from Node.js servers (403 / network block)
+ *   ESPN requires no auth, no special headers, handles regular season + playoffs.
+ *
+ * Two-step fetch:
+ *   1. scoreboard?dates=YYYYMMDD  → array of ESPN game IDs
+ *   2. summary?event={gameId}     → per-player stat lines per game
  *
  * Returns a Map keyed by normalized player name (lowercase, trimmed):
  *   playerName → { rebounds, threes, assists, points, blocks, steals }
  *
- * Stat family → result key mapping:
- *   rebounds → reboundsTotal (sum of offReb + defReb)
- *   threes   → threePointersMade
- *   assists  → assists
- *   points   → points
+ * Stat family → result key mapping (aligned to tracked_bets statFamily field):
+ *   rebounds → "rebounds"           (ESPN key: "rebounds", total REB)
+ *   threes   → "threes"             (ESPN key: "threePointFieldGoals", parsed from "M-A")
+ *   assists  → "assists"            (ESPN key: "assists")
+ *   points   → "points"             (ESPN key: "points")
+ *   blocks   → "blocks"             (ESPN key: "blocks")
+ *   steals   → "steals"             (ESPN key: "steals")
  *
- * Uses the official NBA Stats API:
- *   scoreboardv2 → game IDs for the date
- *   boxscoretraditionalv2 → per-player stats per game
- *
- * Requires specific headers (Referer, User-Agent, Origin) to bypass NBA CDN
- * restrictions. If the API is unreachable (network error, 403, rate-limit),
- * returns an empty Map — callers treat affected bets as "unresolved" and
- * preserve them for retry.
+ * ESPN stat value formats:
+ *   Integer stats (rebounds, assists, etc.): "7"  → 7
+ *   Ratio stats (threePointFieldGoals):      "2-7" → 2  (made count only)
+ *   DNP players: didNotPlay=true → skipped
  *
  * @param {string} date  YYYY-MM-DD
- * @returns {Promise<Map<string, object>>}
+ * @returns {Promise<Map<string, object>>}  empty Map on failure (bets stay "pending")
  */
 
 const axios = require("axios")
 
-const NBA_STATS_BASE = "https://stats.nba.com/stats"
+const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 const REQUEST_TIMEOUT = 15000
-
-// Required headers for stats.nba.com — 403 without these
-const NBA_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": "https://www.nba.com/",
-  "Origin": "https://www.nba.com",
-  "Accept": "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
-  "x-nba-stats-origin": "stats",
-  "x-nba-stats-token": "true",
-}
 
 function normName(v) {
   return String(v == null ? "" : v).trim().toLowerCase()
@@ -53,94 +47,156 @@ function toInt(v) {
 }
 
 /**
- * Format date from YYYY-MM-DD to MM/DD/YYYY (NBA scoreboard format).
+ * Format date from YYYY-MM-DD to YYYYMMDD (ESPN scoreboard format).
  */
-function toNbaDateFormat(isoDate) {
-  const [y, m, d] = isoDate.split("-")
-  return `${m}/${d}/${y}`
+function toEspnDateFormat(isoDate) {
+  return isoDate.replace(/-/g, "")
 }
 
 /**
- * Parse a stats.nba.com "rowSet" response into an array of objects.
- * NBA API returns { headers: [...], rowSet: [[...], ...] }
+ * Parse a stat value from ESPN's format into an integer.
+ * - Integer strings ("7") → 7
+ * - Ratio strings ("2-7") → 2 (made count, first value before "-")
+ * - Empty / non-numeric → null
  */
-function parseNbaRows(resultSet) {
-  const headers = resultSet?.headers || []
-  const rows = resultSet?.rowSet || []
-  return rows.map((row) => {
-    const obj = {}
-    headers.forEach((h, i) => { obj[h] = row[i] })
-    return obj
-  })
+function parseEspnStat(val) {
+  if (val == null || val === "" || val === "--") return null
+  const s = String(val).trim()
+  // M-A format (fieldGoals, threePointFieldGoals, freeThrows)
+  if (s.includes("-")) {
+    const made = parseInt(s.split("-")[0], 10)
+    return Number.isFinite(made) ? made : null
+  }
+  // MM:SS format (minutes) — not a stat we use, but handle gracefully
+  if (s.includes(":")) {
+    return null
+  }
+  const n = Number(s)
+  return Number.isFinite(n) ? Math.round(n) : null
 }
 
 /**
- * Fetch game IDs from the NBA scoreboard for a given date.
+ * Build a stat-key lookup from an ESPN statistics entry.
+ * Returns a function: (key) → parsed integer | null
+ */
+function makeStatLookup(statGroup) {
+  const keys   = statGroup.keys   || []
+  return function getStatByKey(athleteStats, key) {
+    const idx = keys.indexOf(key)
+    if (idx === -1 || idx >= athleteStats.length) return null
+    return parseEspnStat(athleteStats[idx])
+  }
+}
+
+/**
+ * Fetch game IDs from the ESPN NBA scoreboard for a given date.
+ * Only returns completed games (finished = has real box score data).
+ *
  * @param {string} isoDate  YYYY-MM-DD
- * @returns {Promise<string[]>}  array of gameId strings
+ * @returns {Promise<string[]>}  ESPN game ID strings
  */
 async function fetchNbaGameIds(isoDate) {
-  const gameDate = toNbaDateFormat(isoDate)
-  const url = `${NBA_STATS_BASE}/scoreboardv2?gameDate=${encodeURIComponent(gameDate)}&leagueId=00&dayOffset=0`
+  const dateStr = toEspnDateFormat(isoDate)
+  const url = `${ESPN_BASE}/scoreboard?dates=${dateStr}&limit=30`
   try {
-    const r = await axios.get(url, { headers: NBA_HEADERS, timeout: REQUEST_TIMEOUT })
-    const sets = r.data?.resultSets || []
-    // GameHeader is result set index 0
-    const gameHeader = sets.find((s) => s.name === "GameHeader") || sets[0]
-    if (!gameHeader) return []
-    const rows = parseNbaRows(gameHeader)
-    return rows.map((row) => String(row.GAME_ID)).filter(Boolean)
+    const r = await axios.get(url, { timeout: REQUEST_TIMEOUT })
+    const events = r.data?.events || []
+
+    if (!events.length) {
+      console.log(`[fetchNbaGameResults] ESPN scoreboard: 0 events for ${isoDate}`)
+      return []
+    }
+
+    // Include all games — completed AND in-progress. For historical backfill,
+    // all target dates are in the past so all games are completed.
+    // For live grading, in-progress game stats are still valid partial data.
+    const ids = events.map((e) => String(e.id)).filter(Boolean)
+    const completed = events.filter((e) => e.status?.type?.completed === true).length
+    console.log(`[fetchNbaGameResults] ESPN scoreboard: ${events.length} games (${completed} completed) for ${isoDate}`)
+    return ids
   } catch (err) {
-    console.error(`[fetchNbaGameResults] Scoreboard fetch failed for ${isoDate}: ${err.message}`)
+    console.error(
+      `[fetchNbaGameResults] Scoreboard fetch failed for ${isoDate}: ` +
+      `${err.response ? `HTTP ${err.response.status}` : err.message}`
+    )
     return []
   }
 }
 
 /**
- * Fetch per-player stats for a single NBA game and merge into resultMap.
- * @param {string} gameId
+ * Fetch per-player stats for a single ESPN NBA game and merge into resultMap.
+ *
+ * ESPN summary endpoint:
+ *   boxscore.players[teamIdx].statistics[groupIdx].athletes[playerIdx]
+ *     .athlete.displayName  → player name
+ *     .stats[colIdx]        → stat value at position matching .keys[colIdx]
+ *     .didNotPlay           → true if player did not enter the game
+ *
+ * @param {string} espnGameId
  * @param {Map}    resultMap  mutated in place
  */
-async function processNbaGame(gameId, resultMap) {
-  const url =
-    `${NBA_STATS_BASE}/boxscoretraditionalv2` +
-    `?gameId=${gameId}&startPeriod=0&endPeriod=10&startRange=0&endRange=2147483647&rangeType=0`
+async function processEspnGame(espnGameId, resultMap) {
+  const url = `${ESPN_BASE}/summary?event=${espnGameId}`
   let data
   try {
-    const r = await axios.get(url, { headers: NBA_HEADERS, timeout: REQUEST_TIMEOUT })
+    const r = await axios.get(url, { timeout: REQUEST_TIMEOUT })
     data = r.data
-  } catch {
-    return // single-game failure is non-fatal
+  } catch (err) {
+    console.warn(
+      `[fetchNbaGameResults] Game ${espnGameId} fetch failed: ` +
+      `${err.response ? `HTTP ${err.response.status}` : err.message}`
+    )
+    return
   }
 
-  const sets = data?.resultSets || []
-  // PlayerStats is result set 0
-  const playerStatsSet = sets.find((s) => s.name === "PlayerStats") || sets[0]
-  if (!playerStatsSet) return
+  const teamGroups = data?.boxscore?.players || []
+  if (!teamGroups.length) {
+    console.warn(`[fetchNbaGameResults] Game ${espnGameId}: no player data in boxscore`)
+    return
+  }
 
-  const rows = parseNbaRows(playerStatsSet)
-  for (const row of rows) {
-    const name = normName(row.PLAYER_NAME)
-    if (!name) continue
+  for (const teamData of teamGroups) {
+    const statGroups = teamData.statistics || []
 
-    const entry = {
-      rebounds: toInt(row.REB),       // total rebounds
-      threes:   toInt(row.FG3M),      // 3-pointers made
-      assists:  toInt(row.AST),
-      points:   toInt(row.PTS),
-      blocks:   toInt(row.BLK),
-      steals:   toInt(row.STL),
-      turnovers: toInt(row.TO),
-    }
+    for (const statGroup of statGroups) {
+      const getStatByKey = makeStatLookup(statGroup)
+      const athletes = statGroup.athletes || []
 
-    // Merge — same player can appear in two games (rare, but handle it)
-    const existing = resultMap.get(name)
-    if (existing) {
-      Object.keys(entry).forEach((k) => {
-        existing[k] = (existing[k] || 0) + entry[k]
-      })
-    } else {
-      resultMap.set(name, entry)
+      for (const athleteData of athletes) {
+        // Skip players who did not enter the game
+        if (athleteData.didNotPlay === true) continue
+
+        const name = normName(athleteData.athlete?.displayName)
+        if (!name) continue
+
+        const rawStats = athleteData.stats || []
+        if (!rawStats.length) continue // no stats recorded — player may not have played
+
+        const entry = {
+          rebounds: getStatByKey(rawStats, "rebounds"),
+          threes:   getStatByKey(rawStats, "threePointFieldGoals"),
+          assists:  getStatByKey(rawStats, "assists"),
+          points:   getStatByKey(rawStats, "points"),
+          blocks:   getStatByKey(rawStats, "blocks"),
+          steals:   getStatByKey(rawStats, "steals"),
+        }
+
+        // Coerce nulls to 0 for played players — a 0-rebound game is valid
+        Object.keys(entry).forEach((k) => {
+          if (entry[k] === null) entry[k] = 0
+        })
+
+        // Merge — same player appearing in two games (double-headers are impossible
+        // in NBA, but handle defensively)
+        const existing = resultMap.get(name)
+        if (existing) {
+          Object.keys(entry).forEach((k) => {
+            existing[k] = (existing[k] || 0) + entry[k]
+          })
+        } else {
+          resultMap.set(name, entry)
+        }
+      }
     }
   }
 }
@@ -159,12 +215,8 @@ async function fetchNbaGameResults(date) {
     return resultMap
   }
 
-  // Fetch boxscores sequentially to avoid NBA rate-limiting
-  for (const gameId of gameIds) {
-    await processNbaGame(gameId, resultMap)
-    // Small delay to be respectful of the stats.nba.com rate limiter
-    await new Promise((r) => setTimeout(r, 500))
-  }
+  // Fetch game boxscores in parallel (ESPN rate limits are lenient)
+  await Promise.all(gameIds.map((id) => processEspnGame(id, resultMap)))
 
   console.log(`[fetchNbaGameResults] ${date}: ${gameIds.length} games, ${resultMap.size} players resolved`)
   return resultMap

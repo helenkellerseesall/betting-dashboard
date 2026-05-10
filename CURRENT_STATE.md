@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AD: Historical Grading + Reconciliation Pipeline — 5 new files in pipeline/grading/ + scripts/runHistoricalGrade.js; MLB Stats API + NBA Stats API fetchers; per-bet + per-slip settlement; ROI/hit-rate summary; backfill runner; 24/24 logic tests pass; 6/6 syntax clean; no existing files modified; TERM 1 restart NOT required)_
+_Last updated: 2026-05-10 (Session AE: NBA Result Ingestion Repair — fetchNbaGameResults.js replaced stats.nba.com (blocked, 403) with ESPN public API; no auth required; handles playoffs; 37/37 tests pass; 1 file modified; TERM 1 restart NOT required; run TERM 2 to verify NBA grading live)_
 
 ---
 
@@ -168,6 +168,54 @@ Zero-regression structural stabilization. Dead code removal, duplication elimina
 | 4 empty stub directories removed | ✓ enrich/ normalize/ validation/ snapshot/ gone |
 
 **TERM 1 restart required** — server.js modified (mutex fix). workstationRoutes.js modified (compactor import).
+
+---
+
+## SESSION AE — NBA Result Ingestion Repair (2026-05-10)
+
+**Scope**: Diagnose and repair the NBA grading pipeline. Root cause: `stats.nba.com/stats/scoreboardv2` returns 403 / network block from Node.js servers. The error was caught silently → returned `[]` → "No NBA games found" for every date. Fix: replace with ESPN public API (`site.api.espn.com`) which requires no auth, no special headers, handles regular season + playoffs.
+
+### Root Cause (confirmed):
+
+| Signal | Evidence |
+|---|---|
+| Error logged but swallowed | `fetchNbaGameIds` catches the 403, logs `console.error`, returns `[]` |
+| Output message | "No NBA games found for YYYY-MM-DD" for all 5 dates |
+| stats.nba.com behavior | Aggressively blocks non-browser Node.js clients, even with spoofed headers |
+| MLB worked | `statsapi.mlb.com` has no such restriction — free, open, no browser check |
+
+### File Modified (1):
+
+| File | Change |
+|---|---|
+| `pipeline/grading/fetchNbaGameResults.js` | Replace `stats.nba.com/stats/scoreboardv2 + boxscoretraditionalv2` with ESPN public API (`site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard + summary`) |
+
+### ESPN API (replacement):
+
+| Endpoint | Purpose |
+|---|---|
+| `scoreboard?dates=YYYYMMDD&limit=30` | Get ESPN game IDs for a date |
+| `summary?event={gameId}` | Get per-player stats for a game |
+
+ESPN stat parsing:
+- Integer fields (rebounds, assists, points): `"7"` → `7`
+- Ratio fields (threePointFieldGoals): `"2-7"` → `2` (made count parsed from M-A format)
+- DNP players: `didNotPlay: true` → skipped (not added to resultMap)
+- Zero stats: valid — `0-0` threes → `0` (not null)
+
+### Verification Results:
+| Test | Result |
+|---|---|
+| `node --check` — 1 file | ✓ 1/1 clean |
+| parseEspnStat — 13 cases (integers, M-A, edge cases) | ✓ 13/13 |
+| getNbaStatValue — 8 cases (all families + null guards) | ✓ 8/8 |
+| normName — 3 cases | ✓ 3/3 |
+| Full ESPN mock boxscore (5 players, 1 DNP, 2 teams) | ✓ 14/14 |
+| Dry-run backfill — 5 NBA dates discovered | ✓ 5/5 |
+
+**TERM 1 restart: NOT required** — `fetchNbaGameResults.js` is a standalone CLI module, not loaded by `server.js`.
+
+**TERM 2 verification required** — run NBA backfill live to confirm ESPN returns real game data.
 
 ---
 
