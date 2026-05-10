@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AI: NBA-3 Alt-Line Liberation complete — quality alt-line gate in buildNbaSnapshotCandidates; 15/15 smoke tests pass; Class D; pending TERM 1 restart + TERM 2 verification before finalizing checkpoint.)_
+_Last updated: 2026-05-09 (Session AJ: Runtime Verification Law Hardening — WORKFLOW_RULES.md hardened with 3 new permanent law sections; Class D snapshot refresh now unconditional; READ/FILTERED distinction abolished. Class A session. NBA-3 (Session AI) still pending full Class D verification sequence below.)_
 
 ---
 
@@ -45,33 +45,41 @@ Session AD delivered three outputs: (1) WORKFLOW_RULES.md operational output pro
 
 ---
 
-## PENDING OPERATOR ACTIONS (macOS terminal — DO THESE IN ORDER)
+## PENDING OPERATOR ACTIONS — NBA-3 Class D Verification (macOS terminal)
 
-**Step 1 — Restart TERM 1 (workstationRoutes.js modified — NBA-3 gate):**
-```bash
+**This is a Class D patch (workstationRoutes.js — candidate filtering). Full CLASS D REGENERATION PROTOCOL required.**
+
+**STEP 1 — Restart TERM 1:**
+```
 cd ~/Desktop/betting-dashboard && node backend/server.js
 ```
 
-**Step 2 — Wait ~5s for server ready, then verify NBA-3 alt-line flow:**
-```bash
-curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); const altLegs=slips.flatMap(s=>s.legs||[]).filter(l=>l.isAltLine); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'altLegs:', altLegs.length, 'altFamilies:', [...new Set(altLegs.map(l=>l.statFamily))].join(','), 'corrFields:', slips.filter(s=>'correlationScore' in s).length)"
+**STEP 2 — Wait 5s, then force snapshot hard-reset (MANDATORY for Class D — no exceptions):**
+```
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
 ```
 
-**Expected output after TERM 1 restart:**
-- `candidates`: > 24 (alt-lines add to pool — expect 30–60 depending on snapshot coverage)
-- `altLegs`: > 0 (at least some quality alt-lines in aggressive/lotto slips)
-- `altFamilies`: threes, pra, and/or points (never rebounds/assists/first_basket)
-- `corrFields`: > 0 (correlation still wired)
+**STEP 3 — Wait 10s for snapshot rebuild, then inspect live payload:**
+```
+curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); const altLegs=slips.flatMap(s=>s.legs||[]).filter(l=>l.isAltLine); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'altLegs:', altLegs.length, 'altFamilies:', [...new Set(altLegs.map(l=>l.statFamily))].join(','), 'corrFields:', slips.filter(s=>'correlationScore' in s).length, 'nonZeroCorr:', slips.filter(s=>s.correlationScore>0).length)"
+```
 
-**Step 3 — ONLY after Step 2 confirms expected output, finalize checkpoint:**
-```bash
+**Expected output:**
+- `candidates`: > 24 (alt-lines add to pool — expect 30–60 depending on snapshot alt-line coverage)
+- `altLegs`: ≥ 0 (0 is acceptable if snapshot has no quality alts meeting mp≥0.42/edge≥0.06 today)
+- `altFamilies`: threes/pra/points only (never rebounds/assists/first_basket)
+- `corrFields`: > 0 (correlation still wired from NBA-2.C)
+
+**STEP 4 — ONLY after Step 3 confirms (no crashes, correct field shapes), finalize checkpoint:**
+```
 cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 ```
 
 **CRITICAL:**
-- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`
-- If `altLegs: 0` — this is expected if today's snapshot has no quality alt-lines meeting mp>=0.42/edge>=0.06. Check `candidates` count for whether alt candidates are entering the pool pre-diversification.
-- Sessions H–AI are all staged in the checkpoint. finalizeCheckpoint.sh commits everything in one shot.
+- Do NOT run Step 3 before Step 2 completes — new code against empty snapshot = false failure.
+- Do NOT skip Step 2 — this is Class D; snapshot hard-reset is unconditional.
+- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`.
+- Sessions H–AJ are all staged. finalizeCheckpoint.sh commits everything in one shot.
 
 ---
 

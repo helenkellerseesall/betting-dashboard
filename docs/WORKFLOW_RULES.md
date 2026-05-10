@@ -36,9 +36,15 @@ Every implementation session must state at the start of the output section:
 ```
 Verification class: [A / B / C / D]
 TERM 1 restart required: [YES / NO]
-Snapshot refresh required: [YES / NO — reason]
+Snapshot refresh required: [YES — Class D mandatory / NO — Class A/B/C only, state why]
 Payload verification required: [YES / NO]
 ```
+
+RULES on snapshot refresh declaration:
+- Class D: MUST declare "YES — Class D mandatory". Any other declaration is an error.
+- Class C: MUST declare "NO — Class C (TERM 1 restart sufficient)".
+- Class A/B: MUST declare "NO — doc/frontend only".
+- NEVER declare "NO" for Class D for any reason.
 
 ---
 
@@ -160,33 +166,50 @@ Every session MUST explicitly declare its verification class before stating TERM
 **Checkpoint**: ONLY after TERM 2 payload confirms expected output
 
 ### CLASS D — Architecture / runtime generation / propagation
-**Examples**: `workstationRoutes.js`, candidate builders, snapshot enrichment, ecology routing, aiSlips generation, normalization pipeline, `nbaCorrelationEngine.js`, volatility resolvers  
-**Rebuild required**: YES — FULL rebuild mandatory:  
+**Examples**: `workstationRoutes.js`, candidate builders, snapshot enrichment, ecology routing, aiSlips generation, normalization pipeline, `nbaCorrelationEngine.js`, volatility resolvers, alt-line gates, candidate filtering, candidate shaping, correlation propagation, volatility propagation  
+**Rebuild required**: YES — FULL rebuild mandatory, ALL steps, NO exceptions:  
   1. TERM 1 restart  
-  2. Snapshot refresh (if snapshot-reading code changed)  
-  3. THEN inspect runtime payloads  
+  2. Snapshot hard-reset — `curl -s "http://localhost:4000/refresh-snapshot/hard-reset"` — ALWAYS, unconditionally  
+  3. Wait ~10s for snapshot to load  
+  4. THEN inspect live runtime payloads  
 **Payload verification**: YES — must confirm specific fields in live response  
 **Checkpoint**: ONLY after payload verification confirms expected output  
-**NEVER inspect stale cached payload as proof of correctness**
+**NEVER inspect stale cached payload as proof of correctness**  
+**NEVER declare "snapshot refresh not required" for Class D — this phrase is operationally INVALID**
 
 ### VERIFICATION SEQUENCING LAW (Class C + D)
 
 ```
-CORRECT sequence:
+CORRECT sequence for Class C:
   1. Patch code
   2. node --check all modified files
   3. Run offline smoke test (node -e)
   4. TERM 1 restart
-  5. If snapshot-reading code changed: refresh snapshot first
+  5. Wait ~5s for server ready
   6. Hit /api/ws/state?sport=nba (or mlb) via curl
   7. Confirm specific fields in response
   8. THEN checkpoint
+
+CORRECT sequence for Class D (ALL STEPS MANDATORY — NO SKIPPING):
+  1. Patch code
+  2. node --check all modified files
+  3. Run offline smoke test (node -e)
+  4. TERM 1 restart
+  5. Wait ~5s for server ready
+  6. ALWAYS: curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
+     (no exceptions — snapshot MUST be rebuilt against new code)
+  7. Wait ~10s for snapshot to load
+  8. Hit /api/ws/state?sport=nba (or mlb) via curl
+  9. Confirm specific fields in response
+  10. ONLY THEN checkpoint
 
 WRONG (produces false failures or false passes):
   - Inspect endpoint BEFORE TERM 1 restart
   - Inspect endpoint with wrong sport string (sport=basketball_nba ≠ sport=nba)
   - Accept stale 60s cache response as ground truth
   - Skip TERM 1 restart and assume memory module reloaded
+  - Skip snapshot refresh for Class D and call it "not required"
+  - Distinguish "READ" from "FILTERED" to justify skipping snapshot refresh
 ```
 
 ### SPORT STRING LAW
@@ -329,6 +352,8 @@ Before finishing any session:
 - [ ] `NEXT_SESSION.md` updated
 - [ ] If Class C/D: TERM 1 restart confirmed before TERM 2 curl
 - [ ] If Class C/D: TERM 2 curl uses `sport=nba` (NOT `sport=basketball_nba`)
+- [ ] If Class D: snapshot hard-reset confirmed — `curl -s "http://localhost:4000/refresh-snapshot/hard-reset"` — BEFORE TERM 2 curl
+- [ ] If Class D: snapshot refresh declared "YES — Class D mandatory" in session declaration header
 - [ ] Checkpoint run ONLY after TERM 2 confirms expected output
 
 ## RUNTIME REBUILD LAW (permanent)
@@ -353,11 +378,101 @@ Step 6: ONLY THEN run checkpoint
 ```
 
 ### When snapshot refresh is required
-A snapshot refresh is required if the patch changed how snapshot rows are READ or FILTERED.
-It is NOT required if the patch changed how candidates are SCORED or ASSEMBLED after reading.
 
-Current snapshot refresh: operator runs `node backend/scripts/runNbaNight.js` (NBA)
-or `node backend/scripts/runMlbNight.js` (MLB) in TERM 1.
+**For Class D: ALWAYS. No exceptions. No reasoning overrides this.**
+
+The prior distinction between "READ" vs "FILTERED" vs "SCORED" vs "ASSEMBLED" is ABOLISHED.
+This distinction produced false "snapshot refresh not required" declarations in Sessions AI and earlier.
+The repo is runtime-generated and propagation-sensitive — the entire candidate pipeline is snapshot-dependent.
+Any Class D patch modifies how the runtime constructs payloads from snapshot data.
+Running new code against old in-memory snapshot state = undefined behavior.
+
+The correct hard-reset endpoint (bypasses cooldown, full rebuild):
+```
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
+```
+
+**For Class C: NO** — server-loaded modules are in-memory; TERM 1 restart reloads them; existing snapshot data is sufficient.
+
+**For Class A/B: NO** — no runtime code changed.
+
+---
+
+## STALE RUNTIME PREVENTION LAW (permanent — Session AJ)
+
+The following phrases are **operationally INVALID** for Class D patches. Any session that uses them has produced an incorrect verification declaration:
+
+| Invalid phrase | Why it's wrong |
+|---|---|
+| "snapshot refresh not required" | Class D always requires it |
+| "existing snapshot sufficient" | Old snapshot + new filter code = undefined behavior |
+| "patch does not change snapshot reading" | All candidate shaping is snapshot-dependent |
+| "no snapshot-reading code changed" | "reading" is not the only dependency — filtering, shaping, enriching, routing all require fresh snapshot |
+| "snapshot refresh: NO — patch changes FILTERED not READ" | The READ/FILTERED distinction is abolished for Class D |
+
+**The repo is:**
+- Runtime-generated: payloads are built fresh on each `/api/ws/state` request
+- Snapshot-driven: all NBA candidate data flows from `oddsSnapshot` populated by `/refresh-snapshot`
+- Propagation-sensitive: a change to candidate filtering changes which rows enter every downstream stage
+- Multi-stage: new code + old snapshot = only some stages get the patch; others see stale state
+
+**Therefore:** Class D patches require BOTH new code (TERM 1 restart) AND fresh data (snapshot hard-reset) to produce a valid verification payload. Neither alone is sufficient.
+
+---
+
+## RUNTIME REBUILD DEPENDENCY LAW (permanent — Session AJ)
+
+Each step in the Class D sequence is required for a specific reason. Skipping any step breaks verification:
+
+| Step | Command | Why mandatory |
+|---|---|---|
+| TERM 1 restart | `node backend/server.js` | Loads new JS module code into Node cache. Without this, old code runs regardless of snapshot state. |
+| Snapshot hard-reset | `curl -s "http://localhost:4000/refresh-snapshot/hard-reset"` | Rebuilds `oddsSnapshot` in-memory from live data. After TERM 1 restart, in-memory snapshot is cleared. Without this, new code runs against empty or stale oddsSnapshot. |
+| Wait ~10s | (implicit) | Snapshot rebuild is async. Inspecting `/api/ws/state` before rebuild completes returns empty candidate pool. |
+| Payload inspection | `curl -s "http://localhost:4000/api/ws/state?sport=nba"` | Verifies new code + fresh data produce expected runtime output. |
+| Checkpoint | `node backend/scripts/checkpointRepo.js "..."` | Stages the commit. Run ONLY after payload inspection confirms. |
+
+**Skipping TERM 1 restart:** Old code, old snapshot. Nothing changed. False pass.  
+**Skipping snapshot hard-reset:** New code, empty/stale snapshot. Candidate pool empty or stale. False failure.  
+**Skipping wait:** New code, partial snapshot. Race condition. Unreliable result.  
+**Skipping payload inspection:** No verification at all. Unknown state. Never checkpoint in this condition.
+
+---
+
+## CLASS D REGENERATION PROTOCOL (mandatory — Session AJ)
+
+This is the canonical operator sequence for all Class D patches. No steps may be skipped or reordered.
+
+**STEP 1 — Restart TERM 1 (load new code):**
+```
+cd ~/Desktop/betting-dashboard && node backend/server.js
+```
+
+**STEP 2 — Wait 5s for server ready, then force snapshot hard-reset:**
+```
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
+```
+
+**STEP 3 — Wait 10s for snapshot rebuild, then verify live payload (NBA):**
+```
+curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'corrFields:', slips.filter(s=>'correlationScore' in s).length, 'nonZeroCorr:', slips.filter(s=>s.correlationScore>0).length, 'anchors:', p.featured?.anchors?.length)"
+```
+
+**STEP 4 — ONLY after Step 3 confirms expected output, run checkpoint:**
+```
+node backend/scripts/checkpointRepo.js "Session XX: one-line summary"
+```
+
+**STEP 5 — Finalize checkpoint (macOS terminal):**
+```
+cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
+```
+
+**CRITICAL:**
+- Never run Step 4 before Step 3 confirms.
+- Never run Step 3 before Step 2 completes.
+- Never skip Step 2 regardless of what the patch "touched".
+- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`.
 
 ---
 

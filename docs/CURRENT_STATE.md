@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AI: NBA-3 Alt-Line Liberation — quality alt-line gate in buildNbaSnapshotCandidates; threes/pra/points eligible; mp>=0.42 edge>=0.06; rebounds/assists/first_basket hard-killed; dedup 1 base + 1 alt per player-stat-side; volatility forced aggressive/lotto for alts)_
+_Last updated: 2026-05-09 (Session AJ: Runtime Verification Law Hardening — WORKFLOW_RULES.md constitutionalized with STALE RUNTIME PREVENTION LAW, RUNTIME REBUILD DEPENDENCY LAW, CLASS D REGENERATION PROTOCOL; snapshot refresh unconditional for Class D; READ/FILTERED distinction abolished; Class A doc-only session)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-09 (Session AI: NBA-3 Alt-Line Liberation — quality alt
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–AI staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
-| Repo health | **7.2/10 structural. NBA intelligence health: 4.0/10 (alt-lines now flow — threes/pra/points). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅ NBA-3 ✅ (pending TERM 2 verification). Next lever: NBA-2.C.3 + MLB-1.** |
+| Last commit | e076871 (Session I) — Sessions H–AJ staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
+| Repo health | **7.2/10 structural. NBA intelligence health: 4.0/10 (alt-lines now flow — threes/pra/points). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅ NBA-3 ✅ (pending full Class D verification — TERM 1 + hard-reset + payload). Verification law constitutionalized (Session AJ). Next lever: NBA-2.C.3 + MLB-1.** |
 
 ---
 
