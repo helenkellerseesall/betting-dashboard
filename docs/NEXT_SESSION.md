@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AJ: Runtime Verification Law Hardening — WORKFLOW_RULES.md hardened with 3 new permanent law sections; Class D snapshot refresh now unconditional; READ/FILTERED distinction abolished. Class A session. NBA-3 (Session AI) still pending full Class D verification sequence below.)_
+_Last updated: 2026-05-10 (Session AK: Verification Telemetry V1 implemented — verificationSchema.js, writeVerificationArtifact.js, runVerification.js, runtime/verifications/, VERIFICATION_TELEMETRY.md; 10/10 offline pass; FAIL path confirmed; Class D pending live verification.)_
 
 ---
 
@@ -45,32 +45,36 @@ Session AD delivered three outputs: (1) WORKFLOW_RULES.md operational output pro
 
 ---
 
-## PENDING OPERATOR ACTIONS — NBA-3 Class D Verification (macOS terminal)
+## PENDING OPERATOR ACTIONS — Sessions AI+AK Class D Verification (macOS terminal)
 
-**This is a Class D patch (workstationRoutes.js — candidate filtering). Full CLASS D REGENERATION PROTOCOL required.**
+**Sessions AI (NBA-3 alt-line gate) and AK (Verification Telemetry V1) are both Class D. Full CLASS D REGENERATION PROTOCOL required.**
 
 **STEP 1 — Restart TERM 1:**
 ```
 cd ~/Desktop/betting-dashboard && node backend/server.js
 ```
 
-**STEP 2 — Wait 5s, then force snapshot hard-reset (MANDATORY for Class D — no exceptions):**
+**STEP 2 — Wait 5s, then force snapshot hard-reset (MANDATORY — Class D, no exceptions):**
 ```
 curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
 ```
 
-**STEP 3 — Wait 10s for snapshot rebuild, then inspect live payload:**
+**STEP 3 — Wait 10s for snapshot rebuild, then run Verification Telemetry V1:**
 ```
-curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); const altLegs=slips.flatMap(s=>s.legs||[]).filter(l=>l.isAltLine); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'altLegs:', altLegs.length, 'altFamilies:', [...new Set(altLegs.map(l=>l.statFamily))].join(','), 'corrFields:', slips.filter(s=>'correlationScore' in s).length, 'nonZeroCorr:', slips.filter(s=>s.correlationScore>0).length)"
+node backend/scripts/runVerification.js --sport=nba --session=AK
 ```
 
-**Expected output:**
-- `candidates`: > 24 (alt-lines add to pool — expect 30–60 depending on snapshot alt-line coverage)
-- `altLegs`: ≥ 0 (0 is acceptable if snapshot has no quality alts meeting mp≥0.42/edge≥0.06 today)
-- `altFamilies`: threes/pra/points only (never rebounds/assists/first_basket)
-- `corrFields`: > 0 (correlation still wired from NBA-2.C)
+**Expected output (PASS):**
+- `candidates_populated`: > 0
+- `ai_slips_generated`: > 0
+- `correlation_score_fields`: all slips have field
+- `alt_line_volatility_valid`: no invalid-volatility alt legs
+- `no_ineligible_family_alt_legs`: 0 rebounds/assists/first_basket alt legs
+- `safe_lane_no_alt_contamination`: 0 alt legs in SAFE tier
+- Artifact written to: `backend/runtime/verifications/verification_nba_<date>_AK.json`
+- Exit code 0
 
-**STEP 4 — ONLY after Step 3 confirms (no crashes, correct field shapes), finalize checkpoint:**
+**STEP 4 — ONLY after Step 3 exits 0 (PASS), finalize checkpoint:**
 ```
 cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 ```
@@ -78,8 +82,8 @@ cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 **CRITICAL:**
 - Do NOT run Step 3 before Step 2 completes — new code against empty snapshot = false failure.
 - Do NOT skip Step 2 — this is Class D; snapshot hard-reset is unconditional.
-- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`.
-- Sessions H–AJ are all staged. finalizeCheckpoint.sh commits everything in one shot.
+- Sessions H–AK are all staged. finalizeCheckpoint.sh commits everything in one shot.
+- `sport=basketball_nba` causes `isNba=false` — the runner uses `sport=nba` automatically.
 
 ---
 

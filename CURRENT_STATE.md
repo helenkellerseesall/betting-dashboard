@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AC: NBA-2.B Canonical Volatility Resolver — nbaVolatilityResolver.js created; classifyVolatility guards removed from buildFeaturedPlays + buildSlipAi; resolver is now sole canonical authority; 3 files; 20/20 tests pass; 0 MLB regressions; TERM 1 restart required)_
+_Last updated: 2026-05-10 (Session AD: Historical Grading + Reconciliation Pipeline — 5 new files in pipeline/grading/ + scripts/runHistoricalGrade.js; MLB Stats API + NBA Stats API fetchers; per-bet + per-slip settlement; ROI/hit-rate summary; backfill runner; 24/24 logic tests pass; 6/6 syntax clean; no existing files modified; TERM 1 restart NOT required)_
 
 ---
 
@@ -168,6 +168,90 @@ Zero-regression structural stabilization. Dead code removal, duplication elimina
 | 4 empty stub directories removed | ✓ enrich/ normalize/ validation/ snapshot/ gone |
 
 **TERM 1 restart required** — server.js modified (mutex fix). workstationRoutes.js modified (compactor import).
+
+---
+
+## SESSION AD — Historical Grading + Reconciliation Pipeline (2026-05-10)
+
+**Scope**: Automated grading infrastructure. Fetch actual game results from MLB Stats API and NBA Stats API, settle individual tracked bets (win/loss/push/unresolved/pending), settle slip parlays from leg results, compute ROI/hit-rate summaries per tier/statFamily/side. Backfill runner for all pending dates.
+
+### Files Created (6 new files — 0 existing files modified):
+
+| File | Description |
+|---|---|
+| `pipeline/grading/fetchMlbGameResults.js` | MLB Stats API fetcher — schedule + boxscore, all batting+pitching stat families, parallel game processing, normName-keyed Map |
+| `pipeline/grading/fetchNbaGameResults.js` | NBA Stats API fetcher — scoreboardv2 + boxscoretraditionalv2, required headers, sequential with 500ms delay, graceful degradation |
+| `pipeline/grading/gradeTrackedBets.js` | Per-bet settlement — resultsMap lookup, settleFromActual(), result/actualValue/settledAt write-back, atomic tmp→rename |
+| `pipeline/grading/gradeTrackedSlips.js` | Slip parlay settlement — leg lookup from graded bets, parlay logic (all-win=win, any-loss=loss, push propagation), atomic write |
+| `pipeline/grading/buildGradingSummary.js` | ROI/hit-rate summary — byTier, byStatFamily, bySide, slip byType, American odds ROI, writes grading_summary_{sport}_{date}.json |
+| `scripts/runHistoricalGrade.js` | Main runner — --sport, --date, --backfill, --retry-unresolved, --summary-only, --dry-run, --verbose flags; discovers pending dates automatically |
+
+### MLB stat family mapping:
+| statFamily | API field |
+|---|---|
+| hits | batting.hits |
+| hr | batting.homeRuns |
+| runs | batting.runs |
+| rbis | batting.rbi |
+| totalBases | batting.totalBases |
+| walks | batting.baseOnBalls |
+| ks | pitching.strikeOuts |
+| outs | pitching.outs (pitcher outs recorded) |
+
+### NBA stat family mapping:
+| statFamily | API field |
+|---|---|
+| rebounds | REB (total rebounds from boxscoretraditionalv2) |
+| threes | FG3M (3-pointers made) |
+| assists | AST |
+| points | PTS |
+
+### Result state machine:
+- `"pending"` → player not found in resultsMap (game not played / API miss) — retryable
+- `"unresolved"` → player found but stat family couldn't be extracted — retryable
+- `"win"` / `"loss"` / `"push"` → settled from actual value
+
+### Slip settlement rules:
+- All legs win → "win"
+- Any leg loses → "loss" (even with other wins/pushes)
+- All win or push (≥1 push) → "push"
+- Any unresolved → "unresolved"
+- Any pending → "pending"
+
+### Verification Results:
+| Test | Result |
+|---|---|
+| `node --check` — 6 files | ✓ 6/6 clean |
+| settleFromActual — 7 cases (over/under/push/null) | ✓ 7/7 pass |
+| MLB getStatValue — 10 cases (all families + null guard) | ✓ 10/10 pass |
+| NBA getNbaStatValue — 5 cases | ✓ 5/5 pass |
+| normName — 2 cases | ✓ 2/2 pass |
+| dry-run backfill — 10 date+sport combos discovered | ✓ 10/10 |
+| summary-only run — grading_summary_mlb_2026-05-08.json written | ✓ valid JSON |
+
+### Usage:
+```bash
+# Grade a specific date:
+node backend/scripts/runHistoricalGrade.js --sport=mlb --date=2026-05-08
+node backend/scripts/runHistoricalGrade.js --sport=nba --date=2026-05-07
+
+# Backfill all pending dates (both sports):
+node backend/scripts/runHistoricalGrade.js --sport=all --backfill
+
+# Retry unresolved bets (player found but stat missing):
+node backend/scripts/runHistoricalGrade.js --sport=all --backfill --retry-unresolved
+
+# Just regenerate summaries from existing graded data:
+node backend/scripts/runHistoricalGrade.js --sport=mlb --date=2026-05-08 --summary-only
+```
+
+### What activates after first successful run:
+1. `personal_ledger.json` settled entries → calibration > 0
+2. `buildDailyIntelligenceReview` → real calibration data flows
+3. `buildPostGameReview` → settled bets unblock review engine
+4. `grading_summary_{sport}_{date}.json` → ROI/hit-rate per tier visible
+
+**TERM 1 restart: NOT required** — no existing files modified.
 
 ---
 
@@ -501,13 +585,13 @@ NBA snapshot candidate pipeline:
 4. **NBA tracked_bets pool thin** — 2 bets today
 5. **NBA SP4 (combo PA/PR/RA)** — resolveStatFamily returns null. Deferred.
 6. **NBA SP1 (bestProps empty)** — hardcoded empty. Deferred.
-7. **`personal_ledger.json` all 2,000 entries pending** — bets are importFromTrackedBets calls never settled
+7. **`personal_ledger.json` all 2,000 entries pending** — grading pipeline now built (Session AD); run `node backend/scripts/runHistoricalGrade.js --sport=all --backfill` to settle
 8. **tracked_best missing eventId/matchup** — tier boosts always fail; Priority 3
 9. **Duplicate balanced slip issue (seenSignatures)** — deferred
 10. **`timing_intelligence_state.json` at 729KB, unbounded growth** — no pruning
 11. **Under-heavy raw NBA pool (~67% unders)** — source imbalance
 12. **Under-heavy raw MLB pool (~83% unders)** — same
-13. **Daily intelligence review calibration = 0** — bets are pending; activates after first results entry
+13. **Daily intelligence review calibration = 0** — grading pipeline built (Session AD); run backfill to activate
 14. **Intelligence review steam/book answers empty** — steam_summary_json placeholder; needs line shopping data wired
 15. **NBA ecology — two-path disconnect** — workstation uses shared buildSlipAi.js (MLB-calibrated); nightly uses buildNbaSlipComposer (canonical-nightly, confirmed Session AB). The other 3 "NBA slip builders" are: buildNbaAiSlips (utility-only — function unused), buildNbaDynamicSlipEngine (DEAD orphan, but holds all correlation logic — must be absorbed not deleted), buildNbaSlipEngine (DEAD orphan). See NBA_CANONICAL_PATH_AUDIT_2026-05-09.md.
 16. **NBA monoculture root cause confirmed** — realismScore×0.70 weight mathematically guarantees star dominance. Star finalWeight ≈1.62, backup with 3× edge ≈1.25. Gap is structural.

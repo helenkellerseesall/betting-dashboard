@@ -234,7 +234,7 @@ Claude MUST NOT reference any operational script path unless:
 - The path was verified with `ls` or `find` in the CURRENT SESSION, OR
 - The path is listed in this section as permanently verified
 
-### Permanently verified script paths (as of Session AH):
+### Permanently verified script paths (as of Session AK):
 
 | Script | Verified path | Purpose |
 |---|---|---|
@@ -243,6 +243,20 @@ Claude MUST NOT reference any operational script path unless:
 | `runNbaNight.js` | `backend/scripts/runNbaNight.js` | NBA nightly pipeline |
 | `runMlbNight.js` | `backend/scripts/runMlbNight.js` | MLB nightly pipeline |
 | `runDailyReview.js` | `backend/scripts/runDailyReview.js` | Daily intelligence review |
+| `runVerification.js` | `backend/scripts/runVerification.js` | **Verification Telemetry V1 — replaces manual TERM 2 curl; exits 0/1** |
+
+### Permanently verified verification schema paths (as of Session AK):
+
+| Module | Verified path | Purpose |
+|---|---|---|
+| `verificationSchema.js` | `backend/pipeline/verification/verificationSchema.js` | 10 NBA + 4 MLB pure check definitions |
+| `writeVerificationArtifact.js` | `backend/pipeline/verification/writeVerificationArtifact.js` | Atomic JSON artifact writer |
+
+### Permanently verified runtime directories (as of Session AK):
+
+| Directory | Purpose |
+|---|---|
+| `backend/runtime/verifications/` | Verification artifact output (JSON per sport per session) |
 
 **CRITICAL**: `scripts/` (repo root) does NOT exist. All scripts live in `backend/scripts/`. Any reference to `scripts/checkpointRepo.js` or `scripts/finalizeCheckpoint.sh` is WRONG.
 
@@ -453,12 +467,14 @@ cd ~/Desktop/betting-dashboard && node backend/server.js
 curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
 ```
 
-**STEP 3 — Wait 10s for snapshot rebuild, then verify live payload (NBA):**
+**STEP 3 — Wait 10s for snapshot rebuild, then run Verification Telemetry V1 (replaces manual TERM 2 curl):**
 ```
-curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); const slips=Object.values(p.aiSlips||{}).flat(); console.log('candidates:', p.counts?.candidates, 'slips:', slips.length, 'corrFields:', slips.filter(s=>'correlationScore' in s).length, 'nonZeroCorr:', slips.filter(s=>s.correlationScore>0).length, 'anchors:', p.featured?.anchors?.length)"
+node backend/scripts/runVerification.js --sport=nba --session=<label>
 ```
 
-**STEP 4 — ONLY after Step 3 confirms expected output, run checkpoint:**
+For MLB: `--sport=mlb`. For both: `--sport=all`. Exits 0 (PASS) or 1 (FAIL). Writes artifact to `backend/runtime/verifications/`.
+
+**STEP 4 — ONLY after Step 3 exits code 0 (PASS), run checkpoint:**
 ```
 node backend/scripts/checkpointRepo.js "Session XX: one-line summary"
 ```
@@ -469,10 +485,10 @@ cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 ```
 
 **CRITICAL:**
-- Never run Step 4 before Step 3 confirms.
+- Never run Step 4 before Step 3 exits 0.
 - Never run Step 3 before Step 2 completes.
 - Never skip Step 2 regardless of what the patch "touched".
-- `sport=basketball_nba` causes `isNba=false` — always use `sport=nba`.
+- The runner uses `sport=nba` internally — `sport=basketball_nba` is never passed.
 
 ---
 

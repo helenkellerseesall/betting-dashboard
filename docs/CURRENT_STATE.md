@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AJ: Runtime Verification Law Hardening — WORKFLOW_RULES.md constitutionalized with STALE RUNTIME PREVENTION LAW, RUNTIME REBUILD DEPENDENCY LAW, CLASS D REGENERATION PROTOCOL; snapshot refresh unconditional for Class D; READ/FILTERED distinction abolished; Class A doc-only session)_
+_Last updated: 2026-05-10 (Session AK: Verification Telemetry V1 implemented — verificationSchema.js (10 NBA + 4 MLB checks), writeVerificationArtifact.js (atomic JSON writer), runVerification.js (CLI runner exits 0/1), backend/runtime/verifications/ directory, VERIFICATION_TELEMETRY.md. Offline: 10/10 pass, FAIL path confirmed. Class D — pending live TERM 1 + hard-reset verification.)_
 
 ---
 
@@ -10,8 +10,8 @@ _Last updated: 2026-05-09 (Session AJ: Runtime Verification Law Hardening — WO
 |---|---|
 | Active branch | `stable-nba-engine` |
 | Base branch | `main` |
-| Last commit | e076871 (Session I) — Sessions H–AJ staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
-| Repo health | **7.2/10 structural. NBA intelligence health: 4.0/10 (alt-lines now flow — threes/pra/points). NBA routing health: 4.6/10. MLB construction health: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅ NBA-3 ✅ (pending full Class D verification — TERM 1 + hard-reset + payload). Verification law constitutionalized (Session AJ). Next lever: NBA-2.C.3 + MLB-1.** |
+| Last commit | e076871 (Session I) — Sessions H–AK staged, pending finalization via backend/scripts/finalizeCheckpoint.sh |
+| Repo health | **7.4/10 structural. NBA intelligence: 4.0/10. NBA routing: 4.6/10. MLB: 3.2/10. NBA-1 ✅ NBA-2.B ✅ NBA-2.C ✅ NBA-2.C.2 ✅ NBA-3 ✅ (pending live Class D verification). Verification Telemetry V1 ✅ (Session AK). Next lever: NBA-2.C.3 + MLB-1.** |
 
 ---
 
@@ -43,6 +43,7 @@ Cache: In-memory 60s TTL per (sport, date) key in `workstationRoutes.js`
 | **NBA Correlation Engine** | **NEW (Session AE — NBA-2.C) — pairwiseStackBoost, jointProbability, cashout ordering, sort bonus wired into buildSlipAi NBA branch** | **`pipeline/nba/nbaCorrelationEngine.js`** |
 | **NBA team enrichment on snapshot candidates** | **Fixed (Session AG — NBA-2.C.2) — applyTeamFallbackFromProjections wired into buildNbaSnapshotCandidates; 18/24 candidates carry team; sameTeam pts+ast boosts now fire** | **`routes/workstationRoutes.js`** |
 | **NBA alt-line gate** | **NEW (Session AI — NBA-3) — quality alt-line gate in buildNbaSnapshotCandidates; threes/pra/points alts survive (mp>=0.42, edge>=0.06, odds<=-200..+800); rebounds/assists/first_basket remain hard-killed; dedup 1 base + 1 alt per player-stat-side; alt volatility forced aggressive/lotto** | **`routes/workstationRoutes.js`** |
+| **Verification Telemetry V1** | **NEW (Session AK) — verificationSchema.js (10 NBA + 4 MLB deterministic checks), writeVerificationArtifact.js (atomic JSON writer), runVerification.js (CLI runner exits 0/1); replaces manual TERM 2 curl; artifacts in backend/runtime/verifications/** | **`backend/pipeline/verification/`, `backend/scripts/runVerification.js`** |
 | Featured plays (anchors/supports) | Working | `pipeline/shared/buildFeaturedPlays.js` |
 | Volatility classifier | Working | `pipeline/shared/buildPortfolioOptimizer.js` |
 | Candidate diversification | Working | `pipeline/shared/buildCandidateDiversity.js` |

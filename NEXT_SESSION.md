@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-09 (Session AC: NBA-2.B Canonical Volatility Resolver — nbaVolatilityResolver.js created; inline guards removed from buildFeaturedPlays + buildSlipAi; resolver is sole canonical authority; 20/20 tests; 0 MLB regressions; TERM 1 restart required; NBA-2.C next)_
+_Last updated: 2026-05-10 (Session AD: Historical Grading + Reconciliation Pipeline — 6 new files; MLB+NBA API fetchers; bet+slip settlement; ROI summary; backfill runner; 24/24 tests; 6/6 syntax clean; TERM 1 restart NOT required; run backfill now to unlock intelligence systems)_
 
 ---
 
@@ -44,32 +44,44 @@ Session AB completed the NBA-2 Canonical Path Constitution Audit (read-only Opus
 ```bash
 cd ~/Desktop/betting-dashboard
 
-# 1. Finalize checkpoint — commits Sessions H–AB
-#    Session AB is read-only audit + 3 doc edits (NBA_CANONICAL_PATH_AUDIT,
-#    CURRENT_STATE.md, NEXT_SESSION.md). No code mutations.
+# 1. Finalize checkpoint — commits Sessions H–AD
 bash scripts/finalizeCheckpoint.sh
 # → Report the commit hash
 
-# 2. TERM 1 restart: NOT required for Session AB (read-only).
-#    BUT if you have not yet restarted since Session AA (NBA-1 guard),
-#    that restart is still pending — buildFeaturedPlays.js + buildSlipAi.js
-#    were modified in Session AA. Check `ps aux | grep server.js` start time.
-#    If start time pre-dates 2026-05-09 ~16:00:
+# 2. TERM 1 restart: still pending from Session AA+AC if not yet done.
+#    (buildFeaturedPlays.js, buildSlipAi.js, server.js, workstationRoutes.js modified)
+#    Session AD: NO restart required (new files only).
+#    Check: ps aux | grep server.js — if pre-dates 2026-05-09:
 node backend/server.js
 
-# 3. Verify backend started cleanly (no require errors):
-curl -s http://localhost:4000/api/best-available?sport=basketball_nba | \
-  node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const p=JSON.parse(d); \
-  console.log('best:', p.bestAvailable?.best?.length, 'featured anchors:', p.bestAvailable?.featured?.anchors?.length)"
+# 3. 🔴 RUN HISTORICAL BACKFILL (Session AD — new, do this now):
+#    Grades all 1664 pending MLB bets + 27 NBA bets across 5 dates.
+#    Requires network access to statsapi.mlb.com and stats.nba.com.
+node backend/scripts/runHistoricalGrade.js --sport=all --backfill
+#    Expected output: 5 MLB dates + 5 NBA dates graded
+#    Expected MLB hit rates: ~55-65% on ELITE tier (based on model calibration)
+#    If NBA Stats API blocked (403): NBA bets stay "pending", MLB will still grade
 
-# 4. Remove orphaned dead file (boards/ is separate from pipeline/shared/)
-rm backend/pipeline/boards/buildFeaturedPlays.js
+# 4. If any bets stay "unresolved" (player found, stat missing), retry:
+node backend/scripts/runHistoricalGrade.js --sport=all --backfill --retry-unresolved
 
-# 5. Run historical backfill (if not already done post-Session S):
-node backend/storage/importHistoricalData.js
+# 5. After backfill — verify results are populated:
+node -e "
+const bets = JSON.parse(require('fs').readFileSync('backend/runtime/tracking/mlb_tracked_bets_2026-05-08.json','utf8'))
+const settled = bets.filter(b => ['win','loss','push'].includes(b.result))
+const pending = bets.filter(b => b.result === 'pending')
+const unresolved = bets.filter(b => b.result === 'unresolved')
+console.log('settled:', settled.length, 'pending:', pending.length, 'unresolved:', unresolved.length)
+const wins = settled.filter(b => b.result==='win').length
+const losses = settled.filter(b => b.result==='loss').length
+console.log('hit rate:', (wins/(wins+losses)*100).toFixed(1) + '%')
+"
 
-# 6. After entering results for any settled date — first real review cycle:
+# 6. After backfill — run daily review with real data (first real intelligence cycle):
 node backend/scripts/runDailyReview.js --sport=mlb --date=2026-05-08 --verbose
+
+# 7. Remove orphaned dead file:
+rm backend/pipeline/boards/buildFeaturedPlays.js
 ```
 
 ---
@@ -308,12 +320,46 @@ function passesNbaAltLineGate(row, basePropVariant = "base") {
 
 ---
 
-### 🟡 Priority 11 — Wire actuals into daily review (first real intelligence cycle)
+### ✅ Session AD — Historical Grading + Reconciliation Pipeline (COMPLETE — Session AD)
 
-**Prerequisite**: Results entered for any past date. Calibration = 0 until this happens.
+**What was done**: Built 6 new files in `pipeline/grading/` + `scripts/`. Zero existing files modified. 24/24 logic tests pass. 6/6 syntax clean.
+
+- `fetchMlbGameResults.js` — MLB Stats API (statsapi.mlb.com), schedule + boxscore, all 8 stat families, parallel processing
+- `fetchNbaGameResults.js` — NBA Stats API (stats.nba.com), scoreboardv2 + boxscoretraditionalv2, required headers, sequential with 500ms delay
+- `gradeTrackedBets.js` — per-bet settlement, settleFromActual(), result/actualValue/settledAt, atomic write
+- `gradeTrackedSlips.js` — slip parlay settlement, leg lookup by player+stat+side+line, parlay resolution logic
+- `buildGradingSummary.js` — ROI/hit-rate by tier/statFamily/side, grading_summary_{sport}_{date}.json
+- `runHistoricalGrade.js` — CLI runner with --sport, --date, --backfill, --retry-unresolved, --dry-run flags
+
+**Run NOW** to unlock intelligence systems:
+```bash
+node backend/scripts/runHistoricalGrade.js --sport=all --backfill
+```
+
+---
+
+### 🔴 Priority 1 — Run historical backfill (unlocks ALL intelligence systems)
+
+**Prerequisite**: Network access from TERM 1 environment (statsapi.mlb.com is free, no auth).
+
+**What unlocks after first backfill**:
+- `buildDailyIntelligenceReview` → calibration score > 0 (was stuck at 0)
+- `buildPostGameReview` → settled bets unblock review (was blocked on pending)
+- `personal_ledger.json` → settled entries → real ROI tracking
+- `grading_summary_{sport}_{date}.json` → per-tier hit rates visible
+
+**Expected behavior**:
+- MLB: ~1664 bets graded across 2026-05-05 to 2026-05-09
+- NBA: ~27 bets graded (NBA Stats API may require header tweak — pending stays if blocked)
+- Any "unresolved" records: retry with `--retry-unresolved` flag
+
+---
+
+### 🔴 Priority 2 — Wire actuals into daily review (first real intelligence cycle)
+
+**Prerequisite**: Historical backfill complete (Priority 1 above).
 
 ```bash
-node backend/scripts/updateMlbResults.js --date=2026-05-08
 node backend/scripts/runDailyReview.js --sport=mlb --date=2026-05-08 --verbose
 ```
 
