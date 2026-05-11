@@ -1,6 +1,127 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AR: Portfolio Audit V1 — POST /api/ws/portfolio-audit; player/game/stat exposure; diversification score; concentration warnings; 2 files modified; TERM 1 restart REQUIRED)_
+_Last updated: 2026-05-11 (Session AT: NBA bestProps pipeline wiring — fetchNbaOddsSnapshot.js patched; snapshot.json backfilled (46 real props); TERM 1 restart required to pick up from in-memory oddsSnapshot)_
+
+---
+
+## SESSION AT — NBA bestProps Pipeline Wiring (2026-05-11)
+
+**Scope**: Wire real scored NBA props into `snapshot.bestProps`. Root cause: `fetchNbaOddsSnapshot.js:446` hardcoded `bestProps: []`. Fix: add `buildNbaBestProps()` scoring pass. Also backfilled live `snapshot.json` immediately. 1 file modified + 1 data file patched. TERM 1 restart required.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `backend/pipeline/nba/fetchNbaOddsSnapshot.js` | Added 2 imports (`nbaModelSignals`, `nbaEventTeamResolve`); added `buildNbaBestProps()` function (~90 lines); replaced `bestProps: []` with `bestPropsResult.props`; added `bestPropsCount` + `bestPropsDiagnostics` to `diagnostics` block |
+| `backend/snapshot.json` | Backfilled `data.bestProps` with 46 scored props (atomic write — was 0) |
+
+### `buildNbaBestProps()` logic
+
+Mirrors `buildNbaSnapshotCandidates` (workstationRoutes.js) gate sequence, applied to the already-deduped raw props:
+
+| Gate | Rejected (current slate) |
+|---|---|
+| Alt/ladder lines (no calibrated model above +200) | 2337 |
+| Odds outside -200..+200 | 85 |
+| No recognized stat family | 6 |
+| modelProb < 0.35 | 0 |
+| edge < 0.03 | 340 |
+| **Passed** | **189 raw → 89 deduped** |
+
+After dedup (best edge per player×family×side) and per-player cap (max 2):
+- **46 bestProps selected** from 2957 raw rows
+- Volatility split: balanced=35 (points/rebounds/assists), aggressive=11 (threes)
+- Tier split: ELITE=19, STRONG=20, PLAYABLE=7
+- Top prop: Alex Caruso threes under mp=0.597 edge=0.234 [ELITE]
+- Quality floor: edge≥0.033, mp≥0.517
+
+### Runtime logging
+
+Every nightly run prints:
+```
+[NBA-BESTPROPS] rawRows=N isAlt=N oddsGate=N noFamily=N mpBelow35=N edgeBelow03=N rawScored=N deduped=N bestProps=N vol={"balanced":N,"aggressive":N}
+```
+
+### Smoke tests (9/9 pass)
+
+| Test | Result |
+|---|---|
+| bestProps.length > 0 | PASS (46) |
+| bestProps.length ≤ 60 | PASS |
+| No player > 2 props | PASS |
+| All edge ≥ 0.03 | PASS |
+| All mp ≥ 0.35 | PASS |
+| All snapshotSourced=true | PASS |
+| No alt-lines | PASS |
+| Sorted descending by edge | PASS |
+| Top prop edge ≥ 0.20 (ELITE signal) | PASS (0.2346) |
+
+### MLB regression: NONE
+
+`fetchNbaOddsSnapshot.js` is NBA-only. `buildNbaBestProps` is called only within this file. MLB pipeline untouched. `server.js` does not import `fetchNbaOddsSnapshot.js`.
+
+### TERM 1 restart requirement
+
+`fetchNbaOddsSnapshot.js` is NOT imported by `server.js` — it's called only by `runNbaNight.js`. The code change has no startup effect. HOWEVER: `snapshot.json` was backfilled on disk. The running server holds `oddsSnapshot.bestProps = []` in-memory from startup. The disk change will be picked up on the next TERM 1 restart (already pending from Sessions AM–AR) or on `/refresh-snapshot`.
+
+**TERM 1 restart: YES** — folds into the existing pending AN+AO+AP+AQ+AR restart. No additional restart needed beyond that.
+
+---
+
+## SESSION AS — NBA bestProps + SAFE=0 Root Cause Audit (2026-05-11)
+
+**Scope**: Diagnostic only — 0 files modified. Trace exact root causes of `SAFE=0` and `bestProps=0` on live NBA slates. No code changes. No TERM 1 restart required.
+
+### Findings
+
+#### Root Cause 1: `SAFE=0` (`aiSlips.slips.safe = []`)
+- **Source**: `/api/ws/state` → `aiSlips.slips.safe`
+- **Cause**: Sessions AM+AN added `applyNbaTierOverrides` to `buildSlipAi.js` which fixes SAFE tier eligibility. Server is still running pre-AM code because TERM 1 restart (Step AN-1) is pending.
+- **Fix**: Already coded in Sessions AM+AN. Awaits TERM 1 restart from Step AN-1 in NEXT_SESSION.md.
+- **Expected after restart**: `safe ≥ 1` (balanced-volatility legs — points/rebounds/assists — qualify at correct MP/odds thresholds).
+
+#### Root Cause 2: `bestProps=0` (status bar in App.tsx)
+- **Source**: App.tsx:1085 — `{snapshotStatus?.bestProps ?? 0}` from `GET /snapshot/status`
+- **Trace**: `GET /snapshot/status` → `oddsSnapshot.bestProps.length` → `snap.data.bestProps.length` → **0**
+- **Root**: `fetchNbaOddsSnapshot.js:446` hardcodes `bestProps: []`. This field is never populated for NBA.
+- **Existing pipeline**: `pipeline/selection/bestProps.js` exports `scoreBestFallbackRow` + `buildBestPropsFallbackRows`. Imported in `server.js:17`. BUT the pipeline expects `hitRate`, `score`, `edge`, `avgMin` fields — enriched row format from nightly pipeline. Raw NBA snapshot rows (`snap.data.props`) do NOT carry these fields.
+- **Fix required**: Run `nbaRowModelProbability` + `nbaRowEdge` on snapshot props during `fetchNbaOddsSnapshot.js` build, rank by edge, store top N as `bestProps`. NOT a trivial wire-up. Classified as **NBA SP1 scope**.
+
+#### Key non-issue confirmed: `featured` surface IS populated
+- `buildFeaturedPlays` produces 2+ anchors, 2+ safest, 2+ tonightsBest from the 5 tracked candidates alone.
+- Snapshot supplement fires: `aiCandidatesTracked = 7 < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD (20)`.
+- 90 deduped snapshot candidates pass all gates from 2957 raw rows (base-lines only), 22 qualify for `safest` fallback (balanced, mp≥0.50, edge≥0.12).
+- `featured` ≠ `bestProps`. `featured` is the `buildFeaturedPlays` output in `/api/ws/state`. `bestProps` is the legacy count field in `/snapshot/status` reading `snap.data.bestProps.length`.
+
+### Gate-level diagnostic (snapshot.json — 2957 rows, base-lines only)
+
+| Gate | Rejected |
+|---|---|
+| Alt-line (all killed in base-line pass) | 2337 |
+| Odds gate (-200..+200) | 85 |
+| No recognized stat family | 6 |
+| modelProb < 0.35 | 0 |
+| edge < 0.03 | 341 |
+| **Passed (pre-dedup)** | **188** |
+| **Passed (deduped, top 150)** | **90** |
+
+Edge distribution among balanced (points/rebounds/assists) candidates:
+- edge ≥ 0.12 (ELITE — qualifies for `safest` fallback): **16**
+- edge 0.07–0.12 (STRONG): 24
+- edge 0.04–0.07 (PLAYABLE): 14
+- edge 0.03–0.04 (LONGSHOT): 6
+
+### Files examined (0 modified)
+
+| File | Finding |
+|---|---|
+| `backend/routes/workstationRoutes.js` | Supplement fires (aiCandidatesTracked=7 < 20); `buildNbaSnapshotCandidates` produces 90 deduped candidates |
+| `backend/pipeline/shared/buildFeaturedPlays.js` | `normalizeCandidate` passes all snapshot candidates; `buildSafest` has 22 qualifying candidates |
+| `backend/pipeline/selection/bestProps.js` | `buildBestPropsFallbackRows` exists but expects enriched format — incompatible with raw snapshot rows |
+| `backend/pipeline/nba/fetchNbaOddsSnapshot.js:446` | `bestProps: []` — hardcoded source of NBA SP1 |
+| `frontend/src/App.tsx:1085` | UI reads `snapshotStatus?.bestProps` → 0 |
+
+**TERM 1 restart required: NO** — diagnostic session, 0 files modified.
 
 ---
 
@@ -1109,7 +1230,7 @@ NBA snapshot candidate pipeline:
 3. **NBA smartAggression limited** — only PRA gets `aggressive`
 4. **NBA tracked_bets pool thin** — 2 bets today
 5. **NBA SP4 (combo PA/PR/RA)** — resolveStatFamily returns null. Deferred.
-6. **NBA SP1 (bestProps empty)** — hardcoded empty. Deferred.
+6. **NBA SP1 (bestProps empty)** — **FIXED (Session AT)**. `buildNbaBestProps()` added to `fetchNbaOddsSnapshot.js`; runs on every nightly fetch. `snapshot.json` backfilled with 46 real props (edge≥0.03, mp≥0.35, max 2/player). TERM 1 restart required to update in-memory `oddsSnapshot.bestProps`.
 7. **`personal_ledger.json` all 2,000 entries pending** — grading pipeline now built (Session AD); run `node backend/scripts/runHistoricalGrade.js --sport=all --backfill` to settle
 8. **tracked_best missing eventId/matchup** — tier boosts always fail; Priority 3
 9. **Duplicate balanced slip issue (seenSignatures)** — deferred

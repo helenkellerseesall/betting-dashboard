@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AR: Portfolio Audit V1 — POST /api/ws/portfolio-audit; 2 files modified; TERM 1 restart REQUIRED; pending: restart + verification + checkpoint)_
+_Last updated: 2026-05-11 (Session AT: NBA bestProps pipeline wiring — fetchNbaOddsSnapshot.js patched; snapshot.json backfilled 0→46 props; TERM 1 restart required)_
 
 ---
 
@@ -10,6 +10,8 @@ _Last updated: 2026-05-11 (Session AR: Portfolio Audit V1 — POST /api/ws/portf
 > **Session AP adds**: Two-axis recommendation model in `slipAuditRoute.js`. No extra restart.
 > **Session AQ adds**: `POST /api/ws/slip-audit/screenshot`. No extra restart.
 > **Session AR adds**: `POST /api/ws/portfolio-audit`. `workstationRoutes.js` modified → TERM 1 restart required (covers all pending restarts).
+> **Session AS**: Diagnostic only — 0 files modified. No additional restart required.
+> **Session AT adds**: `buildNbaBestProps()` in `fetchNbaOddsSnapshot.js`; `snapshot.json` backfilled. TERM 1 restart required (folds into existing pending restart — no separate restart needed).
 
 
 
@@ -42,6 +44,17 @@ Expected:
 - `runtime_snapshot.total_slips ≥ 10` (safe≥1, balanced≥1, aggressive=4, lotto=4)
 - `safe_lane_present` PASS (warn-severity — passes even at 1 slip)
 - `safe_lane_no_alt_contamination` PASS
+
+### Step AT-1 — Verify bestProps wired (TERM 2; after restart)
+```bash
+curl -s http://localhost:4000/snapshot/status | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('bestProps:', d.bestProps)
+console.log(d.bestProps > 0 ? 'PASS — bestProps now populated' : 'FAIL — still 0')
+"
+```
+Expected: `bestProps: 46` (or similar — depends on slate size).
+Also verify in the UI status bar: **Best Props: 46** (was 0).
 - `correlation_score_fields` PASS (all slips carry correlationScore)
 
 Qualitative check (inspect actual SAFE + BALANCED slip content):
@@ -203,6 +216,31 @@ cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 
 ### Priority 1 — Confirm Session AN-final live verification
 Run Steps AN-1 through AN-4 above. Pass criteria: no BALANCED slip with `volatility:"aggressive"` legs, SAFE honest (≥1 slip), BALANCED present (≥1 slip), aggressive/lotto unchanged.
+
+### Priority 1.5 — NBA SP1: Populate bestProps during snapshot build ✅ DONE (Session AT)
+
+**Root cause confirmed (Session AS)**: `fetchNbaOddsSnapshot.js:446` hardcodes `bestProps: []`. UI shows "Best Props: 0" in status bar. `buildBestPropsFallbackRows` in `pipeline/selection/bestProps.js` cannot be used — it expects `hitRate`/`score`/`avgMin` enriched format, incompatible with raw NBA snapshot rows.
+
+**Fix path**:
+1. In `fetchNbaOddsSnapshot.js`, after building `props` array, add a scoring pass:
+   ```javascript
+   // NBA SP1 fix: populate bestProps by scoring snapshot rows through NBA model
+   const { nbaRowModelProbability, nbaRowEdge } = require("../nba/nbaModelSignals")
+   const bestProps = props
+     .filter(r => Number(r?.odds) >= -200 && Number(r?.odds) <= 200)
+     .map(r => ({ ...r, __edge: nbaRowEdge(r), __mp: nbaRowModelProbability(r) }))
+     .filter(r => r.__mp >= 0.35 && r.__edge >= 0.03)
+     .sort((a, b) => b.__edge - a.__edge)
+     .slice(0, 60)
+   ```
+2. Replace `bestProps: []` with `bestProps` computed above.
+3. `snap.data.bestProps.length` in `/snapshot/status` will now reflect real count.
+
+**File**: `backend/pipeline/nba/fetchNbaOddsSnapshot.js` — single file change.
+**Risk**: Low — additive scoring pass on already-built props; no downstream behavior change (bestProps was previously always empty so nothing depended on it).
+**TERM 1 restart**: YES — `fetchNbaOddsSnapshot.js` is loaded at startup via `server.js`.
+**Model**: Sonnet — surgical single-file change.
+**Active only after next nightly run** — `fetchNbaOddsSnapshot.js` is called by `runNbaNight.js`, not on server startup. The fix populates bestProps during the fetch. Workstation status bar will show count > 0 after next nightly run with this fix in place.
 
 ### Priority 2 — Tomorrow: NBA grading on Session AM slips
 After tonight's NBA games settle:

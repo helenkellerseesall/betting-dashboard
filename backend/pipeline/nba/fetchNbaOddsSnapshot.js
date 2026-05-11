@@ -5,6 +5,8 @@ const fs = require("fs")
 const path = require("path")
 const { buildSlateEvents } = require("../schedule/buildSlateEvents")
 const { inferMarketTypeFromKey, canonicalPropTypeFromInferred } = require("../markets/classification")
+const { nbaRowModelProbability, nbaRowEdge } = require("./nbaModelSignals")
+const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
 
 const NBA_BASE_MARKETS = [
   "player_points",
@@ -34,6 +36,126 @@ const NBA_DK_EXTRA_MARKETS = [
   "player_points_assists_alternate",
   "player_rebounds_assists_alternate",
 ]
+
+// ── NBA SP1 fix: score snapshot rows into bestProps ───────────────────────────
+// Previously bestProps was hardcoded []. This function runs the canonical NBA
+// model signals (nbaRowModelProbability + nbaRowEdge) over the deduped raw
+// props and persists the genuinely strongest standalone props.
+//
+// Gates mirror buildNbaSnapshotCandidates (workstationRoutes.js) — base-lines
+// only, core odds range, known stat family, mp ≥ 0.35, edge ≥ 0.03.
+// Enrichment (pace/total/usage/team) applied via nbaEventTeamResolve before
+// scoring so model has full game-context signal.
+//
+// Per-player cap (2 max) prevents star monoculture.
+// Returns at most BEST_PROPS_TARGET rows sorted by edge descending.
+const BEST_PROPS_TARGET = 60
+const BEST_PROPS_MAX_PER_PLAYER = 2
+
+function buildNbaBestProps(rawRows) {
+  if (!Array.isArray(rawRows) || !rawRows.length) return { props: [], diagnostics: {} }
+
+  const rejectCounts = {
+    noPlayer: 0, noSide: 0, isAlt: 0, oddsGate: 0,
+    noFamily: 0, mpBelow35: 0, edgeBelow03: 0,
+  }
+
+  const rawScored = []
+  for (const r of rawRows) {
+    const player = String(r?.player || "").trim()
+    if (!player) { rejectCounts.noPlayer++; continue }
+    const side = String(r?.side || "").toLowerCase()
+    if (!side || side === "unknown") { rejectCounts.noSide++; continue }
+
+    // Base-lines only — alt/ladder lines excluded (no calibrated model signal above +200)
+    const mk = String(r?.marketKey || "").toLowerCase()
+    const pv = String(r?.propVariant || "").toLowerCase()
+    const isAlt = mk.includes("alternate") || mk.includes("_alt") ||
+                  (pv && pv !== "base" && pv !== "default")
+    if (isAlt) { rejectCounts.isAlt++; continue }
+
+    // Core odds range — same gate as buildNbaSnapshotCandidates
+    const odds = Number(r?.odds ?? r?.oddsAmerican)
+    if (!Number.isFinite(odds) || odds < -200 || odds > 200) { rejectCounts.oddsGate++; continue }
+
+    // Known stat family — unknown propTypes produce unreliable model scores
+    const propT = String(r?.propType || mk).toLowerCase()
+    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+      : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("points")   ? "points"
+      : propT.includes("rebounds") ? "rebounds"
+      : propT.includes("assists")  ? "assists"
+      : (propT.includes("threes") || propT.includes("three") || propT.includes("3pt")) ? "threes"
+      : null
+    if (!family) { rejectCounts.noFamily++; continue }
+
+    // Enrichment: adds pace/total/minutes/usage/team — improves model accuracy
+    const enriched = applyTeamFallbackFromProjections(enrichNbaRowStatLayerInputs(r))
+    const mp = nbaRowModelProbability(enriched)
+    if (!Number.isFinite(mp) || mp < 0.35) { rejectCounts.mpBelow35++; continue }
+    const edge = nbaRowEdge(enriched)
+    if (!Number.isFinite(edge) || edge < 0.03) { rejectCounts.edgeBelow03++; continue }
+
+    // Volatility stamp — same as FIX Q4 in buildNbaSnapshotCandidates
+    const volatility = family === "pra" ? "lotto"
+      : (family === "threes" || family === "first_basket") ? "aggressive"
+      : "balanced"
+
+    rawScored.push({
+      ...r,
+      statFamily:  family,
+      modelProb:   mp,
+      edge,
+      impliedProb: odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
+      volatility,
+      tier:        edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      snapshotSourced: true,
+    })
+  }
+
+  // Dedup: keep best-edge entry per (player|family|side) triple
+  const bestBySig = new Map()
+  for (const c of rawScored) {
+    const sig = `${c.player}|${c.statFamily}|${c.side}`
+    if (!bestBySig.has(sig) || c.edge > bestBySig.get(sig).edge) bestBySig.set(sig, c)
+  }
+  const deduped = Array.from(bestBySig.values()).sort((a, b) => b.edge - a.edge)
+
+  // Per-player cap: max BEST_PROPS_MAX_PER_PLAYER props per player
+  const playerCount = new Map()
+  const props = []
+  for (const c of deduped) {
+    const n = playerCount.get(c.player) || 0
+    if (n >= BEST_PROPS_MAX_PER_PLAYER) continue
+    playerCount.set(c.player, n + 1)
+    props.push(c)
+    if (props.length >= BEST_PROPS_TARGET) break
+  }
+
+  const volCounts = {}
+  for (const p of props) volCounts[p.volatility] = (volCounts[p.volatility] || 0) + 1
+
+  console.log(
+    "[NBA-BESTPROPS] rawRows=%d isAlt=%d oddsGate=%d noFamily=%d mpBelow35=%d edgeBelow03=%d rawScored=%d deduped=%d bestProps=%d vol=%s",
+    rawRows.length,
+    rejectCounts.isAlt, rejectCounts.oddsGate, rejectCounts.noFamily,
+    rejectCounts.mpBelow35, rejectCounts.edgeBelow03,
+    rawScored.length, deduped.length, props.length,
+    JSON.stringify(volCounts)
+  )
+
+  return {
+    props,
+    diagnostics: {
+      rawRowsIn:    rawRows.length,
+      rejectCounts,
+      rawScored:    rawScored.length,
+      deduped:      deduped.length,
+      bestPropsOut: props.length,
+      volCounts,
+    },
+  }
+}
 
 function buildMatchup(awayTeam, homeTeam) {
   const away = String(awayTeam || "").trim()
@@ -434,6 +556,11 @@ async function fetchNbaOddsSnapshot({ oddsApiKey, now = Date.now(), maxEvents = 
   const ingestCoverage = buildNbaIngestCoverageDiagnostics(deduped)
   const marketKeysReturned = [...new Set(deduped.map((r) => String(r?.marketKey || "").trim()).filter(Boolean))].sort()
 
+  // NBA SP1 fix: score all deduped rows and persist genuinely strongest props.
+  // Runs nbaRowModelProbability + nbaRowEdge with full enrichment (pace/total/team).
+  // Base-lines only, -200..+200 odds, mp≥0.35, edge≥0.03, max 2 per player, top 60.
+  const bestPropsResult = buildNbaBestProps(deduped)
+
   return {
     updatedAt,
     snapshotGeneratedAt: updatedAt,
@@ -443,12 +570,14 @@ async function fetchNbaOddsSnapshot({ oddsApiKey, now = Date.now(), maxEvents = 
     eliteProps: [],
     strongProps: [],
     playableProps: [],
-    bestProps: [],
+    bestProps: bestPropsResult.props,
     flexProps: [],
     diagnostics: {
       nbaBootstrap: "fetchNbaOddsSnapshot-v2",
       slateEventCount: normalizedEvents.length,
       rawPropCount: deduped.length,
+      bestPropsCount: bestPropsResult.props.length,
+      bestPropsDiagnostics: bestPropsResult.diagnostics,
       ingestCoverage,
       fetchAudit: {
         /** Per-event odds only (not `/odds` summary); one HTTP GET per slate event. */
