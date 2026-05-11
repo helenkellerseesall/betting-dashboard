@@ -1,6 +1,76 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides in `buildSlipAi.js`; 1 file modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
+_Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted to ["safe","balanced"]; threes route exclusively to AGGRESSIVE/LOTTO; SAFE/BALANCED semantically clean; 1 file modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
+
+---
+
+## SESSION AN — Tier Semantic Integrity (2026-05-11)
+
+**Scope**: Fix semantic mismatch in NBA SAFE and BALANCED tiers. 3 calibration passes total (AN, AN-2, AN-final). 1 file modified throughout: `backend/pipeline/shared/buildSlipAi.js` (`applyNbaTierOverrides` function only). MLB untouched. Aggressive/lotto output unchanged.
+
+### AN-final: BALANCED allowedVolatility reverted
+Live audit after AN-2 showed BALANCED had `odds:+530, vols:[aggressive,aggressive]`. Root: Session AN added `"aggressive"` to BALANCED's `allowedVolatility` to create tier separation — but this routed threes legs (volatility="aggressive") into BALANCED, where two of them could form a +530 aggressive/aggressive parlay. Fix: revert BALANCED `allowedVolatility` to `["safe","balanced"]`. Threes now route exclusively to AGGRESSIVE/LOTTO. The SAFE/BALANCED distinction is maintained by their different odds floors (SAFE dec 1.8 min, BALANCED dec 3.0 min) and other template parameters.
+
+### AN-2 calibration: SAFE ceiling restored
+After AN patch, live verification showed SAFE=0. Root: NBA balanced legs (points/rebounds/assists) commonly run +160-+178; two of them combined to dec 6.76-7.73, exceeding the AN ceiling of 6.5. The ceiling was redundant — the original fake-safe scenario (two aggressive threes) is now blocked by `forbidVolatility` **before** the odds check even runs. Restoring ceiling to [1.8, 7.5] re-opens 27/28 balanced-leg pair combinations while zero fake-safe scenarios change.
+
+### Root causes proven (3 converging — original SAFE fake-safe issue)
+1. `isPremiumEdgeForSafe` bypass — legs with mp≥0.50 AND edge≥0.12 skipped the `allowedVolatility: ["safe","balanced"]` gate. NBA threes (volatility="aggressive") have mp=0.56-0.62 and edge=0.16-0.23 → always bypassed → entered SAFE.
+2. `decimalOddsRange: [1.8, 7.5]` — two +148 legs combined to dec 6.15 (~+515), within ceiling.
+3. `maxPerStat: 2` (inherited) — allowed both threes legs to stack. Combined with `maxPerGame:2` and `skipScriptCorrelation:true`, two same-game same-family aggressive legs formed a "SAFE" parlay.
+
+### Files modified (1)
+| File | Change |
+|---|---|
+| `backend/pipeline/shared/buildSlipAi.js` | `applyNbaTierOverrides()`: SAFE adds `forbidVolatility:["lotto","aggressive"]`; `maxPerStat:1`; `decimalOddsRange:[1.8,7.5]`. BALANCED `allowedVolatility:["safe","balanced"]` (AN-final: reverted from ["safe","balanced","aggressive"]). Probe log updated with `forbid` and `mps` fields. |
+
+### NBA SAFE — final state after AN + AN-2 + AN-final
+- `forbidVolatility`: `["lotto"]` → **`["lotto","aggressive"]`** — absolute block; cannot be bypassed by `isPremiumEdgeForSafe`. Only balanced/safe-volatility legs (points, rebounds, assists) in SAFE.
+- `maxPerStat`: inherited 2 → **1** — no same-stat stacking (no dual points, dual rebounds, etc.)
+- `decimalOddsRange`: **`[1.8, 7.5]`** — same as Session AM. Ceiling is now semantically honest because it only admits balanced legs (aggressive is forbidden). 27/28 balanced pair combinations qualify.
+
+### NBA BALANCED — final state after AN-final
+- `allowedVolatility`: **`["safe","balanced"]`** — aggressive legs (threes, first_basket) excluded. No aggressive/aggressive pairings possible.
+- `allowedSides`: null — both sides (NBA props not script-rotted)
+- `maxPerGame`: 2
+- `skipScriptCorrelation`: true
+
+### Semantic ladder after AN-final
+| Tier | Volatility allowed | Combined dec range |
+|---|---|---|
+| SAFE | safe, balanced only (NBA: points, rebounds, assists) | [1.8, 7.5] |
+| BALANCED | safe + balanced only (NBA: same families as SAFE, different odds floor) | [3.0, 8.0] |
+| AGGRESSIVE | balanced + aggressive + lotto | [6.0, 120.0] |
+| LOTTO | aggressive + lotto | [20.0, 1500.0] |
+
+Note: SAFE vs BALANCED distinction now rests on odds floor (SAFE admits dec 1.8+, BALANCED admits dec 3.0+) and minModelProb/maxOdds differences, not on volatility tier.
+
+### MLB regression — zero impact
+- `applyNbaTierOverrides` gated on `ctx.isNba` — never called for MLB
+- MLB SAFE: `forbidVolatility:["lotto"]`, `maxPerStat:2`, `decRange:[1.8,4.0]` — unchanged
+- MLB BALANCED: `allowedSides:["under"]`, `allowedVolatility:["safe","balanced","aggressive"]`, `dec[3,8]` — unchanged
+
+### Verification (offline)
+| Check | Result |
+|---|---|
+| `node --check buildSlipAi.js` | ✓ syntax clean |
+| NBA SAFE: `forbidVolatility` includes "aggressive" | ✓ |
+| NBA SAFE: `maxPerStat` = 1 | ✓ |
+| NBA SAFE: `decimalOddsRange` = [1.8, 7.5] | ✓ |
+| Two +154/+148 threes → blocked by forbid before odds check | ✓ |
+| NBA BALANCED: `allowedVolatility` = ["safe","balanced"] only | ✓ |
+| NBA BALANCED: aggressive/aggressive pair impossible | ✓ |
+| NBA BALANCED: `allowedSides` = null | ✓ |
+| MLB SAFE base template unchanged | ✓ |
+
+### Expected live runtime after TERM 1 restart
+- SAFE: ≥ 1 slip (balanced legs only — points/rebounds/assists; no threes/PRA)
+- BALANCED: ≥ 1 slip (same volatility families as SAFE, differentiated by odds floor)
+- AGGRESSIVE: 4 (unchanged — threes route here)
+- LOTTO: 4 (unchanged)
+- No BALANCED slip should have any leg with `volatility: "aggressive"`
+
+**TERM 1 restart required: YES** — `buildSlipAi.js` loaded at startup.
 
 ---
 

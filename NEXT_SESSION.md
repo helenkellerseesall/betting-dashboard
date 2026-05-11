@@ -1,51 +1,76 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides in `buildSlipAi.js`; 1 file modified; TERM 1 restart REQUIRED with stale-port kill; Class D verification REQUIRED before checkpoint)_
+_Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted to ["safe","balanced"]; threes route exclusively to AGGRESSIVE/LOTTO; aggressive/aggressive BALANCED leak fixed; 1 file modified; TERM 1 restart REQUIRED; Class D verification REQUIRED before checkpoint)_
 
 ---
 
-## PENDING OPERATOR ACTIONS — Session AM (DO THESE FIRST, IN ORDER)
+## PENDING OPERATOR ACTIONS — Session AN-final (DO THESE FIRST, IN ORDER)
 
-### Step AM-1 — TERM 1 restart (with full stale-port kill — required because prior sessions drifted on resident-process issues)
+### Step AN-1 — TERM 1 restart (stale-port kill required)
 **Paste as one line into TERM 1:**
 ```bash
 cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
 ```
 
-After server boots you MUST see this exact sequence the first time you hit `/api/ws/state?sport=nba`:
+After server boots, first request to `/api/ws/state?sport=nba` MUST show — verify these exact fields in the probe lines:
 ```
-[WS-PROBE] /state entry sport=nba date=2026-05-09
-[WS-PROBE] cache MISS — building state for nba 2026-05-09
-[WS-PROBE] pool: eligibleBets=5 enrichedBest=0 trackedBets=6
-[WS-PROBE] snapshotRows=2957
-[WS-PROBE] buildNbaSnapshotCandidates: rawQualified=458 deduped=… returning=138
-[WS-PROBE] snapSupplement=138 rawCandidates=5 (sport=nba snapshotRows=2957)
-[WS-PROBE] AI supplement FIRED: tracked=5 novel=136
-[WS-PROBE] aiCandidatesRaw=141 → aiCandidates=24
-[SLIP-PROBE] buildAiSlips: candidates=24 normalized=24 sport=nba
-[SLIP-PROBE] NBA tier override applied tier=safe mp=0.5 mo=200 dec=[1.8,7.5] sides=undefined vol=["safe","balanced"] mpg=2
-[SLIP-PROBE] NBA tier override applied tier=balanced mp=0.45 mo=250 dec=[3,8] sides=null vol=["safe","balanced"] mpg=2
-[SLIP-PROBE] tiers: safe=2 balanced=2 aggressive=4 lotto=4
+[SLIP-PROBE] NBA tier override applied tier=safe  … dec=[1.8,7.5] … forbid=["lotto","aggressive"] mpg=2 mps=1
+[SLIP-PROBE] NBA tier override applied tier=balanced … vol=["safe","balanced"] …
+[SLIP-PROBE] tiers: safe=≥1 balanced=≥1 aggressive=4 lotto=4
 ```
-If `[SLIP-PROBE] NBA tier override applied` lines do NOT appear, the new code did NOT load — re-run the kill step and verify `lsof -i tcp:4000` shows your new PID before continuing.
+Critical signals:
+- `dec=[1.8,7.5]` on safe line → correct ceiling
+- `forbid=["lotto","aggressive"]` on safe line → aggressive block active
+- `mps=1` on safe line → same-stat stacking blocked
+- `vol=["safe","balanced"]` on balanced line (NOT "aggressive") → threes excluded from BALANCED
+- If either `[SLIP-PROBE] NBA tier override applied` line is missing → code did NOT load; re-run kill step
 
-### Step AM-2 — Snapshot hard-reset + verification (TERM 2; one paste)
+### Step AN-2 — Snapshot hard-reset + verification (TERM 2; one paste)
 ```bash
-cd ~/Desktop/betting-dashboard && curl -s "http://localhost:4000/refresh-snapshot/hard-reset" >/dev/null && sleep 10 && node backend/scripts/runVerification.js --sport=nba --session=AM-recovery --verbose
+cd ~/Desktop/betting-dashboard && curl -s "http://localhost:4000/refresh-snapshot/hard-reset" >/dev/null && sleep 10 && node backend/scripts/runVerification.js --sport=nba --session=AN-final --verbose
 ```
 Expected:
 - exit 0 (PASS)
 - `runtime_snapshot.candidates ≈ 24`
-- `runtime_snapshot.total_slips = 12`
-- `slips_by_tier: { safe: 2, balanced: 2, aggressive: 4, lotto: 4 }`
-- `safe_lane_present` and `aggressive_lane_present` and `lotto_lane_present` all PASS (warn-severity → no failure if 0)
+- `runtime_snapshot.total_slips ≥ 10` (safe≥1, balanced≥1, aggressive=4, lotto=4)
+- `safe_lane_present` PASS (warn-severity — passes even at 1 slip)
+- `safe_lane_no_alt_contamination` PASS
+- `correlation_score_fields` PASS (all slips carry correlationScore)
 
-### Step AM-3 — Checkpoint (ONLY after Step AM-2 exits 0 AND artifact shows safe≥1 balanced≥1)
+Qualitative check (inspect actual SAFE + BALANCED slip content):
 ```bash
-cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides; live SAFE+BALANCED restored" && git log -1 --oneline
+curl -s "http://localhost:4000/api/ws/state?sport=nba" | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+const safe = d.aiSlips?.safe || []
+const bal  = d.aiSlips?.balanced || []
+console.log('SAFE slips:', safe.length)
+safe.forEach((s,i) => {
+  const vols = s.legs.map(l=>l.volatility)
+  const fams = s.legs.map(l=>l.statFamily)
+  const odds = s.combinedAmericanOdds
+  console.log('  slip',i+1,'odds:'+odds,'vols:'+vols,'fams:'+fams)
+})
+console.log('BALANCED slips:', bal.length)
+bal.forEach((s,i) => {
+  const vols = s.legs.map(l=>l.volatility)
+  const odds = s.combinedAmericanOdds
+  console.log('  slip',i+1,'odds:'+odds,'vols:'+vols)
+})
+"
+```
+**PASS criteria for qualitative check:**
+- No SAFE slip leg has `volatility: "aggressive"`
+- No SAFE slip has two legs of the same statFamily
+- No BALANCED slip leg has `volatility: "aggressive"` — if any does, the patch did NOT load
+- No BALANCED slip has `combinedAmericanOdds` above +500 (would indicate aggressive pairs leaking through)
+- AGGRESSIVE slips may (and should) show threes legs — that is correct
+
+### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND qualitative check passes)
+```bash
+cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Session AN: Tier Semantic Integrity — NBA SAFE forbids aggressive; maxPerStat=1; BALANCED safe+balanced only (threes route to AGGRESSIVE)" && git log -1 --oneline
 ```
 
-### Step AM-4 — Finalize checkpoint (sweeps Sessions H–AM)
+### Step AN-4 — Finalize checkpoint (sweeps Sessions H–AN)
 ```bash
 cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 ```
@@ -54,23 +79,24 @@ cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
 
 ## CURRENT PROJECT PHASE
 
-**SAFE/BALANCED PROFITABILITY RECOVERY — Session AM in flight, Class D verification required**
+**SAFE/BALANCED PROFITABILITY RECOVERY — Session AN-final complete, Class D verification required**
 
 | Phase | Status | Summary |
 |---|---|---|
 | Runtime archaeology (Sessions AH–AL) | ✅ DONE | live runtime path proven, stale-port issue documented, AL artifact PASS |
 | Slip Ecosystem Repair V1 (Session AG) | ✅ DONE | MLB BALANCED enforcement + calibration + freeze (preserved) |
-| **SAFE/BALANCED Profitability Recovery V1 (Session AM)** | ✅ CODE COMPLETE — pending Class D live verification | NBA-only tier overrides; MLB untouched |
+| SAFE/BALANCED Profitability Recovery V1 (Session AM) | ✅ DONE | NBA-only tier overrides; MLB untouched |
+| **Tier Semantic Integrity (Session AN — 3 passes)** | ✅ CODE COMPLETE — pending Class D live verification | SAFE forbids aggressive; maxPerStat=1; BALANCED safe+balanced only; threes → AGGRESSIVE only |
 | Post-recovery grading | ⬜ AFTER tonight's nightly + tomorrow's results | Confirm SAFE/BALANCED hit rates before any further loosening |
 | NBA-2.C/2.D extractions | ⬜ DEFERRED | not blocking profitability work |
 | AGGRESSIVE/LOTTO unfreeze (Session AG-post-2) | ⬜ BLOCKED | requires BALANCED hit rate ≥ 52% across ≥3 dates first |
 
 ---
 
-## IMMEDIATE NEXT PRIORITIES (after Session AM verification)
+## IMMEDIATE NEXT PRIORITIES (after Session AN-final verification)
 
-### Priority 1 — Confirm Session AM live verification
-Run `Step AM-2` above. If artifact shows safe≥1 balanced≥1, run `Step AM-3` checkpoint.
+### Priority 1 — Confirm Session AN-final live verification
+Run Steps AN-1 through AN-4 above. Pass criteria: no BALANCED slip with `volatility:"aggressive"` legs, SAFE honest (≥1 slip), BALANCED present (≥1 slip), aggressive/lotto unchanged.
 
 ### Priority 2 — Tomorrow: NBA grading on Session AM slips
 After tonight's NBA games settle:

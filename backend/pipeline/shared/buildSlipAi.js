@@ -407,15 +407,40 @@ const TIER_TEMPLATES = {
 //   - Player props are usage-driven (over/under symmetric) — NOT script-driven
 //     like MLB pitcher/hitter unders.
 //
-// Session AM rationale (per-field):
+// Session AM rationale (per-field, preserved):
 //   SAFE: maxOdds 150→200 admits +160-+194 base lines (Cade/Harden/Duren).
-//         decRange [1.8,4]→[1.8,7.5] admits 2-leg pairs at ~2.5×2.7≈6.7 dec.
 //         minModelProb 0.55→0.50 admits NBA's compressed-prob base lines.
 //         maxPerGame 1→2 needed when slate has 1 NBA game.
 //   BALANCED: allowedSides drops under-only (NBA prop overs not script-rotted).
-//         allowedVolatility drops "aggressive" (keeps base-line stability).
 //         maxPerGame 1→2 same reason as SAFE.
 //         decRange / maxOdds / minModelProb unchanged from MLB defaults.
+//
+// Session AN: Tier Semantic Integrity patch.
+//   Problem: SAFE was producing +530 slips from two same-game same-family
+//   threes legs both marked volatility="aggressive" — because:
+//     (a) isPremiumEdgeForSafe override (edge>=0.12) bypassed allowedVolatility
+//         gate, letting aggressive-volatility legs past the filter.
+//     (b) decimalOddsRange [1.8,7.5] ceiling was wide enough for two +148 legs
+//         (dec 2.48×2.48=6.15) to qualify as "SAFE".
+//     (c) maxPerStat:2 (inherited) allowed both threes legs to stack together.
+//   Fixes applied to SAFE (3 targeted changes — MLB untouched):
+//     (a) forbidVolatility adds "aggressive" — absolute block, cannot be bypassed
+//         by isPremiumEdgeForSafe. Only balanced/safe legs in SAFE tier.
+//         Threes (aggressive) and first_basket (aggressive) now route to BALANCED.
+//     (b) decimalOddsRange [1.8,7.5] — UNCHANGED from Session AM. Initial patch
+//         tightened to [1.8,6.5] as secondary guard, but aggressive threes
+//         (dec 6.1-6.4) are now blocked by forbidVolatility BEFORE the odds
+//         check fires — making the tighter ceiling redundant. Restoring 7.5
+//         re-admits balanced pairs at +160/+160 (dec 6.76) which collapsed
+//         SAFE to 0. With aggressive forbidden, these are genuine SAFE slips.
+//     (c) maxPerStat:1 — no duplicate stat families in SAFE. Prevents scenario
+//         where two rebounds or two assists legs combine into a "safe" correlated
+//         stack even if both happen to be balanced volatility.
+//   Fix applied to BALANCED: restores allowedVolatility to include "aggressive"
+//     (was restricted to ["safe","balanced"] in Session AM). This re-opens
+//     BALANCED to threes/first_basket legs — the correct semantic tier for
+//     volatile NBA stats with controlled combined odds (dec[3,8]). Creates
+//     clear semantic ladder: SAFE=stable only; BALANCED=stable+volatile; AGGR=all.
 //
 // Both NBA and MLB still flow through identical calibration coefficients
 // (FAMILY_CALIBRATION_COEFFICIENTS) and SLIP_EXCLUDED_FAMILIES — those are
@@ -426,16 +451,18 @@ function applyNbaTierOverrides(tpl, tier) {
       ...tpl,
       minModelProb:           0.50,
       maxOdds:                200,
-      decimalOddsRange:       [1.8, 7.5],
+      decimalOddsRange:       [1.8, 7.5],              // Session AN-2: restored; ceiling is redundant once aggressive is forbidden
       maxPerGame:             2,
+      maxPerStat:             1,                        // Session AN: was inherited 2; no same-stat stacks
+      forbidVolatility:       ["lotto", "aggressive"],  // Session AN: was ["lotto"]; aggressive legs barred
       skipScriptCorrelation:  true,   // NBA correlation handled by nbaCorrelationEngine
     }
   }
   if (tier === "balanced") {
     return {
       ...tpl,
-      allowedSides:           null,                       // both sides
-      allowedVolatility:      ["safe", "balanced"],       // base-line legs only
+      allowedSides:           null,                              // both sides (NBA props not script-rotted)
+      allowedVolatility:      ["safe", "balanced"],                // Session AN-final: revert aggressive; threes route to AGGRESSIVE/LOTTO only
       maxPerGame:             2,
       skipScriptCorrelation:  true,
     }
@@ -526,9 +553,10 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
   if (!baseTpl) return []
   const tpl = ctx.isNba ? applyNbaTierOverrides(baseTpl, tier) : baseTpl
   if (ctx.isNba && tpl !== baseTpl) {
-    console.log("[SLIP-PROBE] NBA tier override applied tier=%s mp=%s mo=%s dec=%s sides=%s vol=%s mpg=%s",
+    console.log("[SLIP-PROBE] NBA tier override applied tier=%s mp=%s mo=%s dec=%s sides=%s vol=%s forbid=%s mpg=%s mps=%s",
       tier, tpl.minModelProb, tpl.maxOdds, JSON.stringify(tpl.decimalOddsRange),
-      JSON.stringify(tpl.allowedSides), JSON.stringify(tpl.allowedVolatility), tpl.maxPerGame)
+      JSON.stringify(tpl.allowedSides), JSON.stringify(tpl.allowedVolatility),
+      JSON.stringify(tpl.forbidVolatility), tpl.maxPerGame, tpl.maxPerStat)
   }
 
   // Filter to candidates eligible for this tier.
