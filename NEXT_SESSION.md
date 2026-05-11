@@ -1,12 +1,14 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted to ["safe","balanced"]; threes route exclusively to AGGRESSIVE/LOTTO; aggressive/aggressive BALANCED leak fixed; 1 file modified; TERM 1 restart REQUIRED; Class D verification REQUIRED before checkpoint)_
+_Last updated: 2026-05-11 (Session AQ: Screenshot-Assisted Slip Audit V1 — POST /screenshot sub-route; runAudit() extracted; 7/7 smoke tests pass; no TERM 1 restart required; pending: AN-final TERM 1 restart + AO/AP/AQ verification + checkpoint)_
 
 ---
 
-## PENDING OPERATOR ACTIONS — Sessions AN-final + AO (DO THESE FIRST, IN ORDER)
+## PENDING OPERATOR ACTIONS — Sessions AN-final + AO + AP + AQ (DO THESE FIRST, IN ORDER)
 
 > **Session AO adds**: `POST /api/ws/slip-audit` endpoint. Mounted in `workstationRoutes.js`. Requires TERM 1 restart (same restart as AN-final covers this).
+> **Session AP adds**: Two-axis recommendation model (honesty vs viability) in `slipAuditRoute.js`. No restart needed — folded into AO-1 verification below.
+> **Session AQ adds**: `POST /api/ws/slip-audit/screenshot` sub-route in `slipAuditRoute.js`. No restart needed — verify via AQ-1 below.
 
 
 
@@ -69,8 +71,8 @@ bal.forEach((s,i) => {
 - No BALANCED slip has `combinedAmericanOdds` above +500 (would indicate aggressive pairs leaking through)
 - AGGRESSIVE slips may (and should) show threes legs — that is correct
 
-### Step AP-note — Session AP (recommendation semantics V2)
-No TERM 1 restart required for AP — only `slipAuditRoute.js` modified (loaded at require-time, not startup). The AN+AO restart covers both. AP verification is folded into Step AO-1 below.
+### Step AP-note — Sessions AP + AQ
+No TERM 1 restart required for AP or AQ — only `slipAuditRoute.js` modified (loaded at require-time, not startup). The AN+AO restart covers all four sessions. AP verification is folded into Step AO-1. AQ verification is Step AQ-1 below.
 
 ### Step AO-1 — Verify slip-audit endpoint (after TERM 1 restart from Step AN-1)
 ```bash
@@ -102,9 +104,53 @@ console.log('safe eligible:', d.tierEligibility?.safe)
 - `archetypeSummary` mentions "balanced" not "fake-safe" (minor mismatch language)
 - `tierEligibility.safe: false`, `tierEligibility.balanced: true`
 
-### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Step AO-1 passes)
+### Step AQ-1 — Verify screenshot slip-audit endpoint (no restart required; run after AO-1)
 ```bash
-cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Sessions AN+AO: Tier Semantic Integrity + Slip Audit V1 endpoint" && git log -1 --oneline
+curl -s -X POST http://localhost:4000/api/ws/slip-audit/screenshot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "imageName": "twitter-slip-test.png",
+    "source": "twitter",
+    "sport": "nba",
+    "claimedTier": "safe",
+    "extractedLegs": [
+      { "player": "Cade Cunningham", "propType": "threes", "line": 1.5, "side": "over", "odds": 148 },
+      { "player": "Jalen Brunson",   "propType": "threes", "line": 2.5, "side": "over", "odds": 148 }
+    ]
+  }' | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('screenshot.imageName:', d.screenshot?.imageName)
+console.log('screenshot.extractionMethod:', d.screenshot?.extractionMethod)
+console.log('extractionConfidence:', d.extractionConfidence)
+console.log('legCount:', d.legCount)
+console.log('audit.semanticTier:', d.audit?.semanticTier)
+console.log('audit.tailRecommendation:', d.audit?.tailRecommendation)
+console.log('audit.semanticVerdict.honest:', d.audit?.semanticVerdict?.honest)
+console.log('audit.semanticVerdict.mismatchSeverity:', d.audit?.semanticVerdict?.mismatchSeverity)
+"
+```
+**PASS criteria (Session AQ screenshot route)**:
+- `screenshot.imageName: "twitter-slip-test.png"` — metadata echoed correctly
+- `screenshot.extractionMethod: "manual"` — no pretend automation
+- `extractionConfidence: "manual"` — V1 honesty field
+- `legCount: 2` — extracted legs counted
+- `audit.semanticTier` ≠ "safe" (threes are not safe-tier)
+- `audit.semanticVerdict.honest: false` (safe claimed, but actual is more volatile)
+- `audit.semanticVerdict.mismatchSeverity: "minor"` (safe→balanced is 1 tier)
+- `audit.tailRecommendation: "Lean"` — not "Fade" (mislabeled but viable at correct tier)
+
+Also verify OCR guard:
+```bash
+curl -s -X POST http://localhost:4000/api/ws/slip-audit/screenshot \
+  -H "Content-Type: application/json" \
+  -d '{"imageName":"test.png","extractionMethod":"ocr","extractedLegs":[{"player":"A","propType":"points","odds":-110}]}' \
+  | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log('status check - error should mention manual:', d.error)"
+```
+Expected: 400 error containing "not supported in V1".
+
+### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Steps AO-1 + AQ-1 pass)
+```bash
+cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Sessions AN+AO+AP+AQ: Tier Semantic Integrity + Slip Audit V1 + Recommendation Semantics V2 + Screenshot Audit V1" && git log -1 --oneline
 ```
 
 ### Step AN-4 — Finalize checkpoint (sweeps Sessions H–AN)

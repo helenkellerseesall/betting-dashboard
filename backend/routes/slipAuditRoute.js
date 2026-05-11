@@ -10,15 +10,21 @@
  *   - payout realism (combined dec odds math)
  *   - semantic verdict (fake-safe detection, tier identity, archetype summary)
  *
- * V1 scope — POST only, no OCR, no image parsing, no frontend work.
+ * V1 scope — two endpoints, no OCR, no image parsing, no frontend work.
  * Does NOT touch: aiSlips generation, grading, semantic tier logic in buildSlipAi.
  *
- * Input:
+ * Endpoints:
  *   POST /api/ws/slip-audit
- *   { sport, legs: [{ player, propType, line, side, odds, sportsbook?, eventId?, matchup? }],
- *     claimedTier? }
+ *     { sport, legs: [...], claimedTier? }
+ *     → direct audit result
  *
- * Output: structured audit response (see schema at end of file)
+ *   POST /api/ws/slip-audit/screenshot              ← Session AQ (V1)
+ *     { imageName, source, extractionMethod?, sport?, claimedTier?, extractedLegs: [...] }
+ *     → { screenshot: { imageName, source, extractionMethod, processedAt },
+ *         extractedLegs, legCount, extractionConfidence, audit: {...} }
+ *     V1: extractionMethod must be "manual". OCR hook point documented (no-op).
+ *
+ * Output: structured audit responses (see schema at end of file)
  *
  * Imported by: workstationRoutes.js (mounted at /api/ws)
  */
@@ -538,101 +544,220 @@ function buildArchetypeSummary(legs, semanticTier, claimedTier, volProfile, corr
   return "Mixed-volatility construction — review individual leg quality before placing."
 }
 
-// ── ROUTE ─────────────────────────────────────────────────────────────────────
+// ── CORE AUDIT ENGINE ─────────────────────────────────────────────────────────
 
+/**
+ * runAudit — pure computation kernel shared by POST / and POST /screenshot.
+ *
+ * Accepts already-validated, already-typed params. Does NOT do HTTP validation.
+ * Callers are responsible for guard-checking rawLegs before calling here.
+ *
+ * @param {{ sportRaw: string, isNba: boolean, claimedTier: string|null, rawLegs: object[] }}
+ * @returns {object} — full audit result payload (ready for res.json())
+ */
+function runAudit({ sportRaw, isNba, claimedTier, rawLegs }) {
+  // Normalize legs through the canonical resolver chain
+  const legs = rawLegs.map((l) => normalizeLeg(l, isNba))
+
+  // Payout math
+  const payoutProfile = computePayout(legs)
+
+  // Tier eligibility (mirrors TIER_TEMPLATES + applyNbaTierOverrides)
+  const tierEligibility = checkTierEligibility(legs, isNba, payoutProfile.combinedDecimal)
+
+  // Volatility profile
+  const volProfile = buildVolatilityProfile(legs)
+
+  // Correlation warnings
+  const correlationWarnings = detectCorrelation(legs)
+
+  // Semantic tier — first eligible tier in the ladder
+  const semanticTier = resolveSemanticTier(tierEligibility)
+
+  // Payout realism label
+  const payoutRealism_ = payoutRealism(payoutProfile.combinedDecimal)
+
+  // Semantic violations (specific rule violations that triggered tier rejection)
+  const semanticViolations = []
+  for (const l of legs) {
+    if (["lotto", "aggressive"].includes(l.volatility) && !tierEligibility.safe) {
+      semanticViolations.push(`${l.volatility}_leg_in_safe_context: "${l.player}" (${l.statFamily}) is ${l.volatility}-volatility — barred from safe tier`)
+    }
+  }
+  if (payoutProfile.combinedDecimal > 8.0 && !tierEligibility.balanced) {
+    semanticViolations.push(`combined_odds_exceed_balanced_ceiling: dec ${r2(payoutProfile.combinedDecimal)} > 8.0`)
+  }
+  if (payoutProfile.combinedDecimal < 3.0 && !tierEligibility.safe) {
+    semanticViolations.push(`combined_odds_below_balanced_floor: dec ${r2(payoutProfile.combinedDecimal)} < 3.0`)
+  }
+
+  // Semantic verdict — honesty axis (separate from viability)
+  const semanticVerdict = buildSemanticVerdict(claimedTier, semanticTier)
+
+  // Recommendation + archetype — viability axis
+  const { recommendation, reason } = buildRecommendation(legs, semanticTier, claimedTier, correlationWarnings, payoutProfile, volProfile)
+  const archetypeSummary = buildArchetypeSummary(legs, semanticTier, claimedTier, volProfile, correlationWarnings)
+
+  // Confidence honesty: structural only in V1 (no modelProb from manual input)
+  const confidenceHonesty = {
+    level: "structural_only",
+    note: "V1 audit: volatility + tier + correlation structure only. No model probability or edge data available from manual input. Do not infer EV from this audit alone.",
+  }
+
+  return {
+    sport:               sportRaw,
+    legCount:            legs.length,
+    semanticTier,
+    claimedTier:         claimedTier || null,
+    tierMismatch:        claimedTier ? claimedTier !== semanticTier : null,
+    semanticVerdict,
+    volatilityProfile:   volProfile,
+    correlationWarnings,
+    payoutProfile: {
+      ...payoutProfile,
+      payoutRealism: payoutRealism_,
+    },
+    tierEligibility,
+    semanticViolations,
+    tailRecommendation:  recommendation,
+    recommendationReason: reason,
+    archetypeSummary,
+    confidenceHonesty,
+    auditedAt: new Date().toISOString(),
+  }
+}
+
+// ── LEG VALIDATION HELPER ─────────────────────────────────────────────────────
+
+/**
+ * Validate a raw legs array for required fields.
+ * Returns null on success, or an { statusCode, error } object on failure.
+ * fieldLabel is "legs" for POST / or "extractedLegs" for POST /screenshot.
+ */
+function validateLegs(rawLegs, fieldLabel) {
+  if (!rawLegs.length)
+    return { statusCode: 400, error: `${fieldLabel}[] required — provide at least one leg` }
+  if (rawLegs.length > 10)
+    return { statusCode: 400, error: "Maximum 10 legs per audit request" }
+  for (let i = 0; i < rawLegs.length; i++) {
+    const l = rawLegs[i]
+    if (!l.player)
+      return { statusCode: 400, error: `${fieldLabel}[${i}].player required` }
+    if (!l.propType && !l.statFamily)
+      return { statusCode: 400, error: `${fieldLabel}[${i}].propType required` }
+    if (num(l.odds) == null)
+      return { statusCode: 400, error: `${fieldLabel}[${i}].odds required (American format)` }
+  }
+  return null
+}
+
+// ── ROUTES ────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/ws/slip-audit
+ * Standard slip audit — manually submitted legs.
+ */
 router.post("/", express.json(), (req, res) => {
   try {
-    const sportRaw   = String(req.body?.sport || "nba").toLowerCase()
-    const isNba      = /^nba$/.test(sportRaw)
-    const rawLegs    = Array.isArray(req.body?.legs) ? req.body.legs : []
+    const sportRaw    = String(req.body?.sport || "nba").toLowerCase()
+    const isNba       = /^nba$/.test(sportRaw)
+    const rawLegs     = Array.isArray(req.body?.legs) ? req.body.legs : []
     const claimedTier = req.body?.claimedTier ? String(req.body.claimedTier).toLowerCase() : null
 
-    if (!rawLegs.length) {
-      return res.status(400).json({ error: "legs[] required — provide at least one leg" })
-    }
-    if (rawLegs.length > 10) {
-      return res.status(400).json({ error: "Maximum 10 legs per audit request" })
-    }
+    const legErr = validateLegs(rawLegs, "legs")
+    if (legErr) return res.status(legErr.statusCode).json({ error: legErr.error })
 
-    // Validate required fields per leg
-    for (let i = 0; i < rawLegs.length; i++) {
-      const l = rawLegs[i]
-      if (!l.player)   return res.status(400).json({ error: `legs[${i}].player required` })
-      if (!l.propType && !l.statFamily) return res.status(400).json({ error: `legs[${i}].propType required` })
-      if (num(l.odds) == null) return res.status(400).json({ error: `legs[${i}].odds required (American format)` })
-    }
-
-    // Normalize
-    const legs = rawLegs.map((l) => normalizeLeg(l, isNba))
-
-    // Payout math
-    const payoutProfile = computePayout(legs)
-
-    // Tier eligibility
-    const tierEligibility = checkTierEligibility(legs, isNba, payoutProfile.combinedDecimal)
-
-    // Volatility profile
-    const volProfile = buildVolatilityProfile(legs)
-
-    // Correlation warnings
-    const correlationWarnings = detectCorrelation(legs)
-
-    // Semantic tier
-    const semanticTier = resolveSemanticTier(tierEligibility)
-
-    // Payout realism label
-    const payoutRealism_ = payoutRealism(payoutProfile.combinedDecimal)
-
-    // Semantic violations (specific rule violations that triggered tier rejection)
-    const semanticViolations = []
-    for (const l of legs) {
-      if (["lotto", "aggressive"].includes(l.volatility) && !tierEligibility.safe) {
-        semanticViolations.push(`${l.volatility}_leg_in_safe_context: "${l.player}" (${l.statFamily}) is ${l.volatility}-volatility — barred from safe tier`)
-      }
-    }
-    if (payoutProfile.combinedDecimal > 8.0 && !tierEligibility.balanced) {
-      semanticViolations.push(`combined_odds_exceed_balanced_ceiling: dec ${r2(payoutProfile.combinedDecimal)} > 8.0`)
-    }
-    if (payoutProfile.combinedDecimal < 3.0 && !tierEligibility.safe) {
-      semanticViolations.push(`combined_odds_below_balanced_floor: dec ${r2(payoutProfile.combinedDecimal)} < 3.0`)
-    }
-
-    // Semantic verdict — honesty axis (separate from viability)
-    const semanticVerdict = buildSemanticVerdict(claimedTier, semanticTier)
-
-    // Recommendation + archetype — viability axis
-    const { recommendation, reason } = buildRecommendation(legs, semanticTier, claimedTier, correlationWarnings, payoutProfile, volProfile)
-    const archetypeSummary = buildArchetypeSummary(legs, semanticTier, claimedTier, volProfile, correlationWarnings)
-
-    // Confidence honesty: structural only in V1 (no modelProb)
-    const confidenceHonesty = {
-      level: "structural_only",
-      note: "V1 audit: volatility + tier + correlation structure only. No model probability or edge data available from manual input. Do not infer EV from this audit alone.",
-    }
-
-    return res.json({
-      sport:              sportRaw,
-      legCount:           legs.length,
-      semanticTier,
-      claimedTier:        claimedTier || null,
-      tierMismatch:       claimedTier ? claimedTier !== semanticTier : null,
-      semanticVerdict,
-      volatilityProfile:  volProfile,
-      correlationWarnings,
-      payoutProfile: {
-        ...payoutProfile,
-        payoutRealism: payoutRealism_,
-      },
-      tierEligibility,
-      semanticViolations,
-      tailRecommendation: recommendation,
-      recommendationReason: reason,
-      archetypeSummary,
-      confidenceHonesty,
-      auditedAt: new Date().toISOString(),
-    })
+    return res.json(runAudit({ sportRaw, isNba, claimedTier, rawLegs }))
   } catch (err) {
     console.error("[slip-audit] Error:", err)
+    return res.status(500).json({ error: String(err?.message || err) })
+  }
+})
+
+/**
+ * POST /api/ws/slip-audit/screenshot
+ * Screenshot-assisted slip audit (V1 — manual extraction only, no OCR).
+ *
+ * V1 contract:
+ *   - caller provides imageName (filename or description) and source
+ *   - extractedLegs are manually transcribed by the caller from the screenshot
+ *   - extractionMethod must be "manual" (only value accepted in V1)
+ *   - audit result is identical to POST / — same engine, same semantics
+ *
+ * V2 OCR extensibility hook is documented below but NOT implemented.
+ * Do NOT implement OCR extraction here until a verified OCR pipeline exists.
+ *
+ * Request body:
+ *   {
+ *     imageName:       string   — filename or description (e.g. "twitter-slip.png")
+ *     source:          string   — origin of the screenshot (e.g. "manual_upload", "twitter", "prizepicks_app")
+ *     extractionMethod?: string — "manual" (default, only valid value in V1)
+ *     sport?:          string   — "nba" (default) | "mlb"
+ *     claimedTier?:    string   — "safe" | "balanced" | "aggressive" | "lotto"
+ *     extractedLegs:   array    — same schema as legs[] in POST /
+ *   }
+ *
+ * Response envelope:
+ *   {
+ *     screenshot: { imageName, source, extractionMethod, processedAt },
+ *     extractedLegs,          ← echo of caller-provided legs (transparency)
+ *     legCount,
+ *     extractionConfidence,   ← "manual" (V1) | "model_assisted" (future OCR)
+ *     audit: { ...full runAudit() result }
+ *   }
+ */
+router.post("/screenshot", express.json(), (req, res) => {
+  try {
+    // ── Screenshot metadata ────────────────────────────────────────────────────
+    const imageName        = req.body?.imageName ? String(req.body.imageName).trim() : null
+    const source           = req.body?.source    ? String(req.body.source).trim()    : "manual_upload"
+    const extractionMethod = req.body?.extractionMethod
+      ? String(req.body.extractionMethod).trim()
+      : "manual"
+
+    if (!imageName)
+      return res.status(400).json({ error: "imageName required" })
+
+    // ── V2 OCR hook point — NO-OP in V1 ──────────────────────────────────────
+    // When OCR is implemented, branch here on extractionMethod === "ocr":
+    //   const ocrResult = await runOcrExtraction(req.body.imageBase64 || imageName)
+    //   extractedLegs = ocrResult.legs
+    //   extractionConfidence = ocrResult.confidence  // e.g. "model_assisted"
+    // Until OCR exists, extractedLegs MUST be caller-provided ("manual").
+    // Reject any attempt to claim OCR in V1 — no pretend automation.
+    if (extractionMethod !== "manual") {
+      return res.status(400).json({
+        error: `extractionMethod "${extractionMethod}" not supported in V1 — only "manual" is valid. Provide extractedLegs from your own inspection of the screenshot.`,
+      })
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Audit inputs ───────────────────────────────────────────────────────────
+    const sportRaw      = String(req.body?.sport || "nba").toLowerCase()
+    const isNba         = /^nba$/.test(sportRaw)
+    const claimedTier   = req.body?.claimedTier ? String(req.body.claimedTier).toLowerCase() : null
+    const extractedLegs = Array.isArray(req.body?.extractedLegs) ? req.body.extractedLegs : []
+
+    const legErr = validateLegs(extractedLegs, "extractedLegs")
+    if (legErr) return res.status(legErr.statusCode).json({ error: legErr.error })
+
+    const processedAt = new Date().toISOString()
+    const audit = runAudit({ sportRaw, isNba, claimedTier, rawLegs: extractedLegs })
+
+    return res.json({
+      screenshot: {
+        imageName,
+        source,
+        extractionMethod,
+        processedAt,
+      },
+      extractedLegs,
+      legCount:            extractedLegs.length,
+      extractionConfidence: "manual",
+      audit,
+    })
+  } catch (err) {
+    console.error("[slip-audit/screenshot] Error:", err)
     return res.status(500).json({ error: String(err?.message || err) })
   }
 })
@@ -640,18 +765,20 @@ router.post("/", express.json(), (req, res) => {
 module.exports = router
 
 /**
- * RESPONSE SCHEMA
- * ───────────────
+ * RESPONSE SCHEMAS
+ * ────────────────
+ *
+ * POST /api/ws/slip-audit  →  direct audit result:
  * {
  *   sport, legCount, semanticTier, claimedTier, tierMismatch,
- *   semanticVerdict: {              // ← NEW: honesty axis, separate from tailRecommendation
+ *   semanticVerdict: {
  *     honest: bool,
- *     mismatchSeverity: "none"|"minor"|"major",
- *     description: string,         // human-readable explanation of the labeling gap
+ *     mismatchSeverity: "none"|"overcautious"|"minor"|"major",
+ *     description: string,
  *   },
  *   volatilityProfile: {
- *     legs: string[],              // per-leg volatility
- *     combined: string,            // worst-case volatility across legs
+ *     legs: string[],
+ *     combined: string,
  *     unanimousVolatility, mixedVolatility, volSources
  *   },
  *   correlationWarnings: [{ code, message }],
@@ -667,5 +794,19 @@ module.exports = router
  *   archetypeSummary: string,
  *   confidenceHonesty: { level, note },
  *   auditedAt: ISO string
+ * }
+ *
+ * POST /api/ws/slip-audit/screenshot  →  screenshot envelope + audit:
+ * {
+ *   screenshot: {
+ *     imageName: string,
+ *     source: string,
+ *     extractionMethod: "manual",   // "model_assisted" when OCR is live (V2+)
+ *     processedAt: ISO string,
+ *   },
+ *   extractedLegs: [...],           // echo of caller-provided legs
+ *   legCount: number,
+ *   extractionConfidence: "manual", // "model_assisted" in V2+ OCR
+ *   audit: { ...same shape as POST / response above }
  * }
  */

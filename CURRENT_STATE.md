@@ -1,6 +1,74 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted to ["safe","balanced"]; threes route exclusively to AGGRESSIVE/LOTTO; SAFE/BALANCED semantically clean; 1 file modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
+_Last updated: 2026-05-11 (Session AQ: Screenshot-Assisted Slip Audit V1 — POST /screenshot sub-route added; runAudit() extracted; OCR hook documented; 1 file modified; no TERM 1 restart required)_
+
+---
+
+## SESSION AQ — Screenshot-Assisted Slip Audit V1 (2026-05-11)
+
+**Scope**: Add `POST /api/ws/slip-audit/screenshot` sub-route to `slipAuditRoute.js`. Extract core audit logic into `runAudit()`. Preserve OCR extensibility without implementing OCR. 1 file modified. No TERM 1 restart required.
+
+### What changed (1 file)
+
+| File | Change |
+|---|---|
+| `backend/routes/slipAuditRoute.js` | Added `runAudit()` engine + `validateLegs()` helper; refactored `POST /` to call `runAudit()`; added `POST /screenshot` sub-route; schema comment updated; file header updated |
+
+### Architecture
+
+**Before**: `POST /` contained the full audit pipeline inline (~100 lines in the handler).
+
+**After**: Two-layer structure:
+- `runAudit({ sportRaw, isNba, claimedTier, rawLegs })` — pure computation kernel; no HTTP; returns full audit payload; shared by both routes
+- `validateLegs(rawLegs, fieldLabel)` — shared validation; returns `null` on success or `{ statusCode, error }` on failure
+- `POST /` — parse → validate → `runAudit()` → `res.json()`
+- `POST /screenshot` — parse screenshot metadata → OCR guard → validate → `runAudit()` → wrap result
+
+### POST /screenshot contract (V1)
+
+**Request**:
+```json
+{
+  "imageName": "twitter-slip.png",
+  "source": "twitter",
+  "extractionMethod": "manual",
+  "sport": "nba",
+  "claimedTier": "aggressive",
+  "extractedLegs": [
+    { "player": "Cade Cunningham", "propType": "threes", "line": 2.5, "side": "over", "odds": 148 }
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "screenshot": { "imageName", "source", "extractionMethod", "processedAt" },
+  "extractedLegs": [...],
+  "legCount": 1,
+  "extractionConfidence": "manual",
+  "audit": { ...full runAudit() result }
+}
+```
+
+### OCR hook (no-op, documented)
+- `extractionMethod: "ocr"` → 400 immediately in V1 ("not supported in V1 — only 'manual' is valid")
+- Comment block marks exact insertion point for future OCR pipeline: `runOcrExtraction(imageBase64 || imageName)` → `extractedLegs`
+- `extractionConfidence` field pre-wired for `"model_assisted"` when OCR arrives (currently always `"manual"`)
+
+### Smoke tests (7/7)
+
+| Test | Result |
+|---|---|
+| AQ-1: screenshot — correctly labeled aggressive threes | `semanticTier:balanced`, `overcautious`, `honest:true`, `Lean` ✓ |
+| AQ-2: screenshot — fake-safe lotto threes | `semanticTier:aggressive`, `major`, `honest:false`, `Lean` ✓ |
+| AQ-3: screenshot — no claimed tier | `semanticTier:safe`, `none`, `honest:true`, `Tail` ✓ |
+| AQ-4: screenshot — `extractionMethod:"ocr"` → 400 | error message explicit ✓ |
+| AQ-5: screenshot — missing imageName → 400 | ✓ |
+| AQ-6: screenshot — empty extractedLegs → 400 | ✓ |
+| AQ-7: POST / regression (aggressive threes) | `semanticTier:balanced`, `Lean`, `honest:true` ✓ |
+
+**TERM 1 restart required: NO** — `slipAuditRoute.js` loaded via require at first request; not a startup module. `workstationRoutes.js` NOT modified this session.
 
 ---
 
