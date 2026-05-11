@@ -37,6 +37,40 @@
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
 
+// ── FIX 3: SLIP FAMILY EXCLUSION LIST ────────────────────────────────────────
+// Families excluded from ALL slip assembly (SAFE, BALANCED, AGGRESSIVE, LOTTO).
+// Exclusion is based on 5-date grading evidence (Session AF Slip Ecosystem Audit V1):
+//   rbis: 36.6% individual win rate — 0.0% inside slip context (complete failure)
+//   outs: 38.5% individual win rate — 30.2% inside slip context (structural drag)
+// Both remain valid for individual bets and ladders — only slip legs excluded.
+const SLIP_EXCLUDED_FAMILIES = new Set(["rbis", "outs"])
+
+// ── FIX 5: FAMILY-LEVEL CALIBRATION COEFFICIENTS (workstation path) ───────────
+// Shared MLB + NBA table. Coefficients ≈ actual_win_rate / model_claimed_prob.
+// Applied in combineLegs() to reduce compounded modelProb overestimation (3-8×).
+// rawCombinedModelProb (pre-calibration) preserved on each slip for auditability.
+// MLB coefficients from 5-date grading summaries (2026-05-05 → 2026-05-09).
+// NBA coefficients: conservative defaults pending more settled data.
+const FAMILY_CALIBRATION_COEFFICIENTS = {
+  // MLB families
+  totalbases:  0.97,
+  hits:        0.80,
+  runs:        0.74,
+  rbis:        0.68,  // excluded from slips; coefficient kept for completeness
+  outs:        0.72,  // excluded from slips; coefficient kept for completeness
+  ks:          0.85,
+  hr:          0.72,
+  hitsallowed: 0.82,
+  // NBA families
+  rebounds:    0.87,
+  assists:     0.90,
+  points:      0.88,
+  threes:      0.88,
+  blocks:      0.85,
+  steals:      0.85,
+}
+const CALIBRATION_COEFF_DEFAULT = 0.85  // conservative fallback for unknown families
+
 // NBA-2.C: Correlation intelligence — lazy require, sport-gated to NBA only.
 // Pure functions — no active-runtime imports. Safe at module load time.
 // MLB candidates NEVER reach this code path (isNba gate in buildAiSlips).
@@ -333,6 +367,7 @@ const TIER_TEMPLATES = {
     decimalOddsRange: [3.0, 8.0],
     allowedVolatility: ["safe", "balanced", "aggressive"],
     forbidVolatility:  [],
+    allowedSides:      ["under"],  // FIX 2: under-only; overs degrade BALANCED joint win rate
     maxPerGame:        1,
     maxPerStat:        2,
     maxFb:             1,
@@ -400,24 +435,33 @@ function canAddLeg(slipLegs, candidate, tpl) {
 // ── SLIP ASSEMBLY ─────────────────────────────────────────────────────────────
 
 function combineLegs(legs) {
-  let dec = 1, modelProb = 1
+  let dec = 1, rawModelProb = 1, calibratedModelProb = 1
   for (const l of legs) {
     const d = americanToDecimal(l.odds)
     if (!Number.isFinite(d)) return null
     dec *= d
-    modelProb *= clamp(0.001, 0.999, l.modelProb ?? 0.5)
+    // FIX 5: Apply family-level calibration to each leg before multiplying.
+    // Raw product (rawModelProb) overestimates joint probability by 3-8× because
+    // individual leg modelProb inflation compounds multiplicatively.
+    // Calibrated product uses per-family coefficients derived from grading data.
+    const rawLegProb = clamp(0.001, 0.999, l.modelProb ?? 0.5)
+    rawModelProb *= rawLegProb
+    const fam = normFam(l.statFamily || l.propType || "")
+    const coeff = FAMILY_CALIBRATION_COEFFICIENTS[fam] ?? CALIBRATION_COEFF_DEFAULT
+    calibratedModelProb *= clamp(0.001, 0.999, rawLegProb * coeff)
   }
   const americanCombined = decimalToAmerican(dec)
   const impliedCombined = 1 / dec
-  const edge = modelProb - impliedCombined
-  const ev   = (modelProb * (dec - 1)) - (1 - modelProb)  // per $1
+  const edge = calibratedModelProb - impliedCombined
+  const ev   = (calibratedModelProb * (dec - 1)) - (1 - calibratedModelProb)  // per $1
   return {
-    combinedDecimalOdds:  r4(dec),
-    combinedAmericanOdds: americanCombined,
-    combinedModelProb:    r4(modelProb),
-    combinedImpliedProb:  r4(impliedCombined),
-    edge:                 r4(edge),
-    ev:                   r4(ev),
+    combinedDecimalOdds:     r4(dec),
+    combinedAmericanOdds:    americanCombined,
+    combinedModelProb:       r4(calibratedModelProb),   // FIX 5: calibrated probability
+    rawCombinedModelProb:    r4(rawModelProb),           // FIX 5: pre-calibration; auditable
+    combinedImpliedProb:     r4(impliedCombined),
+    edge:                    r4(edge),
+    ev:                      r4(ev),
   }
 }
 
@@ -440,6 +484,11 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
   // elite offense qualify when the process is high-conviction.
   const eligible = scoredLegs.filter((sl) => {
     const leg = sl.leg
+
+    // FIX 3: Exclude slip-poisoning families from all tiers (rbis, outs).
+    // Individual bets/ladders for these families are unaffected.
+    if (SLIP_EXCLUDED_FAMILIES.has(normFam(leg.statFamily))) return false
+
     const isPremiumEdgeForSafe = tier === "safe" &&
       (leg.modelProb ?? 0) >= 0.50 &&
       (leg.edge ?? 0) >= 0.12
@@ -452,6 +501,11 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     }
     if (tpl.maxOdds != null && Math.abs(leg.odds) > tpl.maxOdds && leg.odds > 0 && leg.odds > tpl.maxOdds) return false
     if (tier === "safe" && (leg.odds > tpl.maxOdds)) return false
+
+    // FIX 2: Enforce allowedSides (e.g. BALANCED: under-only).
+    // Over contamination in BALANCED degrades joint win rate below independent math floor.
+    if (tpl.allowedSides?.length && !tpl.allowedSides.includes(leg.side)) return false
+
     return true
   })
 
@@ -591,6 +645,7 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
       combinedDecimalOdds: validCombined.combinedDecimalOdds,
       combinedAmericanOdds: validCombined.combinedAmericanOdds,
       combinedModelProb:   validCombined.combinedModelProb,
+      rawCombinedModelProb: validCombined.rawCombinedModelProb,  // FIX 5: pre-calibration; auditable
       combinedImpliedProb: validCombined.combinedImpliedProb,
       edge:                validCombined.edge,
       ev:                  validCombined.ev,
@@ -793,7 +848,9 @@ function buildAiSlips(opts = {}) {
     .map(normalizeCandidate)
     .filter(Boolean)
 
+  console.log("[SLIP-PROBE] buildAiSlips: candidates=%d normalized=%d sport=%s", candidates.length, normalized.length, sport)
   if (!normalized.length) {
+    console.log("[SLIP-PROBE] early return — no normalized candidates")
     return {
       slips: { safe: [], balanced: [], aggressive: [], lotto: [] },
       summary: "No eligible candidates",
@@ -833,12 +890,19 @@ function buildAiSlips(opts = {}) {
   // every slip on the board.
   const globalPlayerCount = new Map()
   ctx.globalPlayerCount = globalPlayerCount
+  const volBreakdown = {}
+  for (const c of normalized) { volBreakdown[c.volatility] = (volBreakdown[c.volatility]||0)+1 }
+  const sideBreakdown = {}
+  for (const c of normalized) { sideBreakdown[c.side] = (sideBreakdown[c.side]||0)+1 }
+  console.log("[SLIP-PROBE] normalized vols=%s sides=%s isNba=%s", JSON.stringify(volBreakdown), JSON.stringify(sideBreakdown), isNba)
   const slips = {
     safe:       buildSlipsForTier("safe",       scored, ctx, maxPerTier),
     balanced:   buildSlipsForTier("balanced",   scored, ctx, maxPerTier),
     aggressive: buildSlipsForTier("aggressive", scored, ctx, maxPerTier),
     lotto:      buildSlipsForTier("lotto",      scored, ctx, maxPerTier),
   }
+  console.log("[SLIP-PROBE] tiers: safe=%d balanced=%d aggressive=%d lotto=%d",
+    slips.safe.length, slips.balanced.length, slips.aggressive.length, slips.lotto.length)
 
   // Warnings
   const warnings = []

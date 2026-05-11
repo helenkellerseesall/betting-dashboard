@@ -155,6 +155,7 @@ const NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD = 20
 const NBA_SNAPSHOT_TOP_N = 150
 
 function buildNbaSnapshotCandidates(snapshotRows) {
+  console.log("[WS-PROBE] buildNbaSnapshotCandidates called with", snapshotRows.length, "rows")
   if (!Array.isArray(snapshotRows) || !snapshotRows.length) return []
   const rawQualified = []
 
@@ -262,7 +263,10 @@ function buildNbaSnapshotCandidates(snapshotRows) {
   }
   const deduped = Array.from(bestBySig.values())
   deduped.sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
-  return deduped.slice(0, NBA_SNAPSHOT_TOP_N)
+  const result = deduped.slice(0, NBA_SNAPSHOT_TOP_N)
+  console.log("[WS-PROBE] buildNbaSnapshotCandidates: rawQualified=%d deduped=%d returning=%d",
+    rawQualified.length, deduped.length, result.length)
+  return result
 }
 
 function buildCandidatePool(sport, date) {
@@ -310,13 +314,19 @@ router.get("/health", (req, res) => {
 router.get("/state", (req, res) => {
   try {
     const { sport, date } = resolveSportDate(req)
+    // [WS-PROBE] Route entry
+    console.log("[WS-PROBE] /state entry sport=%s date=%s", sport, date)
     const key = `state:${sport}:${date}`
     const out = cached(key, () => {
+      console.log("[WS-PROBE] cache MISS — building state for", sport, date)
       const mods = loadSharedModules()
       const pool = buildCandidatePool(sport, date)
+      console.log("[WS-PROBE] pool: eligibleBets=%d enrichedBest=%d trackedBets=%d",
+        pool.eligibleBets.length, pool.enrichedBest.length, pool.trackedBets.length)
 
       // Snapshot rows for line shopping/timing
       const snapshotRows = readSnapshotRows(sport)
+      console.log("[WS-PROBE] snapshotRows=%d", snapshotRows.length)
 
       const bookState    = mods.lineShop.loadBookState ? mods.lineShop.loadBookState() : null
       const timingState  = mods.timing.loadTimingState ? mods.timing.loadTimingState() : null
@@ -340,6 +350,8 @@ router.get("/state", (req, res) => {
       const snapSupplement = (sport === "nba" && snapshotRows.length)
         ? buildNbaSnapshotCandidates(snapshotRows)
         : []
+      console.log("[WS-PROBE] snapSupplement=%d rawCandidates=%d (sport=%s snapshotRows=%d)",
+        snapSupplement.length, rawCandidates.length, sport, snapshotRows.length)
 
       // Supplement portfolio pool when tracked pool is thin.
       const supplementedCandidates = (rawCandidates.length < NBA_SNAPSHOT_SUPPLEMENT_THRESHOLD && snapSupplement.length)
@@ -359,6 +371,7 @@ router.get("/state", (req, res) => {
       // Diversify before downstream views — caps repeats per player/game so the
       // workstation isn't dominated by 17 Donovan Mitchell legs.
       const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
+      console.log("[WS-PROBE] supplementedCandidates=%d → candidates(portfolio)=%d", supplementedCandidates.length, candidates.length)
 
       // Portfolio analysis runs against the diversified candidate pool only.
       // Persisted slip catalog is intentionally NOT merged in — those are
@@ -383,10 +396,16 @@ router.get("/state", (req, res) => {
             const novel = snapSupplement.filter(sc =>
               !trackSig.has(`${String(sc.player || "").toLowerCase()}|${sc.statFamily}|${sc.side}`)
             )
+            console.log("[WS-PROBE] AI supplement FIRED: tracked=%d novel=%d", aiCandidatesTracked.length, novel.length)
             return [...aiCandidatesTracked, ...novel]
           })()
-        : aiCandidatesTracked
+        : (() => {
+            console.log("[WS-PROBE] AI supplement DID NOT fire: aiCandidatesTracked=%d snapSupplement=%d sport=%s",
+              aiCandidatesTracked.length, snapSupplement.length, sport)
+            return aiCandidatesTracked
+          })()
       const aiCandidates = diversifyCandidates(aiCandidatesRaw, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
+      console.log("[WS-PROBE] aiCandidatesRaw=%d → aiCandidates=%d", aiCandidatesRaw.length, aiCandidates.length)
       let ledgerState = null
       try { ledgerState = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null } catch (_) {}
       const aiSlips = mods.slipAi.buildAiSlips({
@@ -397,6 +416,10 @@ router.get("/state", (req, res) => {
         portfolioBaseline: { bets: candidates },
         options: { sport, date, maxPerTier: 4 },
       })
+      console.log("[WS-PROBE] buildAiSlips result: safe=%d balanced=%d aggressive=%d lotto=%d summary=%s",
+        (aiSlips.slips?.safe||[]).length, (aiSlips.slips?.balanced||[]).length,
+        (aiSlips.slips?.aggressive||[]).length, (aiSlips.slips?.lotto||[]).length,
+        aiSlips.summary || "")
 
       // FEATURED — curated trust anchor (5–15 plays across themed buckets).
       const featured = mods.featured.buildFeaturedPlays({

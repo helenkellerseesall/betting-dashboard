@@ -1,6 +1,6 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AE: NBA Result Ingestion Repair — fetchNbaGameResults.js replaced stats.nba.com (blocked, 403) with ESPN public API; no auth required; handles playoffs; 37/37 tests pass; 1 file modified; TERM 1 restart NOT required; run TERM 2 to verify NBA grading live)_
+_Last updated: 2026-05-10 (Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + AGGRESSIVE/LOTTO freeze; 3 files modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
 
 ---
 
@@ -216,6 +216,107 @@ ESPN stat parsing:
 **TERM 1 restart: NOT required** — `fetchNbaGameResults.js` is a standalone CLI module, not loaded by `server.js`.
 
 **TERM 2 verification required** — run NBA backfill live to confirm ESPN returns real game data.
+
+---
+
+## SESSION AG — Slip Ecosystem Repair V1 (2026-05-10)
+
+**Scope**: 5 targeted fixes to slip assembly across all 3 slip generation paths. No architecture changes. No rebuild of `combineLegs()`. Additive enforcement only.
+
+### Root Cause (confirmed via code audit):
+`buildMlbSlipEngine.js` (canonical nightly MLB path) had `legSize: { target: 3, min: 3, alt: 4 }` — every other BALANCED slip targeted 4 legs; no `maxCombinedDecimalOdds` → combined odds reaching 25.0 (far above 8.0 template ceiling); `MIX_FAMILIES` included rbis/outs; no side filter.
+
+### Files Modified (3):
+
+| File | Session AF Audit Finding | Fix Applied |
+|---|---|---|
+| `backend/pipeline/mlb/buildMlbSlipEngine.js` | BALANCED 4-leg slips, odds up to 25.0, rbis/outs in mix, no under filter | FIX 1+2+3+4+5 |
+| `backend/pipeline/nba/buildNbaSlipComposer.js` | Same violations (minus rbis/outs — N/A for NBA) | FIX 1+2+4+5 |
+| `backend/pipeline/shared/buildSlipAi.js` | Already had [2,3] legCount; needed under filter, rbis/outs exclusion, calibration | FIX 2+3+5 |
+
+### Five Fixes:
+
+**FIX 1 — Nightly template enforcement (MLB + NBA engines)**
+- `legSize: { target: 3, min: 2 }` — removed `alt: 4` (was producing 4-leg BALANCED slips)
+- `maxCombinedDecimalOdds: 8.0` — hard ceiling on combined parlay odds (was unbounded → up to 25.0)
+- `minCombinedDecimalOdds: 3.0` — floor to prevent trivially low-variance slips
+- `maxSameEventShare: 0.30` → for 3-leg slips: maxPerEvent = max(1, ceil(3×0.30)) = 1 (enforces maxPerGame=1)
+- `droppedSlips` counter added to `meta` output for audit of rejected slips
+
+**FIX 2 — BALANCED over exclusion (all 3 paths)**
+- `sideFilter: ["under"]` explicit in `buildBalancedSlips()` pool filter (MLB + NBA engines)
+- `allowedSides: ["under"]` in `TIER_TEMPLATES.balanced` (buildSlipAi.js)
+- Enforced in `buildSlipsForTier` eligible filter: `if (tpl.allowedSides?.length && !tpl.allowedSides.includes(leg.side)) return false`
+
+**FIX 3 — rbis/outs exclusion from slip assembly (MLB paths only)**
+- `BALANCED_FAMILIES = new Set(["hits", "totalBases", "ks", "runs", "hitsAllowed"])` in buildMlbSlipEngine.js
+- `SLIP_EXCLUDED_FAMILIES = new Set(["rbis", "outs"])` in buildSlipAi.js
+- Both remain valid for individual bets and ladder picks — only excluded from slip parlays
+
+**FIX 4 — AGGRESSIVE/LOTTO freeze (all 3 paths)**
+- `FREEZE_AGGRESSIVE_LOTTO = true` module-level constant (reversible — flip to `false` to re-enable)
+- Frozen paths produce `[]` (not errors); `meta.frozenTiers: ["aggressive", "lotto"]` auditable in output
+- Comment in all 3 files: "remove freeze when post-repair grading confirms tier health"
+
+**FIX 5 — combinedModelProb calibration correction (all 3 paths)**
+- Family-level calibration coefficients derived from 5-date MLB grading aggregate:
+  ```
+  totalbases: 0.97, hits: 0.80, runs: 0.74, rbis: 0.68, outs: 0.72,
+  ks: 0.85, hr: 0.72, hitsallowed: 0.82
+  NBA: rebounds: 0.87, assists: 0.90, points: 0.88, threes: 0.88, blocks: 0.85, steals: 0.85
+  ```
+- `rawCombinedModelProb` preserved on every slip object for pre-calibration audit diff
+- `combinedModelProb` = product of per-leg `(modelProb × familyCoeff)` clamped [0.001, 0.999]
+
+### Smoke Test Results (all 3 paths):
+
+| Test | MLB Engine | NBA Engine | buildSlipAi |
+|---|---|---|---|
+| `node --check` | ✓ | ✓ | ✓ |
+| SAFE slips produced | 2 ✓ | 2 ✓ | ✓ |
+| BALANCED ≤3 legs | ✓ | ✓ | ✓ |
+| BALANCED odds [3.0, 8.0] | 6.08, 5.88 ✓ | ✓ | ✓ |
+| No overs in BALANCED | ✓ | ✓ | ✓ |
+| No rbis/outs in BALANCED | ✓ | N/A ✓ | ✓ |
+| AGGRESSIVE frozen (0 slips) | ✓ | ✓ | ✓ |
+| LOTTO frozen (0 slips) | ✓ | ✓ | ✓ |
+| meta.frozenTiers visible | `["aggressive","lotto"]` ✓ | ✓ | N/A |
+| rawCombinedModelProb present | ✓ | ✓ | ✓ |
+| calibration applied (raw ≠ cal) | 0.1947 → 0.0853 ✓ | ✓ | 0.1914 → 0.1099 ✓ |
+| Contradictory legs rejected | ✓ | N/A | ✓ |
+| SAFE constraints unchanged | ✓ | ✓ | ✓ |
+
+**All checks: PASS ✓**
+
+### Verification Class: D
+
+**TERM 1 restart required: YES**
+- `buildSlipAi.js` is loaded by `server.js` at startup — server must be restarted before workstation slips reflect fixes.
+- `buildMlbSlipEngine.js` and `buildNbaSlipComposer.js` are called by the nightly pipeline at runtime — fixes active after any new nightly run.
+
+**Snapshot hard-reset required: YES (Class D mandatory)**
+```bash
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
+```
+(wait 10s, then run verification)
+
+**Verification command (TERM 2, after hard-reset):**
+```bash
+node backend/scripts/runVerification.js --sport=nba --session=AG-repair
+```
+Expected: exit 0
+
+**Checkpoint (ONLY after runVerification exits 0):**
+```bash
+node backend/scripts/checkpointRepo.js "Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + freeze"
+```
+
+### Post-Repair Grading (operator, after next nightly run):
+```bash
+node backend/scripts/runHistoricalGrade.js --sport=mlb --backfill
+node backend/scripts/runHistoricalGrade.js --sport=nba --backfill
+```
+Confirms new BALANCED tier health with calibration active. Once tier hit rates ≥ 52%: unfreeze AGGRESSIVE/LOTTO by setting `FREEZE_AGGRESSIVE_LOTTO = false` in all 3 files.
 
 ---
 
@@ -646,6 +747,15 @@ NBA snapshot candidate pipeline:
 17. **NBA lotto starvation fully traced** — two failure paths: shared path (maxOdds 600 impossible at base), nightly path (aiRange requires alt lines killed by workstation gate). Fallback: copies aggressive.
 18. **NBA intelligence health: 2.9/10** — 8 critical failures audited. Full roadmap NBA-1→NBA-7 in docs/NBA_ECOLOGY_AUDIT_2026-05-09.md.
 19. **`tracker/betTracker.js` vs `buildPersonalLedger.js`** — two parallel bet tracking systems, no reconciliation (betTracker is legacy)
+
+**RESOLVED SESSION AG:**
+- ~~BALANCED 4-leg slips produced by nightly MLB engine~~ — `alt: 4` removed; `legSize: { target: 3, min: 2 }` enforced ✓
+- ~~Combined odds reaching 25.0 on BALANCED slips~~ — `maxCombinedDecimalOdds: 8.0` / `minCombinedDecimalOdds: 3.0` enforced ✓
+- ~~rbis/outs appearing in slip parlays~~ — excluded via `BALANCED_FAMILIES` (MLB engine) and `SLIP_EXCLUDED_FAMILIES` (buildSlipAi) ✓
+- ~~Overs appearing in BALANCED slips~~ — `sideFilter: ["under"]` / `allowedSides: ["under"]` enforced across all 3 paths ✓
+- ~~combinedModelProb confidence inflation (uncalibrated joint probability)~~ — family-level coefficients applied; `rawCombinedModelProb` preserved for audit ✓
+- ~~AGGRESSIVE/LOTTO tiers producing contaminated slips~~ — frozen (`FREEZE_AGGRESSIVE_LOTTO = true`); reversible; auditable in `meta.frozenTiers` ✓
+- ~~Rejected slips unauditable~~ — `meta.droppedSlips` counter added to composer output ✓
 
 **RESOLVED SESSION AC:**
 - ~~Inline snapshotSourced guards fragmented across 2 shared modules~~ — extracted to `pipeline/nba/nbaVolatilityResolver.js`; resolver is sole canonical authority ✓

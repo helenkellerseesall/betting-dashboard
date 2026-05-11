@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AE: NBA Result Ingestion Repair — stats.nba.com replaced with ESPN public API; 37/37 tests; TERM 1 restart NOT required; TERM 2 = run NBA backfill live to verify games discovered + bets graded)_
+_Last updated: 2026-05-10 (Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + AGGRESSIVE/LOTTO freeze; 3 files modified; TERM 1 restart REQUIRED; Class D verification sequence required before checkpoint; post-repair grading required to confirm tier health before unfreezing)_
 
 ---
 
@@ -20,6 +20,7 @@ Session AB completed the NBA-2 Canonical Path Constitution Audit (read-only Opus
 | NBA Ecology Audit (Session Z) | ✅ DONE | 20-section audit; health 2.9/10; roadmap defined |
 | **NBA-1 — PRA volatility fix** | ✅ DONE | snapshotSourced guard in buildFeaturedPlays + buildSlipAi; lotto volRealism 0.65 |
 | **NBA-2 — Canonical path constitution audit** | ✅ DONE | health 4.6/10; canonical-nightly = buildNbaSlipComposer; canonical-workstation = buildSlipAi; 9-phase migration plan |
+| **Slip Ecosystem Repair V1 (Session AG)** | ✅ DONE (pending Class D verification) | BALANCED enforcement [2-3 legs, dec 3-8, under-only, no rbis/outs]; calibration + rawCombinedModelProb; AGGRESSIVE/LOTTO freeze; droppedSlips audit; 3 files modified |
 | **NBA-2.A — ARCHITECTURE.md + types.ts** | ⬜ NEXT | doc-only; mark canonical designations + dead orphans + line-count corrections |
 | **NBA-2.B — nbaVolatilityResolver extraction** | ✅ DONE | `pipeline/nba/nbaVolatilityResolver.js` created; resolver is sole canonical authority; inline guards removed from buildFeaturedPlays + buildSlipAi |
 | **NBA-2.C — buildNbaSnapshotCandidates extraction** | ⬜ NEXT | move from `workstationRoutes.js` → `pipeline/nba/buildNbaSnapshotCandidates.js` |
@@ -45,48 +46,82 @@ Session AB completed the NBA-2 Canonical Path Constitution Audit (read-only Opus
 cd ~/Desktop/betting-dashboard
 ```
 
-**Step 1 — Finalize checkpoint (Sessions H–AE):**
+### Session AG — Class D Verification Sequence (REQUIRED before checkpoint)
+
+**Step AG-1 — TERM 1 restart** (Session AG modified buildSlipAi.js which loads at startup):
+```bash
+# Kill existing server, then:
+node backend/server.js
 ```
+
+**Step AG-2 — Snapshot hard-reset** (Class D mandatory, wait 10s after server is up):
+```bash
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset"
+```
+
+**Step AG-3 — TERM 2 verification** (after hard-reset completes):
+```bash
+node backend/scripts/runVerification.js --sport=nba --session=AG-repair
+```
+Expected: **exit 0**. Do NOT checkpoint if exit non-zero.
+
+**Step AG-4 — Checkpoint** (ONLY after exit 0):
+```bash
+node backend/scripts/checkpointRepo.js "Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + freeze"
+```
+
+**Step AG-5 — Finalize checkpoint** (includes all Sessions H–AG):
+```bash
 bash backend/scripts/finalizeCheckpoint.sh
 ```
 
-**Step 2 — TERM 1 restart (if not already restarted since Session AA+AC):**
-```
-node backend/server.js
-```
-Sessions AD+AE: no TERM 1 restart required (new/grading files only). If server pre-dates 2026-05-09, restart for AA+AC changes.
+---
 
-**Step 3 — TERM 2: Run NBA historical backfill (Session AE verification):**
-```
+### Historical Backfill (Session AE verification — if not yet done)
+
+**Step AE-1 — Run NBA historical backfill:**
+```bash
 node backend/scripts/runHistoricalGrade.js --sport=nba --backfill
 ```
 Expected output: "ESPN scoreboard: N games" for each date, followed by settled counts.
 
-**Step 4 — Verify NBA bets graded (paste as one line):**
-```
+**Step AE-2 — Verify NBA bets graded (paste as one line):**
+```bash
 node -e "const b=JSON.parse(require('fs').readFileSync('backend/runtime/tracking/nba_tracked_bets_2026-05-08.json','utf8'));const s=b.filter(x=>['win','loss','push'].includes(x.result));const p=b.filter(x=>x.result==='pending');const u=b.filter(x=>x.result==='unresolved');console.log('settled:',s.length,'pending:',p.length,'unresolved:',u.length,'wins:',s.filter(x=>x.result==='win').length,'losses:',s.filter(x=>x.result==='loss').length)"
 ```
-Expected: `settled: 4 pending: 0 unresolved: 0` (or similar — settled > 0 confirms repair).
+Expected: settled > 0.
 
-**Step 5 — Also run MLB backfill (if not already done from Session AD):**
-```
+**Step AE-3 — MLB backfill (if not already done from Session AD):**
+```bash
 node backend/scripts/runHistoricalGrade.js --sport=mlb --backfill
 ```
 
-**Step 6 — If any "unresolved" appear (player found, stat missing), retry:**
-```
+**Step AE-4 — Retry unresolved (if any):**
+```bash
 node backend/scripts/runHistoricalGrade.js --sport=all --backfill --retry-unresolved
 ```
 
-**Step 7 — After both sports graded, run daily intelligence review:**
-```
+**Step AE-5 — Daily intelligence review:**
+```bash
 node backend/scripts/runDailyReview.js --sport=mlb --date=2026-05-08 --verbose
 ```
 
-**Step 8 — Checkpoint (ONLY after Step 4 confirms settled > 0):**
+---
+
+### Post-Repair Grading (Session AG — after next nightly run regenerates slips)
+
+**Step AG-post-1 — Re-run grading on new slips (after nightly pipeline regenerates with fixed engine):**
+```bash
+node backend/scripts/runHistoricalGrade.js --sport=mlb --backfill
+node backend/scripts/runHistoricalGrade.js --sport=nba --backfill
 ```
-node backend/scripts/checkpointRepo.js "Session AE: NBA ingestion repair — ESPN replaces stats.nba.com"
-```
+
+**Step AG-post-2 — If BALANCED tier hit rate ≥ 52% across ≥3 dates, unfreeze AGGRESSIVE/LOTTO:**
+Set `FREEZE_AGGRESSIVE_LOTTO = false` in all 3 files:
+- `backend/pipeline/mlb/buildMlbSlipEngine.js`
+- `backend/pipeline/nba/buildNbaSlipComposer.js`
+- `backend/pipeline/shared/buildSlipAi.js`
+Then restart TERM 1 and verify.
 
 ---
 
@@ -511,6 +546,8 @@ Line counts stale, http/ section no longer accurate:
 
 | Risk | Avoidance |
 |---|---|
+| AGGRESSIVE/LOTTO unfreezing prematurely | Do NOT flip `FREEZE_AGGRESSIVE_LOTTO = false` until post-repair grading shows BALANCED hit rate ≥ 52% across ≥3 dates. Freeze is in all 3 slip engines. |
+| combinedModelProb calibration wrong direction | Coefficients derived from 5-date grading aggregate. If grading shows calibrated worse than raw, re-audit coefficients before unfreezing. `rawCombinedModelProb` preserved on every slip for diff. |
 | HR ecology suppression | ✅ RESOLVED (Session T) — 5 fixes in buildMlbPropClusters.js |
 | MLB team field omission (leanBet) | ✅ RESOLVED (Session V) — team/teamCode/awayTeam/homeTeam now persisted through full chain |
 | MLB identity cache stale-team accumulation | ✅ RESOLVED (Session V) — 30d eviction + slate-aware sort + lastSeenAt tracking |

@@ -1,5 +1,29 @@
 "use strict"
 
+// ── FIX 4: AGGRESSIVE/LOTTO FREEZE ────────────────────────────────────────────
+// Temporary gate: disabled until template enforcement + calibration verified
+// healthy via runVerification.js. Set to false to re-enable.
+// DO NOT delete — freeze mechanism must remain auditable and reversible.
+const FREEZE_AGGRESSIVE_LOTTO = true
+
+// ── FIX 5: FAMILY-LEVEL CALIBRATION COEFFICIENTS ─────────────────────────────
+// Derived from 5-date MLB grading summaries (2026-05-05 → 2026-05-09).
+// Formula: coefficient ≈ actual_win_rate / estimated_model_claimed_prob.
+// Applied in buildSlipFromLegs() before multiplying individual modelProbs.
+// Purpose: reduce compounded overestimation in combinedModelProb (was 3-8×).
+// rawCombinedModelProb (pre-calibration) is preserved in slip output for auditability.
+const FAMILY_CALIBRATION = {
+  totalbases:  0.97,  // 56.3% actual — model well calibrated for this family
+  hits:        0.80,  // 48.2% actual — model overestimates ~1.25×
+  runs:        0.74,  // 42.8% actual — model overestimates ~1.35×
+  rbis:        0.68,  // 36.6% actual — excluded from slips; coeff kept for individual bet CLV
+  outs:        0.72,  // 38.5% actual — excluded from slips; coeff kept for individual bet CLV
+  ks:          0.85,  // 46.7% actual — moderate calibration gap
+  hr:          0.72,  // 37.5% actual — small sample (8 settled)
+  hitsallowed: 0.82,  // conservative default; insufficient settled data
+}
+const CALIBRATION_DEFAULT = 0.82  // conservative fallback for unknown families
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -179,6 +203,12 @@ const MIX_FAMILIES = new Set([
   "outs",
   "hitsAllowed",
 ])
+
+// ── FIX 3: BALANCED slip family exclusion list ─────────────────────────────────
+// rbis  (36.6% win rate) and outs (38.5%) are structural losers inside slips.
+// Both remain valid for individual bets and ladders — only excluded from slip assembly.
+// Audit evidence: Session AF Slip Ecosystem Audit V1 (2026-05-10).
+const BALANCED_FAMILIES = new Set(["hits", "totalBases", "ks", "runs", "hitsAllowed"])
 const HR_FAMILY = "hr"
 const ALT_LINE_FAMILIES = new Set(["hr", "totalBases", "ks", "rbis", "hits"])
 
@@ -274,7 +304,19 @@ function buildSlipFromLegs(legs, label, reasoning) {
   if (decimals.length !== legs.length) return null
   const combinedDecimal = decimals.reduce((a, b) => a * b, 1)
   const combinedAmerican = decimalToAmerican(combinedDecimal)
-  const combinedModelProb = legs.reduce((p, l) => p * Number(l.modelProb || 0), 1)
+
+  // FIX 5: Apply family-level calibration before multiplying leg probabilities.
+  // Raw product overestimates joint win probability by 3-8× due to per-family model
+  // miscalibration that compounds multiplicatively across legs.
+  // rawCombinedModelProb preserved for auditing / diff against calibrated value.
+  const rawCombinedModelProb = legs.reduce((p, l) => p * Number(l.modelProb || 0), 1)
+  const combinedModelProb = legs.reduce((p, l) => {
+    const fam = String(l.statFamily || "").toLowerCase()
+    const coeff = FAMILY_CALIBRATION[fam] ?? CALIBRATION_DEFAULT
+    const calibrated = Math.max(0.001, Math.min(0.999, Number(l.modelProb || 0) * coeff))
+    return p * calibrated
+  }, 1)
+
   const combinedImpliedProb = legs.reduce((p, l) => p * Number(l.impliedProb || 0), 1)
   const ev = combinedModelProb * (combinedDecimal - 1) - (1 - combinedModelProb)
   const expectedPayoutPer1 = combinedDecimal - 1
@@ -285,6 +327,7 @@ function buildSlipFromLegs(legs, label, reasoning) {
     combinedDecimalOdds: round4(combinedDecimal),
     combinedAmericanOdds: combinedAmerican,
     combinedModelProb: round4(combinedModelProb),
+    rawCombinedModelProb: round4(rawCombinedModelProb),  // pre-calibration; auditable
     combinedImpliedProb: round4(combinedImpliedProb),
     edge: round4(combinedModelProb - combinedImpliedProb),
     ev: round4(ev),
@@ -362,28 +405,38 @@ function buildSafeSlips({ pool, count, playerUseCounts, opts }) {
   })
 }
 
-/** BALANCED — 3-4 legs across stable + RBI/runs (no HR). */
+// FIX 1+2+3: BALANCED rebuilt with hard template constraints.
+// FIX 1 — legSize: hard max 3 legs (no alt: 4); decimalOddsRange [3.0, 8.0] enforced
+//          on combined slip odds; maxPerGame=1 via maxSameEventShare: 0.30.
+// FIX 2 — side: "under" only. Overs win at 34.3% in MLB; mixing in overs drags
+//          joint probability below the independent math floor. SAFE and BALANCED
+//          are under-only tiers. Overs remain valid in AGGRESSIVE/LOTTO (frozen).
+// FIX 3 — BALANCED_FAMILIES excludes rbis (36.6% win rate) and outs (38.5%).
+//          Remaining families: hits, totalBases, ks, runs, hitsAllowed.
 function buildBalancedSlips({ pool, count, playerUseCounts, opts }) {
   const balPool = poolByFilter(
     pool,
     (p) =>
-      MIX_FAMILIES.has(p.statFamily) &&
+      BALANCED_FAMILIES.has(p.statFamily) &&     // FIX 3: rbis/outs excluded
+      p.side === "under" &&                        // FIX 2: unders only
       Number(p.edge || 0) >= 0.03 &&
       Number(p.modelProb || 0) >= 0.45 &&
       !p.isLongshot &&
       !p.isAlternate &&
       Number.isFinite(p.oddsAmerican) &&
       p.oddsAmerican >= -300 &&
-      p.oddsAmerican <= 250
+      p.oddsAmerican <= 200
   )
   return composeMany({
     pool: balPool,
     count,
-    legSize: { target: 3, min: 3, alt: 4 },
+    legSize: { target: 3, min: 2 },   // FIX 1: hard max 3; remove alt: 4; fallback to 2
     label: "BALANCED",
-    reasoning: "3-4 legs; mix of hits / bases / Ks / RBIs / runs",
+    reasoning: "2-3 leg under parlay; quality unders (hits/bases/ks/runs)",
     playerUseCounts,
-    opts,
+    opts: { ...opts, maxSameEventShare: 0.30 },  // FIX 1: maxPerGame=1 for 3-leg slips
+    maxCombinedDecimalOdds: 8.0,                 // FIX 1: decimalOddsRange ceiling
+    minCombinedDecimalOdds: 3.0,                 // FIX 1: decimalOddsRange floor
   })
 }
 
@@ -464,12 +517,16 @@ function composeMany({
   playerUseCounts,
   opts,
   maxCombinedDecimalOdds = null,
+  minCombinedDecimalOdds = null,  // FIX 1: decimalOddsRange floor enforcement
 }) {
   const slips = []
   if (!pool.length) return slips
   const used = new Set()
+  let dropped = 0  // FIX 1: track rejected slips for auditability
 
   for (let i = 0; i < count; i++) {
+    // FIX 1: legSize.alt removed from BALANCED — only use legSize.target as the ceiling.
+    // Other tiers (SAFE/AGGRESSIVE/LOTTO) retain their alt if present.
     let target = legSize.alt && i % 2 === 1 ? legSize.alt : legSize.target
 
     let slip = null
@@ -492,14 +549,28 @@ function composeMany({
 
         const candidate = buildSlipFromLegs(legs, label, reasoning)
         if (!candidate) break
+
+        // FIX 1: Combined odds ceiling — reject slip and ban highest-odds leg, retry.
         if (
           maxCombinedDecimalOdds != null &&
           Number(candidate.combinedDecimalOdds) > maxCombinedDecimalOdds
         ) {
           const highest = legs.slice().sort((a, b) => Number(b.oddsAmerican) - Number(a.oddsAmerican))[0]
           banned.add(legKey(highest))
+          dropped++
           continue
         }
+
+        // FIX 1: Combined odds floor — if combined decimal < floor, the slip is
+        // too chalky; decrement leg count and retry with a shorter parlay.
+        if (
+          minCombinedDecimalOdds != null &&
+          Number(candidate.combinedDecimalOdds) < minCombinedDecimalOdds
+        ) {
+          dropped++
+          break  // decrement target below
+        }
+
         slip = candidate
       }
       if (!slip) target -= 1
@@ -510,6 +581,9 @@ function composeMany({
     bumpPlayerUse(playerUseCounts, slip.legs)
     for (const l of slip.legs) used.add(legKey(l))
   }
+
+  // Attach dropped count for diagnostic visibility in meta
+  if (dropped > 0) composeMany._lastDropped = (composeMany._lastDropped || 0) + dropped
   return slips
 }
 
@@ -535,6 +609,8 @@ function buildMlbSlipComposer(input = {}) {
   const altPool = Array.isArray(board.altPlays) ? board.altPlays.slice() : []
   const longPool = Array.isArray(board.longshotPlays) ? board.longshotPlays.slice() : []
 
+  composeMany._lastDropped = 0  // reset dropped counter for this run
+
   const playerUseCounts = new Map()
   const safe = buildSafeSlips({ pool: corePool, count: opts.safeCount, playerUseCounts, opts })
   const balanced = buildBalancedSlips({
@@ -543,14 +619,18 @@ function buildMlbSlipComposer(input = {}) {
     playerUseCounts,
     opts,
   })
-  const aggressive = buildAggressiveSlips({
+
+  // FIX 4: AGGRESSIVE/LOTTO freeze — disabled until template enforcement verified.
+  // Frozen tiers return empty arrays and are flagged in meta for observability.
+  // To re-enable: set FREEZE_AGGRESSIVE_LOTTO = false at top of file.
+  const aggressive = FREEZE_AGGRESSIVE_LOTTO ? [] : buildAggressiveSlips({
     corePool,
     altPool,
     count: opts.aggressiveCount,
     playerUseCounts,
     opts,
   })
-  const lotto = buildLottoSlips({
+  const lotto = FREEZE_AGGRESSIVE_LOTTO ? [] : buildLottoSlips({
     corePool,
     altPool,
     longPool,
@@ -568,6 +648,8 @@ function buildMlbSlipComposer(input = {}) {
       corePoolSize: corePool.length,
       altPoolSize: altPool.length,
       longPoolSize: longPool.length,
+      frozenTiers: FREEZE_AGGRESSIVE_LOTTO ? ["aggressive", "lotto"] : [],  // FIX 4: observable
+      droppedSlips: composeMany._lastDropped || 0,                           // FIX 1: observable
       options: opts,
     },
   }
