@@ -279,96 +279,261 @@ function resolveSemanticTier(eligibility) {
   return "ineligible"
 }
 
+// ── MISMATCH SEVERITY ─────────────────────────────────────────────────────────
+
+// Numeric tier rank — used to compute how far off a claimedTier is.
+const TIER_ORDER = { safe: 0, balanced: 1, aggressive: 2, lotto: 3, ineligible: 4 }
+
+/**
+ * Compute semantic mismatch severity between what was claimed and what is real.
+ *
+ * Directional — only the CONCERNING direction (actual more volatile than claimed)
+ * is flagged as a mismatch. Overcautious labeling (actual safer than claimed)
+ * is not dishonest and does not constitute a semantic mismatch.
+ *
+ * Returns:
+ *   "none"        — no claimedTier, or exact match
+ *   "overcautious" — claimed is more volatile than actual (e.g., labeled aggressive,
+ *                    actually qualifies as safe). Conservative; not a risk concern.
+ *   "minor"       — actual is 1 tier MORE volatile than claimed (e.g., safe→balanced)
+ *   "major"       — actual is 2+ tiers MORE volatile than claimed (e.g., safe→aggressive)
+ */
+function mismatchSeverity(claimedTier, semanticTier) {
+  if (!claimedTier || claimedTier === semanticTier) return "none"
+  const claimedRank = TIER_ORDER[claimedTier] ?? 0
+  const actualRank  = TIER_ORDER[semanticTier] ?? 0
+  if (actualRank <= claimedRank) return "overcautious"  // actual is safer than labeled — not a risk
+  const steps = actualRank - claimedRank
+  return steps >= 2 ? "major" : "minor"
+}
+
+/**
+ * Build a semantic verdict object — separate from betting viability.
+ * Callers can use this independently of tailRecommendation.
+ *
+ * honest: true when the claimed tier is accurate OR overcautious (actual is safer).
+ *         false only when the actual tier is MORE volatile than claimed.
+ */
+function buildSemanticVerdict(claimedTier, semanticTier) {
+  const severity = mismatchSeverity(claimedTier, semanticTier)
+  // Honest = exact match, overcautious (safer than claimed), or no claim at all.
+  // Dishonest = actual is more volatile than claimed (severity minor or major).
+  const honest   = severity === "none" || severity === "overcautious"
+
+  let description
+  if (!claimedTier) {
+    description = `No tier claimed. Structural tier: ${semanticTier}.`
+  } else if (claimedTier === semanticTier) {
+    description = `Correctly labeled as ${semanticTier}.`
+  } else if (severity === "overcautious") {
+    description = `Labeled ${claimedTier} — actual structural tier is ${semanticTier} (safer than claimed). Conservative labeling; not a concern.`
+  } else if (severity === "minor") {
+    description = `Minor mismatch: labeled ${claimedTier}, structural tier is ${semanticTier} — one tier more volatile than claimed. Play is coherent at the correct tier.`
+  } else {
+    const steps = (TIER_ORDER[semanticTier] ?? 1) - (TIER_ORDER[claimedTier] ?? 0)
+    description = `Major mismatch: labeled ${claimedTier}, structural tier is ${semanticTier} — ${steps} tiers more volatile than claimed. Risk is significantly higher than presented.`
+  }
+
+  return { honest, mismatchSeverity: severity, description }
+}
+
 // ── TAIL RECOMMENDATION ───────────────────────────────────────────────────────
 
 /**
  * Produce a tail recommendation and explanation.
- * V1: structural verdict only — no modelProb data available.
+ *
+ * Two-axis model:
+ *   Axis 1 — Semantic honesty   (separate, now in semanticVerdict field)
+ *   Axis 2 — Betting viability  (this function — tailRecommendation)
+ *
+ * Semantic mismatch alone does NOT force Fade.
+ * A mislabeled slip can still be a viable play at the correct tier.
+ * The recommendation evaluates structure, correlation, and payout for
+ * the ACTUAL tier — not the claimed one.
+ *
+ * Decision hierarchy:
+ *   Absolute blockers → Fade/Pass regardless of anything else
+ *   Structural ineligibility → Fade
+ *   Mismatch + coherent → Lean (with mismatch narrative)
+ *   Mismatch + severe corr + high-vol + major gap → Fade
+ *   No mismatch + clean structure → Tail or Lean by vol/corr
  */
 function buildRecommendation(legs, semanticTier, claimedTier, correlationWarnings, payoutProfile, volProfile) {
-  const severeCorr = correlationWarnings.filter((w) =>
-    ["duplicate_player", "heavy_same_game", "same_stat_stack", "same_stat_side_stack"].includes(w.code)
-  )
-  const tierMismatch = claimedTier && claimedTier !== semanticTier
+  // ── Pre-classification helpers ─────────────────────────────────────────────
+  const hasDupe       = correlationWarnings.some((w) => w.code === "duplicate_player")
+  const hasExcluded   = correlationWarnings.some((w) => w.code === "excluded_family")
+  const hasSevere     = correlationWarnings.some((w) => w.code === "heavy_same_game")
+  const hasModerate   = correlationWarnings.some((w) => ["same_game_pair", "same_stat_stack", "same_stat_side_stack"].includes(w.code))
+  const isHighVol     = ["aggressive", "lotto"].includes(semanticTier)
+  const isExtremeOdds = payoutProfile.combinedDecimal >= 20
+  const severity      = mismatchSeverity(claimedTier, semanticTier)
+  // Concerning mismatch: actual tier is MORE volatile than claimed.
+  // Overcautious (actual safer than claimed) is NOT a concerning mismatch.
+  const tierMismatch  = severity === "minor" || severity === "major"
 
-  // Excluded family in slip → Pass immediately
-  const hasExcluded = correlationWarnings.some((w) => w.code === "excluded_family")
-  if (hasExcluded) return { recommendation: "Pass", reason: "Contains stat family excluded from slip context based on grading evidence." }
+  // ── ABSOLUTE BLOCKERS ──────────────────────────────────────────────────────
+  // These block viability regardless of label or tier.
 
-  // Semantic ineligible → Fade
-  if (semanticTier === "ineligible") return { recommendation: "Fade", reason: "No tier accepts this slip under current semantic rules. Verify odds, leg count, and stat families." }
+  if (hasExcluded)
+    return { recommendation: "Pass", reason: "Contains a stat family excluded from parlay context — grading evidence shows poor joint win rate. Consider as singles only." }
 
-  // Tier mismatch (user labeled it differently)
-  if (tierMismatch) return {
-    recommendation: "Fade",
-    reason: `Claimed tier "${claimedTier}" does not match semantic reality "${semanticTier}". This slip behaves as a ${semanticTier} play, not ${claimedTier}.`,
+  if (hasDupe)
+    return { recommendation: "Fade", reason: "Invalid parlay: the same player appears more than once." }
+
+  // ── NO TIER ACCEPTS THIS STRUCTURE ────────────────────────────────────────
+  if (semanticTier === "ineligible")
+    return { recommendation: "Fade", reason: "No tier accepts this construction. Check per-leg odds, leg count, and stat family restrictions." }
+
+  // ── MISMATCH BRANCH — evaluate viability at the ACTUAL tier ───────────────
+  if (tierMismatch) {
+    // Build the core mismatch note (no value judgment on viability yet)
+    const mismatchNote = severity === "major"
+      ? `Labeled ${claimedTier} but structural volatility is ${semanticTier} — significantly more aggressive than presented.`
+      : `One tier above claimed: behaves as ${semanticTier}, not ${claimedTier}.`
+
+    const corrNote = hasSevere
+      ? " Heavy same-game correlation amplifies variance further."
+      : hasModerate
+        ? " Same-stat correlation noted — legs are related."
+        : ""
+
+    const payoutNote = isExtremeOdds
+      ? " Extreme combined odds — lottery-range payout."
+      : ""
+
+    // Major mismatch + high-vol tier + severe correlation → Fade
+    // The combination of being badly mislabeled AND high-vol AND heavily correlated
+    // means the structural risk is obscured by the label. That IS a bad bet.
+    if (severity === "major" && isHighVol && hasSevere)
+      return { recommendation: "Fade", reason: `${mismatchNote}${corrNote} Structure is too volatile and too correlated to recommend at any label.` }
+
+    // Everything else: coherent at actual tier → Lean
+    // The play has merit — it's just not what was claimed.
+    return {
+      recommendation: "Lean",
+      reason: `${mismatchNote}${corrNote}${payoutNote} Structure is coherent as a ${semanticTier} play — viable at the correct tier identity.`,
+    }
   }
 
-  // Duplicate player → Fade (invalid parlay)
-  if (correlationWarnings.some((w) => w.code === "duplicate_player")) return { recommendation: "Fade", reason: "Invalid parlay: duplicate player." }
+  // ── NO MISMATCH — evaluate structural quality of the actual tier ───────────
 
-  // Aggressive/lotto with heavy same-stat or same-game stack AND tier mismatch → Fade.
-  // If claimedTier matches semanticTier (e.g., user correctly labeled it aggressive),
-  // correlation warnings are informational — same-stat stacking IS expected in aggressive slips.
-  const isHighVol = ["aggressive", "lotto"].includes(semanticTier)
-  const noTierMismatch = !claimedTier || claimedTier === semanticTier
-  if (isHighVol && severeCorr.length >= 2 && !noTierMismatch) return { recommendation: "Fade", reason: "High-volatility slip with multiple correlation concerns. Consider splitting into singles." }
+  // High-vol + severe correlation (e.g. 3+ legs same game on an aggressive parlay)
+  if (isHighVol && hasSevere)
+    return { recommendation: "Lean", reason: `${cap(semanticTier)}-tier structure with heavy same-game correlation. Variance is amplified beyond the tier's typical profile — understand the concentration risk.` }
 
-  // Balanced or safe with same-game pair — softer warning
-  if (severeCorr.some((w) => w.code === "same_game_pair") && ["safe", "balanced"].includes(semanticTier)) {
-    return { recommendation: "Lean", reason: "Structurally within tier bounds but same-game pair introduces correlation. Acceptable if intentional." }
-  }
+  // High-vol tier (aggressive/lotto) — inherently higher variance, always Lean not Tail
+  if (isHighVol)
+    return { recommendation: "Lean", reason: `${cap(semanticTier)}-tier construction. Combined odds reflect genuine high-variance upside — viable within this tier's payout range.` }
 
-  // High-vol tier but otherwise clean
-  if (isHighVol) return { recommendation: "Lean", reason: `${semanticTier.charAt(0).toUpperCase() + semanticTier.slice(1)}-tier structure. Combined odds reflect genuine high-variance upside.` }
+  // Moderate correlation in safe/balanced — acceptable but flagged
+  if (hasModerate && ["safe", "balanced"].includes(semanticTier))
+    return { recommendation: "Lean", reason: `${cap(semanticTier)}-tier structure with same-stat or same-game correlation. Legs are compatible but not fully independent. Acceptable if the correlation is intentional.` }
 
-  // Clean safe/balanced
-  return { recommendation: "Tail", reason: `Structurally qualifies as ${semanticTier}. Legs align with tier volatility requirements. No model probability available in V1 to confirm edge.` }
+  // Moderate correlation in aggressive (same-stat stack IS expected aggressive behavior)
+  if (hasModerate)
+    return { recommendation: "Lean", reason: `${cap(semanticTier)}-tier structure. Correlation is expected at this tier — verify individual leg quality before committing.` }
+
+  // Clean structure, correct label, safe/balanced
+  return { recommendation: "Tail", reason: `Structurally qualifies as ${semanticTier}. Legs are volatility-consistent and the payout profile fits the tier. No model probability available in V1 — verify edge independently before placing.` }
 }
+
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s }
 
 // ── ARCHETYPE SUMMARY ─────────────────────────────────────────────────────────
 
 /**
  * Produce a short human-readable archetype label.
- * Mirrors the qualitative descriptions requested.
+ *
+ * Distinguishes:
+ *   - Major mismatch (2+ tiers): strong "fake-X" language
+ *   - Minor mismatch (1 tier): gentler "labeled conservative, behaves as Y" language
+ *   - No mismatch: tier-appropriate texture label
+ *
+ * The summary should feel sportsbook-intelligent, not alarm-prone.
+ * Minor labeling gaps are common and not inherently bad — they just need
+ * to be named correctly.
  */
 function buildArchetypeSummary(legs, semanticTier, claimedTier, volProfile, correlationWarnings) {
-  const isNonSnap = volProfile.volSources.every((s) => s === "rules")
-  const aggCount  = volProfile.legs.filter((v) => v === "aggressive").length
+  const aggCount   = volProfile.legs.filter((v) => v === "aggressive").length
   const lottoCount = volProfile.legs.filter((v) => v === "lotto").length
-  const hasSameStat = correlationWarnings.some((w) => w.code === "same_stat_stack")
-  const hasSameGame = correlationWarnings.some((w) => ["same_game_pair", "heavy_same_game"].includes(w.code))
-  const tierMismatch = claimedTier && claimedTier !== semanticTier
+  const balCount   = volProfile.legs.filter((v) => v === "balanced").length
+  const hasSameStat  = correlationWarnings.some((w) => w.code === "same_stat_stack")
+  const hasSameGame  = correlationWarnings.some((w) => ["same_game_pair", "heavy_same_game"].includes(w.code))
+  const hasSevere    = correlationWarnings.some((w) => w.code === "heavy_same_game")
+  const severity     = mismatchSeverity(claimedTier, semanticTier)
 
-  // Fake-safe detection (most important label)
-  if (tierMismatch && claimedTier === "safe" && semanticTier !== "safe") {
-    if (aggCount >= 2 && hasSameStat)
-      return "Fake-safe correlated stack — aggressive volatility masquerading as a controlled play. Better as singles than parlay."
-    if (aggCount >= 2)
-      return "Fake-safe high-volatility construction — aggressive legs exceed safe-tier semantics."
-    return `Fake-safe mislabeled slip — qualifies as ${semanticTier}, not safe.`
+  // ── INELIGIBLE ─────────────────────────────────────────────────────────────
+  if (semanticTier === "ineligible")
+    return "Ineligible construction — no tier accepts these legs. Review odds ceiling, leg count, and family restrictions."
+
+  // ── OVERCAUTIOUS (actual safer than claimed) ──────────────────────────────
+  // Not deceptive — user labeled it more volatile than it actually is.
+  // Describe the actual structure without alarm language.
+  if (severity === "overcautious")
+    return `Labeled ${claimedTier} but plays as ${semanticTier} — more conservative than presented. ${semanticTier === "safe" ? "Safe-tier construction at a cautious label." : `${cap(semanticTier)}-tier structure within a ${claimedTier} label.`}`
+
+  // ── MAJOR MISMATCH (2+ tiers) ──────────────────────────────────────────────
+  // Reserve strong language for genuinely significant labeling gaps.
+  if (severity === "major") {
+    if (claimedTier === "safe" && lottoCount >= 2)
+      return "Extreme mislabeling — lotto-volatility legs presented as safe. High-variance ceiling parlay in a conservative wrapper."
+    if (claimedTier === "safe" && aggCount >= 2 && hasSameStat)
+      return "Fake-safe correlated stack — aggressive-volatility same-stat legs masquerading as a controlled play. Aggressive upside, not safe construction."
+    if (claimedTier === "safe" && aggCount >= 1)
+      return `Fake-safe construction — aggressive legs exceed safe-tier semantics. Actual identity: ${semanticTier}.`
+    if (claimedTier === "balanced" && lottoCount >= 1)
+      return "Mislabeled balanced — contains lotto-volatility legs. Actual identity: lotto-range upside."
+    return `Major tier mismatch — labeled ${claimedTier}, structural identity is ${semanticTier}. Volatility is significantly higher than presented.`
   }
 
-  if (semanticTier === "ineligible")
-    return "Ineligible parlay — no current tier accepts this construction. Review odds, families, and leg count."
+  // ── MINOR MISMATCH (1 tier) ────────────────────────────────────────────────
+  // Softer language — one tier off is a labeling choice, not necessarily dishonest.
+  if (severity === "minor") {
+    if (claimedTier === "safe" && semanticTier === "balanced") {
+      if (hasSameStat)
+        return "Conservative label, balanced behavior — same-stat legs push this into balanced territory. Coherent as balanced upside, not safe."
+      return "Labeled conservative but behaves as balanced upside — one tier above safe. Viable at the correct identity."
+    }
+    if (claimedTier === "balanced" && semanticTier === "aggressive") {
+      return hasSameStat
+        ? "Balanced label, aggressive behavior — same-stat stack and volatility read as aggressive. Aggressive but playable at correct tier."
+        : "One tier above balanced — aggressive construction. Coherent; just needs the right label."
+    }
+    if (claimedTier === "aggressive" && semanticTier === "lotto") {
+      return "Aggressive label, lotto behavior — extreme combined odds push this into lotto territory. High-variance ceiling play."
+    }
+    return `Minor labeling gap — ${claimedTier} claimed, ${semanticTier} actual. One tier above stated identity. Coherent structure at the correct tier.`
+  }
 
-  if (lottoCount >= 2)
-    return "High-volatility ceiling parlay — lotto-tier construction with extreme combined odds. Full parlay hit rate is low by design."
+  // ── NO MISMATCH — correctly labeled or no claim ───────────────────────────
+  if (semanticTier === "lotto")
+    return lottoCount >= 2
+      ? "Lotto-tier ceiling parlay — high-variance by design. Full parlay hit rate is low; individual legs may have standalone merit."
+      : "Lotto-range construction — extreme combined odds with genuine upside ceiling. Structure coherent for the tier."
 
-  if (aggCount >= 2 && hasSameStat)
-    return "Correlated aggressive stack — same stat family creates concentrated variance. Individually reasonable; combined risk is amplified."
+  if (semanticTier === "aggressive") {
+    if (aggCount >= 2 && hasSameStat)
+      return "Aggressive same-stat stack — concentrated variance by design. Correlated exposure amplifies both upside and risk."
+    if (hasSameGame)
+      return "Aggressive same-game parlay — correlated exposure within a single event. Higher variance than cross-game construction."
+    if (aggCount >= 1)
+      return "Aggressive-style controlled upside — volatile legs within the correct tier range. Payout profile is realistic for the volatility."
+    return "Aggressive-tier construction — higher combined odds with proportionate variance."
+  }
 
-  if (aggCount >= 2 && hasSameGame)
-    return "High-volatility same-game aggressive parlay — genuine aggressive-tier structure with correlated exposure."
+  if (semanticTier === "balanced") {
+    if (hasSameStat)
+      return "Balanced construction with same-stat correlation — moderate variance with related legs. Coherent; correlation is noted, not fatal."
+    if (volProfile.unanimousVolatility)
+      return "Balanced-style controlled upside — consistent volatility across legs at appropriate combined odds."
+    return "Balanced construction — moderate-variance legs with a realistic payout profile."
+  }
 
-  if (aggCount >= 1 && semanticTier === "aggressive")
-    return "Aggressive-style controlled upside — volatile legs within the correct tier range."
-
-  if (volProfile.unanimousVolatility && semanticTier === "balanced")
-    return "Balanced-style controlled upside — moderate variance legs at appropriate combined odds."
-
-  if (semanticTier === "safe")
-    return "Conservative safe-tier construction — stable-volatility legs within modest combined odds. Verify model edge before committing."
+  if (semanticTier === "safe") {
+    if (hasSameStat)
+      return "Safe-tier construction with same-stat pairing — low variance but statistically related legs. Review for game-level correlation."
+    return "Conservative safe-tier construction — stable volatility, modest combined odds. Verify model edge before committing."
+  }
 
   return "Mixed-volatility construction — review individual leg quality before placing."
 }
@@ -432,11 +597,14 @@ router.post("/", express.json(), (req, res) => {
       semanticViolations.push(`combined_odds_below_balanced_floor: dec ${r2(payoutProfile.combinedDecimal)} < 3.0`)
     }
 
-    // Recommendation + archetype
+    // Semantic verdict — honesty axis (separate from viability)
+    const semanticVerdict = buildSemanticVerdict(claimedTier, semanticTier)
+
+    // Recommendation + archetype — viability axis
     const { recommendation, reason } = buildRecommendation(legs, semanticTier, claimedTier, correlationWarnings, payoutProfile, volProfile)
     const archetypeSummary = buildArchetypeSummary(legs, semanticTier, claimedTier, volProfile, correlationWarnings)
 
-    // Confidence honesty: low in V1 (no modelProb)
+    // Confidence honesty: structural only in V1 (no modelProb)
     const confidenceHonesty = {
       level: "structural_only",
       note: "V1 audit: volatility + tier + correlation structure only. No model probability or edge data available from manual input. Do not infer EV from this audit alone.",
@@ -448,6 +616,7 @@ router.post("/", express.json(), (req, res) => {
       semanticTier,
       claimedTier:        claimedTier || null,
       tierMismatch:       claimedTier ? claimedTier !== semanticTier : null,
+      semanticVerdict,
       volatilityProfile:  volProfile,
       correlationWarnings,
       payoutProfile: {
@@ -475,9 +644,14 @@ module.exports = router
  * ───────────────
  * {
  *   sport, legCount, semanticTier, claimedTier, tierMismatch,
+ *   semanticVerdict: {              // ← NEW: honesty axis, separate from tailRecommendation
+ *     honest: bool,
+ *     mismatchSeverity: "none"|"minor"|"major",
+ *     description: string,         // human-readable explanation of the labeling gap
+ *   },
  *   volatilityProfile: {
- *     legs: string[],        // per-leg volatility
- *     combined: string,      // worst-case volatility
+ *     legs: string[],              // per-leg volatility
+ *     combined: string,            // worst-case volatility across legs
  *     unanimousVolatility, mixedVolatility, volSources
  *   },
  *   correlationWarnings: [{ code, message }],

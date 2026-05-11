@@ -69,6 +69,9 @@ bal.forEach((s,i) => {
 - No BALANCED slip has `combinedAmericanOdds` above +500 (would indicate aggressive pairs leaking through)
 - AGGRESSIVE slips may (and should) show threes legs — that is correct
 
+### Step AP-note — Session AP (recommendation semantics V2)
+No TERM 1 restart required for AP — only `slipAuditRoute.js` modified (loaded at require-time, not startup). The AN+AO restart covers both. AP verification is folded into Step AO-1 below.
+
 ### Step AO-1 — Verify slip-audit endpoint (after TERM 1 restart from Step AN-1)
 ```bash
 curl -s -X POST http://localhost:4000/api/ws/slip-audit \
@@ -90,12 +93,14 @@ console.log('volLegs:', d.volatilityProfile?.legs)
 console.log('safe eligible:', d.tierEligibility?.safe)
 "
 ```
-**PASS criteria**:
+**PASS criteria (Session AP two-axis model)**:
 - `semanticTier` ≠ "safe" (threes are not safe-tier)
 - `tierMismatch: true`
-- `tailRecommendation: "Fade"`
-- `archetypeSummary` contains "fake" or "mislabeled"
-- `tierEligibility.safe: false`
+- `semanticVerdict.honest: false` (mislabeled — actual is more volatile)
+- `semanticVerdict.mismatchSeverity: "minor"` (safe→balanced is 1 tier)
+- `tailRecommendation: "Lean"` — NOT "Fade" (mislabeled ≠ bad bet; coherent as balanced)
+- `archetypeSummary` mentions "balanced" not "fake-safe" (minor mismatch language)
+- `tierEligibility.safe: false`, `tierEligibility.balanced: true`
 
 ### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Step AO-1 passes)
 ```bash

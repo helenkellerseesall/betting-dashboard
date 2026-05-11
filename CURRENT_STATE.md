@@ -4,6 +4,59 @@ _Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted
 
 ---
 
+## SESSION AP — Slip Audit Recommendation Semantics V2 (2026-05-11)
+
+**Scope**: Refine recommendation engine in `slipAuditRoute.js` to separate semantic honesty from betting viability. 1 file modified. No TERM 1 restart required (workstationRoutes.js not modified; slipAuditRoute.js is loaded via require at runtime).
+
+### Core change: two-axis model
+
+**Before**: tier mismatch → auto-Fade (conflated semantic label with viability verdict)
+
+**After**: two independent axes:
+1. `semanticVerdict` — honesty axis: is the slip correctly labeled? (now directional)
+2. `tailRecommendation` — viability axis: is the slip a viable play at its ACTUAL tier?
+
+### Key logic changes (buildRecommendation)
+- `tierMismatch` branch now only triggers for CONCERNING mismatches (actual more volatile than claimed)
+- Overcautious labeling (actual safer than claimed) skips the mismatch branch entirely
+- Mismatch + coherent structure → Lean (not Fade) — "viable at correct tier"
+- Only Fade when: duplicate player, ineligible, OR major mismatch + high-vol + severe correlation
+- Correctly labeled high-vol plays → Lean (not Fade) — correlation warnings are informational
+
+### mismatchSeverity — now directional
+- `"none"` — exact match or no claim
+- `"overcautious"` — actual is SAFER than claimed (conservative labeling; not a risk concern)
+- `"minor"` — actual is 1 tier MORE volatile than claimed (safe→balanced, balanced→aggressive)
+- `"major"` — actual is 2+ tiers MORE volatile (safe→aggressive, safe→lotto, balanced→lotto)
+
+### semanticVerdict.honest — now correct
+- `true` when severity is "none" or "overcautious" (no risk misrepresentation)
+- `false` only when actual tier is MORE volatile than claimed (minor or major)
+
+### buildArchetypeSummary — nuanced mismatch language
+- Major mismatch (2+ tiers): "Fake-safe construction..." / "Extreme mislabeling..."
+- Minor mismatch (1 tier): "Conservative label, balanced behavior..." / "One tier above..."
+- Overcautious: "Labeled X but plays as Y — more conservative than presented."
+- No mismatch: tier-appropriate texture label (no alarm language)
+
+### Smoke tests (22/22 pass)
+| Scenario | Rec | Key assertion |
+|---|---|---|
+| Minor mismatch: safe claimed, balanced actual | Lean | Not Fade; no "fake-safe" in archetype |
+| Major mismatch: safe claimed, aggressive actual (no severe corr) | Lean | archetype contains "fake" |
+| Overcautious: balanced claimed, safe actual | Tail | honest=true, severity=overcautious |
+| Correctly labeled aggressive, same-stat stack | Lean | honest=true, not Fade |
+| Duplicate player | Fade | absolute blocker |
+| Excluded family (rbis) | Pass | absolute blocker |
+| Minor mismatch: balanced→aggressive | Lean | not Fade |
+| Clean safe, correctly labeled | Tail | Tail for correct + clean |
+| No claimed tier | Tail/Lean | tierMismatch=null, honest=true |
+| Missing odds | 400 | validation |
+
+**TERM 1 restart required: NO** — only `slipAuditRoute.js` modified; loaded via require, not at startup.
+
+---
+
 ## SESSION AO — Slip Audit Endpoint V1 (2026-05-11)
 
 **Scope**: New `/api/ws/slip-audit` endpoint for manual slip evaluation. 2 files modified/created. Zero changes to aiSlips generation, tier semantics, grading, or any existing runtime. TERM 1 restart required (workstationRoutes.js modified).
