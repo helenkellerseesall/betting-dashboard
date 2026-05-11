@@ -31,6 +31,7 @@ const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModel
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
+const slipAuditRoute = require("./slipAuditRoute")
 
 const router = express.Router()
 
@@ -40,6 +41,11 @@ const router = express.Router()
 // GET  /api/ws/screenshots/submission/:id
 // GET  /api/ws/screenshots/:id
 router.use("/screenshots", screenshotRoutes)
+
+// Slip semantic audit — POST /api/ws/slip-audit
+// Evaluates manually submitted slips against runtime semantics, volatility,
+// correlation, and tier identity. No aiSlips generation involved.
+router.use("/slip-audit", slipAuditRoute)
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 

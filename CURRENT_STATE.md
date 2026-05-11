@@ -4,6 +4,67 @@ _Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted
 
 ---
 
+## SESSION AO — Slip Audit Endpoint V1 (2026-05-11)
+
+**Scope**: New `/api/ws/slip-audit` endpoint for manual slip evaluation. 2 files modified/created. Zero changes to aiSlips generation, tier semantics, grading, or any existing runtime. TERM 1 restart required (workstationRoutes.js modified).
+
+### Files changed (2)
+| File | Change |
+|---|---|
+| `backend/routes/slipAuditRoute.js` | **NEW** — 280 lines. POST handler, self-contained. Imports only `nbaVolatilityResolve` + `classifyVolatility`. |
+| `backend/routes/workstationRoutes.js` | **MODIFIED** — added `require('./slipAuditRoute')` + `router.use('/slip-audit', ...)`. 6 lines added. |
+
+### Endpoint
+```
+POST /api/ws/slip-audit
+Content-Type: application/json
+
+{
+  "sport": "nba",
+  "claimedTier": "safe",        // optional — triggers tierMismatch check
+  "legs": [
+    { "player": "Donovan Mitchell", "propType": "Points", "line": 32.5, "side": "Over", "odds": 135 }
+  ]
+}
+```
+
+### Response shape
+```json
+{
+  "sport", "legCount", "semanticTier", "claimedTier", "tierMismatch",
+  "volatilityProfile": { "legs": [], "combined", "unanimousVolatility", "mixedVolatility", "volSources" },
+  "correlationWarnings": [{ "code", "message" }],
+  "payoutProfile": { "combinedDecimal", "combinedAmerican", "impliedProbability", "payoutRealism", "hasInvalidOdds" },
+  "tierEligibility": { "safe", "balanced", "aggressive", "lotto" },
+  "semanticViolations": [],
+  "tailRecommendation": "Tail|Lean|Pass|Fade",
+  "recommendationReason": "...",
+  "archetypeSummary": "...",
+  "confidenceHonesty": { "level": "structural_only", "note": "..." },
+  "auditedAt": "ISO string"
+}
+```
+
+### Logic reused from existing runtime (no duplication)
+- Volatility: `nbaVolatilityResolve` → NBA path (snapshot stamps honored); `classifyVolatility` via VOLATILITY_RULES → MLB path
+- Tier eligibility: inline mirror of TIER_TEMPLATES + NBA overrides from buildSlipAi (intentional isolation — audit must not couple to slip builder runtime)
+- SLIP_EXCLUDED_FAMILIES: replicated inline (same `["rbis","outs"]` set)
+- Correlation detection: same-game / same-stat / same-stat-side / duplicate-player — matches `canAddLeg` checks in buildSlipAi
+
+### Smoke tests (12/12)
+| Scenario | Result |
+|---|---|
+| Fake-safe threes stack (claimedTier=safe) → Fade + fake-safe archetype | ✓ |
+| Valid balanced NBA slip (points+rebounds) → eligible, not Fade | ✓ |
+| Same-stat stack (two points legs) → same_stat_stack + same_stat_side_stack warnings | ✓ |
+| Missing odds → 400 | ✓ |
+| MLB rbis (excluded family) → Pass | ✓ |
+| Correctly labeled aggressive slip → not Fade | ✓ |
+
+**TERM 1 restart required: YES** — workstationRoutes.js modified.
+
+---
+
 ## SESSION AN — Tier Semantic Integrity (2026-05-11)
 
 **Scope**: Fix semantic mismatch in NBA SAFE and BALANCED tiers. 3 calibration passes total (AN, AN-2, AN-final). 1 file modified throughout: `backend/pipeline/shared/buildSlipAi.js` (`applyNbaTierOverrides` function only). MLB untouched. Aggressive/lotto output unchanged.

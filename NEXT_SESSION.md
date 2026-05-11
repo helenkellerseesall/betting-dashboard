@@ -4,7 +4,11 @@ _Last updated: 2026-05-11 (Session AN-final: BALANCED allowedVolatility reverted
 
 ---
 
-## PENDING OPERATOR ACTIONS — Session AN-final (DO THESE FIRST, IN ORDER)
+## PENDING OPERATOR ACTIONS — Sessions AN-final + AO (DO THESE FIRST, IN ORDER)
+
+> **Session AO adds**: `POST /api/ws/slip-audit` endpoint. Mounted in `workstationRoutes.js`. Requires TERM 1 restart (same restart as AN-final covers this).
+
+
 
 ### Step AN-1 — TERM 1 restart (stale-port kill required)
 **Paste as one line into TERM 1:**
@@ -65,9 +69,37 @@ bal.forEach((s,i) => {
 - No BALANCED slip has `combinedAmericanOdds` above +500 (would indicate aggressive pairs leaking through)
 - AGGRESSIVE slips may (and should) show threes legs — that is correct
 
-### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND qualitative check passes)
+### Step AO-1 — Verify slip-audit endpoint (after TERM 1 restart from Step AN-1)
 ```bash
-cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Session AN: Tier Semantic Integrity — NBA SAFE forbids aggressive; maxPerStat=1; BALANCED safe+balanced only (threes route to AGGRESSIVE)" && git log -1 --oneline
+curl -s -X POST http://localhost:4000/api/ws/slip-audit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sport": "nba",
+    "claimedTier": "safe",
+    "legs": [
+      { "player": "Cade Cunningham", "propType": "threes", "line": 1.5, "side": "over", "odds": 148 },
+      { "player": "Jalen Brunson",   "propType": "threes", "line": 2.5, "side": "over", "odds": 148 }
+    ]
+  }' | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('semanticTier:', d.semanticTier)
+console.log('tierMismatch:', d.tierMismatch)
+console.log('recommendation:', d.tailRecommendation)
+console.log('archetypeSummary:', d.archetypeSummary)
+console.log('volLegs:', d.volatilityProfile?.legs)
+console.log('safe eligible:', d.tierEligibility?.safe)
+"
+```
+**PASS criteria**:
+- `semanticTier` ≠ "safe" (threes are not safe-tier)
+- `tierMismatch: true`
+- `tailRecommendation: "Fade"`
+- `archetypeSummary` contains "fake" or "mislabeled"
+- `tierEligibility.safe: false`
+
+### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Step AO-1 passes)
+```bash
+cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Sessions AN+AO: Tier Semantic Integrity + Slip Audit V1 endpoint" && git log -1 --oneline
 ```
 
 ### Step AN-4 — Finalize checkpoint (sweeps Sessions H–AN)
