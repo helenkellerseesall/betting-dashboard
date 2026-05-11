@@ -367,7 +367,7 @@ const TIER_TEMPLATES = {
     decimalOddsRange: [3.0, 8.0],
     allowedVolatility: ["safe", "balanced", "aggressive"],
     forbidVolatility:  [],
-    allowedSides:      ["under"],  // FIX 2: under-only; overs degrade BALANCED joint win rate
+    allowedSides:      ["under"],  // FIX 2 (MLB): under-only; overs degrade BALANCED joint win rate
     maxPerGame:        1,
     maxPerStat:        2,
     maxFb:             1,
@@ -394,6 +394,53 @@ const TIER_TEMPLATES = {
     maxPerStat:        3,
     maxFb:             2,
   },
+}
+
+// ── Session AM: SAFE/BALANCED Profitability Recovery V1 ───────────────────────
+// NBA-only tier overrides. MLB constraints (Session AG calibration + under-only
+// + no rbis/outs + 2-3 legs + dec[3,8]) are PRESERVED — MLB BALANCED 2.7%
+// historical hit rate justifies the tight MLB shape; do not loosen MLB.
+//
+// NBA slate structure differs structurally from MLB:
+//   - Playoffs/regular-season NBA nights commonly have 1-2 games (vs 15+ MLB).
+//   - Per-leg odds run +130 to +200 for base lines (vs MLB's -150 to +120).
+//   - Player props are usage-driven (over/under symmetric) — NOT script-driven
+//     like MLB pitcher/hitter unders.
+//
+// Session AM rationale (per-field):
+//   SAFE: maxOdds 150→200 admits +160-+194 base lines (Cade/Harden/Duren).
+//         decRange [1.8,4]→[1.8,7.5] admits 2-leg pairs at ~2.5×2.7≈6.7 dec.
+//         minModelProb 0.55→0.50 admits NBA's compressed-prob base lines.
+//         maxPerGame 1→2 needed when slate has 1 NBA game.
+//   BALANCED: allowedSides drops under-only (NBA prop overs not script-rotted).
+//         allowedVolatility drops "aggressive" (keeps base-line stability).
+//         maxPerGame 1→2 same reason as SAFE.
+//         decRange / maxOdds / minModelProb unchanged from MLB defaults.
+//
+// Both NBA and MLB still flow through identical calibration coefficients
+// (FAMILY_CALIBRATION_COEFFICIENTS) and SLIP_EXCLUDED_FAMILIES — those are
+// modelProb/family-level guards, not tier-shape constraints.
+function applyNbaTierOverrides(tpl, tier) {
+  if (tier === "safe") {
+    return {
+      ...tpl,
+      minModelProb:           0.50,
+      maxOdds:                200,
+      decimalOddsRange:       [1.8, 7.5],
+      maxPerGame:             2,
+      skipScriptCorrelation:  true,   // NBA correlation handled by nbaCorrelationEngine
+    }
+  }
+  if (tier === "balanced") {
+    return {
+      ...tpl,
+      allowedSides:           null,                       // both sides
+      allowedVolatility:      ["safe", "balanced"],       // base-line legs only
+      maxPerGame:             2,
+      skipScriptCorrelation:  true,
+    }
+  }
+  return tpl
 }
 
 // ── DIVERSIFICATION CHECK DURING ASSEMBLY ─────────────────────────────────────
@@ -423,7 +470,13 @@ function canAddLeg(slipLegs, candidate, tpl) {
     return { ok: false, reason: "volatility_forbidden" }
   }
   // Same-side same-stat-same-game = pace/script correlation
-  if (gk && candidate.side === "over") {
+  // Session AM: NBA bypasses this rule. NBA correlation is handled at the
+  // composition layer by nbaCorrelationEngine (pairwiseStackBoost,
+  // jointProbabilityWithCorrelation) which produces a calibrated correlationScore.
+  // The MLB script-correlation heuristic (over+over same game = pitcher meltdown)
+  // does not transfer to NBA usage-driven props where pace correlation is partial
+  // and already priced into the calibrated joint probability.
+  if (gk && candidate.side === "over" && !tpl.skipScriptCorrelation) {
     const overSameGame = slipLegs.filter((l) => gameKey(l) === gk && l.side === "over").length
     if (overSameGame >= 1 && tpl.legCountRange[1] <= 3) {
       return { ok: false, reason: "script_correlation" }
@@ -466,8 +519,17 @@ function combineLegs(legs) {
 }
 
 function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
-  const tpl = TIER_TEMPLATES[tier]
-  if (!tpl) return []
+  // Session AM: NBA slate structure requires per-sport tier overrides.
+  // MLB constraints fully preserved (Session AG): under-only BALANCED, dec[3,8],
+  // calibration coefficients, AGGRESSIVE/LOTTO freeze flag (in nightly engines).
+  const baseTpl = TIER_TEMPLATES[tier]
+  if (!baseTpl) return []
+  const tpl = ctx.isNba ? applyNbaTierOverrides(baseTpl, tier) : baseTpl
+  if (ctx.isNba && tpl !== baseTpl) {
+    console.log("[SLIP-PROBE] NBA tier override applied tier=%s mp=%s mo=%s dec=%s sides=%s vol=%s mpg=%s",
+      tier, tpl.minModelProb, tpl.maxOdds, JSON.stringify(tpl.decimalOddsRange),
+      JSON.stringify(tpl.allowedSides), JSON.stringify(tpl.allowedVolatility), tpl.maxPerGame)
+  }
 
   // Filter to candidates eligible for this tier.
   //

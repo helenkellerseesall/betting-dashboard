@@ -1,6 +1,134 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + AGGRESSIVE/LOTTO freeze; 3 files modified; TERM 1 restart REQUIRED; Class D verification sequence required before checkpoint; post-repair grading required to confirm tier health before unfreezing)_
+_Last updated: 2026-05-11 (Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides in `buildSlipAi.js`; 1 file modified; TERM 1 restart REQUIRED with stale-port kill; Class D verification REQUIRED before checkpoint)_
+
+---
+
+## PENDING OPERATOR ACTIONS — Session AM (DO THESE FIRST, IN ORDER)
+
+### Step AM-1 — TERM 1 restart (with full stale-port kill — required because prior sessions drifted on resident-process issues)
+**Paste as one line into TERM 1:**
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After server boots you MUST see this exact sequence the first time you hit `/api/ws/state?sport=nba`:
+```
+[WS-PROBE] /state entry sport=nba date=2026-05-09
+[WS-PROBE] cache MISS — building state for nba 2026-05-09
+[WS-PROBE] pool: eligibleBets=5 enrichedBest=0 trackedBets=6
+[WS-PROBE] snapshotRows=2957
+[WS-PROBE] buildNbaSnapshotCandidates: rawQualified=458 deduped=… returning=138
+[WS-PROBE] snapSupplement=138 rawCandidates=5 (sport=nba snapshotRows=2957)
+[WS-PROBE] AI supplement FIRED: tracked=5 novel=136
+[WS-PROBE] aiCandidatesRaw=141 → aiCandidates=24
+[SLIP-PROBE] buildAiSlips: candidates=24 normalized=24 sport=nba
+[SLIP-PROBE] NBA tier override applied tier=safe mp=0.5 mo=200 dec=[1.8,7.5] sides=undefined vol=["safe","balanced"] mpg=2
+[SLIP-PROBE] NBA tier override applied tier=balanced mp=0.45 mo=250 dec=[3,8] sides=null vol=["safe","balanced"] mpg=2
+[SLIP-PROBE] tiers: safe=2 balanced=2 aggressive=4 lotto=4
+```
+If `[SLIP-PROBE] NBA tier override applied` lines do NOT appear, the new code did NOT load — re-run the kill step and verify `lsof -i tcp:4000` shows your new PID before continuing.
+
+### Step AM-2 — Snapshot hard-reset + verification (TERM 2; one paste)
+```bash
+cd ~/Desktop/betting-dashboard && curl -s "http://localhost:4000/refresh-snapshot/hard-reset" >/dev/null && sleep 10 && node backend/scripts/runVerification.js --sport=nba --session=AM-recovery --verbose
+```
+Expected:
+- exit 0 (PASS)
+- `runtime_snapshot.candidates ≈ 24`
+- `runtime_snapshot.total_slips = 12`
+- `slips_by_tier: { safe: 2, balanced: 2, aggressive: 4, lotto: 4 }`
+- `safe_lane_present` and `aggressive_lane_present` and `lotto_lane_present` all PASS (warn-severity → no failure if 0)
+
+### Step AM-3 — Checkpoint (ONLY after Step AM-2 exits 0 AND artifact shows safe≥1 balanced≥1)
+```bash
+cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides; live SAFE+BALANCED restored" && git log -1 --oneline
+```
+
+### Step AM-4 — Finalize checkpoint (sweeps Sessions H–AM)
+```bash
+cd ~/Desktop/betting-dashboard && bash backend/scripts/finalizeCheckpoint.sh
+```
+
+---
+
+## CURRENT PROJECT PHASE
+
+**SAFE/BALANCED PROFITABILITY RECOVERY — Session AM in flight, Class D verification required**
+
+| Phase | Status | Summary |
+|---|---|---|
+| Runtime archaeology (Sessions AH–AL) | ✅ DONE | live runtime path proven, stale-port issue documented, AL artifact PASS |
+| Slip Ecosystem Repair V1 (Session AG) | ✅ DONE | MLB BALANCED enforcement + calibration + freeze (preserved) |
+| **SAFE/BALANCED Profitability Recovery V1 (Session AM)** | ✅ CODE COMPLETE — pending Class D live verification | NBA-only tier overrides; MLB untouched |
+| Post-recovery grading | ⬜ AFTER tonight's nightly + tomorrow's results | Confirm SAFE/BALANCED hit rates before any further loosening |
+| NBA-2.C/2.D extractions | ⬜ DEFERRED | not blocking profitability work |
+| AGGRESSIVE/LOTTO unfreeze (Session AG-post-2) | ⬜ BLOCKED | requires BALANCED hit rate ≥ 52% across ≥3 dates first |
+
+---
+
+## IMMEDIATE NEXT PRIORITIES (after Session AM verification)
+
+### Priority 1 — Confirm Session AM live verification
+Run `Step AM-2` above. If artifact shows safe≥1 balanced≥1, run `Step AM-3` checkpoint.
+
+### Priority 2 — Tomorrow: NBA grading on Session AM slips
+After tonight's NBA games settle:
+```bash
+node backend/scripts/runHistoricalGrade.js --sport=nba --backfill
+```
+Inspect `grading_summary_nba_<date>.json` — confirm SAFE + BALANCED hit rates aren't catastrophic. If SAFE ≥ 50% AND BALANCED ≥ 35% on ≥2 dates: system is finally trustworthy enough for small real-money positions on SAFE legs.
+
+### Priority 3 — Per-leg ROI tracking (post-AM)
+Use `personal_ledger.json` to track which `applyNbaTierOverrides` slip composition wins/loses. After 5+ NBA slates, decide whether to widen `decimalOddsRange`, raise `maxOdds`, or re-tighten.
+
+### Priority 4 — MLB BALANCED parallel review (deferred)
+MLB BALANCED has historically catastrophic hit rate (2.7% over 111 settled). Session AG's under-only fix has not been graded yet. Wait for ≥2 dates of post-AG MLB BALANCED grading before considering any MLB tier shape change.
+
+---
+
+## CRITICAL RISKS / GUARDRAILS
+
+| Risk | Avoidance |
+|---|---|
+| Stale TERM 1 process serving old code | Step AM-1 KILLs all listeners on :4000 first; `[SLIP-PROBE] NBA tier override applied` log proves the new code loaded |
+| MLB regression from NBA overrides | `applyNbaTierOverrides` is gated on `ctx.isNba` (set from `/^nba$/i.test(sport)`). MLB callers never enter the override branch. Verified offline. |
+| Same-game over+over correlation in NBA SAFE | `nbaCorrelationEngine.pairwiseStackBoost` already prices same-game correlation into `correlationScore`. Skip applies only inside `canAddLeg` MLB-style script rule. Cap remains `maxPerGame=2`. |
+| AGGRESSIVE/LOTTO unfreezing prematurely | Session AG freeze flag in `buildMlbSlipEngine.js`/`buildNbaSlipComposer.js` UNCHANGED. Workstation `buildSlipAi.js` AGGRESSIVE/LOTTO have always generated independently — their behavior unchanged this session. |
+| Calibration coefficients reset | `FAMILY_CALIBRATION_COEFFICIENTS` and `SLIP_EXCLUDED_FAMILIES` UNCHANGED. |
+| Cache staleness post-restart | TTL is 60s; first request after restart is cache MISS (probes confirm); hard-reset call invalidates upstream snapshot cache. |
+
+---
+
+## WHAT NOT TO DO
+
+- Do NOT remove `under-only` from MLB BALANCED — historical 53.9% under hit rate vs 30% over justifies it.
+- Do NOT lower `minModelProb` below 0.50 for SAFE — the calibration math degrades fast under 0.50.
+- Do NOT raise NBA `decimalOddsRange` ceilings further until post-AM grading proves the current 7.5 ceiling is profitable.
+- Do NOT touch `nbaCorrelationEngine` — it is the source of `correlationScore` field that downstream verification checks.
+- Do NOT delete the `[SLIP-PROBE]` / `[WS-PROBE]` log lines until ≥2 sessions of stable post-AM live runtime have been verified — they are the ONLY guardrail against another stale-process drift.
+- Do NOT unfreeze `FREEZE_AGGRESSIVE_LOTTO` in the nightly engines until BALANCED post-AG hit rate ≥ 52% on ≥3 dates of MLB grading.
+- Do NOT add NBA-specific logic INLINE inside `buildSlipAi.js` — use the `applyNbaTierOverrides` extension point.
+
+---
+
+## TARGET OUTPUT (Class D PASS criteria for Session AM)
+
+| Metric | Target | Source |
+|---|---|---|
+| `runtime_snapshot.candidates` | ≥ 20 | preserved from Session AL |
+| `runtime_snapshot.slips_by_tier.safe` | 2-4 | recovery target |
+| `runtime_snapshot.slips_by_tier.balanced` | 2-4 | recovery target |
+| `runtime_snapshot.slips_by_tier.aggressive` | 2-6 | preserved |
+| `runtime_snapshot.slips_by_tier.lotto` | 2-6 | preserved |
+| `runtime_snapshot.correlation_fields` | = total_slips | NBA-2.C invariant |
+| `safe_lane_no_alt_contamination` | PASS | preserved (NBA-3) |
+| `alt_line_volatility_valid` | PASS | preserved (NBA-3) |
+| `no_ineligible_family_alt_legs` | PASS | preserved (NBA-3) |
+
+---
+
+_Pre-Session-AM roadmap below is preserved as written by Session AG. Resume those phases AFTER Session AM verification PASSes._
 
 ---
 

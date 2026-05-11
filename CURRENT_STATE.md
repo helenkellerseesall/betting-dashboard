@@ -1,6 +1,77 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-10 (Session AG: Slip Ecosystem Repair V1 — BALANCED enforcement + calibration + AGGRESSIVE/LOTTO freeze; 3 files modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
+_Last updated: 2026-05-11 (Session AM: SAFE/BALANCED Profitability Recovery V1 — NBA-only tier overrides in `buildSlipAi.js`; 1 file modified; TERM 1 restart REQUIRED; Class D verification required before checkpoint)_
+
+---
+
+## SESSION AM — SAFE/BALANCED Profitability Recovery V1 (2026-05-11)
+
+**Scope**: Restore live NBA SAFE + BALANCED slip generation without touching MLB constraints. 1 file modified: `backend/pipeline/shared/buildSlipAi.js`. NBA-only tier overrides applied via `applyNbaTierOverrides()` gated on `ctx.isNba`. MLB Session AG enforcement (under-only, no rbis/outs, dec[3,8], calibration) fully preserved.
+
+### Live runtime BEFORE (Session AL artifact `verification_nba_2026-05-10_AL-runtime-truth.json`)
+- candidates=24, total_slips=8, **safe=0, balanced=0**, aggressive=4, lotto=4
+- featured anchors=4, correlation_fields=8
+
+### Live runtime EXPECTED AFTER restart (offline-replicated via `trace_slips.js`)
+- candidates=24, total_slips=12, **safe=2, balanced=2**, aggressive=4, lotto=4
+- correlation engine still wired; calibration coefficients still applied; AGGRESSIVE/LOTTO freeze unchanged in nightly engines
+
+### Root cause of SAFE=0, BALANCED=0 (proven offline; NOT theory)
+With 24-candidate pool from `nba_tracked_bets_2026-05-09.json` (5 eligible) + `buildNbaSnapshotCandidates` (138 → 19 novel after diversify):
+1. **SAFE** template required `maxOdds≤150` and `modelProb≥0.55`. NBA base lines run +148 to +200 with mp 0.49–0.62. Only 1 leg passed. 2-leg minimum impossible.
+2. **BALANCED** template required `under-only` AND `dec∈[3,8]`. The 7 under-eligible legs combined to dec ≥ 12 (high-edge longshot points unders +360 to +490). 0 valid pairs.
+3. **`script_correlation` rule** (canAddLeg) blocked over+over same-game. NBA playoff slate had effectively 1 game on the pool — every cross-player pair hit the same-game block.
+
+### Files modified (1)
+| File | Change |
+|---|---|
+| `backend/pipeline/shared/buildSlipAi.js` | Added `applyNbaTierOverrides(tpl, tier)`; wired into `buildSlipsForTier`; added `skipScriptCorrelation` opt-in to `canAddLeg`'s pace/script rule |
+
+### NBA SAFE override (was → now)
+- `minModelProb`: 0.55 → 0.50 (admits NBA's compressed-prob base lines)
+- `maxOdds`: 150 → 200 (admits +160-+200 short-priced overs)
+- `decimalOddsRange`: [1.8, 4.0] → [1.8, 7.5] (admits 2-leg pairs at ~2.5×2.7 ≈ 6.7 dec)
+- `maxPerGame`: 1 → 2 (small NBA slates with 1 game must allow 2 same-game legs)
+- `skipScriptCorrelation`: true (NBA correlation handled by `nbaCorrelationEngine`)
+
+### NBA BALANCED override (was → now)
+- `allowedSides`: ["under"] → null (NBA usage-driven props are NOT side-asymmetric like MLB)
+- `allowedVolatility`: ["safe","balanced","aggressive"] → ["safe","balanced"] (base-line stability only; high-odds aggressive points unders blew dec ceiling)
+- `maxPerGame`: 1 → 2 (same reason as SAFE)
+- `skipScriptCorrelation`: true
+- `decimalOddsRange`, `maxOdds`, `minModelProb`: UNCHANGED
+
+### MLB constraints — UNCHANGED
+- `under-only` BALANCED preserved (MLB unders 53.9% vs overs 30.0% over 5 dates)
+- `dec[3, 8]` BALANCED preserved
+- `maxPerGame=1` SAFE/BALANCED preserved
+- `script_correlation` rule still active for MLB (no skip flag)
+- `SLIP_EXCLUDED_FAMILIES = {rbis, outs}` preserved
+- `FAMILY_CALIBRATION_COEFFICIENTS` preserved
+- AGGRESSIVE/LOTTO freeze in nightly engines (`buildMlbSlipEngine.js`, `buildNbaSlipComposer.js`) preserved
+
+### Profitability rationale (per-field, grading-grounded)
+- 5-date MLB grading: BALANCED 2.7% hit rate (catastrophic) → MLB stays restricted
+- MLB unders (55%) >> MLB overs (37%) → MLB under-only stays
+- NBA grading sample too thin (6 settled bets across 5 dates) for side-asymmetry conclusion → NBA both-sides allowed
+- NBA SAFE picks generated from current pool: Cade threes o1.5 +154 (mp 0.622, edge 0.228), Harden threes o2.5 +148 (mp 0.564, edge 0.161), Cade assists o10.5 +178 (mp 0.581, edge 0.221) — all ELITE-tier candidates by NBA standards
+- NBA BALANCED picks: Harden rebounds o3.5 + Mitchell rebounds u8.5 — opposing-side pace hedge with strong individual edges
+
+### Verification (offline-replicated; live verification REQUIRED for checkpoint)
+| Check | Result |
+|---|---|
+| `node --check buildSlipAi.js` | ✓ syntax clean |
+| trace_slips.js (live-route replica): NBA pool | ✓ safe=2 balanced=2 aggressive=4 lotto=4 |
+| MLB regression (NBA pool, sport=mlb context): override gate ctx.isNba | ✓ no override applied; tiers identical to pre-AM |
+| `[SLIP-PROBE] NBA tier override applied` log present | ✓ fires for both safe + balanced |
+| AGGRESSIVE/LOTTO unchanged | ✓ 4 + 4 (same as Session AL) |
+| correlation_score_fields populated | ✓ all 12 NBA slips carry field |
+
+### TERM 1 / TERM 2 / Checkpoint — see NEXT_SESSION.md "PENDING OPERATOR ACTIONS"
+
+---
+
+_Pre-Session-AM history below is preserved as written by Session AG (operational state for prior sessions; do not edit without re-verifying)._
 
 ---
 
