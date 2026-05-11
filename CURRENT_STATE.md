@@ -1,6 +1,59 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AQ: Screenshot-Assisted Slip Audit V1 — POST /screenshot sub-route added; runAudit() extracted; OCR hook documented; 1 file modified; no TERM 1 restart required)_
+_Last updated: 2026-05-11 (Session AR: Portfolio Audit V1 — POST /api/ws/portfolio-audit; player/game/stat exposure; diversification score; concentration warnings; 2 files modified; TERM 1 restart REQUIRED)_
+
+---
+
+## SESSION AR — Portfolio Audit V1 (2026-05-11)
+
+**Scope**: Build `POST /api/ws/portfolio-audit` — cross-slip structural exposure analysis. Honest posture: no EV, no ROI, no bankroll advice. Structural only. 2 files modified. TERM 1 restart required.
+
+### What changed (2 files)
+
+| File | Change |
+|---|---|
+| `backend/routes/portfolioAuditRoute.js` | NEW — full portfolio audit endpoint (~350 lines) |
+| `backend/routes/workstationRoutes.js` | Added import + `router.use("/portfolio-audit", portfolioAuditRoute)` |
+
+### Architecture
+
+`portfolioAuditRoute.js` is a self-contained route module. It does NOT import `slipAuditRoute`. It uses the same canonical resolver chain (`nbaVolatilityResolve` → `classifyVolatility`) via direct imports from their respective modules.
+
+Per-slip tier is classified by dominant volatility (portfolio approximation). Full tier eligibility (dec odds, maxPerGame) is not replicated here — that lives in `slipAuditRoute`. Portfolio callers wanting per-slip depth should use `POST /api/ws/slip-audit` additionally.
+
+### Output fields
+
+| Field | Description |
+|---|---|
+| `portfolioVolatility` | Tier counts (safe/balanced/aggressive/lotto), dominantTier, leg vol distribution, homogeneous flag, highVolPct |
+| `playerExposure` | Cross-slip player overlap — sorted by slipCount |
+| `gameExposure` | Cross-slip game concentration — sorted by slipCount |
+| `statFamilyExposure` | Stat family distribution with pct of all legs |
+| `overlapWarnings` | Per-pattern with severity ("high"/"moderate") — player_multi_slip, game_heavy_concentration, stat_monoculture, tier_homogeneity, etc. |
+| `concentrationWarnings` | Portfolio-level flags — single_player_portfolio_risk, dominant_game_exposure, volatility_cluster_all_high, portfolio_all_safe |
+| `diversificationScore` | 0-100 structural score with deductions breakdown |
+| `slipSummaries` | Lightweight per-slip view (no full audit per slip) |
+| `portfolioSummary` | Human-readable narrative |
+| `structuralRiskAssessment` | rating: Tail/Lean/Caution/Avoid + narrative |
+
+### Honesty posture
+
+`confidenceHonesty.level: "structural_only"` — same honest posture as slip-audit. No EV inference, no ROI projections, no bankroll advice. The confidenceNote explicitly directs users to `POST /api/ws/slip-audit` for per-slip depth.
+
+### Smoke tests (8/8)
+
+| Test | Result |
+|---|---|
+| AR-1: same player in 2 slips → player_multi_slip + single_player_portfolio_risk + Avoid | ✓ |
+| AR-2: 3 slips same game → game_heavy_concentration + dominant_game_exposure + Avoid | ✓ |
+| AR-3: all threes legs → stat_monoculture (high) → Lean; summary names the issue (not "Well-diversified") | ✓ |
+| AR-4: well-diversified (distinct players/games/stats) → score 100 + Tail | ✓ |
+| AR-5: Jalen in 2/3 slips + 89% threes → single_player_portfolio_risk + stat_monoculture + Avoid | ✓ |
+| AR-6: empty slips[] → 400 | ✓ |
+| AR-7: slip with no legs → 400 | ✓ |
+| AR-8: POST /slip-audit regression (Cade + Jalen threes → Lean) | ✓ |
+
+**TERM 1 restart required: YES** — `workstationRoutes.js` modified (startup module). This restart also covers the pending AN-final/AO/AQ restarts.
 
 ---
 

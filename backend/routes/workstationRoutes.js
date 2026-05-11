@@ -31,7 +31,8 @@ const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModel
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
-const slipAuditRoute = require("./slipAuditRoute")
+const slipAuditRoute      = require("./slipAuditRoute")
+const portfolioAuditRoute = require("./portfolioAuditRoute")
 
 const router = express.Router()
 
@@ -46,6 +47,10 @@ router.use("/screenshots", screenshotRoutes)
 // Evaluates manually submitted slips against runtime semantics, volatility,
 // correlation, and tier identity. No aiSlips generation involved.
 router.use("/slip-audit", slipAuditRoute)
+
+// Portfolio structural analysis — POST /api/ws/portfolio-audit
+// Analyzes multiple slips together: player/game/stat exposure, diversification score.
+router.use("/portfolio-audit", portfolioAuditRoute)
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 

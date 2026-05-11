@@ -1,14 +1,15 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AQ: Screenshot-Assisted Slip Audit V1 — POST /screenshot sub-route; runAudit() extracted; 7/7 smoke tests pass; no TERM 1 restart required; pending: AN-final TERM 1 restart + AO/AP/AQ verification + checkpoint)_
+_Last updated: 2026-05-11 (Session AR: Portfolio Audit V1 — POST /api/ws/portfolio-audit; 2 files modified; TERM 1 restart REQUIRED; pending: restart + verification + checkpoint)_
 
 ---
 
-## PENDING OPERATOR ACTIONS — Sessions AN-final + AO + AP + AQ (DO THESE FIRST, IN ORDER)
+## PENDING OPERATOR ACTIONS — Sessions AN-final + AO + AP + AQ + AR (DO THESE FIRST, IN ORDER)
 
-> **Session AO adds**: `POST /api/ws/slip-audit` endpoint. Mounted in `workstationRoutes.js`. Requires TERM 1 restart (same restart as AN-final covers this).
-> **Session AP adds**: Two-axis recommendation model (honesty vs viability) in `slipAuditRoute.js`. No restart needed — folded into AO-1 verification below.
-> **Session AQ adds**: `POST /api/ws/slip-audit/screenshot` sub-route in `slipAuditRoute.js`. No restart needed — verify via AQ-1 below.
+> **Session AO adds**: `POST /api/ws/slip-audit`. Requires TERM 1 restart.
+> **Session AP adds**: Two-axis recommendation model in `slipAuditRoute.js`. No extra restart.
+> **Session AQ adds**: `POST /api/ws/slip-audit/screenshot`. No extra restart.
+> **Session AR adds**: `POST /api/ws/portfolio-audit`. `workstationRoutes.js` modified → TERM 1 restart required (covers all pending restarts).
 
 
 
@@ -104,6 +105,28 @@ console.log('safe eligible:', d.tierEligibility?.safe)
 - `archetypeSummary` mentions "balanced" not "fake-safe" (minor mismatch language)
 - `tierEligibility.safe: false`, `tierEligibility.balanced: true`
 
+### Step AR-0 — Verify portfolio-audit route loaded (run immediately after TERM 1 restart)
+```bash
+curl -s -X POST http://localhost:4000/api/ws/portfolio-audit \
+  -H "Content-Type: application/json" \
+  -d '{"sport":"nba","slips":[{"slipId":"test","legs":[{"player":"Cade Cunningham","propType":"threes","line":2.5,"side":"over","odds":148},{"player":"Jalen Brunson","propType":"threes","line":1.5,"side":"over","odds":120}]},{"slipId":"test2","legs":[{"player":"Cade Cunningham","propType":"points","line":22.5,"side":"over","odds":-110}]}]}' \
+  | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('slipCount:', d.slipCount)
+console.log('diversificationScore:', d.diversificationScore)
+console.log('overlapWarnings:', d.overlapWarnings?.map(w=>w.code))
+console.log('concentrationWarnings:', d.concentrationWarnings?.map(w=>w.code))
+console.log('rating:', d.structuralRiskAssessment?.rating)
+console.log('playerExposure[0]:', d.playerExposure?.[0])
+"
+```
+**PASS criteria (Session AR)**:
+- `slipCount: 2`, `diversificationScore < 100` (Cade appears in both slips)
+- `overlapWarnings` contains `"player_multi_slip"` (Cade in 2 slips)
+- `concentrationWarnings` contains `"single_player_portfolio_risk"` (Cade in 2/2 = 100% of slips)
+- `rating: "Avoid"` (critical concentration)
+- `playerExposure[0].player: "Cade Cunningham"`, `slipCount: 2`
+
 ### Step AQ-1 — Verify screenshot slip-audit endpoint (no restart required; run after AO-1)
 ```bash
 curl -s -X POST http://localhost:4000/api/ws/slip-audit/screenshot \
@@ -148,9 +171,9 @@ curl -s -X POST http://localhost:4000/api/ws/slip-audit/screenshot \
 ```
 Expected: 400 error containing "not supported in V1".
 
-### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Steps AO-1 + AQ-1 pass)
+### Step AN-3 — Checkpoint (ONLY after Step AN-2 exits 0 AND Steps AR-0 + AO-1 + AQ-1 pass)
 ```bash
-cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Sessions AN+AO+AP+AQ: Tier Semantic Integrity + Slip Audit V1 + Recommendation Semantics V2 + Screenshot Audit V1" && git log -1 --oneline
+cd ~/Desktop/betting-dashboard && node backend/scripts/checkpointRepo.js "Sessions AN+AO+AP+AQ+AR: Tier Semantic Integrity + Slip Audit V1 + Recommendation Semantics V2 + Screenshot Audit V1 + Portfolio Audit V1" && git log -1 --oneline
 ```
 
 ### Step AN-4 — Finalize checkpoint (sweeps Sessions H–AN)
