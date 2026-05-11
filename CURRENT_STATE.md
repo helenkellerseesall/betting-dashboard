@@ -1,6 +1,58 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AT: NBA bestProps pipeline wiring — fetchNbaOddsSnapshot.js patched; snapshot.json backfilled (46 real props); TERM 1 restart required to pick up from in-memory oddsSnapshot)_
+_Last updated: 2026-05-11 (Session AV: Signal Archetype Tracking V1 — buildArchetypePerformanceSummary.js + /api/archetype-summary endpoint; 56 live bestProps confirmed; jq path verified)_
+
+---
+
+## SESSION AV — Signal Archetype Tracking V1 (2026-05-11)
+
+**Scope**: Additive longitudinal signal intelligence layer. Aggregates real settled bet outcomes from `nba_tracked_bets_*.json` across a rolling window. Groups by statFamily, tier, side, named archetype combos. Generates runtime-visible insights. 2 files touched — new module + 1 server.js import+endpoint. No TERM 1 restart required.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `backend/pipeline/tracking/buildArchetypePerformanceSummary.js` | **NEW** — Signal Archetype Tracking V1 aggregator |
+| `backend/server.js` | Added 1 require + `GET /api/archetype-summary` endpoint (lines 72, ~10294) |
+
+### Architecture
+
+- **Source**: `runtime/tracking/nba_tracked_bets_*.json` — individual settled bet records
+- **Fields used**: `statFamily`, `side`, `tier`, `result`, `oddsAmerican`, `edge`, `modelProb`, `date`
+- **Groups**: `byStatFamily`, `byTier`, `bySide`, `byVolatility`, `archetypes` (named combos)
+- **Named archetypes**: threes_under, threes_over, rebounds_under, rebounds_over, assists_under, assists_over, points_under, points_over, pra_under, pra_over
+- **Sample quality flags**: `insufficient` (<8 settled), `emerging` (<20), `reliable` (≥20)
+- **Insights**: auto-generated human-readable lines from real hit rates
+
+### Live signal results (2026-05-05 to 2026-05-09, 22 settled bets)
+
+| Archetype | Settled | Hit Rate | ROI |
+|---|---|---|---|
+| Rebounder Overs | 13 | 77% ✓ | +71.3% |
+| Perimeter Specialist Unders | 3 | 100% ✓ | +151.3% |
+| Rebounder Unders | 4 | 0% ✗ | -100% |
+| ELITE tier | 13 | 69% ✓ | +63.9% |
+| Overs overall | — | 73% | — |
+
+### Endpoint
+
+```
+GET /api/archetype-summary?sport=nba&days=30
+```
+
+Returns: `{ ok, sport, window, sample, byStatFamily, byTier, bySide, byVolatility, archetypes, insights }`
+
+### MLB regression: NONE
+
+New file reads only `nba_tracked_bets_*` (sport-scoped). `buildArchetypePerformanceSummary` accepts `sport` param; MLB extension trivial. No existing tracking files modified.
+
+### Smoke tests (all pass)
+
+- `node --check buildArchetypePerformanceSummary.js` → SYNTAX OK
+- `node --check server.js` → SYNTAX OK
+- `totalSettled=22 quality=reliable` — real data loads
+- `families=rebounds,threes,assists` — correct classification
+- `insights=5` — believable trend lines generated
 
 ---
 

@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AT: NBA bestProps pipeline wiring — fetchNbaOddsSnapshot.js patched; snapshot.json backfilled 0→46 props; TERM 1 restart required)_
+_Last updated: 2026-05-11 (Session AV: Signal Archetype Tracking V1 live; /api/archetype-summary operational; 56 live bestProps confirmed; TERM 1 restart still pending for Sessions AN-AR+AT)_
 
 ---
 
@@ -12,6 +12,7 @@ _Last updated: 2026-05-11 (Session AT: NBA bestProps pipeline wiring — fetchNb
 > **Session AR adds**: `POST /api/ws/portfolio-audit`. `workstationRoutes.js` modified → TERM 1 restart required (covers all pending restarts).
 > **Session AS**: Diagnostic only — 0 files modified. No additional restart required.
 > **Session AT adds**: `buildNbaBestProps()` in `fetchNbaOddsSnapshot.js`; `snapshot.json` backfilled. TERM 1 restart required (folds into existing pending restart — no separate restart needed).
+> **Session AV adds**: `buildArchetypePerformanceSummary.js` (new file) + `GET /api/archetype-summary` in `server.js`. **NO TERM 1 restart required** — pure additive read-only endpoint.
 
 
 
@@ -56,6 +57,24 @@ console.log(d.bestProps > 0 ? 'PASS — bestProps now populated' : 'FAIL — sti
 Expected: `bestProps: 46` (or similar — depends on slate size).
 Also verify in the UI status bar: **Best Props: 46** (was 0).
 - `correlation_score_fields` PASS (all slips carry correlationScore)
+
+### Step AV-1 — Verify archetype summary endpoint (TERM 2; no restart needed — works NOW)
+```bash
+curl -s "http://localhost:4000/api/archetype-summary?sport=nba&days=30" | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('ok:', d.ok)
+console.log('settled:', d.sample?.totalSettled)
+console.log('quality:', d.sample?.quality)
+console.log('families:', Object.keys(d.byStatFamily || {}).join(', '))
+console.log('insights:')
+;(d.insights || []).forEach(i => console.log(' •', i))
+"
+```
+Expected:
+- `ok: true`
+- `settled: ≥ 20` (grows as more bets settle)
+- `quality: reliable` or `emerging`
+- Real archetype insights — not boilerplate
 
 Qualitative check (inspect actual SAFE + BALANCED slip content):
 ```bash

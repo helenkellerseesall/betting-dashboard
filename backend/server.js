@@ -69,6 +69,7 @@ const {
 const { saveTrackedSlateSnapshot } = require("./pipeline/tracking/saveTrackedSlateSnapshot")
 const { gradeTrackedSlateSnapshot } = require("./pipeline/tracking/gradeTrackedSlateSnapshot")
 const { buildTrackedSlateSummary } = require("./pipeline/tracking/buildTrackedSlateSummary")
+const { buildArchetypePerformanceSummary } = require("./pipeline/tracking/buildArchetypePerformanceSummary")
 const { buildBestPairs } = require("./pipeline/decision/buildBestPairs")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
@@ -10288,6 +10289,23 @@ app.get("/api/tracking/graded", async (req, res) => {
     return res.json({ ok: true, date: dateKey, graded: JSON.parse(raw) })
   } catch (e) {
     return res.json({ ok: false, date: dateKey, error: String(e?.message || e), path: filePath })
+  }
+})
+
+// ── Signal Archetype Tracking V1 ──────────────────────────────────────────────
+// Aggregates settled bet outcomes by statFamily, tier, side, and named archetype
+// combos (e.g. threes_under, rebounds_over). No fake EV — real hit rates only.
+// Session AV — additive, no existing pipelines touched.
+app.get("/api/archetype-summary", (req, res) => {
+  try {
+    const sport      = String(req.query?.sport      || "nba").toLowerCase()
+    const windowDays = Math.min(90, Math.max(1, Number(req.query?.days) || 30))
+
+    const summary = buildArchetypePerformanceSummary({ sport, windowDays })
+    return res.json({ ok: true, ...summary })
+  } catch (e) {
+    console.error("[ARCHETYPE-SUMMARY] error:", e?.message || e)
+    return res.status(500).json({ ok: false, error: e?.message || String(e) })
   }
 })
 
