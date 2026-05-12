@@ -19631,6 +19631,25 @@ app.get("/mlb/board", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`)
+  // MLB Phase 2 boot probe — single source of truth at restart time.
+  // If MLB_LIVE_STATE_ENABLED reads "undefined" or anything other than "1" here,
+  // the running Node process did NOT inherit the flag from the launching shell.
+  // No matter what's in .env files or what the shell `echo` reports — this is
+  // the value Node sees. Phase 2 will only fire when this prints exactly "1".
+  console.log(
+    "[MLB-LIVE-STATE-BOOT-PROBE]",
+    JSON.stringify({
+      pid: process.pid,
+      MLB_LIVE_STATE_ENABLED: process.env.MLB_LIVE_STATE_ENABLED == null
+        ? "undefined"
+        : String(process.env.MLB_LIVE_STATE_ENABLED),
+      MLB_CTX_SKIP_INGEST: process.env.MLB_CTX_SKIP_INGEST == null
+        ? "undefined"
+        : String(process.env.MLB_CTX_SKIP_INGEST),
+      ODDS_API_KEY_present: !!(process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY),
+      nodeVersion: process.version,
+    })
+  )
 })
 
 function normalizeParlayLegArray(value, expectedLegCount) {

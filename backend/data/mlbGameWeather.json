@@ -17,7 +17,7 @@
         "lon": -81.69541,
         "nameUsed": "Cleveland"
       },
-      "ingestedAt": "2026-05-12T21:30:19.143Z"
+      "ingestedAt": "2026-05-12T22:56:05.677Z"
     }
   },
   "6d160243347bd35cdb3abf1b2690fda8": {
@@ -38,7 +38,7 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-12T21:30:19.687Z"
+      "ingestedAt": "2026-05-12T22:56:05.647Z"
     }
   },
   "6c8098ab353355d002d66e825b4217ab": {
@@ -59,7 +59,7 @@
         "lon": -84.51439,
         "nameUsed": "Cincinnati"
       },
-      "ingestedAt": "2026-05-12T21:30:18.467Z"
+      "ingestedAt": "2026-05-12T22:56:05.678Z"
     }
   },
   "79fa6c856d2a95ff10cb955ab2d424e2": {
@@ -80,7 +80,7 @@
         "lon": -79.99589,
         "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-12T21:30:16.026Z"
+      "ingestedAt": "2026-05-12T22:56:05.678Z"
     }
   },
   "fe40950314ca87c69985e8a1a37c8822": {
@@ -101,7 +101,7 @@
         "lon": -74.00597,
         "nameUsed": "New York"
       },
-      "ingestedAt": "2026-05-12T21:30:20.520Z"
+      "ingestedAt": "2026-05-12T22:56:05.807Z"
     }
   },
   "744c4597586797d5f7e9be094f031f11": {
@@ -122,14 +122,14 @@
         "lon": -84.38798,
         "nameUsed": "Atlanta"
       },
-      "ingestedAt": "2026-05-12T21:30:20.523Z"
+      "ingestedAt": "2026-05-12T22:56:06.068Z"
     }
   },
   "ad3552c4909328a0be4de1ec98e97bcf": {
-    "temperature": 64.58,
-    "temp": 64.58,
-    "windSpeed": 51.44962,
-    "windDirectionDeg": 55,
+    "temperature": 64.4,
+    "temp": 64.4,
+    "windSpeed": 50.33115,
+    "windDirectionDeg": 51,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -143,19 +143,19 @@
         "lon": -83.91018,
         "nameUsed": "Minnesota"
       },
-      "ingestedAt": "2026-05-12T21:30:21.594Z"
+      "ingestedAt": "2026-05-12T22:56:06.098Z"
     }
   },
   "a0a43f882e4a4ab92fa1024e42f33be0": {
-    "temperature": 64.58,
-    "temp": 64.58,
-    "windSpeed": 62.410626,
-    "windDirectionDeg": 218,
+    "temperature": 66.2,
+    "temp": 66.2,
+    "windSpeed": 55.923500000000004,
+    "windDirectionDeg": 216,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-12T20:00",
-    "humidityPct": 55,
+    "humidityPct": 47,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Milwaukee Brewers",
@@ -164,19 +164,19 @@
         "lon": -87.90647,
         "nameUsed": "Milwaukee"
       },
-      "ingestedAt": "2026-05-12T21:30:21.595Z"
+      "ingestedAt": "2026-05-12T22:56:06.093Z"
     }
   },
   "34393ecc2b2d109779095b1d4935225b": {
-    "temperature": 71.6,
-    "temp": 71.6,
-    "windSpeed": 37.580592,
-    "windDirectionDeg": 261,
+    "temperature": 72.86,
+    "temp": 72.86,
+    "windSpeed": 33.330406,
+    "windDirectionDeg": 262,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-12T20:00",
-    "humidityPct": 25,
+    "humidityPct": 26,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Texas Rangers",
@@ -185,19 +185,19 @@
         "lon": -80.13175,
         "nameUsed": "Texas"
       },
-      "ingestedAt": "2026-05-12T21:30:22.070Z"
+      "ingestedAt": "2026-05-12T22:56:06.224Z"
     }
   },
   "a1fa0d550bd68cf44d71f0657fa93d6a": {
     "temperature": 80.06,
     "temp": 80.06,
-    "windSpeed": 13.42164,
-    "windDirectionDeg": 343,
+    "windSpeed": 8.500372,
+    "windDirectionDeg": 17,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-12T20:00",
-    "humidityPct": 58,
+    "humidityPct": 66,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Houston Astros",
@@ -206,19 +206,19 @@
         "lon": -95.36327,
         "nameUsed": "Houston"
       },
-      "ingestedAt": "2026-05-12T21:30:22.459Z"
+      "ingestedAt": "2026-05-12T22:56:06.353Z"
     }
   },
   "a0929cf66d445eec19f118010165e95c": {
-    "temperature": 72.68,
-    "temp": 72.68,
-    "windSpeed": 19.685072,
-    "windDirectionDeg": 199,
+    "temperature": 69.8,
+    "temp": 69.8,
+    "windSpeed": 25.72481,
+    "windDirectionDeg": 180,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-12T22:00",
-    "humidityPct": 52,
+    "humidityPct": 57,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Los Angeles Dodgers",
@@ -227,7 +227,7 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-12T21:30:22.911Z"
+      "ingestedAt": "2026-05-12T22:56:06.512Z"
     }
   }
 }

@@ -31,6 +31,20 @@ const { applyMlbContextualLayers } = require("./context/applyMlbContextualLayers
 // contextual layer falls back to whatever is on disk (or truthful nulls).
 // Kill switch: env MLB_CTX_SKIP_INGEST=1 bypasses all ingestion.
 const { buildMlbContextualDataPack } = require("./ingest/buildMlbContextualDataPack")
+// MLB Phase 2 — Live state ingestion (observational). Default OFF — set
+// MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live-state derivation.
+// Independently invokable via backend/scripts/refreshMlbLiveState.js.
+const { applyMlbLiveStateLayers } = require("./live/applyMlbLiveStateLayers")
+// Module-load stamp — appears in [MLB-LIVE-STATE-PROBE] so it is immediately
+// obvious when the require cache is holding stale code: if a snapshot was
+// written more recently than this timestamp but the snapshot lacks
+// diagnostics.liveState, the running Node process loaded this module BEFORE
+// Phase 2 wiring landed and has NOT been restarted since.
+const __MLB_BOOTSTRAP_LOADED_AT__ = new Date().toISOString()
+console.log("[MLB-BOOTSTRAP-MODULE-LOAD]", {
+  moduleLoadedAt: __MLB_BOOTSTRAP_LOADED_AT__,
+  phase2WiringPresent: typeof applyMlbLiveStateLayers === "function",
+})
 
 function createEmptyMlbSnapshot() {
   return {
@@ -1253,7 +1267,61 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     console.log("[MLB-CONTEXTUAL-PHASE-1B FAIL]", ctxErr?.message || ctxErr)
     contextualResult = { rows: rowsWithProbability, diagnostics: { error: String(ctxErr?.message || ctxErr) } }
   }
-  const rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbability
+  let rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbability
+
+  // ── MLB Phase 2 — Live State (env-gated, observational, fail-open) ────────
+  // Default OFF. Set MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live state.
+  // Attaches row.mlbLiveState additively; never modifies existing context fields.
+  // History persistence is append-only (immutable historical truth preserved).
+  //
+  // ── Phase 2 execution-path probe (always-on; tiny) ────────────────────────
+  // Makes "did the live-state branch actually fire?" visible in TERM 1 logs.
+  // If you see   [MLB-LIVE-STATE-PROBE] enabled=undefined   → env flag was
+  //   not propagated to this Node process (TERM 1 needs the flag at start).
+  // If you see   [MLB-LIVE-STATE-PROBE] enabled="1" branch=skipped → wiring
+  //   exists but the env flag did NOT pass the strict-equality check.
+  // If you see   [MLB-LIVE-STATE-PROBE] enabled="1" branch=invoked → Phase 2
+  //   ran. Follow-up   [MLB-LIVE-STATE-PHASE-2]   line should then appear.
+  const liveStateFlagRaw = process.env.MLB_LIVE_STATE_ENABLED
+  const liveStateEnabled = liveStateFlagRaw === "1"
+  console.log("[MLB-LIVE-STATE-PROBE]", {
+    enabled: liveStateFlagRaw == null ? undefined : String(liveStateFlagRaw),
+    branch: liveStateEnabled ? "invoked" : "skipped",
+    moduleLoadedAt: __MLB_BOOTSTRAP_LOADED_AT__,
+  })
+
+  let liveStateResult = { rows: rowsWithContext, diagnostics: null }
+  if (liveStateEnabled) {
+    try {
+      liveStateResult = await applyMlbLiveStateLayers({
+        rows: rowsWithContext,
+        events: scheduledEventsSafe,
+        externalSnapshotDeep: normalizedExternalSnapshot,
+        pitcherStatsByName: contextualDataPack?.overrides?.pitcherStatsByName,
+        bullpenByTeam: contextualDataPack?.overrides?.bullpenByTeam,
+        slateDate: slateDateKey,
+        capturedAtIso: observedAtIso,
+        skipBullpenLive: process.env.MLB_CTX_SKIP_BULLPEN_LIVE === "1",
+      })
+      rowsWithContext = Array.isArray(liveStateResult?.rows) ? liveStateResult.rows : rowsWithContext
+    } catch (liveErr) {
+      console.log("[MLB-LIVE-STATE-PHASE-2 FAIL]", liveErr?.message || liveErr)
+      liveStateResult = {
+        rows: rowsWithContext,
+        diagnostics: { error: String(liveErr?.message || liveErr), enabled: true },
+      }
+    }
+  }
+
+  // Post-Phase-2 sanity probe — verifies row enrichment landed.
+  if (liveStateEnabled) {
+    const liveRowCount = rowsWithContext.reduce((n, r) => n + (r?.mlbLiveState ? 1 : 0), 0)
+    console.log("[MLB-LIVE-STATE-POSTCHECK]", {
+      totalRows: rowsWithContext.length,
+      rowsWithMlbLiveState: liveRowCount,
+      diagnosticsPresent: !!liveStateResult?.diagnostics,
+    })
+  }
 
   return {
     sport: "mlb",
@@ -1312,7 +1380,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       payloadShapes,
       failedEvents,
       contextual: (contextualResult && contextualResult.diagnostics) || null,
-      contextualIngest: (contextualDataPack && contextualDataPack.diagnostics) || null
+      contextualIngest: (contextualDataPack && contextualDataPack.diagnostics) || null,
+      liveState: (liveStateResult && liveStateResult.diagnostics) || null
     }
   }
 }

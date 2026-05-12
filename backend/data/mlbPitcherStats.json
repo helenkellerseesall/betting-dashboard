@@ -6,26 +6,26 @@
     "teamId": 114,
     "teamName": "Cleveland Guardians",
     "season": "2026",
-    "gamesPitched": 8,
-    "gamesStarted": 8,
-    "inningsPitched": 41,
-    "battersFaced": 187,
-    "strikeOuts": 31,
+    "gamesPitched": 9,
+    "gamesStarted": 9,
+    "inningsPitched": 43.2,
+    "battersFaced": 200,
+    "strikeOuts": 35,
     "walks": 16,
-    "hits": 49,
+    "hits": 54,
     "earnedRuns": 28,
     "homeRunsAllowed": 8,
     "pitchCount": null,
-    "kRate": 0.1658,
-    "bbRate": 0.0856,
-    "k9": 6.8,
-    "whip": 1.59,
-    "era": 6.15,
+    "kRate": 0.175,
+    "bbRate": 0.08,
+    "k9": 7.29,
+    "whip": 1.62,
+    "era": 5.77,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.837Z"
   },
   "walbert urena": {
     "playerId": 700712,
@@ -34,26 +34,26 @@
     "teamId": 108,
     "teamName": "Los Angeles Angels",
     "season": "2026",
-    "gamesPitched": 6,
-    "gamesStarted": 4,
-    "inningsPitched": 22.1,
-    "battersFaced": 101,
-    "strikeOuts": 22,
+    "gamesPitched": 7,
+    "gamesStarted": 5,
+    "inningsPitched": 24.1,
+    "battersFaced": 107,
+    "strikeOuts": 25,
     "walks": 16,
-    "hits": 19,
+    "hits": 20,
     "earnedRuns": 8,
     "homeRunsAllowed": 1,
     "pitchCount": null,
-    "kRate": 0.2178,
-    "bbRate": 0.1584,
-    "k9": 8.96,
-    "whip": 1.58,
-    "era": 3.22,
+    "kRate": 0.2336,
+    "bbRate": 0.1495,
+    "k9": 9.34,
+    "whip": 1.49,
+    "era": 2.96,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.837Z"
   },
   "trevor rogers": {
     "playerId": 669432,
@@ -62,26 +62,26 @@
     "teamId": 110,
     "teamName": "Baltimore Orioles",
     "season": "2026",
-    "gamesPitched": 6,
-    "gamesStarted": 6,
-    "inningsPitched": 30.1,
-    "battersFaced": 133,
-    "strikeOuts": 27,
+    "gamesPitched": 7,
+    "gamesStarted": 7,
+    "inningsPitched": 32.1,
+    "battersFaced": 141,
+    "strikeOuts": 29,
     "walks": 10,
-    "hits": 34,
-    "earnedRuns": 16,
-    "homeRunsAllowed": 3,
+    "hits": 36,
+    "earnedRuns": 17,
+    "homeRunsAllowed": 4,
     "pitchCount": null,
-    "kRate": 0.203,
-    "bbRate": 0.0752,
-    "k9": 8.07,
-    "whip": 1.46,
-    "era": 4.75,
+    "kRate": 0.2057,
+    "bbRate": 0.0709,
+    "k9": 8.13,
+    "whip": 1.43,
+    "era": 4.73,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.837Z"
   },
   "will warren": {
     "playerId": 701542,
@@ -90,26 +90,26 @@
     "teamId": 147,
     "teamName": "New York Yankees",
     "season": "2026",
-    "gamesPitched": 8,
-    "gamesStarted": 8,
-    "inningsPitched": 41.2,
-    "battersFaced": 174,
-    "strikeOuts": 53,
+    "gamesPitched": 9,
+    "gamesStarted": 9,
+    "inningsPitched": 42.2,
+    "battersFaced": 177,
+    "strikeOuts": 54,
     "walks": 11,
     "hits": 39,
     "earnedRuns": 16,
     "homeRunsAllowed": 6,
     "pitchCount": null,
-    "kRate": 0.3046,
-    "bbRate": 0.0632,
-    "k9": 11.58,
-    "whip": 1.21,
-    "era": 3.46,
+    "kRate": 0.3051,
+    "bbRate": 0.0621,
+    "k9": 11.52,
+    "whip": 1.18,
+    "era": 3.38,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.837Z"
   },
   "brady singer": {
     "playerId": 663903,
@@ -118,26 +118,26 @@
     "teamId": 113,
     "teamName": "Cincinnati Reds",
     "season": "2026",
-    "gamesPitched": 8,
-    "gamesStarted": 8,
-    "inningsPitched": 38.1,
-    "battersFaced": 178,
-    "strikeOuts": 26,
+    "gamesPitched": 9,
+    "gamesStarted": 9,
+    "inningsPitched": 39.1,
+    "battersFaced": 181,
+    "strikeOuts": 28,
     "walks": 10,
     "hits": 53,
     "earnedRuns": 24,
     "homeRunsAllowed": 8,
     "pitchCount": null,
-    "kRate": 0.1461,
-    "bbRate": 0.0562,
-    "k9": 6.14,
-    "whip": 1.65,
-    "era": 5.63,
+    "kRate": 0.1547,
+    "bbRate": 0.0552,
+    "k9": 6.45,
+    "whip": 1.61,
+    "era": 5.49,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "miles mikolas": {
     "playerId": 571945,
@@ -146,26 +146,26 @@
     "teamId": 120,
     "teamName": "Washington Nationals",
     "season": "2026",
-    "gamesPitched": 8,
-    "gamesStarted": 5,
-    "inningsPitched": 32.2,
-    "battersFaced": 146,
+    "gamesPitched": 9,
+    "gamesStarted": 6,
+    "inningsPitched": 33.2,
+    "battersFaced": 149,
     "strikeOuts": 22,
     "walks": 11,
     "hits": 39,
     "earnedRuns": 27,
     "homeRunsAllowed": 9,
     "pitchCount": null,
-    "kRate": 0.1507,
-    "bbRate": 0.0753,
-    "k9": 6.15,
-    "whip": 1.55,
-    "era": 7.44,
+    "kRate": 0.1477,
+    "bbRate": 0.0738,
+    "k9": 5.96,
+    "whip": 1.51,
+    "era": 7.22,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "paul skenes": {
     "playerId": 694973,
@@ -174,26 +174,26 @@
     "teamId": 134,
     "teamName": "Pittsburgh Pirates",
     "season": "2026",
-    "gamesPitched": 8,
-    "gamesStarted": 8,
-    "inningsPitched": 42,
-    "battersFaced": 159,
-    "strikeOuts": 46,
+    "gamesPitched": 9,
+    "gamesStarted": 9,
+    "inningsPitched": 43,
+    "battersFaced": 162,
+    "strikeOuts": 49,
     "walks": 7,
     "hits": 23,
     "earnedRuns": 11,
     "homeRunsAllowed": 4,
     "pitchCount": null,
-    "kRate": 0.2893,
-    "bbRate": 0.044,
-    "k9": 9.86,
-    "whip": 0.71,
-    "era": 2.36,
+    "kRate": 0.3025,
+    "bbRate": 0.0432,
+    "k9": 10.26,
+    "whip": 0.7,
+    "era": 2.3,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "michael lorenzen": {
     "playerId": 547179,
@@ -202,26 +202,26 @@
     "teamId": 115,
     "teamName": "Colorado Rockies",
     "season": "2026",
-    "gamesPitched": 9,
-    "gamesStarted": 8,
-    "inningsPitched": 39,
-    "battersFaced": 190,
-    "strikeOuts": 26,
-    "walks": 12,
-    "hits": 62,
+    "gamesPitched": 10,
+    "gamesStarted": 9,
+    "inningsPitched": 39.1,
+    "battersFaced": 193,
+    "strikeOuts": 27,
+    "walks": 13,
+    "hits": 63,
     "earnedRuns": 30,
     "homeRunsAllowed": 7,
     "pitchCount": null,
-    "kRate": 0.1368,
-    "bbRate": 0.0632,
-    "k9": 6,
-    "whip": 1.9,
-    "era": 6.92,
+    "kRate": 0.1399,
+    "bbRate": 0.0674,
+    "k9": 6.21,
+    "whip": 1.94,
+    "era": 6.86,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "jovani moran": {
     "playerId": 663558,
@@ -230,26 +230,26 @@
     "teamId": 111,
     "teamName": "Boston Red Sox",
     "season": "2026",
-    "gamesPitched": 12,
-    "gamesStarted": 1,
-    "inningsPitched": 21.2,
-    "battersFaced": 91,
-    "strikeOuts": 20,
+    "gamesPitched": 13,
+    "gamesStarted": 2,
+    "inningsPitched": 22.2,
+    "battersFaced": 95,
+    "strikeOuts": 22,
     "walks": 14,
-    "hits": 13,
-    "earnedRuns": 7,
-    "homeRunsAllowed": 3,
+    "hits": 14,
+    "earnedRuns": 8,
+    "homeRunsAllowed": 4,
     "pitchCount": null,
-    "kRate": 0.2198,
-    "bbRate": 0.1538,
-    "k9": 8.49,
-    "whip": 1.27,
-    "era": 2.91,
+    "kRate": 0.2316,
+    "bbRate": 0.1474,
+    "k9": 8.92,
+    "whip": 1.26,
+    "era": 3.18,
     "recentPitches": null,
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "zack wheeler": {
     "playerId": 554430,
@@ -277,7 +277,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "patrick corbin": {
     "playerId": 571578,
@@ -305,7 +305,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "shane mcclanahan": {
     "playerId": 663556,
@@ -333,7 +333,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "freddy peralta": {
     "playerId": 642547,
@@ -361,7 +361,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "jack flaherty": {
     "playerId": 656427,
@@ -389,7 +389,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "grant holmes": {
     "playerId": 656550,
@@ -417,7 +417,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "colin rea": {
     "playerId": 607067,
@@ -445,7 +445,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "erick fedde": {
     "playerId": 607200,
@@ -473,7 +473,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "stephen kolek": {
     "playerId": 663568,
@@ -501,7 +501,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "bailey ober": {
     "playerId": 641927,
@@ -529,7 +529,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "eury perez": {
     "playerId": 691587,
@@ -557,7 +557,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "brandon sproat": {
     "playerId": 687075,
@@ -585,7 +585,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "bradgley rodriguez": {
     "playerId": 699134,
@@ -613,7 +613,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "mackenzie gore": {
     "playerId": 669022,
@@ -641,7 +641,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "zac gallen": {
     "playerId": 668678,
@@ -669,7 +669,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "tatsuya imai": {
     "playerId": 837227,
@@ -697,7 +697,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "bryan woo": {
     "playerId": 693433,
@@ -725,7 +725,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "jeffrey springs": {
     "playerId": 605488,
@@ -753,7 +753,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "andre pallante": {
     "playerId": 669467,
@@ -781,7 +781,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "yoshinobu yamamoto": {
     "playerId": 808967,
@@ -809,7 +809,7 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   },
   "adrian houser": {
     "playerId": 605288,
@@ -837,6 +837,6 @@
     "restDays": null,
     "velocityMph": null,
     "source": "mlb_statsapi_season",
-    "ingestedAt": "2026-05-12T21:30:11.118Z"
+    "ingestedAt": "2026-05-12T22:56:04.838Z"
   }
 }
