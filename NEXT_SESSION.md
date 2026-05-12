@@ -1,6 +1,56 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AV: Signal Archetype Tracking V1 live; /api/archetype-summary operational; 56 live bestProps confirmed; TERM 1 restart still pending for Sessions AN-AR+AT)_
+_Last updated: 2026-05-11 (Session AW: Anti-Monoculture Portfolio Intelligence V1 — two-pass bestProps selection + buildPortfolioConcentrationDiagnostics + /api/portfolio-diagnostics + concentration field in /snapshot/status; TERM 1 restart still pending for Sessions AN-AR+AT+AW)_
+
+---
+
+## PENDING OPERATOR ACTIONS — Sessions AN-final + AO + AP + AQ + AR + AW (DO THESE FIRST, IN ORDER)
+
+> **Session AW adds**: Two-pass concentration-aware selection in `fetchNbaOddsSnapshot.js`; new `buildPortfolioConcentrationDiagnostics.js`; `GET /api/portfolio-diagnostics`; `concentration` field in `/snapshot/status`. **TERM 1 restart required** — folds into existing pending restart (no extra restart needed beyond the one already pending for AN-AR+AT).
+
+### Step AW-1 — Verify portfolio diagnostics (TERM 2; no restart needed — reads current snapshot)
+```bash
+curl -s "http://localhost:4000/api/portfolio-diagnostics" | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('ok:', d.ok)
+console.log('total:', d.total)
+console.log('underExposurePct:', d.underExposurePct)
+console.log('paceFragilityRisk:', d.paceFragilityRisk)
+console.log('structureHealthy:', d.structureHealthy)
+console.log('warningCount:', d.warnings?.length)
+d.warnings?.forEach((w, i) => console.log('  warning', i+1, ':', w.slice(0, 80)))
+"
+```
+Expected:
+- `ok: true`
+- `total: 56` (or current bestProps count)
+- `underExposurePct ≈ 0.714`
+- `paceFragilityRisk: "HIGH"`
+- `structureHealthy: false`
+- `warningCount: 4` (or similar — scales with data)
+
+### Step AW-2 — Verify concentration field in /snapshot/status (TERM 2; no restart needed)
+```bash
+curl -s "http://localhost:4000/snapshot/status" | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('ok:', d.ok)
+console.log('bestProps:', d.bestProps)
+console.log('concentration:', JSON.stringify(d.concentration, null, 2))
+"
+```
+Expected:
+- `ok: true`
+- `concentration.underExposurePct` present (not undefined)
+- `concentration.paceFragilityRisk` present
+- `concentration.warningCount ≥ 1`
+- No `concentration.error` key (would mean diagnostics threw)
+
+### Step AW-3 — Verify two-pass selection after TERM 1 restart
+After TERM 1 restart and first `/refresh-snapshot`, check server logs for:
+```
+[NBA-BESTPROPS] ... concentrationDeferred=N ...
+```
+`N ≥ 1` means the concentration guard triggered on at least one PLAYABLE prop. Expected when under-concentration is high (current slate: 71% unders — guard will filter some rebounds-under PLAYABLE props).
 
 ---
 
@@ -13,6 +63,7 @@ _Last updated: 2026-05-11 (Session AV: Signal Archetype Tracking V1 live; /api/a
 > **Session AS**: Diagnostic only — 0 files modified. No additional restart required.
 > **Session AT adds**: `buildNbaBestProps()` in `fetchNbaOddsSnapshot.js`; `snapshot.json` backfilled. TERM 1 restart required (folds into existing pending restart — no separate restart needed).
 > **Session AV adds**: `buildArchetypePerformanceSummary.js` (new file) + `GET /api/archetype-summary` in `server.js`. **NO TERM 1 restart required** — pure additive read-only endpoint.
+> **Session AW adds**: Two-pass concentration-aware selection in `fetchNbaOddsSnapshot.js`; `buildPortfolioConcentrationDiagnostics.js` (new file); `GET /api/portfolio-diagnostics` + `concentration` field in `/snapshot/status`. **TERM 1 restart required** — folds into existing pending restart.
 
 
 

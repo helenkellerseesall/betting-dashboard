@@ -51,6 +51,8 @@ const NBA_DK_EXTRA_MARKETS = [
 // Returns at most BEST_PROPS_TARGET rows sorted by edge descending.
 const BEST_PROPS_TARGET = 60
 const BEST_PROPS_MAX_PER_PLAYER = 2
+const CONCENTRATION_BUCKET_THRESHOLD = 0.40  // max pct of pool from one (family|side) combo
+const CONCENTRATION_SIDE_THRESHOLD   = 0.75  // max pct of pool sharing a single side
 
 function buildNbaBestProps(rawRows) {
   if (!Array.isArray(rawRows) || !rawRows.length) return { props: [], diagnostics: {} }
@@ -58,6 +60,7 @@ function buildNbaBestProps(rawRows) {
   const rejectCounts = {
     noPlayer: 0, noSide: 0, isAlt: 0, oddsGate: 0,
     noFamily: 0, mpBelow35: 0, edgeBelow03: 0,
+    concentrationDeferred: 0,
   }
 
   const rawScored = []
@@ -121,25 +124,64 @@ function buildNbaBestProps(rawRows) {
   }
   const deduped = Array.from(bestBySig.values()).sort((a, b) => b.edge - a.edge)
 
-  // Per-player cap: max BEST_PROPS_MAX_PER_PLAYER props per player
+  // ── Concentration-aware two-pass selection ──────────────────────────────────
+  // Pass 1: All ELITE + STRONG accepted unconditionally — real edges, never suppressed.
+  // Pass 2: PLAYABLE filled with soft concentration check — prevents monoculture
+  //         from marginal props without suppressing genuine edge signal.
   const playerCount = new Map()
-  const props = []
-  for (const c of deduped) {
+  const bucketSizes = {}   // "(family|side)" → count
+  const sideCounts  = {}   // "over"|"under" → count
+  const props       = []
+
+  function acceptProp(c) {
     const n = playerCount.get(c.player) || 0
-    if (n >= BEST_PROPS_MAX_PER_PLAYER) continue
+    if (n >= BEST_PROPS_MAX_PER_PLAYER) return false
     playerCount.set(c.player, n + 1)
+    const bk = `${c.statFamily}|${c.side}`
+    bucketSizes[bk] = (bucketSizes[bk] || 0) + 1
+    const sk = String(c.side || "").toLowerCase()
+    sideCounts[sk] = (sideCounts[sk] || 0) + 1
     props.push(c)
+    return true
+  }
+
+  // Pass 1: ELITE + STRONG — no concentration check
+  for (const c of deduped) {
     if (props.length >= BEST_PROPS_TARGET) break
+    if (c.tier === "ELITE" || c.tier === "STRONG") acceptProp(c)
+  }
+
+  // Pass 2: PLAYABLE — soft concentration guard
+  for (const c of deduped) {
+    if (props.length >= BEST_PROPS_TARGET) break
+    if (c.tier === "ELITE" || c.tier === "STRONG") continue
+
+    const total = props.length
+    if (total >= 4) {
+      const bk    = `${c.statFamily}|${c.side}`
+      const bkPct = (bucketSizes[bk] || 0) / total
+      if (bkPct > CONCENTRATION_BUCKET_THRESHOLD) {
+        rejectCounts.concentrationDeferred++
+        continue
+      }
+      const sk      = String(c.side || "").toLowerCase()
+      const sidePct = (sideCounts[sk] || 0) / total
+      if (sidePct > CONCENTRATION_SIDE_THRESHOLD) {
+        rejectCounts.concentrationDeferred++
+        continue
+      }
+    }
+    acceptProp(c)
   }
 
   const volCounts = {}
   for (const p of props) volCounts[p.volatility] = (volCounts[p.volatility] || 0) + 1
 
   console.log(
-    "[NBA-BESTPROPS] rawRows=%d isAlt=%d oddsGate=%d noFamily=%d mpBelow35=%d edgeBelow03=%d rawScored=%d deduped=%d bestProps=%d vol=%s",
+    "[NBA-BESTPROPS] rawRows=%d isAlt=%d oddsGate=%d noFamily=%d mpBelow35=%d edgeBelow03=%d concentrationDeferred=%d rawScored=%d deduped=%d bestProps=%d vol=%s",
     rawRows.length,
     rejectCounts.isAlt, rejectCounts.oddsGate, rejectCounts.noFamily,
-    rejectCounts.mpBelow35, rejectCounts.edgeBelow03,
+    rejectCounts.mpBelow35, rejectCounts.edgeBelow03, rejectCounts.concentrationDeferred,
     rawScored.length, deduped.length, props.length,
     JSON.stringify(volCounts)
   )

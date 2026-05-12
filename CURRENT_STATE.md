@@ -1,6 +1,73 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AV: Signal Archetype Tracking V1 — buildArchetypePerformanceSummary.js + /api/archetype-summary endpoint; 56 live bestProps confirmed; jq path verified)_
+_Last updated: 2026-05-11 (Session AW: Anti-Monoculture Portfolio Intelligence V1 — two-pass concentration-aware bestProps selection + buildPortfolioConcentrationDiagnostics.js + /api/portfolio-diagnostics + concentration field in /snapshot/status)_
+
+---
+
+## SESSION AW — Anti-Monoculture Portfolio Intelligence V1 (2026-05-11)
+
+**Scope**: Portfolio concentration awareness layer. Prevents monoculture in PLAYABLE-tier bestProps without suppressing ELITE/STRONG edges. Adds bettor-language concentration warnings and a new diagnostic endpoint. 3 files modified + 1 new file. TERM 1 restart required (fetchNbaOddsSnapshot.js change takes effect on next live snapshot fetch).
+
+### What changed
+
+| File | Change |
+|---|---|
+| `backend/pipeline/nba/fetchNbaOddsSnapshot.js` | Added `CONCENTRATION_BUCKET_THRESHOLD=0.40` + `CONCENTRATION_SIDE_THRESHOLD=0.75` constants; added `concentrationDeferred` to `rejectCounts`; replaced flat single-pass selection with two-pass concentration-aware loop (ELITE+STRONG unconditional, PLAYABLE gated) |
+| `backend/pipeline/tracking/buildPortfolioConcentrationDiagnostics.js` | **NEW** — pure diagnostic: reads bestProps array, returns concentration metrics + bettor-language warnings. No side effects. |
+| `backend/server.js` | Added `buildPortfolioConcentrationDiagnostics` require (line 73); added `GET /api/portfolio-diagnostics` endpoint; added `concentration` sub-field to `GET /snapshot/status` response |
+
+### Two-pass selection architecture
+
+- **Pass 1**: All ELITE (edge ≥ 0.12) + STRONG (edge ≥ 0.07) props accepted unconditionally — real edges are never suppressed
+- **Pass 2**: PLAYABLE (edge ≥ 0.04) gated by two soft concentration checks:
+  - `(family|side)` bucket pct ≤ 40% of current pool
+  - Side pct (over or under) ≤ 75% of current pool
+  - Deferred count logged as `concentrationDeferred` in diagnostics
+
+### Portfolio diagnostics module
+
+Returns: `underExposurePct`, `overExposurePct`, `reboundsUnderExposurePct`, `threesUnderExposurePct`, `directionalConcentration` (0–1), `paceFragilityRisk` (LOW/MODERATE/HIGH), `sameEnvironmentDependency` (bool), `topConcentrationBuckets[]`, `warnings[]`, `structureHealthy`
+
+### Live diagnostic results on current snapshot (56 bestProps, 2026-05-11)
+
+| Metric | Value |
+|---|---|
+| Under exposure | 71.4% — HIGH |
+| Rebounds-under | 23.2% of portfolio |
+| Directional concentration | 0.43 |
+| Pace fragility risk | HIGH |
+| Same-environment dependency | true |
+| Warnings generated | 4 bettor-language warnings |
+| `structureHealthy` | false |
+
+### Endpoints
+
+```
+GET /api/portfolio-diagnostics
+  → { ok, generatedAt, total, underExposurePct, ..., warnings[], structureHealthy }
+
+GET /snapshot/status
+  → { ..., concentration: { underExposurePct, overExposurePct, reboundsUnderExposurePct,
+       directionalConcentration, paceFragilityRisk, sameEnvironmentDependency,
+       structureHealthy, warningCount } }
+```
+
+### Smoke tests (all pass)
+
+- `node --check fetchNbaOddsSnapshot.js` → SYNTAX OK
+- `node --check buildPortfolioConcentrationDiagnostics.js` → SYNTAX OK
+- `node --check buildArchetypePerformanceSummary.js` → SYNTAX OK
+- `node --check server.js` → SYNTAX OK
+- Live snapshot test (56 props): `total=56 underExposurePct=0.714 paceFragilityRisk=HIGH warnings=4` ✓
+- Archetype summary: `quality=reliable settled=22 insights=5` ✓ (unaffected)
+
+### MLB regression: NONE
+
+`buildPortfolioConcentrationDiagnostics` reads only `bestProps` array (NBA-only field). Two-pass selection only runs inside `buildNbaBestProps()` — never called for MLB. Diagnostics are non-critical in `/snapshot/status` (try/catch — won't block status response on error).
+
+### TERM 1 restart required
+
+`fetchNbaOddsSnapshot.js` is loaded at startup. The two-pass selection takes effect on next `/refresh-snapshot` call after restart. Until restart, existing snapshot.json serves its current 56 bestProps unchanged.
 
 ---
 

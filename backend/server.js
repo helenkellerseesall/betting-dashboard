@@ -69,7 +69,8 @@ const {
 const { saveTrackedSlateSnapshot } = require("./pipeline/tracking/saveTrackedSlateSnapshot")
 const { gradeTrackedSlateSnapshot } = require("./pipeline/tracking/gradeTrackedSlateSnapshot")
 const { buildTrackedSlateSummary } = require("./pipeline/tracking/buildTrackedSlateSummary")
-const { buildArchetypePerformanceSummary } = require("./pipeline/tracking/buildArchetypePerformanceSummary")
+const { buildArchetypePerformanceSummary }        = require("./pipeline/tracking/buildArchetypePerformanceSummary")
+const { buildPortfolioConcentrationDiagnostics }  = require("./pipeline/tracking/buildPortfolioConcentrationDiagnostics")
 const { buildBestPairs } = require("./pipeline/decision/buildBestPairs")
 const { loadBets, logBet } = require("./tracker/betTracker")
 const { computeBetMetrics } = require("./tracker/betMetrics")
@@ -10309,6 +10310,22 @@ app.get("/api/archetype-summary", (req, res) => {
   }
 })
 
+// ── Anti-Monoculture Portfolio Diagnostics V1 ─────────────────────────────────
+// Reads live bestProps from in-memory oddsSnapshot and returns concentration
+// metrics: under/over exposure, rebounds-under concentration, directional
+// concentration score, pace fragility risk, same-environment dependency, and
+// bettor-language warnings. Pure read — no mutations. Session AW.
+app.get("/api/portfolio-diagnostics", (req, res) => {
+  try {
+    const bestProps = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : []
+    const diagnostics = buildPortfolioConcentrationDiagnostics(bestProps)
+    return res.json({ ok: true, generatedAt: new Date().toISOString(), ...diagnostics })
+  } catch (e) {
+    console.error("[PORTFOLIO-DIAGNOSTICS] error:", e?.message || e)
+    return res.status(500).json({ ok: false, error: e?.message || String(e) })
+  }
+})
+
 app.get('/grade-hr-test', async (req, res) => {
   const gradeMlbHrSlips = require('./pipeline/mlb/gradeMlbHrSlips');
   const fetchMlbHrResults = require('./pipeline/mlb/fetchMlbHrResults');
@@ -19038,6 +19055,26 @@ app.get("/snapshot/status", async (req, res) => {
     lastSnapshotAgeMinutes = 0
     if (forceRefresh) lastForceRefreshAt = new Date().toISOString()
 
+    // Lightweight portfolio concentration diagnostics — inline, no async
+    const _diagBestProps = Array.isArray(oddsSnapshot?.bestProps) ? oddsSnapshot.bestProps : []
+    let concentration = null
+    try {
+      const _d = buildPortfolioConcentrationDiagnostics(_diagBestProps)
+      concentration = {
+        underExposurePct:         _d.underExposurePct,
+        overExposurePct:          _d.overExposurePct,
+        reboundsUnderExposurePct: _d.reboundsUnderExposurePct,
+        directionalConcentration: _d.directionalConcentration,
+        paceFragilityRisk:        _d.paceFragilityRisk,
+        sameEnvironmentDependency: _d.sameEnvironmentDependency,
+        structureHealthy:         _d.structureHealthy,
+        warningCount:             _d.warnings.length,
+      }
+    } catch (_e) {
+      // Diagnostics are non-critical — don't block status response
+      concentration = { error: _e?.message || "diagnostics unavailable" }
+    }
+
     res.json({
       ok: true,
       updatedAt: oddsSnapshot.updatedAt,
@@ -19054,7 +19091,8 @@ app.get("/snapshot/status", async (req, res) => {
       forceRefreshAvailable,
       events: (oddsSnapshot.events || []).length,
       props: (oddsSnapshot.props || []).length,
-      bestProps: (oddsSnapshot.bestProps || []).length
+      bestProps: (oddsSnapshot.bestProps || []).length,
+      concentration,
     })
   } catch (error) {
     res.status(500).json({
