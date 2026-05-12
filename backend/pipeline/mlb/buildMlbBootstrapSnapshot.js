@@ -19,6 +19,12 @@ const { enrichMlbRowsWithExternalContext } = require("./enrichment/mergeMlbExter
 const { fetchMlbExternalSnapshot } = require("./external/fetchMlbExternalSnapshot")
 const { buildPlayerTeamIndex, inferSurfaceTeamLabel } = require("./buildMlbInspectionBoard")
 const { resolveMlbTeamFromDiskCacheRow } = require("../resolution/mlbTeamResolution")
+// MLB Phase 1 Contextual Intelligence — additive only. Attaches weather,
+// park, handedness, pitcher-environment, bullpen, and lineup context plus a
+// composed mlbContextualShift to every row before the snapshot returns.
+// Applied at the canonical builder so EVERY downstream consumer (best-available
+// route, refresh route, nightly path) inherits context with no per-call-site wiring.
+const { applyMlbContextualLayers } = require("./context/applyMlbContextualLayers")
 
 function createEmptyMlbSnapshot() {
   return {
@@ -1209,6 +1215,21 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     samplePayloadShapes: Array.isArray(payloadShapes) ? payloadShapes.slice(0, 4) : []
   })
 
+  // ── MLB Phase 1 Contextual Intelligence (additive) ────────────────────────
+  // Pure derivation; never mutates existing fields. Failures here must NOT
+  // break snapshot generation — fall back to the un-enriched rows.
+  let contextualResult = { rows: rowsWithProbability, diagnostics: null }
+  try {
+    contextualResult = applyMlbContextualLayers({
+      rows: rowsWithProbability,
+      events: scheduledEventsSafe,
+    })
+  } catch (ctxErr) {
+    console.log("[MLB-CONTEXTUAL-PHASE-1 FAIL]", ctxErr?.message || ctxErr)
+    contextualResult = { rows: rowsWithProbability, diagnostics: { error: String(ctxErr?.message || ctxErr) } }
+  }
+  const rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbability
+
   return {
     sport: "mlb",
     updatedAt: observedAtIso,
@@ -1216,7 +1237,7 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     snapshotSlateDateKey: slateDateKey,
     events: scheduledEventsSafe,
     rawOddsEvents,
-    rows: rowsWithProbability,
+    rows: rowsWithContext,
     externalSnapshotMeta: enrichmentResult?.externalSnapshotMeta || {
       generatedAt: normalizedExternalSnapshot.generatedAt,
       source: normalizedExternalSnapshot.source,
@@ -1264,7 +1285,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       },
       externalFetchReadiness: (normalizedExternalSnapshot?.diagnostics && normalizedExternalSnapshot.diagnostics.fetchReadiness) || null,
       payloadShapes,
-      failedEvents
+      failedEvents,
+      contextual: (contextualResult && contextualResult.diagnostics) || null
     }
   }
 }
