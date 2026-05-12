@@ -1,6 +1,13 @@
 "use strict"
 
 const { impliedProbability: impliedProbabilityFromOdds, computeEdge } = require("../utils/edge")
+// Phase 1 — Context Ingestion V1.
+// Wires the EXISTING (curated, non-synthetic) NBA matchup intelligence into the
+// workstation modelProb path. Previously this layer was reachable only by the
+// nightly nbaOpportunityCandidates path; the live /api/ws/state path consumed
+// modelProb without it. Step-AN-1 populated `opponent` on snapshot rows, so
+// the dormant DEFENSE_BY_ABBR table is now reachable here too.
+const { computeMatchupAdjustmentFromRow } = require("./nbaMatchupIntelligence")
 
 function toNum(v) {
   const n = Number(v)
@@ -19,25 +26,19 @@ function logistic(x) {
   return 1 / (1 + Math.exp(-x))
 }
 
-function hash01(str) {
-  const s = String(str || "")
-  let h = 2166136261
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return ((h >>> 0) % 10000) / 10000
-}
-
-function playerPrior(row) {
-  const p = hash01(row?.player)
-  return (p - 0.5) * 2 // [-1, 1]
-}
-
-function eventPrior(row) {
-  const e = hash01(row?.eventId || row?.matchup)
-  return (e - 0.5) * 2
-}
+// Session AN — Step 2: Synthetic-prior generators retained as no-ops.
+// Previously these returned hash(player)/hash(eventId) → injected deterministic
+// "variance" that masqueraded as predictive signal. Verified runtime evidence:
+// usageRate / projectedMinutes / recentForm / assistRate / reboundRate /
+// opponentDefenseVsPosition were ALL fallback-derived from these hashes on
+// 100% of NBA snapshot rows (none of those fields are populated upstream).
+//
+// Returning 0 here removes the priors from every score path. We DO NOT delete
+// the functions because they may have external importers; the contract is
+// preserved (function still returns a finite number), but the value is
+// honest: zero. Honest uncertainty, not synthetic confidence.
+function playerPrior(_row) { return 0 }
+function eventPrior(_row)  { return 0 }
 
 function impliedProbabilityFromAmerican(odds) {
   if (!odds && odds !== 0) return null
@@ -119,47 +120,44 @@ function readSignal(row, keys, fallback = null) {
   return fallback
 }
 
-function roleSignals(row, family, line, anchor) {
-  const pp = playerPrior(row)
-  const ev = eventPrior(row)
-
-  const usage = readSignal(row, ["usageRate", "playerUsage", "usage", "roleUsagePct"], 22 + pp * 5)
-  const shots = readSignal(row, ["shotAttempts", "fga", "fieldGoalAttempts", "shotVolume"], (line || anchor) * (0.55 + pp * 0.08))
-  const astRate = readSignal(row, ["assistRate", "astRate", "assistPct"], 0.18 + pp * 0.05)
-  const rebRate = readSignal(row, ["reboundRate", "rebRate", "reboundPct"], 0.14 + pp * 0.04)
-  const minutes = readSignal(row, ["projectedMinutes", "minutesProjection", "minutes", "expectedMinutes"], 30 + pp * 4 + ev * 1.5)
-  const role = readSignal(row, ["rotationRole", "starterFlag", "depthRole"], 1)
-
+function roleSignals(row, _family, _line, _anchor) {
+  // Session AN — Step 2: All hash-derived synthetic fallbacks removed.
+  // Each signal returns null when the row carries no real value. Downstream
+  // scoring re-normalizes weights over PRESENT signals only — see
+  // nbaIndependentBaseModelProbability. No synthetic confidence injected.
   return {
-    usage,
-    shots,
-    astRate,
-    rebRate,
-    minutes,
-    role,
+    usage:   readSignal(row, ["usageRate", "playerUsage", "usage", "roleUsagePct"], null),
+    shots:   readSignal(row, ["shotAttempts", "fga", "fieldGoalAttempts", "shotVolume"], null),
+    astRate: readSignal(row, ["assistRate", "astRate", "assistPct"], null),
+    rebRate: readSignal(row, ["reboundRate", "rebRate", "reboundPct"], null),
+    minutes: readSignal(row, ["projectedMinutes", "minutesProjection", "minutes", "expectedMinutes"], null),
+    role:    readSignal(row, ["rotationRole", "starterFlag", "depthRole"], null),
   }
 }
 
 function contextSignals(row) {
-  const pp = playerPrior(row)
-  const pace = readSignal(row, ["pace", "projectedPace", "gamePace", "opponentPace"], 99 + pp * 1.5)
-  const total = readSignal(row, ["gameTotal", "total", "projectedTotal"], 224 + pp * 2)
-  const spread = Math.abs(readSignal(row, ["spread", "gameSpread", "lineSpread"], 5.5 + pp * 0.8))
-  const blowoutRisk = clamp(0, 1, spread / 16)
-  const oppDef = readSignal(
-    row,
-    ["opponentDefenseVsPosition", "oppDefenseVsPosition", "defenseVsPosition", "opponentDvP"],
-    eventPrior(row) * 2
-  )
+  // Session AN — Step 2: hash-derived fallbacks removed. Each context signal
+  // returns null when the row source is missing. spread/total ARE populated
+  // on snapshot rows (3638/3638) so they remain real signals. pace and
+  // opponentDefenseVsPosition are null until upstream pipelines provide them
+  // (DEFENSE intelligence enters via nbaMatchupIntelligence, not this layer).
+  const pace      = readSignal(row, ["pace", "projectedPace", "gamePace", "opponentPace"], null)
+  const total     = readSignal(row, ["gameTotal", "total", "projectedTotal"], null)
+  const spreadRaw = readSignal(row, ["spread", "gameSpread", "lineSpread"], null)
+  const spread    = Number.isFinite(spreadRaw) ? Math.abs(spreadRaw) : null
+  const blowoutRisk = Number.isFinite(spread) ? clamp(0, 1, spread / 16) : null
+  const oppDef    = readSignal(row, ["opponentDefenseVsPosition", "oppDefenseVsPosition", "defenseVsPosition", "opponentDvP"], null)
   return { pace, total, spread, blowoutRisk, oppDef }
 }
 
-function recentFormSignal(row, line, anchor) {
-  const pp = playerPrior(row)
+function recentFormSignal(row, _line, _anchor) {
+  // Session AN — Step 2: hash-derived synthetic fallback removed.
+  // Previously when no real recent-form field existed (always — none of these
+  // keys are populated on snapshot rows), the function synthesised a "form"
+  // value as line × (0.90 + hash(player) × 0.12). That is fake variance.
+  // Now: returns null when no real recent-form data → contributes 0 to score.
   const recent = readSignal(row, ["recentForm", "recentFormScore", "last5Avg", "last10Avg", "rollingAverage"], null)
-  if (Number.isFinite(recent)) return recent
-  const base = Number.isFinite(line) ? line : anchor
-  return base * (0.90 + pp * 0.12)
+  return Number.isFinite(recent) ? recent : null
 }
 
 function ladderSeverity(row, family, anchor) {
@@ -198,6 +196,31 @@ function compressAroundMid(probability, family) {
   return clamp01(mid + d * factor)
 }
 
+// Session AN — Step 2 helper.
+// Compute a weighted score over PRESENT signals only. Returns:
+//   { score, weight_present, signals_present, signals_total }
+// Each entry is (z|null, weight). null entries contribute 0 to score AND 0 to
+// the present-weight denominator. Score is normalized: score / weight_present.
+// If no signals present → score=0 → logistic(0)=0.5 → market-neutral baseline.
+function honestWeightedScore(entries) {
+  let num = 0
+  let denom = 0
+  let present = 0
+  for (const [z, w] of entries) {
+    if (Number.isFinite(z) && Number.isFinite(w) && w > 0) {
+      num   += z * w
+      denom += w
+      present++
+    }
+  }
+  return {
+    score: denom > 0 ? num / denom : 0,
+    weight_present: denom,
+    signals_present: present,
+    signals_total: entries.length,
+  }
+}
+
 function nbaIndependentBaseModelProbability(row) {
   if (!row || typeof row !== "object") return null
 
@@ -208,33 +231,59 @@ function nbaIndependentBaseModelProbability(row) {
   const { pace, total, spread, blowoutRisk, oppDef } = contextSignals(row)
   const recent = recentFormSignal(row, line, anchor)
 
-  const usageZ = (usage - 22) / 9
-  const minutesZ = (minutes - 30) / 6
-  const shotsZ = (shots - (line || anchor) * 0.5) / Math.max(4, anchor * 0.35)
-  const astZ = (astRate - 0.18) / 0.08
-  const rebZ = (rebRate - 0.14) / 0.08
+  // Session AN — Step 2: each Z-score is null when its source signal is null.
+  // No synthetic priors. No hash-derived fallbacks.
+  const usageZ   = Number.isFinite(usage)   ? (usage - 22) / 9 : null
+  const minutesZ = Number.isFinite(minutes) ? (minutes - 30) / 6 : null
+  const shotsZ   = Number.isFinite(shots) && Number.isFinite(line || anchor)
+                     ? (shots - (line || anchor) * 0.5) / Math.max(4, anchor * 0.35) : null
+  const astZ     = Number.isFinite(astRate) ? (astRate - 0.18) / 0.08 : null
+  const rebZ     = Number.isFinite(rebRate) ? (rebRate - 0.14) / 0.08 : null
   const formBase = Number.isFinite(line) ? line : anchor
-  const formZ = (recent - formBase) / Math.max(2.5, anchor * 0.28)
-  const paceZ = (pace - 100) / 8
-  const totalZ = (total - 224) / 20
-  const spreadZ = (5.5 - spread) / 8
-  const oppZ = -oppDef / 10
-  const roleZ = (role - 1) / 2
+  const formZ    = Number.isFinite(recent) && Number.isFinite(formBase)
+                     ? (recent - formBase) / Math.max(2.5, anchor * 0.28) : null
+  const paceZ    = Number.isFinite(pace)    ? (pace - 100) / 8 : null
+  const totalZ   = Number.isFinite(total)   ? (total - 224) / 20 : null
+  const spreadZ  = Number.isFinite(spread)  ? (5.5 - spread) / 8 : null
+  const oppZ     = Number.isFinite(oppDef)  ? -oppDef / 10 : null
+  const roleZ    = Number.isFinite(role)    ? (role - 1) / 2 : null
 
   const w = familyScoreWeights(family)
-  const rateZ = family === "rebounds" ? rebZ : family === "assists" ? astZ : family === "pra" ? (astZ + rebZ) / 2 : 0
-  const ctxZ = paceZ * 0.45 + totalZ * 0.35 + spreadZ * 0.20 + oppZ * 0.35 - blowoutRisk * 0.35 + roleZ * 0.15
+  // rateZ chooses the family-relevant rate; null when its source is null.
+  const rateZ =
+    family === "rebounds" ? rebZ :
+    family === "assists"  ? astZ :
+    family === "pra"      ? (Number.isFinite(astZ) && Number.isFinite(rebZ) ? (astZ + rebZ) / 2
+                              : Number.isFinite(astZ) ? astZ
+                              : Number.isFinite(rebZ) ? rebZ
+                              : null)
+    : null
 
-  let score =
-    usageZ * w.usage +
-    shotsZ * w.shots +
-    rateZ * w.rate +
-    formZ * w.form +
-    minutesZ * 0.26 +
-    ctxZ * w.ctx +
-    playerPrior(row) * 0.22 +
-    eventPrior(row) * 0.06
+  // Session AN — Step 2: Context bundle re-normalized over present sub-signals.
+  const ctxBundle = honestWeightedScore([
+    [paceZ,                        0.45],
+    [totalZ,                       0.35],
+    [spreadZ,                      0.20],
+    [oppZ,                         0.35],
+    [Number.isFinite(blowoutRisk) ? -blowoutRisk : null, 0.35],
+    [roleZ,                        0.15],
+  ])
+  const ctxZ = ctxBundle.signals_present > 0 ? ctxBundle.score : null
 
+  // Session AN — Step 2: Top-level score re-normalized over present primary signals.
+  // playerPrior + eventPrior contributions REMOVED entirely (they were synthetic).
+  const primaryBundle = honestWeightedScore([
+    [usageZ,   w.usage],
+    [shotsZ,   w.shots],
+    [rateZ,    w.rate],
+    [formZ,    w.form],
+    [minutesZ, 0.26],
+    [ctxZ,     w.ctx],
+  ])
+  let score = primaryBundle.score
+
+  // Ladder penalty is real (alt-line away from anchor → lower hit rate).
+  // Applied only when line is real and ladder severity is positive.
   const ladderZ = ladderSeverity(row, family, anchor)
   if (ladderZ > 0) {
     const ladderPenalty = family === "threes" ? 0.36 : family === "pra" ? 0.44 : 0.48
@@ -273,10 +322,66 @@ function nbaRowIndependentModelProbability(row) {
       : family === "rebounds" || family === "assists"
       ? 0.82
       : 0.80
+  // Session AN — Step 2: Removed systematic +0.015 upward recenter.
+  // That bias claimed every NBA prop was 1.5pp more likely than market —
+  // the single largest source of fake "edge" in the prediction core.
+  // Now: market-anchored compression with no synthetic shift. Edge will
+  // appear ONLY when present real signals push modelProb above implied.
   const compressedToMarket = implied + (modelProb - implied) * alpha
-  const recentered = compressedToMarket + 0.015
+
+  // Phase 1 — Context Ingestion V1: REAL contextual matchup adjustment.
+  // computeMatchupAdjustmentFromRow returns:
+  //   { adj, opponent, defensePart, pacePart, totalPart }
+  // - adj is bullish for the OFFENSIVE outcome (over). Range capped ±0.06.
+  // - defensePart is non-zero ONLY when row.opponent resolves to a known team
+  //   in DEFENSE_BY_ABBR (i.e., REAL opponent intelligence — no synthetic
+  //   fallback; null opponent → defensePart = 0).
+  // - totalPart fires from real gameTotal (100% of snapshot rows).
+  // - pacePart fires from row.pace (currently 0% — honest 0 contribution).
+  // For "under" props, the offensive adjustment inverts: tough defense
+  // suppresses overs ⇒ boosts unders; favorable matchup boosts overs ⇒
+  // suppresses unders.
+  let matchupShift = 0
+  try {
+    const m = computeMatchupAdjustmentFromRow(row)
+    if (m && Number.isFinite(m.adj)) {
+      const side = String(row?.side || "").toLowerCase()
+      matchupShift = side === "under" ? -m.adj : m.adj
+    }
+  } catch (_) {
+    matchupShift = 0
+  }
+
+  const withMatchup = compressedToMarket + matchupShift
   const band = probabilityBandForFamily(family, row)
-  return clamp01(clamp(band.min, band.max, recentered))
+  return clamp01(clamp(band.min, band.max, withMatchup))
+}
+
+/**
+ * Phase 1 — Context Ingestion V1.
+ * Public traceability wrapper: returns the itemized contextual adjustments
+ * that were applied inside nbaRowIndependentModelProbability for this row.
+ * Returns null when no row. defensePart=0 when opponent is unresolved (honest
+ * "no defense intelligence available" — never invented).
+ *
+ * @returns {{ adj, opponent, defensePart, pacePart, totalPart, sideAware } | null}
+ */
+function nbaRowMatchupContext(row) {
+  if (!row || typeof row !== "object") return null
+  let m
+  try {
+    m = computeMatchupAdjustmentFromRow(row)
+  } catch (_) { return null }
+  if (!m || !Number.isFinite(m.adj)) return null
+  const side = String(row?.side || "").toLowerCase()
+  return {
+    adj: m.adj,
+    opponent: m.opponent || null,
+    defensePart: m.defensePart || 0,
+    pacePart: m.pacePart || 0,
+    totalPart: m.totalPart || 0,
+    sideAware: side === "under" ? -m.adj : m.adj,
+  }
 }
 
 function nbaRowModelProbabilityCore(row) {
@@ -326,6 +431,7 @@ module.exports = {
   nbaRowIndependentModelProbability,
   nbaRowModelProbabilityCore,
   nbaRowModelProbability,
+  nbaRowMatchupContext,        // Phase 1 — Context Ingestion V1
   nbaRowEdge,
   nbaRowLadderLabel,
 }

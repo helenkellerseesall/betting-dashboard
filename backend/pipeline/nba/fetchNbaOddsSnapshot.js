@@ -550,8 +550,22 @@ async function fetchEventOddsRows(event, oddsApiKey) {
           moneylineAwayOdds: Number.isFinite(moneylineAwayOdds) ? moneylineAwayOdds : null,
         }
 
-        if (shouldRejectRow(draftRow)) continue
-        rows.push(draftRow)
+        // Session AN — Step 1: Activate dormant matchup intelligence.
+        // Populate `opponent` at snapshot creation time so the row leaves the
+        // fetcher carrying the field that nbaMatchupIntelligence.computeMatchupAdjustmentFromRow
+        // gates on (`row.opponent ?? row.opponentTeam`). Reuses the EXISTING
+        // applyTeamFallbackFromProjections helper which:
+        //   1. Fills `team` from data/nbaPlayerProjections.json by player name
+        //   2. Infers `opponent` by matching team against homeTeam / awayTeam
+        // No new matchup engine. No new player→team source. We are wiring the
+        // missing field using intelligence that already exists.
+        // Players not in projections.json (≈28% of slate) remain opponent=null.
+        // That is honest — those rows correctly receive 0 defense adjustment,
+        // not a synthetic one.
+        const enrichedRow = applyTeamFallbackFromProjections(draftRow)
+
+        if (shouldRejectRow(enrichedRow)) continue
+        rows.push(enrichedRow)
       }
     }
   }
