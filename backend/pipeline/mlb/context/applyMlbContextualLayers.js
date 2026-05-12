@@ -81,6 +81,39 @@ function loadBullpenStats(dataDir) {
 	return safeReadJson(path.join(dataDir, "mlbBullpenWorkload.json")) || {}
 }
 
+function loadParkMeta(dataDir) {
+	// Phase 1B — optional. When present, enables dome/retractable detection
+	// in the weather deriver (indoor venues zero out wind + precip shifts).
+	return safeReadJson(path.join(dataDir, "mlbParkMeta.json")) || {}
+}
+
+// ── Market sanity (Phase 1B) ─────────────────────────────────────────────────
+
+/**
+ * Phase 1B — Synthetic / non-player markets must not receive causal contextual
+ * treatment. These are markets like NRFI/YRFI, first-home-run, first-hit,
+ * stolen-bases (yes/no), and any market without a real `player` field. Treating
+ * them with weather/handedness/lineup signals would be semantic noise.
+ *
+ * Per the existing classifier in pipeline/markets/mlbClassification.js, the
+ * "special" family carries first-* and yes-no constructs, and "game" carries
+ * moneyline/runline/total. Both are excluded. "unknown" is also excluded —
+ * never decorate an uncategorized row.
+ *
+ * Returns true when the row SHOULD be skipped (no contextual derivation).
+ */
+function shouldSkipContextualForRow(row) {
+	const fam = String(row?.marketFamily || "").toLowerCase()
+	if (fam === "game" || fam === "special" || fam === "unknown") return true
+	const player = String(row?.player || "").trim()
+	if (!player) return true
+	// Extra defense: side="no" / side="yes" appear on yes/no constructs; even
+	// inside "standard" family these should not get contextual reasoning.
+	const side = String(row?.side || "").toLowerCase()
+	if (side === "no" || side === "yes") return true
+	return false
+}
+
 // ── Coordinator ──────────────────────────────────────────────────────────────
 
 function defaultDataDir() {
@@ -108,12 +141,14 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 	const parkFactorsByTeam  = (overrides && overrides.parkFactorsByTeam)  || loadParkFactors(dir)
 	const pitcherStatsByName = (overrides && overrides.pitcherStatsByName) || loadPitcherStats(dir)
 	const bullpenByTeam      = (overrides && overrides.bullpenByTeam)      || loadBullpenStats(dir)
+	const parkMetaByTeam     = (overrides && overrides.parkMetaByTeam)     || loadParkMeta(dir)
 
 	const eventsIndex = buildEventsIndex(events)
 
 	const diagnostics = {
-		phase: "mlb-phase-1-contextual-v1",
+		phase: "mlb-phase-1b-contextual-v1",
 		rowsProcessed: 0,
+		rowsSkippedSynthetic: 0,
 		coverage: {
 			weather: 0,
 			park: 0,
@@ -121,6 +156,7 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			pitcherEnvData: 0,
 			bullpenData: 0,
 			lineup: 0,
+			indoorVenues: 0,
 		},
 		shiftStats: {
 			withShift: 0,
@@ -131,6 +167,7 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			parkFactorTeams:   Object.keys(parkFactorsByTeam || {}).length,
 			pitcherStatNames:  Object.keys(pitcherStatsByName || {}).length,
 			bullpenTeams:      Object.keys(bullpenByTeam || {}).length,
+			parkMetaTeams:     Object.keys(parkMetaByTeam || {}).filter(k => !k.startsWith("_")).length,
 			eventsIndexed:     eventsIndex.size,
 		},
 		samples: {
@@ -150,7 +187,27 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 	const enriched = safeRows.map((row) => {
 		diagnostics.rowsProcessed += 1
 
-		const weather    = deriveMlbWeatherContext(row, { weatherByEventId })
+		// Phase 1B — synthetic / non-player markets are not eligible for causal
+		// reasoning. Attach explicit nulls + a contextual envelope so the row
+		// shape stays stable (no missing keys) without inventing context.
+		if (shouldSkipContextualForRow(row)) {
+			diagnostics.rowsSkippedSynthetic += 1
+			return {
+				...row,
+				weatherContext: null,
+				parkContext: null,
+				handednessContext: null,
+				pitcherEnvironmentContext: null,
+				bullpenContext: null,
+				lineupContextV2: null,
+				mlbContextualSignal: null,
+				mlbContextualShift: null,
+				mlbContextualTags: [],
+				mlbContextualSkipReason: "synthetic_market",
+			}
+		}
+
+		const weather    = deriveMlbWeatherContext(row, { weatherByEventId, parkMetaByTeam })
 		const park       = deriveMlbParkContext(row, { parkFactorsByTeam })
 		const handedness = deriveMlbHandednessContext(row)
 		const pitcherEnv = deriveMlbPitcherEnvironmentContext(row, { pitcherStatsByName })
@@ -158,6 +215,7 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 		const lineup     = deriveMlbLineupContext(row)
 
 		if (weather)    diagnostics.coverage.weather    += 1
+		if (weather && weather.isIndoor) diagnostics.coverage.indoorVenues += 1
 		if (park)       diagnostics.coverage.park       += 1
 		if (handedness) diagnostics.coverage.handedness += 1
 		if (pitcherEnv && pitcherEnv.dataAvailable) diagnostics.coverage.pitcherEnvData += 1
@@ -225,9 +283,11 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 		diagnostics.shiftStats.abs.mean = Number((absSum / absCount).toFixed(4))
 	}
 
-	console.log("[MLB-CONTEXTUAL-PHASE-1]", {
+	console.log("[MLB-CONTEXTUAL-PHASE-1B]", {
 		rows: diagnostics.rowsProcessed,
+		skippedSynthetic: diagnostics.rowsSkippedSynthetic,
 		weather: diagnostics.coverage.weather,
+		indoorVenues: diagnostics.coverage.indoorVenues,
 		park: diagnostics.coverage.park,
 		handedness: diagnostics.coverage.handedness,
 		pitcherEnvData: diagnostics.coverage.pitcherEnvData,

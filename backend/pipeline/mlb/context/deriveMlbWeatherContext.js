@@ -1,12 +1,14 @@
 "use strict"
 
 /**
- * MLB Phase 1 — Weather Context Derivation
+ * MLB Phase 1 + 1B — Weather Context Derivation
  *
  * Pure function. Reads:
  *   row.eventId
- *   weatherByEventId map (from /backend/data/mlbGameWeather.json) — already
- *   built by buildMlbWeather.js. We never fetch here.
+ *   row.homeTeam (used to consult parkMeta for dome status)
+ *   weatherByEventId map (built live by refreshMlbWeatherForSlate.js OR
+ *                         loaded from /backend/data/mlbGameWeather.json)
+ *   parkMetaByTeam map   (from /backend/data/mlbParkMeta.json) — Phase 1B
  *
  * Returns null when no weather data is available for the row's eventId.
  * Returns a structured contextual object otherwise. Fields:
@@ -14,24 +16,29 @@
  *   temperatureF           — Fahrenheit (converted from C if necessary)
  *   windSpeedMph
  *   windDirectionDeg       — meteorological convention (FROM which dir)
- *   windDirectionTag       — "out_to_cf" | "in_from_cf" | "cross" | "calm" | "unknown"
- *                            (qualitative band only; park-specific orientation
- *                            modelling is deferred to a later phase)
- *   tempCarryShift         — bounded [-0.04, +0.04] HR-carry contribution
- *                            from temperature (Alan Nathan style: ~3 ft per 10F
- *                            above 70F; we soften this to a probability shift)
- *   windCarryShift         — bounded [-0.04, +0.04] HR-carry contribution
- *                            from wind. Only nonzero when band ≠ "cross"/"calm"
- *   carryShift             — tempCarryShift + windCarryShift (clamped)
+ *   windDirectionTag       — "out_to_cf" | "in_from_cf" | "cross" | "calm" | "unknown" | "indoor"
+ *   humidityPct            — 0..100 or null (Phase 1B)
+ *   precipitationMm        — mm or null (Phase 1B)
+ *   isIndoor               — true when isDome OR (isRetractable AND roofUsuallyClosed)
+ *   parkName               — string or null
+ *   tempCarryShift         — bounded [-0.04, +0.04] HR-carry contribution from temp
+ *   windCarryShift         — bounded [-0.04, +0.04] HR-carry contribution from wind
+ *   precipShift            — bounded [-0.03, 0] when precipitation present (offense damp)
+ *   carryShift             — sum of the above, clamped [-0.05, 0.05]
  *
- * Notes:
- *   - Fallback weather entries from buildMlbWeather (temperature: 70, windSpeed: 0)
- *     produce a neutral shift naturally — no special-casing required.
- *   - We never invent missing fields. If a field is null in source, downstream
- *     shifts derived from it are 0.
- *   - This is observational only: it does NOT mutate predictedProbability.
- *     composeMlbContextualSignal aggregates these shifts into mlbContextualShift
- *     which downstream layers may consume in later phases.
+ * Phase 1B rules:
+ *   - When isIndoor=true: windCarryShift=0, precipShift=0, tempCarryShift uses
+ *     a controlled-environment baseline (72F) so it stays near zero. Wind tag
+ *     becomes "indoor".
+ *   - Heavy precip (≥ 1.0 mm) → small negative offensive shift, tag "PRECIP".
+ *   - Humidity is informational only in Phase 1B (no shift) — physics is small
+ *     and direction depends on context (humid air is less dense, but ball is
+ *     slightly heavier; net effect tiny). We expose the value for grading.
+ *
+ * Phase 1 properties preserved:
+ *   - Observational only: nothing here mutates predictedProbability.
+ *   - Bounded magnitudes ensure no single layer dominates.
+ *   - Truthful nulls: when a source field is null, derived shifts default to 0.
  */
 
 function toNum(v) {
@@ -69,12 +76,54 @@ function classifyWindDirection(windSpeedMph, windDirectionDeg) {
 	return "cross"
 }
 
-function deriveMlbWeatherContext(row, { weatherByEventId } = {}) {
+function lookupParkMeta(parkMetaByTeam, homeTeamRaw) {
+	if (!parkMetaByTeam || typeof parkMetaByTeam !== "object") return null
+	const raw = String(homeTeamRaw || "").trim().toLowerCase()
+	if (!raw) return null
+	if (parkMetaByTeam[raw]) return parkMetaByTeam[raw]
+	for (const k of Object.keys(parkMetaByTeam)) {
+		if (k.startsWith("_")) continue
+		if (k === raw || raw.includes(k) || k.includes(raw)) return parkMetaByTeam[k]
+	}
+	return null
+}
+
+function deriveMlbWeatherContext(row, { weatherByEventId, parkMetaByTeam } = {}) {
 	if (!row) return null
 	const eventKey = String(row?.eventId || "")
 	if (!eventKey) return null
 	const entry = (weatherByEventId && weatherByEventId[eventKey]) || null
-	if (!entry || typeof entry !== "object") return null
+
+	const meta = lookupParkMeta(parkMetaByTeam, row?.homeTeam)
+	const isIndoor = Boolean(
+		(meta && meta.isDome === true) ||
+		(meta && meta.isRetractable === true && meta.roofUsuallyClosed === true)
+	)
+
+	// Indoor venues: even when no live weather entry is present we can still
+	// emit a controlled-environment context so downstream consumers know the
+	// weather layer is structurally null-for-good-reason rather than missing.
+	if (!entry || typeof entry !== "object") {
+		if (isIndoor) {
+			return {
+				temperatureF: 72,
+				windSpeedMph: 0,
+				windDirectionDeg: null,
+				windDirectionTag: "indoor",
+				humidityPct: null,
+				precipitationMm: null,
+				isIndoor: true,
+				parkName: meta?.parkName || null,
+				tempCarryShift: 0,
+				windCarryShift: 0,
+				precipShift: 0,
+				carryShift: 0,
+				source: "park_meta_indoor",
+				forecastTimeUtc: null,
+			}
+		}
+		return null
+	}
 
 	let temp = toNum(entry.temperature ?? entry.temp)
 	if (temp != null && celsiusLikely(temp)) {
@@ -83,46 +132,53 @@ function deriveMlbWeatherContext(row, { weatherByEventId } = {}) {
 	const temperatureF = temp != null ? Number(temp.toFixed(1)) : null
 
 	let wind = toNum(entry.windSpeed)
-	// Open-Meteo wind_speed_10m is in m/s when no unit override is requested.
-	// buildMlbWeather.js does not override units, so we convert m/s → mph.
-	// Heuristic: typical baseball wind 0..40 mph. m/s for the same range is 0..18.
-	// We treat values ≤ 25 as m/s and convert. Above 25 we assume mph already.
-	if (wind != null && wind <= 25) {
-		wind = wind * 2.23694
-	}
+	if (wind != null && wind <= 25) wind = wind * 2.23694
 	const windSpeedMph = wind != null ? Number(wind.toFixed(1)) : null
 	const windDirectionDeg = toNum(entry.windDirectionDeg)
-	const windDirectionTag = classifyWindDirection(windSpeedMph, windDirectionDeg)
+	const humidityPct = toNum(entry.humidityPct ?? entry.relative_humidity_2m)
+	const precipitationMm = toNum(entry.precipitationMm ?? entry.precipitation)
 
-	// Temperature shift: ~+0.5 mph carry per 10F over 70F → tiny prob shift.
-	// We cap at ±0.04 to keep contextual layers observational.
+	const windDirectionTag = isIndoor ? "indoor" : classifyWindDirection(windSpeedMph, windDirectionDeg)
+
 	let tempCarryShift = 0
 	if (temperatureF != null) {
-		tempCarryShift = clamp((temperatureF - 70) * 0.0015, -0.04, 0.04)
+		// Indoor stadiums are climate-controlled near 72F; the temp signal is
+		// near zero either way, but we anchor to 72 for stability.
+		const baseline = isIndoor ? 72 : 70
+		tempCarryShift = clamp((temperatureF - baseline) * 0.0015, -0.04, 0.04)
 	}
 
-	// Wind shift: only band classifier; magnitude scales with windSpeedMph.
 	let windCarryShift = 0
-	if (windSpeedMph != null) {
+	if (!isIndoor && windSpeedMph != null) {
 		const mag = clamp((windSpeedMph - 4) * 0.003, 0, 0.04)
 		if (windDirectionTag === "out_to_cf") windCarryShift = mag
 		else if (windDirectionTag === "in_from_cf") windCarryShift = -mag
-		else windCarryShift = 0
 	}
 
-	const carryShift = clamp(tempCarryShift + windCarryShift, -0.05, 0.05)
+	let precipShift = 0
+	if (!isIndoor && precipitationMm != null) {
+		// Heavy precipitation suppresses offense — small negative shift; cap -0.03.
+		precipShift = -clamp((precipitationMm - 0.2) * 0.012, 0, 0.03)
+	}
+
+	const carryShift = clamp(tempCarryShift + windCarryShift + precipShift, -0.05, 0.05)
 
 	return {
 		temperatureF,
 		windSpeedMph,
 		windDirectionDeg,
 		windDirectionTag,
+		humidityPct,
+		precipitationMm,
+		isIndoor,
+		parkName: meta?.parkName || null,
 		tempCarryShift: Number(tempCarryShift.toFixed(4)),
 		windCarryShift: Number(windCarryShift.toFixed(4)),
+		precipShift: Number(precipShift.toFixed(4)),
 		carryShift: Number(carryShift.toFixed(4)),
-		source: "openmeteo_cached",
+		source: entry?._meta?.ingestedAt ? "openmeteo_live" : "openmeteo_cached",
 		forecastTimeUtc: entry.forecastTimeUtc || null,
 	}
 }
 
-module.exports = { deriveMlbWeatherContext, classifyWindDirection }
+module.exports = { deriveMlbWeatherContext, classifyWindDirection, lookupParkMeta }

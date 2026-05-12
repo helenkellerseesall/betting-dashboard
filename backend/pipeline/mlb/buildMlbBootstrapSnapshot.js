@@ -25,6 +25,12 @@ const { resolveMlbTeamFromDiskCacheRow } = require("../resolution/mlbTeamResolut
 // Applied at the canonical builder so EVERY downstream consumer (best-available
 // route, refresh route, nightly path) inherits context with no per-call-site wiring.
 const { applyMlbContextualLayers } = require("./context/applyMlbContextualLayers")
+// MLB Phase 1B — real environmental data ingestion (weather, pitcher stats,
+// bullpen workload). Promise.allSettled inside; bounded global timeout;
+// fail-open: any layer that errors or times out returns an empty map and the
+// contextual layer falls back to whatever is on disk (or truthful nulls).
+// Kill switch: env MLB_CTX_SKIP_INGEST=1 bypasses all ingestion.
+const { buildMlbContextualDataPack } = require("./ingest/buildMlbContextualDataPack")
 
 function createEmptyMlbSnapshot() {
   return {
@@ -1215,6 +1221,24 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     samplePayloadShapes: Array.isArray(payloadShapes) ? payloadShapes.slice(0, 4) : []
   })
 
+  // ── MLB Phase 1B — Real environmental data ingestion (fail-open) ──────────
+  // Single coordinator; Promise.allSettled internally; bounded timeout.
+  // Each layer (weather, pitchers, bullpen) yields {} on failure so the
+  // contextual layer can still proceed with whatever data IS available.
+  let contextualDataPack = { overrides: undefined, diagnostics: null }
+  try {
+    contextualDataPack = await buildMlbContextualDataPack({
+      events: scheduledEventsSafe,
+      slateDate: slateDateKey,
+    })
+  } catch (packErr) {
+    console.log("[MLB-CTX-DATA-PACK FAIL]", packErr?.message || packErr)
+    contextualDataPack = {
+      overrides: undefined,
+      diagnostics: { error: String(packErr?.message || packErr), enabled: true },
+    }
+  }
+
   // ── MLB Phase 1 Contextual Intelligence (additive) ────────────────────────
   // Pure derivation; never mutates existing fields. Failures here must NOT
   // break snapshot generation — fall back to the un-enriched rows.
@@ -1223,9 +1247,10 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
     contextualResult = applyMlbContextualLayers({
       rows: rowsWithProbability,
       events: scheduledEventsSafe,
+      overrides: contextualDataPack.overrides,
     })
   } catch (ctxErr) {
-    console.log("[MLB-CONTEXTUAL-PHASE-1 FAIL]", ctxErr?.message || ctxErr)
+    console.log("[MLB-CONTEXTUAL-PHASE-1B FAIL]", ctxErr?.message || ctxErr)
     contextualResult = { rows: rowsWithProbability, diagnostics: { error: String(ctxErr?.message || ctxErr) } }
   }
   const rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbability
@@ -1286,7 +1311,8 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       externalFetchReadiness: (normalizedExternalSnapshot?.diagnostics && normalizedExternalSnapshot.diagnostics.fetchReadiness) || null,
       payloadShapes,
       failedEvents,
-      contextual: (contextualResult && contextualResult.diagnostics) || null
+      contextual: (contextualResult && contextualResult.diagnostics) || null,
+      contextualIngest: (contextualDataPack && contextualDataPack.diagnostics) || null
     }
   }
 }
