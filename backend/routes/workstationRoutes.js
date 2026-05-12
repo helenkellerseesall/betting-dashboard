@@ -29,6 +29,10 @@ const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
+// Phase 1 — Recent Form V1 (Session AP). Real per-player rolling stats from
+// settled-bet history. Honest null when sample insufficient.
+// enrichRowWithRecentForm is a no-op when no form exists for that player+stat.
+const { enrichRowWithRecentForm: enrichNbaRowWithRecentForm } = require("../pipeline/nba/nbaRecentFormCache")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
 const slipAuditRoute      = require("./slipAuditRoute")
@@ -135,7 +139,7 @@ function enrichBestEntry(e, betsById) {
   if (!e) return null
   const idGuess = `${e.slateDate || ""}|${(e.player || "").toLowerCase()}|${(e.eventId || "")}|${(e.propType || "").toLowerCase().replace(/\s+/g, "")}|${(e.side || "").toLowerCase()}|${e.line ?? ""}|${e.odds ?? ""}|${(e.book || "").toLowerCase()}`
   const tb = (betsById && betsById.get(idGuess)) || null
-  return {
+  const out = {
     ...e,
     edge:           e.edgeProbability,
     modelProb:      e.predictedProbability,
@@ -147,6 +151,13 @@ function enrichBestEntry(e, betsById) {
     confidence:     tb?.confidence,
     tier:           tb?.tier,
   }
+  // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
+  // stats when available. NBA only — MLB tracked_best entries simply won't
+  // have a recent-form record (cache scoped to NBA settled bets).
+  if (String(e?.sport || "").toLowerCase() === "nba") {
+    enrichNbaRowWithRecentForm(out)
+  }
+  return out
 }
 
 /**
@@ -219,6 +230,11 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // projections.json remain team=null (sameTeam boosts simply don't fire for them — not an error).
     // Coverage on current slate: 18/24 diversified candidates receive team → sameTeam boosts activate.
     const enriched = applyTeamFallbackFromProjections(enrichNbaRowStatLayerInputs(r))
+    // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
+    // stats from settled-bet history BEFORE modelProb is computed, so
+    // nbaModelSignals.recentFormSignal sees row.recentForm and contributes a
+    // sample-quality-blended formZ to the score. Honest no-op when no form.
+    enrichNbaRowWithRecentForm(enriched)
     const mp = nbaRowModelProbability(enriched)
     if (!Number.isFinite(mp) || mp < 0.35) continue
     const edge = nbaRowEdge(enriched)

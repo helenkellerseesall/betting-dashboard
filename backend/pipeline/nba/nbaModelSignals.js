@@ -150,14 +150,42 @@ function contextSignals(row) {
   return { pace, total, spread, blowoutRisk, oppDef }
 }
 
-function recentFormSignal(row, _line, _anchor) {
+function recentFormSignal(row, line, anchor) {
   // Session AN — Step 2: hash-derived synthetic fallback removed.
-  // Previously when no real recent-form field existed (always — none of these
-  // keys are populated on snapshot rows), the function synthesised a "form"
-  // value as line × (0.90 + hash(player) × 0.12). That is fake variance.
-  // Now: returns null when no real recent-form data → contributes 0 to score.
-  const recent = readSignal(row, ["recentForm", "recentFormScore", "last5Avg", "last10Avg", "rollingAverage"], null)
-  return Number.isFinite(recent) ? recent : null
+  // Session AP — Recent Form V1: when row carries real recentForm with thin
+  // sample_count, blend the rolling average toward the line proxy so a 2-game
+  // sample contributes proportionally less than a 5-game sample. This is the
+  // "influence not dominate" rule expressed mathematically — never a hot-streak
+  // engine.
+  //
+  // recentForm shape (from nbaRecentFormCache.enrichRowWithRecentForm):
+  //   { last5_avg, last10_avg, baseline, sample_count, days_since_last_game, source }
+  //
+  // Behaviour:
+  //   - sample_count >= 5  → use last5_avg (or last10_avg) at full weight
+  //   - sample_count 2-4   → blend toward formBase by (1 - sample_count/5)
+  //   - sample_count < 2 OR no real recentForm → return null (honest "no signal")
+  //
+  // Field-shape compatibility: also reads bare `last5Avg` / `recentForm` numerics
+  // for consumers that wired the field name directly.
+  const rf = row && typeof row === "object" && row.recentForm && typeof row.recentForm === "object" ? row.recentForm : null
+  const direct = readSignal(row, ["recentForm", "recentFormScore", "rollingAverage"], null)
+  const recent = Number.isFinite(rf?.last5_avg) ? rf.last5_avg
+               : Number.isFinite(rf?.last10_avg) ? rf.last10_avg
+               : Number.isFinite(toNum(row?.last5Avg))  ? toNum(row.last5Avg)
+               : Number.isFinite(toNum(row?.last10Avg)) ? toNum(row.last10Avg)
+               : Number.isFinite(direct) ? direct
+               : null
+  if (!Number.isFinite(recent)) return null
+
+  const sampleCount = Number(rf?.sample_count)
+  const formBase = Number.isFinite(line) ? line : anchor
+  if (Number.isFinite(sampleCount) && sampleCount < 5 && Number.isFinite(formBase)) {
+    const quality = Math.max(0, Math.min(1, sampleCount / 5))
+    // Blend recent toward formBase based on sample quality.
+    return recent * quality + formBase * (1 - quality)
+  }
+  return recent
 }
 
 function ladderSeverity(row, family, anchor) {
