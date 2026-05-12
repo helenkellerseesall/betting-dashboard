@@ -1,4 +1,20 @@
 require("dotenv").config({ path: require("path").join(__dirname, ".env") })
+
+// Session BC — Longitudinal Table Creation Path Audit fix.
+// EAGERLY open + verify the canonical SQLite DB at boot so the [DB-BOOT]
+// diagnostic and AZ-table auto-repair fire IMMEDIATELY at startup — not
+// lazily on the first DB-using request. Without this, getDb() was dead
+// code at boot: nothing in this file's module-load sequence called
+// tryGetDb(), so operators verifying the DB right after a "restart" saw
+// stale tables because the new process had not opened the DB yet.
+// Wrapped in try/catch so SQLite-unavailable cannot crash server boot.
+try {
+  const __dbBootResult = require("./storage/db").initializeAtBoot()
+  console.log("[SERVER-BOOT-DB-INIT]", __dbBootResult)
+} catch (__dbInitErr) {
+  console.warn("[SERVER-BOOT-DB-INIT] eager init failed (non-fatal):", __dbInitErr?.message || __dbInitErr)
+}
+
 const express = require("express")
 const cors = require("cors")
 const axios = require("axios")

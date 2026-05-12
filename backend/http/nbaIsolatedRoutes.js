@@ -18,6 +18,40 @@ const {
 } = require("../pipeline/nba/buildNbaBoardSlicesFromSnapshot")
 const { fetchNbaOddsSnapshot, saveNbaSnapshotToDisk } = require("../pipeline/nba/fetchNbaOddsSnapshot")
 
+// Session BD — Longitudinal Freeze Pipeline Audit.
+// Lazy require so a module-load failure here cannot block the snapshot path.
+// freezePredictionEpoch is invoked AFTER replaceOddsSnapshot succeeds so the
+// bestProps generation cycle creates immutable observational records:
+//   - 1 row in prediction_epochs (epoch keyed on snap.updatedAt)
+//   - 1 row per bestProp in prediction_snapshots
+//   - 1 row per bestProp in frozen_contextual_states
+// Contextual columns will be NULL on this path (snapshot-bestProps are not
+// contextually enriched — that's only done in workstationRoutes.js for the
+// /api/ws/state cache-miss). final_model_prob + final_edge ARE captured.
+// This is HONEST sparsity, not synthetic richness — every NULL means the
+// corresponding contextual layer did not fire for this prediction at this
+// epoch. The /api/ws/state freeze path remains in place and writes RICHER
+// contextual rows for the same predictions when invoked.
+function _lazyFreezePredictionEpoch(args) {
+  try {
+    const { freezePredictionEpoch } = require("../pipeline/memory/freezePredictionEpoch")
+    return freezePredictionEpoch(args)
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) }
+  }
+}
+
+// Compute the Detroit-keyed slate date (matches buildSlateEvents semantics)
+// without taking a hard dependency on that module here.
+function _detroitSlateDateKey(value) {
+  const date = new Date(value || Date.now())
+  if (!Number.isFinite(date.getTime())) return new Date().toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Detroit",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date)
+}
+
 // Workstation intelligence modules — used to build featured boards + AI slips
 // from the same snapshot pool that feeds the insight board.
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
@@ -745,6 +779,31 @@ async function handleNbaRefreshSnapshotAfterMlbBranch(req, res, deps) {
     } catch (e) {
       console.log("[NBA-SNAPSHOT] replay disk save skipped", e?.message || e)
     }
+
+    // Session BD — also freeze on replay path so disk-replays observe their
+    // own bestProps state (idempotent — same snapshot updatedAt → same epoch).
+    try {
+      const bestPropsR = Array.isArray(replaySnap?.bestProps) ? replaySnap.bestProps : []
+      if (bestPropsR.length) {
+        const fzR = _lazyFreezePredictionEpoch({
+          predictions:       bestPropsR,
+          sport:             "nba",
+          slateDate:         _detroitSlateDateKey(replaySnap?.updatedAt),
+          source:            "snapshot_bestprops_replay",
+          snapshotUpdatedAt: replaySnap?.updatedAt,
+          notes:             "replay snapshot bestProps freeze",
+        })
+        console.log("[NBA-SNAPSHOT-FREEZE-REPLAY]", {
+          ok: fzR.ok, epochInserted: fzR.epochInserted,
+          predictionsInserted: fzR.predictionsInserted,
+          predictionsSkipped: fzR.predictionsSkipped,
+          contextualInserted: fzR.contextualInserted,
+        })
+      }
+    } catch (fzReplayErr) {
+      console.warn("[NBA-SNAPSHOT-FREEZE-REPLAY] non-fatal:", fzReplayErr?.message || fzReplayErr)
+    }
+
     return res.status(200).json({
       ok: true,
       sport: "basketball_nba",
@@ -772,6 +831,36 @@ async function handleNbaRefreshSnapshotAfterMlbBranch(req, res, deps) {
     } catch (e) {
       console.log("[NBA-SNAPSHOT] disk save failed", e?.message || e)
     }
+
+    // Session BD — Longitudinal Freeze Pipeline. Persist an observational
+    // record of the predictions we just surfaced via bestProps. Honest
+    // sparsity on contextual columns — no contextual layer fires here.
+    try {
+      const bestProps = Array.isArray(snap?.bestProps) ? snap.bestProps : []
+      if (bestProps.length) {
+        const fzResult = _lazyFreezePredictionEpoch({
+          predictions:       bestProps,
+          sport:             "nba",
+          slateDate:         _detroitSlateDateKey(snap?.updatedAt),
+          source:            "snapshot_bestprops",
+          snapshotUpdatedAt: snap?.updatedAt,
+          notes:             "snapshot bestProps freeze (no contextual enrichment)",
+        })
+        console.log("[NBA-SNAPSHOT-FREEZE]", {
+          ok:                  fzResult.ok,
+          epochInserted:       fzResult.epochInserted,
+          predictionsInserted: fzResult.predictionsInserted,
+          predictionsSkipped:  fzResult.predictionsSkipped,
+          contextualInserted:  fzResult.contextualInserted,
+          error:               fzResult.error,
+        })
+      } else {
+        console.log("[NBA-SNAPSHOT-FREEZE] skipped (no bestProps)")
+      }
+    } catch (fzErr) {
+      console.warn("[NBA-SNAPSHOT-FREEZE] non-fatal:", fzErr?.message || fzErr)
+    }
+
     return res.status(200).json({
       ok: true,
       sport: "basketball_nba",

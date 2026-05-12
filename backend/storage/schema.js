@@ -24,8 +24,9 @@
  * are applied together whenever the DB is initialized.
  */
 
-const { applyScreenshotSchema } = require("./screenshotSchema")
-const { applyReviewSchema }     = require("./reviewSchema")
+const { applyScreenshotSchema }    = require("./screenshotSchema")
+const { applyReviewSchema }        = require("./reviewSchema")
+const { applyIntelligenceSchema }  = require("./intelligenceSchema")
 
 const DDL = `
 
@@ -224,7 +225,8 @@ CREATE INDEX IF NOT EXISTS idx_pl_tier       ON personal_ledger (confidence_tier
 function applySchema(db) {
   db.exec(DDL)
   applyScreenshotSchema(db)
-  applyReviewSchema(db)     // Session W: Daily Intelligence Review tables
+  applyReviewSchema(db)        // Session W: Daily Intelligence Review tables
+  applyIntelligenceSchema(db)  // Session AZ: prediction_epochs + frozen_contextual_states (also re-asserts pre-existing prediction_snapshots / outcome_snapshots / slip_outcomes / ecology_snapshots which were previously created lazily by intelligence.js)
 }
 
 module.exports = { applySchema, DDL }

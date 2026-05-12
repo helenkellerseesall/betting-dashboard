@@ -201,6 +201,108 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_eco_run  ON ecology_snapshots (run_date, s
 CREATE        INDEX IF NOT EXISTS idx_eco_date ON ecology_snapshots (run_date);
 CREATE        INDEX IF NOT EXISTS idx_eco_sport ON ecology_snapshots (sport);
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- prediction_epochs (Session AZ — Frozen Prediction + Grading Architecture V1)
+--
+-- One row per snapshot-capture event. Groups together all prediction_snapshots
+-- and frozen_contextual_states that were generated from the same coherent
+-- snapshot lifecycle (i.e. between two successive replaceOddsSnapshot calls).
+--
+-- An epoch is the answer to the question:
+--   "What did the system think at this moment in time?"
+--
+-- epoch_id is deterministic: snapshot_updated_at|sport|slate_date.
+-- Re-deriving the same snapshot (same updatedAt) is idempotent — INSERT OR
+-- IGNORE prevents duplicate epochs. New snapshot updatedAt → new epoch.
+--
+-- source distinguishes capture origin:
+--   'workstation_state' = captured from /api/ws/state cache-miss (interactive)
+--   'nightly'           = captured from runMlbNight.js / runNbaNight.js (batch)
+--   'manual'            = test / probe / operator-driven freeze
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS prediction_epochs (
+  epoch_id            TEXT    PRIMARY KEY,
+  captured_at         TEXT    DEFAULT (datetime('now')),
+  snapshot_updated_at TEXT,                    -- from oddsSnapshot.updatedAt (ISO)
+  slate_date          TEXT    NOT NULL,        -- YYYY-MM-DD (Detroit-keyed)
+  sport               TEXT    NOT NULL,        -- mlb / nba / etc
+  source              TEXT,                    -- 'workstation_state' / 'nightly' / 'manual'
+  prediction_count    INTEGER DEFAULT 0,       -- how many predictions in this epoch
+  contextual_count    INTEGER DEFAULT 0,       -- how many had non-null contextual data
+  slip_count          INTEGER DEFAULT 0,       -- how many slips associated with this epoch
+  notes               TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pe_slate_date ON prediction_epochs (slate_date);
+CREATE INDEX IF NOT EXISTS idx_pe_sport      ON prediction_epochs (sport);
+CREATE INDEX IF NOT EXISTS idx_pe_captured   ON prediction_epochs (captured_at);
+CREATE INDEX IF NOT EXISTS idx_pe_source     ON prediction_epochs (source);
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- frozen_contextual_states (Session AZ)
+--
+-- One row per prediction. Captures the full contextual reasoning state at the
+-- moment that prediction was surfaced. Linked to prediction_snapshots via
+-- prediction_id (PK), and to prediction_epochs via epoch_id.
+--
+-- Why a separate table:
+--   prediction_snapshots was designed pre-AO/AP/AR/AS/AT/AV — it has columns
+--   for tier/volatility/archetype but NOT for the contextual layers added in
+--   Sessions AO–AV (matchup, recent_form, role, teammate, market, availability).
+--   Adding 14 new columns to prediction_snapshots would risk breaking the
+--   existing 241-row dataset and the 4 modules that read it. A side-table
+--   keeps the existing schema untouched (additive architecture rule) while
+--   making contextual state queryable.
+--
+-- raw_context_json carries forward-compat for any future contextual layer.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS frozen_contextual_states (
+  -- Composite PK (defined at end of column list per SQLite syntax):
+  -- same prediction observed in N epochs → N rows. This is the immutability
+  -- guarantee: each epoch's contextual snapshot is preserved separately even
+  -- if the underlying prediction (same line/book) was re-surfaced in a later
+  -- epoch with a different context.
+  prediction_id              TEXT    NOT NULL,      -- = prediction_snapshots.id
+  epoch_id                   TEXT    NOT NULL,      -- = prediction_epochs.epoch_id
+  -- Session AO — Matchup Intelligence
+  matchup_score              REAL,
+  matchup_shift              REAL,
+  -- Session AP — Recent Form V1
+  recent_form_z              REAL,
+  recent_form_sample         INTEGER,
+  recent_form_shift          REAL,
+  -- Session AR — Role + Minutes
+  starter_flag               INTEGER,               -- 0 / 1 / null
+  projected_minutes          REAL,
+  -- Session AS — Teammate Absence + Redistribution
+  teammate_absent_count      INTEGER,
+  teammate_redist_shift      REAL,
+  -- Session AT — Market + News Adaptation
+  market_consensus_implied   REAL,
+  market_dispersion          REAL,
+  market_book_count          INTEGER,
+  market_shift               REAL,
+  -- Session AV — Live Injury + Availability
+  player_status              TEXT,                  -- active / questionable / out / etc
+  availability_shift         REAL,
+  -- Final composed model output (post-shift)
+  final_model_prob           REAL,
+  final_edge                 REAL,
+  -- Forward-compat
+  raw_context_json           TEXT,
+  created_at                 TEXT    DEFAULT (datetime('now')),
+  PRIMARY KEY (prediction_id, epoch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fcs_prediction     ON frozen_contextual_states (prediction_id);
+CREATE INDEX IF NOT EXISTS idx_fcs_epoch          ON frozen_contextual_states (epoch_id);
+CREATE INDEX IF NOT EXISTS idx_fcs_starter        ON frozen_contextual_states (starter_flag);
+CREATE INDEX IF NOT EXISTS idx_fcs_status         ON frozen_contextual_states (player_status);
+CREATE INDEX IF NOT EXISTS idx_fcs_market_shift   ON frozen_contextual_states (market_shift);
+CREATE INDEX IF NOT EXISTS idx_fcs_avail_shift    ON frozen_contextual_states (availability_shift);
+
 `
 
 /**
@@ -213,4 +315,98 @@ function applyIntelligenceSchema(db) {
   db.exec(DDL)
 }
 
-module.exports = { applyIntelligenceSchema, DDL }
+/**
+ * Session BB — Longitudinal Memory Completion Audit.
+ *
+ * Self-healing migration for the Session AZ tables only. Used by:
+ *   - db.js getDb() boot diagnostic, when it observes the AZ tables missing
+ *     after applySchema (defensive against module-cache staleness, partial
+ *     DDL execution, or any future regression in the larger DDL string)
+ *   - scripts/migrateLongitudinalMemory.js (one-shot operator script)
+ *
+ * Kept as an ISOLATED, self-contained DDL fragment intentionally:
+ *   - It must not depend on any earlier statement in the main DDL succeeding
+ *   - It must be cheap to call repeatedly (CREATE TABLE IF NOT EXISTS is a
+ *     no-op when the table already exists)
+ *   - It is a literal duplicate of the AZ-table portion of the main DDL —
+ *     this duplication is INTENTIONAL: it ensures the AZ migration runs
+ *     even if the main DDL string is somehow stale in a long-lived process
+ */
+const AZ_DDL = `
+CREATE TABLE IF NOT EXISTS prediction_epochs (
+  epoch_id            TEXT    PRIMARY KEY,
+  captured_at         TEXT    DEFAULT (datetime('now')),
+  snapshot_updated_at TEXT,
+  slate_date          TEXT    NOT NULL,
+  sport               TEXT    NOT NULL,
+  source              TEXT,
+  prediction_count    INTEGER DEFAULT 0,
+  contextual_count    INTEGER DEFAULT 0,
+  slip_count          INTEGER DEFAULT 0,
+  notes               TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pe_slate_date ON prediction_epochs (slate_date);
+CREATE INDEX IF NOT EXISTS idx_pe_sport      ON prediction_epochs (sport);
+CREATE INDEX IF NOT EXISTS idx_pe_captured   ON prediction_epochs (captured_at);
+CREATE INDEX IF NOT EXISTS idx_pe_source     ON prediction_epochs (source);
+
+CREATE TABLE IF NOT EXISTS frozen_contextual_states (
+  prediction_id              TEXT    NOT NULL,
+  epoch_id                   TEXT    NOT NULL,
+  matchup_score              REAL,
+  matchup_shift              REAL,
+  recent_form_z              REAL,
+  recent_form_sample         INTEGER,
+  recent_form_shift          REAL,
+  starter_flag               INTEGER,
+  projected_minutes          REAL,
+  teammate_absent_count      INTEGER,
+  teammate_redist_shift      REAL,
+  market_consensus_implied   REAL,
+  market_dispersion          REAL,
+  market_book_count          INTEGER,
+  market_shift               REAL,
+  player_status              TEXT,
+  availability_shift         REAL,
+  final_model_prob           REAL,
+  final_edge                 REAL,
+  raw_context_json           TEXT,
+  created_at                 TEXT    DEFAULT (datetime('now')),
+  PRIMARY KEY (prediction_id, epoch_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fcs_prediction     ON frozen_contextual_states (prediction_id);
+CREATE INDEX IF NOT EXISTS idx_fcs_epoch          ON frozen_contextual_states (epoch_id);
+CREATE INDEX IF NOT EXISTS idx_fcs_starter        ON frozen_contextual_states (starter_flag);
+CREATE INDEX IF NOT EXISTS idx_fcs_status         ON frozen_contextual_states (player_status);
+CREATE INDEX IF NOT EXISTS idx_fcs_market_shift   ON frozen_contextual_states (market_shift);
+CREATE INDEX IF NOT EXISTS idx_fcs_avail_shift    ON frozen_contextual_states (availability_shift);
+`
+
+/**
+ * Idempotent self-healing migration that creates the Session AZ tables if
+ * they are missing. Returns { created: string[], alreadyPresent: string[] }.
+ * Never throws — returns { error } on failure.
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ */
+function migrateAZTables(db) {
+  try {
+    const before = new Set(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name)
+    )
+    const az = ["prediction_epochs", "frozen_contextual_states"]
+    const alreadyPresent = az.filter(t => before.has(t))
+    db.exec(AZ_DDL)
+    const after = new Set(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name)
+    )
+    const created = az.filter(t => !before.has(t) && after.has(t))
+    return { created, alreadyPresent, error: null }
+  } catch (err) {
+    return { created: [], alreadyPresent: [], error: err?.message || String(err) }
+  }
+}
+
+module.exports = { applyIntelligenceSchema, migrateAZTables, DDL, AZ_DDL }

@@ -58,6 +58,12 @@ const { buildSlateMarketContext, enrichRowWithMarketContext: enrichNbaRowWithMar
 // Sets row.playerStatus + row.availabilityContext + row.availabilityShift.
 // Honest no-op when player not in cache (NEVER fabricates "active by default").
 const { enrichRowWithAvailability: enrichNbaRowWithAvailability } = require("../pipeline/nba/nbaAvailabilityCache")
+// Session AZ — Frozen Prediction + Grading Architecture V1. Captures an
+// immutable observational snapshot of every cache-miss prediction cycle
+// (predictions + their full contextual reasoning state). NEVER duplicates
+// existing prediction_snapshots writer — delegates to it, then writes
+// new prediction_epochs + frozen_contextual_states rows on top.
+const { freezePredictionEpoch } = require("../pipeline/memory/freezePredictionEpoch")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
 const slipAuditRoute      = require("./slipAuditRoute")
@@ -544,6 +550,52 @@ router.get("/state", (req, res) => {
         steam:           timingResult?.meta?.steamCount ?? 0,
         stale:           timingResult?.meta?.staleCount ?? 0,
       }
+
+      // ── Session AZ — Frozen Prediction + Grading Architecture V1 ────────────
+      // Capture an immutable observational snapshot of THIS prediction cycle.
+      // Wrapped in try/catch so the memory layer NEVER breaks the workstation
+      // request. INSERT OR IGNORE on prediction_epochs + INSERT OR IGNORE on
+      // prediction_snapshots means: re-running the same snapshot lifecycle
+      // (same updatedAt) is a perfect no-op — predictions remain immutable.
+      // New snapshot updatedAt → new epoch → new contextual freeze.
+      try {
+        // Read snapshot updatedAt for deterministic epoch keying. Read once
+        // (cheap), don't modify readSnapshotRows (has 3 callers).
+        let snapshotUpdatedAt = null
+        try {
+          const sportFile = path.join(__dirname, "..", `snapshot-${sport}.json`)
+          const sportSnap = readJsonSafe(sportFile, null)
+          let snap = sportSnap
+          if (!snap && sport === "nba") {
+            snap = readJsonSafe(path.join(__dirname, "..", "snapshot.json"), null)
+          }
+          snapshotUpdatedAt = snap?.updatedAt || snap?.data?.updatedAt || null
+        } catch (_) { /* honest null on missing snapshot */ }
+
+        const freezeResult = freezePredictionEpoch({
+          predictions:       candidates,
+          slipsByTier:       aiSlips.slips || null,
+          sport,
+          slateDate:         date,
+          source:            "workstation_state",
+          snapshotUpdatedAt,
+          notes:             `cache-miss build; supplement=${snapSupplement.length}`,
+        })
+        console.log("[FROZEN-EPOCH]", {
+          ok:                  freezeResult.ok,
+          epochId:             freezeResult.epochId,
+          epochInserted:       freezeResult.epochInserted,
+          predictionsInserted: freezeResult.predictionsInserted,
+          predictionsSkipped:  freezeResult.predictionsSkipped,
+          contextualInserted:  freezeResult.contextualInserted,
+          ecologyRecorded:     freezeResult.ecologyRecorded,
+          error:               freezeResult.error,
+        })
+      } catch (freezeErr) {
+        // Non-fatal — workstation must continue working even if memory layer breaks.
+        console.warn("[FROZEN-EPOCH] capture skipped (non-fatal):", freezeErr?.message || freezeErr)
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       return {
         sport,
