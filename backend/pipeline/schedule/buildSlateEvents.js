@@ -80,14 +80,51 @@ async function buildSlateEvents({
 		}))
 	})
 
-	const scheduledEvents = allEvents.filter((event) => {
+	// Session AW — Slate Integrity Repair V1.
+	// scheduledEvents previously matched only by Detroit calendar date.
+	// A completed game on today's date stayed in scheduledEvents for hours
+	// after the game ended (Odds API still returns it). That stale event
+	// then drove per-event odds fetching → stale props → stale bestProps →
+	// contaminated workstation outputs. Two-stage filter below:
+	//   1. same Detroit calendar date as slate (existing)
+	//   2. commence_time STRICTLY in the future relative to `now` (new)
+	// Effect: only PRE-GAME events drive snapshot generation. In-progress
+	// and completed games are correctly excluded — props for those games
+	// are no longer fetched, persisted, or surfaced.
+	const eventsOnSlateDate = allEvents.filter((event) => {
 		const eventTime = getEventTimeForSchedule(event)
 		return toDetroitDateKey(eventTime) === slateDateKey
+	})
+	const scheduledEvents = eventsOnSlateDate.filter((event) => {
+		const eventTime = getEventTimeForSchedule(event)
+		const ms = new Date(eventTime).getTime()
+		return Number.isFinite(ms) && ms > now
+	})
+	const completedOrInProgressDropped = eventsOnSlateDate.length - scheduledEvents.length
+
+	// Session AX — Future-slate acceptance fix.
+	// Session AW correctly excluded completed games but the date-key restriction
+	// in scheduledEvents means TOMORROW's NBA games are also excluded (different
+	// Detroit calendar date). When today's games are all complete and tomorrow's
+	// games are upcoming on the sportsbook, every consumer of scheduledEvents
+	// (including server.js hard-reset which returns 404 on empty) treats the
+	// slate as ended. `upcomingEvents` is the ANY-DATE future-only filter:
+	// consumers should prefer scheduledEvents (today pregame) when populated,
+	// and fall back to upcomingEvents (tomorrow / next pregame day) when today
+	// has no remaining pregame games.
+	const upcomingEvents = allEvents.filter((event) => {
+		const eventTime = getEventTimeForSchedule(event)
+		const ms = new Date(eventTime).getTime()
+		return Number.isFinite(ms) && ms > now
 	})
 
 	console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {
 		slateDateKey,
+		nowIso: new Date(now).toISOString(),
+		eventsOnSlateDate: eventsOnSlateDate.length,
+		completedOrInProgressDropped,
 		totalEvents: scheduledEvents.length,
+		upcomingEventsAnyDate: upcomingEvents.length,
 		events: scheduledEvents.map((event) => ({
 			eventId: getEventIdForSchedule(event),
 			matchup: getEventMatchupForSchedule(event),
@@ -99,7 +136,8 @@ async function buildSlateEvents({
 	return {
 		slateDateKey,
 		allEvents,
-		scheduledEvents
+		scheduledEvents,
+		upcomingEvents
 	}
 }
 

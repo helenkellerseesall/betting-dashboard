@@ -581,16 +581,18 @@ async function fetchNbaOddsSnapshot({ oddsApiKey, now = Date.now(), maxEvents = 
     throw new Error("Missing oddsApiKey for NBA snapshot fetch")
   }
 
-  const { allEvents, scheduledEvents } = await buildSlateEvents({
+  const { allEvents, scheduledEvents, upcomingEvents } = await buildSlateEvents({
     oddsApiKey,
     now,
   })
 
+  // Session AX — use buildSlateEvents.upcomingEvents (any-date future-only)
+  // as the fallback when scheduledEvents (today + future) is empty. This
+  // ensures tomorrow's pregame NBA games still drive snapshot generation
+  // when today's slate is complete.
   const slateEvents = Array.isArray(scheduledEvents) && scheduledEvents.length
     ? scheduledEvents
-    : Array.isArray(allEvents)
-      ? allEvents
-      : []
+    : (Array.isArray(upcomingEvents) ? upcomingEvents : [])
 
   const normalizedEvents = slateEvents.slice(0, maxEvents)
 
