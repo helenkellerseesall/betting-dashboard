@@ -33,6 +33,31 @@ const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = requir
 // settled-bet history. Honest null when sample insufficient.
 // enrichRowWithRecentForm is a no-op when no form exists for that player+stat.
 const { enrichRowWithRecentForm: enrichNbaRowWithRecentForm } = require("../pipeline/nba/nbaRecentFormCache")
+// Phase 1 — Lineup + Rotation Intelligence V1 (Session AR). Real role / minutes-
+// trend deriver from the same ESPN game-log cache. Injects starterFlag +
+// projectedMinutes (already consumed by nbaModelSignals.roleSignals) +
+// structured roleContext for explainability. Honest no-op when sample < 3.
+const { enrichRowWithRoleContext: enrichNbaRowWithRoleContext } = require("../pipeline/nba/nbaRoleContextDeriver")
+// Phase 1 — Teammate Absence + Usage Redistribution V1 (Session AS). Cross-
+// references tonight's snapshot rows with the same ESPN game-log cache to
+// infer likely-absent teammates per team, then computes per-stat redistribution
+// deltas (with-absent vs baseline). Sets row.teammateRedistShift consumed by
+// nbaRowIndependentModelProbability. Bounded ±3 pp; sample-quality dampened.
+const { buildSlateContextFromSnapshot: buildNbaTeammateSlateContext,
+        enrichRowWithTeammateContext:  enrichNbaRowWithTeammateContext } = require("../pipeline/nba/nbaTeammateContextDeriver")
+// Phase 1 — Market + News Adaptation V1 (Session AT). Pure derivation from
+// existing multi-book snapshot data — no new feed, no scraping, no fake CLV.
+// Per-prop consensus across books + per-row delta-vs-consensus. Sets
+// row.marketShift consumed by nbaRowIndependentModelProbability. Bounded ±2pp;
+// shrunk further when book dispersion is high (consensus uncertain).
+const { buildSlateMarketContext, enrichRowWithMarketContext: enrichNbaRowWithMarketContext } = require("../pipeline/nba/nbaMarketContextDeriver")
+// Phase 1 — Live Injury + Availability V1 (Session AV). Reads
+// data/nbaInjuryReport.json (populated by scripts/populateNbaInjuryReport.js
+// from ESPN per-team injury endpoint) using the EXISTING dormant
+// normaliser ingestNbaOfficialInjuryReport.normalizeNbaOfficialAvailabilityStatus.
+// Sets row.playerStatus + row.availabilityContext + row.availabilityShift.
+// Honest no-op when player not in cache (NEVER fabricates "active by default").
+const { enrichRowWithAvailability: enrichNbaRowWithAvailability } = require("../pipeline/nba/nbaAvailabilityCache")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
 const slipAuditRoute      = require("./slipAuditRoute")
@@ -156,6 +181,11 @@ function enrichBestEntry(e, betsById) {
   // have a recent-form record (cache scoped to NBA settled bets).
   if (String(e?.sport || "").toLowerCase() === "nba") {
     enrichNbaRowWithRecentForm(out)
+    // Phase 1 — Lineup + Rotation Intelligence V1 (Session AR): inject real
+    // role / minutes-trend context derived from same ESPN game-log cache.
+    // Sets row.starterFlag + row.projectedMinutes (consumed by nbaModelSignals)
+    // and row.roleContext (explainability). Honest no-op for unknown players.
+    enrichNbaRowWithRoleContext(out)
   }
   return out
 }
@@ -178,6 +208,20 @@ const NBA_SNAPSHOT_TOP_N = 150
 
 function buildNbaSnapshotCandidates(snapshotRows) {
   console.log("[WS-PROBE] buildNbaSnapshotCandidates called with", snapshotRows.length, "rows")
+  // Phase 1 — Teammate Context V1 (Session AS): build slate-level absence
+  // context ONCE per snapshot pass. Cross-references the snapshot rows with
+  // the per-player ESPN game-log cache (Session AQ) to detect likely-absent
+  // teammates per team. Used per-row below to compute redistribution shifts.
+  const __teammateSlateCtx = buildNbaTeammateSlateContext(snapshotRows)
+  let __teammateAbsenceCount = 0
+  for (const _arr of __teammateSlateCtx.absenceByTeam.values()) __teammateAbsenceCount += _arr.length
+  console.log("[WS-PROBE] teammate slate-context: teams=%d, total likely-absent=%d",
+    __teammateSlateCtx.absenceByTeam.size, __teammateAbsenceCount)
+  // Phase 1 — Market Context V1 (Session AT): build per-prop multi-book
+  // consensus map ONCE per snapshot pass. Used per-row below to compute
+  // delta-vs-consensus and set row.marketShift.
+  const __marketSlateCtx = buildSlateMarketContext(snapshotRows)
+  console.log("[WS-PROBE] market slate-context: multi-book props=%d", __marketSlateCtx.propConsensus.size)
   if (!Array.isArray(snapshotRows) || !snapshotRows.length) return []
   const rawQualified = []
 
@@ -235,6 +279,29 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // nbaModelSignals.recentFormSignal sees row.recentForm and contributes a
     // sample-quality-blended formZ to the score. Honest no-op when no form.
     enrichNbaRowWithRecentForm(enriched)
+    // Phase 1 — Lineup + Rotation Intelligence V1 (Session AR): inject real
+    // role + minutes-trend signals from the same game-log cache. Sets
+    // row.starterFlag + row.projectedMinutes (already consumed by
+    // nbaModelSignals.roleSignals) and row.roleContext. No-op when sample < 3.
+    enrichNbaRowWithRoleContext(enriched)
+    // Phase 1 — Teammate Absence + Usage Redistribution V1 (Session AS):
+    // sets row.teammateContext (absent_teammates list, redistribution per
+    // stat) and row.teammateRedistShift (signed, capped ±0.030 prob units)
+    // consumed by nbaRowIndependentModelProbability. No-op when no likely
+    // absences detected for this team or sample insufficient.
+    enrichNbaRowWithTeammateContext(enriched, __teammateSlateCtx)
+    // Phase 1 — Market + News Adaptation V1 (Session AT): sets
+    // row.marketContext (consensus_implied, dispersion, delta_vs_consensus,
+    // market_signal) and row.marketShift (signed, capped ±0.020 prob units)
+    // consumed by nbaRowIndependentModelProbability. Honest no-op when only
+    // single book quotes this prop.
+    enrichNbaRowWithMarketContext(enriched, __marketSlateCtx)
+    // Phase 1 — Live Injury + Availability V1 (Session AV): sets
+    // row.playerStatus + row.availabilityContext + row.availabilityShift
+    // (signed, capped ±0.020 prob units, side-aware) consumed by
+    // nbaRowIndependentModelProbability. Honest no-op when player not in
+    // injury cache (status remains undefined — no synthetic "active default").
+    enrichNbaRowWithAvailability(enriched)
     const mp = nbaRowModelProbability(enriched)
     if (!Number.isFinite(mp) || mp < 0.35) continue
     const edge = nbaRowEdge(enriched)

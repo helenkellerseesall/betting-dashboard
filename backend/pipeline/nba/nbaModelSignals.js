@@ -357,6 +357,36 @@ function nbaRowIndependentModelProbability(row) {
   // appear ONLY when present real signals push modelProb above implied.
   const compressedToMarket = implied + (modelProb - implied) * alpha
 
+  // Phase 1 — Teammate Context V1 (Session AS): bounded redistribution shift.
+  // nbaTeammateContextDeriver.enrichRowWithTeammateContext sets
+  // row.teammateRedistShift in probability units (signed, capped ±0.030 pp).
+  // The shift composes alongside the matchup adjustment below — both are
+  // bounded, sample-quality dampened, and side-aware in their setters.
+  // No-op when row carries no teammate context (honest scarcity).
+  let teammateShift = 0
+  if (Number.isFinite(row?.teammateRedistShift)) teammateShift = row.teammateRedistShift
+
+  // Phase 1 — Market + News Adaptation V1 (Session AT): bounded multi-book
+  // consensus shift. nbaMarketContextDeriver.enrichRowWithMarketContext sets
+  // row.marketShift in probability units (signed, capped ±0.020 pp). When
+  // consensus across books implies a HIGHER probability for the bettor's
+  // side than this book's price (delta < 0), the shift is positive
+  // (consensus confirmation). When this book is OVERPRICING relative to
+  // consensus, the shift is negative (market caution).
+  // Smaller cap than teammate's 3pp because multi-book signal is noisier.
+  // No-op when row's prop has only one book quoting it.
+  let marketShift = 0
+  if (Number.isFinite(row?.marketShift)) marketShift = row.marketShift
+
+  // Phase 1 — Live Injury + Availability V1 (Session AV): bounded
+  // availability shift. nbaAvailabilityCache.enrichRowWithAvailability sets
+  // row.availabilityShift in probability units (signed, capped ±0.020 pp).
+  // "out" / "doubtful" / "questionable" suppress over-side modelProb (and
+  // boost under by sign-inversion); "probable" small boost; "active" /
+  // "unknown" → 0. Honest 0 when player not in cache (no fabricated status).
+  let availabilityShift = 0
+  if (Number.isFinite(row?.availabilityShift)) availabilityShift = row.availabilityShift
+
   // Phase 1 — Context Ingestion V1: REAL contextual matchup adjustment.
   // computeMatchupAdjustmentFromRow returns:
   //   { adj, opponent, defensePart, pacePart, totalPart }
@@ -380,7 +410,7 @@ function nbaRowIndependentModelProbability(row) {
     matchupShift = 0
   }
 
-  const withMatchup = compressedToMarket + matchupShift
+  const withMatchup = compressedToMarket + matchupShift + teammateShift + marketShift + availabilityShift
   const band = probabilityBandForFamily(family, row)
   return clamp01(clamp(band.min, band.max, withMatchup))
 }
