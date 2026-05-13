@@ -277,8 +277,92 @@ const __nbaCacheDiag = {
   diskPlayerIdCount:               0,
   diskPlayerStatsCount:            0,
   cachePersistenceHealthy:         null, // tri-state: true | false | null (unknown)
+  // Phase F3 — cacheability-gate tracing
+  cacheWriteSkipReasonCounts: {
+    PLAYER_ID_API_RETURNED_NULL:   0,
+    STATS_API_RETURNED_EMPTY:      0,
+    PLAYER_THROWN_ERROR:           0,
+  },
+  unresolvedPlayerSamples:         [], // up to 25 names where player-id lookup returned null
+  rejectedCacheabilitySamples:     [], // ring buffer of last 25 rejections (any reason)
+  apiSportsResponseDiagnostics: {
+    lastPlayerIdRequestPlayer:           null,
+    lastPlayerIdResponseRowsReturned:    null,
+    lastPlayerIdResponseSampleNames:     [], // up to 3 names from most recent API response
+    lastPlayerIdResponseHadFiniteId:     null,
+    lastStatsRequestPlayerId:            null,
+    lastStatsResponseRowsReturned:       null,
+    lastObservedAt:                      null,
+  },
   // Rate-limit flags
   _loggedFirstEnrichmentSummary:   false,
+  _loggedReasonKinds:              new Set(), // emits one [NBA-CACHEABILITY-GATE] line per first-seen reason
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase F3 — record a cacheability skip with a categorized reason + sample.
+//
+// Replaces the bare `__nbaCacheDiag.cacheWriteSkips += 1` increments from F2
+// at three call sites inside enrichRowsWithRecentForm. Each site now passes
+// a specific reason string and a sample object so operators can see WHICH
+// gate rejected the write — not just that one was rejected.
+//
+// Bounded ring buffer of 25 samples ensures the diagnostics block stays small
+// even under heavy slate volume. Emits ONE [NBA-CACHEABILITY-GATE] log per
+// first-seen reason per process — observability without log spam.
+// ─────────────────────────────────────────────────────────────────────────────
+const __NBA_REJECTION_SAMPLE_CAP = 25
+const __NBA_UNRESOLVED_SAMPLE_CAP = 25
+
+function recordCacheWriteSkip(reason, sample) {
+  __nbaCacheDiag.cacheWriteSkips += 1
+  const reasonKey = String(reason || "UNKNOWN_REASON")
+  if (Object.prototype.hasOwnProperty.call(__nbaCacheDiag.cacheWriteSkipReasonCounts, reasonKey)) {
+    __nbaCacheDiag.cacheWriteSkipReasonCounts[reasonKey] += 1
+  } else {
+    __nbaCacheDiag.cacheWriteSkipReasonCounts[reasonKey] = 1
+  }
+
+  const enriched = {
+    reason: reasonKey,
+    capturedAtIso: new Date().toISOString(),
+    ...((sample && typeof sample === "object") ? sample : {}),
+  }
+
+  // Ring buffer over recent rejections (any reason).
+  if (__nbaCacheDiag.rejectedCacheabilitySamples.length >= __NBA_REJECTION_SAMPLE_CAP) {
+    __nbaCacheDiag.rejectedCacheabilitySamples.shift()
+  }
+  __nbaCacheDiag.rejectedCacheabilitySamples.push(enriched)
+
+  // Dedicated unresolved-player sample list grows to a cap and stops.
+  if (reasonKey === "PLAYER_ID_API_RETURNED_NULL" &&
+      __nbaCacheDiag.unresolvedPlayerSamples.length < __NBA_UNRESOLVED_SAMPLE_CAP) {
+    __nbaCacheDiag.unresolvedPlayerSamples.push({
+      playerName: enriched.playerName || null,
+      normalizedQuery: enriched.normalizedQuery || null,
+      apiRowsReturned: enriched.apiRowsReturned ?? null,
+      apiSampleNames: Array.isArray(enriched.apiSampleNames) ? enriched.apiSampleNames.slice(0, 3) : null,
+      capturedAtIso: enriched.capturedAtIso,
+    })
+  }
+
+  // One TERM 1 line per first-seen reason — high signal, zero spam.
+  if (!__nbaCacheDiag._loggedReasonKinds.has(reasonKey)) {
+    __nbaCacheDiag._loggedReasonKinds.add(reasonKey)
+    console.log("[NBA-CACHEABILITY-GATE]", JSON.stringify({
+      reasonKey,
+      firstObservedAtIso: enriched.capturedAtIso,
+      sample: enriched,
+      message: reasonKey === "PLAYER_ID_API_RETURNED_NULL"
+        ? "first observed: API-Sports player-id search returned no usable id — check name normalization (apiSportsSearchQueryForDisplayName), accents, suffixes, or expired API key"
+        : reasonKey === "STATS_API_RETURNED_EMPTY"
+          ? "first observed: API-Sports stats endpoint returned an empty array — typical when player is out of season or wrong season param (currently hard-coded 2025)"
+          : reasonKey === "PLAYER_THROWN_ERROR"
+            ? "first observed: player-loop catch block fired — network error, parse error, or unexpected payload shape"
+            : `first observed: unknown reason "${reasonKey}"`,
+    }))
+  }
 }
 
 /**
@@ -313,15 +397,66 @@ function getNbaCacheDiagnostics() {
     diskPlayerIdCount:               __nbaCacheDiag.diskPlayerIdCount,
     diskPlayerStatsCount:            __nbaCacheDiag.diskPlayerStatsCount,
     cachePersistenceHealthy:         __nbaCacheDiag.cachePersistenceHealthy,
+    // Phase F3 — cacheability-gate tracing (read-only shallow copies)
+    cacheWriteSkipReasonCounts:      { ...__nbaCacheDiag.cacheWriteSkipReasonCounts },
+    unresolvedPlayerSamples:         __nbaCacheDiag.unresolvedPlayerSamples.slice(),
+    rejectedCacheabilitySamples:     __nbaCacheDiag.rejectedCacheabilitySamples.slice(),
+    apiSportsResponseDiagnostics: {
+      lastPlayerIdRequestPlayer:        __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestPlayer,
+      lastPlayerIdResponseRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned,
+      lastPlayerIdResponseSampleNames:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames.slice(),
+      lastPlayerIdResponseHadFiniteId:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId,
+      lastStatsRequestPlayerId:         __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsRequestPlayerId,
+      lastStatsResponseRowsReturned:    __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsResponseRowsReturned,
+      lastObservedAt:                   __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt,
+    },
   }
 }
 
 function resetNbaCacheDiagnostics() {
-  for (const k of Object.keys(__nbaCacheDiag)) {
-    if (typeof __nbaCacheDiag[k] === "number") __nbaCacheDiag[k] = 0
-    else if (typeof __nbaCacheDiag[k] === "boolean") __nbaCacheDiag[k] = false
-    else __nbaCacheDiag[k] = null
+  __nbaCacheDiag.enrichmentInvocations          = 0
+  __nbaCacheDiag.enrichmentSkippedNoApiKey      = 0
+  __nbaCacheDiag.enrichmentSkippedNoRows        = 0
+  __nbaCacheDiag.enrichmentCompleted            = 0
+  __nbaCacheDiag.cacheReadHitsPlayerId          = 0
+  __nbaCacheDiag.cacheReadMissesPlayerId        = 0
+  __nbaCacheDiag.cacheReadHitsPlayerStats       = 0
+  __nbaCacheDiag.cacheReadMissesPlayerStats     = 0
+  __nbaCacheDiag.cacheWriteAttemptsPlayerId     = 0
+  __nbaCacheDiag.cacheWriteAttemptsPlayerStats  = 0
+  __nbaCacheDiag.cacheWriteSuccessesPlayerId    = 0
+  __nbaCacheDiag.cacheWriteSuccessesPlayerStats = 0
+  __nbaCacheDiag.cacheWriteSkips                = 0
+  __nbaCacheDiag.loadApiSportsDiskCacheInvoked  = 0
+  __nbaCacheDiag.saveApiSportsDiskCacheInvoked  = 0
+  __nbaCacheDiag.lastEnrichmentIso              = null
+  __nbaCacheDiag.lastSaveAttemptIso             = null
+  __nbaCacheDiag.lastSaveSucceededIso           = null
+  __nbaCacheDiag.lastSaveErrorMessage           = null
+  __nbaCacheDiag.memoryPlayerIdCount            = 0
+  __nbaCacheDiag.memoryPlayerStatsCount         = 0
+  __nbaCacheDiag.diskPlayerIdCount              = 0
+  __nbaCacheDiag.diskPlayerStatsCount           = 0
+  __nbaCacheDiag.cachePersistenceHealthy        = null
+  __nbaCacheDiag._loggedFirstEnrichmentSummary  = false
+  // Phase F3 fields
+  __nbaCacheDiag.cacheWriteSkipReasonCounts = {
+    PLAYER_ID_API_RETURNED_NULL: 0,
+    STATS_API_RETURNED_EMPTY:    0,
+    PLAYER_THROWN_ERROR:         0,
   }
+  __nbaCacheDiag.unresolvedPlayerSamples       = []
+  __nbaCacheDiag.rejectedCacheabilitySamples   = []
+  __nbaCacheDiag.apiSportsResponseDiagnostics = {
+    lastPlayerIdRequestPlayer:           null,
+    lastPlayerIdResponseRowsReturned:    null,
+    lastPlayerIdResponseSampleNames:     [],
+    lastPlayerIdResponseHadFiniteId:     null,
+    lastStatsRequestPlayerId:            null,
+    lastStatsResponseRowsReturned:       null,
+    lastObservedAt:                      null,
+  }
+  __nbaCacheDiag._loggedReasonKinds = new Set()
 }
 
 function loadApiSportsDiskCache() {
@@ -381,7 +516,23 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
     timeout: 20000,
   })
   const rows = response.data?.response || []
-  if (!Array.isArray(rows) || !rows.length) return null
+  // Phase F3 — capture response shape for cacheability-gate diagnostics
+  const __sampleNames = Array.isArray(rows)
+    ? rows.slice(0, 3).map((r) => {
+        const fn = String(r?.firstname || "").trim()
+        const ln = String(r?.lastname || "").trim()
+        return `${fn} ${ln}`.trim() || null
+      }).filter(Boolean)
+    : []
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestPlayer = String(playerName || "")
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned = Array.isArray(rows) ? rows.length : 0
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames = __sampleNames
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt = new Date().toISOString()
+
+  if (!Array.isArray(rows) || !rows.length) {
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = false
+    return null
+  }
 
   const want = normName(playerName)
   let best = null
@@ -397,6 +548,7 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
     if (!best) best = r
   }
   const id = toNum(best?.id)
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = Number.isFinite(id)
   return Number.isFinite(id) ? { id, matchedName: best ? `${best.firstname || ""} ${best.lastname || ""}`.trim() : null } : null
 }
 
@@ -407,6 +559,10 @@ async function fetchApiSportsPlayerStats({ axios, apiKey, playerId }) {
     timeout: 20000,
   })
   const rows = response.data?.response || []
+  // Phase F3 — capture response shape for cacheability-gate diagnostics
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsRequestPlayerId = playerId
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsResponseRowsReturned = Array.isArray(rows) ? rows.length : 0
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt = new Date().toISOString()
   return Array.isArray(rows) ? rows : []
 }
 
@@ -550,11 +706,16 @@ async function enrichRowsWithRecentForm({ axios, rows }) {
               }
               if (wasAbsent) __nbaCacheDiag.cacheWriteSuccessesPlayerId += 1
             } else {
-              // Resolution returned null — nothing to write. Tracked so the
-              // operator can see that the API call fired but yielded no usable
-              // player id (this is the silent path that previously hid behind
-              // the catch block).
-              __nbaCacheDiag.cacheWriteSkips += 1
+              // Resolution returned null — nothing to write. Categorized as
+              // PLAYER_ID_API_RETURNED_NULL with sample capture so operators
+              // can see WHICH players failed and what the API returned.
+              recordCacheWriteSkip("PLAYER_ID_API_RETURNED_NULL", {
+                playerName: canonicalDisplay,
+                normalizedQuery: searchAs,
+                apiRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned,
+                apiSampleNames: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames.slice(),
+                apiHadFiniteId:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId,
+              })
               return
             }
           }
@@ -576,13 +737,20 @@ async function enrichRowsWithRecentForm({ axios, rows }) {
             if (wasAbsent) __nbaCacheDiag.cacheWriteSuccessesPlayerStats += 1
           } else {
             // API returned empty array — typically means out-of-season or
-            // player not yet active for the requested season. Track as a
-            // skip so the operator can see why cache size isn't growing.
-            __nbaCacheDiag.cacheWriteSkips += 1
+            // player not yet active for the requested season. Categorized as
+            // STATS_API_RETURNED_EMPTY.
+            recordCacheWriteSkip("STATS_API_RETURNED_EMPTY", {
+              playerName: canonicalDisplay,
+              playerId: pid,
+              apiRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsResponseRowsReturned,
+            })
           }
-        } catch {
-          // ignore player failures (preserved original behavior; counted)
-          __nbaCacheDiag.cacheWriteSkips += 1
+        } catch (err) {
+          // ignore player failures (preserved original behavior; counted as PLAYER_THROWN_ERROR)
+          recordCacheWriteSkip("PLAYER_THROWN_ERROR", {
+            playerName: canonicalDisplay,
+            errorMessage: err && err.message ? String(err.message).slice(0, 200) : "unknown_error",
+          })
         }
       })
     )
