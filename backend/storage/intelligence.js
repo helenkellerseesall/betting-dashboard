@@ -32,6 +32,14 @@
 const { tryGetDb }              = require("./db")
 const { applyIntelligenceSchema } = require("./intelligenceSchema")
 const { classifyVolatility }    = require("../pipeline/shared/buildPortfolioOptimizer")
+// Phase E1 — Composite-key integrity hardening.
+// Sportsbook alias canonicalization shares the BOOK_ALIASES map with the rest
+// of the pipeline (single source of truth). `canonicalBook()` accepts any of
+// "DK" / "draftkings" / "DraftKings" / "Draft Kings" and returns the canonical
+// form "DraftKings". We post-process with lowercase+trim inside predictionId
+// so the composite-key bytes are deterministic regardless of which form the
+// caller supplied.
+const { canonicalBook }         = require("../pipeline/shared/buildLineShoppingIntelligence")
 
 // ── Schema init ───────────────────────────────────────────────────────────────
 
@@ -58,28 +66,268 @@ function safeStr(v) {
   return s.length ? s : null
 }
 
-function normFam(s) {
-  return String(s || "").toLowerCase().replace(/\s+/g, "")
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase E1 — Composite-key integrity hardening
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// These three normalizers are the CANONICAL BACKSTOP for composite prediction
+// IDs. Upstream snapshot rows are produced by various normalizers
+// (normalizeMlbPlayerKey, normalizeMlbText, etc.) which may strip diacritics
+// differently or carry different separator conventions. To prevent silent
+// grading-join failures where prediction_snapshots.id ≠ outcome_snapshots.id
+// for the same logical prop, these helpers enforce a single canonical form:
+//
+//   normPlayer  — Unicode NFD + combining-mark strip + lowercase + trim
+//   normFam     — lowercase + collapse all whitespace AND underscores
+//   normBook    — canonicalBook() (alias lookup) + lowercase + trim
+//
+// All three are DETERMINISTIC, REPLAY-SAFE, and BYTE-STABLE: the same input
+// always produces the same output, independent of process / locale / time.
+//
+// Historical compatibility:
+//   - Rows already persisted under PRE-FIX IDs remain queryable by their
+//     stored id (this layer never rewrites historical records).
+//   - Going forward, new predictions and their outcomes both go through these
+//     normalizers, so the join is consistent.
+//   - The asymmetry between pre-fix and post-fix IDs for the same logical
+//     prediction is the cost of the upgrade. For MLB this is moot (the
+//     prior db.transaction bug meant no MLB epoch was actually persisted).
+//
+// Diagnostics:
+//   - Rate-limited collision probes emit one log line per canonicalization
+//     class on the FIRST input that would have differed pre-fix. Counters
+//     accumulate across the process lifetime and are exposed via
+//     `getCanonicalizationDiagnostics()` / `resetCanonicalizationDiagnostics()`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// In-module collision diagnostic state. Counters accumulate; first sample of
+// each class is captured for later inspection. One stdout probe per class.
+const __canonDiag = {
+  predictionIdsBuilt:               0,
+  playerInputsCanonicalized:        0,
+  statFamilyInputsCanonicalized:    0,
+  bookInputsCanonicalized:          0,
+  predictionIdsBytewiseAltered:     0,
+  firstPlayerCollision:             null,
+  firstStatFamilyCollision:         null,
+  firstBookCollision:               null,
+  firstPredictionIdCollision:       null,
+  _loggedPlayer:                    false,
+  _loggedStatFamily:                false,
+  _loggedBook:                      false,
+  _loggedPredictionId:              false,
 }
 
+function _maybeLog(kind, payload) {
+  const flagKey = `_logged${kind}`
+  if (__canonDiag[flagKey]) return
+  __canonDiag[flagKey] = true
+  console.log("[CANONICALIZATION-COLLISION-DETECTED]", JSON.stringify({
+    kind: kind.charAt(0).toLowerCase() + kind.slice(1),
+    ...payload,
+    note: "pre-fix composite-key bytes would have differed from canonical form; first occurrence per kind logged once per process",
+  }))
+}
+
+/**
+ * Canonical backstop for stat-family bytes.
+ *
+ * Collapses three known variants to one:
+ *   "Total Bases" → "totalbases"
+ *   "total_bases" → "totalbases"
+ *   "totalbases"  → "totalbases"
+ *
+ * This is the same byte-collapse rule applied at the producer side via
+ * `classifyMlbPropFamilyKey` (which emits underscored forms) and at the
+ * surface side (which often carries Title Case strings from the Odds API).
+ */
+function normFam(s) {
+  if (s == null) return ""
+  const raw = String(s)
+  const canonical = raw.toLowerCase().replace(/[\s_]+/g, "")
+  // Pre-fix form only collapsed whitespace; underscores survived.
+  const preFix = raw.toLowerCase().replace(/\s+/g, "")
+  if (canonical !== preFix) {
+    __canonDiag.statFamilyInputsCanonicalized += 1
+    if (!__canonDiag.firstStatFamilyCollision) {
+      __canonDiag.firstStatFamilyCollision = { raw, preFix, canonical }
+    }
+    _maybeLog("StatFamily", { raw, preFix, canonical })
+  }
+  return canonical
+}
+
+/**
+ * Canonical backstop for player-identity bytes.
+ *
+ * Applies Unicode NFD decomposition + combining-mark strip, then lowercases
+ * and trims. Examples:
+ *   "Ronald Acuña Jr."    → "ronald acuna jr."
+ *   "Ronald Acuna Jr."    → "ronald acuna jr."
+ *   "ACUÑA JR"            → "acuna jr"
+ *   "Luka Dončić"         → "luka doncic"
+ *   "JOSÉ RAMÍREZ"        → "jose ramirez"
+ *
+ * DOES NOT strip suffixes (Jr/Sr/II/III) — these are part of the identity
+ * and are preserved consistently here and upstream in `normalizeMlbText`.
+ *
+ * DOES NOT strip apostrophes or hyphens — preserved as ASCII so names like
+ * "O'Neill" / "Smith-Jones" / "D'Angelo" remain disambiguable.
+ */
 function normPlayer(s) {
-  return String(s || "").toLowerCase().trim()
+  if (s == null) return ""
+  const raw = String(s)
+  const canonical = raw
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim()
+  // Pre-fix form: lowercase + trim only — diacritics preserved.
+  const preFix = raw.toLowerCase().trim()
+  if (canonical !== preFix) {
+    __canonDiag.playerInputsCanonicalized += 1
+    if (!__canonDiag.firstPlayerCollision) {
+      __canonDiag.firstPlayerCollision = { raw, preFix, canonical }
+    }
+    _maybeLog("Player", { raw, preFix, canonical })
+  }
+  return canonical
+}
+
+/**
+ * Canonical backstop for sportsbook-identity bytes.
+ *
+ * Delegates to `canonicalBook()` (the project-canonical alias map) and then
+ * lowercases + trims so the composite-key form is deterministic regardless
+ * of whether `canonicalBook()` returned a known mapped form or the trimmed
+ * raw input.
+ *
+ *   "DK"           → canonicalBook → "DraftKings"  → "draftkings"
+ *   "DraftKings"   → canonicalBook → "DraftKings"  → "draftkings"
+ *   "draftkings"   → canonicalBook → "DraftKings"  → "draftkings"
+ *   "Draft Kings"  → canonicalBook → "DraftKings"  → "draftkings"
+ *   "Hard Rock"    → canonicalBook → "Hard Rock"   → "hard rock"
+ *   "MyNewBook"    → canonicalBook → "MyNewBook"   → "mynewbook"  (unknown but stable)
+ */
+function normBook(s) {
+  if (s == null) return ""
+  const raw = String(s)
+  let canonicalAlias = null
+  try {
+    canonicalAlias = canonicalBook(raw)
+  } catch (_) { /* defensive */ }
+  const canonical = canonicalAlias == null
+    ? raw.toLowerCase().trim()
+    : String(canonicalAlias).toLowerCase().trim()
+  // Pre-fix form: normPlayer() applied to book, i.e. just lowercase + trim.
+  const preFix = raw.toLowerCase().trim()
+  if (canonical !== preFix) {
+    __canonDiag.bookInputsCanonicalized += 1
+    if (!__canonDiag.firstBookCollision) {
+      __canonDiag.firstBookCollision = { raw, preFix, canonical }
+    }
+    _maybeLog("Book", { raw, preFix, canonical })
+  }
+  return canonical
 }
 
 /**
  * Build a deterministic, collision-resistant prediction ID.
  * Stable across repeated pipeline runs for the same candidate.
+ *
+ * Composite-key inputs are all routed through canonical backstops above so
+ * the same LOGICAL prediction always produces the same bytes regardless of
+ * source-side spelling variations (diacritics, suffixes, sportsbook aliases,
+ * stat-family separators).
  */
 function predictionId(runDate, sport, player, statFamily, side, line, book) {
-  return [
+  const player_n     = normPlayer(player)
+  const statFamily_n = normFam(statFamily)
+  const side_n       = String(side || "").toLowerCase()
+  const line_n       = String(safeNum(line) ?? "")
+  const book_n       = normBook(book)
+  const id = [
     String(runDate).slice(0, 10),
     String(sport).toLowerCase(),
-    normPlayer(player),
-    normFam(statFamily),
-    String(side || "").toLowerCase(),
-    String(safeNum(line) ?? ""),
-    normPlayer(book || ""),
+    player_n,
+    statFamily_n,
+    side_n,
+    line_n,
+    book_n,
   ].join("|")
+  __canonDiag.predictionIdsBuilt += 1
+  // Detect whether the composite ID would have differed under pre-fix rules.
+  // Pre-fix used: lowercase+trim for player, lowercase+strip-whitespace for
+  // family, lowercase+trim for book.
+  const preFixPlayer = String(player || "").toLowerCase().trim()
+  const preFixFamily = String(statFamily || "").toLowerCase().replace(/\s+/g, "")
+  const preFixBook   = String(book || "").toLowerCase().trim()
+  if (preFixPlayer !== player_n || preFixFamily !== statFamily_n || preFixBook !== book_n) {
+    __canonDiag.predictionIdsBytewiseAltered += 1
+    if (!__canonDiag.firstPredictionIdCollision) {
+      __canonDiag.firstPredictionIdCollision = {
+        canonicalId: id,
+        preFixId: [
+          String(runDate).slice(0, 10),
+          String(sport).toLowerCase(),
+          preFixPlayer,
+          preFixFamily,
+          side_n,
+          line_n,
+          preFixBook,
+        ].join("|"),
+        deltas: {
+          player: preFixPlayer !== player_n ? { pre: preFixPlayer, canonical: player_n } : null,
+          statFamily: preFixFamily !== statFamily_n ? { pre: preFixFamily, canonical: statFamily_n } : null,
+          book: preFixBook !== book_n ? { pre: preFixBook, canonical: book_n } : null,
+        },
+      }
+    }
+    _maybeLog("PredictionId", {
+      example: id,
+      message: "first composite-key whose bytes differ from pre-fix form; future grading/freeze joins now align canonically",
+    })
+  }
+  return id
+}
+
+/**
+ * Read-only snapshot of the canonicalization-collision diagnostics. Used by
+ * verification fixtures and by snapshot diagnostics consumers.
+ */
+function getCanonicalizationDiagnostics() {
+  return {
+    predictionIdsBuilt:            __canonDiag.predictionIdsBuilt,
+    playerInputsCanonicalized:     __canonDiag.playerInputsCanonicalized,
+    statFamilyInputsCanonicalized: __canonDiag.statFamilyInputsCanonicalized,
+    bookInputsCanonicalized:       __canonDiag.bookInputsCanonicalized,
+    predictionIdsBytewiseAltered:  __canonDiag.predictionIdsBytewiseAltered,
+    firstPlayerCollision:          __canonDiag.firstPlayerCollision,
+    firstStatFamilyCollision:      __canonDiag.firstStatFamilyCollision,
+    firstBookCollision:            __canonDiag.firstBookCollision,
+    firstPredictionIdCollision:    __canonDiag.firstPredictionIdCollision,
+  }
+}
+
+/**
+ * Reset the canonicalization-collision counters. Used by tests; production
+ * code should never call this (counters are intended to accumulate across
+ * the process lifetime so operators can see cumulative impact).
+ */
+function resetCanonicalizationDiagnostics() {
+  __canonDiag.predictionIdsBuilt = 0
+  __canonDiag.playerInputsCanonicalized = 0
+  __canonDiag.statFamilyInputsCanonicalized = 0
+  __canonDiag.bookInputsCanonicalized = 0
+  __canonDiag.predictionIdsBytewiseAltered = 0
+  __canonDiag.firstPlayerCollision = null
+  __canonDiag.firstStatFamilyCollision = null
+  __canonDiag.firstBookCollision = null
+  __canonDiag.firstPredictionIdCollision = null
+  __canonDiag._loggedPlayer = false
+  __canonDiag._loggedStatFamily = false
+  __canonDiag._loggedBook = false
+  __canonDiag._loggedPredictionId = false
 }
 
 /**
@@ -829,4 +1077,10 @@ module.exports = {
   predictionId,
   shannonEntropy,
   normalizeCandidate,
+  // Phase E1 — composite-key canonicalization helpers (exported for fixture)
+  normPlayer,
+  normFam,
+  normBook,
+  getCanonicalizationDiagnostics,
+  resetCanonicalizationDiagnostics,
 }
