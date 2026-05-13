@@ -77,6 +77,128 @@ const API_SPORTS_CACHE_FILE = path.join(DEFAULT_BACKEND_ROOT, "api-sports-cache.
 // ─────────────────────────────────────────────────────────────────────────────
 const NBA_API_SPORTS_SEASON = 2025
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase F6.2 — canonical NBA team registry + dual resolver.
+//
+// Upstream contract finally settled after live diagnostics:
+//   API-Sports v2 NBA `/players` requires `team` AS A NUMERIC TEAM ID.
+//   (Abbreviations and full names are silently rejected with HTTP 200 +
+//   "Team field is required" or empty response.)
+//
+// The enrichment row context at this layer carries `row.team` as a free-form
+// display value — observed values include "SACRAMENTO KINGS", "Pistons",
+// "LAL", "Detroit Pistons", and so on. This resolver normalizes ALL of those
+// shapes back to:
+//   { abbr: <canonical 3-letter>, apiTeamId: <API-Sports numeric id> }
+//
+// The 30-entry registry is the SINGLE authoritative NBA-team table for this
+// route file. apiTeamId values match the public API-Sports v2 NBA /teams
+// endpoint as of season 2025-26. If API-Sports renumbers, override at boot
+// time via env var NBA_API_SPORTS_TEAM_ID_OVERRIDES (JSON: { "DET": 10, … }).
+//
+// Authority preservation: this is the ONE place we map team representations
+// → API-NBA numeric IDs. Replay/grading/freeze pipelines do not depend on
+// this — they key on prediction_id / composite keys, not API team IDs.
+// ─────────────────────────────────────────────────────────────────────────────
+const NBA_TEAM_REGISTRY = [
+  { abbr: "ATL", apiTeamId: 1,  city: "Atlanta",       nickname: "Hawks",         aliases: [] },
+  { abbr: "BOS", apiTeamId: 2,  city: "Boston",        nickname: "Celtics",       aliases: [] },
+  { abbr: "BKN", apiTeamId: 4,  city: "Brooklyn",      nickname: "Nets",          aliases: ["BRK","NJN","NEW JERSEY","NEW JERSEY NETS"] },
+  { abbr: "CHA", apiTeamId: 5,  city: "Charlotte",     nickname: "Hornets",       aliases: ["CHO","BOBCATS","CHARLOTTE BOBCATS"] },
+  { abbr: "CHI", apiTeamId: 6,  city: "Chicago",       nickname: "Bulls",         aliases: [] },
+  { abbr: "CLE", apiTeamId: 7,  city: "Cleveland",     nickname: "Cavaliers",     aliases: ["CAVS"] },
+  { abbr: "DAL", apiTeamId: 8,  city: "Dallas",        nickname: "Mavericks",     aliases: ["MAVS"] },
+  { abbr: "DEN", apiTeamId: 9,  city: "Denver",        nickname: "Nuggets",       aliases: [] },
+  { abbr: "DET", apiTeamId: 10, city: "Detroit",       nickname: "Pistons",       aliases: [] },
+  { abbr: "GSW", apiTeamId: 11, city: "Golden State",  nickname: "Warriors",      aliases: ["GS","GOLDEN STATE WARRIORS"] },
+  { abbr: "HOU", apiTeamId: 14, city: "Houston",       nickname: "Rockets",       aliases: [] },
+  { abbr: "IND", apiTeamId: 15, city: "Indiana",       nickname: "Pacers",        aliases: [] },
+  { abbr: "LAC", apiTeamId: 16, city: "LA",            nickname: "Clippers",      aliases: ["LOS ANGELES CLIPPERS","LA CLIPPERS"] },
+  { abbr: "LAL", apiTeamId: 17, city: "Los Angeles",   nickname: "Lakers",        aliases: ["LA LAKERS","LOS ANGELES LAKERS"] },
+  { abbr: "MEM", apiTeamId: 19, city: "Memphis",       nickname: "Grizzlies",     aliases: [] },
+  { abbr: "MIA", apiTeamId: 20, city: "Miami",         nickname: "Heat",          aliases: [] },
+  { abbr: "MIL", apiTeamId: 21, city: "Milwaukee",     nickname: "Bucks",         aliases: [] },
+  { abbr: "MIN", apiTeamId: 22, city: "Minnesota",     nickname: "Timberwolves",  aliases: ["WOLVES","TWOLVES","T-WOLVES"] },
+  { abbr: "NOP", apiTeamId: 23, city: "New Orleans",   nickname: "Pelicans",      aliases: ["NO","NOR","PELS"] },
+  { abbr: "NYK", apiTeamId: 24, city: "New York",      nickname: "Knicks",        aliases: ["NY","NEW YORK KNICKS"] },
+  { abbr: "OKC", apiTeamId: 25, city: "Oklahoma City", nickname: "Thunder",       aliases: ["OKL"] },
+  { abbr: "ORL", apiTeamId: 26, city: "Orlando",       nickname: "Magic",         aliases: [] },
+  { abbr: "PHI", apiTeamId: 27, city: "Philadelphia",  nickname: "76ers",         aliases: ["PHL","SIXERS","PHILADELPHIA 76ERS"] },
+  { abbr: "PHX", apiTeamId: 28, city: "Phoenix",       nickname: "Suns",          aliases: ["PHO"] },
+  { abbr: "POR", apiTeamId: 29, city: "Portland",      nickname: "Trail Blazers", aliases: ["BLAZERS","TRAIL BLAZERS","PORTLAND TRAIL BLAZERS"] },
+  { abbr: "SAC", apiTeamId: 30, city: "Sacramento",    nickname: "Kings",         aliases: [] },
+  { abbr: "SAS", apiTeamId: 31, city: "San Antonio",   nickname: "Spurs",         aliases: ["SA"] },
+  { abbr: "TOR", apiTeamId: 38, city: "Toronto",       nickname: "Raptors",       aliases: [] },
+  { abbr: "UTA", apiTeamId: 40, city: "Utah",          nickname: "Jazz",          aliases: ["UTH"] },
+  { abbr: "WAS", apiTeamId: 41, city: "Washington",    nickname: "Wizards",       aliases: ["WSH"] },
+]
+
+// Optional override of apiTeamId values via env JSON. Defensive — silent
+// no-op if env is missing/malformed. Keys are canonical 3-letter abbrs.
+;(function applyNbaApiTeamIdOverrides() {
+  try {
+    const raw = String(process.env.NBA_API_SPORTS_TEAM_ID_OVERRIDES || "").trim()
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") return
+    for (const entry of NBA_TEAM_REGISTRY) {
+      const override = parsed[entry.abbr]
+      if (Number.isFinite(Number(override))) entry.apiTeamId = Number(override)
+    }
+    console.log("[NBA-TEAM-REGISTRY-OVERRIDES-APPLIED]", JSON.stringify(parsed))
+  } catch (_err) {
+    // override env malformed — ignore, ship the defaults
+  }
+})()
+
+// Build the lookup index ONCE at module load. All keys uppercased; values
+// point at the same registry entry object so resolvers can return whole
+// entries (abbr + numeric id) in one shot.
+const __NBA_TEAM_LOOKUP_BY_KEY = (() => {
+  const m = new Map()
+  for (const entry of NBA_TEAM_REGISTRY) {
+    const keys = new Set([
+      entry.abbr,
+      entry.city,
+      entry.nickname,
+      `${entry.city} ${entry.nickname}`,
+      ...(Array.isArray(entry.aliases) ? entry.aliases : []),
+    ])
+    for (const k of keys) {
+      if (!k) continue
+      const norm = String(k).trim().toUpperCase()
+      if (!norm) continue
+      // First write wins; deliberate so canonical abbr/full-name entries are
+      // never silently overwritten by an alias collision in this file.
+      if (!m.has(norm)) m.set(norm, entry)
+    }
+  }
+  return m
+})()
+
+/**
+ * Resolve a raw row.team representation into the canonical NBA team entry.
+ * Accepts: 3-letter abbreviation, 2/3-letter alias, city, nickname, full
+ * franchise name ("SACRAMENTO KINGS"), or registered alias.
+ * Returns `{ abbr, apiTeamId }` (shallow copy) or `null` when nothing matched.
+ */
+function resolveCanonicalNbaTeam(raw) {
+  if (raw == null) return null
+  const norm = String(raw).trim().toUpperCase()
+  if (!norm) return null
+  const entry = __NBA_TEAM_LOOKUP_BY_KEY.get(norm)
+  return entry ? { abbr: entry.abbr, apiTeamId: entry.apiTeamId } : null
+}
+
+/**
+ * Backward-compatible thin wrapper kept for the F5/F6 verification fixtures
+ * and any other call sites that only need the canonical 3-letter abbreviation.
+ */
+function resolveCanonicalNbaTeamAbbr(raw) {
+  const t = resolveCanonicalNbaTeam(raw)
+  return t ? t.abbr : null
+}
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -302,6 +424,31 @@ const __nbaCacheDiag = {
   rejectedCacheabilitySamples:     [], // ring buffer of last 25 rejections (any reason)
   apiSportsResponseDiagnostics: {
     lastPlayerIdRequestPlayer:           null,
+    // Phase F6 — team abbreviation passed alongside search to disambiguate
+    // players with shared/common names (the canonical case where a generic
+    // `search=jordan` returns the wrong "Jordan"). Null when no team was
+    // resolvable from the enrichment row.
+    //
+    // `lastPlayerIdRequestTeam`       = raw (uppercase) value observed on the
+    //                                   row.team field — useful for spotting
+    //                                   contract pollution (e.g. full names
+    //                                   reaching this layer).
+    // `lastPlayerIdResolvedTeamAbbr`  = final canonical abbreviation that was
+    //                                   actually included in the API request,
+    //                                   or null when the raw value did not
+    //                                   resolve to a known canonical abbr.
+    // `lastPlayerIdResolvedApiTeamId` = numeric API-NBA team id actually sent
+    //                                   on the wire (was the missing piece —
+    //                                   API-Sports v2 requires numeric team
+    //                                   ids, not abbreviations).
+    lastPlayerIdRequestTeam:             null,
+    lastPlayerIdResolvedTeamAbbr:        null,
+    lastPlayerIdResolvedApiTeamId:       null,
+    // Phase F6.3 — strategy applied for the most recent player resolution.
+    // Values: "roster_match_exact" | "roster_match_lastname"
+    //       | "roster_no_match" | "roster_empty"
+    //       | "roster_cache_hit" | "no_team_skipped"
+    lastPlayerIdMatchStrategy:           null,
     lastPlayerIdResponseRowsReturned:    null,
     lastPlayerIdResponseSampleNames:     [], // up to 3 names from most recent API response
     lastPlayerIdResponseHadFiniteId:     null,
@@ -318,7 +465,17 @@ const __nbaCacheDiag = {
   _loggedFirstEnrichmentSummary:   false,
   _loggedReasonKinds:              new Set(), // emits one [NBA-CACHEABILITY-GATE] line per first-seen reason
   _loggedFirstPlayerResolution:    false,     // emits one [NBA-API-SPORTS-PLAYER-RESOLUTION] line per process
+  // Phase F6.3 — process-scoped team-roster working layer. NOT a parallel
+  // cache owner — it's an in-memory memoization adjacent to playerIdCache
+  // (which remains the canonical disk-persisted owner-B cache). Avoids
+  // refetching the same Sacramento Kings roster 17 times within one
+  // enrichment cycle. Cleared on process restart.
+  teamRosterCacheSize:             0,
 }
+
+// Process-scoped working memo of team rosters. Key: "<apiTeamId>|<season>".
+// Value: array of player rows returned by /players?team=N&season=Y.
+const __nbaTeamRosterCache = new Map()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase F3 — record a cacheability skip with a categorized reason + sample.
@@ -418,12 +575,21 @@ function getNbaCacheDiagnostics() {
     diskPlayerIdCount:               __nbaCacheDiag.diskPlayerIdCount,
     diskPlayerStatsCount:            __nbaCacheDiag.diskPlayerStatsCount,
     cachePersistenceHealthy:         __nbaCacheDiag.cachePersistenceHealthy,
+    // Phase F6.3 — process-scoped team-roster memoization (number of unique
+    // <teamId|season> rosters held in memory). Operators can use this with
+    // memoryPlayerIdCount to see how roster fetches translate into resolved ids.
+    teamRosterCacheSize:             __nbaTeamRosterCache.size,
     // Phase F3 — cacheability-gate tracing (read-only shallow copies)
     cacheWriteSkipReasonCounts:      { ...__nbaCacheDiag.cacheWriteSkipReasonCounts },
     unresolvedPlayerSamples:         __nbaCacheDiag.unresolvedPlayerSamples.slice(),
     rejectedCacheabilitySamples:     __nbaCacheDiag.rejectedCacheabilitySamples.slice(),
     apiSportsResponseDiagnostics: {
       lastPlayerIdRequestPlayer:        __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestPlayer,
+      // Phase F6 / F6.2 / F6.3 — full request-shape trail + match strategy
+      lastPlayerIdRequestTeam:          __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestTeam,
+      lastPlayerIdResolvedTeamAbbr:     __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResolvedTeamAbbr,
+      lastPlayerIdResolvedApiTeamId:    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResolvedApiTeamId,
+      lastPlayerIdMatchStrategy:        __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy,
       lastPlayerIdResponseRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned,
       lastPlayerIdResponseSampleNames:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames.slice(),
       lastPlayerIdResponseHadFiniteId:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId,
@@ -474,6 +640,11 @@ function resetNbaCacheDiagnostics() {
   __nbaCacheDiag.rejectedCacheabilitySamples   = []
   __nbaCacheDiag.apiSportsResponseDiagnostics = {
     lastPlayerIdRequestPlayer:           null,
+    // Phase F6 / F6.2 / F6.3
+    lastPlayerIdRequestTeam:             null,
+    lastPlayerIdResolvedTeamAbbr:        null,
+    lastPlayerIdResolvedApiTeamId:       null,
+    lastPlayerIdMatchStrategy:           null,
     lastPlayerIdResponseRowsReturned:    null,
     lastPlayerIdResponseSampleNames:     [],
     lastPlayerIdResponseHadFiniteId:     null,
@@ -487,6 +658,9 @@ function resetNbaCacheDiagnostics() {
   }
   __nbaCacheDiag._loggedReasonKinds = new Set()
   __nbaCacheDiag._loggedFirstPlayerResolution = false
+  // Phase F6.3 — clear the process-scoped team-roster memo
+  __nbaTeamRosterCache.clear()
+  __nbaCacheDiag.teamRosterCacheSize = 0
 }
 
 function loadApiSportsDiskCache() {
@@ -539,48 +713,118 @@ function saveApiSportsDiskCache(next) {
   }
 }
 
-async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
-  // Phase F5-A — API-Sports NBA v2 `/players` requires `season` alongside
-  // `search`. Calling search-only returned HTTP 200 + response:[] + an
-  // ignored `errors` envelope, surfacing as PLAYER_ID_API_RETURNED_NULL for
-  // every player. Sending the canonical season makes the contract complete.
-  const requestParams = { search: playerName, season: NBA_API_SPORTS_SEASON }
-  const response = await axios.get("https://v2.nba.api-sports.io/players", {
-    params: requestParams,
-    headers: { "x-apisports-key": apiKey },
-    timeout: 20000,
-  })
-  const rows = response.data?.response || []
-  // Phase F3 — capture response shape for cacheability-gate diagnostics
-  const __sampleNames = Array.isArray(rows)
-    ? rows.slice(0, 3).map((r) => {
-        const fn = String(r?.firstname || "").trim()
-        const ln = String(r?.lastname || "").trim()
-        return `${fn} ${ln}`.trim() || null
-      }).filter(Boolean)
-    : []
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestPlayer = String(playerName || "")
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned = Array.isArray(rows) ? rows.length : 0
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames = __sampleNames
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt = new Date().toISOString()
-  // Phase F5-B — record the API's response envelope fields so future contract
-  // drift is observable from /api/best-available without re-running audits.
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors =
-    response?.data?.errors != null ? response.data.errors : null
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults =
-    Number.isFinite(Number(response?.data?.results)) ? Number(response.data.results) : null
-  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters =
-    response?.data?.parameters != null ? response.data.parameters : null
+async function fetchApiSportsPlayerId({ axios, apiKey, playerName, team }) {
+  // Phase F6.3 — canonical API-NBA player-resolution contract.
+  //
+  // After live verification, the /players endpoint behaves as a TEAM-ROSTER
+  // endpoint (confirmed by the reference reference implementation pulling NBA
+  // stats: "the players endpoint takes a specific TEAM_ID as a parameter
+  // along with the desired season"). The `search` parameter does NOT combine
+  // with `team` + `season` — using all three returns HTTP 200 with results:0
+  // (this is the failure mode the operator observed after F5/F6/F6.1/F6.2).
+  //
+  // Correct contract:
+  //   GET /players?team=<numeric>&season=<YYYY>
+  //   → response = array of player records for that team in that season
+  //   → match player by name client-side against the returned roster
+  //
+  // Phases F5 (season), F6.2 (numeric team id) prerequisites both still apply.
+  // This phase changes ONLY the request semantics — drops `search`, walks the
+  // returned roster locally for the name match.
+  //
+  // The team roster is memoized in __nbaTeamRosterCache for the process
+  // lifetime so a 17-player Sacramento Kings slate fires ONE roster fetch
+  // (not 17). This memoization is adjacent to — NOT a replacement for — the
+  // canonical disk-persisted owner-B playerIdCache; that layer continues to
+  // service second-and-later enrichment invocations as before.
+  const rawRequestTeam = (() => {
+    const raw = String(team == null ? "" : team).trim().toUpperCase()
+    return raw || null
+  })()
+  const resolvedTeam       = resolveCanonicalNbaTeam(rawRequestTeam)
+  const resolvedTeamAbbr   = resolvedTeam ? resolvedTeam.abbr      : null
+  const resolvedApiTeamId  = resolvedTeam ? resolvedTeam.apiTeamId : null
 
-  // Phase F5-C — emit one [NBA-API-SPORTS-PLAYER-RESOLUTION] line per process
-  // showing the exact request shape and the upstream's reported envelope.
-  // Rate-limited: subsequent calls accumulate the diagnostic block silently.
+  // Record raw / resolved diagnostics regardless of code path.
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestPlayer = String(playerName || "")
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdRequestTeam = rawRequestTeam
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResolvedTeamAbbr = resolvedTeamAbbr
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResolvedApiTeamId =
+    Number.isFinite(resolvedApiTeamId) ? resolvedApiTeamId : null
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt = new Date().toISOString()
+
+  // Without a numeric team id, the roster-fetch contract is unavailable.
+  // Record the skip strategy and return null — the caller will categorize
+  // this as PLAYER_ID_API_RETURNED_NULL with the team-pollution sample.
+  if (!Number.isFinite(resolvedApiTeamId)) {
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy = "no_team_skipped"
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = false
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned = 0
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames = []
+    if (!__nbaCacheDiag._loggedFirstPlayerResolution) {
+      __nbaCacheDiag._loggedFirstPlayerResolution = true
+      console.log("[NBA-API-SPORTS-PLAYER-RESOLUTION]", JSON.stringify({
+        player: String(playerName || ""),
+        rawRequestTeam, resolvedTeamAbbr, resolvedApiTeamId,
+        strategy: "no_team_skipped",
+        season: NBA_API_SPORTS_SEASON,
+        note: "row.team did not resolve to a known API-NBA franchise; cannot use /players?team=N&season=Y roster contract",
+      }))
+    }
+    return null
+  }
+
+  // Process-scoped roster memo: key by team+season so a 17-player Sacramento
+  // slate hits the API once rather than 17 times. Cache survives within the
+  // process; restart re-fetches once per team.
+  const rosterKey = `${resolvedApiTeamId}|${NBA_API_SPORTS_SEASON}`
+  let roster = __nbaTeamRosterCache.get(rosterKey)
+  let requestParams
+  let responseEnvelope = null
+  if (Array.isArray(roster)) {
+    // Memo hit — no API call.
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy = "roster_cache_hit"
+    requestParams = { team: Number(resolvedApiTeamId), season: NBA_API_SPORTS_SEASON }
+  } else {
+    // Memo miss — fetch the full roster for this team+season.
+    requestParams = { team: Number(resolvedApiTeamId), season: NBA_API_SPORTS_SEASON }
+    const response = await axios.get("https://v2.nba.api-sports.io/players", {
+      params: requestParams,
+      headers: { "x-apisports-key": apiKey },
+      timeout: 20000,
+    })
+    responseEnvelope = response?.data || null
+    roster = Array.isArray(responseEnvelope?.response) ? responseEnvelope.response : []
+    __nbaTeamRosterCache.set(rosterKey, roster)
+    __nbaCacheDiag.teamRosterCacheSize = __nbaTeamRosterCache.size
+    // Phase F5-B — capture upstream envelope for observability
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors =
+      responseEnvelope?.errors != null ? responseEnvelope.errors : null
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults =
+      Number.isFinite(Number(responseEnvelope?.results)) ? Number(responseEnvelope.results) : null
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters =
+      responseEnvelope?.parameters != null ? responseEnvelope.parameters : null
+  }
+
+  // Phase F3 — sample top-3 roster names for diagnostics
+  const __sampleNames = roster.slice(0, 3).map((r) => {
+    const fn = String(r?.firstname || "").trim()
+    const ln = String(r?.lastname || "").trim()
+    return `${fn} ${ln}`.trim() || null
+  }).filter(Boolean)
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned = roster.length
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames = __sampleNames
+
+  // Phase F5-C — emit one rate-limited probe per process showing the full
+  // contract chain (raw → canonical abbr → numeric id → wire → roster size).
   if (!__nbaCacheDiag._loggedFirstPlayerResolution) {
     __nbaCacheDiag._loggedFirstPlayerResolution = true
     console.log("[NBA-API-SPORTS-PLAYER-RESOLUTION]", JSON.stringify({
       player: String(playerName || ""),
+      rawRequestTeam, resolvedTeamAbbr, resolvedApiTeamId,
+      strategy: responseEnvelope ? "roster_fetch_then_match" : "roster_cache_hit",
       params: requestParams,
-      rowsReturned: Array.isArray(rows) ? rows.length : 0,
+      rosterSize: roster.length,
       results: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults,
       errors: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors,
       parameters: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters,
@@ -589,27 +833,41 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
     }))
   }
 
-  if (!Array.isArray(rows) || !rows.length) {
+  if (!roster.length) {
+    __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy = "roster_empty"
     __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = false
     return null
   }
 
+  // Match the requested player against the roster. Exact firstname+lastname
+  // wins; lastname-only is a soft fallback (some upstream feeds drop first).
   const want = normName(playerName)
+  const wantLastTokens = want.split(" ").filter(Boolean)
+  const wantLast = wantLastTokens.length ? wantLastTokens[wantLastTokens.length - 1] : null
   let best = null
-  for (const r of rows) {
+  let matchKind = null
+  for (const r of roster) {
     const fn = String(r?.firstname || "").trim()
     const ln = String(r?.lastname || "").trim()
     const full = normName(`${fn} ${ln}`)
     if (!full) continue
     if (full === want) {
       best = r
+      matchKind = "roster_match_exact"
       break
     }
-    if (!best) best = r
+    if (!best && wantLast && normName(ln) === wantLast) {
+      best = r
+      matchKind = "roster_match_lastname"
+    }
   }
   const id = toNum(best?.id)
   __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = Number.isFinite(id)
-  return Number.isFinite(id) ? { id, matchedName: best ? `${best.firstname || ""} ${best.lastname || ""}`.trim() : null } : null
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy =
+    Number.isFinite(id) ? (matchKind || "roster_match_exact") : "roster_no_match"
+  return Number.isFinite(id)
+    ? { id, matchedName: best ? `${best.firstname || ""} ${best.lastname || ""}`.trim() : null }
+    : null
 }
 
 async function fetchApiSportsPlayerStats({ axios, apiKey, playerId }) {
@@ -703,11 +961,21 @@ async function enrichRowsWithRecentForm({ axios, rows }) {
 
   const list = Array.isArray(rows) ? rows : []
   const normToCanonicalDisplay = new Map()
+  // Phase F6 — norm → team-abbreviation map. First non-empty `row.team` per
+  // normalized player name wins; subsequent rows do not overwrite (avoids
+  // thrashing when a player appears across many props with the same team).
+  // The abbreviation is uppercase-normalized at write time so the call site
+  // can hand it straight to fetchApiSportsPlayerId.
+  const normToTeamAbbr = new Map()
   for (const r of list) {
     const d = String(r?.player || "").trim()
     if (!d) continue
     const n = normName(d)
     if (!normToCanonicalDisplay.has(n)) normToCanonicalDisplay.set(n, d)
+    if (!normToTeamAbbr.has(n)) {
+      const teamAbbrRaw = String(r?.team == null ? "" : r.team).trim().toUpperCase()
+      if (teamAbbrRaw) normToTeamAbbr.set(n, teamAbbrRaw)
+    }
   }
 
   if (!normToCanonicalDisplay.size) {
@@ -757,7 +1025,17 @@ async function enrichRowsWithRecentForm({ axios, rows }) {
             // Cache MISS on player-id lookup — API call WILL fire.
             __nbaCacheDiag.cacheReadMissesPlayerId += 1
             const searchAs = apiSportsSearchQueryForDisplayName(canonicalDisplay)
-            const resolved = await fetchApiSportsPlayerId({ axios, apiKey, playerName: searchAs })
+            // Phase F6 — pass the team abbreviation captured from the row
+            // context (uppercase-normalized at map insertion) so the search
+            // resolves players with shared/common names. May be undefined for
+            // rows lacking team context; fetchApiSportsPlayerId tolerates that.
+            const normalizedTeam = normToTeamAbbr.get(norm) || null
+            const resolved = await fetchApiSportsPlayerId({
+              axios,
+              apiKey,
+              playerName: searchAs,
+              team: normalizedTeam,
+            })
             if (resolved?.id) {
               pid = resolved.id
               __nbaCacheDiag.cacheWriteAttemptsPlayerId += 1

@@ -76,21 +76,24 @@ function part1_sharedSeasonConstant() {
 		{ stillPresent: /season:\s*2025/.test(nbaSrc) })
 }
 
-function part2_playerIdRequestSendsSeason() {
-	console.log("\n=== PART 2 — F5-A: fetchApiSportsPlayerId sends season alongside search ===\n")
+function part2_playerIdRequestSendsTeamAndSeason() {
+	console.log("\n=== PART 2 — F6.3: fetchApiSportsPlayerId uses team-roster contract (team+season, no search) ===\n")
 
-	// The new requestParams object form: `{ search: playerName, season: NBA_API_SPORTS_SEASON }`
-	assert(/const\s+requestParams\s*=\s*\{\s*search:\s*playerName,\s*season:\s*NBA_API_SPORTS_SEASON\s*\}/.test(nbaSrc),
-		"requestParams = { search: playerName, season: NBA_API_SPORTS_SEASON }")
+	// requestParams object form: `{ team: Number(resolvedApiTeamId), season: NBA_API_SPORTS_SEASON }`
+	assert(/requestParams\s*=\s*\{\s*team:\s*Number\(resolvedApiTeamId\),\s*season:\s*NBA_API_SPORTS_SEASON\s*\}/.test(nbaSrc),
+		"requestParams = { team: Number(resolvedApiTeamId), season: NBA_API_SPORTS_SEASON }")
 
-	// axios is called with that requestParams (not a bare `{ search }`).
+	// axios call uses params: requestParams against /players
 	assert(/v2\.nba\.api-sports\.io\/players[\s\S]{0,200}params:\s*requestParams/.test(nbaSrc),
 		"axios.get('/players') uses params: requestParams")
 
-	// Defensive: no bare `{ search: playerName }` axios call remains (which
-	// would be the pre-F5 broken contract).
-	assert(!/params:\s*\{\s*search:\s*playerName\s*\}/.test(nbaSrc),
-		"no bare `params: { search: playerName }` (pre-F5 broken contract) remains")
+	// `search` parameter must NOT be present in fetchApiSportsPlayerId anymore —
+	// it's incompatible with the team-roster contract. The only `search:` form
+	// the regex would catch is inside requestParams — which we've eliminated.
+	assert(!/requestParams\s*=\s*\{\s*search:/.test(nbaSrc),
+		"no `requestParams = { search: ... }` form remains (was the pre-F6.3 broken contract)")
+	assert(!/params:\s*\{\s*search:\s*playerName/.test(nbaSrc),
+		"no bare `params: { search: playerName, ... }` axios call remains")
 }
 
 function part3_playerStatsRequestSendsSharedSeason() {
@@ -120,26 +123,41 @@ function part4_envelopeFieldsExposed() {
 function part5_envelopeCapturedFromResponse() {
 	console.log("\n=== PART 5 — F5-B: envelope fields populated from response.data on every call ===\n")
 
-	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseErrors\s*=\s*[\s\S]*?response\?\.data\?\.errors/.test(nbaSrc),
-		"lastPlayerIdResponseErrors sourced from response.data.errors")
-	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseResults\s*=\s*[\s\S]*?response\?\.data\?\.results/.test(nbaSrc),
-		"lastPlayerIdResponseResults sourced from response.data.results (coerced via Number)")
-	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseParameters\s*=\s*[\s\S]*?response\?\.data\?\.parameters/.test(nbaSrc),
-		"lastPlayerIdResponseParameters sourced from response.data.parameters")
+	// Phase F6.3 refactored to read from a `responseEnvelope` local instead
+	// of `response?.data` directly. Accept either form.
+	assert(/lastPlayerIdResponseErrors\s*=\s*[\s\S]{0,80}?(response\?\.data\?\.errors|responseEnvelope\?\.errors)/.test(nbaSrc),
+		"lastPlayerIdResponseErrors sourced from API envelope (.errors)")
+	assert(/lastPlayerIdResponseResults\s*=\s*[\s\S]{0,120}?(response\?\.data\?\.results|responseEnvelope\?\.results)/.test(nbaSrc),
+		"lastPlayerIdResponseResults sourced from API envelope (.results)")
+	assert(/lastPlayerIdResponseParameters\s*=\s*[\s\S]{0,80}?(response\?\.data\?\.parameters|responseEnvelope\?\.parameters)/.test(nbaSrc),
+		"lastPlayerIdResponseParameters sourced from API envelope (.parameters)")
 }
 
 function part6_resolutionProbeRateLimited() {
 	console.log("\n=== PART 6 — F5-C: [NBA-API-SPORTS-PLAYER-RESOLUTION] probe rate-limited ===\n")
 
-	const probeCount = (nbaSrc.match(/console\.log\("\[NBA-API-SPORTS-PLAYER-RESOLUTION\]"/g) || []).length
-	assert(probeCount === 1,
-		"exactly one console.log emission site for [NBA-API-SPORTS-PLAYER-RESOLUTION]",
-		{ probeCount })
+	// Phase F6.3 introduced an additional emission site for the early-exit
+	// `no_team_skipped` branch. Both emission sites share the same
+	// _loggedFirstPlayerResolution flag, so runtime emission is still
+	// once-per-process. The fixture verifies that EVERY emission site is
+	// preceded by a rate-limit guard, rather than counting sites.
+	const probeRegex = /console\.log\("\[NBA-API-SPORTS-PLAYER-RESOLUTION\]"/g
+	const probeMatches = [...nbaSrc.matchAll(probeRegex)]
+	assert(probeMatches.length >= 1,
+		"at least one [NBA-API-SPORTS-PLAYER-RESOLUTION] emission site present",
+		{ count: probeMatches.length })
+
+	// Each emission site must be preceded by the rate-limit guard within
+	// a small window (the if-block opening + the flag flip).
+	for (const m of probeMatches) {
+		const start = Math.max(0, m.index - 200)
+		const window = nbaSrc.slice(start, m.index)
+		assert(/if \(!__nbaCacheDiag\._loggedFirstPlayerResolution\)/.test(window),
+			"emission site at index " + m.index + " is preceded by _loggedFirstPlayerResolution guard")
+	}
 
 	assert(/_loggedFirstPlayerResolution/.test(nbaSrc),
 		"_loggedFirstPlayerResolution flag present on __nbaCacheDiag")
-	assert(/if \(!__nbaCacheDiag\._loggedFirstPlayerResolution\)/.test(nbaSrc),
-		"rate-limit guard checks _loggedFirstPlayerResolution before logging")
 	assert(/__nbaCacheDiag\._loggedFirstPlayerResolution\s*=\s*true/.test(nbaSrc),
 		"flag flips to true after first emission")
 }
@@ -232,8 +250,177 @@ function part13_phaseF5DocBlockPresent() {
 	assert(/Phase F5-C\b/.test(nbaSrc), "Phase F5-C site documented inline at probe emission")
 }
 
-function part14_syntaxCheck() {
-	console.log("\n=== PART 14 — nbaIsolatedRoutes + server still parse cleanly ===\n")
+function part14_phaseF6RegistryAndDualResolver() {
+	console.log("\n=== PART 14 — Phase F6.2 canonical NBA team registry + dual resolver ===\n")
+	// Registry presence + correct entry count
+	assert(/const NBA_TEAM_REGISTRY = \[/.test(nbaSrc),
+		"NBA_TEAM_REGISTRY constant declared at module scope")
+	const entryMatches = nbaSrc.match(/\{ abbr: "[A-Z]{3}",\s*apiTeamId:\s*\d+,/g) || []
+	assert(entryMatches.length === 30,
+		"NBA_TEAM_REGISTRY contains exactly 30 entries",
+		{ found: entryMatches.length })
+
+	// Both resolvers present; abbr wrapper preserved for backward compat
+	assert(/function resolveCanonicalNbaTeam\(raw\)/.test(nbaSrc),
+		"resolveCanonicalNbaTeam(raw) → { abbr, apiTeamId } | null present")
+	assert(/function resolveCanonicalNbaTeamAbbr\(raw\)/.test(nbaSrc),
+		"resolveCanonicalNbaTeamAbbr(raw) wrapper preserved")
+
+	// Numeric id placed on the wire — NOT abbreviation. Phase F6.3 inlined
+	// this inside the requestParams object literal (different shape from F6.2,
+	// where it was assigned conditionally after construction).
+	assert(/team:\s*Number\(resolvedApiTeamId\)/.test(nbaSrc),
+		"fetchApiSportsPlayerId places `team: Number(resolvedApiTeamId)` inside requestParams")
+	assert(/Number\.isFinite\(resolvedApiTeamId\)/.test(nbaSrc),
+		"numeric guard around team param (no NaN/null leakage onto wire)")
+
+	// Env override hook present
+	assert(/NBA_API_SPORTS_TEAM_ID_OVERRIDES/.test(nbaSrc),
+		"env override hook (NBA_API_SPORTS_TEAM_ID_OVERRIDES) present")
+}
+
+function part15_phaseF6DiagnosticsSurface() {
+	console.log("\n=== PART 15 — Phase F6.2 diagnostics surface ===\n")
+	resetNbaCacheDiagnostics()
+	const d = getNbaCacheDiagnostics()
+	for (const k of [
+		"lastPlayerIdRequestTeam",
+		"lastPlayerIdResolvedTeamAbbr",
+		"lastPlayerIdResolvedApiTeamId",
+	]) {
+		assert(Object.prototype.hasOwnProperty.call(d.apiSportsResponseDiagnostics, k),
+			`apiSportsResponseDiagnostics has key: ${k}`)
+		assert(d.apiSportsResponseDiagnostics[k] === null,
+			`${k} starts null after reset (no synthesis)`)
+	}
+	// Defensive copy semantics
+	d.apiSportsResponseDiagnostics.lastPlayerIdResolvedApiTeamId = 99999
+	const d2 = getNbaCacheDiagnostics()
+	assert(d2.apiSportsResponseDiagnostics.lastPlayerIdResolvedApiTeamId === null,
+		"defensive copy: internal lastPlayerIdResolvedApiTeamId unmutated")
+
+	// Static check — reset path includes the new field
+	assert(/lastPlayerIdResolvedApiTeamId:\s+null/.test(nbaSrc),
+		"reset path explicitly clears lastPlayerIdResolvedApiTeamId")
+}
+
+function part16_phaseF6ResolverBehavior() {
+	console.log("\n=== PART 16 — Phase F6.2 resolver behavior (in-process) ===\n")
+	// Extract the registry + resolver block and exercise it via Function().
+	const block = nbaSrc.match(/const NBA_TEAM_REGISTRY = \[[\s\S]*?\]\n\n\/\/ Optional override[\s\S]*?function resolveCanonicalNbaTeamAbbr\(raw\) \{[\s\S]*?\n\}/)?.[0]
+	assert(!!block, "isolated registry+resolver block extractable from source")
+	if (!block) return
+	const factory = new Function("process",
+		block + "; return { resolveCanonicalNbaTeam };")
+	const { resolveCanonicalNbaTeam } = factory({ env: {} })
+
+	// Operator's failing case — full franchise name MUST resolve now.
+	const sac = resolveCanonicalNbaTeam("SACRAMENTO KINGS")
+	assert(sac && sac.abbr === "SAC" && Number.isFinite(sac.apiTeamId),
+		'"SACRAMENTO KINGS" → { abbr:"SAC", apiTeamId:<finite> }',
+		{ resolved: sac })
+
+	// All 30 canonical abbrs resolve to a finite, unique apiTeamId
+	const abbrs = ["ATL","BOS","BKN","CHA","CHI","CLE","DAL","DEN","DET","GSW",
+		"HOU","IND","LAC","LAL","MEM","MIA","MIL","MIN","NOP","NYK",
+		"OKC","ORL","PHI","PHX","POR","SAC","SAS","TOR","UTA","WAS"]
+	const seen = new Set()
+	let allOk = true
+	for (const a of abbrs) {
+		const r = resolveCanonicalNbaTeam(a)
+		if (!r || r.abbr !== a || !Number.isFinite(r.apiTeamId) || seen.has(r.apiTeamId)) {
+			allOk = false
+			break
+		}
+		seen.add(r.apiTeamId)
+	}
+	assert(allOk && seen.size === 30,
+		"all 30 canonical abbrs resolve to unique finite apiTeamIds")
+
+	// Full franchise names + cities + nicknames
+	const cases = [
+		["Detroit Pistons",     "DET"],
+		["Los Angeles Lakers",  "LAL"],
+		["Trail Blazers",       "POR"],
+		["Philadelphia 76ers",  "PHI"],
+		["Brooklyn Nets",       "BKN"],
+		["Boston",              "BOS"],
+		["Heat",                "MIA"],
+		["Kings",               "SAC"],
+		["BRK",                 "BKN"], // alias
+		["WSH",                 "WAS"], // alias
+		["CAVS",                "CLE"], // nickname alias
+	]
+	for (const [input, expectedAbbr] of cases) {
+		const r = resolveCanonicalNbaTeam(input)
+		assert(r && r.abbr === expectedAbbr && Number.isFinite(r.apiTeamId),
+			`resolve(${JSON.stringify(input)}) → abbr=${expectedAbbr}, finite apiTeamId`,
+			{ resolved: r })
+	}
+
+	// Rejections
+	for (const bad of ["", "Unknown Team", "ZZZ", "ABC"]) {
+		assert(resolveCanonicalNbaTeam(bad) === null,
+			`resolve(${JSON.stringify(bad)}) === null`)
+	}
+	assert(resolveCanonicalNbaTeam(null) === null, "resolve(null) === null")
+	assert(resolveCanonicalNbaTeam(undefined) === null, "resolve(undefined) === null")
+}
+
+function part17_phaseF6_3TeamRosterContract() {
+	console.log("\n=== PART 17 — Phase F6.3 team-roster contract ===\n")
+	// Doc header present near the function
+	assert(/Phase F6\.3 — canonical API-NBA player-resolution contract/.test(nbaSrc),
+		"Phase F6.3 doc header present in fetchApiSportsPlayerId")
+	// The only roster-fetch request shape is { team, season }
+	assert(/requestParams\s*=\s*\{\s*team:\s*Number\(resolvedApiTeamId\),\s*season:\s*NBA_API_SPORTS_SEASON\s*\}/.test(nbaSrc),
+		"sole request-params shape: { team: Number, season }")
+	// `search` is never inside an axios.get('/players') params block
+	const playerCalls = (nbaSrc.match(/v2\.nba\.api-sports\.io\/players[\s\S]{0,300}?\}\)/g) || [])
+	let anyHasSearch = false
+	for (const call of playerCalls) {
+		if (!/\/players\/statistics/.test(call) && /\bsearch:/.test(call)) anyHasSearch = true
+	}
+	assert(!anyHasSearch,
+		"no `search:` param survives in any /players axios call (excluding /players/statistics)")
+	// Client-side name matching present
+	assert(/const want = normName\(playerName\)/.test(nbaSrc),
+		"client-side name match: const want = normName(playerName)")
+	assert(/for \(const r of roster\)/.test(nbaSrc),
+		"client-side name match iterates the roster array")
+	// Process-scoped memo
+	assert(/const __nbaTeamRosterCache = new Map\(\)/.test(nbaSrc),
+		"__nbaTeamRosterCache Map declared at module scope")
+	assert(/__nbaTeamRosterCache\.get\(rosterKey\)/.test(nbaSrc),
+		"roster memo: get(rosterKey)")
+	assert(/__nbaTeamRosterCache\.set\(rosterKey, roster\)/.test(nbaSrc),
+		"roster memo: set(rosterKey, roster) after fetch")
+	assert(/const rosterKey = `\$\{resolvedApiTeamId\}\|\$\{NBA_API_SPORTS_SEASON\}`/.test(nbaSrc),
+		"roster memo key shape: `<apiTeamId>|<season>`")
+}
+
+function part18_phaseF6_3DiagnosticsSurface() {
+	console.log("\n=== PART 18 — Phase F6.3 diagnostics surface (match strategy + cache size) ===\n")
+	resetNbaCacheDiagnostics()
+	const d = getNbaCacheDiagnostics()
+	// teamRosterCacheSize at top-level
+	assert(Object.prototype.hasOwnProperty.call(d, "teamRosterCacheSize"),
+		"top-level diagnostics expose teamRosterCacheSize")
+	assert(d.teamRosterCacheSize === 0, "teamRosterCacheSize starts at 0 after reset")
+	// lastPlayerIdMatchStrategy under apiSportsResponseDiagnostics
+	assert(Object.prototype.hasOwnProperty.call(d.apiSportsResponseDiagnostics, "lastPlayerIdMatchStrategy"),
+		"apiSportsResponseDiagnostics exposes lastPlayerIdMatchStrategy")
+	assert(d.apiSportsResponseDiagnostics.lastPlayerIdMatchStrategy === null,
+		"lastPlayerIdMatchStrategy starts null after reset")
+	// Static: reset path clears the new fields
+	assert(/lastPlayerIdMatchStrategy:\s+null/.test(nbaSrc),
+		"reset path explicitly clears lastPlayerIdMatchStrategy")
+	assert(/__nbaTeamRosterCache\.clear\(\)/.test(nbaSrc),
+		"reset path clears __nbaTeamRosterCache")
+}
+
+function part19_syntaxCheck() {
+	console.log("\n=== PART 19 — nbaIsolatedRoutes + server still parse cleanly ===\n")
 	const { spawnSync } = require("child_process")
 	for (const f of ["http/nbaIsolatedRoutes.js", "server.js"]) {
 		const r = spawnSync(process.execPath, ["--check", path.join(__dirname, "..", f)], { encoding: "utf8" })
@@ -244,7 +431,7 @@ function part14_syntaxCheck() {
 function run() {
 	try {
 		part1_sharedSeasonConstant()
-		part2_playerIdRequestSendsSeason()
+		part2_playerIdRequestSendsTeamAndSeason()
 		part3_playerStatsRequestSendsSharedSeason()
 		part4_envelopeFieldsExposed()
 		part5_envelopeCapturedFromResponse()
@@ -256,7 +443,12 @@ function run() {
 		part11_phaseF2SemanticsIntact()
 		part12_phaseF1LegacyGateIntact()
 		part13_phaseF5DocBlockPresent()
-		part14_syntaxCheck()
+		part14_phaseF6RegistryAndDualResolver()
+		part15_phaseF6DiagnosticsSurface()
+		part16_phaseF6ResolverBehavior()
+		part17_phaseF6_3TeamRosterContract()
+		part18_phaseF6_3DiagnosticsSurface()
+		part19_syntaxCheck()
 	} catch (err) {
 		console.log("FAIL — unexpected exception:", err?.stack || err)
 		process.exitCode = 1

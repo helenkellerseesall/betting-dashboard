@@ -130,8 +130,10 @@ function part4_apiResponseDiagnosticsCaptured() {
 	console.log("\n=== PART 4 — API response shape captured ===\n")
 	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdRequestPlayer = String/.test(nbaSrc),
 		"fetchApiSportsPlayerId records request player")
-	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseRowsReturned = Array\.isArray\(rows\)/.test(nbaSrc),
-		"fetchApiSportsPlayerId records rows.length")
+	// Phase F6.3 refactored fetchApiSportsPlayerId to use a `roster` local
+	// (already array-typed). Accept either the old or the new form.
+	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseRowsReturned\s*=\s*(Array\.isArray\(rows\)|roster\.length)/.test(nbaSrc),
+		"fetchApiSportsPlayerId records rows/roster length")
 	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseSampleNames = __sampleNames/.test(nbaSrc),
 		"fetchApiSportsPlayerId records first 3 returned names")
 	assert(/__nbaCacheDiag\.apiSportsResponseDiagnostics\.lastPlayerIdResponseHadFiniteId = Number\.isFinite\(id\)/.test(nbaSrc),

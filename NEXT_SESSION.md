@@ -1,6 +1,184 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-11 (Session AW: Anti-Monoculture Portfolio Intelligence V1 — two-pass bestProps selection + buildPortfolioConcentrationDiagnostics + /api/portfolio-diagnostics + concentration field in /snapshot/status; TERM 1 restart still pending for Sessions AN-AR+AT+AW)_
+_Last updated: 2026-05-13 (Phase F6.3 — API-NBA /players is a team-roster endpoint. `search` dropped from request; client-side name match against the roster. Process-scoped __nbaTeamRosterCache memoizes per (team, season). TERM 1 restart required. Existing AN-AR+AT+AW+F6.2 restart folds in.)_
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase F6.3 (DO THIS FIRST)
+
+> **Phase F6.3 adds**: Drops `search` from the `/players` request. `fetchApiSportsPlayerId` now fetches the full team roster (`GET /players?team=N&season=Y`) and matches the player by normalized name client-side. Process-scoped `__nbaTeamRosterCache` (Map keyed by `<apiTeamId>|<season>`) prevents redundant roster fetches within the process lifetime. New diagnostics: `lastPlayerIdMatchStrategy` + `teamRosterCacheSize`. **TERM 1 restart required** — folds into any pending restart.
+
+### Step F6.3-1 — TERM 1 restart
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After boot + first `/refresh-snapshot` (or `/api/nba/refresh-snapshot/hard-reset`), TERM 1 must emit one line:
+```
+[NBA-API-SPORTS-PLAYER-RESOLUTION] {"player":"<Some Player>","rawRequestTeam":"<UPPERCASE>","resolvedTeamAbbr":"<ABBR>","resolvedApiTeamId":<numeric>,"strategy":"roster_fetch_then_match","params":{"team":<numeric>,"season":2025},"rosterSize":<N>,"results":<N>,"errors":[],...}
+```
+Critical signals:
+- `strategy` is `"roster_fetch_then_match"`
+- `params` contains ONLY `{ team: <number>, season: 2025 }` — no `search`
+- `rosterSize` is > 0 (typically 14–18 for a current-season NBA roster)
+- `results` is a finite positive number matching the API's response.results
+- `errors` is `[]` or `null`
+
+### Step F6.3-2 — Verify the player-id cache lifecycle
+```bash
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset" >/dev/null && sleep 15 && curl -s http://localhost:4000/api/best-available | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+const nc=d.nbaCacheDiagnostics
+const ar=nc?.apiSportsResponseDiagnostics
+console.log('—— request shape ——')
+console.log('  rawRequestTeam        :', ar?.lastPlayerIdRequestTeam)
+console.log('  resolvedTeamAbbr      :', ar?.lastPlayerIdResolvedTeamAbbr)
+console.log('  resolvedApiTeamId     :', ar?.lastPlayerIdResolvedApiTeamId)
+console.log('  matchStrategy         :', ar?.lastPlayerIdMatchStrategy)
+console.log('  parameters echoed back:', JSON.stringify(ar?.lastPlayerIdResponseParameters))
+console.log('  rosterSize (results)  :', ar?.lastPlayerIdResponseResults)
+console.log('  rowsReturned          :', ar?.lastPlayerIdResponseRowsReturned)
+console.log('  errors                :', JSON.stringify(ar?.lastPlayerIdResponseErrors))
+console.log('—— cache lifecycle ——')
+console.log('  teamRosterCacheSize         :', nc?.teamRosterCacheSize)
+console.log('  PLAYER_ID_API_RETURNED_NULL :', nc?.cacheWriteSkipReasonCounts?.PLAYER_ID_API_RETURNED_NULL)
+console.log('  cacheWriteSuccessesPlayerId :', nc?.cacheWriteSuccessesPlayerId)
+console.log('  cacheWriteAttemptsPlayerId  :', nc?.cacheWriteAttemptsPlayerId)
+console.log('  memoryPlayerIdCount         :', nc?.memoryPlayerIdCount)
+console.log('  diskPlayerIdCount           :', nc?.diskPlayerIdCount)
+console.log('  cachePersistenceHealthy     :', nc?.cachePersistenceHealthy)
+"
+```
+
+Expected after first refresh on a typical NBA slate:
+- `matchStrategy` is `"roster_match_exact"` (or `"roster_match_lastname"` if firstname is missing upstream, or `"roster_cache_hit"` for subsequent same-team lookups)
+- `parameters.team` is a number; `parameters.season` is 2025; NO `parameters.search`
+- `rosterSize` typically 14–18
+- `teamRosterCacheSize` ≈ number of unique NBA teams on the slate (10–20 on a busy night)
+- `PLAYER_ID_API_RETURNED_NULL` no longer climbing per-player
+- `cacheWriteSuccessesPlayerId > 0`
+- `memoryPlayerIdCount > 0` and `diskPlayerIdCount > 0`
+- `cachePersistenceHealthy: true`
+
+### Step F6.3-3 — Disk persistence across restart
+After F6.3-2 succeeds, restart TERM 1 and re-run F6.3-2. `diskPlayerIdCount` must equal `memoryPlayerIdCount` immediately (proves the disk read-merge-write owner-B cache persists). `teamRosterCacheSize` will start at 0 on a fresh process and grow as rosters are re-fetched (the roster Map is process-scoped, not disk-persisted).
+
+### Step F6.3-4 — Recent-form source verification
+On any prop view (e.g. `/props/best`), `recentForm.source` should now show `"api-sports-live"` for players whose team resolved through the registry (was `projection-fallback` pre-F5/F6/F6.3).
+
+### Step F6.3-5 — Run regression matrix locally (optional, fast)
+```bash
+cd ~/Desktop/betting-dashboard && for f in \
+  verifyNbaApiSportsContractFix verifyNbaCacheabilityGate verifyNbaCacheObservability \
+  verifyLegacyApiSportsCacheGate verifyResponseAuthority verifyCompositeKeyIntegrity \
+  verifyOrphanAuthorityHardening verifyCalibrationHonesty verifyMlbImmutabilityHardening \
+  verifyMlbFutureOnlyHardening verifySnapshotFreshness verifyMlbLiveStatePhase2 \
+  verifyMlbContextualPhase1B verifyMlbContextualPhase1; do
+  node "backend/scripts/${f}.js" 2>&1 | tail -1
+done
+```
+All 14 must print `RESULT: PASS`. The F5/F6/F6.2/F6.3 fixture in particular runs 19 parts including 30/30 canonical apiTeamIds + 11/11 mixed-shape resolutions + 6/6 rejections + F6.3 contract assertions.
+
+### Failure mode — what to check if F6.3-2 still shows nulls
+| Symptom | Cause | Fix |
+|---|---|---|
+| `matchStrategy: "no_team_skipped"` | Upstream row.team unknown to registry | Add to `aliases[]` in `NBA_TEAM_REGISTRY` |
+| `matchStrategy: "roster_empty"`, `errors` non-null | API entitlement issue or wrong season | Verify API key + season value |
+| `matchStrategy: "roster_no_match"` | Player name format mismatch | Inspect `lastPlayerIdResponseSampleNames` to see what the roster carries; may need to extend `normName` |
+| `rosterSize: 17`, `cacheWriteSuccessesPlayerId: 0` | Caller-side cache write skip (downstream) | Read F3 sample buffers via `/api/best-available` |
+| `parameters.team` is a string (e.g. "30") not a number | Wire serializer stringified | Acceptable — API treats `30` and `"30"` identically; verify `results > 0` |
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase F6.2 (DO THIS FIRST)
+
+> **Phase F6.2 adds**: 30-entry canonical NBA team registry in `backend/http/nbaIsolatedRoutes.js`. `fetchApiSportsPlayerId` now resolves `row.team` (free-form display value — full names, cities, nicknames, abbreviations, aliases) into a NUMERIC API-Sports team id and sends `team: <Number>` on the wire. New diagnostic `lastPlayerIdResolvedApiTeamId` surfaces what reached the wire. **TERM 1 restart required** — folds into any pending Sessions AN-AR+AT+AW restart.
+
+### Step F6.2-1 — TERM 1 restart (single-line paste)
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After boot, on the first `/refresh-snapshot` (or `/api/nba/refresh-snapshot/hard-reset`) TERM 1 must emit ONE line of the form:
+```
+[NBA-API-SPORTS-PLAYER-RESOLUTION] {"player":"<Some Player>","rawRequestTeam":"<UPPERCASE INPUT>","resolvedTeamAbbr":"<ABBR>","resolvedApiTeamId":<numeric>,"params":{"search":"<player>","season":2025,"team":<numeric>}, ...}
+```
+Critical signals on that line:
+- `resolvedTeamAbbr` is a 3-letter canonical (`"SAC"`, `"DET"`, `"LAL"`, …) — NOT null
+- `resolvedApiTeamId` is a finite number (30, 10, 17, …) — NOT null
+- `params.team` is a NUMBER — not a string, not an abbreviation
+- `params.season` is `2025`
+- `params.search` is a player name
+
+If `resolvedApiTeamId` is null while `rawRequestTeam` is non-null, the operator is seeing an upstream display value the registry does not yet know — add it to the appropriate `aliases[]` array in `NBA_TEAM_REGISTRY`.
+
+### Step F6.2-2 — Verify cache lifecycle after first refresh (TERM 2)
+```bash
+curl -s "http://localhost:4000/refresh-snapshot/hard-reset" >/dev/null && sleep 12 && curl -s http://localhost:4000/api/best-available | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+const nc=d.nbaCacheDiagnostics
+const ar=nc?.apiSportsResponseDiagnostics
+console.log('—— request shape ——')
+console.log('  rawRequestTeam        :', ar?.lastPlayerIdRequestTeam)
+console.log('  resolvedTeamAbbr      :', ar?.lastPlayerIdResolvedTeamAbbr)
+console.log('  resolvedApiTeamId     :', ar?.lastPlayerIdResolvedApiTeamId)
+console.log('  parameters echoed back:', JSON.stringify(ar?.lastPlayerIdResponseParameters))
+console.log('  results               :', ar?.lastPlayerIdResponseResults)
+console.log('  errors                :', JSON.stringify(ar?.lastPlayerIdResponseErrors))
+console.log('—— cache lifecycle ——')
+console.log('  PLAYER_ID_API_RETURNED_NULL :', nc?.cacheWriteSkipReasonCounts?.PLAYER_ID_API_RETURNED_NULL)
+console.log('  cacheWriteSuccessesPlayerId :', nc?.cacheWriteSuccessesPlayerId)
+console.log('  cacheWriteAttemptsPlayerId  :', nc?.cacheWriteAttemptsPlayerId)
+console.log('  memoryPlayerIdCount         :', nc?.memoryPlayerIdCount)
+console.log('  diskPlayerIdCount           :', nc?.diskPlayerIdCount)
+console.log('  cachePersistenceHealthy     :', nc?.cachePersistenceHealthy)
+"
+```
+
+Expected after first refresh:
+- `resolvedTeamAbbr` populated (e.g. `"SAC"`, `"DET"`)
+- `resolvedApiTeamId` populated (e.g. `30`, `10`)
+- `parameters.team` is a number echoed by the API
+- `results > 0`
+- `errors` is `null` or `[]`
+- `PLAYER_ID_API_RETURNED_NULL` no longer climbing per-player
+- `cacheWriteSuccessesPlayerId > 0`
+- `memoryPlayerIdCount > 0`, `diskPlayerIdCount > 0`
+- `cachePersistenceHealthy: true`
+
+### Step F6.2-3 — Cache persistence across restart
+After F6.2-2 succeeds, restart TERM 1 again (same one-liner) and re-run F6.2-2. `diskPlayerIdCount` must equal `memoryPlayerIdCount` and be > 0 immediately (proves the disk read-merge-write owner-B cache lifecycle survives the restart).
+
+### Step F6.2-4 — Recent-form projection-fallback decline
+```bash
+curl -s "http://localhost:4000/snapshot/status" | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))
+console.log('bestProps:', d.bestProps)
+console.log('concentration:', JSON.stringify(d.concentration))
+"
+```
+And on any prop view (e.g. `/props/best`), `recentForm.source` should now show `"api-sports-live"` for the majority of rows (was `projection-fallback` pre-F6.2).
+
+### Step F6.2-5 — Run regression matrix locally (optional, fast)
+```bash
+cd ~/Desktop/betting-dashboard && for f in \
+  verifyNbaApiSportsContractFix verifyNbaCacheabilityGate verifyNbaCacheObservability \
+  verifyLegacyApiSportsCacheGate verifyResponseAuthority verifyCompositeKeyIntegrity \
+  verifyOrphanAuthorityHardening verifyCalibrationHonesty verifyMlbImmutabilityHardening \
+  verifyMlbFutureOnlyHardening verifySnapshotFreshness verifyMlbLiveStatePhase2 \
+  verifyMlbContextualPhase1B verifyMlbContextualPhase1; do
+  node "backend/scripts/${f}.js" 2>&1 | tail -1
+done
+```
+All 14 must print `RESULT: PASS`.
+
+### Failure mode — what to check if F6.2-2 still shows nulls
+| Symptom | Cause | Fix |
+|---|---|---|
+| `rawRequestTeam: null` | Upstream rows missing `row.team` entirely | Look at `buildNbaBoardSlicesFromSnapshot.js` enrichment — Phase E2-era populated this; the projections layer + event-teams enrichers usually fill it. |
+| `rawRequestTeam: "SOME-NEW-NAME"`, `resolvedTeamAbbr: null` | Registry doesn't know that representation | Add the string to the matching team's `aliases[]` array. |
+| `resolvedApiTeamId: 30`, `parameters.team: <wrong number>` | API-Sports renumbered franchise ids | Set env `NBA_API_SPORTS_TEAM_ID_OVERRIDES='{"SAC":<correct>}'` and restart. |
+| `errors: {...required...}` even with all three params | Entitlement issue on the API key | Verify API key on the API-NBA dashboard. |
 
 ---
 

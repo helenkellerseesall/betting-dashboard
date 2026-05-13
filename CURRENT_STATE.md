@@ -1,6 +1,177 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-12 (Session BD: Longitudinal Freeze Pipeline Audit — root cause: the Session AZ freeze hook was wired to `/api/ws/state` cache-miss only, but the operator's bestProps generation flow goes through `/refresh-snapshot/hard-reset` → `handleNbaRefreshSnapshotAfterMlbBranch` → `fetchNbaOddsSnapshot` and never hits `/api/ws/state`. Smallest fix: added a freeze hook inside `handleNbaRefreshSnapshotAfterMlbBranch` (the proven snapshot-mutation handler used by both refresh paths) that fires immediately after `replaceOddsSnapshot(snap)`. Honest sparsity — contextual columns NULL since no contextual layer fires at snapshot time, but predictions + epoch + final_model_prob/edge captured. /api/ws/state freeze still in place for the contextually-rich path. 29/29 snapshot-freeze probe pass; all earlier probes (AY/AZ/BA/BB/BC) still pass. TERM 1 restart REQUIRED.)_
+_Last updated: 2026-05-13 (Phase F6.3 — API-NBA `/players` is a TEAM-ROSTER endpoint. The `search` parameter does not combine with `team` + `season`; using all three returns results:0 even after F5+F6.2 contract fixes. Reference implementation (dailydataapps.com pulling-data-from-api-nba) confirms the canonical pattern: GET /players?team=N&season=Y returns the full roster; player name match is done client-side. Fix: `fetchApiSportsPlayerId` now fetches the roster and matches by normalized name. Process-scoped __nbaTeamRosterCache memoizes by team|season so 17 Sacramento Kings props fire one roster call, not 17. New diagnostics: `lastPlayerIdMatchStrategy` (roster_match_exact / roster_match_lastname / roster_no_match / roster_empty / roster_cache_hit / no_team_skipped) + top-level `teamRosterCacheSize`. F5-A/B/C, F6.2 registry, F1-F4 cache lifecycle, replay/freeze/grading all preserved. 14/14 regression suites green; F5/F6/F6.2/F6.3 fixture 19/19 parts pass. TERM 1 restart REQUIRED.)_
+
+---
+
+## PHASE F6.3 — API-NBA Player-Resolution Contract — Team-Roster Endpoint (2026-05-13)
+
+### Root cause (final, after live verification of F6.2)
+
+Phase F6.2 correctly resolved `"SACRAMENTO KINGS"` → `{abbr:"SAC", apiTeamId:30}` and sent `team: 30` as a number on the wire. Live diagnostics:
+
+```
+rawRequestTeam:   SACRAMENTO KINGS
+resolvedAbbr:     SAC
+resolvedTeamId:   30
+params:           { search: "Dennis Schroder", season: 2025, team: 30 }
+results:          0
+nullSkips:        48     writeSuccesses: 0
+```
+
+Request now passes validation (no "Team field is required" error) but still returns zero results. This confirmed the upstream contract was still misunderstood: the `search` parameter does NOT combine with `team` + `season`.
+
+Independent verification via the reference implementation at https://dailydataapps.com/pulling-data-from-api-nba/ ("Players dimension table that lists out the individual NBA players. We can get this from the players endpoint, which takes a specific TEAM_ID as a parameter along with the desired season"). The canonical API-NBA pattern is:
+
+```
+GET /players?team=<numeric_id>&season=<year>
+   → response = full roster for that team in that season
+   → match player by name client-side
+```
+
+`search` is a separate query mode (search-by-lastname global) and is incompatible with team filtering.
+
+### Fix implemented
+
+`backend/http/nbaIsolatedRoutes.js` only:
+
+1. **Drop `search` from the player-id request.** `requestParams = { team: Number(resolvedApiTeamId), season: NBA_API_SPORTS_SEASON }` — nothing else.
+2. **Process-scoped `__nbaTeamRosterCache`** — a `Map<string, Array>` declared at module scope, keyed by `"<apiTeamId>|<season>"`. A 17-player Sacramento Kings slate now fires ONE roster fetch, not 17. NOT a parallel cache owner — the canonical disk-persisted owner-B `playerIdCache` is still the authoritative cross-process cache. The roster Map is a within-process memoization, identical in lifecycle to axios connection pools or other process-scoped working state.
+3. **Client-side name matching** against the roster. Exact `firstname + lastname` match wins; lastname-only is a soft fallback (some upstream feeds drop firstname). Both matched and unmatched outcomes are recorded as `lastPlayerIdMatchStrategy`.
+4. **Early-exit for unresolved team** — when `resolvedApiTeamId` is null (operator's row.team unknown to the registry), the function returns null immediately with `lastPlayerIdMatchStrategy = "no_team_skipped"`. The existing F3 cacheability gate downstream categorizes this as `PLAYER_ID_API_RETURNED_NULL` with a sample.
+5. **Diagnostics** — two additional surfaces:
+   - `lastPlayerIdMatchStrategy` (under `apiSportsResponseDiagnostics`) — six possible values capturing every code path: `roster_match_exact`, `roster_match_lastname`, `roster_no_match`, `roster_empty`, `roster_cache_hit`, `no_team_skipped`.
+   - `teamRosterCacheSize` (top-level) — number of distinct (team, season) rosters held in memory. Observable from `/api/best-available` without restart.
+6. **Probe rate limit** preserved — the F5-C rate-limit flag `_loggedFirstPlayerResolution` now guards two emission sites (main flow + `no_team_skipped` early-exit). Runtime emission remains once-per-process.
+
+### Authority preservation (verified)
+
+- ✅ Owner-B canonical disk cache (`playerIdCache`, `playerStatsCache`) — unchanged. The roster Map is adjacent memoization, not a replacement.
+- ✅ Response authority — `/api/best-available` still surfaces the same `nbaCacheDiagnostics` block, now with two additional fields.
+- ✅ Replay / freeze / epoch — key on `prediction_id` / composite keys, not API team ids or rosters. Unaffected.
+- ✅ Immutable snapshot semantics — untouched.
+- ✅ MLB systems — untouched.
+- ✅ Observability — extends existing surfaces (one new diag field surfaced through `getNbaCacheDiagnostics`, one new top-level count).
+- ✅ Composite-key integrity — Phase E1 normalizers still authoritative.
+- ✅ Phase F1 legacy cache gate — `ENABLE_LEGACY_API_SPORTS_CACHE` still gates the orphan owner-A loader.
+
+### Files touched (this phase only)
+
+```
+backend/http/nbaIsolatedRoutes.js                    (fetchApiSportsPlayerId rewired; 1 new module-scope Map; 2 new diag fields)
+backend/scripts/verifyNbaApiSportsContractFix.js     (parts 2 + 6 updated; parts 17, 18, 19 added)
+backend/scripts/verifyNbaCacheabilityGate.js         (one regex updated to accept `roster.length`)
+CURRENT_STATE.md                                     (this entry)
+NEXT_SESSION.md                                      (operator action header replaced)
+```
+
+### Verification
+
+- `node --check` clean on both modified backend files.
+- F5/F6/F6.2/F6.3 contract fixture: **19/19 parts pass**, RESULT: PASS, node_exit=0.
+- Full 14-suite regression matrix: **14/14 PASS**, all node_exit=0.
+
+### Remaining risks
+
+1. **API-NBA team ID drift between seasons** — already mitigated by `NBA_API_SPORTS_TEAM_ID_OVERRIDES` env hook. F6.3 inherits this protection.
+2. **Player name mismatches** — if the API-NBA roster uses different name forms than the upstream sportsbook feed ("Dennis Schröder" vs "Dennis Schroder"), the `normName` normalizer's NFD + diacritic-strip will usually reconcile them. The lastname-only soft fallback handles "Dennis" → no match → "Schroder" lastname match.
+3. **Multiple players sharing a lastname on the same team** — lastname fallback picks the FIRST match in roster order. Acceptable for current slate volumes; can tighten to require firstname-initial match if it becomes an issue.
+4. **Rosters change mid-season** — process restart re-fetches all rosters. Operators can call `resetNbaCacheDiagnostics()` (or just restart) after a trade-deadline. Future enhancement: TTL on the roster Map entries.
+
+### Next recommended phase
+
+**Phase F7 (optional)** — once cache writes are confirmed populating (operator verifies steps F6.3-2 and F6.3-3 below), wire the roster cache to optional disk persistence via the existing owner-B disk cache file, so process restarts don't re-fetch 30 rosters in the first enrichment pass. Purely an optimization; current behavior is already correct.
+
+---
+
+## PHASE F6.2 — API-NBA Player-Resolution Contract — Numeric Team ID (2026-05-13)
+
+### Root cause (final, conclusive)
+
+Pre-F5 the `/players` request omitted `season` → API returned `errors:{"required":"season is required"}` silently, surfacing as `PLAYER_ID_API_RETURNED_NULL`. Phase F5 added the season constant. Live diagnostics after F5/F6/F6.1 then showed the SECOND layer of the same failure mode:
+
+```
+requestTeam:  SACRAMENTO KINGS
+resolvedAbbr: null
+params:       {"search":"Dennis Schroder","season":"2025"}
+results:      0
+API errors:   "The Team field is required."
+nullSkips:    48     writeSuccesses: 0
+memoryIds:    0      diskIds:        0
+```
+
+Three facts converged: (a) `row.team` carries free-form display values upstream — full franchise names, cities, nicknames — not abbreviations; (b) F6.1's strict 3-letter-abbr resolver correctly refused to forward a name as a `team` value, so `team` was dropped entirely; (c) API-Sports v2 NBA `/players` requires `team` AS A NUMERIC TEAM ID — not abbreviation, not name. Even the F6 abbreviation-style param ("SAC") would have been silently rejected. Only the numeric id (`30` for Sacramento) satisfies the upstream contract.
+
+### Upstream contract discovered (authoritative)
+
+```
+GET https://v2.nba.api-sports.io/players
+  ?search=<player>
+  &season=<YYYY>          ← Phase F5 (the 2025-26 NBA season is season=2025)
+  &team=<numeric id>      ← Phase F6.2 (1, 2, 4, 5, 6, 7, … 41 — non-contiguous)
+```
+
+All three are required. Omit any one and the API returns HTTP 200 + `response:[]` + an `errors:{}` envelope that pre-F5 code silently discarded. The numeric ids are API-Sports-internal franchise identifiers — they intentionally retain historic franchises (Vancouver Grizzlies, Charlotte Bobcats, original NO Hornets), which is why the active-franchise id set is non-contiguous (1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 38, 40, 41).
+
+### Fix implemented
+
+`backend/http/nbaIsolatedRoutes.js` only — additive, no architecture redesign.
+
+1. **30-entry canonical `NBA_TEAM_REGISTRY`** at module scope. Each entry: `{ abbr, apiTeamId, city, nickname, aliases[] }`.
+2. **`__NBA_TEAM_LOOKUP_BY_KEY` Map** built once at module load. Keys include canonical abbr, all 2/3-letter abbreviation aliases (BRK/CHO/GS/NO/NOR/NY/PHO/SA/UTH/WSH/PHL/OKL), city, nickname, `"<city> <nickname>"` full name, and explicit alias strings (CAVS, MAVS, SIXERS, WOLVES, BLAZERS, etc.). First-write-wins prevents alias collisions from overwriting canonical entries.
+3. **`resolveCanonicalNbaTeam(raw)`** → `{ abbr, apiTeamId } | null`. Trims, uppercases, looks up the Map. Returns a shallow copy so callers cannot mutate the registry.
+4. **`resolveCanonicalNbaTeamAbbr(raw)`** preserved as a thin wrapper around the above — backward-compatible with existing F5/F6 fixture parts and any future call sites that only need the abbreviation.
+5. **`fetchApiSportsPlayerId({ axios, apiKey, playerName, team })`** rewired:
+   - `rawRequestTeam` = uppercase-trimmed input (or `null`).
+   - `resolvedTeam = resolveCanonicalNbaTeam(rawRequestTeam)`.
+   - `requestParams.team = Number(resolvedApiTeamId)` only when finite. No abbreviation ever reaches the wire.
+6. **Diagnostics — three fields trace the full contract**:
+   - `lastPlayerIdRequestTeam` — raw uppercase observation (catches upstream pollution).
+   - `lastPlayerIdResolvedTeamAbbr` — canonical 3-letter (or null).
+   - `lastPlayerIdResolvedApiTeamId` — numeric id actually placed on the wire (or null) — **NEW**.
+   All three surfaced via `getNbaCacheDiagnostics()`, reset by `resetNbaCacheDiagnostics()`, and emitted in the rate-limited `[NBA-API-SPORTS-PLAYER-RESOLUTION]` probe.
+7. **Optional env override** `NBA_API_SPORTS_TEAM_ID_OVERRIDES` (JSON `{ "DET": 10, ... }`) — applied once at module load, logged as `[NBA-TEAM-REGISTRY-OVERRIDES-APPLIED]`. Defensive against future API-Sports id renumbering without requiring a code edit.
+
+### Authority preservation (verified)
+
+- ✅ **Cache authority** — owner-B canonical (Phase F1 gate intact); no parallel cache owner introduced.
+- ✅ **Response authority** — `/api/best-available` still surfaces the same `nbaCacheDiagnostics` block, now with one additional field.
+- ✅ **Composite-key integrity** — replay/grading/freeze pipelines key on `prediction_id` / composite keys, not API-Sports team ids; F6.2 changes are upstream-only.
+- ✅ **Replay / freeze / epoch** — no changes; `freezePredictionEpoch.js`, `intelligence.js`, `intelligenceSchema.js` untouched.
+- ✅ **Immutable snapshot semantics** — `INSERT OR IGNORE` writers untouched.
+- ✅ **MLB systems** — untouched.
+- ✅ **Observability** — extends existing probe + diagnostic surfaces; no parallel logger introduced.
+
+### Files touched
+
+```
+backend/http/nbaIsolatedRoutes.js              (registry + resolvers + 3 diag fields + numeric wire param)
+backend/scripts/verifyNbaApiSportsContractFix.js  (extended: parts 14, 15, 16, 17 — F6.2 assertions)
+CURRENT_STATE.md                               (this file)
+NEXT_SESSION.md                                (operator instructions for TERM 1 + verification curl)
+```
+
+No other file touched.
+
+### Verification
+
+- `node --check` clean on `nbaIsolatedRoutes.js` and `server.js`.
+- Full 14-suite regression matrix: all PASS, all `node_exit=0`.
+- F5/F6/F6.2 fixture (17 parts): RESULT: PASS.
+- Behavioral resolver test (in-process, isolated registry block):
+  - 30/30 canonical 3-letter abbreviations resolve to a finite, unique apiTeamId.
+  - 11/11 mixed-shape inputs resolve correctly: `"SACRAMENTO KINGS"` → `{abbr:"SAC", apiTeamId:30}`, `"Detroit Pistons"` → `{abbr:"DET", apiTeamId:10}`, `"Trail Blazers"` → `{abbr:"POR", apiTeamId:29}`, `"Brooklyn Nets"` → `{abbr:"BKN", apiTeamId:4}`, `"Heat"` → `{abbr:"MIA", apiTeamId:20}`, `"Boston"` → `{abbr:"BOS", apiTeamId:2}`, `"BRK"` → `{abbr:"BKN", apiTeamId:4}`, `"WSH"` → `{abbr:"WAS", apiTeamId:41}`, `"CAVS"` → `{abbr:"CLE", apiTeamId:7}`, `"SIXERS"` → `{abbr:"PHI", apiTeamId:27}`, `"MAVS"` → `{abbr:"DAL", apiTeamId:8}`.
+  - 6/6 rejections return null: `""`, `"Unknown Team"`, `"ZZZ"`, `"ABC"`, `null`, `undefined`.
+
+### Remaining risks
+
+1. **API-Sports id drift** — if API-Sports renumbers franchise ids between seasons, the registry needs updating. Operators can override via `NBA_API_SPORTS_TEAM_ID_OVERRIDES` env without redeploying code. A follow-on phase could fetch `/teams` at boot to reconcile the registry programmatically. (Risk: low — these ids have been stable in API-Sports docs for years.)
+2. **Upstream `row.team` quality** — if `row.team` ever carries a representation the registry doesn't know (e.g. a localized non-English team name, or a Vegas/EU sportsbook-specific code), the resolver returns null and `team` is dropped from the request, recreating the F5-pattern symptom. Diagnostic `lastPlayerIdRequestTeam` makes this visible immediately — operator sees the unrecognized string. Mitigation: extend `aliases[]` on the affected registry entry.
+3. **Stats endpoint** — `fetchApiSportsPlayerStats` only takes `id` + `season`, no `team`. No change required there; the player-id lookup is the disambiguator.
+
+### Next recommended phase
+
+**Phase F7 (optional)** — runtime registry reconciliation: fetch `/teams?league=12&season=2025` once at first enrichment after a fresh boot, validate the apiTeamId values in `NBA_TEAM_REGISTRY` against the live response, and emit `[NBA-TEAM-REGISTRY-DRIFT]` if mismatches found. Purely observational; no behavior change until an operator chooses to ship overrides.
 
 ---
 
