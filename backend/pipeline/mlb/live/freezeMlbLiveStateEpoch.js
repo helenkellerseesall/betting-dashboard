@@ -96,6 +96,15 @@ function freezeMlbLiveStateEpoch(args = {}) {
 		error: null,
 	}
 
+	// Historical immutability semantics — see freezeMlbContextualEpoch for the
+	// full contract. Default: INSERT OR IGNORE on epoch AND contextual states.
+	// Admin bypass: args.allowOverwrite === true switches to INSERT OR REPLACE
+	// and is always logged with [MLB-IMMUTABLE-WRITE-ADMIN-BYPASS].
+	out.contextualAttempted = 0
+	out.duplicateHistoricalWrite = 0
+	out.immutableWriteRejected = 0
+	out.overwriteAttemptDetected = false
+	out.historicalWriteMode = "insert_or_ignore"
 	try {
 		ensureSchema()
 		const db = tryGetDb()
@@ -107,9 +116,22 @@ function freezeMlbLiveStateEpoch(args = {}) {
 		const snapshotUpdatedAt = safeStr(args.snapshotUpdatedAt)
 		const source = safeStr(args.source) || "live_refresh"
 		const notes = safeStr(args.notes)
+		const allowOverwrite = args.allowOverwrite === true
+		const overwriteReason = safeStr(args.overwriteReason)
 
 		const epochId = computeLiveEpochId(snapshotUpdatedAt, capturedAtIso, slateDate)
 		out.epochId = epochId
+
+		if (allowOverwrite) {
+			out.historicalWriteMode = "insert_or_replace_admin_bypass"
+			out.overwriteAttemptDetected = true
+			console.log("[MLB-IMMUTABLE-WRITE-ADMIN-BYPASS]", JSON.stringify({
+				writer: "freezeMlbLiveStateEpoch",
+				epochId,
+				slateDate,
+				reason: overwriteReason || "<no_reason_provided>",
+			}))
+		}
 
 		const insertEpoch = db.prepare(`
 			INSERT OR IGNORE INTO prediction_epochs
@@ -117,7 +139,23 @@ function freezeMlbLiveStateEpoch(args = {}) {
 			VALUES (?, ?, ?, 'mlb', ?, ?, ?, 0, ?)
 		`)
 
-		const insertCtx = db.prepare(`
+		const insertCtxImmutable = db.prepare(`
+			INSERT OR IGNORE INTO frozen_contextual_states
+				(prediction_id, epoch_id,
+				 matchup_score, matchup_shift,
+				 recent_form_z, recent_form_sample, recent_form_shift,
+				 starter_flag, projected_minutes,
+				 teammate_absent_count, teammate_redist_shift,
+				 market_consensus_implied, market_dispersion, market_book_count, market_shift,
+				 player_status, availability_shift,
+				 final_model_prob, final_edge,
+				 raw_context_json)
+			VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+			        ?, ?, NULL, NULL,
+			        NULL, NULL,
+			        ?, ?, ?)
+		`)
+		const insertCtxAdminBypass = db.prepare(`
 			INSERT OR REPLACE INTO frozen_contextual_states
 				(prediction_id, epoch_id,
 				 matchup_score, matchup_shift,
@@ -133,32 +171,61 @@ function freezeMlbLiveStateEpoch(args = {}) {
 			        NULL, NULL,
 			        ?, ?, ?)
 		`)
+		const insertCtx = allowOverwrite ? insertCtxAdminBypass : insertCtxImmutable
 
 		let contextualCount = 0
 		let predictionCount = 0
 		let skipped = 0
+		let attempted = 0
+		let collisions = 0
+		let firstCollisionLogged = false
 
-		const tx = db.transaction(() => {
+		// node:sqlite uses exec("BEGIN/COMMIT") for transactions. `db.transaction()`
+		// is a better-sqlite3 idiom not available here. Matches NBA freezer pattern.
+		db.exec("BEGIN")
+		try {
 			for (const row of liveRows) {
 				const predictionId = safeStr(row?.id) || safeStr(row?.predictionId)
 				if (!predictionId) { skipped += 1; continue }
 				predictionCount += 1
 				const raw = buildLiveRawContext(row)
 				if (!raw) continue
-				insertCtx.run(
+				attempted += 1
+				const res = insertCtx.run(
 					predictionId, epochId,
 					safeNum(row?.consensusImpliedProbability), safeNum(row?.bookImpliedDispersion),
 					safeNum(row?.predictedProbability), safeNum(row?.edgeProbability),
 					JSON.stringify(raw),
 				)
-				contextualCount += 1
+				const changed = (res && typeof res.changes === "number") ? res.changes : 1
+				if (changed > 0) {
+					contextualCount += 1
+				} else {
+					collisions += 1
+					if (!firstCollisionLogged && !allowOverwrite) {
+						firstCollisionLogged = true
+						console.log("[MLB-IMMUTABLE-WRITE]", JSON.stringify({
+							writer: "freezeMlbLiveStateEpoch",
+							epochId,
+							slateDate,
+							mode: "insert_or_ignore",
+							firstCollisionPredictionId: predictionId,
+							note: "duplicate write rejected by composite PK — historical state preserved",
+						}))
+					}
+				}
 			}
 			insertEpoch.run(epochId, snapshotUpdatedAt, slateDate, source, predictionCount, contextualCount, notes)
-		})
-
-		tx()
+			db.exec("COMMIT")
+		} catch (txErr) {
+			try { db.exec("ROLLBACK") } catch (_) {}
+			throw txErr
+		}
 		out.predictionsConsidered = predictionCount
+		out.contextualAttempted = attempted
 		out.contextualInserted = contextualCount
+		out.duplicateHistoricalWrite = collisions
+		out.immutableWriteRejected = collisions
 		out.skippedNoPredictionId = skipped
 		out.ok = true
 		return out
