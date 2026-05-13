@@ -19505,8 +19505,36 @@ app.get("/api/mlb/spikes", (req, res) => {
   }
 })
 
+// ────────────────────────────────────────────────────────────────────────────
+// @duplicate-ownership
+//
+// EXECUTION-PATH AUDIT (orphan-code hardening pass):
+//   This route rebuilds the in-memory MLB snapshot directly. A SECOND
+//   path exists at server.js:19225 that delegates to
+//   `handleMlbRefreshSnapshotGet` (in `http/mlbIsolatedRoutes.js`).
+//
+//   Both paths:
+//     - call buildMlbBootstrapSnapshot()
+//     - assign result into the module-global `mlbSnapshot`
+//     - call saveMlbReplaySnapshotToDisk()
+//
+//   This route is the OLDER inline implementation. The isolated handler
+//   is the canonical owner. Both remain live to avoid breaking any
+//   client that has hard-coded `/mlb/refresh`.
+//
+//   STATUS: duplicate-ownership (kept; flagged via runtime probe below).
+//   ACTION: kept; emits [EXECUTION-AUTHORITY] log on each call so traffic
+//           distribution between the two paths is observable.
+// ────────────────────────────────────────────────────────────────────────────
 app.get("/mlb/refresh", async (req, res) => {
   try {
+    // Execution-authority observability — flags this as the legacy inline path.
+    console.log("[EXECUTION-AUTHORITY]", JSON.stringify({
+      operation: "mlb_snapshot_refresh",
+      ownerPath: "server.js:/mlb/refresh (legacy inline)",
+      alternativeOwner: "http/mlbIsolatedRoutes.js:handleMlbRefreshSnapshotGet (via /refresh-snapshot)",
+      note: "duplicate ownership of MLB refresh — see @duplicate-ownership comment",
+    }))
     // MLB Replay mode support (Phase 7)
     const replayModeRequested = isMlbOddsReplayRequest(req)
     if (replayModeRequested) {

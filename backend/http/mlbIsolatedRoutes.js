@@ -21,6 +21,9 @@ const { buildMlbInsightBoard } = require("../pipeline/mlb/buildMlbInsightBoard")
 const { buildMlbOpportunityBoard } = require("../pipeline/mlb/buildMlbOpportunityBoard")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 const normalizeName = require("../utils/normalizeName")
+// Execution-authority probe — additive observability for duplicate ownership.
+// See pipeline/shared/executionAuthority.js.
+const { createExecutionAuthorityProbe } = require("../pipeline/shared/executionAuthority")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -93,6 +96,12 @@ function buildMlbSnapshotMetaExtras(mlbSnap) {
  * @param {object} deps
  */
 async function handleMlbBestAvailableGet(req, res, deps) {
+  // Execution-authority probe — this handler IS the canonical owner of the
+  // MLB best-available read path. If another module later claims the same
+  // operation in the same request lifecycle, [EXECUTION-AUTHORITY-DUPLICATE]
+  // will be emitted to logs.
+  const __authority = createExecutionAuthorityProbe("mlb_best_available_request")
+  __authority.recordCanonical("mlb_snapshot_read", "http/mlbIsolatedRoutes.js:handleMlbBestAvailableGet")
   const {
     bestAvailableSportKey,
     lastSnapshotSource,
@@ -578,6 +587,15 @@ async function handleMlbBestAvailableGet(req, res, deps) {
  * GET /refresh-snapshot?sport=baseball_mlb
  */
 async function handleMlbRefreshSnapshotGet(req, res, deps) {
+  // Execution-authority observability — flags this as the canonical owner.
+  // A duplicate inline implementation exists at server.js:/mlb/refresh;
+  // both observers in TERM 1 logs reveal traffic distribution.
+  console.log("[EXECUTION-AUTHORITY]", JSON.stringify({
+    operation: "mlb_snapshot_refresh",
+    ownerPath: "http/mlbIsolatedRoutes.js:handleMlbRefreshSnapshotGet (canonical)",
+    alternativeOwner: "server.js:/mlb/refresh (legacy inline duplicate)",
+    note: "canonical MLB refresh authority — see @duplicate-ownership in server.js",
+  }))
   const {
     isMlbOddsReplayRequest,
     loadMlbReplaySnapshotFromDisk,
@@ -653,6 +671,25 @@ async function handleMlbRefreshSnapshotGet(req, res, deps) {
 }
 
 /**
+ * @orphan (exported but never bound)
+ *
+ * EXECUTION-PATH AUDIT (orphan-code hardening pass):
+ *   This handler is EXPORTED from `module.exports` (see bottom of file)
+ *   but is NEVER imported / bound to a route by `server.js`.
+ *
+ *   Two OTHER implementations of the same `/grade-hr-test` path EXIST and
+ *   are live:
+ *     - `backend/routes/mlbIsolatedRoutes.js:5` — Express `router.get(...)`
+ *     - `backend/server.js:10345`              — inline `app.get(...)` route
+ *
+ *   STATUS: type-A orphan (exported, zero callers). Triple ownership of
+ *   the same `/grade-hr-test` operation; whichever of the two LIVE
+ *   handlers is registered last in middleware order wins requests, but
+ *   this exported function is unreachable.
+ *
+ *   ACTION: kept; marked so future cleanup knows it is safe to remove
+ *           OR to consolidate so the two live routes delegate here.
+ *
  * TEMP: manual HR grading route handler (replace later).
  * GET /grade-hr-test
  */

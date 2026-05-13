@@ -1,5 +1,31 @@
 "use strict"
 
+/**
+ * @orphan (script-only legacy; superseded)
+ *
+ * EXECUTION-PATH AUDIT (orphan-code hardening pass):
+ *   This module is ONLY required from `backend/scripts/runMlbNight.js:9`.
+ *   It is NOT wired into any live request path — neither server.js, nor
+ *   http/, routes/, nor pipeline/ uses it.
+ *
+ *   The Phase 1B CANONICAL replacement is:
+ *     `backend/pipeline/mlb/ingest/refreshMlbWeatherForSlate.js`
+ *
+ *   Differences:
+ *     - This module reads stale `snapshot-mlb.json` for event IDs and
+ *       writes mlbGameWeather.json — eventId-driven by whatever was last
+ *       persisted to disk.
+ *     - The Phase 1B replacement accepts the LIVE events array from the
+ *       bootstrap caller, fetches Open-Meteo for current slate eventIds,
+ *       adds humidity + precipitation, and writes the same output file.
+ *
+ *   STATUS: type-B orphan (script-only legacy)
+ *   ACTION: kept; `runMlbNight.js` still invokes it for nightly batch.
+ *           If runMlbNight.js is migrated to refresh-via-bootstrap, this
+ *           module can be removed safely. Marked here so it's not relied
+ *           on as the canonical weather path.
+ */
+
 const fs = require("fs")
 const path = require("path")
 const axios = require("axios")

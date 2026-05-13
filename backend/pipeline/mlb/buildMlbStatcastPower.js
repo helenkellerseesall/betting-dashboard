@@ -1,3 +1,30 @@
+/**
+ * @orphan
+ *
+ * EXECUTION-PATH AUDIT (orphan-code hardening pass):
+ *   This module exports a default async function but is **NOT REQUIRED**
+ *   by ANY file in the repository — neither live (server.js, http/,
+ *   routes/, pipeline/) nor scripts (backend/scripts/).
+ *
+ *   Output file: backend/data/mlbStatcastPower.json
+ *   Output consumers: none found via grep
+ *     (the file is produced but never read — the Phase 1B ingest path
+ *      uses its own data sources via pipeline/mlb/ingest/refreshMlbPitcherStats.js
+ *      and refreshMlbBullpenWorkload.js)
+ *
+ *   STATUS: type-A orphan (exported, zero references)
+ *   ACTION: kept on disk per "DO NOT aggressively delete blindly" rule;
+ *           marked here so future authors do not invest in this path
+ *           without first wiring a live consumer.
+ *
+ *   To make this module live, a consumer would need to:
+ *     1. require() the produced JSON in a scoring path
+ *     2. Wire batter exit-velocity / barrel-rate context into a deriver
+ *     3. Surface that signal in row.barrelContext or similar
+ *
+ *   See also: pipeline/mlb/context/deriveMlbPitcherEnvironmentContext.js
+ *   (where statcast power could plug in via the `pitcherStatsByName` lookup).
+ */
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
