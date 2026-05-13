@@ -24,6 +24,11 @@ const normalizeName = require("../utils/normalizeName")
 // Execution-authority probe — additive observability for duplicate ownership.
 // See pipeline/shared/executionAuthority.js.
 const { createExecutionAuthorityProbe } = require("../pipeline/shared/executionAuthority")
+// Response-authority probe — additive observability for canonical runtime vs
+// endpoint board parity. Logs [CANONICAL-RESPONSE-AUTHORITY] +
+// [CANONICAL-RESPONSE-DISCONNECT] when the API response loses populated
+// runtime/canonical data on its way out. See pipeline/shared/responseAuthority.js.
+const { captureAndProbe } = require("../pipeline/shared/responseAuthority")
 
 function dedupeMlbBoardRows(rows) {
   const safeRows = Array.isArray(rows) ? rows : []
@@ -566,7 +571,13 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     mlbOpportunityBoard,
   }))
 
-  return res.json({
+  // ── Response-authority probe (additive observability) ─────────────────────
+  // Captures runtime / canonical / endpoint board counts and emits
+  // [CANONICAL-RESPONSE-AUTHORITY] + [CANONICAL-RESPONSE-DISCONNECT] when the
+  // populated runtime state fails to reach the wire. Read-only; never modifies
+  // the response payload or canonical pipeline. Pre-built so it can be embedded
+  // in the response itself for client-side parity checks.
+  const responseBody = {
     snapshot: mlbSnapshot,
     bestProps: finalPlayableRows || payloadBest || [],
     allProps: mlbSnapshot.rows || [],
@@ -580,7 +591,25 @@ async function handleMlbBestAvailableGet(req, res, deps) {
     rbiToday,
     mlbInsightBoard,
     mlbOpportunityBoard,
-  })
+  }
+  let __responseAuthoritySummary = null
+  try {
+    const probe = captureAndProbe({
+      snapshot: mlbSnapshot,
+      bestAvailablePayload,
+      responseBody,
+      sport: "baseball_mlb",
+      owner: "http/mlbIsolatedRoutes.js:handleMlbBestAvailableGet",
+    })
+    __responseAuthoritySummary = probe?.summary || null
+  } catch (e) {
+    console.log("[CANONICAL-RESPONSE-AUTHORITY ERROR]", e?.message || e)
+  }
+  // Embed the summary additively so clients + verification scripts can see
+  // the runtime-vs-endpoint counts without parsing logs.
+  responseBody.responseAuthority = __responseAuthoritySummary
+
+  return res.json(responseBody)
 }
 
 /**

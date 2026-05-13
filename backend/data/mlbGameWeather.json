@@ -1,9 +1,9 @@
 {
   "21ff18fdfd96a55a86867197e834497e": {
-    "temperature": 63.86,
-    "temp": 63.86,
-    "windSpeed": 48.988986,
-    "windDirectionDeg": 200,
+    "temperature": 63.5,
+    "temp": 63.5,
+    "windSpeed": 45.186188,
+    "windDirectionDeg": 202,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -17,14 +17,14 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-13T03:12:50.758Z"
+      "ingestedAt": "2026-05-13T04:07:20.816Z"
     }
   },
   "67da7d89e932aa7075b0600f26224572": {
-    "temperature": 61.7,
-    "temp": 61.7,
+    "temperature": 60.440000000000005,
+    "temp": 60.440000000000005,
     "windSpeed": 53.015478,
-    "windDirectionDeg": 226,
+    "windDirectionDeg": 228,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -38,19 +38,19 @@
         "lon": -81.69541,
         "nameUsed": "Cleveland"
       },
-      "ingestedAt": "2026-05-13T03:12:50.645Z"
+      "ingestedAt": "2026-05-13T04:07:20.820Z"
     }
   },
   "56c4a9b31b41de42d913d35df4d31764": {
-    "temperature": 76.82,
-    "temp": 76.82,
-    "windSpeed": 57.936746,
-    "windDirectionDeg": 194,
+    "temperature": 77.9,
+    "temp": 77.9,
+    "windSpeed": 59.27891,
+    "windDirectionDeg": 198,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-13T19:00",
-    "humidityPct": 29,
+    "humidityPct": 30,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Baltimore Orioles",
@@ -59,19 +59,19 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-13T03:12:50.759Z"
+      "ingestedAt": "2026-05-13T04:07:20.818Z"
     }
   },
   "4546828df054a4ac1c7634c94b4c7012": {
-    "temperature": 70.52,
-    "temp": 70.52,
-    "windSpeed": 56.147194000000006,
-    "windDirectionDeg": 299,
+    "temperature": 71.06,
+    "temp": 71.06,
+    "windSpeed": 54.80503,
+    "windDirectionDeg": 298,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-13T19:00",
-    "humidityPct": 36,
+    "humidityPct": 34,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Cincinnati Reds",
@@ -80,20 +80,20 @@
         "lon": -84.51439,
         "nameUsed": "Cincinnati"
       },
-      "ingestedAt": "2026-05-13T03:12:50.757Z"
+      "ingestedAt": "2026-05-13T04:07:20.824Z"
     }
   },
   "198e79fae18be9cb416f60f6da4d7996": {
-    "temperature": 69.8,
-    "temp": 69.8,
-    "windSpeed": 45.186188,
-    "windDirectionDeg": 202,
+    "temperature": 66.02,
+    "temp": 66.02,
+    "windSpeed": 74.93749000000001,
+    "windDirectionDeg": 204,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-13T19:00",
-    "humidityPct": 56,
-    "precipitationMm": 0,
+    "humidityPct": 65,
+    "precipitationMm": 0.7,
     "_meta": {
       "homeTeam": "Pittsburgh Pirates",
       "geocode": {
@@ -101,14 +101,14 @@
         "lon": -79.99589,
         "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-13T03:12:50.760Z"
+      "ingestedAt": "2026-05-13T04:07:20.813Z"
     }
   },
   "ca6c0da9264577ed9bb23ff05ee77801": {
-    "temperature": 72.5,
-    "temp": 72.5,
-    "windSpeed": 69.792528,
-    "windDirectionDeg": 159,
+    "temperature": 73.04,
+    "temp": 73.04,
+    "windSpeed": 70.23991600000001,
+    "windDirectionDeg": 160,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -122,19 +122,19 @@
         "lon": -74.00597,
         "nameUsed": "New York"
       },
-      "ingestedAt": "2026-05-13T03:12:51.284Z"
+      "ingestedAt": "2026-05-13T04:07:21.246Z"
     }
   },
   "1ae3a00c8d26de69bd61ddda56e9dba1": {
-    "temperature": 78.98,
-    "temp": 78.98,
-    "windSpeed": 20.803542000000004,
-    "windDirectionDeg": 283,
+    "temperature": 77.72,
+    "temp": 77.72,
+    "windSpeed": 17.000744,
+    "windDirectionDeg": 262,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-13T19:00",
-    "humidityPct": 38,
+    "humidityPct": 42,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Atlanta Braves",
@@ -143,14 +143,14 @@
         "lon": -84.38798,
         "nameUsed": "Atlanta"
       },
-      "ingestedAt": "2026-05-13T03:12:51.284Z"
+      "ingestedAt": "2026-05-13T04:07:21.243Z"
     }
   },
   "18791fe8f5ff31b64bb2cff4f5af59a0": {
-    "temperature": 73.58,
-    "temp": 73.58,
-    "windSpeed": 12.079476000000001,
-    "windDirectionDeg": 42,
+    "temperature": 71.42,
+    "temp": 71.42,
+    "windSpeed": 22.593094,
+    "windDirectionDeg": 6,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -164,14 +164,14 @@
         "lon": -83.91018,
         "nameUsed": "Minnesota"
       },
-      "ingestedAt": "2026-05-13T03:12:51.451Z"
+      "ingestedAt": "2026-05-13T04:07:21.492Z"
     }
   },
   "15bc05498c54cf822aedf7434d3a8bc6": {
-    "temperature": 57.92,
-    "temp": 57.92,
-    "windSpeed": 51.00223200000001,
-    "windDirectionDeg": 339,
+    "temperature": 58.64,
+    "temp": 58.64,
+    "windSpeed": 54.80503,
+    "windDirectionDeg": 334,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -185,19 +185,19 @@
         "lon": -87.90647,
         "nameUsed": "Milwaukee"
       },
-      "ingestedAt": "2026-05-13T03:12:51.577Z"
+      "ingestedAt": "2026-05-13T04:07:21.509Z"
     }
   },
   "4ea6eeeb6626c218d536f9bca6edbeae": {
-    "temperature": 69.08,
-    "temp": 69.08,
-    "windSpeed": 55.923500000000004,
-    "windDirectionDeg": 208,
+    "temperature": 69.8,
+    "temp": 69.8,
+    "windSpeed": 52.568090000000005,
+    "windDirectionDeg": 198,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
     "forecastTimeUtc": "2026-05-13T20:00",
-    "humidityPct": 60,
+    "humidityPct": 57,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Texas Rangers",
@@ -206,14 +206,14 @@
         "lon": -80.13175,
         "nameUsed": "Texas"
       },
-      "ingestedAt": "2026-05-13T03:12:51.586Z"
+      "ingestedAt": "2026-05-13T04:07:21.508Z"
     }
   },
   "6ff5fdd2fde54dc43326a02792b3e79f": {
-    "temperature": 84.56,
-    "temp": 84.56,
-    "windSpeed": 9.395148,
-    "windDirectionDeg": 20,
+    "temperature": 84.02,
+    "temp": 84.02,
+    "windSpeed": 13.42164,
+    "windDirectionDeg": 17,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -227,7 +227,7 @@
         "lon": -95.36327,
         "nameUsed": "Houston"
       },
-      "ingestedAt": "2026-05-13T03:12:51.806Z"
+      "ingestedAt": "2026-05-13T04:07:21.653Z"
     }
   },
   "7018d88c446b88b45928fc75ec91e83c": {
@@ -248,7 +248,7 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-13T03:12:51.850Z"
+      "ingestedAt": "2026-05-13T04:07:21.782Z"
     }
   }
 }
