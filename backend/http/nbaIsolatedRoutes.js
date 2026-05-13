@@ -62,6 +62,21 @@ const { buildAiSlips } = require("../pipeline/shared/buildSlipAi")
 const DEFAULT_BACKEND_ROOT = path.join(__dirname, "..")
 const API_SPORTS_CACHE_FILE = path.join(DEFAULT_BACKEND_ROOT, "api-sports-cache.json")
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase F5 — API-Sports request-contract correction.
+//
+// API-Sports NBA v2 /players?search=<name> requires the `season` parameter.
+// Pre-F5 the search endpoint was called WITHOUT season → API responded
+// HTTP 200, response:[], errors:{ "required":"season is required" } silently,
+// which the code treated as "no match" and propagated as
+// PLAYER_ID_API_RETURNED_NULL.
+//
+// Shared constant so player-id lookup AND player-stats lookup reference the
+// SAME season authority. API-Sports convention: season=YYYY means the
+// YYYY-(YYYY+1) NBA season (e.g., 2025 means 2025-26).
+// ─────────────────────────────────────────────────────────────────────────────
+const NBA_API_SPORTS_SEASON = 2025
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -290,6 +305,11 @@ const __nbaCacheDiag = {
     lastPlayerIdResponseRowsReturned:    null,
     lastPlayerIdResponseSampleNames:     [], // up to 3 names from most recent API response
     lastPlayerIdResponseHadFiniteId:     null,
+    // Phase F5-B — capture upstream response envelope so contract drift is
+    // visible from /api/best-available without re-running source-level audits.
+    lastPlayerIdResponseErrors:          null, // raw `errors` field from API-Sports response envelope
+    lastPlayerIdResponseResults:         null, // numeric `results` field (parallel to response.length)
+    lastPlayerIdResponseParameters:      null, // API's echo of received params (proves what arrived upstream)
     lastStatsRequestPlayerId:            null,
     lastStatsResponseRowsReturned:       null,
     lastObservedAt:                      null,
@@ -297,6 +317,7 @@ const __nbaCacheDiag = {
   // Rate-limit flags
   _loggedFirstEnrichmentSummary:   false,
   _loggedReasonKinds:              new Set(), // emits one [NBA-CACHEABILITY-GATE] line per first-seen reason
+  _loggedFirstPlayerResolution:    false,     // emits one [NBA-API-SPORTS-PLAYER-RESOLUTION] line per process
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -406,6 +427,10 @@ function getNbaCacheDiagnostics() {
       lastPlayerIdResponseRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned,
       lastPlayerIdResponseSampleNames:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames.slice(),
       lastPlayerIdResponseHadFiniteId:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId,
+      // Phase F5-B fields — defensive shallow copies
+      lastPlayerIdResponseErrors:       __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors,
+      lastPlayerIdResponseResults:      __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults,
+      lastPlayerIdResponseParameters:   __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters,
       lastStatsRequestPlayerId:         __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsRequestPlayerId,
       lastStatsResponseRowsReturned:    __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsResponseRowsReturned,
       lastObservedAt:                   __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt,
@@ -452,11 +477,16 @@ function resetNbaCacheDiagnostics() {
     lastPlayerIdResponseRowsReturned:    null,
     lastPlayerIdResponseSampleNames:     [],
     lastPlayerIdResponseHadFiniteId:     null,
+    // Phase F5-B
+    lastPlayerIdResponseErrors:          null,
+    lastPlayerIdResponseResults:         null,
+    lastPlayerIdResponseParameters:      null,
     lastStatsRequestPlayerId:            null,
     lastStatsResponseRowsReturned:       null,
     lastObservedAt:                      null,
   }
   __nbaCacheDiag._loggedReasonKinds = new Set()
+  __nbaCacheDiag._loggedFirstPlayerResolution = false
 }
 
 function loadApiSportsDiskCache() {
@@ -510,8 +540,13 @@ function saveApiSportsDiskCache(next) {
 }
 
 async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
+  // Phase F5-A — API-Sports NBA v2 `/players` requires `season` alongside
+  // `search`. Calling search-only returned HTTP 200 + response:[] + an
+  // ignored `errors` envelope, surfacing as PLAYER_ID_API_RETURNED_NULL for
+  // every player. Sending the canonical season makes the contract complete.
+  const requestParams = { search: playerName, season: NBA_API_SPORTS_SEASON }
   const response = await axios.get("https://v2.nba.api-sports.io/players", {
-    params: { search: playerName },
+    params: requestParams,
     headers: { "x-apisports-key": apiKey },
     timeout: 20000,
   })
@@ -528,6 +563,31 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
   __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned = Array.isArray(rows) ? rows.length : 0
   __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames = __sampleNames
   __nbaCacheDiag.apiSportsResponseDiagnostics.lastObservedAt = new Date().toISOString()
+  // Phase F5-B — record the API's response envelope fields so future contract
+  // drift is observable from /api/best-available without re-running audits.
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors =
+    response?.data?.errors != null ? response.data.errors : null
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults =
+    Number.isFinite(Number(response?.data?.results)) ? Number(response.data.results) : null
+  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters =
+    response?.data?.parameters != null ? response.data.parameters : null
+
+  // Phase F5-C — emit one [NBA-API-SPORTS-PLAYER-RESOLUTION] line per process
+  // showing the exact request shape and the upstream's reported envelope.
+  // Rate-limited: subsequent calls accumulate the diagnostic block silently.
+  if (!__nbaCacheDiag._loggedFirstPlayerResolution) {
+    __nbaCacheDiag._loggedFirstPlayerResolution = true
+    console.log("[NBA-API-SPORTS-PLAYER-RESOLUTION]", JSON.stringify({
+      player: String(playerName || ""),
+      params: requestParams,
+      rowsReturned: Array.isArray(rows) ? rows.length : 0,
+      results: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseResults,
+      errors: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseErrors,
+      parameters: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseParameters,
+      season: NBA_API_SPORTS_SEASON,
+      sampleNames: __sampleNames,
+    }))
+  }
 
   if (!Array.isArray(rows) || !rows.length) {
     __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId = false
@@ -553,8 +613,11 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName }) {
 }
 
 async function fetchApiSportsPlayerStats({ axios, apiKey, playerId }) {
+  // Phase F5-A — Use shared NBA_API_SPORTS_SEASON constant so player lookup AND
+  // stats lookup reference the SAME season authority. A drift between the two
+  // would silently return stats for the wrong season after a season rollover.
   const response = await axios.get("https://v2.nba.api-sports.io/players/statistics", {
-    params: { id: playerId, season: 2025 },
+    params: { id: playerId, season: NBA_API_SPORTS_SEASON },
     headers: { "x-apisports-key": apiKey },
     timeout: 20000,
   })
