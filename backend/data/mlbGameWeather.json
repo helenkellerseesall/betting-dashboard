@@ -17,7 +17,7 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-13T04:07:20.816Z"
+      "ingestedAt": "2026-05-13T04:26:01.050Z"
     }
   },
   "67da7d89e932aa7075b0600f26224572": {
@@ -38,28 +38,7 @@
         "lon": -81.69541,
         "nameUsed": "Cleveland"
       },
-      "ingestedAt": "2026-05-13T04:07:20.820Z"
-    }
-  },
-  "56c4a9b31b41de42d913d35df4d31764": {
-    "temperature": 77.9,
-    "temp": 77.9,
-    "windSpeed": 59.27891,
-    "windDirectionDeg": 198,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-13T19:00",
-    "humidityPct": 30,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Baltimore Orioles",
-      "geocode": {
-        "lat": 39.29038,
-        "lon": -76.61219,
-        "nameUsed": "Baltimore"
-      },
-      "ingestedAt": "2026-05-13T04:07:20.818Z"
+      "ingestedAt": "2026-05-13T04:26:01.052Z"
     }
   },
   "4546828df054a4ac1c7634c94b4c7012": {
@@ -80,7 +59,7 @@
         "lon": -84.51439,
         "nameUsed": "Cincinnati"
       },
-      "ingestedAt": "2026-05-13T04:07:20.824Z"
+      "ingestedAt": "2026-05-13T04:26:01.022Z"
     }
   },
   "198e79fae18be9cb416f60f6da4d7996": {
@@ -101,7 +80,7 @@
         "lon": -79.99589,
         "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-13T04:07:20.813Z"
+      "ingestedAt": "2026-05-13T04:26:01.044Z"
     }
   },
   "ca6c0da9264577ed9bb23ff05ee77801": {
@@ -122,7 +101,7 @@
         "lon": -74.00597,
         "nameUsed": "New York"
       },
-      "ingestedAt": "2026-05-13T04:07:21.246Z"
+      "ingestedAt": "2026-05-13T04:26:01.497Z"
     }
   },
   "1ae3a00c8d26de69bd61ddda56e9dba1": {
@@ -143,7 +122,7 @@
         "lon": -84.38798,
         "nameUsed": "Atlanta"
       },
-      "ingestedAt": "2026-05-13T04:07:21.243Z"
+      "ingestedAt": "2026-05-13T04:26:01.481Z"
     }
   },
   "18791fe8f5ff31b64bb2cff4f5af59a0": {
@@ -164,7 +143,7 @@
         "lon": -83.91018,
         "nameUsed": "Minnesota"
       },
-      "ingestedAt": "2026-05-13T04:07:21.492Z"
+      "ingestedAt": "2026-05-13T04:26:01.491Z"
     }
   },
   "15bc05498c54cf822aedf7434d3a8bc6": {
@@ -185,7 +164,7 @@
         "lon": -87.90647,
         "nameUsed": "Milwaukee"
       },
-      "ingestedAt": "2026-05-13T04:07:21.509Z"
+      "ingestedAt": "2026-05-13T04:26:01.484Z"
     }
   },
   "4ea6eeeb6626c218d536f9bca6edbeae": {
@@ -206,7 +185,7 @@
         "lon": -80.13175,
         "nameUsed": "Texas"
       },
-      "ingestedAt": "2026-05-13T04:07:21.508Z"
+      "ingestedAt": "2026-05-13T04:26:01.769Z"
     }
   },
   "6ff5fdd2fde54dc43326a02792b3e79f": {
@@ -227,7 +206,7 @@
         "lon": -95.36327,
         "nameUsed": "Houston"
       },
-      "ingestedAt": "2026-05-13T04:07:21.653Z"
+      "ingestedAt": "2026-05-13T04:26:01.885Z"
     }
   },
   "7018d88c446b88b45928fc75ec91e83c": {
@@ -248,7 +227,7 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-13T04:07:21.782Z"
+      "ingestedAt": "2026-05-13T04:26:01.913Z"
     }
   }
 }

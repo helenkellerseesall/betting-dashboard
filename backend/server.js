@@ -10430,6 +10430,74 @@ const PORT = process.env.PORT || 4000
 const ODDS_API_KEY = process.env.ODDS_API_KEY
 const API_SPORTS_KEY = process.env.API_SPORTS_KEY
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase F1 — API-Sports cache authority hardening
+//
+// The four module-globals below (playerIdCache, playerStatsCache,
+// playerLookupMissCache, playerStatsCacheTimes) together with their loader,
+// saver, cached fetchers, and 60-second autosave interval are the LEGACY
+// owner-A path. Audit confirmed:
+//
+//   - These caches are never READ by the live runtime (no caller of
+//     fetchApiSportsPlayerIdCached / fetchApiSportsPlayerStatsCached exists
+//     outside their definitions).
+//   - The 60s autosave silently overwrites backend/api-sports-cache.json
+//     with empty contents, erasing the canonical owner-B writes from
+//     http/nbaIsolatedRoutes.js:saveApiSportsDiskCache (read-merge-write).
+//   - The boot log "Loaded API-Sports cache from disk: ids=0 stats=0" is the
+//     downstream symptom of this race.
+//
+// Phase F1 disables the harmful overwrite WITHOUT deleting code. The legacy
+// behavior is reachable via env flag for emergency rollback; default is OFF.
+//
+//   ENABLE_LEGACY_API_SPORTS_CACHE=true   → restores pre-F1 behavior:
+//                                            - 60s setInterval registers
+//                                            - saveApiSportsCachesToDisk writes
+//                                            - cached fetchers persist hits
+//   (anything else, including unset)      → owner A is fully passive:
+//                                            - loadApiSportsCachesFromDisk still
+//                                              runs at boot (harmless — populates
+//                                              unused Maps from disk if file
+//                                              happens to be present)
+//                                            - saveApiSportsCachesToDisk is a no-op
+//                                            - 60s setInterval is NOT registered
+//                                            - owner-B (nbaIsolatedRoutes.js)
+//                                              persistence survives between
+//                                              requests
+//
+// Canonical authority for NBA recent-form enrichment is:
+//   http/nbaIsolatedRoutes.js:saveApiSportsDiskCache  (read-merge-write)
+//   http/nbaIsolatedRoutes.js:loadApiSportsDiskCache
+//   http/nbaIsolatedRoutes.js:enrichRowsWithRecentForm
+//
+// Do NOT redirect callers of fetchApiSportsPlayerIdCached /
+// fetchApiSportsPlayerStatsCached to the canonical path here — they are
+// presently uncalled. Removal is deferred to Phase F5 after a quiet period.
+// ─────────────────────────────────────────────────────────────────────────────
+const ENABLE_LEGACY_API_SPORTS_CACHE =
+  String(process.env.ENABLE_LEGACY_API_SPORTS_CACHE || "").toLowerCase() === "true"
+
+console.log("[NBA-LEGACY-CACHE-DISABLED]", JSON.stringify({
+  flag: "ENABLE_LEGACY_API_SPORTS_CACHE",
+  enabled: ENABLE_LEGACY_API_SPORTS_CACHE,
+  defaultIsOff: true,
+  canonicalOwner: "http/nbaIsolatedRoutes.js:saveApiSportsDiskCache",
+  message: ENABLE_LEGACY_API_SPORTS_CACHE
+    ? "legacy owner-A path RE-ENABLED via env flag — 60s autosave + cached-fetcher writes will overwrite the canonical disk cache; revert by unsetting flag"
+    : "legacy owner-A path DISABLED (Phase F1) — 60s autosave skipped, saveApiSportsCachesToDisk is a no-op, owner B in http/nbaIsolatedRoutes.js is canonical writer",
+}))
+
+/**
+ * @orphan (Phase F1 — gated behind ENABLE_LEGACY_API_SPORTS_CACHE)
+ *
+ * Module-globals for the legacy owner-A cache layer. NOT READ by any live
+ * runtime code path. Canonical authority for NBA enrichment moved to
+ * http/nbaIsolatedRoutes.js (owner B).
+ *
+ * Kept in place so that ENABLE_LEGACY_API_SPORTS_CACHE=true restores the
+ * pre-F1 behavior for emergency rollback. Removal is deferred to a future
+ * Phase F5 cleanup pass.
+ */
 let playerIdCache = new Map()
 let playerStatsCache = new Map()
 let playerLookupMissCache = new Set()
@@ -10437,6 +10505,16 @@ let apiSportsEmptySearchStreak = 0
 
 const CACHE_FILE = path.join(__dirname, "api-sports-cache.json")
 
+/**
+ * @orphan (Phase F1 — populates module-globals that no live caller reads)
+ *
+ * Loads the legacy owner-A in-memory Maps from disk. Harmless even when
+ * disabled because the Maps are not consulted at runtime. The "Loaded
+ * API-Sports cache from disk: ids=N stats=N" log line at boot is emitted
+ * by this function.
+ *
+ * Canonical loader: http/nbaIsolatedRoutes.js:loadApiSportsDiskCache.
+ */
 function loadApiSportsCachesFromDisk() {
   // Async, non-blocking load of API-Sports caches from disk.
   return (async () => {
@@ -10486,7 +10564,31 @@ function loadApiSportsCachesFromDisk() {
   })()
 }
 
+/**
+ * @orphan (Phase F1 — overwrite path disabled by default)
+ *
+ * LEGACY owner-A writer. Previously serialized the four module-globals via
+ * full-overwrite `fs.promises.writeFile(...)`. Audit confirmed this was the
+ * source of the cache erasure race against owner B in nbaIsolatedRoutes.js.
+ *
+ * Behavior post-Phase-F1:
+ *   - ENABLE_LEGACY_API_SPORTS_CACHE !== "true"  → silent no-op (returns
+ *     resolved Promise; the in-memory Maps are not serialized, the disk file
+ *     is not touched). This is the default.
+ *   - ENABLE_LEGACY_API_SPORTS_CACHE === "true"  → original full-overwrite
+ *     behavior is restored (emergency rollback).
+ *
+ * Callers of this function inside the dead-code fetcher paths
+ * (fetchApiSportsPlayerIdCached, fetchApiSportsPlayerStatsCached) are
+ * themselves never invoked at runtime, so the no-op cannot regress any
+ * live consumer. Verified by grep at Phase F1 audit time.
+ *
+ * Canonical writer: http/nbaIsolatedRoutes.js:saveApiSportsDiskCache.
+ */
 function saveApiSportsCachesToDisk() {
+  // Phase F1 gate — full-overwrite path disabled by default to prevent the
+  // owner-A vs owner-B race condition. Owner B handles persistence canonically.
+  if (!ENABLE_LEGACY_API_SPORTS_CACHE) return Promise.resolve()
   // Async, non-blocking save of API-Sports caches to disk.
   return (async () => {
     try {
@@ -10533,6 +10635,7 @@ const NBA_REPLAY_SNAPSHOT_PATH = path.join(__dirname, "snapshot.json")
 const PLAYER_LOOKUP_CONCURRENCY = 10
 const API_SPORTS_TIMEOUT_MS = 5000
 const PLAYER_STATS_TTL_MS = 30 * 60 * 1000
+// @orphan (Phase F1 — fourth legacy module-global; see header comment above)
 let playerStatsCacheTimes = new Map()
 
 function isNbaOddsReplayRequest(req) {
@@ -16650,6 +16753,18 @@ async function fetchApiSportsPlayerStats(playerId) {
   return response.data?.response || []
 }
 
+/**
+ * @orphan (Phase F1 — legacy cached fetcher; no live caller)
+ *
+ * No live runtime code path invokes this function. The canonical NBA
+ * player-id fetcher is `fetchApiSportsPlayerId` in
+ * http/nbaIsolatedRoutes.js (which manages its own disk cache via
+ * loadApiSportsDiskCache + saveApiSportsDiskCache).
+ *
+ * Kept for ENABLE_LEGACY_API_SPORTS_CACHE rollback only. The inner
+ * `saveApiSportsCachesToDisk()` calls inside this function are
+ * automatically no-ops when the flag is off.
+ */
 async function fetchApiSportsPlayerIdCached(playerName, expectedTeamCodes = []) {
   if (playerIdCache.has(playerName)) {
     const cached = playerIdCache.get(playerName)
@@ -16677,6 +16792,18 @@ async function fetchApiSportsPlayerIdCached(playerName, expectedTeamCodes = []) 
   return playerInfo
 }
 
+/**
+ * @orphan (Phase F1 — legacy cached fetcher; no live caller)
+ *
+ * No live runtime code path invokes this function. The canonical NBA
+ * recent-form fetcher is `fetchApiSportsPlayerStats` in
+ * http/nbaIsolatedRoutes.js (called from `enrichRowsWithRecentForm`).
+ *
+ * Kept for ENABLE_LEGACY_API_SPORTS_CACHE rollback only. The inner
+ * `saveApiSportsCachesToDisk()` calls are automatically no-ops when the
+ * flag is off, so this function can be safely re-enabled by setting
+ * the env flag without any code change.
+ */
 async function fetchApiSportsPlayerStatsCached(playerId) {
   const now = Date.now()
   const cachedAt = playerStatsCacheTimes.get(playerId)
@@ -19394,12 +19521,29 @@ loadApiSportsCachesFromDisk().catch((err) => {
   console.error("API-Sports cache load failed:", err?.message || err)
 })
 
-// periodically persist API-Sports caches so restarts do not burn API calls
-setInterval(() => {
-  saveApiSportsCachesToDisk().catch((err) => {
-    console.error("API-Sports cache autosave failed:", err?.message || err)
-  })
-}, 60000)
+// @orphan (Phase F1 — 60s autosave interval gated by ENABLE_LEGACY_API_SPORTS_CACHE)
+//
+// The audit identified this interval as the source of the cache-erasure race:
+// every 60s it overwrote backend/api-sports-cache.json with empty content,
+// wiping the canonical owner-B writes from nbaIsolatedRoutes.js.
+//
+// Default state (flag off): interval is NOT registered. Owner B's
+// read-merge-write persistence survives across requests and restarts.
+//
+// Flag-on state: interval is registered with the original 60s cadence,
+// restoring pre-F1 behavior for emergency rollback.
+if (ENABLE_LEGACY_API_SPORTS_CACHE) {
+  console.log("[NBA-LEGACY-CACHE-DISABLED]", JSON.stringify({
+    autosaveInterval: "registered_at_60s_cadence",
+    note: "ENABLE_LEGACY_API_SPORTS_CACHE=true — pre-F1 behavior restored",
+  }))
+  // periodically persist API-Sports caches so restarts do not burn API calls
+  setInterval(() => {
+    saveApiSportsCachesToDisk().catch((err) => {
+      console.error("API-Sports cache autosave failed:", err?.message || err)
+    })
+  }, 60000)
+}
 
 app.get("/api/debug/market-coverage", (req, res) => {
   res.json({
