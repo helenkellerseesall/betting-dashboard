@@ -68,6 +68,18 @@ const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
 const slipAuditRoute      = require("./slipAuditRoute")
 const portfolioAuditRoute = require("./portfolioAuditRoute")
+// Operational trust hardening — snapshot freshness probe. Read-only.
+// Detects stale snapshots being silently served from disk and surfaces
+// `freshness` diagnostics in every /state response + `/health` endpoint.
+// Thresholds: env NBA_SNAPSHOT_WARN_MINUTES / NBA_SNAPSHOT_STALE_MINUTES
+// and the MLB_-prefixed counterparts. Defaults: warn 10min, stale 25min.
+const {
+	computeSnapshotFreshness,
+	computeSnapshotFreshnessFromDisk,
+	logStaleProbe,
+	buildFreshnessPayload,
+	snapshotFilePath,
+} = require("../pipeline/shared/snapshotFreshness")
 
 const router = express.Router()
 
@@ -108,6 +120,10 @@ function readJsonSafe(p, fallback = null) {
  * - Tries snapshot-{sport}.json first (sport-specific file)
  * - Falls back to snapshot.json for NBA (legacy file has data.props key)
  * - Handles both data.rows (MLB) and data.props (NBA) key shapes
+ *
+ * The 4 existing callers expect a plain array — we preserve that contract.
+ * For callers that ALSO want a freshness payload, use
+ * `readSnapshotRowsWithFreshness(sport)` below.
  */
 function readSnapshotRows(sport) {
   const sportFile = path.join(__dirname, "..", `snapshot-${sport}.json`)
@@ -117,6 +133,62 @@ function readSnapshotRows(sport) {
     snap = readJsonSafe(path.join(__dirname, "..", "snapshot.json"), null)
   }
   return snap?.data?.rows || snap?.data?.props || snap?.rows || []
+}
+
+/**
+ * Returns the snapshot rows AND a freshness diagnostic payload computed
+ * from the same on-disk file. Designed for use inside response builders
+ * that surface freshness to the client without altering the legacy
+ * `readSnapshotRows` API used in 4 other call sites.
+ *
+ * Behavior:
+ *   - Always returns { rows: [...], freshness: {...} }; never throws.
+ *   - When the file is missing OR has no usable timestamp, `freshness.isStale`
+ *     is true and `freshness.status` is "absent". The rows array is still
+ *     returned (empty in that case).
+ *   - Emits a single-line `[STALE-SNAPSHOT-DETECTED]` log when stale, and
+ *     `[STALE-SNAPSHOT-WARNING]` when in the warning band.
+ *
+ * @param {string} sport — "nba" | "mlb"
+ * @param {object} [opts] — optional overrides for tests
+ * @param {string} [opts.context="ws_state"] — tag for the stale probe
+ * @returns {{ rows: any[], freshness: object }}
+ */
+function readSnapshotRowsWithFreshness(sport, { context = "ws_state" } = {}) {
+  const sp = String(sport || "").toLowerCase()
+  // Resolve the on-disk file we will actually read so freshness reports on
+  // the correct path even when NBA falls back to legacy snapshot.json.
+  let file = path.join(__dirname, "..", `snapshot-${sp}.json`)
+  let snap = readJsonSafe(file, null)
+  if (!snap && sp === "nba") {
+    file = path.join(__dirname, "..", "snapshot.json")
+    snap = readJsonSafe(file, null)
+  }
+
+  let fileExists = false
+  let fileModifiedMs = null
+  try {
+    const stat = fs.statSync(file)
+    fileExists = true
+    fileModifiedMs = stat.mtimeMs
+  } catch (_) {
+    fileExists = false
+  }
+
+  const freshness = computeSnapshotFreshness({
+    sport: sp,
+    snapshot: snap,
+    file,
+    fileModifiedMs,
+    fileExists,
+  })
+
+  // Single-line probe to TERM logs. Always-on for stale/warning/absent;
+  // silent for fresh (to avoid log spam during normal operation).
+  logStaleProbe(freshness, { context })
+
+  const rows = snap?.data?.rows || snap?.data?.props || snap?.rows || []
+  return { rows, freshness }
 }
 
 function fileFor(sport, kind, date) {
@@ -404,7 +476,25 @@ function loadSharedModules() {
 // ── routes ────────────────────────────────────────────────────────────────────
 
 router.get("/health", (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() })
+  // Health probe now surfaces snapshot freshness for both sports so
+  // operators can see stale state without crawling logs.
+  let nbaFresh = null
+  let mlbFresh = null
+  try { nbaFresh = computeSnapshotFreshnessFromDisk("nba") } catch (_) {}
+  try { mlbFresh = computeSnapshotFreshnessFromDisk("mlb") } catch (_) {}
+  // Log any stale state observed via /health — same probe shape as /state.
+  if (nbaFresh) logStaleProbe(nbaFresh, { context: "ws_health" })
+  if (mlbFresh) logStaleProbe(mlbFresh, { context: "ws_health" })
+  const anyStale = Boolean((nbaFresh && nbaFresh.isStale) || (mlbFresh && mlbFresh.isStale))
+  res.json({
+    ok: true,
+    degraded: anyStale,
+    time: new Date().toISOString(),
+    freshness: {
+      nba: buildFreshnessPayload(nbaFresh),
+      mlb: buildFreshnessPayload(mlbFresh),
+    },
+  })
 })
 
 /**
@@ -424,9 +514,12 @@ router.get("/state", (req, res) => {
       console.log("[WS-PROBE] pool: eligibleBets=%d enrichedBest=%d trackedBets=%d",
         pool.eligibleBets.length, pool.enrichedBest.length, pool.trackedBets.length)
 
-      // Snapshot rows for line shopping/timing
-      const snapshotRows = readSnapshotRows(sport)
-      console.log("[WS-PROBE] snapshotRows=%d", snapshotRows.length)
+      // Snapshot rows for line shopping/timing — also captures snapshot
+      // freshness for the response payload (operational trust hardening).
+      const { rows: snapshotRows, freshness: snapshotFreshness } =
+        readSnapshotRowsWithFreshness(sport, { context: "ws_state" })
+      console.log("[WS-PROBE] snapshotRows=%d freshness=%s ageMin=%s",
+        snapshotRows.length, snapshotFreshness?.status, snapshotFreshness?.snapshotAgeMinutes)
 
       const bookState    = mods.lineShop.loadBookState ? mods.lineShop.loadBookState() : null
       const timingState  = mods.timing.loadTimingState ? mods.timing.loadTimingState() : null
@@ -610,6 +703,11 @@ router.get("/state", (req, res) => {
         aiSlips: aiSlips.slips || { safe: [], balanced: [], aggressive: [], lotto: [] },
         aiSlipsSummary: { summary: aiSlips.summary, warnings: aiSlips.warnings },
         featured,
+        // Operational trust hardening — snapshot freshness diagnostics.
+        // `degraded` is the top-level flag the UI can key on; `freshness`
+        // carries the full payload (age, status, threshold breach, reason).
+        snapshotFreshness: buildFreshnessPayload(snapshotFreshness),
+        degraded: Boolean(snapshotFreshness?.isStale),
       }
     })
     res.json(out)

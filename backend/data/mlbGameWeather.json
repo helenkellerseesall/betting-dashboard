@@ -17,7 +17,7 @@
         "lon": -81.69541,
         "nameUsed": "Cleveland"
       },
-      "ingestedAt": "2026-05-12T22:56:05.677Z"
+      "ingestedAt": "2026-05-12T23:17:55.747Z"
     }
   },
   "6d160243347bd35cdb3abf1b2690fda8": {
@@ -38,7 +38,7 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-12T22:56:05.647Z"
+      "ingestedAt": "2026-05-12T23:17:55.752Z"
     }
   },
   "6c8098ab353355d002d66e825b4217ab": {
@@ -59,7 +59,7 @@
         "lon": -84.51439,
         "nameUsed": "Cincinnati"
       },
-      "ingestedAt": "2026-05-12T22:56:05.678Z"
+      "ingestedAt": "2026-05-12T23:17:55.736Z"
     }
   },
   "79fa6c856d2a95ff10cb955ab2d424e2": {
@@ -80,7 +80,7 @@
         "lon": -79.99589,
         "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-12T22:56:05.678Z"
+      "ingestedAt": "2026-05-12T23:17:55.754Z"
     }
   },
   "fe40950314ca87c69985e8a1a37c8822": {
@@ -101,7 +101,7 @@
         "lon": -74.00597,
         "nameUsed": "New York"
       },
-      "ingestedAt": "2026-05-12T22:56:05.807Z"
+      "ingestedAt": "2026-05-12T23:17:56.221Z"
     }
   },
   "744c4597586797d5f7e9be094f031f11": {
@@ -122,7 +122,7 @@
         "lon": -84.38798,
         "nameUsed": "Atlanta"
       },
-      "ingestedAt": "2026-05-12T22:56:06.068Z"
+      "ingestedAt": "2026-05-12T23:17:56.140Z"
     }
   },
   "ad3552c4909328a0be4de1ec98e97bcf": {
@@ -143,7 +143,7 @@
         "lon": -83.91018,
         "nameUsed": "Minnesota"
       },
-      "ingestedAt": "2026-05-12T22:56:06.098Z"
+      "ingestedAt": "2026-05-12T23:17:56.162Z"
     }
   },
   "a0a43f882e4a4ab92fa1024e42f33be0": {
@@ -164,7 +164,7 @@
         "lon": -87.90647,
         "nameUsed": "Milwaukee"
       },
-      "ingestedAt": "2026-05-12T22:56:06.093Z"
+      "ingestedAt": "2026-05-12T23:17:56.166Z"
     }
   },
   "34393ecc2b2d109779095b1d4935225b": {
@@ -185,7 +185,7 @@
         "lon": -80.13175,
         "nameUsed": "Texas"
       },
-      "ingestedAt": "2026-05-12T22:56:06.224Z"
+      "ingestedAt": "2026-05-12T23:17:56.416Z"
     }
   },
   "a1fa0d550bd68cf44d71f0657fa93d6a": {
@@ -206,13 +206,13 @@
         "lon": -95.36327,
         "nameUsed": "Houston"
       },
-      "ingestedAt": "2026-05-12T22:56:06.353Z"
+      "ingestedAt": "2026-05-12T23:17:56.559Z"
     }
   },
   "a0929cf66d445eec19f118010165e95c": {
     "temperature": 69.8,
     "temp": 69.8,
-    "windSpeed": 25.72481,
+    "windSpeed": 23.264176000000003,
     "windDirectionDeg": 180,
     "windOut": false,
     "windIn": false,
@@ -227,7 +227,7 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-12T22:56:06.512Z"
+      "ingestedAt": "2026-05-12T23:17:56.573Z"
     }
   }
 }

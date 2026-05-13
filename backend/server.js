@@ -19631,6 +19631,37 @@ app.get("/mlb/board", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`)
+  // Operational trust — snapshot freshness boot probe.
+  // Single line per sport at startup so the operator sees stale state
+  // BEFORE the first request hits the server. Read-only; never rebuilds.
+  try {
+    const {
+      computeSnapshotFreshnessFromDisk,
+      logStaleProbe,
+    } = require("./pipeline/shared/snapshotFreshness")
+    for (const sport of ["nba", "mlb"]) {
+      const fresh = computeSnapshotFreshnessFromDisk(sport)
+      console.log(
+        "[SNAPSHOT-FRESHNESS-BOOT]",
+        JSON.stringify({
+          sport: fresh.sport,
+          status: fresh.status,
+          isStale: fresh.isStale,
+          snapshotAgeMinutes: fresh.snapshotAgeMinutes,
+          fileAgeMinutes: fresh.fileAgeMinutes,
+          thresholds: fresh.thresholds,
+          primaryAgeSource: fresh.primaryAgeSource,
+          staleReason: fresh.staleReason,
+        })
+      )
+      // Also emit a high-visibility stale probe when applicable.
+      if (fresh.isStale || fresh.status === "warning") {
+        logStaleProbe(fresh, { context: "boot" })
+      }
+    }
+  } catch (e) {
+    console.log("[SNAPSHOT-FRESHNESS-BOOT FAIL]", e?.message || e)
+  }
   // MLB Phase 2 boot probe — single source of truth at restart time.
   // If MLB_LIVE_STATE_ENABLED reads "undefined" or anything other than "1" here,
   // the running Node process did NOT inherit the flag from the launching shell.
