@@ -31,6 +31,12 @@ const { applyMlbContextualLayers } = require("./context/applyMlbContextualLayers
 // contextual layer falls back to whatever is on disk (or truthful nulls).
 // Kill switch: env MLB_CTX_SKIP_INGEST=1 bypasses all ingestion.
 const { buildMlbContextualDataPack } = require("./ingest/buildMlbContextualDataPack")
+// Predictive-integrity hardening — canonical future-only filter for rows.
+// Defensive belt-and-suspenders: even though scheduledEvents is now strictly
+// future-only at the slate level, we re-apply the same filter at the row level
+// before context layers run. Any row whose gameTime has slipped past `now`
+// during the build (long slate ingestion) is excluded with diagnostics.
+const { filterFutureOnlyRows } = require("./../shared/mlbFutureOnly")
 // MLB Phase 2 — Live state ingestion (observational). Default OFF — set
 // MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live-state derivation.
 // Independently invokable via backend/scripts/refreshMlbLiveState.js.
@@ -777,10 +783,21 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   const marketsCsv = marketRequestList.join(",")
 
   const observedAtIso = new Date(now).toISOString()
-  const { slateDateKey, allEvents, scheduledEvents } = await buildMlbSlateEvents({
+  // Predictive-integrity hardening — destructure the new future-only filter
+  // diagnostics produced by buildMlbSlateEvents. These are additive — older
+  // builds return undefined, which downstream handles as null.
+  const slateBuildResult = await buildMlbSlateEvents({
     oddsApiKey,
     now
   })
+  const {
+    slateDateKey,
+    allEvents,
+    scheduledEvents,
+    futureOnlyFilter,
+    futureOnlyFilterTodayDate,
+    futureOnlyFilterTomorrowDate,
+  } = slateBuildResult
   const allEventsSafe = Array.isArray(allEvents) ? allEvents : []
   const scheduledEventsSafe = Array.isArray(scheduledEvents) ? scheduledEvents : []
   const scheduledEventIds = new Set(
@@ -1222,10 +1239,30 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
 
   const summary = summarizeRows(enrichedRows)
 
+  // ── Defensive future-only row filter (predictive-integrity hardening) ─────
+  // The slate-level filter in buildMlbSlateEvents excludes started games, but
+  // a long build window can mean games that were "future" at slate selection
+  // have started by the time row enrichment completes. Re-apply the same
+  // strict `> now + grace` rule at row level. Idempotent on already-pure
+  // slates: when scheduledEvents was correctly filtered, this drops nothing
+  // and the diagnostics show filteredStartedGames=0.
+  const rowFutureFilter = filterFutureOnlyRows(rowsWithProbability, { nowMs: Date.now() })
+  const rowsWithProbabilityFutureOnly = rowFutureFilter.kept
+  if (rowFutureFilter.diagnostics.filteredStartedGames > 0 ||
+      rowFutureFilter.diagnostics.excludedWithoutTimestamp > 0) {
+    console.log("[MLB-FUTURE-ONLY-ROWS]", JSON.stringify({
+      ...rowFutureFilter.diagnostics,
+      droppedRowCount: rowFutureFilter.dropped.length,
+      keptRowCount: rowFutureFilter.kept.length,
+    }))
+  }
+
   console.log("[MLB PIPELINE DEBUG]", {
     events: Array.isArray(scheduledEventsSafe) ? scheduledEventsSafe.length : 0,
     props: Number(totalOutcomesSeen || 0),
-    rows: Array.isArray(rowsWithProbability) ? rowsWithProbability.length : 0,
+    rowsBeforeFutureFilter: Array.isArray(rowsWithProbability) ? rowsWithProbability.length : 0,
+    rowsAfterFutureFilter:  rowsWithProbabilityFutureOnly.length,
+    rowsDroppedByFutureFilter: rowFutureFilter.diagnostics.filteredStartedGames + rowFutureFilter.diagnostics.excludedWithoutTimestamp,
     rawOddsEvents: Array.isArray(rawOddsEvents) ? rawOddsEvents.length : 0,
     totalBookmakersSeen,
     totalMarketsSeen,
@@ -1256,18 +1293,18 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   // ── MLB Phase 1 Contextual Intelligence (additive) ────────────────────────
   // Pure derivation; never mutates existing fields. Failures here must NOT
   // break snapshot generation — fall back to the un-enriched rows.
-  let contextualResult = { rows: rowsWithProbability, diagnostics: null }
+  let contextualResult = { rows: rowsWithProbabilityFutureOnly, diagnostics: null }
   try {
     contextualResult = applyMlbContextualLayers({
-      rows: rowsWithProbability,
+      rows: rowsWithProbabilityFutureOnly,
       events: scheduledEventsSafe,
       overrides: contextualDataPack.overrides,
     })
   } catch (ctxErr) {
     console.log("[MLB-CONTEXTUAL-PHASE-1B FAIL]", ctxErr?.message || ctxErr)
-    contextualResult = { rows: rowsWithProbability, diagnostics: { error: String(ctxErr?.message || ctxErr) } }
+    contextualResult = { rows: rowsWithProbabilityFutureOnly, diagnostics: { error: String(ctxErr?.message || ctxErr) } }
   }
-  let rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbability
+  let rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbabilityFutureOnly
 
   // ── MLB Phase 2 — Live State (env-gated, observational, fail-open) ────────
   // Default OFF. Set MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live state.
@@ -1381,7 +1418,17 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       failedEvents,
       contextual: (contextualResult && contextualResult.diagnostics) || null,
       contextualIngest: (contextualDataPack && contextualDataPack.diagnostics) || null,
-      liveState: (liveStateResult && liveStateResult.diagnostics) || null
+      liveState: (liveStateResult && liveStateResult.diagnostics) || null,
+      // Predictive-integrity hardening — future-only filter trace.
+      // `slate` is the chosen slate's filter (today by default, tomorrow on rollover).
+      // `slateToday` and `slateTomorrow` carry the per-date traces for replay.
+      // `rows` is the defensive row-level re-filter result.
+      futureOnlyFilter: {
+        slate:    futureOnlyFilter || null,
+        slateToday:    futureOnlyFilterTodayDate    || null,
+        slateTomorrow: futureOnlyFilterTomorrowDate || null,
+        rows: rowFutureFilter && rowFutureFilter.diagnostics ? rowFutureFilter.diagnostics : null,
+      }
     }
   }
 }

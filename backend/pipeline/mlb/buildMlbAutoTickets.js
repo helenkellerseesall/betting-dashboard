@@ -1,5 +1,10 @@
 "use strict"
 
+// Predictive-integrity hardening — replace the local inline future-only
+// filter with the canonical helper so all MLB filtering paths share one
+// boundary semantic (strict `> now + grace`).
+const { filterFutureOnlyRows } = require("../shared/mlbFutureOnly")
+
 function norm(v) {
   return String(v == null ? "" : v).trim()
 }
@@ -479,20 +484,13 @@ function computeSlateGameCount(allProps) {
 }
 
 function filterFutureProps(rows, now = new Date()) {
-  const safe = Array.isArray(rows) ? rows : []
+  // Delegates to canonical helper — strict `> nowMs + grace` semantics,
+  // truthful-null on missing timestamps, env-tunable grace via
+  // MLB_FUTURE_GRACE_MS. Preserves the legacy return shape (array of rows).
   const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime()
   if (!Number.isFinite(nowMs)) return []
-
-  const out = []
-  for (const r of safe) {
-    if (!r || typeof r !== "object") continue
-    const gt = r?.gameTime
-    if (!gt) continue
-    const t = new Date(gt).getTime()
-    if (!Number.isFinite(t)) continue
-    if (t > nowMs) out.push(r)
-  }
-  return out
+  const result = filterFutureOnlyRows(rows, { nowMs })
+  return result.kept
 }
 
 function stackBoostForCandidate(row, currentLegs, ticketType) {

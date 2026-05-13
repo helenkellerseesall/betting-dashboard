@@ -22,6 +22,11 @@ const {
   getEventTimeForSchedule,
   getEventMatchupForSchedule
 } = require("./buildSlateEvents")
+// Predictive-integrity hardening — canonical future-only filter.
+// Replaces the prior inline `>= nowMs` check that allowed in-progress and
+// completed games to leak into scheduled slates. Strict `> nowMs + grace`
+// semantics; UTC-safe; truthful-null on missing timestamps.
+const { filterFutureOnlyEvents } = require("../shared/mlbFutureOnly")
 
 // ---------------------------------------------------------------------------
 // MLB-specific event normalizer
@@ -125,40 +130,43 @@ async function buildMlbSlateEvents({
     return computed || ""
   }
 
-  const todayEvents = allEvents.filter((event) => getEventDetroitDateKey(event) === todayDateKey)
-  const tomorrowEvents = allEvents.filter((event) => getEventDetroitDateKey(event) === tomorrowDateKey)
+  const todayEventsOnDate = allEvents.filter((event) => getEventDetroitDateKey(event) === todayDateKey)
+  const tomorrowEventsOnDate = allEvents.filter((event) => getEventDetroitDateKey(event) === tomorrowDateKey)
+
+  // Strict future-only filter — replaces the prior `t >= nowMs` rollover-only
+  // check. Games whose commence_time is in the past OR exactly equal to now
+  // are treated as STARTED and excluded. Diagnostics carry the dropped IDs.
+  const nowMs = Number(now)
+  const todayFutureFilter    = filterFutureOnlyEvents(todayEventsOnDate,    { nowMs })
+  const tomorrowFutureFilter = filterFutureOnlyEvents(tomorrowEventsOnDate, { nowMs })
+  const todayEvents    = todayFutureFilter.kept
+  const tomorrowEvents = tomorrowFutureFilter.kept
 
   // MLB boards can be posted mostly for the next Detroit date during overnight windows.
-  // If no same-day events exist, roll to tomorrow rather than returning an empty slate.
+  // If no same-day FUTURE events exist, roll to tomorrow rather than returning an empty slate.
   let chosenSlateDateKey = todayDateKey
   let scheduledEvents = todayEvents
+  let chosenFutureFilter = todayFutureFilter
 
-  const nowMs = Number(now)
-  const hasUpcoming = (evts) => {
-    const safe = Array.isArray(evts) ? evts : []
-    for (const e of safe) {
-      const t = new Date(getEventTimeForSchedule(e)).getTime()
-      if (Number.isFinite(t) && (!Number.isFinite(nowMs) || t >= nowMs)) return true
-    }
-    return false
-  }
-
-  // If today's Detroit slate exists but is already finished (no upcoming starts),
-  // treat it as empty and roll to tomorrow.
-  const todayUsable = scheduledEvents.length > 0 && hasUpcoming(scheduledEvents)
-
-  if ((!scheduledEvents.length || !todayUsable) && tomorrowEvents.length) {
+  if (!scheduledEvents.length && tomorrowEvents.length) {
     chosenSlateDateKey = tomorrowDateKey
     scheduledEvents = tomorrowEvents
+    chosenFutureFilter = tomorrowFutureFilter
   }
 
   console.log("[MLB-SCHEDULED-EVENTS-FINAL-DEBUG]", {
     slateDateKey: chosenSlateDateKey,
     todayDateKey,
     tomorrowDateKey,
-    todayEventCount: todayEvents.length,
-    tomorrowEventCount: tomorrowEvents.length,
-    totalEvents: scheduledEvents.length,
+    todayOnDate: todayEventsOnDate.length,
+    todayFutureOnly: todayEvents.length,
+    todayStartedDropped: todayFutureFilter.diagnostics.filteredStartedGames,
+    todayNoTimestampDropped: todayFutureFilter.diagnostics.excludedWithoutTimestamp,
+    tomorrowOnDate: tomorrowEventsOnDate.length,
+    tomorrowFutureOnly: tomorrowEvents.length,
+    totalScheduled: scheduledEvents.length,
+    futureFilterTimestamp: chosenFutureFilter.diagnostics.futureFilterTimestamp,
+    futureGraceMs: chosenFutureFilter.diagnostics.futureGraceMs,
     events: scheduledEvents.map((event) => ({
       eventId: getEventIdForSchedule(event),
       matchup: event.matchup,
@@ -167,10 +175,22 @@ async function buildMlbSlateEvents({
     }))
   })
 
+  // Emit a high-visibility probe whenever started games were excluded so the
+  // operator can see future-only enforcement in action.
+  if (chosenFutureFilter.diagnostics.filteredStartedGames > 0 ||
+      chosenFutureFilter.diagnostics.excludedWithoutTimestamp > 0) {
+    console.log("[MLB-FUTURE-ONLY-FILTER]", JSON.stringify(chosenFutureFilter.diagnostics))
+  }
+
   return {
     slateDateKey: chosenSlateDateKey,
     allEvents,
-    scheduledEvents
+    scheduledEvents,
+    // Additive diagnostics — consumed by buildMlbBootstrapSnapshot so the
+    // snapshot's diagnostics.futureOnlyFilter block carries the filter trace.
+    futureOnlyFilter: chosenFutureFilter.diagnostics,
+    futureOnlyFilterTodayDate: todayFutureFilter.diagnostics,
+    futureOnlyFilterTomorrowDate: tomorrowFutureFilter.diagnostics,
   }
 }
 
