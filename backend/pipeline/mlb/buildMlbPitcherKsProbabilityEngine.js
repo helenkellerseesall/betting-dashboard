@@ -108,15 +108,52 @@ function buildPitcherRowFromPropRow(r, context = {}) {
 
   // Start from market-implied Ks distribution (lambda) for the given line, then adjust using model signal.
   const marketLambda = impliedProbSafe != null ? fitPoissonLambdaForAtLeastK(impliedProbSafe, k) : (toNum(line) ?? 4) + 0.5
-  const predSafe = Number.isFinite(predictedProb) ? predictedProb : impliedProbSafe != null ? impliedProbSafe : 0.5
-  const edgeProb = toNum(r?.edgeProbability) ?? (Number.isFinite(impliedProbSafe) ? predSafe - impliedProbSafe : 0)
+
+  // Calibration-honesty hardening: when neither a model probability NOR a
+  // market-implied probability is resolvable, `predSafe` becomes NULL — NOT
+  // a synthetic 0.5 midpoint. Downstream math gates on `predSafeForAdj`
+  // (numeric for arithmetic that must produce a finite result) but the
+  // OBSERVATIONAL fields (modelProbability, edge) propagate the unresolved
+  // state truthfully via `predictionResolved`.
+  //
+  // Honest-fallback policy (cascade):
+  //   1. row.predictedProbability  (model)
+  //   2. impliedProbSafe           (market-derived, EXPLICIT fallback source)
+  //   3. null                      (genuinely unresolved — no synthesis)
+  //
+  // `predictionResolved` flags which source was used. Replay, grading, and
+  // calibration consumers MUST honor this rather than treat NULL == 0.5.
+  const predSafe = Number.isFinite(predictedProb)
+    ? predictedProb
+    : impliedProbSafe != null ? impliedProbSafe : null
+  const predictionResolved = predSafe != null
+  const predictionSource =
+    Number.isFinite(predictedProb) ? "model"
+      : impliedProbSafe != null     ? "market_implied_fallback"
+      : "unresolved"
+
+  // For arithmetic that MUST yield a finite lambda adjustment (so the row
+  // can still emit a Poisson-derived expectedKs from the line alone) we
+  // use a SHIFT-ZERO baseline when nothing is resolvable. This is NOT a
+  // probability claim — it is a "no usable signal, apply zero adjustment"
+  // mathematical convention. It is bounded ±0 here.
+  const predSafeForAdj = predSafe != null ? predSafe : (impliedProbSafe != null ? impliedProbSafe : null)
+  const edgeProb = toNum(r?.edgeProbability)
+    ?? (predictionResolved && Number.isFinite(impliedProbSafe) ? predSafe - impliedProbSafe : 0)
 
   // Small bounded adjustment: improves separation without inflating.
-  const adjFromProb = Number.isFinite(impliedProbSafe) ? Math.max(-1, Math.min(1, (predSafe - impliedProbSafe) * 8)) : 0
+  // When predSafeForAdj is null, adjFromProb is 0 — equivalent to "no
+  // adjustment", preserving the Poisson-from-line baseline.
+  const adjFromProb = (predSafeForAdj != null && Number.isFinite(impliedProbSafe))
+    ? Math.max(-1, Math.min(1, (predSafeForAdj - impliedProbSafe) * 8))
+    : 0
   const adjFromEdgeProb = Math.max(-0.5, Math.min(0.5, edgeProb * 10))
   const expectedKs = Math.max(0.25, marketLambda + adjFromProb + adjFromEdgeProb)
 
   // Probability of OVER line is derived from expectedKs distribution (Poisson).
+  // When the underlying prediction is unresolved, modelProbability is the
+  // Poisson-from-market value but `predictionResolved=false` carries that
+  // truth to consumers — they decide how to handle it.
   const modelProbability = poissonProbAtLeast(k, expectedKs)
   const edge = Number.isFinite(impliedProbSafe) ? modelProbability - impliedProbSafe : null
   const isValueBet = Number.isFinite(edge) ? edge > 0.05 : false
@@ -143,6 +180,11 @@ function buildPitcherRowFromPropRow(r, context = {}) {
     impliedProbability: impliedProbSafe == null ? null : Number(Number(impliedProbSafe).toFixed(4)),
     edge: edge == null ? null : Number(Number(edge).toFixed(4)),
     isValueBet,
+    // Calibration-honesty diagnostics — every consumer of this row can decide
+    // whether the modelProbability above is a TRUE model output, a documented
+    // market-implied fallback, or genuinely unresolved (zero adjustment applied).
+    predictionResolved,            // boolean: true when model OR market_implied source resolved
+    predictionSource,              // "model" | "market_implied_fallback" | "unresolved"
     k5: Number(k5.toFixed(4)),
     k6: Number(k6.toFixed(4)),
     k7: Number(k7.toFixed(4)),

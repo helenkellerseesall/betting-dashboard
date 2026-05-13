@@ -15886,7 +15886,11 @@ function normalizePowerMarketBonus(row) {
   if (!isHr || isFirstHr) return null
 
   // Reward realistic HR "yes" prices; penalize extreme tails a bit.
-  if (!Number.isFinite(odds)) return 0.5
+  // Calibration-honesty hardening: when odds are missing, return null
+  // rather than synthesizing a 0.5 "neutral" market-shape bonus. The
+  // caller (getMlbPowerSignals) already skips null returns via
+  // `if (hrMarket != null) signals.push(...)`.
+  if (!Number.isFinite(odds)) return null
   if (odds >= 300 && odds <= 1200) return 1
   if (odds >= 200 && odds < 300) return 0.75
   if (odds > 1200 && odds <= 1800) return 0.65
@@ -15905,10 +15909,17 @@ function getMlbSignalStrengthTag(signalScore) {
 }
 
 function getMlbPowerSignals(row) {
-  // Return 0..1. Must be robust to missing fields.
-  // Uses only already-available runtime data (no new API requirements).
-  if (!row || typeof row !== "object") return 0.5
-  if (!isMlbPhase2PowerMarket(row)) return 0.5
+  // Returns 0..1 when at least one signal fires, else null.
+  //
+  // Calibration-honesty hardening: previously this function returned 0.5
+  // for missing/inapplicable rows — a synthetic "neutral confidence" value
+  // that then propagated through signalScore, getMlbSignalStrengthTag
+  // ("neutral"), and downstream selection / calibration. Now we return
+  // null for any path that genuinely cannot produce a power signal. The
+  // tag function and selection code already handle null via the
+  // !Number.isFinite gate that pre-existed.
+  if (!row || typeof row !== "object") return null
+  if (!isMlbPhase2PowerMarket(row)) return null
 
   const implied = impliedProbabilityFromOdds(row?.odds)
   const ctx = buildPregameContext({ sport: "mlb", row })
@@ -15977,7 +15988,11 @@ function getMlbPowerSignals(row) {
   const hrMarket = normalizePowerMarketBonus(row)
   if (hrMarket != null) signals.push({ v: hrMarket, w: 0.05 })
 
-  if (!signals.length) return 0.5
+  // Calibration-honesty hardening: when NO signal fired (no power data,
+  // no consensus, no dispersion, etc.) we return null rather than a
+  // synthetic 0.5 midpoint. Downstream signalScore handlers already gate
+  // on Number.isFinite; null is honest "no observable power signal".
+  if (!signals.length) return null
 
   const weightSum = signals.reduce((acc, s) => acc + s.w, 0) || 1
   const score = signals.reduce((acc, s) => acc + s.v * s.w, 0) / weightSum
@@ -16008,6 +16023,17 @@ function estimateMlbHrProbability(row, context = {}) {
     Number.isFinite(toNumberOrNull(context?.signalScore))
       ? toNumberOrNull(context.signalScore)
       : getMlbPowerSignals(row)
+
+  // Calibration-honesty: signalScore can now legitimately be null (no observable
+  // power signal fired). Previously `signalScore * 0.4` silently coerced null to
+  // 0 — equivalent to "neutral weight" — which is itself a synthetic-certainty
+  // bug because it dragged predictedProbability toward 60% of impliedBase
+  // regardless of whether there was ANY actual model signal. Honest fallback:
+  // when no signal fires, propagate the market-implied probability directly
+  // (documented source, no synthesis).
+  if (!Number.isFinite(signalScore)) {
+    return clamp(Number(impliedBase.toFixed(6)), 0, 1)
+  }
 
   const predictedProbability = (impliedBase * 0.6) + (signalScore * 0.4)
   return clamp(Number(predictedProbability.toFixed(6)), 0, 1)

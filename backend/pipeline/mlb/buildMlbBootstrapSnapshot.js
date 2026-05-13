@@ -37,6 +37,10 @@ const { buildMlbContextualDataPack } = require("./ingest/buildMlbContextualDataP
 // before context layers run. Any row whose gameTime has slipped past `now`
 // during the build (long slate ingestion) is excluded with diagnostics.
 const { filterFutureOnlyRows } = require("./../shared/mlbFutureOnly")
+// Calibration-honesty hardening — observational utility for surfacing
+// unresolved/null probabilities in snapshot diagnostics. Pure helper; never
+// mutates rows. Probe API documented in pipeline/shared/probabilityHonesty.js.
+const { createProbabilityProbe, toProbabilityOrNull } = require("./../shared/probabilityHonesty")
 // MLB Phase 2 — Live state ingestion (observational). Default OFF — set
 // MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live-state derivation.
 // Independently invokable via backend/scripts/refreshMlbLiveState.js.
@@ -1306,6 +1310,46 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
   }
   let rowsWithContext = Array.isArray(contextualResult?.rows) ? contextualResult.rows : rowsWithProbabilityFutureOnly
 
+  // ── Calibration-honesty diagnostics (observational; read-only) ────────────
+  // Sweeps the final enriched row set for unresolved / null probabilities so
+  // the operator can see — at every snapshot — how many predictions are
+  // genuinely UNKNOWN vs. backed by real model output. Synthesis is blocked
+  // upstream (see pipeline/shared/probabilityHonesty.js); this sweep just
+  // counts. NEVER changes row values.
+  const calibrationProbe = createProbabilityProbe("mlb_snapshot")
+  let predictedNull = 0
+  let edgeNull = 0
+  let signalScoreNull = 0
+  let impliedNull = 0
+  for (const r of rowsWithContext) {
+    calibrationProbe.observe("predictedProbability", r?.predictedProbability)
+    if (toProbabilityOrNull(r?.predictedProbability) == null) predictedNull += 1
+    if (toProbabilityOrNull(r?.impliedProbability) == null)  impliedNull += 1
+    // edgeProbability is signed delta ∈ [-1, 1]; just check finiteness.
+    if (!Number.isFinite(Number(r?.edgeProbability)))       edgeNull += 1
+    if (!Number.isFinite(Number(r?.signalScore)))           signalScoreNull += 1
+  }
+  const calibrationHonestyDiagnostics = {
+    ...calibrationProbe.summary(),
+    rowLevel: {
+      totalRows: rowsWithContext.length,
+      predictedProbabilityNull: predictedNull,
+      impliedProbabilityNull: impliedNull,
+      edgeProbabilityNull: edgeNull,
+      signalScoreNull,
+    },
+  }
+  if (predictedNull > 0 || signalScoreNull > 0) {
+    console.log("[CALIBRATION-HONESTY-SNAPSHOT]", JSON.stringify({
+      totalRows: rowsWithContext.length,
+      predictedProbabilityNull: predictedNull,
+      signalScoreNull,
+      edgeProbabilityNull: edgeNull,
+      impliedProbabilityNull: impliedNull,
+      message: "rows with unresolved probability — preserved honestly as null",
+    }))
+  }
+
   // ── MLB Phase 2 — Live State (env-gated, observational, fail-open) ────────
   // Default OFF. Set MLB_LIVE_STATE_ENABLED=1 to enable in-bootstrap live state.
   // Attaches row.mlbLiveState additively; never modifies existing context fields.
@@ -1419,6 +1463,10 @@ async function buildMlbBootstrapSnapshot({ oddsApiKey, now = Date.now(), externa
       contextual: (contextualResult && contextualResult.diagnostics) || null,
       contextualIngest: (contextualDataPack && contextualDataPack.diagnostics) || null,
       liveState: (liveStateResult && liveStateResult.diagnostics) || null,
+      // Calibration-honesty: aggregate count of unresolved-probability rows
+      // (null model prob / null signal / null implied / null edge). Synthesis
+      // is blocked upstream; these counts are observational truth.
+      calibrationHonesty: calibrationHonestyDiagnostics,
       // Predictive-integrity hardening — future-only filter trace.
       // `slate` is the chosen slate's filter (today by default, tomorrow on rollover).
       // `slateToday` and `slateTomorrow` carry the per-date traces for replay.
