@@ -1,6 +1,200 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Persistence-1B — activation layer + operational tooling shipped. 2 new tables (`prediction_id_aliases`, `ledger_divergence_log`), boot-time `[LEDGER-DIVERGENCE-DETECTED]` observability, 4 npm scripts (`persistence:status`/`probe`/`import`/`backfill-aliases`), 2 probes (22/22 each PASS). JSON canonical preserved; SQLite is visibility-verified parallel authority. Operator must execute `npm run persistence:import` + `persistence:backfill-aliases` on their machine. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart.)_
+_Last updated: 2026-05-14 (Phase Longitudinal-Integrity-1B — canonical `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` shipped in `intelligence.js`; `epochAuthority` field surfaced via `nbaCacheDiagnostics`; `probe_epoch_authority_v1.js` 48/48 PASS verifying byte-parity vs all 5 existing `compute*EpochId` functions; `npm run epoch:status` shipped. Strict fallback policy: snapshot/live REJECT on missing ts. Five existing freeze writers UNCHANGED — Phase 1C migration is operator-gated. 14/14 regression PASS. Phase Persistence-1B activation + Race-1 watchdog + F6.3 still pending TERM 1 restart on operator's machine.)_
+
+---
+
+## SESSION LONGITUDINAL-INTEGRITY-1B — Canonical Epoch Authority Introduction (2026-05-14)
+
+### What this session shipped
+
+Five artifacts, ~400 net-additive lines, zero deletions, zero behavior change to existing freeze writers. Operator approved all four items in `NEXT_SESSION.md`; this session implemented per spec, additive-only.
+
+1. **`backend/storage/intelligence.js`** (+~250 lines):
+   - `derivePredictionEpochId(opts)` — canonical owner. Signature: `{sport, slateDate, snapshotUpdatedAt, capturedAtIso, kind, writerTag}`. Three kind variants: `snapshot` → `<ts>|<sport>|<slate>`; `live` → `LIVE|<ts>|<sport>|<slate>`; `manual` → `MANUAL|<ts>|<sport>|<slate>`. **Strict fallback policy**: snapshot/live REJECT on missing ts (return null + emit `[EPOCH-ID-REJECTED-MISSING-TS]`); only `kind='manual'` falls back to `new Date().toISOString()` + emits `[EPOCH-ID-FALLBACK-USED]`. Optional `writerTag` enables collision detection via in-memory `epochWriterMap`.
+   - `deriveCanonicalSlateDate(value, opts)` — Detroit-keyed YYYY-MM-DD helper. Mirrors `_detroitSlateDateKey` so Phase 1C can unify NBA + MLB slate-date derivation.
+   - `getEpochAuthorityDiagnostics()` / `resetEpochAuthorityDiagnostics()` — defensive shallow-copy diagnostics + reset for fixtures.
+   - **Five rate-limited probes**: `[EPOCH-ID-AUTHORITY-OBSERVED]`, `[EPOCH-ID-DERIVED]`, `[EPOCH-ID-COLLISION-DETECTED]`, `[EPOCH-ID-FALLBACK-USED]`, `[EPOCH-ID-REJECTED-MISSING-TS]`.
+
+2. **`backend/http/nbaIsolatedRoutes.js`** (+~25 lines):
+   - `_lazyEpochAuthorityDiagnostics()` defensive lazy-require helper (matches Session BD `_lazyFreezePredictionEpoch` pattern).
+   - `epochAuthority` field added as the first key in `getNbaCacheDiagnostics()` return object. Surfaces via `/api/best-available.nbaCacheDiagnostics.epochAuthority`. Additive only — no existing field removed or renamed.
+
+3. **`probe_epoch_authority_v1.js`** (NEW, ~210 lines, **48/48 PASS**):
+   - Block 1: 28 byte-parity fixtures vs sites #1 (snapshot, 16 fixtures), #3 `computeLiveEpochId` (8 live fixtures), #4 `mlbLiveStateHistory.computeEpochId` (4 history fixtures). Span: nba/mlb/nhl/nfl sports, mixed-case inputs, slate-trailing-time, captured-vs-snapshot fallback paths.
+   - Block 2: collision detector — 3-writer scenario (`snapshot_bestprops`, `workstation_state`, `freezeMlbContextualEpoch`) → 2 collisions detected, `[EPOCH-ID-COLLISION-DETECTED]` emitted twice, `firstCollisionSample` populated. Same-writer re-derive does NOT count as collision.
+   - Block 3: strict-fallback policy assertions — snapshot/live REJECT, manual ALLOWED, missing sport/slate REJECT.
+   - Block 4: `deriveCanonicalSlateDate` smoke tests.
+
+4. **`backend/scripts/epochStatus.js`** (NEW, ~155 lines) + `npm run epoch:status` — canonical read-only inspector. Shows `prediction_epochs` row counts grouped by formula prefix / sport / source, most-recent 5 epoch_ids per sport, `frozen_contextual_states` linkage, `prediction_id_aliases` count, in-process canonical helper diagnostics.
+
+### Carry-forward rule applied
+
+Per operator instruction, re-verified all 5 derivation formulas from live source BEFORE patching. All matched the Phase 1A audit's documented bytes-for-bytes. Second consecutive phase where the carry-forward rule prevented patching against stale assumptions.
+
+### Implementation discipline
+
+- **Additive only** — no deletions, no destructive migration, no existing function modified.
+- **Phase-tagged inline** — every new function/probe/diagnostics field carries `Phase Longitudinal-Integrity-1B (2026-05-14)`.
+- **Strict fallback policy (Law 16 — no silent fallbacks)** — snapshot/live REJECT replaces the pre-1B silent default-to-now behavior. Phase 1C wrappers will choose between `kind='snapshot'` (strict) or `kind='manual'` (explicit fallback) per call site, making implicit defaults explicit.
+- **Rate-limited additive observability (Law 9)** — 5 probe categories, each fires at most once per natural category boundary.
+- **Replay-safe** — canonical helper preserves byte-parity for every observed input. Existing snapshot.json + freeze hooks produce identical bytes when Phase 1C migration lands.
+- **`node:sqlite` only (Law 5)** — N/A this phase (no new SQL).
+- **Single canonical owner (Law 1)** — `intelligence.js:derivePredictionEpochId` declared in PIPELINE_AUTHORITY_MAP.md.
+
+### Authority preservation (verified)
+
+- ✅ Five existing `compute*EpochId` functions UNCHANGED. Public signatures and byte outputs preserved.
+- ✅ No freeze writer touched. Replay / freeze / grading / snapshot / mutex paths preserved.
+- ✅ `prediction_epochs: 29 rows`, `frozen_contextual_states: 843 rows`, `prediction_snapshots: 607 rows` — production state untouched.
+- ✅ JSON canonical preserved. SQLite untouched.
+- ✅ Phase Persistence-1B activation tooling preserved (operator execution still pending).
+- ✅ Phase Race-1 watchdog preserved.
+- ✅ All 14 regression suites still PASS.
+- ✅ Phase Persistence-1B probes still 22/22 + 22/22 PASS.
+- ✅ Brain bootstrap / continuity / verify all PASS.
+
+### Verification
+
+```
+node --check  on every modified + new file                         OK
+node smoke test of derivePredictionEpochId                         OK (all 5 probes fire correctly)
+probe_epoch_authority_v1.js                                        48/48 PASS
+npm run persistence:probe                                          2/2 (44/44 checks) PASS
+14-suite regression matrix                                         14/14 PASS
+npm run brain:bootstrap                                            PASS
+npm run brain:continuity                                           PASS
+npm run brain:verify                                               PASS (0 FAIL)
+```
+
+### Files touched (Phase Longitudinal-Integrity-1B)
+
+```
+backend/storage/intelligence.js                                +~250 lines (helper + diagnostics + probes; existing code unchanged)
+backend/http/nbaIsolatedRoutes.js                              +~25 lines (surface epochAuthority via lazy-require)
+backend/scripts/epochStatus.js                                 NEW, ~155 lines
+backend/package.json                                           +1 npm script (epoch:status)
+probe_epoch_authority_v1.js                                    NEW, ~210 lines, 48/48 PASS
+backend/runtime/brain/MASTER_BRAIN.md                          current-phase + 5 new probe names in observability standards
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                 Phase Longitudinal-Integrity-1B entry
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                   new dated entry at top
+backend/runtime/brain/PIPELINE_AUTHORITY_MAP.md                canonical owner declared (TEMPORAL / EPOCH AUTHORITY)
+backend/runtime/brain/ACTIVE_INCIDENTS.md                      R-034 resolved
+CURRENT_STATE.md                                               this entry
+NEXT_SESSION.md                                                Phase 1C operator-approval gate
+```
+
+### Operator next actions
+
+**Inspect the canonical helper in production** (after TERM 1 restart):
+```bash
+curl -s "http://localhost:4000/api/best-available?sport=basketball_nba" \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(json.dumps(d.get("nbaCacheDiagnostics",{}).get("epochAuthority",{}), indent=2))'
+```
+
+**Run the byte-parity probe**:
+```bash
+cd ~/Desktop/betting-dashboard && node probe_epoch_authority_v1.js
+# Expected: 48/48 PASS
+```
+
+**Inspect prediction_epochs via the new inspector**:
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run epoch:status
+# Expected: byte-prefix breakdown of 29 existing epoch rows (~all "snapshot" prefix — none have LIVE/MANUAL prefix yet)
+```
+
+### Phase 1C operator-approval gate
+
+Phase 1C migrates the 5 existing `compute*EpochId` call sites to thin wrappers around `derivePredictionEpochId`. Byte-parity is preserved (probe asserts it). Each wrapper:
+- Passes `writerTag` so future collisions become loud.
+- Passes `kind='snapshot'` (strict policy) by default; sites that genuinely need the legacy default-to-now behavior pass `kind='manual'` explicitly.
+- Preserves backward-compatible function signature so external callers (verify scripts, probes) need no change.
+
+See `NEXT_SESSION.md` for Phase 1C details + approval options.
+
+---
+
+## SESSION LONGITUDINAL-INTEGRITY-1A — Epoch Authority Topology Audit (2026-05-14)
+
+### What this session shipped
+
+`docs/EPOCH_AUTHORITY_AUDIT_2026-05-14.md` — 14 sections per operator's required-output spec. Per instruction "MANDATORY FIRST TASK: perform complete epoch topology audit" + "DO NOT hard-cut temporal authority immediately", no code patches.
+
+### Five derivation sites, four formulas (verified from live source)
+
+| # | File | Formula | Active in prod? |
+|---|---|---|---|
+| 1 | `pipeline/memory/freezePredictionEpoch.js:83` | `<ts>\|<sport>\|<slate>` (sport-parameterized) | YES — NBA snapshot freeze (Session BD) + workstation freeze (Session AZ) |
+| 2 | `pipeline/mlb/context/freezeMlbContextualEpoch.js:51` | `<ts>\|mlb\|<slate>` (hardcoded 'mlb') | NO — wired but only fixture-tested |
+| 3 | `pipeline/mlb/live/freezeMlbLiveStateEpoch.js:54` | `LIVE\|<ts>\|mlb\|<slate>` (3-level fallback) | YES — MLB live state refresh script |
+| 4 | `pipeline/mlb/live/mlbLiveStateHistory.js:57` | `<capturedAtIso>\|mlb\|<slate>` (no fallback) | YES — JSONL append-only (not SQLite) |
+| 5 | `http/nbaIsolatedRoutes.js:46` `_detroitSlateDateKey(value)` | (slate-date helper, Detroit timezone) | YES |
+
+### Critical findings (each confirmed from live source today)
+
+**1. Latent silent-collision risk between #1 and #2.** Both produce IDENTICAL bytes for an MLB snapshot when #1 is called with `sport='mlb'`. Schema `prediction_epochs.epoch_id TEXT PRIMARY KEY` + `INSERT OR IGNORE` semantics drop the second writer silently. Dormant TODAY only because #2 isn't yet wired into the live pipeline (per its file comment: "wiring it into the snapshot lifecycle is deferred to the grading session"). Becomes live the moment Phase Persistence-1C (outcome wiring) or any MLB freeze activation lands without canonical unification.
+
+**2. Default-to-now fallback breaks idempotency contract.** Sites #1 and #2 fall back to `new Date().toISOString()` when `snapshotUpdatedAt` is missing — two captures of the "same" snapshot then produce DIFFERENT epoch_ids that don't collide. The freeze-pipeline idempotency claim silently breaks. Site #4 uses empty string instead (bytewise stable but structurally invalid).
+
+**3. Dual-freeze richness loss persists** (May 14 audit Top Risk #5 unresolved). NBA snapshot freeze (Session BD, bare contextual columns) + workstation freeze (Session AZ, rich contextual columns) BOTH compute identical bytes via formula #1 for the same `oddsSnapshot.updatedAt`. INSERT OR IGNORE on `frozen_contextual_states.(prediction_id, epoch_id)` means the first writer wins. If snapshot freeze arrives first (which it typically does on `/refresh-snapshot/hard-reset`), the workstation's rich row is silently dropped. **No mitigation has shipped. Phase Longitudinal-Integrity-1E is the operator-gated decision.**
+
+**4. Cross-sport fragmentation.** Site #1 is sport-parameterized; sites #2, #3, #4 hardcode `'mlb'`. Adding NHL/NFL would require a 6th and 7th `compute*EpochId`. The canonical helper proposed for Phase 1B eliminates this fork point.
+
+**5. LIVE prefix in #3 safely disambiguates** — no collision risk by construction. Correct pattern; the canonical helper must preserve it via `kind='live'` parameter.
+
+### Phase Longitudinal-Integrity-1 cutover roadmap (6 sub-phases)
+
+| Phase | Title | Risk | Sessions |
+|---|---|---|---|
+| 1A | Topology audit + brain docs (THIS PHASE — shipped today) | None | 1 |
+| 1B | Canonical helper `derivePredictionEpochId` + observability + parity probe | Low | 1 |
+| 1C | Migrate 5 derivation sites to thin wrappers around canonical helper | Medium | 1 |
+| 1D | Deprecate wrappers, migrate consumers to direct canonical calls | Low | 1 |
+| 1E | Dual-freeze richness collision mitigation (separate operator gate) | Medium-High | 1 |
+| 1F | JSONL ↔ SQLite epoch_id reconciliation probe + observability | Low | 1 |
+
+### Authority preservation (verified)
+
+- ✅ All grading / freeze / replay / snapshot / mutex / observability paths untouched.
+- ✅ Five existing `compute*EpochId` functions remain operational and unchanged.
+- ✅ JSON canonical preserved. SQLite untouched.
+- ✅ Phase Persistence-1B activation layer preserved (still on track for operator execution).
+- ✅ Phase Race-1 watchdog preserved.
+- ✅ All 14 regression suites still PASS.
+- ✅ `prediction_epochs: 29 rows`, `frozen_contextual_states: 843 rows`, `prediction_snapshots: 607 rows` — production state untouched.
+
+### Operator decision required before Phase 1B
+
+1. Approve adding `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` to `backend/storage/intelligence.js`?
+2. Approve `getEpochAuthorityDiagnostics()` + surface via `nbaCacheDiagnostics.epochAuthority`?
+3. Approve probe `probe_epoch_authority_v1.js` (32-fixture byte-parity matrix + collision probe + fallback probe)?
+4. Approve `npm run epoch:status` script?
+
+If all four approved, Phase 1B is one session, ~250 net-additive lines, zero deletions, fully revertable. Existing freeze writers are NOT modified in 1B — only observability + canonical helper introduced alongside. See `docs/EPOCH_AUTHORITY_AUDIT_2026-05-14.md` §14 for details.
+
+### Files touched (Phase Longitudinal-Integrity-1A)
+
+```
+docs/EPOCH_AUTHORITY_AUDIT_2026-05-14.md                      (new — 14 sections, ~1200 lines)
+backend/runtime/brain/MASTER_BRAIN.md                         (current-phase + risk pattern)
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                (Phase Longitudinal-Integrity-1A entry)
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                  (new dated entry at top)
+backend/runtime/brain/PIPELINE_AUTHORITY_MAP.md               (new TEMPORAL/EPOCH AUTHORITY section)
+CURRENT_STATE.md                                              (this entry)
+NEXT_SESSION.md                                               (Phase 1B operator-approval gate)
+```
+
+### Verification
+
+```
+Direct source inspection of 8 files                           OK
+Repo-wide grep of every epoch_id/epochId derivation site      OK
+npm run brain:bootstrap                                       PASS
+npm run brain:continuity                                      PASS (0 issue, 0 warn at session start)
+npm run brain:verify                                          PASS (0 FAIL)
+14-suite regression matrix                                    untouched — runs unchanged in subsequent checkpoint
+```
 
 ---
 

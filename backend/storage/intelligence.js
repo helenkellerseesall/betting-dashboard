@@ -330,6 +330,294 @@ function resetCanonicalizationDiagnostics() {
   __canonDiag._loggedPredictionId = false
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase Longitudinal-Integrity-1B (2026-05-14) — Canonical Epoch Authority
+//
+// Single canonical owner for prediction_epoch_id derivation across every
+// freeze writer (snapshot freeze, workstation freeze, MLB contextual freeze,
+// MLB live state freeze, MLB JSONL history). Sits next to the Phase E1
+// canonical normalizers (normPlayer / normFam / normBook / predictionId)
+// because epoch_id is fundamentally a composite-key authority.
+//
+// PHASE 1B SCOPE — additive only. The five existing compute*EpochId functions
+// REMAIN OPERATIONAL AND UNCHANGED. This helper is introduced ALONGSIDE
+// them. Phase 1C will migrate each call site to thin wrappers around this
+// helper; Phase 1D removes the wrappers. Until then, byte-parity is
+// asserted via probe_epoch_authority_v1.js.
+//
+// KIND VARIANTS (mirrors current production patterns):
+//   "snapshot"   → "<ts>|<sport>|<slate>"            (sites #1 + #2 + #4)
+//   "live"       → "LIVE|<ts>|<sport>|<slate>"       (site #3)
+//   "manual"     → "MANUAL|<ts>|<sport>|<slate>"     (new — explicit fallback path)
+//
+// STRICT FALLBACK POLICY (NEW):
+//   - kind=snapshot or kind=live: REJECT (return null + emit probe)
+//     when snapshotUpdatedAt/capturedAtIso is missing. Pre-Phase-1B,
+//     sites #1/#2 silently defaulted to new Date().toISOString(); this was
+//     the latent idempotency-contract break documented in Phase 1A.
+//   - kind=manual: ALLOWED to fall back to new Date().toISOString().
+//     This is the explicit opt-in for callers that genuinely don't have
+//     a snapshot timestamp (test fixtures, probes, manual freezes).
+//
+// COLLISION DETECTION:
+//   - Optional writerTag in opts. When provided, a Map<epoch_id, writerTag>
+//     records the first writer per epoch_id. If a second writer with a
+//     DIFFERENT writerTag derives the same epoch_id, emit
+//     [EPOCH-ID-COLLISION-DETECTED] once per (writerA, writerB, epoch_id).
+//     This is exactly the dual-freeze risk surface from Phase 1A.
+//
+// All probes are RATE-LIMITED (Law 9): one emission per kind per process
+// for [EPOCH-ID-DERIVED]; one per unique collision tuple; one per process
+// for [EPOCH-ID-FALLBACK-USED]; one per process for [EPOCH-ID-AUTHORITY-OBSERVED].
+// ─────────────────────────────────────────────────────────────────────────────
+
+const __epochAuthDiag = {
+  epochsDerived:           0,
+  rejectionsOnMissingTs:   0,
+  fallbacksUsed:           0,
+  collisionsDetected:      0,
+  formulaVariantsObserved: {},          // { "snapshot|nba": N, "live|mlb": M, ... }
+  firstCollisionSample:    null,
+  firstFallbackSample:     null,
+  firstRejectionSample:    null,
+  _epochWriterMap:         new Map(),   // epoch_id -> writerTag (first writer wins)
+  _loggedFirstDerivePerKind: new Set(), // "kind|sport" strings that have emitted DERIVED
+  _loggedFallback:         false,
+  _loggedBootObserved:     false,
+  _loggedCollisions:       new Set(),   // "writerA|writerB|epoch_id" tuples already logged
+}
+
+function _logEpochProbe(name, payload) {
+  try {
+    console.log(name, JSON.stringify(payload))
+  } catch (_) {
+    console.log(name, payload)
+  }
+}
+
+/**
+ * Canonical Detroit-keyed slate-date helper. Mirrors the semantics already
+ * in use by `http/nbaIsolatedRoutes.js:_detroitSlateDateKey` so both NBA
+ * and MLB callers can rely on a single canonical owner.
+ *
+ * Returns a YYYY-MM-DD string. Falls back to the current ISO date slice
+ * when input is missing or non-finite (never throws — this is a pure
+ * helper).
+ *
+ * Phase 1C will refactor `_detroitSlateDateKey` to call this; Phase 1B
+ * just introduces the canonical owner.
+ *
+ * @param {*} value  Anything Date.parseable, or null/undefined for now()
+ * @param {object} [opts]
+ * @param {string} [opts.timeZone="America/Detroit"]
+ * @returns {string} YYYY-MM-DD
+ */
+function deriveCanonicalSlateDate(value, opts = {}) {
+  const timeZone = opts.timeZone || "America/Detroit"
+  const d = new Date(value == null ? Date.now() : value)
+  if (!Number.isFinite(d.getTime())) {
+    return new Date().toISOString().slice(0, 10)
+  }
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year:  "numeric",
+      month: "2-digit",
+      day:   "2-digit",
+    }).format(d)
+  } catch (_) {
+    // Defensive — Intl rarely throws but if it does (locale missing), fall back.
+    return d.toISOString().slice(0, 10)
+  }
+}
+
+/**
+ * Canonical prediction_epoch_id derivation.
+ *
+ * @param {object} opts
+ * @param {string} opts.sport                — required, lowercased internally
+ * @param {string} opts.slateDate            — required, sliced to YYYY-MM-DD
+ * @param {string} [opts.snapshotUpdatedAt]  — ISO; required for kind=snapshot|live
+ * @param {string} [opts.capturedAtIso]      — preferred ts for kind=live
+ * @param {string} [opts.kind="snapshot"]    — "snapshot" | "live" | "manual"
+ * @param {string} [opts.writerTag]          — optional caller identity for collision detection
+ * @returns {string|null} canonical epoch_id, or null on strict-fallback rejection
+ */
+function derivePredictionEpochId(opts = {}) {
+  const kind        = String(opts.kind || "snapshot").toLowerCase()
+  const sport       = String(opts.sport || "").toLowerCase()
+  const slateDate   = String(opts.slateDate || "").slice(0, 10)
+  const writerTag   = opts.writerTag ? String(opts.writerTag) : null
+
+  // ── First-observation boot probe ────────────────────────────────────────
+  if (!__epochAuthDiag._loggedBootObserved) {
+    __epochAuthDiag._loggedBootObserved = true
+    _logEpochProbe("[EPOCH-ID-AUTHORITY-OBSERVED]", {
+      module: "backend/storage/intelligence.js",
+      phase:  "Phase Longitudinal-Integrity-1B (2026-05-14)",
+      note:   "canonical derivePredictionEpochId helper engaged for first time in this process",
+    })
+  }
+
+  // ── Validate required inputs ────────────────────────────────────────────
+  if (!sport || !slateDate) {
+    // These are required regardless of kind. Treat missing sport/slate as
+    // a rejection (do not silently invent).
+    return null
+  }
+
+  // ── Resolve ts per kind + strict fallback policy ────────────────────────
+  let ts = null
+  let fellBack = false
+  const rawSnapshotTs = opts.snapshotUpdatedAt != null ? String(opts.snapshotUpdatedAt).trim() : ""
+  const rawCapturedTs = opts.capturedAtIso     != null ? String(opts.capturedAtIso).trim()     : ""
+
+  if (kind === "live") {
+    // Mirror site #3 fallback order: capturedAtIso → snapshotUpdatedAt
+    ts = rawCapturedTs || rawSnapshotTs
+  } else {
+    // snapshot or manual
+    ts = rawSnapshotTs
+  }
+
+  if (!ts) {
+    if (kind === "manual") {
+      // Explicit opt-in: manual freezes are permitted to default to now().
+      ts = new Date().toISOString()
+      fellBack = true
+      __epochAuthDiag.fallbacksUsed += 1
+      if (!__epochAuthDiag.firstFallbackSample) {
+        __epochAuthDiag.firstFallbackSample = { kind, sport, slateDate, writerTag, fallbackTs: ts }
+      }
+      if (!__epochAuthDiag._loggedFallback) {
+        __epochAuthDiag._loggedFallback = true
+        _logEpochProbe("[EPOCH-ID-FALLBACK-USED]", {
+          kind, sport, slateDate, writerTag,
+          note: "kind='manual' fall-through to new Date().toISOString() — explicit opt-in",
+        })
+      }
+    } else {
+      // STRICT REJECT: snapshot/live freezes MUST carry an explicit ts.
+      __epochAuthDiag.rejectionsOnMissingTs += 1
+      if (!__epochAuthDiag.firstRejectionSample) {
+        __epochAuthDiag.firstRejectionSample = { kind, sport, slateDate, writerTag }
+      }
+      _logEpochProbe("[EPOCH-ID-REJECTED-MISSING-TS]", {
+        kind, sport, slateDate, writerTag,
+        note: "snapshot/live freezes MUST supply snapshotUpdatedAt or capturedAtIso; pass kind='manual' to opt into now() fallback",
+      })
+      return null
+    }
+  }
+
+  // ── Build canonical bytes ──────────────────────────────────────────────
+  let epochId
+  if (kind === "live") {
+    epochId = ["LIVE", ts, sport, slateDate].join("|")
+  } else if (kind === "manual") {
+    epochId = ["MANUAL", ts, sport, slateDate].join("|")
+  } else {
+    // snapshot
+    epochId = [ts, sport, slateDate].join("|")
+  }
+
+  __epochAuthDiag.epochsDerived += 1
+  const variantKey = `${kind}|${sport}`
+  __epochAuthDiag.formulaVariantsObserved[variantKey] =
+    (__epochAuthDiag.formulaVariantsObserved[variantKey] || 0) + 1
+
+  // ── First-time-per-variant probe ────────────────────────────────────────
+  if (!__epochAuthDiag._loggedFirstDerivePerKind.has(variantKey)) {
+    __epochAuthDiag._loggedFirstDerivePerKind.add(variantKey)
+    _logEpochProbe("[EPOCH-ID-DERIVED]", {
+      kind, sport, slateDate, writerTag,
+      sample: epochId,
+      fellBack,
+      note: "first derivation of this {kind, sport} variant in this process",
+    })
+  }
+
+  // ── Collision detection (writer-tagged) ────────────────────────────────
+  if (writerTag) {
+    const existing = __epochAuthDiag._epochWriterMap.get(epochId)
+    if (existing && existing !== writerTag) {
+      // Two distinct writer tags computed the same bytes — this is the
+      // dual-freeze risk surface. Emit ONCE per unique tuple.
+      const tupleKey = [existing, writerTag, epochId].join("||")
+      if (!__epochAuthDiag._loggedCollisions.has(tupleKey)) {
+        __epochAuthDiag._loggedCollisions.add(tupleKey)
+        __epochAuthDiag.collisionsDetected += 1
+        if (!__epochAuthDiag.firstCollisionSample) {
+          __epochAuthDiag.firstCollisionSample = {
+            epochId,
+            firstWriter:  existing,
+            secondWriter: writerTag,
+            kind, sport, slateDate,
+          }
+        }
+        _logEpochProbe("[EPOCH-ID-COLLISION-DETECTED]", {
+          epochId,
+          firstWriter:  existing,
+          secondWriter: writerTag,
+          kind, sport, slateDate,
+          note:
+            "two distinct writer tags produced identical epoch_id bytes in one process — " +
+            "INSERT OR IGNORE will silently drop the second writer's row. " +
+            "This is the dual-freeze risk surface from Phase Longitudinal-Integrity-1A.",
+        })
+      }
+    } else if (!existing) {
+      __epochAuthDiag._epochWriterMap.set(epochId, writerTag)
+    }
+    // If existing === writerTag, same writer derived twice — that's idempotency, not collision.
+  }
+
+  return epochId
+}
+
+/**
+ * Read-only snapshot of the epoch-authority diagnostics. Used by:
+ *   - operator inspection (npm run epoch:status)
+ *   - probes / verification fixtures
+ *   - response-authority surfaces (nbaCacheDiagnostics.epochAuthority)
+ *
+ * Returns a defensive shallow copy so callers cannot mutate internals.
+ */
+function getEpochAuthorityDiagnostics() {
+  return {
+    epochsDerived:           __epochAuthDiag.epochsDerived,
+    rejectionsOnMissingTs:   __epochAuthDiag.rejectionsOnMissingTs,
+    fallbacksUsed:           __epochAuthDiag.fallbacksUsed,
+    collisionsDetected:      __epochAuthDiag.collisionsDetected,
+    formulaVariantsObserved: { ...__epochAuthDiag.formulaVariantsObserved },
+    firstCollisionSample:    __epochAuthDiag.firstCollisionSample,
+    firstFallbackSample:     __epochAuthDiag.firstFallbackSample,
+    firstRejectionSample:    __epochAuthDiag.firstRejectionSample,
+    epochWriterMapSize:      __epochAuthDiag._epochWriterMap.size,
+  }
+}
+
+/**
+ * Reset the epoch-authority counters. Used by tests; production code should
+ * never call this (counters are intended to accumulate across the process
+ * lifetime so operators can see cumulative impact).
+ */
+function resetEpochAuthorityDiagnostics() {
+  __epochAuthDiag.epochsDerived         = 0
+  __epochAuthDiag.rejectionsOnMissingTs = 0
+  __epochAuthDiag.fallbacksUsed         = 0
+  __epochAuthDiag.collisionsDetected    = 0
+  __epochAuthDiag.formulaVariantsObserved = {}
+  __epochAuthDiag.firstCollisionSample  = null
+  __epochAuthDiag.firstFallbackSample   = null
+  __epochAuthDiag.firstRejectionSample  = null
+  __epochAuthDiag._epochWriterMap       = new Map()
+  __epochAuthDiag._loggedFirstDerivePerKind = new Set()
+  __epochAuthDiag._loggedFallback       = false
+  __epochAuthDiag._loggedBootObserved   = false
+  __epochAuthDiag._loggedCollisions     = new Set()
+}
+
 /**
  * Shannon entropy over a frequency distribution.
  * H = -Σ p(i) * log2(p(i))
@@ -1083,4 +1371,9 @@ module.exports = {
   normBook,
   getCanonicalizationDiagnostics,
   resetCanonicalizationDiagnostics,
+  // Phase Longitudinal-Integrity-1B (2026-05-14) — canonical epoch authority
+  derivePredictionEpochId,
+  deriveCanonicalSlateDate,
+  getEpochAuthorityDiagnostics,
+  resetEpochAuthorityDiagnostics,
 }

@@ -13,7 +13,8 @@
     "persistence:status":            "node scripts/persistenceStatus.js",
     "persistence:probe":             "node scripts/runPersistenceProbes.js",
     "persistence:import":            "node storage/importHistoricalData.js",
-    "persistence:backfill-aliases":  "node scripts/backfillPredictionIdAliases.js"
+    "persistence:backfill-aliases":  "node scripts/backfillPredictionIdAliases.js",
+    "epoch:status":                  "node scripts/epochStatus.js"
   },
   "keywords": [],
   "author": "",

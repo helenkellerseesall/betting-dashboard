@@ -549,8 +549,34 @@ function recordCacheWriteSkip(reason, sample) {
  * internal state. Exposed via module.exports for /api/best-available response
  * embedding and for fixture verification.
  */
+// Phase Longitudinal-Integrity-1B (2026-05-14): lazy-require the canonical
+// epoch authority's diagnostics. Falls back to a stable empty shape if the
+// helper isn't available (defensive; matches existing lazy-require pattern).
+function _lazyEpochAuthorityDiagnostics() {
+  try {
+    const { getEpochAuthorityDiagnostics } = require("../storage/intelligence")
+    return getEpochAuthorityDiagnostics()
+  } catch (_) {
+    return {
+      epochsDerived:           0,
+      rejectionsOnMissingTs:   0,
+      fallbacksUsed:           0,
+      collisionsDetected:      0,
+      formulaVariantsObserved: {},
+      firstCollisionSample:    null,
+      firstFallbackSample:     null,
+      firstRejectionSample:    null,
+      epochWriterMapSize:      0,
+      _unavailable:            true,
+    }
+  }
+}
+
 function getNbaCacheDiagnostics() {
   return {
+    // Phase Longitudinal-Integrity-1B (2026-05-14) — canonical epoch authority
+    // diagnostics (additive; never removes existing fields).
+    epochAuthority:                  _lazyEpochAuthorityDiagnostics(),
     enrichmentInvocations:           __nbaCacheDiag.enrichmentInvocations,
     enrichmentSkippedNoApiKey:       __nbaCacheDiag.enrichmentSkippedNoApiKey,
     enrichmentSkippedNoRows:         __nbaCacheDiag.enrichmentSkippedNoRows,

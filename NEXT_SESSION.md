@@ -1,10 +1,169 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Persistence-1B — activation layer + operational tooling shipped. Operator must execute `npm run persistence:import` + `persistence:backfill-aliases` on their machine. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart. Phase 1C (grading→SQLite outcome wiring) is the next operator-approval gate.)_
+_Last updated: 2026-05-14 (Phase Longitudinal-Integrity-1B — canonical epoch authority shipped: `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` in `intelligence.js`, `epochAuthority` surfaced via `nbaCacheDiagnostics`, `probe_epoch_authority_v1.js` 48/48 PASS, `npm run epoch:status` shipped. Operator approval gate now open for Phase 1C (migrate 5 derivation sites to thin wrappers around canonical helper). Phase Persistence-1B operator execution still pending. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart.)_
 
 ---
 
-## PENDING OPERATOR ACTIONS — Phase Persistence-1B execution (DO THIS FIRST)
+## OPERATOR APPROVAL GATE — Phase Longitudinal-Integrity-1C (next session)
+
+> Phase 1B canonical helper now exists alongside the five existing `compute*EpochId` functions. Byte-parity verified 48/48. The five existing functions are still in production use. Phase 1C migrates each one to a thin wrapper around `derivePredictionEpochId` while preserving backward-compatible signatures.
+
+### Phase 1C scope (operator approval requested)
+
+Five wrapper migrations, each independently revertable, all preserving exact byte-parity:
+
+1. **`backend/pipeline/memory/freezePredictionEpoch.js:computeEpochId`** (sites #1 — NBA snapshot + workstation freeze)
+   - Wraps `derivePredictionEpochId({kind:'snapshot', sport, slateDate, snapshotUpdatedAt: t, writerTag: '<caller-tag>'})`.
+   - The two existing call sites (`_lazyFreezePredictionEpoch` in nbaIsolatedRoutes.js, `freezePredictionEpoch` in workstationRoutes.js) get distinct writer-tags so future collisions become loud.
+
+2. **`backend/pipeline/mlb/context/freezeMlbContextualEpoch.js:computeMlbEpochId`** (site #2)
+   - Wraps `derivePredictionEpochId({kind:'snapshot', sport:'mlb', slateDate, snapshotUpdatedAt: t, writerTag: 'freezeMlbContextualEpoch'})`.
+   - Will SURFACE the latent collision with site #1 if both are wired in the same MLB pipeline — the canonical helper's collision detector emits `[EPOCH-ID-COLLISION-DETECTED]`.
+
+3. **`backend/pipeline/mlb/live/freezeMlbLiveStateEpoch.js:computeLiveEpochId`** (site #3)
+   - Wraps `derivePredictionEpochId({kind:'live', sport:'mlb', slateDate, snapshotUpdatedAt, capturedAtIso, writerTag: 'freezeMlbLiveStateEpoch'})`.
+   - LIVE prefix preserved.
+
+4. **`backend/pipeline/mlb/live/mlbLiveStateHistory.js:computeEpochId`** (site #4 — JSONL append-only)
+   - Wraps `derivePredictionEpochId({kind:'snapshot', sport:'mlb', slateDate, snapshotUpdatedAt: capturedAtIso, writerTag: 'mlbLiveStateHistory_jsonl'})`.
+   - Cross-store binding preserved: JSONL records share epoch_id with SQLite contextual freeze for the same observation.
+
+5. **`backend/http/nbaIsolatedRoutes.js:_detroitSlateDateKey`** (site #5 — slate-date helper)
+   - Refactored to call `deriveCanonicalSlateDate(value)`. NBA and MLB slate-date derivation now share one canonical owner.
+
+### Strict-policy decision per call site
+
+Each migrated site needs an explicit choice between `kind='snapshot'` (strict — reject on missing ts) and `kind='manual'` (allow now() fallback):
+
+| Site | Existing behavior | Recommended Phase 1C policy |
+|---|---|---|
+| #1 freezePredictionEpoch | Silent default-to-now if snapshotUpdatedAt missing | `kind='snapshot'` (strict). Callers in nbaIsolatedRoutes.js + workstationRoutes.js already supply `oddsSnapshot.updatedAt` — non-issue. Probe + observability will surface any caller that previously relied on the silent default. |
+| #2 freezeMlbContextualEpoch | Silent default-to-now | `kind='snapshot'` (strict). Only fixture caller (`verifyMlbImmutabilityHardening.js`) — fixture supplies sentinel ts. |
+| #3 freezeMlbLiveStateEpoch | 3-level fallback ending in now() | `kind='live'` (strict — REJECTs if neither captured nor snapshot ts). Caller (`refreshMlbLiveState.js`) supplies both. |
+| #4 mlbLiveStateHistory | Empty string if capturedAtIso missing | `kind='snapshot'` (strict). Producing `""\|mlb\|<slate>` was structurally invalid anyway; strict reject is a correctness improvement. |
+| #5 `_detroitSlateDateKey` | Falls back to now()-slice on bad input | `deriveCanonicalSlateDate` preserves the same fallback — slate-date helpers are not freeze-critical. |
+
+### Risk profile
+
+- **Low** for sites #3 + #5 — clean migrations.
+- **Medium** for sites #1, #2, #4 — strict-policy change may surface previously-hidden bad inputs. Mitigation: byte-parity probe re-run BEFORE and AFTER migration; if any input class produced a different byte under new strict policy, that's a true bug surfaced (not a regression introduced).
+
+### Verification gates for Phase 1C
+
+1. `probe_epoch_authority_v1.js` 48/48 PASS (no byte drift).
+2. 14-suite regression matrix 14/14 PASS.
+3. Two-writer scenario: trigger NBA snapshot freeze + workstation freeze for the same slate; assert `[EPOCH-ID-COLLISION-DETECTED]` emits exactly twice (once per second-writer-arrival per epoch).
+4. MLB live-state refresh: assert `epochAuthority.formulaVariantsObserved` shows `"live|mlb"` count > 0.
+
+### How to approve
+
+Reply with one of:
+- **"Approve all five"** → Phase 1C implementable in one session (~150 lines net change, each wrapper ~30 lines).
+- **"Approve sites 3, 5"** → low-risk pair only; defer 1, 2, 4 to follow-up.
+- **"Approve site 5 only"** → just unify slate-date derivation; defer freeze-writer migrations.
+- **"Hold"** → Phase 1B stays as the latest delivered state; canonical helper is opt-in for future writers but no migration yet.
+
+### Files Phase 1C would touch (if all five approved)
+
+```
+backend/pipeline/memory/freezePredictionEpoch.js                 (~30 lines — wrapper)
+backend/pipeline/mlb/context/freezeMlbContextualEpoch.js         (~30 lines — wrapper)
+backend/pipeline/mlb/live/freezeMlbLiveStateEpoch.js             (~30 lines — wrapper)
+backend/pipeline/mlb/live/mlbLiveStateHistory.js                 (~30 lines — wrapper)
+backend/http/nbaIsolatedRoutes.js                                (~10 lines — _detroitSlateDateKey calls deriveCanonicalSlateDate)
+probe_epoch_authority_v1.js                                      (re-run; no change expected)
+backend/runtime/brain/* + CURRENT_STATE + NEXT_SESSION           (Law 12 doc updates)
+```
+
+Net additive only; no deletions. Existing public function signatures preserved (`computeEpochId`, `computeMlbEpochId`, `computeLiveEpochId`, `_detroitSlateDateKey` still exported and callable — they just internally call the canonical helper). Phase 1D will remove the shims after Phase 1C bakes for one operational cycle.
+
+---
+
+## OPERATOR APPROVAL GATE — Phase Longitudinal-Integrity-1B (now SHIPPED — original gate text retained for archival)
+
+> Phase Longitudinal-Integrity-1A audit complete. See `docs/EPOCH_AUTHORITY_AUDIT_2026-05-14.md` for full topology. Before Phase 1B (introducing the canonical helper), explicit operator approval on four items. Phase 1B is fully revertable, ~250 net-additive lines, zero deletions, existing freeze writers NOT modified.
+
+### Approval Item 1 — `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` in `backend/storage/intelligence.js`?
+
+Single canonical helper next to existing `normPlayer` / `normFam` / `normBook` / `predictionId` authorities. Signature:
+
+```js
+derivePredictionEpochId({
+  sport,                  // required (lowercased internally)
+  slateDate,              // required (YYYY-MM-DD)
+  snapshotUpdatedAt,      // ISO; required for snapshot/live kinds
+  capturedAtIso,          // optional; LIVE freezes use this
+  kind = "snapshot",      // "snapshot" | "live" | "manual"
+}) → string
+```
+
+Returns:
+- `snapshot`: `<ts>|<sport>|<slateDate>`
+- `live`: `LIVE|<ts>|<sport>|<slateDate>`
+- `manual`: `MANUAL|<ts>|<sport>|<slateDate>`
+
+Fallback policy (NEW): REJECT (return null + emit `[EPOCH-ID-FALLBACK-USED]`) when `snapshotUpdatedAt` is missing for snapshot/live kinds. Only `kind='manual'` falls back to `new Date().toISOString()`. **This is stricter than the existing functions' silent default-to-now** — Phase 1C migration will adopt the strict policy via wrappers that pass `kind='manual'` for any caller that wants the legacy behavior, making implicit defaults explicit.
+
+### Approval Item 2 — `getEpochAuthorityDiagnostics()` + surface via `nbaCacheDiagnostics.epochAuthority`?
+
+Mirrors the existing Phase E1 canonicalization-diagnostics pattern. Counters:
+- `epochsDerived`
+- `formulaVariantsObserved` ({ "snapshot|nba": N, "snapshot|mlb": M, "live|mlb": K })
+- `collisionsDetected`
+- `fallbacksUsed`
+- `firstCollisionSample`
+- `firstFallbackSample`
+
+Four rate-limited probes:
+- `[EPOCH-ID-DERIVED]` — once per distinct `{kind, sport}` combo per process
+- `[EPOCH-ID-COLLISION-DETECTED]` — when two distinct writer-tags compute identical bytes in one process
+- `[EPOCH-ID-FALLBACK-USED]` — when default-to-now fires
+- `[EPOCH-ID-AUTHORITY-OBSERVED]` — once at boot after `initializeAtBoot` completes
+
+Surfaced via `/api/best-available.nbaCacheDiagnostics.epochAuthority` (additive — never removes existing fields).
+
+### Approval Item 3 — `probe_epoch_authority_v1.js` (repo root)?
+
+32-fixture byte-parity probe. For each fixture:
+- Compute via canonical helper
+- Compute via each of the 5 existing `compute*EpochId` functions where the kind/sport applies
+- Assert byte-identical output
+
+Plus a collision-detector test and a fallback-detector test. ~150 lines.
+
+### Approval Item 4 — `npm run epoch:status`?
+
+Read-only inspector showing:
+- `prediction_epochs` row counts grouped by formula prefix (e.g. `LIVE|*` vs `*|nba|*` vs `*|mlb|*`)
+- Observed `formulaVariantsObserved` from current process diagnostics
+- Collision-detector state (empty in healthy operation)
+- Sample of most recent 5 epoch_ids per sport
+
+### How to approve
+
+Reply with one of:
+- **"Approve all four"** → Phase 1B implementable in one session (~250 lines, ~30 min runtime including verification matrix).
+- **"Approve items 1, 2, 3"** (skip status script) → Faster; status surface via `nbaCacheDiagnostics` only.
+- **"Approve only 1, 2"** → Skip probe + status; rely on production diagnostics only.
+- **"Hold"** → Phase Longitudinal-Integrity-1A audit stays as the latest delivered state.
+
+### Files Phase 1B would touch (if all four approved)
+
+```
+backend/storage/intelligence.js                                  (+~120 lines — canonical helper + diagnostics)
+backend/http/nbaIsolatedRoutes.js                                (+~5 lines — surface epochAuthority into nbaCacheDiagnostics)
+backend/scripts/epochStatus.js                                   (NEW, ~80 lines)
+probe_epoch_authority_v1.js                                      (NEW, ~150 lines)
+backend/package.json                                             (+1 npm script: epoch:status)
+backend/runtime/brain/*                                          (Law 12 doc updates)
+CURRENT_STATE.md, NEXT_SESSION.md                                (session entries)
+```
+
+Net additive only; no deletions; existing freeze writers unchanged. Replay / freeze / grading / snapshot / mutex paths untouched. The five existing `compute*EpochId` functions continue to produce their existing bytes for their existing callers — Phase 1B introduces the canonical helper ALONGSIDE without migrating call sites. Phase 1C migrates call sites incrementally with byte-parity verification.
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase Persistence-1B execution (DO THIS BEFORE Phase 1C BUT INDEPENDENT OF EPOCH-1B)
 
 > Phase Persistence-1B shipped the activation layer (2 new tables, boot integrity check, 4 npm scripts, 2 probes 22/22 each PASS). The actual one-time backfill commands cannot run from the auditor sandbox due to SQLite I/O restriction. The operator must execute the following three commands on their machine.
 
