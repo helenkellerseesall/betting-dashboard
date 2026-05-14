@@ -10106,8 +10106,37 @@ function withBookSlipFallback(book, targetLegCount, legs) {
 }
 
 // === Refresh guard (global): prevent repeated Odds API calls ===
+// CANONICAL MUTEX AUTHORITY (Session Y): single module-level mutex serves
+// BOTH `/refresh-snapshot` and `/api/best-available?sport=basketball_nba`
+// (via the refreshGuard accessor below). Do not reintroduce a `global.*`
+// parallel scope — that was the pre-Session-Y dual-mutex race.
 let __refreshInProgress = false
 let __lastRefreshTime = 0
+
+// === Phase Race-1 watchdog (2026-05-14): observability for stuck mutex ===
+// If the mutex is observed held > 5 minutes, emit `[REFRESH-MUTEX-STUCK]`
+// exactly once per acquisition. Pure observability — does NOT auto-release.
+// A stuck mutex still requires operator TERM 1 restart; this signal makes
+// the stuck condition loud instead of silent.
+let __refreshInProgressStartedAt = 0
+let __refreshMutexStuckLogged = false
+const REFRESH_MUTEX_STUCK_THRESHOLD_MS = 5 * 60 * 1000
+
+function noteRefreshMutexObserved() {
+  if (!__refreshInProgress) return
+  if (__refreshMutexStuckLogged) return
+  if (__refreshInProgressStartedAt === 0) return
+  const heldMs = Date.now() - __refreshInProgressStartedAt
+  if (heldMs <= REFRESH_MUTEX_STUCK_THRESHOLD_MS) return
+  __refreshMutexStuckLogged = true
+  console.log("[REFRESH-MUTEX-STUCK]", {
+    heldMs,
+    heldMinutes: Math.round(heldMs / 60000),
+    startedAt: new Date(__refreshInProgressStartedAt).toISOString(),
+    thresholdMs: REFRESH_MUTEX_STUCK_THRESHOLD_MS,
+    note: "refresh mutex held > 5min — possible deadlock; TERM 1 restart may be required",
+  })
+}
 
 app.get("/api/best-available", async (req, res) => {
   const sportKey = normalizeBestAvailableSportKey(req.query?.sport)
@@ -10142,9 +10171,22 @@ app.get("/api/best-available", async (req, res) => {
     console.log("ACTIVE:", __filename, "route=/api/best-available sport=basketball_nba")
     const refreshGuard = {
       get inProgress() {
+        // Phase Race-1 watchdog (2026-05-14): every observation triggers the
+        // staleness check; flag prevents log spam (one emission per acquisition).
+        noteRefreshMutexObserved()
         return __refreshInProgress
       },
       set inProgress(v) {
+        // Phase Race-1 watchdog (2026-05-14): track acquisition time only on
+        // actual transitions (false→true or true→false) to keep reentrant
+        // assignments idempotent.
+        if (v && !__refreshInProgress) {
+          __refreshInProgressStartedAt = Date.now()
+          __refreshMutexStuckLogged = false
+        } else if (!v && __refreshInProgress) {
+          __refreshInProgressStartedAt = 0
+          __refreshMutexStuckLogged = false
+        }
         __refreshInProgress = v
       },
       get lastRefreshTime() {
@@ -19328,6 +19370,7 @@ app.get("/refresh-snapshot", async (req, res) => {
   // which meant /refresh-snapshot and /api/best-available could run concurrently.
   // Unified to module-level in Session Y (repo constitution cleanup).
   if (__refreshInProgress) {
+    noteRefreshMutexObserved()  // Phase Race-1 watchdog (2026-05-14)
     console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
     return res.json({ skipped: true, reason: "in_progress" })
   }
@@ -19338,6 +19381,8 @@ app.get("/refresh-snapshot", async (req, res) => {
   }
 
   __refreshInProgress = true
+  __refreshInProgressStartedAt = Date.now()   // Phase Race-1 watchdog (2026-05-14)
+  __refreshMutexStuckLogged = false
   try {
     // Existing refresh logic below (do not change)
     __lastRefreshTime = Date.now()
@@ -19417,6 +19462,8 @@ app.get("/refresh-snapshot", async (req, res) => {
   })
   } finally {
     __refreshInProgress = false
+    __refreshInProgressStartedAt = 0           // Phase Race-1 watchdog (2026-05-14)
+    __refreshMutexStuckLogged = false
     console.log("[REFRESH GUARD]", { skipped: false })
   }
 })

@@ -9,7 +9,11 @@
     "brain:status":     "node scripts/brain/brainSyncSummary.js",
     "brain:verify":     "node scripts/brain/verifyBrainFreshness.js",
     "brain:continuity": "node scripts/brain/assessContinuity.js",
-    "brain:checkpoint": "node scripts/brain/enforceBrainCheckpoint.js"
+    "brain:checkpoint": "node scripts/brain/enforceBrainCheckpoint.js",
+    "persistence:status":            "node scripts/persistenceStatus.js",
+    "persistence:probe":             "node scripts/runPersistenceProbes.js",
+    "persistence:import":            "node storage/importHistoricalData.js",
+    "persistence:backfill-aliases":  "node scripts/backfillPredictionIdAliases.js"
   },
   "keywords": [],
   "author": "",

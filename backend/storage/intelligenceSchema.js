@@ -303,6 +303,51 @@ CREATE INDEX IF NOT EXISTS idx_fcs_status         ON frozen_contextual_states (p
 CREATE INDEX IF NOT EXISTS idx_fcs_market_shift   ON frozen_contextual_states (market_shift);
 CREATE INDEX IF NOT EXISTS idx_fcs_avail_shift    ON frozen_contextual_states (availability_shift);
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- prediction_id_aliases (Phase Persistence-1B — 2026-05-14)
+--
+-- Composite-key forward-only bridge. Phase E1 introduced
+-- normPlayer / normFam / canonicalBook backstops so prediction IDs are
+-- byte-stable regardless of source-side spelling variations (diacritics,
+-- sportsbook aliases, stat-family separators). Pre-E1 rows in
+-- prediction_snapshots still carry their raw (pre-canonical) IDs because
+-- historical writes were never rewritten (replay safety: Law 4).
+--
+-- This table maps a raw_id (as stored) to the canonical_id it would produce
+-- if its raw_json source fields were re-run through current normalizers.
+-- Rows are only written when raw_id != canonical_id — most predictions need
+-- no alias and are absent from this table.
+--
+-- Use cases:
+--   1. Grading reconciliation. When outcome_snapshots writers (Phase 1C)
+--      backfill historical outcomes, they can join via aliases so post-E1
+--      outcome IDs find pre-E1 predictions.
+--   2. Longitudinal joins. Cohort queries across the E1 boundary can
+--      LEFT JOIN prediction_id_aliases to dedupe diacritic/casing variants.
+--   3. Replay safety. Replay never references this table directly — replay
+--      paths use prediction_snapshots.id as source of truth. This table is
+--      analytics-only, never on the freeze/grade hot path.
+--
+-- norm_diff_type captures which canonicalizer changed the bytes:
+--   'player' / 'family' / 'book' / 'composite' (multiple categories)
+--
+-- Population:
+--   Backfilled once via "npm run persistence:backfill-aliases"
+--   (backend/scripts/backfillPredictionIdAliases.js). Idempotent -
+--   re-running is a no-op (INSERT OR IGNORE on raw_id PK).
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS prediction_id_aliases (
+  raw_id          TEXT    PRIMARY KEY,        -- as stored in prediction_snapshots
+  canonical_id    TEXT    NOT NULL,           -- what it would be under current normalizers
+  detected_at     TEXT    DEFAULT (datetime('now')),
+  norm_diff_type  TEXT,                       -- 'player' / 'family' / 'book' / 'composite'
+  notes           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pia_canonical ON prediction_id_aliases (canonical_id);
+CREATE INDEX IF NOT EXISTS idx_pia_diff_type ON prediction_id_aliases (norm_diff_type);
+
 `
 
 /**

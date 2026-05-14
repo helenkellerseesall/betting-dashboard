@@ -74,6 +74,82 @@ function _verifyCriticalTables(db) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase Persistence-1B (2026-05-14) — Ledger parity integrity check.
+//
+// Reads personal_ledger.json (bets[] length) and compares to the SQLite
+// personal_ledger COUNT(*). Emits [LEDGER-DIVERGENCE-DETECTED] and inserts a
+// row into ledger_divergence_log ONLY when SQLite is missing rows the JSON
+// has (delta > 0). The reverse case (delta < 0) is expected once the JSON
+// ring buffer has cycled past MAX_BETS=2000 and is NOT a divergence.
+//
+// Pure observability. NEVER blocks boot. NEVER auto-repairs. Wrapped in
+// try/catch — any error returns gracefully.
+//
+// Source = 'boot_check' for this call site. Other callers (probes, manual
+// scripts) can invoke checkLedgerIntegrity(db, { source: 'probe' }) directly.
+// ─────────────────────────────────────────────────────────────────────────────
+function checkLedgerIntegrity(db, opts = {}) {
+  const source = String(opts.source || "boot_check")
+  try {
+    const ledgerPath = path.join(__dirname, "..", "runtime", "tracking", "personal_ledger.json")
+    if (!fs.existsSync(ledgerPath)) {
+      return { ok: true, reason: "json_missing_fresh_repo", jsonBetCount: 0, sqliteBetCount: 0, delta: 0 }
+    }
+    const raw = fs.readFileSync(ledgerPath, "utf8")
+    const data = JSON.parse(raw)
+    const jsonBetCount = Array.isArray(data?.bets) ? data.bets.length : 0
+
+    let sqliteBetCount = 0
+    try {
+      const row = db.prepare("SELECT COUNT(*) AS n FROM personal_ledger").get()
+      sqliteBetCount = row?.n || 0
+    } catch (queryErr) {
+      // Table may not exist on a brand-new DB; treat as 0 and continue.
+      sqliteBetCount = 0
+    }
+
+    const delta = jsonBetCount - sqliteBetCount
+
+    // Only delta > 0 is a divergence we care about. delta < 0 happens after
+    // the JSON ring buffer cycles past MAX_BETS=2000 (SQLite uncapped) —
+    // that's expected steady-state, not a problem.
+    if (delta > 0) {
+      console.log("[LEDGER-DIVERGENCE-DETECTED]", {
+        jsonBetCount,
+        sqliteBetCount,
+        delta,
+        source,
+        note:
+          sqliteBetCount === 0
+            ? "SQLite mirror cold — run `npm run persistence:import` to backfill 2,000 JSON bets into SQLite"
+            : "SQLite mirror is missing " + delta + " bets — investigate saveLedger write path or run `npm run persistence:import`",
+      })
+      // Best-effort log row. If the table doesn't exist yet (very early boot
+      // before applySchema), swallow the error.
+      try {
+        db.prepare(
+          "INSERT INTO ledger_divergence_log (json_bet_count, sqlite_bet_count, divergence, source, notes) VALUES (?, ?, ?, ?, ?)"
+        ).run(
+          jsonBetCount,
+          sqliteBetCount,
+          delta,
+          source,
+          sqliteBetCount === 0 ? "cold_mirror" : "partial_divergence"
+        )
+      } catch (_) {
+        /* table missing or write failed — observability only, skip */
+      }
+      return { ok: false, jsonBetCount, sqliteBetCount, delta, source }
+    }
+
+    return { ok: true, jsonBetCount, sqliteBetCount, delta, source }
+  } catch (err) {
+    // Never block boot on integrity check failure.
+    return { ok: null, error: err?.message || String(err), source }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // getDb() — returns a live DatabaseSync, throws if unavailable
 // ─────────────────────────────────────────────────────────────────────────────
 function getDb() {
@@ -200,10 +276,31 @@ function initializeAtBoot() {
   // Re-verify so the caller can react to a missing-table state if it wants.
   try {
     const v = _verifyCriticalTables(db)
-    return { ok: true, dbPath: DB_PATH, criticalTablesOk: v.missing.length === 0, missing: v.missing }
+    // Phase Persistence-1B (2026-05-14): boot-time ledger integrity check.
+    // Pure observability — never blocks boot, never auto-repairs.
+    let ledgerIntegrity = null
+    try {
+      ledgerIntegrity = checkLedgerIntegrity(db, { source: "boot_check" })
+    } catch (_) { /* defensive — should never reach here, checkLedgerIntegrity already swallows */ }
+    return {
+      ok: true,
+      dbPath: DB_PATH,
+      criticalTablesOk: v.missing.length === 0,
+      missing: v.missing,
+      ledgerIntegrity,
+    }
   } catch (err) {
     return { ok: false, dbPath: DB_PATH, criticalTablesOk: false, error: err?.message || String(err) }
   }
 }
 
-module.exports = { getDb, tryGetDb, closeDb, dbPath, verifyCriticalTables, CRITICAL_TABLES, initializeAtBoot }
+module.exports = {
+  getDb,
+  tryGetDb,
+  closeDb,
+  dbPath,
+  verifyCriticalTables,
+  CRITICAL_TABLES,
+  initializeAtBoot,
+  checkLedgerIntegrity,   // Phase Persistence-1B (2026-05-14) — exported for probes + manual invocation
+}

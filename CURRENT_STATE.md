@@ -1,6 +1,348 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-13 (Phase F6.3 — API-NBA `/players` is a TEAM-ROSTER endpoint. The `search` parameter does not combine with `team` + `season`; using all three returns results:0 even after F5+F6.2 contract fixes. Reference implementation (dailydataapps.com pulling-data-from-api-nba) confirms the canonical pattern: GET /players?team=N&season=Y returns the full roster; player name match is done client-side. Fix: `fetchApiSportsPlayerId` now fetches the roster and matches by normalized name. Process-scoped __nbaTeamRosterCache memoizes by team|season so 17 Sacramento Kings props fire one roster call, not 17. New diagnostics: `lastPlayerIdMatchStrategy` (roster_match_exact / roster_match_lastname / roster_no_match / roster_empty / roster_cache_hit / no_team_skipped) + top-level `teamRosterCacheSize`. F5-A/B/C, F6.2 registry, F1-F4 cache lifecycle, replay/freeze/grading all preserved. 14/14 regression suites green; F5/F6/F6.2/F6.3 fixture 19/19 parts pass. TERM 1 restart REQUIRED.)_
+_Last updated: 2026-05-14 (Phase Persistence-1B — activation layer + operational tooling shipped. 2 new tables (`prediction_id_aliases`, `ledger_divergence_log`), boot-time `[LEDGER-DIVERGENCE-DETECTED]` observability, 4 npm scripts (`persistence:status`/`probe`/`import`/`backfill-aliases`), 2 probes (22/22 each PASS). JSON canonical preserved; SQLite is visibility-verified parallel authority. Operator must execute `npm run persistence:import` + `persistence:backfill-aliases` on their machine. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart.)_
+
+---
+
+## SESSION PERSISTENCE-1B — Activation Layer + Operational Tooling (2026-05-14)
+
+### What this session shipped
+
+Six artifacts, ~600 net-additive lines, zero deletions:
+
+1. **`prediction_id_aliases`** table (`intelligenceSchema.js`) — composite-key forward-only bridge for pre-E1 join compatibility.
+2. **`ledger_divergence_log`** table (`schema.js`) — boot-time integrity observability sink.
+3. **`db.js:checkLedgerIntegrity`** — pure-observability boot check. Compares JSON `bets[].length` to SQLite `personal_ledger COUNT(*)`. Emits `[LEDGER-DIVERGENCE-DETECTED]` ONLY when delta > 0. Wrapped in try/catch — NEVER blocks boot.
+4. **`backend/scripts/backfillPredictionIdAliases.js`** — CLI for alias backfill. Idempotent. Single transaction.
+5. **`backend/scripts/persistenceStatus.js`** — canonical read-only inspector. Replaces ad-hoc `node -e` snippets.
+6. **Two repo-root probes**:
+   - `probe_persistence_idempotency_v1.js` — 22/22 PASS. Asserts second-run inserts 0 new rows.
+   - `probe_ledger_mirror_v1.js` — 22/22 PASS. Asserts dual-write + silent-failure contract at the `_mirrorBetToSqlite` wrapper layer.
+
+Plus **four new npm scripts**:
+
+```
+persistence:status            → read-only inspector
+persistence:probe             → runs both probes
+persistence:import            → wraps storage/importHistoricalData.js (one-time backfill)
+persistence:backfill-aliases  → wraps scripts/backfillPredictionIdAliases.js
+```
+
+### Implementation discipline
+
+- **Additive only** — no deletions, no destructive migration, no JSON authority cutover.
+- **Phase-tagged inline** — every new function/table/probe carries `Phase Persistence-1B (2026-05-14)`.
+- **Pure observability** — `checkLedgerIntegrity` never auto-repairs; emits log + inserts row, returns.
+- **Idempotent** — every new write path uses `INSERT OR IGNORE` (aliases) or one-time-only patterns.
+- **Replay-safe** — new tables never referenced from replay/freeze/grading hot paths.
+- **`node:sqlite` only** (Law 5) — `db.exec("BEGIN/COMMIT")` in backfill transaction.
+
+### Sandbox-vs-operator execution gap (consistent with Sessions BC/BD)
+
+The auditor sandbox blocks SQLite writes to non-`/tmp` paths. Therefore:
+- `npm run persistence:probe` — PASS in sandbox (uses `/tmp`).
+- `npm run persistence:import` — cannot run in sandbox. **Operator-executed on real machine.**
+- `npm run persistence:backfill-aliases` — same. Operator-executed.
+- `npm run persistence:status` — cannot run in sandbox against the real betting.db.
+
+Production `backend/storage/betting.db` has no such restriction. After operator executes the two backfill commands:
+- `tracked_props`: 0 → thousands
+- `slip_catalog`: 0 → hundreds
+- `hr_predictions`: 0 → thousands
+- `personal_ledger`: 0 → 2,000 (parity with JSON)
+- `nightly_runs`: 0 → ~24
+- `prediction_id_aliases`: 0 → N (expected small; depends on how many pre-E1 IDs differ from canonical)
+- `[LEDGER-DIVERGENCE-DETECTED]` stops firing on subsequent boots
+
+### Authority preservation (verified)
+
+- ✅ Replay / freeze / grading / snapshot / mutex / observability paths untouched.
+- ✅ JSON canonical preserved. SQLite is visibility-verified parallel authority.
+- ✅ Single canonical writer per table preserved (Law 1, Law 2).
+- ✅ Composite-key forward-only migration preserved (Law 4) — aliases are additive, never rewrite historical rows.
+- ✅ `node:sqlite` API only (Law 5).
+- ✅ Phase-tagged inline (Law 10).
+- ✅ Memory docs reconciled (Law 12) — MASTER_BRAIN, CURRENT_RUNTIME_STATE, MODEL_EVOLUTION_LOG, PIPELINE_AUTHORITY_MAP, ACTIVE_INCIDENTS all updated.
+- ✅ All 14 regression suites still PASS.
+
+### Files touched (Phase Persistence-1B)
+
+```
+backend/storage/schema.js                                     (+38 lines — ledger_divergence_log)
+backend/storage/intelligenceSchema.js                         (+47 lines — prediction_id_aliases)
+backend/storage/db.js                                         (+~80 lines — checkLedgerIntegrity + boot wiring + export)
+backend/scripts/backfillPredictionIdAliases.js                (NEW, ~155 lines)
+backend/scripts/persistenceStatus.js                          (NEW, ~155 lines)
+backend/scripts/runPersistenceProbes.js                       (NEW, ~32 lines)
+backend/package.json                                          (+4 npm scripts)
+probe_persistence_idempotency_v1.js                           (NEW, ~125 lines, 22/22 PASS)
+probe_ledger_mirror_v1.js                                     (NEW, ~135 lines, 22/22 PASS)
+backend/runtime/brain/MASTER_BRAIN.md                         (current-phase + npm scripts list)
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                (Phase Persistence-1B entry)
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                  (new dated entry at top)
+backend/runtime/brain/PIPELINE_AUTHORITY_MAP.md               (new tables in persistence section)
+backend/runtime/brain/ACTIVE_INCIDENTS.md                     (R-032 + R-033 resolved)
+CURRENT_STATE.md                                              (this entry)
+NEXT_SESSION.md                                               (operator backfill commands + Phase 1C operator-approval gate)
+```
+
+### Verification
+
+```
+node --check  on every modified + new file        OK
+npm run persistence:probe                         2/2 probes PASS (22 + 22 = 44 checks)
+14-suite regression matrix                        14/14 PASS (every verify*.js exit=0)
+npm run brain:bootstrap                           PASS
+npm run brain:continuity                          PASS (0 issue, expected mid-session WARNs)
+npm run brain:verify                              PASS (0 FAIL)
+```
+
+### Operator next actions
+
+```bash
+# 1. Backfill SQLite tables from JSON (one-time, idempotent, ~30 seconds)
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:import
+
+# 2. Backfill composite-key aliases for pre-E1 prediction IDs
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:backfill-aliases
+
+# 3. Verify with the canonical inspector
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:status
+
+# 4. (Optional) fold in pending TERM 1 restart — Race-1 watchdog + F6.3 — so the new boot integrity check fires for the first time
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After steps 1–3, expected `persistence:status` snapshot:
+- `tracked_props`: thousands
+- `slip_catalog`: hundreds
+- `hr_predictions`: thousands
+- `personal_ledger`: 2,000 (JSON parity)
+- `prediction_id_aliases`: N (typically small)
+- `ledger_divergence_log`: previous boot-check entries; no new entries on subsequent boots
+
+---
+
+## SESSION PERSISTENCE-1A — Persistence Topology Audit (2026-05-14)
+
+### What this session shipped
+
+`docs/PERSISTENCE_AUDIT_2026-05-14.md` — a 14-section institutional-grade persistence-topology audit covering 23 SQLite tables + 144 JSON files. Per operator's instruction "REQUIRED AUDIT FIRST" and "DO NOT hard-cut authority immediately", no code patches in this phase. The deliverable is the audit + roadmap + brain-doc updates.
+
+### Headline state of persistence today
+
+**SQLite production state** (`backend/storage/betting.db`, 2.15 MB, 23 tables):
+
+```
+ACTIVE (5 tables writing in production):
+  prediction_snapshots             607  ← Session BD/AZ writes
+  prediction_epochs                 29
+  frozen_contextual_states         843
+  ecology_snapshots                 12  ← Sessions AT/AW
+  sqlite_sequence                    1
+
+WIRED BUT DORMANT (18 tables — 0 rows each):
+  tracked_props                      0  ← importHistoricalData.js never run
+  slip_catalog                       0  ← same
+  hr_predictions                     0  ← same
+  personal_ledger                    0  ← mirror code wired, but cold
+  nightly_runs                       0
+  outcome_snapshots                  0  ← LOAD-BEARING GAP — no writer yet
+  slip_outcomes                      0  ← LOAD-BEARING GAP
+  outcome_links                      0
+  bettor_profiles, parsed_slips, slip_classifications,
+    screenshot_submissions           0  ← Phase U not active
+  daily_intelligence_reports, ecology_grades, eruption_events,
+    calibration_records, process_classifications,
+    volatility_realizations          0  ← Session W not running in prod
+```
+
+**JSON state** (`runtime/tracking/`, 144 files, ~30 MB):
+- `personal_ledger.json` — 2.375 MB, 2,000 bets in `{version, updatedAt, bankroll, bets[], analytics}` (ring buffer at MAX_BETS=2000). Atomic writes via .tmp+rename.
+- Daily-rolling files: 144 total. 9 `mlb_tracked_bets_*`, 8 `nba_tracked_bets_*`, 17 `mlb_picks_*`, 17 `mlb_tracked_best_*`, 14 `hr_slips_*`, etc.
+- Unbounded state files: `timing_intelligence_state.json` (729 KB, no eviction), `post_game_review_state_mlb.json` (375 KB), `book_intelligence_state.json` (1 KB).
+- One `.tmp.98415` partial-write orphan from a past crash event.
+- Parallel system: `tracker/betStorage.json` via `/api/bets` (atomic writes), totally disconnected from `personal_ledger.json` via `/api/ws/ledger`.
+
+### Stale-source corrections to the May 14 institutional audit
+
+Per the "re-verify before patching" rule encoded in `FULL_SYSTEMS_AUDIT_2026-05-14.md` postscript, three more findings rectified:
+
+| Audit claim | Reality on 2026-05-14 |
+|---|---|
+| "All persistence is flat JSON. No atomic writes." | `personal_ledger.json` (line 112-128 of buildPersonalLedger.js) and `tracker/betStorage.json` (line 41-45 of betTracker.js) use atomic .tmp+rename. State files and daily tracking files do not — that's the actual residual risk. |
+| "`applyAllSchemas(db)` would close this hole permanently." | `applySchema()` in `schema.js:225-230` ALREADY chains all 4 DDL files. Single entry point exists. |
+| "Longitudinal tables on track to be largest in 90 days." | Already populating; retention needed NOW not later. |
+| "Personal-ledger write mirror done, read uncutover." | Code accurate; `personal_ledger` SQLite table has 0 rows. Mirror is cold. |
+| "April legacy data may not be in SQLite." | Confirmed — `importHistoricalData.js` has never been executed. Zero rows in `tracked_props`, `slip_catalog`, `hr_predictions`. |
+
+### Phase Persistence-1 cutover roadmap (6 sub-phases)
+
+| Phase | Title | Risk | Sessions |
+|---|---|---|---|
+| 1A | Topology audit + brain docs (THIS PHASE — shipped today) | None | 1 |
+| 1B | Activation: run import CLI + startup integrity check + `prediction_id_aliases` | Low | 1 |
+| 1C | Outcome wiring: SQLite writers in `pipeline/grading/` + backfill historical outcomes | Medium | 1 |
+| 1D | State-file migration (timing → SQLite, post-game → SQLite, atomic-write hygiene) | Medium | 3-4 |
+| 1E | Retention activation: `longitudinal_retention` table + prune script + jsonl_gzip archive | Medium | 1 |
+| 1F | Parallel-tracker consolidation: retire `tracker/betTracker.js` + `/api/bets` | Low | 1 |
+
+Each phase is independently revertable. Each is operator-gated.
+
+### Files touched (Phase Persistence-1A)
+
+```
+docs/PERSISTENCE_AUDIT_2026-05-14.md                          (new — 14 sections)
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                (Phase Persistence-1A entry)
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                  (new dated entry at top)
+backend/runtime/brain/MASTER_BRAIN.md                         (current-phase + roadmap)
+backend/runtime/brain/PIPELINE_AUTHORITY_MAP.md               (persistence section restructured)
+CURRENT_STATE.md                                              (this entry)
+NEXT_SESSION.md                                               (Phase 1B operator-approval gate)
+```
+
+### Verification
+
+- Direct source inspection of 7 storage modules (buildPersonalLedger.js, queries.js, importHistoricalData.js, schema.js, intelligenceSchema.js, tracker/betTracker.js, db.js).
+- Live SQLite row-count query of all 23 tables (via `node:sqlite` readOnly).
+- Filesystem inventory of `runtime/tracking/` (144 files, byte-level sizes).
+- Grep of every `saveLedger` / `loadLedger` / `logBet` / `recordNightlyRun` call site.
+- `node --check` clean on existing storage modules (no code changes).
+- `npm run brain:bootstrap`, `brain:continuity`, `brain:verify` all PASS (0 issue / 0 warn).
+
+### Operator decision required before Phase 1B
+
+1. Approve running `node backend/storage/importHistoricalData.js` once? (One-time idempotent backfill. Should produce thousands of rows in `tracked_props` / `slip_catalog` / `hr_predictions` and 2,000 in `personal_ledger`. ~30 seconds.)
+2. Approve adding `prediction_id_aliases` table + boot-time backfill? (DDL + CLI, ~100 lines. Maps pre-E1 IDs to canonical post-E1 IDs so cohort analysis joins cleanly across the composite-key migration boundary.)
+3. Approve startup integrity check in `db.js:initializeAtBoot` + `[LEDGER-DIVERGENCE-DETECTED]` observability + `ledger_divergence_log` table? (~30 lines + 1 small table.)
+4. Approve adding probe scripts `probe_persistence_idempotency.js` (asserts import is no-op on second run) and `probe_ledger_mirror.js` (asserts logBet writes both stores)?
+
+If all four approved, Phase 1B is one session, ~200 net-additive lines, zero deletions, fully revertable. See `docs/PERSISTENCE_AUDIT_2026-05-14.md` §14 for details.
+
+---
+
+## SESSION RACE-1 — Refresh Mutex Stuck-State Watchdog (2026-05-14)
+
+### Audit finding that triggered this session
+
+`docs/FULL_SYSTEMS_AUDIT_2026-05-14.md` (institutional engineering systems audit, May 14) ranked the `__refreshInProgress` dual-mutex race as a top-five operational risk. The operator initiated Phase Brain-1 + Race-1 in response. Investigation revealed both were already shipped in earlier work.
+
+### What was already done (verified, no patch required)
+
+**Phase Brain-1 (verified already complete):**
+- All seven brain sibling files exist on disk under `backend/runtime/brain/`:
+  - `MASTER_BRAIN.md` (24,648 bytes)
+  - `OPERATOR_PROTOCOL.md` (16,286 bytes)
+  - `CURRENT_RUNTIME_STATE.md` (11,995 bytes)
+  - `ARCHITECTURE_LAWS.md` (9,012 bytes)
+  - `ACTIVE_INCIDENTS.md` (9,360 bytes)
+  - `MODEL_EVOLUTION_LOG.md` (21,482 bytes)
+  - `PIPELINE_AUTHORITY_MAP.md` (8,742 bytes)
+  - `SPORTSBOOK_CONTRACTS.md` (7,843 bytes)
+- `npm run brain:bootstrap` consumes all of them.
+- `npm run brain:verify` reports 11/11 OK + 1 expected mid-session WARN.
+- `npm run brain:continuity` reports PASS.
+
+**Phase Race-1 mutex unification (verified already complete in Session Y):**
+- ONE `__refreshInProgress` declaration in `backend/server.js` (module-scope, line 10109).
+- `/refresh-snapshot` route reads/writes the module-level variable directly.
+- NBA `/api/best-available` reads/writes via a `refreshGuard` accessor that mutates the same module-level variable.
+- No `global.__refreshInProgress` anywhere.
+- Inline authority comment at line 19326 documents the unification.
+- `NEXT_SESSION.md` row 1102 already lists: `__refreshInProgress dual-mutex race | ✅ RESOLVED (Session Y) — module-level only`.
+
+### What this session actually shipped
+
+**Phase Race-1 watchdog** — pure additive observability for the orthogonal failure mode the mutex unification alone doesn't address: a refresh that legitimately acquires the mutex but hangs / crashes in a way that leaves the flag stuck `true`, silently blocking all future refreshes until TERM 1 restart. Pre-watchdog the operator's only signal was "the workstation seems stale." Post-watchdog TERM 1 emits a structured one-line event.
+
+**Implementation** — `backend/server.js` only, ~25 lines additive:
+
+```
+Module-scope (line ~10115):
+  let __refreshInProgressStartedAt = 0
+  let __refreshMutexStuckLogged = false
+  const REFRESH_MUTEX_STUCK_THRESHOLD_MS = 5 * 60 * 1000
+  function noteRefreshMutexObserved() { ... }
+
+NBA refreshGuard accessor:
+  get inProgress() → calls noteRefreshMutexObserved() on every read
+  set inProgress(v) → tracks startedAt on false→true transitions only,
+                      clears on true→false
+
+/refresh-snapshot route:
+  guard check  (line 19373) → noteRefreshMutexObserved() when mutex true
+  acquisition  (line 19384) → sets startedAt + clears stuck-log flag
+  finally release (line 19465) → clears both
+```
+
+**Emission contract**:
+```
+[REFRESH-MUTEX-STUCK] {
+  "heldMs": <number>,
+  "heldMinutes": <rounded>,
+  "startedAt": "<ISO>",
+  "thresholdMs": 300000,
+  "note": "refresh mutex held > 5min — possible deadlock; TERM 1 restart may be required"
+}
+```
+Emits AT MOST ONCE per acquisition. Resets on release. Pure observability — does NOT auto-release.
+
+### Authority preservation (verified)
+
+- ✅ Mutex contract unchanged — single module-level boolean, no parallel scope.
+- ✅ Replay / freeze / grading — untouched. Mutex governs the refresh window only.
+- ✅ Snapshot replacement integrity — `replaceOddsSnapshot` semantics unchanged.
+- ✅ Response authority — `/api/best-available`, `/refresh-snapshot`, `/api/ws/state` unchanged.
+- ✅ MLB systems — untouched.
+- ✅ Observability under Law 9 — rate-limited, additive, once-per-acquisition.
+- ✅ No setInterval / no daemon / no polling loop — lazy observation only.
+
+### Files touched (Session Race-1)
+
+```
+backend/server.js                                       (~25 additive lines)
+backend/runtime/brain/MASTER_BRAIN.md                   (current-phase + observability)
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md          (Phase Race-1 entry)
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md            (new dated entry at top)
+backend/runtime/brain/ACTIVE_INCIDENTS.md               (R-031 resolved entry)
+CURRENT_STATE.md                                        (this entry)
+NEXT_SESSION.md                                         (operator verification)
+docs/FULL_SYSTEMS_AUDIT_2026-05-14.md                   (postscript correction)
+```
+
+### Verification
+
+- `node --check backend/server.js` clean.
+- `grep` confirms watchdog wiring at all six sites (declaration block + 5 call sites).
+- `npm run brain:bootstrap` PASS.
+- `npm run brain:continuity` PASS (0 issue, 1 expected mid-session WARN).
+- `npm run brain:verify` PASS (0 FAIL).
+
+### Operator verification (TERM 1 + TERM 2)
+
+**TERM 1 restart** (folds in F6.3 + AN-AR+AT+AW pending restarts):
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+**TERM 2 — verify watchdog is wired (boot should be clean; no STUCK emission expected on a healthy system)**:
+```bash
+curl -s "http://localhost:4000/refresh-snapshot" >/dev/null
+# Expect TERM 1: [REFRESH GUARD] { skipped: false }
+# Absence of [REFRESH-MUTEX-STUCK] on a healthy refresh is CORRECT — the
+# watchdog only fires when an acquisition exceeds 5 minutes.
+```
+
+### Audit-stale-source correction
+
+The May 14 audit erred on two findings:
+
+1. **Brain doctrine/filesystem gap** — claimed the seven sibling files referenced by `MASTER_BRAIN.md` did not exist. They do. The file-tool `Glob` in the auditing AI session returned `No files found`, but bash + brain bootstrap confirmed all seven are present.
+2. **Dual-mutex race** — claimed `__refreshInProgress` had a module-level + `global.*` split. It does not. Session Y unified the mutex; the May 14 audit cited the May 9 architecture-audit's then-valid flag without re-checking current source.
+
+The audit's other findings (longitudinal table retention, NBA two-path, ledger SQLite read cutover, dead inlined NBA files, `workstationRoutes.js` NBA imports, `timing_intelligence_state.json` size, etc.) remain valid Phase-2 candidates and were NOT triggered by this session.
+
+**Rule encoded for future sessions**: When acting on an audit, re-verify each finding against current source before patching. The audit directs attention; it does not substitute for observation.
 
 ---
 

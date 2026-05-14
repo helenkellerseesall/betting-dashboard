@@ -1,10 +1,306 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-13 (Phase F6.3 — API-NBA /players is a team-roster endpoint. `search` dropped from request; client-side name match against the roster. Process-scoped __nbaTeamRosterCache memoizes per (team, season). TERM 1 restart required. Existing AN-AR+AT+AW+F6.2 restart folds in.)_
+_Last updated: 2026-05-14 (Phase Persistence-1B — activation layer + operational tooling shipped. Operator must execute `npm run persistence:import` + `persistence:backfill-aliases` on their machine. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart. Phase 1C (grading→SQLite outcome wiring) is the next operator-approval gate.)_
 
 ---
 
-## PENDING OPERATOR ACTIONS — Phase F6.3 (DO THIS FIRST)
+## PENDING OPERATOR ACTIONS — Phase Persistence-1B execution (DO THIS FIRST)
+
+> Phase Persistence-1B shipped the activation layer (2 new tables, boot integrity check, 4 npm scripts, 2 probes 22/22 each PASS). The actual one-time backfill commands cannot run from the auditor sandbox due to SQLite I/O restriction. The operator must execute the following three commands on their machine.
+
+### Step Persistence-1B-1 — Backfill SQLite tables from JSON
+
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:import
+```
+
+Expected output (idempotent — re-running produces zero new inserts):
+```
+=== importHistoricalData — SQLite Phase 1+S backfill ===
+Tracking dir : /Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking
+
+── tracked_props (mlb_tracked_bets + nba_tracked_bets) ──
+  mlb_tracked_bets_2026-05-09.json: +N inserted, ... already present
+  ...
+  TOTAL: +N inserted, M already present
+
+── slip_catalog (mlb_tracked_slips + nba_tracked_slips) ──
+  ...
+
+── hr_predictions (tracked_props_* + graded_props_*) ──
+  ...
+
+── personal_ledger (personal_ledger.json → bets[]) ──
+  personal_ledger.json: +2000 upserted, 0 errors (2000 total bets)
+
+── Database verification ──
+  tracked_props        : N rows
+  slip_catalog         : M rows
+  hr_predictions       : K rows
+  nightly_runs         : J rows
+  personal_ledger      : 2000 rows
+```
+
+### Step Persistence-1B-2 — Backfill composite-key aliases
+
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:backfill-aliases
+```
+
+Expected output:
+```
+=== backfillPredictionIdAliases — Phase Persistence-1B ===
+DB: /Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db
+
+prediction_snapshots rows to scan: 607
+
+── Scan results ──
+  scanned             : 607
+  parsed              : 607
+  unparseable raw_json: 0
+  unchanged           : ~600 (most rows already canonical)
+  altered             : ~7    (pre-E1 ID variants)
+    inserted alias    : ~7
+    skipped (already) : 0
+
+prediction_id_aliases total rows: ~7
+  by norm_diff_type:
+    player      : ~5  (diacritic/casing variants)
+    book        : ~2  (DK/draftkings aliases)
+```
+
+Note: exact alias count depends on how many prediction_snapshots rows were written pre-E1 normalization. May be 0 if all 607 rows are already post-E1.
+
+### Step Persistence-1B-3 — Verify with canonical inspector
+
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:status
+```
+
+Critical signals:
+- `personal_ledger` SQLite COUNT(*) >= 2,000 (parity with JSON)
+- Personal-ledger parity: `PARITY: ✓` or `STEADY-STATE: SQLite has N more rows...`
+- `ledger_divergence_log`: most recent entry should show pre-backfill divergence (json=2000, sqlite=0, delta=2000); after Step 1, no new entries should appear
+- `prediction_id_aliases`: N rows (small number expected)
+
+### Step Persistence-1B-4 — (Optional) fold in pending TERM 1 restart
+
+The Race-1 watchdog (`[REFRESH-MUTEX-STUCK]`) + F6.3 player-id resolution still need a TERM 1 restart to activate. After Steps 1-3, also:
+
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After boot, expect (boot-time, in order):
+```
+[SERVER-BOOT-DB-INIT] { ok: true, dbPath: '.../betting.db', criticalTablesOk: true, missing: [], ledgerIntegrity: { ok: true, jsonBetCount: 2000, sqliteBetCount: 2000, delta: 0 } }
+[DB-BOOT] { canonicalPath: '.../betting.db', tablesPresent: 25, criticalTables: { ... }, azRepairApplied: null }
+```
+
+Notice the new `ledgerIntegrity` field — Phase Persistence-1B's boot observability. Absent `[LEDGER-DIVERGENCE-DETECTED]` confirms parity is intact post-backfill.
+
+### Step Persistence-1B-5 — Run regression matrix
+
+```bash
+cd ~/Desktop/betting-dashboard && for f in \
+  verifyNbaApiSportsContractFix verifyNbaCacheabilityGate verifyNbaCacheObservability \
+  verifyLegacyApiSportsCacheGate verifyResponseAuthority verifyCompositeKeyIntegrity \
+  verifyOrphanAuthorityHardening verifyCalibrationHonesty verifyMlbImmutabilityHardening \
+  verifyMlbFutureOnlyHardening verifySnapshotFreshness verifyMlbLiveStatePhase2 \
+  verifyMlbContextualPhase1B verifyMlbContextualPhase1; do
+  node "backend/scripts/${f}.js" 2>&1 | tail -1
+done
+```
+
+All 14 must `RESULT: PASS` — Phase Persistence-1B touched only additive schema + observability code and changed no runtime hot paths.
+
+### Step Persistence-1B-6 — Run new probes
+
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run persistence:probe
+```
+
+Expected: `SUMMARY: 2/2 probes PASS` with 22+22 = 44 individual checks PASS.
+
+### Step Persistence-1B-7 — Final checkpoint
+
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run brain:checkpoint
+```
+
+Must PASS — reconciles runtime + brain hashes back into `.brain_bootstrap_state.json`.
+
+---
+
+## OPERATOR APPROVAL GATE — Phase Persistence-1C (next session — outcome wiring)
+
+> Once Phase 1B execution completes successfully, the next highest-leverage move is Phase 1C: wire SQLite outcome writers into the grading layer. This is the load-bearing gap identified in `docs/PERSISTENCE_AUDIT_2026-05-14.md` §10 — the calibration corpus (`outcome_snapshots`, `slip_outcomes`) is currently 0 rows because grading writes JSON only.
+
+### Phase 1C scope (operator approval requested for next session)
+
+1. **Wire `intelligence.recordOutcome` writer** in `pipeline/grading/fetchMlbGameResults.js` and `pipeline/grading/fetchNbaGameResults.js` — after writing `graded_props_*.json`, also UPSERT `outcome_snapshots` rows.
+2. **Wire slip-outcome writer** in `pipeline/grading/gradeTrackedSlips.js` → `slip_outcomes` rows.
+3. **One-time backfill CLI** to read all existing `graded_props_*.json` files and write into `outcome_snapshots` (uses `prediction_id_aliases` to bridge pre-E1 ID variants).
+4. **Probe** asserting calibration loop closes: feed a fixture through grading, assert `outcome_snapshots` populated, assert `delta_prob` computed, assert `AVG(delta_prob) GROUP BY tier` finite.
+
+Risk: Medium. New writers in grading hot path, but wrapped in try/catch (silent-failure pattern). JSON canonical preserved.
+
+Reply options:
+- **"Approve Phase 1C"** → implement next session
+- **"Hold — operator wants to verify 1B execution first"** → wait for 1B operator-execution reports
+- **"Skip to Phase 1D"** (state-file migration) — possible but 1C is higher-leverage
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase Race-1 (FOLDED INTO NEXT TERM 1 RESTART)
+
+> Phase Persistence-1A (audit) is complete. See `docs/PERSISTENCE_AUDIT_2026-05-14.md` for the full picture. Before Phase 1B (activation: turning on the dormant SQLite infrastructure), explicit operator approval is requested on the following four items. Phase 1B is fully revertable, ~200 additive lines, zero deletions.
+
+### Approval Item 1 — Run `importHistoricalData.js` one-time backfill?
+
+```bash
+cd ~/Desktop/betting-dashboard && node backend/storage/importHistoricalData.js
+```
+
+Expected impact:
+- `tracked_props` table: 0 → thousands of rows (from `mlb_tracked_bets_*` + `nba_tracked_bets_*`)
+- `slip_catalog` table: 0 → hundreds of rows (from `mlb_tracked_slips_*` + `nba_tracked_slips_*`)
+- `hr_predictions` table: 0 → thousands of rows (from `tracked_props_*` + `graded_props_*`)
+- `personal_ledger` table: 0 → 2,000 rows (from `personal_ledger.json bets[]`)
+- `nightly_runs` table: 0 → ~24 rows
+- Runtime: ~30 seconds
+- Idempotent: re-running is a no-op (every insert uses `INSERT OR IGNORE` or `INSERT OR REPLACE`)
+- JSON files unchanged — SQLite is additive only
+
+This is the single highest-leverage move because the entire migration infrastructure has been ready since Session S; only the activation step has been missing.
+
+### Approval Item 2 — Add `prediction_id_aliases` table + boot-time backfill?
+
+DDL addition in `backend/storage/intelligenceSchema.js` (new table):
+
+```sql
+CREATE TABLE IF NOT EXISTS prediction_id_aliases (
+  raw_id          TEXT    PRIMARY KEY,
+  canonical_id    TEXT    NOT NULL,
+  detected_at     TEXT    DEFAULT (datetime('now')),
+  norm_diff_type  TEXT,
+  notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pia_canonical ON prediction_id_aliases (canonical_id);
+```
+
+CLI script `backend/scripts/backfillPredictionIdAliases.js` (~80 lines):
+- For every row in `prediction_snapshots`, compute the post-E1 canonical ID using the existing `normPlayer` / `normFam` / `canonicalBook` normalizers.
+- If raw != canonical, write `(raw_id, canonical_id, norm_diff_type)`.
+- Idempotent — re-running is a no-op via INSERT OR IGNORE.
+
+Why: prevents pre-E1 predictions from being orphaned from post-E1 outcomes when Phase 1C (outcome wiring) backfills historical outcomes.
+
+### Approval Item 3 — Add startup integrity check + `[LEDGER-DIVERGENCE-DETECTED]` observability?
+
+In `backend/storage/db.js:initializeAtBoot`:
+- Read `personal_ledger.json` → `bets.length`.
+- Query `SELECT COUNT(*) FROM personal_ledger`.
+- If `delta = json - sqlite ≠ 0`, log `[LEDGER-DIVERGENCE-DETECTED] {json:N, sqlite:M, delta:D}` once, and insert one row into `ledger_divergence_log` (new table).
+- New table (DDL also additive):
+
+```sql
+CREATE TABLE IF NOT EXISTS ledger_divergence_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  observed_at     TEXT    DEFAULT (datetime('now')),
+  json_bet_count  INTEGER,
+  sqlite_bet_count INTEGER,
+  divergence      INTEGER,
+  notes           TEXT
+);
+```
+
+Why: today's reality is `personal_ledger` SQLite at 0 rows / JSON at 2,000 rows. After Approval 1's backfill, that should resolve. The integrity check is the watchdog that ensures it stays resolved.
+
+### Approval Item 4 — Add probe scripts?
+
+- `probe_persistence_idempotency.js` (~80 lines) — runs `importHistoricalData.js` twice, asserts second run produces zero new inserts. Validates Law 4 (replay/freeze/grading preservation) via the idempotency contract.
+- `probe_ledger_mirror.js` (~100 lines) — calls `logBet` on a test bet against a temporary DB, asserts both JSON and SQLite stores see the row, asserts mirror failure (simulated by closing the DB) is silent. Validates the dual-write contract.
+
+These extend the existing `probe_*.js` corpus (probe_snapshot_freeze_v1.js, probe_eager_init_v1.js, probe_frozen_epoch_v1.js, etc.) following the same pattern.
+
+---
+
+### How to approve
+
+Reply with one of:
+- **"Approve all four"** → Phase 1B is implementable in one session (~200 lines, ~30 min runtime including verification matrix).
+- **"Approve items 1, 2, 3"** (skip probes) → Faster, slightly less verification.
+- **"Approve only item 1"** → Just run the backfill; defer aliases / integrity check / probes to a later session.
+- **"Hold"** → Phase Persistence-1A audit stays as the latest delivered state.
+
+### Files Phase 1B would touch (if all four approved)
+
+```
+backend/storage/intelligenceSchema.js                            (+2 tables, ~20 lines)
+backend/storage/db.js                                            (+30 lines integrity check)
+backend/scripts/backfillPredictionIdAliases.js                   (NEW, ~80 lines)
+probe_persistence_idempotency.js                                 (NEW, ~80 lines)
+probe_ledger_mirror.js                                           (NEW, ~100 lines)
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                   (Phase 1B entry)
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                     (dated entry)
+backend/runtime/brain/ACTIVE_INCIDENTS.md                        (R-032 resolved)
+CURRENT_STATE.md, NEXT_SESSION.md                                (session entries)
+```
+
+Net additive only; no deletions. No changes to runtime hot paths beyond a boot-time observability check. Replay / freeze / grading paths untouched.
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase Race-1 (FOLDED INTO NEXT TERM 1 RESTART)
+
+> **Phase Race-1 watchdog adds**: structured `[REFRESH-MUTEX-STUCK]` log emission when the canonical module-level refresh mutex is observed held > 5 minutes. Emits at most once per acquisition (the flag resets on release). Pure observability — does NOT auto-release the mutex. The mutex itself was already unified to module-level in Session Y; this watchdog adds the missing observability on the orthogonal failure mode (refresh hang leaves the flag stuck `true`, silently blocking all subsequent refreshes until TERM 1 restart). **TERM 1 restart required.**
+
+### Step Race-1-1 — TERM 1 restart (single-line paste — folds in all pending restarts)
+```bash
+cd ~/Desktop/betting-dashboard && (lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; lsof -i tcp:4000 || echo "port 4000 clear"); node backend/server.js
+```
+
+After boot, expect a normal clean startup. The watchdog is silent on healthy operation — `[REFRESH-MUTEX-STUCK]` MUST NOT appear unless an actual refresh has been held > 5 minutes.
+
+### Step Race-1-2 — Trigger a refresh, confirm no STUCK emission on healthy path
+```bash
+curl -s "http://localhost:4000/refresh-snapshot" >/dev/null
+```
+TERM 1 should show:
+```
+[REFRESH GUARD] { skipped: false }
+```
+Absence of `[REFRESH-MUTEX-STUCK]` is CORRECT for a healthy refresh.
+
+### Step Race-1-3 — (Optional) Verify watchdog wiring at the code level
+```bash
+grep -n "REFRESH-MUTEX-STUCK\|__refreshInProgressStartedAt\|__refreshMutexStuckLogged\|noteRefreshMutexObserved\|REFRESH_MUTEX_STUCK_THRESHOLD_MS" backend/server.js | wc -l
+```
+Expected: at least 15 matches. Current production count: 21 matches (declaration block + 5 call sites + helper + threshold + log payload fields).
+
+### Step Race-1-4 — Run the 14-suite regression matrix
+```bash
+cd ~/Desktop/betting-dashboard && for f in \
+  verifyNbaApiSportsContractFix verifyNbaCacheabilityGate verifyNbaCacheObservability \
+  verifyLegacyApiSportsCacheGate verifyResponseAuthority verifyCompositeKeyIntegrity \
+  verifyOrphanAuthorityHardening verifyCalibrationHonesty verifyMlbImmutabilityHardening \
+  verifyMlbFutureOnlyHardening verifySnapshotFreshness verifyMlbLiveStatePhase2 \
+  verifyMlbContextualPhase1B verifyMlbContextualPhase1; do
+  node "backend/scripts/${f}.js" 2>&1 | tail -1
+done
+```
+All 14 must print `RESULT: PASS`. Race-1 touches only `server.js` mutex observability — no fixture deltas expected, no new fixture added.
+
+### Step Race-1-5 — Final checkpoint
+```bash
+cd ~/Desktop/betting-dashboard/backend && npm run brain:checkpoint
+```
+Must PASS — reconciles runtime + brain hashes back into `.brain_bootstrap_state.json`.
+
+---
+
+## PENDING OPERATOR ACTIONS — Phase F6.3 (FOLDED INTO RACE-1 RESTART)
 
 > **Phase F6.3 adds**: Drops `search` from the `/players` request. `fetchApiSportsPlayerId` now fetches the full team roster (`GET /players?team=N&season=Y`) and matches the player by normalized name client-side. Process-scoped `__nbaTeamRosterCache` (Map keyed by `<apiTeamId>|<season>`) prevents redundant roster fetches within the process lifetime. New diagnostics: `lastPlayerIdMatchStrategy` + `teamRosterCacheSize`. **TERM 1 restart required** — folds into any pending restart.
 

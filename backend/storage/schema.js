@@ -213,6 +213,40 @@ CREATE INDEX IF NOT EXISTS idx_pl_decision   ON personal_ledger (decision_type);
 CREATE INDEX IF NOT EXISTS idx_pl_sportsbook ON personal_ledger (sportsbook);
 CREATE INDEX IF NOT EXISTS idx_pl_tier       ON personal_ledger (confidence_tier);
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ledger_divergence_log (Phase Persistence-1B — 2026-05-14)
+--
+-- Observability table for JSON-vs-SQLite ledger parity. Written by the
+-- boot-time integrity check in storage/db.js:initializeAtBoot (after
+-- applySchema) whenever the row count in personal_ledger SQLite is LESS
+-- than the count in personal_ledger.json (i.e. SQLite is missing rows).
+--
+-- Semantics:
+--   delta = json_bet_count - sqlite_bet_count
+--   delta > 0  -> SQLite mirror is missing N bets - operational anomaly
+--   delta = 0  -> parity (after backfill + steady-state mirror)
+--   delta < 0  -> SQLite has more rows than JSON ring buffer (expected once
+--                ring buffer has cycled - JSON capped at MAX_BETS=2000,
+--                SQLite uncapped). NOT logged as divergence.
+--
+-- Pure observability: this table NEVER drives auto-repair behavior. It
+-- exists so the operator can see when the mirror is cold, and so a future
+-- analytics query can correlate divergence events with operational state.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger_divergence_log (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  observed_at      TEXT    DEFAULT (datetime('now')),
+  json_bet_count   INTEGER,
+  sqlite_bet_count INTEGER,
+  divergence       INTEGER,        -- json_bet_count - sqlite_bet_count (only > 0 logged)
+  source           TEXT,           -- 'boot_check' / 'manual' / 'probe'
+  notes            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ldl_observed ON ledger_divergence_log (observed_at);
+CREATE INDEX IF NOT EXISTS idx_ldl_source   ON ledger_divergence_log (source);
+
 `
 
 /**
