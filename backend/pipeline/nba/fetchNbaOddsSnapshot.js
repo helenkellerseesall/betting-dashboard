@@ -7,6 +7,9 @@ const { buildSlateEvents } = require("../schedule/buildSlateEvents")
 const { inferMarketTypeFromKey, canonicalPropTypeFromInferred } = require("../markets/classification")
 const { nbaRowModelProbability, nbaRowEdge } = require("./nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
+// Phase Market-Ecology-1A (OBS-3): observability-only logging wrapper around
+// Odds-API axios calls. Pure-local, never throws, never adds network calls.
+const { logApiCallAsync } = require("../shared/apiCallLogger")
 
 const NBA_BASE_MARKETS = [
   "player_points",
@@ -461,9 +464,19 @@ async function fetchEventOddsRows(event, oddsApiKey) {
     oddsFormat: "american",
   }
 
+  // Phase Market-Ecology-1A (OBS-3): wrap each axios.get with logApiCallAsync.
+  // Records ts, sport, endpoint, eventId, status, durationMs, httpStatus, error
+  // into runtime/market/api_call_log.jsonl. Pure observability — Promise.all
+  // semantics, error propagation, and timeout behavior all unchanged.
   const [baseRes, extraRes] = await Promise.all([
-    axios.get(url, { params: baseParams, timeout: 20000 }),
-    axios.get(url, { params: extraParams, timeout: 20000 }),
+    logApiCallAsync(
+      { sport: "nba", endpoint: "odds-api/v4/events/odds/base", eventId },
+      () => axios.get(url, { params: baseParams, timeout: 20000 })
+    ),
+    logApiCallAsync(
+      { sport: "nba", endpoint: "odds-api/v4/events/odds/extra", eventId },
+      () => axios.get(url, { params: extraParams, timeout: 20000 })
+    ),
   ])
 
   const baseBooks = baseRes?.data?.bookmakers

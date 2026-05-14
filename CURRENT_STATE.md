@@ -1,9 +1,110 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
+_Last updated: 2026-05-14 (Phase Market-Ecology-1A SHIPPED — canonical market observability. Operator approved 3 of 11 audit lever options. **OBS-1** `npm run market:status` (NEW 5-section CLI: snapshot freshness / consensus confidence / top stale rows / per-book historical CLV / API-call burn). **OBS-2** `consensusConfidence = clamp(0, 1, 1 - dispersion/max(consensus, 0.001))` added to buildLineShopping byProp + bestByProp output — additive only. **OBS-3** new `apiCallLogger.js` append-only JSONL writer at `runtime/market/api_call_log.jsonl`; `logApiCallAsync(meta, fn)` wraps both NBA + MLB Odds-API axios calls; never throws, never makes network calls, Promise.all semantics preserved. Zero new network calls, zero polling, zero retry/rate-limit logic. First canonical sandbox output surfaces 6 books / 826 multi-book disagreements / 10 stale-row candidates. Phase-tagged Law 10 comments throughout. Full matrix 150/150 PASS. brain:checkpoint sealed 21:08:05Z. Operator next: `npm run slate:refresh && npm run market:status` on host. Heuristic levers STALE-1/CONS-1/CONS-2/DISAG-1/DISAG-2/ALT-DISAG-1/INFLATE-1/ANCHOR-1 held for operator-approval gates. INC-013/014/015 RESOLVED. Realism-Ecology-1A AGG-2+TEXT-1 still shipped.)_
+
+Prior session record (Phase Realism-Ecology-1A):
 _Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED — fake-aggressive correlation reduction. Operator approved 2 of 8 audit lever options as smallest-safe step. **AGG-2**: `TIER_TEMPLATES.aggressive.maxPerGame: 2 → 1` (attacks same-game superstar-correlation ladder; cross-game pairs preserved → dangerous upside intact). **TEXT-1**: `offensiveAttackTextureBonus` over-side offensive boost `+= 0.032 → += 0.016` (halves the only sign-asymmetric scoring nudge in AGGRESSIVE/LOTTO seeding). LOTTO untouched; MLB BALANCED under-only preserved; FAMILY_CALIBRATION_COEFFICIENTS unchanged; volatility rules unchanged; portfolio thresholds unchanged. Phase-tagged Law 10 comments. Pre/post snapshots captured at `backend/runtime/calibration_snapshots/{pre,post}_realism_1a_*.txt`. Live MLB 2026-05-05 still produces AGGRESSIVE +5864 ev:430% slips. Full matrix 150/150 PASS. brain:checkpoint sealed 20:18:14Z. Operator-mandated discipline: evolve ecology incrementally with measurable longitudinal observation windows. Phase 1B (ALT-1+PORT-1), 1C (CORR-1+VOL-1), 1D (AGG-1+AGG-3+MLB-AGGRESSIVE-under-only) held for operator-approval gates after observation window. INC-013/014/015 RESOLVED.)_
 
 Prior session record (Phase 1G):
 _Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported isolated nba/2026-05-08 failure (exit=1, ~33ms) and hypothesized "malformed replay payload." Forensic reproduction with FULL stderr/stdout proved: NO PAYLOAD DEFECT EXISTS — 33ms fingerprint is Phase 1F's lock guard, fooled by pid-reuse on the operator host where the recorded orchestrator pid was recycled by an unrelated process. Direct inspection of `nba_tracked_bets_2026-05-08.json` confirmed 4 well-formed Jalen Brunson rebounds rows. Minimal Phase 1G hardening: `ALIVE_PID_STALE_THRESHOLD_MS = 10 min` — locks with alive-pid AND startedAt >10min ago are now reclaimed with explicit `console.warn([acquire-lock][INC-015]...)`. Phase 1F + 1G together form a 5-tier deterministic state machine. STATE 1 sandbox test (pid=1 alive + 11min old → operator scenario) → reclaim + EXIT=0 ✓. STATE 2 (pid=1 alive + 5min old → legitimate concurrent) → honor lock ✓. Full grading:backfill-all (16 dates, 9 ran incl. nba/2026-05-08 in 451ms, 0 failed). 150/150 verification PASS. brain:checkpoint sealed. INC-013, INC-014, INC-015 all RESOLVED. Operator next: `npm run grading:backfill-all -- --clear-locks` on host.)_
+
+---
+
+## SESSION MARKET-ECOLOGY-1A — Canonical Market Observability (OBS-1 + OBS-2 + OBS-3) (2026-05-14)
+
+### What this session shipped
+
+Smallest safe observability-first step toward sportsbook market intelligence. Operator approved 3 of 11 audit lever options.
+
+**1. OBS-1 — `npm run market:status`** (NEW canonical CLI inspector, `backend/scripts/marketStatus.js`):
+- Five sections: SNAPSHOT FRESHNESS / CONSENSUS CONFIDENCE DISTRIBUTION / TOP STALE ROWS / PER-BOOK HISTORICAL CLV / API-CALL BURN.
+- Pure read; no network calls, no DB writes, no pipeline state modification.
+- Anti-fabrication discipline: empty sections print `(no data)` rather than synthesizing values.
+- Supports `--sport=nba|mlb` and `--top=N` filters.
+
+**2. OBS-2 — `consensusConfidence` field on `buildLineShopping` output**:
+- Formula: `clamp(0, 1, 1 - (marketDispersion / max(consensus, 0.001)))`.
+- 1.0 = books unanimous; 0.0 = wide disagreement.
+- Pure-derived from existing fields; additive only.
+- Surfaced on every `byProp` entry AND every `bestByProp` entry.
+
+**3. OBS-3 — `backend/pipeline/shared/apiCallLogger.js`** (NEW append-only JSONL writer):
+- `logApiCall({sport, endpoint, eventId, status, durationMs, httpStatus, error})` — never throws, never makes network calls.
+- `logApiCallAsync(meta, asyncFn)` — wraps axios.get with timing + log on success/failure; re-throws errors so caller behavior is unchanged.
+- 50 MB soft-cap pause threshold prevents runaway disk usage.
+- Wired into both Odds-API call sites (NBA fetchNbaOddsSnapshot.js + MLB buildMlbBootstrapSnapshot.js).
+
+Phase-tagged Law 10 inline comments at every wire-in point.
+
+### First canonical market:status output (sandbox MLB snapshot)
+
+```
+SECTION 1: 6 books observed (FanDuel 1127 / DraftKings 1124 / BetRivers 201 /
+           BetOnline.ag 144 / Caesars 100 / Fanatics 32 rows). Snapshot 36m old.
+
+SECTION 2: 1,546 grouped props, 826 multi-book. consensusConfidence p10=0.854
+           p50=1.000 p90=1.000. bookCount distribution: 1b=720 2b=579 3b=240 4b=7.
+           Top 10 surface HR overs at +18000 (BetRivers) vs +4900 (BetOnline).
+
+SECTION 3: 10 stale rows surfaced — DraftKings offering soft lines on Edmundo Sosa /
+           Bryce Harper TB overs; FanDuel overpricing same props.
+
+SECTION 4: Per-book historical CLV — DraftKings 79,883 bets at -2.7% ROI;
+           FanDuel 956 bets at +40.6% ROI; etc.
+
+SECTION 5: API-call burn — empty (no slate refresh in sandbox; populates on host).
+```
+
+### Pre-1A baseline snapshot
+
+```
+backend/runtime/market/baseline_snapshots/pre_market_1a_2026-05-14T210317Z.txt
+```
+
+### Architecture preservation invariants
+
+- ✓ No grading writer / classifier / settlement-object changed.
+- ✓ No replay path / lineage / persistence schema / orchestrator step semantics changed.
+- ✓ No FAMILY_CALIBRATION_COEFFICIENTS / volatility rules / portfolio thresholds / tier templates changed.
+- ✓ No new network calls introduced.
+- ✓ No polling loops introduced.
+- ✓ No retry / rate-limit / debounce logic introduced.
+- ✓ Promise.all semantics preserved at NBA fetch site.
+- ✓ Error propagation preserved at both fetch sites (logApiCallAsync re-throws).
+- ✓ Existing buildLineShopping callers see all prior fields unchanged.
+- ✓ Phase Realism-Ecology-1A AGG-2 + TEXT-1 still shipped.
+- ✓ Phase 1F+1G 5-tier lock state machine intact.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| **Total** | **150** | **PASS** |
+
+brain:checkpoint sealed 2026-05-14T21:08:05.055Z.
+
+### Operator action — first canonical market intelligence view
+
+```bash
+cd backend
+npm run slate:refresh           # populates api_call_log.jsonl on host
+npm run market:status           # first complete operator view of market observability
+```
+
+### Remaining lever options (held for operator-approval gates)
+
+- **Phase 1B**: STALE-1 (time-series stale detector using snapshot deltas) + CONS-1 (trimmed-mean consensus) + CONS-2 (low-book-count warning).
+- **Phase 1C**: DISAG-1 (disagreementScore field) + DISAG-2 (outlier-book cluster detection) + ALT-DISAG-1 (per-rung alt-line price divergence).
+- **Phase 1D**: INFLATE-1 (per-book inflation index) + ANCHOR-1 (reference-book truth anchor).
+
+### Status
+
+Phase Market-Ecology-1A SHIPPED. System evolving from "prediction realism" toward "sportsbook market intelligence" through observability-first, calibration-safe additive steps.
 
 ---
 

@@ -1,54 +1,68 @@
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED. AGG-2 (`TIER_TEMPLATES.aggressive.maxPerGame` 2→1) + TEXT-1 (`offensiveAttackTextureBonus` over-side boost halved 0.032→0.016). Smallest-safe step toward truthful betting ecology. LOTTO untouched, MLB BALANCED under-only preserved, FAMILY_CALIBRATION_COEFFICIENTS unchanged, volatility rules unchanged, portfolio thresholds unchanged. Phase-tagged Law 10 comments. Pre/post snapshots at `backend/runtime/calibration_snapshots/`. Live MLB 2026-05-05 confirms AGGRESSIVE still produces +5864 ev:430% slips. Full matrix 150/150 PASS. brain:checkpoint sealed 20:18:14Z. Operator-mandated discipline: forward observation window before next gate. INC-013/014/015 all RESOLVED. Phase 1B/1C/1D held for operator-approval gates.)_
+_Last updated: 2026-05-14 (Phase Market-Ecology-1A SHIPPED — canonical market observability. **OBS-1** `npm run market:status` (NEW 5-section CLI). **OBS-2** `consensusConfidence` field on buildLineShopping. **OBS-3** `apiCallLogger.js` wired into NBA + MLB Odds-API axios calls (append-only JSONL log; zero new network calls). Pre-1A baseline at `backend/runtime/market/baseline_snapshots/`. First canonical sandbox output: 6 books / 826 multi-book disagreements / 10 stale-row candidates. Full matrix 150/150 PASS. brain:checkpoint sealed 21:08:05Z. Heuristic levers (STALE-1, CONS-1/2, DISAG-1/2, ALT-DISAG-1, INFLATE-1, ANCHOR-1) held for operator-approval gates. INC-013/014/015 all RESOLVED. Realism-Ecology-1A AGG-2+TEXT-1 still shipped.)_
 
 ---
 
-## OPERATOR ACTION — Fresh slate pull + calibration snapshot comparison
-
-Per operator's post-1A mandate:
+## OPERATOR ACTION REQUIRED — Fresh slate pull + first canonical market:status review
 
 ```bash
 cd backend
 
-# 1. Full replay/grading verification on operator host
+# 1. Fresh slate pull (populates api_call_log.jsonl on host via OBS-3 wrappers)
+npm run slate:refresh
+
+# 2. First canonical market intelligence view
+npm run market:status                  # all sports, top-10
+npm run market:status -- --sport=nba   # NBA only
+npm run market:status -- --sport=mlb   # MLB only
+npm run market:status -- --top=20      # widen top-N to 20
+
+# 3. (still applicable from prior phases) full replay/grading verification
 npm run grading:backfill-all -- --clear-locks
-npm run grading:status        # confirm JOIN populated + hit-rates intact
-npm run calibration:status    # baseline AGGRESSIVE hit-rate (week 0 of observation window)
-npm run lineage:status        # confirm no regression
-
-# 2. Fresh slate pull
-npm run slate:refresh         # builds today's slate with Phase 1A construction
-
-# 3. Calibration snapshot comparison against pre-1A baseline
-diff backend/runtime/calibration_snapshots/pre_realism_1a_*.txt \
-     backend/runtime/calibration_snapshots/post_realism_1a_*.txt
+npm run grading:status
+npm run calibration:status
+npm run lineage:status
 ```
 
-**Forward observation discipline**:
-- Track AGGRESSIVE hit-rate weekly via `npm run calibration:status`.
-- Compare per-tier hit-rates against pre-1A baseline as corpus grows.
-- Effect sizes will be **directional, not statistically conclusive** until multiple weeks of forward grading accumulate beyond ~219 JOIN-matched outcomes (INC-012 ceiling).
-- Phase 1B/1C/1D should each be operator-gated after their respective observation window.
+**What to look for in market:status output**:
+- Section 1: snapshot freshness across both sports; per-book row counts.
+- Section 2: consensusConfidence distribution — p10 below 0.3 indicates high disagreement; bookCount distribution shows how often consensus is meaningfully multi-book.
+- Section 3: top stale rows tagged `soft_line` (bettor value — book underprices) or `stale_line` (book overprices).
+- Section 4: per-book historical CLV — 60-day rolling.
+- Section 5: API-call burn rolling 24h/7d/30d.
 
 ---
 
-## REMAINING REALISM-ECOLOGY LEVERS (operator-approval gates)
+## OPERATOR APPROVAL GATES — Phase Market-Ecology-1B / 1C / 1D (heuristic levers held)
 
-| Phase | Levers | Effect | When |
-|---|---|---|---|
-| **1B** | ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened to {3,5}) | Tilts BALANCED toward calibration-friendly alt-line ecology; restores honest portfolio warnings | After 1A observation window |
-| **1C** | CORR-1 (cap NBA pairwise boost contribution in AGGRESSIVE seeding at +0.02) + VOL-1 (split aggressive volatility bucket — separate "moderate-odds normal" from "structurally rare event") | Further reduces correlated-pair surface; volatility honesty | After 1B observation window |
-| **1D** | AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop "lotto" from AGGRESSIVE allowedVolatility) + extending MLB BALANCED under-only to MLB AGGRESSIVE | Largest semantic shift — significantly tighter AGGRESSIVE gate | After 1C observation window |
+Each phase requires its own operator-approval gate AND a measurable observation window from the prior phase.
+
+| Phase | Levers | Effect |
+|---|---|---|
+| **1B** | STALE-1 (time-series stale detector — read N consecutive snapshots + per-book line-movement deltas) + CONS-1 (trimmed-mean consensus) + CONS-2 (low-book-count warning when bookCount < 3) | Surfaces lagging books, removes outlier distortion, flags weak-consensus props |
+| **1C** | DISAG-1 (disagreementScore = max - min / consensus surfaced per prop) + DISAG-2 (outlier-book cluster detection — 2-of-3 consensus with 1 dissenter) + ALT-DISAG-1 (per-rung alt-line price divergence) | Per-prop disagreement quantification; alt-line ladder rung-level intelligence |
+| **1D** | INFLATE-1 (per-book per-stat-family inflation index over 14d historical CLV) + ANCHOR-1 (reference-book truth anchor weighting) | Identifies "Caesars inflating superstar ladders" automatically; introduces Pinnacle-style sharp-book anchoring |
 
 ---
 
-## DEFERRED ITEMS (Phase 1F-cosmetic + 1H + future)
+## OPERATOR APPROVAL GATES — Phase Realism-Ecology-1B / 1C / 1D (still held from prior phase)
+
+| Phase | Levers | Effect |
+|---|---|---|
+| **1B** | ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened to {3,5}) | Tilts BALANCED toward calibration-friendly alt-line ecology; restores honest portfolio warnings |
+| **1C** | CORR-1 (cap pairwise boost contribution in AGGRESSIVE) + VOL-1 (split aggressive volatility bucket) | Reduces correlated-pair surface; volatility honesty |
+| **1D** | AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop "lotto" from AGGRESSIVE allowedVolatility) + MLB-AGGRESSIVE-under-only | Largest semantic shift; significantly tighter AGGRESSIVE gate |
+
+---
+
+## DEFERRED ITEMS
 
 | Phase | Scope |
 |---|---|
-| **1F-cosmetic** | Normalize 3 remaining `bet.actualStat` reads (lines 154/335/374 in buildPostGameReview.js) for display parity — Phase 1E left these intentionally untouched per smallest-safe-step. |
-| **1H** | Personal-ledger settlement activation (INC-011 — 2000/2000 bets dormant at `result='pending'`). Orchestrator's `stepLedgerSettle` is wired but never invoked. |
-| **future** | Harden `canAddLeg` same-game gateway when `gameKey()` returns null (legs missing both `eventId` and `matchup`). Surfaced as a pre-existing gap by Phase 1A inspection; not blocking. |
+| **1F-cosmetic** | Normalize 3 remaining `bet.actualStat` reads (lines 154/335/374 in buildPostGameReview.js) for display parity. |
+| **1H** | Personal-ledger settlement activation (INC-011 — 2000/2000 bets dormant at `result='pending'`). |
+| **canAddLeg same-game gateway hardening** | Pre-existing gap when gameKey() returns null. Phase 1B+ candidate. |
+| **Snapshot retention for time-series** | Required before STALE-1 (Market-1B candidate) — append snapshot delta logs to `runtime/market/snapshot_delta_log.jsonl`. |
 
 ---
 
@@ -61,13 +75,36 @@ diff backend/runtime/calibration_snapshots/pre_realism_1a_*.txt \
 | INC-003 | OPEN — known limitation | NBA roster Map has no TTL; mid-season trades require process restart. |
 | INC-011 | OPEN — dormant ledger | personal_ledger.json 2000/2000 bets at `result='pending'`. Phase 1H candidate. |
 | INC-012 | OPEN — by design | ~84% of historical outcomes are pre-corpus orphans. Permanent. |
-| **INC-013** | **✅ RESOLVED 2026-05-14 (Phase 1E)** | Field-mapping fix shipped; calibration unblocked. |
+| **INC-013** | **✅ RESOLVED 2026-05-14 (Phase Grading-Calibration-Operations-1E)** | Field-mapping fix shipped; calibration unblocked. |
 | **INC-014** | **✅ RESOLVED 2026-05-14 (Phase 1F)** | Stale-lockfile blocked deterministic backfill; PID-liveness + `--clear-locks` shipped. |
 | **INC-015** | **✅ RESOLVED 2026-05-14 (Phase 1G)** | PID-reuse edge case in Phase 1F's liveness probe; age-aware reclaim shipped. |
 
 ---
 
-## TIERED LOCK STATE MACHINE (Phase 1F + 1G — preserved through Phase 1A)
+## MARKET OBSERVABILITY DOCTRINE (Phase Market-Ecology-1A established)
+
+- **Observability first** — surface existing data before introducing heuristic weighting.
+- **Zero new network calls** — Phase 1A wraps existing axios calls for logging; introduces no polling, retry, or rate-limit logic.
+- **Anti-fabrication discipline** — `market:status` empty sections print `(no data)` rather than synthesizing values.
+- **Pre/post snapshots mandatory** — every Market phase captures source-shape snapshots in `backend/runtime/market/baseline_snapshots/` for byte-comparable operator audit.
+- **No sharp/soft book classification yet** — Pinnacle-style anchoring (ANCHOR-1) deferred until operator approves after observation window.
+- **No truth-anchor yet** — system treats all books equally in consensus computation. Phase 1D candidate.
+- **API-burn is observed, not enforced** — Phase 1A's logger is a passive ledger; per-day rate caps deferred.
+
+---
+
+## REALISM ECOLOGY DOCTRINE (Phase Realism-Ecology-1A established — still in force)
+
+- **Incremental, attributable, calibration-informed** — never stack multiple realism interventions in one gate.
+- **Pre/post snapshots mandatory** — every Realism phase captures `pre_realism_*` and `post_realism_*` snapshots in `backend/runtime/calibration_snapshots/`.
+- **Smallest safe step first** — operator approves the minimal lever combination per gate.
+- **LOTTO and SAFE preserved unless explicitly approved** — Phase 1A touched only AGGRESSIVE tier + AGGRESSIVE/LOTTO seeding texture.
+- **No hardcoded under-forcing, no player punishment, no slip rejection** — only structural knobs and sort biases.
+- **Dangerous upside preserved** — cross-game pairs, lotto tier, +5000 EV constructions all remain available.
+
+---
+
+## TIERED LOCK STATE MACHINE (Phase 1F + 1G — preserved through Phase Realism-1A and Market-1A)
 
 | Lock age | PID probe | Outcome |
 |---|---|---|
@@ -76,17 +113,6 @@ diff backend/runtime/calibration_snapshots/pre_realism_1a_*.txt \
 | 10–30 min | alive | Reclaim with `[INC-015]` warning |
 | 10–30 min | dead | Reclaim |
 | >30 min | any | Reclaim (hard TTL) |
-
----
-
-## REALISM ECOLOGY DOCTRINE (Phase 1A established)
-
-- **Incremental, attributable, calibration-informed** — never stack multiple realism interventions in the same gate.
-- **Pre/post snapshots mandatory** — every Realism phase captures `pre_realism_*` and `post_realism_*` snapshots in `backend/runtime/calibration_snapshots/` so the operator can byte-diff source shape changes.
-- **Smallest safe step first** — operator approves the minimal lever combination per gate.
-- **LOTTO and SAFE preserved unless explicitly approved** — Phase 1A touched only AGGRESSIVE tier + AGGRESSIVE/LOTTO seeding texture.
-- **No hardcoded under-forcing, no player punishment, no slip rejection** — only structural knobs and sort biases.
-- **Dangerous upside preserved** — cross-game pairs, lotto tier, +5000 EV constructions all remain available.
 
 ---
 
@@ -100,7 +126,7 @@ npm run brain:verify
 npm run brain:checkpoint    # end-of-session seal
 
 # Slate refresh
-npm run slate:refresh       # both sports
+npm run slate:refresh       # both sports — now populates api_call_log.jsonl (Phase Market-1A OBS-3)
 npm run slate:nba           # NBA only (canonical refresh route)
 npm run slate:mlb           # MLB only
 
@@ -111,12 +137,18 @@ npm run engine:status
 
 # Grading + calibration
 npm run grading:run
-npm run grading:backfill-all                          # Phase 1B+
-npm run grading:backfill-all -- --clear-locks         # Phase 1F+1G — pre-flight stale-lock sweep
-npm run grading:backfill-all -- --clear-locks --dry   # scan-only preview
-npm run grading:status                                # JOIN-success column (Phase 1D)
-npm run calibration:status                            # JOIN-restricted + warnings (Phase 1D)
-npm run lineage:status                                # per-date coverage + classification health (Phase 1D)
+npm run grading:backfill-all
+npm run grading:backfill-all -- --clear-locks
+npm run grading:backfill-all -- --clear-locks --dry
+npm run grading:status
+npm run calibration:status
+npm run lineage:status
+
+# Market intelligence (NEW Phase Market-Ecology-1A)
+npm run market:status                   # canonical 5-section market observability inspector
+npm run market:status -- --sport=nba
+npm run market:status -- --sport=mlb
+npm run market:status -- --top=20
 
 # Persistence
 npm run persistence:status

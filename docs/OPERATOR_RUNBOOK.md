@@ -5,6 +5,34 @@
 
 ---
 
+## MARKET OBSERVABILITY DOCTRINE (Phase Market-Ecology-1A, 2026-05-14)
+
+**Understand sportsbook behavior truthfully BEFORE attempting to exploit sportsbook behavior algorithmically.**
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | OBS-1 (`npm run market:status`) + OBS-2 (`consensusConfidence` field on buildLineShopping) + OBS-3 (`apiCallLogger.js` wrapping NBA + MLB Odds-API axios calls) | 2026-05-14 | ✅ SHIPPED — observation window open |
+| 1B | STALE-1 + CONS-1 + CONS-2 — pending operator gate | — | Held |
+| 1C | DISAG-1 + DISAG-2 + ALT-DISAG-1 — pending operator gate | — | Held |
+| 1D | INFLATE-1 + ANCHOR-1 — pending operator gate | — | Held |
+
+**Discipline for every Market-Ecology phase**:
+1. Read the prior phase's audit document before approving the next gate.
+2. Capture `pre_market_*.txt` snapshot in `backend/runtime/market/baseline_snapshots/` BEFORE patching.
+3. Run full verification matrix (probes + 14-suite + brain:checkpoint).
+4. Open observation window: read `npm run market:status` output across multiple days.
+5. Zero new network calls per phase unless explicitly approved by operator.
+6. Never auto-trust a "sharp" book or auto-distrust a "soft" book until explicit ANCHOR-1 gate.
+
+**`npm run market:status`** — five sections of canonical market observability:
+1. **SNAPSHOT FRESHNESS** — savedAt + total rows + per-book counts per sport snapshot.
+2. **CONSENSUS CONFIDENCE DISTRIBUTION** — p10/p50/p90 of `consensusConfidence`; bookCount distribution; top-N multi-book disagreements.
+3. **TOP STALE ROWS** — books diverging from consensus by ±2.5¢, tagged `soft_line` (bettor value) or `stale_line` (book overprices).
+4. **PER-BOOK HISTORICAL CLV** — 60-day rolling bets / settled / ROI / avgCLV per book.
+5. **API-CALL BURN** — rolling 24h / 7d / 30d call counters per sport, per endpoint, with p50/p90/p99 duration.
+
+---
+
 ## REALISM ECOLOGY DOCTRINE (Phase Realism-Ecology-1A, 2026-05-14)
 
 **Evolve betting ecology INCREMENTALLY** with measurable longitudinal observation windows. Never stack multiple realism interventions in a single gate — calibration attribution requires single-variable changes.

@@ -4,6 +4,9 @@ const axios = require("axios")
 
 const { getSportConfig } = require("../sports/sportConfig")
 const { buildMlbSlateEvents } = require("../schedule/buildMlbSlateEvents")
+// Phase Market-Ecology-1A (OBS-3): observability-only logging wrapper around
+// Odds-API axios calls. Pure-local, never throws, never adds network calls.
+const { logApiCallAsync } = require("../shared/apiCallLogger")
 const {
   inferMlbMarketTypeFromKey,
   isMlbPitcherMarketKey,
@@ -730,10 +733,14 @@ async function fetchMlbEventOdds({ oddsApiKey, eventId, bookmakersCsv, marketsCs
   if (bookmakersCsv) params.bookmakers = bookmakersCsv
   if (marketsCsv) params.markets = marketsCsv
 
-  return axios.get(endpoint, {
-    params,
-    timeout: 15000
-  })
+  // Phase Market-Ecology-1A (OBS-3): wrap axios.get with logApiCallAsync.
+  // Records ts/sport/endpoint/eventId/status/durationMs/httpStatus/error to
+  // runtime/market/api_call_log.jsonl. Network semantics + error propagation
+  // + timeout unchanged.
+  return logApiCallAsync(
+    { sport: "mlb", endpoint: "odds-api/v4/events/odds", eventId },
+    () => axios.get(endpoint, { params, timeout: 15000 })
+  )
 }
 
 function parseInvalidMarketsFromError(error) {

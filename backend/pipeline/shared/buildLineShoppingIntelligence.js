@@ -175,6 +175,18 @@ function buildLineShopping(rows = [], { sport = "unknown", bookState = null } = 
     const bestImpDelta = r4((bestOddsRow._imp ?? consensus) - consensus)
     const lineDelta = null   // only meaningful when comparing across different lines (ladder section)
 
+    // Phase Market-Ecology-1A (OBS-2): consensusConfidence derived metric.
+    // Formula: clamp(0, 1, 1 - (marketDispersion / max(consensus, 0.001))).
+    // Interpretation: 1.0 = books unanimous; 0.0 = wide disagreement.
+    // Pure-derived from existing fields (consensus + marketDispersion). No
+    // behavior change — additive output field only. Surfaced on every byProp
+    // entry AND every bestByProp entry so downstream operators can rank by
+    // disagreement-resolution clarity without re-computing the dispersion.
+    const dispersion = num(withImp[0]?.bookImpliedDispersion) ?? r4(
+      Math.sqrt(withImp.reduce((s, r) => s + (r._imp - avgImp) ** 2, 0) / withImp.length)
+    )
+    const consensusConfidence = r4(Math.max(0, Math.min(1, 1 - (dispersion / Math.max(consensus, 0.001)))))
+
     const entry = {
       key,
       eventId: rep.eventId,
@@ -197,9 +209,8 @@ function buildLineShopping(rows = [], { sport = "unknown", bookState = null } = 
       bookCount: withImp.length,
       books: withImp.map((r) => ({ book: r._book, odds: r.odds, imp: r4(r._imp) })),
       bestImpDelta,    // negative = better for bettor than consensus
-      marketDispersion: num(withImp[0]?.bookImpliedDispersion) ?? r4(
-        Math.sqrt(withImp.reduce((s, r) => s + (r._imp - avgImp) ** 2, 0) / withImp.length)
-      ),
+      marketDispersion: dispersion,
+      consensusConfidence,   // Phase Market-Ecology-1A (OBS-2) — see comment above
       // Book profile annotation (if rolling state available)
       bookProfile: bookState ? annotateBookProfile(bestOddsRow._book, rep.propFamilyKey, bookState) : null,
     }
@@ -219,6 +230,7 @@ function buildLineShopping(rows = [], { sport = "unknown", bookState = null } = 
         consensus,
         bestImpDelta,
         bookCount: entry.bookCount,
+        consensusConfidence,   // Phase Market-Ecology-1A (OBS-2)
       })
     }
   }

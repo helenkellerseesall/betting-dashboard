@@ -28,7 +28,8 @@
     "grading:backfill-all":          "node scripts/runGradingBackfillAll.js",
     "grading:status":                "node scripts/gradingStatus.js",
     "calibration:status":            "node scripts/calibrationStatus.js",
-    "lineage:status":                "node scripts/lineageStatus.js"
+    "lineage:status":                "node scripts/lineageStatus.js",
+    "market:status":                 "node scripts/marketStatus.js"
   },
   "keywords": [],
   "author": "",
