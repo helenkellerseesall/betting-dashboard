@@ -14,7 +14,16 @@
     "persistence:probe":             "node scripts/runPersistenceProbes.js",
     "persistence:import":            "node storage/importHistoricalData.js",
     "persistence:backfill-aliases":  "node scripts/backfillPredictionIdAliases.js",
-    "epoch:status":                  "node scripts/epochStatus.js"
+    "epoch:status":                  "node scripts/epochStatus.js",
+    "engine:start":                  "bash scripts/engineStart.sh",
+    "engine:restart":                "bash scripts/engineRestart.sh",
+    "engine:status":                 "node scripts/engineStatus.js",
+    "slate:refresh":                 "node scripts/slateRefresh.js",
+    "slate:nba":                     "node scripts/slateNba.js",
+    "slate:mlb":                     "node scripts/slateMlb.js",
+    "runtime:verify":                "node scripts/runtimeVerify.js",
+    "grading:run":                   "node scripts/gradingRun.js",
+    "grading:review":                "node scripts/gradingReview.js"
   },
   "keywords": [],
   "author": "",

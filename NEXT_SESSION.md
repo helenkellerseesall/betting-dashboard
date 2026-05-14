@@ -1,10 +1,106 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Longitudinal-Integrity-1B — canonical epoch authority shipped: `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` in `intelligence.js`, `epochAuthority` surfaced via `nbaCacheDiagnostics`, `probe_epoch_authority_v1.js` 48/48 PASS, `npm run epoch:status` shipped. Operator approval gate now open for Phase 1C (migrate 5 derivation sites to thin wrappers around canonical helper). Phase Persistence-1B operator execution still pending. Phase Race-1 watchdog + F6.3 still pending TERM 1 restart.)_
+_Last updated: 2026-05-14 (Phase Operator-Operations-1 — 9 new canonical npm scripts + `docs/OPERATOR_RUNBOOK.md` + `docs/OPERATIONS_AUDIT_2026-05-14.md`. Memory-resident commands eliminated. Anti-magic guarantees encoded. 14/14 regression PASS via `runtime:verify`. Multiple operator-gated decisions now open: Phase Longitudinal-Integrity-1C (epoch derivation migration), Phase Persistence-1C (outcome wiring), Phase Persistence-1B operator-side execution, Phase Race-1 + F6.3 TERM 1 restart. Phase Operator-Operations-2 candidates listed below.)_
 
 ---
 
-## OPERATOR APPROVAL GATE — Phase Longitudinal-Integrity-1C (next session)
+## CANONICAL DAILY CEREMONY (Phase Operator-Operations-1 — 2026-05-14)
+
+> The full single-page reference is `docs/OPERATOR_RUNBOOK.md`. This is the short form.
+
+```bash
+cd ~/Desktop/betting-dashboard/backend
+
+# Session start
+npm run brain:bootstrap                # load operator memory, write receipt
+npm run brain:continuity               # drift detector (must PASS)
+npm run engine:status                  # backend liveness + brain summary
+
+# TERM 1 if backend down OR pending restarts (folds in F6.3 / Race-1 / Persistence-1B)
+npm run engine:restart                 # echoes every PID before kill; exec node server.js
+
+# Pre-slate (TERM 2)
+npm run slate:nba                      # NBA hard-reset + diagnostics summary
+npm run slate:mlb                      # MLB refresh + diagnostics summary
+npm run runtime:verify                 # 14-suite regression matrix
+
+# Post-slate (TERM 2)
+npm run grading:run -- --date=$(date +%Y-%m-%d)
+npm run grading:review -- --date=$(date +%Y-%m-%d) --verbose
+npm run persistence:status             # SQLite vs JSON parity
+npm run epoch:status                   # epoch authority diagnostics
+
+# Session end
+npm run brain:checkpoint               # seals receipt + runs 14-suite matrix
+```
+
+---
+
+## OPERATOR APPROVAL GATES OPEN (in priority order)
+
+### Gate 1 — Phase Persistence-1B operator execution (BLOCKING ON OPERATOR'S MACHINE)
+
+The Phase Persistence-1B activation tooling shipped (Phase Persistence-1B was implementation; operator-side execution is still pending). The auditor sandbox cannot run these commands against the operator's real `betting.db`. Operator must execute on their machine:
+
+```bash
+cd ~/Desktop/betting-dashboard/backend
+npm run persistence:import                # one-time idempotent backfill
+npm run persistence:backfill-aliases      # composite-key forward bridge
+npm run persistence:status                # verify parity
+```
+
+Expected outcomes documented in prior NEXT_SESSION revision and `docs/PERSISTENCE_AUDIT_2026-05-14.md`.
+
+### Gate 2 — TERM 1 restart (folds in Race-1 watchdog + F6.3 + Persistence-1B boot integrity check + Longitudinal-Integrity-1B diagnostics surface)
+
+```bash
+cd ~/Desktop/betting-dashboard
+npm run engine:restart                    # canonical replacement for the embedded shell ceremony
+```
+
+After boot, expected new boot-log fields:
+- `[SERVER-BOOT-DB-INIT] { ok: true, ..., ledgerIntegrity: {...} }` — Phase Persistence-1B
+- `[DB-BOOT] { ..., critical_tables: { ... ✓ ... }, azRepairApplied: null }`
+- The `epochAuthority` field now visible in `/api/best-available.nbaCacheDiagnostics` once any freeze fires
+
+### Gate 3 — Phase Longitudinal-Integrity-1C (migrate 5 derivation sites to wrappers)
+
+Migrate the five existing `compute*EpochId` functions to thin wrappers around `intelligence.js:derivePredictionEpochId`. Byte-parity is verified by `probe_epoch_authority_v1.js` (48/48 PASS). Each wrapper preserves backward-compatible signature so external callers (verify scripts, probes) need no change.
+
+Five wrapper migrations (see prior NEXT_SESSION revision):
+- Site #1 — `freezePredictionEpoch.js:computeEpochId`
+- Site #2 — `freezeMlbContextualEpoch.js:computeMlbEpochId`
+- Site #3 — `freezeMlbLiveStateEpoch.js:computeLiveEpochId`
+- Site #4 — `mlbLiveStateHistory.js:computeEpochId`
+- Site #5 — `_detroitSlateDateKey` → `deriveCanonicalSlateDate`
+
+Approval options: "Approve all five" / "Approve sites 3, 5" / "Approve site 5 only" / "Hold".
+
+### Gate 4 — Phase Persistence-1C (grading→SQLite outcome wiring)
+
+Wire SQLite outcome writers into the grading layer. Today `outcome_snapshots` and `slip_outcomes` are 0 rows because grading writes JSON only. This is the load-bearing gap from `PERSISTENCE_AUDIT_2026-05-14.md` §10.
+
+Approval options: "Approve Phase 1C" / "Hold — verify 1B execution first" / "Skip to 1D".
+
+### Gate 5 — Phase Operator-Operations-2 candidates (NEW — from this phase's audit §12)
+
+Lightweight additive operational helpers, deferred from Phase 1 to keep that phase minimal. Pick any combination:
+
+1. **`engine:logs` tail helper** — tail TERM 1 log into TERM 2. Useful for headless / remote operation.
+2. **`slate:status`** — cross-sport summary view (both sports + timing + line-shopping in one summary).
+3. **`grading:status`** — settled-count + pending-count inspector per date.
+4. **Pre-commit hook** running `brain:checkpoint --since-minutes=60 --skip-matrix`. Already noted as INC-009.
+5. **`engine:start-detached`** — opt-in background mode with PID file + log redirection. Mutually exclusive with the no-detach guarantee — would require explicit operator approval.
+
+Approval options: "Approve 1,2,3" (typical operator quality-of-life) / "Approve all 5" / "Defer to a future phase".
+
+### Gate 6 — `[REFRESH-MUTEX-STUCK]` real-world verification (informational, no patch needed)
+
+When `npm run engine:restart` runs for the first time post-Phase Race-1, the new watchdog is active. The probe (Phase Race-1 implementation) verified the watchdog wiring at 6/6 sites in `server.js`. **No operator action required** — it's silent on a healthy system. If `[REFRESH-MUTEX-STUCK]` ever fires, the recovery is `npm run engine:restart` (canonical).
+
+---
+
+## OPERATOR APPROVAL GATE — Phase Longitudinal-Integrity-1C (prior, retained for archival)
 
 > Phase 1B canonical helper now exists alongside the five existing `compute*EpochId` functions. Byte-parity verified 48/48. The five existing functions are still in production use. Phase 1C migrates each one to a thin wrapper around `derivePredictionEpochId` while preserving backward-compatible signatures.
 

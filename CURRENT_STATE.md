@@ -1,6 +1,129 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Longitudinal-Integrity-1B — canonical `derivePredictionEpochId(opts)` + `deriveCanonicalSlateDate(value)` shipped in `intelligence.js`; `epochAuthority` field surfaced via `nbaCacheDiagnostics`; `probe_epoch_authority_v1.js` 48/48 PASS verifying byte-parity vs all 5 existing `compute*EpochId` functions; `npm run epoch:status` shipped. Strict fallback policy: snapshot/live REJECT on missing ts. Five existing freeze writers UNCHANGED — Phase 1C migration is operator-gated. 14/14 regression PASS. Phase Persistence-1B activation + Race-1 watchdog + F6.3 still pending TERM 1 restart on operator's machine.)_
+_Last updated: 2026-05-14 (Phase Operator-Operations-1 — 9 new canonical npm scripts (`engine:start`/`restart`/`status`, `slate:refresh`/`nba`/`mlb`, `runtime:verify`, `grading:run`/`review`) + `docs/OPERATOR_RUNBOOK.md` + `docs/OPERATIONS_AUDIT_2026-05-14.md`. Pure additive wrappers — zero existing CLI / endpoint / runtime authority touched. Anti-magic: every PID echoed before kill, no detach, no `pkill -f node`, no silent fallbacks. Memory-resident operational commands eliminated. 14/14 regression PASS via `runtime:verify`. 44/44 persistence probes PASS. 48/48 epoch parity PASS. Phase Persistence-1B activation + Race-1 watchdog + F6.3 + Longitudinal-Integrity-1C all gated on operator action / TERM 1 restart.)_
+
+---
+
+## SESSION OPERATOR-OPERATIONS-1 — Canonical Operational Entrypoints + Runbook (2026-05-14)
+
+### Trigger
+
+Daily repo operation depended heavily on shell-history-resident commands. Recent phases (Race-1, Persistence-1A/B, Longitudinal-Integrity-1A/B) had raised engineering maturity; operator-side friction had become the primary bottleneck. The brief: establish canonical operational entrypoints so daily ceremony stops depending on memory.
+
+### What this session shipped
+
+Nine new canonical npm scripts + 2 operator-facing docs. All additive. All transparent. All call existing infrastructure.
+
+**Engine commands (TERM 1 lifecycle)**:
+- `npm run engine:start`   → `bash scripts/engineStart.sh` — checks port 4000 clear → `exec node server.js`. Refuses if port occupied; points to engine:restart.
+- `npm run engine:restart` → `bash scripts/engineRestart.sh` — identifies PIDs on port 4000 via `lsof`, PRINTS each PID with `ps` info, `kill -9`, verifies port clear, `exec node server.js`. Replaces the embedded `(lsof -ti tcp:4000 | xargs -r kill -9; sleep 2; ...); node backend/server.js` shell snippet from NEXT_SESSION.md.
+- `npm run engine:status`  → `node scripts/engineStatus.js` — port 4000 occupancy + HTTP `/snapshot/status` probe + brain:status + brain:continuity summary. Read-only.
+
+**Slate commands (TERM 2 day-of)**:
+- `npm run slate:refresh` → GET `/refresh-snapshot[?sport=...]`
+- `npm run slate:nba`     → POST `/api/nba/refresh-snapshot/hard-reset` → GET `/api/best-available?sport=basketball_nba` → GET `/api/ws/state?sport=nba`. Surfaces bestProps count, F6.3 match strategy, epoch authority counters, cache lifecycle.
+- `npm run slate:mlb`     → GET `/refresh-snapshot?sport=baseball_mlb` → GET `/api/best-available?sport=baseball_mlb` → GET `/api/ws/state?sport=mlb`. Surfaces row count, snapshot freshness.
+
+**Runtime + grading commands**:
+- `npm run runtime:verify` → runs all 14 `verify*.js` suites with operator-friendly summary (per-suite timing + PASS/FAIL verdict). Same suites brain:checkpoint runs.
+- `npm run grading:run`    → thin wrapper around `runHistoricalGrade.js`, defaults `--sport=all`, passes through operator args.
+- `npm run grading:review` → thin wrapper around `runDailyReview.js`, defaults `--sport=all`, passes through operator args.
+
+**Operator-facing docs**:
+- `docs/OPERATOR_RUNBOOK.md` — single-page daily ceremony reference. Pre-slate, in-slate, post-slate, failure-recovery workflows.
+- `docs/OPERATIONS_AUDIT_2026-05-14.md` — full audit + canonical command map + all 12 sections per operator brief.
+
+### Anti-magic guarantees (per operator instruction)
+
+- ❌ NO silent kills — `engine:restart` echoes every PID with `ps -p <pid> -o pid,user,etime,command` BEFORE issuing `kill -9`.
+- ❌ NO `pkill -f node` (which would kill unrelated Node processes); uses explicit PID list from `lsof -ti tcp:4000`.
+- ❌ NO retry / no kill-then-wait-then-retry loop — kill once, verify port clear, abort with clear error if not.
+- ❌ NO detach into background — boot log streams to operator's terminal.
+- ❌ NO orchestration that hides operational state — every script echoes intent BEFORE acting.
+- ❌ NO modification of existing commands — `node backend/server.js`, `node backend/scripts/runHistoricalGrade.js`, the `for f in ...` shell loop ALL still work exactly as before. Canonical npm verbs are recommended, not required.
+- ❌ NO new HTTP routes, endpoints, or runtime authority — operations layer is pure wrapper over existing infrastructure.
+
+### Verification
+
+```
+node --check on all 7 new Node scripts                    OK
+bash -n on both new bash scripts (chmod +x applied)        OK
+npm run engine:status                                      PASS (gracefully reports no-backend in sandbox)
+npm run runtime:verify                                     14/14 PASS (1524ms total)
+npm run slate:refresh (no backend, sandbox)                graceful failure with operator guidance
+npm run persistence:probe                                  2/2 probes PASS (44 checks)
+probe_epoch_authority_v1.js                                48/48 PASS
+npm run brain:bootstrap / continuity / verify              PASS clean
+```
+
+### Authority preservation (verified)
+
+- ✅ No existing npm script modified or removed.
+- ✅ No existing CLI script modified (`runMlbNight.js`, `runNbaNight.js`, `runHistoricalGrade.js`, `runDailyReview.js`, `checkpointRepo.js`, etc. all unchanged).
+- ✅ No existing HTTP endpoint modified or added.
+- ✅ No runtime authority shift.
+- ✅ Replay / freeze / grading / snapshot / mutex / persistence / epoch paths preserved.
+- ✅ Phase Race-1 watchdog preserved.
+- ✅ Phase Persistence-1B activation tooling preserved.
+- ✅ Phase Longitudinal-Integrity-1B canonical helper preserved.
+- ✅ 14-suite regression matrix unchanged (`runtime:verify` invokes the same scripts).
+- ✅ Brain checkpoint discipline preserved.
+- ✅ Phase-tagged inline (Law 10).
+- ✅ Single canonical owner per command verb (Law 1).
+- ✅ Observability-first (Law 9, Law 16).
+
+### Files touched (Phase Operator-Operations-1)
+
+```
+backend/scripts/engineStart.sh                                NEW, ~30 lines, chmod +x
+backend/scripts/engineRestart.sh                              NEW, ~70 lines, chmod +x
+backend/scripts/engineStatus.js                               NEW, ~95 lines
+backend/scripts/slateRefresh.js                               NEW, ~75 lines
+backend/scripts/slateNba.js                                   NEW, ~115 lines
+backend/scripts/slateMlb.js                                   NEW, ~90 lines
+backend/scripts/runtimeVerify.js                              NEW, ~75 lines
+backend/scripts/gradingRun.js                                 NEW, ~35 lines
+backend/scripts/gradingReview.js                              NEW, ~35 lines
+backend/package.json                                          +9 npm scripts
+docs/OPERATOR_RUNBOOK.md                                      NEW, ~170 lines
+docs/OPERATIONS_AUDIT_2026-05-14.md                           NEW, ~580 lines (12-section audit)
+backend/runtime/brain/MASTER_BRAIN.md                         current-phase + canonical command surface
+backend/runtime/brain/CURRENT_RUNTIME_STATE.md                Phase Operator-Operations-1 entry
+backend/runtime/brain/MODEL_EVOLUTION_LOG.md                  new dated entry at top
+backend/runtime/brain/OPERATOR_PROTOCOL.md                    canonical command map appended
+backend/runtime/brain/PIPELINE_AUTHORITY_MAP.md               OPERATIONS section added
+backend/runtime/brain/ACTIVE_INCIDENTS.md                     R-035 resolved
+CURRENT_STATE.md                                              this entry
+NEXT_SESSION.md                                               session entries + Phase Operator-Operations-2 candidate gate
+```
+
+### Operator next actions
+
+Canonical commands are available immediately. Daily ceremony per `docs/OPERATOR_RUNBOOK.md`:
+
+```bash
+cd ~/Desktop/betting-dashboard/backend
+
+# Morning (TERM 1) — folds in pending F6.3 + Race-1 + Persistence-1B restarts
+npm run engine:restart
+
+# Morning (TERM 2)
+npm run engine:status
+npm run slate:nba
+npm run slate:mlb
+npm run runtime:verify
+
+# Evening (TERM 2)
+npm run grading:run -- --date=$(date +%Y-%m-%d)
+npm run grading:review -- --date=$(date +%Y-%m-%d) --verbose
+npm run persistence:status
+npm run epoch:status
+
+# Session end
+npm run brain:checkpoint
+```
+
+After the operator runs `npm run engine:restart` for the first time post-1, TERM 1 boot log will include the Phase Persistence-1B boot integrity check (`ledgerIntegrity` field inside `[SERVER-BOOT-DB-INIT]`), the Phase Race-1 watchdog (active observation only — emits `[REFRESH-MUTEX-STUCK]` only on > 5min stuck), the Phase Longitudinal-Integrity-1B epoch authority diagnostics surface (visible via `npm run engine:status` or `/api/best-available.nbaCacheDiagnostics.epochAuthority`), and the F6.3 player-id resolution contract.
 
 ---
 
