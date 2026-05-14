@@ -89,8 +89,32 @@ Backend listening on http://localhost:4000
 
 | Command | Purpose |
 |---|---|
-| `npm run grading:run`        | Run historical grading. Default `--sport=all`. Override with `-- --sport=nba` / `-- --sport=mlb` / `-- --date=YYYY-MM-DD` / `-- --backfill` / `-- --retry-unresolved`. |
+| `npm run grading:run`        | Run historical grading (Tier 1+2 — JSON in-place). Default `--sport=all`. Override with `-- --sport=nba` / `-- --sport=mlb` / `-- --date=YYYY-MM-DD` / `-- --backfill` / `-- --retry-unresolved`. |
 | `npm run grading:review`     | Run daily intelligence review. Default `--sport=all`. Override with `-- --sport=...` / `-- --date=...` / `-- --verbose` / `-- --dry-run` / `-- --json` / `-- --summary`. |
+
+### Grading-Calibration commands (Phase Grading-Calibration-Operations-1B/1D/1F/1G, 2026-05-14)
+
+| Command | Purpose |
+|---|---|
+| `npm run grading:backfill`     | Run the canonical `scripts/nightlyReview.js` for one `(sport, date)`. Invokes the full 6-step orchestrator (apply results → post-game review → ledger import → ledger settle → CLV → reports). Writes `outcome_snapshots` + `slip_outcomes` (Tier 3). Pass-through args: `-- --sport=mlb --date=2026-05-08 [--force] [--dry] [--check]`. |
+| `npm run grading:backfill-all` | Backfill every `(sport, date)` where JSON tracked_bets is settled but SQLite outcome rows are missing. Iterates dates, calls the canonical CLI per date. Echoes per-date decisions (RUN / SKIP / FAIL). Operator args: `-- --sport=mlb` / `-- --dry` / `-- --force` / `-- --verbose` / **`-- --clear-locks`** (Phase 1F+1G). Idempotent on re-run. |
+| `npm run grading:backfill-all -- --clear-locks` | **Phase 1F (INC-014) + Phase 1G (INC-015)** — pre-flight stale-lock sweep. Scans `runtime/tracking/.nightly_lock_*`, probes each recorded pid with `process.kill(pid, 0)`, reports + reclaims dead pids (`reclaimed-dead`), reports + reclaims alive-pid-but-stale (>10 min old) entries (`reclaimed-stale` — pid reuse), leaves alive+fresh alone (`alive`). Combine with `--dry` for scan-only preview. |
+
+**Lock state machine (Phase 1F + 1G combined)** — `acquireLock` decision tree per existing lockfile:
+
+| Lock age | PID probe | Outcome |
+|---|---|---|
+| 0–10 min | alive | Honor (legitimate concurrent run) |
+| 0–10 min | dead (ESRCH) | Reclaim |
+| 10–30 min | alive | Reclaim with `[acquire-lock][INC-015]` console warning (pid reuse) |
+| 10–30 min | dead | Reclaim |
+| >30 min | any | Reclaim (hard TTL) |
+
+Watch for `[acquire-lock][INC-015] Reclaiming ...` warnings — those are pid-reuse events the orchestrator now self-heals.
+
+| `npm run grading:status`       | Per-date parity inspector. Per-`(sport, date)`: JSON tracked_bets total + settled count vs SQLite `outcome_snapshots` row count + **JOIN-success count (Phase 1D)** + slip parity. Surfaces lag/gap (Δ). Includes personal-ledger settlement state. |
+| `npm run calibration:status`   | Calibration corpus health: per-tier hit rate + delta_prob, per-volatility, per-side, per-stat-family (top 10), Session W table population, global Brier score. **Phase 1D adds**: JOIN-restricted coverage diagnostics + sample-size warnings + classification-health check (replaces the misleading "see prediction_id_aliases" hint). |
+| `npm run lineage:status`       | **Phase 1D** — canonical lineage-health inspector. Global totals (predictions / outcomes / JOIN matches / orphans both sides). Per-date breakdown with coverage status (HEALTHY ≥80% / PARTIAL 50–80% / LOW <50% / PRE-CORPUS 100%-orphan). Classification health (hit IS NOT NULL fraction). Sample orphan ids per side. Canonical byte-parity regression-guard. |
 
 ### Runtime verification (Phase Operator-Operations-1, 2026-05-14)
 
@@ -147,17 +171,31 @@ npm run epoch:status            # epoch authority state
 ```bash
 cd ~/Desktop/betting-dashboard/backend
 
-# 1. Grade today's bets + slips
+# 1. Tier 1+2 — Grade today's bets + slips in JSON (in-place result fields)
 npm run grading:run -- --date=$(date +%Y-%m-%d)
 
-# 2. Run the daily intelligence review
+# 2. Tier 3 — Orchestrator: writes SQLite outcome_snapshots + slip_outcomes,
+#             updates personal_ledger, runs Session W daily review (Phase
+#             Grading-Calibration-Operations-1B, 2026-05-14)
+npm run grading:backfill -- --sport=mlb --date=$(date +%Y-%m-%d)
+npm run grading:backfill -- --sport=nba --date=$(date +%Y-%m-%d)
+# OR (one shot) backfill every settled date that's still missing in SQLite:
+#   npm run grading:backfill-all
+
+# 3. Verify grading + calibration health
+npm run grading:status                 # JSON-vs-SQLite parity (Δ should be 0); JOIN column shows lineage match per date
+npm run lineage:status                 # orphan accounting + coverage status per date (Phase 1D)
+npm run calibration:status             # per-tier hit rate, delta_prob, Brier — JOIN-restricted (Phase 1D)
+
+# 4. (Optional) Tier 4 — separately runnable: daily intelligence review
+#                       (already invoked as Step 9 inside `grading:backfill`)
 npm run grading:review -- --date=$(date +%Y-%m-%d) --verbose
 
-# 3. Verify persistence integrity
+# 5. Verify persistence integrity
 npm run persistence:status
 npm run epoch:status
 
-# 4. Seal brain receipt + run regression matrix
+# 6. Seal brain receipt + run regression matrix
 npm run brain:checkpoint
 ```
 

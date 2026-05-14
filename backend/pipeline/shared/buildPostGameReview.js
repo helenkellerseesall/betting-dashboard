@@ -117,7 +117,10 @@ function mergeActualsOntoBets(bets, actuals = {}) {
 function classifyBet(sport, bet) {
   const adapter = pickAdapter(sport)
   const line = num(bet.line)
-  const stat = num(bet.actualStat)
+  // Phase 1E (INC-013 fix): gradeTrackedBets writes `actualValue`; legacy callers
+  // (mergeActualsOntoBets) write `actualStat`. Read both so classification works
+  // for tracked_bets (primary path) without breaking the legacy actuals merge path.
+  const stat = num(bet.actualValue ?? bet.actualStat)
   const side = String(bet.side || "").toLowerCase()
   let hit = null
   let delta = null
@@ -419,7 +422,10 @@ function runPostGameReview({ sport, date, actuals = {}, write = true } = {}) {
         return {
           id:          predId,
           hit:         hitFlag != null ? (hitFlag ? 1 : 0) : null,
-          actualValue: b.actualStat ?? null,
+          // Phase 1E (INC-013 fix): companion read so outcome_snapshots.actual_value
+          // populates from gradeTrackedBets' `actualValue` (primary writer) while
+          // preserving the legacy `actualStat` fallback used by mergeActualsOntoBets.
+          actualValue: b.actualValue ?? b.actualStat ?? null,
           settledAt:   b.settledAt || new Date().toISOString(),
           notes:       b.result,
         }

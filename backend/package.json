@@ -23,7 +23,12 @@
     "slate:mlb":                     "node scripts/slateMlb.js",
     "runtime:verify":                "node scripts/runtimeVerify.js",
     "grading:run":                   "node scripts/gradingRun.js",
-    "grading:review":                "node scripts/gradingReview.js"
+    "grading:review":                "node scripts/gradingReview.js",
+    "grading:backfill":              "node ../scripts/nightlyReview.js",
+    "grading:backfill-all":          "node scripts/runGradingBackfillAll.js",
+    "grading:status":                "node scripts/gradingStatus.js",
+    "calibration:status":            "node scripts/calibrationStatus.js",
+    "lineage:status":                "node scripts/lineageStatus.js"
   },
   "keywords": [],
   "author": "",

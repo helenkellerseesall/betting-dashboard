@@ -155,13 +155,61 @@ function detectSlateCompletion(sport, date, { snapshotRows = null } = {}) {
 
 // ── duplicate-run guard ───────────────────────────────────────────────────────
 
+// Phase 1G (INC-015): orchestrator runs typically take <60s end-to-end. Any
+// lock whose startedAt is older than this threshold is suspicious — either
+// the original owner is wedged (in which case operator should investigate)
+// or, far more commonly, the recorded pid has been reused by an unrelated
+// process and process.kill(pid, 0) is reporting the WRONG owner as "alive".
+// Reclaiming after this threshold restores deterministic backfill on hosts
+// where pid recycling is aggressive (containerized environments, low pid_max).
+const ALIVE_PID_STALE_THRESHOLD_MS = 10 * 60 * 1000  // 10 minutes
+
 function acquireLock(sport, date) {
   const lp = LOCK_FILE(sport, date)
   if (fs.existsSync(lp)) {
     const content = readJsonSafe(lp, {})
     const age = Date.now() - new Date(content.startedAt || 0).getTime()
     // Stale lock older than 30 min — override
-    if (age < 30 * 60 * 1000) return { ok: false, reason: "already_running", pid: content.pid }
+    if (age < 30 * 60 * 1000) {
+      // Phase 1F (INC-014 fix — deterministic backfill restoration):
+      // PID-liveness probe via `process.kill(pid, 0)` — POSIX-standard
+      // "does this pid exist" check that does NOT actually deliver a signal.
+      //   - throws ESRCH → owner is gone; reclaim the lock (crash-leftover)
+      //   - throws EPERM → owner exists but in another security context; honor lock
+      //   - returns      → owner is alive; honor lock (UNLESS age > stale threshold,
+      //                    in which case it is almost certainly pid reuse — Phase 1G)
+      const pid = Number(content.pid)
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0)
+          // Phase 1G (INC-015 fix — pid-reuse edge case): if the probe reports
+          // alive but the recorded startedAt is older than the stale threshold,
+          // the original orchestrator owner is long gone and the pid has been
+          // recycled. Reclaim with explicit forensic console.warn — visibility
+          // preserved per the operator's mandate "no swallowed exceptions".
+          if (age > ALIVE_PID_STALE_THRESHOLD_MS) {
+            console.warn(
+              `[acquire-lock][INC-015] Reclaiming ${sport}/${date} lock: pid=${pid} reports alive ` +
+              `but startedAt is ${Math.round(age / 1000)}s old (>${Math.round(ALIVE_PID_STALE_THRESHOLD_MS / 60000)}min stale threshold) — likely pid reuse`
+            )
+            // fall through to reclaim
+          } else {
+            // Owner alive AND recent — legitimate concurrent run.
+            return { ok: false, reason: "already_running", pid }
+          }
+        } catch (e) {
+          if (e && e.code === "ESRCH") {
+            // Owner dead — fall through to reclaim by overwriting the lockfile.
+          } else {
+            // EPERM or unknown — honor lock conservatively.
+            return { ok: false, reason: "already_running", pid }
+          }
+        }
+      } else {
+        // No pid recorded — honor lock (legacy lockfile shape).
+        return { ok: false, reason: "already_running", pid: content.pid }
+      }
+    }
   }
   writeJsonSync(lp, { pid: process.pid, sport, date, startedAt: new Date().toISOString() })
   return { ok: true }
