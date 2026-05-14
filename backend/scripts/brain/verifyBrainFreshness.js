@@ -193,6 +193,20 @@ function check10_regressionMatrix() {
   else                       warn(`only ${fixtures.length} verify scripts present (expected >= 14)`)
 }
 
+function check11_continuityReceipt() {
+  header("11. Continuity receipt (autonomous-enforcement layer)")
+  const a = lib.assessContinuity()
+  if (!a.receiptPresent) {
+    fail("no bootstrap receipt — run `npm run brain:bootstrap` to seed continuity tracking")
+    return
+  }
+  ok("receipt present at " + lib.BOOTSTRAP_RECEIPT_PATH.replace(lib.REPO_ROOT + "/", ""))
+  if (a.receipt.lastBootstrapAt) ok(`lastBootstrapAt: ${a.receipt.lastBootstrapAt} (${a.bootstrapAgeMinutes} min ago)`)
+  if (a.receipt.lastCheckpointAt) ok(`lastCheckpointAt: ${a.receipt.lastCheckpointAt}  [${a.receipt.lastCheckpointResult || "?"}]`)
+  for (const w of a.warnings) warn(`[${w.code}] ${w.message}`)
+  for (const i of a.issues)   fail(`[${i.code}] ${i.message}`)
+}
+
 function run() {
   console.log("╔" + "═".repeat(68) + "╗")
   console.log("║  BRAIN FRESHNESS VERIFICATION                                       ║")
@@ -209,6 +223,7 @@ function run() {
     check8_evolutionLogHasDatedEntries()
     check9_brainVsRuntimeMtime()
     check10_regressionMatrix()
+    check11_continuityReceipt()
   } catch (err) {
     fail("unexpected exception: " + (err && err.stack ? err.stack : err))
   }

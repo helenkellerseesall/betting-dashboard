@@ -83,6 +83,28 @@ function run() {
     }
   }
 
+  // Continuity receipt + drift summary
+  console.log("")
+  console.log("CONTINUITY RECEIPT")
+  console.log("──────────────────")
+  const a = lib.assessContinuity()
+  if (!a.receiptPresent) {
+    console.log("  (no receipt — run `npm run brain:bootstrap`)")
+  } else {
+    const r = a.receipt
+    console.log("  lastBootstrapAt        : " + (r.lastBootstrapAt || "—") +
+      (Number.isFinite(a.bootstrapAgeMinutes) ? `  (${a.bootstrapAgeMinutes} min ago)` : ""))
+    console.log("  lastCheckpointAt       : " + (r.lastCheckpointAt || "—") +
+      (Number.isFinite(a.checkpointAgeMinutes) ? `  (${a.checkpointAgeMinutes} min ago)` : "") +
+      (r.lastCheckpointResult ? `  [${r.lastCheckpointResult}]` : ""))
+    console.log("  runtime changed since bootstrap : " + (a.runtimeChangedSinceBootstrap ? "yes" : "no"))
+    console.log("  brain    changed since bootstrap : " + (a.brainChangedSinceBootstrap ? "yes" : "no"))
+    console.log("  warnings : " + a.warnings.length)
+    console.log("  issues   : " + a.issues.length)
+    for (const w of a.warnings) console.log("    WARN — [" + w.code + "] " + w.message)
+    for (const i of a.issues)   console.log("    FAIL — [" + i.code + "] " + i.message)
+  }
+
   // Regression matrix presence
   console.log("")
   console.log("REGRESSION MATRIX (verify*.js files in backend/scripts/)")

@@ -119,10 +119,30 @@ function run() {
   console.log("  Pending operator actions / curls    → ../../../NEXT_SESSION.md")
   console.log("  Granular session log                → ../../../CURRENT_STATE.md")
 
+  // CONTINUITY-RECEIPT WRITE — the central act of "this session bootstrapped"
+  // is persisted to .brain_bootstrap_state.json so subsequent commands can
+  // detect drift / staleness. (Autonomous continuity enforcement layer.)
+  const nowIso = new Date().toISOString()
+  const sessionId = require("crypto").randomBytes(6).toString("hex")
+  const receipt = lib.writeBootstrapReceipt({
+    lastBootstrapAt: nowIso,
+    lastBootstrapSessionId: sessionId,
+    brainDocHashAtBootstrap:   lib.hashBrainDocs(),
+    runtimeCodeHashAtBootstrap: lib.hashRuntimeCode(),
+  })
+
+  section("CONTINUITY RECEIPT WRITTEN")
+  console.log("  lastBootstrapAt        : " + receipt.lastBootstrapAt)
+  console.log("  lastBootstrapSessionId : " + receipt.lastBootstrapSessionId)
+  console.log("  brain doc hash         : " + receipt.brainDocHashAtBootstrap.slice(0, 22) + "…")
+  console.log("  runtime code hash      : " + receipt.runtimeCodeHashAtBootstrap.slice(0, 22) + "…")
+  console.log("  file                   : " + lib.BOOTSTRAP_RECEIPT_PATH.replace(lib.REPO_ROOT + "/", ""))
+
   section("NEXT")
   console.log("  • Patch following ARCHITECTURE_LAWS.md Law 15 (read before patch).")
-  console.log("  • Run `npm run brain:status`  for a quick freshness snapshot.")
-  console.log("  • Run `npm run brain:verify`  before declaring work done.")
+  console.log("  • Run `npm run brain:status`     for a quick freshness snapshot.")
+  console.log("  • Run `npm run brain:continuity` to inspect bootstrap-receipt drift.")
+  console.log("  • Run `npm run brain:verify`     before declaring work done.")
   console.log("  • Run `npm run brain:checkpoint` at end-of-session to enforce update discipline.")
   console.log("")
 }

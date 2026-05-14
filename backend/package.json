@@ -8,6 +8,7 @@
     "brain:bootstrap":  "node scripts/brain/loadBrainContext.js",
     "brain:status":     "node scripts/brain/brainSyncSummary.js",
     "brain:verify":     "node scripts/brain/verifyBrainFreshness.js",
+    "brain:continuity": "node scripts/brain/assessContinuity.js",
     "brain:checkpoint": "node scripts/brain/enforceBrainCheckpoint.js"
   },
   "keywords": [],

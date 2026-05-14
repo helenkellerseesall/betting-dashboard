@@ -137,6 +137,20 @@ function run() {
     console.log("  should also be updated when those areas are affected — verify manually.")
   }
 
+  // 3b. Autonomous continuity assessment (bootstrap receipt + hash drift)
+  console.log("\n" + "─".repeat(70))
+  console.log("CONTINUITY ASSESSMENT (bootstrap receipt + hash drift)")
+  console.log("─".repeat(70))
+  const a = lib.assessContinuity()
+  if (a.warnings.length === 0 && a.issues.length === 0) {
+    console.log("  OK — continuity intact")
+  }
+  for (const w of a.warnings) console.log("  WARN — [" + w.code + "] " + w.message)
+  for (const i of a.issues) {
+    console.log("  FAIL — [" + i.code + "] " + i.message)
+    fails += 1
+  }
+
   // 4. Freshness verifier sub-run
   console.log("\n" + "─".repeat(70))
   console.log("FRESHNESS VERIFICATION (delegating to verifyBrainFreshness.js)")
@@ -175,7 +189,29 @@ function run() {
     console.log("\n  (regression matrix skipped via --skip-matrix)")
   }
 
-  // 6. Summary
+  // 6. Reconciliation marker — persist current hashes into the receipt so that
+  //    future continuity assessments treat this state as "reconciled".
+  if (fails === 0) {
+    try {
+      lib.writeBootstrapReceipt({
+        lastCheckpointAt: new Date().toISOString(),
+        lastCheckpointResult: "PASS",
+        brainDocHashAtCheckpoint: lib.hashBrainDocs(),
+        runtimeCodeHashAtCheckpoint: lib.hashRuntimeCode(),
+      })
+    } catch (err) {
+      console.log("  WARN — could not update bootstrap receipt: " + (err && err.message))
+    }
+  } else {
+    try {
+      lib.writeBootstrapReceipt({
+        lastCheckpointAt: new Date().toISOString(),
+        lastCheckpointResult: "FAIL",
+      })
+    } catch (_e) { /* non-fatal */ }
+  }
+
+  // 7. Summary
   console.log("\n══════════════════════════════════════════════════════════════════════")
   console.log(`CHECKPOINT RESULT: ${fails === 0 ? "PASS" : "FAIL"}  (${fails} failure(s))`)
   console.log("══════════════════════════════════════════════════════════════════════")
@@ -183,12 +219,14 @@ function run() {
     console.log("\nWhat to do:")
     console.log("  1. Update the missing brain docs (MASTER_BRAIN.md, CURRENT_RUNTIME_STATE.md,")
     console.log("     MODEL_EVOLUTION_LOG.md) to reflect the runtime-code changes.")
-    console.log("  2. Run `npm run brain:verify` to see freshness details.")
-    console.log("  3. Re-run any failed regression suites; investigate before declaring done.")
-    console.log("  4. Re-run `npm run brain:checkpoint` to confirm PASS.")
+    console.log("  2. Run `npm run brain:verify`     to see freshness details.")
+    console.log("  3. Run `npm run brain:continuity` to inspect bootstrap-receipt drift.")
+    console.log("  4. Re-run any failed regression suites; investigate before declaring done.")
+    console.log("  5. Re-run `npm run brain:checkpoint` to confirm PASS.")
     process.exitCode = 1
   } else {
     console.log("\nCheckpoint clean. Brain is synchronized with runtime state.")
+    console.log("Receipt reconciled — runtime + brain hashes stamped at " + new Date().toISOString())
     console.log("Update repo-root CURRENT_STATE.md + NEXT_SESSION.md if operator-facing details changed.")
   }
 }
