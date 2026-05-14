@@ -1,6 +1,105 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Operator-Operations-1 — 9 new canonical npm scripts (`engine:start`/`restart`/`status`, `slate:refresh`/`nba`/`mlb`, `runtime:verify`, `grading:run`/`review`) + `docs/OPERATOR_RUNBOOK.md` + `docs/OPERATIONS_AUDIT_2026-05-14.md`. Pure additive wrappers — zero existing CLI / endpoint / runtime authority touched. Anti-magic: every PID echoed before kill, no detach, no `pkill -f node`, no silent fallbacks. Memory-resident operational commands eliminated. 14/14 regression PASS via `runtime:verify`. 44/44 persistence probes PASS. 48/48 epoch parity PASS. Phase Persistence-1B activation + Race-1 watchdog + F6.3 + Longitudinal-Integrity-1C all gated on operator action / TERM 1 restart.)_
+_Last updated: 2026-05-14 (Phase Operator-Operations-1A — `slate:nba` route reconciliation. Operational validation discovered the phantom `POST /api/nba/refresh-snapshot/hard-reset` returned 404. Repo-wide grep confirmed no `/api/nba/*` route ever existed in server.js; the canonical hard-reset endpoint is `GET /refresh-snapshot/hard-reset` (server.js:19471) which internally delegates to `handleNbaRefreshSnapshotAfterMlbBranch`. Fix: 1-line patch in `slateNba.js` plus phase-tag comment block. No other script affected; replay/freeze/grading/mutex/persistence/epoch authority preserved. 14/14 regression PASS. 44/44 persistence probes PASS. 48/48 epoch parity PASS.)_
+
+---
+
+## SESSION OPERATOR-OPERATIONS-1A — Canonical NBA Refresh Route Reconciliation (2026-05-14)
+
+### Trigger
+
+Operational validation of Phase Operator-Operations-1 exposed a route contract mismatch in `slate:nba`:
+- **Original implementation** (Phase Operator-Operations-1): `POST /api/nba/refresh-snapshot/hard-reset`
+- **Server response**: HTTP 404 (no such route registered)
+- **All other Phase 1 commands PASS** — `engine:status`, `slate:refresh`, `slate:mlb`, `runtime:verify`, `persistence:probe`, etc.
+
+This is a small operational contract mismatch, NOT a runtime/ingestion/architecture/continuity failure.
+
+### Discovery (carry-forward rule re-applied)
+
+Per the carry-forward rule established in Race-1 / Persistence-1A / Longitudinal-Integrity-1B (re-verify against live source before patching), repo-wide grep:
+
+```
+grep -nE "app\.(get|post|put|delete|use)\(.*['\"]/(refresh|api/(refresh|nba|mlb|best))" server.js
+  10141: app.get("/api/best-available", ...)
+  19366: app.get("/refresh-snapshot", ...)
+  19471: app.get("/refresh-snapshot/hard-reset", ...)        ← canonical hard-reset
+  19602+: app.get("/api/best/...", ...)
+  19661+: app.get("/api/mlb/...", ...)
+
+grep -nE "app\.(get|post).*['\"]/api/nba" server.js
+  (no results — no /api/nba/* route registered anywhere)
+```
+
+**Canonical NBA hard-reset endpoint** is `GET /refresh-snapshot/hard-reset` (server.js:19471). Reading the handler body confirmed it internally delegates to `handleNbaRefreshSnapshotAfterMlbBranch` (the same handler the working `/refresh-snapshot` route uses), plus clears in-memory caches (`playerIdCache`, `playerStatsCache`, etc.) and deletes `api-sports-cache.json` if present. **No sport-prefixed alternate exists.** No `POST` variant exists.
+
+### Fix
+
+Two changes, both in `backend/scripts/slateNba.js`:
+
+1. Step 1 method: `POST` → `GET`
+2. Step 1 path: `/api/nba/refresh-snapshot/hard-reset` → `/refresh-snapshot/hard-reset`
+
+Plus a phase-tag comment block documenting the route authority and the rationale.
+
+```diff
+- const r1 = await step("Step 1: NBA hard-reset refresh", "POST", "/api/nba/refresh-snapshot/hard-reset")
++ const r1 = await step("Step 1: NBA hard-reset refresh", "GET", "/refresh-snapshot/hard-reset")
+```
+
+### Authority preservation (verified)
+
+- ✅ No backend route added, modified, or removed — only the operator wrapper script changed.
+- ✅ Hard-reset semantics preserved — `handleNbaRefreshSnapshotAfterMlbBranch` is the same handler used by the prior phantom route attempt; that's by design (the canonical endpoint already routes there).
+- ✅ Refresh mutex behavior preserved — Phase Race-1 watchdog unchanged.
+- ✅ Refresh cooldown behavior preserved — server.js cooldown logic untouched.
+- ✅ Replay safety preserved — `/refresh-snapshot/hard-reset` honors `?replay=disk` via `isNbaOddsReplayRequest(req)`.
+- ✅ Grading behavior unchanged.
+- ✅ All other slate:* scripts unaffected.
+- ✅ All 9 Phase Operator-Operations-1 canonical commands continue to work.
+- ✅ Phase-tagged inline (Law 10) — both the docstring and the call-site comment carry `Phase Operator-Operations-1A (2026-05-14)`.
+- ✅ Single canonical owner per command verb (Law 1) — `slate:nba` is still the single canonical NBA refresh ceremony.
+- ✅ No silent retries (Law 16) — graceful 404 / ECONNREFUSED messaging preserved.
+
+### Verification
+
+```
+node --check scripts/slateNba.js                                  OK
+grep verifies new route + phase comment present                   OK
+npm run slate:nba (sandbox, no backend)                           graceful failure with operator guidance
+                                                                  (HTTP GET http://localhost:4000/refresh-snapshot/hard-reset)
+npm run runtime:verify                                            14/14 PASS (1824ms total)
+npm run persistence:probe                                         2/2 probes PASS (44 checks)
+probe_epoch_authority_v1.js                                       48/48 PASS
+npm run brain:bootstrap / continuity / verify                     PASS
+```
+
+### What this phase does NOT do
+
+- ❌ Does NOT modify any backend route.
+- ❌ Does NOT add a `/api/nba/refresh-snapshot/hard-reset` route alias (would be parallel authority — violates Law 1).
+- ❌ Does NOT change hard-reset semantics.
+- ❌ Does NOT touch any other slate:* script.
+- ❌ Does NOT change Phase Operator-Operations-1 canonical command map.
+
+### Files touched (Phase Operator-Operations-1A)
+
+```
+backend/scripts/slateNba.js                                       1-line route fix + phase-comment block
+docs/OPERATOR_RUNBOOK.md                                          updated reference table + slate:nba row
+CURRENT_STATE.md                                                  this entry
+NEXT_SESSION.md                                                   session entry + status
+```
+
+### Lessons reinforced (carry-forward rule, now applied 4 times)
+
+Once again, the carry-forward rule from `FULL_SYSTEMS_AUDIT_2026-05-14.md` postscript prevented compound regression:
+1. Race-1 — confirmed mutex already unified (audit was stale).
+2. Persistence-1A — confirmed atomic writes already exist + schema chain present (audit was stale).
+3. Longitudinal-Integrity-1B — confirmed 5 formula bytes byte-exact before introducing canonical helper.
+4. **Operator-Operations-1A (this session)** — confirmed actual route shape (server.js:19471) before patching.
+
+The carry-forward rule is now a structural part of every phase's pre-flight.
 
 ---
 

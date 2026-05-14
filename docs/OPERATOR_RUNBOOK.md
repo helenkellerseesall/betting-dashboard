@@ -82,7 +82,7 @@ Backend listening on http://localhost:4000
 | Command | Purpose |
 |---|---|
 | `npm run slate:refresh`                  | `GET /refresh-snapshot` — generic refresh. Accepts `-- --sport=nba|mlb` to pass-through. |
-| `npm run slate:nba`                      | NBA full ceremony: hard-reset refresh → best-available diagnostics → workstation state. Surfaces bestProps count, cache lifecycle, F6.3 match strategy, epoch authority counters. |
+| `npm run slate:nba`                      | NBA full ceremony: `GET /refresh-snapshot/hard-reset` → best-available diagnostics → workstation state. Surfaces bestProps count, cache lifecycle, F6.3 match strategy, epoch authority counters. *(Phase Operator-Operations-1A 2026-05-14: route corrected from phantom `POST /api/nba/refresh-snapshot/hard-reset` to canonical `GET /refresh-snapshot/hard-reset`.)* |
 | `npm run slate:mlb`                      | MLB full ceremony: refresh → best-available → workstation state. Surfaces row count, snapshot freshness, slate diagnostics. |
 
 ### Grading commands (post-slate — Phase Operator-Operations-1, 2026-05-14)
@@ -256,7 +256,7 @@ Every new operational command is:
 | `engine:restart` | `backend/scripts/engineRestart.sh` | `lsof -ti tcp:4000` → echo PIDs → `kill -9` → verify clear → `exec node server.js` |
 | `engine:status`  | `backend/scripts/engineStatus.js`  | `lsof -i tcp:4000` + HTTP GET `/snapshot/status` + spawnSync `brain:status` + spawnSync `brain:continuity` |
 | `slate:refresh`  | `backend/scripts/slateRefresh.js`  | HTTP GET `/refresh-snapshot[?sport=...]` |
-| `slate:nba`      | `backend/scripts/slateNba.js`      | POST `/api/nba/refresh-snapshot/hard-reset` → GET `/api/best-available?sport=basketball_nba` → GET `/api/ws/state?sport=nba` |
+| `slate:nba`      | `backend/scripts/slateNba.js`      | GET `/refresh-snapshot/hard-reset` → GET `/api/best-available?sport=basketball_nba` → GET `/api/ws/state?sport=nba`  *(canonical hard-reset endpoint; server.js:19471 — Phase Operator-Operations-1A 2026-05-14)* |
 | `slate:mlb`      | `backend/scripts/slateMlb.js`      | GET `/refresh-snapshot?sport=baseball_mlb` → GET `/api/best-available?sport=baseball_mlb` → GET `/api/ws/state?sport=mlb` |
 | `runtime:verify` | `backend/scripts/runtimeVerify.js` | spawnSync each `verify*.js` in turn; aggregate verdict |
 | `grading:run`    | `backend/scripts/gradingRun.js`    | spawnSync `runHistoricalGrade.js` with operator args (defaults `--sport=all` if absent) |

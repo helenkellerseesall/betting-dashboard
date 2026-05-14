@@ -3,6 +3,7 @@
 
 /**
  * slateNba.js — Phase Operator-Operations-1 (2026-05-14)
+ *                Operator-Operations-1A route fix (2026-05-14)
  *
  *   Usage:
  *     node backend/scripts/slateNba.js
@@ -11,14 +12,23 @@
  * Canonical operator entrypoint to trigger NBA slate refresh + summary.
  *
  * Sequence:
- *   1. POST /api/nba/refresh-snapshot/hard-reset          (force refresh)
- *   2. GET  /api/best-available?sport=basketball_nba      (diagnostics + epochAuthority)
- *   3. GET  /api/ws/state?sport=nba                       (board hydration)
+ *   1. GET /refresh-snapshot/hard-reset                   (canonical NBA hard-reset; server.js:19471)
+ *   2. GET /api/best-available?sport=basketball_nba       (diagnostics + epochAuthority)
+ *   3. GET /api/ws/state?sport=nba                        (board hydration)
  *
  * Each request is logged BEFORE issuing so the operator sees what's about
  * to happen. Response summaries print bestProps count, epochAuthority
  * counters, ledger divergence state. Replaces the inline curl ceremony
  * from NEXT_SESSION.md.
+ *
+ * ROUTE AUTHORITY NOTE (Phase Operator-Operations-1A, 2026-05-14):
+ *   The original implementation used POST /api/nba/refresh-snapshot/hard-reset,
+ *   which returned 404 (no such route registered). Verified by repo-wide grep:
+ *   the canonical hard-reset endpoint is server.js:19471 — `GET /refresh-snapshot/hard-reset`.
+ *   Internally that handler delegates to `handleNbaRefreshSnapshotAfterMlbBranch`
+ *   (the same handler the working /refresh-snapshot route uses), with the added
+ *   benefit of clearing in-memory caches + the optional api-sports-cache.json.
+ *   The fix preserves hard-reset semantics + mutex behavior + replay safety.
  */
 
 const http = require("http")
@@ -65,8 +75,10 @@ async function main() {
   const t0 = Date.now()
   console.log("=== slate:nba — Phase Operator-Operations-1 ===")
 
-  // 1. Hard refresh
-  const r1 = await step("Step 1: NBA hard-reset refresh", "POST", "/api/nba/refresh-snapshot/hard-reset")
+  // 1. Hard refresh — canonical NBA hard-reset endpoint (server.js:19471).
+  //    Per Phase Operator-Operations-1A: GET /refresh-snapshot/hard-reset is
+  //    the canonical route; there is no /api/nba/refresh-snapshot/hard-reset.
+  const r1 = await step("Step 1: NBA hard-reset refresh", "GET", "/refresh-snapshot/hard-reset")
   const j1 = safeJson(r1.res.body)
   if (j1) {
     const summary = {

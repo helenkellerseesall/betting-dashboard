@@ -1,6 +1,6 @@
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Operator-Operations-1 — 9 new canonical npm scripts + `docs/OPERATOR_RUNBOOK.md` + `docs/OPERATIONS_AUDIT_2026-05-14.md`. Memory-resident commands eliminated. Anti-magic guarantees encoded. 14/14 regression PASS via `runtime:verify`. Multiple operator-gated decisions now open: Phase Longitudinal-Integrity-1C (epoch derivation migration), Phase Persistence-1C (outcome wiring), Phase Persistence-1B operator-side execution, Phase Race-1 + F6.3 TERM 1 restart. Phase Operator-Operations-2 candidates listed below.)_
+_Last updated: 2026-05-14 (Phase Operator-Operations-1A — `slate:nba` route reconciliation. Phantom `POST /api/nba/refresh-snapshot/hard-reset` corrected to canonical `GET /refresh-snapshot/hard-reset` (server.js:19471). 1-line fix in `slateNba.js` + phase-comment block. 14/14 regression PASS, 44/44 persistence probes PASS, 48/48 epoch parity PASS. All 6 operator-gated decisions from Phase Operator-Operations-1 remain open and unchanged.)_
 
 ---
 
