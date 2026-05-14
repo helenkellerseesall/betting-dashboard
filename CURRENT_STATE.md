@@ -1,6 +1,122 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
+_Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED — fake-aggressive correlation reduction. Operator approved 2 of 8 audit lever options as smallest-safe step. **AGG-2**: `TIER_TEMPLATES.aggressive.maxPerGame: 2 → 1` (attacks same-game superstar-correlation ladder; cross-game pairs preserved → dangerous upside intact). **TEXT-1**: `offensiveAttackTextureBonus` over-side offensive boost `+= 0.032 → += 0.016` (halves the only sign-asymmetric scoring nudge in AGGRESSIVE/LOTTO seeding). LOTTO untouched; MLB BALANCED under-only preserved; FAMILY_CALIBRATION_COEFFICIENTS unchanged; volatility rules unchanged; portfolio thresholds unchanged. Phase-tagged Law 10 comments. Pre/post snapshots captured at `backend/runtime/calibration_snapshots/{pre,post}_realism_1a_*.txt`. Live MLB 2026-05-05 still produces AGGRESSIVE +5864 ev:430% slips. Full matrix 150/150 PASS. brain:checkpoint sealed 20:18:14Z. Operator-mandated discipline: evolve ecology incrementally with measurable longitudinal observation windows. Phase 1B (ALT-1+PORT-1), 1C (CORR-1+VOL-1), 1D (AGG-1+AGG-3+MLB-AGGRESSIVE-under-only) held for operator-approval gates after observation window. INC-013/014/015 RESOLVED.)_
+
+Prior session record (Phase 1G):
 _Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported isolated nba/2026-05-08 failure (exit=1, ~33ms) and hypothesized "malformed replay payload." Forensic reproduction with FULL stderr/stdout proved: NO PAYLOAD DEFECT EXISTS — 33ms fingerprint is Phase 1F's lock guard, fooled by pid-reuse on the operator host where the recorded orchestrator pid was recycled by an unrelated process. Direct inspection of `nba_tracked_bets_2026-05-08.json` confirmed 4 well-formed Jalen Brunson rebounds rows. Minimal Phase 1G hardening: `ALIVE_PID_STALE_THRESHOLD_MS = 10 min` — locks with alive-pid AND startedAt >10min ago are now reclaimed with explicit `console.warn([acquire-lock][INC-015]...)`. Phase 1F + 1G together form a 5-tier deterministic state machine. STATE 1 sandbox test (pid=1 alive + 11min old → operator scenario) → reclaim + EXIT=0 ✓. STATE 2 (pid=1 alive + 5min old → legitimate concurrent) → honor lock ✓. Full grading:backfill-all (16 dates, 9 ran incl. nba/2026-05-08 in 451ms, 0 failed). 150/150 verification PASS. brain:checkpoint sealed. INC-013, INC-014, INC-015 all RESOLVED. Operator next: `npm run grading:backfill-all -- --clear-locks` on host.)_
+
+---
+
+## SESSION REALISM-ECOLOGY-1A — Fake-Aggressive Correlation Reduction (AGG-2 + TEXT-1) (2026-05-14)
+
+### What this session shipped
+
+Smallest safe step toward truthful betting ecology. Operator approved 2 of 8 audit lever options from the prior Phase Realism-Ecology-1 audit. Remaining 6 held for sequential operator-approval gates after observation-window data accumulates.
+
+**1. AGG-2** — `backend/pipeline/shared/buildSlipAi.js` `TIER_TEMPLATES.aggressive.maxPerGame`:
+- Before: `2`
+- After: `1`
+- Effect: AGGRESSIVE slips can no longer pair two legs from the same game. Cross-game same-stat pairs preserved (e.g., Edwards 30+ pts in game A + Dončić 28+ pts in game B). Dangerous upside surface intact; same-game ladder shape removed.
+
+**2. TEXT-1** — `backend/pipeline/shared/buildSlipAi.js` `offensiveAttackTextureBonus`:
+- Before: `if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.032`
+- After:  `if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.016`
+- Effect: Halves the only sign-asymmetric scoring nudge in AGGRESSIVE/LOTTO seeding. Over-side offensive legs with edge>0.035 no longer get a structural +0.032 advantage over equivalent under-side legs. Volatility-class (+0.022) and steam/timing (+0.014) nudges unchanged. Total cap remains 0.07.
+
+Phase-tagged Law 10 inline comments at both sites.
+
+### Operator-mandated discipline
+
+The operator explicitly rejected stacking multiple realism interventions simultaneously:
+> "we now have real calibration infrastructure and should evolve ecology incrementally with measurable longitudinal observation windows rather than stacking multiple realism interventions simultaneously."
+
+Phase 1A is intentionally narrow so the next calibration observation window can attribute any AGGRESSIVE hit-rate change to **these specific two changes**.
+
+### Pre/post snapshots for longitudinal observation
+
+Both snapshots saved under `backend/runtime/calibration_snapshots/`:
+- `pre_realism_1a_2026-05-14T201522Z.txt` — captured before patches.
+- `post_realism_1a_2026-05-14T201652Z.txt` — captured after patches.
+
+These give the operator byte-comparable records of the exact source-code shape before vs after, plus a starting baseline for forward observation.
+
+### Live behavior verification
+
+MLB 2026-05-05 orchestrator run:
+```
+[SLIP-PROBE] buildAiSlips: candidates=1021 normalized=1021 sport=mlb
+[SLIP-PROBE] normalized vols={"aggressive":228,"balanced":676,"lotto":96,"safe":21}
+[SLIP-PROBE] tiers: safe=3 balanced=3 aggressive=3 lotto=3
+  AI SLIPS  Built 12 slips from 1021 candidates · safe:3 balanced:3 aggr:3 lotto:3
+    AGGRESSIVE  +5864   ev:430%  strong edge + attack surface mix
+```
+
+AGGRESSIVE still generates +5864 / 430% EV slips. The construction shape changed; the upside surface is preserved.
+
+### Architecture preservation invariants
+
+- ✓ No grading writer / classifier / settlement-object changed.
+- ✓ No replay path changed.
+- ✓ No lineage / persistence schema changed.
+- ✓ No orchestrator step semantics changed.
+- ✓ No FAMILY_CALIBRATION_COEFFICIENTS changed.
+- ✓ No volatility classifier rules changed.
+- ✓ No portfolio optimizer thresholds changed.
+- ✓ MLB BALANCED `allowedSides: ["under"]` (FIX 2) preserved.
+- ✓ MLB SLIP_EXCLUDED_FAMILIES (rbis + outs, FIX 3) preserved.
+- ✓ NBA correlation engine boost caps preserved.
+- ✓ LOTTO tier untouched.
+- ✓ SAFE / BALANCED tier templates untouched.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| **Total** | **150** | **PASS** |
+
+brain:checkpoint sealed 2026-05-14T20:18:14.451Z.
+
+### Operator action — fresh slate pull + calibration snapshot comparison
+
+Per operator's mandate after implementation:
+
+```bash
+# 1. Run full replay/grading verification (verifies no regression)
+cd backend
+npm run grading:backfill-all -- --clear-locks
+npm run grading:status
+npm run calibration:status
+npm run lineage:status
+
+# 2. Fresh slate pull (next NBA / MLB slate of the day)
+npm run slate:refresh
+# Inspect newly-built slips — AGGRESSIVE should show no same-game pairs.
+
+# 3. Calibration snapshot comparison against pre-1A baseline
+diff backend/runtime/calibration_snapshots/pre_realism_1a_*.txt \
+     backend/runtime/calibration_snapshots/post_realism_1a_*.txt
+```
+
+### Remaining lever options (held for operator-approval gates)
+
+- **Phase 1B**: ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened)
+- **Phase 1C**: CORR-1 (cap pairwise boost in AGGRESSIVE) + VOL-1 (split aggressive volatility bucket)
+- **Phase 1D**: AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop lotto from AGGRESSIVE) + MLB-AGGRESSIVE-under-only
+
+Each held until operator approves and a measurable observation window from the prior phase exists.
+
+### Pre-existing gap surfaced (not in Phase 1A scope)
+
+`canAddLeg` same-game constraint is skipped when `gameKey()` returns null (legs missing both `eventId` and `matchup`). AGG-2 does not worsen this — it inherits the same constraint structure. Surfacing for future operator awareness; not patched per smallest-safe-step discipline.
+
+### Status
+
+Phase Realism-Ecology-1A SHIPPED. Calibration infrastructure now usable as a learning loop. System evolving from "historical calibration intelligence" toward "believable dangerous betting ecology" through incremental, attributable, calibration-informed evolution.
 
 ---
 

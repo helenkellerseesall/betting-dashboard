@@ -1,7 +1,29 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14).**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14.**
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## REALISM ECOLOGY DOCTRINE (Phase Realism-Ecology-1A, 2026-05-14)
+
+**Evolve betting ecology INCREMENTALLY** with measurable longitudinal observation windows. Never stack multiple realism interventions in a single gate — calibration attribution requires single-variable changes.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | AGG-2 (`AGGRESSIVE.maxPerGame: 2→1`) + TEXT-1 (`offensiveAttackTextureBonus` over-side `0.032→0.016`) | 2026-05-14 | ✅ SHIPPED — forward observation window open |
+| 1B | ALT-1 + PORT-1 — pending operator gate | — | Held |
+| 1C | CORR-1 + VOL-1 — pending operator gate | — | Held |
+| 1D | AGG-1 + AGG-3 + MLB-AGGRESSIVE-under-only — pending operator gate | — | Held |
+
+**Discipline for every Realism-Ecology phase**:
+1. Read the prior phase's audit document before approving the next gate.
+2. Capture `pre_realism_*.txt` snapshot in `backend/runtime/calibration_snapshots/` BEFORE patching.
+3. Capture `post_realism_*.txt` snapshot AFTER patching.
+4. Run full verification matrix (probes + 14-suite + brain:checkpoint).
+5. Open observation window: track per-tier hit-rates via `npm run calibration:status` weekly.
+6. Effect sizes are DIRECTIONAL until corpus exceeds the INC-012 ceiling.
+7. Never hard-disable AGGRESSIVE, LOTTO, or ladders. Never hardcode under-forcing. Never punish specific players.
 
 ---
 

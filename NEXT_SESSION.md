@@ -1,53 +1,54 @@
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported nba/2026-05-08 exit=1 at ~33ms and hypothesized "malformed replay payload"; forensic reproduction proved NO payload defect exists — the 33ms fingerprint is Phase 1F's lock guard fooled by pid-reuse. Phase 1G adds `ALIVE_PID_STALE_THRESHOLD_MS = 10 min`: locks with alive-pid AND startedAt >10min ago are reclaimed with explicit `[acquire-lock][INC-015]` warning. Phase 1F + 1G together form a 5-tier deterministic lock state machine. Full matrix 150/150 PASS. All 9 historical (sport, date) pairs run cleanly; nba/2026-05-08 in 451ms. INC-013, INC-014, INC-015 all RESOLVED.)_
+_Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED. AGG-2 (`TIER_TEMPLATES.aggressive.maxPerGame` 2→1) + TEXT-1 (`offensiveAttackTextureBonus` over-side boost halved 0.032→0.016). Smallest-safe step toward truthful betting ecology. LOTTO untouched, MLB BALANCED under-only preserved, FAMILY_CALIBRATION_COEFFICIENTS unchanged, volatility rules unchanged, portfolio thresholds unchanged. Phase-tagged Law 10 comments. Pre/post snapshots at `backend/runtime/calibration_snapshots/`. Live MLB 2026-05-05 confirms AGGRESSIVE still produces +5864 ev:430% slips. Full matrix 150/150 PASS. brain:checkpoint sealed 20:18:14Z. Operator-mandated discipline: forward observation window before next gate. INC-013/014/015 all RESOLVED. Phase 1B/1C/1D held for operator-approval gates.)_
 
 ---
 
-## OPERATOR ACTION REQUIRED — Single command resolves all three open incidents
+## OPERATOR ACTION — Fresh slate pull + calibration snapshot comparison
 
-Phase 1F + 1G + 1E together fully unblock the historical calibration corpus on the operator host:
+Per operator's post-1A mandate:
 
 ```bash
 cd backend
-npm run grading:backfill-all -- --clear-locks     # 1. Sweep stale lockfiles + run backfill
-# Watch for [acquire-lock][INC-015] Reclaiming... warnings during the sweep.
-# These are pid-reuse events Phase 1G now self-heals.
 
-npm run grading:status                             # 2. Verify JOIN column populated + non-zero hit-rates
-npm run calibration:status                         # 3. ⚠ CALIBRATION BLOCKED banner drops
-npm run lineage:status                             # 4. hit-populated rises to ~100% within JOIN-matched subset
+# 1. Full replay/grading verification on operator host
+npm run grading:backfill-all -- --clear-locks
+npm run grading:status        # confirm JOIN populated + hit-rates intact
+npm run calibration:status    # baseline AGGRESSIVE hit-rate (week 0 of observation window)
+npm run lineage:status        # confirm no regression
+
+# 2. Fresh slate pull
+npm run slate:refresh         # builds today's slate with Phase 1A construction
+
+# 3. Calibration snapshot comparison against pre-1A baseline
+diff backend/runtime/calibration_snapshots/pre_realism_1a_*.txt \
+     backend/runtime/calibration_snapshots/post_realism_1a_*.txt
 ```
 
-**Expected post-execution state**:
-- `outcome_snapshots.hit` populates for the ~219 JOIN-matched rows (INC-013 + INC-012 ceiling).
-- `outcome_snapshots.actual_value` populates from gradeTrackedBets writes (INC-013).
-- `outcome_snapshots.delta_prob` = `model_prob - hit`.
-- All 16 (sport, date) pairs run with exit=0; nba/2026-05-08 no longer fails (INC-014 + INC-015).
-- `calibration:status` per-tier / per-volatility / per-side / per-family queries return non-empty rows.
-- `lineage:status` no longer emits the INC-013 warning.
-- The ~928 pre-corpus orphan outcomes (INC-012) remain hit-null and JOIN-unmatched by design.
+**Forward observation discipline**:
+- Track AGGRESSIVE hit-rate weekly via `npm run calibration:status`.
+- Compare per-tier hit-rates against pre-1A baseline as corpus grows.
+- Effect sizes will be **directional, not statistically conclusive** until multiple weeks of forward grading accumulate beyond ~219 JOIN-matched outcomes (INC-012 ceiling).
+- Phase 1B/1C/1D should each be operator-gated after their respective observation window.
 
 ---
 
-## OPERATOR APPROVAL GATE — Phase Grading-Calibration-Operations-1G-cosmetic (display-parity finish)
+## REMAINING REALISM-ECOLOGY LEVERS (operator-approval gates)
 
-> Phase 1E intentionally limited scope to grading-correctness sites. Three remaining `bet.actualStat` reads in `buildPostGameReview.js` are display/telemetry only.
-
-| Line | Site | Current effect |
-|---|---|---|
-| 154 | `pushPlayerSample.recent.actualStat` | Player evolution recents show `actualStat: null` for tracked_bets. |
-| 335 | Output shape per-bet `actualStat` | Per-bet review-row display field shows null for tracked_bets. |
-| 374 | `withActuals` telemetry counter | Logs `withActuals: 0` even though hits compute correctly. |
-
-Same backward-compatible `actualValue ?? actualStat` pattern as Phase 1E. Trivial follow-up.
+| Phase | Levers | Effect | When |
+|---|---|---|---|
+| **1B** | ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened to {3,5}) | Tilts BALANCED toward calibration-friendly alt-line ecology; restores honest portfolio warnings | After 1A observation window |
+| **1C** | CORR-1 (cap NBA pairwise boost contribution in AGGRESSIVE seeding at +0.02) + VOL-1 (split aggressive volatility bucket — separate "moderate-odds normal" from "structurally rare event") | Further reduces correlated-pair surface; volatility honesty | After 1B observation window |
+| **1D** | AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop "lotto" from AGGRESSIVE allowedVolatility) + extending MLB BALANCED under-only to MLB AGGRESSIVE | Largest semantic shift — significantly tighter AGGRESSIVE gate | After 1C observation window |
 
 ---
 
-## OPERATOR APPROVAL GATE — Phase Grading-Calibration-Operations-1H (Personal ledger settlement activation — INC-011)
+## DEFERRED ITEMS (Phase 1F-cosmetic + 1H + future)
 
-> `personal_ledger.json` has 2000/2000 bets at `result='pending'` because `buildNightlyOrchestrator.stepLedgerSettle` is wired but never invoked (see INC-010 / INC-011). Process classification, CLV scoring, calibration trend curves on ledger bets are all blocked downstream.
-
-This phase activates the orchestrator's existing settlement plumbing — no architectural change, just turning on a switch that has been built and tested but disabled. Operator-gated because activation produces real writes to `personal_ledger.json`.
+| Phase | Scope |
+|---|---|
+| **1F-cosmetic** | Normalize 3 remaining `bet.actualStat` reads (lines 154/335/374 in buildPostGameReview.js) for display parity — Phase 1E left these intentionally untouched per smallest-safe-step. |
+| **1H** | Personal-ledger settlement activation (INC-011 — 2000/2000 bets dormant at `result='pending'`). Orchestrator's `stepLedgerSettle` is wired but never invoked. |
+| **future** | Harden `canAddLeg` same-game gateway when `gameKey()` returns null (legs missing both `eventId` and `matchup`). Surfaced as a pre-existing gap by Phase 1A inspection; not blocking. |
 
 ---
 
@@ -59,22 +60,33 @@ This phase activates the orchestrator's existing settlement plumbing — no arch
 | INC-002 | OPEN — known edge case | Same-lastname collision on same team (low NBA frequency). |
 | INC-003 | OPEN — known limitation | NBA roster Map has no TTL; mid-season trades require process restart. |
 | INC-011 | OPEN — dormant ledger | personal_ledger.json 2000/2000 bets at `result='pending'`. Phase 1H candidate. |
-| INC-012 | OPEN — by design | ~84% of historical outcomes are pre-corpus orphans. Permanent — no time-machine prediction synthesis. |
+| INC-012 | OPEN — by design | ~84% of historical outcomes are pre-corpus orphans. Permanent. |
 | **INC-013** | **✅ RESOLVED 2026-05-14 (Phase 1E)** | Field-mapping fix shipped; calibration unblocked. |
 | **INC-014** | **✅ RESOLVED 2026-05-14 (Phase 1F)** | Stale-lockfile blocked deterministic backfill; PID-liveness + `--clear-locks` shipped. |
-| **INC-015** | **✅ RESOLVED 2026-05-14 (Phase 1G)** | PID-reuse edge case in Phase 1F's liveness probe; age-aware reclaim (10-min threshold) shipped. |
+| **INC-015** | **✅ RESOLVED 2026-05-14 (Phase 1G)** | PID-reuse edge case in Phase 1F's liveness probe; age-aware reclaim shipped. |
 
 ---
 
-## TIERED LOCK STATE MACHINE (Phase 1F + 1G combined)
+## TIERED LOCK STATE MACHINE (Phase 1F + 1G — preserved through Phase 1A)
 
-| Lock age | PID probe | Outcome | Authoring phase |
-|---|---|---|---|
-| 0-10 min | alive | Honor (legitimate concurrent run) | preserved |
-| 0-10 min | dead (ESRCH) | Reclaim | Phase 1F |
-| 10-30 min | alive | **Reclaim with `[INC-015]` warning** | **Phase 1G** |
-| 10-30 min | dead | Reclaim | Phase 1F |
-| >30 min | any | Reclaim (hard TTL) | original |
+| Lock age | PID probe | Outcome |
+|---|---|---|
+| 0–10 min | alive | Honor (legitimate concurrent run) |
+| 0–10 min | dead (ESRCH) | Reclaim |
+| 10–30 min | alive | Reclaim with `[INC-015]` warning |
+| 10–30 min | dead | Reclaim |
+| >30 min | any | Reclaim (hard TTL) |
+
+---
+
+## REALISM ECOLOGY DOCTRINE (Phase 1A established)
+
+- **Incremental, attributable, calibration-informed** — never stack multiple realism interventions in the same gate.
+- **Pre/post snapshots mandatory** — every Realism phase captures `pre_realism_*` and `post_realism_*` snapshots in `backend/runtime/calibration_snapshots/` so the operator can byte-diff source shape changes.
+- **Smallest safe step first** — operator approves the minimal lever combination per gate.
+- **LOTTO and SAFE preserved unless explicitly approved** — Phase 1A touched only AGGRESSIVE tier + AGGRESSIVE/LOTTO seeding texture.
+- **No hardcoded under-forcing, no player punishment, no slip rejection** — only structural knobs and sort biases.
+- **Dangerous upside preserved** — cross-game pairs, lotto tier, +5000 EV constructions all remain available.
 
 ---
 
@@ -83,9 +95,9 @@ This phase activates the orchestrator's existing settlement plumbing — no arch
 ```
 # Brain enforcement
 npm run brain:bootstrap     # mandatory pre-flight
-npm run brain:continuity    # receipt-backed continuity check
-npm run brain:verify        # freshness + regression matrix verification
-npm run brain:checkpoint    # end-of-session seal (required before declaring done)
+npm run brain:continuity
+npm run brain:verify
+npm run brain:checkpoint    # end-of-session seal
 
 # Slate refresh
 npm run slate:refresh       # both sports
@@ -98,8 +110,8 @@ npm run engine:restart
 npm run engine:status
 
 # Grading + calibration
-npm run grading:run                                   # nightly orchestrator wrapper
-npm run grading:backfill-all                          # repopulate historical outcomes
+npm run grading:run
+npm run grading:backfill-all                          # Phase 1B+
 npm run grading:backfill-all -- --clear-locks         # Phase 1F+1G — pre-flight stale-lock sweep
 npm run grading:backfill-all -- --clear-locks --dry   # scan-only preview
 npm run grading:status                                # JOIN-success column (Phase 1D)

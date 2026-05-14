@@ -311,6 +311,15 @@ function lookupTiming(leg, timingMap) {
  * Tie-break / soft rank bias for AGGRESSIVE + LOTTO slip assembly only.
  * Prefer offensive-market legs with real edge + timing — NOT a fake overs boost:
  * only nudges ordering when composite scores are similar.
+ *
+ * Phase Realism-Ecology-1A (TEXT-1): over-side offensive bonus halved 0.032 → 0.016.
+ * Rationale: the over-side bonus was the only sign-asymmetric scoring nudge in
+ * AGGRESSIVE/LOTTO seeding. With overs realizing ~33% historical hit rate while
+ * unders materially outperformed, the asymmetric +0.032 was a structural over-bias
+ * that mis-ranked the eligible queue. Halving (not removing) preserves the original
+ * intent (prefer real-edge offensive overs in attack tiers) while reducing the bias
+ * magnitude by 50%. The volatility-class nudge (+0.022) and steam/timing nudge (+0.014)
+ * are unchanged — those are not sign-asymmetric. Total cap remains 0.07.
  */
 function offensiveAttackTextureBonus(leg, timingMap) {
   // isOffensiveAttackStat from normalizers.js — canonical shared definition.
@@ -318,7 +327,7 @@ function offensiveAttackTextureBonus(leg, timingMap) {
   // (previously omitted from the inline check here — aligned with buildFeaturedPlays).
   const offensive = isOffensiveAttackStat(leg.statFamily || leg.propType)
   let b = 0
-  if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.032
+  if (offensive && leg.side === "over" && (leg.edge ?? 0) > 0.035) b += 0.016  // Phase Realism-Ecology-1A (TEXT-1): was 0.032
   if ((leg.volatility === "aggressive" || leg.volatility === "lotto") && (leg.edge ?? 0) > 0.04) b += 0.022
   const tc = lookupTiming(leg, timingMap)
   if (tc?.state === "steam" || tc?.urgency === "immediate") b += 0.014
@@ -379,7 +388,14 @@ const TIER_TEMPLATES = {
     decimalOddsRange: [6.0, 120.0],
     allowedVolatility: ["balanced", "aggressive", "lotto"],
     forbidVolatility:  [],
-    maxPerGame:        2,
+    // Phase Realism-Ecology-1A (AGG-2): maxPerGame 2 → 1. Attacks the operator-
+    // observed "two same-game superstar legs" fake-aggressive correlation that
+    // drove ~22.7% historical AGGRESSIVE hit rate. Aggressive can still combine
+    // legs from DIFFERENT games (preserves dangerous upside surface). What
+    // disappears is the same-game ladder shape (e.g., Edwards 30+ pts + Towns
+    // 20+ pts in same game). maxPerStat=2 preserved so cross-game same-stat pairs
+    // (Edwards 30+ pts + Dončić 28+ pts in different games) remain available.
+    maxPerGame:        1,
     maxPerStat:        2,
     maxFb:             1,
   },
