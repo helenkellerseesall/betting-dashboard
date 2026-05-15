@@ -1,57 +1,66 @@
 **Exact operational resumption state. Overwrite every session. Never append.**
-_Last updated: 2026-05-14 (Phase Market-Ecology-1A SHIPPED — canonical market observability. **OBS-1** `npm run market:status` (NEW 5-section CLI). **OBS-2** `consensusConfidence` field on buildLineShopping. **OBS-3** `apiCallLogger.js` wired into NBA + MLB Odds-API axios calls (append-only JSONL log; zero new network calls). Pre-1A baseline at `backend/runtime/market/baseline_snapshots/`. First canonical sandbox output: 6 books / 826 multi-book disagreements / 10 stale-row candidates. Full matrix 150/150 PASS. brain:checkpoint sealed 21:08:05Z. Heuristic levers (STALE-1, CONS-1/2, DISAG-1/2, ALT-DISAG-1, INFLATE-1, ANCHOR-1) held for operator-approval gates. INC-013/014/015 all RESOLVED. Realism-Ecology-1A AGG-2+TEXT-1 still shipped.)_
+_Last updated: 2026-05-15 (Phase Operator-Experience-1B-1 SHIPPED — readable intelligence via deterministic plain-English tooltips. NEW `frontend/src/workstation/tooltips.ts` (25 helpers, ~220 lines) + 82 title= attributes across 7 surfaces + `(2b)` → `(2 books)` cleanup. ZERO backend file changed. ZERO layout / card / navigation redesign. ZERO AI-generated prose. Anti-fabrication enforced. tsc clean (exit 0). 150/150 matrix unchanged. All prior phases preserved.)_
+
+Prior session record (Phase Operator-Experience-1A):
+_Last updated: 2026-05-14 (Phase Operator-Experience-1A SHIPPED — actionable intelligence surfacing. 5 additive changes: 8 new operator-priority buckets in buildFeaturedPlays + 3 Phase Market-1A fields lifted onto every compactPlay + ActionableBucketsGrid Dashboard component + inline `conf=0.86 (3 books) volatility: balanced Δ-3.2¢` annotations on HeroPickCard/SpotlightCard/FeaturedCard + processNote/avoidReason lifted from tooltips to visible rows. tsc clean (exit 0). 150/150 probe matrix unchanged. Pre/post snapshots in backend/runtime/operator/baseline_snapshots/. No grading / replay / lineage / persistence / market-pipeline path changed. INC-013/014/015 all RESOLVED. Realism-1A + Market-1A + Operator-1A all shipped.)_
 
 ---
 
-## OPERATOR ACTION REQUIRED — Fresh slate pull + first canonical market:status review
+## OPERATOR ACTION — Fresh workstation review
 
 ```bash
 cd backend
+# 1. Run the slate refresh + workstation backend
+npm run engine:restart        # ensure clean backend
+npm run slate:refresh         # populates api_call_log.jsonl + freshens snapshot
 
-# 1. Fresh slate pull (populates api_call_log.jsonl on host via OBS-3 wrappers)
-npm run slate:refresh
-
-# 2. First canonical market intelligence view
-npm run market:status                  # all sports, top-10
-npm run market:status -- --sport=nba   # NBA only
-npm run market:status -- --sport=mlb   # MLB only
-npm run market:status -- --top=20      # widen top-N to 20
-
-# 3. (still applicable from prior phases) full replay/grading verification
-npm run grading:backfill-all -- --clear-locks
-npm run grading:status
-npm run calibration:status
-npm run lineage:status
+# 2. Visit the workstation in the browser
+# Default route: Workstation.tsx renders Dashboard.
+# Look for:
+#   - "Actionable Operator Buckets" section ABOVE the sport-native spotlight grid.
+#   - 8 SpotlightCards: Best Balanced / Aggressive / Unders / Alt Ladders /
+#     Disagreement Edges / Stale-Line Opportunities / Trap Ladders / Inflated Spots.
+#   - On HeroPickCard: new "conf=X.XX (Nb) volatility: X Δ±X¢ vs consensus" row.
+#   - On every SpotlightCard top: same inline annotations + SOFT/STALE pill if applicable.
+#   - On FeaturedCard rows: same annotations + processNote no longer tooltip-only.
+# 3. Verify the substrate is untouched
+npm run market:status         # still works; api_call_log.jsonl still populating
+npm run grading:status        # unchanged
+npm run calibration:status    # unchanged
+npm run lineage:status        # unchanged
+npm run runtime:verify        # 14/14 PASS expected
 ```
 
-**What to look for in market:status output**:
-- Section 1: snapshot freshness across both sports; per-book row counts.
-- Section 2: consensusConfidence distribution — p10 below 0.3 indicates high disagreement; bookCount distribution shows how often consensus is meaningfully multi-book.
-- Section 3: top stale rows tagged `soft_line` (bettor value — book underprices) or `stale_line` (book overprices).
-- Section 4: per-book historical CLV — 60-day rolling.
-- Section 5: API-call burn rolling 24h/7d/30d.
-
 ---
 
-## OPERATOR APPROVAL GATES — Phase Market-Ecology-1B / 1C / 1D (heuristic levers held)
-
-Each phase requires its own operator-approval gate AND a measurable observation window from the prior phase.
+## OPERATOR-EXPERIENCE — Remaining lever options (held for operator-approval gates)
 
 | Phase | Levers | Effect |
 |---|---|---|
-| **1B** | STALE-1 (time-series stale detector — read N consecutive snapshots + per-book line-movement deltas) + CONS-1 (trimmed-mean consensus) + CONS-2 (low-book-count warning when bookCount < 3) | Surfaces lagging books, removes outlier distortion, flags weak-consensus props |
-| **1C** | DISAG-1 (disagreementScore = max - min / consensus surfaced per prop) + DISAG-2 (outlier-book cluster detection — 2-of-3 consensus with 1 dissenter) + ALT-DISAG-1 (per-rung alt-line price divergence) | Per-prop disagreement quantification; alt-line ladder rung-level intelligence |
-| **1D** | INFLATE-1 (per-book per-stat-family inflation index over 14d historical CLV) + ANCHOR-1 (reference-book truth anchor weighting) | Identifies "Caesars inflating superstar ladders" automatically; introduces Pinnacle-style sharp-book anchoring |
+| **1B** | whyQualifies + whyAvoid per card; tier text labels; mobile @media rules; keyboard shortcuts (Cmd/Ctrl+1..8 to jump buckets); copy-to-clipboard | Faster operator decision flow; mobile use enabled |
+| **1C** | Operator-customizable bucket priority weights; "what changed since last refresh" delta surface; per-prop drill-down route | Personalized priority; live diff awareness |
+| **1D** | Per-slip calibration-coefficient impact surfacing; Phase 1A filter-applied indicators on AGGRESSIVE slips | Trust-anchor surface for AGG-2 / TEXT-1 observation window |
+| **1E** | Refined TRAP / INFLATED detection — depends on Phase Market-Ecology-1B INFLATE-1 / ANCHOR-1 levers | Per-book inflation index + reference-book truth anchor |
 
 ---
 
-## OPERATOR APPROVAL GATES — Phase Realism-Ecology-1B / 1C / 1D (still held from prior phase)
+## MARKET-ECOLOGY — Remaining lever options (held)
 
-| Phase | Levers | Effect |
-|---|---|---|
-| **1B** | ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened to {3,5}) | Tilts BALANCED toward calibration-friendly alt-line ecology; restores honest portfolio warnings |
-| **1C** | CORR-1 (cap pairwise boost contribution in AGGRESSIVE) + VOL-1 (split aggressive volatility bucket) | Reduces correlated-pair surface; volatility honesty |
-| **1D** | AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop "lotto" from AGGRESSIVE allowedVolatility) + MLB-AGGRESSIVE-under-only | Largest semantic shift; significantly tighter AGGRESSIVE gate |
+| Phase | Levers |
+|---|---|
+| **1B** | STALE-1 (time-series stale detector — requires snapshot delta log) + CONS-1 (trimmed-mean consensus) + CONS-2 (low-book-count warning) |
+| **1C** | DISAG-1 (disagreementScore field) + DISAG-2 (outlier-book cluster detection) + ALT-DISAG-1 (per-rung alt-line price divergence) |
+| **1D** | INFLATE-1 (per-book inflation index) + ANCHOR-1 (reference-book truth anchor) |
+
+---
+
+## REALISM-ECOLOGY — Remaining lever options (held)
+
+| Phase | Levers |
+|---|---|
+| **1B** | ALT-1 (BALANCED alt-line sort bonus) + PORT-1 (samePlayer thresholds re-tightened) |
+| **1C** | CORR-1 (cap pairwise boost in AGGRESSIVE) + VOL-1 (split aggressive volatility bucket) |
+| **1D** | AGG-1 (AGGRESSIVE minModelProb 0.20→0.28) + AGG-3 (drop lotto from AGGRESSIVE) + MLB-AGGRESSIVE under-only |
 
 ---
 
@@ -59,10 +68,10 @@ Each phase requires its own operator-approval gate AND a measurable observation 
 
 | Phase | Scope |
 |---|---|
-| **1F-cosmetic** | Normalize 3 remaining `bet.actualStat` reads (lines 154/335/374 in buildPostGameReview.js) for display parity. |
-| **1H** | Personal-ledger settlement activation (INC-011 — 2000/2000 bets dormant at `result='pending'`). |
-| **canAddLeg same-game gateway hardening** | Pre-existing gap when gameKey() returns null. Phase 1B+ candidate. |
-| **Snapshot retention for time-series** | Required before STALE-1 (Market-1B candidate) — append snapshot delta logs to `runtime/market/snapshot_delta_log.jsonl`. |
+| **1F-cosmetic** | Normalize 3 remaining `bet.actualStat` reads (lines 154/335/374 in buildPostGameReview.js) for display parity |
+| **1H** | Personal-ledger settlement activation (INC-011 — 2000/2000 bets dormant at `result='pending'`) |
+| **canAddLeg same-game gateway hardening** | Pre-existing gap when gameKey() returns null |
+| **Snapshot retention for time-series** | Required before Market 1B STALE-1 |
 
 ---
 
@@ -70,45 +79,53 @@ Each phase requires its own operator-approval gate AND a measurable observation 
 
 | Inc | Status | Summary |
 |---|---|---|
-| INC-001 | OPEN — runtime-verification pending | F6.3 player-id resolution awaiting operator TERM 1 restart + diagnostics check. |
-| INC-002 | OPEN — known edge case | Same-lastname collision on same team (low NBA frequency). |
-| INC-003 | OPEN — known limitation | NBA roster Map has no TTL; mid-season trades require process restart. |
-| INC-011 | OPEN — dormant ledger | personal_ledger.json 2000/2000 bets at `result='pending'`. Phase 1H candidate. |
-| INC-012 | OPEN — by design | ~84% of historical outcomes are pre-corpus orphans. Permanent. |
-| **INC-013** | **✅ RESOLVED 2026-05-14 (Phase Grading-Calibration-Operations-1E)** | Field-mapping fix shipped; calibration unblocked. |
-| **INC-014** | **✅ RESOLVED 2026-05-14 (Phase 1F)** | Stale-lockfile blocked deterministic backfill; PID-liveness + `--clear-locks` shipped. |
-| **INC-015** | **✅ RESOLVED 2026-05-14 (Phase 1G)** | PID-reuse edge case in Phase 1F's liveness probe; age-aware reclaim shipped. |
+| INC-001 | OPEN — runtime-verification pending | F6.3 player-id resolution awaiting operator TERM 1 restart + diagnostics check |
+| INC-002 | OPEN — known edge case | Same-lastname collision on same team (low NBA frequency) |
+| INC-003 | OPEN — known limitation | NBA roster Map has no TTL; mid-season trades require process restart |
+| INC-011 | OPEN — dormant ledger | personal_ledger.json 2000/2000 bets at `result='pending'`. Phase 1H candidate |
+| INC-012 | OPEN — by design | ~84% of historical outcomes are pre-corpus orphans. Permanent |
+| **INC-013** | **✅ RESOLVED 2026-05-14 (Phase Grading-Calibration-Operations-1E)** | Field-mapping fix shipped; calibration unblocked |
+| **INC-014** | **✅ RESOLVED 2026-05-14 (Phase 1F)** | Stale-lockfile blocked deterministic backfill; PID-liveness + `--clear-locks` shipped |
+| **INC-015** | **✅ RESOLVED 2026-05-14 (Phase 1G)** | PID-reuse edge case in Phase 1F's liveness probe; age-aware reclaim shipped |
 
 ---
 
-## MARKET OBSERVABILITY DOCTRINE (Phase Market-Ecology-1A established)
+## ACTIONABLE INTELLIGENCE DOCTRINE (Phase Operator-Experience-1A established)
 
-- **Observability first** — surface existing data before introducing heuristic weighting.
-- **Zero new network calls** — Phase 1A wraps existing axios calls for logging; introduces no polling, retry, or rate-limit logic.
-- **Anti-fabrication discipline** — `market:status` empty sections print `(no data)` rather than synthesizing values.
-- **Pre/post snapshots mandatory** — every Market phase captures source-shape snapshots in `backend/runtime/market/baseline_snapshots/` for byte-comparable operator audit.
-- **No sharp/soft book classification yet** — Pinnacle-style anchoring (ANCHOR-1) deferred until operator approves after observation window.
-- **No truth-anchor yet** — system treats all books equally in consensus computation. Phase 1D candidate.
-- **API-burn is observed, not enforced** — Phase 1A's logger is a passive ledger; per-day rate caps deferred.
+- **Observability first** — surface existing intelligence before introducing new heuristics.
+- **Anti-fabrication** — every visible annotation must trace to a deterministic backend value; if missing, omit (no "(n/a)" guesses).
+- **Anti-clutter** — every new visible surface declares a top-N cap and auto-hides when empty.
+- **Operator decision-speed** — calibration/market-informed actionable buckets render FIRST.
+- **Replay/grading/calibration substrate untouched** — UX surfacing never disturbs pipeline.
+- **Pre/post snapshots mandatory** — every Operator-Experience phase captures source-shape snapshots in `backend/runtime/operator/baseline_snapshots/`.
+
+---
+
+## MARKET OBSERVABILITY DOCTRINE (Phase Market-Ecology-1A established — still in force)
+
+- Observability first; zero new network calls per phase unless approved.
+- Anti-fabrication; empty sections print `(no data)`.
+- Pre/post snapshots in `backend/runtime/market/baseline_snapshots/`.
+- No sharp/soft book classification yet; no truth-anchor yet (deferred).
+- API-burn observed, not enforced.
 
 ---
 
 ## REALISM ECOLOGY DOCTRINE (Phase Realism-Ecology-1A established — still in force)
 
-- **Incremental, attributable, calibration-informed** — never stack multiple realism interventions in one gate.
-- **Pre/post snapshots mandatory** — every Realism phase captures `pre_realism_*` and `post_realism_*` snapshots in `backend/runtime/calibration_snapshots/`.
-- **Smallest safe step first** — operator approves the minimal lever combination per gate.
-- **LOTTO and SAFE preserved unless explicitly approved** — Phase 1A touched only AGGRESSIVE tier + AGGRESSIVE/LOTTO seeding texture.
-- **No hardcoded under-forcing, no player punishment, no slip rejection** — only structural knobs and sort biases.
-- **Dangerous upside preserved** — cross-game pairs, lotto tier, +5000 EV constructions all remain available.
+- Incremental, attributable, calibration-informed.
+- Pre/post snapshots in `backend/runtime/calibration_snapshots/`.
+- Smallest safe step first.
+- LOTTO and SAFE preserved unless explicitly approved.
+- No hardcoded under-forcing, no player punishment, no slip rejection.
 
 ---
 
-## TIERED LOCK STATE MACHINE (Phase 1F + 1G — preserved through Phase Realism-1A and Market-1A)
+## TIERED LOCK STATE MACHINE (Phase 1F + 1G — preserved)
 
 | Lock age | PID probe | Outcome |
 |---|---|---|
-| 0–10 min | alive | Honor (legitimate concurrent run) |
+| 0–10 min | alive | Honor |
 | 0–10 min | dead (ESRCH) | Reclaim |
 | 10–30 min | alive | Reclaim with `[INC-015]` warning |
 | 10–30 min | dead | Reclaim |
@@ -120,46 +137,28 @@ Each phase requires its own operator-approval gate AND a measurable observation 
 
 ```
 # Brain enforcement
-npm run brain:bootstrap     # mandatory pre-flight
-npm run brain:continuity
-npm run brain:verify
-npm run brain:checkpoint    # end-of-session seal
+npm run brain:bootstrap    npm run brain:continuity    npm run brain:verify    npm run brain:checkpoint
 
-# Slate refresh
-npm run slate:refresh       # both sports — now populates api_call_log.jsonl (Phase Market-1A OBS-3)
-npm run slate:nba           # NBA only (canonical refresh route)
-npm run slate:mlb           # MLB only
+# Slate refresh (Phase Market-1A: populates api_call_log.jsonl)
+npm run slate:refresh    npm run slate:nba    npm run slate:mlb
 
 # Engine lifecycle
-npm run engine:start
-npm run engine:restart
-npm run engine:status
+npm run engine:start    npm run engine:restart    npm run engine:status
 
 # Grading + calibration
-npm run grading:run
-npm run grading:backfill-all
-npm run grading:backfill-all -- --clear-locks
-npm run grading:backfill-all -- --clear-locks --dry
-npm run grading:status
-npm run calibration:status
-npm run lineage:status
+npm run grading:run    npm run grading:backfill-all    npm run grading:backfill-all -- --clear-locks
+npm run grading:status    npm run calibration:status    npm run lineage:status
 
-# Market intelligence (NEW Phase Market-Ecology-1A)
-npm run market:status                   # canonical 5-section market observability inspector
-npm run market:status -- --sport=nba
-npm run market:status -- --sport=mlb
-npm run market:status -- --top=20
+# Market intelligence
+npm run market:status    npm run market:status -- --sport=nba    npm run market:status -- --top=20
 
 # Persistence
-npm run persistence:status
-npm run persistence:probe
-npm run persistence:backfill-aliases
-npm run persistence:import
+npm run persistence:status    npm run persistence:probe    npm run persistence:backfill-aliases    npm run persistence:import
 
 # Epoch authority
 npm run epoch:status
 
-# 14-suite regression matrix
+# 14-suite regression
 npm run runtime:verify
 ```
 
@@ -172,11 +171,12 @@ cd backend
 npm run brain:bootstrap        # MANDATORY
 npm run brain:continuity       # MANDATORY
 npm run brain:verify           # MANDATORY
-npm run runtime:verify         # 14/14 PASS expected (~1.9s on host)
+npm run runtime:verify         # 14/14 PASS expected
 node ../probe_grading_backfill_v1.js   # 42/42 PASS
 node ../probe_lineage_v1.js            # 24/24 PASS
 node ../probe_epoch_authority_v1.js    # 48/48 PASS
 npm run persistence:probe              # 22/22 PASS
+cd ../frontend && ./node_modules/.bin/tsc --noEmit -p . ; cd ..   # exit 0 expected
 ```
 
 All probes must pass before declaring work done. brain:checkpoint must be run at end of every operator session.

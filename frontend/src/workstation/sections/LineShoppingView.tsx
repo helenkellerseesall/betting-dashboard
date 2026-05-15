@@ -2,6 +2,11 @@ import { useMemo, useState } from "react"
 import type { SportState } from "../types"
 import { fmtOdds, compactStat, teamAbbrev } from "../utils"
 import { Badge } from "../components/Badges"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForDisagreementFlag,
+  tooltipForSortOption,
+} from "../tooltips"
 
 export function LineShoppingView({ state }: { state: SportState | null }) {
   const [q, setQ] = useState("")
@@ -61,16 +66,30 @@ export function LineShoppingView({ state }: { state: SportState | null }) {
           <option value="">All stats</option>
           {statOptions.map((s) => <option key={s} value={s}>{compactStat(s)}</option>)}
         </select>
-        <select className="ws-select" value={flag} onChange={(e) => setFlag(e.target.value)}>
-          <option value="">All</option>
-          <option value="soft_book">Soft books</option>
-          <option value="stale_line">Stale lines</option>
-          <option value="market_disagreement">Disagreement</option>
+        <select
+          className="ws-select"
+          value={flag}
+          onChange={(e) => setFlag(e.target.value)}
+          title={
+            flag
+              ? tooltipForDisagreementFlag(flag)
+              : "Filter by line-disagreement flag. Hover an option to see its definition."
+          }
+        >
+          <option value="" title="Show every multi-book prop regardless of flag.">All</option>
+          <option value="soft_book" title={tooltipForDisagreementFlag("soft_book")}>Soft books</option>
+          <option value="stale_line" title={tooltipForDisagreementFlag("stale_line")}>Stale lines</option>
+          <option value="market_disagreement" title={tooltipForDisagreementFlag("market_disagreement")}>Disagreement</option>
         </select>
-        <select className="ws-select" value={sort} onChange={(e) => setSort(e.target.value as any)}>
-          <option value="impSpread">Sort: Implied Edge</option>
-          <option value="spread">Sort: Raw Spread</option>
-          <option value="best">Sort: Best Odds</option>
+        <select
+          className="ws-select"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as any)}
+          title={tooltipForSortOption(sort)}
+        >
+          <option value="impSpread" title={tooltipForSortOption("impSpread")}>Sort: Implied Edge</option>
+          <option value="spread" title={tooltipForSortOption("spread")}>Sort: Raw Spread</option>
+          <option value="best" title={tooltipForSortOption("best")}>Sort: Best Odds</option>
         </select>
       </div>
 
@@ -115,12 +134,13 @@ export function LineShoppingView({ state }: { state: SportState | null }) {
                 <td>
                   <div className="ws-row" style={{ gap: 4, flexWrap: "wrap" }}>
                     {(g.flags || []).map((f) => (
-                      <Badge
-                        key={f}
-                        kind={f === "soft_book" ? "softbook" : f === "stale_line" ? "stale" : ""}
-                      >
-                        {f}
-                      </Badge>
+                      <span key={f} title={tooltipForDisagreementFlag(f)}>
+                        <Badge
+                          kind={f === "soft_book" ? "softbook" : f === "stale_line" ? "stale" : ""}
+                        >
+                          {f}
+                        </Badge>
+                      </span>
                     ))}
                   </div>
                 </td>

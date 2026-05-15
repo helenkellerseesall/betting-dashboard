@@ -1,6 +1,16 @@
 import type { FeaturedPlay } from "../types"
 import { useBuilder } from "../builderContext"
 import { fmtOdds, compactStat, teamAbbrev } from "../utils"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForConsensusConfidence,
+  tooltipForBookCount,
+  tooltipForVolatility,
+  tooltipForBestImpDelta,
+  tooltipForStaleTag,
+  tooltipForProcessNote,
+  tooltipForAvoidReason,
+} from "../tooltips"
 
 interface Props {
   icon: string
@@ -33,8 +43,22 @@ export function FeaturedCard({ icon, title, plays, emptyMessage, showOdds = true
 
       {rows.map((p, i) => {
         const team = teamAbbrev(p.team)
+        // Phase Operator-Experience-1A — derive inline annotations from existing
+        // fields; omit any annotation whose source value is undefined (anti-fabrication).
+        // Phase 1B-1: standardize abbreviation to "(N books)" across all cards
+        // (was previously "(Nb)" here, "(N books)" elsewhere — operator readability fix).
+        const confStr  = Number.isFinite(p.consensusConfidence)
+          ? `conf=${(p.consensusConfidence as number).toFixed(2)}`
+          : null
+        const booksStr = p.bookCount && p.bookCount >= 1
+          ? `(${p.bookCount} book${p.bookCount === 1 ? "" : "s"})`   // Phase 1B-1: was "(Nb)"
+          : null
+        const volStr   = p.volatility ? `vol: ${p.volatility}` : null
+        const deltaStr = Number.isFinite(p.bestImpDelta)
+          ? `Δ${(p.bestImpDelta as number) >= 0 ? "+" : ""}${((p.bestImpDelta as number) * 100).toFixed(1)}¢`
+          : null
         return (
-          <div key={p.id || `${p.player}-${i}`} className="ws-feat-row" title={p.processNote || ""}>
+          <div key={p.id || `${p.player}-${i}`} className="ws-feat-row">
             <span className="ws-feat-rank">{i + 1}.</span>
             <span>
               <span className="ws-feat-name">{p.player}</span>
@@ -69,9 +93,43 @@ export function FeaturedCard({ icon, title, plays, emptyMessage, showOdds = true
                 })
               }
             >+</button>
-            {p.reasoning ? (
-              <div className="ws-feat-reason">{p.reasoning}{p.processNote ? <em> — {p.processNote}</em> : null}</div>
-            ) : null}
+            {/* Phase Operator-Experience-1A — inline annotations + processNote lifted from tooltip.
+                Phase 1B-1: deterministic title= tooltips added to each annotation span. */}
+            {(confStr || booksStr || volStr || deltaStr) && (
+              <div className="ws-feat-reason" style={{ fontFamily: "var(--ws-mono)", fontSize: 10, color: "var(--ws-dim)" }}>
+                {confStr && (
+                  <span title={tooltipForConsensusConfidence(p.consensusConfidence, p.bookCount)}>{confStr}</span>
+                )}
+                {booksStr && (
+                  <>{" "}<span title={tooltipForBookCount(p.bookCount)}>{booksStr}</span></>
+                )}
+                {volStr && (
+                  <>{" "}<span title={tooltipForVolatility(p.volatility)}>{volStr}</span></>
+                )}
+                {deltaStr && (
+                  <>{" "}<span title={tooltipForBestImpDelta(p.bestImpDelta, p.bestBook)}>{deltaStr}</span></>
+                )}
+                {p.staleRowTag === "soft_line" && (
+                  <span title={tooltipForStaleTag(p.staleRowTag, p.bestBook, p.staleRowDelta)} style={{ color: "var(--ws-positive)", marginLeft: 6 }}>SOFT</span>
+                )}
+                {p.staleRowTag === "stale_line" && (
+                  <span title={tooltipForStaleTag(p.staleRowTag, p.bestBook, p.staleRowDelta)} style={{ color: "var(--ws-warn)", marginLeft: 6 }}>STALE</span>
+                )}
+              </div>
+            )}
+            {p.reasoning && (
+              <div className="ws-feat-reason">{p.reasoning}</div>
+            )}
+            {p.processNote && (
+              <div className="ws-feat-reason" style={{ fontStyle: "italic", opacity: 0.85 }} title={tooltipForProcessNote(p.processNote)}>
+                — {p.processNote}
+              </div>
+            )}
+            {p.avoidReason && (
+              <div className="ws-feat-reason" style={{ fontStyle: "italic", color: "var(--ws-warn)" }} title={tooltipForAvoidReason(p.avoidReason)}>
+                ⚠ {p.avoidReason}
+              </div>
+            )}
           </div>
         )
       })}

@@ -3,6 +3,14 @@ import { HeroPickCard } from "../components/HeroPickCard"
 import { SpotlightCard } from "../components/SpotlightCard"
 import { fmtOdds, fmtPct, compactStat, teamAbbrev } from "../utils"
 import { useBuilder } from "../builderContext"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForAnchorCount,
+  tooltipForAiParlayMix,
+  tooltipForSteamCount,
+  tooltipForStaleWindowCount,
+  tooltipForBookCoverageCount,
+} from "../tooltips"
 
 /**
  * Dashboard — the bettor's command center.
@@ -54,21 +62,25 @@ export function Dashboard({ state }: { state: SportState | null }) {
           label="Anchors"
           value={`${anchors.length}`}
           sub={`${featured?.summary?.match(/(\d+)\s+curated/)?.[1] ?? anchors.length + tonightsBest.length} curated plays`}
+          tooltip={tooltipForAnchorCount(anchors.length)}
         />
         <KpiCard
           label="AI Parlays"
           value={`${aiCount}`}
           sub={`core:${aiSlips.safe.length} mix:${aiSlips.balanced.length} fire:${aiSlips.aggressive.length} moon:${aiSlips.lotto.length}`}
+          tooltip={tooltipForAiParlayMix(aiSlips.safe.length, aiSlips.balanced.length, aiSlips.aggressive.length, aiSlips.lotto.length)}
         />
         <KpiCard
           label="Live Calls"
           value={`${counts.urgent}`}
           sub={`${counts.steam} steam · ${counts.stale} stale windows`}
+          tooltip={`${tooltipForSteamCount(counts.steam)} ${tooltipForStaleWindowCount(counts.stale)}`}
         />
         <KpiCard
           label="Book Coverage"
           value={`${counts.propsWithMultiBook}`}
           sub="props across 2+ books"
+          tooltip={tooltipForBookCoverageCount(counts.propsWithMultiBook)}
         />
       </div>
 
@@ -112,7 +124,11 @@ export function Dashboard({ state }: { state: SportState | null }) {
         </div>
       )}
 
-      {/* ── 5. Spotlight grid — sport-aware ─────────────────────────────── */}
+      {/* ── 5a. Phase Operator-Experience-1A: ACTIONABLE OPERATOR BUCKETS ── */}
+      {/* 8 new buckets derived deterministically from existing data. */}
+      <ActionableBucketsGrid featured={featured} />
+
+      {/* ── 5b. Spotlight grid — sport-aware ─────────────────────────────── */}
       {sport === "nba"
         ? <NbaSpotlightGrid featured={featured} tonightsBest={tonightsBest} />
         : <MlbSpotlightGrid featured={featured} tonightsBest={tonightsBest} />
@@ -269,13 +285,115 @@ function BestBooksCard({ books }: {
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /* KpiCard                                                                      */
+/* Phase Operator-Experience-1B-1: optional deterministic tooltip — applies to  */
+/* the whole card surface so the operator can hover anywhere to read context.   */
 /* ─────────────────────────────────────────────────────────────────────────── */
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function KpiCard({ label, value, sub, tooltip }: { label: string; value: string; sub?: string; tooltip?: string }) {
   return (
-    <div className="ws-kpi">
+    <div className="ws-kpi" title={tooltip || undefined}>
       <div className="ws-kpi-label">{label}</div>
       <div className="ws-kpi-value">{value}</div>
       {sub ? <div className="ws-kpi-sub">{sub}</div> : null}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Phase Operator-Experience-1A: ActionableBucketsGrid                          */
+/* 8 new operator-priority buckets: bestBalanced / bestAggressive / bestUnders  */
+/* / bestAltLadders / bestDisagreementEdges / staleLineOpportunities /          */
+/* trapLadders / inflatedSuperstarSpots. Each bucket sources from existing      */
+/* deterministic backend data — no fabrication. Empty bucket → empty card.      */
+/* Rendered ABOVE the existing 8 sport-native spotlight buckets so the operator */
+/* sees the calibration-/market-informed actionable view first.                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
+function ActionableBucketsGrid({ featured }: { featured: Featured | null | undefined }) {
+  const bestBalanced           = featured?.bestBalanced           || []
+  const bestAggressive         = featured?.bestAggressive         || []
+  const bestUnders             = featured?.bestUnders             || []
+  const bestAltLadders         = featured?.bestAltLadders         || []
+  const bestDisagreementEdges  = featured?.bestDisagreementEdges  || []
+  const staleLineOpportunities = featured?.staleLineOpportunities || []
+  const trapLadders            = featured?.trapLadders            || []
+  const inflatedSuperstarSpots = featured?.inflatedSuperstarSpots || []
+
+  // Skip the whole section if every bucket is empty (clutter-reduction discipline).
+  const anyPopulated =
+    bestBalanced.length || bestAggressive.length || bestUnders.length ||
+    bestAltLadders.length || bestDisagreementEdges.length ||
+    staleLineOpportunities.length || trapLadders.length ||
+    inflatedSuperstarSpots.length
+  if (!anyPopulated) return null
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="ws-supporting-label" style={{ marginBottom: 6 }}>Actionable Operator Buckets</div>
+      <div className="ws-spotlight-grid">
+        <SpotlightCard
+          icon="🔥"
+          title="Best Balanced"
+          tagline="Multi-book + healthy edge + balanced volatility"
+          plays={bestBalanced}
+          emptyMessage="No qualifying balanced picks tonight — wait for more multi-book coverage."
+          accentColor="var(--ws-vol-balanced)"
+        />
+        <SpotlightCard
+          icon="🔥"
+          title="Best Aggressive"
+          tagline="Aggressive volatility + real edge (post Realism-1A AGG-2 + TEXT-1)"
+          plays={bestAggressive}
+          emptyMessage="No aggressive picks cleared edge filters tonight."
+          accentColor="var(--ws-vol-aggressive)"
+        />
+        <SpotlightCard
+          icon="🔥"
+          title="Best Unders"
+          tagline="Under-side picks — historical hit rate favors unders"
+          plays={bestUnders}
+          emptyMessage="No under-side picks cleared edge filters tonight."
+          accentColor="var(--ws-accent-2)"
+        />
+        <SpotlightCard
+          icon="🔥"
+          title="Best Alt Ladders"
+          tagline="Alt-line ladders with cross-book consensus"
+          plays={bestAltLadders}
+          emptyMessage="No alt-line ladders cleared confidence filters tonight."
+          accentColor="var(--ws-tier-elite)"
+        />
+        <SpotlightCard
+          icon="🔥"
+          title="Best Disagreement Edges"
+          tagline="Books that underprice your side vs consensus (sorted by sharpness)"
+          plays={bestDisagreementEdges}
+          emptyMessage="No book-disagreement edges surfaced — markets aligned tonight."
+          accentColor="var(--ws-positive)"
+        />
+        <SpotlightCard
+          icon="🔥"
+          title="Stale-Line Opportunities"
+          tagline="Soft books with highest cash payout per disagreement"
+          plays={staleLineOpportunities}
+          emptyMessage="No stale-line cash opportunities — books priced sharp."
+          accentColor="var(--ws-positive)"
+        />
+        <SpotlightCard
+          icon="⚠"
+          title="Trap Ladders"
+          tagline="High-payout alt lines with thin book coverage — AVOID"
+          plays={trapLadders}
+          emptyMessage="No trap ladders flagged tonight."
+          accentColor="var(--ws-warn)"
+        />
+        <SpotlightCard
+          icon="⚠"
+          title="Inflated Spots"
+          tagline="Books overpricing vs consensus — AVOID"
+          plays={inflatedSuperstarSpots}
+          emptyMessage="No inflated-spot flags tonight."
+          accentColor="var(--ws-warn)"
+        />
+      </div>
     </div>
   )
 }

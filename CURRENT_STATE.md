@@ -1,5 +1,11 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
+_Last updated: 2026-05-15 (Phase Operator-Experience-1B-1 SHIPPED — readable intelligence via deterministic plain-English tooltips. New `frontend/src/workstation/tooltips.ts` (25 exported helpers, ~220 lines) is the single deterministic source-of-truth for tooltip strings; anti-fabrication enforced (undefined → empty string → omitted attribute). 82 title= attributes wired across 7 interpretation surfaces: HeroPickCard (9), SpotlightCard (11), FeaturedCard (10), PortfolioView (8), AiSlipsView (6), LineShoppingView (12), Dashboard KpiCards (26 incl. nested SpotlightCards). Plus `(2b)` → `(2 books)` abbreviation cleanup. Translates `conf=0.86` / `Δ-3.2¢` / SOFT/STALE pills / volatility tier / EV / prob / portfolio score / correlation level / steam / stale-windows / core/mix/fire/moon. ZERO backend file changed. ZERO layout / card / navigation redesign. ZERO AI-generated prose. tsc clean (exit 0). 150/150 matrix unchanged. Pre/post snapshots in backend/runtime/operator/baseline_snapshots/. Realism-1A + Market-1A + Operator-1A + Operator-1B-1 all shipped. INC-013/014/015 all RESOLVED.)_
+
+Prior session record (Phase Operator-Experience-1A):
+_Last updated: 2026-05-14 (Phase Operator-Experience-1A SHIPPED — actionable intelligence surfacing. Five additive changes: (1) buildFeaturedPlays gains 8 new operator-priority buckets (bestBalanced / bestAggressive / bestUnders / bestAltLadders / bestDisagreementEdges / staleLineOpportunities / trapLadders / inflatedSuperstarSpots) — each derived deterministically from existing scored + staleRows data; (2) compactPlay extended to surface Phase Market-1A consensusConfidence / marketDispersion / bestImpDelta on every play; (3) types.ts lifts those fields onto LineShopGroup + FeaturedPlay + 8 optional bucket fields on Featured; (4) Dashboard.tsx renders new ActionableBucketsGrid above existing sport-native grid; (5) HeroPickCard / SpotlightCard / FeaturedCard gain inline `conf=0.86 (3 books) volatility: balanced Δ-3.2¢ vs consensus` annotations + lift processNote/avoidReason from tooltips to visible rows. Pre/post snapshots in backend/runtime/operator/baseline_snapshots/. TypeScript clean (tsc exit 0). Sandbox smoke-test surfaces 4 disagreement edges + 4 stale-line opportunities + 3 inflated spots; sample anchor confirms consensusConfidence=0.9526 / bookCount=3 / bestImpDelta=-0.0066. No grading / replay / lineage / persistence / market-pipeline path changed. Full matrix 150/150 PASS. INC-013/014/015 all RESOLVED. Realism-1A + Market-1A + Operator-1A all shipped.)_
+
+Prior session record (Phase Market-Ecology-1A):
 _Last updated: 2026-05-14 (Phase Market-Ecology-1A SHIPPED — canonical market observability. Operator approved 3 of 11 audit lever options. **OBS-1** `npm run market:status` (NEW 5-section CLI: snapshot freshness / consensus confidence / top stale rows / per-book historical CLV / API-call burn). **OBS-2** `consensusConfidence = clamp(0, 1, 1 - dispersion/max(consensus, 0.001))` added to buildLineShopping byProp + bestByProp output — additive only. **OBS-3** new `apiCallLogger.js` append-only JSONL writer at `runtime/market/api_call_log.jsonl`; `logApiCallAsync(meta, fn)` wraps both NBA + MLB Odds-API axios calls; never throws, never makes network calls, Promise.all semantics preserved. Zero new network calls, zero polling, zero retry/rate-limit logic. First canonical sandbox output surfaces 6 books / 826 multi-book disagreements / 10 stale-row candidates. Phase-tagged Law 10 comments throughout. Full matrix 150/150 PASS. brain:checkpoint sealed 21:08:05Z. Operator next: `npm run slate:refresh && npm run market:status` on host. Heuristic levers STALE-1/CONS-1/CONS-2/DISAG-1/DISAG-2/ALT-DISAG-1/INFLATE-1/ANCHOR-1 held for operator-approval gates. INC-013/014/015 RESOLVED. Realism-Ecology-1A AGG-2+TEXT-1 still shipped.)_
 
 Prior session record (Phase Realism-Ecology-1A):
@@ -7,6 +13,188 @@ _Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED — fake-aggressive 
 
 Prior session record (Phase 1G):
 _Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported isolated nba/2026-05-08 failure (exit=1, ~33ms) and hypothesized "malformed replay payload." Forensic reproduction with FULL stderr/stdout proved: NO PAYLOAD DEFECT EXISTS — 33ms fingerprint is Phase 1F's lock guard, fooled by pid-reuse on the operator host where the recorded orchestrator pid was recycled by an unrelated process. Direct inspection of `nba_tracked_bets_2026-05-08.json` confirmed 4 well-formed Jalen Brunson rebounds rows. Minimal Phase 1G hardening: `ALIVE_PID_STALE_THRESHOLD_MS = 10 min` — locks with alive-pid AND startedAt >10min ago are now reclaimed with explicit `console.warn([acquire-lock][INC-015]...)`. Phase 1F + 1G together form a 5-tier deterministic state machine. STATE 1 sandbox test (pid=1 alive + 11min old → operator scenario) → reclaim + EXIT=0 ✓. STATE 2 (pid=1 alive + 5min old → legitimate concurrent) → honor lock ✓. Full grading:backfill-all (16 dates, 9 ran incl. nba/2026-05-08 in 451ms, 0 failed). 150/150 verification PASS. brain:checkpoint sealed. INC-013, INC-014, INC-015 all RESOLVED. Operator next: `npm run grading:backfill-all -- --clear-locks` on host.)_
+
+---
+
+## SESSION OPERATOR-EXPERIENCE-1B-1 — Readable Intelligence via Deterministic Tooltips (2026-05-15)
+
+### What this session shipped
+
+Smallest safe readability-first step. Operator approved deterministic title= tooltip rollout + abbreviation cleanup only.
+
+**1. `frontend/src/workstation/tooltips.ts`** (NEW, ~220 lines, 25 exported helpers):
+- Single source of truth for tooltip strings.
+- Every function: deterministic backend value → plain-English string.
+- Anti-fabrication: undefined / null / NaN → empty string → caller omits title= entirely.
+- Header comments cross-reference every backend rule (file + line range).
+
+**2–8. Tooltips wired across 7 surfaces** — 82 title= attributes total:
+- HeroPickCard: 9 (conf / books / vol / Δ / tier / attackNote / processNote)
+- SpotlightCard: 11 (same + SOFT/STALE pills + avoidReason)
+- FeaturedCard: 10 + `(2b)` → `(2 books)` abbreviation fix
+- PortfolioView: 8 (Score / Mood / Volatility legend / Correlation header + per-cluster level)
+- AiSlipsView: 6 (combined odds / EV / prob / 4 tier chips / "All" pill / tier subheading)
+- LineShoppingView: 12 (filter chip + 4 options / sort chip + 4 options / per-flag table badges)
+- Dashboard: 26 (KpiCard gained optional `tooltip` prop; all 4 KPIs tooltip'd; plus nested SpotlightCards)
+
+### Sample deterministic translations
+
+```
+conf=0.86             → "Consensus confidence: 86/100. Books are largely aligned. Across 4 books."
+Δ-3.2¢                → "DraftKings prices this ~3.2¢ below consensus on implied probability — better-than-consensus odds (value gap)."
+SOFT pill             → "SOFT: book underprices vs cross-book consensus — possible stale-line value."
+volatility: aggressive → "Volatility: aggressive. Higher-variance pick — strong upside but more swings."
+EV +5.2%              → "Expected Value: +5.2%. Per $1 staked, model projects +$0.05 on average."
+prob 72%              → "Combined model probability: 72%. Post-calibration win probability for the parlay."
+portfolio score 67    → "Portfolio score: 67/100. Bands: 85+ healthy · 72+ mostly diversified · 60+ some concentration · 45+ elevated · <45 high correlation."
+HIGH correlation      → "HIGH correlation: picks likely to win or lose together. Consider trimming overlap."
+Soft books filter     → "Soft book: this sportsbook underprices vs cross-book consensus — possible bettor value."
+"steam" KPI sub       → "Steam count: N. Line has moved meaningfully recently — sharp money or breaking news."
+"core/mix/fire/moon"  → "Slip count by tier — core (safe): N · mix (balanced): N · fire (aggressive): N · moon (lotto): N."
+```
+
+### Architecture preservation invariants
+
+- ✓ ZERO backend file changed.
+- ✓ No grading writer / classifier / settlement-object / replay / lineage / persistence / market-pipeline / orchestrator changed.
+- ✓ No FAMILY_CALIBRATION_COEFFICIENTS / volatility rules / portfolio thresholds / tier templates changed.
+- ✓ No layout / card / navigation / styling redesign.
+- ✓ No glossary mode added.
+- ✓ No expandable summaries added.
+- ✓ No new visible-string content — all tooltips hover-discoverable on existing elements.
+- ✓ Anti-fabrication: every tooltip is a pure function of deterministic backend fields.
+- ✓ Phase Realism-Ecology-1A AGG-2 + TEXT-1 preserved.
+- ✓ Phase Market-Ecology-1A OBS-1 / OBS-2 / OBS-3 preserved.
+- ✓ Phase Operator-Experience-1A 8-bucket grid + inline annotations preserved.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| `tsc --noEmit -p frontend` | — | exit 0 |
+| **Total** | **150** | **PASS** |
+
+### Readable intelligence doctrine (Phase 1B-1 established)
+
+1. **Deterministic translation only** — every tooltip = f(backend fields).
+2. **Anti-fabrication enforcement** — undefined input → empty string → omitted title=.
+3. **Single source of truth** — `tooltips.ts` is the only place tooltip strings live.
+4. **Cross-reference header** — module cites every backend rule for audit traceability.
+5. **Hover-discoverable** — never displacement; expansion only.
+6. **No backend touch** — uses existing FeaturedPlay / LineShopGroup / Portfolio / SlipCard fields.
+
+### Pre/post snapshots
+
+```
+backend/runtime/operator/baseline_snapshots/pre_operator_1b1_2026-05-15T060735Z.txt
+backend/runtime/operator/baseline_snapshots/post_operator_1b1_2026-05-15T061446Z.txt
+```
+
+### Status
+
+Phase Operator-Experience-1B-1 SHIPPED. Translation cost between sportsbook-native intelligence and operator-native understanding now hover-discoverable everywhere. INC-013/014/015 all RESOLVED. Realism-1A + Market-1A + Operator-1A + Operator-1B-1 all shipped.
+
+---
+
+## SESSION OPERATOR-EXPERIENCE-1A — Actionable Intelligence Surfacing (8 buckets + 4 annotations) (2026-05-14)
+
+### What this session shipped
+
+Smallest safe operator-surfacing step. Five concrete deliverables; additive-only; anti-fabrication; zero pipeline-substrate disturbance.
+
+**1. `backend/pipeline/shared/buildFeaturedPlays.js`** — 8 new operator-priority bucket builders + `compactPlay` extended to surface Phase Market-1A fields:
+- `bestBalanced` / `bestAggressive` / `bestUnders` / `bestAltLadders` — derived from `scored` candidates with deterministic edge/modelProb/volatility filters.
+- `bestDisagreementEdges` / `staleLineOpportunities` — derived from `lineShopping.staleRows[tag="soft_line"]` with two complementary sort orders.
+- `trapLadders` — alt-line picks with thin book coverage OR low consensusConfidence OR low archetype trust (AVOID surface).
+- `inflatedSuperstarSpots` — derived from `lineShopping.staleRows[tag="stale_line"]` with `avoidReason` text.
+- All buckets cap at 5; empty → `[]`; staleRow-derived buckets fall back to anti-fabrication minimal shape when no matching scored entry.
+
+**2. `frontend/src/workstation/types.ts`** — additive field lifts:
+- `LineShopGroup.consensusConfidence?` + `marketDispersion?` + `bestImpDelta?`.
+- `FeaturedPlay.consensusConfidence?` + `marketDispersion?` + `bestImpDelta?` + `staleRowTag?` + `staleRowDelta?` + `consensus?` + `avoidReason?`.
+- `Featured.bestBalanced?` + 7 other new bucket fields.
+
+**3. `frontend/src/workstation/sections/Dashboard.tsx`** — new `ActionableBucketsGrid` component renders 8 SpotlightCards above the existing sport-native grid; auto-hides when all 8 buckets are empty (anti-clutter discipline).
+
+**4. `frontend/src/workstation/components/HeroPickCard.tsx`** — new inline context row: `conf=0.86  (3 books)  volatility: balanced  Δ-3.2¢ vs consensus`. Each annotation omitted when source field is undefined. `processNote` lifted to visible italic row.
+
+**5. `frontend/src/workstation/components/SpotlightCard.tsx`** + **`FeaturedCard.tsx`** — same inline annotations + SOFT/STALE pills + `processNote`/`avoidReason` lifted from tooltips/title to visible rows.
+
+Phase-tagged Law 10 inline comments at every site.
+
+### Smoke-test verification (sandbox MLB snapshot)
+
+```
+lineShopping byProp length: 1644
+lineShopping staleRows length: 7
+buildFeaturedPlays return keys: anchors,bestAggressive,bestAltLadders,bestBalanced,bestBooks,
+  bestClv,bestDisagreementEdges,bestFirstBasket,bestHr,bestLadders,bestPra,bestUnders,date,
+  inflatedSuperstarSpots,marketAgreement,safest,smartAggression,sport,staleLineOpportunities,
+  summary,timingWindows,tonightsBest,trapLadders
+bestBalanced count=0  bestAggressive count=1  bestUnders count=0  bestAltLadders count=0
+bestDisagreementEdges count=4  staleLineOpportunities count=4
+trapLadders count=0  inflatedSuperstarSpots count=3
+Sample anchor consensusConfidence: 0.9526
+Sample anchor bookCount: 3
+Sample anchor bestImpDelta: -0.0066
+```
+
+### Pre/post snapshots
+
+```
+backend/runtime/operator/baseline_snapshots/pre_operator_1a_2026-05-15T043529Z.txt
+backend/runtime/operator/baseline_snapshots/post_operator_1a_2026-05-15T044141Z.txt
+```
+
+### Architecture preservation invariants
+
+- ✓ No grading writer / classifier / settlement-object changed.
+- ✓ No replay path changed.
+- ✓ No lineage / persistence schema / orchestrator step semantics changed.
+- ✓ No FAMILY_CALIBRATION_COEFFICIENTS / volatility rules / portfolio thresholds / tier templates changed.
+- ✓ No new network calls; no API-burn change.
+- ✓ Existing 11-bucket Featured object preserved; 8 new buckets are additive sibling fields.
+- ✓ Existing 8 sport-native spotlight buckets preserved; new ActionableBucketsGrid renders ABOVE them.
+- ✓ Existing HeroPickCard / SpotlightCard / FeaturedCard render trees preserved; annotations are additive sibling rows.
+- ✓ Phase Realism-Ecology-1A AGG-2 + TEXT-1 still shipped.
+- ✓ Phase Market-Ecology-1A OBS-1 / OBS-2 / OBS-3 still shipped.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| **Total** | **150** | **PASS** |
+
+Plus: `tsc --noEmit -p frontend` returns exit 0.
+
+### Actionable intelligence doctrine (established Phase 1A)
+
+1. **Observability first** — surface existing intelligence before introducing new heuristics.
+2. **Anti-fabrication** — every annotation omits when source field is undefined.
+3. **Anti-clutter** — section auto-hides when all 8 buckets are empty; bucket-level top-N caps.
+4. **Operator decision-speed** — calibration/market-informed actionable buckets render FIRST.
+5. **Replay safety** — zero backend pipeline change.
+
+### Remaining lever options (held for operator-approval gates)
+
+- **Phase 1B**: whyQualifies/whyAvoid per card + tier text labels + mobile @media rules + keyboard shortcuts + copy-to-clipboard.
+- **Phase 1C**: operator-customizable bucket priority weights + delta surface + drill-down route.
+- **Phase 1D**: calibration-coefficient impact surfacing + Phase 1A filter-applied indicators.
+- **Phase 1E**: refined TRAP / INFLATED detection — requires Phase Market-Ecology-1B+ first.
+
+### Status
+
+Phase Operator-Experience-1A SHIPPED. System evolving from "market observability" toward "actionable betting intelligence" through additive surfacing without disturbing the underlying intelligence substrate.
 
 ---
 

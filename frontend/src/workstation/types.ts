@@ -89,6 +89,10 @@ export interface LineShopGroup {
   oddsSpread?: number | null
   impliedSpread?: number | null
   flags?: string[]
+  // Phase Market-Ecology-1A / Operator-Experience-1A — additive market context.
+  consensusConfidence?: number  // 1.0 = unanimous, 0.0 = wide disagreement
+  marketDispersion?: number     // std dev of implied probs across books
+  bestImpDelta?: number         // best book's implied prob - consensus (negative = bettor value)
 }
 
 export interface TimingClassification {
@@ -164,6 +168,15 @@ export interface FeaturedPlay {
   attackNote?: string
   composite: number
   factors?: Record<string, number>
+  // Phase Operator-Experience-1A — additive market & disagreement context.
+  consensusConfidence?: number  // 1.0 = unanimous, 0.0 = wide disagreement
+  marketDispersion?: number
+  bestImpDelta?: number         // best book vs consensus (negative = bettor value)
+  // Phase Operator-Experience-1A — set when bucket originates from staleRows.
+  staleRowTag?: "soft_line" | "stale_line"
+  staleRowDelta?: number
+  consensus?: number
+  avoidReason?: string          // surfaced on inflatedSuperstarSpots entries
 }
 
 export interface FeaturedBook {
@@ -189,6 +202,15 @@ export interface Featured {
   marketAgreement: FeaturedPlay[]
   timingWindows: FeaturedPlay[]
   bestBooks: FeaturedBook[]
+  // Phase Operator-Experience-1A — 8 new actionable operator buckets.
+  bestBalanced?: FeaturedPlay[]
+  bestAggressive?: FeaturedPlay[]
+  bestUnders?: FeaturedPlay[]
+  bestAltLadders?: FeaturedPlay[]
+  bestDisagreementEdges?: FeaturedPlay[]
+  staleLineOpportunities?: FeaturedPlay[]
+  trapLadders?: FeaturedPlay[]
+  inflatedSuperstarSpots?: FeaturedPlay[]
 }
 
 export interface SportState {

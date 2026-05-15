@@ -1,5 +1,12 @@
 import { useMemo } from "react"
 import type { SportState } from "../types"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForPortfolioScore,
+  tooltipForMoodHeadline,
+  tooltipForVolatility,
+  tooltipForCorrelationLevel,
+} from "../tooltips"
 
 interface BarSeg { label: string; value: number; color: string }
 function StackedBar({ segs }: { segs: BarSeg[] }) {
@@ -73,19 +80,33 @@ export function PortfolioView({ state }: { state: SportState | null }) {
       <div className="ws-grid ws-grid-3" style={{ marginBottom: 14 }}>
         <div className="ws-card">
           <div className="ws-row-between" style={{ marginBottom: 12 }}>
-            <strong>Score</strong>
-            <span className={`ws-mood-pill ${moodTone}`}>● {moodHeadline}</span>
+            <strong title="Portfolio score (0–100) — see number tooltip for the 5-band guide.">Score</strong>
+            <span
+              className={`ws-mood-pill ${moodTone}`}
+              title={tooltipForMoodHeadline(moodHeadline, moodTone)}
+            >● {moodHeadline}</span>
           </div>
           <div className="ws-row" style={{ gap: 14 }}>
-            <div className="ws-score-ring" style={{ ["--ring-pct" as any]: ringPct, ["--ring-color" as any]: ringColor }}>
+            <div
+              className="ws-score-ring"
+              style={{ ["--ring-pct" as any]: ringPct, ["--ring-color" as any]: ringColor }}
+              title={tooltipForPortfolioScore(portfolio?.score)}
+            >
               {portfolio?.score ?? 0}
             </div>
             <div className="ws-stack" style={{ flex: 1 }}>
-              <div className="ws-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Volatility Mix</div>
+              <div
+                className="ws-dim"
+                style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}
+                title="Volatility mix: how tonight's exposure breaks down across volatility classes (safe / balanced / aggressive / lotto). Hover each chip for the class definition."
+              >Volatility Mix</div>
               <StackedBar segs={stacked} />
               <div className="ws-row" style={{ flexWrap: "wrap", gap: 8, fontSize: 11 }}>
                 {stacked.map((s) => (
-                  <span key={s.label}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: s.color, marginRight: 4 }}/>{s.label} {s.value}</span>
+                  <span key={s.label} title={tooltipForVolatility(s.label)}>
+                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: s.color, marginRight: 4 }}/>
+                    {s.label} {s.value}
+                  </span>
                 ))}
               </div>
             </div>
@@ -133,11 +154,14 @@ export function PortfolioView({ state }: { state: SportState | null }) {
         </div>
 
         <div className="ws-card">
-          <strong>Correlation Risk</strong>
+          <strong title="Correlation Risk: highlights clusters of picks likely to win or lose together. HIGH = strong overlap, consider trimming; MODERATE = some overlap; LOW = picks are largely independent.">Correlation Risk</strong>
           <div className="ws-stack" style={{ marginTop: 8 }}>
             {(portfolio?.correlations?.clusters || []).slice(0, 8).map((c, i) => (
               <div key={i} style={{ fontSize: 12 }}>
-                <span style={{ color: c.level === "high" ? "var(--ws-negative)" : c.level === "moderate" ? "var(--ws-warn)" : "var(--ws-text-dim)", fontWeight: 600, marginRight: 6 }}>
+                <span
+                  title={tooltipForCorrelationLevel(c.level)}
+                  style={{ color: c.level === "high" ? "var(--ws-negative)" : c.level === "moderate" ? "var(--ws-warn)" : "var(--ws-text-dim)", fontWeight: 600, marginRight: 6 }}
+                >
                   {c.level.toUpperCase()}
                 </span>
                 <span className="ws-dim">{c.note}</span>

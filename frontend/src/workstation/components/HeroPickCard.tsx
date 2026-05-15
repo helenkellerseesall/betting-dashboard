@@ -1,6 +1,16 @@
 import type { FeaturedPlay } from "../types"
 import { fmtOdds, fmtPct, compactStat, teamAbbrev } from "../utils"
 import { useBuilder } from "../builderContext"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForConsensusConfidence,
+  tooltipForBookCount,
+  tooltipForVolatility,
+  tooltipForBestImpDelta,
+  tooltipForProcessNote,
+  tooltipForAttackNote,
+  tooltipForTier,
+} from "../tooltips"
 
 interface Props {
   play: FeaturedPlay | null
@@ -36,6 +46,21 @@ export function HeroPickCard({ play, anchorCount }: Props) {
     ? `+${(play.edge * 100).toFixed(1)}%`
     : null
 
+  // Phase Operator-Experience-1A — inline market & realism annotations.
+  // Each annotation derives DETERMINISTICALLY from existing fields; if a source
+  // field is null/undefined the annotation is omitted entirely (anti-fabrication).
+  const confStr = Number.isFinite(play.consensusConfidence)
+    ? `conf=${(play.consensusConfidence as number).toFixed(2)}`
+    : null
+  const booksStr = play.bookCount && play.bookCount >= 1
+    ? `(${play.bookCount} book${play.bookCount === 1 ? "" : "s"})`
+    : null
+  const volStr = play.volatility ? `volatility: ${play.volatility}` : null
+  // bestImpDelta < 0 means best book offers BETTER price than consensus (bettor value).
+  const deltaStr = Number.isFinite(play.bestImpDelta)
+    ? `Δ${(play.bestImpDelta as number) >= 0 ? "+" : ""}${((play.bestImpDelta as number) * 100).toFixed(1)}¢ vs consensus`
+    : null
+
   return (
     <div className={`ws-hero-card${isUrgent ? " ws-hero-urgent" : isSoon ? " ws-hero-soon" : ""}`}>
       {/* Header row */}
@@ -65,15 +90,53 @@ export function HeroPickCard({ play, anchorCount }: Props) {
         )}
       </div>
 
+      {/* Phase Operator-Experience-1A — inline market + realism context row.
+          Phase Operator-Experience-1B-1: deterministic title= tooltips added to each
+          annotation. Every tooltip pulls from the same deterministic backend field
+          the visible string already derives from — no fabrication. */}
+      {(confStr || booksStr || volStr || deltaStr) && (
+        <div className="ws-hero-context-row" style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, fontFamily: "var(--ws-mono)", color: "var(--ws-dim)", marginTop: 4 }}>
+          {confStr && (
+            <span title={tooltipForConsensusConfidence(play.consensusConfidence, play.bookCount)}>{confStr}</span>
+          )}
+          {booksStr && (
+            <span title={tooltipForBookCount(play.bookCount)}>{booksStr}</span>
+          )}
+          {volStr && (
+            <span title={tooltipForVolatility(play.volatility)}>{volStr}</span>
+          )}
+          {deltaStr && (
+            <span
+              title={tooltipForBestImpDelta(play.bestImpDelta, play.bestBook)}
+              style={{ color: Number.isFinite(play.bestImpDelta) && (play.bestImpDelta as number) < 0 ? "var(--ws-positive)" : "var(--ws-dim)" }}
+            >
+              {deltaStr}
+            </span>
+          )}
+          {/* Phase 1B-1: surface tier as inline annotation when present */}
+          {play.tier && (
+            <span title={tooltipForTier(play.tier)}>tier: {String(play.tier).toLowerCase()}</span>
+          )}
+        </div>
+      )}
+
       {/* The WHY — attack note is the money text */}
       {play.attackNote && (
-        <div className="ws-hero-attack">
+        <div className="ws-hero-attack" title={tooltipForAttackNote(play.attackNote)}>
           {play.attackNote}
         </div>
       )}
 
       {play.reasoning && (
         <div className="ws-hero-tags">{play.reasoning}</div>
+      )}
+
+      {/* Phase Operator-Experience-1A — lift processNote from tooltip to visible row.
+          Phase 1B-1: title= tooltip added to the visible row for hover-discoverable context. */}
+      {play.processNote && (
+        <div className="ws-hero-tags" style={{ fontStyle: "italic", opacity: 0.85 }} title={tooltipForProcessNote(play.processNote)}>
+          — {play.processNote}
+        </div>
       )}
 
       {/* CTA */}

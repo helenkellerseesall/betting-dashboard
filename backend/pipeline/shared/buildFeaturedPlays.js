@@ -717,6 +717,213 @@ function buildBestBooksTonight(scored) {
     .slice(0, 8)
 }
 
+// ── Phase Operator-Experience-1A — 8 actionable operator buckets ─────────────
+//
+// Each bucket has a DETERMINISTIC selection rule grounded in existing scored /
+// staleRows data. No fabrication. Empty bucket → empty array. Each bucket caps
+// at maxRows; pickDiversified used where multi-player diversity matters.
+//
+// Buckets transform raw intelligence exhaust into operator-priority surfaces:
+//   bestBalanced            — balanced volatility + multi-book + healthy edge
+//   bestAggressive          — aggressive volatility + real edge (post Realism-1A AGG-2/TEXT-1)
+//   bestUnders              — under-side picks with edge (operator-observed unders outperform)
+//   bestAltLadders          — alt-line ladders with cross-book consensus
+//   bestDisagreementEdges   — soft_line staleRows sorted by |delta| (sharp value)
+//   staleLineOpportunities  — soft_line staleRows sorted by best-odds (cash value)
+//   trapLadders             — alt-line candidates with low bookCount or low consensusConfidence (AVOID)
+//   inflatedSuperstarSpots  — stale_line staleRows (book overprices = AVOID)
+
+/** Phase Operator-1A: BALANCED ecology operator surface — sturdy multi-book picks */
+function buildBestBalanced(scored, count = 5) {
+  const filtered = scored.filter((x) =>
+    x.c.volatility === "balanced" &&
+    (x.c.modelProb ?? 0) >= 0.50 &&
+    (x.c.edge ?? 0) >= 0.04 &&
+    (x.score.lineShop?.bookCount ?? 1) >= 2
+  )
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2, maxSideFraction: 0.65 })
+}
+
+/** Phase Operator-1A: AGGRESSIVE operator surface — high-edge aggressive with real signal */
+function buildBestAggressive(scored, count = 5) {
+  let filtered = scored.filter((x) =>
+    x.c.volatility === "aggressive" &&
+    (x.c.modelProb ?? 0) >= 0.30 &&
+    (x.c.edge ?? 0) >= 0.05
+  )
+  // Fallback: if no strict aggressive, accept high-edge lotto-volatility as alternate
+  if (filtered.length < count) {
+    filtered = scored.filter((x) =>
+      (x.c.volatility === "aggressive" || x.c.volatility === "lotto") &&
+      (x.c.edge ?? 0) >= 0.05
+    )
+  }
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 1, maxPerStat: 2 })
+}
+
+/** Phase Operator-1A: UNDER-side operator surface — unders materially outperform per Realism-1 audit */
+function buildBestUnders(scored, count = 5) {
+  const filtered = scored.filter((x) =>
+    x.c.side === "under" &&
+    (x.c.edge ?? 0) >= 0.04 &&
+    (x.c.modelProb ?? 0) >= 0.48
+  )
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2 })
+}
+
+/** Phase Operator-1A: alt-line ladder operator surface — calibration-friendly ecology */
+function buildBestAltLadders(scored, count = 5) {
+  const filtered = scored.filter((x) => {
+    const raw = String(x.c.propVariant || "").toLowerCase()
+    const isAlt = raw.startsWith("alt") || raw === "alternate" || x.c.isAlternate === true
+    if (!isAlt) return false
+    return (x.c.edge ?? 0) >= 0.04 && (x.score.lineShop?.consensusConfidence ?? 1) >= 0.5
+  })
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2 })
+}
+
+/**
+ * Phase Operator-1A: DISAGREEMENT-edges operator surface — soft_line staleRows sorted
+ * by mathematical sharpness (|delta from consensus|). Top candidates where one book
+ * underprices the bettor's side relative to peer-book consensus.
+ *
+ * staleRows come from buildLineShopping output (lineShopping.staleRows). Each entry
+ * already has tag: "soft_line" (bettor value) | "stale_line" (book overprices).
+ * Anti-fabrication: when a staleRow has no matching scored candidate, we still
+ * surface it with a minimal compact-play shape derived purely from staleRow fields.
+ */
+function buildBestDisagreementEdges(scoredById, staleRows, count = 5) {
+  if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const candidates = staleRows
+    .filter((s) => s && s.tag === "soft_line" && Number.isFinite(s.delta))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById)).filter(Boolean).slice(0, count)
+}
+
+/**
+ * Phase Operator-1A: STALE-LINE-OPPORTUNITIES surface — same soft_line population
+ * as bestDisagreementEdges but ranked by absolute payout magnitude (positive odds
+ * = larger dollar payoff). Operator-friendly cash-value view; complements the
+ * sharpness-ordered disagreement-edges bucket.
+ */
+function buildStaleLineOpportunities(scoredById, staleRows, count = 5) {
+  if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const candidates = staleRows
+    .filter((s) => s && s.tag === "soft_line" && Number.isFinite(num(s.odds)))
+    .sort((a, b) => {
+      // Prefer higher positive odds (better payoff); tie-break by |delta|.
+      const oa = num(a.odds) ?? 0
+      const ob = num(b.odds) ?? 0
+      const ranka = oa > 0 ? oa : -1000  // negative odds rank lower
+      const rankb = ob > 0 ? ob : -1000
+      if (ranka !== rankb) return rankb - ranka
+      return Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0)
+    })
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById)).filter(Boolean).slice(0, count)
+}
+
+/**
+ * Phase Operator-1A: TRAP-LADDERS surface — alt-line candidates where the book
+ * universe is thin (bookCount<2) OR consensus confidence is low (<0.5) OR archetype
+ * trust is poor. These are bait-shaped ladders — large-payout but structurally
+ * unreliable. Operator should AVOID. Single-line "why avoid" surfaced via processNote.
+ */
+function buildTrapLadders(scored, count = 5) {
+  const filtered = scored.filter((x) => {
+    const raw = String(x.c.propVariant || "").toLowerCase()
+    const isAlt = raw.startsWith("alt") || raw === "alternate" || x.c.isAlternate === true
+    if (!isAlt) return false
+    const bookCount = x.score.lineShop?.bookCount ?? 1
+    const conf = x.score.lineShop?.consensusConfidence
+    const archetypeTrust = x.score.factors?.archetype ?? 0
+    // Trap-shaped: thin book coverage OR low cross-book confidence OR no historical
+    // archetype trust. Plus require positive odds >= +200 to limit to genuine
+    // bait-payout shapes (operator doesn't need to "avoid" low-payout normal lines).
+    const isBigPayout = (num(x.c.odds) ?? 0) >= 200
+    if (!isBigPayout) return false
+    return bookCount < 2 || (Number.isFinite(conf) && conf < 0.5) || archetypeTrust < 0.40
+  })
+  // Sort by largest payout first (most enticing trap to flag)
+  return filtered
+    .sort((a, b) => (num(b.c.odds) ?? 0) - (num(a.c.odds) ?? 0))
+    .slice(0, count)
+}
+
+/**
+ * Phase Operator-1A: INFLATED-SUPERSTAR-SPOTS surface — stale_line staleRows
+ * (book overprices vs consensus = AVOID). Mirrors the bestDisagreementEdges shape
+ * but for the AVOID-side stale tag. Tagged in compactPlay with processNote so the
+ * operator knows WHY this surface flags the prop.
+ */
+function buildInflatedSuperstarSpots(scoredById, staleRows, count = 5) {
+  if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const candidates = staleRows
+    .filter((s) => s && s.tag === "stale_line" && Number.isFinite(s.delta))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { avoidTag: true })).filter(Boolean).slice(0, count)
+}
+
+/**
+ * Phase Operator-1A: bridge from a staleRow entry to a compactPlay-shaped object.
+ * If the staleRow has a matching scored candidate, use the full compactPlay path.
+ * Otherwise synthesize a minimal compactPlay from the staleRow's own fields —
+ * anti-fabrication: we ONLY copy fields the staleRow already carries; never
+ * invent edge, modelProb, or composite values.
+ */
+function staleRowToCompactPlay(s, scoredById, { avoidTag = false } = {}) {
+  if (!s) return null
+  const propStr = String(s.prop || "")
+  const m = propStr.match(/^(.+?)\s+(over|under)\s+([\d.]+)$/i)
+  const propType = m ? m[1] : propStr
+  const side     = m ? m[2].toLowerCase() : null
+  const line     = m ? Number(m[3]) : null
+  const player   = String(s.player || "")
+  const statFamilyNorm = normFam(propType)
+  // Best-effort lookup of the full scored entry (so we can return a richer compactPlay).
+  const lookupKey = [player.toLowerCase().trim(), statFamilyNorm, side ?? "", line ?? "any"].join("|")
+  const item = scoredById.get(lookupKey)
+  if (item) {
+    const cp = compactPlay(item, item._ctx, { includeAttackNote: false })
+    // Augment with staleRow-specific markers so the frontend can render the
+    // disagreement context inline. Anti-fabrication: only adds fields from staleRow.
+    cp.staleRowTag = s.tag
+    cp.staleRowDelta = s.delta
+    cp.consensus = s.consensus
+    if (avoidTag) cp.avoidReason = `book overprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`
+    return cp
+  }
+  // Anti-fabrication minimal shape — every field comes from s.* directly.
+  return {
+    id:                  `${player}|${propType}|${side ?? "?"}|${line ?? "?"}|${s.book}|stale`,
+    player,
+    statFamily:          propType,
+    side:                side,
+    line,
+    odds:                s.odds,
+    book:                s.book,
+    bestBook:            s.book,
+    bestOdds:            s.odds,
+    bookCount:           undefined,
+    consensusConfidence: undefined,
+    marketDispersion:    undefined,
+    bestImpDelta:        Number.isFinite(s.delta) ? s.delta : undefined,
+    modelProb:           undefined,
+    edge:                undefined,
+    volatility:          undefined,
+    tier:                undefined,
+    consensus:           s.consensus,
+    staleRowTag:         s.tag,
+    staleRowDelta:       s.delta,
+    ...(avoidTag ? { avoidReason: `book overprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢` } : {}),
+    reasoning:           s.tag === "soft_line"
+      ? `book underprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`
+      : `book overprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`,
+    processNote:         null,
+    composite:           undefined,
+    factors:             undefined,
+  }
+}
+
 // ── compact play serialization ────────────────────────────────────────────────
 
 function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
@@ -724,32 +931,41 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
   const reason     = buildReason(c, score, ctx)
   const note       = processQualityNote(c, score, ctx)
   const attackNote = includeAttackNote ? buildAttackNote(c, score, ctx) : undefined
+  // Phase Operator-Experience-1A: lift Phase Market-1A fields to every compactPlay
+  // so the Dashboard / HeroPickCard / SpotlightCard / FeaturedCard can surface
+  // consensusConfidence + marketDispersion + bestImpDelta inline. Pure additive —
+  // existing fields untouched, additive output keys.
+  const ls = score.lineShop
   return {
-    id:           c.id,
-    player:       c.player,
-    team:         c.team,
-    eventId:      c.eventId,
-    matchup:      c.matchup,
-    statFamily:   c.statFamily,
-    propType:     c.propType,
-    side:         c.side,
-    line:         c.line,
-    odds:         c.odds,
-    book:         c.book,
-    bestBook:     score.lineShop?.bestBook || c.book,
-    bestOdds:     score.lineShop?.bestOdds ?? c.odds,
-    bookCount:    score.lineShop?.bookCount ?? 1,
-    modelProb:    c.modelProb,
-    edge:         c.edge,
-    volatility:   c.volatility,
-    tier:         c.tier,
-    timingState:  score.timingClass?.state,
-    timingUrgency:score.timingClass?.urgency,
-    reasoning:    reason,
-    processNote:  note,
+    id:                  c.id,
+    player:              c.player,
+    team:                c.team,
+    eventId:             c.eventId,
+    matchup:             c.matchup,
+    statFamily:          c.statFamily,
+    propType:            c.propType,
+    side:                c.side,
+    line:                c.line,
+    odds:                c.odds,
+    book:                c.book,
+    bestBook:            ls?.bestBook || c.book,
+    bestOdds:            ls?.bestOdds ?? c.odds,
+    bookCount:           ls?.bookCount ?? 1,
+    // Phase Operator-Experience-1A — additive market-context fields:
+    consensusConfidence: Number.isFinite(ls?.consensusConfidence) ? ls.consensusConfidence : undefined,
+    marketDispersion:    Number.isFinite(ls?.marketDispersion)    ? ls.marketDispersion    : undefined,
+    bestImpDelta:        Number.isFinite(ls?.bestImpDelta)        ? ls.bestImpDelta        : undefined,
+    modelProb:           c.modelProb,
+    edge:                c.edge,
+    volatility:          c.volatility,
+    tier:                c.tier,
+    timingState:         score.timingClass?.state,
+    timingUrgency:       score.timingClass?.urgency,
+    reasoning:           reason,
+    processNote:         note,
     ...(attackNote != null ? { attackNote } : {}),
-    composite:    score.composite,
-    factors:      score.factors,
+    composite:           score.composite,
+    factors:             score.factors,
   }
 }
 
@@ -773,6 +989,9 @@ function buildFeaturedPlays(opts = {}) {
       anchors: [],
       tonightsBest: [], bestHr: [], bestPra: [], bestFirstBasket: [], bestLadders: [], smartAggression: [],
       safest: [], bestClv: [], marketAgreement: [], timingWindows: [], bestBooks: [],
+      // Phase Operator-Experience-1A — 8 new operator buckets (empty when no candidates).
+      bestBalanced: [], bestAggressive: [], bestUnders: [], bestAltLadders: [],
+      bestDisagreementEdges: [], staleLineOpportunities: [], trapLadders: [], inflatedSuperstarSpots: [],
       summary: "No candidates available",
     }
   }
@@ -795,7 +1014,22 @@ function buildFeaturedPlays(opts = {}) {
   const ledgerStats = buildLedgerStats(ledgerState)
   const ctx = { timingMap, shopMap, bookState, ledgerStats }
 
-  const scored = normalized.map((c) => ({ c, score: scoreCandidate(c, ctx) }))
+  const scored = normalized.map((c) => ({ c, score: scoreCandidate(c, ctx), _ctx: ctx }))
+
+  // Phase Operator-Experience-1A: pre-build a lookup map so staleRow-derived
+  // buckets (bestDisagreementEdges, staleLineOpportunities, inflatedSuperstarSpots)
+  // can match back to the full scored entry rather than synthesizing a thin
+  // compactPlay. Key shape matches lookupShop's keying convention.
+  const scoredById = new Map()
+  for (const it of scored) {
+    const k = [
+      String(it.c.player || "").toLowerCase().trim(),
+      normFam(it.c.statFamily),
+      String(it.c.side || "").toLowerCase(),
+      String(it.c.line ?? "any"),
+    ].join("|")
+    scoredById.set(k, it)
+  }
 
   // Two-tier hierarchy: anchors (3–5 highest-trust plays, must clear corroboration
   // gate) + supports (tonightsBest below the anchors). The tonightsBest pool
@@ -815,6 +1049,20 @@ function buildFeaturedPlays(opts = {}) {
   const bestClv         = buildBestClv(scored).map((x) => compactPlay(x, ctx))
   const marketAgreement = buildMarketAgreement(scored).map((x) => compactPlay(x, ctx))
   const timingWindows   = buildTimingWindows(scored).map((x) => compactPlay(x, ctx))
+
+  // Phase Operator-Experience-1A: 8 new actionable operator buckets.
+  // Each derived deterministically from existing scored + staleRows data.
+  // No fabrication; empty buckets return []. Existing buckets above unchanged.
+  const staleRowsSource = Array.isArray(lineShopping?.staleRows) ? lineShopping.staleRows : []
+  const bestBalanced            = buildBestBalanced(scored).map((x) => compactPlay(x, ctx))
+  const bestAggressive          = buildBestAggressive(scored).map((x) => compactPlay(x, ctx))
+  const bestUnders              = buildBestUnders(scored).map((x) => compactPlay(x, ctx))
+  const bestAltLadders          = buildBestAltLadders(scored).map((x) => compactPlay(x, ctx))
+  const bestDisagreementEdges   = buildBestDisagreementEdges(scoredById, staleRowsSource)
+  const staleLineOpportunities  = buildStaleLineOpportunities(scoredById, staleRowsSource)
+  const trapLadders             = buildTrapLadders(scored).map((x) => compactPlay(x, ctx))
+  const inflatedSuperstarSpots  = buildInflatedSuperstarSpots(scoredById, staleRowsSource)
+
   const bestBooks       = buildBestBooksTonight(scored).map((b) => ({
     book: b.book, plays: b.plays, avgScore: b.avgScore,
     topPlay: b.topPlay ? compactPlay(b.topPlay, ctx) : null,
@@ -822,9 +1070,12 @@ function buildFeaturedPlays(opts = {}) {
 
   // Count of UNIQUE plays surfaced (not bucket sum, which over-counts due to
   // the same play appearing in multiple lenses).
+  // Phase Operator-Experience-1A: include 8 new buckets in unique-id rollup.
   const uniqueIds = new Set()
   for (const list of [anchors, tonightsBest, bestHr, bestPra, bestFirstBasket, bestLadders, smartAggression,
-                      safest, bestClv, marketAgreement, timingWindows]) {
+                      safest, bestClv, marketAgreement, timingWindows,
+                      bestBalanced, bestAggressive, bestUnders, bestAltLadders, trapLadders,
+                      bestDisagreementEdges, staleLineOpportunities, inflatedSuperstarSpots]) {
     for (const p of list) if (p?.id) uniqueIds.add(p.id)
   }
 
@@ -833,6 +1084,9 @@ function buildFeaturedPlays(opts = {}) {
     anchors,
     tonightsBest, bestHr, bestPra, bestFirstBasket, bestLadders, smartAggression,
     safest, bestClv, marketAgreement, timingWindows, bestBooks,
+    // Phase Operator-Experience-1A — 8 new actionable operator buckets.
+    bestBalanced, bestAggressive, bestUnders, bestAltLadders,
+    bestDisagreementEdges, staleLineOpportunities, trapLadders, inflatedSuperstarSpots,
     summary: `${anchors.length} anchors · ${uniqueIds.size} curated plays across ${normalized.length} candidates`,
   }
 }

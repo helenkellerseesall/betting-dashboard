@@ -5,6 +5,50 @@
 
 ---
 
+## READABLE INTELLIGENCE DOCTRINE (Phase Operator-Experience-1B-1, 2026-05-15)
+
+**Reduce translation cost between sportsbook-native intelligence and operator-native understanding — deterministically.**
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1B-1** | NEW `frontend/src/workstation/tooltips.ts` (25 deterministic helpers); 82 title= attributes across 7 surfaces; `(2b)` → `(2 books)` abbreviation cleanup | 2026-05-15 | ✅ SHIPPED |
+| 1B-2 | 1-line plain-English summary at every card top; SOFT/STALE pill captions | — | Held |
+| 1B-3 | PortfolioView band-guide chip; remove phase-tag pollution; nav-label tooltips | — | Held |
+| 1B-4 | Operator-toggleable 25-term glossary page | — | Held |
+| 1B-5 | Per-pick "why this pick / why this may fail" two-paragraph summary card | — | Held |
+
+**Doctrine for every Operator-Experience-1B phase**:
+1. Deterministic translation only — every visible/hoverable string is f(backend fields).
+2. Anti-fabrication — undefined input → empty string → caller omits the rendering.
+3. Single source of truth — all tooltip / plain-English strings live in `frontend/src/workstation/tooltips.ts`.
+4. Cross-reference header — module cites every backend rule (file + line) for audit traceability.
+5. Hover-discoverable, never displacement — tooltips expand visible content; never replace it.
+6. Zero backend touch per phase unless approved.
+
+---
+
+## ACTIONABLE INTELLIGENCE DOCTRINE (Phase Operator-Experience-1A, 2026-05-14)
+
+**Transform intelligence exhaust into actionable betting intelligence WITHOUT disturbing the underlying intelligence substrate.**
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | 8 actionable buckets in buildFeaturedPlays (`bestBalanced`, `bestAggressive`, `bestUnders`, `bestAltLadders`, `bestDisagreementEdges`, `staleLineOpportunities`, `trapLadders`, `inflatedSuperstarSpots`) + 3 Phase Market-1A fields lifted onto every compactPlay (`consensusConfidence`/`marketDispersion`/`bestImpDelta`) + ActionableBucketsGrid Dashboard component + inline `conf=X (Nb) volatility:X Δ±X¢` annotations on HeroPickCard / SpotlightCard / FeaturedCard + processNote/avoidReason lifted from tooltips | 2026-05-14 | ✅ SHIPPED |
+| 1B | whyQualifies + whyAvoid + tier text labels + mobile @media + keyboard shortcuts + copy-to-clipboard | — | Held |
+| 1C | Operator-customizable priority weights + delta surface + drill-down | — | Held |
+| 1D | Calibration-coefficient impact surfacing + Phase 1A filter-applied indicators | — | Held |
+| 1E | Refined TRAP / INFLATED detection — depends on Market 1B+ | — | Held |
+
+**Discipline for every Operator-Experience phase**:
+1. Pre/post snapshots mandatory — `backend/runtime/operator/baseline_snapshots/`.
+2. Every visible field must trace to a deterministic backend value (anti-fabrication).
+3. New surfaces must declare a top-N cap and auto-hide when empty (anti-clutter).
+4. Calibration/market-informed buckets render BEFORE raw exhaust.
+5. Zero replay/grading/persistence/market-pipeline path modifications per phase.
+6. tsc clean on frontend AND full 150/150 probe matrix unchanged.
+
+---
+
 ## MARKET OBSERVABILITY DOCTRINE (Phase Market-Ecology-1A, 2026-05-14)
 
 **Understand sportsbook behavior truthfully BEFORE attempting to exploit sportsbook behavior algorithmically.**

@@ -3,6 +3,12 @@ import type { AiSlip, AiSlips, AiSlipLeg, SportState } from "../types"
 import { fmtOdds, fmtPct, compactStat, teamAbbrev } from "../utils"
 import { Badge } from "../components/Badges"
 import { useBuilder } from "../builderContext"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForSlipEv,
+  tooltipForSlipProb,
+  tooltipForSlipTierChip,
+} from "../tooltips"
 
 const TIERS: { id: keyof AiSlips; label: string; color: string; emoji: string }[] = [
   { id: "safe",       label: "Core",        color: "var(--ws-vol-safe)",       emoji: "🛡️" },
@@ -27,9 +33,9 @@ function SlipCard({ slip, tier }: { slip: AiSlip; tier: string }) {
   return (
     <div className={`ws-slip tier-${tier}`}>
       <div className="ws-slip-head">
-        <span className="ws-slip-odds">{american}</span>
-        <span className="ws-mono ws-pos">EV {fmtPct(slip.ev)}</span>
-        <span className="ws-mono ws-dim">prob {fmtPct(slip.combinedModelProb)}</span>
+        <span className="ws-slip-odds" title="Combined American odds for the full parlay. Positive = underdog payoff; negative = favorite cost.">{american}</span>
+        <span className="ws-mono ws-pos" title={tooltipForSlipEv(slip.ev)}>EV {fmtPct(slip.ev)}</span>
+        <span className="ws-mono ws-dim" title={tooltipForSlipProb(slip.combinedModelProb)}>prob {fmtPct(slip.combinedModelProb)}</span>
         <span className="ws-slip-reason">{slip.reasoning}</span>
       </div>
       <div style={{ marginTop: 6 }}>
@@ -97,9 +103,18 @@ export function AiSlipsView({ state }: { state: SportState | null }) {
       </h2>
 
       <div className="ws-filters">
-        <button className={`ws-pill ${activeTier === "all" ? "active" : ""}`} onClick={() => setActiveTier("all")}>All</button>
+        <button
+          className={`ws-pill ${activeTier === "all" ? "active" : ""}`}
+          onClick={() => setActiveTier("all")}
+          title="Show parlays from every tier (safe / balanced / aggressive / lotto)."
+        >All</button>
         {TIERS.map((t) => (
-          <button key={t.id} className={`ws-pill ${activeTier === t.id ? "active" : ""}`} onClick={() => setActiveTier(t.id)}>
+          <button
+            key={t.id}
+            className={`ws-pill ${activeTier === t.id ? "active" : ""}`}
+            onClick={() => setActiveTier(t.id)}
+            title={tooltipForSlipTierChip(t.id)}
+          >
             <span style={{ marginRight: 4 }}>{t.emoji}</span>{t.label} <span className="ws-dim" style={{ marginLeft: 6 }}>{slipsByTier[t.id].length}</span>
           </button>
         ))}
@@ -119,7 +134,10 @@ export function AiSlipsView({ state }: { state: SportState | null }) {
           const slips = slipsByTier[t.id]
           return (
             <div key={t.id}>
-              <h3 style={{ fontSize: 12, color: t.color, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 8px" }}>
+              <h3
+                style={{ fontSize: 12, color: t.color, textTransform: "uppercase", letterSpacing: 1, margin: "0 0 8px" }}
+                title={tooltipForSlipTierChip(t.id)}
+              >
                 {t.emoji} {t.label} <span className="ws-dim" style={{ fontSize: 11 }}>({slips.length})</span>
               </h3>
               {!slips.length && <div className="ws-empty">{tierEmpty(t.id)}</div>}

@@ -1,6 +1,17 @@
 import type { FeaturedPlay } from "../types"
 import { fmtOdds, compactStat, teamAbbrev } from "../utils"
 import { useBuilder } from "../builderContext"
+// Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
+import {
+  tooltipForConsensusConfidence,
+  tooltipForBookCount,
+  tooltipForVolatility,
+  tooltipForBestImpDelta,
+  tooltipForStaleTag,
+  tooltipForProcessNote,
+  tooltipForAvoidReason,
+  tooltipForAttackNote,
+} from "../tooltips"
 
 interface Props {
   icon: string
@@ -102,12 +113,59 @@ export function SpotlightCard({
             )}
           </div>
 
+          {/* Phase Operator-Experience-1A — inline market context strip.
+              Phase 1B-1: deterministic title= tooltips added to each annotation. */}
+          {(Number.isFinite(top.consensusConfidence) || (top.bookCount && top.bookCount >= 1) ||
+            top.volatility || Number.isFinite(top.bestImpDelta) || top.staleRowTag) && (
+            <div className="ws-spotlight-context" style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 10, fontFamily: "var(--ws-mono)", color: "var(--ws-dim)", marginTop: 2 }}>
+              {Number.isFinite(top.consensusConfidence) && (
+                <span title={tooltipForConsensusConfidence(top.consensusConfidence, top.bookCount)}>
+                  conf={(top.consensusConfidence as number).toFixed(2)}
+                </span>
+              )}
+              {top.bookCount && top.bookCount >= 1 && (
+                <span title={tooltipForBookCount(top.bookCount)}>
+                  ({top.bookCount} book{top.bookCount === 1 ? "" : "s"})
+                </span>
+              )}
+              {top.volatility && (
+                <span title={tooltipForVolatility(top.volatility)}>vol: {top.volatility}</span>
+              )}
+              {Number.isFinite(top.bestImpDelta) && (
+                <span
+                  title={tooltipForBestImpDelta(top.bestImpDelta, top.bestBook)}
+                  style={{ color: (top.bestImpDelta as number) < 0 ? "var(--ws-positive)" : "var(--ws-dim)" }}
+                >
+                  Δ{(top.bestImpDelta as number) >= 0 ? "+" : ""}{((top.bestImpDelta as number) * 100).toFixed(1)}¢
+                </span>
+              )}
+              {top.staleRowTag === "soft_line" && (
+                <span title={tooltipForStaleTag(top.staleRowTag, top.bestBook, top.staleRowDelta)} style={{ color: "var(--ws-positive)" }}>SOFT</span>
+              )}
+              {top.staleRowTag === "stale_line" && (
+                <span title={tooltipForStaleTag(top.staleRowTag, top.bestBook, top.staleRowDelta)} style={{ color: "var(--ws-warn)" }}>STALE</span>
+              )}
+            </div>
+          )}
+
           {/* The narrative — what makes this play interesting */}
           {top.attackNote && (
-            <div className="ws-spotlight-attack">{top.attackNote}</div>
+            <div className="ws-spotlight-attack" title={tooltipForAttackNote(top.attackNote)}>{top.attackNote}</div>
           )}
           {!top.attackNote && top.reasoning && (
             <div className="ws-spotlight-reasoning">{top.reasoning}</div>
+          )}
+          {/* Phase Operator-Experience-1A — lift processNote / avoidReason to visible row.
+              Phase 1B-1: title= tooltips for hover-discoverable context. */}
+          {top.processNote && (
+            <div className="ws-spotlight-reasoning" style={{ fontStyle: "italic", opacity: 0.85 }} title={tooltipForProcessNote(top.processNote)}>
+              — {top.processNote}
+            </div>
+          )}
+          {top.avoidReason && (
+            <div className="ws-spotlight-reasoning" style={{ fontStyle: "italic", color: "var(--ws-warn)" }} title={tooltipForAvoidReason(top.avoidReason)}>
+              ⚠ {top.avoidReason}
+            </div>
           )}
 
           <button
