@@ -1,9 +1,9 @@
 {
   "a051c6df269a83813b248ea222859c65": {
-    "temperature": 69.98,
-    "temp": 69.98,
-    "windSpeed": 23.48787,
-    "windDirectionDeg": 276,
+    "temperature": 69.8,
+    "temp": 69.8,
+    "windSpeed": 25.053728,
+    "windDirectionDeg": 272,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -17,14 +17,14 @@
         "lon": -79.99589,
         "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-15T06:39:43.203Z"
+      "ingestedAt": "2026-05-15T07:56:07.935Z"
     }
   },
   "44a4350d4a8392d58e49e092bee941e9": {
-    "temperature": 71.42,
-    "temp": 71.42,
-    "windSpeed": 43.396636,
-    "windDirectionDeg": 310,
+    "temperature": 71.6,
+    "temp": 71.6,
+    "windSpeed": 36.685816,
+    "windDirectionDeg": 308,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -38,14 +38,14 @@
         "lon": -77.03637,
         "nameUsed": "Washington"
       },
-      "ingestedAt": "2026-05-15T06:39:43.215Z"
+      "ingestedAt": "2026-05-15T07:56:07.949Z"
     }
   },
   "19b80d07edae4ffcb25b42667963c877": {
-    "temperature": 70.34,
-    "temp": 70.34,
-    "windSpeed": 45.186188,
-    "windDirectionDeg": 199,
+    "temperature": 69.8,
+    "temp": 69.8,
+    "windSpeed": 37.356898,
+    "windDirectionDeg": 187,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -59,14 +59,14 @@
         "lon": -83.04575,
         "nameUsed": "Detroit"
       },
-      "ingestedAt": "2026-05-15T06:39:43.207Z"
+      "ingestedAt": "2026-05-15T07:56:07.970Z"
     }
   },
   "d5256fecb9779436e7900fb3f1b19363": {
-    "temperature": 64.22,
-    "temp": 64.22,
-    "windSpeed": 19.908766000000004,
-    "windDirectionDeg": 333,
+    "temperature": 65.12,
+    "temp": 65.12,
+    "windSpeed": 15.434886000000002,
+    "windDirectionDeg": 332,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -80,14 +80,14 @@
         "lon": -81.69541,
         "nameUsed": "Cleveland"
       },
-      "ingestedAt": "2026-05-15T06:39:43.216Z"
+      "ingestedAt": "2026-05-15T07:56:07.951Z"
     }
   },
   "2aee6b065d2ab7dd34a7bf34c50ecf64": {
-    "temperature": 92.3,
-    "temp": 92.3,
-    "windSpeed": 13.645334,
-    "windDirectionDeg": 242,
+    "temperature": 92.11999999999999,
+    "temp": 92.11999999999999,
+    "windSpeed": 21.027236000000002,
+    "windDirectionDeg": 266,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -101,14 +101,14 @@
         "lon": -82.46417,
         "nameUsed": "Tampa Bay"
       },
-      "ingestedAt": "2026-05-15T06:39:43.208Z"
+      "ingestedAt": "2026-05-15T07:56:07.979Z"
     }
   },
   "0a103297db91d5bd1abf13d04b710c2a": {
     "temperature": 77,
     "temp": 77,
-    "windSpeed": 11.184700000000001,
-    "windDirectionDeg": 150,
+    "windSpeed": 14.092722,
+    "windDirectionDeg": 149,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -122,13 +122,13 @@
         "lon": -84.38798,
         "nameUsed": "Atlanta"
       },
-      "ingestedAt": "2026-05-15T06:39:43.627Z"
+      "ingestedAt": "2026-05-15T07:56:08.333Z"
     }
   },
   "afc970260745e8fb77f25865b9aa1d1e": {
-    "temperature": 64.4,
-    "temp": 64.4,
-    "windSpeed": 53.015478,
+    "temperature": 66.2,
+    "temp": 66.2,
+    "windSpeed": 48.317904000000006,
     "windDirectionDeg": 300,
     "windOut": false,
     "windIn": false,
@@ -143,14 +143,14 @@
         "lon": -74.00597,
         "nameUsed": "New York"
       },
-      "ingestedAt": "2026-05-15T06:39:43.618Z"
+      "ingestedAt": "2026-05-15T07:56:08.338Z"
     }
   },
   "4323e1f1f88640843f73a6482a7730d5": {
-    "temperature": 83.84,
-    "temp": 83.84,
-    "windSpeed": 41.159696,
-    "windDirectionDeg": 178,
+    "temperature": 84.2,
+    "temp": 84.2,
+    "windSpeed": 42.054472000000004,
+    "windDirectionDeg": 176,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -164,14 +164,14 @@
         "lon": -95.36327,
         "nameUsed": "Houston"
       },
-      "ingestedAt": "2026-05-15T06:39:43.628Z"
+      "ingestedAt": "2026-05-15T07:56:08.369Z"
     }
   },
   "857412c718e5a9787f2d262c8ad16cd5": {
-    "temperature": 83.3,
-    "temp": 83.3,
-    "windSpeed": 50.778538000000005,
-    "windDirectionDeg": 178,
+    "temperature": 83.12,
+    "temp": 83.12,
+    "windSpeed": 51.673314000000005,
+    "windDirectionDeg": 183,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -185,14 +185,14 @@
         "lon": -90.19789,
         "nameUsed": "St. Louis"
       },
-      "ingestedAt": "2026-05-15T06:39:43.637Z"
+      "ingestedAt": "2026-05-15T07:56:08.373Z"
     }
   },
   "204926b2f2e00788f62385d3af31d828": {
     "temperature": 96.26,
     "temp": 96.26,
-    "windSpeed": 6.487126,
-    "windDirectionDeg": 270,
+    "windSpeed": 22.593094,
+    "windDirectionDeg": 274,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -206,14 +206,14 @@
         "lon": -100.86456,
         "nameUsed": "Colorado"
       },
-      "ingestedAt": "2026-05-15T06:39:43.889Z"
+      "ingestedAt": "2026-05-15T07:56:08.628Z"
     }
   },
   "8a72d8b519cc92911419682fb63aaf67": {
     "temperature": 73.58,
     "temp": 73.58,
-    "windSpeed": 31.764548,
-    "windDirectionDeg": 243,
+    "windSpeed": 34.67257,
+    "windDirectionDeg": 245,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -227,14 +227,14 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-15T06:39:44.022Z"
+      "ingestedAt": "2026-05-15T07:56:08.745Z"
     }
   },
   "919b933a4af691070848a940a7d07a84": {
     "temperature": 51.08,
     "temp": 51.08,
-    "windSpeed": 48.988986,
-    "windDirectionDeg": 226,
+    "windSpeed": 51.225926,
+    "windDirectionDeg": 233,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
@@ -248,7 +248,7 @@
         "lon": -122.33207,
         "nameUsed": "Seattle"
       },
-      "ingestedAt": "2026-05-15T06:39:44.033Z"
+      "ingestedAt": "2026-05-15T07:56:08.772Z"
     }
   }
 }

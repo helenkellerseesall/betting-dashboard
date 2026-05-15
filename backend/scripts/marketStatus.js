@@ -69,7 +69,15 @@ function readSnapshotFile(p) {
   try {
     if (!fs.existsSync(p)) return null
     const j = JSON.parse(fs.readFileSync(p, "utf8"))
-    const rows = j?.data?.rows || j?.rows || []
+    // Phase Snapshot-Authority-1A (AUTH-1): NBA fetcher persists rows at
+    // `data.props`; MLB fetcher persists them at `data.rows`. Both shapes
+    // must be supported here to mirror the canonical workstation reader
+    // (workstationRoutes.js:135 / :190). Without `data.props` in the chain,
+    // every NBA snapshot reported `rows: 0` even though the disk file held
+    // thousands of populated props. This was the bug that produced the
+    // operator-reported "snapshot.json rows = 0 / books = 0 / bestProps n/a"
+    // cascade in Phase Market-Ecology-1A observability.
+    const rows = j?.data?.rows || j?.data?.props || j?.rows || []
     return { ok: true, rows, savedAt: j?.savedAt || null, path: p }
   } catch (e) {
     return { ok: false, error: String(e?.message || e), path: p }

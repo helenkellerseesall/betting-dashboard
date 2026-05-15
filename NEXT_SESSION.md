@@ -1,4 +1,10 @@
 **Exact operational resumption state. Overwrite every session. Never append.**
+_Last updated: 2026-05-15 (Phase Intelligence-Shaping-1A SHIPPED — INC-017 RESOLVED. 4 key-path corrections in `backend/scripts/slateNba.js` aligned diagnostic reader to canonical API response shapes. Same family pattern as INC-016 — diagnostic-reader key-path drift, NOT substrate failure. ZERO backend pipeline file changed. ZERO API route change. Full matrix 150/150 PASS. tsc clean. Eight approved gates shipped. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Snapshot-Authority-1A):
+_Last updated: 2026-05-15 (Phase Snapshot-Authority-1A SHIPPED — INC-016 RESOLVED. Two one-line reader fallback fixes (marketStatus.js + buildIntelligencePresentation.js) add `data.props` to the snapshot-row resolution chain, mirroring the canonical workstation reader pattern. NBA `market:status` now correctly reports rows=5655 / books=2 (was 0/0). MLB unchanged. ZERO writer-side change. ZERO new files. Full matrix 150/150 PASS. tsc clean. Seven approved gates shipped. INC-013/014/015/016 all RESOLVED.)_
+
+Prior session record (Phase Settlement-Orchestration-1A):
 _Last updated: 2026-05-15 (Phase Settlement-Orchestration-1A SHIPPED — deterministic settlement automation. AUTO-1: runHistoricalGrade.js chain hook; AUTO-2: NEW `npm run settlement:run` canonical entry. Daily ceremony 3 commands → 1 command. ZERO backend pipeline change. Sandbox smoke confirmed full chain. 150/150 matrix unchanged. tsc clean.)_
 
 Prior session record (Phase Operator-Experience-1B-1):

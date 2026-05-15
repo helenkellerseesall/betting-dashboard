@@ -5,6 +5,83 @@
 
 ---
 
+## INTELLIGENCE-SHAPING DOCTRINE (Phase Intelligence-Shaping-1A, 2026-05-15)
+
+**Diagnostic/observability surfaces are reader-side; they must consult the canonical API authority files, not assume.**
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | SHAPE-1 (`scripts/slateNba.js` — 4 key-path corrections matching `nbaIsolatedRoutes.js` + `workstationRoutes.js` canonical response shapes) | 2026-05-15 | ✅ SHIPPED — INC-017 RESOLVED |
+| 1B | SHAPE-2 — consolidate count-resolution into shared `resolveSlateNbaCounts()` helper | — | Held |
+| 1C | SHAPE-3 — populate or remove vestigial `eliteProps`/`strongProps`/`playableProps`/`flexProps` arrays | — | Held |
+| 1D | SHAPE-4 — persist `modelProb` + `edge` on every raw `data.props[]` row | — | Held |
+| 1E | SHAPE-5 — operator-facing `intel:status` command surfacing structural shape | — | Held |
+
+**Doctrine (mirrors Snapshot-Authority doctrine pattern):**
+1. **Canonical response-shape authority is single-sourced** — the route files (`nbaIsolatedRoutes.js` for `/api/best-available`; `workstationRoutes.js` for `/api/ws/state`) own response shapes.
+2. **Reader-side carry-forward verification mandatory** whenever upstream API surface evolves. Two consecutive phases (Snapshot-Authority-1A INC-016, Intelligence-Shaping-1A INC-017) caught the same diagnostic-reader-drift anti-pattern.
+3. **Anti-fabrication**: when a reader key is undefined, surface `n/a` deterministically; never silently substitute a default.
+4. **Anti-duplication for future readers**: Phase 1B (SHAPE-2) will consolidate the count-resolution.
+
+**Canonical API response shapes (operator-facing reference):**
+
+`GET /api/best-available?sport=basketball_nba`:
+```js
+{
+  bestAvailable: { best, elite, strong, ladders, firstBasket,
+                   aiSlips, featured, wsCandidates },
+  nbaOpportunityBoard, nbaInsightBoard, nbaCacheDiagnostics
+}
+```
+
+`GET /api/ws/state?sport=nba`:
+```js
+{
+  sport, date,
+  counts: { candidates, urgent, propsWithMultiBook, steam, stale },
+  candidates: [...],
+  featured: [...],
+  aiSlips: { safe, balanced, aggressive, lotto },
+  lineShopping, timing, portfolio, snapshotFreshness, ...
+}
+```
+
+---
+
+## SNAPSHOT AUTHORITY DOCTRINE (Phase Snapshot-Authority-1A, 2026-05-15)
+
+**Writer-side authority is canonical and never disturbed by observability or presentation code.**
+
+| Sport | Fetcher | Writer | On-disk file | Canonical row key |
+|---|---|---|---|---|
+| NBA | `pipeline/nba/fetchNbaOddsSnapshot.js` | `saveNbaSnapshotToDisk` (sync) | `backend/snapshot.json` | `data.props` |
+| MLB | `pipeline/mlb/buildMlbBootstrapSnapshot.js` | `saveMlbReplaySnapshotToDisk` (async) | `backend/snapshot-mlb.json` | `data.rows` (also has `data.props`) |
+
+**Reader-side rule (mandatory for every snapshot consumer):**
+
+```js
+const rows = snap?.data?.rows || snap?.data?.props || snap?.rows || []
+```
+
+The canonical reference implementation lives in `backend/routes/workstationRoutes.js:135 + :190` (`readSnapshotRows`, `readSnapshotRowsWithFreshness`). Every future observability or presentation surface that reads a snapshot file MUST use this exact fallback chain (or its forthcoming `AUTH-3` consolidated helper). The rule is anti-duplication: do not fork the resolution logic.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | AUTH-1 (`marketStatus.js:72` fallback) + AUTH-2 (`buildIntelligencePresentation.js:732` fallback) — both mirror the canonical workstation reader pattern | 2026-05-15 | ✅ SHIPPED — INC-016 RESOLVED |
+| 1B | AUTH-3 — consolidate into single shared helper + probe asserts both shapes resolve | — | Held |
+| 1C | AUTH-4 — close `ENABLE_DISK_SNAPSHOT_LOAD=false` boot-load gap | — | Held |
+| 1D | AUTH-5 — rename `snapshot.json` → `snapshot-nba.json` (symmetric naming) | — | Held |
+| 1E | AUTH-6 — NBA writer aliases `data.props` as `data.rows` (belt-and-suspenders) | — | Held |
+
+**Doctrine for every Snapshot-Authority phase:**
+1. Writer-side authority is canonical; never touched by observability/presentation code.
+2. Reader-side fallback consistency: every consumer uses `data.rows || data.props || rows`.
+3. Anti-duplication: future readers consult the canonical resolver; do not fork.
+4. Anti-fabrication: no reader inserts synthetic rows to mask a count mismatch.
+5. Pre/post snapshots mandatory in `backend/runtime/operator/baseline_snapshots/`.
+
+---
+
 ## SETTLEMENT ORCHESTRATION DOCTRINE (Phase Settlement-Orchestration-1A, 2026-05-15)
 
 **Completed games must deterministically settle into outcome_snapshots WITHOUT requiring multiple manual operator commands.**

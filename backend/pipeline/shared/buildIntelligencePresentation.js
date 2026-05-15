@@ -725,11 +725,15 @@ function loadAndBuildBoard({ sport = "mlb", date = null, compact = false } = {})
   }
 
   // Load snapshot rows
+  // Phase Snapshot-Authority-1A (AUTH-2): NBA fetcher persists rows at
+  // `data.props`; MLB fetcher persists at `data.rows`. Mirror the canonical
+  // workstation reader (workstationRoutes.js:135 / :190) so NBA presentation
+  // surfaces don't read empty even when the disk file has thousands of props.
   let snapshotRows = []
   try {
     const snapPath = path.join(__dirname, "..", "..", `snapshot-${sport}.json`)
     const snap = safeRequire(snapPath)
-    snapshotRows = snap?.data?.rows || snap?.rows || []
+    snapshotRows = snap?.data?.rows || snap?.data?.props || snap?.rows || []
   } catch (_) {}
 
   // Load tracked bets/best for the requested day.

@@ -1,5 +1,11 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
+_Last updated: 2026-05-15 (Phase Intelligence-Shaping-1A SHIPPED — INC-017 RESOLVED. Operator reported `slate:nba` showing 4 metrics (bestProps count / featured plays / ai slips / candidates total) as `n/a`. Audit confirmed the downstream intelligence substrate (ingest / snapshot / enrichment / scoring / settlement) fully healthy — `backend/snapshot.json` holds 5,652 raw NBA props + 46 scored bestProps. Bug was 4 stale key-paths in `backend/scripts/slateNba.js` reading API keys that drifted from canonical response shapes (`bestProps` → `bestAvailable.best`; `featuredPlays` → `featured`; `aiSlips.slips` → sum of 4 tier arrays; `candidatesTotal` → `counts.candidates`). Same pattern as INC-016 (Snapshot-Authority-1A) — diagnostic-reader key-path drift, NOT substrate failure. Two prior consecutive phases now caught this same anti-pattern. SHAPE-1 patch: 4 corrections in `slateNba.js` with Phase-tagged Law 10 comments cross-referencing canonical authority files. Simulated reader test confirmed all 4 outputs produce real numbers (10/3/6/24). ZERO backend pipeline file changed. ZERO API route change. ZERO writer change. Full matrix 150/150 PASS, tsc clean, node --check OK. Eight approved gates shipped: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A + Intelligence-Shaping-1A. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Snapshot-Authority-1A):
+_Last updated: 2026-05-15 (Phase Snapshot-Authority-1A SHIPPED — INC-016 RESOLVED. Operator reported `market:status` showing NBA `rows: 0, books: 0` despite refresh success. Audit confirmed writer-side NBA chain was healthy — `backend/snapshot.json` already held 5,655 NBA props at `data.props`. The bug was reader-side: two downstream readers (`marketStatus.js:72` Phase Market-1A OBS-1 + `buildIntelligencePresentation.js:732`) checked only `data.rows` (the MLB shape) without the NBA `data.props` fallback. AUTH-1 + AUTH-2: two one-line patches add `data.props` to the fallback chain (`data.rows || data.props || rows`), mirroring the canonical workstation reader already in production at `workstationRoutes.js:135/:190`. Phase-tagged Law 10 comments cross-reference the canonical pattern. Live post-1A: NBA `rows: 5655, books: 2 (FanDuel 3739 + DraftKings 1916), 4381 grouped props, 1132 multi-book, consensusConfidence p10=0.980 p50=1.000`. MLB output unchanged. ZERO writer-side change. ZERO ingest / replay / grading / calibration / market-observability / settlement / operator-experience surface touched. Full matrix 150/150 PASS. tsc clean. Seven approved gates shipped: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A. INC-013/014/015/016 all RESOLVED.)_
+
+Prior session record (Phase Settlement-Orchestration-1A):
 _Last updated: 2026-05-15 (Phase Settlement-Orchestration-1A SHIPPED — deterministic settlement automation. AUTO-1: runHistoricalGrade.js gains chainNightlyReview() + shouldChainOrchestrator() so every successful per-date grading pass automatically spawns nightlyReview.js for the same (sport,date). Operator-visible `[settlement-1A] ✓/✗/·` logs. `--no-orchestrate` opt-out. AUTO-2: NEW backend/scripts/settlementRun.js (~240 lines) + `npm run settlement:run` — single canonical entry supporting --sport / --date / --check / --clear-locks / --no-orchestrate. Loud verification with `orchestration_INCOMPLETE` status on substrate gap. Daily ceremony shrinks 3 commands → 1 command. Sandbox smoke confirmed full chain end-to-end (grading → AUTO-1 → nightlyReview 9-step → outcome_snapshots / personal_ledger / process_classifications written; 1160ms). Lockfile-protected via Phase 1F+1G. INSERT OR REPLACE idempotent. ZERO new network calls. ZERO new write path. ZERO backend pipeline change. tsc clean. 150/150 matrix unchanged. Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A all shipped.)_
 
 Prior session record (Phase Operator-Experience-1B-1):
@@ -16,6 +22,188 @@ _Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED — fake-aggressive 
 
 Prior session record (Phase 1G):
 _Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported isolated nba/2026-05-08 failure (exit=1, ~33ms) and hypothesized "malformed replay payload." Forensic reproduction with FULL stderr/stdout proved: NO PAYLOAD DEFECT EXISTS — 33ms fingerprint is Phase 1F's lock guard, fooled by pid-reuse on the operator host where the recorded orchestrator pid was recycled by an unrelated process. Direct inspection of `nba_tracked_bets_2026-05-08.json` confirmed 4 well-formed Jalen Brunson rebounds rows. Minimal Phase 1G hardening: `ALIVE_PID_STALE_THRESHOLD_MS = 10 min` — locks with alive-pid AND startedAt >10min ago are now reclaimed with explicit `console.warn([acquire-lock][INC-015]...)`. Phase 1F + 1G together form a 5-tier deterministic state machine. STATE 1 sandbox test (pid=1 alive + 11min old → operator scenario) → reclaim + EXIT=0 ✓. STATE 2 (pid=1 alive + 5min old → legitimate concurrent) → honor lock ✓. Full grading:backfill-all (16 dates, 9 ran incl. nba/2026-05-08 in 451ms, 0 failed). 150/150 verification PASS. brain:checkpoint sealed. INC-013, INC-014, INC-015 all RESOLVED. Operator next: `npm run grading:backfill-all -- --clear-locks` on host.)_
+
+---
+
+## SESSION INTELLIGENCE-SHAPING-1A — slateNba.js Diagnostic-Reader Key-Path Corrections (INC-017 RESOLVED) (2026-05-15)
+
+### What this session shipped
+
+Smallest safe single-file patch closing INC-017. Operator approved SHAPE-1 only.
+
+**4 key-path corrections in `backend/scripts/slateNba.js`** with Phase-tagged Law 10 comments cross-referencing canonical API authority files:
+
+| Line | Before | After |
+|---|---|---|
+| `~105` (bestProps count) | reads `j2.bestProps` | reads `j2.bestAvailable?.best?.length` |
+| `~131` (featured plays count) | reads `j3.featuredPlays` | reads `j3.featured?.length` |
+| `~132` (ai slips count) | reads `j3.aiSlips?.slips.length` | sums `j3.aiSlips.{safe,balanced,aggressive,lotto}.length` |
+| `~133` (candidates total) | reads `j3.candidatesTotal` | reads `j3.counts?.candidates ?? j3.candidates?.length` |
+
+### Forensic finding (audit-confirmed)
+
+Downstream intelligence substrate fully healthy. The "n/a" cascade was purely a diagnostic-script reader bug — **second instance of the same anti-pattern in consecutive phases** (Phase Snapshot-Authority-1A INC-016 was the same shape).
+
+### Live before/after delta (simulated reader test with disk-truth)
+
+```
+PRE-1A operator output:
+  bestProps count            : n/a
+  featured plays count       : n/a
+  ai slips count             : n/a
+  candidates total           : n/a
+
+POST-1A operator output:
+  bestProps count            : 10
+  featured plays count       : 3
+  ai slips count             : 6
+  candidates total           : 24
+```
+
+### Architecture preservation invariants
+
+- ✓ ZERO backend pipeline file changed (only `scripts/slateNba.js` — a diagnostic CLI).
+- ✓ No ingest / snapshot / enrichment / scoring / settlement / replay / grading / calibration / market observability / operator experience surface changed.
+- ✓ No API route or response shape changed.
+- ✓ Existing output formatting + diagnostics semantics preserved.
+- ✓ Phase Race-1, Phase 1F+1G, Phase Realism-1A, Market-1A, Operator-1A, Operator-1B-1, Settlement-1A, Snapshot-Authority-1A — all preserved.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| `tsc --noEmit -p frontend` | — | exit 0 |
+| `node --check backend/scripts/slateNba.js` | — | OK |
+| Reader-logic smoke test | — | 10/3/6/24 ✓ |
+| **Total** | **150** | **PASS** |
+
+### Pre/post snapshots
+
+```
+backend/runtime/operator/baseline_snapshots/pre_shaping_1a_2026-05-15T083710Z.txt
+backend/runtime/operator/baseline_snapshots/post_shaping_1a_2026-05-15T083838Z.txt
+```
+
+### Intelligence-shaping doctrine (Phase 1A established)
+
+1. Canonical response-shape authority is single-sourced (in route files).
+2. Reader-side carry-forward verification mandatory whenever upstream API surface evolves.
+3. Anti-fabrication: undefined reader key surfaces `n/a`, never substitutes a default.
+4. Anti-duplication: future Phase 1B (SHAPE-2) consolidates into shared resolver helper.
+
+### Operator action
+
+```bash
+cd backend
+npm run slate:nba   # confirm 4 metrics now show real numbers (was n/a)
+```
+
+### Status
+
+Phase Intelligence-Shaping-1A SHIPPED. INC-017 RESOLVED. Operator-visible diagnostics restored. Eight approved gates shipped.
+
+---
+
+## SESSION SNAPSHOT-AUTHORITY-1A — NBA Reader Shape Fallback (INC-016 RESOLVED) (2026-05-15)
+
+### What this session shipped
+
+Smallest safe two-line patch closing INC-016. Operator approved AUTH-1 + AUTH-2 only.
+
+**1. AUTH-1** — `backend/scripts/marketStatus.js:72` reader fallback fix:
+- Before: `const rows = j?.data?.rows || j?.rows || []`
+- After:  `const rows = j?.data?.rows || j?.data?.props || j?.rows || []`
+- Phase-tagged Law 10 comment cross-references canonical `workstationRoutes.js` pattern.
+
+**2. AUTH-2** — `backend/pipeline/shared/buildIntelligencePresentation.js:732` reader fallback fix:
+- Before: `snapshotRows = snap?.data?.rows || snap?.rows || []`
+- After:  `snapshotRows = snap?.data?.rows || snap?.data?.props || snap?.rows || []`
+- Same Phase-tagged Law 10 comment.
+
+### Forensic finding (audit-confirmed)
+
+Writer-side NBA authority chain was fully healthy. `backend/snapshot.json` held 5,655 props at `data.props` at the time of the operator-reported symptom. The bug was purely reader-side shape gap. NBA's `fetchNbaOddsSnapshot` persists rows at `data.props`; MLB's `buildMlbBootstrapSnapshot` persists at `data.rows`. The canonical workstation reader (`readSnapshotRowsWithFreshness` at `workstationRoutes.js:135` + `:190`) handles both shapes; two downstream readers shipped without the NBA fallback.
+
+### Live before/after delta
+
+**Pre-1A** `market:status --sport=nba`:
+```
+snapshot.json
+    savedAt:    2026-05-15T07:26:05.297Z (10m ago)
+    rows:       0          ← INCORRECT
+    books:      0          ← INCORRECT
+SECTION 2: (no snapshots available)
+SECTION 3: (no stale rows surfaced)
+```
+
+**Post-1A** `market:status --sport=nba`:
+```
+snapshot.json
+    savedAt:    2026-05-15T07:26:05.297Z (17m ago)
+    rows:       5655       ← CORRECT
+    books:      2          ← CORRECT
+      FanDuel                 3739 rows
+      DraftKings              1916 rows
+SECTION 2 (CONSENSUS CONFIDENCE):
+  grouped props: 4381
+  multi-book props: 1132
+  consensusConfidence: p10=0.980 p50=1.000 p90=1.000
+```
+
+MLB output unchanged: `rows: 7465, books: 5`. Regression-free.
+
+### Architecture preservation invariants
+
+- ✓ ZERO writer-side change.
+- ✓ ZERO ingest / replay / grading / calibration / market-observability / settlement-orchestration / operator-experience surface changed.
+- ✓ ZERO new files / commands / dependencies.
+- ✓ Both fixes mirror the existing canonical pattern at `workstationRoutes.js:135 + 190`.
+- ✓ Phase Race-1 mutex + Phase 1F+1G + Phase Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A all preserved.
+
+### Verification matrix (150/150 PASS — unchanged)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| `tsc --noEmit -p frontend` | — | exit 0 |
+| Live `market:status --sport=nba` | — | rows: 5655 ✓ |
+| Live `market:status --sport=mlb` | — | rows: 7465 ✓ (regression-free) |
+| **Total** | **150** | **PASS** |
+
+### Pre/post snapshots
+
+```
+backend/runtime/operator/baseline_snapshots/pre_snapshot_1a_2026-05-15T074234Z.txt
+backend/runtime/operator/baseline_snapshots/post_snapshot_1a_2026-05-15T074357Z.txt
+```
+
+### Snapshot authority doctrine (Phase 1A established)
+
+1. Writer-side authority is canonical; never disturbed by observability/presentation code.
+2. Reader-side fallback consistency: every consumer of `snapshot-{sport}.json` must use the canonical chain `data.rows || data.props || rows`.
+3. Anti-duplication: future readers consult the canonical resolver; do not fork the resolution logic.
+4. Anti-fabrication: no reader inserts synthetic rows to mask a count mismatch.
+
+### Operator action
+
+```bash
+cd backend
+npm run market:status -- --sport=nba   # confirm rows: 5655 / books: 2 (pre-1A: 0/0)
+npm run market:status                   # full inventory both sports
+```
+
+### Status
+
+Phase Snapshot-Authority-1A SHIPPED. INC-013/014/015/016 all RESOLVED. The NBA snapshot-authority chain is now coherent end-to-end. Seven approved gates have now shipped.
 
 ---
 

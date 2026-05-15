@@ -102,7 +102,17 @@ async function main() {
     const nbaCache = j2.nbaCacheDiagnostics || {}
     const epoch    = nbaCache.epochAuthority || {}
     const apiResp  = nbaCache.apiSportsResponseDiagnostics || {}
-    console.log("  bestProps count            :", Array.isArray(j2.bestProps) ? j2.bestProps.length : "n/a")
+    // Phase Intelligence-Shaping-1A (SHAPE-1): canonical API response shape from
+    // `backend/http/nbaIsolatedRoutes.js` `handleNbaBestAvailableGet` (~line 1477)
+    // returns `{ bestAvailable: { best, elite, strong, ladders, firstBasket,
+    // aiSlips, featured, wsCandidates }, nbaOpportunityBoard, ... }`. The
+    // operator-visible "bestProps count" is the count of `bestAvailable.best`
+    // (top-N elite plays) — NOT a top-level `bestProps` key. Reading the wrong
+    // path produced the n/a cascade reported in Phase Intelligence-Shaping-1.
+    const bestPropsCount = Array.isArray(j2.bestAvailable?.best)
+      ? j2.bestAvailable.best.length
+      : "n/a"
+    console.log("  bestProps count            :", bestPropsCount)
     console.log("  ── cache lifecycle ──")
     console.log("    cacheWriteSuccessesPlayerId :", nbaCache.cacheWriteSuccessesPlayerId)
     console.log("    memoryPlayerIdCount         :", nbaCache.memoryPlayerIdCount)
@@ -128,9 +138,39 @@ async function main() {
   const r3 = await step("Step 3: workstation state (triggers contextual freeze)", "GET", "/api/ws/state?sport=nba")
   const j3 = safeJson(r3.res.body)
   if (j3) {
-    console.log("  featured plays count        :", Array.isArray(j3.featuredPlays) ? j3.featuredPlays.length : "n/a")
-    console.log("  ai slips count              :", Array.isArray(j3.aiSlips?.slips) ? j3.aiSlips.slips.length : "n/a")
-    console.log("  candidates total            :", j3.candidatesTotal || j3.pool?.length || "n/a")
+    // Phase Intelligence-Shaping-1A (SHAPE-1): canonical /api/ws/state response shape
+    // from `backend/routes/workstationRoutes.js` (~line 693-712) returns:
+    //   { sport, date,
+    //     counts: { candidates, urgent, propsWithMultiBook, steam, stale },
+    //     candidates: [...],
+    //     featured: [...],                                        ← was misread as `featuredPlays`
+    //     aiSlips: { safe, balanced, aggressive, lotto },         ← already the tier-object, NOT `.slips`-wrapped
+    //     ... }
+    // Each of the three reader lines below previously consulted keys the API
+    // never emitted, producing the operator-visible n/a cascade documented in
+    // Phase Intelligence-Shaping-1.
+    const featuredCount = Array.isArray(j3.featured)
+      ? j3.featured.length
+      : "n/a"
+    const aiSlipsCount =
+      Number.isFinite((j3.aiSlips?.safe       || []).length)       &&
+      Number.isFinite((j3.aiSlips?.balanced   || []).length)       &&
+      Number.isFinite((j3.aiSlips?.aggressive || []).length)       &&
+      Number.isFinite((j3.aiSlips?.lotto      || []).length)
+        ? ((j3.aiSlips?.safe       || []).length) +
+          ((j3.aiSlips?.balanced   || []).length) +
+          ((j3.aiSlips?.aggressive || []).length) +
+          ((j3.aiSlips?.lotto      || []).length)
+        : "n/a"
+    const candidatesTotal =
+      Number.isFinite(j3.counts?.candidates)
+        ? j3.counts.candidates
+        : Array.isArray(j3.candidates)
+          ? j3.candidates.length
+          : "n/a"
+    console.log("  featured plays count        :", featuredCount)
+    console.log("  ai slips count              :", aiSlipsCount)
+    console.log("  candidates total            :", candidatesTotal)
   } else if (r3.res.body) {
     console.log(`  ${r3.res.body.slice(0, 200)}`)
   }
