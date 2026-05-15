@@ -29,7 +29,8 @@
     "grading:status":                "node scripts/gradingStatus.js",
     "calibration:status":            "node scripts/calibrationStatus.js",
     "lineage:status":                "node scripts/lineageStatus.js",
-    "market:status":                 "node scripts/marketStatus.js"
+    "market:status":                 "node scripts/marketStatus.js",
+    "settlement:run":                "node scripts/settlementRun.js"
   },
   "keywords": [],
   "author": "",

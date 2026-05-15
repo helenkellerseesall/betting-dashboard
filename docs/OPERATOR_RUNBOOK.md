@@ -5,6 +5,56 @@
 
 ---
 
+## SETTLEMENT ORCHESTRATION DOCTRINE (Phase Settlement-Orchestration-1A, 2026-05-15)
+
+**Completed games must deterministically settle into outcome_snapshots WITHOUT requiring multiple manual operator commands.**
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | AUTO-1 (post-grading chain hook in `runHistoricalGrade.js`) + AUTO-2 (`npm run settlement:run` canonical entry) | 2026-05-15 | ✅ SHIPPED |
+| 1B | AUTO-3 — foreground `npm run settlement:watch` watchdog | — | Held |
+| 1C | AUTO-4 — in-process background scheduler (opt-in via env var) | — | Held |
+| 1D | AUTO-5 — committed cron/systemd unit files | — | Held |
+| 1E | AUTO-6 — workstation Dashboard "Settle Tonight's Slate" button | — | Held |
+
+**Daily ceremony post-Phase-1A:**
+
+```bash
+# 1. Pre-slate (unchanged)
+npm run engine:restart
+npm run slate:refresh
+
+# 2. Post-slate (NEW canonical command — replaces 3-command ceremony)
+npm run settlement:run
+
+# 3. Verification (unchanged)
+npm run grading:status
+npm run calibration:status
+npm run lineage:status
+npm run market:status
+npm run brain:checkpoint
+```
+
+**`settlement:run` flags:**
+- `--sport=mlb|nba|all` — default: all
+- `--date=YYYY-MM-DD` — default: today's date
+- `--check` — detect-only mode (no writes; calls `nightlyReview.js --check`)
+- `--clear-locks` — pre-flight stale-lock sweep (Phase 1F+1G)
+- `--no-orchestrate` — grade only; suppress AUTO-1 chain
+- `--verbose` — pass through to grading
+
+**Doctrine for every Settlement-Orchestration phase:**
+1. Deterministic CLI chains, not heuristic schedulers.
+2. Replay-safe — `INSERT OR REPLACE` on outcome_snapshots.
+3. Lockfile-protected via existing Phase 1F+1G acquireLock.
+4. API-conscious — same total stat-API fetch count.
+5. Operator-visible logging at every state transition.
+6. Loud failure — non-zero exit when settled rows exist but outcome_snapshots empty.
+7. Pre/post snapshots mandatory in `backend/runtime/operator/baseline_snapshots/`.
+8. No autonomous schedulers without explicit operator approval gate.
+
+---
+
 ## READABLE INTELLIGENCE DOCTRINE (Phase Operator-Experience-1B-1, 2026-05-15)
 
 **Reduce translation cost between sportsbook-native intelligence and operator-native understanding — deterministically.**

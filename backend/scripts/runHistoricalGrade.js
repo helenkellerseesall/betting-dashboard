@@ -20,6 +20,12 @@
  *   --summary-only        Skip grading; just regenerate summaries from existing data
  *   --dry-run             Run without writing any files (print what would happen)
  *   --verbose             Print per-bet debug output
+ *   --no-orchestrate      Phase Settlement-1A (AUTO-1) — suppress the post-grading
+ *                          automatic chain to nightlyReview.js. By default, every
+ *                          successful per-date grading pass automatically invokes
+ *                          the nightly orchestrator for the same (sport,date) so
+ *                          outcome_snapshots / personal_ledger / process_classifications
+ *                          populate without a second operator command.
  *
  * Pipeline per sport+date:
  *   1. fetchGameResults     — fetch player stat lines from API
@@ -39,8 +45,67 @@
 
 const fs   = require("fs/promises")
 const path = require("path")
+const { spawnSync } = require("child_process")
 
 const RUNTIME_DIR = path.join(__dirname, "..", "runtime", "tracking")
+
+// Phase Settlement-Orchestration-1A (AUTO-1): post-grading chain to the
+// canonical nightlyReview.js orchestrator. After every successful per-date
+// grading pass, we automatically invoke the orchestrator for the same
+// (sport, date) — closing the historical gap where graded JSON sat without
+// being mirrored into outcome_snapshots / personal_ledger / process_classifications.
+//
+// The chain hook respects the existing acquireLock contract in
+// buildNightlyOrchestrator.js (Phase 1F + 1G PID-liveness + age-aware reclaim);
+// it does NOT bypass any safety mechanism. The orchestrator's INSERT OR REPLACE
+// semantics on outcome_snapshots make this idempotent on re-runs.
+//
+// The hook is suppressed in any of these cases (anti-fabrication discipline):
+//   - opts.dryRun        — no grading writes occurred
+//   - opts.summaryOnly   — no grading writes occurred
+//   - opts.noOrchestrate — operator opted out via --no-orchestrate
+//   - betSummary.settled === 0 — grading produced no settled rows for this date
+//
+// Logging is operator-visible at every transition (start / success / failure /
+// skip). The orchestrator's own per-step logs continue to print normally.
+const NIGHTLY_CLI = path.join(__dirname, "..", "..", "scripts", "nightlyReview.js")
+
+function shouldChainOrchestrator(opts, gradeResult) {
+  if (!opts) return false
+  if (opts.dryRun)        return false
+  if (opts.summaryOnly)   return false
+  if (opts.noOrchestrate) return false
+  if (!gradeResult || gradeResult.success !== true) return false
+  // `betSummary` shape from gradeTrackedBets:
+  //   { graded, wins, losses, pushes, unresolved, alreadySettled, total }
+  // Chain whenever there is ANY settled row on the date (newly settled in this
+  // pass OR previously settled). Idempotent: nightlyReview uses INSERT OR REPLACE
+  // on outcome_snapshots so re-running is safe. We only skip when the date has
+  // zero settled rows (nothing to record).
+  const bs = gradeResult.betSummary || {}
+  const settledTotal = Number(bs.graded ?? 0) + Number(bs.alreadySettled ?? 0)
+  if (!Number.isFinite(settledTotal) || settledTotal <= 0) return false
+  return true
+}
+
+function chainNightlyReview(sport, date) {
+  console.log(`[settlement-1A] ── chaining nightlyReview ${sport}/${date} ──`)
+  console.log(`[settlement-1A] exec: node ${NIGHTLY_CLI} --sport=${sport} --date=${date} --force --quiet`)
+  const t0 = Date.now()
+  const r = spawnSync(
+    "node",
+    [NIGHTLY_CLI, `--sport=${sport}`, `--date=${date}`, "--force", "--quiet"],
+    { stdio: "inherit" }
+  )
+  const ms = Date.now() - t0
+  if (r.status === 0) {
+    console.log(`[settlement-1A] ✓ nightlyReview ${sport}/${date} succeeded (${ms}ms) — outcome_snapshots / personal_ledger / process_classifications updated`)
+    return { ok: true, ms }
+  }
+  console.log(`[settlement-1A] ✗ nightlyReview ${sport}/${date} FAILED (exit=${r.status}, ${ms}ms) — outcome_snapshots may be missing for this date`)
+  console.log(`[settlement-1A]   diagnose: \`npm run grading:backfill-all -- --sport=${sport} --clear-locks --dry\``)
+  return { ok: false, ms, exitCode: r.status }
+}
 
 // ── Lazy imports (avoid loading heavy modules until needed) ──────────────────
 
@@ -70,6 +135,9 @@ function parseArgs() {
     summaryOnly: false,
     dryRun: false,
     verbose: false,
+    // Phase Settlement-Orchestration-1A (AUTO-1): default ON.
+    // Operator can suppress via --no-orchestrate.
+    noOrchestrate: false,
   }
   for (const arg of args) {
     if (arg.startsWith("--sport="))  opts.sport = arg.slice(8).toLowerCase()
@@ -79,6 +147,7 @@ function parseArgs() {
     else if (arg === "--summary-only")    opts.summaryOnly = true
     else if (arg === "--dry-run")         opts.dryRun = true
     else if (arg === "--verbose")         opts.verbose = true
+    else if (arg === "--no-orchestrate")  opts.noOrchestrate = true   // Phase Settlement-1A (AUTO-1)
     else {
       console.error(`Unknown argument: ${arg}`)
       process.exit(2)
@@ -296,6 +365,20 @@ async function main() {
       const result = await gradeDate({ sport, date, fetcher, opts })
       if (!result.success) {
         anyFailure = true
+      }
+      // Phase Settlement-Orchestration-1A (AUTO-1): chain to nightlyReview.js for
+      // this (sport, date) so outcome_snapshots / personal_ledger / process_classifications
+      // are populated automatically. Respects --no-orchestrate / --dry-run /
+      // --summary-only flags; skipped when zero rows actually settled.
+      if (shouldChainOrchestrator(opts, result)) {
+        const chain = chainNightlyReview(sport, date)
+        if (!chain.ok) anyFailure = true
+      } else if (!opts.noOrchestrate && !opts.dryRun && !opts.summaryOnly) {
+        const bs = result?.betSummary || {}
+        const settledTotal = Number(bs.graded ?? 0) + Number(bs.alreadySettled ?? 0)
+        if (settledTotal <= 0) {
+          console.log(`[settlement-1A] · skipping nightlyReview ${sport}/${date} — no settled rows on this date (nothing to record)`)
+        }
       }
     }
   }
