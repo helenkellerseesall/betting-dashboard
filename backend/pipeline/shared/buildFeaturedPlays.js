@@ -863,6 +863,88 @@ function buildInflatedSuperstarSpots(scoredById, staleRows, count = 5) {
   return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { avoidTag: true })).filter(Boolean).slice(0, count)
 }
 
+// ── Phase Recommendation-Hierarchy-1A — buildRecommendationLadder (HIER-1) ───
+//
+// Deterministic, fixed-cardinality decision ladder derived PURELY from the
+// already-computed bucket arrays. Pure observational layer — no new scoring,
+// no new ranking math, no new heuristics, no fabricated fallback picks.
+//
+// SLOT DOCTRINE — every slot's value is the FIRST non-duplicate play from
+// one canonical bucket. When a candidate is already taken by an earlier-
+// priority slot (by id), walk that bucket's array until a unique id is
+// found OR exhaust the bucket → slot resolves to null.
+//
+// PRIORITY ORDER (per operator approval gate):
+//   1. bestOverall         ← anchors[0]                      (composite winner)
+//   2. safestPlay          ← safest[i]                       (lowest-variance qualifier)
+//   3. bestDisagreement    ← bestDisagreementEdges[i]        (book underprices vs consensus)
+//   4. bestUpsidePlay      ← bestAggressive[i] ?? bestPra[i] ?? bestHr[i] ?? bestFirstBasket[i]
+//   5. bestBalancedPlay    ← bestBalanced[i]                 (multi-book + healthy edge)
+//   6. mostOverpricedAvoid ← inflatedSuperstarSpots[i]       (book overprices vs consensus)
+//   7. highestTrapRiskAvoid← trapLadders[i]                  (thin coverage, big payout bait)
+//
+// EMPTY-SLOT DOCTRINE — when a canonical bucket is empty OR every entry was
+// already taken by an earlier slot, the slot returns null. The frontend
+// MUST render an honest "(no qualifying X tonight)" — never a fabricated
+// placeholder. Anti-fabrication is the entire point of this layer.
+//
+// REPLAY/GRADING SAFETY — ladder is a downstream observational derivation;
+// it never mutates upstream candidates, never touches lineage/calibration/
+// grading, never adds API calls, never persists state. Pure additive output.
+//
+// CANONICAL BUCKET AUTHORITY — slot rules cite buckets BY NAME. If a
+// bucket's selection rule evolves in a future phase, the ladder follows
+// automatically; we never duplicate a bucket's filtering logic here.
+function buildRecommendationLadder(featured) {
+  if (!featured || typeof featured !== "object") {
+    return {
+      bestOverall: null, safestPlay: null, bestUpsidePlay: null,
+      bestBalancedPlay: null, bestDisagreement: null,
+      mostOverpricedAvoid: null, highestTrapRiskAvoid: null,
+    }
+  }
+
+  const takenIds = new Set()
+  function pickFirstUnique(...bucketArrays) {
+    for (const bucket of bucketArrays) {
+      if (!Array.isArray(bucket)) continue
+      for (const play of bucket) {
+        const id = play?.id
+        if (!id) continue
+        if (takenIds.has(id)) continue
+        takenIds.add(id)
+        return play
+      }
+    }
+    return null
+  }
+
+  // Priority order matters — earlier slots claim ids first, later slots
+  // walk past already-taken ids until a unique entry surfaces or null.
+  const bestOverall         = pickFirstUnique(featured.anchors)
+  const safestPlay          = pickFirstUnique(featured.safest)
+  const bestDisagreement    = pickFirstUnique(featured.bestDisagreementEdges)
+  const bestUpsidePlay      = pickFirstUnique(
+    featured.bestAggressive,
+    featured.bestPra,
+    featured.bestHr,
+    featured.bestFirstBasket
+  )
+  const bestBalancedPlay    = pickFirstUnique(featured.bestBalanced)
+  const mostOverpricedAvoid = pickFirstUnique(featured.inflatedSuperstarSpots)
+  const highestTrapRiskAvoid= pickFirstUnique(featured.trapLadders)
+
+  return {
+    bestOverall,
+    safestPlay,
+    bestUpsidePlay,
+    bestBalancedPlay,
+    bestDisagreement,
+    mostOverpricedAvoid,
+    highestTrapRiskAvoid,
+  }
+}
+
 /**
  * Phase Operator-1A: bridge from a staleRow entry to a compactPlay-shaped object.
  * If the staleRow has a matching scored candidate, use the full compactPlay path.
@@ -984,6 +1066,8 @@ function buildFeaturedPlays(opts = {}) {
 
   const normalized = candidates.map(normalizeCandidate).filter(Boolean)
   if (!normalized.length) {
+    // Phase Recommendation-Hierarchy-1A (HIER-1): when no candidates, every
+    // ladder slot is null — honest empty doctrine, never fabricated picks.
     return {
       sport, date,
       anchors: [],
@@ -992,6 +1076,12 @@ function buildFeaturedPlays(opts = {}) {
       // Phase Operator-Experience-1A — 8 new operator buckets (empty when no candidates).
       bestBalanced: [], bestAggressive: [], bestUnders: [], bestAltLadders: [],
       bestDisagreementEdges: [], staleLineOpportunities: [], trapLadders: [], inflatedSuperstarSpots: [],
+      // Phase Recommendation-Hierarchy-1A — deterministic decision ladder (all-null when no candidates).
+      recommendationLadder: {
+        bestOverall: null, safestPlay: null, bestUpsidePlay: null,
+        bestBalancedPlay: null, bestDisagreement: null,
+        mostOverpricedAvoid: null, highestTrapRiskAvoid: null,
+      },
       summary: "No candidates available",
     }
   }
@@ -1079,6 +1169,23 @@ function buildFeaturedPlays(opts = {}) {
     for (const p of list) if (p?.id) uniqueIds.add(p.id)
   }
 
+  // Phase Recommendation-Hierarchy-1A (HIER-1): deterministic decision ladder.
+  // Pure derivation from already-computed buckets above — no new scoring,
+  // no new heuristics, no fabricated fallback picks. See buildRecommendationLadder
+  // for slot-priority + dedup doctrine. Empty slots resolve to null.
+  const recommendationLadder = buildRecommendationLadder({
+    anchors,
+    safest,
+    bestDisagreementEdges,
+    bestAggressive,
+    bestPra,
+    bestHr,
+    bestFirstBasket,
+    bestBalanced,
+    inflatedSuperstarSpots,
+    trapLadders,
+  })
+
   return {
     sport, date,
     anchors,
@@ -1087,6 +1194,8 @@ function buildFeaturedPlays(opts = {}) {
     // Phase Operator-Experience-1A — 8 new actionable operator buckets.
     bestBalanced, bestAggressive, bestUnders, bestAltLadders,
     bestDisagreementEdges, staleLineOpportunities, trapLadders, inflatedSuperstarSpots,
+    // Phase Recommendation-Hierarchy-1A — fixed-cardinality deterministic decision ladder.
+    recommendationLadder,
     summary: `${anchors.length} anchors · ${uniqueIds.size} curated plays across ${normalized.length} candidates`,
   }
 }
@@ -1095,4 +1204,6 @@ module.exports = {
   buildFeaturedPlays,
   scoreCandidate,
   buildLedgerStats,
+  // Phase Recommendation-Hierarchy-1A — exported for helper unit testing.
+  buildRecommendationLadder,
 }

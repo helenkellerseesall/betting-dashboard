@@ -1,5 +1,11 @@
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
+_Last updated: 2026-05-15 (Phase Recommendation-Hierarchy-1A SHIPPED — deterministic decision ladder. Repo substrate operationally stable after 11 prior phases; new bottleneck identified as recommendation prioritization clarity (19 themed buckets + 1 hero card = no fixed-cardinality role-named scan-line). HIER-1: `buildRecommendationLadder(featured)` in `backend/pipeline/shared/buildFeaturedPlays.js` (+~85 lines) — 7-slot pure observational layer (`bestOverall`/`safestPlay`/`bestUpsidePlay`/`bestBalancedPlay`/`bestDisagreement`/`mostOverpricedAvoid`/`highestTrapRiskAvoid`); priority-order dedup walks canonical bucket arrays past already-claimed ids; empty doctrine = null, no fabrication. HIER-2: NEW `RecommendationLadder` interface in `frontend/src/workstation/types.ts` + `recommendationLadder?` on `Featured`. HIER-3: NEW `frontend/src/workstation/components/RecommendationLadder.tsx` (~280 lines) — row 1 = 5 positive lanes (🔥/🛡/⚡/🎯/🚀), row 2 = 2 avoid lanes (⚠/⚠) visually separated; reuses every existing tooltip helper; empty slots render honest "(no qualifying X tonight)". HIER-4: Dashboard.tsx wires `<RecommendationLadder>` BETWEEN risk pulse and HeroPickCard — ladder is decision scan-line, hero retains emotional emphasis. Helper unit 20/20 PASS (14 ladder + 6 payload-shape). Full probe matrix 150/150 PASS, tsc exit 0, node --check OK. Pre/post snapshots in `backend/runtime/operator/baseline_snapshots/`. ZERO pipeline mutation. ZERO scoring rewrite. ZERO new ranking math. ZERO new persistence. ZERO new API call. ZERO authority duplication. Ten approved gates shipped: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A + Intelligence-Shaping-1A + Canonical-Shape-Hardening-1A + Recommendation-Hierarchy-1A. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Canonical-Shape-Hardening-1A):
+_Last updated: 2026-05-15 (Phase Canonical-Shape-Hardening-1A SHIPPED — canonical resolver helpers + slateMlb.js drift closure. Two consecutive incidents (INC-016 Snapshot-Authority-1A + INC-017 Intelligence-Shaping-1A) shared one architectural root cause: duplicated inline payload readers drifting from canonical API shapes. Audit identified `slateMlb.js:106-107` still drifting (same pre-1A `n/a` pattern as `slateNba.js`). HARDEN-1: NEW `backend/pipeline/shared/responseShapeResolvers.js` (~190 lines, 5 deterministic pure helpers: `resolveSnapshotRows`/`resolveFeaturedCount`/`resolveAiSlipCount`/`resolveCandidateCount`/`resolveBestAvailableCount`; JSDoc cross-references every canonical authority file; anti-fabrication: undefined → `"n/a"` or `[]`, never synthesizes defaults). HARDEN-2: Migrated `slateMlb.js` onto the new helpers (replaced 2 drift sites). Helper unit-test suite: 31/31 assertions PASS. Full probe matrix 150/150 PASS, tsc clean. ZERO API route / writer / pipeline / payload mutation. Nine approved gates shipped: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A + Intelligence-Shaping-1A + Canonical-Shape-Hardening-1A. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Intelligence-Shaping-1A):
 _Last updated: 2026-05-15 (Phase Intelligence-Shaping-1A SHIPPED — INC-017 RESOLVED. Operator reported `slate:nba` showing 4 metrics (bestProps count / featured plays / ai slips / candidates total) as `n/a`. Audit confirmed the downstream intelligence substrate (ingest / snapshot / enrichment / scoring / settlement) fully healthy — `backend/snapshot.json` holds 5,652 raw NBA props + 46 scored bestProps. Bug was 4 stale key-paths in `backend/scripts/slateNba.js` reading API keys that drifted from canonical response shapes (`bestProps` → `bestAvailable.best`; `featuredPlays` → `featured`; `aiSlips.slips` → sum of 4 tier arrays; `candidatesTotal` → `counts.candidates`). Same pattern as INC-016 (Snapshot-Authority-1A) — diagnostic-reader key-path drift, NOT substrate failure. Two prior consecutive phases now caught this same anti-pattern. SHAPE-1 patch: 4 corrections in `slateNba.js` with Phase-tagged Law 10 comments cross-referencing canonical authority files. Simulated reader test confirmed all 4 outputs produce real numbers (10/3/6/24). ZERO backend pipeline file changed. ZERO API route change. ZERO writer change. Full matrix 150/150 PASS, tsc clean, node --check OK. Eight approved gates shipped: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A + Intelligence-Shaping-1A. INC-013/014/015/016/017 all RESOLVED.)_
 
 Prior session record (Phase Snapshot-Authority-1A):
@@ -22,6 +28,82 @@ _Last updated: 2026-05-14 (Phase Realism-Ecology-1A SHIPPED — fake-aggressive 
 
 Prior session record (Phase 1G):
 _Last updated: 2026-05-14 (Phase Grading-Calibration-Operations-1G — INC-015 RESOLVED. Operator reported isolated nba/2026-05-08 failure (exit=1, ~33ms) and hypothesized "malformed replay payload." Forensic reproduction with FULL stderr/stdout proved: NO PAYLOAD DEFECT EXISTS — 33ms fingerprint is Phase 1F's lock guard, fooled by pid-reuse on the operator host where the recorded orchestrator pid was recycled by an unrelated process. Direct inspection of `nba_tracked_bets_2026-05-08.json` confirmed 4 well-formed Jalen Brunson rebounds rows. Minimal Phase 1G hardening: `ALIVE_PID_STALE_THRESHOLD_MS = 10 min` — locks with alive-pid AND startedAt >10min ago are now reclaimed with explicit `console.warn([acquire-lock][INC-015]...)`. Phase 1F + 1G together form a 5-tier deterministic state machine. STATE 1 sandbox test (pid=1 alive + 11min old → operator scenario) → reclaim + EXIT=0 ✓. STATE 2 (pid=1 alive + 5min old → legitimate concurrent) → honor lock ✓. Full grading:backfill-all (16 dates, 9 ran incl. nba/2026-05-08 in 451ms, 0 failed). 150/150 verification PASS. brain:checkpoint sealed. INC-013, INC-014, INC-015 all RESOLVED. Operator next: `npm run grading:backfill-all -- --clear-locks` on host.)_
+
+---
+
+## SESSION CANONICAL-SHAPE-HARDENING-1A — Canonical Resolver Helpers + slateMlb.js Drift Closure (2026-05-15)
+
+### What this session shipped
+
+Smallest safe architectural-hardening step. Operator approved HARDEN-1 + HARDEN-2 only.
+
+**1. HARDEN-1** — `backend/pipeline/shared/responseShapeResolvers.js` (NEW, ~190 lines):
+- 5 deterministic pure helper functions: `resolveSnapshotRows` / `resolveFeaturedCount` / `resolveAiSlipCount` / `resolveCandidateCount` / `resolveBestAvailableCount`.
+- Anti-fabrication: undefined canonical field → `"n/a"` or `[]`; never synthesizes a default.
+- JSDoc cross-references every canonical authority file (`workstationRoutes.js`, `nbaIsolatedRoutes.js`, `mlbIsolatedRoutes.js`, `fetchNbaOddsSnapshot.js`, `server.js` MLB writer block).
+- Pure functions: no I/O, no logging, no side effects.
+
+**2. HARDEN-2** — `backend/scripts/slateMlb.js` migration:
+- Replaced `Array.isArray(j3.featuredPlays) ? j3.featuredPlays.length : "n/a"` → `resolveFeaturedCount(j3)`.
+- Replaced `Array.isArray(j3.aiSlips?.slips) ? j3.aiSlips.slips.length : "n/a"` → `resolveAiSlipCount(j3)`.
+- Phase-tagged Law 10 comments cross-reference the canonical helper file + `workstationRoutes.js` authority.
+- Output formatting + diagnostics semantics preserved exactly.
+
+### Helper unit-test results (31 / 31 assertions PASS)
+
+```
+✓ resolveSnapshotRows         — 7 PASS (null / undefined / empty / MLB data.rows /
+                                  NBA data.props / authority order / legacy fallback)
+✓ resolveFeaturedCount        — 5 PASS (null / no featured / empty / populated /
+                                  wrong key anti-fabrication)
+✓ resolveAiSlipCount          — 6 PASS (null / no aiSlips / empty / all empty tiers /
+                                  populated / legacy .slips wrapper rejected)
+✓ resolveCandidateCount       — 6 PASS (null / empty / counts.candidates / array
+                                  fallback / explicit wins / wrong key)
+✓ resolveBestAvailableCount   — 7 PASS (null / NBA shape / NBA alias / MLB shape /
+                                  MLB alias / empty NBA / empty MLB)
+```
+
+### Architecture preservation invariants
+
+- ✓ ZERO API route / writer / pipeline / payload mutation.
+- ✓ No grading writer / classifier / settlement-object / replay / lineage / persistence / orchestrator semantics touched.
+- ✓ No FAMILY_CALIBRATION_COEFFICIENTS / volatility rules / portfolio thresholds / tier templates touched.
+- ✓ No layout / card / navigation / styling redesign.
+- ✓ Existing operator semantics (`"n/a"` literal when canonical field absent) preserved exactly.
+- ✓ All eight prior approved gates preserved: Realism-1A + Market-1A + Operator-1A + Operator-1B-1 + Settlement-1A + Snapshot-Authority-1A + Intelligence-Shaping-1A.
+
+### Verification matrix (150/150 + 31/31 helper PASS)
+
+| Suite | Count | Result |
+|---|---|---|
+| `probe_grading_backfill_v1.js` | 42 | PASS |
+| `probe_lineage_v1.js` | 24 | PASS |
+| `probe_persistence_idempotency.js` + `probe_ledger_mirror.js` | 22 | PASS |
+| `probe_epoch_authority_v1.js` | 48 | PASS |
+| `runtime:verify` (14-suite regression) | 14 | PASS |
+| `tsc --noEmit -p frontend` | — | exit 0 |
+| Helper unit-test suite | 31 | PASS |
+| **Total** | **181** | **PASS** |
+
+### Pre/post snapshots
+
+```
+backend/runtime/operator/baseline_snapshots/pre_canonical_shape_1a_2026-05-15T200432Z.txt
+backend/runtime/operator/baseline_snapshots/post_canonical_shape_1a_2026-05-15T200720Z.txt
+```
+
+### Canonical payload doctrine (Phase 1A established)
+
+1. Route files own response shapes; helpers must conform, not redefine.
+2. No observability surface forks the resolution.
+3. Anti-fabrication: undefined canonical field → `"n/a"` or `[]`.
+4. Anti-duplication: helper updates once; consumers rebase automatically.
+5. Migration policy: Phase 1A migrates only the open drift; Phase 1B sweeps remaining inline readers in a pure refactor pass.
+
+### Status
+
+Phase Canonical-Shape-Hardening-1A SHIPPED. The architectural seam preventing future INC-016/INC-017-style drift is in place. **Nine approved gates** have now shipped on top of the grading-calibration substrate.
 
 ---
 

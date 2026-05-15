@@ -3,6 +3,7 @@
 
 /**
  * slateMlb.js — Phase Operator-Operations-1 (2026-05-14)
+ *                + Phase Canonical-Shape-Hardening-1A (HARDEN-2) (2026-05-15)
  *
  *   Usage:
  *     node backend/scripts/slateMlb.js
@@ -17,6 +18,15 @@
  */
 
 const http = require("http")
+// Phase Canonical-Shape-Hardening-1A (HARDEN-2): canonical resolver helpers.
+// Replaces the prior inline `j3.featuredPlays` / `j3.aiSlips?.slips.length`
+// drift sites with the single canonical source of truth in
+// backend/pipeline/shared/responseShapeResolvers.js. The canonical
+// /api/ws/state shape is owned by backend/routes/workstationRoutes.js.
+const {
+  resolveFeaturedCount,
+  resolveAiSlipCount,
+} = require("../pipeline/shared/responseShapeResolvers")
 
 function request(method, pathname, timeoutMs = 90_000) {
   return new Promise((resolve, reject) => {
@@ -103,8 +113,16 @@ async function main() {
   const r3 = await step("Step 3: workstation state", "GET", "/api/ws/state?sport=mlb")
   const j3 = safeJson(r3.res.body)
   if (j3) {
-    console.log("  featured plays count       :", Array.isArray(j3.featuredPlays) ? j3.featuredPlays.length : "n/a")
-    console.log("  ai slips count             :", Array.isArray(j3.aiSlips?.slips) ? j3.aiSlips.slips.length : "n/a")
+    // Phase Canonical-Shape-Hardening-1A (HARDEN-2): canonical resolver helpers
+    // replace prior drift sites at the same line numbers. The previous reads
+    // `j3.featuredPlays` and `j3.aiSlips?.slips.length` consulted keys the
+    // canonical /api/ws/state response (workstationRoutes.js:~693-712) never
+    // emits — same INC-017 anti-pattern that affected the NBA equivalent
+    // before Phase Intelligence-Shaping-1A. The canonical authority lives in
+    // backend/pipeline/shared/responseShapeResolvers.js; this script now reads
+    // through it so future API-shape evolution updates one file, not N.
+    console.log("  featured plays count       :", resolveFeaturedCount(j3))
+    console.log("  ai slips count             :", resolveAiSlipCount(j3))
   } else if (r3.res.body) {
     console.log(`  ${r3.res.body.slice(0, 200)}`)
   }

@@ -1,4 +1,10 @@
 **Exact operational resumption state. Overwrite every session. Never append.**
+_Last updated: 2026-05-15 (Phase Recommendation-Hierarchy-1A SHIPPED — deterministic 7-slot decision ladder. NEW `buildRecommendationLadder()` in `backend/pipeline/shared/buildFeaturedPlays.js` + NEW `RecommendationLadder` interface in `frontend/src/workstation/types.ts` + NEW `frontend/src/workstation/components/RecommendationLadder.tsx` + Dashboard.tsx wiring between risk pulse and HeroPickCard. Slot priority: bestOverall → safestPlay → bestDisagreement → bestUpsidePlay → bestBalancedPlay → mostOverpricedAvoid → highestTrapRiskAvoid; dedup walks bucket past taken ids; empty slot doctrine = null + honest "(no qualifying X tonight)". 20/20 helper unit + 150/150 probe matrix PASS, tsc clean. ZERO pipeline mutation. ZERO scoring rewrite. ZERO new ranking math. Ten approved gates shipped. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Canonical-Shape-Hardening-1A):
+_Last updated: 2026-05-15 (Phase Canonical-Shape-Hardening-1A SHIPPED — canonical resolver helpers + slateMlb.js drift closure. NEW `backend/pipeline/shared/responseShapeResolvers.js` exports 5 deterministic helpers; `slateMlb.js` migrated. 31/31 helper unit assertions PASS + 150/150 probe matrix unchanged. tsc clean. ZERO API/writer/pipeline/payload mutation. Nine approved gates shipped. INC-013/014/015/016/017 all RESOLVED.)_
+
+Prior session record (Phase Intelligence-Shaping-1A):
 _Last updated: 2026-05-15 (Phase Intelligence-Shaping-1A SHIPPED — INC-017 RESOLVED. 4 key-path corrections in `backend/scripts/slateNba.js` aligned diagnostic reader to canonical API response shapes. Same family pattern as INC-016 — diagnostic-reader key-path drift, NOT substrate failure. ZERO backend pipeline file changed. ZERO API route change. Full matrix 150/150 PASS. tsc clean. Eight approved gates shipped. INC-013/014/015/016/017 all RESOLVED.)_
 
 Prior session record (Phase Snapshot-Authority-1A):

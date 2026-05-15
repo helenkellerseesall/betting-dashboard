@@ -186,6 +186,23 @@ export interface FeaturedBook {
   topPlay?: FeaturedPlay | null
 }
 
+// Phase Recommendation-Hierarchy-1A (HIER-2) — deterministic decision ladder.
+// 7 fixed-cardinality named role-slots derived purely from canonical buckets.
+// Every slot is FeaturedPlay | null. Empty slot doctrine: when source bucket
+// is empty OR every entry was claimed by an earlier-priority slot, value is
+// null — the frontend renders an honest "(no qualifying X tonight)" and
+// NEVER fabricates a fallback pick. See backend buildRecommendationLadder
+// for slot priority + dedup doctrine.
+export interface RecommendationLadder {
+  bestOverall:           FeaturedPlay | null
+  safestPlay:            FeaturedPlay | null
+  bestUpsidePlay:        FeaturedPlay | null
+  bestBalancedPlay:      FeaturedPlay | null
+  bestDisagreement:      FeaturedPlay | null
+  mostOverpricedAvoid:   FeaturedPlay | null
+  highestTrapRiskAvoid:  FeaturedPlay | null
+}
+
 export interface Featured {
   sport: Sport
   date: string
@@ -211,6 +228,8 @@ export interface Featured {
   staleLineOpportunities?: FeaturedPlay[]
   trapLadders?: FeaturedPlay[]
   inflatedSuperstarSpots?: FeaturedPlay[]
+  // Phase Recommendation-Hierarchy-1A — fixed-cardinality decision ladder.
+  recommendationLadder?: RecommendationLadder
 }
 
 export interface SportState {

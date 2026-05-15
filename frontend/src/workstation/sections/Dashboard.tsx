@@ -1,6 +1,10 @@
 import type { SportState, FeaturedPlay, AiSlip, Featured } from "../types"
 import { HeroPickCard } from "../components/HeroPickCard"
 import { SpotlightCard } from "../components/SpotlightCard"
+// Phase Recommendation-Hierarchy-1A (HIER-4): deterministic decision ladder
+// component renders BETWEEN risk pulse and HeroPickCard so the operator sees
+// the fixed-cardinality role-named recommendations BEFORE the emotional hero.
+import { RecommendationLadder } from "../components/RecommendationLadder"
 import { fmtOdds, fmtPct, compactStat, teamAbbrev } from "../utils"
 import { useBuilder } from "../builderContext"
 // Phase Operator-Experience-1B-1: deterministic plain-English tooltip helpers.
@@ -15,14 +19,18 @@ import {
 /**
  * Dashboard — the bettor's command center.
  *
- * Visual hierarchy:
+ * Visual hierarchy (post Phase Recommendation-Hierarchy-1A):
  *   1. Snapshot strip — quick numbers
  *   2. Risk pulse — single-line portfolio mood
- *   3. HeroPickCard — ☢️ nuclear play, visually dominant
- *   4. Supporting picks — remaining anchors + tonight's best
- *   5. Spotlight grid — 8 emotionally-charged curated buckets
- *   6. Chaos Builder — best moon-shot parlay
- *   7. Best Books — book rankings
+ *   3. RecommendationLadder — 7 deterministic decision slots (NEW Phase Hier-1A)
+ *   4. HeroPickCard — ☢️ nuclear play, emotional emphasis on bestOverall
+ *   5. Supporting picks — remaining anchors + tonight's best
+ *   6. ActionableBucketsGrid + sport-native spotlight grid
+ *   7. Chaos Builder — best moon-shot parlay
+ *   8. Best Books — book rankings
+ *
+ * The ladder is the decision-grade scan-line; the hero card retains
+ * emotional emphasis on the single highest-composite anchor.
  */
 export function Dashboard({ state }: { state: SportState | null }) {
   if (!state) return <div className="ws-empty">Loading slate…</div>
@@ -107,7 +115,15 @@ export function Dashboard({ state }: { state: SportState | null }) {
         )}
       </div>
 
-      {/* ── 3. Nuclear Pick hero ─────────────────────────────────────────── */}
+      {/* ── 3. RecommendationLadder — Phase Recommendation-Hierarchy-1A (HIER-4) ─
+          Deterministic 7-slot decision hierarchy. Rendered BEFORE HeroPickCard
+          so the operator sees fixed-cardinality role-named picks (Best Overall /
+          Safest / Best Disagreement / Best Balanced / Best Upside / Most
+          Overpriced / Highest Trap Risk) in a single glance. Empty slots show
+          honest "(no qualifying X tonight)" — never fabricated. */}
+      <RecommendationLadder ladder={featured?.recommendationLadder} />
+
+      {/* ── 4. Nuclear Pick hero ─────────────────────────────────────────── */}
       <div style={{ marginBottom: 14 }}>
         <HeroPickCard play={heroPlay} anchorCount={anchors.length} />
       </div>

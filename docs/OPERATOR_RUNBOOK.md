@@ -5,6 +5,78 @@
 
 ---
 
+## RECOMMENDATION HIERARCHY DOCTRINE (Phase Recommendation-Hierarchy-1A, 2026-05-15)
+
+**The workstation now surfaces a deterministic 7-slot decision ladder ABOVE the HeroPickCard.**
+
+The ladder is a pure observational layer over the canonical featured-bucket arrays. It is the operator's decision-grade scan-line; the hero card retains emotional emphasis on the single highest-composite anchor.
+
+**Slot order (priority — first claim wins):**
+
+| Slot | Icon | Source bucket | Empty doctrine |
+|---|---|---|---|
+| `bestOverall` | 🔥 | `anchors[0]` (with id-dedup walk) | `(no qualifying best play tonight)` |
+| `safestPlay` | 🛡 | `safest[0]` | `(no qualifying safe play tonight)` |
+| `bestDisagreement` | ⚡ | `bestDisagreementEdges[0]` | `(no qualifying disagreement edge tonight)` |
+| `bestUpsidePlay` | 🚀 | cascade `bestAggressive` → `bestPra` → `bestHr` → `bestFirstBasket` | `(no qualifying upside play tonight)` |
+| `bestBalancedPlay` | 🎯 | `bestBalanced[0]` | `(no qualifying balanced play tonight)` |
+| `mostOverpricedAvoid` | ⚠ | `inflatedSuperstarSpots[0]` | `(no overpriced spots flagged tonight)` |
+| `highestTrapRiskAvoid` | ⚠ | `trapLadders[0]` | `(no trap-shaped ladders flagged tonight)` |
+
+**Doctrine:**
+1. **Pure observational layer.** No new scoring. No new ranking math. No new heuristics.
+2. **Canonical bucket authority.** Slot rules cite buckets BY NAME. When a bucket evolves, the ladder follows automatically.
+3. **Dedup walk.** A play already claimed by an earlier-priority slot is skipped; the ladder walks down the bucket until a unique id is found OR the bucket is exhausted (slot becomes `null`).
+4. **Empty doctrine.** Every empty slot renders an HONEST `(no qualifying X tonight)` italic line. The ladder **NEVER** manufactures a fallback play.
+5. **Replay/grading safety.** Ladder consumes already-immutable `featured` payload; no upstream mutation; no API call; no persistence.
+6. **Frontend authority.** `frontend/src/workstation/components/RecommendationLadder.tsx` is the single render owner. All annotations re-use `tooltips.ts` helpers — no parallel translation layer.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | HIER-1 (backend builder) + HIER-2 (FE interface) + HIER-3 (FE component) + HIER-4 (Dashboard wiring) | 2026-05-15 | ✅ SHIPPED |
+| 1B | HIER-5 — operator-customizable slot priority weights | — | Held |
+| 1C | HIER-6 — "what changed since last refresh" delta surface | — | Held |
+| 1D | HIER-7 — per-slot explainability expansion | — | Held |
+| 1E | HIER-8 — slot historical ROI tracking | — | Held |
+| 1F | HIER-9 — slot persistence / longitudinal stability | — | Held |
+
+---
+
+## CANONICAL PAYLOAD DOCTRINE (Phase Canonical-Shape-Hardening-1A, 2026-05-15)
+
+**Every observability/diagnostic surface that reads a payload MUST consume `backend/pipeline/shared/responseShapeResolvers.js`. No exceptions.**
+
+The canonical helper module is the architectural seam that prevents future INC-016 / INC-017-style drift events. Two consecutive incidents shared one root cause — duplicated inline payload readers drifting from canonical API shapes — and Phase Canonical-Shape-Hardening-1A introduces the structural fix.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | HARDEN-1 (NEW `responseShapeResolvers.js` — 5 deterministic helpers) + HARDEN-2 (slateMlb.js migration) | 2026-05-15 | ✅ SHIPPED |
+| 1B | HARDEN-3 — migrate `slateNba.js` onto canonical helpers | — | Held |
+| 1C | HARDEN-4 — migrate `marketStatus.js` + `buildIntelligencePresentation.js` snapshot-row readers | — | Held |
+| 1D | HARDEN-5 — `probe_response_shape_v1.js` regression-prevention probe | — | Held |
+| 1E | HARDEN-6 — `buildMlbWeather.js:49` consolidation | — | Held |
+| 1F | HARDEN-7 — `aiSlips` shape disambiguation | — | Held |
+| 1G | HARDEN-8 — FE `types.ts` contract cross-validation | — | Held |
+
+**Canonical helpers exported from `responseShapeResolvers.js`:**
+
+| Helper | Use case | Authority |
+|---|---|---|
+| `resolveSnapshotRows(snap)` | On-disk snapshot rows array (NBA `data.props` OR MLB `data.rows`) | `workstationRoutes.js:135 + :190` |
+| `resolveFeaturedCount(state)` | `/api/ws/state` featured plays count | `workstationRoutes.js:~705` |
+| `resolveAiSlipCount(state)` | Sum of 4 tier-array lengths from `state.aiSlips` | `workstationRoutes.js:~703` |
+| `resolveCandidateCount(state)` | Candidate-pool size from `state.counts.candidates` or `state.candidates` | `workstationRoutes.js:~640 + :~698` |
+| `resolveBestAvailableCount(payload, sport)` | Sport-aware best-pick count | `nbaIsolatedRoutes.js:~1477` (NBA) + `mlbIsolatedRoutes.js:~103-612` (MLB) |
+
+**Doctrine:**
+1. Route files own response shapes; helpers must conform, never redefine.
+2. No observability surface may fork resolution logic.
+3. Anti-fabrication: undefined canonical field → `"n/a"` or `[]`. Never synthesize a default.
+4. Anti-duplication: helper updates once; consumers rebase automatically.
+5. When a future phase evolves an API shape, the helper updates first; every consumer rebases via a single migration commit (Phase 1B style).
+
+---
+
 ## INTELLIGENCE-SHAPING DOCTRINE (Phase Intelligence-Shaping-1A, 2026-05-15)
 
 **Diagnostic/observability surfaces are reader-side; they must consult the canonical API authority files, not assume.**
