@@ -327,16 +327,45 @@ function buildDailySummary(date, sport, classifiedBets) {
     const delta = c.delta
     if (Number.isFinite(delta)) {
       const sign = c.hit === true ? "+" : c.hit === false ? "-" : ""
+      // Phase NightlyReview-Hydration-1A (HYDRATE-1): canonical alias-before-render hoist.
+      //
+      // Legacy fields (`line`, `actualStat`, `delta`, `result`, `why`, `sign`)
+      // are preserved verbatim for every existing reader. Two additive
+      // canonical aliases (`projected`, `actual`) source from the same
+      // deterministic inputs so the display tier can read with a single
+      // canonical name.
+      //
+      // Stale-alias repair: pre-1A `actualStat: b.actualStat ?? null` always
+      // resolved to `null` for freshly graded bets because `gradeTrackedBets`
+      // (the canonical writer) emits `actualValue` — not `actualStat`. The
+      // chain `num(b.actualValue) ?? b.actualStat ?? null` preserves the
+      // legacy alias for any caller that still reads it while sourcing the
+      // value from the current canonical authority.
+      //
+      // Anti-fabrication: when neither `actualValue` nor `actualStat` exists,
+      // BOTH `actualStat` and `actual` resolve to `null` — never synthesizes a
+      // measurement. `projected` falls to `null` when `b.line` is non-finite.
+      // Delta math (`c.delta`) is canonically authoritative and untouched.
+      const actualNum = Number.isFinite(num(b.actualValue))
+        ? num(b.actualValue)
+        : (Number.isFinite(num(b.actualStat)) ? num(b.actualStat) : null)
+      const projectedNum = Number.isFinite(num(b.line)) ? num(b.line) : null
       const row = {
         player: b.player,
         statFamily: b.statFamily,
         side: b.side,
         line: b.line,
-        actualStat: b.actualStat ?? null,
+        // HYDRATE-1: stale-alias repair — source from canonical actualValue first.
+        actualStat: Number.isFinite(num(b.actualValue))
+          ? num(b.actualValue)
+          : (b.actualStat ?? null),
         delta: round4(delta),
         result: b.result,
         why: c.whyTags,
         sign,
+        // HYDRATE-1: additive canonical aliases. Display tier reads these first.
+        projected: projectedNum,
+        actual:    actualNum,
       }
       if (delta >= 1.5) overperformers.push(row)
       if (delta <= -1.5) underperformers.push(row)

@@ -48,21 +48,72 @@ const BRAIN_FILES = [
 
 // Subset that MUST be updated after any meaningful code patch (per
 // ARCHITECTURE_LAWS.md Law 12).
+//
+// Phase Operational-Governance-1A doctrine: the canonical "required-on-patch"
+// surface spans BOTH the backend brain layer AND the repo-root operator
+// continuity layer. Backend names below resolve under `BRAIN_DIR`; the
+// repo-root surface lives in `REPO_REQUIRED_ON_PATCH` and resolves under
+// `REPO_ROOT`. Every code-touching phase must reconcile both halves — the
+// receipt cannot pass `brain:checkpoint` while either is stale.
 const BRAIN_REQUIRED_ON_PATCH = [
   "MASTER_BRAIN.md",
   "CURRENT_RUNTIME_STATE.md",
   "MODEL_EVOLUTION_LOG.md",
 ]
 
+// Phase Operational-Governance-1A (GOV-1): repo-root operator continuity
+// surface. These docs are the operator's session-resumption + daily-ceremony
+// source of truth across chats / models / sessions. They were previously
+// "printed reminder only" — now structurally enforced symmetrically with the
+// backend brain layer.
+//
+// Each entry is `{ name, absPath }`:
+//   - `name`     — display label printed in checkpoint output
+//   - `absPath`  — absolute filesystem path resolved at module-load time
+//
+// Anti-fabrication: a missing file is treated as "exists: false" and surfaces
+// as a deterministic FAIL on patch — never a fabricated "ok" stamp.
+const REPO_REQUIRED_ON_PATCH = [
+  { name: "CURRENT_STATE.md",         absPath: path.join(REPO_ROOT, "CURRENT_STATE.md") },
+  { name: "NEXT_SESSION.md",          absPath: path.join(REPO_ROOT, "NEXT_SESSION.md") },
+  { name: "docs/OPERATOR_RUNBOOK.md", absPath: path.join(REPO_ROOT, "docs", "OPERATOR_RUNBOOK.md") },
+]
+
 // Code-area directories that count as "meaningful runtime work" for the
 // checkpoint enforcement check.
+//
+// Phase Operational-Governance-1A (GOV-2): frontend runtime evolution
+// participates in continuity reconciliation exactly like backend runtime
+// evolution. A frontend-only phase now structurally triggers the
+// required-on-patch gate the same way a backend-only phase does.
 const RUNTIME_CODE_DIRS = [
   path.join(BACKEND_ROOT, "http"),
   path.join(BACKEND_ROOT, "pipeline"),
   path.join(BACKEND_ROOT, "routes"),
   path.join(BACKEND_ROOT, "storage"),
   path.join(BACKEND_ROOT, "server.js"),
+  // GOV-2: frontend runtime continuity.
+  path.join(REPO_ROOT,    "frontend", "src"),
 ]
+
+// Phase Operational-Governance-1A (GOV-3 + GOV-4): canonical probe scripts
+// that every shipped phase has used as the 150/150 verification gate. These
+// resolve under REPO_ROOT (probes are repo-root artifacts, not backend ones).
+// The checkpoint runs each one and treats a non-PASS as a hard failure;
+// continuity assessment captures their collective hash so future sessions
+// can detect probe-script drift.
+//
+// Doctrine: every phase must structurally preserve grading integrity, lineage
+// integrity, epoch authority integrity, persistence idempotency integrity,
+// and ledger mirror integrity — the five canonical probe surfaces.
+const PROBE_SCRIPTS = [
+  "probe_grading_backfill_v1.js",
+  "probe_lineage_v1.js",
+  "probe_epoch_authority_v1.js",
+  "probe_persistence_idempotency_v1.js",
+  "probe_ledger_mirror_v1.js",
+]
+const PROBE_SCRIPT_PATHS = PROBE_SCRIPTS.map((f) => path.join(REPO_ROOT, f))
 
 function readBrainFile(name) {
   const p = path.join(BRAIN_DIR, name)
@@ -283,6 +334,34 @@ function hashRuntimeCode() {
   return hashFiles(listRuntimeCodeFiles())
 }
 
+// Phase Operational-Governance-1A (GOV-4): probe-matrix hash. Records the
+// collective bytes of the five canonical probe scripts so the receipt can
+// detect probe-script drift between sessions. Pure deterministic — same
+// bytes always produce the same digest.
+function hashProbeScripts() {
+  return hashFiles(PROBE_SCRIPT_PATHS)
+}
+
+// Phase Operational-Governance-1A (GOV-1): convenience accessor returning
+// `{ name, absPath, exists, mtime, mtimeIso, lines, bytes }` for a repo-root
+// required-on-patch entry. Mirrors `brainFileStats` but resolves outside
+// BRAIN_DIR. Anti-fabrication: missing file → `exists: false`, never a
+// synthesized timestamp.
+function repoFileStats(absPath, displayName) {
+  if (!fs.existsSync(absPath)) return { name: displayName, path: absPath, exists: false }
+  const st = fs.statSync(absPath)
+  const content = fs.readFileSync(absPath, "utf8")
+  return {
+    name: displayName,
+    path: absPath,
+    exists: true,
+    mtime: st.mtime,
+    mtimeIso: st.mtime.toISOString(),
+    lines: content.split("\n").length,
+    bytes: st.size,
+  }
+}
+
 function readBootstrapReceipt() {
   if (!fs.existsSync(BOOTSTRAP_RECEIPT_PATH)) return null
   try {
@@ -393,6 +472,19 @@ function assessContinuity() {
         message: "runtime code has changed since last checkpoint — expected mid-session; re-run `npm run brain:checkpoint` before declaring work done",
       })
     }
+    // Phase Operational-Governance-1A (GOV-4): probe-matrix drift warning.
+    // When the receipt has stamped a `probeMatrixHashAtCheckpoint` and the
+    // current bytes differ, surface a soft warning so the operator knows the
+    // probe surface itself has evolved. The next checkpoint pass will reseal.
+    if (receipt.probeMatrixHashAtCheckpoint) {
+      out.currentProbeMatrixHash = hashProbeScripts()
+      if (receipt.probeMatrixHashAtCheckpoint !== out.currentProbeMatrixHash) {
+        out.warnings.push({
+          code: "PROBE_MATRIX_CHANGED_SINCE_LAST_CHECKPOINT",
+          message: "canonical probe scripts have changed since last checkpoint — re-run `npm run brain:checkpoint` to reseal probe integrity",
+        })
+      }
+    }
   } else {
     out.warnings.push({
       code: "NO_CHECKPOINT_YET",
@@ -428,9 +520,16 @@ module.exports = {
   REPO_ROOT,
   BRAIN_FILES,
   BRAIN_REQUIRED_ON_PATCH,
+  // Phase Operational-Governance-1A (GOV-1): repo-root required-on-patch surface.
+  REPO_REQUIRED_ON_PATCH,
   RUNTIME_CODE_DIRS,
+  // Phase Operational-Governance-1A (GOV-3 + GOV-4): probe-matrix canonical paths.
+  PROBE_SCRIPTS,
+  PROBE_SCRIPT_PATHS,
   readBrainFile,
   brainFileStats,
+  // Phase Operational-Governance-1A (GOV-1): repo-root file stats accessor.
+  repoFileStats,
   extractLastUpdated,
   extractCurrentProjectPhase,
   extractCurrentPriorities,
@@ -455,6 +554,8 @@ module.exports = {
   listBrainFilePaths,
   hashBrainDocs,
   hashRuntimeCode,
+  // Phase Operational-Governance-1A (GOV-4): probe-matrix hash for receipt schema.
+  hashProbeScripts,
   readBootstrapReceipt,
   writeBootstrapReceipt,
   assessContinuity,

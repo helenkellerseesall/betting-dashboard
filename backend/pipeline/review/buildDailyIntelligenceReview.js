@@ -83,6 +83,25 @@ function num(v) {
   return Number.isFinite(n) ? n : null
 }
 
+// Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): better-sqlite3 only accepts
+// string/number/bigint/null/Buffer as parameter bindings. JavaScript booleans
+// (`true`/`false`) are rejected with the same generic
+// "Provided value cannot be bound to SQLite parameter N" error that `undefined`
+// produces. Upstream classifiers (buildProcessClassifier, eruption analyzer)
+// emit booleans on `c.hit`, `c.flags.*`, `event.hrEruption*`, `event.wasPredicted*`
+// etc. — this helper coerces them to SQLite-friendly 1/0 integers while
+// preserving NULL semantics for missing observations.
+//
+// Anti-fabrication: null/undefined → null (no observation). Never synthesizes
+// a 0 or 1 for an absent field. Deterministic: same input → same output.
+function bindBool(v, { ifNull = null } = {}) {
+  if (v === null || v === undefined) return ifNull
+  if (v === true)  return 1
+  if (v === false) return 0
+  // Numeric / string / other primitive — pass through unchanged.
+  return v
+}
+
 function safeTry(label, fn) {
   try {
     return fn()
@@ -357,13 +376,22 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
           raw_json, created_at
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `)
+      // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): every parameter is
+      // primitive-or-NULL. Count columns coerce to 0 (anti-fabrication-safe:
+      // 0 is the canonical "no bets settled" measurement, not a synthesized
+      // default). Other measurements coerce to null. JSON-serialized payloads
+      // are always strings because JSON.stringify(null) === "null".
       stmt.run(
         id, sport, date, now,
-        report.totalBets, report.settledCount, report.hitCount, report.missCount, report.hitRate,
+        report.totalBets ?? 0,                              // canonical count
+        report.settledCount ?? 0,                           // canonical count
+        report.hitCount ?? 0,                               // canonical count
+        report.missCount ?? 0,                              // canonical count
+        report.hitRate ?? null,                             // measurement
         calResult?.brierScore ?? null,
         calResult?.ece ?? null,
         calResult?.avgConfidence ?? null,
-        null,  // avg_edge computed from bets
+        null,                                                // avg_edge — reserved for future computation
         report.grades?.model ?? null,
         report.grades?.ecology ?? null,
         report.grades?.calibration ?? null,
@@ -375,7 +403,7 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
         JSON.stringify(eruptResult?.summary ?? null),
         JSON.stringify(report.answers?.propsToSurvive ?? null),
         JSON.stringify(report.answers?.majorFindings ?? null),
-        JSON.stringify(report),
+        JSON.stringify(report ?? null),                     // defensive — report always defined here, but doctrine
         now
       )
 
@@ -390,19 +418,22 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
             calibration_grade, created_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `)
+        // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): sampleCount coerces
+        // to 0 only as a defensive floor (the surrounding `if (calResult && >=4)`
+        // already guarantees a finite count when this runs).
         cStmt.run(
-          id, sport, date, calResult.sampleCount,
-          calResult.brierScore ?? null,
-          calResult.brierSkill ?? null,
-          calResult.ece ?? null,
-          calResult.mce ?? null,
+          id, sport, date, calResult.sampleCount ?? 0,
+          calResult.brierScore    ?? null,
+          calResult.brierSkill    ?? null,
+          calResult.ece           ?? null,
+          calResult.mce           ?? null,
           calResult.avgConfidence ?? null,
-          calResult.avgHitRate ?? null,
-          calResult.sharpness ?? null,
-          calResult.resolution ?? null,
+          calResult.avgHitRate    ?? null,
+          calResult.sharpness     ?? null,
+          calResult.resolution    ?? null,
           JSON.stringify(calResult.reliability ?? null),
-          JSON.stringify(calResult.byStat ?? null),
-          JSON.stringify(calResult.byTier ?? null),
+          JSON.stringify(calResult.byStat      ?? null),
+          JSON.stringify(calResult.byTier      ?? null),
           report.grades?.calibration ?? null,
           now
         )
@@ -439,11 +470,15 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
           buckets.safest?.hitRate ?? null, buckets.safest?.count ?? 0,
           buckets.aislip?.hitRate ?? null, buckets.aislip?.count ?? 0,
           buckets.pool?.hitRate ?? null, buckets.pool?.count ?? 0,
-          eco.hr?.hrCandidates ?? 0,
-          eco.hr?.hrInSlips ?? 0,
-          eco.hr?.hrHits ?? 0,
+          // HYGIENE-2: count columns coerced via bindBool to handle the case where
+          // upstream emits booleans on count-named fields (defensive — current
+          // analyzer emits ints, but doctrine future-proofs the binding).
+          bindBool(eco.hr?.hrCandidates, { ifNull: 0 }),
+          bindBool(eco.hr?.hrInSlips,    { ifNull: 0 }),
+          bindBool(eco.hr?.hrHits,       { ifNull: 0 }),
           eco.hr?.hrConversionRate ?? null,
-          eco.hr?.suppressedHrWinners ?? 0,
+          bindBool(eco.hr?.suppressedHrWinners, { ifNull: 0 }),
+          // `?? 0` was correct for null, but `? 1 : 0` already coerced bool — kept verbatim.
           eco.hr?.hrEruptionMiss ? 1 : 0,
           eco.ladder?.ladderCandidates ?? 0,
           eco.ladder?.ladderHits ?? 0,
@@ -457,7 +492,11 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
           report.grades?.ecology ?? null,
           JSON.stringify(eco.majorFindings ?? []),
           eco.grade?.rationale ?? null,
-          JSON.stringify(eco),
+          // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): JSON.stringify(undefined)
+          // returns the JS value `undefined` (not the string "undefined"), which
+          // better-sqlite3 rejects. The `?? null` floor produces "null" — a valid
+          // JSON token that round-trips faithfully through JSON.parse on readback.
+          JSON.stringify(eco ?? null),
           now
         )
       }
@@ -476,21 +515,24 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `)
         const iva = volResult.impliedVsActual
+        // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): primitive-or-NULL
+        // doctrine. `JSON.stringify(volResult ?? null)` defensive — volResult is
+        // truthy via the surrounding `if (volResult)` but doctrine applies.
         vStmt.run(
           id, sport, date,
-          JSON.stringify(volResult.tierStats?.safe ?? null),
-          JSON.stringify(volResult.tierStats?.balanced ?? null),
+          JSON.stringify(volResult.tierStats?.safe       ?? null),
+          JSON.stringify(volResult.tierStats?.balanced   ?? null),
           JSON.stringify(volResult.tierStats?.aggressive ?? null),
-          JSON.stringify(volResult.tierStats?.lotto ?? null),
+          JSON.stringify(volResult.tierStats?.lotto      ?? null),
           volResult.volatilityRealizationScore ?? null,
-          iva?.avgImpliedProb ?? null,
-          iva?.avgModelProb ?? null,
-          iva?.avgActualRate ?? null,
-          iva?.impliedVsActual ?? null,
-          iva?.modelVsActual ?? null,
+          iva?.avgImpliedProb     ?? null,
+          iva?.avgModelProb       ?? null,
+          iva?.avgActualRate      ?? null,
+          iva?.impliedVsActual    ?? null,
+          iva?.modelVsActual      ?? null,
           report.grades?.volatility ?? null,
           volResult.grade?.rationale ?? null,
-          JSON.stringify(volResult),
+          JSON.stringify(volResult ?? null),
           now
         )
       }
@@ -508,18 +550,31 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
             eruptors_json, raw_json, created_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `)
+        // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): every event field
+        // explicit primitive-or-null/0. Booleans coerce via ?? 0 (canonical
+        // SQLite integer encoding for boolean columns). `JSON.stringify(event ?? null)`
+        // defensive — `event` is the loop iterator here so always defined.
         eeStmt.run(
           eid, sport, date,
           event.eventId ?? null, event.matchup ?? null,
-          event.totalOverBets ?? 0, event.settlingOvers ?? 0, event.hittingOvers ?? 0,
+          // HYGIENE-2: boolean-safe coercion. Eruption analyzer can emit
+          // booleans on `hrEruption*` / `was*` fields depending on the
+          // path that built the event — `bindBool` makes the binding shape-safe.
+          bindBool(event.totalOverBets, { ifNull: 0 }),
+          bindBool(event.settlingOvers, { ifNull: 0 }),
+          bindBool(event.hittingOvers,  { ifNull: 0 }),
           event.eruptionScore ?? null,
-          event.hrEruption ?? 0, event.hrInPool ?? 0, event.hrInSlips ?? 0,
-          event.hrEruptionMiss ?? 0,
-          event.impliedTeamTotal ?? null, event.parkFactor ?? null, event.windOut ?? 0,
+          bindBool(event.hrEruption, { ifNull: 0 }),
+          bindBool(event.hrInPool,   { ifNull: 0 }),
+          bindBool(event.hrInSlips,  { ifNull: 0 }),
+          bindBool(event.hrEruptionMiss, { ifNull: 0 }),
+          event.impliedTeamTotal ?? null, event.parkFactor ?? null,
+          bindBool(event.windOut, { ifNull: 0 }),
           event.eruptionType ?? null,
-          event.wasPredicted ?? 0, event.wasMissed ?? 0,
+          bindBool(event.wasPredicted, { ifNull: 0 }),
+          bindBool(event.wasMissed,    { ifNull: 0 }),
           JSON.stringify(event.eruptors ?? []),
-          JSON.stringify(event),
+          JSON.stringify(event ?? null),
           now
         )
       }
@@ -542,20 +597,25 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
             rationale, raw_json, created_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `)
+        // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-2): primitive-or-NULL on
+        // every parameter. `JSON.stringify(c ?? null)` defensive on the loop var.
         pStmt.run(
           pid, sport, date,
           c.player ?? null, c.statFamily ?? null, c.side ?? null, c.line ?? null,
           c.modelProb ?? null, c.edge ?? null, c.tier ?? null,
           c.volatility ?? null, c.ecologyBucket ?? null,
-          c.hit ?? null, c.actualValue ?? null, c.delta ?? null, c.signedDelta ?? null,
+          // HYGIENE-2: `c.hit` is canonically boolean (true/false/null). Coerce
+          // to 1/0/NULL via bindBool — preserves null = "no observation". The
+          // 5 `c.flags.*` fields are also boolean per buildProcessClassifier.
+          bindBool(c.hit), c.actualValue ?? null, c.delta ?? null, c.signedDelta ?? null,
           c.processPrimary ?? null, c.processSecondary ?? null, c.processScore ?? null,
-          c.flags?.isSuppressedWinner ?? 0,
-          c.flags?.isEruptionMiss ?? 0,
-          c.flags?.isFakeSharp ?? 0,
-          c.flags?.isStaleLine ?? 0,
-          c.flags?.isCorrelated ?? 0,
+          bindBool(c.flags?.isSuppressedWinner, { ifNull: 0 }),
+          bindBool(c.flags?.isEruptionMiss,     { ifNull: 0 }),
+          bindBool(c.flags?.isFakeSharp,        { ifNull: 0 }),
+          bindBool(c.flags?.isStaleLine,        { ifNull: 0 }),
+          bindBool(c.flags?.isCorrelated,       { ifNull: 0 }),
           c.rationale ?? null,
-          JSON.stringify(c),
+          JSON.stringify(c ?? null),
           now
         )
       }
@@ -669,6 +729,23 @@ function runDailyIntelligenceReview(opts = {}) {
   // ── Step 8: Assemble final report ────────────────────────────────────────────
   const elapsedMs = Date.now() - t0
 
+  // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-1): canonical metric hoist.
+  //
+  // The downstream SQLite writer reads `report.totalBets`, `report.settledCount`,
+  // `report.hitCount`, `report.missCount`, `report.hitRate` at the OUTER level.
+  // Before this lift those fields lived only at `report.answers.*` (set inside
+  // `buildDailyAnswers`), so `report.totalBets` was `undefined` and better-sqlite3
+  // rejected the binding on parameter 5 of `daily_intelligence_reports` — the
+  // throw triggered ROLLBACK on the wrapping BEGIN/COMMIT transaction and ALL 6
+  // daily-intelligence tables stayed empty for the date.
+  //
+  // Doctrine: hoist before persist. Pure structural lift — no new computation,
+  // no synthesized values, no derived defaults. The nested `report.answers.*`
+  // path is intentionally preserved for callers that read at that level
+  // (downstream JSON file at `daily_intelligence_review_{sport}_{date}.json`
+  //  remains shape-stable). Anti-fabrication: when `answers` lacks a key the
+  // hoisted value remains `undefined` and HYGIENE-2's `?? null/?? 0` guards
+  // at every binding site coerce it deterministically.
   const report = {
     ok: true,
     sport,
@@ -676,6 +753,13 @@ function runDailyIntelligenceReview(opts = {}) {
     generatedAt: new Date().toISOString(),
     elapsedMs,
     grades,
+    // ── HYGIENE-1: canonical metrics hoisted from answers (read at outer level by persistToSqlite)
+    totalBets:    answers.totalBets,
+    settledCount: answers.settledCount,
+    hitCount:     answers.hitCount,
+    missCount:    answers.missCount,
+    hitRate:      answers.hitRate,
+    // ── nested answers retained unchanged so legacy readers still see report.answers.*
     answers,
     calibration: calResult,
     ecology: ecoResult,

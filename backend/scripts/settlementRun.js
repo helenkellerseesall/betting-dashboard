@@ -60,10 +60,54 @@ function todayKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
+// ── Phase Settlement-Ingestion-Window-1A (AUTO-3) ────────────────────────────
+//
+// buildWindowDates — pure helper that produces the ascending YYYY-MM-DD list
+// [today-(N-1), ..., today-1, today] for a window size N.
+//
+// Deterministic + replay-safe:
+//   - Same `today` + same `N` → same output, every call.
+//   - Pure date arithmetic (no I/O, no clock read).
+//   - Anti-fabrication: when `today` is malformed or `N < 1` the function
+//     falls back to a single-element list containing `today` as-is — never
+//     synthesizes a placeholder date.
+//
+// Doctrine cross-reference: settlement:run defaults to the existing single-
+// day lifecycle when --date is passed explicitly. The window only activates
+// when --date was NOT passed by the operator. This preserves every prior
+// caller's expectation of single-date execution and adds the rolling sweep
+// exclusively to the bare `npm run settlement:run` invocation.
+function buildWindowDates(todayStr, n) {
+  const size = Number(n)
+  if (!Number.isFinite(size) || size < 1) return [todayStr]
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(todayStr || ""))) return [todayStr]
+  const [y, m, d] = todayStr.split("-").map(Number)
+  // Use UTC arithmetic so day rollovers are deterministic and host-TZ-independent.
+  // (todayKey() is local-time; we only need monotonic descent across N days, not
+  //  absolute wall-clock alignment.)
+  const base = new Date(Date.UTC(y, m - 1, d))
+  const out = []
+  for (let i = size - 1; i >= 0; i--) {
+    const shifted = new Date(base.getTime() - i * 24 * 60 * 60 * 1000)
+    const yy = shifted.getUTCFullYear()
+    const mm = String(shifted.getUTCMonth() + 1).padStart(2, "0")
+    const dd = String(shifted.getUTCDate()).padStart(2, "0")
+    out.push(`${yy}-${mm}-${dd}`)
+  }
+  return out
+}
+
 function parseArgs() {
   const out = {
     sport: "all",
     date: todayKey(),
+    // Phase Settlement-Ingestion-Window-1A (AUTO-3): track whether --date was
+    // explicit so the window default only activates on bare invocation.
+    dateExplicit: false,
+    // Phase Settlement-Ingestion-Window-1A (AUTO-3): default sweep covers
+    // [yesterday, today] — closes the operator-observed gap where games that
+    // completed yesterday do not get graded by today's bare settlement:run.
+    window: 2,
     check: false,
     clearLocks: false,
     noOrchestrate: false,
@@ -71,7 +115,18 @@ function parseArgs() {
   }
   for (const a of process.argv.slice(2)) {
     if (a.startsWith("--sport=")) out.sport = a.slice("--sport=".length).toLowerCase()
-    else if (a.startsWith("--date=")) out.date = a.slice("--date=".length)
+    else if (a.startsWith("--date=")) { out.date = a.slice("--date=".length); out.dateExplicit = true }
+    // Phase Settlement-Ingestion-Window-1A (AUTO-3): --window=N flag.
+    // Ignored (with a non-fatal warning) when --date is also explicit, since
+    // explicit --date means single-date semantics by operator contract.
+    else if (a.startsWith("--window=")) {
+      const n = Number(a.slice("--window=".length))
+      if (!Number.isFinite(n) || n < 1) {
+        console.error(`[settlement:run] --window must be a positive integer (got: ${a.slice("--window=".length)})`)
+        process.exit(2)
+      }
+      out.window = Math.floor(n)
+    }
     else if (a === "--check")         out.check = true
     else if (a === "--clear-locks")   out.clearLocks = true
     else if (a === "--no-orchestrate") out.noOrchestrate = true
@@ -240,20 +295,40 @@ function main() {
   const args = parseArgs()
   const sports = args.sport === "all" ? ["mlb", "nba"] : [args.sport]
 
-  console.log("=== settlement:run — Phase Settlement-Orchestration-1A (AUTO-2) ===")
+  // Phase Settlement-Ingestion-Window-1A (AUTO-3) — window resolution.
+  //   - --date EXPLICIT          → single-date semantics preserved (window ignored).
+  //   - --date NOT explicit      → sweep [today-(N-1) ... today] ascending.
+  // Default N=2 covers "yesterday + today" — the operator-observed gap where
+  // games completing yesterday were not picked up by today's bare settlement:run.
+  // Every per-date pair is handed off to the EXISTING executePair / runCheck
+  // helpers unchanged — no new grading pipeline, no new orchestration pipeline,
+  // no new writer, no duplicate writes.
+  const windowDates = args.dateExplicit
+    ? [args.date]
+    : buildWindowDates(args.date, args.window)
+  const windowSpan  = windowDates.length > 1
+    ? `[${windowDates[0]} ... ${windowDates[windowDates.length - 1]}]`
+    : `[${windowDates[0]}]`
+
+  console.log("=== settlement:run — Phase Settlement-Orchestration-1A (AUTO-2) + Phase Settlement-Ingestion-Window-1A (AUTO-3) ===")
   console.log(`sports        : ${sports.join(", ")}`)
-  console.log(`date          : ${args.date}`)
+  console.log(`date          : ${args.date}${args.dateExplicit ? " (explicit)" : " (today)"}`)
+  console.log(`window        : N=${args.window}${args.dateExplicit ? " (ignored — --date explicit)" : ""}`)
+  console.log(`processing settlement window: ${windowSpan}`)
   console.log(`mode          : ${args.check ? "CHECK (detect-only, no writes)" : "EXECUTE (grading + chained nightlyReview)"}`)
   console.log(`clear-locks   : ${args.clearLocks}`)
   console.log(`no-orchestrate: ${args.noOrchestrate}`)
   console.log("")
 
-  // CHECK mode — detect-only, exit
+  // CHECK mode — detect-only, exit. Iterates the same window so the operator
+  // can preview which (sport, date) pairs the EXECUTE path would visit.
   if (args.check) {
     let anyFail = false
-    for (const sport of sports) {
-      const r = runCheck(sport, args.date)
-      if (!r.ok) anyFail = true
+    for (const date of windowDates) {
+      for (const sport of sports) {
+        const r = runCheck(sport, date)
+        if (!r.ok) anyFail = true
+      }
     }
     console.log("─".repeat(70))
     console.log(`RESULT: ${anyFail ? "FAIL (one or more pairs not ready)" : "PASS (all pairs ready or partial)"}`)
@@ -276,10 +351,18 @@ function main() {
     process.exit(2)
   }
 
-  // Execute per (sport, date) pair
+  // Phase Settlement-Ingestion-Window-1A (AUTO-3): execute each (sport, date)
+  // pair in the resolved window via the EXISTING executePair helper. Order is
+  // [oldest → today] so the operator sees the same chronological progression
+  // the historical workflow already prints. Every per-pair lifecycle is
+  // unchanged: grading → AUTO-1 chain → nightlyReview → outcome_snapshots.
+  // skipped_no_tracked_bets / INSERT OR REPLACE idempotency / replay safety /
+  // grading safety / calibration safety are all preserved verbatim.
   const summary = []
-  for (const sport of sports) {
-    executePair(sport, args.date, args, summary)
+  for (const date of windowDates) {
+    for (const sport of sports) {
+      executePair(sport, date, args, summary)
+    }
   }
 
   // Final summary + exit
@@ -287,4 +370,10 @@ function main() {
   process.exit(exitVerdict(summary))
 }
 
-main()
+// Phase Settlement-Ingestion-Window-1A (AUTO-3): export pure helpers for unit
+// testing. The CLI entrypoint only runs when this file is invoked directly via
+// `node scripts/settlementRun.js`; when require()d from a unit-test harness
+// `main()` does NOT auto-execute (preserves replay safety + sandbox safety).
+module.exports = { buildWindowDates, todayKey }
+
+if (require.main === module) main()

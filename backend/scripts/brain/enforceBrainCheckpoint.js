@@ -116,7 +116,7 @@ function run() {
     brainMods.forEach((s) => console.log("  • " + lib.fmt(s.mtime) + "  " + s.name))
   }
 
-  // 3. Required-on-patch reconciliation
+  // 3. Required-on-patch reconciliation (backend brain layer)
   console.log("\n" + "─".repeat(70))
   console.log("REQUIRED-ON-PATCH RECONCILIATION (per ARCHITECTURE_LAWS.md Law 12)")
   console.log("─".repeat(70))
@@ -133,6 +133,27 @@ function run() {
         fails += 1
       }
     }
+
+    // Phase Operational-Governance-1A (GOV-1): repo-root operator continuity
+    // surface — `CURRENT_STATE.md`, `NEXT_SESSION.md`, `docs/OPERATOR_RUNBOOK.md`.
+    // Symmetric enforcement with the backend brain layer above: a code-touching
+    // phase that fails to update the operator's session-resumption / daily-
+    // ceremony docs is treated as a hard FAIL on patch.
+    console.log("")
+    console.log("  REPO-ROOT OPERATOR CONTINUITY (Phase Operational-Governance-1A)")
+    for (const spec of lib.REPO_REQUIRED_ON_PATCH) {
+      const stats = lib.repoFileStats(spec.absPath, spec.name)
+      if (stats.exists && stats.mtime > since) {
+        console.log(`  OK   — ${spec.name} updated at ${lib.fmt(stats.mtime)}`)
+      } else if (!stats.exists) {
+        console.log(`  FAIL — ${spec.name} not found at ${spec.absPath}`)
+        fails += 1
+      } else {
+        console.log(`  FAIL — ${spec.name} NOT updated since ${lib.fmt(since)} but runtime code WAS`)
+        fails += 1
+      }
+    }
+
     console.log("\n  Note: ACTIVE_INCIDENTS.md, PIPELINE_AUTHORITY_MAP.md, SPORTSBOOK_CONTRACTS.md")
     console.log("  should also be updated when those areas are affected — verify manually.")
   }
@@ -185,12 +206,44 @@ function run() {
       console.log(`  ${suiteFails} suite(s) FAILED`)
       fails += suiteFails
     }
+
+    // Phase Operational-Governance-1A (GOV-3): canonical probe matrix.
+    // Every shipped phase has used these five probes as the structural
+    // verification gate (150 / 150 assertions across them). Promoting from
+    // "operator-invoked-by-convention" to "checkpoint-enforced" — failures
+    // here are hard FAILs that block the receipt from sealing reconciled.
+    console.log("\n" + "─".repeat(70))
+    console.log("PROBE MATRIX (canonical integrity probes — Phase Operational-Governance-1A)")
+    console.log("─".repeat(70))
+    let probeFails = 0
+    for (const p of lib.PROBE_SCRIPT_PATHS) {
+      const name = path.basename(p)
+      if (!fs.existsSync(p)) {
+        console.log(`  FAIL — ${name} not found at ${p}`)
+        probeFails += 1
+        continue
+      }
+      const r = spawnSync(process.execPath, [p], { encoding: "utf8" })
+      const result = (r.stdout || "").match(/^RESULT:\s*(PASS|FAIL)/m)
+      const passed = r.status === 0 && result && result[1] === "PASS"
+      console.log(`  ${passed ? "OK  " : "FAIL"} — ${name}${passed ? "" : `  (node_exit=${r.status})`}`)
+      if (!passed) probeFails += 1
+    }
+    if (probeFails > 0) {
+      console.log(`  ${probeFails} probe(s) FAILED`)
+      fails += probeFails
+    }
   } else {
-    console.log("\n  (regression matrix skipped via --skip-matrix)")
+    console.log("\n  (regression matrix + probe matrix skipped via --skip-matrix)")
   }
 
   // 6. Reconciliation marker — persist current hashes into the receipt so that
   //    future continuity assessments treat this state as "reconciled".
+  //
+  // Phase Operational-Governance-1A (GOV-4): the receipt becomes the canonical
+  // operational-memory ledger across runtime code, brain docs, AND probe
+  // integrity. `probeMatrixHashAtCheckpoint` lets future sessions detect when
+  // probe scripts themselves have drifted since last reconciliation.
   if (fails === 0) {
     try {
       lib.writeBootstrapReceipt({
@@ -198,6 +251,8 @@ function run() {
         lastCheckpointResult: "PASS",
         brainDocHashAtCheckpoint: lib.hashBrainDocs(),
         runtimeCodeHashAtCheckpoint: lib.hashRuntimeCode(),
+        // GOV-4: probe-matrix hash stamped at successful reconciliation.
+        probeMatrixHashAtCheckpoint: lib.hashProbeScripts(),
       })
     } catch (err) {
       console.log("  WARN — could not update bootstrap receipt: " + (err && err.message))

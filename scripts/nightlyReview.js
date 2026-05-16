@@ -133,19 +133,33 @@ function printSummary(result) {
   }
 
   // Model review
+  // Phase NightlyReview-Hydration-1A (HYDRATE-2): deterministic display
+  // fallback chains. The producer (buildPostGameReview) emits `projected` /
+  // `actual` canonical aliases (post HYDRATE-1) plus the legacy `line` /
+  // `actualStat` keys; older persisted nightly_review JSON files may carry
+  // only the legacy names. The fallback chain reads canonical first and
+  // gracefully follows the legacy aliases, ending in an honest `"?"` sentinel
+  // when no canonical value exists.
+  //
+  // Doctrine: the display layer must NEVER render `undefined`, `[object Object]`,
+  // or `NaN`. Anti-fabrication: `"?"` signals absence; no synthesized values.
   const mr = s.modelReview
   if (mr.classified > 0) {
     console.log(`\n  MODEL      classified:${mr.classified} bets`)
     if (mr.topOverperformers?.length) {
       console.log(`  OVERPERFORMERS:`)
       mr.topOverperformers.forEach((p) => {
-        console.log(`    ${p.player?.padEnd(22) || "unknown".padEnd(22)} proj:${p.projected}  actual:${p.actual}  Δ${p.delta >= 0 ? "+" : ""}${p.delta}`)
+        const proj = p.projected ?? p.line ?? "?"
+        const act  = p.actual    ?? p.actualStat ?? p.actualValue ?? "?"
+        console.log(`    ${p.player?.padEnd(22) || "unknown".padEnd(22)} proj:${proj}  actual:${act}  Δ${p.delta >= 0 ? "+" : ""}${p.delta}`)
       })
     }
     if (mr.topUnderperformers?.length) {
       console.log(`  UNDERPERFORMERS:`)
       mr.topUnderperformers.forEach((p) => {
-        console.log(`    ${p.player?.padEnd(22) || "unknown".padEnd(22)} proj:${p.projected}  actual:${p.actual}  Δ${p.delta >= 0 ? "+" : ""}${p.delta}`)
+        const proj = p.projected ?? p.line ?? "?"
+        const act  = p.actual    ?? p.actualStat ?? p.actualValue ?? "?"
+        console.log(`    ${p.player?.padEnd(22) || "unknown".padEnd(22)} proj:${proj}  actual:${act}  Δ${p.delta >= 0 ? "+" : ""}${p.delta}`)
       })
     }
   }
@@ -207,11 +221,21 @@ function printSummary(result) {
   }
 
   // Portfolio optimization
+  // Phase SQLite-Persistence-Hygiene-1A (HYGIENE-4): warnings are
+  // `{ level, type, label, count }` objects per buildPortfolioOptimizer.js:531.
+  // Bare template-literal coercion stringifies them as `[object Object]` —
+  // matches the frontend pattern (Dashboard.tsx / PortfolioView.tsx) which
+  // already extracts `.label` deterministically. Falls back to JSON.stringify
+  // for forward-compat with future warning shapes (anti-fabrication: never
+  // synthesizes a label, just reveals the raw structure).
   const portfolioResult = steps?.reports?.portfolioResult
   if (portfolioResult?.score != null) {
     console.log(`\n  PORTFOLIO SCORE  ${portfolioResult.score}/100  [${portfolioResult.grade}]`)
     if (portfolioResult.warnings?.length) {
-      portfolioResult.warnings.slice(0, 4).forEach((w) => console.log(`    ${w}`))
+      portfolioResult.warnings.slice(0, 4).forEach((w) => {
+        const text = typeof w === "string" ? w : (w?.label || JSON.stringify(w))
+        console.log(`    ${text}`)
+      })
     }
   }
 

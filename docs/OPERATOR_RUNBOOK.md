@@ -5,6 +5,171 @@
 
 ---
 
+## OPERATIONAL GOVERNANCE DOCTRINE (Phase Operational-Governance-1A, 2026-05-16)
+
+**`brain:checkpoint` is now the authoritative reconciliation gate across six artifacts.** Every code-touching phase must update them symmetrically; the checkpoint hard-FAILs when any half is stale.
+
+**Required-on-patch surface (hard-enforced):**
+
+| Layer | Doc | Resolution |
+|---|---|---|
+| Backend brain | `MASTER_BRAIN.md` | `backend/runtime/brain/` |
+| Backend brain | `CURRENT_RUNTIME_STATE.md` | `backend/runtime/brain/` |
+| Backend brain | `MODEL_EVOLUTION_LOG.md` | `backend/runtime/brain/` |
+| Repo-root operator | `CURRENT_STATE.md` | `<REPO_ROOT>/` |
+| Repo-root operator | `NEXT_SESSION.md` | `<REPO_ROOT>/` |
+| Repo-root operator | `docs/OPERATOR_RUNBOOK.md` | `<REPO_ROOT>/docs/` |
+
+**Runtime-code coverage:** backend (`http`, `pipeline`, `routes`, `storage`, `server.js`) **and** frontend (`frontend/src`). A frontend-only phase triggers the required-on-patch gate exactly like a backend-only phase.
+
+**Probe matrix (hard-enforced at every `brain:checkpoint`):**
+
+| Probe | Asserts |
+|---|---|
+| `probe_grading_backfill_v1.js` | Grading integrity (42 assertions) |
+| `probe_lineage_v1.js` | Lineage integrity (24 assertions) |
+| `probe_epoch_authority_v1.js` | Epoch authority integrity (48 assertions) |
+| `probe_persistence_idempotency_v1.js` | Persistence idempotency (subset of 22) |
+| `probe_ledger_mirror_v1.js` | Ledger mirror integrity (remaining 22 assertions) |
+
+Each probe must report `RESULT: PASS`. A missing probe script is itself a FAIL — anti-fabrication: the checkpoint never silently skips a probe.
+
+**Receipt as memory ledger (`backend/runtime/brain/.brain_bootstrap_state.json`):**
+
+Four cryptographic hashes carry operational memory forward across sessions:
+
+| Field | What it hashes | Doctrine |
+|---|---|---|
+| `brainDocHashAtCheckpoint` | All 9 brain docs in `BRAIN_FILES` | Detect brain-doc drift |
+| `runtimeCodeHashAtCheckpoint` | Backend + frontend runtime code | Detect code drift |
+| `probeMatrixHashAtCheckpoint` | All 5 canonical probe scripts | Detect probe-script drift |
+| `lastBootstrapAt` / `lastCheckpointAt` | Timestamps | Detect bootstrap / checkpoint age |
+
+**Doctrine:**
+1. **Symmetric enforcement.** Backend brain continuity and repo-root operator continuity are equal halves of the patch contract. Either side stale → checkpoint FAILs.
+2. **Frontend continuity.** Frontend changes participate in `runtimeCodeHashAtCheckpoint` exactly like backend changes — no asymmetry, no special-casing.
+3. **Probe integrity.** The five canonical probes run at every checkpoint. Their bytes are hashed into the receipt so future sessions detect drift.
+4. **Receipt-as-memory-ledger.** The repo's `.brain_bootstrap_state.json` is the canonical operational memory. Conversations are ephemeral; the repo preserves state across chats, models, and sessions.
+5. **Anti-friction.** Zero new operator commands. The existing 5-command brain interface (`bootstrap | status | verify | continuity | checkpoint`) absorbs the new enforcement without surface change.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | GOV-1 (repo-root required-on-patch) + GOV-2 (frontend in `RUNTIME_CODE_DIRS`) + GOV-3 (probe matrix in checkpoint) + GOV-4 (`probeMatrixHashAtCheckpoint` in receipt) | 2026-05-16 | ✅ SHIPPED |
+| 1B | GOV-5 — `tsc --noEmit -p frontend` integrated into `brain:checkpoint` | — | Held |
+| 1B | GOV-6 — operator snapshot lifecycle enforcement | — | Held |
+| 1C | GOV-7 — opt-in git pre-commit hook (`brain:continuity`) | — | Held |
+| 1C | GOV-8 — opt-in git pre-push hook (`brain:checkpoint --skip-matrix`) | — | Held |
+| 1D | GOV-9 — phase-tag verification (`// Phase X-Y` comments match `MODEL_EVOLUTION_LOG`) | — | Held |
+| 1E | GOV-10 — `brain:guard` wrapper chaining bootstrap → continuity → verify → checkpoint | — | Held |
+
+---
+
+## NIGHTLYREVIEW HYDRATION DOCTRINE (Phase NightlyReview-Hydration-1A, 2026-05-16)
+
+**Alias-before-render: producers emit canonical names alongside legacy aliases; consumers read canonical first with deterministic fallback chains.**
+
+The CLI nightly review previously printed `proj:undefined actual:undefined Δ+5.5` because the producer (`buildPostGameReview.js`) emitted rows with `line` / `actualStat` keys while the consumer (`scripts/nightlyReview.js`) read `projected` / `actual`. Field-name drift across producer/consumer surfaces is now structurally mitigated by emitting BOTH canonical and legacy field names on the producer side AND reading via fallback chains on the consumer side.
+
+**Producer side** (`buildPostGameReview.js:330-364` row construction):
+- Legacy keys preserved verbatim: `line`, `actualStat`, `delta`, `result`, `why`, `sign`.
+- New canonical aliases: `projected` (= `num(b.line)`), `actual` (= `num(b.actualValue) ?? num(b.actualStat) ?? null`).
+- Stale-alias repair: `actualStat` now sources from `num(b.actualValue)` first (the canonical writer in `gradeTrackedBets`).
+
+**Consumer side** (`scripts/nightlyReview.js:141-156` printer):
+- Reads with deterministic fallback chain:
+  ```js
+  const proj = p.projected ?? p.line ?? "?"
+  const act  = p.actual    ?? p.actualStat ?? p.actualValue ?? "?"
+  ```
+- Display layer NEVER renders `undefined`, `[object Object]`, or `NaN`. Honest absence sentinel is `"?"`.
+
+**Doctrine:**
+1. **Alias-before-render.** Producers must emit the canonical name AND preserve legacy aliases for backward compatibility.
+2. **Display-tier fallback discipline.** Consumers read canonical first, fall back through legacy aliases, end at an explicit `"?"` sentinel.
+3. **Anti-fabrication primacy.** NULL on producer = "no observation"; `"?"` on display = "no canonical value to render." Never fabricated numbers.
+4. **Canonical authority.** `actualValue` is the canonical realized-stat field (written by `gradeTrackedBets`). `actualStat` remains a legacy alias for backward compatibility — never a separate source of truth.
+5. **Interpretation integrity.** Display-tier hoist mirrors persistence-tier hoist (Phase SQLite-Persistence-Hygiene-1A): producer emits canonical at one level; consumer reads canonical at that same level.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | HYDRATE-1 (producer canonical aliases + actualStat repair) + HYDRATE-2 (consumer fallback chains) | 2026-05-16 | ✅ SHIPPED |
+| 1B | HYDRATE-3 — delta formatting guard for fully-empty rows | — | Held |
+| 1B | HYDRATE-4 — persisted nightly_review_{date}.json schema lift | — | Held |
+| 1C | HYDRATE-5 — wider display-tier sweep (CLV / archetype / eruption) | — | Held |
+| 1D | HYDRATE-6 — regression probe `probe_review_display_shapes_v1.js` | — | Held |
+
+---
+
+## SQLITE PERSISTENCE HYGIENE DOCTRINE (Phase SQLite-Persistence-Hygiene-1A, 2026-05-16)
+
+**Every SQLite parameter binding is primitive-or-NULL. No exceptions.**
+
+better-sqlite3 only accepts `string | number | bigint | null | Buffer` as parameter binding types. **Both `undefined` AND JavaScript booleans (`true`/`false`)** are rejected with the same generic `Provided value cannot be bound to SQLite parameter N`. The Phase 1A patches in `backend/pipeline/review/buildDailyIntelligenceReview.js` establish three structural guards:
+
+1. **Hoist before persist.** Every persist function reads fields at the level they live. The outer `report` object hoists `totalBets / settledCount / hitCount / missCount / hitRate` from `report.answers.*` (HYGIENE-1) so the SQLite writer never reads `undefined`. Pure structural lift — no new computation.
+2. **Defensive coercion at every binding.** Every primitive parameter ends in `?? null` (measurement) or `?? 0` (canonical count). Every nested payload uses `JSON.stringify(x ?? null)` because `JSON.stringify(undefined)` returns the JS value `undefined` (not the string "undefined") and triggers the same binding error. Anti-fabrication: NULL means "no observation," never a synthesized default.
+3. **Boolean-safe `bindBool` helper.** New pure helper at the top of the file:
+   ```js
+   bindBool(v, { ifNull = null } = {})
+   //  null/undefined → ifNull
+   //  true  → 1
+   //  false → 0
+   //  any other primitive passes through unchanged
+   ```
+   Applied at every boolean-shaped binding across the 6 daily-intel INSERTs (`c.hit`, 5 × `c.flags.*`, 7 × `event.*` count/bool fields, 5 × `eco.hr.*` count fields).
+
+**Doctrine in one line:** *every SQLite parameter is `string | number | bigint | null | Buffer`. Booleans and `undefined` both signal a binding bug.*
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | HYGIENE-1 (hoist) + HYGIENE-2 (defensive coercion + bindBool) + HYGIENE-4 (portfolio warnings display) | 2026-05-16 | ✅ SHIPPED |
+| 1B | HYGIENE-3 — per-table savepoints for granular failure observability | — | Held |
+| 1B | HYGIENE-5 — settlement verification semantic rewrite (unique-predId parity) | — | Held |
+| 1C | HYGIENE-6 — central `runStmt(table, params)` helper | — | Held |
+| 1D | HYGIENE-7 — `probe_persist_param_shapes_v1.js` regression-prevention probe | — | Held |
+| 1E | HYGIENE-8 — proactive postgame hoisting | — | Held |
+
+---
+
+## SETTLEMENT INGESTION DOCTRINE (Phase Settlement-Ingestion-Window-1A, 2026-05-15)
+
+**Bare `npm run settlement:run` now sweeps the last 2 days by default — yesterday + today.**
+
+Root cause of the previous "newest completed slates frozen at 0 outcomes" symptom: `settlement:run` defaulted to `todayKey()`, so games that completed yesterday were never picked up by today's bare invocation. Phase AUTO-3 introduces a deterministic rolling window.
+
+| Invocation | Window resolved | Behavior |
+|---|---|---|
+| `npm run settlement:run` | `[today-1, today]` (N=2 default) | NEW — sweeps yesterday + today |
+| `npm run settlement:run -- --window=4` | `[today-3, today-2, today-1, today]` | NEW — operator-tunable window |
+| `npm run settlement:run -- --date=2026-05-12` | `[2026-05-12]` | UNCHANGED — explicit `--date` preserves single-date semantics |
+| `npm run settlement:run -- --check` | iterates window in CHECK mode | NEW — preview which pairs the EXECUTE path would visit |
+
+**Mandatory operator log on every invocation:**
+```
+processing settlement window: [YYYY-MM-DD ... YYYY-MM-DD]
+```
+
+**Doctrine:**
+1. **Bare invocation always sweeps a window.** Default N=2 absorbs the operator-observed yesterday/today gap.
+2. **Explicit `--date=` always wins.** Window N is ignored (with clear `(ignored — --date explicit)` log).
+3. **Existing lifecycle preserved verbatim.** Each per-date pair flows through the **EXISTING** `executePair` helper → existing grading → AUTO-1 chain → nightlyReview → outcome_snapshots.
+4. **INSERT OR REPLACE idempotency preserved.** Re-running the sweep is a no-op for already-settled pairs.
+5. **`skipped_no_tracked_bets` semantics preserved.** When a date has no tracked_bets file, `executePair` emits `skipped` honestly — never fabricates.
+6. **Anti-fabrication.** `buildWindowDates(today, N)` falls back to `[today]` when `N < 1` or input is malformed — never synthesizes a placeholder date.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | AUTO-3 (`--window=N` default 2 in `settlementRun.js`) | 2026-05-15 | ✅ SHIPPED |
+| 1B | AUTO-4 — `settlement:run --backfill` delegation to `runHistoricalGrade --backfill` | — | Held |
+| 1C | AUTO-5 — `grading:run` defaults to `--backfill` when no flags | — | Held |
+| 1D | AUTO-6 — daily-ceremony runbook rewrite to `settlement:run` as canonical | — | Held |
+| 1E | AUTO-7 — `settlement:status` per-date pending/settled rollup | — | Held |
+| 1F | AUTO-8 — completion watchdog (auto-invoke on game-window close) | — | Held |
+| 1G | AUTO-9 — workstation "Run settlement" button + status pill | — | Held |
+| 1H | AUTO-10 — cron/systemd unit | — | Held |
+
+---
+
 ## RECOMMENDATION HIERARCHY DOCTRINE (Phase Recommendation-Hierarchy-1A, 2026-05-15)
 
 **The workstation now surfaces a deterministic 7-slot decision ladder ABOVE the HeroPickCard.**
