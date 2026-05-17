@@ -1,7 +1,69 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17.**
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## BETTOR-NATIVE INTERACTION ARCHITECTURE DOCTRINE (Phase Bettor-Native-Surface-Bridge-1B, 2026-05-17)
+
+**The FE workstation talks to the bettor like a smart friend who's already read the canonical signals — never like a build server. Every visible string traces to a canonical source. Every interaction path produces a backend-valid shape. The FE never makes promises the backend can't deliver.**
+
+After BNSB-1A satisfied the strategic-audit DATA BRIDGE recommendation (every backend canonical field has a FE consumer), BNSB-1B addresses the INTERACTION ARCHITECTURE gap identified in `docs/BNSB_1A_POSTSHIP_REVIEW.md` and `docs/BETTOR_NATIVE_INTERACTION_AUDIT_2026-05-17.md`. The phase is pure FE — ZERO backend touched, ZERO new intelligence, ZERO ecology / calibration expansion.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **BNSB-1B-1 — PathPicker landing** | 4 entry cards (🛠 Build → routes to existing Bet Builder / 🔁 Borrow tonight's slip / 📋 Paste JSON / 🎯 Try a sample) replace the BNSB-1A JSON-textarea-as-default-landing pattern. The Build card honestly routes to the existing Bet Builder tab (BNSB-1B-5 build-leg-by-leg flow is operator-deferred — we do not fabricate a build flow that doesn't exist). | NEW `PathPicker` + `PickerCard` subcomponents in `frontend/src/workstation/sections/AnalyzeSlipView.tsx`. |
+| **BNSB-1B-2 — rawText fabrication removed** | The BNSB-1A `body.slip = { rawText: raw }` JSON-parse fallback was a fabricated UX promise — `backend/pipeline/screenshots/normalizeIngestedSlip.js:260` only accepts shapes with `.player \|\| .statFamily \|\| .propText`. The fallback has been REMOVED; Paste path is honestly JSON-only with explicit recovery guidance. | `AnalyzeSlipView.tsx` Paste path. |
+| **BNSB-1B-3 — Borrow tonight's slip** | NEW `BorrowTonight` subcomponent consumes existing `state.aiSlips.{safe/balanced/aggressive/lotto}` (ZERO new fetches); NEW `aiSlipToIngestShape(slip)` projects AI slip legs into canonical normalizeLeg field aliases; 1-click `🔍 Check this` per row. | `AnalyzeSlipView.tsx` BorrowTonight + BorrowRow + aiSlipToIngestShape. |
+| **BNSB-1B-4 — Sample starter tickets** | NEW `frontend/src/workstation/sampleSlips.ts` exports 4 operator-approved canonical fixture slips — coherent HR stack / fake-safe UNDER / pitcher-hitter contradiction / explosive environment. Each shape backend-valid for `normalizeIngestedSlip`; 1-click loads + auto-analyzes; serves as VBI engine showcase + onboarding demo. | NEW `sampleSlips.ts` + NEW `SampleStarters` subcomponent in `AnalyzeSlipView.tsx`. |
+| **BNSB-1B-6 — VerdictCard hero re-shape** | NEW `CoherenceRing` SVG donut (canonical ecologicalCoherence as visual 0-100 ring with tone-color); big `verdictSummary` headline; NEW "biggest takeaway" line surfaces top-priority `bettorLanguageSummary` phrase; compact `HeroLegLine` for strongest/weakest; `SummaryChip` row consolidates 7 derived chips with hover tooltips. Full 12-section forensic detail PRESERVED VERBATIM as collapsible drill-down (default closed; toggle "▸ Show the full breakdown" / "▾ Hide full breakdown"). Operator forensic capability not destroyed — only de-emphasized. | `VerdictCard.tsx` hero re-shape; CoherenceRing/HeroLegLine/SummaryChip subcomponents. |
+| **BNSB-1B-7 — Intelligence sentence** | NEW `frontend/src/workstation/intelligenceSentence.ts` pure deterministic `composeIntelligenceSentence(stats)` helper composes one bettor-readable sentence ("Tonight: 3 explosive games tagged · 1 same-team stack reinforced · 1 fake-safe pair blocked.") from 14 canonical counter sources. Anti-fabrication: ONLY mentions counters > 0; returns null when no counter fires. Dashboard IntelligenceStrip refactored — sentence visible as primary; 13-chip strip collapsible (`[show details]` / `[hide details]`). | NEW `intelligenceSentence.ts` + refactored `IntelligenceStripBody` in `Dashboard.tsx`. |
+| **BNSB-1B-8 — Cross-section "Analyze this"** | NEW `🔍 Analyze this` button on `AiSlipsView.SlipCard` dispatches `ws:analyze-slip` CustomEvent; `Workstation.tsx` listens via window event + captures `pendingAnalyzeSlip` state + routes to `section: "analyze"` + passes pending slip via `pendingSlip` prop + `onPendingConsumed` callback. AnalyzeSlipView auto-submits on receipt. Window-event pattern preserves component-tree shape — no new context provider; no architectural redesign. | `AiSlipsView.tsx` SlipCard + `Workstation.tsx` event listener + `AnalyzeSlipView.tsx` pendingSlip consumption. |
+| **BNSB-1B-9 — Taxonomy stripped** | `ResultBlock` default header changed from `Slip #1 · ss_a1b2c3d4e5f6 · MLB · 3 legs · 🟢 sharp signal` to `Your slip · MLB · 3-leg · 🟢 sharp construction`. Raw `ss_*` submission hash + archetype taxonomy + composite score PRESERVED in tooltip only (hidden, not destroyed). Sharp/bait re-toned "construction". | `AnalyzeSlipView.tsx` ResultBlock. |
+| **BNSB-1B-10 — Bettor-native tone** | Loading: "Reading your slip…". Network error: "The analysis service is offline right now. Try again in a moment." Parse error: "That isn't valid JSON. Try the Borrow path…". Empty: "I couldn't read that one. Try the Borrow or Sample path for a known-good shape." Engineer detail kept in `console.warn` only. | `AnalyzeSlipView.tsx` ResultPanel + submit error handler. |
+
+**Operator-deferred (NOT shipped this phase, NOT future-blocking):**
+- **BNSB-1B-5** — Build-leg-by-leg 4-tap flow (the Build path currently routes to existing Bet Builder tab; future phase may add a 4-tap flow inside AnalyzeSlipView).
+- **BNSB-1B-11** — NAV label re-tone (analyst-vocabulary on the 8 prior tabs; cosmetic only).
+- **BNSB-1B-12** — Explicit forensic-toggle on VerdictCard (existing tooltip + collapsible already provide forensic access).
+
+**Operator-cemented DO-NOT-SHIP (anti-fabrication boundary, perpetual):**
+- ❌ OCR / image upload infrastructure — backend dependencies (multer / formidable / tesseract / sharp / vision APIs) don't exist; FE must not pretend they do.
+- ❌ LLM parsing / GPT narration — anti-fabrication doctrine violation.
+- ❌ Adaptive AI styling / opaque ML — fabricated visual hierarchy.
+- ❌ Mobile redesign — operator-deferred to future scoped phase.
+- ❌ Persisted slip history — operator-deferred (BNSB-1C-class).
+
+**Verify the bridge on demand:**
+```bash
+node backend/scripts/verifyBnsb1B.js
+# Expected: 84 / 84 assertions PASS
+
+cd frontend && npx tsc --noEmit
+# Expected: clean (no output)
+```
+
+**Anti-fabrication checklist (operator-enforced throughout BNSB-1B):**
+1. Every FE entry point produces a backend-valid shape — never `{rawText}` or any other fabricated payload.
+2. The `composeIntelligenceSentence` helper mentions ONLY counters > 0; returns null on empty (caller renders honest "Tonight: no canonical-signal events surfaced" copy).
+3. VerdictCard renders `verdict = null` honestly ("The analyzer didn't return a verdict for this slip…") — never synthesized.
+4. Empty-state copy is bettor-spoken first-person ("I couldn't read that one"), never engineer-speak ("verify the slip payload shape").
+5. Internal IDs (submission hash + archetype) accessible via tooltip ONLY — never default-rendered.
+6. Network errors abstract URLs + status codes ("The analysis service is offline right now") — never `String(e?.message)`.
+7. Sample slips use canonical field aliases only — never invented fields.
+8. Cross-section nav is window-event-only — no new context provider; no architectural drift.
+
+**Bettor-language for new surfaces (operator-approved phrasings, BNSB-1B-cemented):**
+- "Check My Slip" (section title — bettor-native verb)
+- "How do you want to check a slip?" (PathPicker prompt)
+- "Reading your slip…" (loading)
+- "The biggest takeaway:" (VerdictCard hero phrase prefix)
+- "Show the full breakdown" / "Hide full breakdown" (forensic toggle)
+- "show details" / "hide details" (IntelligenceStrip chip toggle)
+- "Your slip" (ResultBlock label)
+- "sharp construction" / "bait construction" (re-toned from sharp/bait "signal")
+- "Tonight: N {events/boosts/stacks/...}." (intelligence sentence template)
 
 ---
 

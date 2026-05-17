@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import "./workstation.css"
 import { api } from "./api"
-import type { SportState, Sport } from "./types"
+import type { SportState, Sport, AiSlip } from "./types"
 import { BuilderProvider } from "./builderContext"
 import { Dashboard } from "./sections/Dashboard"
 import { SlateBrowser } from "./sections/SlateBrowser"
@@ -41,6 +41,11 @@ export function Workstation() {
   const [state, setState] = useState<SportState | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Phase BNSB-1B (BNSB-1B-8): cross-section "Analyze this" affordance pipe.
+  // SlipCard dispatches `ws:analyze-slip` with the slip object; we capture
+  // it here, set pending state, route to the Analyze section. AnalyzeSlipView
+  // consumes the pending slip via prop + calls onPendingConsumed when done.
+  const [pendingAnalyzeSlip, setPendingAnalyzeSlip] = useState<AiSlip | null>(null)
 
   useEffect(() => {
     if (typeof window !== "undefined") window.localStorage.setItem("ws.sport", sport)
@@ -54,6 +59,22 @@ export function Workstation() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [sport])
+
+  // Phase BNSB-1B (BNSB-1B-8): cross-section nav listener. SlipCard +
+  // RecommendationLadder + future surfaces can fire `ws:analyze-slip` with
+  // a slip detail; the Workstation routes to the Analyze section and hands
+  // the slip to AnalyzeSlipView. Pure FE; no backend touch.
+  useEffect(() => {
+    function onAnalyzeSlip(evt: Event) {
+      const detail = (evt as CustomEvent).detail as { slip?: AiSlip } | undefined
+      const slip = detail?.slip
+      if (!slip) return
+      setPendingAnalyzeSlip(slip)
+      setSection("analyze")
+    }
+    window.addEventListener("ws:analyze-slip", onAnalyzeSlip as EventListener)
+    return () => window.removeEventListener("ws:analyze-slip", onAnalyzeSlip as EventListener)
+  }, [])
 
   function refresh() {
     setLoading(true)
@@ -110,7 +131,14 @@ export function Workstation() {
                 {section === "portfolio" && <PortfolioView state={state} />}
                 {section === "fb"        && <FirstBasketView state={state} />}
                 {section === "review"    && <ProcessReviewView />}
-                {section === "analyze"   && <AnalyzeSlipView state={state} />}
+                {section === "analyze"   && (
+                  <AnalyzeSlipView
+                    state={state}
+                    pendingSlip={pendingAnalyzeSlip}
+                    onPendingConsumed={() => setPendingAnalyzeSlip(null)}
+                    onNavigate={(s) => setSection(s as SectionId)}
+                  />
+                )}
               </div>
               <BetBuilderDock />
             </div>

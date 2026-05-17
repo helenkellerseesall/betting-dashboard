@@ -26,6 +26,10 @@ import {
   tooltipForStaleWindowCount,
   tooltipForBookCoverageCount,
 } from "../tooltips"
+// Phase BNSB-1B (BNSB-1B-7): one-line bettor-readable intelligence sentence
+// composed deterministically from canonical per-run counters.
+import { composeIntelligenceSentence } from "../intelligenceSentence"
+import { useState } from "react"
 
 /**
  * Dashboard — the bettor's command center.
@@ -613,13 +617,23 @@ function IntelligenceStrip({
     chips.push({ icon: "🆚", label: "pitcher-hitter conflicts", value: mlbCovStats.blockedPitcherHitterConflict,
       tooltip: "MLB-COV-1A: pair combinations blocked because a pitcher-K and hitter-OVER conflicted." })
 
-  // If nothing surfaced from either source, render a single dimmed advisory
-  // line instead of a giant empty box — honest absence, no fabrication.
-  const showStrip = hasRealism || chips.length > 0
+  // Phase BNSB-1B (BNSB-1B-7): bettor-readable one-line intelligence sentence
+  // composed deterministically from the same canonical counters. The 13-chip
+  // strip is preserved as a collapsible drill-down (forensic mode) — not
+  // removed, only de-emphasized.
+  const sentence = composeIntelligenceSentence({
+    bc1aStats,
+    oe1aStats,
+    oe1bStats,
+    oe11SlipStats,
+    mlbCovStats,
+  })
+
+  const showStrip = hasRealism || chips.length > 0 || sentence !== null
   if (!showStrip) {
     return (
       <div style={{ marginBottom: 14, fontSize: 11, color: "var(--ws-dim, #888)", fontStyle: "italic" }}>
-        Intelligence strip: no realism advisory and no curated/ecology counters surfaced this run.
+        Tonight: no realism advisory and no canonical-signal events surfaced this run.
       </div>
     )
   }
@@ -636,13 +650,41 @@ function IntelligenceStrip({
   }
 
   return (
-    <div className="ws-risk-pulse" style={{ marginBottom: 14, alignItems: "center" }}>
+    <IntelligenceStripBody
+      hasRealism={hasRealism}
+      realismTone={realismTone}
+      bettorRealismScore={bettorRealismScore || null}
+      sentence={sentence}
+      chips={chips}
+    />
+  )
+}
+
+// Sub-component so we can hold local state (the "show details" toggle) without
+// disturbing the prop signature. Pure presentational — no fetching, no
+// fabrication; only renders what the parent computed.
+function IntelligenceStripBody({
+  hasRealism,
+  realismTone,
+  bettorRealismScore,
+  sentence,
+  chips,
+}: {
+  hasRealism: boolean
+  realismTone: string
+  bettorRealismScore: BettorRealismScore | null
+  sentence: string | null
+  chips: Array<{ icon: string; label: string; value: number; tooltip: string }>
+}) {
+  const [showDetails, setShowDetails] = useState(false)
+  return (
+    <div className="ws-risk-pulse" style={{ marginBottom: 14, flexWrap: "wrap", alignItems: "center", gap: 8 }}>
       {/* BC-8 bettorRealismScore badge */}
       {hasRealism && (
         <span
           className={`ws-mood-pill ${realismTone}`}
           title={
-            `BC-8 bettorRealismScore (slip-pool realism advisory).\n` +
+            `Slip-pool realism advisory.\n` +
             `score ${bettorRealismScore!.score}/100\n` +
             `depthCoverage ${bettorRealismScore!.depthCoverage}\n` +
             `avgTeamTotal ${bettorRealismScore!.avgTeamTotal ?? "—"} (norm ${bettorRealismScore!.avgTeamTotalNorm})\n` +
@@ -656,26 +698,51 @@ function IntelligenceStrip({
         </span>
       )}
 
-      {/* Counter strip — one chip per non-zero counter */}
-      {chips.length > 0 ? (
-        <span className="ws-risk-warnings" style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
-          {chips.map((c, i) => (
-            <span
-              key={`${c.label}-${i}`}
-              className="ws-risk-flag"
-              title={c.tooltip}
-              style={{ fontSize: 11 }}
-            >
-              {c.icon} {c.value} {c.label}
-            </span>
-          ))}
+      {/* One-line bettor-readable sentence (BNSB-1B-7) — primary visible
+          intelligence narrative. Always rendered when at least one canonical
+          counter fired; falls back to honest empty copy otherwise. */}
+      {sentence ? (
+        <span style={{ fontSize: 12, lineHeight: 1.4 }}>
+          {sentence}
         </span>
       ) : (
         hasRealism && (
           <span className="ws-dim" style={{ fontSize: 11, fontStyle: "italic" }}>
-            no curated/ecology counters surfaced this run.
+            Tonight: no canonical-signal events surfaced.
           </span>
         )
+      )}
+
+      {/* Collapsible drill-down — preserves operator-grade forensic chip view
+          without surfacing it as default density. */}
+      {chips.length > 0 && (
+        <>
+          <button
+            className="ws-link"
+            style={{ fontSize: 11, padding: 0, background: "transparent", border: "none", cursor: "pointer" }}
+            onClick={() => setShowDetails((v) => !v)}
+            title="Toggle per-counter canonical chips (forensic view)."
+          >
+            [{showDetails ? "hide" : "show"} details]
+          </button>
+          {showDetails && (
+            <span
+              className="ws-risk-warnings"
+              style={{ display: "inline-flex", flexWrap: "wrap", gap: 6, width: "100%", marginTop: 4 }}
+            >
+              {chips.map((c, i) => (
+                <span
+                  key={`${c.label}-${i}`}
+                  className="ws-risk-flag"
+                  title={c.tooltip}
+                  style={{ fontSize: 11 }}
+                >
+                  {c.icon} {c.value} {c.label}
+                </span>
+              ))}
+            </span>
+          )}
+        </>
       )}
     </div>
   )

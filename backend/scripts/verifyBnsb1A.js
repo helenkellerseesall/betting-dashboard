@@ -355,8 +355,13 @@ function contains(src, needle, label) {
     "BNSB-7 Workstation imports AnalyzeSlipView")
   contains(feWorkstationSrc, `{ id: "analyze",   label: "Analyze Slip",     icon: "📸" }`,
     "BNSB-7 Workstation NAV array includes Analyze Slip tab")
-  contains(feWorkstationSrc, `section === "analyze"   && <AnalyzeSlipView state={state} />`,
-    "BNSB-7 Workstation section router renders AnalyzeSlipView when section === 'analyze'")
+  // Note: BNSB-1B (BNSB-1B-8) expanded the section gate to multi-line JSX so it
+  //       can pass pendingSlip / onPendingConsumed / onNavigate props. The gate
+  //       still renders AnalyzeSlipView when section === "analyze".
+  contains(feWorkstationSrc, `section === "analyze"`,
+    "BNSB-7 Workstation section router still gates on section === 'analyze'")
+  contains(feWorkstationSrc, "<AnalyzeSlipView",
+    "BNSB-7 Workstation still renders <AnalyzeSlipView /> in the analyze gate (BNSB-1B expanded to multi-line)")
   // SectionId union includes 'analyze' — anti-regression on type safety
   contains(feWorkstationSrc, `| "analyze"`,
     "BNSB-7 Workstation SectionId union includes 'analyze'")
@@ -366,12 +371,15 @@ function contains(src, needle, label) {
 // Anti-fabrication sentinels — frontend never invents a verdict / score
 // ─────────────────────────────────────────────────────────────────────────────
 {
-  contains(feVerdictCardSrc, "No verdict returned for this slip",
-    "Anti-fabrication: VerdictCard honestly reports absent verdict (never synthesizes)")
-  contains(feDashboardSrc, "Intelligence strip: no realism advisory and no curated/ecology counters",
-    "Anti-fabrication: IntelligenceStrip honestly reports empty payload (never invents counters)")
-  contains(feAnalyzeSlipViewSrc, "no results",
-    "Anti-fabrication: AnalyzeSlipView honestly reports absent results")
+  // BNSB-1B re-toned the anti-fabrication empty-state copy from engineer-speak
+  // to bettor-native phrasing. The invariant ("honestly reports absent X — no
+  // synthesis") is preserved; the literal strings evolved per BNSB-1B-10.
+  contains(feVerdictCardSrc, "didn't return a verdict for this slip",
+    "Anti-fabrication: VerdictCard honestly reports absent verdict (BNSB-1B re-toned bettor-native)")
+  contains(feDashboardSrc, "no canonical-signal events surfaced",
+    "Anti-fabrication: IntelligenceStrip honestly reports empty payload (BNSB-1B re-toned to bettor-native sentence)")
+  contains(feAnalyzeSlipViewSrc, "I couldn't read that one",
+    "Anti-fabrication: AnalyzeSlipView honestly reports absent results (BNSB-1B-10 bettor-native first-person copy)")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -131,6 +131,21 @@ function SlipCard({ slip, tier }: { slip: AiSlip; tier: string }) {
         <button className="ws-btn ws-btn-primary" onClick={() => builder.loadAllSlipLegs(slip.legs)}>
           ➜ Build this parlay
         </button>
+        {/* Phase BNSB-1B (BNSB-1B-8): one-click cross-section affordance —
+            dispatches `ws:analyze-slip`; Workstation captures + routes to the
+            Analyze section + pre-loads this slip into AnalyzeSlipView. */}
+        <button
+          className="ws-btn"
+          style={{ marginLeft: 6 }}
+          title="Send this parlay to the analyzer."
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("ws:analyze-slip", { detail: { slip } }))
+            }
+          }}
+        >
+          🔍 Analyze this
+        </button>
       </div>
     </div>
   )
