@@ -74,20 +74,21 @@ These are **distinct products inside the same workstation**. Never collapse into
 
 | Field | Value |
 |---|---|
-| **Phase name** | Continuity-OS-1B (COS-1B) |
-| **Phase number** | 26th approved phase |
+| **Phase name** | Operational-Parity-1A (OP1A) |
+| **Phase number** | 28th approved phase |
 | **Status** | SHIPPED + SEALED 2026-05-17 |
-| **Type** | Infrastructure — portable single-file cross-chat reconstruction |
-| **Bottleneck solved** | COS-1A shipped 6 anchor files (~775 lines) but fresh GPT chats still can't practically consume 6+ files per session. This phase consolidates them into ONE portable file optimized for upload-and-continue. |
+| **Type** | Infrastructure — canonical ops:* wrappers restored to FULL historical orchestration depth |
+| **Bottleneck solved** | Operator observed `npm run ops:term2` completing in ~5s vs historical Term 2 ~60s+ — proved COS-1C wrappers were inline `&&` chains that silently dropped 3 historical authoritative subsystems (Verification Telemetry V1 / slate+market+lineage+calibration status helpers / git checkpoint stages). Restored under same canonical `ops:*` names via NEW orchestrators (`runTerm2Workflow.js` / `runCheckpointSeal.js` / `showTerm1Status.js`); behavior parity now verifier-enforced by NEW `verifyOperationalParity.js`. |
 
-### Approved levers (COS-1B scope, all shipped)
-- Create `GPT_RECONSTRUCTION_BOOTSTRAP.md` (this file) — single portable reconstruction artifact (~800 lines).
-- Wire it into the anchor-file reconciliation ritual (mandatory regeneration on every phase seal).
-- Add it to `BOOTSTRAP_PROMPT.md` as the "ONE FILE" entry path for fresh GPT chats.
-- New `verifyContinuityOs1B.js` (sync with active phase + bottlenecks + operational flow + forbidden directions; line-budget enforced).
+### Approved levers (COS-1C scope, all shipped)
+- COS-1C-1: `docs/OPERATIONAL_RECONCILIATION_AUDIT.md` — map of competing flows + canonical layer proposal.
+- COS-1C-2: 6 canonical `ops:*` scripts in `backend/package.json` (`ops:term2` / `ops:continuity` / `ops:verify` / `ops:checkpoint` / `ops:state` / `ops:nightly`) + 3 NEW orchestrators (`runAllVerifiers.js` / `showState.js` / `runNightlyReview.js`).
+- COS-1C-3: Checkpoint compression — `ops:checkpoint` wraps bootstrap+continuity+verify+brain:checkpoint into ONE canonical operation.
+- COS-1C-4 + 6: All 3 canonical continuity docs (OPERATIONAL_FLOW / GPT_RECONSTRUCTION_BOOTSTRAP / BOOTSTRAP_PROMPT) updated to reference ONLY canonical ops:* commands + explicit "DO NOT regenerate legacy inline chains" prohibition.
+- COS-1C-5: NEW `verifyOperationalContinuity.js` (92/92 PASS) — asserts canonical scripts + orchestrators + canonical docs reference ops:* + drift detection (no raw curl / no 4-step brain:* chain) + back-compat (brain:* / status / action commands preserved).
 
 ### Deferred levers
-None — operator approved full single-file consolidation scope.
+None — operator approved full canonical ops abstraction scope.
 
 ### DO NOT TOUCH (operator-cemented, all 25 prior phases)
 - ❌ Backend scoring redesign / ecology expansion / calibration changes
@@ -304,23 +305,32 @@ The current bottleneck is **how the FE exposes that intelligence to the bettor**
 
 ## § 7 — OPERATIONAL FLOW
 
+### ⚠️ CANONICAL OPS LAYER (Continuity-OS-1C + Operational-Parity-1A) — USE THESE ONLY
+
+**Every operational ritual is now codified as a single `npm run ops:*` command. Fresh chats MUST use these. DO NOT regenerate the legacy inline chains (for-loop verifier scans, curl+jq inspectors, multi-step bootstrap+continuity+verify+checkpoint chains). Inline chain resurrection = drift.**
+
+**Operational-Parity-1A doctrine:** canonical ops commands are **WRAPPERS** around historical authoritative workflows. Behavior parity is mandatory. Operational compression must NEVER reduce orchestration depth. `verifyOperationalParity.js` (28-verifier matrix) enforces.
+
+| Canonical command | What it does |
+|---|---|
+| `cd backend && npm run ops:term1` | TERM 1 health introspection (read-only HTTP probe; NEVER auto-starts/restarts TERM 1) |
+| `cd backend && npm run ops:term2` | FULL historical Term 2 chain: slate / market / brain governance (bootstrap+continuity+verify) / runtime:verify (14-suite) / ops:verify (helper-unit + probe matrix) / Verification Telemetry V1 (live TERM 1 probe). Wraps the historical orchestration depth, never simplifies. |
+| `cd backend && npm run ops:continuity` | Quick continuity check (alias for brain:continuity) |
+| `cd backend && npm run ops:verify` | Full regression matrix: 14-suite runtime:verify + every verify\*.js + 5 probes; aggregated PASS/FAIL summary |
+| `cd backend && npm run ops:checkpoint` | FULL historical seal: ops:term2 + checkpointRepo.js + finalizeCheckpoint.sh + git push origin stable-nba-engine + brain:checkpoint. Wraps the canonical seal chain, never simplifies. |
+| `cd backend && npm run ops:state mlb` | Live /api/ws/state inspection (requires TERM 1; sport: mlb or nba) |
+| `cd backend && npm run ops:nightly` | Nightly review chain: grading:status + calibration:status + lineage:status (pass `--settle` to also run settlement:run) |
+| `cd frontend && npx tsc --noEmit` | FE type-check (kept as-is; already canonical) |
+
 ### Terminal conventions
 | Terminal | Role |
 |---|---|
 | **TERM 1** | Backend dev server (`node backend/server.js` on port 4000). NEVER auto-restarted by chat. Operator manages manually. |
-| **TERM 2** | Verifier / regression / probe runner. Chat invokes commands via tool calls; operator runs them locally. |
+| **TERM 2** | Canonical `npm run ops:*` runner. Chat invokes commands via tool calls; operator runs them locally. |
 
 **After any patch, chat must state:**
 - `TERM 1 restart: YES / NO` (YES iff backend logic / route handler / module export changed).
-- `TERM 2 verification: <exact commands>` operator should run.
-
-### Pre-phase ritual (every new chat / every phase start)
-```bash
-cd backend
-npm run brain:bootstrap         # bootstraps receipt + brain doc hash
-npm run brain:continuity        # asserts no drift since last checkpoint
-npm run brain:verify            # asserts brain doc freshness (0 FAIL expected)
-```
+- `TERM 2 verification: npm run ops:verify` (or specific `ops:*` subset).
 
 ### Audit-first ritual (before any patch)
 1. Read the existing code path end-to-end (file:line trace).
@@ -335,25 +345,16 @@ npm run brain:verify            # asserts brain doc freshness (0 FAIL expected)
 3. Run the new helper unit (`verifyXxx.js`) — must PASS before reconciliation.
 4. Run prior verifiers (zero regression expected). If a prior verifier breaks → legitimate phase evolution requires assertion update with cited comment. Never silently delete an assertion.
 
-### Regression matrix ritual
+### Regression matrix ritual (canonical Continuity-OS-1C)
 ```bash
-# Helper unit for THIS phase
-node backend/scripts/verifyXxx.js                # expect: NN / NN assertions PASS
+# Single canonical command — replaces 4 legacy inline chains
+cd backend && npm run ops:verify                 # expect: every RESULT: PASS · final SUMMARY: PASS
 
-# 14-suite runtime verify
-cd backend && npm run runtime:verify             # expect: 14/14 PASS
-
-# Every verifier (zero regression)
-for f in backend/scripts/verify*.js; do node "$f" | tail -1; done   # expect: every "RESULT: PASS"
-
-# 5-probe canonical integrity matrix
-for p in probe_grading_backfill_v1.js probe_lineage_v1.js probe_epoch_authority_v1.js probe_persistence_idempotency_v1.js probe_ledger_mirror_v1.js; do
-  node "$p" | tail -2
-done                                              # expect: every "fail: 0"
-
-# FE type-safety
+# FE type-safety (kept as canonical primitive — no ops:* alias needed)
 cd frontend && npx tsc --noEmit                  # expect: clean (no output)
 ```
+
+`npm run ops:verify` orchestrates: 14-suite runtime:verify + every `verify*.js` helper unit + 5-probe canonical integrity matrix. Single aggregated PASS/FAIL summary. DO NOT regenerate the legacy `for f in backend/scripts/verify*.js; do ...; done` inline chain.
 
 ### 6-doc reconciliation ritual (always before checkpoint)
 | Doc | What to update |
@@ -376,14 +377,13 @@ cd frontend && npx tsc --noEmit                  # expect: clean (no output)
 | `DEFERRED_PHASES.md` | Update when operator defers OR when prerequisite clears |
 | **`GPT_RECONSTRUCTION_BOOTSTRAP.md`** (this file — COS-1B addition) | **REGENERATE on every phase seal — fail brain:checkpoint if drifted** |
 
-### Finalize / checkpoint ritual (end of every session)
+### Finalize / checkpoint ritual (end of every session — canonical Continuity-OS-1C)
 ```bash
-cd backend
-npm run brain:bootstrap                          # re-stamp receipt if mid-session bootstrap was old
-npm run brain:continuity                         # expect: PASS (0 issue, 0 warn after fresh bootstrap)
-npm run brain:verify                             # expect: PASS (0 FAIL)
-npm run brain:checkpoint                         # expect: CHECKPOINT RESULT: PASS (0 failure(s))
+# Single canonical seal command — replaces the 4-step chain
+cd backend && npm run ops:checkpoint             # expect: CHECKPOINT RESULT: PASS (0 failure(s))
 ```
+
+`ops:checkpoint` wraps: bootstrap → continuity → verify → brain:checkpoint. DO NOT regenerate the 4-step chain inline.
 
 ### Push flow
 Manual. Operator handles git commit/push after `brain:checkpoint` PASS.
@@ -397,21 +397,13 @@ cat frontend/src/workstation/api.ts
 cd frontend && npx tsc --noEmit
 ```
 
-### Runtime inspection flow
+### Runtime inspection flow (canonical Continuity-OS-1C)
 ```bash
-# Real candidate counts
-node -e "
-const tb = JSON.parse(require('fs').readFileSync('backend/runtime/tracking/mlb_tracked_bets_$(date +%Y-%m-%d).json', 'utf8'));
-console.log('tracked_bets:', tb.length);
-"
-
-# Live state route (requires TERM 1 running)
-curl -s "http://localhost:4000/api/ws/state?sport=mlb" | jq '{
-  candidates: (.candidates | length),
-  discoveryCandidates: (.discoveryCandidates | length),
-  aiSlips: { safe: (.aiSlips.safe | length), balanced: (.aiSlips.balanced | length), aggressive: (.aiSlips.aggressive | length), lotto: (.aiSlips.lotto | length) }
-}'
+# Live /api/ws/state inspection — single canonical command (replaces curl + jq one-liner)
+cd backend && npm run ops:state mlb              # or `npm run ops:state nba`
 ```
+
+`ops:state` queries the live backend (requires TERM 1 on port 4000) and prints a compact JSON summary: candidates / discoveryCandidates / aiSlips tier counts / featured bucket counts / counts / bettorRealismScore.
 
 ### Danger flags (stop and surface to operator)
 - A verifier breaks because of legitimate phase evolution → propose assertion update, don't silently delete
@@ -537,14 +529,17 @@ At the END of every phase you ship:
 
 | Field | Value |
 |---|---|
-| File version | Continuity-OS-1B (2026-05-17) |
-| Total approved phases | 26 (Realism-1A through Continuity-OS-1B) |
-| Total verifiers | 26 (`verify*.js` in `backend/scripts/`) |
+| File version | Operational-Parity-1A (2026-05-17) |
+| Total approved phases | 28 (Realism-1A through Operational-Parity-1A) |
+| Total verifiers | 28 (`verify*.js` in `backend/scripts/`) |
 | Runtime verifiers | 14 |
 | Probe matrix | 5 (158 assertions) |
 | 6-doc reconciliation | CURRENT_STATE / NEXT_SESSION / MASTER_BRAIN / CURRENT_RUNTIME_STATE / MODEL_EVOLUTION_LOG / docs/OPERATOR_RUNBOOK |
 | 7-anchor reconciliation | BOOTSTRAP_PROMPT + ACTIVE_PHASE + PRODUCT_IDENTITY + CURRENT_PROBLEMS + NEXT_PHASE + OPERATIONAL_FLOW + DEFERRED_PHASES + **this file** |
+| Canonical ops layer (NEW, COS-1C) | `npm run ops:term2` / `ops:continuity` / `ops:verify` / `ops:checkpoint` / `ops:state` / `ops:nightly` |
+| Operational drift detector | `verifyOperationalContinuity.js` (92 assertions) |
 | Reconstruction surface (before COS-1A) | ~15,000 lines |
 | Reconstruction surface (after COS-1A 6-anchor chain) | ~775 lines |
 | Reconstruction surface (after COS-1B single artifact) | ~600 lines (this file) |
 | Estimated drift reduction vs pre-COS-1A | ~96% |
+| Operational command drift reduction (COS-1C) | 4 competing inline-chain variants → 1 canonical `ops:*` layer |

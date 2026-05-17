@@ -8,17 +8,17 @@
 
 | Field | Value |
 |---|---|
-| **Phase name** | Continuity-OS-1B (COS-1B) |
-| **Phase number** | 26th approved phase |
+| **Phase name** | Operational-Parity-1A (OP1A) |
+| **Phase number** | 28th approved phase |
 | **Status** | SHIPPED + SEALED |
 | **Sealed at** | 2026-05-17 (this session) |
-| **Type** | Infrastructure — portable single-file cross-chat reconstruction artifact |
+| **Type** | Infrastructure — canonical ops:* wrappers restored to FULL historical orchestration depth + parity enforcer |
 
 ---
 
 ## ONE-LINE OBJECTIVE
 
-Consolidate the COS-1A 6-anchor chain (~775 lines across 6 files) into a SINGLE portable artifact (`GPT_RECONSTRUCTION_BOOTSTRAP.md`, ~550 lines) so a fresh GPT chat can reconstruct full operating state by uploading ONE file.
+Consolidate the multiple competing operational flows (4 inline chain variants documented across 3+ continuity docs) into a SINGLE canonical `npm run ops:*` abstraction layer (6 commands + 3 NEW orchestrators) so fresh chats produce canonical commands instead of regenerating drift-prone inline chains.
 
 ---
 
@@ -31,17 +31,19 @@ New chats (Claude or GPT) drift catastrophically because canonical continuity re
 
 ---
 
-## APPROVED LEVERS (COS-1B scope)
+## APPROVED LEVERS (COS-1C scope)
 
 | Lever | File | Purpose |
 |---|---|---|
-| COS-1B-1 | `GPT_RECONSTRUCTION_BOOTSTRAP.md` | Single portable artifact consolidating the 6-anchor chain (~550 lines, 10 required sections) |
-| COS-1B-2 | `verifyContinuityOs1B.js` | Asserts the artifact exists + 10 required sections + line budget + cross-consistent with 6 anchors + active-phase synced + forbidden directions preserved |
-| COS-1B-3 | `OPERATIONAL_FLOW.md` extension | Anchor-file reconciliation ritual EXTENDED to include `GPT_RECONSTRUCTION_BOOTSTRAP.md` — REGENERATE on every phase seal; brain:checkpoint FAILs if drift |
-| COS-1B-4 | `BOOTSTRAP_PROMPT.md` update | NEW "⚡ FASTEST PATH" entry block instructing fresh GPT chats to upload the ONE file |
+| COS-1C-1 | `docs/OPERATIONAL_RECONCILIATION_AUDIT.md` | Audit map of competing flows + canonical layer proposal + doctrine lock plan |
+| COS-1C-2 | `backend/package.json` + 3 NEW orchestrators | `ops:term2` / `ops:continuity` / `ops:verify` / `ops:checkpoint` / `ops:state` / `ops:nightly` (6 canonical commands) |
+| COS-1C-3 | Checkpoint compression | `ops:checkpoint` = bootstrap + continuity + verify + brain:checkpoint in ONE command |
+| COS-1C-4 | OPERATIONAL_FLOW + GPT_RECONSTRUCTION_BOOTSTRAP + BOOTSTRAP_PROMPT updates | Canonical ops layer section + explicit "DO NOT regenerate legacy inline chains" prohibition |
+| COS-1C-5 | `verifyOperationalContinuity.js` (NEW) | 92 assertions: canonical scripts present + orchestrators exist + canonical docs reference ops:* + drift detection (no raw curl / no 4-step brain:* chain) + back-compat (brain:* / status / action commands preserved) |
+| COS-1C-6 | Bootstrap operational compression | Fresh GPT reconstruction always restores canonical ops:* layer (asserted by verifier) |
 
-Prior COS-1A scope (still shipped, 6 anchor files at repo root):
-- ACTIVE_PHASE / PRODUCT_IDENTITY / CURRENT_PROBLEMS / NEXT_PHASE / OPERATIONAL_FLOW / DEFERRED_PHASES
+Prior COS-1A/1B scope (still shipped):
+- 6 anchor files at repo root + `GPT_RECONSTRUCTION_BOOTSTRAP.md` portable artifact
 
 ---
 
@@ -83,14 +85,15 @@ None — operator approved full 6-file bundle.
 
 ---
 
-## SUCCESS RIGHT NOW (COS-1B specific)
+## SUCCESS RIGHT NOW (COS-1C specific)
 
-- ✅ `GPT_RECONSTRUCTION_BOOTSTRAP.md` exists at repo root (~550 lines, 10 sections)
-- ✅ `verifyContinuityOs1B.js` passes (artifact + sections + line budget + cross-consistency)
-- ✅ `OPERATIONAL_FLOW.md` anchor-file reconciliation extended to include this file
-- ✅ `BOOTSTRAP_PROMPT.md` "FASTEST PATH" block prepended for fresh GPT chats
-- ✅ 26/26 verify\*.js PASS · 14/14 runtime:verify · 5/5 probes
-- ✅ `brain:checkpoint` PASS
+- ✅ 6 canonical `ops:*` scripts exist in `backend/package.json`
+- ✅ 3 NEW orchestrators under `backend/scripts/ops/` (runAllVerifiers / showState / runNightlyReview)
+- ✅ All 3 canonical continuity docs reference `ops:*` + explicit "DO NOT regenerate" prohibition
+- ✅ `verifyOperationalContinuity.js` passes (92/92 assertions: scripts + orchestrators + canonical docs + drift detection + back-compat)
+- ✅ `npm run ops:verify`: **33/33 PASS** (1 runtime + 27 verify\*.js + 5 probes)
+- ✅ `cd frontend && npx tsc --noEmit` clean
+- ✅ `npm run ops:checkpoint` PASS
 
 ---
 

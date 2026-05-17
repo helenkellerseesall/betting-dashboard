@@ -28,6 +28,20 @@ After upload, the fresh chat will know within 30 seconds:
   - what is deferred
   - what ships next
   - how the operational rituals work
+
+⚠️ CANONICAL OPS LAYER (Continuity-OS-1C, 2026-05-17):
+The repo exposes ONE approved operational abstraction layer. Fresh chats
+MUST use these `npm run ops:*` commands; DO NOT regenerate legacy inline
+chains (for-loop verifier scans / curl+jq inspectors / 4-step
+bootstrap-continuity-verify-checkpoint chains). Inline-chain resurrection
+= drift. The verifyOperationalContinuity.js helper unit asserts that
+canonical docs reference only ops:* commands.
+
+  cd backend && npm run ops:term2         # pre-phase ritual
+  cd backend && npm run ops:verify        # full regression matrix
+  cd backend && npm run ops:checkpoint    # finalize / seal phase
+  cd backend && npm run ops:state mlb     # live state inspection (requires TERM 1)
+  cd backend && npm run ops:nightly       # nightly review chain
 ```
 
 ---

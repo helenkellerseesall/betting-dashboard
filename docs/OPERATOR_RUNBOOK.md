@@ -1,9 +1,110 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17.**
 
 > **2026-05-17 PHASE Continuity-OS-1A:** This OPERATOR_RUNBOOK.md is now the per-phase doctrine source. For per-session ritual flow (terminal conventions / regression matrix / 6-doc reconciliation / anchor-file reconciliation / checkpoint), see the NEW `OPERATIONAL_FLOW.md` at the repo root. New chats should read `BOOTSTRAP_PROMPT.md` → `ACTIVE_PHASE.md` → `PRODUCT_IDENTITY.md` → `CURRENT_PROBLEMS.md` → `NEXT_PHASE.md` → `OPERATIONAL_FLOW.md` → `DEFERRED_PHASES.md` (7 files, ~775 lines total) FIRST. This RUNBOOK is consumed for specific phase doctrine, not first-load reconstruction.
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## OPERATIONAL PARITY DOCTRINE (Phase Operational-Parity-1A, 2026-05-17)
+
+**Canonical ops commands are WRAPPERS around historical authoritative workflows. Behavior parity is mandatory. Operational compression must NEVER reduce orchestration depth.**
+
+After Continuity-OS-1C shipped the canonical `ops:*` abstraction layer, the operator observed `npm run ops:term2` completing in ~5s vs the historical Term 2 ~60s+ chain — proving the COS-1C wrappers were inline `&&` chains of brain commands that dropped 3 historical authoritative subsystems:
+
+1. **Verification Telemetry V1** (`runVerification.js`, Session AK) — live TERM 1 backend probe with deterministic NBA + MLB check matrix.
+2. **Slate / market / lineage / calibration status helpers** — historically chained before runtime verify so operators saw context before tests.
+3. **Git checkpoint stages** (`checkpointRepo.js` / `finalizeCheckpoint.sh` / `git push origin stable-nba-engine`, Session K sandbox-safe git workflow) — preserved in scripts but never invoked.
+
+Operational-Parity-1A restores all three under the same canonical `ops:*` names via NEW orchestrators under `backend/scripts/ops/`. The historical orchestration depth is now preserved + verifier-enforced.
+
+### The canonical orchestrators (all NEW under `backend/scripts/ops/`)
+
+| Orchestrator | Backs which ops:* | What it chains (historical depth) |
+|---|---|---|
+| `runTerm2Workflow.js` | `ops:term2` | slate:refresh + slate:nba + slate:mlb + market:status + calibration:status + lineage:status + epoch:status + brain:bootstrap + brain:continuity + brain:verify + runtime:verify + ops:verify (orchestrator) + runVerification.js (Verification Telemetry V1) |
+| `runCheckpointSeal.js` | `ops:checkpoint` | STAGE 1 ops:term2 + STAGE 2 checkpointRepo.js + STAGE 3 finalizeCheckpoint.sh + STAGE 4 `git push origin stable-nba-engine` + STAGE 5 brain:checkpoint |
+| `showTerm1Status.js` | `ops:term1` | Read-only TERM 1 health probe (operator-cemented: NEVER auto-starts/restarts) |
+
+### Required vs Optional classification
+
+Orchestrators distinguish REQUIRED (must PASS) from OPTIONAL (graceful degradation):
+- **Required**: brain governance, runtime:verify, ops:verify (helper-unit + probe matrix), brain:checkpoint.
+- **Optional (default) / Required with `--strict`**: slate / market helpers (network-bound), Verification Telemetry V1 (TERM 1 must be reachable), git stages (sandbox can't write `.git/`).
+
+Use `--strict` flag when operator running locally with TERM 1 up + git access.
+
+### Drift detection automation
+
+**NEW `verifyOperationalParity.js`** runs in the 28-verifier matrix on every `ops:verify` / `ops:checkpoint`. Asserts:
+
+- All 6 canonical ops:* scripts invoke their expected orchestrators.
+- `runTerm2Workflow.js` chains every historical Term 2 step (grep-asserted in source).
+- `runCheckpointSeal.js` chains every historical seal stage (grep-asserted in source).
+- `showTerm1Status.js` NEVER auto-starts/restarts TERM 1.
+- Doctrine docs (OPERATIONAL_FLOW + GPT_RECONSTRUCTION_BOOTSTRAP + this RUNBOOK) cite Operational-Parity-1A + "historical orchestration depth" + "WRAPPERS" terminology.
+- Historical authoritative scripts (`checkpointRepo.js` / `finalizeCheckpoint.sh` / `runVerification.js`) preserved verbatim.
+
+Any future drift (silently dropping a historical step from a wrapper) fails `ops:checkpoint`.
+
+### Verify on demand
+
+```bash
+node backend/scripts/verifyOperationalParity.js
+# Expected: NN / NN assertions PASS
+
+cd backend && npm run ops:verify
+# Includes this verifier in the 28-verifier matrix
+```
+
+---
+
+## CANONICAL OPS LAYER DOCTRINE (Phase Continuity-OS-1C, 2026-05-17)
+
+**The repo exposes ONE approved operational abstraction layer: `npm run ops:*`. Fresh chats produce canonical commands by default because canonical docs only show these. Legacy inline-chain resurrection (for-loop verifier scans, curl+jq inspectors, multi-step bootstrap-checkpoint chains) is explicitly forbidden in canonical docs and verifier-enforced.**
+
+After COS-1A established anchor files + COS-1B consolidated them into one portable artifact, a major operational gap remained: inline chains documented across continuity docs drifted independently. Fresh chats regenerated drift-prone for-loops and curl one-liners from memory. COS-1C consolidates everything into a canonical `npm run ops:*` abstraction layer.
+
+### The 6 canonical ops:* commands
+
+| Command | What it wraps | Replaces |
+|---|---|---|
+| `npm run ops:term2` | `brain:bootstrap && brain:continuity && brain:verify` | 3-line pre-phase ritual block |
+| `npm run ops:continuity` | `brain:continuity` (alias) | One-liner muscle memory |
+| `npm run ops:verify` | `node scripts/ops/runAllVerifiers.js` (orchestrator: runtime:verify + every verify\*.js + 5 probes + aggregated summary) | The `for f in backend/scripts/verify*.js; do node "$f" | tail -1; done` loop + the 5-probe loop |
+| `npm run ops:checkpoint` | `brain:bootstrap && brain:continuity && brain:verify && brain:checkpoint` | 4-step session-seal chain |
+| `npm run ops:state` | `node scripts/ops/showState.js [sport]` (orchestrator: Node-only HTTP client → JSON summary) | `curl -s "http://localhost:4000/api/ws/state?sport=mlb" | jq '{...}'` one-liner |
+| `npm run ops:nightly` | `node scripts/ops/runNightlyReview.js [--settle]` (orchestrator: grading:status + calibration:status + lineage:status; opt-in --settle for settlement:run) | Implicit 4-step nightly manual sequence |
+
+### Back-compat preservation (existing commands UNCHANGED)
+
+All existing brain:* / status helpers / action commands preserved verbatim. `ops:*` wraps them; never replaces them. `backend/scripts/finalizeCheckpoint.sh` (Session K legacy git wrapper) PRESERVED for operator git muscle memory; not the canonical seal path.
+
+| Layer | Commands |
+|---|---|
+| **brain primitives** (still canonical primitives) | `brain:bootstrap` / `brain:continuity` / `brain:verify` / `brain:checkpoint` / `brain:status` |
+| **status helpers** | `grading:status` / `calibration:status` / `lineage:status` / `market:status` / `epoch:status` / `engine:status` / `persistence:status` |
+| **action helpers** | `grading:run` / `grading:review` / `grading:backfill` / `grading:backfill-all` / `settlement:run` / `slate:refresh` / `slate:nba` / `slate:mlb` / `runtime:verify` |
+
+### Verify the canonical layer on demand
+
+```bash
+node backend/scripts/verifyOperationalContinuity.js
+# Expected: 92 / 92 assertions PASS
+
+# Or via the canonical layer itself (includes this verifier in the matrix):
+cd backend && npm run ops:verify
+# Expected: 33 / 33 PASS aggregated (1 runtime + 27 verify*.js + 5 probes)
+```
+
+### Anti-fabrication checklist (COS-1C specific)
+
+1. The canonical ops layer wraps existing primitives; never invents behavior. Each ops:* command is observable by reading the package.json or the orchestrator source.
+2. Orchestrators (runAllVerifiers / showState / runNightlyReview) do NOT import openai / tesseract / vision (verifier-asserted).
+3. Canonical continuity docs (OPERATIONAL_FLOW / GPT_RECONSTRUCTION_BOOTSTRAP / BOOTSTRAP_PROMPT) reference ONLY canonical ops:* commands. Legacy inline chains explicitly forbidden + verifier-enforced.
+4. Drift detection automated: `verifyOperationalContinuity.js` runs in the 27-verifier matrix on every `ops:verify` / `ops:checkpoint`; checkpoint FAILs if drift.
+5. Operator muscle memory preserved: existing brain:* / status / action commands unchanged; finalizeCheckpoint.sh preserved.
 
 ---
 

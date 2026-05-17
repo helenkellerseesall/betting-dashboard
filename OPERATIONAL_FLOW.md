@@ -4,6 +4,56 @@
 
 ---
 
+## ⚠️ CANONICAL OPS LAYER (Continuity-OS-1C + Operational-Parity-1A, 2026-05-17) — USE THESE
+
+**Fresh chats MUST use these `npm run ops:*` commands. DO NOT regenerate the legacy inline chains (for-loop verifier scans, curl+jq inspectors, multi-step bootstrap+continuity+verify+checkpoint chains). The canonical operational layer is `ops:*`. Inline chain resurrection = drift.**
+
+**Operational-Parity-1A doctrine (operator-cemented):**
+> Canonical ops commands are **WRAPPERS** around historical authoritative workflows. Behavior parity is mandatory. Operational compression must NEVER reduce orchestration depth. `ops:term2` wraps the full historical Term 2 chain (slate + market + brain + runtime regression + helper-unit + probe matrix + Verification Telemetry V1). `ops:checkpoint` wraps the full historical seal (ops:term2 + checkpointRepo + finalizeCheckpoint + git push + brain:checkpoint). Both are enforced by `verifyOperationalParity.js` in the 28-verifier matrix.
+
+```bash
+# TERM 1 health introspection (read-only; NEVER auto-starts)
+cd backend && npm run ops:term1
+
+# Pre-phase / Term 2 ritual — FULL historical depth (slate + market + brain + runtime regression + helper-unit + probe matrix + Verification Telemetry V1)
+cd backend && npm run ops:term2
+
+# Quick continuity check
+cd backend && npm run ops:continuity
+
+# Full regression matrix (runtime:verify + every verify*.js + 5 probes)
+cd backend && npm run ops:verify
+
+# Finalize / seal phase — FULL historical seal (ops:term2 + checkpointRepo + finalizeCheckpoint + git push + brain:checkpoint)
+cd backend && npm run ops:checkpoint
+
+# Live state inspection (requires TERM 1)
+cd backend && npm run ops:state mlb        # or `nba`
+
+# Nightly review chain (grading:status + calibration:status + lineage:status; --settle to include settlement:run)
+cd backend && npm run ops:nightly
+```
+
+Plus existing canonical primitives (still available; ops:* wrap them):
+- `npm run brain:status` (quick freshness snapshot)
+- `npm run grading:status` / `calibration:status` / `lineage:status` / `market:status` / `epoch:status` (single-purpose read-only)
+- `npm run grading:run` / `settlement:run` / `slate:refresh` (single-purpose actions)
+- `cd frontend && npx tsc --noEmit` (FE type-check)
+
+**Legacy inline chains documented below are PRESERVED for back-compat** but every fresh chat should use the `ops:*` commands above. The `verifyOperationalContinuity.js` helper unit asserts that this section + GPT_RECONSTRUCTION_BOOTSTRAP.md + BOOTSTRAP_PROMPT.md reference the canonical `ops:*` commands.
+
+### Wrapper-parity doctrine (Operational-Parity-1A)
+
+Canonical `ops:*` commands are **WRAPPERS** around the historical authoritative workflows — never replacements. **Wrappers MUST preserve historical orchestration depth**; operational compression must never simplify away the authoritative chain. `verifyOperationalParity.js` (28-verifier matrix) enforces:
+
+- `ops:term2` chains every historical Term 2 step (slate / market / brain / runtime regression / helper-unit / probe matrix / Verification Telemetry V1) in canonical order.
+- `ops:checkpoint` chains every historical seal stage (ops:term2 / checkpointRepo / finalizeCheckpoint / git push origin stable-nba-engine / brain:checkpoint).
+- `ops:term1` is read-only TERM 1 health introspection — NEVER auto-starts/restarts TERM 1.
+
+Any future drift (silently dropping a historical step from a wrapper) fails `ops:checkpoint` via the parity verifier.
+
+---
+
 ## TERMINAL CONVENTIONS
 
 | Terminal | Role |
@@ -165,31 +215,23 @@ cd frontend && npx tsc --noEmit
 
 ---
 
-## RUNTIME INSPECTION FLOW (when investigating live state)
+## RUNTIME INSPECTION FLOW (canonical Continuity-OS-1C)
 
 ```bash
-# Real candidate counts
-node -e "
-const tb = JSON.parse(require('fs').readFileSync('backend/runtime/tracking/mlb_tracked_bets_$(date +%Y-%m-%d).json', 'utf8'));
-console.log('tracked_bets:', tb.length);
-"
-
-# Snapshot freshness
+# Snapshot freshness snapshot
 cd backend && npm run brain:status
 
-# Backend probe of state route (requires TERM 1 running)
-curl -s "http://localhost:4000/api/ws/state?sport=mlb" | jq '{
-  candidates: (.candidates | length),
-  discoveryCandidates: (.discoveryCandidates | length),
-  aiSlips: { safe: (.aiSlips.safe | length), balanced: (.aiSlips.balanced | length), aggressive: (.aiSlips.aggressive | length), lotto: (.aiSlips.lotto | length) }
-}'
+# Live /api/ws/state inspection (requires TERM 1 backend on port 4000)
+cd backend && npm run ops:state mlb              # or `npm run ops:state nba`
 ```
+
+DO NOT regenerate the legacy curl + jq one-liner. `ops:state` replaces it with a Node-only orchestrator that prints a compact JSON summary (candidates / discoveryCandidates / aiSlips tier counts / featured bucket counts / counts / bettorRealismScore).
 
 ---
 
-## VERIFIER MATRIX (25 verifiers as of Continuity-OS-1A)
+## VERIFIER MATRIX (26 verifiers as of Continuity-OS-1C)
 
-Run via `for f in backend/scripts/verify*.js; do node "$f" | tail -1; done`:
+Run via the canonical `npm run ops:verify` (replaces the legacy `for f in backend/scripts/verify*.js; do node "$f" | tail -1; done` loop):
 
 - verifyBettorCuration1A (83 assertions)
 - verifyBnds1A (93 assertions)

@@ -132,8 +132,13 @@ for (const [needle, label] of REQUIRED_SECTIONS) {
   // GPT_RECONSTRUCTION_BOOTSTRAP.md should mirror that
   contains(bootstrapSrc, "Continuity-OS-1B",
     "GPT_RECONSTRUCTION_BOOTSTRAP § 2 reflects Continuity-OS-1B as current active phase")
-  contains(bootstrapSrc, "26th approved phase",
-    "GPT_RECONSTRUCTION_BOOTSTRAP § 2 reflects 26 total approved phases (Continuity-OS-1B sealed)")
+  // Phase-resilient assertion: post-COS-1C ships, the phase count increments
+  // on every approved phase. The invariant is that § 2 declares some Nth
+  // approved phase (any integer ≥ 26 = COS-1B sealed baseline). Verifier
+  // matches the canonical phrase pattern "Nth approved phase" with N ≥ 26.
+  const phaseMatch = bootstrapSrc.match(/(\d+)(?:st|nd|rd|th)\s+approved\s+phase/)
+  assert(phaseMatch && Number(phaseMatch[1]) >= 26,
+    `GPT_RECONSTRUCTION_BOOTSTRAP § 2 reflects Nth approved phase (N≥26 baseline; got ${phaseMatch ? phaseMatch[1] : "no-match"})`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,11 +212,34 @@ for (const [needle, label] of REQUIRED_SECTIONS) {
 // Operational flow canonical commands synced with OPERATIONAL_FLOW.md
 // ─────────────────────────────────────────────────────────────────────────────
 {
+  // Phase Continuity-OS-1C evolution: the canonical operational rituals are
+  // now exposed via `npm run ops:*` wrappers (ops:term2 wraps
+  // bootstrap+continuity+verify; ops:checkpoint wraps all four). The
+  // underlying brain:* commands STILL exist in package.json (asserted in
+  // verifyOperationalContinuity.js) and continue to be documented inside
+  // OPERATIONAL_FLOW.md as the primitives the ops:* layer wraps. But the
+  // canonical reconstruction doc (GPT_RECONSTRUCTION_BOOTSTRAP.md) now points
+  // chats at the ops:* layer to prevent inline-chain drift — so the
+  // assertion is relaxed for the bootstrap doc to accept either the legacy
+  // brain:* primitive OR the wrapping ops:* canonical reference.
   for (const cmd of ["npm run brain:bootstrap", "npm run brain:continuity", "npm run brain:verify", "npm run brain:checkpoint"]) {
     contains(operationalFlowSrc, cmd,
-      `OPERATIONAL_FLOW.md documents ${cmd}`)
-    contains(bootstrapSrc, cmd,
-      `GPT_RECONSTRUCTION_BOOTSTRAP § 7 mirrors ${cmd}`)
+      `OPERATIONAL_FLOW.md documents ${cmd} (primitive still documented post-COS-1C)`)
+  }
+  // The bootstrap doc must document EITHER the primitive OR the canonical
+  // ops:* wrapper for each ritual. ops:checkpoint replaces the 4-step chain;
+  // ops:term2 replaces the 3-step pre-phase chain; ops:continuity is an alias
+  // for brain:continuity; ops:verify orchestrates the regression matrix.
+  for (const [primitive, wrapper] of [
+    ["npm run brain:bootstrap",  "npm run ops:checkpoint"],
+    ["npm run brain:continuity", "npm run ops:continuity"],
+    ["npm run brain:verify",     "npm run ops:verify"],
+    ["npm run brain:checkpoint", "npm run ops:checkpoint"],
+  ]) {
+    const hasPrimitive = bootstrapSrc.indexOf(primitive) !== -1
+    const hasWrapper   = bootstrapSrc.indexOf(wrapper) !== -1
+    assert(hasPrimitive || hasWrapper,
+      `GPT_RECONSTRUCTION_BOOTSTRAP § 7 documents '${primitive}' OR canonical wrapper '${wrapper}'`)
   }
   // Terminal conventions synced
   contains(bootstrapSrc, "TERM 1",
