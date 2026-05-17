@@ -1,7 +1,139 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16.**
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## MLB-CORRELATION DOCTRINE (Phase MLB-Correlation-Engine-1A, 2026-05-16)
+
+**Deterministic same-game ecological covariance gates wired into the canonical workstation slip composer. Reuses EXISTING canonical correlation engine; no new math.**
+
+The slip composer (`backend/pipeline/shared/buildSlipAi.js`) was historically independent-leg intelligence for MLB. The canonical `backend/pipeline/mlb/buildMlbCorrelationEngine.js:117-128` already encoded pitcher-K vs hitter-counting anti-correlation as `-1.0` for the cluster path; Phase MLB-Correlation-Engine-1A bridges that knowledge into `canAddLeg()`.
+
+| Gate | Doctrine | Source authority |
+|---|---|---|
+| **MLB-COV-1 — Canonical Engine Bridge** | `buildSlipAi.js` consumes the SAME canonical truth that the MLB cluster engine uses. Anti-duplication: never redefine MLB correlation math in the slip composer. | NEW lazy `getMlbCorr()` in `buildSlipAi.js`; additive exports `isOverSide` / `isUnderSide` / `isHitterCountingProp` / `isPitcherKProp` / `isHomeRunsProp` from `buildMlbCorrelationEngine.js`. |
+| **MLB-COV-2 — Shared-Game Suppression** | A single ecological event (pitcher dominance day, park run environment) must not masquerade as multiple independent safety paths. Empirical anchor: the 2026-05-15 ARI@COL Vargas+Goodman both-UNDER-1.5-hits SAFE 2-leg loss at Coors. | NEW gate in `canAddLeg()` — when candidate is hitter-counting UNDER + any same-game slipLeg is also hitter-counting UNDER → BLOCK with canonical reason `shared_game_suppression_exposure`. |
+| **MLB-COV-3 — Role-Aware Pitcher↔Hitter Conflict** | Pitcher-K-OVER and opposing hitter-counting-OVER bet on the SAME uncertain outcome (opposing pitcher's K rate). They cannot both be right unless the model is using strictly different information. | NEW gate in `canAddLeg()` — when canonical `pairCorrelationScore(a, b) ≤ -0.99` (opposing teams; both sides OVER) → BLOCK with canonical reason `mlb_pitcher_hitter_conflict`. |
+
+**Where the gates live (canonical authority):**
+
+| Surface | Function | Authority |
+|---|---|---|
+| `backend/pipeline/mlb/buildMlbCorrelationEngine.js` | `pairCorrelationScore(a, b)` | Returns -1.0 / -0.5 / 0 / +0.5. Single source for MLB pair-cov truth. |
+| `backend/pipeline/mlb/buildMlbCorrelationEngine.js` | `isOverSide` / `isUnderSide` / `isHitterCountingProp` / `isPitcherKProp` / `isHomeRunsProp` | Role predicates — same definitions used by cluster engine. |
+| `backend/pipeline/shared/buildSlipAi.js` | `getMlbCorr()` | Lazy MLB-correlation loader (mirrors NBA pattern at lines 78-81). |
+| same file | `canAddLeg(slipLegs, candidate, tpl)` | MLB-COV-2/3 gates fire here, AFTER `script_correlation`, gated by `!tpl.skipScriptCorrelation`. |
+| same file | `MLB_COV_REASON_SHARED_GAME_SUPPRESSION` / `MLB_COV_REASON_PITCHER_HITTER_CONFLICT` | Canonical reason constants returned in `{ ok: false, reason }`. |
+| same file | `resetMlbCovStats()` / `getMlbCovStats()` | Per-invocation counter helpers. `mlbCovStats` returned on `buildAiSlips()` payload. |
+
+**Sport-gating discipline:** all three gates sit inside `if (gk && !tpl.skipScriptCorrelation)` — NBA tier templates set `skipScriptCorrelation: true` (lines 474 / 483) and bypass the entire MLB block. **NBA correlation path UNCHANGED.**
+
+**Smallest-safe-step boundaries:**
+- Same-team pitcher-K + hitter pair (canonical -0.5 score) NOT blocked yet — future phase may tighten.
+- Pitcher-K-UNDER + opposing hitter-OVER scope deferred — future phase.
+- Cross-game UNDER pairs NOT blocked — gates are same-game only.
+- Same-team hitter-OVER stacks (canonical +0.5 positive cov) PRESERVED — legitimate offensive amplification untouched.
+
+**Operator-visible warning emitted at end of each `buildAiSlips()` invocation when any gate fired:**
+```
+[MLB-COV-1A] suppressed N shared_game_suppression_exposure + M mlb_pitcher_hitter_conflict during slip composition
+```
+
+**Verify the gate logic on demand:**
+```bash
+node backend/scripts/verifyMlbCorrelationEngine1A.js
+# Expected: 37 / 37 assertions PASS
+```
+
+**Doctrine in six lines:**
+1. **Deterministic covariance intelligence** — every block is a pure function of canonical fields + the canonical engine score. No ML. No black box.
+2. **Same-game ecological suppression** — a single ecological event must not masquerade as multiple independent safety paths.
+3. **Role-aware anti-correlation suppression** — pitcher↔opposing-hitter overs hard-block at `canAddLeg`; never soft-warn.
+4. **Parlay survivability philosophy** — improving 2-3 leg survivability comes from eliminating toxic same-game exposure, not from broader leg admission.
+5. **Canonical-authority-first** — `buildMlbCorrelationEngine.js` is single source for MLB pair-cov truth; predicates are exported, never duplicated in `buildSlipAi.js`.
+6. **Smallest-safe-step** — only the strict operator-named subsets ship in 1A; everything else is queued.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | MLB-COV-1 (canonical bridge) + MLB-COV-2 (shared-game UNDER suppression) + MLB-COV-3 (role-aware pitcher-hitter conflict) | 2026-05-16 | ✅ SHIPPED |
+| 1B | MLB-COV-4 — high-game-total HR clustering boost | — | Held |
+| 1C | MLB-COV-5 — `hrEnvironmentTag` lift + park-aware UNDER-stack penalty | — | Held |
+| 1D | MLB-COV-6 — bullpen-collapse ecology (gated on Phase 1B bullpen activation) | — | Held |
+| 1E | MLB-COV-7 — weather covariance weighting (wind-out + game-total amplification) | — | Held |
+| 1F | MLB-COV-8 — longitudinal covariance ROI learning (persisted block-log → 30-day retrospective) | — | Held |
+| 1G | MLB-COV-9 — extract shared `pipeline/shared/mlbCorrelationEngine.js` consulted by both cluster + slip paths | — | Held |
+
+**Discipline for every MLB-Correlation-Engine phase:**
+1. Read `docs/MLB_CORRELATION_AUDIT_2026-05-16.md` Section 11 before approving the next lever.
+2. Capture pre/post snapshots in `backend/runtime/operator/baseline_snapshots/` (when slip-shape evolution is involved).
+3. Run full verification matrix (5/5 probes + 14/14 verify + helper unit + `brain:checkpoint`).
+4. Never relax MLB-COV-2/3 thresholds without an explicit operator-approval gate.
+5. Anti-fabrication: never invent canonical fields; missing field → no false block (smallest-safe-step: better to allow than to fabricate).
+6. Pure observational — no new scoring, no new ML, no new persistence, no new API calls per phase unless approved.
+7. NBA correlation path stays untouched (skipScriptCorrelation gate is the architectural seal).
+
+---
+
+## MARKET-EXPLOITATION DOCTRINE (Phase Market-Exploitation-1A, 2026-05-16)
+
+**Fake-edge suppression at the canonical featured-play ingest: consensus-support gate (EXPL-1) + availability hard-filter (EXPL-4).**
+
+The recommendation ladder no longer consumes disagreement / stale-line signals symmetrically. Two deterministic gates run BEFORE the existing |delta| / odds-magnitude sort semantics:
+
+| Gate | Doctrine | Source authority |
+|---|---|---|
+| **EXPL-1 — Consensus-Support Gate** | A disagreement edge surfaces ONLY when BOTH `bookCount >= 3` AND `consensusConfidence >= 0.6`. Single-book outliers and split-market noise are suppressed. Surviving plays receive canonical `processNote` `"market-supported disagreement"` (soft_line side) or `"market-supported overprice"` (stale_line / AVOID side) appended via ` · ` separator. | `shopMap` byProp entries' canonical `bookCount` + `consensusConfidence` fields (`buildLineShoppingIntelligence.js:188 + :214`). |
+| **EXPL-4 — Availability Hard-Filter** | Candidates with canonical `playerStatus === "out"` are dropped at the `buildFeaturedPlays` main-entry choke point AND from the staleRows source. The availability index is built from the PRE-filter normalized list so staleRows for the same OUT player are gated symmetrically. MLB candidates carry no canonical `playerStatus` → filter is honest no-op (anti-fabrication). | `pipeline/nba/nbaAvailabilityCache.enrichRowWithAvailability` canonical taxonomy: `out / doubtful / questionable / probable / active / unknown`. |
+
+**Where the gates live (canonical authority):**
+
+| Surface | Function | Authority |
+|---|---|---|
+| `backend/pipeline/shared/buildFeaturedPlays.js` | `marketSupportFor(staleRow, shopMap)` | EXPL-1 deterministic eligibility resolver. |
+| same file | `staleRowLookupKey(staleRow)` | EXPL-1 shopMap key constructor (player + normFam(propType) + side + line). |
+| same file | `candidateIsHardDropAvailability(c)` | EXPL-4 canonical-OUT detector (case-insensitive Set lookup). |
+| same file | `staleRowIsHardDropAvailability(s, idx)` | EXPL-4 staleRow-side OUT gate. |
+| same file | `buildAvailabilityIndex(normalized)` | EXPL-4 player→status index builder (first-seen wins; status omission → exclusion). |
+| same file | Constants `EXPL1_MIN_BOOK_COUNT=3`, `EXPL1_MIN_CONSENSUS_CONFIDENCE=0.6`, `EXPL4_HARD_DROP_STATUSES=Set("out")` | Operator-tunable in future phase (held). |
+
+**Operator-visible warnings emitted on every run that drops:**
+- `[EXPL-4] dropped N candidate(s) at featured-play ingest — canonical playerStatus="out" (anti-stale-player doctrine)`
+- `[EXPL-4] dropped N staleRow(s) — canonical playerStatus="out" (stale availability invalidation)`
+- `[EXPL-1] suppressed X soft + Y stale candidates lacking market-support floor (bookCount>=3 & consensusConfidence>=0.6)`
+
+**Verify the gate logic on demand:**
+```bash
+node backend/scripts/verifyMarketExploitation1A.js
+# Expected: 40 / 40 assertions PASS
+```
+
+**Doctrine in five lines:**
+1. **Market-supported disagreement** — peer-book corroboration is a prerequisite for any disagreement edge surfacing.
+2. **Availability authority is single-sourced** — `pipeline/nba/nbaAvailabilityCache` owns the canonical taxonomy; filters consult it; never duplicate it.
+3. **Anti-fabrication on unknown** — a player absent from the availability cache is "no signal", NOT "active by default".
+4. **Exploitability gates compose with sort** — filters fire BEFORE the existing sort, preserving operator-visible bucket-shape contracts.
+5. **Operator-visible suppression accounting** — every drop is logged so the operator can quantify nightly noise suppression.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | EXPL-1 (consensus-support gate on 3 staleRow buckets) + EXPL-4 (availability hard-filter at ingest + staleRow layer) | 2026-05-16 | ✅ SHIPPED |
+| 1B | EXPL-2 — refresh `FAMILY_CALIBRATION_COEFFICIENTS` from rolling `calibration_records` window | — | Held |
+| 1C | EXPL-3 — disagreement-edge ROI persistence (`recommendation_ladder_outcomes.jsonl`) | — | Held |
+| 1D | EXPL-5 — per-(book × stat-family) ROI elevated into ranking | — | Held |
+| 1E | EXPL-6 — trap-detection track record via Bayesian confidence band | — | Held |
+| 1F | EXPL-7 — MLB correlation engine | — | Held |
+| 1G | EXPL-8 — portfolio optimization across slots | — | Held |
+| 1H | EXPL-9 — slot historical ROI tracking + adaptive priority weights | — | Held |
+
+**Discipline for every Market-Exploitation phase:**
+1. Read `docs/MARKET_EXPLOITATION_AUDIT_2026-05-16.md` Section 9 before approving the next lever.
+2. Capture pre/post snapshots in `backend/runtime/operator/baseline_snapshots/`.
+3. Run full verification matrix (5/5 probes + 14/14 verify + helper unit + `brain:checkpoint`).
+4. Never relax EXPL-1 or EXPL-4 thresholds without an explicit operator-approval gate.
+5. Anti-fabrication: never invent canonical fields; missing field → ineligible.
+6. Pure observational — no new scoring, no new ML, no new persistence, no new API calls per phase unless approved.
 
 ---
 

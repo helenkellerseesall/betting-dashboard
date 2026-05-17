@@ -645,6 +645,18 @@ module.exports = {
   buildMlbUpsideClusters,
   pairCorrelationScore,
   isHighUpsideRow,
-  isMediumUpsideRow
+  isMediumUpsideRow,
+  // Phase MLB-Correlation-Engine-1A — additive exports of the canonical role
+  // predicates so buildSlipAi.js can consume the SAME deterministic semantics
+  // (anti-duplication doctrine). Zero logic change in this file. These four
+  // helpers were already defined and used internally by pairCorrelationScore;
+  // they are now also the public canonical authority for "what is a pitcher K
+  // prop", "what is a hitter counting prop", etc. across the slip composer +
+  // cluster engine.
+  isOverSide,
+  isUnderSide,
+  isHitterCountingProp,
+  isPitcherKProp,
+  isHomeRunsProp,
 }
 

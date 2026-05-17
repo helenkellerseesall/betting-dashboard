@@ -80,6 +80,36 @@ function getNbaCorr() {
   return _nbaCorr
 }
 
+// Phase MLB-Correlation-Engine-1A: lazy require of the canonical MLB
+// correlation engine. Mirrors the NBA lazy pattern above. Reused inside
+// canAddLeg() to enforce three deterministic anti-correlation gates:
+//   MLB-COV-1: bridge canonical pairCorrelationScore into slip composition
+//              (consume EXISTING -1.0 / +0.5 semantics; do not redefine).
+//   MLB-COV-2: same-game hitter-counting UNDER ecological suppression
+//              (a single ecological event must not masquerade as multiple
+//              independent safety paths).
+//   MLB-COV-3: role-aware pitcher-K-OVER vs opposing hitter-counting-OVER
+//              hard block (the strict operator-approved subset of the
+//              canonical -1.0 doctrine; both sides OVER, opposing teams).
+// NBA tiers set `skipScriptCorrelation: true`; gates fire only when that
+// flag is false → existing NBA correlation path UNCHANGED.
+let _mlbCorr = null
+function getMlbCorr() {
+  if (!_mlbCorr) _mlbCorr = require("../mlb/buildMlbCorrelationEngine")
+  return _mlbCorr
+}
+
+// Phase MLB-Correlation-Engine-1A canonical rejection-reason constants.
+// Operator-visible at canAddLeg return; also the canonical processNote
+// equivalent surfaced in slip-construction logs.
+const MLB_COV_REASON_SHARED_GAME_SUPPRESSION = "shared_game_suppression_exposure"
+const MLB_COV_REASON_PITCHER_HITTER_CONFLICT = "mlb_pitcher_hitter_conflict"
+// Pure-function module-visible counters for operator observability. Reset
+// per buildAiSlips invocation in buildAiSlips() main entry.
+let _mlbCovStats = { blockedSharedGameSuppression: 0, blockedPitcherHitterConflict: 0 }
+function resetMlbCovStats() { _mlbCovStats = { blockedSharedGameSuppression: 0, blockedPitcherHitterConflict: 0 } }
+function getMlbCovStats() { return { ..._mlbCovStats } }
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function num(v) { if (v == null) return null; const n = Number(v); return Number.isFinite(n) ? n : null }
@@ -525,6 +555,56 @@ function canAddLeg(slipLegs, candidate, tpl) {
       return { ok: false, reason: "script_correlation" }
     }
   }
+
+  // ── Phase MLB-Correlation-Engine-1A — MLB-COV-1 + MLB-COV-2 + MLB-COV-3 ─────
+  //
+  // Deterministic same-game ecological covariance gates. Sport-gated via the
+  // EXISTING `!tpl.skipScriptCorrelation` flag (NBA tier templates set it
+  // true and bypass this entire block — preserves the NBA correlation path
+  // unchanged). Operates on the SAME canonical predicates the cluster engine
+  // uses (anti-duplication doctrine). Pure observational: no scoring change,
+  // no new heuristics, no fabricated math — every rule consumes a canonical
+  // boolean or a canonical -1.0 score from buildMlbCorrelationEngine.
+  if (gk && !tpl.skipScriptCorrelation) {
+    const mlb = getMlbCorr()
+    const sameGameLegs = slipLegs.filter((l) => gameKey(l) === gk)
+    if (sameGameLegs.length > 0) {
+      // MLB-COV-2 — same-game hitter-counting UNDER ecological suppression.
+      // A single ecological event (quiet pitcher / dominant pitcher / chilly
+      // weather) drives both legs simultaneously; treating them as
+      // independent inflates safety. Empirical anchor: 2026-05-15 ARI@COL
+      // SAFE 2-leg both-batter-UNDER loss at Coors. Doctrine: same ecological
+      // event must not masquerade as multiple independent safety paths.
+      if (mlb.isUnderSide(candidate) && mlb.isHitterCountingProp(candidate)) {
+        const sameGameHitterUnder = sameGameLegs.some(
+          (l) => mlb.isUnderSide(l) && mlb.isHitterCountingProp(l),
+        )
+        if (sameGameHitterUnder) {
+          _mlbCovStats.blockedSharedGameSuppression++
+          return { ok: false, reason: MLB_COV_REASON_SHARED_GAME_SUPPRESSION }
+        }
+      }
+      // MLB-COV-1 + MLB-COV-3 — role-aware pitcher-K vs opposing hitter-OVER
+      // hard block. Reuses canonical `pairCorrelationScore` exactly: -1.0
+      // score AND both legs OVER AND opposing teams (the engine's strict
+      // -1.0 case already encodes the opposing-team check). Same-team
+      // pitcher-K + hitter case scores -0.5 in the engine — preserved /
+      // not blocked here (smallest-safe-step; future phase may tighten).
+      // Preserves positive offensive covariance (same-team hitter-OVER
+      // stacks scoring +0.5) unchanged.
+      if (candidate.side === "over") {
+        for (const l of sameGameLegs) {
+          if (l.side !== "over") continue
+          const score = mlb.pairCorrelationScore(candidate, l)
+          if (score <= -0.99) {
+            _mlbCovStats.blockedPitcherHitterConflict++
+            return { ok: false, reason: MLB_COV_REASON_PITCHER_HITTER_CONFLICT }
+          }
+        }
+      }
+    }
+  }
+
   return { ok: true }
 }
 
@@ -949,6 +1029,11 @@ function buildAiSlips(opts = {}) {
   const date       = options.date  || new Date().toISOString().slice(0, 10)
   const maxPerTier = options.maxPerTier || 4
 
+  // Phase MLB-Correlation-Engine-1A: reset per-run MLB covariance counters
+  // so the operator-visible warning at end of run reflects THIS invocation
+  // only. Idempotent, pure no-op when no MLB legs are present.
+  resetMlbCovStats()
+
   // Normalize candidates
   const normalized = candidates
     .map(normalizeCandidate)
@@ -1019,7 +1104,18 @@ function buildAiSlips(opts = {}) {
   const totalSlips = Object.values(slips).reduce((s, arr) => s + arr.length, 0)
   const summary = `Built ${totalSlips} slips from ${normalized.length} candidates  ·  safe:${slips.safe.length} balanced:${slips.balanced.length} aggr:${slips.aggressive.length} lotto:${slips.lotto.length}`
 
-  return { slips, summary, warnings, candidateCount: normalized.length }
+  // Phase MLB-Correlation-Engine-1A: operator-visible covariance suppression
+  // accounting. One log per buildAiSlips invocation; emitted only when any
+  // gate fired (clean runs stay quiet). Anti-fabrication: counters reflect
+  // real per-run blocks via _mlbCovStats, never synthesized numbers.
+  const covStats = getMlbCovStats()
+  if (covStats.blockedSharedGameSuppression + covStats.blockedPitcherHitterConflict > 0) {
+    console.warn(
+      `[MLB-COV-1A] suppressed ${covStats.blockedSharedGameSuppression} shared_game_suppression_exposure + ${covStats.blockedPitcherHitterConflict} mlb_pitcher_hitter_conflict during slip composition`,
+    )
+  }
+
+  return { slips, summary, warnings, candidateCount: normalized.length, mlbCovStats: covStats }
 }
 
 // ── PRESENTATION HELPER ───────────────────────────────────────────────────────
@@ -1058,4 +1154,10 @@ module.exports = {
   normalizeCandidate,
   formatSlipsSection,
   TIER_TEMPLATES,
+  // Phase MLB-Correlation-Engine-1A — exposed for helper unit testing.
+  canAddLeg,
+  getMlbCovStats,
+  resetMlbCovStats,
+  MLB_COV_REASON_SHARED_GAME_SUPPRESSION,
+  MLB_COV_REASON_PITCHER_HITTER_CONFLICT,
 }

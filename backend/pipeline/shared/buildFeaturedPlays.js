@@ -37,6 +37,27 @@
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
 
+// ── Phase Market-Exploitation-1A constants (EXPL-1 + EXPL-4) ─────────────────
+//
+// EXPL-1 (consensus-support gate on disagreement / stale-line surfaces):
+// A staleRow surfaces into bestDisagreementEdges / staleLineOpportunities /
+// inflatedSuperstarSpots ONLY when the underlying prop has BOTH meaningful
+// market participation (>= EXPL1_MIN_BOOK_COUNT books quoting it) AND
+// meaningful consensus among those books (consensusConfidence >=
+// EXPL1_MIN_CONSENSUS_CONFIDENCE). This isolates real market disagreement
+// from isolated single-book noise. Uses EXISTING canonical fields only
+// (bookCount + consensusConfidence on the shopMap byProp entry). No new
+// scoring, no new persistence, no ML.
+//
+// EXPL-4 (availability hard-filter): a candidate with canonical playerStatus
+// === "out" is dropped at ingest. Reuses pipeline/nba/nbaAvailabilityCache
+// canonical taxonomy (out | doubtful | questionable | probable | active |
+// unknown). MLB candidates carry no playerStatus → filter no-ops honestly.
+// Anti-fabrication: never invent status; never drop on unknown.
+const EXPL1_MIN_BOOK_COUNT = 3
+const EXPL1_MIN_CONSENSUS_CONFIDENCE = 0.6
+const EXPL4_HARD_DROP_STATUSES = new Set(["out"])
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function num(v)  { if (v == null) return null; const n = Number(v); return Number.isFinite(n) ? n : null }
@@ -92,8 +113,111 @@ function normalizeCandidate(raw) {
     // MLB candidates always reach the VOLATILITY_RULES fallback path.
     // VOLATILITY_RULES itself is NOT modified.
     volatility:  resolveNbaVolatility(raw),
+    // Phase Market-Exploitation-1A (EXPL-4): preserve canonical availability
+    // semantics through normalization so the hard-filter at ingest can act.
+    // Source authority: pipeline/nba/nbaAvailabilityCache.enrichRowWithAvailability
+    // (writes raw.playerStatus on snapshot rows before they reach this curator).
+    // Anti-fabrication: when upstream did not set playerStatus, we propagate
+    // undefined verbatim — never substitute "active" by default.
+    playerStatus:        raw.playerStatus,
+    availabilityContext: raw.availabilityContext,
     raw,
   }
+}
+
+// ── Phase Market-Exploitation-1A pure helpers (EXPL-1 + EXPL-4) ──────────────
+
+/**
+ * Compute the staleRow lookup key matching the shopMap keying convention used
+ * in buildFeaturedPlays main entry. Parses the "Type over/under Line" prop
+ * string identically to staleRowToCompactPlay. Pure function. Exported for
+ * unit testing.
+ */
+function staleRowLookupKey(staleRow) {
+  if (!staleRow || !staleRow.player) return null
+  const propStr  = String(staleRow.prop || "")
+  const m        = propStr.match(/^(.+?)\s+(over|under)\s+([\d.]+)$/i)
+  const propType = m ? m[1] : propStr
+  const side     = m ? m[2].toLowerCase() : ""
+  const line     = m ? Number(m[3]) : null
+  const player   = String(staleRow.player).toLowerCase().trim()
+  return [player, normFam(propType), side, line ?? "any"].join("|")
+}
+
+/**
+ * Phase Market-Exploitation-1A (EXPL-1): deterministic market-support resolver.
+ *
+ * Returns the canonical (bookCount, consensusConfidence) pair for the staleRow's
+ * underlying prop, plus a deterministic `supported` boolean that gates whether
+ * the row may enter the disagreement / stale-line surfaces. Uses EXISTING
+ * canonical fields only — never invents scoring.
+ *
+ * Doctrine: a disagreement edge surfaces ONLY when BOTH
+ *   bookCount           >= EXPL1_MIN_BOOK_COUNT
+ *   consensusConfidence >= EXPL1_MIN_CONSENSUS_CONFIDENCE
+ * are satisfied. Otherwise the row is a single-book outlier / sparse-coverage
+ * noise event and is suppressed from operator-visible surfaces.
+ *
+ * @param {object} staleRow
+ * @param {Map} shopMap   Key → byProp entry built in buildFeaturedPlays main entry.
+ * @returns {{ bookCount, consensusConfidence, supported }}
+ */
+function marketSupportFor(staleRow, shopMap) {
+  const key = staleRowLookupKey(staleRow)
+  const g   = key && shopMap ? shopMap.get(key) : null
+  const bookCount           = Number.isFinite(g?.bookCount)           ? g.bookCount           : null
+  const consensusConfidence = Number.isFinite(g?.consensusConfidence) ? g.consensusConfidence : null
+  // Anti-fabrication: when either canonical field is missing, the staleRow
+  // CANNOT be proven market-supported → ineligible (suppressed).
+  const supported =
+    bookCount !== null &&
+    consensusConfidence !== null &&
+    bookCount >= EXPL1_MIN_BOOK_COUNT &&
+    consensusConfidence >= EXPL1_MIN_CONSENSUS_CONFIDENCE
+  return { bookCount, consensusConfidence, supported }
+}
+
+/**
+ * Phase Market-Exploitation-1A (EXPL-4): canonical OUT-status detector.
+ *
+ * Returns true iff the candidate's preserved playerStatus (canonical taxonomy
+ * from pipeline/nba/nbaAvailabilityCache) is in EXPL4_HARD_DROP_STATUSES.
+ * Honest unknown returns false (anti-fabrication: never drop on absence).
+ */
+function candidateIsHardDropAvailability(c) {
+  if (!c || c.playerStatus == null) return false
+  return EXPL4_HARD_DROP_STATUSES.has(String(c.playerStatus).toLowerCase())
+}
+
+/**
+ * Phase Market-Exploitation-1A (EXPL-4): build a player → playerStatus index
+ * from the normalized (pre-filter) candidate list. Used to gate staleRow-derived
+ * buckets — when a staleRow's player is canonical OUT in the index, the row is
+ * dropped (anti-stale-player doctrine). Players absent from the index → no
+ * signal → no drop (anti-fabrication).
+ */
+function buildAvailabilityIndex(normalizedCandidates) {
+  const idx = new Map()
+  if (!Array.isArray(normalizedCandidates)) return idx
+  for (const c of normalizedCandidates) {
+    if (!c?.player || c.playerStatus == null) continue
+    const k = String(c.player).toLowerCase().trim()
+    // Preserve first-seen status; if multiple candidates exist for same player
+    // they all carry the same enriched playerStatus.
+    if (!idx.has(k)) idx.set(k, String(c.playerStatus).toLowerCase())
+  }
+  return idx
+}
+
+/**
+ * Phase Market-Exploitation-1A (EXPL-4): staleRow-side availability gate.
+ * Returns true iff the staleRow's player is canonical OUT in the index.
+ */
+function staleRowIsHardDropAvailability(staleRow, availabilityIndex) {
+  if (!staleRow?.player || !availabilityIndex) return false
+  const k = String(staleRow.player).toLowerCase().trim()
+  const status = availabilityIndex.get(k)
+  return status != null && EXPL4_HARD_DROP_STATUSES.has(status)
 }
 
 // ── scoring lenses ────────────────────────────────────────────────────────────
@@ -792,12 +916,20 @@ function buildBestAltLadders(scored, count = 5) {
  * Anti-fabrication: when a staleRow has no matching scored candidate, we still
  * surface it with a minimal compact-play shape derived purely from staleRow fields.
  */
-function buildBestDisagreementEdges(scoredById, staleRows, count = 5) {
+function buildBestDisagreementEdges(scoredById, staleRows, count = 5, opts = {}) {
   if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const { shopMap = null, availabilityIndex = null } = opts
   const candidates = staleRows
     .filter((s) => s && s.tag === "soft_line" && Number.isFinite(s.delta))
+    // Phase Market-Exploitation-1A (EXPL-4): availability hard-filter — drop
+    // staleRows whose player is canonical OUT in the slate's availability index.
+    .filter((s) => !staleRowIsHardDropAvailability(s, availabilityIndex))
+    // Phase Market-Exploitation-1A (EXPL-1): consensus-support gate — keep only
+    // rows backed by EXPL1_MIN_BOOK_COUNT+ books and EXPL1_MIN_CONSENSUS_CONFIDENCE+
+    // cross-book agreement. Ranking semantics (|delta| sort) preserved AFTER gate.
+    .filter((s) => shopMap == null || marketSupportFor(s, shopMap).supported)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById)).filter(Boolean).slice(0, count)
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { marketSupported: true })).filter(Boolean).slice(0, count)
 }
 
 /**
@@ -806,10 +938,15 @@ function buildBestDisagreementEdges(scoredById, staleRows, count = 5) {
  * = larger dollar payoff). Operator-friendly cash-value view; complements the
  * sharpness-ordered disagreement-edges bucket.
  */
-function buildStaleLineOpportunities(scoredById, staleRows, count = 5) {
+function buildStaleLineOpportunities(scoredById, staleRows, count = 5, opts = {}) {
   if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const { shopMap = null, availabilityIndex = null } = opts
   const candidates = staleRows
     .filter((s) => s && s.tag === "soft_line" && Number.isFinite(num(s.odds)))
+    // Phase Market-Exploitation-1A (EXPL-4 + EXPL-1): same gates as
+    // bestDisagreementEdges — availability hard-drop + consensus-support floor.
+    .filter((s) => !staleRowIsHardDropAvailability(s, availabilityIndex))
+    .filter((s) => shopMap == null || marketSupportFor(s, shopMap).supported)
     .sort((a, b) => {
       // Prefer higher positive odds (better payoff); tie-break by |delta|.
       const oa = num(a.odds) ?? 0
@@ -819,7 +956,7 @@ function buildStaleLineOpportunities(scoredById, staleRows, count = 5) {
       if (ranka !== rankb) return rankb - ranka
       return Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0)
     })
-  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById)).filter(Boolean).slice(0, count)
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { marketSupported: true })).filter(Boolean).slice(0, count)
 }
 
 /**
@@ -855,12 +992,19 @@ function buildTrapLadders(scored, count = 5) {
  * but for the AVOID-side stale tag. Tagged in compactPlay with processNote so the
  * operator knows WHY this surface flags the prop.
  */
-function buildInflatedSuperstarSpots(scoredById, staleRows, count = 5) {
+function buildInflatedSuperstarSpots(scoredById, staleRows, count = 5, opts = {}) {
   if (!Array.isArray(staleRows) || !staleRows.length) return []
+  const { shopMap = null, availabilityIndex = null } = opts
   const candidates = staleRows
     .filter((s) => s && s.tag === "stale_line" && Number.isFinite(s.delta))
+    // Phase Market-Exploitation-1A (EXPL-4 + EXPL-1): symmetric gates on the
+    // AVOID surface — overpriced book flagging is only meaningful when the
+    // consensus is itself well-supported. Single-book "overprice" claims with
+    // no peer-book corroboration are suppressed (anti-noise doctrine).
+    .filter((s) => !staleRowIsHardDropAvailability(s, availabilityIndex))
+    .filter((s) => shopMap == null || marketSupportFor(s, shopMap).supported)
     .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { avoidTag: true })).filter(Boolean).slice(0, count)
+  return candidates.slice(0, count * 2).map((s) => staleRowToCompactPlay(s, scoredById, { avoidTag: true, marketSupported: true })).filter(Boolean).slice(0, count)
 }
 
 // ── Phase Recommendation-Hierarchy-1A — buildRecommendationLadder (HIER-1) ───
@@ -952,7 +1096,7 @@ function buildRecommendationLadder(featured) {
  * anti-fabrication: we ONLY copy fields the staleRow already carries; never
  * invent edge, modelProb, or composite values.
  */
-function staleRowToCompactPlay(s, scoredById, { avoidTag = false } = {}) {
+function staleRowToCompactPlay(s, scoredById, { avoidTag = false, marketSupported = false } = {}) {
   if (!s) return null
   const propStr = String(s.prop || "")
   const m = propStr.match(/^(.+?)\s+(over|under)\s+([\d.]+)$/i)
@@ -964,6 +1108,13 @@ function staleRowToCompactPlay(s, scoredById, { avoidTag = false } = {}) {
   // Best-effort lookup of the full scored entry (so we can return a richer compactPlay).
   const lookupKey = [player.toLowerCase().trim(), statFamilyNorm, side ?? "", line ?? "any"].join("|")
   const item = scoredById.get(lookupKey)
+  // Phase Market-Exploitation-1A (EXPL-1): canonical processNote for plays
+  // that survived the consensus-support gate. Deterministic phrasing; never
+  // applied to ungated plays (older call sites without the flag get unchanged
+  // behavior — additive only).
+  const expl1Note = marketSupported
+    ? (avoidTag ? "market-supported overprice" : "market-supported disagreement")
+    : null
   if (item) {
     const cp = compactPlay(item, item._ctx, { includeAttackNote: false })
     // Augment with staleRow-specific markers so the frontend can render the
@@ -972,6 +1123,9 @@ function staleRowToCompactPlay(s, scoredById, { avoidTag = false } = {}) {
     cp.staleRowDelta = s.delta
     cp.consensus = s.consensus
     if (avoidTag) cp.avoidReason = `book overprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`
+    // EXPL-1: append canonical market-support note. Preserve any existing
+    // processNote from the underlying scored candidate via " · " separator.
+    if (expl1Note) cp.processNote = cp.processNote ? `${cp.processNote} · ${expl1Note}` : expl1Note
     return cp
   }
   // Anti-fabrication minimal shape — every field comes from s.* directly.
@@ -1000,7 +1154,10 @@ function staleRowToCompactPlay(s, scoredById, { avoidTag = false } = {}) {
     reasoning:           s.tag === "soft_line"
       ? `book underprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`
       : `book overprices vs consensus by ${(Math.abs(s.delta) * 100).toFixed(1)}¢`,
-    processNote:         null,
+    // Phase Market-Exploitation-1A (EXPL-1): canonical processNote when row
+    // cleared the consensus-support gate. null when caller did not pass the
+    // marketSupported flag (preserves backward compatibility).
+    processNote:         expl1Note,
     composite:           undefined,
     factors:             undefined,
   }
@@ -1064,7 +1221,24 @@ function buildFeaturedPlays(opts = {}) {
     date,
   } = opts
 
-  const normalized = candidates.map(normalizeCandidate).filter(Boolean)
+  const normalizedAll = candidates.map(normalizeCandidate).filter(Boolean)
+  // Phase Market-Exploitation-1A (EXPL-4): availability hard-filter at the
+  // canonical featured-play ingest choke point. Drops candidates whose
+  // preserved playerStatus is in EXPL4_HARD_DROP_STATUSES (currently {"out"}).
+  // Reuses pipeline/nba/nbaAvailabilityCache canonical taxonomy. MLB candidates
+  // carry no playerStatus → filter is honest no-op. Anti-fabrication: never
+  // invent status; never drop on unknown. The pre-filter list is also used to
+  // build the staleRow-side availability index BEFORE dropping (so a staleRow
+  // for an OUT player is also suppressed even if no corresponding scored
+  // candidate exists after the OUT drop).
+  const availabilityIndex = buildAvailabilityIndex(normalizedAll)
+  const normalized = normalizedAll.filter((c) => !candidateIsHardDropAvailability(c))
+  const expl4DroppedCandidates = normalizedAll.length - normalized.length
+  if (expl4DroppedCandidates > 0) {
+    // Operator-visible annotation when stale candidates are removed due to
+    // canonical availability invalidation. Rate-limited to one log per run.
+    console.warn(`[EXPL-4] dropped ${expl4DroppedCandidates} candidate(s) at featured-play ingest — canonical playerStatus="out" (anti-stale-player doctrine)`)
+  }
   if (!normalized.length) {
     // Phase Recommendation-Hierarchy-1A (HIER-1): when no candidates, every
     // ladder slot is null — honest empty doctrine, never fabricated picks.
@@ -1143,15 +1317,37 @@ function buildFeaturedPlays(opts = {}) {
   // Phase Operator-Experience-1A: 8 new actionable operator buckets.
   // Each derived deterministically from existing scored + staleRows data.
   // No fabrication; empty buckets return []. Existing buckets above unchanged.
-  const staleRowsSource = Array.isArray(lineShopping?.staleRows) ? lineShopping.staleRows : []
+  const staleRowsSourceRaw = Array.isArray(lineShopping?.staleRows) ? lineShopping.staleRows : []
+  // Phase Market-Exploitation-1A (EXPL-4): pre-filter staleRows by the
+  // availability index BEFORE the bucket builders see them, so the operator
+  // sees a single deterministic "dropped" count rather than per-bucket
+  // accounting. Bucket-level filters remain as defense-in-depth (idempotent).
+  const staleRowsSource = staleRowsSourceRaw.filter((s) => !staleRowIsHardDropAvailability(s, availabilityIndex))
+  const expl4DroppedStaleRows = staleRowsSourceRaw.length - staleRowsSource.length
+  if (expl4DroppedStaleRows > 0) {
+    console.warn(`[EXPL-4] dropped ${expl4DroppedStaleRows} staleRow(s) — canonical playerStatus="out" (stale availability invalidation)`)
+  }
+  // Phase Market-Exploitation-1A (EXPL-1): consensus-support gate counters.
+  // Pre-compute eligible vs ineligible counts for operator visibility before
+  // bucket builders apply the gate. Helps the operator quantify how much
+  // single-book noise was suppressed in tonight's surface.
+  const softCandidates  = staleRowsSource.filter((s) => s && s.tag === "soft_line"  && Number.isFinite(s.delta))
+  const staleCandidates = staleRowsSource.filter((s) => s && s.tag === "stale_line" && Number.isFinite(s.delta))
+  const softSupported   = softCandidates.filter((s)  => marketSupportFor(s, shopMap).supported)
+  const staleSupported  = staleCandidates.filter((s) => marketSupportFor(s, shopMap).supported)
+  const expl1SoftSuppressed  = softCandidates.length  - softSupported.length
+  const expl1StaleSuppressed = staleCandidates.length - staleSupported.length
+  if (expl1SoftSuppressed + expl1StaleSuppressed > 0) {
+    console.warn(`[EXPL-1] suppressed ${expl1SoftSuppressed} soft + ${expl1StaleSuppressed} stale candidates lacking market-support floor (bookCount>=${EXPL1_MIN_BOOK_COUNT} & consensusConfidence>=${EXPL1_MIN_CONSENSUS_CONFIDENCE})`)
+  }
   const bestBalanced            = buildBestBalanced(scored).map((x) => compactPlay(x, ctx))
   const bestAggressive          = buildBestAggressive(scored).map((x) => compactPlay(x, ctx))
   const bestUnders              = buildBestUnders(scored).map((x) => compactPlay(x, ctx))
   const bestAltLadders          = buildBestAltLadders(scored).map((x) => compactPlay(x, ctx))
-  const bestDisagreementEdges   = buildBestDisagreementEdges(scoredById, staleRowsSource)
-  const staleLineOpportunities  = buildStaleLineOpportunities(scoredById, staleRowsSource)
+  const bestDisagreementEdges   = buildBestDisagreementEdges(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
+  const staleLineOpportunities  = buildStaleLineOpportunities(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
   const trapLadders             = buildTrapLadders(scored).map((x) => compactPlay(x, ctx))
-  const inflatedSuperstarSpots  = buildInflatedSuperstarSpots(scoredById, staleRowsSource)
+  const inflatedSuperstarSpots  = buildInflatedSuperstarSpots(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
 
   const bestBooks       = buildBestBooksTonight(scored).map((b) => ({
     book: b.book, plays: b.plays, avgScore: b.avgScore,
@@ -1206,4 +1402,13 @@ module.exports = {
   buildLedgerStats,
   // Phase Recommendation-Hierarchy-1A — exported for helper unit testing.
   buildRecommendationLadder,
+  // Phase Market-Exploitation-1A (EXPL-1 + EXPL-4) — exported for helper unit testing.
+  marketSupportFor,
+  staleRowLookupKey,
+  candidateIsHardDropAvailability,
+  staleRowIsHardDropAvailability,
+  buildAvailabilityIndex,
+  EXPL1_MIN_BOOK_COUNT,
+  EXPL1_MIN_CONSENSUS_CONFIDENCE,
+  EXPL4_HARD_DROP_STATUSES,
 }
