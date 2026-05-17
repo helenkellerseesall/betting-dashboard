@@ -121,6 +121,50 @@ function normalizeCandidate(raw) {
     // undefined verbatim — never substitute "active" by default.
     playerStatus:        raw.playerStatus,
     availabilityContext: raw.availabilityContext,
+    // Phase Bettor-Curation-Intelligence-1A (BC-1): preserve canonical MLB
+    // realism / environment signals through normalization so the curation
+    // layer (BC-2 playerLegitimacyFactor / BC-4 soft-demote / BC-5 believable
+    // upside / BC-7 anchor corroborator / BC-8 realism score) can read them.
+    // Canonical sources:
+    //   - lineupSpot, depth, plateAppearancesProxy  → pipeline/mlb/context/deriveMlbLineupContext.js
+    //   - impliedTeamTotal, gameTotal                → raw row from buildMlbBootstrapSnapshot.js
+    //   - hrEnvironmentTag                           → pipeline/mlb/context/deriveMlbParkContext.js
+    //   - contextualTags                              → pipeline/mlb/context/composeMlbContextualSignal.js
+    // Anti-fabrication: every field propagates verbatim (undefined when
+    // upstream did not set it). Never substitutes neutral / default values
+    // here — those decisions live in the consumers (see BC-2 fallback logic).
+    lineupSpot:           raw.lineupSpot ?? raw.battingOrderIndex,
+    depth:                raw.depth,
+    plateAppearancesProxy: raw.plateAppearancesProxy,
+    impliedTeamTotal:     raw.impliedTeamTotal,
+    gameTotal:            raw.gameTotal,
+    hrEnvironmentTag:     raw.hrEnvironmentTag,
+    contextualTags:       raw.contextualTags,
+    // Phase Offensive-Ecology-Intelligence-1A (OE-1): lift remaining canonical
+    // offensive-ecology signals so OE-2 / OE-3 / OE-4 / OE-5 / OE-6 / OE-8 can
+    // read them. Canonical sources:
+    //   - runEnvironment, rbiEnvironment       → pipeline/mlb/context/deriveMlbLineupContext.js
+    //   - windDirectionTag, carryShift, temperatureF
+    //                                           → pipeline/mlb/context/deriveMlbWeatherContext.js
+    //   - hrFactor                              → pipeline/mlb/context/deriveMlbParkContext.js
+    // Pure additive lift; never invents. Anti-fabrication: undefined when
+    // upstream did not set the field. NO new fetches. NO ML.
+    runEnvironment:       raw.runEnvironment,
+    rbiEnvironment:       raw.rbiEnvironment,
+    windDirectionTag:     raw.windDirectionTag,
+    carryShift:           raw.carryShift,
+    hrFactor:             raw.hrFactor,
+    temperatureF:         raw.temperatureF,
+    // Phase Offensive-Ecology-Intelligence-1B (OE-13 field lift): preserve
+    // canonical bullpen-fragility signals from deriveMlbBullpenContext.js so
+    // bullpenFragilityContext(c) can read them inside scoreCandidate and
+    // ladderSurvivabilityFactor. Anti-fabrication: when upstream bullpen
+    // feed is dormant (dataAvailable=false / bullpenShift=0), bullpenShift
+    // propagates as 0 and OE-13 falls back to a neutral score derived from
+    // runEnvironment + impliedTeamTotal only. NEVER fabricates bullpen quality.
+    bullpenShift:          raw.bullpenShift,
+    reliefFatigueScore:    raw.reliefFatigueScore,
+    bullpenDataAvailable:  raw.bullpenDataAvailable,
     raw,
   }
 }
@@ -218,6 +262,722 @@ function staleRowIsHardDropAvailability(staleRow, availabilityIndex) {
   const k = String(staleRow.player).toLowerCase().trim()
   const status = availabilityIndex.get(k)
   return status != null && EXPL4_HARD_DROP_STATUSES.has(status)
+}
+
+// ── Phase Bettor-Curation-Intelligence-1A constants (BC-2 + BC-4 + BC-5/7/8) ─
+//
+// Doctrine: every weighting / threshold is a deterministic operator-approved
+// constant derived from canonical signals. NO ML, NO LLM, NO celebrity scoring.
+// Anti-fabrication: when canonical fields are absent, helpers fall back to a
+// NEUTRAL (no-op) value rather than synthesizing one.
+
+// BC-2 — playerLegitimacyFactor inside scoreCandidate
+const BC2_LEGITIMACY_WEIGHT          = 0.07   // 7% of composite (operator-approved 5-8% band)
+const BC2_NEUTRAL_LEGITIMACY         = 0.70   // fallback when canonical fields absent
+const BC2_DEPTH_LEGITIMACY = Object.freeze({
+  top:    1.00,
+  middle: 0.80,
+  back:   0.50,
+})
+// impliedTeamTotal ramp multiplier on depth base
+function bc2TeamTotalMultiplier(impliedTeamTotal) {
+  if (!Number.isFinite(impliedTeamTotal)) return 1.00
+  if (impliedTeamTotal >= 5.0) return 1.00
+  if (impliedTeamTotal >= 4.5) return 0.90
+  if (impliedTeamTotal >= 3.5) return 0.75
+  return 0.55
+}
+
+// BC-4 — believable-upside soft demote inside buildBestHr / buildBestLadders / buildBestAggressive
+const BC4_HR_SUPPRESSING_TAG         = "HR_SUPPRESSING"
+const BC4_DESERT_TEAM_TOTAL_FLOOR    = 3.5
+const BC4_SOFT_DEMOTE                = 0.05   // -0.05 effective composite at sort-time only (never mutates)
+
+// BC-5 — believable-upside ticket bucket gate
+const BC5_BELIEVABLE_DEPTHS          = Object.freeze(new Set(["top", "middle"]))
+const BC5_BELIEVABLE_TEAM_TOTAL_MIN  = 4.5
+
+// BC-7 — anti-replacement corroborator on buildAnchors
+const BC7_ANCHOR_TEAM_TOTAL_MIN      = 4.5
+
+// BC-8 — bettorRealismScore weights (sum = 1.0)
+const BC8_DEPTH_COVERAGE_WEIGHT      = 0.40
+const BC8_AVG_TEAM_TOTAL_WEIGHT      = 0.30
+const BC8_GAME_TOTAL_WEIGHT          = 0.15
+const BC8_HR_ENV_WEIGHT              = 0.15
+
+// BC-9 — operator-visible realism accounting (module-scoped, reset per run)
+let _bc9Stats = { suppressedHrSuppressing: 0, suppressedDesertTeamTotal: 0 }
+function resetBc1aStats() { _bc9Stats = { suppressedHrSuppressing: 0, suppressedDesertTeamTotal: 0 } }
+function getBc1aStats() { return { ..._bc9Stats } }
+
+/**
+ * Phase BC-2: deterministic player-legitimacy factor.
+ *
+ * Returns a value in [0, 1] derived from canonical `depth` × `impliedTeamTotal`.
+ * Anti-fabrication: when BOTH canonical fields are absent → BC2_NEUTRAL_LEGITIMACY
+ * (no promote, no demote). When only one is present, the other multiplier is
+ * neutral 1.00. Pure function. Exported for unit testing.
+ *
+ * Examples (with multiplier ramp applied):
+ *   depth="top"    + teamTotal=5.5 → 1.00 × 1.00 = 1.00
+ *   depth="middle" + teamTotal=4.5 → 0.80 × 0.90 = 0.72
+ *   depth="back"   + teamTotal=3.0 → 0.50 × 0.55 = 0.275
+ *   depth absent   + teamTotal=5.5 → BC2_NEUTRAL × 1.00 = 0.70
+ *   both absent                    → BC2_NEUTRAL_LEGITIMACY = 0.70
+ *
+ * The factor enters scoreCandidate's composite at BC2_LEGITIMACY_WEIGHT (7%).
+ */
+function playerLegitimacyFactor(candidate) {
+  if (!candidate) return BC2_NEUTRAL_LEGITIMACY
+  const depthKey  = candidate.depth != null ? String(candidate.depth).toLowerCase() : null
+  const teamTotal = num(candidate.impliedTeamTotal)
+  const depthBase = depthKey && BC2_DEPTH_LEGITIMACY[depthKey] != null
+    ? BC2_DEPTH_LEGITIMACY[depthKey]
+    : BC2_NEUTRAL_LEGITIMACY  // depth absent → neutral
+  const ramp = bc2TeamTotalMultiplier(teamTotal)
+  return clamp(0, 1, depthBase * ramp)
+}
+
+/**
+ * Phase BC-4: believable-upside soft-demote detector.
+ *
+ * Returns the BC4_SOFT_DEMOTE penalty (positive number to SUBTRACT from
+ * effective composite at sort time) when the candidate sits in an environment
+ * hostile to the upside thesis (HR_SUPPRESSING park OR desert team total).
+ * Returns 0 when canonical signals are absent (anti-fabrication: no demote
+ * when we can't prove the environment is hostile).
+ *
+ * Also increments BC-9 module-scoped counters for operator-visible accounting.
+ * Pure-ish: the counter increment is the only side effect (rate-limited log
+ * happens at end of buildFeaturedPlays run).
+ */
+function believableUpsideDemote(candidate) {
+  if (!candidate) return 0
+  const tag = candidate.hrEnvironmentTag
+  const teamTotal = num(candidate.impliedTeamTotal)
+  let demote = 0
+  if (tag === BC4_HR_SUPPRESSING_TAG) {
+    demote = BC4_SOFT_DEMOTE
+    _bc9Stats.suppressedHrSuppressing++
+  }
+  if (teamTotal != null && teamTotal < BC4_DESERT_TEAM_TOTAL_FLOOR) {
+    // Additive penalty even if HR-suppressing tag already fired — desert team
+    // totals are a SEPARATE hostility signal. Bounded by BC4_SOFT_DEMOTE so
+    // total demote never exceeds 2× BC4_SOFT_DEMOTE = 0.10.
+    demote = Math.max(demote, BC4_SOFT_DEMOTE)
+    _bc9Stats.suppressedDesertTeamTotal++
+  }
+  return demote
+}
+
+/**
+ * Phase BC-5: believable-upside gate.
+ *
+ * Returns true when ALL three canonical conditions hold:
+ *   depth ∈ {top, middle}  AND
+ *   impliedTeamTotal >= 4.5 AND
+ *   hrEnvironmentTag !== "HR_SUPPRESSING"
+ *
+ * Anti-fabrication: when any required signal is absent, returns false (the
+ * candidate is NOT proven believable — the bucket stays auto-empty when
+ * canonical context isn't available, never synthesizing membership).
+ */
+function isBelievableUpsideCandidate(candidate) {
+  if (!candidate) return false
+  const depthKey  = candidate.depth != null ? String(candidate.depth).toLowerCase() : null
+  const teamTotal = num(candidate.impliedTeamTotal)
+  if (!depthKey || !BC5_BELIEVABLE_DEPTHS.has(depthKey)) return false
+  if (teamTotal == null || teamTotal < BC5_BELIEVABLE_TEAM_TOTAL_MIN) return false
+  if (candidate.hrEnvironmentTag === BC4_HR_SUPPRESSING_TAG) return false
+  return true
+}
+
+// ── Phase Offensive-Ecology-Intelligence-1A constants (OE-1..OE-10) ──────────
+//
+// Doctrine: every boost / demote / aggregator derives from CANONICAL fields
+// already populated on row context by `derive*Context.js` modules and lifted
+// via BC-1 / OE-1. Neutral fallback when canonical absent (anti-fabrication).
+// NO opaque ML, NO GPT, NO celebrity scoring, NO fake explosion narratives.
+// All weights are small (3-5% caps) — existing 10-factor composite UNCHANGED.
+
+// OE-2 — offensivePressureIndex constants
+const OE2_PRESSURE_WEIGHT       = 0.05  // 5% additive composite weight
+const OE2_NEUTRAL_PRESSURE      = 0.50  // anti-fabrication neutral
+// teamTotal multiplier ramp (mirrors BC-2 ramp shape)
+function oe2TeamTotalMultiplier(impliedTeamTotal) {
+  if (!Number.isFinite(impliedTeamTotal)) return null
+  if (impliedTeamTotal >= 5.0) return 1.00
+  if (impliedTeamTotal >= 4.5) return 0.90
+  if (impliedTeamTotal >= 3.5) return 0.75
+  return 0.55
+}
+// carryShift bonus: bounded ±0.10 from upstream → boost factor ∈ [0.95, 1.05]
+function oe2CarryShiftBonus(carryShift) {
+  if (!Number.isFinite(carryShift)) return 1.00
+  return clamp(0.90, 1.10, 1.0 + carryShift * 0.5)
+}
+
+// OE-3 — hrCarryEnvironment constants
+const OE3_HR_BOOST_CAP          = 0.03  // +0.03 additive composite boost on HR overs
+const OE3_HR_FRIENDLY_TAG       = "HR_FRIENDLY"
+const OE3_WIND_OUT_TAGS         = Object.freeze(new Set([
+  "out_to_cf", "out_to_lf", "out_to_rf", "out_left", "out_center", "out_right",
+]))
+const OE3_TEMP_MIN_F            = 75
+
+// OE-4 — correlatedRunProduction constants
+const OE4_RUN_BOOST_CAP         = 0.03  // +0.03 additive composite boost on runs/RBIs top-of-order
+const OE4_TOP_OF_ORDER_MAX_SPOT = 4     // lineupSpot 1-4 qualifies
+const OE4_ENV_THRESHOLD         = 0.55  // both run/rbi env must clear the spot's natural midpoint
+
+// OE-5 — explosiveEnvironmentTag constants
+const OE5_GAME_TOTAL_MIN        = 9.5
+const OE5_AVG_TEAM_TOTAL_MIN    = 4.5
+const OE5_EXPLOSIVE_TAG         = "EXPLOSIVE"
+
+// OE-6 — buildExplosiveUpsideTickets constants
+const OE6_EXPLOSIVE_MAX_TICKETS = 5
+
+// OE-8 — ladderSurvivabilityFactor constants
+const OE8_LADDER_DEMOTE_CAP     = 0.04  // -0.04 effective composite penalty at sort time
+const OE8_SURVIVABILITY_FLOOR   = 0.40
+const OE8_NEUTRAL_PA_PROXY      = 4.2   // mid-of-lineup PA proxy
+
+// OE-9 — module-scoped operator-visible counters (reset per buildFeaturedPlays run)
+let _oe1aStats = {
+  explosiveEventsTagged:      0,
+  hrCarryBoostsApplied:       0,
+  runProductionBoostsApplied: 0,
+  pressureBoostsApplied:      0,
+  survivabilityDemotesApplied:0,
+}
+function resetOe1aStats() {
+  _oe1aStats = {
+    explosiveEventsTagged:      0,
+    hrCarryBoostsApplied:       0,
+    runProductionBoostsApplied: 0,
+    pressureBoostsApplied:      0,
+    survivabilityDemotesApplied:0,
+  }
+}
+function getOe1aStats() { return { ..._oe1aStats } }
+
+/**
+ * Phase OE-2 — offensivePressureIndex.
+ *
+ * Deterministic boost in [0, 1] for HITTER OVERS ONLY. Composes canonical
+ * `runEnvironment` × team-total ramp × carry-shift bonus. Neutral fallback
+ * OE2_NEUTRAL_PRESSURE when ANY canonical field absent — anti-fabrication
+ * (never invents pressure when we can't prove the environment supports it).
+ *
+ * Side effect: increments _oe1aStats.pressureBoostsApplied when boost > neutral.
+ * Pure-ish: side-effect is a per-run counter for operator observability.
+ */
+function offensivePressureIndex(candidate) {
+  if (!candidate) return OE2_NEUTRAL_PRESSURE
+  // Hitter OVERS only — under-side legs return neutral (no boost AND no demote).
+  if (candidate.side !== "over") return OE2_NEUTRAL_PRESSURE
+  if (!isOffensiveAttackStat(candidate.statFamily)) return OE2_NEUTRAL_PRESSURE
+  const runEnv    = num(candidate.runEnvironment)
+  const teamTotal = num(candidate.impliedTeamTotal)
+  // Anti-fabrication: REQUIRE both canonical signals; otherwise neutral.
+  if (runEnv == null || teamTotal == null) return OE2_NEUTRAL_PRESSURE
+  const teamMult = oe2TeamTotalMultiplier(teamTotal)
+  if (teamMult == null) return OE2_NEUTRAL_PRESSURE
+  const carryMult = oe2CarryShiftBonus(num(candidate.carryShift))
+  const score = clamp(0, 1, runEnv * teamMult * carryMult)
+  if (score > OE2_NEUTRAL_PRESSURE) _oe1aStats.pressureBoostsApplied++
+  return score
+}
+
+/**
+ * Phase OE-3 — hrCarryEnvironment.
+ *
+ * Returns the additive composite boost (∈ [0, OE3_HR_BOOST_CAP]) for HR OVERS
+ * in favorable HR environments. Positive symmetry to BC-4 hostile-environment
+ * soft-demote. Anti-fabrication: returns 0 when any canonical signal absent.
+ *
+ * Activation gate (all four required):
+ *   - candidate.side === "over"
+ *   - candidate.statFamily indicates HR / home_runs (substring check)
+ *   - windDirectionTag ∈ OE3_WIND_OUT_TAGS
+ *   - carryShift > 0
+ *   - hrEnvironmentTag === "HR_FRIENDLY"
+ *   - temperatureF >= OE3_TEMP_MIN_F
+ *
+ * Side effect: increments _oe1aStats.hrCarryBoostsApplied when boost applied.
+ */
+function hrCarryEnvironment(candidate) {
+  if (!candidate || candidate.side !== "over") return 0
+  const fam = String(candidate.statFamily || "").toLowerCase()
+  const isHr = /home.?run|^hr$|homers/.test(fam)
+  if (!isHr) return 0
+  // Anti-fabrication: every signal must be PRESENT (truthy or explicit).
+  const wind = String(candidate.windDirectionTag || "").toLowerCase()
+  if (!wind || !OE3_WIND_OUT_TAGS.has(wind)) return 0
+  const carry = num(candidate.carryShift)
+  if (carry == null || carry <= 0) return 0
+  if (candidate.hrEnvironmentTag !== OE3_HR_FRIENDLY_TAG) return 0
+  const temp = num(candidate.temperatureF)
+  if (temp == null || temp < OE3_TEMP_MIN_F) return 0
+  _oe1aStats.hrCarryBoostsApplied++
+  return OE3_HR_BOOST_CAP
+}
+
+/**
+ * Phase OE-4 — correlatedRunProduction.
+ *
+ * Returns additive composite boost (∈ [0, OE4_RUN_BOOST_CAP]) for runs / RBIs
+ * hitter overs at top-of-order with strong canonical run/RBI environment.
+ * Anti-fabrication: returns 0 when any canonical signal absent.
+ *
+ * Activation gate (all required):
+ *   - candidate.side === "over"
+ *   - candidate.statFamily ∈ {runs, rbis} (substring check)
+ *   - lineupSpot ≤ OE4_TOP_OF_ORDER_MAX_SPOT (1-4)
+ *   - runEnvironment OR rbiEnvironment ≥ OE4_ENV_THRESHOLD (0.55)
+ */
+function correlatedRunProduction(candidate) {
+  if (!candidate || candidate.side !== "over") return 0
+  const fam = String(candidate.statFamily || "").toLowerCase()
+  const isRunRbi = fam.includes("rbi") || fam === "runs" || fam.includes("runsscored")
+  if (!isRunRbi) return 0
+  const spot = num(candidate.lineupSpot)
+  if (spot == null || spot < 1 || spot > OE4_TOP_OF_ORDER_MAX_SPOT) return 0
+  const runEnv = num(candidate.runEnvironment)
+  const rbiEnv = num(candidate.rbiEnvironment)
+  // Anti-fabrication: at least one canonical environment must be present AND
+  // clear the threshold.
+  const supported =
+    (runEnv != null && runEnv >= OE4_ENV_THRESHOLD) ||
+    (rbiEnv != null && rbiEnv >= OE4_ENV_THRESHOLD)
+  if (!supported) return 0
+  _oe1aStats.runProductionBoostsApplied++
+  return OE4_RUN_BOOST_CAP
+}
+
+/**
+ * Phase OE-5 — buildExplosiveEnvironmentIndex.
+ *
+ * Per-event aggregator. Returns a Map<eventId, true> for events satisfying ALL
+ * canonical gates:
+ *   - gameTotal >= OE5_GAME_TOTAL_MIN (9.5)
+ *   - average(impliedTeamTotal) across candidates in that event >= 4.5
+ *   - at least one row carries windDirectionTag ∈ OE3_WIND_OUT_TAGS
+ *   - no row carries hrEnvironmentTag === "HR_SUPPRESSING"
+ *
+ * Pure observational. Auto-empty when canonical signals absent. Increments
+ * _oe1aStats.explosiveEventsTagged per qualifying event.
+ */
+function buildExplosiveEnvironmentIndex(normalizedCandidates) {
+  const idx = new Map()
+  if (!Array.isArray(normalizedCandidates) || normalizedCandidates.length === 0) return idx
+
+  // Aggregate per eventId
+  const byEvent = new Map()
+  for (const c of normalizedCandidates) {
+    const eid = c?.eventId
+    if (!eid) continue
+    if (!byEvent.has(eid)) byEvent.set(eid, { rows: [], gameTotals: [], teamTotals: [], winds: [], hrTags: [] })
+    const slot = byEvent.get(eid)
+    slot.rows.push(c)
+    const gt = num(c.gameTotal); if (gt != null) slot.gameTotals.push(gt)
+    const tt = num(c.impliedTeamTotal); if (tt != null) slot.teamTotals.push(tt)
+    if (c.windDirectionTag) slot.winds.push(String(c.windDirectionTag).toLowerCase())
+    if (c.hrEnvironmentTag) slot.hrTags.push(c.hrEnvironmentTag)
+  }
+
+  for (const [eid, slot] of byEvent) {
+    if (!slot.gameTotals.length || !slot.teamTotals.length) continue
+    // Use max gameTotal in case of any per-row variance — gameTotal is a
+    // per-game scalar, but anti-fabrication: read every row honestly.
+    const maxGameTotal = Math.max(...slot.gameTotals)
+    if (maxGameTotal < OE5_GAME_TOTAL_MIN) continue
+    const avgTeamTotal = slot.teamTotals.reduce((s, v) => s + v, 0) / slot.teamTotals.length
+    if (avgTeamTotal < OE5_AVG_TEAM_TOTAL_MIN) continue
+    const hasWindOut = slot.winds.some((w) => OE3_WIND_OUT_TAGS.has(w))
+    if (!hasWindOut) continue
+    const hasHrSuppressing = slot.hrTags.includes("HR_SUPPRESSING")
+    if (hasHrSuppressing) continue
+    idx.set(eid, true)
+    _oe1aStats.explosiveEventsTagged++
+  }
+  return idx
+}
+
+/**
+ * Phase OE-6 — buildExplosiveUpsideTickets.
+ *
+ * Observational additive bucket mirroring BC-5 doctrine. Surfaces top-N hitter
+ * OVERS from candidates whose eventId is tagged EXPLOSIVE per OE-5. Sort:
+ * composite (no new ranking math). Anti-fabrication: auto-empty when no events
+ * qualify. Uses pickDiversified to avoid same-player / single-game spam.
+ */
+function buildExplosiveUpsideTickets(scored, explosiveIndex, count = OE6_EXPLOSIVE_MAX_TICKETS, opts = {}) {
+  if (!Array.isArray(scored) || !scored.length) return []
+  if (!explosiveIndex || explosiveIndex.size === 0) return []
+  const filtered = scored.filter((x) => {
+    if (!x?.c) return false
+    if (x.c.side !== "over") return false
+    if (!isOffensiveAttackStat(x.c.statFamily)) return false
+    return explosiveIndex.has(x.c.eventId)
+  })
+  // Phase Offensive-Ecology-Intelligence-1B (OE-12): lineup-turnover sort-time
+  // soft boost on the explosive-upside surface. Mirrors aggressive/lotto.
+  const turnoverIdx = opts.turnoverIndex || null
+  const boosted = filtered
+    .map((x) => ({ x, effComposite: (x.score.composite ?? 0) + lineupTurnoverBoost(x.c, turnoverIdx) }))
+    .sort((a, b) => b.effComposite - a.effComposite)
+    .map((d) => d.x)
+  return pickDiversified(boosted, count, { maxPerPlayer: 1, maxPerGame: 3, maxPerStat: 3 })
+}
+
+/**
+ * Phase OE-8 — ladderSurvivabilityFactor.
+ *
+ * Pure-function survivability score in [0, 1] for ladder candidates. Composes:
+ *   ladderHeightFactor × plateAppearanceFactor × runEnvFactor × hrCarryFactor
+ *
+ * Sub-component math:
+ *   ladderHeightFactor   = 1 / (1 + (line - 1.5) * 0.3)   when line >= 1.5; else 1
+ *                           (a 1.5-line ladder = 1.0; a 3.5 ladder ≈ 0.625)
+ *   plateAppearanceFactor= plateAppearancesProxy / OE8_NEUTRAL_PA_PROXY (clamped)
+ *   runEnvFactor         = runEnvironment            (when present; else 1.0)
+ *   hrCarryFactor        = 1 + (hrCarryEnvironment / OE3_HR_BOOST_CAP) * 0.2
+ *                           (HR-favorable adds up to +0.2 multiplier for HR/TB ladders)
+ *
+ * Anti-fabrication: when canonical signals are absent, sub-factors degrade to
+ * 1.0 (neutral). Never invents survivability.
+ *
+ * Returned to caller; demote application logic lives in buildBestLadders (sort-
+ * time wrapper). Caller increments _oe1aStats.survivabilityDemotesApplied
+ * only when the factor actually fires a demote.
+ */
+function ladderSurvivabilityFactor(candidate) {
+  if (!candidate) return 1.00
+  const line = num(candidate.line)
+  const ladderHeightFactor = (line != null && line >= 1.5)
+    ? clamp(0, 1.5, 1 / (1 + (line - 1.5) * 0.3))
+    : 1.00
+  const paProxy = num(candidate.plateAppearancesProxy)
+  const paFactor = paProxy != null
+    ? clamp(0.5, 1.5, paProxy / OE8_NEUTRAL_PA_PROXY)
+    : 1.00
+  const runEnv = num(candidate.runEnvironment)
+  const runEnvFactor = runEnv != null ? clamp(0, 1.0, runEnv) + 0.5 : 1.00
+  // hrCarryFactor: only meaningful for HR / total_bases families
+  const fam = String(candidate.statFamily || "").toLowerCase()
+  const isHrOrTb = /home.?run|^hr$|homers|totalbase/.test(fam)
+  let hrCarryFactor = 1.00
+  if (isHrOrTb) {
+    const hrBoost = hrCarryEnvironment({ ...candidate, side: "over", statFamily: "hr" }) // probe only
+    // Subtract the counter increment caused by the probe — it's not a real boost application.
+    _oe1aStats.hrCarryBoostsApplied = Math.max(0, _oe1aStats.hrCarryBoostsApplied - (hrBoost > 0 ? 1 : 0))
+    hrCarryFactor = 1.0 + (hrBoost / OE3_HR_BOOST_CAP) * 0.2
+  }
+  return clamp(0, 2, ladderHeightFactor * paFactor * runEnvFactor * hrCarryFactor)
+}
+
+/**
+ * Phase OE-8 helper — returns the effective composite demote to subtract at
+ * sort time. Returns 0 when factor >= OE8_SURVIVABILITY_FLOOR (neutral / no
+ * demote). Returns OE8_LADDER_DEMOTE_CAP when factor < floor (max -0.04 demote).
+ * Side effect: increments _oe1aStats.survivabilityDemotesApplied when demote fires.
+ */
+function ladderSurvivabilityDemote(candidate) {
+  const factor = ladderSurvivabilityFactor(candidate)
+  if (factor >= OE8_SURVIVABILITY_FLOOR) return 0
+  _oe1aStats.survivabilityDemotesApplied++
+  return OE8_LADDER_DEMOTE_CAP
+}
+
+// ── Phase Offensive-Ecology-Intelligence-1B constants (OE-11..OE-13) ─────────
+//
+// Doctrine: positive offensive REINFORCEMENT — same-team hitter-OVER pairs in
+// EXPLOSIVE environments earn small joint-prob boosts; lineup-turnover-prone
+// games softly elevate aggressive/lotto/explosive surfaces; bullpen fragility
+// softly boosts hitter overs late-game. ALL CAPS VERY TIGHT.
+//
+// Critical anti-fabrication invariants (operator-enforced):
+//   - NO exponential boosts. NO parlay payout chasing. NO blanket same-team bonuses.
+//   - NO fake SGP inflation. NO sportsbook-behavior simulation.
+//   - NEUTRAL fallback when canonical bullpen data absent (OE-13).
+//   - Covariance hard blocks (MLB-COV-2/3) are PRESERVED — OE-11 only activates
+//     when pairCorrelationScore === +0.5 (positive cov case the hard blocks
+//     don't touch).
+//   - Hidden-value unders UNTOUCHED — all OE-1B helpers require side === "over".
+
+// OE-11 — Pair-reinforcement constants (VERY tight caps)
+const OE11_PAIR_BOOST_CAP        = 0.02   // per-pair boost cap (max joint-prob multiplier contribution per pair)
+const OE11_TOTAL_BOOST_CAP       = 0.03   // aggregate joint-prob multiplier cap (operator: ~+0.03 max)
+const OE11_PRESSURE_FLOOR        = 0.60   // both legs must clear this offensivePressureIndex threshold
+
+// OE-12 — Lineup-turnover constants
+const OE12_TURNOVER_BOOST_CAP    = 0.02   // sort-time soft additive boost cap for aggressive/lotto/explosive buckets
+const OE12_NEUTRAL_TURNOVER      = 0.50   // anti-fabrication neutral
+const OE12_TOP_MIDDLE_DEPTHS     = Object.freeze(new Set(["top", "middle"]))
+
+// OE-13 — Bullpen-fragility constants
+const OE13_BULLPEN_BOOST_CAP     = 0.02   // ~+0.02 soft additive boost cap in scoreCandidate
+const OE13_NEUTRAL_FRAGILITY     = 0.50   // anti-fabrication neutral
+const OE13_FRAGILITY_THRESHOLD   = 0.55   // boost activates only above threshold
+
+/**
+ * Phase OE-11 — stackReinforcementScore (per-pair).
+ *
+ * Returns per-pair joint-prob boost ∈ [0, OE11_PAIR_BOOST_CAP] for same-team
+ * hitter-OVER pairs that satisfy ALL canonical gates:
+ *   - Both legs same eventId (same game).
+ *   - Both legs same team (same offense).
+ *   - Both legs side === "over".
+ *   - Both legs isOffensiveAttackStat(statFamily).
+ *   - Both legs cleared offensivePressureIndex > OE11_PRESSURE_FLOOR.
+ *   - Both legs in EXPLOSIVE-tagged event per OE-5 gates (read directly from
+ *     leg-level canonical fields: gameTotal >= OE5_GAME_TOTAL_MIN AND
+ *     impliedTeamTotal >= OE5_AVG_TEAM_TOTAL_MIN AND windDirectionTag ∈
+ *     OE3_WIND_OUT_TAGS AND hrEnvironmentTag !== HR_SUPPRESSING).
+ *   - Canonical pairCorrelationScore === +0.5 (the positive same-team-hitter-
+ *     OVER case the MLB-COV hard blocks DO NOT touch).
+ *
+ * Anti-fabrication: returns 0 when ANY gate fails. NO exponential boosts.
+ * NO blanket same-team bonuses. NO fake SGP inflation.
+ *
+ * Pure function. Side effect: increments _oe1bStats.pairReinforcementBoosts
+ * when boost fires (for operator-visible accounting).
+ */
+function stackReinforcementScore(legA, legB) {
+  if (!legA || !legB) return 0
+  if (legA.eventId !== legB.eventId) return 0
+  if (!legA.eventId) return 0
+  if (legA.team !== legB.team) return 0
+  if (!legA.team) return 0
+  if (legA.side !== "over" || legB.side !== "over") return 0
+  if (!isOffensiveAttackStat(legA.statFamily) || !isOffensiveAttackStat(legB.statFamily)) return 0
+
+  // Both must clear pressure floor (canonical OE-2 helper)
+  const pA = offensivePressureIndex(legA)
+  const pB = offensivePressureIndex(legB)
+  if (pA <= OE11_PRESSURE_FLOOR || pB <= OE11_PRESSURE_FLOOR) return 0
+
+  // EXPLOSIVE environment gate at the leg-level (mirrors OE-5 per-event aggregator):
+  // both legs must carry gameTotal>=9.5, impliedTeamTotal>=4.5, wind-out tag, not HR_SUPPRESSING.
+  const gameTotalA = num(legA.gameTotal)
+  const gameTotalB = num(legB.gameTotal)
+  if (gameTotalA == null || gameTotalA < OE5_GAME_TOTAL_MIN) return 0
+  if (gameTotalB == null || gameTotalB < OE5_GAME_TOTAL_MIN) return 0
+  const ttA = num(legA.impliedTeamTotal)
+  const ttB = num(legB.impliedTeamTotal)
+  if (ttA == null || ttA < OE5_AVG_TEAM_TOTAL_MIN) return 0
+  if (ttB == null || ttB < OE5_AVG_TEAM_TOTAL_MIN) return 0
+  const windA = String(legA.windDirectionTag || "").toLowerCase()
+  const windB = String(legB.windDirectionTag || "").toLowerCase()
+  if (!OE3_WIND_OUT_TAGS.has(windA) || !OE3_WIND_OUT_TAGS.has(windB)) return 0
+  if (legA.hrEnvironmentTag === BC4_HR_SUPPRESSING_TAG || legB.hrEnvironmentTag === BC4_HR_SUPPRESSING_TAG) return 0
+
+  // Canonical correlation engine consultation. pairCorrelationScore is the
+  // authoritative truth-layer for same-team-hitter-OVER coherence (Phase
+  // MLB-Correlation-Engine-1A). We REQUIRE === +0.5 — the positive case
+  // that MLB-COV-2/3 hard blocks DO NOT touch.
+  const score = _mlbPairCorrelationScore(legA, legB)
+  if (score !== 0.5) return 0
+
+  // Boost magnitude: small additive contribution scaling with average pressure
+  // strength. Both legs cleared OE11_PRESSURE_FLOOR (0.60); scale linearly in
+  // [floor, 1.0] → boost ∈ [0, OE11_PAIR_BOOST_CAP]. Clamped.
+  const pressureStrength = clamp(0, 1, ((pA + pB) / 2 - OE11_PRESSURE_FLOOR) / (1 - OE11_PRESSURE_FLOOR))
+  const boost = clamp(0, OE11_PAIR_BOOST_CAP, OE11_PAIR_BOOST_CAP * pressureStrength)
+  if (boost > 0) _oe1bStats.pairReinforcementBoosts++
+  return boost
+}
+
+// Lazy require of canonical MLB pair-correlation engine. Mirrors the lazy
+// pattern used elsewhere; safe at module load time.
+let __mlbCorrCached = null
+function _mlbPairCorrelationScore(a, b) {
+  if (!__mlbCorrCached) __mlbCorrCached = require("../mlb/buildMlbCorrelationEngine")
+  return __mlbCorrCached.pairCorrelationScore(a, b)
+}
+
+/**
+ * Phase OE-12 — lineupTurnoverPotential (per-event).
+ *
+ * Returns score ∈ [0, 1] aggregating canonical signals from candidates that
+ * share an event:
+ *   - Top/middle depth density   → fraction of event candidates with depth ∈ {top, middle}
+ *   - impliedTeamTotal (avg)     → / 5.0, clamped
+ *   - runEnvironment (avg)       → clamped [0, 1]
+ *   - explosiveEnvironmentTag    → boolean upgrade (+0.20 to combined score)
+ *
+ * Anti-fabrication: neutral OE12_NEUTRAL_TURNOVER (0.50) when canonical
+ * signals absent. NEVER fabricates turnover potential.
+ *
+ * Pure function. NO ML. NO GPT.
+ */
+function lineupTurnoverPotential(eventCandidates, isExplosive) {
+  if (!Array.isArray(eventCandidates) || eventCandidates.length === 0) {
+    return OE12_NEUTRAL_TURNOVER
+  }
+  let depthHits = 0
+  let depthSeen = 0
+  const teamTotals = []
+  const runEnvs = []
+  for (const c of eventCandidates) {
+    if (c?.depth != null) {
+      depthSeen++
+      if (OE12_TOP_MIDDLE_DEPTHS.has(String(c.depth).toLowerCase())) depthHits++
+    }
+    const tt = num(c?.impliedTeamTotal)
+    if (tt != null) teamTotals.push(tt)
+    const re = num(c?.runEnvironment)
+    if (re != null) runEnvs.push(re)
+  }
+  const depthFraction = depthSeen > 0 ? depthHits / depthSeen : 0
+  const avgTeamTotalNorm = teamTotals.length > 0
+    ? clamp(0, 1, (teamTotals.reduce((s, v) => s + v, 0) / teamTotals.length) / 5.0)
+    : 0
+  const avgRunEnv = runEnvs.length > 0
+    ? clamp(0, 1, runEnvs.reduce((s, v) => s + v, 0) / runEnvs.length)
+    : 0
+  // Combined score: weighted aggregate + explosive upgrade
+  let score = 0.35 * depthFraction + 0.30 * avgTeamTotalNorm + 0.35 * avgRunEnv
+  if (isExplosive === true) score = clamp(0, 1, score + 0.20)
+  // If NO canonical signals were available, return neutral instead of synthesized 0
+  if (depthSeen === 0 && teamTotals.length === 0 && runEnvs.length === 0) {
+    return OE12_NEUTRAL_TURNOVER
+  }
+  return clamp(0, 1, score)
+}
+
+/**
+ * Phase OE-12 — buildLineupTurnoverIndex (per-event).
+ *
+ * Returns Map<eventId, turnoverScore ∈ [0,1]> for every event in the
+ * normalized candidate pool. Consumed by aggressive / lotto / explosive
+ * buckets as a soft additive sort-time boost (cap OE12_TURNOVER_BOOST_CAP).
+ *
+ * Anti-fabrication: empty Map when canonical signals absent.
+ */
+function buildLineupTurnoverIndex(normalizedCandidates, explosiveIndex) {
+  const idx = new Map()
+  if (!Array.isArray(normalizedCandidates) || normalizedCandidates.length === 0) return idx
+  const byEvent = new Map()
+  for (const c of normalizedCandidates) {
+    const eid = c?.eventId
+    if (!eid) continue
+    if (!byEvent.has(eid)) byEvent.set(eid, [])
+    byEvent.get(eid).push(c)
+  }
+  for (const [eid, rows] of byEvent) {
+    const isExp = explosiveIndex ? explosiveIndex.has(eid) : false
+    const score = lineupTurnoverPotential(rows, isExp)
+    idx.set(eid, score)
+  }
+  return idx
+}
+
+/**
+ * Phase OE-12 — turnover sort-time boost for aggressive / lotto / explosive
+ * buckets. Returns additive composite boost ∈ [0, OE12_TURNOVER_BOOST_CAP]
+ * scaling linearly with turnover score above neutral threshold. Anti-fabrication:
+ * 0 when index absent or eventId not in index.
+ */
+function lineupTurnoverBoost(candidate, turnoverIndex) {
+  if (!candidate?.eventId || !turnoverIndex) return 0
+  const score = turnoverIndex.get(candidate.eventId)
+  if (!Number.isFinite(score) || score <= OE12_NEUTRAL_TURNOVER) return 0
+  // Scale linearly above neutral; cap at boost cap
+  const above = (score - OE12_NEUTRAL_TURNOVER) / (1 - OE12_NEUTRAL_TURNOVER)
+  const boost = clamp(0, OE12_TURNOVER_BOOST_CAP, OE12_TURNOVER_BOOST_CAP * above)
+  if (boost > 0) _oe1bStats.turnoverBoostsApplied++
+  return boost
+}
+
+/**
+ * Phase OE-13 — bullpenFragilityContext.
+ *
+ * Returns ~+0.02 cap additive composite boost for HITTER OVERS when:
+ *   - Canonical bullpen signals indicate fragility (high reliefFatigueScore
+ *     or negative bullpenShift indicating weak relief), AND
+ *   - Late-game offensive support exists (runEnvironment >= threshold AND
+ *     impliedTeamTotal >= 4.5).
+ *
+ * Anti-fabrication: when canonical bullpen data absent (bullpenDataAvailable
+ * !== true), the bullpen sub-component falls back to NEUTRAL (OE13_NEUTRAL_FRAGILITY).
+ * Final boost reflects ONLY canonical run/teamTotal context — NEVER fabricates
+ * fragility.
+ *
+ * Pure-ish: increments _oe1bStats.bullpenBoostsApplied when boost > 0.
+ */
+function bullpenFragilityContext(candidate) {
+  if (!candidate || candidate.side !== "over") return 0
+  if (!isOffensiveAttackStat(candidate.statFamily)) return 0
+
+  // Component 1: bullpen fragility (anti-fabrication on missing data)
+  let bullpenFragility = OE13_NEUTRAL_FRAGILITY
+  if (candidate.bullpenDataAvailable === true) {
+    // Canonical bullpenShift convention from deriveMlbBullpenContext.js:
+    // bullpenShift > 0 indicates SUPPORTIVE for batters (bullpen weak / fatigued).
+    // bullpenShift < 0 indicates SUPPRESSIVE (sharp bullpen).
+    const shift = num(candidate.bullpenShift)
+    const fatigue = num(candidate.reliefFatigueScore)
+    if (shift != null && shift > 0) bullpenFragility = Math.min(1.0, OE13_NEUTRAL_FRAGILITY + shift * 5)
+    if (fatigue != null && fatigue >= 0.6) bullpenFragility = Math.max(bullpenFragility, 0.70)
+  }
+  // When bullpen data absent: bullpenFragility stays at neutral 0.50 (anti-fabrication)
+
+  // Component 2: late-game offensive support (canonical run + teamTotal)
+  const runEnv = num(candidate.runEnvironment)
+  const teamTotal = num(candidate.impliedTeamTotal)
+  let support = 0
+  if (runEnv != null && runEnv >= 0.55) support += 0.5
+  if (teamTotal != null && teamTotal >= 4.5) support += 0.5
+
+  // Combined fragility-with-support score
+  const score = bullpenFragility * support  // ∈ [0, 1]
+  if (score <= OE13_FRAGILITY_THRESHOLD) return 0
+  const above = (score - OE13_FRAGILITY_THRESHOLD) / (1 - OE13_FRAGILITY_THRESHOLD)
+  const boost = clamp(0, OE13_BULLPEN_BOOST_CAP, OE13_BULLPEN_BOOST_CAP * above)
+  if (boost > 0) _oe1bStats.bullpenBoostsApplied++
+  return boost
+}
+
+// Phase OE-1B operator-visible counters (reset per buildFeaturedPlays run)
+let _oe1bStats = {
+  pairReinforcementBoosts:  0,
+  turnoverBoostsApplied:    0,
+  bullpenBoostsApplied:     0,
+  lineupTurnoverEventsHigh: 0,
+}
+function resetOe1bStats() {
+  _oe1bStats = {
+    pairReinforcementBoosts:  0,
+    turnoverBoostsApplied:    0,
+    bullpenBoostsApplied:     0,
+    lineupTurnoverEventsHigh: 0,
+  }
+}
+function getOe1bStats() { return { ..._oe1bStats } }
+
+/**
+ * Phase BC-7: anti-replacement corroborator predicate for buildAnchors.
+ *
+ * Returns true when the candidate satisfies either canonical legitimacy
+ * signal: depth ∈ {top, middle} OR impliedTeamTotal >= 4.5. When both
+ * canonical fields are absent, returns false (no contribution to corrobs
+ * count — anti-fabrication: never invent legitimacy).
+ *
+ * This is an ADDITIVE corroborator to the existing 6 in buildAnchors. Never
+ * removes any existing corroborator; never blocks an anchor that would have
+ * cleared the gate on existing corroborators alone.
+ */
+function isAntiReplacementCorroborator(candidate) {
+  if (!candidate) return false
+  const depthKey  = candidate.depth != null ? String(candidate.depth).toLowerCase() : null
+  const teamTotal = num(candidate.impliedTeamTotal)
+  if (depthKey && BC5_BELIEVABLE_DEPTHS.has(depthKey)) return true
+  if (teamTotal != null && teamTotal >= BC7_ANCHOR_TEAM_TOTAL_MIN) return true
+  return false
 }
 
 // ── scoring lenses ────────────────────────────────────────────────────────────
@@ -398,7 +1158,46 @@ function scoreCandidate(c, ctx) {
   else if (tier.includes("FADE"))  tierBoost = -0.30
   f.tier = tierBoost
 
-  const composite = clamp(0, 1, (total / weight) + tierBoost + textureBoost)
+  // Phase Bettor-Curation-Intelligence-1A (BC-2): deterministic legitimacy
+  // factor — derives entirely from canonical depth × impliedTeamTotal signals
+  // lifted in BC-1. Weight is BC2_LEGITIMACY_WEIGHT (7%) of composite.
+  // Anti-fabrication: returns BC2_NEUTRAL_LEGITIMACY (0.70) when canonical
+  // fields are absent — neither promotes nor demotes the candidate.
+  // NO new fetches, NO ML, NO celebrity scoring.
+  f.legitimacy = playerLegitimacyFactor(c)
+  total += f.legitimacy * BC2_LEGITIMACY_WEIGHT
+  weight += BC2_LEGITIMACY_WEIGHT
+
+  // Phase Offensive-Ecology-Intelligence-1A (OE-2): deterministic offensive-
+  // pressure index for HITTER OVERS ONLY. Composes canonical runEnvironment ×
+  // impliedTeamTotal ramp × carryShift bonus. Neutral fallback 0.50 when any
+  // canonical field absent (anti-fabrication). 5% additive composite weight.
+  // NO opaque ML, NO GPT, NO celebrity scoring.
+  f.pressure = offensivePressureIndex(c)
+  total += f.pressure * OE2_PRESSURE_WEIGHT
+  weight += OE2_PRESSURE_WEIGHT
+
+  // Phase Offensive-Ecology-Intelligence-1A (OE-3 + OE-4): additive small-cap
+  // boosts (positive symmetry to BC-4 hostile-environment soft-demote):
+  //   - hrCarryEnvironment   → +0.03 cap on HR overs (wind-out + carryShift>0
+  //     + HR_FRIENDLY park + temp >= 75)
+  //   - correlatedRunProduction → +0.03 cap on runs/RBIs overs at top-of-order
+  //     (lineupSpot 1-4 + runEnvironment OR rbiEnvironment >= 0.55)
+  // Anti-fabrication: each returns 0 when canonical signals absent.
+  // Combined cap: +0.06 across both (only one fires per candidate by family).
+  const oeHrBoost  = hrCarryEnvironment(c)
+  const oeRunBoost = correlatedRunProduction(c)
+  // Phase Offensive-Ecology-Intelligence-1B (OE-13): bullpenFragilityContext
+  // — soft additive boost (~+0.02 cap) for hitter overs when canonical bullpen
+  // signals (or runEnv + teamTotal proxies, anti-fabrication when bullpen
+  // dormant) indicate late-game offensive survivability. NO new fetches.
+  const oeBullpenBoost = bullpenFragilityContext(c)
+  const oeAdditive = oeHrBoost + oeRunBoost + oeBullpenBoost
+  f.hrCarry = oeHrBoost
+  f.runProd = oeRunBoost
+  f.bullpen = oeBullpenBoost
+
+  const composite = clamp(0, 1, (total / weight) + tierBoost + textureBoost + oeAdditive)
   return { composite: r4(composite), factors: f, timingClass: tc, lineShop: ls }
 }
 
@@ -657,6 +1456,12 @@ function buildAnchors(scored, count = 5) {
       f.edge >= 0.55,
       x.score.timingClass?.urgency === "immediate",
       x.score.timingClass?.state === "stale_window",
+      // Phase Bettor-Curation-Intelligence-1A (BC-7): additive anti-replacement
+      // corroborator. Fires when canonical depth ∈ {top, middle} OR canonical
+      // impliedTeamTotal >= 4.5. ADDITIVE — never removes any existing corrob;
+      // never blocks an anchor that would have cleared on the other corrobs.
+      // Anti-fabrication: returns false when BOTH canonical fields absent.
+      isAntiReplacementCorroborator(x.c),
     ].filter(Boolean).length
     return corrobs >= 1
   })
@@ -694,7 +1499,17 @@ function buildTonightsBest(scored, count = 5, exclude = new Set()) {
 
 function buildBestHr(scored, count = 4) {
   const filtered = scored.filter((x) => /home.?run|^hr$|homers/i.test(x.c.statFamily))
-  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 99 })
+  // Phase Bettor-Curation-Intelligence-1A (BC-4): believable-upside soft-demote.
+  // Sort-time only — never mutates x.score.composite. HR-suppressing parks and
+  // desert team totals (impliedTeamTotal < 3.5) demote effective composite by
+  // BC4_SOFT_DEMOTE. Anti-fabrication: when canonical signals are absent, no
+  // demote (believableUpsideDemote returns 0). pickDiversified still runs on
+  // the post-sort order, preserving the diversification contract.
+  const demoted = filtered
+    .map((x) => ({ x, effComposite: (x.score.composite ?? 0) - believableUpsideDemote(x.c) }))
+    .sort((a, b) => b.effComposite - a.effComposite)
+    .map((d) => d.x)
+  return pickDiversified(demoted, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 99 })
 }
 
 /** NBA: PRA (Points+Rebounds+Assists) combo plays — volatile upside, game-total sensitive */
@@ -726,10 +1541,26 @@ function buildBestLadders(scored, count = 5) {
     if (fam.includes("strikeout") || fam.includes("outs")) return true
     return false
   })
-  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 3, maxSideFraction: 0.60 })
+  // Phase Bettor-Curation-Intelligence-1A (BC-4) + Phase Offensive-Ecology-
+  // Intelligence-1A (OE-8): combined sort-time soft-demote. BC-4 demotes
+  // HR-suppressing parks + desert team totals. OE-8 ladderSurvivabilityFactor
+  // demotes ladders with low survivability (high line + low PA proxy + weak
+  // run env + non-HR-carry context). Both demotes are sort-time only — never
+  // mutates x.score.composite. Anti-fabrication: zero demote when canonical
+  // signals absent (degrades gracefully on incomplete row context).
+  const demoted = filtered
+    .map((x) => ({
+      x,
+      effComposite: (x.score.composite ?? 0)
+        - believableUpsideDemote(x.c)
+        - ladderSurvivabilityDemote(x.c),
+    }))
+    .sort((a, b) => b.effComposite - a.effComposite)
+    .map((d) => d.x)
+  return pickDiversified(demoted, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 3, maxSideFraction: 0.60 })
 }
 
-function buildSmartAggression(scored, count = 4) {
+function buildSmartAggression(scored, count = 4, opts = {}) {
   // Aggressive volatility, decent confidence, positive process indicators.
   // Falls back progressively if nothing strict matches.
   let filtered = scored.filter((x) =>
@@ -762,7 +1593,15 @@ function buildSmartAggression(scored, count = 4) {
       )
     )
   }
-  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2 })
+  // Phase Offensive-Ecology-Intelligence-1B (OE-12): lineup-turnover sort-time
+  // soft boost (+0.02 cap) for candidates in high-turnover events. Anti-fabrication:
+  // 0 boost when turnoverIndex absent.
+  const turnoverIdx = opts.turnoverIndex || null
+  const boosted = filtered
+    .map((x) => ({ x, effComposite: (x.score.composite ?? 0) + lineupTurnoverBoost(x.c, turnoverIdx) }))
+    .sort((a, b) => b.effComposite - a.effComposite)
+    .map((d) => d.x)
+  return pickDiversified(boosted, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 2 })
 }
 
 function buildSafest(scored, count = 5) {
@@ -869,7 +1708,7 @@ function buildBestBalanced(scored, count = 5) {
 }
 
 /** Phase Operator-1A: AGGRESSIVE operator surface — high-edge aggressive with real signal */
-function buildBestAggressive(scored, count = 5) {
+function buildBestAggressive(scored, count = 5, opts = {}) {
   let filtered = scored.filter((x) =>
     x.c.volatility === "aggressive" &&
     (x.c.modelProb ?? 0) >= 0.30 &&
@@ -882,7 +1721,23 @@ function buildBestAggressive(scored, count = 5) {
       (x.c.edge ?? 0) >= 0.05
     )
   }
-  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 1, maxPerStat: 2 })
+  // Phase Bettor-Curation-Intelligence-1A (BC-4): believable-upside soft-demote
+  // on aggressive surface. Same doctrine as buildBestHr / buildBestLadders.
+  // Phase Offensive-Ecology-Intelligence-1B (OE-12): additive sort-time soft
+  // BOOST for candidates from lineup-turnover-prone events (operator-approved
+  // aggressive/lotto/explosive-upside buckets only). Cap +0.02. Anti-fabrication:
+  // 0 boost when turnoverIndex absent or eventId not in index.
+  const turnoverIdx = opts.turnoverIndex || null
+  const demoted = filtered
+    .map((x) => ({
+      x,
+      effComposite: (x.score.composite ?? 0)
+        - believableUpsideDemote(x.c)
+        + lineupTurnoverBoost(x.c, turnoverIdx),
+    }))
+    .sort((a, b) => b.effComposite - a.effComposite)
+    .map((d) => d.x)
+  return pickDiversified(demoted, count, { maxPerPlayer: 1, maxPerGame: 1, maxPerStat: 2 })
 }
 
 /** Phase Operator-1A: UNDER-side operator surface — unders materially outperform per Realism-1 audit */
@@ -992,6 +1847,25 @@ function buildTrapLadders(scored, count = 5) {
  * but for the AVOID-side stale tag. Tagged in compactPlay with processNote so the
  * operator knows WHY this surface flags the prop.
  */
+/**
+ * Phase Bettor-Curation-Intelligence-1A (BC-5): believable-upside tickets bucket.
+ *
+ * Observational additive surface — never blocks or removes other buckets.
+ * Returns top-N scored candidates satisfying ALL three canonical gates:
+ *   depth ∈ {top, middle}            (lineup legitimacy)
+ *   impliedTeamTotal >= 4.5           (offensive context credible)
+ *   hrEnvironmentTag !== "HR_SUPPRESSING"  (park not hostile)
+ *
+ * Anti-fabrication: auto-empty when canonical signals are absent. Never
+ * synthesizes membership. Sort criterion: composite (existing canonical
+ * score; no new math).
+ */
+function buildBelievableUpsideTickets(scored, count = 5) {
+  if (!Array.isArray(scored) || !scored.length) return []
+  const filtered = scored.filter((x) => isBelievableUpsideCandidate(x.c))
+  return pickDiversified(filtered, count, { maxPerPlayer: 1, maxPerGame: 2, maxPerStat: 3 })
+}
+
 function buildInflatedSuperstarSpots(scoredById, staleRows, count = 5, opts = {}) {
   if (!Array.isArray(staleRows) || !staleRows.length) return []
   const { shopMap = null, availabilityIndex = null } = opts
@@ -1045,6 +1919,13 @@ function buildRecommendationLadder(featured) {
       bestOverall: null, safestPlay: null, bestUpsidePlay: null,
       bestBalancedPlay: null, bestDisagreement: null,
       mostOverpricedAvoid: null, highestTrapRiskAvoid: null,
+      // Phase Bettor-Curation-Intelligence-1A (BC-6): additive slot 8 — null
+      // in the empty-featured branch (same honest-empty doctrine as the
+      // other 7 slots — never fabricated).
+      bestBelievableUpside: null,
+      // Phase Offensive-Ecology-Intelligence-1A (OE-7): additive slot 9 — null
+      // in the empty-featured branch (same honest-empty doctrine).
+      bestExplosiveUpside: null,
     }
   }
 
@@ -1075,6 +1956,18 @@ function buildRecommendationLadder(featured) {
     featured.bestFirstBasket
   )
   const bestBalancedPlay    = pickFirstUnique(featured.bestBalanced)
+  // Phase Bettor-Curation-Intelligence-1A (BC-6): NEW slot 8 surfaces the top
+  // candidate from BC-5's believableUpsideTickets bucket. Dedup walk preserves
+  // bucket-claim semantics — when the believable bucket's top pick was already
+  // claimed by an earlier slot (e.g. anchor / aggressive), the slot walks the
+  // bucket until a unique id is found OR resolves to null. Anti-fabrication:
+  // null when bucket is empty (canonical signals absent or no qualifier).
+  const bestBelievableUpside = pickFirstUnique(featured.believableUpsideTickets)
+  // Phase Offensive-Ecology-Intelligence-1A (OE-7): NEW slot 9 surfaces the top
+  // candidate from OE-6's explosiveUpsideTickets bucket. Same dedup walk
+  // semantics as slot 8. Anti-fabrication: null when bucket is empty (no
+  // event tagged EXPLOSIVE per OE-5 gates).
+  const bestExplosiveUpside  = pickFirstUnique(featured.explosiveUpsideTickets)
   const mostOverpricedAvoid = pickFirstUnique(featured.inflatedSuperstarSpots)
   const highestTrapRiskAvoid= pickFirstUnique(featured.trapLadders)
 
@@ -1084,6 +1977,13 @@ function buildRecommendationLadder(featured) {
     bestUpsidePlay,
     bestBalancedPlay,
     bestDisagreement,
+    // Phase Bettor-Curation-Intelligence-1A (BC-6): slot 8 between balanced and
+    // the AVOID slots. Surfaces believable offensive-upside environments per
+    // BC-5 gates (depth + impliedTeamTotal + non-suppressing park).
+    bestBelievableUpside,
+    // Phase Offensive-Ecology-Intelligence-1A (OE-7): slot 9 — surfaces top
+    // hitter-over candidate from per-event EXPLOSIVE-tagged environments.
+    bestExplosiveUpside,
     mostOverpricedAvoid,
     highestTrapRiskAvoid,
   }
@@ -1221,6 +2121,19 @@ function buildFeaturedPlays(opts = {}) {
     date,
   } = opts
 
+  // Phase Bettor-Curation-Intelligence-1A (BC-9): reset module-scoped realism
+  // accounting counters per buildFeaturedPlays invocation so the end-of-run
+  // operator log reflects only THIS call.
+  resetBc1aStats()
+  // Phase Offensive-Ecology-Intelligence-1A (OE-9): reset module-scoped
+  // offensive-ecology counters per run for operator-visible accounting at
+  // end of run. Mirrors BC-9 discipline.
+  resetOe1aStats()
+  // Phase Offensive-Ecology-Intelligence-1B (OE-9 mirror): reset OE-1B
+  // counters (pair reinforcement / turnover boosts / bullpen boosts) per
+  // run. Same per-run discipline.
+  resetOe1bStats()
+
   const normalizedAll = candidates.map(normalizeCandidate).filter(Boolean)
   // Phase Market-Exploitation-1A (EXPL-4): availability hard-filter at the
   // canonical featured-play ingest choke point. Drops candidates whose
@@ -1250,11 +2163,19 @@ function buildFeaturedPlays(opts = {}) {
       // Phase Operator-Experience-1A — 8 new operator buckets (empty when no candidates).
       bestBalanced: [], bestAggressive: [], bestUnders: [], bestAltLadders: [],
       bestDisagreementEdges: [], staleLineOpportunities: [], trapLadders: [], inflatedSuperstarSpots: [],
+      // Phase Bettor-Curation-Intelligence-1A (BC-5): NEW believable-upside bucket — empty when no candidates.
+      believableUpsideTickets: [],
+      // Phase Offensive-Ecology-Intelligence-1A (OE-6): NEW explosive-upside bucket — empty when no candidates.
+      explosiveUpsideTickets: [],
       // Phase Recommendation-Hierarchy-1A — deterministic decision ladder (all-null when no candidates).
+      // Phase Bettor-Curation-Intelligence-1A (BC-6): NEW bestBelievableUpside slot — null when no candidates.
+      // Phase Offensive-Ecology-Intelligence-1A (OE-7): NEW bestExplosiveUpside slot — null when no candidates.
       recommendationLadder: {
         bestOverall: null, safestPlay: null, bestUpsidePlay: null,
         bestBalancedPlay: null, bestDisagreement: null,
         mostOverpricedAvoid: null, highestTrapRiskAvoid: null,
+        bestBelievableUpside: null,
+        bestExplosiveUpside: null,
       },
       summary: "No candidates available",
     }
@@ -1303,12 +2224,26 @@ function buildFeaturedPlays(opts = {}) {
   const anchorIds    = new Set(anchorsItems.map((x) => x.c.id))
   const anchors      = anchorsItems.map((x) => compactPlay(x, ctx, { includeAttackNote: true }))
 
+  // Phase Offensive-Ecology-Intelligence-1A (OE-5) + 1B (OE-12): build per-event
+  // indices EARLY (before any aggressive/lotto/explosive bucket builders) so
+  // they can be threaded into the bucket calls below. Pure deterministic; both
+  // auto-empty when canonical signals absent. The indices feed OE-6 explosive
+  // bucket, OE-7 ladder slot 9, OE-12 sort-time boosts in aggressive/lotto/
+  // explosive surfaces. Build once per buildFeaturedPlays run.
+  const explosiveIndex = buildExplosiveEnvironmentIndex(normalized)
+  const turnoverIndex  = buildLineupTurnoverIndex(normalized, explosiveIndex)
+  for (const [_eid, tScore] of turnoverIndex) {
+    if (tScore > 0.65) _oe1bStats.lineupTurnoverEventsHigh++
+  }
+
   const tonightsBest    = buildTonightsBest(scored, 5, anchorIds).map((x) => compactPlay(x, ctx))
   const bestHr          = buildBestHr(scored).map((x) => compactPlay(x, ctx))
   const bestPra         = buildBestPra(scored).map((x) => compactPlay(x, ctx))
   const bestFirstBasket = buildBestFirstBasket(scored).map((x) => compactPlay(x, ctx))
   const bestLadders     = buildBestLadders(scored).map((x) => compactPlay(x, ctx))
-  const smartAggression = buildSmartAggression(scored).map((x) => compactPlay(x, ctx))
+  // Phase OE-12: smartAggression now consumes turnoverIndex (built above) for
+  // sort-time soft boost on lotto-tier candidates from high-turnover events.
+  const smartAggression = buildSmartAggression(scored, 4, { turnoverIndex }).map((x) => compactPlay(x, ctx))
   const safest          = buildSafest(scored).map((x) => compactPlay(x, ctx))
   const bestClv         = buildBestClv(scored).map((x) => compactPlay(x, ctx))
   const marketAgreement = buildMarketAgreement(scored).map((x) => compactPlay(x, ctx))
@@ -1341,13 +2276,25 @@ function buildFeaturedPlays(opts = {}) {
     console.warn(`[EXPL-1] suppressed ${expl1SoftSuppressed} soft + ${expl1StaleSuppressed} stale candidates lacking market-support floor (bookCount>=${EXPL1_MIN_BOOK_COUNT} & consensusConfidence>=${EXPL1_MIN_CONSENSUS_CONFIDENCE})`)
   }
   const bestBalanced            = buildBestBalanced(scored).map((x) => compactPlay(x, ctx))
-  const bestAggressive          = buildBestAggressive(scored).map((x) => compactPlay(x, ctx))
+  // Phase OE-12: pass turnoverIndex into the aggressive surface so
+  // high-turnover candidates earn a small additive sort-time boost.
+  const bestAggressive          = buildBestAggressive(scored, 5, { turnoverIndex }).map((x) => compactPlay(x, ctx))
   const bestUnders              = buildBestUnders(scored).map((x) => compactPlay(x, ctx))
   const bestAltLadders          = buildBestAltLadders(scored).map((x) => compactPlay(x, ctx))
   const bestDisagreementEdges   = buildBestDisagreementEdges(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
   const staleLineOpportunities  = buildStaleLineOpportunities(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
   const trapLadders             = buildTrapLadders(scored).map((x) => compactPlay(x, ctx))
   const inflatedSuperstarSpots  = buildInflatedSuperstarSpots(scoredById, staleRowsSource, 5, { shopMap, availabilityIndex })
+  // Phase Bettor-Curation-Intelligence-1A (BC-5): believable-upside tickets —
+  // pure observational additive bucket. Auto-empty when canonical signals
+  // (depth / impliedTeamTotal / hrEnvironmentTag) are absent on candidates.
+  const believableUpsideTickets = buildBelievableUpsideTickets(scored).map((x) => compactPlay(x, ctx))
+
+  // Phase Offensive-Ecology-Intelligence-1A (OE-5 + OE-6) + 1B (OE-12):
+  // explosiveIndex + turnoverIndex are now built earlier (right after anchors)
+  // so smartAggression / bestAggressive / explosive-upside all consume them.
+  // Build explosive-upside bucket NOW with both indices threaded.
+  const explosiveUpsideTickets = buildExplosiveUpsideTickets(scored, explosiveIndex, OE6_EXPLOSIVE_MAX_TICKETS, { turnoverIndex }).map((x) => compactPlay(x, ctx))
 
   const bestBooks       = buildBestBooksTonight(scored).map((b) => ({
     book: b.book, plays: b.plays, avgScore: b.avgScore,
@@ -1369,6 +2316,12 @@ function buildFeaturedPlays(opts = {}) {
   // Pure derivation from already-computed buckets above — no new scoring,
   // no new heuristics, no fabricated fallback picks. See buildRecommendationLadder
   // for slot-priority + dedup doctrine. Empty slots resolve to null.
+  // Phase Bettor-Curation-Intelligence-1A (BC-6): BC-5's believableUpsideTickets
+  // bucket is threaded into the ladder so slot 8 (bestBelievableUpside) can
+  // surface the top believable offensive-upside environment.
+  // Phase Offensive-Ecology-Intelligence-1A (OE-7): OE-6's explosiveUpsideTickets
+  // bucket is threaded so slot 9 (bestExplosiveUpside) surfaces the top hitter-
+  // over candidate from any EXPLOSIVE-tagged event.
   const recommendationLadder = buildRecommendationLadder({
     anchors,
     safest,
@@ -1378,20 +2331,83 @@ function buildFeaturedPlays(opts = {}) {
     bestHr,
     bestFirstBasket,
     bestBalanced,
+    believableUpsideTickets,
+    explosiveUpsideTickets,
     inflatedSuperstarSpots,
     trapLadders,
   })
+
+  // Phase Bettor-Curation-Intelligence-1A (BC-9): operator-visible realism
+  // accounting log. Rate-limited (one emission per buildFeaturedPlays run);
+  // emitted only when BC-4 demoted at least one candidate. Anti-fabrication:
+  // counts reflect REAL canonical-signal-driven demotes via _bc9Stats —
+  // never synthesized. BC-3 (back-of-order disagreement edges) is deferred
+  // to 1B per operator approval; its counter is intentionally omitted here
+  // rather than surfaced as a misleading "0".
+  const bc1aStats = getBc1aStats()
+  if (bc1aStats.suppressedHrSuppressing + bc1aStats.suppressedDesertTeamTotal > 0) {
+    console.warn(
+      `[BC-1A] realism gate: soft-demoted ${bc1aStats.suppressedHrSuppressing} HR-suppressing-park + ${bc1aStats.suppressedDesertTeamTotal} desert-team-total candidate(s) inside HR/ladder/aggressive buckets`,
+    )
+  }
+
+  // Phase Offensive-Ecology-Intelligence-1A (OE-9): operator-visible offensive-
+  // ecology accounting log. Rate-limited (one emission per buildFeaturedPlays
+  // run); emitted only when ANY OE-1A counter fired. Anti-fabrication: counts
+  // reflect REAL canonical-signal-driven activations / demotes via _oe1aStats —
+  // never synthesized. Observational only; never blocks selection.
+  const oe1aStats = getOe1aStats()
+  const oeAnyActivity = oe1aStats.explosiveEventsTagged
+    + oe1aStats.hrCarryBoostsApplied
+    + oe1aStats.runProductionBoostsApplied
+    + oe1aStats.pressureBoostsApplied
+    + oe1aStats.survivabilityDemotesApplied
+  if (oeAnyActivity > 0) {
+    console.warn(
+      `[OE-1A] offensive ecology: ${oe1aStats.explosiveEventsTagged} explosive event(s) tagged · ${oe1aStats.pressureBoostsApplied} pressure boost(s) · ${oe1aStats.hrCarryBoostsApplied} HR-carry boost(s) · ${oe1aStats.runProductionBoostsApplied} run-production boost(s) · ${oe1aStats.survivabilityDemotesApplied} ladder-survivability demote(s)`,
+    )
+  }
+
+  // Phase Offensive-Ecology-Intelligence-1B (OE-9 mirror): operator-visible
+  // OE-1B accounting log. Rate-limited (one emission per buildFeaturedPlays
+  // run); emitted only when ANY OE-1B counter fires. Anti-fabrication:
+  // counters reflect REAL canonical-signal-driven activations.
+  const oe1bStats = getOe1bStats()
+  const oe1bAnyActivity = oe1bStats.pairReinforcementBoosts
+    + oe1bStats.turnoverBoostsApplied
+    + oe1bStats.bullpenBoostsApplied
+    + oe1bStats.lineupTurnoverEventsHigh
+  if (oe1bAnyActivity > 0) {
+    console.warn(
+      `[OE-1B] offensive reinforcement: ${oe1bStats.lineupTurnoverEventsHigh} high-turnover event(s) · ${oe1bStats.pairReinforcementBoosts} pair-reinforcement boost(s) · ${oe1bStats.turnoverBoostsApplied} turnover-sort boost(s) · ${oe1bStats.bullpenBoostsApplied} bullpen-fragility boost(s)`,
+    )
+  }
 
   return {
     sport, date,
     anchors,
     tonightsBest, bestHr, bestPra, bestFirstBasket, bestLadders, smartAggression,
     safest, bestClv, marketAgreement, timingWindows, bestBooks,
-    // Phase Operator-Experience-1A — 8 new actionable operator buckets.
+    // Phase Operator-Experience-1A — 8 actionable operator buckets.
     bestBalanced, bestAggressive, bestUnders, bestAltLadders,
     bestDisagreementEdges, staleLineOpportunities, trapLadders, inflatedSuperstarSpots,
+    // Phase Bettor-Curation-Intelligence-1A (BC-5): NEW believable-upside bucket.
+    believableUpsideTickets,
+    // Phase Offensive-Ecology-Intelligence-1A (OE-6): NEW explosive-upside bucket.
+    explosiveUpsideTickets,
     // Phase Recommendation-Hierarchy-1A — fixed-cardinality deterministic decision ladder.
+    // Phase Bettor-Curation-Intelligence-1A (BC-6): now includes slot 8 bestBelievableUpside.
+    // Phase Offensive-Ecology-Intelligence-1A (OE-7): now includes slot 9 bestExplosiveUpside.
     recommendationLadder,
+    // Phase Bettor-Curation-Intelligence-1A (BC-9): operator observability of
+    // realism gate activity inside this run. Pure accounting; advisory only.
+    bc1aStats,
+    // Phase Offensive-Ecology-Intelligence-1A (OE-9): operator observability of
+    // offensive-ecology activity inside this run. Pure accounting; advisory only.
+    oe1aStats,
+    // Phase Offensive-Ecology-Intelligence-1B (OE-9 mirror): operator observability
+    // of OE-1B reinforcement activity inside this run. Pure accounting; advisory only.
+    oe1bStats,
     summary: `${anchors.length} anchors · ${uniqueIds.size} curated plays across ${normalized.length} candidates`,
   }
 }
@@ -1411,4 +2427,64 @@ module.exports = {
   EXPL1_MIN_BOOK_COUNT,
   EXPL1_MIN_CONSENSUS_CONFIDENCE,
   EXPL4_HARD_DROP_STATUSES,
+  // Phase Bettor-Curation-Intelligence-1A (BC-2/4/5/7/9) — exported for unit testing.
+  playerLegitimacyFactor,
+  believableUpsideDemote,
+  isBelievableUpsideCandidate,
+  isAntiReplacementCorroborator,
+  buildBelievableUpsideTickets,
+  resetBc1aStats,
+  getBc1aStats,
+  BC2_LEGITIMACY_WEIGHT,
+  BC2_NEUTRAL_LEGITIMACY,
+  BC2_DEPTH_LEGITIMACY,
+  BC4_SOFT_DEMOTE,
+  BC4_HR_SUPPRESSING_TAG,
+  BC4_DESERT_TEAM_TOTAL_FLOOR,
+  BC5_BELIEVABLE_DEPTHS,
+  BC5_BELIEVABLE_TEAM_TOTAL_MIN,
+  BC7_ANCHOR_TEAM_TOTAL_MIN,
+  // Phase Offensive-Ecology-Intelligence-1A (OE-1..OE-9) — exported for unit testing.
+  offensivePressureIndex,
+  hrCarryEnvironment,
+  correlatedRunProduction,
+  buildExplosiveEnvironmentIndex,
+  buildExplosiveUpsideTickets,
+  ladderSurvivabilityFactor,
+  ladderSurvivabilityDemote,
+  resetOe1aStats,
+  getOe1aStats,
+  OE2_PRESSURE_WEIGHT,
+  OE2_NEUTRAL_PRESSURE,
+  OE3_HR_BOOST_CAP,
+  OE3_HR_FRIENDLY_TAG,
+  OE3_WIND_OUT_TAGS,
+  OE3_TEMP_MIN_F,
+  OE4_RUN_BOOST_CAP,
+  OE4_TOP_OF_ORDER_MAX_SPOT,
+  OE4_ENV_THRESHOLD,
+  OE5_GAME_TOTAL_MIN,
+  OE5_AVG_TEAM_TOTAL_MIN,
+  OE5_EXPLOSIVE_TAG,
+  OE6_EXPLOSIVE_MAX_TICKETS,
+  OE8_LADDER_DEMOTE_CAP,
+  OE8_SURVIVABILITY_FLOOR,
+  OE8_NEUTRAL_PA_PROXY,
+  // Phase Offensive-Ecology-Intelligence-1B (OE-11..OE-13) — exported for unit testing.
+  stackReinforcementScore,
+  lineupTurnoverPotential,
+  buildLineupTurnoverIndex,
+  lineupTurnoverBoost,
+  bullpenFragilityContext,
+  resetOe1bStats,
+  getOe1bStats,
+  OE11_PAIR_BOOST_CAP,
+  OE11_TOTAL_BOOST_CAP,
+  OE11_PRESSURE_FLOOR,
+  OE12_TURNOVER_BOOST_CAP,
+  OE12_NEUTRAL_TURNOVER,
+  OE12_TOP_MIDDLE_DEPTHS,
+  OE13_BULLPEN_BOOST_CAP,
+  OE13_NEUTRAL_FRAGILITY,
+  OE13_FRAGILITY_THRESHOLD,
 }

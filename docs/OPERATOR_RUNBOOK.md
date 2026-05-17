@@ -1,7 +1,249 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17.**
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## OFFENSIVE-REINFORCEMENT DOCTRINE (Phase Offensive-Ecology-Intelligence-1B, 2026-05-17)
+
+**Positive offensive REINFORCEMENT: canonical same-team hitter-OVER pairs in EXPLOSIVE environments earn small joint-prob boosts in `combineLegs`. Lineup-turnover-prone games softly elevate aggressive/lotto/explosive surfaces. Bullpen fragility softly boosts hitter overs late-game. ALL CAPS VERY TIGHT.**
+
+After OE-1A taught the curator AWARENESS-LEVEL boost of favorable environments, OE-1B closes the gap on REINFORCEMENT. The canonical `pairCorrelationScore = +0.5` for same-team hitter OVERS (Phase MLB-Correlation-Engine-1A canonical truth) is finally consumed in slip composition — but VERY tightly capped.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **OE-11 — stackReinforcementScore (cap 0.03 aggregate)** | 7-gate AND: same-event + same-team + both OVER + isOffensiveAttackStat + pressureIndex>0.60 + EXPLOSIVE env per-leg + canonical pairCorrelationScore===+0.5. Per-pair cap 0.02; aggregate cap 0.03 in `combineLegs(legs, {stackReinforcementScore})`. Joint probability multiplied by `(1 + totalBoost)`. Auditable `calibratedCombinedModelProb` + `oe11ReinforcementBoost` exposed on slip return. Back-compat preserved (legacy callers without opts → 0 boost). | NEW `stackReinforcementScore` in `buildFeaturedPlays.js`; dependency-injected into `combineLegs` in `buildSlipAi.js` via `ctx.stackReinforcementScore`. |
+| **OE-12 — lineupTurnoverPotential (cap 0.02 boost)** | Per-event aggregator: 0.35 depth fraction + 0.30 avg teamTotal/5.0 + 0.35 avg runEnv + 0.20 explosive upgrade. NEUTRAL 0.50 when no canonical signals. Sort-time additive boost cap 0.02 in `buildBestAggressive` + `buildSmartAggression` + `buildExplosiveUpsideTickets` ONLY. | NEW `lineupTurnoverPotential` + `buildLineupTurnoverIndex` + `lineupTurnoverBoost` in `buildFeaturedPlays.js`. |
+| **OE-13 — bullpenFragilityContext (cap 0.02)** | Hitter OVERS only. Composes canonical bullpen fragility (when `bullpenDataAvailable === true`) AND late-game offensive support (`runEnvironment >= 0.55` AND `impliedTeamTotal >= 4.5`). Anti-fabrication: NEUTRAL `OE13_NEUTRAL_FRAGILITY=0.50` when bullpen feed dormant. | NEW `bullpenFragilityContext` in `buildFeaturedPlays.js`; integrated into `scoreCandidate` as additive boost alongside OE-3 + OE-4. |
+
+**Operator-visible logs (rate-limited, one per run):**
+```
+[OE-1B] offensive reinforcement: N high-turnover event(s) · M pair-reinforcement boost(s) · K turnover-sort boost(s) · L bullpen-fragility boost(s)
+[OE-1B] slip reinforcement: N slip(s) earned a same-team-hitter-OVER pair reinforcement (total boost magnitude X; per-slip cap 0.03)
+```
+
+**Verify the gates on demand:**
+```bash
+node backend/scripts/verifyOffensiveEcology1B.js
+# Expected: 61 / 61 assertions PASS
+```
+
+**Anti-fabrication checklist (operator-enforced throughout):**
+1. NO opaque ML / GPT scores / fake explosion narratives / momentum AI / invented confidence / hard-forcing overs / destroying hidden-value unders.
+2. NO exponential boosts. NO parlay payout chasing. NO blanket same-team bonuses. NO fake SGP inflation.
+3. Per-pair AND aggregate caps throughout (OE-11 per-pair 0.02 / aggregate 0.03; OE-12 0.02; OE-13 0.02).
+4. NEUTRAL fallbacks when canonical signals absent (OE-12: 0.50; OE-13 bullpen: 0.50).
+5. MLB-COV-2/3 hard blocks PRESERVED — OE-11 only fires on canonical +0.5 case the hard blocks DO NOT touch.
+6. Hidden-value unders UNTOUCHED — all OE-1B helpers require `side === "over"`.
+7. OE-14 (BALANCED `allowedSides: ["under"]` override drop) + OE-15 (`buildBestOvers`) explicitly DEFERRED.
+
+**Doctrine in five lines:**
+1. **Positive reinforcement** — canonical +0.5 same-team hitter-OVER score finally consumed in slip composition (cap 0.03 aggregate).
+2. **Lineup turnover** — per-event aggregation drives aggressive/lotto/explosive surfaces (cap 0.02).
+3. **Bullpen survivability** — anti-fabrication when feed dormant; only activates when fragility + late-game support align.
+4. **Anti-fake-correlation** — per-pair AND aggregate caps; MLB-COV hard blocks preserved.
+5. **Offensive chain-reaction** — small boost rewards coherent same-team-OVER stacks; never inflates aggressively.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1B** | OE-11 (stackReinforcementScore + combineLegs) + OE-12 (lineupTurnover + bucket consumption) + OE-13 (bullpenFragilityContext + scoreCandidate) + OE-1B field lift + verifyOffensiveEcology1B.js | 2026-05-17 | ✅ SHIPPED |
+| 1C | OE-12 expansion — operator-tunable turnover-boost cap | — | Held |
+| 1D | OE-13 expansion — bullpen feed activation (depends on upstream bullpen ingest) | — | Held |
+| 1E | Longitudinal `[OE-1B]` counter persistence + retrospective ROI tracking | — | Held |
+| 1F | Operator-tunable OE-11/12/13 caps via observation window | — | Held |
+| 1G | OE-14 — drop / invert `TIER_TEMPLATES.balanced.allowedSides: ["under"]` MLB override | — | Held (structural; needs OE-1B behavior validated first) |
+| 1H | OE-15 — `buildBestOvers` symmetric to `buildBestUnders` | — | Held |
+
+**Discipline for every Offensive-Ecology-Intelligence-1B+ phase:**
+1. Read `docs/OFFENSIVE_ECOLOGY_AUDIT_2026-05-17.md` Section 13 before approving the next lever.
+2. Run full verification matrix (5/5 probes + 14/14 verify + helper unit + `brain:checkpoint`).
+3. Never relax OE-11/12/13 caps without explicit operator-approval gate.
+4. Anti-fabrication: never invent canonical fields; missing field → neutral fallback.
+5. Pure observational / pure additive only — no new ML, no new persistence, no new fetches per phase unless explicitly approved.
+
+---
+
+## OFFENSIVE-ECOLOGY DOCTRINE (Phase Offensive-Ecology-Intelligence-1A, 2026-05-17)
+
+**Positive symmetry to BC-4 hostile-environment soft-demote: REWARD believable upside environments rather than only PUNISH hostile ones. The curator narrows toward offensively explosive + believable + survivable rather than only suppressing chaos.**
+
+Empirical anchor (audit-grade): 657 multi-leg slips in 10 days of `runtime/tracking/mlb_tracked_slips_*.json` → 338 (51.4%) all-UNDER vs 228 (34.7%) all-OVER (1.48× under-composition skew); settled subset 209 all-under graded at 21.1% win rate (calibration mismatch). Canonical-bridge gap: BC-4 (shipped) only soft-demoted hostile environments; nothing positive-boosted favorable ones. OE-1A is the canonical-bridge response.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **OE-1 — Canonical Realism+Env Lift** | Both `normalizeCandidate` paths preserve `runEnvironment`/`rbiEnvironment`/`windDirectionTag`/`carryShift`/`hrFactor`/`temperatureF`. Anti-fabrication: undefined when upstream absent. | `deriveMlbLineupContext.js` + `deriveMlbWeatherContext.js` + `deriveMlbParkContext.js`. |
+| **OE-2 — offensivePressureIndex (5% weight)** | Composes `runEnvironment × oe2TeamTotalMultiplier(impliedTeamTotal) × oe2CarryShiftBonus(carryShift)` for HITTER OVERS ONLY. Neutral `OE2_NEUTRAL_PRESSURE=0.50` when canonical absent. NO celebrity scoring. NO ML. | NEW `offensivePressureIndex` in `backend/pipeline/shared/buildFeaturedPlays.js`. |
+| **OE-3 — hrCarryEnvironment (+0.03 cap)** | HR OVERS only. 4-gate AND: wind-out + carryShift>0 + HR_FRIENDLY + temp≥75. Zero when any absent. Positive symmetry to BC-4 HR_SUPPRESSING soft-demote. | NEW `hrCarryEnvironment` in `buildFeaturedPlays.js`. |
+| **OE-4 — correlatedRunProduction (+0.03 cap)** | Runs/RBIs OVERS at top-of-order (lineupSpot 1-4) + runEnv OR rbiEnv ≥0.55. Zero when canonical absent. | NEW `correlatedRunProduction` in `buildFeaturedPlays.js`. |
+| **OE-5 — explosiveEnvironmentTag** | Per-event aggregator. Gates: `gameTotal≥9.5` AND `avg(impliedTeamTotal)≥4.5` AND `windDirectionTag ∈ wind-out set` AND no `HR_SUPPRESSING`. Returns `Map<eventId, true>`. Pure observational. | NEW `buildExplosiveEnvironmentIndex` in `buildFeaturedPlays.js`. |
+| **OE-6 — buildExplosiveUpsideTickets** | Surfaces top-5 hitter-OVER candidates from EXPLOSIVE-tagged events. Auto-empty when no qualifying event. Mirrors BC-5 doctrine. | NEW bucket in `buildFeaturedPlays.js`. |
+| **OE-7 — Recommendation Ladder Slot 9** | NEW `bestExplosiveUpside` (9 slots total). `pickFirstUnique` dedup walk. Existing 8 slots preserved verbatim. | `buildRecommendationLadder` in `buildFeaturedPlays.js`. |
+| **OE-8 — ladderSurvivabilityFactor + soft-demote** | Composes `ladderHeightFactor × paFactor × runEnvFactor × hrCarryFactor`. Soft demote -0.04 cap when factor < 0.4. Applied sort-time inside `buildBestLadders` (additive on top of BC-4 demote; never mutates composite). | NEW `ladderSurvivabilityFactor` + `ladderSurvivabilityDemote` in `buildFeaturedPlays.js`. |
+| **OE-9 — Operator-Visible Ecology Log** | 5-dimension `_oe1aStats` counter (explosiveEventsTagged / pressureBoostsApplied / hrCarryBoostsApplied / runProductionBoostsApplied / survivabilityDemotesApplied). Per-run reset + emit when any fires. | `resetOe1aStats` / `getOe1aStats` in `buildFeaturedPlays.js`. |
+
+**Operator-visible log (rate-limited, one per `buildFeaturedPlays` run):**
+```
+[OE-1A] offensive ecology: N explosive event(s) tagged · M pressure boost(s) · K HR-carry boost(s) · L run-production boost(s) · P ladder-survivability demote(s)
+```
+
+**Verify the gates on demand:**
+```bash
+node backend/scripts/verifyOffensiveEcology1A.js
+# Expected: 101 / 101 assertions PASS
+```
+
+**Anti-fabrication checklist (operator-enforced throughout):**
+1. NO opaque ML / GPT-generated scores / fake explosion narratives / celebrity weighting / unsupported momentum AI / invented confidence.
+2. Every boost derives from canonical signal already populated on row context by existing context enrichers.
+3. Small caps throughout (OE-2 5%; OE-3 +0.03; OE-4 +0.03; OE-8 -0.04).
+4. Neutral fallbacks when canonical absent (OE-2: 0.50; OE-3/4: 0; OE-5: empty Map; OE-6: empty bucket; OE-8: factor=1.00 neutral).
+5. Under-side legs UNTOUCHED by OE-2/3/4 (preserves hidden-value unders).
+6. OE-11 (joint-prob inflation in `combineLegs`), OE-12 (lineupTurnover), OE-13 (bullpen activation), OE-14 (BALANCED under-only override drop), OE-15 (`buildBestOvers`) are explicitly DEFERRED. 1A is observational + small-cap additive ONLY.
+
+**Doctrine in seven lines:**
+1. **Offensive ecology** — favorable environments earn additive boosts symmetric to BC-4 hostile-soft-demote.
+2. **Explosive-environment** — per-event aggregation tags games likely to detonate; deterministic from canonical fields; observational only.
+3. **Ladder survivability** — ladder targets respect PA proxy + run environment + HR carry.
+4. **Believable upside** — every boost has neutral fallback; small caps; existing factors UNCHANGED.
+5. **Anti-chaos ticket** — under-dominance addressed by REWARDING upside (not by hard-forcing overs or destroying unders).
+6. **Observational-only OE-1A** — joint-prob inflation deferred; never compounds prob math.
+7. **Canonical-authority-first** — same bridge pattern as MLB-COV / VBI / BC; every weight from canonical signal already populated on rows.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | OE-1 (lift) + OE-2 (pressure 5%) + OE-3 (HR-carry +0.03) + OE-4 (run-prod +0.03) + OE-5 (per-event tag) + OE-6 (bucket) + OE-7 (ladder slot 9) + OE-8 (survivability -0.04) + OE-9 (log) + OE-10 (fixture) | 2026-05-17 | ✅ SHIPPED |
+| 1B | OE-11 — `stackReinforcementScore` in `combineLegs` (joint-prob adjustment for canonical +0.5 same-team OVER pairs) | — | Held |
+| 1C | OE-12 — `lineupTurnoverPotential` targeted at top-of-order same-team pairs | — | Held |
+| 1D | OE-13 — `bullpenFragilityContext` activation (depends on upstream bullpen feed wiring) | — | Held |
+| 1E | Longitudinal `[OE-1A]` counter persistence + retrospective ROI tracking | — | Held |
+| 1F | Operator-tunable OE-1 / OE-4 / OE-8 weights via observation window | — | Held |
+| 1G | OE-14 — drop / invert `TIER_TEMPLATES.balanced.allowedSides: ["under"]` MLB override | — | Held (structural; needs OE-1A behavior validated first) |
+| 1H | OE-15 — `buildBestOvers` symmetric to `buildBestUnders` | — | Held (observe whether OE-6 fills it) |
+
+**Discipline for every Offensive-Ecology-Intelligence phase:**
+1. Read `docs/OFFENSIVE_ECOLOGY_AUDIT_2026-05-17.md` Section 13 before approving the next lever.
+2. Capture pre/post snapshots in `backend/runtime/operator/baseline_snapshots/` when env-weighting evolution is involved.
+3. Run full verification matrix (5/5 probes + 14/14 verify + helper unit + `brain:checkpoint`).
+4. Never relax OE-2 / OE-3 / OE-4 / OE-8 caps without explicit operator-approval gate.
+5. Anti-fabrication: never invent canonical fields; missing field → neutral fallback.
+6. Pure observational / pure additive only — no new ML, no new persistence, no new fetches per phase unless explicitly approved.
+
+---
+
+## BETTOR-CURATION DOCTRINE (Phase Bettor-Curation-Intelligence-1A, 2026-05-17)
+
+**Realism-weighted curation: the curator NARROWS rather than ENUMERATES. Every realism weight derives from canonical signal already populated on MLB rows by existing context enrichers. NO celebrity scoring. NO ML. NO narrative AI.**
+
+Backup-level / replacement-tier hitters were structurally out-promoting top-of-order stars because `bestDisagreementEdges` sorted purely by `|delta|` with no player-legitimacy weighting, `scoreCandidate` consulted ZERO canonical role/lineup/PA/environment signals, and both `normalizeCandidate` functions dropped the canonical fields on the floor. Phase Bettor-Curation-Intelligence-1A bridges these canonical signals into the curator via 8 deterministic additive levers.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **BC-1 — Canonical Realism-Field Lift** | Both `normalizeCandidate` paths preserve `lineupSpot`/`depth`/`plateAppearancesProxy`/`impliedTeamTotal`/`gameTotal`/`hrEnvironmentTag`/`contextualTags`. Anti-fabrication: undefined when upstream absent. | `pipeline/mlb/context/deriveMlbLineupContext.js` + `deriveMlbParkContext.js` + `composeMlbContextualSignal.js`. |
+| **BC-2 — playerLegitimacyFactor (7% weight)** | Depth × teamTotal ramp; neutral 0.70 fallback when canonical absent. NO celebrity scoring. NO fabricated confidence. | NEW `playerLegitimacyFactor` in `backend/pipeline/shared/buildFeaturedPlays.js`. |
+| **BC-4 — Believable-Upside Soft-Demote** | Sort-time -0.05 effective composite when `hrEnvironmentTag === "HR_SUPPRESSING"` OR `impliedTeamTotal < 3.5`. Never mutates `x.score.composite`. Soft gate; never hard-rejects hidden value. | NEW `believableUpsideDemote` applied inside `buildBestHr` / `buildBestLadders` / `buildBestAggressive`. |
+| **BC-5 — buildBelievableUpsideTickets** | Pure observational bucket. Gates: `depth ∈ {top, middle}` AND `impliedTeamTotal >= 4.5` AND `hrEnvironmentTag !== "HR_SUPPRESSING"`. Auto-empty when canonical signals absent. | NEW bucket in `buildFeaturedPlays.js`. |
+| **BC-6 — Recommendation Ladder Slot 8** | NEW `bestBelievableUpside` slot (8 slots total). `pickFirstUnique` dedup walk. Null when bucket empty/dedup-exhausted. Existing 7 slots preserved verbatim. | `buildRecommendationLadder` in `buildFeaturedPlays.js`. |
+| **BC-7 — Anti-Replacement Anchor Corroborator** | 7th corroborator inside `buildAnchors` strict gate: `depth ∈ {top, middle}` OR `impliedTeamTotal >= 4.5`. ADDITIVE — never removes any existing corroborator; never blocks an anchor that would clear on existing 6 alone. | NEW `isAntiReplacementCorroborator` in `buildFeaturedPlays.js`. |
+| **BC-8 — bettorRealismScore (advisory)** | Per-`buildAiSlips`-run aggregate. Sub-weights: 0.40 depth-coverage + 0.30 avg-teamTotal/5.0 + 0.15 gameTotal-favorability + 0.15 hrEnv-favorability (sum = 1.0). Null on empty pool. Never blocks. | NEW `computeBettorRealismScore` in `backend/pipeline/shared/buildSlipAi.js`. |
+| **BC-9 — Operator-Visible Realism Log** | `[BC-1A] realism gate: soft-demoted N HR-suppressing-park + M desert-team-total candidate(s)` emitted once per `buildFeaturedPlays` run when any demote fired. Counters reset per run. | `_bc9Stats` + `resetBc1aStats` / `getBc1aStats` in `buildFeaturedPlays.js`. |
+
+**Verify the gates on demand:**
+```bash
+node backend/scripts/verifyBettorCuration1A.js
+# Expected: 83 / 83 assertions PASS
+```
+
+**Anti-fabrication checklist (operator-enforced throughout):**
+1. NO new "star scores" / celebrity weighting / narrative AI / invented confidence.
+2. Every demotion / promotion derives from canonical signal already populated on row context.
+3. Soft gates throughout (BC-2 7% weight; BC-4 -0.05; BC-7 additive corrob; BC-8 advisory; BC-9 observability) — NEVER hard-rejects.
+4. Neutral fallbacks when canonical signals absent (BC-2: 0.70; BC-4: 0 demote; BC-5: empty bucket; BC-7: false; BC-8: null score).
+5. BC-3 (back-of-order disagreement edge demote) is DEFERRED to 1B — operator wants observation-window data first before tightening disagreement.
+
+**Doctrine in six lines:**
+1. **Bettor-curation** — the curator NARROWS, never ENUMERATES.
+2. **Bettor-realism** — legitimate offense gently promoted; replacement gently demoted; absent signals → neutral fallback.
+3. **Believable-upside philosophy** — NEW observational bucket surfaces depth + teamTotal + park-environment alignment; never blocks existing surfaces.
+4. **Anti-overenumeration** — soft gates suppress noise; never hard-rejects hidden value.
+5. **Realism-weighted curation philosophy** — every realism signal reuses existing canonical authority; curator composes, never duplicates.
+6. **Canonical-authority-first** — same bridge pattern as MLB-Correlation-Engine-1A + Visual-Betting-Intelligence-1A.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | BC-1 (lift) + BC-2 (legitimacy 7%) + BC-4 (soft-demote 0.05) + BC-5 (bucket) + BC-6 (ladder slot 8) + BC-7 (corroborator) + BC-8 (realism score) + BC-9 (log) | 2026-05-17 | ✅ SHIPPED |
+| 1B | BC-3 — back-of-order disagreement edge demote (observe BC-1A real-slate behavior first) | — | Held |
+| 1C | BC-11 — `npm run curation:status` operator CLI | — | Held |
+| 1D | BC-10 — cashout-pressure scoring | — | Held (out-of-scope per operator) |
+| 1E | Per-bucket retrospective ROI tracker for empirical legitimacy validation | — | Held |
+| 1F | Operator-tunable BC-2 weight (5% / 7.5% / 10%) via observation-window calibration | — | Held |
+| 1G | Per-stat-family legitimacy curves (hits/TB/runs respond differently to depth) | — | Held |
+
+**Discipline for every Bettor-Curation-Intelligence phase:**
+1. Read `docs/BETTOR_CURATION_AUDIT_2026-05-17.md` Section 10 before approving the next lever.
+2. Capture pre/post snapshots in `backend/runtime/operator/baseline_snapshots/` (when ranking-shape evolution is involved).
+3. Run full verification matrix (5/5 probes + 14/14 verify + helper unit + `brain:checkpoint`).
+4. Never relax BC-2 / BC-4 / BC-5 thresholds without explicit operator-approval gate.
+5. Anti-fabrication: never invent canonical fields; missing field → neutral fallback (smallest-safe-step: better to neutral than to fabricate).
+6. Pure observational / pure additive only — no new ML, no new persistence, no new fetches per phase unless explicitly approved.
+
+---
+
+## VISUAL-BETTING-INTELLIGENCE DOCTRINE (Phase Visual-Betting-Intelligence-1A, 2026-05-16)
+
+**Bettor uploads a slip → deterministic canonical-signal-backed analysis. The repo never responds like ChatGPT.**
+
+The screenshot ingestion infrastructure already existed (`/api/ws/screenshots/*` routes; 5-table schema; pure-function normalizer + classifier). Phase Visual-Betting-Intelligence-1A bridges that infrastructure to the canonical repo intelligence shipped in the last three phases (MLB-COV + EXPL + market-supported disagreement).
+
+| Module | Doctrine | Source authority |
+|---|---|---|
+| **VBI-2 — Canonical Prediction Resolver** | Every screenshot leg deterministically maps to canonical `predictionId` via `intelligence.predictionId()`. Anti-fabrication: explicit `UNRESOLVED_REASONS` taxonomy. | NEW `backend/pipeline/shared/resolveSlipLegToPrediction.js`. |
+| **VBI-3 — Slip Analysis Engine** | Pure composition of canonical engines: `pairCorrelationScore` (MLB-COV-1/3) + role predicates (MLB-COV-2) + `marketSupportFor` (EXPL-1) + `candidateIsHardDropAvailability` (EXPL-4). No new math. | NEW `backend/pipeline/shared/buildSlipAnalysis.js`. |
+| **VBI-4 — Bettor-Language Library** | 14 canonical signal IDs → operator-approved phrases. **NO LLM. NO GPT. ZERO opaque prose.** Unknown ids silently dropped (anti-fabrication). | NEW `backend/pipeline/shared/bettorLanguage.js`. |
+| **VBI-8 — Canonical Verdict Payload Shape** | 12-field frozen `VERDICT_PAYLOAD_SHAPE` constant — single source of truth for FE / persistence / CLI consumers. | Exported from `resolveSlipLegToPrediction.js`. |
+| **VBI-6 — Verification Fixture** | 76 deterministic assertions across 4 canonical operator-named fixture slips: coherent stack / Coors fake-safe UNDER / pitcher-K vs hitter contradiction / unsupported disagreement bait. | NEW `backend/scripts/verifyVisualBettingIntelligence1A.js`. |
+
+**Deterministic ecologicalCoherence formula** (in `buildSlipAnalysis.js`):
+```
+score = 1.0
+     - 0.50 × contradictionFlags.length
+     - 0.10 × unresolvedLegs.length
+     - 0.05 × exploit_unsupportedSolo.length
+     - 0.25 × avail_hardDropOut.length
+     + 0.05 × positiveStacks.length
+clamp(0, 1, score)
+```
+
+**Sample bettor-language phrases (operator-approved, deterministic):**
+- `shared_game_suppression_exposure` → "This ticket dies together if the game stays quiet — both legs ride the same pitcher/game environment."
+- `mlb_pitcher_hitter_conflict` → "Structural contradiction: pitcher-strikeout over and opposing hitter over bet against each other."
+- `positive_offensive_stack` → "This stack reinforces itself offensively — same-team hitter overs benefit from the same opposing pitcher."
+- `market_supported_disagreement` → "Multiple books agree this is a real edge — peer consensus backs the disagreement."
+- `fake_safe_same_game_exposure` → "Fake-safe construction: this looks like multiple independent safety paths but is really one ecological event."
+
+**Verify on demand:**
+```bash
+node backend/scripts/verifyVisualBettingIntelligence1A.js
+# Expected: 76 / 76 assertions PASS
+```
+
+**Doctrine in five lines:**
+1. **Visual betting intelligence** — bettor uploads slip → deterministic repo-native predictive analysis. Never ChatGPT.
+2. **Screenshot interpretation philosophy** — every conclusion is a pure function of canonical signals; no LLM, no fabricated probabilities, no invented player mappings.
+3. **Deterministic bettor-language doctrine** — every bettor-facing phrase traces to a canonical signal ID; operator-approved phrasings only.
+4. **Canonical screenshot authority** — `intelligence.predictionId` + `pairCorrelationScore` + `marketSupportFor` + `candidateIsHardDropAvailability` + `bettorLanguage` form the complete authority chain.
+5. **Anti-fabrication screenshot doctrine** — unresolved legs annotated via `UNRESOLVED_REASONS`; missing context emits canonical `*_unavailable` signal; unknown signal IDs silently dropped; NEVER invents fields, probabilities, or phrases.
+
+| Phase | Levers shipped | Date | Observation status |
+|---|---|---|---|
+| **1A** | VBI-2 (resolver) + VBI-3 (analysis engine) + VBI-4 (bettor-language) + VBI-6 (fixture) + VBI-8 (verdict shape) | 2026-05-16 | ✅ SHIPPED |
+| 1B | VBI-1 — JSON-paste FE bless / docs surface | — | Held |
+| 1C | VBI-5 — persist `verdict_json` to `parsed_slips` via `ALTER TABLE` | — | Held |
+| 1D | VBI-7 — minimal FE upload card | — | Held |
+| 1E | VBI-9 — `bettor_profiles` longitudinal accumulation | — | Held |
+| 1F | VBI-10 — multipart upload + Tesseract OCR | — | Held |
+| 1G | VBI-11 — social-ticket clustering | — | Held |
+| 1H | VBI-12 — longitudinal screenshot ROI learning | — | Held |
 
 ---
 

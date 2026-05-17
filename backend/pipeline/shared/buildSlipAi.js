@@ -104,6 +104,103 @@ function getMlbCorr() {
 // equivalent surfaced in slip-construction logs.
 const MLB_COV_REASON_SHARED_GAME_SUPPRESSION = "shared_game_suppression_exposure"
 const MLB_COV_REASON_PITCHER_HITTER_CONFLICT = "mlb_pitcher_hitter_conflict"
+
+// ── Phase Bettor-Curation-Intelligence-1A (BC-8) — bettorRealismScore ────────
+//
+// Deterministic per-run advisory metric aggregating four canonical signals
+// across the normalized candidate pool. Returned on buildAiSlips result.
+// Anti-fabrication: each sub-component honestly reports 0 when its canonical
+// signal is absent across the pool — never synthesizes a value.
+// Pure function. NO ML. NO fake survivability percentages. Advisory only;
+// never blocks selection.
+//
+// Sub-component weights (operator-approved; sum to 1.0):
+//   depth coverage         0.40  — fraction of candidates with depth ∈ {top,middle}
+//   avg impliedTeamTotal   0.30  — mean / 5.0 across candidates carrying the field
+//   gameTotal favorability 0.15  — 1.0 when avg gameTotal >= 9.0, 0.5 when >= 8.0, else 0.0
+//   hrEnv favorability     0.15  — fraction NOT tagged HR_SUPPRESSING (among those with tag)
+
+const BC8_DEPTH_COVERAGE_WEIGHT      = 0.40
+const BC8_AVG_TEAM_TOTAL_WEIGHT      = 0.30
+const BC8_GAME_TOTAL_WEIGHT          = 0.15
+const BC8_HR_ENV_WEIGHT              = 0.15
+const BC8_BELIEVABLE_DEPTHS          = new Set(["top", "middle"])
+const BC8_HR_SUPPRESSING_TAG         = "HR_SUPPRESSING"
+
+function computeBettorRealismScore(normalizedCandidates) {
+  if (!Array.isArray(normalizedCandidates) || normalizedCandidates.length === 0) {
+    // Anti-fabrication: empty pool → null (not 0; not 1; honest absence).
+    return null
+  }
+  const n = normalizedCandidates.length
+
+  // depth coverage
+  let depthHits = 0
+  let depthSeen = 0
+  for (const c of normalizedCandidates) {
+    if (c?.depth == null) continue
+    depthSeen++
+    if (BC8_BELIEVABLE_DEPTHS.has(String(c.depth).toLowerCase())) depthHits++
+  }
+  const depthCoverage = depthSeen > 0 ? depthHits / depthSeen : 0
+
+  // avg implied team total (only across rows that carry it)
+  let ttSum = 0
+  let ttCount = 0
+  for (const c of normalizedCandidates) {
+    const v = Number(c?.impliedTeamTotal)
+    if (Number.isFinite(v)) { ttSum += v; ttCount++ }
+  }
+  const avgTeamTotal      = ttCount > 0 ? ttSum / ttCount : 0
+  const avgTeamTotalNorm  = ttCount > 0 ? clamp(0, 1, avgTeamTotal / 5.0) : 0
+
+  // avg game total favorability
+  let gtSum = 0
+  let gtCount = 0
+  for (const c of normalizedCandidates) {
+    const v = Number(c?.gameTotal)
+    if (Number.isFinite(v)) { gtSum += v; gtCount++ }
+  }
+  const avgGameTotal       = gtCount > 0 ? gtSum / gtCount : 0
+  let gameTotalFavorability = 0
+  if (gtCount > 0) {
+    if (avgGameTotal >= 9.0) gameTotalFavorability = 1.0
+    else if (avgGameTotal >= 8.0) gameTotalFavorability = 0.5
+    else gameTotalFavorability = 0.0
+  }
+
+  // hr environment favorability (fraction NOT suppressing among rows w/ tag)
+  let envSeen = 0
+  let envFavorable = 0
+  for (const c of normalizedCandidates) {
+    if (c?.hrEnvironmentTag == null) continue
+    envSeen++
+    if (String(c.hrEnvironmentTag) !== BC8_HR_SUPPRESSING_TAG) envFavorable++
+  }
+  const hrEnvFavorability = envSeen > 0 ? envFavorable / envSeen : 0
+
+  const score = clamp(0, 1,
+    depthCoverage          * BC8_DEPTH_COVERAGE_WEIGHT +
+    avgTeamTotalNorm       * BC8_AVG_TEAM_TOTAL_WEIGHT +
+    gameTotalFavorability  * BC8_GAME_TOTAL_WEIGHT +
+    hrEnvFavorability      * BC8_HR_ENV_WEIGHT
+  )
+
+  return {
+    score:             r4(score),
+    depthCoverage:     r4(depthCoverage),
+    avgTeamTotal:      ttCount > 0 ? r4(avgTeamTotal) : null,
+    avgTeamTotalNorm:  r4(avgTeamTotalNorm),
+    avgGameTotal:      gtCount > 0 ? r4(avgGameTotal) : null,
+    gameTotalFavorability: r4(gameTotalFavorability),
+    hrEnvFavorability: r4(hrEnvFavorability),
+    sampleSize:        n,
+    depthSeen,
+    ttCount,
+    gtCount,
+    envSeen,
+  }
+}
 // Pure-function module-visible counters for operator observability. Reset
 // per buildAiSlips invocation in buildAiSlips() main entry.
 let _mlbCovStats = { blockedSharedGameSuppression: 0, blockedPitcherHitterConflict: 0 }
@@ -191,6 +288,39 @@ function normalizeCandidate(raw) {
     // MLB candidates always reach the VOLATILITY_RULES fallback path.
     // VOLATILITY_RULES itself is NOT modified.
     volatility:    resolveNbaVolatility(raw),
+    // Phase Bettor-Curation-Intelligence-1A (BC-1): preserve canonical MLB
+    // realism / environment signals through slip-composer normalization so
+    // BC-8 bettorRealismScore can aggregate them at slip-level. Mirrors the
+    // BC-1 lift in buildFeaturedPlays.normalizeCandidate. Anti-fabrication:
+    // every field propagates verbatim (undefined when upstream did not set
+    // it). See pipeline/mlb/context/derive*Context.js for canonical authority.
+    lineupSpot:           raw.lineupSpot ?? raw.battingOrderIndex,
+    depth:                raw.depth,
+    plateAppearancesProxy: raw.plateAppearancesProxy,
+    impliedTeamTotal:     raw.impliedTeamTotal,
+    gameTotal:            raw.gameTotal,
+    hrEnvironmentTag:     raw.hrEnvironmentTag,
+    contextualTags:       raw.contextualTags,
+    // Phase Offensive-Ecology-Intelligence-1A (OE-1): lift remaining canonical
+    // offensive-ecology signals (mirrors buildFeaturedPlays.normalizeCandidate
+    // OE-1 lift). Pure additive; anti-fabrication undefined when upstream
+    // absent. Consumed at the slip-composer level by future levers; in 1A
+    // the slip composer DOES NOT yet read these (OE-11 deferred). The lift
+    // here is purely for shape parity with the curator.
+    runEnvironment:       raw.runEnvironment,
+    rbiEnvironment:       raw.rbiEnvironment,
+    windDirectionTag:     raw.windDirectionTag,
+    carryShift:           raw.carryShift,
+    hrFactor:             raw.hrFactor,
+    temperatureF:         raw.temperatureF,
+    // Phase Offensive-Ecology-Intelligence-1B (OE-13 field lift, mirror of
+    // buildFeaturedPlays.normalizeCandidate). OE-11 stackReinforcementScore
+    // also reads OE-1 fields here; OE-13 reads these bullpen fields. When
+    // upstream bullpen feed is dormant, propagates undefined / 0 — never
+    // fabricates fragility.
+    bullpenShift:          raw.bullpenShift,
+    reliefFatigueScore:    raw.reliefFatigueScore,
+    bullpenDataAvailable:  raw.bullpenDataAvailable,
     raw,
   }
 }
@@ -610,7 +740,32 @@ function canAddLeg(slipLegs, candidate, tpl) {
 
 // ── SLIP ASSEMBLY ─────────────────────────────────────────────────────────────
 
-function combineLegs(legs) {
+// Phase Offensive-Ecology-Intelligence-1B (OE-11) constants — pair-reinforcement.
+// VERY tight caps per operator directive: "NO exponential boosts. NO parlay
+// payout chasing. NO blanket same-team bonuses. NO fake SGP inflation."
+const OE11_PAIR_BOOST_CAP_SLIP   = 0.02   // per-pair boost cap (matches buildFeaturedPlays OE11_PAIR_BOOST_CAP)
+const OE11_TOTAL_BOOST_CAP_SLIP  = 0.03   // aggregate joint-prob multiplier cap
+
+// Module-scoped per-run counter (mirrors OE-9 / OE-1B discipline; reset in buildAiSlips)
+let _oe11SlipStats = { reinforcedSlips: 0, totalReinforcementBoosts: 0 }
+function resetOe11SlipStats() { _oe11SlipStats = { reinforcedSlips: 0, totalReinforcementBoosts: 0 } }
+function getOe11SlipStats() { return { ..._oe11SlipStats } }
+
+/**
+ * combineLegs(legs[, opts])
+ *
+ * Phase Offensive-Ecology-Intelligence-1B (OE-11): NEW optional `opts.stackReinforcementScore`
+ * pure-function dependency-injected reference to the canonical
+ * buildFeaturedPlays.stackReinforcementScore (avoids circular require).
+ * When provided, the joint probability is multiplied by (1 + totalBoost) where
+ * totalBoost is the sum of per-pair stack-reinforcement boosts, capped at
+ * OE11_TOTAL_BOOST_CAP_SLIP (~+0.03). When absent, behavior is UNCHANGED
+ * (back-compat preserved). Anti-fabrication: zero boost when no pair gates fire.
+ */
+function combineLegs(legs, opts = {}) {
+  const stackScore = typeof opts.stackReinforcementScore === "function"
+    ? opts.stackReinforcementScore
+    : null
   let dec = 1, rawModelProb = 1, calibratedModelProb = 1
   for (const l of legs) {
     const d = americanToDecimal(l.odds)
@@ -626,15 +781,41 @@ function combineLegs(legs) {
     const coeff = FAMILY_CALIBRATION_COEFFICIENTS[fam] ?? CALIBRATION_COEFF_DEFAULT
     calibratedModelProb *= clamp(0.001, 0.999, rawLegProb * coeff)
   }
+  // Phase OE-11: compute aggregate stack-reinforcement boost over all leg pairs.
+  // Per-pair contribution capped via stackReinforcementScore; aggregate also
+  // capped at OE11_TOTAL_BOOST_CAP_SLIP. Pure-additive on calibrated joint prob.
+  // When stackScore not supplied (legacy callers) → totalBoost stays 0.
+  let totalBoost = 0
+  if (stackScore && Array.isArray(legs) && legs.length >= 2) {
+    for (let i = 0; i < legs.length; i++) {
+      for (let j = i + 1; j < legs.length; j++) {
+        totalBoost += stackScore(legs[i], legs[j])
+        if (totalBoost >= OE11_TOTAL_BOOST_CAP_SLIP) {
+          totalBoost = OE11_TOTAL_BOOST_CAP_SLIP
+          break
+        }
+      }
+      if (totalBoost >= OE11_TOTAL_BOOST_CAP_SLIP) break
+    }
+    if (totalBoost > 0) {
+      _oe11SlipStats.reinforcedSlips++
+      _oe11SlipStats.totalReinforcementBoosts += totalBoost
+    }
+  }
+  const reinforcedModelProb = clamp(0.001, 0.999, calibratedModelProb * (1 + totalBoost))
+
   const americanCombined = decimalToAmerican(dec)
   const impliedCombined = 1 / dec
-  const edge = calibratedModelProb - impliedCombined
-  const ev   = (calibratedModelProb * (dec - 1)) - (1 - calibratedModelProb)  // per $1
+  const edge = reinforcedModelProb - impliedCombined
+  const ev   = (reinforcedModelProb * (dec - 1)) - (1 - reinforcedModelProb)  // per $1
   return {
     combinedDecimalOdds:     r4(dec),
     combinedAmericanOdds:    americanCombined,
-    combinedModelProb:       r4(calibratedModelProb),   // FIX 5: calibrated probability
+    combinedModelProb:       r4(reinforcedModelProb),   // OE-11: reinforced (was calibrated)
     rawCombinedModelProb:    r4(rawModelProb),           // FIX 5: pre-calibration; auditable
+    // OE-11: pre-reinforcement calibrated probability preserved for auditability.
+    calibratedCombinedModelProb: r4(calibratedModelProb),
+    oe11ReinforcementBoost:  r4(totalBoost),
     combinedImpliedProb:     r4(impliedCombined),
     edge:                    r4(edge),
     ev:                      r4(ev),
@@ -778,7 +959,11 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
     let validCombined = null
     for (let len = slipLegs.length; len >= targetMin; len--) {
       const candidate = slipLegs.slice(0, len)
-      const comb = combineLegs(candidate)
+      // Phase Offensive-Ecology-Intelligence-1B (OE-11): pass canonical
+      // stackReinforcementScore via dependency injection so combineLegs can
+      // apply the per-pair joint-prob boost (capped). When ctx.stackReinforcementScore
+      // is absent (e.g. NBA path / legacy callers), totalBoost stays 0.
+      const comb = combineLegs(candidate, { stackReinforcementScore: ctx?.stackReinforcementScore })
       if (!comb) continue
       const dec = comb.combinedDecimalOdds
       if (dec >= tpl.decimalOddsRange[0] && dec <= tpl.decimalOddsRange[1]) {
@@ -1033,6 +1218,9 @@ function buildAiSlips(opts = {}) {
   // so the operator-visible warning at end of run reflects THIS invocation
   // only. Idempotent, pure no-op when no MLB legs are present.
   resetMlbCovStats()
+  // Phase Offensive-Ecology-Intelligence-1B (OE-11): reset per-run slip
+  // reinforcement counter. Operator observability — mirrors MLB-COV stats.
+  resetOe11SlipStats()
 
   // Normalize candidates
   const normalized = candidates
@@ -1068,7 +1256,19 @@ function buildAiSlips(opts = {}) {
   const isNba = /^nba$/i.test(sport)
   const eventMetaMap = isNba ? getNbaCorr().buildEventMetaMap(normalized) : null
 
-  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport, isNba, eventMetaMap }
+  // Phase Offensive-Ecology-Intelligence-1B (OE-11): lazy-load canonical
+  // stackReinforcementScore from buildFeaturedPlays (avoids circular require;
+  // the helper is a pure function with no runtime side effect aside from its
+  // own _oe1bStats counter increment). Injected into ctx so combineLegs can
+  // apply per-pair joint-prob boosts (capped at ~+0.03 per slip total).
+  // When the import fails or sport ≠ mlb, the boost path is a no-op.
+  let stackReinforcementScore = null
+  if (/^mlb$/i.test(sport)) {
+    try {
+      stackReinforcementScore = require("./buildFeaturedPlays").stackReinforcementScore || null
+    } catch { /* anti-fabrication: silent degrade to legacy behavior */ }
+  }
+  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport, isNba, eventMetaMap, stackReinforcementScore }
 
   // Score every leg once
   const scored = normalized.map((leg) => {
@@ -1115,7 +1315,22 @@ function buildAiSlips(opts = {}) {
     )
   }
 
-  return { slips, summary, warnings, candidateCount: normalized.length, mlbCovStats: covStats }
+  // Phase Bettor-Curation-Intelligence-1A (BC-8): advisory bettor-realism
+  // metric — deterministic aggregate of canonical BC-1 fields across the
+  // normalized candidate pool. Never blocks selection; surfaced for operator
+  // observability only. Anti-fabrication: null when normalized pool is empty.
+  const bettorRealismScore = computeBettorRealismScore(normalized)
+
+  // Phase Offensive-Ecology-Intelligence-1B (OE-11): operator-visible slip
+  // reinforcement accounting. Rate-limited per buildAiSlips invocation.
+  const oe11SlipStats = getOe11SlipStats()
+  if (oe11SlipStats.reinforcedSlips > 0) {
+    console.warn(
+      `[OE-1B] slip reinforcement: ${oe11SlipStats.reinforcedSlips} slip(s) earned a same-team-hitter-OVER pair reinforcement (total boost magnitude ${oe11SlipStats.totalReinforcementBoosts.toFixed(4)}; per-slip cap ${OE11_TOTAL_BOOST_CAP_SLIP})`,
+    )
+  }
+
+  return { slips, summary, warnings, candidateCount: normalized.length, mlbCovStats: covStats, bettorRealismScore, oe11SlipStats }
 }
 
 // ── PRESENTATION HELPER ───────────────────────────────────────────────────────
@@ -1160,4 +1375,11 @@ module.exports = {
   resetMlbCovStats,
   MLB_COV_REASON_SHARED_GAME_SUPPRESSION,
   MLB_COV_REASON_PITCHER_HITTER_CONFLICT,
+  // Phase Bettor-Curation-Intelligence-1A (BC-8) — exposed for helper unit testing.
+  computeBettorRealismScore,
+  // Phase Offensive-Ecology-Intelligence-1B (OE-11) — exposed for helper unit testing.
+  resetOe11SlipStats,
+  getOe11SlipStats,
+  OE11_PAIR_BOOST_CAP_SLIP,
+  OE11_TOTAL_BOOST_CAP_SLIP,
 }
