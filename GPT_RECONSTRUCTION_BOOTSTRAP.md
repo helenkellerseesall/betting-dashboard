@@ -74,11 +74,11 @@ These are **distinct products inside the same workstation**. Never collapse into
 
 | Field | Value |
 |---|---|
-| **Phase name** | Operational-Parity-1A (OP1A) |
-| **Phase number** | 28th approved phase |
+| **Phase name** | Candidate-Ecology-Parity-1A (CEP1A) |
+| **Phase number** | 30th approved phase |
 | **Status** | SHIPPED + SEALED 2026-05-17 |
-| **Type** | Infrastructure — canonical ops:* wrappers restored to FULL historical orchestration depth |
-| **Bottleneck solved** | Operator observed `npm run ops:term2` completing in ~5s vs historical Term 2 ~60s+ — proved COS-1C wrappers were inline `&&` chains that silently dropped 3 historical authoritative subsystems (Verification Telemetry V1 / slate+market+lineage+calibration status helpers / git checkpoint stages). Restored under same canonical `ops:*` names via NEW orchestrators (`runTerm2Workflow.js` / `runCheckpointSeal.js` / `showTerm1Status.js`); behavior parity now verifier-enforced by NEW `verifyOperationalParity.js`. |
+| **Type** | Infrastructure — restored MLB battlefield widening + NBA slip ecology (3-layer continuity invariant) |
+| **Bottleneck solved** | Two isolated post-SII1A ecology failures. MLB battlefield collapsed (elite=5 / discovery=5 vs real 196 tracked_bets) because `findLatestDateWithData()` returned a sentinel `mlb_tracked_bets_9999-12-31.json` (future date sorted to top of descending date scan, shadowed real 2026-05-17 file). NBA slip ecology collapsed (12 candidates → 0 slips) because `applyNbaTierOverrides()` had no aggressive + lotto overrides — those tiers inherited MLB defaults (`maxPerGame: 1/2`) that prevented multi-leg composition on 1-game playoff slates. Both fixed: date-sanity filter in workstationRoutes; NBA aggressive (maxPerGame: 3) + lotto (maxPerGame: 4) overrides in buildSlipAi with `skipScriptCorrelation: true` (same canonical-authority doctrine that already justifies safe + balanced NBA overrides — NBA correlation handled by nbaCorrelationEngine, not by MLB script-correlation heuristic). NEW `verifyCandidateEcologyParity.js` (19/19 PASS with real-data smoke) enforces 3-layer continuity. Real measurements post-fix: MLB 196 eligible → 43 elite / 129 discovery (+200% widening); NBA 12 candidates → 5 slips (aggressive=4 / lotto=1). |
 
 ### Approved levers (COS-1C scope, all shipped)
 - COS-1C-1: `docs/OPERATIONAL_RECONCILIATION_AUDIT.md` — map of competing flows + canonical layer proposal.
@@ -529,9 +529,9 @@ At the END of every phase you ship:
 
 | Field | Value |
 |---|---|
-| File version | Operational-Parity-1A (2026-05-17) |
-| Total approved phases | 28 (Realism-1A through Operational-Parity-1A) |
-| Total verifiers | 28 (`verify*.js` in `backend/scripts/`) |
+| File version | Candidate-Ecology-Parity-1A (2026-05-17) |
+| Total approved phases | 30 (Realism-1A through Candidate-Ecology-Parity-1A) |
+| Total verifiers | 30 (`verify*.js` in `backend/scripts/`) |
 | Runtime verifiers | 14 |
 | Probe matrix | 5 (158 assertions) |
 | 6-doc reconciliation | CURRENT_STATE / NEXT_SESSION / MASTER_BRAIN / CURRENT_RUNTIME_STATE / MODEL_EVOLUTION_LOG / docs/OPERATOR_RUNBOOK |

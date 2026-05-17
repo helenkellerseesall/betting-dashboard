@@ -8,11 +8,11 @@
 
 | Field | Value |
 |---|---|
-| **Phase name** | Operational-Parity-1A (OP1A) |
-| **Phase number** | 28th approved phase |
+| **Phase name** | Candidate-Ecology-Parity-1A (CEP1A) |
+| **Phase number** | 30th approved phase |
 | **Status** | SHIPPED + SEALED |
 | **Sealed at** | 2026-05-17 (this session) |
-| **Type** | Infrastructure — canonical ops:* wrappers restored to FULL historical orchestration depth + parity enforcer |
+| **Type** | Infrastructure — restored MLB battlefield widening (date-sanity) + NBA slip ecology (aggressive+lotto NBA tier overrides) |
 
 ---
 

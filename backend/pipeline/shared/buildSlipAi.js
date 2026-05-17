@@ -643,6 +643,44 @@ function applyNbaTierOverrides(tpl, tier) {
       skipScriptCorrelation:  true,
     }
   }
+  // ── Phase Candidate-Ecology-Parity-1A (2026-05-17) — NBA aggressive + lotto
+  //     overrides. NBA playoff slates commonly have 1-2 games per night; the
+  //     MLB-defaulted `maxPerGame: 1` (aggressive) / `maxPerGame: 2` (lotto)
+  //     made multi-leg composition impossible on 1-game slates (legCountRange
+  //     [2,4] for aggressive / [3,5] for lotto). Result: 12 NBA aggressive
+  //     candidates → 0 aggressive slips → 0 lotto slips → workstation
+  //     ai_slips_generated = 0 even though candidate breadth was healthy.
+  //
+  //     NBA correlation is handled at the composition layer by
+  //     nbaCorrelationEngine (pairwiseStackBoost, jointProbabilityWithCorrelation)
+  //     which produces a calibrated correlationScore. The MLB script-correlation
+  //     heuristic (same-game over+over = pitcher meltdown) does NOT transfer
+  //     to NBA usage-driven props where pace correlation is partial and
+  //     already priced into the calibrated joint probability — same doctrine
+  //     that already justifies skipScriptCorrelation:true on safe + balanced
+  //     NBA overrides. These additions extend that canonical-authority
+  //     doctrine to aggressive + lotto.
+  //
+  //     ZERO scoring change. ZERO MLB tier change (those overrides only fire
+  //     when ctx.isNba). All other ecology / contradiction / forbid-volatility
+  //     gates preserved. Per-game caps remain meaningfully bounded so an
+  //     entire slip is never one player's full prop board.
+  if (tier === "aggressive") {
+    return {
+      ...tpl,
+      maxPerGame:             3,    // was 1 (MLB default); 1-game NBA slates need ≥2 legs to compose into [6.0, 120.0] decimal
+      maxPerStat:             2,    // unchanged — cross-game same-stat pairs remain available where slate permits
+      skipScriptCorrelation:  true, // NBA correlation handled by nbaCorrelationEngine (composition layer)
+    }
+  }
+  if (tier === "lotto") {
+    return {
+      ...tpl,
+      maxPerGame:             4,    // was 2 (MLB default); 1-game NBA slates need 3+ legs to compose into [20.0, 1500.0] decimal
+      maxPerStat:             3,    // unchanged
+      skipScriptCorrelation:  true, // NBA correlation handled by nbaCorrelationEngine
+    }
+  }
   return tpl
 }
 

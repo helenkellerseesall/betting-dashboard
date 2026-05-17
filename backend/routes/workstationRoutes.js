@@ -27,6 +27,11 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
+// Phase Sport-Identity-Integrity-1A (2026-05-17): canonical sport-identity
+// resolver. ONE authoritative alias map. Every sport input (mlb /
+// baseball_mlb / MLB / nba / basketball_nba / etc.) converges onto the
+// canonical runtime identity ("mlb" or "nba"). See verifySportIdentityParity.js.
+const { resolveCanonicalSport } = require("../pipeline/shared/resolveCanonicalSport")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 // Phase 1 — Recent Form V1 (Session AP). Real per-player rolling stats from
@@ -197,11 +202,22 @@ function fileFor(sport, kind, date) {
 
 function findLatestDateWithData(sport) {
   try {
+    // Phase Candidate-Ecology-Parity-1A (2026-05-17): canonical date sanity.
+    // Future-dated sentinel files (e.g. `mlb_tracked_bets_9999-12-31.json`)
+    // would otherwise sort to the top of the descending date list and shadow
+    // the real current-date file, collapsing the entire downstream
+    // ecology to the sentinel's tiny entry count (≈5) regardless of how
+    // many real candidates exist today. Reject any date strictly greater
+    // than todayKey() before scanning — keeps the canonical "latest date
+    // with data" honest. Anti-fabrication: never invents a date; honors
+    // every legitimate past-or-today date in descending order.
+    const today = todayKey()
     const files = fs.readdirSync(TRACKING_DIR)
     const dayKeys = files
       .filter((f) => f.startsWith(`${sport}_tracked_`) && f.endsWith(".json"))
       .map((f) => (f.match(/_(\d{4}-\d{2}-\d{2})\.json$/) || [])[1])
       .filter(Boolean)
+      .filter((dk) => dk <= today)
       .sort()
       .reverse()
     for (const dk of dayKeys) {
@@ -214,7 +230,14 @@ function findLatestDateWithData(sport) {
 }
 
 function resolveSportDate(req) {
-  const sport = String(req.query.sport || req.body?.sport || "mlb").toLowerCase()
+  // Phase Sport-Identity-Integrity-1A: canonical alias normalization.
+  // Maps every recognized sport alias (mlb / baseball_mlb / MLB / nba /
+  // basketball_nba / etc.) to the canonical runtime identity ("mlb" or
+  // "nba"). The canonical identity is what every downstream layer
+  // (fileFor / findLatestDateWithData / pool builder / verifier) keys on.
+  // Unrecognized aliases fall back to the historical default "mlb".
+  const rawSport = req.query.sport || req.body?.sport || "mlb"
+  const sport = resolveCanonicalSport(rawSport, { fallback: "mlb" })
   const dateRaw = req.query.date || req.body?.date
   const date = dateRaw && /^\d{4}-\d{2}-\d{2}$/.test(String(dateRaw))
     ? String(dateRaw)

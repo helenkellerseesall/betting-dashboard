@@ -42,6 +42,28 @@ Plus existing canonical primitives (still available; ops:* wrap them):
 
 **Legacy inline chains documented below are PRESERVED for back-compat** but every fresh chat should use the `ops:*` commands above. The `verifyOperationalContinuity.js` helper unit asserts that this section + GPT_RECONSTRUCTION_BOOTSTRAP.md + BOOTSTRAP_PROMPT.md reference the canonical `ops:*` commands.
 
+### Candidate ecology parity doctrine (Candidate-Ecology-Parity-1A, 2026-05-17)
+
+**Battlefield widening and slip ecology are separate canonical layers. Healthy system shape: battlefield breadth → curated edge → AI compression.** All three layers must hydrate simultaneously.
+
+Two isolated failures caught + fixed:
+- **MLB**: `findLatestDateWithData()` returned a sentinel future-dated file (`9999-12-31`, 5 entries) instead of real 2026-05-17 (196 entries). Fix: date-sanity filter rejects future-dated files.
+- **NBA**: aggressive + lotto tiers had no NBA override, inherited MLB `maxPerGame: 1/2` defaults — composition impossible on 1-game playoff slates. Fix: NBA aggressive (maxPerGame: 3) + lotto (maxPerGame: 4) overrides with `skipScriptCorrelation: true` (NBA correlation handled by nbaCorrelationEngine — same canonical-authority doctrine that already justifies safe + balanced overrides).
+
+`verifyCandidateEcologyParity.js` (30-verifier matrix) enforces: discovery materially exceeds elite when source pool ≥ 50; slips > 0 when candidates ≥ 8. Real-data smoke runs against actual `runtime/tracking/{mlb,nba}_tracked_bets_*.json`.
+
+---
+
+### Canonical sport identity doctrine (Sport-Identity-Integrity-1A, 2026-05-17)
+
+**ONE canonical sport identity resolution path. Aliases may exist, but all layers MUST converge onto the SAME canonical runtime authority.**
+
+The canonical resolver at `backend/pipeline/shared/resolveCanonicalSport.js` maps every alias (`mlb` / `baseball_mlb` / `MLB` / `nba` / `basketball_nba` / `NBA` / etc.) to canonical `"mlb"` or `"nba"`. `workstationRoutes.js#resolveSportDate` invokes the resolver as its sole normalization step. `fileFor` / `findLatestDateWithData` / `buildCandidatePool` / cache keys all operate on the canonical identity. `verifySportIdentityParity.js` (29-verifier matrix) enforces.
+
+Operator may freely pass either `?sport=mlb` or `?sport=baseball_mlb` — both produce identical hydration (discoveryCandidates / slips / anchors / featured).
+
+---
+
 ### Wrapper-parity doctrine (Operational-Parity-1A)
 
 Canonical `ops:*` commands are **WRAPPERS** around the historical authoritative workflows — never replacements. **Wrappers MUST preserve historical orchestration depth**; operational compression must never simplify away the authoritative chain. `verifyOperationalParity.js` (28-verifier matrix) enforces:

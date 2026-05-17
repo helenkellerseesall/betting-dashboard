@@ -1,9 +1,122 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17. Phase Sport-Identity-Integrity-1A appended 2026-05-17. Phase Candidate-Ecology-Parity-1A appended 2026-05-17.**
 
 > **2026-05-17 PHASE Continuity-OS-1A:** This OPERATOR_RUNBOOK.md is now the per-phase doctrine source. For per-session ritual flow (terminal conventions / regression matrix / 6-doc reconciliation / anchor-file reconciliation / checkpoint), see the NEW `OPERATIONAL_FLOW.md` at the repo root. New chats should read `BOOTSTRAP_PROMPT.md` → `ACTIVE_PHASE.md` → `PRODUCT_IDENTITY.md` → `CURRENT_PROBLEMS.md` → `NEXT_PHASE.md` → `OPERATIONAL_FLOW.md` → `DEFERRED_PHASES.md` (7 files, ~775 lines total) FIRST. This RUNBOOK is consumed for specific phase doctrine, not first-load reconstruction.
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## CANDIDATE ECOLOGY PARITY DOCTRINE (Phase Candidate-Ecology-Parity-1A, 2026-05-17)
+
+**Battlefield widening and slip ecology are separate canonical layers. Healthy system shape: battlefield breadth → curated edge → AI compression. Operational continuity must preserve all three layers simultaneously.**
+
+After Sport-Identity-Integrity-1A solved the alias-fragmentation MLB hydration bug, the operator caught two further isolated ecology failures: (1) MLB battlefield widening still collapsed (elite=5 / discovery=5 even though canonical state held ≈196 tracked_bets), (2) NBA battlefield widened correctly (12 candidates / 40 discovery) but slip ecology collapsed to ai_slips_generated=0. Both isolated. Neither a FE / routing / operational failure.
+
+### MLB root cause + fix
+
+`findLatestDateWithData()` did a descending date sort over `mlb_tracked_*.json` files and returned the first date that had data. A sentinel file `mlb_tracked_bets_9999-12-31.json` (5 entries; year 9999 = max possible date) sorted to the top and shadowed the real `2026-05-17` file (196 tracked_bets). Result: every workstation read targeted the 5-entry sentinel → elite=5, discovery=5, no widening possible.
+
+**Fix:** date-sanity filter in `findLatestDateWithData()` — `.filter((dk) => dk <= today)` before scanning. Future-dated sentinel files now rejected. Real 2026-05-17 file (196 → 43 elite / 129 discovery, **+200% widening** vs elite) selected.
+
+### NBA root cause + fix
+
+`applyNbaTierOverrides()` had NBA overrides for safe + balanced but NOT for aggressive + lotto. Aggressive + lotto inherited MLB defaults: `maxPerGame: 1` (aggressive) / `maxPerGame: 2` (lotto). MLB defaults assume 15+ games per night; NBA playoff slates have 1 game. Result: aggressive `legCountRange: [2, 4]` needed 2+ legs but maxPerGame=1 made composition impossible; lotto `legCountRange: [3, 5]` needed 3+ legs but maxPerGame=2 capped at 2.
+
+**Fix:** extend `applyNbaTierOverrides()` with NBA-specific aggressive (maxPerGame: 3, skipScriptCorrelation: true) + lotto (maxPerGame: 4, skipScriptCorrelation: true) overrides. Same canonical-authority doctrine that already justifies safe + balanced overrides: NBA correlation handled at composition layer by `nbaCorrelationEngine` (pairwiseStackBoost / jointProbabilityWithCorrelation), NOT by MLB script-correlation heuristic. NBA 12 candidates → **5 slips** (aggressive=4 / lotto=1; safe + balanced legitimately 0 because all 12 are aggressive volatility).
+
+### What was NOT touched (operator-cemented trust layers preserved)
+
+- ❌ ZERO MLB tier change — `applyNbaTierOverrides` only fires when `ctx.isNba` is true; MLB tiers inherit defaults UNCHANGED (Session AG MLB calibration preserved verbatim).
+- ❌ ZERO survivability bypass — NBA safe + balanced still forbid aggressive volatility (Session AN doctrine).
+- ❌ ZERO contradiction-logic disable — MLB-COV-2/3 hard blocks still gated via `!tpl.skipScriptCorrelation`; MLB tiers default to falsy → blocks FIRE; NBA tiers set true → blocks SKIP because `nbaCorrelationEngine` is the canonical authority.
+- ❌ ZERO ecology system bypass — eligibleBets / diversifyCandidates / EXPL / brain governance / probe matrix UNCHANGED.
+- ❌ ZERO fake slips / fake props / random injection.
+- ❌ ZERO scoring redesign.
+
+### Verify on demand
+
+```bash
+node backend/scripts/verifyCandidateEcologyParity.js
+# Expected: 19 / 19 assertions PASS (real-data smoke on MLB + NBA tracked_bets)
+
+cd backend && npm run ops:verify
+# Expected: 36 / 36 PASS aggregated (1 runtime + 30 verify*.js + 5 probes)
+```
+
+### Three-layer continuity invariant
+
+| Layer | Source | Healthy shape |
+|---|---|---|
+| **Battlefield** (BNDS-1B discovery pool) | `state.discoveryCandidates` | Materially > elite when source pool ≥ 50 (≥ 1.5× ratio) |
+| **Curated edge** (elite pool + featured anchors) | `state.candidates` + `state.featured` | Diversified per-player / per-game / per-stat caps from canonical scoring |
+| **AI compression** (tier slips) | `state.aiSlips.{safe,balanced,aggressive,lotto}` | At least one tier non-zero when candidates ≥ 8 |
+
+`verifyCandidateEcologyParity.js` runs in the 30-verifier matrix on every `ops:verify` / `ops:checkpoint`. Drift detection: collapse of any layer (battlefield starvation OR slip ecology collapse) FAILs checkpoint.
+
+---
+
+## CANONICAL SPORT IDENTITY DOCTRINE (Phase Sport-Identity-Integrity-1A, 2026-05-17)
+
+**There must be ONE canonical sport identity resolution path. Aliases may exist, but all layers must converge onto the SAME canonical runtime authority.**
+
+After Operational-Parity-1A restored full historical workflow depth, the operator caught a deeper integrity issue: NBA discovery worked but MLB was silently broken when called as `?sport=baseball_mlb` (0 slips, 0 anchors, 0 discoveryCandidates). The cause was 3 concrete fragmentation points in `routes/workstationRoutes.js`:
+
+1. `resolveSportDate()` only lowercased — never alias-normalized.
+2. `fileFor(sport, kind, date)` built `${sport}_${kind}_${date}.json` paths, so `baseball_mlb_tracked_bets_2026-05-17.json` would be looked up but never existed (real file is `mlb_tracked_bets_*.json`).
+3. `findLatestDateWithData(sport)` filtered by `${sport}_tracked_` prefix → missed real `mlb_*` files when sport was `baseball_mlb`.
+
+Restored via NEW canonical resolver. ZERO duplicate runtime states. ZERO parallel snapshot authorities. ZERO FE-only fixes. ZERO fake fallback state.
+
+### The canonical resolver
+
+```js
+const { resolveCanonicalSport, SPORT_ALIAS_MAP, CANONICAL_SPORTS, isKnownSportAlias } =
+  require("backend/pipeline/shared/resolveCanonicalSport")
+
+resolveCanonicalSport("mlb")            // → "mlb"
+resolveCanonicalSport("MLB")            // → "mlb"
+resolveCanonicalSport("baseball_mlb")   // → "mlb"
+resolveCanonicalSport("baseball")       // → "mlb"
+resolveCanonicalSport("nba")            // → "nba"
+resolveCanonicalSport("basketball_nba") // → "nba"
+resolveCanonicalSport("basketball")     // → "nba"
+resolveCanonicalSport("nfl")            // → null  (unknown)
+resolveCanonicalSport(undefined, { fallback: "mlb" })  // → "mlb"
+```
+
+### Alias map (Object.frozen — additive-only evolution)
+
+| Alias family | Aliases | Canonical |
+|---|---|---|
+| MLB | `mlb` / `MLB` / `baseball_mlb` / `baseball-mlb` / `baseball mlb` / `baseball` | `mlb` |
+| NBA | `nba` / `NBA` / `basketball_nba` / `basketball-nba` / `basketball nba` / `basketball` | `nba` |
+
+10 alias keys. 2 canonical outputs. Map evolution requires explicit operator approval.
+
+### Verify on demand
+
+```bash
+node backend/scripts/verifySportIdentityParity.js
+# Expected: 69 / 69 assertions PASS
+
+# Runtime parity (requires TERM 1):
+cd backend && npm run ops:state mlb              # canonical entry
+curl "http://localhost:4000/api/ws/state?sport=baseball_mlb" | jq '.candidates | length'   # should be identical to mlb
+```
+
+### Cache-key convergence guarantee
+
+`mlb` and `baseball_mlb` (and `MLB` and `baseball`) all resolve to canonical `"mlb"` → same `state:${sport}:${date}` cache key → identical hydrated state. Same for NBA family converging to `"nba"`. The workstation route's 60s TTL cache benefits from this convergence (fewer cache misses).
+
+### Anti-fabrication checklist
+
+1. Resolver is pure deterministic (no I/O, no Math.random, no LLM).
+2. Map values are restricted to canonical sports (`mlb` | `nba`); never invented.
+3. Unknown aliases return `null` (or fallback when explicitly provided); never silently coerced to a different sport.
+4. Frozen map prevents runtime mutation.
+5. ZERO duplicate runtime states; aliases collapse into ONE authority.
+6. ZERO bypass of canonical trust layers (eligibleBets / diversifyCandidates / EXPL / MLB-COV / brain governance all unchanged — they operate on the canonical identity).
 
 ---
 
