@@ -1,23 +1,86 @@
 # BOOTSTRAP PROMPT
 **Canonical repo rehydration entrypoint. Paste at the top of every new chat or session.**
+**Optimized for both Claude and fresh GPT chats (Continuity-OS-1A + 1B, 2026-05-17).**
 
 ---
 
-## COPY-PASTE BLOCK
+## ⚡ FASTEST PATH — FRESH GPT CHAT (Continuity-OS-1B, recommended)
 
 ```
-FIRST — read these before doing anything else:
-- /docs/WORKFLOW_RULES.md
-- /docs/CURRENT_STATE.md
-- /docs/NEXT_SESSION.md
+Upload (or paste) this ONE file into the fresh chat:
+  /GPT_RECONSTRUCTION_BOOTSTRAP.md   (~550 lines, ~96% drift reduction vs prior 15000-line surface)
+
+That single file contains:
+  § 1  REPO IDENTITY
+  § 2  CURRENT ACTIVE PHASE
+  § 3  CURRENT PRODUCT STATE (working / weak / absent)
+  § 4  CURRENT BOTTLENECKS (🟢🟡🔵🔴⚪ tracker)
+  § 5  FORBIDDEN DIRECTIONS (12 cemented)
+  § 6  CURRENT FE DIRECTION (game-first discovery + bettor-native interaction doctrine)
+  § 7  OPERATIONAL FLOW (terminals + audit-first + regression + reconciliation + checkpoint)
+  § 8  DEFERRED SYSTEMS (why X is not built)
+  § 9  CURRENT NEXT-PHASE OPTIONS (5 candidates)
+  § 10 RECONSTRUCTION INSTRUCTIONS (top + bottom of file)
+
+After upload, the fresh chat will know within 30 seconds:
+  - what we are doing right now
+  - what is forbidden
+  - what is deferred
+  - what ships next
+  - how the operational rituals work
+```
+
+---
+
+## COPY-PASTE BLOCK — NEW CHAT START HERE (legacy 7-file chain — also works)
+
+```
+FIRST — read these 7 canonical reconstruction anchor files IN ORDER before doing anything else:
+
+1. /BOOTSTRAP_PROMPT.md          (this file — entry pointer)
+2. /ACTIVE_PHASE.md              (what we are doing RIGHT NOW — answer in 30 seconds)
+3. /PRODUCT_IDENTITY.md          (what the repo IS + must NEVER become — anti-drift anchor)
+4. /CURRENT_PROBLEMS.md          (live bottleneck tracker — solved/active/deferred/dangerous/future)
+5. /NEXT_PHASE.md                (single canonical next-step authority — replaces giant bootstrap prompts)
+6. /OPERATIONAL_FLOW.md          (rituals — bootstrap, ship, regression, checkpoint, terminal conventions)
+7. /DEFERRED_PHASES.md           (why X is deferred — prevents resurrecting dangerous ideas)
+
+Total: ~700 lines across 7 files. Reconstructs full operating state.
+Estimated drift reduction vs prior 15,000+ line surface: 70-90%.
 
 If any file does not exist, state that explicitly and continue safely.
 
-LAST STEP BEFORE FINISHING:
-Update:
-- /docs/CURRENT_STATE.md  (overwrite with current live state)
-- /docs/NEXT_SESSION.md   (overwrite with exact next priorities)
+AFTER reconstruction, before any code touch:
+  cd backend
+  npm run brain:bootstrap
+  npm run brain:continuity         # expect: PASS (0 issue, 0 warn)
+  npm run brain:verify             # expect: PASS (0 FAIL)
+
+LAST STEP BEFORE FINISHING — anchor-file + brain-doc reconciliation:
+  Update /ACTIVE_PHASE.md          (reflect what was shipped)
+  Update /CURRENT_PROBLEMS.md      (move shipped lever 🟡 → 🟢; add new 🟡 if surfaced)
+  Update /NEXT_PHASE.md            (next phase or "awaiting operator selection")
+  Update /CURRENT_STATE.md         (long-form session record)
+  Update /NEXT_SESSION.md          (long-form next priorities)
+  Update /backend/runtime/brain/{MASTER_BRAIN,CURRENT_RUNTIME_STATE,MODEL_EVOLUTION_LOG}.md
+  Update /docs/OPERATOR_RUNBOOK.md (phase doctrine)
+  cd backend && npm run brain:checkpoint   # expect: PASS (0 failure(s))
 ```
+
+---
+
+## ALTERNATE LEGACY ENTRY (for older chats / pre-Continuity-OS-1A muscle memory)
+
+The prior entrypoint pattern is preserved for back-compat:
+
+```
+FIRST — read these before doing anything else:
+- /WORKFLOW_RULES.md
+- /CURRENT_STATE.md
+- /NEXT_SESSION.md
+```
+
+Both entries lead to the same operating state. The 7-file anchor chain above is the deterministic-reconstruction-optimal path; the legacy 3-file chain works but requires more context-window consumption.
 
 ---
 

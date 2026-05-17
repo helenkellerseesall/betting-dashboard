@@ -1,7 +1,222 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17.**
+
+> **2026-05-17 PHASE Continuity-OS-1A:** This OPERATOR_RUNBOOK.md is now the per-phase doctrine source. For per-session ritual flow (terminal conventions / regression matrix / 6-doc reconciliation / anchor-file reconciliation / checkpoint), see the NEW `OPERATIONAL_FLOW.md` at the repo root. New chats should read `BOOTSTRAP_PROMPT.md` → `ACTIVE_PHASE.md` → `PRODUCT_IDENTITY.md` → `CURRENT_PROBLEMS.md` → `NEXT_PHASE.md` → `OPERATIONAL_FLOW.md` → `DEFERRED_PHASES.md` (7 files, ~775 lines total) FIRST. This RUNBOOK is consumed for specific phase doctrine, not first-load reconstruction.
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## PORTABLE CROSS-CHAT RECONSTRUCTION ARTIFACT DOCTRINE (Phase Continuity-OS-1B, 2026-05-17)
+
+**Fresh GPT chats upload ONE file (`GPT_RECONSTRUCTION_BOOTSTRAP.md`, 551 lines) to reconstruct full operating state. No 6+ file consumption required. Brain checkpoint enforces regeneration on every phase seal.**
+
+After COS-1A established the 6-anchor reconstruction system (~775 lines across 6 files), fresh GPT chats still couldn't practically consume 6+ separate files per session. COS-1B consolidates them into one portable artifact at `/GPT_RECONSTRUCTION_BOOTSTRAP.md`.
+
+### The 10 required canonical sections
+
+| § | Section | Purpose |
+|---|---|---|
+| § 1 | REPO IDENTITY | 1-line + 4 canonical words + 3-layer architecture + IS/IS NOT |
+| § 2 | CURRENT ACTIVE PHASE | What we are doing right now |
+| § 3 | CURRENT PRODUCT STATE | WORKING / WEAK / EXPLICITLY ABSENT tables |
+| § 4 | CURRENT BOTTLENECKS | 5-status legend; SOLVED items linked to resolving phases |
+| § 5 | FORBIDDEN DIRECTIONS | 12 cemented X-1..X-12 + additional anti-patterns |
+| § 6 | CURRENT FE DIRECTION | Discovery + bettor-native + anti-fake-OCR doctrines |
+| § 7 | OPERATIONAL FLOW | Terminals + rituals + commands + danger flags |
+| § 8 | DEFERRED SYSTEMS | INDEFINITELY DEFERRED + PREREQUISITE-BLOCKED + NOT-YET-AUDITED |
+| § 9 | CURRENT NEXT-PHASE OPTIONS | 5 candidates + recommendation |
+| § 10 | RECONSTRUCTION INSTRUCTIONS | TOP AND BOTTOM (operator directive) |
+
+### Mandatory regeneration on every phase seal
+
+The artifact MUST be regenerated on every phase seal alongside the 6-doc reconciliation and 6-anchor reconciliation:
+
+| What | When |
+|---|---|
+| Update §2 active phase | Every phase seal |
+| Update §4 bottlenecks (move 🟡 → 🟢; add new 🟡) | Every phase seal |
+| Update §9 next-phase options | Every phase seal |
+| Update METADATA total phases + drift quantification | Every phase seal |
+| Update §5 / §8 if new forbidden direction or deferral added | When operator approves |
+| Update §1 / §6 / §7 if doctrine evolves | RARELY — operator approval required |
+
+`brain:checkpoint` FAILs if drift via `verifyContinuityOs1B.js` (113 assertions enforcing sync with all 6 anchors + line budget + cross-file non-contradiction + anti-fabrication sentinels).
+
+### Verify on demand
+
+```bash
+node backend/scripts/verifyContinuityOs1B.js
+# Expected: 113 / 113 assertions PASS
+```
+
+### Fastest path for fresh GPT chats
+
+Per the NEW "⚡ FASTEST PATH" entry block at the top of `BOOTSTRAP_PROMPT.md`:
+
+```
+Upload (or paste) this ONE file into the fresh chat:
+  /GPT_RECONSTRUCTION_BOOTSTRAP.md   (~551 lines, ~96% drift reduction vs prior 15000-line surface)
+```
+
+The fresh chat will know within 30 seconds: what we're doing now / what's forbidden / what's deferred / what ships next / how the rituals work.
+
+### Anti-fabrication checklist (COS-1B specific)
+
+1. The artifact is a deterministic reconstruction anchor — never an essay / philosophy dump / emotional recap.
+2. Line budget 400-1200 enforced (verifier asserts).
+3. RECONSTRUCTION INSTRUCTIONS appear at TOP AND BOTTOM (operator directive verified by splitting file into thirds).
+4. Cross-file synchronization enforced (verifier asserts artifact mirrors all 6 anchors).
+5. No marketing hype words ("revolutionary" / "AI magic" / etc.) in operational sections.
+6. Forbidden-directions section (§ 5) lists all 12 cemented X-1..X-12 verbatim.
+
+---
+
+## CROSS-CHAT RECONSTRUCTION DOCTRINE (Phase Continuity-OS-1A, 2026-05-17)
+
+**The repo now has a deterministic cross-chat reconstruction system. New chats (Claude OR GPT) reconstruct current operating state by reading 7 canonical anchor files (~775 total lines) at the repo root — NOT by consuming the prior 15000+ line reconstruction surface.**
+
+After 24 shipped phases the reconstruction surface had outgrown context windows: CURRENT_STATE ~7000 lines + MASTER_BRAIN ~480 + this OPERATOR_RUNBOOK ~1300 + MODEL_EVOLUTION_LOG ~2700 + ARCHITECTURE 612 + WORKFLOW_RULES 162 = 15000+ lines. Operator approved 6 canonical anchor files at the repo root + updated BOOTSTRAP_PROMPT.md to chain new chats through them.
+
+### The 7-file reconstruction chain (read in order)
+
+| # | File | Purpose | Size |
+|---|---|---|---|
+| 1 | `/BOOTSTRAP_PROMPT.md` | Entry pointer — copy-paste block for new chats | ~140 lines |
+| 2 | `/ACTIVE_PHASE.md` | What we are doing RIGHT NOW — 30-second answer | ~95 lines |
+| 3 | `/PRODUCT_IDENTITY.md` | What the repo IS + must NEVER become — anti-drift anchor | ~122 lines |
+| 4 | `/CURRENT_PROBLEMS.md` | Live bottleneck tracker — 5-status legend (🟢🟡🔵🔴⚪) | ~130 lines |
+| 5 | `/NEXT_PHASE.md` | Single canonical next-step authority | ~105 lines |
+| 6 | `/OPERATIONAL_FLOW.md` | Permanent ritual authority — terminal / regression / checkpoint | ~180 lines |
+| 7 | `/DEFERRED_PHASES.md` | Why X is deferred + prerequisite + danger of premature ship | ~110 lines |
+
+Total: ~775 lines. Estimated drift reduction: **70-90%** vs prior 15000+ line surface.
+
+### Anchor-file reconciliation ritual (NEW — mandatory post-phase step)
+
+Alongside the existing 6-doc reconciliation (CURRENT_STATE / NEXT_SESSION / MASTER_BRAIN / CURRENT_RUNTIME_STATE / MODEL_EVOLUTION_LOG / OPERATOR_RUNBOOK), every shipped phase must also reconcile:
+
+| Anchor file | Update trigger |
+|---|---|
+| `ACTIVE_PHASE.md` | Overwrite at start AND seal of every phase |
+| `NEXT_PHASE.md` | Overwrite when next phase approved (default: "awaiting operator selection") |
+| `CURRENT_PROBLEMS.md` | Move shipped lever from 🟡 ACTIVE → 🟢 SOLVED with linked phase |
+| `PRODUCT_IDENTITY.md` | RARELY — change only by explicit operator approval |
+| `OPERATIONAL_FLOW.md` | RARELY — change only when a ritual changes |
+| `DEFERRED_PHASES.md` | Update when operator defers OR when prerequisite clears |
+
+### Verify the reconstruction system on demand
+
+```bash
+node backend/scripts/verifyContinuityOs1A.js
+# Expected: 117 / 117 assertions PASS (anchor files exist + canonical sections + cross-references + size discipline + anti-hype sentinels)
+```
+
+### Anti-drift checklist (cross-chat reconstruction discipline)
+
+1. New chats MUST read the 7-file anchor chain FIRST — never start with long-form CURRENT_STATE / MASTER_BRAIN.
+2. Anchors are deterministic reconstruction anchors — not fluffy summaries, not giant essays, not philosophy dumps.
+3. ACTIVE_PHASE.md answers "what are we doing right now?" within 30 seconds. If it can't, it's drifted.
+4. PRODUCT_IDENTITY.md is the anti-drift anchor — never silently change. Surface conflicts to operator.
+5. CURRENT_PROBLEMS.md 5-status legend (🟢🟡🔵🔴⚪) is canonical. Don't invent new statuses.
+6. DEFERRED_PHASES.md INDEFINITELY DEFERRED list is operator-cemented forbidden — never propose without explicit reversal.
+7. Anchor size discipline: each anchor 50-400 lines, total <1500 lines. Verifier-enforced.
+
+---
+
+## CANONICAL DISCOVERY EXPANSION DOCTRINE (Phase Bettor-Native-Discovery-Surface-1B, 2026-05-17)
+
+**The FE Discover surface consumes a BROADER canonical-validated pool than the elite curation surfaces. Same canonical source. Same scoring helper. Looser caps. Strict superset of elite. Never raw sportsbook flooding.**
+
+After BNDS-1A built the game-first FE discovery architecture, the workstation still felt empty because `workstationRoutes.js:566` was applying `diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: 7-12, maxPerStat: 10, maxPerStatSide: 6 })` and feeding the diversified `candidates` to the FE — collapsing 101 canonical MLB tracked_bets → 32 surfaced and 83 canonical NBA tracked_bets → 12 surfaced. The diversification is correct for portfolio / featured / aiSlips (elite curation needs "don't let one player dominate") but wrong for the Discover battlefield surface.
+
+BNDS-1B shipped a single additive change: a SEPARATE `discoveryCandidates` field on the `/state` response, computed from the SAME canonical-validated source pool via the SAME `diversifyCandidates` helper with DISCOVERY-SAFE looser caps.
+
+| Surface | Pool field | Caps | Real example (MLB 2026-05-17) |
+|---|---|---|---|
+| Layer 1 — Battlefield (Discover tab) | `state.discoveryCandidates` | `{ maxPerPlayer: 8, maxPerGame: 60, maxPerStat: 60, maxPerStatSide: 35 }` (Object.frozen) | 85 props across 15 games (5.7/game) |
+| Layer 2 — Curated Edge (Tonight's Edge / Dashboard) | `state.candidates` + `state.featured` | `{ maxPerPlayer: 3, maxPerGame: 7 (MLB) / 12 (NBA), maxPerStat: 10, maxPerStatSide: 6 }` | 32 props across 15 games (2.1/game) |
+| Layer 3 — Compression (AI Parlays + Check My Slip) | `state.aiSlips` + `/api/ws/screenshots/ingest` | tier-specific composition templates | 8-12 multi-leg slips |
+
+**REAL widening measurements** (from `verifyBnds1B.js` real-data smoke on `runtime/tracking/{mlb,nba}_tracked_bets_2026-05-17.json`):
+- MLB: eligible=101 → elite=32 → **discovery=85** (+53 props, +166% broader); 15 games, 21 players with 2+ legs.
+- NBA: eligible=83 → elite=12 → **discovery=40** (+28 props, +233% broader); 1 game, 40 props in-game, 5 players with 2+ legs.
+
+**Verify the expansion on demand:**
+```bash
+node backend/scripts/verifyBnds1B.js
+# Expected: 35 / 35 assertions PASS (including real-data widening + strict-superset + canonical-source-only)
+
+cd frontend && npx tsc --noEmit
+# Expected: clean (no output)
+
+# Audit the live counts at runtime via the [WS-PROBE] log:
+#   [WS-PROBE] discoveryCandidates=85 (elite=32, source=101, caps={pP:8 pG:60 pS:60 pSS:35})
+```
+
+**Anti-fabrication checklist (operator-enforced throughout BNDS-1B):**
+1. Discovery pool source is ALWAYS the canonical `supplementedCandidates` — never a raw sportsbook feed, never a pre-canonical row, never an unvalidated prop.
+2. Discovery pool uses the SAME `diversifyCandidates` helper — same composite `edge × probCapped` scoring + sorting + per-axis cap enforcement.
+3. Discovery caps are STRICTLY LOOSER than elite caps on all 4 axes (verifier-enforced).
+4. Discovery pool is a STRICT SUPERSET of elite pool (every elite-pool prop must appear in discovery; verifier-enforced).
+5. Zero discovery rows are synthesized (every row traces to canonical eligible pool; verifier-enforced).
+6. Elite path UNCHANGED: portfolio / featured / aiSlips still consume `candidates` / `aiCandidates` (tight caps preserved verbatim).
+7. FE gracefully falls back to `state.candidates` on legacy backends; source-label badge ("discovery pool" vs "elite pool (broader pool unavailable from backend)") is honest about which pool the FE is showing.
+8. Operator-visible `[WS-PROBE] discoveryCandidates=N (elite=M, source=K, caps={pP:8 pG:60 pS:60 pSS:35})` log fires on every state build — the widening is auditable.
+
+**Operator-cemented DO-NOT-SHIP (perpetual, in addition to all prior phase boundaries):**
+- ❌ Raw sportsbook flooding (no bypassing the `eligibleBets` edge+modelProb floor)
+- ❌ Pre-canonical rows (no rows before `normalizeCandidate` lift)
+- ❌ Unvalidated props (no rows that skip the canonical scoring helper)
+- ❌ Fake abundance (no padding the pool with synthesized or duplicated rows)
+- ❌ Survivability bypass (no skipping `diversifyCandidates`; just looser thresholds inside it)
+- ❌ Ecology bypass (no skipping BC-1A / OE-1A / OE-1B field lifts; supplementedCandidates already carries them)
+- ❌ Contradiction bypass (MLB-COV-1A hard blocks still apply to ANY slip composition path; discovery pool only feeds the read-only FE explorer)
+
+---
+
+## BETTOR-NATIVE DISCOVERY SURFACE DOCTRINE (Phase Bettor-Native-Discovery-Surface-1A, 2026-05-17)
+
+**Show the battlefield, then intelligently narrow it. Never "5 props on a dark screen." Abundance first, curation second. Every visible env tag traces to a canonical backend field — never invented.**
+
+After BNSB-1A bridged backend canonical fields into FE consumers and BNSB-1B re-shaped the interaction architecture, the next product bottleneck was discovery + abundance. The backend produced rich per-row context (impliedTeamTotal / gameTotal / hrEnvironmentTag / windDirectionTag / runEnvironment / contextualTags / etc.) but no FE surface composed per-event ecology. BNDS-1A is the pure FE-discovery phase — ZERO backend touched, ZERO new intelligence, ZERO ecology / calibration expansion.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **BNDS-1A-1 — GameCard** | Per-event ecosystem card: matchup / start time / sportsbook count / prop counts / per-team implied totals / game total / HR/wind/carry env chips (canonical-only) / explosive marker (canonical OE-5 threshold verbatim) / book-disagreement marker (canonical EXPL-1 threshold verbatim) / most-propped player strip. Single-card expand focus. | NEW `GameCard` in `frontend/src/workstation/sections/GameDiscoveryView.tsx`; consumes `buildGameEcosystems(state.candidates)` from `gameEcosystem.ts`. |
+| **BNDS-1A-2 — Expandable prop rails** | 19 prop family rails (Hits / TB / HR / RBIs / Runs / Ks / Walks / Outs / Points / Rebounds / Assists / Threes / PRA / Blocks / Steals / First Basket / Alts / Specials / Other) inside expanded game cards; collapsed-by-default + local search + sortable (edge/modelProb/odds/line); consume FULL in-game candidate breadth — NEVER hard-filtered upstream. | NEW `PropRails` + `PropRail` subcomponents in `GameDiscoveryView.tsx`; consumes `groupByPropFamily()` + `PROP_FAMILIES` catalog from `gameEcosystem.ts`. |
+| **BNDS-1A-3 — Ladder Explorer** | Per-player ecosystem: legs across families, sides (OVER/UNDER), survivability (canonical depth + impliedTeamTotal heuristic), ecology support (game-ecosystem signals), contradiction warnings (same family with both OVER and UNDER). Focuses on players with 2+ legs. NOT prediction — pure relationship surfacing. | NEW `LadderExplorer` + `PlayerLadderBlock` in `GameDiscoveryView.tsx`; consumes `buildPlayerLadders(eco, candidates)`. |
+| **BNDS-1A-4 — Explosive sentence** | One bettor-readable env sentence composed deterministically from canonical fragments (wind / HR-env / carry / game total / team total / context tags). NO LLM. NO hype. NO emojis. Returns null when no canonical signal present (caller renders honest "Standard environment — no canonical signals fired"). | NEW `composeExplosiveSentence(eco)` pure helper in `gameEcosystem.ts`. |
+| **BNDS-1A-5 — Density upgrade** | Auto-fit responsive game-card grid (`gridTemplateColumns: repeat(auto-fit, minmax(320px, 1fr))`) + single-card expanded focus + compact card layout (~140px collapsed footprint). No new CSS file. | `GameDiscoveryView.tsx` layout; reuses existing workstation CSS tokens. |
+| **BNDS-1A-6 — Discovery navigation** | 8 canonical lenses (All / Top / Explosive / Ladder zones / Strongest environments / Contradiction zones / HR environments / K environments) implemented as SOFT filters on the game-card array. Explicit UI copy: "Lenses sort/filter the game cards only — every game's full prop breadth stays available when expanded." Not hard filters. | NEW `DISCOVERY_LENSES` catalog + `applyLens(games, lens)` in `gameEcosystem.ts`; consumed by `GameDiscoveryView.tsx`. |
+| **BNDS-1A-7 — Screenshot intake foundation** | cmd+v paste + drag/drop + click-to-pick file input + in-memory staging tray with thumbnails. EXPLICITLY no OCR / no tesseract / no vision / no backend submission / honest "Screenshot received — parsing pipeline not connected yet" copy. Foundation only. | NEW `frontend/src/workstation/components/ScreenshotIntake.tsx`. |
+
+**Verify the discovery surface on demand:**
+```bash
+node backend/scripts/verifyBnds1A.js
+# Expected: 93 / 93 assertions PASS
+
+cd frontend && npx tsc --noEmit
+# Expected: clean (no output)
+```
+
+**Anti-fabrication checklist (operator-enforced throughout BNDS-1A):**
+1. Every visible env tag (HR-friendly / HR-suppressing / wind out / carry shift / explosive marker / book disagreement) traces to a canonical backend field rendered verbatim.
+2. Explosive threshold mirrors backend OE-5 constants verbatim: `gameTotal >= 9.5 && avgImpliedTeamTotal >= 4.5 && windOut && hrEnvironmentTag !== "HR_SUPPRESSING"`.
+3. Disagreement threshold mirrors backend EXPL-1 constant verbatim: `consensusConfidence < 0.6`.
+4. `composeExplosiveSentence` returns null when no canonical signal fires; caller renders honest "Standard environment" copy. Never invents an env sentence.
+5. Lenses SOFT-filter game cards only — never hard-filter prop rails. Every game's full prop breadth stays available when expanded.
+6. LadderExplorer surfaces relationships (legs / sides / families / survivability / ecology / contradictions) — NOT predictions. The engine never claims a forecast.
+7. ScreenshotIntake stages images in-memory only; never imports tesseract / openai / vision libs; never calls any backend; never submits to analyzer.
+8. The Discover surface is read-only on backend state — no new fetches, no new persistence, no new ML.
+
+**Operator-cemented DO-NOT-SHIP (perpetual, in addition to BNSB-1B boundary):**
+- ❌ OCR / image upload parsing (operator-deferred indefinitely)
+- ❌ Fake intelligence / opaque ML / LLM narration
+- ❌ Adaptive AI styling
+- ❌ Removing current curated systems (Tonight's Edge / AI Parlays / Check My Slip all preserved verbatim)
+- ❌ Hard filtering props upstream (lenses are SOFT; rails always render full breadth)
+- ❌ Gambling-hype copy ("LOCK" / "BOOM" / "guaranteed" / etc.)
 
 ---
 

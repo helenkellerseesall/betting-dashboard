@@ -14,13 +14,20 @@ import { ProcessReviewView } from "./sections/ProcessReviewView"
 // Phase BNSB-1A (BNSB-6 / FE-VBI-5..8): Analyze Slip view — operator pastes
 // a slip JSON / free-text and receives canonical VBI verdict from backend.
 import { AnalyzeSlipView } from "./sections/AnalyzeSlipView"
+// Phase BNDS-1A: Bettor-Native Discovery Surface — game-first exploration
+// with per-game ecology cards, prop family rails, ladder explorer, lenses,
+// and screenshot intake foundation.
+import { GameDiscoveryView } from "./sections/GameDiscoveryView"
 
 type SectionId =
   | "dashboard" | "slate" | "slips" | "shopping" | "portfolio"
-  | "builder" | "fb" | "review" | "analyze"
+  | "builder" | "fb" | "review" | "analyze" | "discover"
 
 const NAV: { id: SectionId; label: string; icon: string }[] = [
   { id: "dashboard", label: "Tonight's Edge",  icon: "⚡" },
+  // Phase BNDS-1A: bettor-native discovery surface — placed second so a fresh
+  // bettor sees "explore the slate" before drilling into the curated tabs.
+  { id: "discover",  label: "Discover",         icon: "🗺" },
   { id: "slate",     label: "Full Slate",       icon: "🎯" },
   { id: "slips",     label: "AI Parlays",       icon: "🎲" },
   { id: "shopping",  label: "Book Radar",       icon: "👁️" },
@@ -29,7 +36,7 @@ const NAV: { id: SectionId; label: string; icon: string }[] = [
   { id: "fb",        label: "First Basket",     icon: "🏀" },
   { id: "review",    label: "Edge Log",         icon: "📈" },
   // Phase BNSB-1A (BNSB-7): bettor-native slip analysis surface.
-  { id: "analyze",   label: "Analyze Slip",     icon: "📸" },
+  { id: "analyze",   label: "Check My Slip",    icon: "📸" },
 ]
 
 export function Workstation() {
@@ -131,6 +138,7 @@ export function Workstation() {
                 {section === "portfolio" && <PortfolioView state={state} />}
                 {section === "fb"        && <FirstBasketView state={state} />}
                 {section === "review"    && <ProcessReviewView />}
+                {section === "discover"  && <GameDiscoveryView state={state} />}
                 {section === "analyze"   && (
                   <AnalyzeSlipView
                     state={state}

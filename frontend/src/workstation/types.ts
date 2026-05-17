@@ -28,6 +28,33 @@ export interface Candidate {
   clv?: number | null
   archetype?: string
   marketKey?: string
+  // Phase BNDS-1A — canonical context fields preserved by backend BC-1 / OE-1
+  // field lifts in normalizeCandidate. All optional; FE renders only when
+  // present (anti-fabrication: never invents env data). Used by
+  // gameEcosystem.ts to derive per-game discovery surfaces.
+  lineupSpot?:           number | null
+  depth?:                string | null   // "top" | "middle" | "back" (canonical MLB)
+  plateAppearancesProxy?:number | null
+  impliedTeamTotal?:     number | null
+  gameTotal?:            number | null
+  hrEnvironmentTag?:     string | null   // "HR_FRIENDLY" | "HR_NEUTRAL" | "HR_SUPPRESSING"
+  contextualTags?:       string[]
+  runEnvironment?:       number | null   // 0-1 scalar
+  rbiEnvironment?:       number | null
+  windDirectionTag?:     string | null   // "out_to_cf" | "in_from_cf" | etc.
+  carryShift?:           number | null
+  hrFactor?:             number | null
+  temperatureF?:         number | null
+  bullpenShift?:         number | null
+  reliefFatigueScore?:   number | null
+  bullpenDataAvailable?: boolean
+  // Per-event game-time string when backend supplies it. Best-effort field;
+  // FE never invents a kickoff time.
+  startTime?:            string | null
+  gameTime?:             string | null
+  // Cross-book disagreement signals (set by EXPL-1 path when shopMap present)
+  consensusConfidence?:  number
+  marketDispersion?:     number
 }
 
 export interface AiSlipLeg {
@@ -310,6 +337,18 @@ export interface SportState {
   }
   bankrollInfo?: { bankroll?: number; dailyRiskBudget?: number } | null
   candidates: Candidate[]
+  // Phase BNDS-1B — DISCOVERY-SAFE EXPANSION.
+  //
+  // Broader canonical pool surfaced for the FE Discover tab only.
+  // Same source as `candidates` (canonical validated supplemented pool) but
+  // with looser per-player / per-game / per-stat / per-stat-side caps so the
+  // battlefield breadth is visible. Elite consumers (Tonight's Edge / AI
+  // Parlays / Portfolio) still read `candidates` — their tight diversification
+  // is preserved verbatim.
+  //
+  // Optional: legacy backend versions that haven't shipped BNDS-1B yet omit
+  // this field; FE Discover gracefully falls back to `candidates`.
+  discoveryCandidates?: Candidate[]
   slipBets: any[]
   lineShopping: { groups: LineShopGroup[]; meta: any } | null
   timing: { classifications: TimingClassification[]; meta: any } | null

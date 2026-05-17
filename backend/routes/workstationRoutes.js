@@ -566,6 +566,50 @@ router.get("/state", (req, res) => {
       const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
       console.log("[WS-PROBE] supplementedCandidates=%d → candidates(portfolio)=%d", supplementedCandidates.length, candidates.length)
 
+      // ── Phase BNDS-1B: DISCOVERY-SAFE EXPANSION ───────────────────────────
+      //
+      // The diversified `candidates` pool above (maxPerPlayer:3, maxPerGame:7-12,
+      // maxPerStat:10, maxPerStatSide:6) is the ELITE/CURATED pool — it feeds
+      // portfolio analysis, featured plays, AI parlay composition. That tight
+      // diversification is correct for those surfaces: "don't let one player
+      // dominate the surfaced edge."
+      //
+      // But the FE Discover tab needs a BROADER battlefield view —
+      // "show me what's available across every game." With NBA's 86 canonical
+      // tracked_bets in a 1-game playoff slate, the elite cap surfaces only
+      // 12 (per-game cap); with MLB's 101 tracked_bets across 15 games, the
+      // elite caps surface ~50–60. The FE Discover view felt empty as a
+      // result (BNDS-1B operator framing: "show me the battlefield, then
+      // intelligently narrow it" — Layer 1 not yet surfaced).
+      //
+      // Solution: compute a SEPARATE `discoveryCandidates` pool from the
+      // SAME canonical-validated source (`supplementedCandidates`) but with
+      // DISCOVERY-SAFE looser caps. This preserves every trust layer:
+      //   • Same source pool (canonical validated; eligibleBets + enrichedBest
+      //     + NBA snapshot supplement); NO raw sportsbook flooding.
+      //   • Same diversifyCandidates scoring + ordering; just larger thresholds.
+      //   • Elite pool (`candidates`) UNCHANGED — portfolio / featured /
+      //     aiSlips continue to receive the tight cap.
+      //
+      // BNDS-1B operator directive: "split broad discovery pools FROM elite
+      // edge pools" — these are different products inside the same workstation.
+      const DISCOVERY_DIVERSITY_CAPS = Object.freeze({
+        maxPerPlayer:   8,  // was 3 — allow a star's full prop board to surface
+        maxPerGame:    60,  // was 7 (MLB) / 12 (NBA) — let an entire game's
+                            // ecosystem surface even on thin playoff slates
+        maxPerStat:    60,  // was 10 — full hits/totalBases/etc. surface
+        maxPerStatSide: 35, // was 6 — both OVERs and UNDERs surface broadly
+      })
+      const discoveryCandidates = diversifyCandidates(
+        supplementedCandidates,
+        DISCOVERY_DIVERSITY_CAPS,
+      )
+      console.log("[WS-PROBE] discoveryCandidates=%d (elite=%d, source=%d, caps={pP:%d pG:%d pS:%d pSS:%d})",
+        discoveryCandidates.length, candidates.length, supplementedCandidates.length,
+        DISCOVERY_DIVERSITY_CAPS.maxPerPlayer, DISCOVERY_DIVERSITY_CAPS.maxPerGame,
+        DISCOVERY_DIVERSITY_CAPS.maxPerStat, DISCOVERY_DIVERSITY_CAPS.maxPerStatSide)
+      // ──────────────────────────────────────────────────────────────────────
+
       // Portfolio analysis runs against the diversified candidate pool only.
       // Persisted slip catalog is intentionally NOT merged in — those are
       // engine-generated slip suggestions, not the user's actual portfolio,
@@ -696,6 +740,10 @@ router.get("/state", (req, res) => {
         counts,
         bankrollInfo,
         candidates,
+        // Phase BNDS-1B: broader canonical pool for the FE Discover surface.
+        // Same source as `candidates` above (canonical validated); looser caps
+        // for battlefield breadth. Elite consumers stay on `candidates`.
+        discoveryCandidates,
         slipBets: readJsonSafe(fileFor(sport, "tracked_slips", date), []) || [],
         lineShopping: compactLineShopping(lineShopping, 60),
         timing: compactTiming(timingResult, 60),

@@ -353,8 +353,12 @@ function contains(src, needle, label) {
 
   contains(feWorkstationSrc, `import { AnalyzeSlipView } from "./sections/AnalyzeSlipView"`,
     "BNSB-7 Workstation imports AnalyzeSlipView")
-  contains(feWorkstationSrc, `{ id: "analyze",   label: "Analyze Slip",     icon: "📸" }`,
-    "BNSB-7 Workstation NAV array includes Analyze Slip tab")
+  // Note: Phase BNDS-1A renamed the NAV label "Analyze Slip" → "Check My Slip"
+  //       for consistency with the section header (h2 said "Check My Slip"
+  //       since BNSB-1B-1). The tab routing key ("analyze") + icon (📸) are
+  //       preserved verbatim; only the display string evolved.
+  contains(feWorkstationSrc, `{ id: "analyze",   label: "Check My Slip",    icon: "📸" }`,
+    "BNSB-7 Workstation NAV array includes Analyze tab (BNDS-1A re-toned label 'Check My Slip')")
   // Note: BNSB-1B (BNSB-1B-8) expanded the section gate to multi-line JSX so it
   //       can pass pendingSlip / onPendingConsumed / onNavigate props. The gate
   //       still renders AnalyzeSlipView when section === "analyze".
