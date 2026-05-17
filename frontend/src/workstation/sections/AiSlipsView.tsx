@@ -30,6 +30,19 @@ function SlipCard({ slip, tier }: { slip: AiSlip; tier: string }) {
   const [open, setOpen] = useState(false)
   const builder = useBuilder()
   const american = slip.combinedAmericanOdds >= 0 ? `+${slip.combinedAmericanOdds}` : `${slip.combinedAmericanOdds}`
+
+  // Phase BNSB-1A (BNSB-5): reinforcement transparency ladder.
+  // Render only when backend supplies the optional reinforcement fields so
+  // legacy payloads still render cleanly. Anti-fabrication: every value is
+  // shown exactly as backend returned it (no synthesis, no interpolation).
+  const hasReinforcement =
+    typeof slip.calibratedCombinedModelProb === "number" ||
+    typeof slip.rawCombinedModelProb === "number" ||
+    typeof slip.oe11ReinforcementBoost === "number"
+
+  // Phase BNSB-1A (BNSB-3): bettor-language phrases (optional, present-only).
+  const hasLanguage = Array.isArray(slip.bettorLanguageSummary) && slip.bettorLanguageSummary.length > 0
+
   return (
     <div className={`ws-slip tier-${tier}`}>
       <div className="ws-slip-head">
@@ -38,6 +51,67 @@ function SlipCard({ slip, tier }: { slip: AiSlip; tier: string }) {
         <span className="ws-mono ws-dim" title={tooltipForSlipProb(slip.combinedModelProb)}>prob {fmtPct(slip.combinedModelProb)}</span>
         <span className="ws-slip-reason">{slip.reasoning}</span>
       </div>
+
+      {/* Phase BNSB-1A (BNSB-3): bettor-language signal phrases — concise
+          plain-English summary derived deterministically from VBI signals.
+          Only rendered when populated; never fabricated. */}
+      {hasLanguage && (
+        <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {slip.bettorLanguageSummary!.map((phrase, i) => (
+            <span
+              key={`lang-${i}`}
+              className="ws-risk-flag"
+              style={{ fontSize: 11 }}
+              title="Bettor-language signal (deterministically derived from canonical VBI signals)."
+            >
+              💬 {phrase}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Phase BNSB-1A (BNSB-5): OE-11 reinforcement ladder.
+          raw → calibrated → reinforced. Each step rendered only when its
+          backend field is present (Number.isFinite). The boost is the
+          aggregate pairwise reinforcement applied to joint probability,
+          capped at 0.03 per OE-11 doctrine. Pure observational surfacing. */}
+      {hasReinforcement && (
+        <div
+          style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", fontSize: 11 }}
+          title="OE-11 reinforcement ladder — raw multiplicative product → FAMILY_CALIBRATION → pairwise ecology reinforcement boost (capped at 0.03)."
+        >
+          {Number.isFinite(slip.rawCombinedModelProb) && (
+            <span className="ws-dim">
+              raw {fmtPct(slip.rawCombinedModelProb!)}
+            </span>
+          )}
+          {Number.isFinite(slip.rawCombinedModelProb) && Number.isFinite(slip.calibratedCombinedModelProb) && (
+            <span className="ws-dim">→</span>
+          )}
+          {Number.isFinite(slip.calibratedCombinedModelProb) && (
+            <span className="ws-dim">
+              calibrated {fmtPct(slip.calibratedCombinedModelProb!)}
+            </span>
+          )}
+          {Number.isFinite(slip.calibratedCombinedModelProb) && Number.isFinite(slip.oe11ReinforcementBoost) && slip.oe11ReinforcementBoost! > 0 && (
+            <span className="ws-dim">→</span>
+          )}
+          {Number.isFinite(slip.oe11ReinforcementBoost) && slip.oe11ReinforcementBoost! > 0 && (
+            <span className="ws-pos">
+              ✚ reinforcement +{fmtPct(slip.oe11ReinforcementBoost!)}
+            </span>
+          )}
+          {Number.isFinite(slip.oe11ReinforcementBoost) && slip.oe11ReinforcementBoost! > 0 && (
+            <span className="ws-dim">→ final {fmtPct(slip.combinedModelProb)}</span>
+          )}
+          {Number.isFinite(slip.oe11ReinforcementBoost) && slip.oe11ReinforcementBoost === 0 && (
+            <span className="ws-dim" style={{ fontStyle: "italic" }}>
+              no pairwise reinforcement applied
+            </span>
+          )}
+        </div>
+      )}
+
       <div style={{ marginTop: 6 }}>
         {slip.legs.map((l) => <SlipLegRow key={l.id} leg={l} reasoning={slip.legReasonings} />)}
       </div>

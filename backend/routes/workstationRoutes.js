@@ -701,7 +701,19 @@ router.get("/state", (req, res) => {
         timing: compactTiming(timingResult, 60),
         portfolio: compactPortfolio(portfolio),
         aiSlips: aiSlips.slips || { safe: [], balanced: [], aggressive: [], lotto: [] },
-        aiSlipsSummary: { summary: aiSlips.summary, warnings: aiSlips.warnings },
+        // Phase BNSB-1A: expand aiSlipsSummary to carry the advisory metrics
+        // already computed by buildAiSlips (bettorRealismScore from BC-8;
+        // oe11SlipStats from OE-11; mlbCovStats from MLB-COV-1A). These fields
+        // travel to the FE for surfacing on the Dashboard intelligence strip
+        // and SlipCard reinforcement transparency. Anti-fabrication: all values
+        // propagate verbatim (null/undefined when backend returns absent).
+        aiSlipsSummary: {
+          summary: aiSlips.summary,
+          warnings: aiSlips.warnings,
+          bettorRealismScore: aiSlips.bettorRealismScore,
+          oe11SlipStats: aiSlips.oe11SlipStats,
+          mlbCovStats: aiSlips.mlbCovStats,
+        },
         featured,
         // Operational trust hardening — snapshot freshness diagnostics.
         // `degraded` is the top-level flag the UI can key on; `freshness`

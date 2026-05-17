@@ -1,4 +1,4 @@
-import type { SportState, AiSlips, BuilderLeg, BuilderPreview, LineShopGroup, TimingClassification, Portfolio, Featured } from "./types"
+import type { SportState, AiSlips, BuilderLeg, BuilderPreview, LineShopGroup, TimingClassification, Portfolio, Featured, ScreenshotIngestResponse } from "./types"
 
 const BASE = (() => {
   // Allow override via Vite env var; default to localhost for dev
@@ -62,4 +62,28 @@ export const api = {
 
   builderPreview: (legs: BuilderLeg[], stake = 10) =>
     postJson<BuilderPreview>(`${BASE}/api/ws/bet-builder/preview`, { legs, stake }),
+
+  // Phase BNSB-1A (FE-VBI-4): screenshot/slip analysis. POSTs a slip payload
+  // to the canonical screenshot ingestion endpoint; backend now includes the
+  // VBI verdict in each result (Phase BNSB-1A FE-VBI-1 backend bridge).
+  // Accepts either a single slip object or an array. sport/slateDate inform
+  // the canonical predictionId resolver (anti-fabrication: unresolved legs
+  // are explicitly annotated in the verdict).
+  screenshotsAnalyze: (body: {
+    slip?: unknown
+    slips?: unknown[]
+    sport?: string
+    slateDate?: string
+    sourceType?: string
+    sourceLabel?: string
+    attribution?: string
+  }) => postJson<ScreenshotIngestResponse>(`${BASE}/api/ws/screenshots/ingest`, {
+    sourceType: body.sourceType || "personal",
+    sourceLabel: body.sourceLabel,
+    sport:       body.sport,
+    slateDate:   body.slateDate,
+    attribution: body.attribution,
+    slip:  body.slip,
+    slips: body.slips,
+  }),
 }

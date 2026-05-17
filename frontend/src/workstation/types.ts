@@ -64,6 +64,18 @@ export interface AiSlip {
   narrative?: string[]
   factors?: Record<string, number | null>
   legReasonings?: { legId: string; player: string; reason: string }[]
+  // Phase BNSB-1A: reinforcement transparency. OE-11 final reinforced
+  // modelProb is `combinedModelProb`; `calibratedCombinedModelProb` is the
+  // pre-reinforcement (post-FAMILY_CALIBRATION) probability; `rawCombinedModelProb`
+  // is the pre-calibration multiplicative product; `oe11ReinforcementBoost`
+  // is the aggregate joint-prob boost factor (∈ [0, 0.03], capped). All four
+  // optional — back-compat preserved when backend omits.
+  rawCombinedModelProb?: number
+  calibratedCombinedModelProb?: number
+  oe11ReinforcementBoost?: number
+  // Phase BNSB-1A: optional bettor-language phrases for SlipCard surfacing.
+  // Populated by future slip-level VBI integration; today FE renders when present.
+  bettorLanguageSummary?: string[]
 }
 
 export interface AiSlips {
@@ -201,6 +213,53 @@ export interface RecommendationLadder {
   bestDisagreement:      FeaturedPlay | null
   mostOverpricedAvoid:   FeaturedPlay | null
   highestTrapRiskAvoid:  FeaturedPlay | null
+  // Phase Bettor-Curation-Intelligence-1A (BC-6): slot 8 — believable upside.
+  bestBelievableUpside?: FeaturedPlay | null
+  // Phase Offensive-Ecology-Intelligence-1A (OE-7): slot 9 — explosive upside.
+  bestExplosiveUpside?:  FeaturedPlay | null
+}
+
+// Phase BNSB-1A — backend stats payloads (BC-1A / OE-1A / OE-1B / MLB-COV-1A).
+// Per-run advisory counters returned on buildFeaturedPlays / buildAiSlips results.
+export interface Bc1aStats {
+  suppressedHrSuppressing?: number
+  suppressedDesertTeamTotal?: number
+}
+export interface Oe1aStats {
+  explosiveEventsTagged?: number
+  hrCarryBoostsApplied?: number
+  runProductionBoostsApplied?: number
+  pressureBoostsApplied?: number
+  survivabilityDemotesApplied?: number
+}
+export interface Oe1bStats {
+  pairReinforcementBoosts?: number
+  turnoverBoostsApplied?: number
+  bullpenBoostsApplied?: number
+  lineupTurnoverEventsHigh?: number
+}
+export interface Oe11SlipStats {
+  reinforcedSlips?: number
+  totalReinforcementBoosts?: number
+}
+export interface MlbCovStats {
+  blockedSharedGameSuppression?: number
+  blockedPitcherHitterConflict?: number
+}
+// Phase BNSB-1A — BC-8 bettorRealismScore advisory aggregate.
+export interface BettorRealismScore {
+  score: number
+  depthCoverage: number
+  avgTeamTotal: number | null
+  avgTeamTotalNorm: number
+  avgGameTotal: number | null
+  gameTotalFavorability: number
+  hrEnvFavorability: number
+  sampleSize: number
+  depthSeen: number
+  ttCount: number
+  gtCount: number
+  envSeen: number
 }
 
 export interface Featured {
@@ -228,8 +287,15 @@ export interface Featured {
   staleLineOpportunities?: FeaturedPlay[]
   trapLadders?: FeaturedPlay[]
   inflatedSuperstarSpots?: FeaturedPlay[]
+  // Phase BC-1A / OE-1A — additional bettor-curation / offensive-ecology buckets.
+  believableUpsideTickets?: FeaturedPlay[]
+  explosiveUpsideTickets?: FeaturedPlay[]
   // Phase Recommendation-Hierarchy-1A — fixed-cardinality decision ladder.
   recommendationLadder?: RecommendationLadder
+  // Phase BNSB-1A — backend stats payloads (BC-1A / OE-1A / OE-1B).
+  bc1aStats?: Bc1aStats
+  oe1aStats?: Oe1aStats
+  oe1bStats?: Oe1bStats
 }
 
 export interface SportState {
@@ -249,8 +315,77 @@ export interface SportState {
   timing: { classifications: TimingClassification[]; meta: any } | null
   portfolio: Portfolio | null
   aiSlips: AiSlips
-  aiSlipsSummary: { summary?: string; warnings?: string[] }
+  // Phase BNSB-1A — extend aiSlipsSummary with advisory metrics already
+  // computed by buildAiSlips (BC-8 bettorRealismScore, OE-11 slip stats,
+  // MLB-COV-1A stats). All optional — back-compat preserved.
+  aiSlipsSummary: {
+    summary?: string
+    warnings?: string[]
+    bettorRealismScore?: BettorRealismScore | null
+    oe11SlipStats?: Oe11SlipStats
+    mlbCovStats?: MlbCovStats
+  }
   featured?: Featured | null
+}
+
+// ── Phase BNSB-1A (FE-VBI-3) — canonical VBI verdict shape ──────────────────
+//
+// Mirrors backend `resolveSlipLegToPrediction.VERDICT_PAYLOAD_SHAPE` exactly.
+// Used by AnalyzeSlipView + VerdictCard to render screenshot/upload analysis.
+
+export type VbiSignalScope = "leg" | "pair" | "slip"
+export interface VbiSignal {
+  id: string
+  scope: VbiSignalScope
+  payload?: Record<string, unknown>
+}
+export interface VbiLegRef {
+  legIndex: number
+  reason?: string
+  [k: string]: unknown
+}
+export interface VbiVerdict {
+  verdictSummary: string
+  strongestLeg: VbiLegRef | null
+  weakestLeg:   VbiLegRef | null
+  contradictionFlags: Array<{ legA: number; legB: number; reason: string }>
+  ecologicalCoherence: number
+  covarianceProfile: {
+    positiveStacks: Array<{ legA: number; legB: number; score: number }>
+    pitcherHitterConflicts: Array<{ legA: number; legB: number }>
+    sharedGameSuppression:  Array<{ legA: number; legB: number }>
+  }
+  exploitabilityProfile: {
+    marketSupported: VbiLegRef[]
+    unsupportedSoloEdge: VbiLegRef[]
+  }
+  availabilityProfile: { hardDropOut: VbiLegRef[] }
+  fakeSafeRisk: { detected: boolean; reasons: string[] }
+  unresolvedLegs: Array<{ legIndex: number; unresolvedReason: string }>
+  signals: VbiSignal[]
+  bettorLanguageSummary: string[]
+}
+// FE-VBI-1 response shape from POST /api/ws/screenshots/ingest
+export interface ScreenshotIngestResult {
+  index: number
+  ok: boolean
+  slipId?: string
+  legs?: number
+  legsParsed?: Array<Record<string, unknown>>
+  sport?: string
+  archetype?: string
+  compositeScore?: number
+  sharpSignal?: boolean
+  baitSignal?: boolean
+  verdict?: VbiVerdict | null
+  error?: string
+}
+export interface ScreenshotIngestResponse {
+  ok: boolean
+  submissionId?: string
+  slipsIngested?: number
+  results?: ScreenshotIngestResult[]
+  error?: string
 }
 
 export interface BuilderLeg {

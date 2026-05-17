@@ -1,4 +1,15 @@
-import type { SportState, FeaturedPlay, AiSlip, Featured } from "../types"
+import type {
+  SportState,
+  FeaturedPlay,
+  AiSlip,
+  Featured,
+  BettorRealismScore,
+  Bc1aStats,
+  Oe1aStats,
+  Oe1bStats,
+  Oe11SlipStats,
+  MlbCovStats,
+} from "../types"
 import { HeroPickCard } from "../components/HeroPickCard"
 import { SpotlightCard } from "../components/SpotlightCard"
 // Phase Recommendation-Hierarchy-1A (HIER-4): deterministic decision ladder
@@ -114,6 +125,24 @@ export function Dashboard({ state }: { state: SportState | null }) {
           </span>
         )}
       </div>
+
+      {/* ── 2b. Phase BNSB-1A (BNSB-2 + BNSB-4): Intelligence + Realism strip ──
+          Surfaces backend stats already returned on payloads:
+            BC-8  bettorRealismScore                  (slip-pool composition advisory)
+            BC-1A bc1aStats                           (realism gate counter)
+            OE-1A oe1aStats                           (offensive ecology counter)
+            OE-1B oe1bStats                           (offensive reinforcement counter)
+            OE-11 oe11SlipStats                       (per-slip reinforcement counter)
+            MLB-COV-1A mlbCovStats                    (covariance suppression counter)
+          Pure observational. No fabrication; absent values render dimmed. */}
+      <IntelligenceStrip
+        bettorRealismScore={state.aiSlipsSummary?.bettorRealismScore ?? null}
+        bc1aStats={featured?.bc1aStats}
+        oe1aStats={featured?.oe1aStats}
+        oe1bStats={featured?.oe1bStats}
+        oe11SlipStats={state.aiSlipsSummary?.oe11SlipStats}
+        mlbCovStats={state.aiSlipsSummary?.mlbCovStats}
+      />
 
       {/* ── 3. RecommendationLadder — Phase Recommendation-Hierarchy-1A (HIER-4) ─
           Deterministic 7-slot decision hierarchy. Rendered BEFORE HeroPickCard
@@ -490,6 +519,164 @@ function MlbSpotlightGrid({
         emptyMessage="Still building the nightly board — check back once the full slate loads."
         accentColor="var(--ws-tier-elite)"
       />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Phase BNSB-1A (BNSB-2 + BNSB-4): IntelligenceStrip                          */
+/* Surfaces backend intelligence already returned on payloads but previously   */
+/* invisible to the operator. Two parts:                                       */
+/*   (a) BC-8 bettorRealismScore  → compact advisory badge                     */
+/*   (b) OE-1A / OE-1B / BC-1A / OE-11 / MLB-COV-1A counters → mini chip row   */
+/*                                                                             */
+/* Anti-fabrication doctrine: every value is rendered exactly as the backend   */
+/* returned it. Absent fields render as a dimmed "—" or the section is hidden  */
+/* outright. We never synthesize a score, never combine, never interpret.      */
+/* ─────────────────────────────────────────────────────────────────────────── */
+function IntelligenceStrip({
+  bettorRealismScore,
+  bc1aStats,
+  oe1aStats,
+  oe1bStats,
+  oe11SlipStats,
+  mlbCovStats,
+}: {
+  bettorRealismScore: BettorRealismScore | null | undefined
+  bc1aStats?:        Bc1aStats
+  oe1aStats?:        Oe1aStats
+  oe1bStats?:        Oe1bStats
+  oe11SlipStats?:    Oe11SlipStats
+  mlbCovStats?:      MlbCovStats
+}) {
+  // Realism badge presence: BC-8 returns a score iff bettorRealismScore is non-null
+  const hasRealism = !!bettorRealismScore && Number.isFinite(bettorRealismScore.score)
+
+  // Counter strip chips: each is rendered only when its source counter is > 0.
+  // We deliberately suppress 0-valued counters so the strip stays terse and
+  // honest — a chip's presence is itself the signal.
+  type Chip = { icon: string; label: string; value: number; tooltip: string }
+  const chips: Chip[] = []
+
+  // OE-1A — offensive ecology tagging + boosts (Featured-level)
+  if (oe1aStats?.explosiveEventsTagged)
+    chips.push({ icon: "💥", label: "explosive events tagged", value: oe1aStats.explosiveEventsTagged,
+      tooltip: "OE-1A: candidates tagged as explosive (HR / blowup / pressure environments)." })
+  if (oe1aStats?.hrCarryBoostsApplied)
+    chips.push({ icon: "🔋", label: "HR carry boosts", value: oe1aStats.hrCarryBoostsApplied,
+      tooltip: "OE-1A: small-cap boosts applied to props carried by HR-rich slates." })
+  if (oe1aStats?.runProductionBoostsApplied)
+    chips.push({ icon: "🏃", label: "run-production boosts", value: oe1aStats.runProductionBoostsApplied,
+      tooltip: "OE-1A: boosts applied where team-total run production was meaningfully favorable." })
+  if (oe1aStats?.pressureBoostsApplied)
+    chips.push({ icon: "🎯", label: "pressure boosts", value: oe1aStats.pressureBoostsApplied,
+      tooltip: "OE-1A: boosts applied where game-script pressure was meaningfully favorable." })
+  if (oe1aStats?.survivabilityDemotesApplied)
+    chips.push({ icon: "⬇", label: "survivability demotes", value: oe1aStats.survivabilityDemotesApplied,
+      tooltip: "OE-1A: soft demotes applied where the play required survival on a thin or hostile environment." })
+
+  // OE-1B — reinforcement & turnover (Featured-level)
+  if (oe1bStats?.pairReinforcementBoosts)
+    chips.push({ icon: "🔗", label: "pair reinforcement", value: oe1bStats.pairReinforcementBoosts,
+      tooltip: "OE-1B: pairwise reinforcement boosts where two props share a positive ecology." })
+  if (oe1bStats?.turnoverBoostsApplied)
+    chips.push({ icon: "🔄", label: "lineup-turnover boosts", value: oe1bStats.turnoverBoostsApplied,
+      tooltip: "OE-1B: boosts applied where lineup turnover surfaced opportunity." })
+  if (oe1bStats?.bullpenBoostsApplied)
+    chips.push({ icon: "🫳", label: "bullpen boosts", value: oe1bStats.bullpenBoostsApplied,
+      tooltip: "OE-1B: boosts applied where bullpen volatility surfaced opportunity." })
+  if (oe1bStats?.lineupTurnoverEventsHigh)
+    chips.push({ icon: "📋", label: "high-turnover events", value: oe1bStats.lineupTurnoverEventsHigh,
+      tooltip: "OE-1B: events flagged as high lineup turnover (advisory)." })
+
+  // BC-1A — realism gate suppressions
+  if (bc1aStats?.suppressedHrSuppressing)
+    chips.push({ icon: "🚫", label: "HR-suppressing rejects", value: bc1aStats.suppressedHrSuppressing,
+      tooltip: "BC-1A: realism-gate suppressions of props requiring HR-suppressing environments to hit." })
+  if (bc1aStats?.suppressedDesertTeamTotal)
+    chips.push({ icon: "🏜", label: "desert team-total rejects", value: bc1aStats.suppressedDesertTeamTotal,
+      tooltip: "BC-1A: realism-gate suppressions of props sitting on desert (low-run) team totals." })
+
+  // OE-11 — per-slip reinforcement (slip-level)
+  if (oe11SlipStats?.reinforcedSlips)
+    chips.push({ icon: "🧪", label: "reinforced slips", value: oe11SlipStats.reinforcedSlips,
+      tooltip: "OE-11: AI parlay slips where pairwise ecology reinforcement was applied to joint probability." })
+  if (oe11SlipStats?.totalReinforcementBoosts)
+    chips.push({ icon: "✚", label: "reinforcement boosts", value: oe11SlipStats.totalReinforcementBoosts,
+      tooltip: "OE-11: total pairwise reinforcement boost events across all AI slips this run." })
+
+  // MLB-COV-1A — covariance suppressions (slip-level)
+  if (mlbCovStats?.blockedSharedGameSuppression)
+    chips.push({ icon: "🛑", label: "shared-game blocks", value: mlbCovStats.blockedSharedGameSuppression,
+      tooltip: "MLB-COV-1A: pair combinations blocked because they shared a suppressed game environment." })
+  if (mlbCovStats?.blockedPitcherHitterConflict)
+    chips.push({ icon: "🆚", label: "pitcher-hitter conflicts", value: mlbCovStats.blockedPitcherHitterConflict,
+      tooltip: "MLB-COV-1A: pair combinations blocked because a pitcher-K and hitter-OVER conflicted." })
+
+  // If nothing surfaced from either source, render a single dimmed advisory
+  // line instead of a giant empty box — honest absence, no fabrication.
+  const showStrip = hasRealism || chips.length > 0
+  if (!showStrip) {
+    return (
+      <div style={{ marginBottom: 14, fontSize: 11, color: "var(--ws-dim, #888)", fontStyle: "italic" }}>
+        Intelligence strip: no realism advisory and no curated/ecology counters surfaced this run.
+      </div>
+    )
+  }
+
+  // Tone for the realism badge — purely advisory, derived from canonical
+  // 0-100 score thresholds. We do NOT redefine the score; we only choose a
+  // class name based on it for display contrast.
+  let realismTone = "neutral"
+  if (hasRealism) {
+    const s = bettorRealismScore!.score
+    if (s >= 70)      realismTone = "good"
+    else if (s >= 40) realismTone = "neutral"
+    else              realismTone = "watch"
+  }
+
+  return (
+    <div className="ws-risk-pulse" style={{ marginBottom: 14, alignItems: "center" }}>
+      {/* BC-8 bettorRealismScore badge */}
+      {hasRealism && (
+        <span
+          className={`ws-mood-pill ${realismTone}`}
+          title={
+            `BC-8 bettorRealismScore (slip-pool realism advisory).\n` +
+            `score ${bettorRealismScore!.score}/100\n` +
+            `depthCoverage ${bettorRealismScore!.depthCoverage}\n` +
+            `avgTeamTotal ${bettorRealismScore!.avgTeamTotal ?? "—"} (norm ${bettorRealismScore!.avgTeamTotalNorm})\n` +
+            `avgGameTotal ${bettorRealismScore!.avgGameTotal ?? "—"}\n` +
+            `gameTotalFavorability ${bettorRealismScore!.gameTotalFavorability}\n` +
+            `hrEnvFavorability ${bettorRealismScore!.hrEnvFavorability}\n` +
+            `sampleSize ${bettorRealismScore!.sampleSize}`
+          }
+        >
+          🧠 realism {bettorRealismScore!.score}/100
+        </span>
+      )}
+
+      {/* Counter strip — one chip per non-zero counter */}
+      {chips.length > 0 ? (
+        <span className="ws-risk-warnings" style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
+          {chips.map((c, i) => (
+            <span
+              key={`${c.label}-${i}`}
+              className="ws-risk-flag"
+              title={c.tooltip}
+              style={{ fontSize: 11 }}
+            >
+              {c.icon} {c.value} {c.label}
+            </span>
+          ))}
+        </span>
+      ) : (
+        hasRealism && (
+          <span className="ws-dim" style={{ fontSize: 11, fontStyle: "italic" }}>
+            no curated/ecology counters surfaced this run.
+          </span>
+        )
+      )}
     </div>
   )
 }

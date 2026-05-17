@@ -34,6 +34,12 @@ const { normalizeIngestedSlip, normalizeIngestedSlips } = require("./normalizeIn
 const { classifyIngestedSlip }                          = require("./classifyIngestedSlip")
 const { applyScreenshotSchema }                         = require("../../storage/screenshotSchema")
 const { tryGetDb }                                      = require("../../storage/db")
+// Phase BNSB-1A (FE-VBI-1): wire canonical VBI analyzeSlip into the ingest
+// response so the FE upload card receives the deterministic verdict payload
+// (verdictSummary / strongestLeg / weakestLeg / contradictionFlags /
+// ecologicalCoherence / signals / bettorLanguageSummary). Pure additive on
+// the existing response shape — back-compat preserved.
+const { analyzeSlip }                                   = require("../shared/buildSlipAnalysis")
 
 // ── Schema bootstrap ──────────────────────────────────────────────────────────
 // Called once when the router module is first loaded.
@@ -244,16 +250,37 @@ router.post("/ingest", (req, res) => {
 
       updateSlipStatus.run(normalized.id)
 
+      // Phase BNSB-1A (FE-VBI-1): compute canonical VBI verdict from the
+      // already-normalized slip + canonical sport/slateDate. Pure additive on
+      // the response. Tolerates failures (anti-fabrication: verdict=null when
+      // engine cannot resolve, never a synthesized verdict). Down-stream FE
+      // (AnalyzeSlipView / VerdictCard) reads the verdict to render the
+      // canonical 12-field shape. legs[] preserved on result so the FE can
+      // resolve strongestLeg.legIndex / weakestLeg.legIndex to player names.
+      let verdict = null
+      try {
+        verdict = analyzeSlip(normalized, {
+          sport:     normalized.sport,
+          slateDate: normalized.slate_date,
+          // shopMap + availabilityIndex absent at ingest time → analyzeSlip
+          // emits canonical `*_unavailable` slip signals (anti-fabrication).
+        })
+      } catch (e) {
+        verdict = null
+      }
+
       results.push({
         index:          i,
         ok:             true,
         slipId:         normalized.id,
         legs:           normalized.total_legs,
+        legsParsed:     normalized._legs || [],   // BNSB-1A: leg shape for FE legIndex resolution
         sport:          normalized.sport,
         archetype:      classification.archetype,
         compositeScore: classification.composite_score,
         sharpSignal:    !!classification.sharp_signal,
         baitSignal:     !!classification.bait_signal,
+        verdict,                                  // Phase BNSB-1A (FE-VBI-1): canonical VBI verdict payload
       })
     }
 

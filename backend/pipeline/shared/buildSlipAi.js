@@ -1017,6 +1017,12 @@ function buildSlipsForTier(tier, scoredLegs, ctx, maxSlips) {
       combinedAmericanOdds: validCombined.combinedAmericanOdds,
       combinedModelProb:   validCombined.combinedModelProb,
       rawCombinedModelProb: validCombined.rawCombinedModelProb,  // FIX 5: pre-calibration; auditable
+      // Phase BNSB-1A: expose OE-11 reinforcement transparency on every slip
+      // payload so the FE can render the auditable probability ladder
+      // (combined ← calibrated ← raw + reinforcement boost). Pure additive —
+      // both fields already exist on validCombined; just propagate them.
+      calibratedCombinedModelProb: validCombined.calibratedCombinedModelProb,
+      oe11ReinforcementBoost:      validCombined.oe11ReinforcementBoost,
       combinedImpliedProb: validCombined.combinedImpliedProb,
       edge:                validCombined.edge,
       ev:                  validCombined.ev,

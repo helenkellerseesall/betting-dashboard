@@ -182,9 +182,36 @@ function composeVerdictSummary(signals) {
   return null
 }
 
+// ── Phase BNSB-1A (FE-VBI-2) — SHORT_SIGNAL_PHRASES for chip labels ─────────
+//
+// Short operator-approved phrasings for compact UI affordances (contradiction
+// chips, ladder slot suffixes, signal badges). Sibling to SIGNAL_PHRASES;
+// every canonical signal id with a full phrase ALSO has a short variant.
+// NO LLM. NO generation. NO new logic. Pure dictionary.
+//
+// Doctrine: when a FE surface has space for ~5 words, it consumes
+// SHORT_SIGNAL_PHRASES[id]. When it has room for the full sentence, it
+// consumes SIGNAL_PHRASES[id]. Both trace to the same canonical signal id.
+const SHORT_SIGNAL_PHRASES = Object.freeze({
+  [SIGNAL_IDS.SHARED_GAME_SUPPRESSION_EXPOSURE]: "shared-game suppression",
+  [SIGNAL_IDS.MLB_PITCHER_HITTER_CONFLICT]:      "pitcher-K vs hitter-OVER conflict",
+  [SIGNAL_IDS.POSITIVE_OFFENSIVE_STACK]:         "same-team offensive stack",
+  [SIGNAL_IDS.MARKET_SUPPORTED_DISAGREEMENT]:    "market-supported edge",
+  [SIGNAL_IDS.UNSUPPORTED_SOLO_BOOK_EDGE]:       "single-book outlier",
+  [SIGNAL_IDS.HARD_DROP_OUT_PLAYER]:             "player is OUT",
+  [SIGNAL_IDS.UNRESOLVED_LEG]:                   "unmapped leg",
+  [SIGNAL_IDS.MARKET_CONTEXT_UNAVAILABLE]:       "no live market context",
+  [SIGNAL_IDS.AVAILABILITY_CONTEXT_UNAVAILABLE]: "no availability context",
+  [SIGNAL_IDS.FAKE_SAFE_SAME_GAME_EXPOSURE]:     "fake-safe ecological exposure",
+  [SIGNAL_IDS.COHERENT_OFFENSIVE_STACK]:         "coherent offensive stack",
+  [SIGNAL_IDS.STRUCTURAL_CONTRADICTION]:         "structural contradiction",
+  [SIGNAL_IDS.NO_REPO_INTELLIGENCE_AVAILABLE]:   "no repo-native intelligence",
+})
+
 module.exports = {
   SIGNAL_IDS,
   SIGNAL_PHRASES,
+  SHORT_SIGNAL_PHRASES,        // Phase BNSB-1A (FE-VBI-2)
   PRIORITY_ORDER,
   renderVerdictPhrases,
   composeVerdictSummary,

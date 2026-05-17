@@ -1,7 +1,54 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17.**
 
 > If you remember nothing else: every operational verb is now an `npm run X` command. Run them from `backend/`. They print what they're about to do before doing it. No magic, no hidden state.
+
+---
+
+## BETTOR-NATIVE SURFACE BRIDGE DOCTRINE (Phase Bettor-Native-Surface-Bridge-1A, 2026-05-17)
+
+**FE workstation must surface every canonical signal the backend already produces — never re-derive, never synthesize, never invent. When backend ships intelligence, the FE bridges it; the FE never "fills in" missing values.**
+
+After 20 backend-side phases established the intelligence substrate (BC-1A realism / OE-1A offensive ecology / OE-1B reinforcement / MLB-COV-1A covariance / VBI-1A canonical verdict resolver), `docs/STRATEGIC_PRODUCT_AUDIT_2026-05-17.md` identified the next-leverage gap as the FE workstation surface, not new backend capability. BNSB-1A is the pure FE-bridge phase that closes that gap.
+
+| Lever | Doctrine | Source authority |
+|---|---|---|
+| **BNSB-1 — RecommendationLadder slots 8+9** | 9-slot fixed-cardinality ladder; 💡 BELIEVABLE UPSIDE (canonical `bestBelievableUpside` from BC-6) + 💥 EXPLOSIVE UPSIDE (canonical `bestExplosiveUpside` from OE-7). Honest "(no qualifying X tonight)" on empty — never fabricated. | `frontend/src/workstation/components/RecommendationLadder.tsx` POSITIVE_SLOTS extension. |
+| **BNSB-2 — bettorRealismScore advisory pill** | 🧠 mood-pill rendering BC-8 score 0-100 with full canonical sub-component tooltip; tone class derived from canonical score (≥70 good / ≥40 neutral / else watch). Pure observational; FE never recomputes. | `IntelligenceStrip` in `frontend/src/workstation/sections/Dashboard.tsx`; consumes `state.aiSlipsSummary.bettorRealismScore`. |
+| **BNSB-3 — bettorLanguageSummary chips** | 💬 chip row on SlipCard; renders only when backend supplies non-empty array (Array.isArray + length > 0). | `frontend/src/workstation/sections/AiSlipsView.tsx` SlipCard. |
+| **BNSB-4 — Intelligence accounting strip** | 13 counter chips across 5 phases (OE-1A 5 + OE-1B 4 + BC-1A 2 + OE-11 2 + MLB-COV-1A 2); truthy > 0 guard suppresses zero counters; fully-empty payload → single dimmed advisory line. | Same `IntelligenceStrip` component. |
+| **BNSB-5 — Reinforcement transparency ladder** | raw → calibrated → ✚ reinforced → final on SlipCard; gated on `Number.isFinite` per canonical field; OE-11 boost ✚ green when > 0, italic dim "no pairwise reinforcement applied" when explicitly 0. | `frontend/src/workstation/sections/AiSlipsView.tsx` SlipCard. |
+| **BNSB-6 — AnalyzeSlipView + VerdictCard** | Operator pastes JSON or free text → `POST /api/ws/screenshots/ingest` pure passthrough; backend computes verdict; VerdictCard renders canonical 12-field VBI shape. FE does ZERO slip parsing (free text passes as `{ rawText }` for backend OCR-style parse). | NEW `frontend/src/workstation/sections/AnalyzeSlipView.tsx` + NEW `frontend/src/workstation/components/VerdictCard.tsx`. |
+| **BNSB-7 — Analyze Slip nav tab** | "📸 Analyze Slip" tab in Workstation NAV + SectionId union extension + section router gate. | `frontend/src/workstation/Workstation.tsx`. |
+
+**Supporting backend payload propagation (distinct from "backend logic change which is forbidden"):**
+- FE-VBI-1 (`backend/pipeline/screenshots/screenshotRoutes.js`): returns `verdict` + `legsParsed` per ingest result. Anti-fabrication: `verdict = null` on resolver failure — never synthesized.
+- FE-VBI-2 (`backend/pipeline/shared/bettorLanguage.js`): NEW `SHORT_SIGNAL_PHRASES` frozen sibling map (14 canonical SIGNAL_IDS → ≤50-char chip labels; cardinality matches `SIGNAL_PHRASES` exactly).
+- `backend/pipeline/shared/buildSlipAi.js`: slip payload propagates `calibratedCombinedModelProb` + `oe11ReinforcementBoost` + `rawCombinedModelProb`.
+- `backend/routes/workstationRoutes.js`: `aiSlipsSummary` extended with `bettorRealismScore` + `oe11SlipStats` + `mlbCovStats`.
+
+**Verify the bridge on demand:**
+```bash
+node backend/scripts/verifyBnsb1A.js
+# Expected: 131 / 131 assertions PASS
+
+cd frontend && npx tsc --noEmit
+# Expected: clean (no output)
+```
+
+**Anti-fabrication checklist (operator-enforced throughout):**
+1. FE NEVER synthesizes a verdict, score, or counter. Every value derives from a backend canonical field rendered verbatim.
+2. Counter chips render only when value > 0 (each chip's presence is itself the signal). Zero-valued counters never render.
+3. Reinforcement ladder steps render only when `Number.isFinite` passes on the underlying canonical field. Absent fields skip the step.
+4. `bettorLanguageSummary` chip row renders only when backend supplies a non-empty array.
+5. VerdictCard renders "(none surfaced)" for every absent section. Never invents a stack, conflict, or signal.
+6. AnalyzeSlipView free-text path falls through as `{ rawText }` — FE never parses player names, prop types, sides, or lines.
+7. `verdict = null` from backend renders as "No verdict returned for this slip" — never synthesized.
+
+**Future BNSB phases (operator-deferred, NOT shipped here):**
+- BNSB-FE-VBI-screenshot-OCR — pasting an image (PNG/JPG) instead of JSON.
+- BNSB-VBI-verdict-persistence — verdict outcomes for longitudinal grading.
+- BNSB-personal-history-bridge — surface operator's settled-slip history alongside the verdict.
 
 ---
 

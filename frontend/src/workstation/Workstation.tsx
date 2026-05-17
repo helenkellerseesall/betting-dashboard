@@ -11,8 +11,13 @@ import { PortfolioView } from "./sections/PortfolioView"
 import { BetBuilderDock, BetBuilderView } from "./sections/BetBuilderView"
 import { FirstBasketView } from "./sections/FirstBasketView"
 import { ProcessReviewView } from "./sections/ProcessReviewView"
+// Phase BNSB-1A (BNSB-6 / FE-VBI-5..8): Analyze Slip view — operator pastes
+// a slip JSON / free-text and receives canonical VBI verdict from backend.
+import { AnalyzeSlipView } from "./sections/AnalyzeSlipView"
 
-type SectionId = "dashboard" | "slate" | "slips" | "shopping" | "portfolio" | "builder" | "fb" | "review"
+type SectionId =
+  | "dashboard" | "slate" | "slips" | "shopping" | "portfolio"
+  | "builder" | "fb" | "review" | "analyze"
 
 const NAV: { id: SectionId; label: string; icon: string }[] = [
   { id: "dashboard", label: "Tonight's Edge",  icon: "⚡" },
@@ -23,6 +28,8 @@ const NAV: { id: SectionId; label: string; icon: string }[] = [
   { id: "builder",   label: "Bet Builder",      icon: "🛠️" },
   { id: "fb",        label: "First Basket",     icon: "🏀" },
   { id: "review",    label: "Edge Log",         icon: "📈" },
+  // Phase BNSB-1A (BNSB-7): bettor-native slip analysis surface.
+  { id: "analyze",   label: "Analyze Slip",     icon: "📸" },
 ]
 
 export function Workstation() {
@@ -103,6 +110,7 @@ export function Workstation() {
                 {section === "portfolio" && <PortfolioView state={state} />}
                 {section === "fb"        && <FirstBasketView state={state} />}
                 {section === "review"    && <ProcessReviewView />}
+                {section === "analyze"   && <AnalyzeSlipView state={state} />}
               </div>
               <BetBuilderDock />
             </div>

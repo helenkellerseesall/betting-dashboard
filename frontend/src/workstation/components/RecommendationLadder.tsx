@@ -91,6 +91,29 @@ const POSITIVE_SLOTS: SlotSpec[] = [
     emptyLine: "(no qualifying upside play tonight)",
     variant: "positive",
   },
+  // Phase BNSB-1 / BC-6: slot 8 — Believable Upside.
+  // Backend buildRecommendationLadder picks bestBelievableUpside from BC-5's
+  // buildBelievableUpsideTickets bucket (gates: depth ∈ {top, middle} AND
+  // impliedTeamTotal ≥ 4.5 AND hrEnvironmentTag !== HR_SUPPRESSING).
+  // Empty-doctrine identical to other 7 slots — honest "(no qualifying X tonight)".
+  {
+    key: "bestBelievableUpside",
+    icon: "💡",
+    label: "BELIEVABLE UPSIDE",
+    emptyLine: "(no qualifying believable upside tonight)",
+    variant: "positive",
+  },
+  // Phase BNSB-1 / OE-7: slot 9 — Explosive Upside.
+  // Backend buildRecommendationLadder picks bestExplosiveUpside from OE-6's
+  // buildExplosiveUpsideTickets bucket (events tagged EXPLOSIVE per OE-5:
+  // gameTotal ≥ 9.5 + avg(impliedTeamTotal) ≥ 4.5 + wind-out + no HR_SUPPRESSING).
+  {
+    key: "bestExplosiveUpside",
+    icon: "💥",
+    label: "EXPLOSIVE UPSIDE",
+    emptyLine: "(no qualifying explosive environment tonight)",
+    variant: "positive",
+  },
 ]
 
 const AVOID_SLOTS: SlotSpec[] = [
@@ -111,12 +134,14 @@ const AVOID_SLOTS: SlotSpec[] = [
 ]
 
 export function RecommendationLadder({ ladder }: Props) {
-  // Defensive: backend always emits the 7-key object, but tolerate undefined
-  // during transitional payloads. Empty doctrine is preserved either way.
+  // Defensive: backend now emits the 9-key object (Phase BNSB-1 / BC-6 + OE-7);
+  // tolerate undefined during transitional payloads. Empty doctrine is preserved
+  // either way — slots 8 + 9 render honest "(no qualifying X tonight)" lines.
   const safeLadder: Ladder = ladder ?? {
     bestOverall: null, safestPlay: null, bestUpsidePlay: null,
     bestBalancedPlay: null, bestDisagreement: null,
     mostOverpricedAvoid: null, highestTrapRiskAvoid: null,
+    bestBelievableUpside: null, bestExplosiveUpside: null,
   }
 
   return (
@@ -143,7 +168,7 @@ export function RecommendationLadder({ ladder }: Props) {
           <SlotCard
             key={spec.key as string}
             spec={spec}
-            play={safeLadder[spec.key]}
+            play={safeLadder[spec.key] ?? null}
           />
         ))}
       </div>
@@ -163,7 +188,7 @@ export function RecommendationLadder({ ladder }: Props) {
           <SlotCard
             key={spec.key as string}
             spec={spec}
-            play={safeLadder[spec.key]}
+            play={safeLadder[spec.key] ?? null}
           />
         ))}
       </div>
