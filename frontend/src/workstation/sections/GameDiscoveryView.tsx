@@ -16,6 +16,16 @@ import {
 import { fmtOdds, fmtPct, teamAbbrev, compactStat } from "../utils"
 import { useBuilder } from "../builderContext"
 import { ScreenshotIntake } from "../components/ScreenshotIntake"
+// Phase P1A-T1 — canonical FeaturedPlay overlap-helper authority. Single
+// source of overlap lookups. No approximate matching; canonical id join only.
+import {
+  buildFeaturedOverlapIndex,
+  lookupOverlap,
+  type FeaturedOverlapIndex,
+} from "../canonicalOverlap"
+// Phase P1A-T3 — canonical conviction-render authority (immutable). Rendered
+// only when canonicalOverlap returns a non-null overlap; absence is honest.
+import { ConvictionNote } from "../components/ConvictionNote"
 
 /**
  * Phase BNDS-1A — Bettor-Native Discovery Surface.
@@ -73,6 +83,16 @@ export function GameDiscoveryView({ state }: { state: SportState | null }) {
       g.topPlayers.some((p) => p.player.toLowerCase().includes(q))
     )
   }, [games, lens, search])
+
+  // Phase P1A-T1 — canonical FeaturedPlay overlap index, built once per
+  // `state.featured` reference. Threaded read-only through GameCard →
+  // PropRails/PropRail and GameCard → LadderExplorer/PlayerLadderBlock so
+  // those battlefield surfaces can mark canonical-edge overlaps without any
+  // Candidate widening, FE-side recomputation, or approximate matching.
+  const overlapIndex = useMemo(
+    () => buildFeaturedOverlapIndex(state?.featured ?? null),
+    [state?.featured],
+  )
 
   if (!state) return <div className="ws-empty">Loading slate…</div>
 
@@ -139,6 +159,7 @@ export function GameDiscoveryView({ state }: { state: SportState | null }) {
               expanded={expandedGame === g.eventId}
               onToggle={() => setExpandedGame((prev) => prev === g.eventId ? null : g.eventId)}
               candidates={candidates}
+              overlapIndex={overlapIndex}
             />
           ))}
         </div>
@@ -160,11 +181,13 @@ function GameCard({
   expanded,
   onToggle,
   candidates,
+  overlapIndex,
 }: {
-  eco:        GameEcosystem
-  expanded:   boolean
-  onToggle:   () => void
-  candidates: Candidate[]
+  eco:          GameEcosystem
+  expanded:     boolean
+  onToggle:     () => void
+  candidates:   Candidate[]
+  overlapIndex: FeaturedOverlapIndex
 }) {
   const sentence = composeExplosiveSentence(eco)
 
@@ -285,10 +308,10 @@ function GameCard({
       {expanded && (
         <div style={{ marginTop: 10, borderTop: "1px solid var(--ws-border, #333)", paddingTop: 10 }}>
           {/* BNDS-1A-2: Prop family rails */}
-          <PropRails candidates={inGame} sport={eco.sport} />
+          <PropRails candidates={inGame} sport={eco.sport} overlapIndex={overlapIndex} />
 
           {/* BNDS-1A-3: Ladder explorer */}
-          <LadderExplorer eco={eco} candidates={candidates} />
+          <LadderExplorer eco={eco} candidates={candidates} overlapIndex={overlapIndex} />
         </div>
       )}
     </div>
@@ -300,7 +323,15 @@ function GameCard({
 /* Each rail collapsed by default; expandable; sortable; locally searchable.    */
 /* Critical anti-curation: never hard-filters props upstream.                   */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-function PropRails({ candidates, sport }: { candidates: Candidate[]; sport: "mlb" | "nba" | null }) {
+function PropRails({
+  candidates,
+  sport,
+  overlapIndex,
+}: {
+  candidates:   Candidate[]
+  sport:        "mlb" | "nba" | null
+  overlapIndex: FeaturedOverlapIndex
+}) {
   const byFamily = useMemo(() => groupByPropFamily(candidates), [candidates])
   const railOrder = PROP_FAMILIES.filter((d) => d.sport === "any" || (sport == null) || d.sport === sport)
 
@@ -312,7 +343,15 @@ function PropRails({ candidates, sport }: { candidates: Candidate[]; sport: "mlb
       {railOrder.map((def) => {
         const list = byFamily.get(def.key) || []
         if (list.length === 0) return null
-        return <PropRail key={def.key} icon={def.icon} label={def.label} candidates={list} />
+        return (
+          <PropRail
+            key={def.key}
+            icon={def.icon}
+            label={def.label}
+            candidates={list}
+            overlapIndex={overlapIndex}
+          />
+        )
       })}
     </div>
   )
@@ -322,10 +361,12 @@ function PropRail({
   icon,
   label,
   candidates,
+  overlapIndex,
 }: {
-  icon:       string
-  label:      string
-  candidates: Candidate[]
+  icon:         string
+  label:        string
+  candidates:   Candidate[]
+  overlapIndex: FeaturedOverlapIndex
 }) {
   const [open, setOpen]     = useState(false)
   const [sort, setSort]     = useState<"edge" | "odds" | "modelProb" | "line">("edge")
@@ -400,34 +441,54 @@ function PropRail({
               const id = c.id || `${c.eventId}|${c.player}|${c.statFamily}|${c.side}|${c.line ?? ""}|${c.book ?? ""}`
               const added = builder.isLegAdded(id)
               const edge = Number(c.edge ?? c.edgeProbability ?? 0)
+              // Phase P1A-T1 — canonical overlap lookup. Join key is the
+              // canonical Candidate.id (NOT the composite row-key above);
+              // approximate matching is forbidden by overlap-helper doctrine.
+              const overlap = lookupOverlap(overlapIndex, c)
               return (
                 <div
                   key={id}
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto auto auto auto",
-                    gap: 6,
-                    fontSize: 11,
                     padding: "2px 0",
                     borderBottom: "1px solid var(--ws-border-faint, #222)",
                   }}
                 >
-                  <span>
-                    <span className="ws-text-strong">{c.player}</span>
-                    {c.team && <span className="ws-dim"> {teamAbbrev(c.team)}</span>}
-                    <span className="ws-dim"> · {c.side}{c.line != null ? ` ${c.line}` : ""}</span>
-                  </span>
-                  <span className="ws-mono">{fmtOdds(c.odds ?? c.oddsAmerican)}</span>
-                  <span className={edge >= 0 ? "ws-pos" : "ws-neg"}>{fmtPct(edge)}</span>
-                  <span className="ws-dim">{c.book || c.sportsbook || ""}</span>
-                  <button
-                    className={added ? "ws-btn ws-btn-danger ws-btn-icon" : "ws-btn ws-btn-icon"}
-                    onClick={() => added ? builder.removeLeg(id) : builder.addLegFromCandidate(c)}
-                    title={added ? "Remove from builder" : "Add to builder"}
-                    style={{ fontSize: 11 }}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto auto auto auto",
+                      gap: 6,
+                      fontSize: 11,
+                    }}
                   >
-                    {added ? "−" : "+"}
-                  </button>
+                    <span>
+                      <span className="ws-text-strong">{c.player}</span>
+                      {c.team && <span className="ws-dim"> {teamAbbrev(c.team)}</span>}
+                      <span className="ws-dim"> · {c.side}{c.line != null ? ` ${c.line}` : ""}</span>
+                    </span>
+                    <span className="ws-mono">{fmtOdds(c.odds ?? c.oddsAmerican)}</span>
+                    <span className={edge >= 0 ? "ws-pos" : "ws-neg"}>{fmtPct(edge)}</span>
+                    <span className="ws-dim">{c.book || c.sportsbook || ""}</span>
+                    <button
+                      className={added ? "ws-btn ws-btn-danger ws-btn-icon" : "ws-btn ws-btn-icon"}
+                      onClick={() => added ? builder.removeLeg(id) : builder.addLegFromCandidate(c)}
+                      title={added ? "Remove from builder" : "Add to builder"}
+                      style={{ fontSize: 11 }}
+                    >
+                      {added ? "−" : "+"}
+                    </button>
+                  </div>
+                  {/* Phase P1A-T1 — canonical ConvictionNote rendered ONLY when
+                      this Candidate has a canonical FeaturedPlay overlap. Helper
+                      owns absence behavior; we gate the call on overlap presence
+                      to avoid even constructing the element for the non-overlap
+                      majority (battlefield density preservation). */}
+                  {overlap && (
+                    <ConvictionNote
+                      convictionNote={overlap.convictionNote}
+                      convictionReasonTag={overlap.convictionReasonTag}
+                    />
+                  )}
                 </div>
               )
             })}
@@ -448,7 +509,15 @@ function PropRail({
 /* Surfaces per-player relationship ecosystem: families covered + sides +      */
 /* survivability + ecology support + contradiction warnings. NOT prediction.   */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-function LadderExplorer({ eco, candidates }: { eco: GameEcosystem; candidates: Candidate[] }) {
+function LadderExplorer({
+  eco,
+  candidates,
+  overlapIndex,
+}: {
+  eco:          GameEcosystem
+  candidates:   Candidate[]
+  overlapIndex: FeaturedOverlapIndex
+}) {
   const ladders = useMemo(() => buildPlayerLadders(eco, candidates), [eco, candidates])
   // Surface ladders with at least 2 legs (truly "ladders"); single-prop players
   // omitted to focus this surface on ecosystem density.
@@ -470,12 +539,20 @@ function LadderExplorer({ eco, candidates }: { eco: GameEcosystem; candidates: C
       <div className="ws-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
         Ladder explorer ({surfaceable.length} player{surfaceable.length === 1 ? "" : "s"})
       </div>
-      {surfaceable.map((l) => <PlayerLadderBlock key={l.player} ladder={l} />)}
+      {surfaceable.map((l) => (
+        <PlayerLadderBlock key={l.player} ladder={l} overlapIndex={overlapIndex} />
+      ))}
     </div>
   )
 }
 
-function PlayerLadderBlock({ ladder }: { ladder: PlayerLadder }) {
+function PlayerLadderBlock({
+  ladder,
+  overlapIndex,
+}: {
+  ladder:       PlayerLadder
+  overlapIndex: FeaturedOverlapIndex
+}) {
   const [open, setOpen] = useState(false)
   const survColor =
     ladder.survivability === "high"    ? "var(--ws-positive)" :
@@ -515,23 +592,36 @@ function PlayerLadderBlock({ ladder }: { ladder: PlayerLadder }) {
       </button>
       {open && (
         <div style={{ borderTop: "1px solid var(--ws-border, #333)", padding: "4px 8px" }}>
-          {ladder.legs.map((l, i) => (
-            <div
-              key={i}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto auto auto",
-                gap: 6,
-                fontSize: 11,
-                padding: "2px 0",
-              }}
-            >
-              <span>{compactStat(l.statFamily || l.propType)} {l.side}{l.line != null ? ` ${l.line}` : ""}</span>
-              <span className="ws-mono">{fmtOdds(l.odds ?? l.oddsAmerican)}</span>
-              <span className={Number(l.edge ?? 0) >= 0 ? "ws-pos" : "ws-neg"}>{fmtPct(Number(l.edge ?? 0))}</span>
-              <span className="ws-dim">{l.book || l.sportsbook || ""}</span>
-            </div>
-          ))}
+          {ladder.legs.map((l, i) => {
+            // Phase P1A-T1 — canonical overlap lookup on the leg Candidate.
+            // Same join-key doctrine as PropRail (Candidate.id only).
+            const overlap = lookupOverlap(overlapIndex, l)
+            return (
+              <div key={i} style={{ padding: "2px 0" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto auto",
+                    gap: 6,
+                    fontSize: 11,
+                  }}
+                >
+                  <span>{compactStat(l.statFamily || l.propType)} {l.side}{l.line != null ? ` ${l.line}` : ""}</span>
+                  <span className="ws-mono">{fmtOdds(l.odds ?? l.oddsAmerican)}</span>
+                  <span className={Number(l.edge ?? 0) >= 0 ? "ws-pos" : "ws-neg"}>{fmtPct(Number(l.edge ?? 0))}</span>
+                  <span className="ws-dim">{l.book || l.sportsbook || ""}</span>
+                </div>
+                {/* Phase P1A-T1 — canonical ConvictionNote on the leg row when
+                    canonical FeaturedPlay overlap exists for this Candidate. */}
+                {overlap && (
+                  <ConvictionNote
+                    convictionNote={overlap.convictionNote}
+                    convictionReasonTag={overlap.convictionReasonTag}
+                  />
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

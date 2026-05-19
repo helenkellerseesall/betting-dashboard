@@ -11,6 +11,10 @@ import {
   tooltipForProcessNote,
   tooltipForAvoidReason,
 } from "../tooltips"
+// Phase P1A-T3: conviction-render canonical authority extracted to
+// ./ConvictionNote. Byte-identical render preserved; same helper now
+// propagates to RecommendationLadder slot picks.
+import { ConvictionNote } from "./ConvictionNote"
 
 interface Props {
   icon: string
@@ -125,6 +129,16 @@ export function FeaturedCard({ icon, title, plays, emptyMessage, showOdds = true
                 — {p.processNote}
               </div>
             )}
+            {/* Phase Player-Conviction-Engine-1A (PCE-1A) — canonical render
+                authority lives in ./ConvictionNote (extracted Phase P1A-T3).
+                Byte-identical render preserved: typography, spacing, color
+                authority, tooltip, and absence behavior all owned by the
+                helper. Same canonical surface now propagates to
+                RecommendationLadder slot picks via the same helper. */}
+            <ConvictionNote
+              convictionNote={p.convictionNote}
+              convictionReasonTag={p.convictionReasonTag}
+            />
             {p.avoidReason && (
               <div className="ws-feat-reason" style={{ fontStyle: "italic", color: "var(--ws-warn)" }} title={tooltipForAvoidReason(p.avoidReason)}>
                 ⚠ {p.avoidReason}

@@ -13,6 +13,11 @@ import {
   tooltipForAttackNote,
   tooltipForAvoidReason,
 } from "../tooltips"
+// Phase P1A-T3: canonical conviction-render surface (extracted from
+// FeaturedCard). Slot picks render the IDENTICAL conviction note via the
+// shared helper — same typography, color authority, tooltip, and absence
+// behavior. No parallel translation; no FE reinterpretation.
+import { ConvictionNote } from "./ConvictionNote"
 
 /**
  * RecommendationLadder — Phase Recommendation-Hierarchy-1A (HIER-3).
@@ -332,6 +337,14 @@ function SlotCard({ spec, play }: { spec: SlotSpec; play: FeaturedPlay | null })
           — {play.processNote}
         </div>
       )}
+      {/* Phase P1A-T3: canonical conviction-render propagation. Uses the
+          ConvictionNote helper verbatim — same DOM, same color authority,
+          same tooltip, same absence behavior as FeaturedCard. No FE
+          reinterpretation, no synthesized values, no phrase widening. */}
+      <ConvictionNote
+        convictionNote={play.convictionNote}
+        convictionReasonTag={play.convictionReasonTag}
+      />
       {play.avoidReason && (
         <div
           className="ws-rec-slot-avoid-reason"
