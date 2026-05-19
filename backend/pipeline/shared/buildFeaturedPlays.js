@@ -51,6 +51,17 @@ const {
   recordPceStat,
 } = require("./playerConvictionEngine")
 
+// Phase CA-3d Item 0001 Increment 3e — Survivability dimension gate.
+// Sport-aware dispatcher; admits via canonical predicate or neutral-fallback.
+// Anti-sterilization: gate FLAGS via metadata, never removes candidates.
+const { survivabilityGate: _survGate } = require("./survivabilityGate")
+const { SIGNAL_IDS: _SURV_SIG_IDS, SIGNAL_PHRASES: _SURV_PHRASES } = require("./bettorLanguage")
+function _survPhrase(reasonTag) {
+  if (!reasonTag) return null
+  const sigId = _SURV_SIG_IDS[reasonTag]
+  return sigId ? (_SURV_PHRASES[sigId] || null) : null
+}
+
 // ── Phase Market-Exploitation-1A constants (EXPL-1 + EXPL-4) ─────────────────
 //
 // EXPL-1 (consensus-support gate on disagreement / stale-line surfaces):
@@ -2153,6 +2164,24 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
     // bypassed (pitcher / under / no canonical signals). NEVER LLM-derived.
     ...(score.factors?.pcePhrase    ? { convictionNote:     score.factors.pcePhrase } : {}),
     ...(score.factors?.pceReasonTag ? { convictionReasonTag: score.factors.pceReasonTag } : {}),
+    // Phase CA-3d Item 0001 Increment 3e — survivability gate output emitted
+    // onto the FeaturedPlay. Anti-sterilization: gate FLAGS via metadata, never
+    // removes the candidate (this compactPlay function is called per scored
+    // candidate; the gate's admit:false result attaches a `fails` flag but the
+    // play still emits to state.featured). Law 26: gate consumes structural
+    // signals only; no volatility input. Law 27: no per-player references.
+    // Law 30: signals.survives axis populated when gate fires non-neutral.
+    ...(function () {
+      const surv = _survGate(c, "mlb")
+      const flag = surv && surv.predicate && surv.predicate.startsWith("mlb-")
+        ? (surv.admit ? "passes" : "fails")
+        : undefined
+      if (!flag || !surv.reasonTag) return {}
+      const out = { survivabilityFlag: flag, survivabilityReasonTag: surv.reasonTag }
+      const phrase = _survPhrase(surv.reasonTag)
+      if (phrase) out.survivabilityPhrase = phrase
+      return out
+    })(),
   }
 }
 
