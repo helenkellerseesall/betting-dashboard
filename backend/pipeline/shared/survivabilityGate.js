@@ -165,15 +165,14 @@ const NEUTRAL_RESULT_SHELL = Object.freeze({
  * @param {string} sport     - Sport tag ("mlb" | "nba" | future)
  * @returns {SurvivabilityGateResult}
  */
+const { mlbSurvivabilityGate } = require("../mlb/mlbSurvivabilityGate")
+
 function survivabilityGate(candidate, sport) {
-  // Increment 2 shell: admit-all for every input.
-  //
-  // The `candidate` and `sport` parameters are part of the canonical signature
-  // (verifier-asserted) but no semantic consumption fires in this shell. They
-  // are declared via `void` to make the no-op explicit and prevent lint
-  // warnings about unused parameters.
-  void candidate
-  void sport
+  // Increment 3 cognition activation: sport-aware dispatch to canonical
+  // sport-specific predicates. MLB-first per Item 0001 scope.
+  if (sport === "mlb") return mlbSurvivabilityGate(candidate)
+  // Other sports admit by neutral fallback until sport-specific predicates ship.
+  // (NBA implementation = Item 0002 sport-extension; not in Item 0001 scope.)
   return NEUTRAL_RESULT_SHELL
 }
 
@@ -195,7 +194,7 @@ module.exports = {
     typeIsolation: "SurvivabilityGateResult is a sidecar shape; never widens Candidate or FeaturedPlay (Laws 18 + 21)",
     fourAxisScaffold: ["who", "when", "survives", "marketEdge"],
     sportsSupportedNeutralAdmit: ["mlb", "nba", "any-other"],
-    sportsWithSpecificPredicates: [],    // empty in Increment 2; Increment 3 adds "mlb"
+    sportsWithSpecificPredicates: ["mlb"],    // Increment 3 wired MLB; NBA = Item 0002
     forbiddenInThisIncrement: Object.freeze([
       "qualification-semantics",
       "threshold-activation",
