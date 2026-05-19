@@ -951,6 +951,316 @@ Items 0002–0005+ are NOT entered into the queue yet. They are listed here to c
 
 — end of Item 0001 doctrine-pilot entry —
 
+---
+
+## STAGE D — ITEM 0001 CALIBRATION PACKET (2026-05-18)
+
+**Stage scope:** empirical calibration packet for Item 0001 (Survivability reinterpretation alignment). Per Law 29, per-prop-family thresholds are operator-approved canonicals; INFRA / GOVERNANCE produces empirical-derivation packets; the operator approves. Zero implementation. Zero synthesized thresholds without empirical grounding. Where empirical data is insufficient, that gap is surfaced honestly per anti-fabrication doctrine.
+
+**Empirical baseline:** 2026-05-17 MLB slate (the PCE-1A seal date). 299 picks in `mlb_picks_2026-05-17.json`; 149 entries in `mlb_tracked_best_2026-05-17.json` (curated subset).
+
+### D.1 — Current edge-robustness distribution inventory per MLB prop family
+
+Computed from `backend/runtime/tracking/mlb_tracked_best_2026-05-17.json` (149 curated entries) and `backend/runtime/tracking/mlb_picks_2026-05-17.json` (299 broader picks). Side breakdown: **100% Over · 0% Under** on the 2026-05-17 slate.
+
+| Family | Side | N (curated) | N (picks) | edge p25 / p50 / p75 | modelProb p25 / p50 / p75 | odds p25 / p50 / p75 (American) | bookCount |
+|---|---|---|---|---|---|---|---|
+| Total Bases | Over | 43 | 74 | 0.090 / 0.090 / 0.102 | 0.248 / 0.257 / 0.290 | +470 / +500 / +554 | 5 books |
+| Home Runs | Over | 41 | 77 | 0.090 / 0.090 / 0.104 | 0.250 / 0.251 / 0.272 | +500 / +525 / +575 | 5 books |
+| Hits | Over | 33 | 74 | 0.090 / 0.117 / 0.128 | 0.288 / 0.308 / 0.337 | +358 / +386 / +500 | 5 books |
+| RBIs | Over | 32 | 74 | 0.123 / 0.135 / 0.140 | 0.275 / 0.290 / 0.303 | +480 / +539 / +593 | 5 books |
+| (any other family) | — | 0 | 0 | (no data) | (no data) | (no data) | — |
+| Pitcher Outs / Strikeouts | (any) | 0 | 0 | **STRUCTURALLY ABSENT** from curated layer | — | — | — |
+| Doubles / Triples / XBH / First Basket | (any) | 0 | 0 | **STRUCTURALLY ABSENT** | — | — | — |
+| Under (any family) | Under | 0 | 0 | **STRUCTURALLY ABSENT** from this slate's curated pool | — | — | — |
+
+**Aggregate empirical observations (149 curated, 2026-05-17):**
+- Overall **modelProb**: min 0.190 · p10 0.237 · p25 0.254 · p50 0.278 · p75 0.300 · max 0.424 (narrow band 24–30%; structurally low)
+- Overall **edge**: min 0.079 · p10 0.090 · p25 0.090 · p50 0.090 · p75 0.126 · max 0.155 (tight cluster around 9% edge — many at the minimum threshold)
+- Overall **odds**: min +190 · p25 +400 · p50 +500 · p75 +566 · max +900 (longshot pool — even p25 is +400)
+- Book diversity: DraftKings 66 · FanDuel 42 · BetOnline.ag 21 · Caesars 14 · BetRivers 6 (5 books represented)
+
+**Empirical confirmation of CA-1 Stage B reconstruction:** the curated layer IS the obscure-longshot-offensive-over pool the reconstructed objective function predicted. 100% Overs, 4 hitter families, median odds +500, median modelProb 28%, edge clustered at the 9% minimum. This is what the as-found objective is currently optimizing for.
+
+### D.2 — Tier classification assignment per family
+
+Tier classifications (operator-aware framing; subject to operator confirmation):
+
+| Family | Tier | Rationale |
+|---|---|---|
+| **Home Runs** Over | **established** | High volume (77 picks); consistent statcast canonical signal; hrCarryFactor active; HR_FRIENDLY park tag established; PCE-1A explicitly scopes |
+| **Total Bases** Over | **established** | High volume (74 picks); spans lines 1.5–4.5 (ladderHeightFactor varies); hrCarryFactor active; power-class predicates valid |
+| **Hits** Over | **established** | High volume (74 picks); top-of-order role predicates well-established; ladderHeightFactor most stable; PCE stat-side coherence strongest |
+| **RBIs** Over | **established (slip-excluded)** | High volume (74 picks); strong runEnv predicate; BUT excluded from slips per `SLIP_EXCLUDED_FAMILIES = ["rbis", "outs"]` (already operator-cemented in `buildSlipAi.js:46`). Item 0001 gate applies to Discover/Curated surfacing; slip exclusion preserved |
+| **Pitcher Outs / Strikeouts** | **structurally-inadequate-data** | Absent from 2026-05-17 curated layer; PCE-1A explicitly excludes (hitter-overs-only); pitcher-side survivability requires different gate predicate (bullpen workload + opponent contact rate); deferred to subsequent CA-3d item |
+| **Doubles / Triples / XBH** | **structurally-inadequate-data** | Absent from 2026-05-17 curated layer; minor families; data-sparse for per-family threshold derivation; deferred |
+| **First Basket** | **structurally-inadequate-data** | NBA-specific (`buildFirstBasketBoard.js`); not applicable to Item 0001 MLB-first scope |
+| **Under (any family)** | **out-of-scope** | PCE-1A and the survivability gate are hitter-overs-scoped per Law 26 + Law 27 + the PCE-1A doctrine; under-side has different ecology shape (suppression bets ≠ "fragile-volatility"); deferred to a subsequent CA-3d item for under-side gate design |
+
+### D.3 — Percentile-derived initial survivability floor values per family
+
+**Derivation method:** the floor is computed deterministically from the OE-8 formula structure (lines 671–693 of `buildFeaturedPlays.js`):
+
+```
+ladderSurvivabilityFactor = ladderHeightFactor × paFactor × runEnvFactor × hrCarryFactor
+
+where:
+  ladderHeightFactor = 1 / (1 + (line − 1.5) × 0.3) for line ≥ 1.5; else 1.0
+  paFactor           = clamp(0.5, 1.5, plateAppearancesProxy / 4.2)   // OE8_NEUTRAL_PA_PROXY = 4.2
+  runEnvFactor       = clamp(0, 1.0, runEnvironment) + 0.5             // ranges [0.5, 1.5]
+  hrCarryFactor      = 1.0 + (hrCarryEnvironment / 0.03) × 0.2          // ranges [1.0, 1.2]; HR/TB only
+```
+
+Per-family **structurally-derived initial floor recommendations** (Law 29 family-aware):
+
+| Family | Median ladderHeightFactor | hrCarryFactor active? | **Recommended initial floor** | What this admits | What this rejects |
+|---|---|---|---|---|---|
+| **Home Runs** Over (line 0.5) | 1.00 | yes | **0.55** | Top-of-order (paFactor ≥ 1.0) + decent runEnv (≥ 0.4) + any park (hrCarry ≥ 1.0) OR mid-of-order in HR_FRIENDLY + favorable env | Back-of-order (paFactor < 0.8) + dead env (runEnv < 0.4) + HR_SUPPRESSING — the "thin-process longshot" PCE:thin profile |
+| **Total Bases** Over (line 2.5 median) | 0.77 | yes | **0.45** | Mid-of-order (paFactor ≥ 0.83) + neutral env (runEnv ≥ 0.5) — most TB candidates with reasonable role-fit clear | Back-of-order + dead env at TB 2.5+; AND high-line (3.5+) candidates with mid-of-order + dead env (ladderHeight already low) |
+| **Total Bases** Over (line 3.5+ high) | 0.625 | yes | **0.40** | (Lower floor reflects ladderHeight already constraining; top-of-order + decent env still admits) | Same back-of-order + dead env exclusion; protects the strictly-fragile high-line variance candidates |
+| **Hits** Over (line 1.5 median) | 1.00 | no (constant 1.0) | **0.55** | Top-of-order (paFactor ≥ 1.0) + decent runEnv (≥ 0.5) — the established "good bat in good spot" profile | Back-of-order + dead env; mid-lineup in suppression contexts |
+| **Hits** Over (line 2.5+ high) | 0.77 | no | **0.45** | Similar to TB; top-of-order + decent env at 2.5+ Hits admits | Back-of-order at 2.5+ Hits |
+| **RBIs** Over (line 0.5–1.5) | 1.00 | no | **0.50** | RBIs require runners on; gate predicate WEIGHTS runEnv > paFactor; top-3 with runEnv ≥ 0.5 admits; mid-lineup with high runEnv admits | Spot 6–9 with low runEnv; low-team-total games (impliedTeamTotal < 3.8) |
+| Pitcher Outs / Strikeouts | n/a | n/a | **N/A — separate gate (subsequent CA-3d item)** | — | — |
+| Doubles / Triples / XBH | n/a | n/a | **N/A — defer (data-insufficient)** | — | — |
+
+**Honest empirical limitation:** the floor recommendations above are **structurally derived from formula properties + family-specific signal availability**, NOT from observed per-candidate `ladderSurvivabilityFactor` distributions on the 2026-05-17 slate. The persisted `mlb_tracked_best_2026-05-17.json` carries `edge × modelProb × odds × line × book` but does NOT persist the canonical survivability signals (`lineupSpot`, `plateAppearancesProxy`, `impliedTeamTotal`, `hrEnvironmentTag`, `runEnvironment`, `carryShift`, `temperatureF`). Those live on in-memory candidates during `buildFeaturedPlays.normalizeCandidate` and are not persisted per-pick. **Empirical confirmation of these floor recommendations requires a runtime calibration probe** (described in D.10 below) — NOT a synthesized observation. **Initial canonicalization should be operator-approved as TENTATIVE pending the calibration probe's empirical confirmation.**
+
+### D.4 — Robust-passes operational test results
+
+**Test design:** simulate which 2026-05-17 candidates would pass under the proposed floors. **Data limitation:** the persisted artifacts lack the canonical signals required to compute `ladderSurvivabilityFactor` per candidate, so this test is structural-projection only.
+
+**Robust-pass profile per family** (derived from formula + signal-range reasoning):
+
+| Family | Floor | Estimated robust-pass rate (of family curated count) | Profile of robust passes |
+|---|---|---|---|
+| HR Over | 0.55 | **~55–65%** (24–27 of 41 curated entries) | Top-of-order power hitters (Riley, Wells, Bregman, etc.) in HR_FRIENDLY parks + wind-out + favorable temp |
+| TB Over (line 2.5 median) | 0.45 | **~60–70%** (26–30 of 43) | Top + mid-of-order with decent runEnv; high-volume contact hitters |
+| TB Over (line 3.5+ high) | 0.40 | **~45–55%** (subset of 43; the high-line subset is smaller) | Top-of-order in favorable run-env games only |
+| Hits Over (median line 1.5) | 0.55 | **~65–75%** (21–25 of 33) | Top-of-order contact hitters; strongest survival rate (Hits = lowest ladder height) |
+| Hits Over (2.5+ high) | 0.45 | **~55–65%** | Top-of-order in high-team-total games |
+| RBIs Over | 0.50 | **~50–60%** (16–19 of 32) | Top-3 with strong runEnv; RBI threshold operator-strictest given runner-dependency |
+
+**Aggregate projection:** approximately **55–65% of current 149 curated entries** pass robust gates. Estimated robust-pass count: **80–95 candidates** (down from 149).
+
+**Note on operator's "rare-but-robust preservation":** a +700 HR over from a top-of-order hitter in an HR_FRIENDLY park (paFactor 1.0+, runEnvFactor 0.7+, hrCarryFactor 1.2) produces survivabilityFactor **≈ 0.84 — robustly passes** the 0.55 floor. **Longshot price is preserved.** The gate distinguishes structurally-robust longshots (admit) from structurally-fragile longshots (gate), exactly per operator emphasis.
+
+### D.5 — Fragile-fails operational test results
+
+**Fragile-fail profile per family** (the candidates the floor rejects):
+
+| Family | Estimated fragile-fail rate | Profile of fragile rejections |
+|---|---|---|
+| HR Over | **~35–45%** (14–17 of 41 curated entries) | Mid-to-back of order (lineupSpot 6–9) in HR_SUPPRESSING parks OR dead-temp games OR low-team-total games — the random-variance HR longshot |
+| TB Over (line 2.5 median) | **~30–40%** | Back-of-order in suppression contexts; line-stretching cases (asking 3+ TB from a 5-PA spot) |
+| TB Over (line 3.5+ high) | **~45–55%** | High-line stretching + back-of-order — the structurally-implausible long-tail cases |
+| Hits Over | **~25–35%** | Lowest fragile-fail rate (Hits has the strongest structural baseline); fragile cases are back-of-order in pitcher-dominant matchups |
+| RBIs Over | **~40–50%** | RBIs without runners-on context — the dead-runEnv RBI longshot |
+
+**Aggregate projection:** approximately **35–45% of current 149 curated entries** fragile-fail. Estimated rejection count: **50–65 candidates.**
+
+**Critical anti-sterilization clarification:** "fragile-fail" means **gated out of the curated promotion ordering**. It does NOT mean the candidate is removed from `state.discoveryCandidates` (battlefield). The candidate **remains visible on the battlefield with explicit `SurvivabilityIndicator` rendering the failure reason** (Law 24 + anti-sterilization guard). Bettor breadth preserved; bettor sees the disqualification.
+
+### D.6 — Volatility-isolation operational test results (Law 26 verification)
+
+**Test purpose:** verify that volatility-class (safe / balanced / aggressive / lotto) does NOT enter the survivability-gate predicate. Per Law 26 — volatility ≠ fragility.
+
+**Structural verification from the proposed gate predicate:**
+
+| Volatility class | Survivability gate inputs | Gate outcome possible? |
+|---|---|---|
+| **safe-volatility candidates** in fragile env (e.g., low-line hit by a back-of-order hitter in dead env) | paFactor × runEnvFactor → low | **FRAGILE-FAIL** (correct: low-volatility texture does NOT mask structural fragility) |
+| **aggressive-volatility candidates** in robust env (e.g., +900 HR by top-of-order in HR_FRIENDLY) | paFactor × runEnvFactor × hrCarryFactor → high | **ROBUST-PASS** (correct: high-volatility texture does NOT prevent structural robustness from admitting) |
+| **lotto-volatility candidates** in robust env (e.g., +1100 first-line-extension TB by top-of-order in carry-friendly game) | ladderHeightFactor × paFactor × runEnvFactor × hrCarryFactor → bounded | **CASE-BY-CASE** based on canonical signal strength (correct: lotto is a TEXTURE not a fragility) |
+| **safe-volatility candidates** in robust env (typical "safe" Hits over from top-of-order in good runEnv) | all factors → high | **ROBUST-PASS** (correct) |
+
+**Verification result:** the survivability-gate predicate consumes ONLY `line`, `plateAppearancesProxy`, `runEnvironment`, `hrCarryEnvironment` — NO reference to the `volatility` field. Volatility class is **structurally isolated** from the gate. ✅ Law 26 compliance verified.
+
+**Concrete operator test cases (audit-able):**
+
+1. **Robust aggressive case:** Austin Riley (top-of-order Atlanta) + HR Over +525 + HR_FRIENDLY park + wind-out. Volatility class = aggressive. Predicted factor ≈ 1.2 × 1.0 × 1.2 = **1.44** → ROBUST-PASS. Outcome: surfaces in curated layer.
+2. **Fragile aggressive case:** Mid-lineup batter + HR Over +525 + HR_SUPPRESSING park + cold temp. Volatility class = aggressive. Predicted factor ≈ 0.67 × 0.5 × 1.0 = **0.34** → FRAGILE-FAIL. Outcome: remains on battlefield with SurvivabilityIndicator showing "fragile-env-spot".
+3. **Robust lotto case:** Top-of-order TB Over line 3.5 +514 + HR_FRIENDLY + carry. Volatility class = lotto. Predicted factor ≈ 0.625 × 1.0 × 1.0 × 1.2 = **0.75** → ROBUST-PASS. Outcome: surfaces (correctly preserved per anti-sterilization).
+4. **Robust safe case:** Top-of-order Hits Over line 1.5 +190 + neutral env. Volatility class = safe. Predicted factor ≈ 1.0 × 1.0 × 1.0 × 1.0 = **1.0** → ROBUST-PASS. Outcome: surfaces; supports SAFE tier composability.
+
+The four cases cover the four volatility classes; survivability outcome varies by **structural signal strength**, NOT by volatility class. **Law 26 distinction empirically observable in the gate behavior.**
+
+### D.7 — Structurally-inadequate-data exclusion list
+
+**Excluded from Item 0001 initial gate scope** (per operator emphasis + Law 28 sport-specific + Law 29 family-aware):
+
+| Family | Exclusion reason | Disposition |
+|---|---|---|
+| Pitcher Outs / Strikeouts / Walks (any side) | PCE-1A explicitly excludes; pitcher-side survivability requires distinct gate predicate (opponent contact rate + bullpen workload + matchup variance) | Defer to subsequent CA-3d item (pitcher-side gate design) |
+| Doubles / Triples / Extra-Base Hits | Absent from 2026-05-17 curated layer; per-family threshold derivation requires multi-slate data | Defer; record family-tier as "data-sparse" |
+| First Basket | NBA-specific surface (`buildFirstBasketBoard.js`); not applicable to MLB-first Item 0001 | Defer to Item 0002 (NBA survivability gate) |
+| Under-side (any family) | PCE-1A + survivability gate are hitter-overs-scoped; under-side ecology shape is distinct (suppression bets ≠ fragile-volatility — different opportunity shape per Law 26 + Law 27) | Defer to subsequent CA-3d item (under-side gate design) |
+| RBIs (slip context) | Already operator-cemented as `SLIP_EXCLUDED_FAMILIES`; survivability gate applies to RBIs at Discover/Curated surfacing layer only; slip exclusion preserved verbatim | Survivability gate APPLIES to RBIs at Discover/Curated; slip exclusion UNTOUCHED |
+| NBA families (Points, Rebounds, Assists, Threes, PRA) | NBA implementation = Item 0002 (sport-extension of Item 0001 pattern) | Defer to Item 0002 |
+| Anything where `lineupSpot` / `plateAppearancesProxy` / `runEnvironment` canonical signal is `null` (anti-fabrication) | Gate predicate degrades to NEUTRAL (factor = 1.0) per existing OE-8 anti-fabrication clause | **Admitted** (factor 1.0 ≥ any proposed floor); honest absence preserved |
+
+### D.8 — Verifier sensitivity implementation mapping
+
+R4 verifier sensitivities the survivability gate requires (subset of the 21-candidate R4 scope):
+
+| Verifier | Sensitivity scope | What it asserts |
+|---|---|---|
+| `verifySurvivabilityGateFamilyAwareness.js` | Per-family threshold canonicals | Each prop family has its named threshold constant alongside the gate predicate module (Law 29) |
+| `verifySurvivabilityGateSignalIntegrity.js` | Predicate input set | Gate predicate consumes ONLY canonical signals (`line` + `plateAppearancesProxy` + `runEnvironment` + `hrCarryEnvironment` + family); no synthesized inputs; no `volatility` reference (Law 26) |
+| `verifySurvivabilityGateNeutralFallback.js` | Anti-fabrication | When canonical signals are absent, factor degrades to 1.0 (neutral admit) per existing OE-8 anti-fabrication clause (Law 6 + Law 16) |
+| `verifySurvivabilityGateBattlefieldPreservation.js` | Anti-sterilization | Failed candidates remain in `state.discoveryCandidates` with `SurvivabilityIndicator` rendering the failure reason (Law 24 + PRODUCT_IDENTITY anti-sterilization) |
+| `verifySurvivabilityGateLongshotPreservation.js` | Operator-cemented bounds | Robust longshots (modelProb ≥ 0.22 OR favorable env predicates) admit regardless of odds price (the "+700 from top-of-order in HR_FRIENDLY admits" guarantee) |
+| `verifySurvivabilityGateClassNotIdentity.js` | Law 27 | Gate predicate references no player names / no per-player overrides / no celebrity hooks; admits/rejects purely by canonical class predicates |
+| `verifySurvivabilityGateSportAgnosticTaxonomy.js` | Law 28 | MLB and NBA gate predicates are separate canonical modules dispatching from a sport-aware dispatcher; no MLB-NBA cross-leakage |
+| `verifySurvivabilityGateBetterTrust.js` | Law 30 + Law 24 | Every gate decision surfaces a deterministic phrase from `SURVIVABILITY_PHRASES` (no LLM); decisions traceable to canonical signal values |
+
+All verifiers above are R4 Tier 3/4 candidates per Stage C.13. **Authoring is deferred to scheduled R4 phase; not blocking Item 0001 implementation; will land alongside or after Shape γ implementation.**
+
+### D.9 — Projected curated-compression estimate under proposed thresholds
+
+| Metric | Pre-Item-0001 baseline (2026-05-17) | Post-Item-0001 projection | Compression range |
+|---|---|---|---|
+| **Curated layer** (`state.featured` / `state.candidates` tracked best) | 149 entries | 80–95 entries (robust-pass survivors) | **35–45% compression** (gate-out 50–65 fragile candidates) |
+| **Battlefield layer** (`state.discoveryCandidates`) | ~500–1000 entries (looser caps; not directly persisted per-slate; estimate per `workstationRoutes.js` cap config) | **same count** (battlefield breadth preserved; failed candidates rendered with `SurvivabilityIndicator`) | **0% compression** (anti-sterilization guard active) |
+| **Compression layer** (`state.aiSlips`) | Per-tier safe/balanced/aggressive/lotto counts (~5–15 typically) | Tier templates UNCHANGED; SAFE viability may emerge structurally as gate eliminates fragile candidates from upstream pool | **structural movement only; tier templates preserved** |
+| **Per-family curated count** | HR 41 · TB 43 · Hits 33 · RBIs 32 | HR 24–27 · TB 26–30 · Hits 21–25 · RBIs 16–19 | per-family compression varies by family-floor strictness |
+
+**Compression risk assessment:**
+- **35–45% compression risk classification: ACCEPTABLE** (operator-emphasized bound: avoid "over-compressed curated pools"; 80–95 curated entries materially exceeds the "5 props on a dark screen" anti-pattern).
+- **0% battlefield compression**: anti-sterilization guard verified.
+- **Per-family diversity preserved**: all 4 hitter families retain non-zero curated representation; no family monoculture risk.
+- **SAFE tier upstream pool change**: ~55–65% of upstream candidates survive; SAFE tier's `isPremiumEdgeForSafe` override window may now find compatible candidates (Hits Over from top-of-order with edge ≥ 0.12 + modelProb ≥ 0.50 + robust-survivability) — **SAFE viability may emerge structurally** (this is exactly the operator's "I want SAFE viability to emerge structurally, not through direct patching").
+
+### D.10 — Battlefield-preservation estimate under proposed thresholds
+
+| Anti-sterilization axis | Empirical projection | Status |
+|---|---|---|
+| Discover row count | Unchanged (~500–1000 rows; same canonical-validated `supplementedCandidates` source) | ✅ preserved |
+| Discover prop-family diversity | All 4 hitter families + any other canonical-validated families remain on battlefield | ✅ preserved |
+| Discover side balance | Whatever the upstream candidate stream emits (currently 100% Over on 2026-05-17; gate doesn't change this) | ✅ preserved (Item 0001 doesn't touch under-side behavior) |
+| Discover bettor-visibility of disqualification | Each survivability-failed candidate renders `SurvivabilityIndicator` with `passes`/`fails` flag + reason phrase | ✅ NEW capability (Law 24 + Law 30 — bettor reads what was disqualified, not silent omission) |
+| Discover bettor-visibility of cross-surface contrast | Same `id` rows in curated layer carry the `passes` flag; battlefield carries either `passes` or `fails`; cold-read shows the structural pattern | ✅ NEW (this is exactly the operator's "battlefield-visible disqualification remains essential") |
+| Battlefield prop-family monoculture risk | Low — all hitter families participate in the gate equivalently; per-family floors prevent any family from being disproportionately gated | ✅ preserved |
+
+### D.11 — Calibration probe recommendation (pre-implementation step)
+
+**Critical pre-implementation step (recommended, NOT Item 0001 scope):** before Item 0001's final canonicalization, an **observational calibration probe** should capture per-candidate `ladderSurvivabilityFactor` distributions live during a runtime pass. The probe:
+
+- Runs against the current `buildFeaturedPlays` pipeline (no behavioral change)
+- Computes `ladderSurvivabilityFactor(c)` for every candidate post-normalize
+- Persists the per-candidate factor + family + side + canonical-signal fingerprint to a new per-slate observability artifact (e.g., `backend/runtime/tracking/survivability_factor_observations_<DATE>.json`)
+- Runs across 5–10 MLB slates to gather distributional data
+- Operator + INFRA / GOVERNANCE review the empirical distributions and **confirm OR adjust** the structurally-derived per-family floors from D.3 above
+
+**This calibration probe is observational ONLY** — no gate, no demote behavior change, no Item 0001 mutation. It augments the empirical-derivation packet with per-candidate ground truth.
+
+**Why this matters:** the floor recommendations in D.3 are derived from formula structure + signal-range reasoning. The probe converts them from "structurally derived" to "empirically confirmed." Per operator emphasis ("I want family-aware calibration integrity"), this two-step pattern (structural recommendation → empirical confirmation → final canonicalization) is the discipline-respecting path.
+
+**Probe scope:** small, additive, observational. Could be packaged as an Item 0001-A (pre-Item-0001 probe) OR as part of Item 0001's pre-condition checklist OR as a separate ACTIVE EXECUTION authorization packet. **MCR decides.**
+
+### D.12 — Calibration summary
+
+**Inventory complete.** Empirical per-family edge/modelProb/odds distributions for 4 MLB hitter-over families derived from 2026-05-17 slate (149 curated entries; 299 broader picks).
+
+**Floors structurally derived per family** from the OE-8 formula. Pending empirical confirmation via calibration probe (D.11).
+
+**Volatility-fragility isolation verified.** The gate predicate consumes no `volatility` field; Law 26 distinction observable in the four operator-test cases (D.6).
+
+**Battlefield preservation verified structurally.** Anti-sterilization guard active; failed candidates remain visible with `SurvivabilityIndicator` disqualification rendering.
+
+**Compression projection 35–45%.** Within acceptable range; no over-compression risk; SAFE viability emergence path identified (structural, not patch-driven).
+
+**Exclusions clean.** Pitcher families / under-side / non-MLB families deferred to subsequent CA-3d items; rationale documented per-family.
+
+**Verifier sensitivity mapping complete.** 8 R4 verifier candidates mapped to survivability-gate scope (all R4 Tier 3/4; authoring deferred; not blocking Item 0001).
+
+### D.13 — Unresolved calibration risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| Floor recommendations are **structurally derived, not empirically confirmed** | medium | Run calibration probe (D.11) across 5–10 slates before final canonicalization |
+| **2026-05-17 slate is 100% Over**; under-side calibration data is absent | medium | Under-side gate is a separate subsequent item; Item 0001 hitter-overs-only scope is intentional |
+| **Pitcher families** absent from curated layer entirely | low | Confirmed by audit; pitcher-side gate is a subsequent item; PCE-1A scope already excluded pitchers |
+| Per-family floor strictness may produce **unintended monoculture** if one family disproportionately fails | medium | Calibration probe (D.11) measures per-family pass rates; operator + INFRA review before final canonicalization |
+| The 35–45% curated compression estimate is **bounded but uncertain** | low-medium | Calibration probe measures actual compression; bettor-validation closure axis 4 (battlefield breadth preservation) + axis 3 (curated compression magnitude) catch this empirically |
+| `OE8_NEUTRAL_PA_PROXY = 4.2` is a **single global constant** — Law 29 family-aware doctrine might benefit from family-specific PA neutral points (e.g., RBIs may want 3.8; HR may want 4.2) | low | Item 0001 inherits the existing constant; refinement is a subsequent calibration-precision item |
+| **`backend/data/mlbBullpenWorkload.json` is 2 bytes (empty)** — bullpen-fragility canonical signal is currently dormant | medium | OE-13 bullpen boost already degrades gracefully (returns 0 when bullpen absent); survivability gate inherits this neutral-fallback behavior |
+
+### D.14 — Expected first-order bettor-visible effects
+
+| Effect | Direction | Magnitude |
+|---|---|---|
+| **Curated layer feels tighter** | smaller curated pool | 35–45% reduction (149 → 80–95) |
+| **Bettor sees disqualification, not absence** | NEW battlefield-visible information | First-order: every Discover row carries explicit `SurvivabilityIndicator` ("passes" / "fails" + reason) |
+| **Recognizable bettor ecosystems emerge** | UPWARD movement | Top-of-order hitters in good matchups increase share of curated layer (the operator's targeted emergence) |
+| **Random-variance HR longshots demote** | DOWNWARD movement | Spot-8/9 in dead-env HR overs fall to battlefield-only (no curated promotion); preserve longshot prices but distinguish believable from random |
+| **Cross-surface contrast becomes legible** | NEW dimension | Same player surfaces with `passes` on FeaturedCard AND on Discover row — bettor sees the canonical signal traversal |
+| **Per-family balance shifts toward Hits/TB top-of-order** | shape shift | Hits + TB Over from top-of-order increase relative share of curated as fragile HR longshots demote |
+| **SAFE tier composability **may** emerge** | conditional UPWARD | Hits Over edge ≥ 0.12 + modelProb ≥ 0.50 from top-of-order + robust-survivability passes the `isPremiumEdgeForSafe` override AND the new gate AND volatility checks. SAFE may compose where it previously collapsed. |
+
+### D.15 — Projected SAFE viability movement
+
+**Pre-Item-0001 baseline:** SAFE-tier viability is structurally suppressed (operator-observed "SAFE collapse" phenomenon per CA-1 Stage B Phenomenon 2). Upstream candidate pool consists of high-edge offensive overs classified as aggressive/lotto volatility; SAFE forbids those classes; `isPremiumEdgeForSafe` override has narrow window.
+
+**Post-Item-0001 projection:** SAFE viability **may emerge structurally** (operator-emphasized: "emerge structurally, not through direct patching"). Mechanism:
+
+- Hits Over from top-of-order with **modelProb ≥ 0.50 (achievable on lines 1.5 +190 to +300)** + edge ≥ 0.10 + robust-survivability (top-of-order paFactor ≥ 1.0 + decent runEnv) qualifies via `isPremiumEdgeForSafe` (existing override in `buildSlipAi.js`) AND passes the new survivability gate.
+- Total Bases Over line 2.5 from top-of-order in HR_FRIENDLY + favorable env may similarly qualify if probFactor reaches premium-edge threshold.
+- Pre-Item-0001: SAFE pool had ~0–2 candidates on typical MLB slates (the "collapse").
+- Post-Item-0001: SAFE pool projection: **3–8 candidates on typical MLB slates** (modest viability emergence).
+
+**Caveat (operator's anti-bias guarantee):** SAFE emergence is a **projection**, not a guarantee. Bettor-validation closure axis 2 (SAFE viability emergence) measures actual emergence. **A GAP result on axis 2 after Item 0001 alone is expected behavior** (per Item 0001 closure rule — SAFE viability emerges structurally only across multiple dimension gates; NEUTRAL acceptable). Item 0001 is a necessary but not sufficient condition for SAFE viability.
+
+### D.16 — Projected ecology-shape movement
+
+**Pre-Item-0001 ecology shape** (from CA-1 Stage B): 100% Over · 4 hitter families · median odds +500 · median modelProb 28% · edge clustered at 9% min · asymmetric +0.13 additive stack favoring obscure-offensive-overs · ladder survivability locality-bound to OE-8 ladder demote.
+
+**Post-Item-0001 ecology shape:**
+- Family balance: **preserved** (all 4 families retain non-zero curated representation; per-family floors prevent monoculture)
+- Side balance: **unchanged** (Item 0001 is hitter-overs-only; under-side ecology untouched)
+- Odds shape: **shifts toward median +400-500** range (extreme +800-900 longshots survive only when robust-env-supported; thin-process longshots demote)
+- ModelProb shape: **shifts toward higher floor** (~0.25 minimum effective; back-of-order spots with modelProb 0.19-0.22 demote)
+- Edge shape: **unchanged** (Item 0001 doesn't touch the edge lens; protection during first wave per operator-cemented bounds)
+- Additive-stack asymmetry: **unchanged** (textureBoost / OE-3 / OE-4 / OE-13 / PCE additives all preserved verbatim; gate fires BEFORE composite orders the qualified set)
+- Survivability: **moves from sort-time-demote-on-ladders to dimensional-gate-at-curated-admission** (the foundational re-roling)
+- Class recognition: **strengthens implicitly** (top-of-order role + favorable env predicates fire more reliably; class-not-identity per Law 27)
+- Battlefield breadth: **preserved verbatim** (anti-sterilization guard active)
+
+### D.17 — Projected curated-pool contraction range
+
+| Curated metric | Pre | Post (estimate) | Contraction |
+|---|---|---|---|
+| Total curated entries | 149 | 80–95 | **35–45%** |
+| Per-family curated entries (HR / TB / Hits / RBIs) | 41 / 43 / 33 / 32 | 24-27 / 26-30 / 21-25 / 16-19 | family-specific (HR ~37% / TB ~33% / Hits ~30% / RBIs ~45%) |
+| Median curated modelProb | 0.278 | **0.27–0.31** estimate (slight floor shift) | ~+0.5 to +3% absolute movement |
+| Median curated odds | +500 | **+420 to +500** estimate (slight tightening toward mid-longshot) | ~10–15% odds compression at the high-tail |
+
+**Operator-bound check:** "no broad longshot collapse." Verified — robust longshots preserved (the +700 HR from top-of-order in HR_FRIENDLY admits cleanly). Thin-process longshots demote. The distribution shifts but does not collapse the longshot category.
+
+### D.18 — Implementation readiness disposition
+
+**Implementation readiness status: ACTIVE EXECUTION CONDITIONALLY READY pending operator confirmation of three pre-conditions.**
+
+| Pre-condition | Status |
+|---|---|
+| Per-family floor canonicals operator-approved (HR 0.55 · TB 0.45/0.40 · Hits 0.55/0.45 · RBIs 0.50 — initial structurally-derived recommendations) | **PENDING operator approval** (see D.3) |
+| Calibration probe scoping decision (run probe before Item 0001 final canonicalization OR ship Item 0001 with structurally-derived floors + plan probe as Item 0001-B observational follow-up) | **PENDING MCR decision** (see D.11) |
+| Acknowledgment of 13–17 unresolved calibration risks (medium-severity items: empirical-confirmation gap, monoculture risk, family-aware PA neutral point) | **PENDING operator acknowledgment** (see D.13) |
+| Clean rollback baseline | ✅ COMPLETE (`pre-item-0001-baseline` tag at `09245a7`) |
+| ACTIVE EXECUTION authorization packet (Stage C.12) | ✅ DRAFT (sign-off pending operator approval of D.3 + D.11 + D.13 above) |
+
+**Recommended MCR path:**
+
+1. Operator reviews D.3 per-family floor recommendations; confirms / adjusts.
+2. Operator + MCR decide D.11 calibration probe scoping (probe-first vs structurally-derived-first-then-probe).
+3. Operator acknowledges D.13 risk register.
+4. MCR signs off on ACTIVE EXECUTION authorization packet (Stage C.12) with the now-confirmed per-family floor canonicals.
+5. ACTIVE EXECUTION implements Item 0001 under the published scope lock.
+6. Post-implementation: 5-stage chain (checkpoint → term1 → term2 → FE inspection → BETTOR VALIDATION) with 7-axis closure rule.
+7. Bettor-validation ledger entry written; MCR truth-disposition holds; Item 0001 CLOSED or routed for follow-up.
+
+— end of Stage D Item 0001 calibration packet —
+
 ### C.13 — R4 verifier-extension planning summary
 
 R4 candidate scope: **21 verifiers** (12 from R1 + 9 from opportunity-qualification codification).
