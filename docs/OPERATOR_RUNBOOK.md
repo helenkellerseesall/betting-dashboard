@@ -1,5 +1,7 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17. Phase Sport-Identity-Integrity-1A appended 2026-05-17. Phase Candidate-Ecology-Parity-1A appended 2026-05-17.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17. Phase Sport-Identity-Integrity-1A appended 2026-05-17. Phase Candidate-Ecology-Parity-1A appended 2026-05-17. Phase Player-Conviction-Engine-1A appended 2026-05-17. Phase Bettor-Validation-Infrastructure-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1B appended 2026-05-18.**
+
+> **2026-05-17 PHASE Player-Conviction-Engine-1A (PCE-1A):** NEW `backend/pipeline/shared/playerConvictionEngine.js` adds a small-cap additive composite weight (PCE_WEIGHT 0.05, additive ∈ [-0.04, +0.05]) for sustainable hitter legitimacy. Composes canonical lineupSpot precision × plateAppearancesProxy floor × stat-side coherence × model-trust alignment. Hitter-overs-only (pitcher / under bypass cleanly with gated=false, additive=0). **Longshot-preserving** (operator-cemented): max penalty -0.04 cannot zero out a +400-to-+1000 ladder; an "earned" longshot (top-of-order + modelProb ≥ 0.18 + favorable env) still receives the full +0.05 boost. Wired into `scoreCandidate` alongside BC-2 + OE-2 + OE-3 + OE-4 + OE-11 + OE-13 (trust layers preserved). FE: `compactPlay` output gains `convictionNote` + `convictionReasonTag`; `FeaturedCard.tsx` renders bettor-readable `◆ {convictionNote}` line with color semantics. NEW `verifyPlayerConvictionEngine1A.js` (53/53 PASS) enforces additive-only / canonical-only-fields (no fabricated barrelRate / hardHit / xSLG / seasonHR / ISO / pull%) / weight-band / longshot-preservation / determinism. `ops:verify` now **37/37 PASS** (1 runtime + 31 verify\*.js + 5 probes). NO LLM / NO ML / NO RNG / NO new fetches / NO popularity / NO public-bet bias.
 
 > **2026-05-17 PHASE Continuity-OS-1A:** This OPERATOR_RUNBOOK.md is now the per-phase doctrine source. For per-session ritual flow (terminal conventions / regression matrix / 6-doc reconciliation / anchor-file reconciliation / checkpoint), see the NEW `OPERATIONAL_FLOW.md` at the repo root. New chats should read `BOOTSTRAP_PROMPT.md` → `ACTIVE_PHASE.md` → `PRODUCT_IDENTITY.md` → `CURRENT_PROBLEMS.md` → `NEXT_PHASE.md` → `OPERATIONAL_FLOW.md` → `DEFERRED_PHASES.md` (7 files, ~775 lines total) FIRST. This RUNBOOK is consumed for specific phase doctrine, not first-load reconstruction.
 
@@ -1673,3 +1675,270 @@ Every new operational command is:
 ---
 
 _Phase Operator-Operations-1 — 2026-05-14. Additive only; no existing command modified._
+
+---
+
+## BETTOR VALIDATION TRUTH DOCTRINE & POST-SLICE WORKFLOW (Phase Bettor-Validation-Infrastructure-1A, 2026-05-18)
+
+**This section establishes the BETTOR VALIDATION layer of the canonical post-phase checkpoint discipline. It is first-class doctrine — not optional, not aesthetic, not seal-rubber-stamp.**
+
+### The truth doctrine
+
+The purpose of bettor validation is **empirical bettor truth**, not seal justification.
+
+A bettor validation run that returns only **VALIDATED** findings should be considered presumptively suspect for selection bias — every shipped phase has friction at the bettor surface, and an inability to surface it is more likely an inspection failure than a perfect ship. The infrastructure exists to find what the bettor experiences that the doctrine has not yet codified, not to confirm what the doctrine already claims.
+
+Concrete consequences:
+
+1. **All four rubric outcomes are equally legitimate.** A GAP or CONCERN finding is not a phase failure — it is validation working. A phase may seal even with open GAPs (recorded for next-phase scoping) or CONCERNs (recorded with mitigation owner). A phase with zero recorded findings should be treated as un-inspected, not as cleanly validated.
+2. **Seal pressure must not bias the rubric.** The bettor validation run is independent of MCR seal pacing. If a finding comes back GAP or CONCERN, that finding is canonical regardless of how much pressure exists to ship the next slice.
+3. **The bettor's lived experience is canonical.** When the doctrine claims X and the bettor surface shows Y, Y is the truth that must be recorded. The doctrine catches up through subsequent phase work, not through retroactive validation entries.
+4. **Bias toward what's missing, not what's present.** The inspection burden is on finding what doesn't yet work at the bettor surface. "Looks good" is not a validated finding; "matches doctrine claim X under condition Y observed at surface Z" is.
+
+### The four-state rubric
+
+Every bettor validation finding lands in exactly one of four states. Each state is canonical and equally legitimate.
+
+| State | Definition | Effect on phase seal |
+|---|---|---|
+| **VALIDATED** | The bettor-experience matches a specific doctrine claim. The finding cites the doctrine surface (PRODUCT_IDENTITY § X / ARCHITECTURE_LAWS Law N / a specific bottleneck-claim) and the bettor-facing surface where it was observed. | Supports seal. Does not by itself justify seal — VALIDATED-only runs are presumptively suspect. |
+| **NEUTRAL** | The finding is informational. Observed bettor-experience is consistent with doctrine but the doctrine does not make a strong claim on this surface, OR the finding describes a surface where the doctrine is intentionally silent. | Seal-neutral. Records context for future phases. |
+| **GAP** | A doctrine claim is not realized at the bettor-facing surface. The signal exists in the backend or in a curated-edge component but does not reach the bettor surface that the doctrine claims it serves. | Recorded, named, scoped for next-phase work. Does not by itself block seal unless flagged blocking. Future-phase scope is owed. |
+| **CONCERN** | The bettor-experience surfaces something problematic — visual, semantic, trust-related, or doctrine-contradicting — that the doctrine does not yet address. Different from GAP in that GAP is "missing reach"; CONCERN is "actively wrong-feeling." | Recorded with explicit mitigation owner. May or may not block seal — MCR truth-disposition reviews each CONCERN. |
+
+### The post-slice workflow
+
+Run after every bettor-visible slice ships (not after every phase — only when the slice changes what a real bettor sees). Sequenced strictly:
+
+1. **Fresh-pull integrity check.** Confirm the operator's working tree matches the canonical merge commit; no uncommitted local drift that would invalidate findings. `git status` clean against the slice's seal commit.
+2. **`ops:verify`** — bare `npm run ops:verify` from `backend/`. Confirms runtime baseline of the slice surface (V5 gate of the canonical 5-stage chain — see § POST-PHASE CHECKPOINT DISCIPLINE below).
+3. **`brain:checkpoint`** — bare `npm run brain:checkpoint` from `backend/`. Confirms brain ↔ runtime hash reconciliation (V6 gate).
+4. **Terminal / log inspection.** Open TERM 1 logs for the slice surface; observe for warnings, fallback paths firing, neutral-fallback fires, anti-fabrication trips. Anything the runtime emits that the doctrine does not predict is a candidate finding.
+5. **UX LAB bettor-perspective stages.** Operate the slice surface as a bettor would. Sequenced:
+   - Read the surface cold (do not pre-load the doctrine).
+   - Take screenshots at key states (initial / loaded / empty / hover / interaction).
+   - Compare felt experience against the slice's seal-claim (e.g., "PCE-1A propagates conviction signal to Discover via canonical overlap helper, rendering ◆ {convictionNote} when overlap exists, honest-absence otherwise").
+   - Categorize each observed delta into the four-state rubric.
+6. **Ledger entry write.** Append findings to `docs/BETTOR_VALIDATION_LEDGER.md`. One entry per slice; each finding within the entry stamped with its rubric state, the doctrine surface cited, the bettor surface observed, and the delta narrative.
+7. **MCR truth-disposition review.** MCR reads the ledger entry as truth. CONCERNs may block seal pending mitigation; GAPs scope into next-phase candidates; VALIDATED + NEUTRAL inform future doctrine refinement.
+
+The workflow is the canonical bettor-truth-seeking mechanism. It is the FIFTH stage of the post-phase checkpoint discipline (see § POST-PHASE CHECKPOINT DISCIPLINE — 5-STAGE CHAIN below) and is owned by FRONTEND / UX LAB executing the inspection + INFRA / GOVERNANCE owning the ledger write quality.
+
+### Anti-bias guarantees
+
+- **No only-VALIDATED ledger entries** without explicit operator acknowledgment that no GAPs or CONCERNs were observable. The acknowledgment itself is recorded as a NEUTRAL entry. This prevents silent selection bias.
+- **Doctrine claims are quoted verbatim** in each finding. "The phase claimed X" rather than paraphrasing — the paraphrase is where seal-justification bias enters.
+- **The bettor surface is observed before the doctrine is consulted.** Pre-load bias produces VALIDATED findings; cold-read produces truth.
+- **MCR truth-disposition is the seal gate, not phase reporting.** ACTIVE EXECUTION's seal-claim is doctrine work; the ledger entry is empirical truth; MCR reconciles the two.
+
+### References
+
+- Canonical findings ledger: `docs/BETTOR_VALIDATION_LEDGER.md` (append-only; created Phase Bettor-Validation-Infrastructure-1A 2026-05-18).
+- 5-stage post-phase chain: § POST-PHASE CHECKPOINT DISCIPLINE — 5-STAGE CHAIN below.
+- Lane ownership: FRONTEND / UX LAB executes the inspection; INFRA / GOVERNANCE owns the ledger write doctrine; MASTER CONTROL ROOM holds truth-disposition.
+
+---
+
+## POST-PHASE CHECKPOINT DISCIPLINE — 5-STAGE CHAIN (Phase Bettor-Validation-Infrastructure-1A, 2026-05-18)
+
+**This section codifies the canonical post-phase closure sequence. Evolved in place from the prior 4-stage chain by adding BETTOR VALIDATION as the fifth stage. Six-lane operational topology preserved unchanged.**
+
+### Prior 4-stage chain (codified during R1-PASS-2)
+
+```
+checkpoint → term1 → term2 → FE inspection
+```
+
+The 4-stage chain established runtime + brain + FE integrity gates but had no canonical mechanism for capturing the bettor's lived experience as load-bearing truth.
+
+### Canonical 5-stage chain (effective 2026-05-18)
+
+```
+checkpoint → term1 → term2 → FE inspection → BETTOR VALIDATION
+```
+
+| Stage | Gate | Lane | Owner verifies |
+|---|---|---|---|
+| **1. checkpoint** | Doctrine-surface reconciliation: required-on-patch brain docs + repo-root continuity set + ARCHITECTURE_LAWS updates landed | INFRA / GOVERNANCE | Brain `enforceBrainCheckpoint.js` confirms Law 12 reconciliation |
+| **2. term1** | Runtime is up; TERM 1 server has reloaded the patched code path | FRONTEND / UX LAB or ACTIVE EXECUTION | TERM 1 restart status explicit; HTTP endpoints respond |
+| **3. term2** | `ops:verify` + `brain:checkpoint` PASS; canonical 37-check matrix unchanged | INFRA / GOVERNANCE | V5 + V6 receipt clean (per the V1–V7 framework) |
+| **4. FE inspection** | Visual + interaction inspection of the patched FE surface; doctrine-side compliance confirmed; UX observations recorded | FRONTEND / UX LAB | Screenshots + structural-pattern review |
+| **5. BETTOR VALIDATION** | Empirical bettor-truth run per the workflow above; ledger entry written; MCR truth-disposition reviewed | FRONTEND / UX LAB executes; INFRA / GOVERNANCE owns ledger doctrine; MCR holds truth-disposition | `docs/BETTOR_VALIDATION_LEDGER.md` entry appended with VALIDATED / NEUTRAL / GAP / CONCERN rubric coverage |
+
+No stage may be skipped without explicit MCR sign-off, recorded as a CONCERN entry in the ledger when skipped. Skipping a stage and proceeding to seal is itself a finding.
+
+### What changed from 4-stage → 5-stage
+
+- **Added:** stage 5 (BETTOR VALIDATION) as the canonical empirical-truth gate. The first four stages establish that the slice runs correctly and that the FE structurally matches the doctrine; the fifth stage establishes that a real bettor experiences what the doctrine claims they will.
+- **Preserved:** stages 1–4 unchanged. Their gates, lane owners, and verifier surfaces are byte-identical to the prior 4-stage codification.
+- **Preserved:** additive-only doctrine — no prior gate downgraded, no prior owner reassigned.
+- **Preserved:** six-lane operational topology — MASTER CONTROL ROOM, ACTIVE EXECUTION, FULL SYSTEM AUDIT, FRONTEND / UX LAB, INFRA / GOVERNANCE, OPERATOR PLAYBOOK. BETTOR VALIDATION is a workflow within the FRONTEND / UX LAB lane, not a seventh lane.
+
+### Cross-references
+
+- BETTOR VALIDATION rubric + workflow: § BETTOR VALIDATION TRUTH DOCTRINE & POST-SLICE WORKFLOW above.
+- Canonical findings ledger: `docs/BETTOR_VALIDATION_LEDGER.md`.
+- Brain checkpoint mechanics: `backend/runtime/brain/README.md` § CHECKPOINT POLICY (file-reconciliation requirements; complementary, not duplicative).
+- Verification order: `backend/runtime/brain/OPERATOR_PROTOCOL.md` § VERIFICATION ORDER (pre-patch sanity ordering; complementary).
+
+---
+
+_Phase Bettor-Validation-Infrastructure-1A — 2026-05-18. Additive only; no existing doctrine modified. 4-stage chain preserved as historical lineage; 5-stage chain is the canonical going-forward._
+
+---
+
+## OPPORTUNITY QUALIFICATION DOCTRINE (Phase Opportunity-Qualification-Architecture-1A, 2026-05-18)
+
+**This section codifies the doctrinal shift from `score maximization` to `bettor-realizable opportunity qualification`. Operator-cemented 2026-05-18; foundational, not incremental.**
+
+The full doctrinal frame lives in [`/PRODUCT_IDENTITY.md`](../PRODUCT_IDENTITY.md) § Opportunity-qualification architecture and in `/backend/runtime/brain/ARCHITECTURE_LAWS.md` Laws 22 / 23 / 24. This RUNBOOK section codifies the **operational consequences**: planning lanes (CA-3a/b/c), R3 ecology-authority alignment, and lane-routing implications.
+
+### The six explainability dimensions + sequencing principles
+
+Canonical six (operator-stated 2026-05-18, foreground for curation explainability):
+
+1. **Role ownership** — structural-dependency layer; sequenced first.
+2. **Game-flow activation** — structural-dependency layer; sequenced first.
+3. **Ecosystem legitimacy** — lineup / env / matchup / depth coherence.
+4. **Survivability** — survives realistic in-game friction.
+5. **Bettor-trust** — canonical authority traceability; no fabrication.
+6. **Market psychology** — line shape, consensus, dispersion, steam.
+
+Two additional dimensions are operator-authoritative and pending explicit enumeration at the codification-confirmation pass. All eight remain co-equal in legitimacy; they differ in sequencing priority.
+
+**Sequencing principles:**
+- Role + game-flow are structural dependency layers; sequenced first.
+- Opportunity qualification before edge maximization.
+- Hard-gate-then-tune (gates fire before tuners; gates are binary qualifying; tuners modulate ordering among the qualified set).
+
+### Planning lanes (CA-3a / CA-3b / CA-3c) — observational, no implementation commitments
+
+The architectural transition is staged through three observational planning lanes. None of them ships implementation. Implementation requires explicit operator + MCR approval at each step.
+
+| Lane | Scope | Doc home | Output type |
+|---|---|---|---|
+| **CA-3a — reconciliation planning** | Compare the as-found objective (CA-1 Stage B) against the new opportunity-qualification frame. Identify load-bearing mismatches; quantify magnitude of each gap; surface conflicts without proposing fixes. | `docs/CURATION_AUDIT_2026-05-18.md` Stage C addendum | Reconciliation map (mismatch table, magnitude estimates, dimension-by-dimension overlay). Observational. |
+| **CA-3b — function-shape evaluation** | Evaluate candidate shapes for the qualified-then-tuned objective. Multiple candidate shapes considered; trade-offs surfaced; no shape committed to. | `docs/CURATION_AUDIT_2026-05-18.md` Stage C addendum | Function-shape options table (per shape: gate structure, tuner structure, anti-fabrication compliance, explainability properties, transition risk). Observational. |
+| **CA-3c — implementation inventory planning** | Enumerate the per-file impact of CA-3b's candidate shapes. Which files would change, what kind of change (gate insertion / lens reweight / new dimension renderer / etc.), what the canonical-authority + additive-only constraints require. | `docs/CURATION_AUDIT_2026-05-18.md` Stage C addendum | File-impact table (per shape: files touched, change kind, invariants preserved/violated). Observational. |
+
+All three lanes write into the existing `docs/CURATION_AUDIT_2026-05-18.md` audit doc (Stage C addendums). No new canonical doc is forked. CA-1 remains the canonical curation-audit lineage anchor.
+
+### R3 ecology-authority alignment
+
+R3 (ecology authority sweep — OE-8 + OE-11 / 12 / 13 / 14 / 15 cross-surface) was previously framed as a doctrine-surface reconciliation. Under the opportunity-qualification architecture, R3 is re-framed as the **substrate audit** for the dimension layer:
+
+- **OE-8** `ladderSurvivabilityFactor` aligns to the **survivability** dimension. R3 reconciles its current sort-time-demote application against a future gate or gate-and-tuner role.
+- **BC-2 / OE-2 / OE-3 / OE-4 / PCE-1A** lift canonical signals that feed the **ecosystem legitimacy** + **role ownership** dimensions. R3 reconciles their authority boundaries (which module owns which signal) against the dimension layer's gate predicates.
+- **OE-11 / OE-12 / OE-13** stack-reinforcement / lineup-turnover / bullpen-fragility align to **game-flow activation** and **survivability**.
+- **MLB-COV-1 / 2 / 3** correlation gates align to **ecosystem legitimacy** (same-game ecological covariance is an ecology-coherence concern).
+
+R3 ecology-authority sweep continues to operate as planned, but its **deliverable shape** now includes: per-OE-module mapping to the dimension(s) it serves, authority-boundary check against canonical-overlap-helper architecture (Laws 18 / 20 / 21), and substrate-readiness assessment for the eventual hard-gate-then-tune implementation. R3 still NO implementation; the alignment is observational.
+
+### Forbidden patterns (operator-cemented)
+
+The doctrinal shift does NOT permit any of:
+- Premature calibration fixes.
+- Compensating weights.
+- "Just boost star players" shortcuts.
+- Battlefield sterilization.
+- Curated-surface hacks.
+- LLM-synthesized explanations.
+- Celebrity / popularity weighting.
+- Hardcoded "tonight's lock" surfaces.
+- Replacing the existing composite. The composite continues to function; opportunity-qualification gates apply BEFORE the composite scores order the qualified set.
+
+### What the doctrinal shift unlocks (informational)
+
+Curated outputs that eventually explain themselves in dimension terms — `Top-of-order role · run-environment activates · lineup-coherent · survives bullpen risk · canonical multi-book consensus · market hasn't yet adjusted` — instead of `score said so`. The bettor reads the architecture, not its arithmetic. The architecture becomes legible to the bettor; the bettor reads what the system is actually reasoning about.
+
+### Lane ownership
+
+- **Doctrine codification** (this section + Laws 22/23/24 + PRODUCT_IDENTITY § Opportunity-qualification): INFRA / GOVERNANCE.
+- **CA-3a/b/c planning** (observational; recorded in CA-1 audit Stage C): INFRA / GOVERNANCE in collaboration with FULL SYSTEM AUDIT.
+- **R3 ecology-authority sweep** (substrate audit under the new doctrine): FULL SYSTEM AUDIT (reconciliatory mode).
+- **Implementation phases** (when authorized by operator + MCR): ACTIVE EXECUTION.
+- **Truth-disposition + sequencing**: MASTER CONTROL ROOM.
+
+### Cross-references
+
+- Full doctrinal frame: [`/PRODUCT_IDENTITY.md`](../PRODUCT_IDENTITY.md) § Opportunity-qualification architecture.
+- Architectural rules: `/backend/runtime/brain/ARCHITECTURE_LAWS.md` Laws 22 / 23 / 24.
+- As-found objective function (the architecture this shift moves away from): `docs/CURATION_AUDIT_2026-05-18.md` Stages A + B.
+- Planning lanes: `docs/CURATION_AUDIT_2026-05-18.md` Stage C addendums (CA-3a / CA-3b / CA-3c).
+- Anti-fabrication boundary: `/DEFERRED_PHASES.md` + Law 6 (truthful uncertainty) + Law 16 (no silent fallbacks).
+- Canonical-helper pattern for dimension renderers: Laws 19 / 20 / 21 + `ConvictionNote.tsx` (PCE-1A precedent).
+
+---
+
+_Phase Opportunity-Qualification-Architecture-1A — 2026-05-18. Additive only; no existing doctrine modified. The composite continues to function; opportunity-qualification gates apply BEFORE the composite scores order the qualified set. No implementation in this phase — codification only._
+
+---
+
+## SHAPE γ CANONICAL FUNCTION-SHAPE + DOCTRINE FINALIZATION (Phase Opportunity-Qualification-Architecture-1B, 2026-05-18)
+
+**This section finalizes Shape γ as the canonical function-shape after MCR truth-disposition over CA-3b candidate shapes α / β / γ / δ. Operator confirmation 2026-05-18: Shape γ is "the first fully coherent bettor-cognition architecture the repo has produced."**
+
+### Canonical doctrine surfaces (extended in-place 2026-05-18)
+
+The doctrinal frame now spans 9 architectural laws + 1 product-identity section + this RUNBOOK section. All canonical surfaces extend the existing canonicals — zero new canonical doc forked.
+
+- **`/PRODUCT_IDENTITY.md` § Opportunity-qualification architecture** — frame, 8 dimensions, sequencing principles, explainability target, what the shift does and does NOT mean. Updated 2026-05-18 with the Shape γ confirmation block + battlefield/curated as bettor operating modes.
+- **`/backend/runtime/brain/ARCHITECTURE_LAWS.md` Laws 22–30:**
+  - Law 22 — opportunity qualification before edge maximization
+  - Law 23 — hard-gate-then-tune architecture
+  - Law 24 — output explainability in dimension terms
+  - Law 25 — Shape γ canonical function-shape
+  - Law 26 — volatility is not fragility
+  - Law 27 — class-not-identity ecosystem recognition
+  - Law 28 — sport-agnostic dimension taxonomy with sport-specific gate implementations
+  - Law 29 — prop-family-aware gate thresholds
+  - Law 30 — four-dimensional explanation schema
+- **`/docs/CURATION_AUDIT_2026-05-18.md` Stage C** — operator-authoritative transition framework + CA-3a / CA-3b / CA-3c planning + R3 ecology-authority alignment. Extended 2026-05-18 with Stage C continuation (CA-3a depth, CA-3c Shape γ canonical inventory, CA-3d reconciliation queue preparation, R4 verifier-extension planning).
+
+### Operator-confirmed doctrine list (Phase 1B, 2026-05-18)
+
+The operator confirmed 2026-05-18 that the following 12 doctrines are now correctly doctrine-bound:
+
+1. **Qualification-before-optimization** (Law 22).
+2. **Battlefield/curated bettor operating modes** (PRODUCT_IDENTITY § Layer-type separation + § Opportunity-qualification — battlefield and curated are two distinct cognitive operating modes, not just UI layouts).
+3. **Anti-sterilization guard** (PRODUCT_IDENTITY + DEFERRED_PHASES — battlefield breadth never sterilized).
+4. **Volatility ≠ fragility** (Law 26).
+5. **Class-not-identity ecosystem recognition** (Law 27).
+6. **Sport-agnostic taxonomy with sport-specific implementations** (Law 28).
+7. **Prop-family-aware thresholds** (Law 29).
+8. **Four-dimensional explanation schema** (Law 30).
+9. **Market-integrity pre-gate** (Law 25 — market-integrity is a hard pre-gate; market-psychology is a downstream gate-and-tuner).
+10. **Selective gating** (Law 25 — within the gates, dimensions configurable per sport / per prop family / per slate context as full-gate vs gate-and-tuner; configuration is operator-cemented).
+11. **Inspectable intelligence dimensions** (Law 24 + Law 30 — internal inspectability is the contract: every curated candidate carries `explanation: { who, when, survives, marketEdge }` provenance fields).
+12. **Explainability as doctrine rather than UX** (Law 24 — explainability is an architectural law, not a frontend nice-to-have).
+
+### Future implementation discipline (operator-cemented 2026-05-18)
+
+Future reconciliation implementation work MUST remain:
+
+- **explainable** — every change preserves Law 24 / Law 30 explainability.
+- **dimension-addressable** — every change addresses one or more named dimensions; no change without a dimension target.
+- **sport-aware** — every change states its sport scope (MLB / NBA / both / future); cross-sport leakage forbidden.
+- **prop-family-aware** — every change states its prop-family scope (specific families or all); per-family thresholds preserved.
+- **bettor-validation-driven** — every change carries a bettor-validation ledger trigger (the 5th-stage gate; ledger entry follows).
+- **additive-evolution-clean** — every change preserves existing canonical surfaces verbatim; new gates added, no existing demotes/boosts deleted or re-weighted silently.
+
+Forbidden:
+- **No hidden weighting patches** — no silent re-tuning of existing weights; every weight change is operator-approved and lineage-tracked.
+- **No mystery-score regressions** — any composite-score behavioral change is doctrine-traceable to a named change.
+- **No celebrity inflation** — Law 27 is absolute.
+- **No battlefield sterilization** — anti-sterilization guard is absolute.
+
+### Next operator focus
+
+Per operator emphasis 2026-05-18: the next major operator focus becomes **reconciliation queue review and empirical bettor-validation against live outputs once CA-3d is constructible.**
+
+CA-3d (reconciliation queue construction) is the prepared structure documented in `docs/CURATION_AUDIT_2026-05-18.md` Stage C.11. The queue itself fills in subsequent passes under operator + MCR direction. Empirical bettor-validation against live outputs follows the canonical 5th-stage workflow (`docs/BETTOR_VALIDATION_LEDGER.md`).
+
+### Phase index
+
+Phase Opportunity-Qualification-Architecture-1B (2026-05-18) appended to phase index. Phase 1A (codification, 2026-05-18) and Phase 1B (Shape γ canonicalization + Laws 25–30 + CA-3 continuation, 2026-05-18) are sibling sub-phases of the same architectural transition.
+
+---
+
+_Phase Opportunity-Qualification-Architecture-1B — 2026-05-18. Additive only; no existing doctrine modified. Shape γ confirmed as canonical function-shape; Laws 25–30 codify Shape γ + the 6 named operator doctrines. No implementation in this phase — codification + canonicalization only._
