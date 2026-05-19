@@ -283,6 +283,15 @@ const SHORT_SIGNAL_PHRASES = Object.freeze({
   [SIGNAL_IDS.PCE_MODEST_LINEUP_CONVICTION]:     "modest conviction",
   [SIGNAL_IDS.PCE_ECOLOGY_LIGHT_SPOT]:           "ecology-light",
   [SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT]:        "thin-process longshot",
+  // Phase CA-3d Item 0001 — Survivability dimension chip variants.
+  [SIGNAL_IDS.MLB_SURV_ROBUST_HR]:               "robust HR spot",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_TB]:               "robust TB spot",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_HITS]:             "robust hits spot",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_RBIS]:             "robust RBIs spot",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_HR]:              "fragile HR longshot",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_TB]:              "fragile TB spot",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_HITS]:            "fragile hits spot",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_RBIS]:            "fragile RBIs spot",
 })
 
 // ── Phase Player-Conviction-Engine-1A (PCE-1A) — reasonTag → signal id ──────
