@@ -205,6 +205,16 @@ export interface FeaturedPlay {
   reasoning?: string
   processNote?: string | null
   attackNote?: string
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — bettor-readable conviction
+  // surface emitted by scoreCandidate. Anti-fabrication: undefined when PCE
+  // bypassed (pitcher / under / no canonical signals).
+  convictionNote?: string
+  convictionReasonTag?:
+    | "PCE:earned"
+    | "PCE:supported"
+    | "PCE:modest"
+    | "PCE:ecology_light"
+    | "PCE:thin"
   composite: number
   factors?: Record<string, number>
   // Phase Operator-Experience-1A — additive market & disagreement context.

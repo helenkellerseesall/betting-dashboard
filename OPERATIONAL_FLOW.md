@@ -42,6 +42,22 @@ Plus existing canonical primitives (still available; ops:* wrap them):
 
 **Legacy inline chains documented below are PRESERVED for back-compat** but every fresh chat should use the `ops:*` commands above. The `verifyOperationalContinuity.js` helper unit asserts that this section + GPT_RECONSTRUCTION_BOOTSTRAP.md + BOOTSTRAP_PROMPT.md reference the canonical `ops:*` commands.
 
+### Player conviction engine doctrine (Player-Conviction-Engine-1A, 2026-05-17)
+
+**Sustainable hitter legitimacy is an additive small-cap composite layer. Earned upside ≠ random variance spam. The engine BIASES toward believable longshots; it never REMOVES longshots.**
+
+`backend/pipeline/shared/playerConvictionEngine.js` is a NEW pure deterministic module (NO IO, NO Math.random, NO Date.now, NO LLM SDK imports). `computePlayerConviction(c)` composes canonical **lineupSpot precision** (numeric 1-9, distinct from BC-2's depth bucket) × **plateAppearancesProxy floor** × **stat-side coherence** (HR over from heart-of-order = coherent; HR over from 9-spot + dead env = incoherent randomness penalty) × **model-trust alignment** (high modelProb = trusted; tiny modelProb + huge edge = "random variance spam" signature → penalty).
+
+Wired into `scoreCandidate` alongside BC-2 (playerLegitimacyFactor 7%) + OE-2 (offensivePressureIndex 5%) + OE-3 (hrCarryEnvironment +0.03) + OE-4 (correlatedRunProduction +0.03) + OE-11 + OE-13. `PCE_WEIGHT = 0.05`; additive bounded `[-PCE_MAX_PENALTY = -0.04, +PCE_MAX_BOOST = +0.05]`. Hitter overs only — pitcher / under bypass cleanly (gated=false, additive=0).
+
+**Longshot-preservation invariant (operator-cemented + verifier-enforced)**: the penalty caps cannot zero out a +400-to-+1000 ladder play. A +700-class HR with top-of-order spot + modelProb ≥ 0.18 + favorable env still receives the full +PCE_MAX_BOOST. The random-spam case (back-of-order + tiny modelProb + dead env) receives only -0.015 to -0.04 — re-orders ties without crushing.
+
+`recordPceStat()` per-run discipline mirrors BC-9 / OE-9 (counters + `[PCE-1A] conviction engine:` operator log + `pceStats` on return payload). `compactPlay` output gains `convictionNote` + `convictionReasonTag` (5 canonical reasonTags: `PCE:earned` / `PCE:supported` / `PCE:modest` / `PCE:ecology_light` / `PCE:thin`). 5 NEW PCE canonical signal ids in `bettorLanguage.js` (SIGNAL_IDS / SIGNAL_PHRASES / SHORT_SIGNAL_PHRASES / PRIORITY_ORDER) + `pceReasonTagToSignalId()` mapping helper. FE `FeaturedCard.tsx` renders bettor-readable `◆ {convictionNote}` line with color semantics.
+
+`verifyPlayerConvictionEngine1A.js` (31-verifier matrix) enforces: NEW module exists; no IO requires; no LLM SDK imports; canonical-only fields; **NEGATIVE: no fabricated sabermetric fields** (barrelRate / hardHit / xSLG / seasonHR / ISO / pull% explicitly forbidden — they don't exist in canonical pipeline); weight/boost/penalty bands ≤ 0.07; scoreCandidate wiring; per-run reset + accounting log; convictionNote on compactPlay; bettorLanguage signal-id registration; empirical earned-profile near-max boost; earned-longshot positive additive (longshot preservation); random-spam BOUNDED penalty (never zeros); pitcher / under / empty clean bypass; counter accumulation; determinism replay-safe.
+
+---
+
 ### Candidate ecology parity doctrine (Candidate-Ecology-Parity-1A, 2026-05-17)
 
 **Battlefield widening and slip ecology are separate canonical layers. Healthy system shape: battlefield breadth → curated edge → AI compression.** All three layers must hydrate simultaneously.

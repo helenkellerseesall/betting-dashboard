@@ -36,6 +36,20 @@
 
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
+// Phase Player-Conviction-Engine-1A (PCE-1A): additive small-cap composite
+// weight for sustainable hitter legitimacy. Imported here so scoreCandidate
+// can compose conviction alongside BC-2 legitimacy + OE-2 pressure.
+// Anti-fabrication: every PCE input is already canonical (BC-1 / OE-1 lifted).
+const {
+  PCE_VERSION:        PCE_VERSION_TAG,
+  PCE_WEIGHT,
+  PCE_MAX_BOOST,
+  PCE_MAX_PENALTY,
+  computePlayerConviction,
+  resetPceStats,
+  getPceStats,
+  recordPceStat,
+} = require("./playerConvictionEngine")
 
 // ── Phase Market-Exploitation-1A constants (EXPL-1 + EXPL-4) ─────────────────
 //
@@ -1197,7 +1211,35 @@ function scoreCandidate(c, ctx) {
   f.runProd = oeRunBoost
   f.bullpen = oeBullpenBoost
 
-  const composite = clamp(0, 1, (total / weight) + tierBoost + textureBoost + oeAdditive)
+  // Phase Player-Conviction-Engine-1A (PCE-1A): additive small-cap composite
+  // boost / penalty for sustainable hitter legitimacy. Distinct from BC-2
+  // (depth × teamTotal) + OE-2 (runEnv × teamTotal × carryShift) — PCE uses
+  // lineupSpot precision (1-9), plateAppearancesProxy floor, stat-side
+  // coherence, and model-trust alignment. Hitter overs only; pitcher / under
+  // legs bypass (gated=false, additive=0). Bounded ∈ [-PCE_MAX_PENALTY=-0.04,
+  // +PCE_MAX_BOOST=+0.05] — never zeros out longshots. Operator-cemented:
+  // believable longshots STILL surface; only ecology-light + thin-model
+  // randomness gets a SMALL penalty. NO new fetches, NO ML, NO LLM,
+  // NO popularity weighting. Pure deterministic.
+  const pceRecord = computePlayerConviction(c)
+  recordPceStat(pceRecord)
+  const pceAdditive = pceRecord.additive
+  f.pceFactor = pceRecord.factor
+  f.pceAdditive = pceAdditive
+  f.pcePhrase = pceRecord.phrase
+  f.pceReasonTag = pceRecord.reasonTag
+  f.pceGated = pceRecord.gated
+
+  // NOTE: PCE_WEIGHT (0.05) governs the FACTOR's contribution to the weighted
+  // mean of composite. The bonded ADDITIVE (±0.04..0.05) layers on top of the
+  // mean like BC-4 textureBoost / OE-3 oeHrBoost — small enough that it
+  // re-orders ties without crushing equivalent-edge candidates. We add PCE to
+  // BOTH paths for full transparency: the weighted-mean component AND the
+  // additive boost both surface through `factors` for verifier inspection.
+  total  += pceRecord.factor * PCE_WEIGHT
+  weight += PCE_WEIGHT
+
+  const composite = clamp(0, 1, (total / weight) + tierBoost + textureBoost + oeAdditive + pceAdditive)
   return { composite: r4(composite), factors: f, timingClass: tc, lineShop: ls }
 }
 
@@ -2105,6 +2147,12 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
     ...(attackNote != null ? { attackNote } : {}),
     composite:           score.composite,
     factors:             score.factors,
+    // Phase Player-Conviction-Engine-1A (PCE-1A): bettor-readable conviction
+    // surface on every compactPlay. Pure additive — FE renders convictionNote
+    // alongside reasoning/attackNote. Anti-fabrication: undefined when PCE
+    // bypassed (pitcher / under / no canonical signals). NEVER LLM-derived.
+    ...(score.factors?.pcePhrase    ? { convictionNote:     score.factors.pcePhrase } : {}),
+    ...(score.factors?.pceReasonTag ? { convictionReasonTag: score.factors.pceReasonTag } : {}),
   }
 }
 
@@ -2133,6 +2181,9 @@ function buildFeaturedPlays(opts = {}) {
   // counters (pair reinforcement / turnover boosts / bullpen boosts) per
   // run. Same per-run discipline.
   resetOe1bStats()
+  // Phase Player-Conviction-Engine-1A (PCE-1A): reset per-run conviction
+  // counters so the end-of-run operator log reflects only THIS call.
+  resetPceStats()
 
   const normalizedAll = candidates.map(normalizeCandidate).filter(Boolean)
   // Phase Market-Exploitation-1A (EXPL-4): availability hard-filter at the
@@ -2383,6 +2434,22 @@ function buildFeaturedPlays(opts = {}) {
     )
   }
 
+  // Phase Player-Conviction-Engine-1A (PCE-1A): operator-visible conviction-
+  // engine accounting log. Rate-limited (one emission per buildFeaturedPlays
+  // run); emitted only when ANY PCE counter (boost or penalty) fired.
+  // Anti-fabrication: counts reflect REAL canonical-signal-driven activations.
+  // Operator-cemented: longshots NEVER blocked — boosts re-order ties only.
+  const pceStats = getPceStats()
+  const pceAnyActivity = pceStats.earnedBoostsApplied
+    + pceStats.modestBoostsApplied
+    + pceStats.ecologyLightPenalties
+    + pceStats.thinProcessPenalties
+  if (pceAnyActivity > 0) {
+    console.warn(
+      `[PCE-1A] conviction engine: ${pceStats.earnedBoostsApplied} earned boost(s) · ${pceStats.modestBoostsApplied} modest boost(s) · ${pceStats.ecologyLightPenalties} ecology-light penalty(ies) · ${pceStats.thinProcessPenalties} thin-process penalty(ies) · ${pceStats.candidatesScored} scored / ${pceStats.neutralBypass} neutral-bypass`,
+    )
+  }
+
   return {
     sport, date,
     anchors,
@@ -2408,6 +2475,9 @@ function buildFeaturedPlays(opts = {}) {
     // Phase Offensive-Ecology-Intelligence-1B (OE-9 mirror): operator observability
     // of OE-1B reinforcement activity inside this run. Pure accounting; advisory only.
     oe1bStats,
+    // Phase Player-Conviction-Engine-1A (PCE-1A): operator + bettor observability
+    // of conviction-engine activity inside this run. Pure accounting; advisory only.
+    pceStats,
     summary: `${anchors.length} anchors · ${uniqueIds.size} curated plays across ${normalized.length} candidates`,
   }
 }
@@ -2487,4 +2557,13 @@ module.exports = {
   OE13_BULLPEN_BOOST_CAP,
   OE13_NEUTRAL_FRAGILITY,
   OE13_FRAGILITY_THRESHOLD,
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — re-export for unit testing
+  // and downstream consumer use. The actual implementations live in
+  // playerConvictionEngine.js (separate module per additive-only doctrine).
+  computePlayerConviction,
+  resetPceStats,
+  getPceStats,
+  PCE_WEIGHT,
+  PCE_MAX_BOOST,
+  PCE_MAX_PENALTY,
 }

@@ -62,6 +62,18 @@ const SIGNAL_IDS = Object.freeze({
   COHERENT_OFFENSIVE_STACK:         "coherent_offensive_stack",
   STRUCTURAL_CONTRADICTION:         "structural_contradiction",
   NO_REPO_INTELLIGENCE_AVAILABLE:   "no_repo_intelligence_available",
+
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — per-leg conviction signals
+  // emitted by scoreCandidate via factors.pceReasonTag. Distinct from BC-2 +
+  // OE-2: these signal SUSTAINABLE hitter legitimacy or its absence based on
+  // lineupSpot precision × plate-appearance proxy × stat-side coherence ×
+  // model-trust alignment. Operator-cemented: NEVER fabricated, NEVER LLM.
+  // Longshot-preserving — penalty caps re-order ties, never zero out.
+  PCE_EARNED_UPSIDE_PROFILE:        "pce_earned_upside_profile",
+  PCE_LINEUP_SUPPORTED_EDGE:        "pce_lineup_supported_edge",
+  PCE_MODEST_LINEUP_CONVICTION:     "pce_modest_lineup_conviction",
+  PCE_ECOLOGY_LIGHT_SPOT:           "pce_ecology_light_spot",
+  PCE_THIN_PROCESS_LONGSHOT:        "pce_thin_process_longshot",
 })
 
 // ── Operator-approved canonical phrase library ──────────────────────────────
@@ -96,6 +108,20 @@ const SIGNAL_PHRASES = Object.freeze({
     "This ticket carries one or more structural contradictions — the legs are betting against each other.",
   [SIGNAL_IDS.NO_REPO_INTELLIGENCE_AVAILABLE]:
     "No repo-native intelligence could be applied — all legs were unresolved.",
+
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — operator-approved phrases.
+  // Bettor-facing: explains conviction state in plain language. Sharp + believable,
+  // never consensus-chalk. Phrases consciously preserve longshot upside framing.
+  [SIGNAL_IDS.PCE_EARNED_UPSIDE_PROFILE]:
+    "This is an earned upside spot — the bat sits in a meaningful lineup slot with the at-bats and ecology to back it.",
+  [SIGNAL_IDS.PCE_LINEUP_SUPPORTED_EDGE]:
+    "Lineup-supported edge — managerial trust + opportunity volume make this more than a coin-flip price.",
+  [SIGNAL_IDS.PCE_MODEST_LINEUP_CONVICTION]:
+    "Modest lineup conviction — one or two canonical signals support this, but not the full ecology stack.",
+  [SIGNAL_IDS.PCE_ECOLOGY_LIGHT_SPOT]:
+    "Ecology-light spot — the play can still hit, but the lineup context isn't doing heavy lifting here.",
+  [SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT]:
+    "Thin-process longshot — the price is live but the lineup + model signals are noticeably weak. Sized appropriately, it's still in play.",
 })
 
 // ── Deterministic render priority ───────────────────────────────────────────
@@ -117,6 +143,14 @@ const PRIORITY_ORDER = Object.freeze([
   SIGNAL_IDS.UNRESOLVED_LEG,
   SIGNAL_IDS.MARKET_CONTEXT_UNAVAILABLE,
   SIGNAL_IDS.AVAILABILITY_CONTEXT_UNAVAILABLE,
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — per-leg conviction phrases.
+  // Highest-positive first, then descending; penalties last but BEFORE the
+  // ambient "no context" phrases (penalties are actionable bettor information).
+  SIGNAL_IDS.PCE_EARNED_UPSIDE_PROFILE,
+  SIGNAL_IDS.PCE_LINEUP_SUPPORTED_EDGE,
+  SIGNAL_IDS.PCE_MODEST_LINEUP_CONVICTION,
+  SIGNAL_IDS.PCE_ECOLOGY_LIGHT_SPOT,
+  SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT,
 ])
 
 // ── Renderer ────────────────────────────────────────────────────────────────
@@ -206,7 +240,38 @@ const SHORT_SIGNAL_PHRASES = Object.freeze({
   [SIGNAL_IDS.COHERENT_OFFENSIVE_STACK]:         "coherent offensive stack",
   [SIGNAL_IDS.STRUCTURAL_CONTRADICTION]:         "structural contradiction",
   [SIGNAL_IDS.NO_REPO_INTELLIGENCE_AVAILABLE]:   "no repo-native intelligence",
+  // Phase Player-Conviction-Engine-1A (PCE-1A) — short chip variants.
+  [SIGNAL_IDS.PCE_EARNED_UPSIDE_PROFILE]:        "earned upside",
+  [SIGNAL_IDS.PCE_LINEUP_SUPPORTED_EDGE]:        "lineup-supported",
+  [SIGNAL_IDS.PCE_MODEST_LINEUP_CONVICTION]:     "modest conviction",
+  [SIGNAL_IDS.PCE_ECOLOGY_LIGHT_SPOT]:           "ecology-light",
+  [SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT]:        "thin-process longshot",
 })
+
+// ── Phase Player-Conviction-Engine-1A (PCE-1A) — reasonTag → signal id ──────
+//
+// Pure dictionary; maps the deterministic PCE reasonTag emitted on
+// scoreCandidate.factors.pceReasonTag to its canonical bettorLanguage
+// signal id. Used by buildFeaturedPlays consumers + buildSlipAnalysis to
+// translate the PCE record into a renderable canonical signal — never
+// fabricates an id when the reasonTag is unknown.
+const PCE_REASON_TAG_TO_SIGNAL_ID = Object.freeze({
+  "PCE:earned":        SIGNAL_IDS.PCE_EARNED_UPSIDE_PROFILE,
+  "PCE:supported":     SIGNAL_IDS.PCE_LINEUP_SUPPORTED_EDGE,
+  "PCE:modest":        SIGNAL_IDS.PCE_MODEST_LINEUP_CONVICTION,
+  "PCE:ecology_light": SIGNAL_IDS.PCE_ECOLOGY_LIGHT_SPOT,
+  "PCE:thin":          SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT,
+})
+
+/**
+ * Phase PCE-1A: translate a PCE reasonTag string into a canonical signal id.
+ * Returns null when input is null/undefined or not in the canonical map —
+ * anti-fabrication, no synthesized ids.
+ */
+function pceReasonTagToSignalId(reasonTag) {
+  if (!reasonTag) return null
+  return PCE_REASON_TAG_TO_SIGNAL_ID[reasonTag] || null
+}
 
 module.exports = {
   SIGNAL_IDS,
@@ -215,4 +280,7 @@ module.exports = {
   PRIORITY_ORDER,
   renderVerdictPhrases,
   composeVerdictSummary,
+  // Phase Player-Conviction-Engine-1A (PCE-1A)
+  PCE_REASON_TAG_TO_SIGNAL_ID,
+  pceReasonTagToSignalId,
 }
