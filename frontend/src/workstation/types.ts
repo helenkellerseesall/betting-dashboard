@@ -215,6 +215,21 @@ export interface FeaturedPlay {
     | "PCE:modest"
     | "PCE:ecology_light"
     | "PCE:thin"
+  // Phase CA-3d Item 0001 (Survivability dimension) — emitted by
+  // buildFeaturedPlays when survivabilityGate(c, "mlb") returns a non-neutral
+  // result. Anti-fabrication: undefined when gate admits via neutral-fallback
+  // (pitcher / under-side / minor / missing-signals).
+  survivabilityFlag?: "passes" | "fails"
+  survivabilityReasonTag?:
+    | "MLB_SURV_ROBUST_HR"
+    | "MLB_SURV_ROBUST_TB"
+    | "MLB_SURV_ROBUST_HITS"
+    | "MLB_SURV_ROBUST_RBIS"
+    | "MLB_SURV_FRAGILE_HR"
+    | "MLB_SURV_FRAGILE_TB"
+    | "MLB_SURV_FRAGILE_HITS"
+    | "MLB_SURV_FRAGILE_RBIS"
+  survivabilityPhrase?: string
   composite: number
   factors?: Record<string, number>
   // Phase Operator-Experience-1A — additive market & disagreement context.

@@ -74,6 +74,22 @@ const SIGNAL_IDS = Object.freeze({
   PCE_MODEST_LINEUP_CONVICTION:     "pce_modest_lineup_conviction",
   PCE_ECOLOGY_LIGHT_SPOT:           "pce_ecology_light_spot",
   PCE_THIN_PROCESS_LONGSHOT:        "pce_thin_process_longshot",
+
+  // Phase CA-3d Item 0001 (Survivability dimension) — per-leg structural
+  // survivability signals emitted by mlbSurvivabilityGate. Distinguishes
+  // rare-but-structurally-robust opportunities from rare-and-structurally-
+  // fragile ones under IDENTICAL probability conditions (Law 26 volatility-
+  // isolation). Operator-cemented: gate predicate consumes only canonical
+  // structural signals (lineupSpot × plateAppearancesProxy × runEnvironment
+  // × hrCarryEnvironment); no volatility class input; no per-player hooks.
+  MLB_SURV_ROBUST_HR:    "mlb_surv_robust_hr",
+  MLB_SURV_ROBUST_TB:    "mlb_surv_robust_tb",
+  MLB_SURV_ROBUST_HITS:  "mlb_surv_robust_hits",
+  MLB_SURV_ROBUST_RBIS:  "mlb_surv_robust_rbis",
+  MLB_SURV_FRAGILE_HR:   "mlb_surv_fragile_hr",
+  MLB_SURV_FRAGILE_TB:   "mlb_surv_fragile_tb",
+  MLB_SURV_FRAGILE_HITS: "mlb_surv_fragile_hits",
+  MLB_SURV_FRAGILE_RBIS: "mlb_surv_fragile_rbis",
 })
 
 // ── Operator-approved canonical phrase library ──────────────────────────────
@@ -122,6 +138,27 @@ const SIGNAL_PHRASES = Object.freeze({
     "Ecology-light spot — the play can still hit, but the lineup context isn't doing heavy lifting here.",
   [SIGNAL_IDS.PCE_THIN_PROCESS_LONGSHOT]:
     "Thin-process longshot — the price is live but the lineup + model signals are noticeably weak. Sized appropriately, it's still in play.",
+
+  // Phase CA-3d Item 0001 — Survivability dimension phrases (operator-approved).
+  // Robust phrasing preserves longshot legitimacy. Fragile phrasing names the
+  // specific structural deficit (not the price). Law 26: never mentions
+  // volatility class. Law 27: never mentions player identity.
+  [SIGNAL_IDS.MLB_SURV_ROBUST_HR]:
+    "Structurally robust HR spot — top-of-lineup role with the at-bats and park environment to back the swing.",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_TB]:
+    "Structurally robust total-bases spot — meaningful lineup slot in a run-environment that supports the line.",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_HITS]:
+    "Structurally robust hits spot — top-of-order at-bats in a favorable game environment.",
+  [SIGNAL_IDS.MLB_SURV_ROBUST_RBIS]:
+    "Structurally robust RBIs spot — lineup position with the run-environment to drive in runners.",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_HR]:
+    "Structurally fragile HR longshot — back-of-order role and suppressed environment make this random-variance, not earned.",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_TB]:
+    "Structurally fragile total-bases spot — line too high for the available at-bats and run environment.",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_HITS]:
+    "Structurally fragile hits spot — back-of-order at-bats in a suppressed environment.",
+  [SIGNAL_IDS.MLB_SURV_FRAGILE_RBIS]:
+    "Structurally fragile RBIs spot — lineup position without the run-environment to drive in runners.",
 })
 
 // ── Deterministic render priority ───────────────────────────────────────────

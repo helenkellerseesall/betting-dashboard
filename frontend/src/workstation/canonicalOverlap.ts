@@ -37,6 +37,13 @@ import type { Candidate, Featured, FeaturedPlay } from "./types"
 export interface FeaturedOverlapEntry {
   convictionNote?:     FeaturedPlay["convictionNote"]
   convictionReasonTag?: FeaturedPlay["convictionReasonTag"]
+  // Phase CA-3d Item 0001 — Survivability dimension extension. Law 21
+  // Invariant 3: narrow-interface extension is the canonical evolution path.
+  // Extends only what the survivability gate emits; never widens to other
+  // FeaturedPlay fields.
+  survivabilityFlag?:      FeaturedPlay["survivabilityFlag"]
+  survivabilityReasonTag?: FeaturedPlay["survivabilityReasonTag"]
+  survivabilityPhrase?:    FeaturedPlay["survivabilityPhrase"]
 }
 
 // ReadonlyMap so the index is structurally immutable to consumers. Stable
@@ -98,8 +105,11 @@ export function buildFeaturedOverlapIndex(
     // would just overwrite with byte-identical values; skipping avoids waste.
     if (out.has(id)) return
     out.set(id, {
-      convictionNote:      play.convictionNote,
-      convictionReasonTag: play.convictionReasonTag,
+      convictionNote:         play.convictionNote,
+      convictionReasonTag:    play.convictionReasonTag,
+      survivabilityFlag:      play.survivabilityFlag,
+      survivabilityReasonTag: play.survivabilityReasonTag,
+      survivabilityPhrase:    play.survivabilityPhrase,
     })
   }
 
