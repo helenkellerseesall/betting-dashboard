@@ -1,3 +1,19 @@
+> **⚠️ SUPERSEDED — FROZEN SESSION-AK SNAPSHOT (2026-05-10)**
+>
+> This file is the **Session-AK frozen snapshot** and is no longer the canonical live state. It has not been overwritten since 2026-05-10 and is now 7+ phases stale.
+> Canonical live state moved to repo-root [`/CURRENT_STATE.md`](../CURRENT_STATE.md) as of Continuity-OS-1A/1B/1C (sealed 2026-05-17).
+>
+> **For current live state (canonical):** [`/CURRENT_STATE.md`](../CURRENT_STATE.md)
+> **For active phase (canonical):** [`/ACTIVE_PHASE.md`](../ACTIVE_PHASE.md)
+> **For next phase (canonical):** [`/NEXT_PHASE.md`](../NEXT_PHASE.md)
+> **For per-phase ledger (canonical):** [`/docs/OPERATOR_RUNBOOK.md`](OPERATOR_RUNBOOK.md)
+>
+> Content below preserved verbatim as Session-AK / Verification-Telemetry-V1 historical record. Read only for replay / historical reference.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (severity rank 1 — frozen destination of misrouting shadow chain)._
+>
+> ---
+
 # CURRENT STATE
 **Live operational repo state. Overwrite every session. Never append.**
 _Last updated: 2026-05-10 (Session AK: Verification Telemetry V1 implemented — verificationSchema.js (10 NBA + 4 MLB checks), writeVerificationArtifact.js (atomic JSON writer), runVerification.js (CLI runner exits 0/1), backend/runtime/verifications/ directory, VERIFICATION_TELEMETRY.md. Offline: 10/10 pass, FAIL path confirmed. Class D — pending live TERM 1 + hard-reset verification.)_

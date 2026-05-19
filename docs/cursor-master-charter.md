@@ -1,3 +1,18 @@
+> **⚠️ SUPERSEDED — HISTORICAL CURSOR-V2 CHARTER**
+>
+> This file is the **pre-Continuity-OS Cursor-era product charter (V2-FINAL, April 16)** and is no longer the canonical product authority. Its 6-item product structure (player conviction / outcome ladders / market-family boards / ticket style families / execution / recovery) competes with the canonical 3-layer doctrine.
+> Canonical product doctrine moved to [`/PRODUCT_IDENTITY.md`](../PRODUCT_IDENTITY.md) — 3-layer Battlefield → Curated Edge → Compression.
+>
+> **For product identity (canonical):** [`/PRODUCT_IDENTITY.md`](../PRODUCT_IDENTITY.md)
+> **For active phase (canonical):** [`/ACTIVE_PHASE.md`](../ACTIVE_PHASE.md)
+> **For deferred / forbidden authority (canonical):** [`/DEFERRED_PHASES.md`](../DEFERRED_PHASES.md)
+>
+> Note: PCE-1A vocabulary ("player conviction") borrows from this charter — partial doctrine reabsorption, not full deprecation. Content below preserved verbatim under additive-only doctrine. Read only for replay / lineage reference.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (R-10 / R-3: bootstrap-surface fork closure)._
+>
+> ---
+
 MASTER CURSOR CHARTER (V2 - FINAL)
 
 MISSION:

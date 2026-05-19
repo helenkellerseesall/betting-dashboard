@@ -9,7 +9,8 @@
 | Field | Value |
 |---|---|
 | **Approved next phase** | _(awaiting operator selection — operator picks from active bottlenecks)_ |
-| **Last sealed phase** | Continuity-OS-1A (COS-1A) — sealed 2026-05-17 |
+| **Last sealed phase** | Player-Conviction-Engine-1A (PCE-1A) — 31st approved phase, sealed 2026-05-17 |
+| **ACTIVE EXECUTION** | LOCKED pending Reconciliation Checkpoint (R1-PASS-2 + V1–V7 + FE-Asymmetry P1 sequencing) |
 | **Most likely candidates** | See `CURRENT_PROBLEMS.md` 🟡 ACTIVE bottlenecks (A-1 through A-5) |
 
 ---

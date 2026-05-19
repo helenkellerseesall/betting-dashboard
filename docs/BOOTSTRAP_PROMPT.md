@@ -1,3 +1,17 @@
+> **⚠️ SUPERSEDED — DO NOT FOLLOW FOR FRESH SESSIONS**
+>
+> This file is preserved as the **pre-Continuity-OS bootstrap prompt** and is no longer canonical. The "COPY-PASTE BLOCK" below routes fresh chats into the frozen `docs/` Session-AK trio.
+> Canonical authority moved to repo-root [`/BOOTSTRAP_PROMPT.md`](../BOOTSTRAP_PROMPT.md) as of Continuity-OS-1A/1B/1C (sealed 2026-05-17).
+>
+> **For agent bootstrap (canonical):** [`/BOOTSTRAP_PROMPT.md`](../BOOTSTRAP_PROMPT.md)
+> **Portable companion:** [`/GPT_RECONSTRUCTION_BOOTSTRAP.md`](../GPT_RECONSTRUCTION_BOOTSTRAP.md)
+>
+> Content below preserved verbatim under additive-only doctrine. Read only for replay / historical reference.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (severity rank 1 — actively-misrouting shadow)._
+>
+> ---
+
 # BOOTSTRAP PROMPT
 **Canonical repo rehydration entrypoint. Paste at the top of every new chat or session.**
 

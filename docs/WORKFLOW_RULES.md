@@ -1,3 +1,20 @@
+> **⚠️ SUPERSEDED — DO NOT FOLLOW FOR FRESH SESSIONS**
+>
+> This file is preserved as the **pre-Continuity-OS Session-AK historical snapshot** and is no longer the canonical per-session ritual.
+> Canonical authority moved to repo-root files as of Continuity-OS-1A/1B/1C (sealed 2026-05-17).
+>
+> **For per-session ritual (canonical):** [`/OPERATIONAL_FLOW.md`](../OPERATIONAL_FLOW.md)
+> **For agent bootstrap (canonical):** [`/BOOTSTRAP_PROMPT.md`](../BOOTSTRAP_PROMPT.md)
+> **For current state (canonical):** [`/CURRENT_STATE.md`](../CURRENT_STATE.md)
+> **For next-phase candidates (canonical):** [`/NEXT_PHASE.md`](../NEXT_PHASE.md)
+> **For AI-agent behavioral protocol (canonical):** [`/backend/runtime/brain/OPERATOR_PROTOCOL.md`](../backend/runtime/brain/OPERATOR_PROTOCOL.md)
+>
+> Content below preserved verbatim under additive-only doctrine. Read only for replay / historical reference. Do not use the "MANDATORY SESSION PROTOCOL" routing below — it points at the frozen `docs/` Session-AK trio.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (severity rank 1 — actively-misrouting shadow)._
+>
+> ---
+
 # WORKFLOW RULES
 **Permanent operational law. Read first. Update last. Never skip.**
 

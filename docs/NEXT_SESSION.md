@@ -1,3 +1,18 @@
+> **⚠️ SUPERSEDED — FROZEN SESSION-AK SNAPSHOT (2026-05-10)**
+>
+> This file is the **Session-AK frozen resumption snapshot** and is no longer the canonical next-step authority. It has not been overwritten since 2026-05-10 and is now 7+ phases stale.
+> Canonical next-phase authority moved to repo-root [`/NEXT_PHASE.md`](../NEXT_PHASE.md) as of Continuity-OS-1A/1B/1C (sealed 2026-05-17).
+>
+> **For next-phase candidates (canonical):** [`/NEXT_PHASE.md`](../NEXT_PHASE.md)
+> **For active bottlenecks (canonical):** [`/CURRENT_PROBLEMS.md`](../CURRENT_PROBLEMS.md)
+> **For active phase (canonical):** [`/ACTIVE_PHASE.md`](../ACTIVE_PHASE.md)
+>
+> Content below preserved verbatim as Session-AK historical record. Read only for replay / historical reference.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (severity rank 1 — frozen destination of misrouting shadow chain)._
+>
+> ---
+
 # NEXT SESSION
 **Exact operational resumption state. Overwrite every session. Never append.**
 _Last updated: 2026-05-10 (Session AK: Verification Telemetry V1 implemented — verificationSchema.js, writeVerificationArtifact.js, runVerification.js, runtime/verifications/, VERIFICATION_TELEMETRY.md; 10/10 offline pass; FAIL path confirmed; Class D pending live verification.)_

@@ -8,48 +8,60 @@
 
 | Field | Value |
 |---|---|
-| **Phase name** | Candidate-Ecology-Parity-1A (CEP1A) |
-| **Phase number** | 30th approved phase |
+| **Phase name** | Player-Conviction-Engine-1A (PCE1A) |
+| **Phase number** | 31st approved phase |
 | **Status** | SHIPPED + SEALED |
 | **Sealed at** | 2026-05-17 (this session) |
-| **Type** | Infrastructure — restored MLB battlefield widening (date-sanity) + NBA slip ecology (aggressive+lotto NBA tier overrides) |
+| **Type** | Intelligence — NEW additive small-cap composite weight (PCE_WEIGHT 0.05, additive ∈ [-0.04,+0.05]) for sustainable hitter legitimacy, derived from canonical lineupSpot × plateAppearancesProxy × stat-side coherence × model-trust; longshot-preserving (max penalty -0.04 cannot zero out a play); hitter-overs-only (pitcher / under bypass cleanly). NO LLM, NO ML, NO new fetches, NO popularity weighting. |
 
 ---
 
 ## ONE-LINE OBJECTIVE
 
-Consolidate the multiple competing operational flows (4 inline chain variants documented across 3+ continuity docs) into a SINGLE canonical `npm run ops:*` abstraction layer (6 commands + 3 NEW orchestrators) so fresh chats produce canonical commands instead of regenerating drift-prone inline chains.
+Ship the canonical Player-Conviction-Engine-1A composite — an additive small-cap weight (`PCE_WEIGHT 0.05`, additive ∈ [-0.04, +0.05]) that expresses sustainable hitter-overs legitimacy from canonical signals already on the row context, with anti-fabrication and longshot-preservation hard-floored.
 
 ---
 
 ## BOTTLENECK BEING SOLVED
 
-New chats (Claude or GPT) drift catastrophically because canonical continuity reconstruction is incomplete:
-- BOOTSTRAP_PROMPT.md points at long-form docs (CURRENT_STATE.md 6999 lines, MASTER_BRAIN.md 480 lines, OPERATOR_RUNBOOK.md 1200+ lines).
-- New chat has to consume ALL of them + emotional context dumping just to know "what are we shipping today?"
-- Result: chat re-solves solved problems / drifts into deprecated directions / forgets anti-fabrication boundaries.
+Hitter-overs with apparent edge but no sustainable conviction surface alongside genuinely-conviction-heavy hitter-overs with no signal to separate them at sort time. The repo had:
+- per-stat edge (eligibleBets edge > 0.04) and model probability (> 0.20) as gates,
+- ecology lifts (OE-1 through OE-9) for context,
+- but no single composite that compresses lineupSpot × plateAppearancesProxy × stat-side coherence × model-trust into a sustainability signal.
+Result: longshots with weak conviction surfaced equally with sustainable mid-cap hitters; sort-time ordering did not reflect "who is actually live tonight" the way the canonical ecology already implies.
 
 ---
 
-## APPROVED LEVERS (COS-1C scope)
+## APPROVED LEVERS (PCE-1A scope — SHIPPED + SEALED)
 
 | Lever | File | Purpose |
 |---|---|---|
-| COS-1C-1 | `docs/OPERATIONAL_RECONCILIATION_AUDIT.md` | Audit map of competing flows + canonical layer proposal + doctrine lock plan |
-| COS-1C-2 | `backend/package.json` + 3 NEW orchestrators | `ops:term2` / `ops:continuity` / `ops:verify` / `ops:checkpoint` / `ops:state` / `ops:nightly` (6 canonical commands) |
-| COS-1C-3 | Checkpoint compression | `ops:checkpoint` = bootstrap + continuity + verify + brain:checkpoint in ONE command |
-| COS-1C-4 | OPERATIONAL_FLOW + GPT_RECONSTRUCTION_BOOTSTRAP + BOOTSTRAP_PROMPT updates | Canonical ops layer section + explicit "DO NOT regenerate legacy inline chains" prohibition |
-| COS-1C-5 | `verifyOperationalContinuity.js` (NEW) | 92 assertions: canonical scripts present + orchestrators exist + canonical docs reference ops:* + drift detection (no raw curl / no 4-step brain:* chain) + back-compat (brain:* / status / action commands preserved) |
-| COS-1C-6 | Bootstrap operational compression | Fresh GPT reconstruction always restores canonical ops:* layer (asserted by verifier) |
+| PCE-1A-1 | `backend/pipeline/shared/playerConvictionEngine.js` (NEW) | Pure-function composite: lineupSpot × plateAppearancesProxy × stat-side coherence × model-trust → conviction ∈ [-0.04, +0.05]. Hitter-overs-only — pitcher / under bypass cleanly. Neutral fallback when any canonical absent. |
+| PCE-1A-2 | `buildFeaturedPlays.js` integration | Additive composite weight `PCE_WEIGHT 0.05` applied at sort time on top of OE-2/3/4/8 ecology lifts. NEVER mutates underlying composite — additive only. |
+| PCE-1A-3 | `verifyPlayerConvictionEngine1A.js` (NEW) | Verifier suite: anti-fabrication (no canonical invention), longshot-preservation (max -0.04 cannot zero out), hitter-overs scope (pitcher / under bypass), neutral fallback, additive-only doctrine. |
+| PCE-1A-4 | `OPERATOR_RUNBOOK.md` append | PCE-1A entry — 31st sealed phase, doctrine + lever table + caps. Append-only ledger doctrine preserved. |
 
-Prior COS-1A/1B scope (still shipped):
-- 6 anchor files at repo root + `GPT_RECONSTRUCTION_BOOTSTRAP.md` portable artifact
+Prior cross-phase scope (still shipped, untouched):
+- All 30 prior approved phases (Continuity-OS-1A/1B/1C, Sport-Identity-Integrity-1A, Candidate-Ecology-Parity-1A, OE-1A bundle, VBI-1A, BNSB-1A/1B, BNDS-1A/1B, Settlement-Orchestration-1A, Market-Ecology-1A, Persistence-1A/1B, etc.)
+- 6-anchor repo-root surface + `GPT_RECONSTRUCTION_BOOTSTRAP.md` portable artifact
+- Canonical `ops:*` abstraction layer (`ops:term2` / `ops:continuity` / `ops:verify` / `ops:checkpoint` / `ops:state` / `ops:nightly`)
 
 ---
 
-## DEFERRED LEVERS
+## DEFERRED LEVERS (PCE-1A held)
 
-None — operator approved full 6-file bundle.
+- PCE-1B operator-tunable weight via observation window (held — needs >= 14 days of PCE-tagged outcome telemetry)
+- PCE-1C symmetric pitcher-unders conviction composite (held — needs pitcher-side stat-coherence audit first)
+- PCE-1D longitudinal `[PCE-1A]` counter persistence + retrospective ROI tracking (held — same dependency as OE-1E)
+
+---
+
+## OPEN BRIDGE GAP (NOT part of PCE-1A backend scope — flagged for FE-Asymmetry P1)
+
+**Conviction-propagation gap (MCR-identified 2026-05-17 during R1-PASS-2):**
+PCE-1A composite is computed at sort time inside `buildFeaturedPlays.js` and feeds the canonical `/api/ws/state` payload, but the FE surfaces (`🗺 Discover`, `⚡ Tonight's Edge`, slip cards) do not yet render conviction-tier signal as a bettor-visible cue. This is **plumbing / rendering**, NOT a backend scoring issue. It is **not a defect of PCE-1A** — the backend phase is sealed correctly per the additive-only + anti-fabrication invariants.
+
+Routing: this gap belongs in **FRONTEND / UX LAB** as part of the FE-Asymmetry P1 workstream, alongside bottlenecks A-1 (slip emotional compression), A-2 (per-event hover cards), A-3 (portfolio bettor-language), A-4 (CLI invisible to FE), and A-5 (discovery survivability sort). The FE-Asymmetry P1 work is presentation-layer; it does NOT reopen PCE-1A backend.
 
 ---
 
@@ -85,15 +97,15 @@ None — operator approved full 6-file bundle.
 
 ---
 
-## SUCCESS RIGHT NOW (COS-1C specific)
+## SUCCESS RIGHT NOW (PCE-1A specific)
 
-- ✅ 6 canonical `ops:*` scripts exist in `backend/package.json`
-- ✅ 3 NEW orchestrators under `backend/scripts/ops/` (runAllVerifiers / showState / runNightlyReview)
-- ✅ All 3 canonical continuity docs reference `ops:*` + explicit "DO NOT regenerate" prohibition
-- ✅ `verifyOperationalContinuity.js` passes (92/92 assertions: scripts + orchestrators + canonical docs + drift detection + back-compat)
-- ✅ `npm run ops:verify`: **33/33 PASS** (1 runtime + 27 verify\*.js + 5 probes)
-- ✅ `cd frontend && npx tsc --noEmit` clean
-- ✅ `npm run ops:checkpoint` PASS
+- ✅ `backend/pipeline/shared/playerConvictionEngine.js` exists (pure function, neutral fallback, no fabrication)
+- ✅ `PCE_WEIGHT 0.05` applied additively at sort time inside `buildFeaturedPlays.js` (never mutates composite)
+- ✅ `verifyPlayerConvictionEngine1A.js` PASS (anti-fabrication + longshot-preservation + hitter-overs scope + additive-only)
+- ✅ `npm run ops:verify`: **37/37 PASS** (31 verifiers + 5 canonical probes + 1 runtime suite)
+- ✅ Brain checkpoint receipt sealed 2026-05-17T21:09Z PASS (sha256 hash-chain reconciled)
+- ✅ `docs/OPERATOR_RUNBOOK.md` appended: PCE-1A as 31st sealed phase (append-only ledger preserved)
+- ⚠️ Conviction propagation to FE — **separate FE-Asymmetry P1 workstream** (see OPEN BRIDGE GAP above). Not part of PCE-1A backend success criteria.
 
 ---
 

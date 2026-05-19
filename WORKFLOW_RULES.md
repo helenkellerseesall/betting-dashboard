@@ -1,3 +1,19 @@
+> **⚠️ SUPERSEDED — DO NOT FOLLOW FOR FRESH SESSIONS**
+>
+> This file is preserved as the **pre-Continuity-OS per-session ritual** (May 7) and is no longer canonical.
+> Canonical per-session ritual moved to [`/OPERATIONAL_FLOW.md`](OPERATIONAL_FLOW.md) as of Continuity-OS-1C (sealed 2026-05-17).
+>
+> **For per-session ritual (canonical):** [`/OPERATIONAL_FLOW.md`](OPERATIONAL_FLOW.md)
+> **For agent bootstrap (canonical):** [`/BOOTSTRAP_PROMPT.md`](BOOTSTRAP_PROMPT.md)
+> **For AI-agent behavioral protocol (canonical):** [`/backend/runtime/brain/OPERATOR_PROTOCOL.md`](backend/runtime/brain/OPERATOR_PROTOCOL.md)
+> **For per-phase ledger (canonical):** [`/docs/OPERATOR_RUNBOOK.md`](docs/OPERATOR_RUNBOOK.md)
+>
+> Content below preserved verbatim under additive-only doctrine. Read only for replay / historical reference.
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (R-5: per-session-ritual fork closure)._
+>
+> ---
+
 # WORKFLOW RULES
 **Permanent operational law. Read first. Update last. Never skip.**
 

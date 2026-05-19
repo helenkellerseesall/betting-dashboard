@@ -1,5 +1,17 @@
 # Betting dashboard contract
 
+> **⚠️ FORBIDDEN-LIST DIVERGENCE NOTICE (Authority-Reconciliation-Sweep R1-PASS-2, 2026-05-17)**
+>
+> The "Non-negotiable rules" list below contains a Cursor-era constraint — *"Do not reintroduce payout buckets, slipCards, or portfolio logic"* — that **actively contradicts the current repo state**: `frontend/.../PortfolioView.tsx` is active, bottleneck A-3 explicitly targets portfolio bettor-language, and candidate phase **BNSB-1D** is the portfolio language pass.
+>
+> **Canonical forbidden authority:** [`/DEFERRED_PHASES.md`](../DEFERRED_PHASES.md). Trust that file over the list below when the two conflict.
+>
+> The forbidden-list line above is preserved verbatim under additive-only doctrine for Cursor/Copilot agent backward-compatibility. **Treat the portfolio prohibition as SUPERSEDED.** All other "Non-negotiable rules" remain in force (no server restarts, minimal patches, do not touch upstream feed plumbing unless explicit, etc.).
+>
+> _Stamped 2026-05-17 by Authority-Reconciliation-Sweep R1-PASS-2 (R-16: forbidden-list cross-consistency)._
+>
+> ---
+
 You are working on a sports-betting model in VS Code.
 
 Non-negotiable rules:
