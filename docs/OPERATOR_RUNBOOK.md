@@ -1942,3 +1942,85 @@ Phase Opportunity-Qualification-Architecture-1B (2026-05-18) appended to phase i
 ---
 
 _Phase Opportunity-Qualification-Architecture-1B — 2026-05-18. Additive only; no existing doctrine modified. Shape γ confirmed as canonical function-shape; Laws 25–30 codify Shape γ + the 6 named operator doctrines. No implementation in this phase — codification + canonicalization only._
+
+---
+
+## LIVE REGENERATION + SPORTSBOOK GOVERNANCE (Phase Item 0002 Slice 1.5, 2026-05-19)
+
+### Operator-cemented invariants
+
+1. **No replay-only closure.** Probe output (`backend/scripts/probe*.js`) is informational only. Closure of any persistence-mutation slice requires LIVE RUNTIME EVIDENCE — a `mlb_tracked_best_<TODAY>.json` (or NBA equivalent) emitted by the production server through the mutated write path. A probe that succeeds in-memory while the persisted file remains stale is NOT closure.
+2. **Single-book curated discipline.** Every leg of every curated slip references the same canonical sportsbook. Mixed-book curated slips are forbidden. Anti-sterilization unchanged: battlefield Discover rows may still surface non-allowed books (operator-readable as "outside Andrew's books"), but the curated slip emission path never crosses books and never references a book outside the allowlist.
+3. **Canonical sportsbook allowlist.** Operator-authorized 2026-05-19: DraftKings, FanDuel, BetMGM, Caesars. Everything else excluded by default. The canonical authority is `backend/pipeline/shared/sportsbookAllowlist.js`. Allowlist evolution requires explicit operator approval and a commit through this file — no parallel definitions, no inline arrays.
+
+### LIVE REGENERATION runbook (Item 0002 Slice 1)
+
+Run after ANY mutation that touches `phase4Tracking.toTrackedMlbBestEntry`, `toTrackedMlbPick`, or the buildMlbBestProps → recordMlbBestProps chain.
+
+```sh
+# 0. precondition — confirm working tree
+cd /Users/andrewmoore/Desktop/betting-dashboard
+git log --oneline -1
+
+# 1. flush in-process cache (kill any running server)
+pkill -f 'node.*server.js' 2>/dev/null; sleep 1
+
+# 2. start fresh server (loads the new phase4Tracking.js)
+cd backend
+node server.js > /tmp/mlb-server.log 2>&1 &
+sleep 4
+grep -E "listening|started" /tmp/mlb-server.log | tail -3
+
+# 3. trigger the write path — this is the canonical regeneration command
+curl -s 'http://localhost:4000/refresh-snapshot?sport=baseball_mlb' > /dev/null
+curl -s 'http://localhost:4000/api/best-available?sport=baseball_mlb' > /dev/null
+#    server.js:6107 → recordMlbBestProps(safeBest) → writes mlb_tracked_best_<today>.json
+
+# 4. confirm today's file appeared
+ls -la backend/runtime/tracking/mlb_tracked_best_$(date +%Y-%m-%d).json
+
+# 5. confirm hydration shape (eventId / impliedTeamTotal / gameTotal coverage)
+node backend/scripts/verifyRuntimeRegenerationEnforcement.js
+
+# 6. confirm live /state payload carries hydrated fields
+curl -s 'http://localhost:4000/api/ws/state?sport=mlb' | node -e "
+let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{
+  const j=JSON.parse(s); const dc=j.discoveryCandidates||[];
+  console.log({pool:dc.length, withEventId:dc.filter(x=>!!x.eventId).length,
+    distinctGames:new Set(dc.map(x=>x.eventId).filter(Boolean)).size,
+    realismScore:j.aiSlipsSummary?.bettorRealismScore?.score ?? null});
+});"
+
+# 7. hard-refresh the FE Discover tab (Cmd+Shift+R)
+```
+
+### Closure criteria (BETTOR VALIDATION stage)
+
+A mutation slice that touches persistence is **closed** only when ALL of the following are operator-confirmed:
+
+- `mlb_tracked_best_<TODAY>.json` exists with ≥95% hydration on canonical fields.
+- `/api/ws/state?sport=mlb` payload `discoveryCandidates[*].eventId` populated on every row.
+- FE Discover tab renders ≥1 game card (no "No games match" empty state).
+- BC-8 `bettorRealismScore.score` > 0 in the live payload.
+- `verifyRuntimeRegenerationEnforcement.js` returns PASS.
+- `verifySportsbookConstructability.js` returns PASS (no mixed-book curated slips, no non-allowed-book curated emissions).
+
+A slice that passes the probe but fails any of the above is NOT closed; it is replay-only and must continue under active execution until live evidence is captured.
+
+### Verifier matrix additions (V5 expansion)
+
+- `backend/scripts/verifySportsbookConstructability.js` — allowlist + curated single-book + book ∈ allowlist
+- `backend/scripts/verifyReplayLiveParity.js` — replay-vs-live boundary doctrine + today's artifact existence
+- `backend/scripts/verifyRuntimeRegenerationEnforcement.js` — today's tracked_best exists + hydration ≥95%
+- `backend/scripts/verifyProcedureDrift.js` — OPERATOR_RUNBOOK + PRODUCT_IDENTITY + ARCHITECTURE_LAWS contain the procedural doctrine; no parallel allowlist definitions
+
+### Lane ownership
+
+- INFRA / GOVERNANCE — owns this section + the four verifiers + the allowlist module.
+- ACTIVE EXECUTION — runs the live regeneration runbook after every persistence mutation.
+- FRONTEND / UX LAB — captures bettor-visible restoration screenshots (Discover tab game count + realism score + survivability indicator presence).
+- MASTER CONTROL ROOM — holds the closure disposition; refuses replay-only closure claims.
+
+---
+
+_Phase Item 0002 Slice 1.5 — 2026-05-19. Additive only; no prior doctrine modified. Establishes live-regeneration enforcement + sportsbook governance to prevent the replay-vs-live closure regression observed on Slice 1._

@@ -218,3 +218,13 @@ This doctrine is enforced by R4 verifier extensions (`verifyLayerTypeSeparation`
 ## IF SOMETHING IN THIS DOC FEELS WRONG
 
 Don't silently change it. Surface the conflict to the operator. This doc is an anti-drift anchor — drifting it is the failure mode it exists to prevent.
+
+---
+
+## SPORTSBOOK GOVERNANCE (Phase Item 0002 Slice 1.5, 2026-05-19)
+
+The canonical sportsbook allowlist lives at `backend/pipeline/shared/sportsbookAllowlist.js`. Operator-authorized retail books: DraftKings, FanDuel, BetMGM, Caesars. Every other book is excluded by default; allowlist evolution requires explicit operator approval through that module.
+
+Curated emissions (`buildSlipAi` / `buildFeaturedPlays` slip outputs) must be single-book per slip — every leg references the same allowed book. Battlefield Discover rows may surface non-allowed books for completeness (anti-sterilization preserved), but curated slips never reference a book outside the allowlist and never mix books across legs.
+
+Closure of any persistence-touching mutation requires LIVE RUNTIME ARTIFACT evidence — `mlb_tracked_best_<TODAY>.json` emitted by the production server, with ≥95% hydration coverage on canonical fields. Replay-only closure is forbidden by `docs/OPERATOR_RUNBOOK.md` § LIVE REGENERATION + SPORTSBOOK GOVERNANCE.
