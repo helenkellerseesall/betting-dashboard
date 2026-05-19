@@ -125,6 +125,12 @@ function legKey(row) {
 }
 
 function toTrackedMlbPick(row, { slateDate, timestamp }) {
+  // Phase Item 0002 Slice 1 — mirror lift on the parallel picks persistence
+  // path (recordMlbDailyPicks). Same field categories as toTrackedMlbBestEntry;
+  // same anti-fabrication discipline (every value `?? null`).
+  const lc = row?.lineupContextV2 || null
+  const pc = row?.parkContext     || null
+  const wc = row?.weatherContext  || null
   return {
     slateDate,
     timestamp,
@@ -143,10 +149,55 @@ function toTrackedMlbPick(row, { slateDate, timestamp }) {
     result: null, // "win" | "loss" | null
     closingLine: null,
     closingOdds: null,
+
+    // ── Phase Item 0002 Slice 1 — canonical hydration lift ──────────────
+    eventId:          row?.eventId  ?? null,
+    matchup:          row?.matchup  ?? null,
+    gameTime:         row?.gameTime ?? null,
+    awayTeam:         row?.awayTeam ?? null,
+    homeTeam:         row?.homeTeam ?? null,
+    book:             row?.book     ?? null,
+    marketKey:        row?.marketKey ?? null,
+
+    impliedTeamTotal: Number.isFinite(Number(row?.impliedTeamTotal)) ? Number(row.impliedTeamTotal) : null,
+    gameTotal:        Number.isFinite(Number(row?.gameTotal))        ? Number(row.gameTotal)        : null,
+    hrEnvironmentTag: pc?.hrEnvironmentTag ?? row?.hrEnvironmentTag ?? null,
+
+    lineupSpot:            lc?.lineupSpot            ?? row?.lineupPosition ?? row?.battingOrderIndex ?? null,
+    depth:                 lc?.depth                 ?? null,
+    plateAppearancesProxy: lc?.plateAppearancesProxy ?? null,
+    runEnvironment:        lc?.runEnvironment        ?? null,
+    rbiEnvironment:        lc?.rbiEnvironment        ?? null,
+
+    hrFactor:         pc?.hrFactor         ?? row?.hrFactor         ?? null,
+    windDirectionTag: wc?.windDirectionTag ?? row?.windDirectionTag ?? null,
+    carryShift:       wc?.carryShift       ?? row?.carryShift       ?? null,
+    temperatureF:     wc?.temperatureF     ?? row?.temperatureF     ?? null,
+    contextualTags:   Array.isArray(row?.mlbContextualTags) ? row.mlbContextualTags : null,
   }
 }
 
 function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
+  // Phase Item 0002 Slice 1 — canonical hydration lift. Persistence whitelist
+  // extended additively so the workstation /state route receives full
+  // canonical context on enrichedBest candidates. Three field categories:
+  //   (a) game-identity fields (eventId, matchup, gameTime, teams) — required
+  //       for FE buildGameEcosystems indexing (frontend/.../gameEcosystem.ts
+  //       line 195: `if (!c.eventId) continue`).
+  //   (b) BC-1 canonical realism signals (depth, lineupSpot, impliedTeamTotal,
+  //       gameTotal, hrEnvironmentTag) — required for BC-8
+  //       computeBettorRealismScore (backend/pipeline/shared/buildSlipAi.js
+  //       lines 130–203) which reads them at TOP LEVEL.
+  //   (c) Item 0001 survivability inputs (depth, lineupSpot, plateAppearancesProxy,
+  //       runEnvironment, rbiEnvironment, hrEnvironmentTag, carryShift, hrFactor)
+  //       — survivabilityGate's paFactor × runEnvFactor × hrCarryFactor formula
+  //       reads these. Lifted from nested lineupContextV2 / parkContext /
+  //       weatherContext when upstream `applyMlbContextualLayers` populated them.
+  // Anti-fabrication: every field uses `?? null` — missing upstream signals
+  // propagate as null, never invented. Never substitutes default values.
+  const lc = row?.lineupContextV2 || null
+  const pc = row?.parkContext     || null
+  const wc = row?.weatherContext  || null
   return {
     slateDate,
     sport: "mlb",
@@ -170,6 +221,33 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     book: row?.book ?? null,
     marketKey: row?.marketKey ?? null,
     bucket: "mlb.bestAvailable.best",
+
+    // ── Phase Item 0002 Slice 1 — canonical hydration lift ──────────────
+    // (a) game-identity (FE Discover indexing)
+    eventId:          row?.eventId  ?? null,
+    matchup:          row?.matchup  ?? null,
+    gameTime:         row?.gameTime ?? null,
+    awayTeam:         row?.awayTeam ?? null,
+    homeTeam:         row?.homeTeam ?? null,
+
+    // (b) BC-1 canonical realism signals (top-level for BC-8 + buildFeaturedPlays.normalizeCandidate)
+    impliedTeamTotal: Number.isFinite(Number(row?.impliedTeamTotal)) ? Number(row.impliedTeamTotal) : null,
+    gameTotal:        Number.isFinite(Number(row?.gameTotal))        ? Number(row.gameTotal)        : null,
+    hrEnvironmentTag: pc?.hrEnvironmentTag ?? row?.hrEnvironmentTag ?? null,
+
+    // (c) lineup / survivability inputs (lifted from nested lineupContextV2)
+    lineupSpot:            lc?.lineupSpot            ?? row?.lineupPosition ?? row?.battingOrderIndex ?? null,
+    depth:                 lc?.depth                 ?? null,
+    plateAppearancesProxy: lc?.plateAppearancesProxy ?? null,
+    runEnvironment:        lc?.runEnvironment        ?? null,
+    rbiEnvironment:        lc?.rbiEnvironment        ?? null,
+
+    // (d) environmental tuners (lifted from nested parkContext / weatherContext)
+    hrFactor:         pc?.hrFactor         ?? row?.hrFactor         ?? null,
+    windDirectionTag: wc?.windDirectionTag ?? row?.windDirectionTag ?? null,
+    carryShift:       wc?.carryShift       ?? row?.carryShift       ?? null,
+    temperatureF:     wc?.temperatureF     ?? row?.temperatureF     ?? null,
+    contextualTags:   Array.isArray(row?.mlbContextualTags) ? row.mlbContextualTags : null,
   }
 }
 
