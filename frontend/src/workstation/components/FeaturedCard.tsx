@@ -15,6 +15,7 @@ import {
 // ./ConvictionNote. Byte-identical render preserved; same helper now
 // propagates to RecommendationLadder slot picks.
 import { ConvictionNote } from "./ConvictionNote"
+import { SurvivabilityIndicator } from "./SurvivabilityIndicator"
 
 interface Props {
   icon: string
@@ -138,6 +139,11 @@ export function FeaturedCard({ icon, title, plays, emptyMessage, showOdds = true
             <ConvictionNote
               convictionNote={p.convictionNote}
               convictionReasonTag={p.convictionReasonTag}
+            />
+            <SurvivabilityIndicator
+              survivabilityFlag={p.survivabilityFlag}
+              survivabilityReasonTag={p.survivabilityReasonTag}
+              survivabilityPhrase={p.survivabilityPhrase}
             />
             {p.avoidReason && (
               <div className="ws-feat-reason" style={{ fontStyle: "italic", color: "var(--ws-warn)" }} title={tooltipForAvoidReason(p.avoidReason)}>

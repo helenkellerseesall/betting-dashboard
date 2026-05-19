@@ -18,6 +18,7 @@ import {
 // shared helper — same typography, color authority, tooltip, and absence
 // behavior. No parallel translation; no FE reinterpretation.
 import { ConvictionNote } from "./ConvictionNote"
+import { SurvivabilityIndicator } from "./SurvivabilityIndicator"
 
 /**
  * RecommendationLadder — Phase Recommendation-Hierarchy-1A (HIER-3).
@@ -344,6 +345,11 @@ function SlotCard({ spec, play }: { spec: SlotSpec; play: FeaturedPlay | null })
       <ConvictionNote
         convictionNote={play.convictionNote}
         convictionReasonTag={play.convictionReasonTag}
+      />
+      <SurvivabilityIndicator
+        survivabilityFlag={play.survivabilityFlag}
+        survivabilityReasonTag={play.survivabilityReasonTag}
+        survivabilityPhrase={play.survivabilityPhrase}
       />
       {play.avoidReason && (
         <div

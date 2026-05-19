@@ -26,6 +26,7 @@ import {
 // Phase P1A-T3 — canonical conviction-render authority (immutable). Rendered
 // only when canonicalOverlap returns a non-null overlap; absence is honest.
 import { ConvictionNote } from "../components/ConvictionNote"
+import { SurvivabilityIndicator } from "../components/SurvivabilityIndicator"
 
 /**
  * Phase BNDS-1A — Bettor-Native Discovery Surface.
@@ -489,6 +490,13 @@ function PropRail({
                       convictionReasonTag={overlap.convictionReasonTag}
                     />
                   )}
+                  {overlap && (
+                    <SurvivabilityIndicator
+                      survivabilityFlag={overlap.survivabilityFlag}
+                      survivabilityReasonTag={overlap.survivabilityReasonTag}
+                      survivabilityPhrase={overlap.survivabilityPhrase}
+                    />
+                  )}
                 </div>
               )
             })}
@@ -617,6 +625,15 @@ function PlayerLadderBlock({
                   <ConvictionNote
                     convictionNote={overlap.convictionNote}
                     convictionReasonTag={overlap.convictionReasonTag}
+                  />
+                )}
+                {/* Phase CA-3d Item 0001 — canonical SurvivabilityIndicator on
+                    the leg row when canonical FeaturedPlay overlap exists. */}
+                {overlap && (
+                  <SurvivabilityIndicator
+                    survivabilityFlag={overlap.survivabilityFlag}
+                    survivabilityReasonTag={overlap.survivabilityReasonTag}
+                    survivabilityPhrase={overlap.survivabilityPhrase}
                   />
                 )}
               </div>
