@@ -253,6 +253,22 @@ const COMMANDS = Object.freeze({
     body: "node backend/scripts/verifyVigStripping.js",
     lane: "INFRA / GOVERNANCE",
   },
+
+  // ── Runtime Supervisor Phase A (verifier-first; no daemon yet) ───────
+  "verify-supervisor-state": {
+    desc: "Run the Runtime-Supervisor Phase A verifier: schema validation + append-only events.log + content-hash + replay/live parity + scope-lock (no daemon). Set SUPERVISOR_DRIFT_SELF_TEST=1 for drift-detection self-test.",
+    cmd:  "node backend/scripts/verifySupervisorStateIntegrity.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifySupervisorStateIntegrity.js",
+    lane: "INFRA / GOVERNANCE",
+  },
+  "inspect-supervisor-state": {
+    desc: "Print canonical supervisor state from backend/runtime/supervisor/state.json (PRE-DAEMON template until Phase B ships).",
+    cmd:  "cat backend/runtime/supervisor/state.json",
+    cwd:  CWD.REPO_ROOT,
+    body: "cat backend/runtime/supervisor/state.json",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 // ── cwd-safe emission ───────────────────────────────────────────────────
