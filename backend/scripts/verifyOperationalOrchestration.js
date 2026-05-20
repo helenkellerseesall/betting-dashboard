@@ -31,6 +31,15 @@
  *       + priority + linkedRisks + screenshots + feelsFakeFlag + realismScore.
  *       docs/screenshots/ exists with README. Every BC-1-tagged entry's
  *       screenshots[] paths point to real files.
+ *
+ * Runtime-Context-Hardening-1A extension:
+ *   L — runtime cwd-safety: every COMMANDS entry declares cwd + body;
+ *       safeCmd emits subshell-wrapped form anchored at
+ *       `$(git rev-parse --show-toplevel)`; canonical TERM 1/2/3 commands
+ *       are registered; groupedTerm() emits a 3-chunk cwd-safe chain;
+ *       OPERATIONAL_FOOTER_TEMPLATE TERM commands use the safe subshell
+ *       form; GROUPED TERM BLOCK section + cwd-grouping rule present;
+ *       no bare `cd backend && ...` survives in the footer template.
  */
 
 const fs   = require("fs")
@@ -144,17 +153,23 @@ if (fs.existsSync(EXEC_BACKLOG)) {
     assert(!!status && status !== "?",  "D4 — Active slice status present")
     assert(!!nextCmd && nextCmd !== "?", "D5 — Active slice next-command present")
     // The next-command value must be a recognized command from runtime.js
+    // Accepts either the legacy `cmd` form OR the cwd-safe `safeCmd(name)`
+    // form (Runtime-Context-Hardening-1A).
     if (nextCmd) {
       try {
         delete require.cache[RUNTIME_REGISTRY]
-        const { COMMANDS } = require(RUNTIME_REGISTRY)
-        const cmdNames = Object.keys(COMMANDS)
-        const cmdStrings = cmdNames.map(n => COMMANDS[n].cmd)
+        const mod = require(RUNTIME_REGISTRY)
+        const cmdNames   = Object.keys(mod.COMMANDS)
+        const cmdStrings = cmdNames.map(n => mod.COMMANDS[n].cmd)
+        const safeStrings = (typeof mod.safeCmd === "function")
+          ? cmdNames.map(n => mod.safeCmd(n))
+          : []
         const stripped = nextCmd.replace(/^`|`$/g, "").trim()
         const matchedName   = cmdNames.includes(stripped)
         const matchedString = cmdStrings.some(c => c === stripped || stripped.startsWith(c) || c.startsWith(stripped))
-        assert(matchedName || matchedString,
-          `D6 — next-command "${stripped}" recognized in ops/runtime.js registry`)
+        const matchedSafe   = safeStrings.some(c => c === stripped)
+        assert(matchedName || matchedString || matchedSafe,
+          `D6 — next-command "${stripped}" recognized in ops/runtime.js registry (cmd or safeCmd form)`)
       } catch (e) {
         failed++; failures.push("D6 — runtime registry load error: " + e.message)
       }
@@ -323,6 +338,83 @@ if (fs.existsSync(BETTOR_BACKLOG)) {
   }
   assert(allOk, `K7 — every screenshots[] path exists on disk (missing=${missing.length})`)
   if (missing.length > 0) for (const m of missing.slice(0,5)) console.error("    - " + m)
+}
+
+// ── L — Runtime-Context-Hardening-1A ──────────────────────────────────
+console.log("")
+console.log("Cluster L — runtime cwd-safety (Runtime-Context-Hardening-1A)")
+const VALID_CWDS = new Set(["repoRoot","backend","frontend","anywhere"])
+try {
+  delete require.cache[RUNTIME_REGISTRY]
+  const mod = require(RUNTIME_REGISTRY)
+  assert(typeof mod.safeCmd      === "function", "L1 — runtime.js exports safeCmd()")
+  assert(typeof mod.groupedRun   === "function", "L2 — runtime.js exports groupedRun()")
+  assert(typeof mod.groupedTerm  === "function", "L3 — runtime.js exports groupedTerm()")
+  assert(typeof mod.detectCwd    === "function", "L4 — runtime.js exports detectCwd()")
+  assert(mod.CWD && mod.CWD.BACKEND === "backend", "L5 — runtime.js exports CWD bucket constants")
+
+  // Every COMMANDS entry must declare cwd ∈ valid set AND a body field.
+  const cmds = mod.COMMANDS
+  let cwdOk = 0, bodyOk = 0, total = 0
+  for (const [name, def] of Object.entries(cmds)) {
+    total++
+    if (def.cwd && VALID_CWDS.has(def.cwd)) cwdOk++
+    if (typeof def.body === "string" && def.body.length > 0) bodyOk++
+  }
+  assert(cwdOk === total,  `L6 — every command declares valid cwd (${cwdOk}/${total})`)
+  assert(bodyOk === total, `L7 — every command has non-empty body field (${bodyOk}/${total})`)
+
+  // safeCmd output for non-anywhere commands must contain the git anchor
+  // and a subshell wrapper. For anywhere commands it must NOT wrap.
+  let safeOk = 0
+  for (const [name, def] of Object.entries(cmds)) {
+    const safe = mod.safeCmd(name)
+    if (def.cwd === "anywhere") {
+      if (safe === def.body) safeOk++
+    } else {
+      if (safe.startsWith("(cd \"$(git rev-parse --show-toplevel)") && safe.endsWith(")")) safeOk++
+    }
+  }
+  assert(safeOk === total, `L8 — safeCmd emits correct form for every command (${safeOk}/${total})`)
+
+  // Canonical TERM commands MUST exist in the registry.
+  for (const t of ["term1","term2","term3"]) {
+    assert(t in cmds, `L9 — registry contains canonical "${t}" command`)
+  }
+
+  // groupedTerm output is a 3-chunk copy-paste chain. Count subshell heads
+  // and inter-chunk joiners rather than splitting on `&&` (which appears
+  // inside each subshell too).
+  const gt = mod.groupedTerm()
+  const subshellHeads = (gt.match(/\(cd "\$\(git rev-parse --show-toplevel\)\/backend"/g) || []).length
+  const interChunkJoiners = (gt.match(/\)\s*&&\s*\\\s*\n/g) || []).length
+  assert(subshellHeads === 3, `L10 — groupedTerm() emits 3 backend-anchored subshells (got ${subshellHeads})`)
+  assert(interChunkJoiners === 2, `L11 — groupedTerm() chunks joined by 2 \`) && \\\\\\n\` separators (got ${interChunkJoiners})`)
+  // Each TERM command line must appear in output.
+  for (const npmRun of ["npm run ops:term1","npm run ops:term2","npm run ops:checkpoint"]) {
+    assert(gt.includes(npmRun), `L11b — groupedTerm() includes "${npmRun}"`)
+  }
+} catch (e) {
+  failed++; failures.push("L — runtime cwd-safety load: " + e.message)
+}
+
+// Footer template MUST cite safe form for TERM 1/2/3 + GROUPED TERM BLOCK
+// + cwd-grouping rule.
+if (fs.existsSync(FOOTER_TEMPLATE)) {
+  const ft = fs.readFileSync(FOOTER_TEMPLATE, "utf8")
+  assert(/\(cd "\$\(git rev-parse --show-toplevel\)\/backend" && npm run ops:term1\)/.test(ft),
+    "L12 — footer template TERM 1 cites safe subshell form")
+  assert(/\(cd "\$\(git rev-parse --show-toplevel\)\/backend" && npm run ops:term2\)/.test(ft),
+    "L13 — footer template TERM 2 cites safe subshell form")
+  assert(/\(cd "\$\(git rev-parse --show-toplevel\)\/backend" && npm run ops:checkpoint\)/.test(ft),
+    "L14 — footer template TERM 3 cites safe subshell form")
+  assert(/GROUPED TERM BLOCK/.test(ft),
+    "L15 — footer template declares GROUPED TERM BLOCK section")
+  assert(/Cwd-grouping rule/i.test(ft),
+    "L16 — footer template declares cwd-grouping rule")
+  // No bare 'cd backend && ' in TERM command lines (legacy form ban).
+  assert(!/^\s*-\s*command:\s+cd backend && /m.test(ft),
+    "L17 — footer template has no bare `cd backend && ...` in TERM command lines")
 }
 
 console.log("")

@@ -93,6 +93,35 @@ body: |
 statusLog:
   - 2026-05-19 OPEN: carried forward from prior session
 ---
+id:          R-004-1
+openedAt:    2026-05-19
+openedBy:    operator
+lane:        OPERATOR PLAYBOOK
+slice:       runtime-context-hardening-1a
+title:       Grouped-runtime cwd collision — `cd backend && ...` fails when operator already in backend/
+state:       OPEN
+body: |
+  Empirical failure during Item-0009 execution: when the operator runs a
+  grouped TERM block (or any registry command with cmd prefix
+  `cd backend && ...`) while already inside backend/, the shell emits:
+    sh: line 1: cd: backend: No such file or directory
+  Root cause: COMMANDS entries baked relative-cd prefix into the `cmd`
+  field without cwd-awareness. Grouped chains amplified the failure mode.
+  Closure (binding):
+    1. Every COMMANDS entry declares cwd ∈ {repoRoot, backend, frontend,
+       anywhere} + body (cd-stripped).
+    2. safeCmd(name) emits subshell-wrapped form anchored at
+       `$(git rev-parse --show-toplevel)` — paste-from-any-cwd safe.
+    3. runtime.js exposes `safe`, `grouped`, `grouped-term`, `cwd-detect`
+       verbs.
+    4. OPERATIONAL_FOOTER_TEMPLATE TERM 1/2/3 cite safe form; GROUPED
+       TERM BLOCK section added; cwd-grouping rule binds.
+    5. verifyOperationalOrchestration.js Cluster K PASS.
+    6. Empirical: from backend/, `node scripts/ops/runtime.js safe v5`
+       emits a subshell form that runs without cwd error.
+statusLog:
+  - 2026-05-19 OPEN: empirical drift surfaced during Item-0009 execution
+---
 ```
 
 ## Closure rules

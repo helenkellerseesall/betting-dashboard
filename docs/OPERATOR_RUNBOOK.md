@@ -2220,6 +2220,121 @@ _Phase OO-2 — 2026-05-19. Enforcement live. Operator should never again ask "w
 
 ---
 
+## RUNTIME CONTEXT HARDENING (Phase Runtime-Context-Hardening-1A, 2026-05-19)
+
+**Corrective slice triggered by empirical drift observed during Item-0009
+execution.** Failure surface: grouped helper commands that prefix
+`cd backend && ...` break the moment the operator is already inside
+`backend/` — emitting `sh: line 1: cd: backend: No such file or directory`.
+This violates terminal-context awareness, grouped-execution doctrine,
+and operational-UX continuity.
+
+### cwd-detection logic (canonical)
+
+`backend/scripts/ops/runtime.js` now exports `detectCwd()`:
+
+1. Read `process.cwd()`.
+2. Resolve repo root via `git rev-parse --show-toplevel` (in the cwd's
+   working tree).
+3. Classify into one of: `repoRoot`, `backend`, `frontend`, `repo-subdir`,
+   `outside-repo`, `non-git`.
+
+Operator runs:
+
+```
+node backend/scripts/ops/runtime.js cwd-detect
+```
+
+Output cites the cwd, repoRoot, context bucket, and prints a tailored
+recommendation (e.g. "from backend/: legacy `cd backend && ...` will
+FAIL — use `safe` or `grouped-term` form").
+
+### Safe-form contract (canonical)
+
+Every entry in `COMMANDS` now declares a `cwd` bucket
+(`repoRoot | backend | frontend | anywhere`) and a `body` field (the
+command WITHOUT any `cd` prefix). `safeCmd(name)` emits the cwd-safe
+form:
+
+- `anywhere` → returns `body` verbatim.
+- `repoRoot | backend | frontend` → returns
+  `(cd "$(git rev-parse --show-toplevel)/<target>" && <body>)`.
+
+The subshell re-anchors via `git rev-parse --show-toplevel` regardless of
+the operator's cwd. Copy-paste-safe from repo root, backend/, frontend/,
+or any repo subdir. Legacy `cmd` field is preserved for back-compat —
+existing call sites that emit the bare-`cd backend && ...` form continue
+to work from repo root, but NEW footer / runbook references MUST use the
+safe form.
+
+```
+node backend/scripts/ops/runtime.js safe <name>           # one command, cwd-safe
+node backend/scripts/ops/runtime.js grouped <a> <b> ...   # arbitrary chain, cwd-safe
+node backend/scripts/ops/runtime.js grouped-term          # TERM 1+2+3 chain, cwd-safe
+```
+
+### Grouped TERM block (canonical copy-paste)
+
+```
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term1) && \
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term2) && \
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:checkpoint)
+```
+
+Pasteable from any cwd. Chained with `&&` so failure halts. Generated
+deterministically from the runtime registry by `grouped-term`.
+
+### Duplicate backend-path prevention (binding)
+
+The safe-form anchor `$(git rev-parse --show-toplevel)/backend` resolves
+to a single absolute path regardless of the caller's cwd. There is no
+relative `backend/` traversal in the safe form, so the
+`cd: backend: No such file or directory` failure mode is structurally
+impossible. Verifier Cluster K asserts that:
+
+1. Every COMMANDS entry declares a valid `cwd` bucket.
+2. Every entry has a `body` field with no leading `cd <relative>` prefix.
+3. The OPERATIONAL_FOOTER_TEMPLATE TERM commands all use the
+   subshell-wrapped form. Bare `cd backend && ...` in the template is a
+   FAIL.
+
+### Operator cwd introspection
+
+Operator opens any new terminal with:
+
+```
+node backend/scripts/ops/runtime.js cwd-detect
+```
+
+If output reports `context: backend`, operator paste the `safe`/`grouped`
+form. If output reports `context: repoRoot`, either form works. This
+removes guesswork.
+
+### Playbook runtime-context synchronization
+
+OPERATIONAL_FOOTER_TEMPLATE TERM 1/2/3 command lines now cite the safe
+form verbatim. The GROUPED TERM BLOCK section in the footer template is
+the canonical paste-block. The cwd-grouping rule under `## Rules` is
+binding: bare `cd backend && ...` in `next-command`, `TERM 1`, `TERM 2`,
+`TERM 3`, or any GROUPED TERM block is a verifier failure
+(Cluster K / G6 / G7 / G8).
+
+### Operational footer grouped-command enforcement
+
+When a response cites multiple sequential commands (e.g. commit →
+playbook-sync → tag → checkpoint-persist), the `next-command` field
+should reference a single canonical name OR the response body should
+include a fenced `GROUPED TERM BLOCK`-style copy-paste using
+`runtime.js grouped <a> <b> ...` output. Free-form prose chains like
+"first run X, then Y" are not enforceable and are discouraged.
+
+---
+
+_Phase Runtime-Context-Hardening-1A — 2026-05-19. cwd-collision class
+eliminated. Every runtime command is now copy-paste-safe from any cwd._
+
+---
+
 ## BETTOR COGNITION BACKLOG INGESTION (Phase BC-1, 2026-05-19)
 
 ### Canonical ingestion workflow

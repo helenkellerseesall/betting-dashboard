@@ -131,9 +131,9 @@ submittedAt:  2026-05-19
 submitter:    operator
 lane:         OPERATOR PLAYBOOK
 title:        Prove orchestration behavior actually changed (Slice 2 enforcement)
-state:        IN-SLICE
+state:        CLOSED
 linkedSlice:  oo-2-enforcement
-evidence:     this commit
+evidence:     verifyOperationalOrchestration.js 64/64 PASS (A-J) + empirical dry-runs of riskList / checkpointPersist / nextStep / runtime.js list
 body: |
   Slice 1 shipped the foundation (lane index + backlogs + footer template
   + verifier + 3 helper scripts). Slice 2 must enforce the behavior live.
@@ -157,6 +157,39 @@ body: |
 statusLog:
   - 2026-05-19 OPEN: operator instruction (operational orchestration slice 2)
   - 2026-05-19 IN-SLICE: claimed by oo-2-enforcement
+  - 2026-05-19 CLOSED: verifier 64/64 PASS (A-J) + empirical helpers (riskList prints 3 risks, checkpointPersist writes .checkpoint/operational_state_oo-2-enforcement.json, nextStep resolves Active slice). Cwd-collision drift in grouped commands carried into BBL-0005 / runtime-context-hardening-1a as a corrective slice.
+---
+id:           BBL-0005
+submittedAt:  2026-05-19
+submitter:    operator
+lane:         OPERATOR PLAYBOOK
+title:        Runtime context hardening — kill cwd-collision in grouped commands
+state:        IN-SLICE
+linkedSlice:  runtime-context-hardening-1a
+evidence:     this commit
+body: |
+  Empirical failure during Item-0009 execution: grouped runtime helper
+  commands assume repo-root cwd and emit `cd backend && ...`. When the
+  operator is already inside backend/, this fails with:
+    sh: line 1: cd: backend: No such file or directory
+  Violates terminal-context awareness, grouped-execution doctrine, and
+  operational-UX continuity.
+  Required deliverables:
+    1. cwd-aware runtime registry — every COMMANDS entry declares
+       cwd ∈ {repoRoot, backend, frontend, anywhere} + body (cd-stripped)
+    2. safeCmd(name) emits subshell-wrapped form anchored at
+       `$(git rev-parse --show-toplevel)` so paste-from-any-cwd works
+    3. grouped-term verb — canonical TERM 1+2+3 chain, cwd-safe
+    4. cwd-detect verb — operator cwd introspection
+    5. footer template TERM 1/2/3 cite safe form + GROUPED TERM BLOCK
+       section added + cwd-grouping rule under "## Rules"
+    6. OPERATOR_RUNBOOK appends Phase Runtime-Context-Hardening-1A doctrine
+    7. verifyOperationalOrchestration.js Cluster K — cwd-safety enforcement
+  Closure: verifier Cluster K PASS + empirical from backend/ proves
+  safe-form commands execute without cwd error.
+statusLog:
+  - 2026-05-19 OPEN: empirical drift surfaced during Item-0009 execution (operator)
+  - 2026-05-19 IN-SLICE: claimed by runtime-context-hardening-1a
 ---
 ```
 

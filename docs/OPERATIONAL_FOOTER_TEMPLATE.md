@@ -47,21 +47,29 @@ REPO STATE
 
 TERM 1 — read-only health introspection
 - when:                 every fresh chat, before any mutation
-- command:              cd backend && npm run ops:term1
+- command:              (cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term1)
 - expected:             prints active slice, lane, v5 status, last checkpoint tag
 - on-fail:              do NOT proceed; route to FULL SYSTEM AUDIT
 
 TERM 2 — pre-phase ritual (slate + market + brain + runtime regression + helper-unit + probe matrix + Verification Telemetry V1)
 - when:                 before opening any new slice OR before checkpoint
-- command:              cd backend && npm run ops:term2
+- command:              (cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term2)
 - expected:             full historical Term 2 chain passes; no orchestration-depth regression
 - on-fail:              halt slice; route to INFRA / GOVERNANCE; open R-NNN-N risk
 
 TERM 3 — checkpoint seal (ops:term2 + checkpointRepo + finalizeCheckpoint + git push + brain:checkpoint)
 - when:                 immediately after slice ships and v5 passes
-- command:              cd backend && npm run ops:checkpoint
+- command:              (cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:checkpoint)
 - expected:             tag pushed, .checkpoint/operational_state_<tag>.json written, brain checkpoint sealed
 - on-fail:              do NOT advance EXECUTION_BACKLOG status to shipped; reopen slice
+
+GROUPED TERM BLOCK (copy-paste-safe from any cwd — repo root, backend/, frontend/, or any subdir)
+```
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term1) && \
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:term2) && \
+(cd "$(git rev-parse --show-toplevel)/backend" && npm run ops:checkpoint)
+```
+Generate live with: `node backend/scripts/ops/runtime.js grouped-term`
 
 NEXT
 - next-lane:            <one of six lanes from docs/LANE_INDEX.md>
@@ -106,6 +114,14 @@ BACKLOG REFS
 8. **Ambiguity ban (OO-2):** a structured footer with any field reading
    "tbd", "later", "see above", or empty is a verifier failure. Replace
    with a concrete value or `none`.
+9. **Cwd-grouping rule (Runtime-Context-Hardening-1A):** every command in
+   `next-command`, `TERM 1`, `TERM 2`, `TERM 3`, or a GROUPED TERM block
+   MUST be either (a) an `anywhere`-cwd command, or (b) wrapped in a
+   `(cd "$(git rev-parse --show-toplevel)/<target>" && ...)` subshell.
+   Bare `cd backend && ...` is forbidden in the footer — it fails the
+   moment the operator is already inside `backend/`. Use
+   `node backend/scripts/ops/runtime.js safe <name>` or
+   `... grouped-term` to generate the safe form.
 
 ## Verifier enforcement
 
@@ -117,6 +133,11 @@ BACKLOG REFS
 - G3 — FE VALIDATION, BETTOR-VISIBLE EXPECTED RESULT, UNRESOLVED BLOCKERS
   sections are all present.
 - G4 — the ambiguity-ban rule is declared.
+- G6 — TERM 1/2/3 command lines use the cwd-safe subshell form
+  `(cd "$(git rev-parse --show-toplevel)/backend" && ...)`. Bare
+  `cd backend && ...` in the template is a verifier failure.
+- G7 — GROUPED TERM BLOCK section is present and well-formed.
+- G8 — cwd-grouping rule is declared in `## Rules`.
 
 The verifier cannot parse live conversation history but it can assert
 the template, the lane index, the backlog files, the open-risks ledger,
