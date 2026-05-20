@@ -2060,3 +2060,54 @@ Slice 2 will add odds-quality + parlay-boost weighting above this gate.
 ---
 
 _Phase Item 0003 Slice 1 — 2026-05-19. Additive only. Allowlist 4→7. Topology foundation + verifier-first insertion. Consumer wiring deferred to Slice 2._
+
+---
+
+## OPERATIONAL ORCHESTRATION (Phase OO-1, 2026-05-19)
+
+### Canonical orchestration files (single source of truth)
+
+- `docs/LANE_INDEX.md` — six canonical lanes (MCR · ACTIVE EXECUTION · FULL SYSTEM AUDIT · FRONTEND / UX LAB · INFRA / GOVERNANCE · OPERATOR PLAYBOOK).
+- `docs/BETTOR_BACKLOG.md` — append-only operator-submitted backlog. Every entry: id (BBL-NNNN), submittedAt, submitter, lane, title, state, linkedSlice, evidence, body, statusLog.
+- `docs/EXECUTION_BACKLOG.md` — slices in flight + closed lineage. Exactly one Active slice at a time; next-command must be set.
+- `docs/OPERATIONAL_FOOTER_TEMPLATE.md` — mandatory assistant response footer (lane / slice / commit / tag / v5 / backlog-refs / next-command / next-step / risks-open).
+
+### Canonical runtime command registry
+
+`backend/scripts/ops/runtime.js` exports `COMMANDS` (Object.frozen). Every operator-visible shell command lives here. Assistant cites names from this registry in `next-command`. Operator never guesses a command.
+
+```sh
+node backend/scripts/ops/runtime.js list           # all registered commands
+node backend/scripts/ops/runtime.js show v5        # show one
+node backend/scripts/ops/runtime.js run regen-mlb  # emit (echo) the literal shell command
+```
+
+### Workflow
+
+- Submit a backlog entry: `node backend/scripts/ops/backlogAdd.js <lane> "<title>"`
+- See what's open: `node backend/scripts/ops/backlogList.js`
+- See what's next: `node backend/scripts/ops/nextStep.js`
+- Verify orchestration intact: `node backend/scripts/verifyOperationalOrchestration.js`
+- Full V5: `cd backend && npm run ops:verify`
+
+### Mandatory operational footer (every assistant response with mutations)
+
+Every assistant response that touches code or docs ends with the footer block from `docs/OPERATIONAL_FOOTER_TEMPLATE.md`. Operator should never have to ask "what's next" after reading a footer.
+
+### Instruction-mutation proposal workflow
+
+Doctrine changes are proposed as new entries in `docs/BETTOR_BACKLOG.md` with `lane: OPERATOR PLAYBOOK` and a body that describes the proposed mutation. Operator reviews + approves; assistant then ships via a normal slice that cites the BBL-NNNN id.
+
+### Cross-lane continuity propagation
+
+Every commit that touches doctrine MUST update:
+1. `docs/EXECUTION_BACKLOG.md` (slice row → status)
+2. `docs/BETTOR_BACKLOG.md` (linked entry → statusLog)
+3. `docs/OPERATOR_RUNBOOK.md` (only when doctrine evolves)
+4. `backend/runtime/brain/ARCHITECTURE_LAWS.md` (only when a new Law lands)
+
+`verifyOperationalOrchestration.js` PASS gates every commit that touches any of these files.
+
+---
+
+_Phase OO-1 — 2026-05-19. Implements continuity infrastructure. STOP expanding doctrine, START using these files for every cross-lane interaction._
