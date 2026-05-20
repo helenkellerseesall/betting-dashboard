@@ -60,6 +60,11 @@ const { SIGNAL_IDS: _SURV_SIG_IDS, SIGNAL_PHRASES: _SURV_PHRASES } = require("./
 // ranking. Used in compactPlay to set play.book / play.bestBook / play.books.
 const { rankBooksForLeg: _rankBooksForLeg } = require("./sportsbookTopology")
 const { canonicalBookName: _canonicalBookName } = require("./sportsbookAllowlist")
+// Phase Item-0009 (2026-05-20) — bettor-archetype legitimacy weighting.
+// Applied as MULTIPLICATIVE factor on the final composite score. Range
+// [0.5, 1.4]. Never zeroes any candidate; battlefield breadth preserved
+// because this only operates on composite, never on filtering. Closes BBL-0005.
+const { computeArchetypeWeight: _computeArchetypeWeight } = require("./archetypeWeighting")
 function _survPhrase(reasonTag) {
   if (!reasonTag) return null
   const sigId = _SURV_SIG_IDS[reasonTag]
@@ -1254,7 +1259,32 @@ function scoreCandidate(c, ctx) {
   total  += pceRecord.factor * PCE_WEIGHT
   weight += PCE_WEIGHT
 
-  const composite = clamp(0, 1, (total / weight) + tierBoost + textureBoost + oeAdditive + pceAdditive)
+  // ── Phase Item-0009 — bettor-archetype legitimacy weighting ───────────
+  // Multiplicative factor in [0.5, 1.4] applied AFTER weighted mean + boosts.
+  // Anti-suppression: never multiplies below 0.5. Never removes candidates.
+  // Battlefield rows unaffected (this runs inside the curator's composite).
+  // Reads canonical fields only; returns NEUTRAL (1.0) when signals missing.
+  // Class-not-identity (Law 27): no per-player references — tier/role derived
+  // purely from lineupSpot × depth × propFamily × multi-book signals.
+  const _aw = _computeArchetypeWeight({
+    lineupSpot:          c.lineupSpot,
+    depth:               c.depth,
+    propType:            c.propType,
+    statFamily:          c.statFamily,
+    side:                c.side,
+    impliedTeamTotal:    c.impliedTeamTotal,
+    gameTotal:           c.gameTotal,
+    bookCount:           ls?.bookCount,
+    consensusConfidence: ls?.consensusConfidence,
+  })
+  f.archetypeTier         = _aw.archetypeTier
+  f.archetypeWeight       = _aw.archetypeWeight
+  f.archetypeReasonTag    = _aw.archetypeReasonTag
+  f.roleLegitimacy        = _aw.roleLegitimacy
+  f.propFamilyLegitimacy  = _aw.propFamilyLegitimacy
+  f.feelsFakeScore        = _aw.feelsFakeScore
+  const compositePreArchetype = clamp(0, 1, (total / weight) + tierBoost + textureBoost + oeAdditive + pceAdditive)
+  const composite = clamp(0, 1, compositePreArchetype * _aw.archetypeWeight)
   return { composite: r4(composite), factors: f, timingClass: tc, lineShop: ls }
 }
 

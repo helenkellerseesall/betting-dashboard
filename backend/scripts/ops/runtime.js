@@ -140,6 +140,13 @@ const COMMANDS = Object.freeze({
     cmd:  "node backend/scripts/ops/cognitionNext.js",
     lane: "OPERATOR PLAYBOOK",
   },
+
+  // ── Item-0009 archetype weighting ────────────────────────────────────
+  "verify-archetype": {
+    desc: "Run the Item-0009 archetype-weighting verifier (anti-suppression + cleanup-gravity + sharp-sleeper preservation).",
+    cmd:  "node backend/scripts/verifyItem0009ArchetypeWeighting.js",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 function list() {

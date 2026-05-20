@@ -207,6 +207,17 @@ export interface FeaturedPlay {
   books?: string[]
   bestOdds?: number
   bookCount?: number
+  // Phase Item-0009 — bettor-archetype legitimacy weighting.
+  // archetypeTier is the class-derived tier (superstar | proven | role-player |
+  // bench | no-name). archetypeWeight ∈ [0.5, 1.4] is the multiplier already
+  // baked into composite by buildFeaturedPlays. FE may render the tier as
+  // a small chip for transparency.
+  archetypeTier?: "superstar" | "proven" | "role-player" | "bench" | "no-name"
+  archetypeWeight?: number
+  archetypeReasonTag?: string
+  roleLegitimacy?: number
+  propFamilyLegitimacy?: number
+  feelsFakeScore?: number
   modelProb?: number
   edge?: number
   volatility?: string
