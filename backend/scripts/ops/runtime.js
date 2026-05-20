@@ -322,6 +322,15 @@ const COMMANDS = Object.freeze({
     body: "node backend/scripts/verifyCockpitReadOnly.js",
     lane: "INFRA / GOVERNANCE",
   },
+
+  // ── BRH-1.2.A role/archetype qualification (Increment 1 — verifier-first) ─
+  "verify-role-archetype": {
+    desc: "Run the BRH-1.2.A role/archetype qualification verifier. PRE-IMPL assertions today; flips to POST-IMPL automatically when Increment 2 ships roleArchetypeQualification.js. Set BRH_1_2_A_DRIFT_SELF_TEST=1 for drift-detection self-test.",
+    cmd:  "node backend/scripts/verifyRoleArchetypeQualification.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifyRoleArchetypeQualification.js",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 // ── cwd-safe emission ───────────────────────────────────────────────────
