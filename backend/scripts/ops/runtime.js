@@ -263,10 +263,47 @@ const COMMANDS = Object.freeze({
     lane: "INFRA / GOVERNANCE",
   },
   "inspect-supervisor-state": {
-    desc: "Print canonical supervisor state from backend/runtime/supervisor/state.json (PRE-DAEMON template until Phase B ships).",
+    desc: "Print canonical supervisor state from backend/runtime/supervisor/state.json.",
     cmd:  "cat backend/runtime/supervisor/state.json",
     cwd:  CWD.REPO_ROOT,
     body: "cat backend/runtime/supervisor/state.json",
+    lane: "INFRA / GOVERNANCE",
+  },
+
+  // ── Runtime Supervisor Phase B daemon commands ───────────────────────
+  "supervisor-start": {
+    desc: "Boot the supervisor daemon (foreground heartbeat loop; SIGINT to stop). Set SUPERVISOR_HEARTBEAT_MS to override 5000ms cadence.",
+    cmd:  "node backend/scripts/ops/supervisorStart.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/ops/supervisorStart.js",
+    lane: "INFRA / GOVERNANCE",
+  },
+  "supervisor-shutdown": {
+    desc: "Send SIGTERM to running supervisor and clear stale lock.",
+    cmd:  "node backend/scripts/ops/supervisorShutdown.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/ops/supervisorShutdown.js",
+    lane: "INFRA / GOVERNANCE",
+  },
+  "supervisor-override-set": {
+    desc: "Set operatorOverride.active=true (pauses autonomous mutations). Usage: supervisor-override-set 'reason text'",
+    cmd:  "node backend/scripts/ops/supervisorOverrideSet.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/ops/supervisorOverrideSet.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "supervisor-override-clear": {
+    desc: "Set operatorOverride.active=false (resume autonomous behaviour).",
+    cmd:  "node backend/scripts/ops/supervisorOverrideClear.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/ops/supervisorOverrideClear.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "grouped-term": {
+    desc: "Emit the cwd-safe TERM 1/2/3 block, augmented with live supervisor banner when daemon running. Add --status for JSON state summary.",
+    cmd:  "node backend/scripts/ops/groupedTerm.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/ops/groupedTerm.js",
     lane: "INFRA / GOVERNANCE",
   },
 })
