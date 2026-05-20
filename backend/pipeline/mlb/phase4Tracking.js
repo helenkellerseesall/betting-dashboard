@@ -746,6 +746,11 @@ function leanBet(play, date) {
 }
 
 function leanSlip(slip, date) {
+  // Phase Item 0003 Slice 2 — slip-persistence book-field hydration. Adds
+  // book/sportsbook on every leg + slip.book + slip.alternativeBooks so the
+  // verifier supplement (Item 0002 Slice 1.5 R-EXEC-S2-1) can validate same-
+  // book curated discipline against the persisted artifact. Anti-fabrication:
+  // every field uses `?? null` — never invents a book when upstream omitted.
   const id = idForSlip(date, slip)
   const legs = (slip.legs || []).map((l) => ({
     id: idForSlipLeg(date, id, l),
@@ -758,6 +763,9 @@ function leanSlip(slip, date) {
     side: l.side,
     line: l.line,
     oddsAmerican: l.oddsAmerican,
+    // Phase Item 0003 Slice 2 — book / sportsbook persistence lift
+    book:        l.book       ?? l.sportsbook ?? null,
+    sportsbook:  l.sportsbook ?? l.book       ?? null,
     result: "pending",
   }))
   return {
@@ -772,6 +780,12 @@ function leanSlip(slip, date) {
     combinedImpliedProb: slip.combinedImpliedProb,
     edge: slip.edge,
     ev: slip.ev,
+    // Phase Item 0003 Slice 2 — slip-level book + alternative books. Both
+    // populated by buildSlipAi emit-boundary enforcement when slip survives
+    // the same-book gate. Null-safe when upstream legacy path emitted slips
+    // without book selection.
+    book:              slip.book              ?? null,
+    alternativeBooks:  Array.isArray(slip.alternativeBooks) ? slip.alternativeBooks : null,
     result: "pending",
     settledAt: null,
   }

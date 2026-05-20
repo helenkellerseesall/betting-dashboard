@@ -56,6 +56,10 @@ const {
 // Anti-sterilization: gate FLAGS via metadata, never removes candidates.
 const { survivabilityGate: _survGate } = require("./survivabilityGate")
 const { SIGNAL_IDS: _SURV_SIG_IDS, SIGNAL_PHRASES: _SURV_PHRASES } = require("./bettorLanguage")
+// Phase Item 0003 Slice 2 — sportsbook topology selector for per-leg book
+// ranking. Used in compactPlay to set play.book / play.bestBook / play.books.
+const { rankBooksForLeg: _rankBooksForLeg } = require("./sportsbookTopology")
+const { canonicalBookName: _canonicalBookName } = require("./sportsbookAllowlist")
 function _survPhrase(reasonTag) {
   if (!reasonTag) return null
   const sigId = _SURV_SIG_IDS[reasonTag]
@@ -2128,6 +2132,17 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
   // consensusConfidence + marketDispersion + bestImpDelta inline. Pure additive —
   // existing fields untouched, additive output keys.
   const ls = score.lineShop
+  // Phase Item 0003 Slice 2 — canonical topology-aware book ranking. Selects
+  // the canonical allowed book that can construct this leg. Falls back to the
+  // existing c.book / ls.bestBook surfaces when canonicalization fails (no
+  // anti-fabrication regression). play.books carries the ranked alt set so
+  // the FE can render constructable-elsewhere alternatives.
+  const _bookRanking = _rankBooksForLeg(c) || []
+  const _canonicalChosenBook = _bookRanking[0]?.canonicalBook
+                              || _canonicalBookName(ls?.bestBook || c.book)
+                              || _canonicalBookName(c.book)
+                              || null
+  const _canonicalAltBooks = _bookRanking.slice(1).map(b => b.canonicalBook)
   return {
     id:                  c.id,
     player:              c.player,
@@ -2139,8 +2154,13 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
     side:                c.side,
     line:                c.line,
     odds:                c.odds,
-    book:                c.book,
-    bestBook:            ls?.bestBook || c.book,
+    // Phase Item 0003 Slice 2 — book/bestBook now use canonical allowlist names
+    // when the topology can construct the leg on at least one allowed book.
+    // Falls back to raw c.book/ls.bestBook when leg unconstructable (preserves
+    // upstream-observed value for debugging; FE may still render it as "other").
+    book:                _canonicalChosenBook || c.book,
+    bestBook:            _canonicalChosenBook || ls?.bestBook || c.book,
+    books:               _bookRanking.map(b => b.canonicalBook),
     bestOdds:            ls?.bestOdds ?? c.odds,
     bookCount:           ls?.bookCount ?? 1,
     // Phase Operator-Experience-1A — additive market-context fields:

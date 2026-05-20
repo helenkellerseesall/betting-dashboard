@@ -103,6 +103,14 @@ export interface AiSlip {
   // Phase BNSB-1A: optional bettor-language phrases for SlipCard surfacing.
   // Populated by future slip-level VBI integration; today FE renders when present.
   bettorLanguageSummary?: string[]
+  // Phase Item 0003 Slice 2 — canonical sportsbook governance fields.
+  // `book` is the single canonical book that constructs every leg of the slip
+  // (best-constructable-ecosystem doctrine). `alternativeBooks` is the
+  // ranked list of allowed books that ALSO construct all legs (operator may
+  // shop between them). Both populated by buildSlipAi emit-boundary
+  // enforcement; absent when legacy path emitted the slip without selection.
+  book?: string
+  alternativeBooks?: string[]
 }
 
 export interface AiSlips {
@@ -194,6 +202,9 @@ export interface FeaturedPlay {
   odds: number
   book?: string
   bestBook?: string
+  // Phase Item 0003 Slice 2 — ranked allowed-book list that can construct
+  // this leg (topology-aware). FE renders these as alternativeBook chips.
+  books?: string[]
   bestOdds?: number
   bookCount?: number
   modelProb?: number

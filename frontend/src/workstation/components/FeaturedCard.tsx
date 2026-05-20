@@ -73,7 +73,20 @@ export function FeaturedCard({ icon, title, plays, emptyMessage, showOdds = true
               </div>
             </span>
             {showOdds ? <span className="ws-feat-odds">{fmtOdds(p.odds)}</span> : <span />}
-            <span className="ws-feat-book">{p.bestBook || p.book || "—"}</span>
+            {/* Phase Item 0003 Slice 2 — canonical sportsbook badge. p.book /
+                p.bestBook are now canonical allowed-book names (DraftKings /
+                FanDuel / Fanatics / Caesars / BetMGM / Hard Rock / BetRivers).
+                p.books carries the ranked alternative-book chips. */}
+            <span className="ws-feat-book" title={
+              p.books && p.books.length > 1
+                ? `Best on ${p.bestBook || p.book}; also constructable on: ${p.books.slice(1).join(", ")}`
+                : (p.bestBook || p.book || "—")
+            }>
+              {p.bestBook || p.book || "—"}
+              {p.books && p.books.length > 1 && (
+                <span style={{ fontSize: 9, opacity: 0.7, marginLeft: 4 }}>+{p.books.length - 1}</span>
+              )}
+            </span>
             <span className="ws-feat-meta">
               {Number.isFinite(p.composite) ? Math.round((p.composite || 0) * 100) : "—"}
             </span>

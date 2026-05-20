@@ -45,17 +45,31 @@ assert(typeof topology.bestBookForSlip === "function", "A1 — topology.bestBook
 assert(typeof allowlist.resolveSingleBookForSlip === "function", "A2 — allowlist.resolveSingleBookForSlip exists")
 assert(allowlist.ALLOWED_SPORTSBOOKS.length === 7, "A3 — allowlist is 7-book set")
 
-// ── B (forward-looking) ─────────────────────────────────────────────────
+// ── B — consumer wiring (Slice 2 — now REQUIRED) ────────────────────────
 console.log("")
-console.log("Cluster B — consumer wiring (Slice 2 target; informational)")
+console.log("Cluster B — consumer wiring (REQUIRED post-Slice-2)")
 const slipAiSrc   = fs.readFileSync(path.join(BACKEND, "pipeline", "shared", "buildSlipAi.js"), "utf8")
 const featuredSrc = fs.readFileSync(path.join(BACKEND, "pipeline", "shared", "buildFeaturedPlays.js"), "utf8")
-const slipAiWired   = /require\([^)]*sportsbookTopology[^)]*\)/.test(slipAiSrc)
-const featuredWired = /require\([^)]*sportsbookTopology[^)]*\)/.test(featuredSrc)
-if (slipAiWired)   { passed++; console.log("  ✓ B1 — buildSlipAi imports sportsbookTopology") }
-else               { console.warn("  ⚠ B1 — buildSlipAi has NOT yet imported sportsbookTopology (Slice 2 target)") }
-if (featuredWired) { passed++; console.log("  ✓ B2 — buildFeaturedPlays imports sportsbookTopology") }
-else               { console.warn("  ⚠ B2 — buildFeaturedPlays has NOT yet imported sportsbookTopology (Slice 2 target)") }
+assert(/require\([^)]*sportsbookTopology[^)]*\)/.test(slipAiSrc),
+  "B1 — buildSlipAi imports sportsbookTopology")
+assert(/require\([^)]*sportsbookTopology[^)]*\)/.test(featuredSrc),
+  "B2 — buildFeaturedPlays imports sportsbookTopology")
+// Emit-boundary insertion: buildSlipAi must call bestBookForSlip after
+// buildSlipsForTier produces tiered slips (same-book curated discipline).
+assert(/__bestBookForSlip\s*\(\s*legs\s*\)|bestBookForSlip\s*\(\s*legs\s*\)/.test(slipAiSrc),
+  "B3 — buildSlipAi calls bestBookForSlip at the curated emit boundary")
+// Per-leg ranking: buildFeaturedPlays compactPlay must rank books for each leg.
+assert(/_rankBooksForLeg\s*\(\s*c\s*\)|rankBooksForLeg\s*\(\s*c\s*\)/.test(featuredSrc),
+  "B4 — buildFeaturedPlays.compactPlay calls rankBooksForLeg per-leg")
+// leanSlip must persist book + alternativeBooks on slip + book/sportsbook on legs.
+const phase4Src = fs.readFileSync(path.join(BACKEND, "pipeline", "mlb", "phase4Tracking.js"), "utf8")
+assert(/leanSlip[\s\S]{0,2000}book\s*:\s*slip\.book\s*\?\?/.test(phase4Src) ||
+       /leanSlip[\s\S]{0,2000}book\s*:\s*slip\.book\b/.test(phase4Src),
+  "B5 — leanSlip persists slip.book on the slip record")
+assert(/leanSlip[\s\S]{0,2000}alternativeBooks/.test(phase4Src),
+  "B6 — leanSlip persists slip.alternativeBooks on the slip record")
+assert(/leanSlip[\s\S]{0,2000}book\s*:\s*l\.book\s*\?\?/.test(phase4Src),
+  "B7 — leanSlip persists leg.book on every persisted leg")
 
 // ── C — empirical persisted slips ────────────────────────────────────────
 console.log("")

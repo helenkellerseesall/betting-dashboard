@@ -87,17 +87,15 @@ if (allowlistMod) {
   assert(unknown === null, "D9 — slip with non-allowed leg resolves to null")
 }
 
-// ── Cluster B: CONSUMER WIRING (forward-looking; non-blocking) ──────────
+// ── Cluster B: CONSUMER WIRING (Slice 2 — REQUIRED) ─────────────────────
 console.log("")
-console.log("Cluster B — consumer wiring (forward-looking; informational)")
+console.log("Cluster B — consumer wiring (REQUIRED post-Slice-2)")
 const slipAiSrc      = fs.readFileSync(path.join(BACKEND, "pipeline", "shared", "buildSlipAi.js"), "utf8")
 const featuredSrc    = fs.readFileSync(path.join(BACKEND, "pipeline", "shared", "buildFeaturedPlays.js"), "utf8")
-const slipAiWired    = /require\([^)]*sportsbookAllowlist[^)]*\)/.test(slipAiSrc)
-const featuredWired  = /require\([^)]*sportsbookAllowlist[^)]*\)/.test(featuredSrc)
-if (slipAiWired)   { passed++; console.log("  ✓ B1 — buildSlipAi.js imports sportsbookAllowlist") }
-else               { console.warn("  ⚠ B1 — buildSlipAi.js does NOT yet import sportsbookAllowlist (forward-looking)") }
-if (featuredWired) { passed++; console.log("  ✓ B2 — buildFeaturedPlays.js imports sportsbookAllowlist") }
-else               { console.warn("  ⚠ B2 — buildFeaturedPlays.js does NOT yet import sportsbookAllowlist (forward-looking)") }
+assert(/require\([^)]*sportsbookAllowlist[^)]*\)/.test(slipAiSrc),
+  "B1 — buildSlipAi.js imports sportsbookAllowlist")
+assert(/require\([^)]*sportsbookAllowlist[^)]*\)/.test(featuredSrc),
+  "B2 — buildFeaturedPlays.js imports sportsbookAllowlist")
 
 // ── Cluster C: EMPIRICAL — persisted curated slip integrity ─────────────
 console.log("")

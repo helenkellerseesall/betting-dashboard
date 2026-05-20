@@ -36,6 +36,12 @@
 
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
+// Phase Item 0003 Slice 2 — canonical sportsbook topology selector. Used at
+// the curated slip emit boundary (after buildSlipsForTier produces slips) to
+// enforce same-book constructability + reject mixed-book / unauthorized-book
+// emissions. Anti-fabrication: bestBookForSlip returns null → slip dropped.
+const { bestBookForSlip: __bestBookForSlip } = require("./sportsbookTopology")
+const { canonicalBookName: __canonicalBookName } = require("./sportsbookAllowlist")
 
 // ── FIX 3: SLIP FAMILY EXCLUSION LIST ────────────────────────────────────────
 // Families excluded from ALL slip assembly (SAFE, BALANCED, AGGRESSIVE, LOTTO).
@@ -1338,6 +1344,54 @@ function buildAiSlips(opts = {}) {
   }
   console.log("[SLIP-PROBE] tiers: safe=%d balanced=%d aggressive=%d lotto=%d",
     slips.safe.length, slips.balanced.length, slips.aggressive.length, slips.lotto.length)
+
+  // ── Phase Item 0003 Slice 2 — canonical same-book curated emit-boundary ──
+  // For every emitted slip, select the single canonical book that constructs
+  // ALL legs (best-constructable-ecosystem doctrine). Slips with null
+  // canonicalBook are rejected (mixed-book / unauthorized-book / impossible
+  // to construct on any allowed book). Surviving slips have:
+  //   - slip.book              = canonical book name
+  //   - slip.alternativeBooks  = ranked alt books that ALSO construct the slip
+  //   - every leg.book / leg.sportsbook rewritten to slip.book
+  // Anti-fabrication: never invents a book. Topology coverage Slice 2 ships
+  // MLB only; NBA topology is a future slice. Gate enforcement on sport==="mlb"
+  // so NBA slip ecology is not regressed before NBA market keys are added to
+  // sportsbookTopology.json. Discover/battlefield unchanged either way
+  // (enforcement runs after curated tier selection).
+  const __bookEnforcementActive = /^mlb$/i.test(sport)
+  let __bookEnforcedSlipsTotal = 0, __bookEnforcedSlipsRejected = 0
+  const __bookEnforcementCounts = { safe: { ok: 0, rejected: 0 }, balanced: { ok: 0, rejected: 0 }, aggressive: { ok: 0, rejected: 0 }, lotto: { ok: 0, rejected: 0 } }
+  if (__bookEnforcementActive) for (const tier of ["safe", "balanced", "aggressive", "lotto"]) {
+    const tierSlips = slips[tier] || []
+    const surviving = []
+    for (const slip of tierSlips) {
+      const legs = Array.isArray(slip?.legs) ? slip.legs : []
+      if (legs.length === 0) { __bookEnforcementCounts[tier].rejected++; __bookEnforcedSlipsRejected++; continue }
+      const sel = __bestBookForSlip(legs)
+      if (!sel || !sel.canonicalBook) {
+        __bookEnforcementCounts[tier].rejected++; __bookEnforcedSlipsRejected++
+        console.warn("[SLIP-BOOK-REJECT] tier=%s legs=%d reason=unconstructable", tier, legs.length)
+        continue
+      }
+      slip.book              = sel.canonicalBook
+      slip.alternativeBooks  = sel.alternativeBooks || []
+      for (const leg of legs) {
+        leg.book        = sel.canonicalBook
+        leg.sportsbook  = sel.canonicalBook
+      }
+      __bookEnforcementCounts[tier].ok++
+      __bookEnforcedSlipsTotal++
+      surviving.push(slip)
+    }
+    slips[tier] = surviving
+  }
+  if (__bookEnforcedSlipsRejected > 0 || __bookEnforcedSlipsTotal > 0) {
+    console.log("[SLIP-BOOK-ENFORCE] book-enforced slips ok=%d rejected=%d  per-tier=%s",
+      __bookEnforcedSlipsTotal, __bookEnforcedSlipsRejected, JSON.stringify(__bookEnforcementCounts))
+  } else if (!__bookEnforcementActive) {
+    console.log("[SLIP-BOOK-ENFORCE] inactive for sport=%s (topology coverage MLB-only this slice)", sport)
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   // Warnings
   const warnings = []
