@@ -96,6 +96,33 @@ const COMMANDS = Object.freeze({
     cmd:  "node backend/scripts/ops/nextStep.js",
     lane: "OPERATOR PLAYBOOK",
   },
+
+  // ── OO-2 enforcement layer ────────────────────────────────────────────
+  "risk-add": {
+    desc: "Append a new R-NNN-N entry to docs/OPEN_RISKS.md. Usage: risk-add <lane> <title> [slice]",
+    cmd:  "node backend/scripts/ops/riskAdd.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "risk-list": {
+    desc: "List OPEN + MITIGATED risks. Use --ids for comma-separated id list (footer carry-forward).",
+    cmd:  "node backend/scripts/ops/riskList.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "lane-sync": {
+    desc: "Atomic lane handoff: mutates EXECUTION_BACKLOG Active-slice lane + appends Lane log + appends linked BBL statusLog. Usage: lane-sync <new-lane> <reason>",
+    cmd:  "node backend/scripts/ops/laneSync.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "playbook-sync": {
+    desc: "Slice-close trigger: appends OPERATOR_RUNBOOK phase ledger line + asserts 4-surface continuity propagation. Usage: playbook-sync <slice-id> <summary> [commit]",
+    cmd:  "node backend/scripts/ops/playbookSync.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "checkpoint-persist": {
+    desc: "Writes .checkpoint/operational_state_<tag>.json snapshot (active slice + lane + open risks + open backlog + term commands). Inline-called by ops:checkpoint.",
+    cmd:  "node backend/scripts/ops/checkpointPersist.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
 })
 
 function list() {

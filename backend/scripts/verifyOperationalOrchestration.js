@@ -1,7 +1,7 @@
 "use strict"
 
 /**
- * verifyOperationalOrchestration.js — Phase OO-1 (2026-05-19).
+ * verifyOperationalOrchestration.js — Phase OO-1 (2026-05-19), extended OO-2 (2026-05-19).
  *
  * Enforces the orchestration continuity infrastructure:
  *   A — canonical files exist (LANE_INDEX, BETTOR_BACKLOG, EXECUTION_BACKLOG,
@@ -12,6 +12,17 @@
  *       next-command exists in the runtime command registry
  *   E — ops/runtime.js registry exists; backlogAdd/backlogList/nextStep exist
  *   F — OPERATOR_RUNBOOK cross-references the orchestration docs
+ *
+ * OO-2 enforcement extension:
+ *   G — OPERATIONAL_FOOTER_TEMPLATE declares structured-checkpoint footer
+ *       with TERM 1/2/3, FE VALIDATION, BETTOR-VISIBLE EXPECTED RESULT,
+ *       UNRESOLVED BLOCKERS sections + ambiguity-ban rule
+ *   H — OPEN_RISKS.md exists; every R-NNN-N entry has full schema; all
+ *       OPEN/MITIGATED ids appear in EXECUTION_BACKLOG Risk references
+ *   I — EXECUTION_BACKLOG has Lane log section + Risk references section;
+ *       Active slice block carries risk-refs field
+ *   J — OO-2 ops scripts exist (riskAdd/riskList/laneSync/playbookSync/
+ *       checkpointPersist) AND are registered in runtime.js COMMANDS
  */
 
 const fs   = require("fs")
@@ -25,11 +36,17 @@ const LANE_INDEX_PATH    = path.join(DOCS, "LANE_INDEX.md")
 const BETTOR_BACKLOG     = path.join(DOCS, "BETTOR_BACKLOG.md")
 const EXEC_BACKLOG       = path.join(DOCS, "EXECUTION_BACKLOG.md")
 const FOOTER_TEMPLATE    = path.join(DOCS, "OPERATIONAL_FOOTER_TEMPLATE.md")
+const OPEN_RISKS_PATH    = path.join(DOCS, "OPEN_RISKS.md")
 const RUNBOOK_PATH       = path.join(DOCS, "OPERATOR_RUNBOOK.md")
 const RUNTIME_REGISTRY   = path.join(BACKEND, "scripts", "ops", "runtime.js")
 const BACKLOG_ADD        = path.join(BACKEND, "scripts", "ops", "backlogAdd.js")
 const BACKLOG_LIST       = path.join(BACKEND, "scripts", "ops", "backlogList.js")
 const NEXT_STEP          = path.join(BACKEND, "scripts", "ops", "nextStep.js")
+const RISK_ADD           = path.join(BACKEND, "scripts", "ops", "riskAdd.js")
+const RISK_LIST          = path.join(BACKEND, "scripts", "ops", "riskList.js")
+const LANE_SYNC          = path.join(BACKEND, "scripts", "ops", "laneSync.js")
+const PLAYBOOK_SYNC      = path.join(BACKEND, "scripts", "ops", "playbookSync.js")
+const CHECKPOINT_PERSIST = path.join(BACKEND, "scripts", "ops", "checkpointPersist.js")
 
 const CANONICAL_LANES = ["MCR","ACTIVE EXECUTION","FULL SYSTEM AUDIT","FRONTEND / UX LAB","INFRA / GOVERNANCE","OPERATOR PLAYBOOK"]
 
@@ -163,6 +180,95 @@ if (fs.existsSync(RUNBOOK_PATH)) {
   assert(/LANE_INDEX|six lanes|lane index/i.test(rb),     "F3 — OPERATOR_RUNBOOK references LANE_INDEX")
   assert(/OPERATIONAL_FOOTER|operational footer/i.test(rb), "F4 — OPERATOR_RUNBOOK references OPERATIONAL_FOOTER_TEMPLATE")
   assert(/scripts\/ops\/runtime\.js|ops\/runtime/i.test(rb), "F5 — OPERATOR_RUNBOOK references ops/runtime.js")
+}
+
+// ── G ─────────────────────────────────────────────────────────────────
+console.log("")
+console.log("Cluster G — OPERATIONAL_FOOTER_TEMPLATE structured-checkpoint shape (OO-2)")
+if (fs.existsSync(FOOTER_TEMPLATE)) {
+  const ft = fs.readFileSync(FOOTER_TEMPLATE, "utf8")
+  assert(/Structured-checkpoint footer/i.test(ft),
+    "G1 — footer template declares structured-checkpoint section")
+  assert(/^TERM 1 /m.test(ft) && /^TERM 2 /m.test(ft) && /^TERM 3 /m.test(ft),
+    "G2 — TERM 1, TERM 2, TERM 3 sections all present")
+  assert(/^FE VALIDATION/m.test(ft),
+    "G3a — FE VALIDATION section present")
+  assert(/^BETTOR-VISIBLE EXPECTED RESULT/m.test(ft),
+    "G3b — BETTOR-VISIBLE EXPECTED RESULT section present")
+  assert(/^UNRESOLVED BLOCKERS/m.test(ft),
+    "G3c — UNRESOLVED BLOCKERS section present")
+  assert(/Ambiguity ban/i.test(ft),
+    "G4 — ambiguity-ban rule declared")
+  // term commands MUST resolve to the canonical ops layer
+  assert(/npm run ops:term1/.test(ft),  "G5a — TERM 1 cites `npm run ops:term1`")
+  assert(/npm run ops:term2/.test(ft),  "G5b — TERM 2 cites `npm run ops:term2`")
+  assert(/npm run ops:checkpoint/.test(ft), "G5c — TERM 3 cites `npm run ops:checkpoint`")
+}
+
+// ── H ─────────────────────────────────────────────────────────────────
+console.log("")
+console.log("Cluster H — OPEN_RISKS ledger schema + carry-forward (OO-2)")
+assert(fs.existsSync(OPEN_RISKS_PATH), "H1 — docs/OPEN_RISKS.md exists")
+let openRiskIds = []
+if (fs.existsSync(OPEN_RISKS_PATH)) {
+  const src = fs.readFileSync(OPEN_RISKS_PATH, "utf8")
+  const blocks = src.split(/^---\s*$/m).slice(1).filter(b => /^id:\s*R-/m.test(b))
+  assert(blocks.length >= 1, `H2 — at least one R-NNN-N entry exists (n=${blocks.length})`)
+  const required = ["id","openedAt","openedBy","lane","slice","title","state","body"]
+  let schemaOk = 0
+  for (const b of blocks) {
+    const ok = required.every(k => new RegExp("^" + k + ":", "m").test(b))
+    if (ok) schemaOk++
+    const m = b.match(/^id:\s*(R-\d+-\d+)/m)
+    const st = b.match(/^state:\s*(OPEN|MITIGATED|CLOSED)/m)
+    if (m && st && (st[1] === "OPEN" || st[1] === "MITIGATED")) openRiskIds.push(m[1])
+  }
+  assert(schemaOk === blocks.length,
+    `H3 — every risk entry has all required fields (${schemaOk}/${blocks.length})`)
+}
+
+// ── I ─────────────────────────────────────────────────────────────────
+console.log("")
+console.log("Cluster I — EXECUTION_BACKLOG Lane log + Risk references (OO-2)")
+if (fs.existsSync(EXEC_BACKLOG)) {
+  const src = fs.readFileSync(EXEC_BACKLOG, "utf8")
+  assert(/## Lane log/.test(src),         "I1 — EXECUTION_BACKLOG has '## Lane log' section")
+  assert(/## Risk references/.test(src),  "I2 — EXECUTION_BACKLOG has '## Risk references' section")
+  // Active slice block has risk-refs field
+  const m = src.match(/## Active slice([\s\S]*?)## Slice queue/)
+  if (m) {
+    const block = m[1]
+    const has = /\|\s*risk-refs\s*\|/.test(block)
+    assert(has, "I3 — Active slice block has 'risk-refs' field")
+  }
+  // Every OPEN/MITIGATED risk id from OPEN_RISKS.md MUST be carried forward
+  // in the Risk references section.
+  if (openRiskIds.length > 0) {
+    let carried = 0
+    for (const rid of openRiskIds) {
+      if (src.includes(rid)) carried++
+    }
+    assert(carried === openRiskIds.length,
+      `I4 — every open risk id carried in EXECUTION_BACKLOG (${carried}/${openRiskIds.length})`)
+  }
+}
+
+// ── J ─────────────────────────────────────────────────────────────────
+console.log("")
+console.log("Cluster J — OO-2 enforcement scripts exist + registered")
+assert(fs.existsSync(RISK_ADD),           "J1 — backend/scripts/ops/riskAdd.js exists")
+assert(fs.existsSync(RISK_LIST),          "J2 — backend/scripts/ops/riskList.js exists")
+assert(fs.existsSync(LANE_SYNC),          "J3 — backend/scripts/ops/laneSync.js exists")
+assert(fs.existsSync(PLAYBOOK_SYNC),      "J4 — backend/scripts/ops/playbookSync.js exists")
+assert(fs.existsSync(CHECKPOINT_PERSIST), "J5 — backend/scripts/ops/checkpointPersist.js exists")
+try {
+  delete require.cache[RUNTIME_REGISTRY]
+  const { COMMANDS } = require(RUNTIME_REGISTRY)
+  for (const name of ["risk-add","risk-list","lane-sync","playbook-sync","checkpoint-persist"]) {
+    assert(name in COMMANDS, `J6 — registry contains "${name}"`)
+  }
+} catch (e) {
+  failed++; failures.push("J6 — registry load: " + e.message)
 }
 
 console.log("")
