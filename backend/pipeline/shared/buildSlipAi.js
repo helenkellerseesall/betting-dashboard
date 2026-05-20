@@ -42,6 +42,13 @@ const { isOffensiveAttackStat } = require("./normalizers")
 // emissions. Anti-fabrication: bestBookForSlip returns null → slip dropped.
 const { bestBookForSlip: __bestBookForSlip } = require("./sportsbookTopology")
 const { canonicalBookName: __canonicalBookName } = require("./sportsbookAllowlist")
+// Phase Item 0003 Increment 2c — vig stripping mirror wiring. When the
+// upstream candidate carries `oppOdds` (opposite-side market price for the
+// same prop), normalizeCandidate computes the canonical fair implied prob
+// via stripVigTwoWay and stores it on the leg. scoreLeg below prefers the
+// fair value over vig-included impliedProb when present. Anti-fabrication:
+// fair fields stay null when oppOdds is absent — never substitute default.
+const { stripVigTwoWay: __stripVigTwoWay } = require("./vigStripping")
 
 // ── FIX 3: SLIP FAMILY EXCLUSION LIST ────────────────────────────────────────
 // Families excluded from ALL slip assembly (SAFE, BALANCED, AGGRESSIVE, LOTTO).
@@ -265,6 +272,25 @@ function normalizeCandidate(raw) {
   const impliedProb = impliedFromAmerican(odds)
   const edge        = num(raw.edge ?? raw.edgeProbability ?? (modelProb != null && impliedProb != null ? modelProb - impliedProb : null))
 
+  // Phase Item 0003 Increment 2c — vig stripping mirror. When upstream
+  // provides the opposite-side market price via raw.oppOdds (or
+  // raw.opposingOdds), compute the canonical fair implied prob and fair
+  // edge. Anti-fabrication: stays null when oppOdds absent or invalid.
+  let _fairImpliedProb = null
+  let _vig             = null
+  let _fairEdge        = null
+  const _oppOdds = num(raw.oppOdds ?? raw.opposingOdds ?? raw.opposingOddsAmerican ?? raw.oppOddsAmerican)
+  if (_oppOdds != null && odds != null && (side === "over" || side === "under")) {
+    const overOdds  = side === "over"  ? odds : _oppOdds
+    const underOdds = side === "under" ? odds : _oppOdds
+    const sv = __stripVigTwoWay(overOdds, underOdds)
+    if (sv) {
+      _vig             = sv.vig
+      _fairImpliedProb = side === "over" ? sv.overFair : sv.underFair
+      if (modelProb != null) _fairEdge = modelProb - _fairImpliedProb
+    }
+  }
+
   return {
     id:            legId(raw),
     player,
@@ -280,6 +306,10 @@ function normalizeCandidate(raw) {
     modelProb,
     impliedProb,
     edge,
+    // Phase Item 0003 Increment 2c — vig-stripped fields (null when oppOdds absent).
+    fairImpliedProb: _fairImpliedProb,
+    vig:             _vig,
+    fairEdge:        _fairEdge,
     confidence:    num(raw.calibratedConfidence ?? raw.confidence ?? raw.confidenceRaw),
     tier:          raw.tier || raw.confidenceTier || raw.bucket,
     archetype:     raw.archetype || raw.archetypeTag,
@@ -350,11 +380,19 @@ function scoreLeg(leg, ctx = {}) {
   // probability compression (under bets get 0.65+ modelProb just from line
   // shape) does not unfairly inflate composite over true edge quality.
   // Same fix as buildFeaturedPlays.scoreCandidate.
-  const edge = leg.edge ?? 0
+  // Phase Item 0003 Increment 2c — prefer fair edge (vig-stripped) over
+  // raw edge for the projection factor. Falls back to raw edge when
+  // upstream did not supply oppOdds at normalizeCandidate time.
+  const _rawEdge   = leg.edge ?? 0
+  const edge       = (typeof leg.fairEdge === "number" && Number.isFinite(leg.fairEdge)) ? leg.fairEdge : _rawEdge
   const conf = leg.modelProb ?? leg.confidence ?? 0
   const probFactor = Math.max(0.50, Math.min(0.55, conf || 0.5))
   const projectionScore = clamp(0, 1, (edge * 5) * probFactor)
-  factors.projection = r4(projectionScore)
+  factors.projection      = r4(projectionScore)
+  factors.vig             = leg.vig             ?? null
+  factors.fairImpliedProb = leg.fairImpliedProb ?? null
+  factors.rawEdge         = _rawEdge
+  factors.edgeUsed        = (typeof leg.fairEdge === "number" && Number.isFinite(leg.fairEdge)) ? "fair" : "raw"
   total += projectionScore * 0.30; weight += 0.30
 
   // 2. CLV quality (15%): use closing odds if present, else stat-family historical CLV

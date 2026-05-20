@@ -218,6 +218,15 @@ export interface FeaturedPlay {
   roleLegitimacy?: number
   propFamilyLegitimacy?: number
   feelsFakeScore?: number
+  // Phase Item 0003 Increment 2d — vig-stripping surfacing. fairImpliedProb
+  // is the canonical fair (vig-removed) implied probability; vig is the
+  // bookmaker's overround on the prop; fairEdge = modelProb - fairImpliedProb.
+  // vigStrippedFrom indicates whether both-sides shopMap was available
+  // ("shop_both_sides") or computation fell back to raw vig-included prob.
+  vig?: number
+  fairImpliedProb?: number
+  fairEdge?: number
+  vigStrippedFrom?: "shop_both_sides" | "fallback_raw_implied"
   modelProb?: number
   edge?: number
   volatility?: string

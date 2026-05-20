@@ -256,19 +256,41 @@ if (process.env.ITEM_0003_VIG_DRIFT_SELF_TEST === "1") {
   console.log("  (skipped — set ITEM_0003_VIG_DRIFT_SELF_TEST=1 to enable)")
 }
 
-// ── Cluster S — SCOPE-LOCK PROOF (Increment 1 — no implementation) ──────
+// ── Cluster S — SCOPE-LOCK PROOF ────────────────────────────────────────
+// Conditional: S fires only in Increment-1 PRE-CONDITION mode (no module).
+// Once vigStripping.js ships (Increment 2a+), Cluster S is intentionally
+// retired — the POST-IMPL Cluster I + Cluster N (no-raw-implied-edge in
+// pipeline) take over enforcement.
 console.log("")
-console.log("Cluster S — SCOPE-LOCK (Increment 1 prohibits implementation)")
-assert(!moduleExists,
-  "S1 — vigStripping.js NOT shipped this slice (Increment 1 scope-lock)")
-// No edge re-pricing in feature / slip-ai files since baseline tag.
-// We cannot literally diff against the tag inside the verifier without git,
-// but we can assert no new `vig`-named edge mutation appears in the
-// composite formula.
-assert(!/composite\s*=\s*[^\n]*\bvigStripping|composite\s*=\s*[^\n]*\bstripVig/.test(featuredSrc),
-  "S2 — buildFeaturedPlays composite formula contains no vig-stripping call (Increment 1 scope-lock)")
-assert(!/composite\s*=\s*[^\n]*\bvigStripping|composite\s*=\s*[^\n]*\bstripVig/.test(slipAiSrc),
-  "S3 — buildSlipAi composite formula contains no vig-stripping call (Increment 1 scope-lock)")
+console.log("Cluster S — SCOPE-LOCK (active only during Increment 1 PRE-CONDITION)")
+if (!moduleExists) {
+  assert(true, "S1 — vigStripping.js NOT shipped this slice (Increment 1 scope-lock)")
+  assert(!/composite\s*=\s*[^\n]*\bvigStripping|composite\s*=\s*[^\n]*\bstripVig/.test(featuredSrc),
+    "S2 — buildFeaturedPlays composite formula contains no vig-stripping call (Increment 1 scope-lock)")
+  assert(!/composite\s*=\s*[^\n]*\bvigStripping|composite\s*=\s*[^\n]*\bstripVig/.test(slipAiSrc),
+    "S3 — buildSlipAi composite formula contains no vig-stripping call (Increment 1 scope-lock)")
+} else {
+  console.log("  (retired — module is shipped; POST-IMPL Cluster I + Cluster N take over)")
+}
+
+// ── Cluster N — POST-IMPL: no raw-implied edge in projection factor ─────
+// After Increment 2 wiring, the curator's projection factor MUST consume
+// fairEdge (when both-sides shopMap available) and surface edgeUsed marker.
+console.log("")
+console.log("Cluster N — POST-IMPL no-raw-implied edge consumption")
+if (moduleExists) {
+  assert(/edgeUsed\s*=\s*\([^)]*_fairEdge[^)]*\)\s*\?\s*"fair"\s*:\s*"raw"/.test(featuredSrc) ||
+         /f\.edgeUsed\s*=\s*/.test(featuredSrc),
+    "N1 — buildFeaturedPlays records factors.edgeUsed (fair vs raw provenance marker)")
+  assert(/leg\.fairEdge[^&]*&&\s*Number\.isFinite\(leg\.fairEdge\)/.test(slipAiSrc) ||
+         /factors\.edgeUsed\s*=/.test(slipAiSrc),
+    "N2 — buildSlipAi scoreLeg prefers leg.fairEdge over leg.edge when available")
+  // The fair-prob/edge fields must propagate to compactPlay output for FE/verifier inspection.
+  assert(/fairImpliedProb:\s*Number\.isFinite\(score\.factors\?\.fairImpliedProb\)/.test(featuredSrc),
+    "N3 — compactPlay surfaces fairImpliedProb (FE/verifier inspectability)")
+  assert(/fairEdge:\s*Number\.isFinite\(score\.factors\?\.fairEdge\)/.test(featuredSrc),
+    "N4 — compactPlay surfaces fairEdge (FE/verifier inspectability)")
+}
 
 // ── Summary ──────────────────────────────────────────────────────────────
 console.log("")

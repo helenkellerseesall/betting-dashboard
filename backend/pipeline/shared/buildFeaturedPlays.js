@@ -65,6 +65,14 @@ const { canonicalBookName: _canonicalBookName } = require("./sportsbookAllowlist
 // [0.5, 1.4]. Never zeroes any candidate; battlefield breadth preserved
 // because this only operates on composite, never on filtering. Closes BBL-0005.
 const { computeArchetypeWeight: _computeArchetypeWeight } = require("./archetypeWeighting")
+// Phase Item 0003 Increment 2b (2026-05-20) — vig stripping. When the
+// shopMap entry carries both over- and under-side market pricing, derive
+// the canonical fair implied probability via stripVigTwoWay and recompute
+// the edge against fair prob (not vig-included prob). Falls back to raw
+// impliedProb when only one side is available — preserves backward
+// compatibility on thin-market candidates. Anti-fabrication: never
+// substitutes a default fair prob.
+const { stripVigTwoWay: _stripVigTwoWay, fairProbFromAmericanPair: _fairProbPair } = require("./vigStripping")
 function _survPhrase(reasonTag) {
   if (!reasonTag) return null
   const sigId = _SURV_SIG_IDS[reasonTag]
@@ -1072,6 +1080,58 @@ function scoreCandidate(c, ctx) {
   const f = {}
   let total = 0, weight = 0
 
+  // ── Phase Item 0003 Increment 2b — vig stripping ──────────────────────
+  // Compute fair implied probability (vig-stripped) by looking up the
+  // opposite-side shopMap entry. When both sides carry a canonical bestOdds
+  // value, derive fairImpliedProb via stripVigTwoWay. Anti-fabrication:
+  // when either side is missing, _fairImpliedProb falls back to raw
+  // c.impliedProb (vig-included) — preserves backward compatibility on
+  // thin-market candidates. Used below to compute fair edge for the
+  // projection factor; raw edge is preserved on factors.rawEdge for FE.
+  let _fairImpliedProb = null
+  let _vig             = null
+  let _fairEdge        = null
+  let _vigStrippedFrom = "fallback_raw_implied"
+  {
+    const sideLc  = String(c.side || "").toLowerCase()
+    const oppSide = sideLc === "over" ? "under" : sideLc === "under" ? "over" : null
+    const lsHere = lookupShop(c, ctx.shopMap)
+    let lsOpp = null
+    if (oppSide && ctx.shopMap) {
+      const oppKey = [
+        String(c.player || "").toLowerCase().trim(),
+        normFam(c.statFamily),
+        oppSide,
+        String(c.line ?? "any"),
+      ].join("|")
+      lsOpp = ctx.shopMap.get(oppKey) || null
+    }
+    const myBestOdds  = (lsHere && Number.isFinite(Number(lsHere.bestOdds))) ? Number(lsHere.bestOdds) : (Number.isFinite(c.odds) ? c.odds : null)
+    const oppBestOdds = (lsOpp  && Number.isFinite(Number(lsOpp.bestOdds)))  ? Number(lsOpp.bestOdds)  : null
+    if (myBestOdds != null && oppBestOdds != null && sideLc) {
+      const overOdds  = sideLc === "over"  ? myBestOdds : oppBestOdds
+      const underOdds = sideLc === "under" ? myBestOdds : oppBestOdds
+      const sv = _stripVigTwoWay(overOdds, underOdds)
+      if (sv) {
+        _vig             = sv.vig
+        _fairImpliedProb = sideLc === "over" ? sv.overFair : sv.underFair
+        _vigStrippedFrom = "shop_both_sides"
+      }
+    }
+    if (_fairImpliedProb == null) {
+      _fairImpliedProb = Number.isFinite(c.impliedProb) ? c.impliedProb : null
+      _vigStrippedFrom = "fallback_raw_implied"
+    }
+    if (Number.isFinite(c.modelProb) && Number.isFinite(_fairImpliedProb)) {
+      _fairEdge = c.modelProb - _fairImpliedProb
+    }
+  }
+  f.vig              = _vig
+  f.fairImpliedProb  = _fairImpliedProb
+  f.fairEdge         = _fairEdge
+  f.vigStrippedFrom  = _vigStrippedFrom
+  // ──────────────────────────────────────────────────────────────────────
+
   // edge × confidence — cap edge contribution at 25% to avoid edge-chasing.
   //
   // ECOLOGY FIX: cap modelProb factor to [0.50, 0.55]. Without this cap, a
@@ -1080,10 +1140,19 @@ function scoreCandidate(c, ctx) {
   // is purely structural (probability compression on shorter under lines),
   // NOT a real quality difference. The cap neutralizes that compounding
   // while still penalizing very low confidence (modelProb < 0.50).
-  const edge = c.edge ?? 0
+  // Phase Item 0003 Increment 2b — prefer fair edge (modelProb minus
+  // vig-stripped market prob) over raw edge (modelProb minus vig-included
+  // market prob). Raw edge inflates by the bookmaker's overround (~5%
+  // on standard MLB props). Fair edge is the canonical sharp-bettor
+  // representation. _fairEdge is computed above; falls back to c.edge
+  // when shopMap pair unavailable.
+  const _rawEdge   = c.edge ?? 0
+  const edge       = (typeof _fairEdge === "number" && Number.isFinite(_fairEdge)) ? _fairEdge : _rawEdge
   const conf = c.modelProb ?? c.confidence ?? 0
   const probFactor = Math.max(0.50, Math.min(0.55, conf || 0.5))
-  f.edge = clamp(0, 1, (edge * 4) * probFactor)
+  f.edge      = clamp(0, 1, (edge * 4) * probFactor)
+  f.rawEdge   = _rawEdge
+  f.edgeUsed  = (typeof _fairEdge === "number" && Number.isFinite(_fairEdge)) ? "fair" : "raw"
   total += f.edge * 0.25; weight += 0.25
 
   // archetype trust (rolling ROI by stat family)
@@ -2199,6 +2268,15 @@ function compactPlay(item, ctx, { includeAttackNote = false } = {}) {
     bestImpDelta:        Number.isFinite(ls?.bestImpDelta)        ? ls.bestImpDelta        : undefined,
     modelProb:           c.modelProb,
     edge:                c.edge,
+    // Phase Item 0003 Increment 2d — surface vig-stripped fields on every
+    // compactPlay so FE / verifiers / operator inspection can see the
+    // canonical fair edge alongside the raw vig-included edge. Anti-
+    // fabrication: undefined when score.factors did not compute (e.g. no
+    // both-sides shopMap pair was available).
+    vig:                 Number.isFinite(score.factors?.vig) ? score.factors.vig : undefined,
+    fairImpliedProb:     Number.isFinite(score.factors?.fairImpliedProb) ? score.factors.fairImpliedProb : undefined,
+    fairEdge:            Number.isFinite(score.factors?.fairEdge) ? score.factors.fairEdge : undefined,
+    vigStrippedFrom:    (score.factors?.vigStrippedFrom) || undefined,
     volatility:          c.volatility,
     tier:                c.tier,
     timingState:         score.timingClass?.state,
