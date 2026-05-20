@@ -235,6 +235,24 @@ const COMMANDS = Object.freeze({
     body: "node backend/scripts/ops/cognitionNext.js",
     lane: "FRONTEND / UX LAB",
   },
+
+  // ── Item-0009 archetype weighting (restored — verifier expects this name) ─
+  "verify-archetype": {
+    desc: "Run the Item-0009 archetype-weighting verifier (anti-suppression + cleanup-gravity + sharp-sleeper preservation).",
+    cmd:  "node backend/scripts/verifyItem0009ArchetypeWeighting.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifyItem0009ArchetypeWeighting.js",
+    lane: "INFRA / GOVERNANCE",
+  },
+
+  // ── Item 0003 Vig Stripping (Increment 1 — verifier-first) ───────────
+  "verify-vig-stripping": {
+    desc: "Run the Item 0003 vig-stripping verifier. PRE-CONDITION assertions today; flips to POST-IMPL automatically when Increment 2 ships vigStripping.js. Set ITEM_0003_VIG_DRIFT_SELF_TEST=1 for drift-detection self-test.",
+    cmd:  "node backend/scripts/verifyVigStripping.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifyVigStripping.js",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 // ── cwd-safe emission ───────────────────────────────────────────────────
