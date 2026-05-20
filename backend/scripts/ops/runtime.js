@@ -123,6 +123,23 @@ const COMMANDS = Object.freeze({
     cmd:  "node backend/scripts/ops/checkpointPersist.js",
     lane: "OPERATOR PLAYBOOK",
   },
+
+  // ── BC-1 bettor-cognition ingestion ──────────────────────────────────
+  "cognition-add": {
+    desc: "Append a BBL-NNNN cognition entry with full BC-1 schema (cognitionCategory + severity + priority + screenshots + linkedRisks + feelsFakeFlag + realismScore). Usage: cognition-add --lane L --title T --cognition C --severity S [--sportsbook|--ux|--risks|--screenshots|--feelsfake|--realism|--body]",
+    cmd:  "node backend/scripts/ops/cognitionAdd.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "cognition-rank": {
+    desc: "Rank OPEN + IN-SLICE cognition entries by composite score (priority + severity + cognition-weight + feelsFakeFlag + linkedRisks + screenshots + realism inverse).",
+    cmd:  "node backend/scripts/ops/cognitionRank.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "cognition-next": {
+    desc: "Surface the next cognition execution slice candidate (top-ranked OPEN entry + recommended slice family + recommended lane).",
+    cmd:  "node backend/scripts/ops/cognitionNext.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
 })
 
 function list() {

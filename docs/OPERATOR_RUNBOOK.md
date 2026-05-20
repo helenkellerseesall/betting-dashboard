@@ -1,5 +1,5 @@
 # OPERATOR RUNBOOK
-**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17. Phase Sport-Identity-Integrity-1A appended 2026-05-17. Phase Candidate-Ecology-Parity-1A appended 2026-05-17. Phase Player-Conviction-Engine-1A appended 2026-05-17. Phase Bettor-Validation-Infrastructure-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1B appended 2026-05-18.**
+**Single source-of-truth for daily repo operation. Phase Operator-Operations-1 (2026-05-14). Phase Realism-Ecology-1A appended 2026-05-14. Phase Market-Exploitation-1A appended 2026-05-16. Phase MLB-Correlation-Engine-1A appended 2026-05-16. Phase Visual-Betting-Intelligence-1A appended 2026-05-16. Phase Bettor-Curation-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1A appended 2026-05-17. Phase Offensive-Ecology-Intelligence-1B appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1A appended 2026-05-17. Phase Bettor-Native-Surface-Bridge-1B appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1A appended 2026-05-17. Phase Bettor-Native-Discovery-Surface-1B appended 2026-05-17. Phase Continuity-OS-1A appended 2026-05-17. Phase Continuity-OS-1B appended 2026-05-17. Phase Continuity-OS-1C appended 2026-05-17. Phase Operational-Parity-1A appended 2026-05-17. Phase Sport-Identity-Integrity-1A appended 2026-05-17. Phase Candidate-Ecology-Parity-1A appended 2026-05-17. Phase Player-Conviction-Engine-1A appended 2026-05-17. Phase Bettor-Validation-Infrastructure-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1A appended 2026-05-18. Phase Opportunity-Qualification-Architecture-1B appended 2026-05-18. Phase oo-2-enforcement appended 2026-05-20.**
 
 > **2026-05-17 PHASE Player-Conviction-Engine-1A (PCE-1A):** NEW `backend/pipeline/shared/playerConvictionEngine.js` adds a small-cap additive composite weight (PCE_WEIGHT 0.05, additive ∈ [-0.04, +0.05]) for sustainable hitter legitimacy. Composes canonical lineupSpot precision × plateAppearancesProxy floor × stat-side coherence × model-trust alignment. Hitter-overs-only (pitcher / under bypass cleanly with gated=false, additive=0). **Longshot-preserving** (operator-cemented): max penalty -0.04 cannot zero out a +400-to-+1000 ladder; an "earned" longshot (top-of-order + modelProb ≥ 0.18 + favorable env) still receives the full +0.05 boost. Wired into `scoreCandidate` alongside BC-2 + OE-2 + OE-3 + OE-4 + OE-11 + OE-13 (trust layers preserved). FE: `compactPlay` output gains `convictionNote` + `convictionReasonTag`; `FeaturedCard.tsx` renders bettor-readable `◆ {convictionNote}` line with color semantics. NEW `verifyPlayerConvictionEngine1A.js` (53/53 PASS) enforces additive-only / canonical-only-fields (no fabricated barrelRate / hardHit / xSLG / seasonHR / ISO / pull%) / weight-band / longshot-preservation / determinism. `ops:verify` now **37/37 PASS** (1 runtime + 31 verify\*.js + 5 probes). NO LLM / NO ML / NO RNG / NO new fetches / NO popularity / NO public-bet bias.
 
@@ -2111,3 +2111,192 @@ Every commit that touches doctrine MUST update:
 ---
 
 _Phase OO-1 — 2026-05-19. Implements continuity infrastructure. STOP expanding doctrine, START using these files for every cross-lane interaction._
+
+---
+
+## OPERATIONAL ORCHESTRATION SLICE 2 — ENFORCEMENT (Phase OO-2, 2026-05-19)
+
+**OO-2 proves orchestration behavior actually changed.** Slice 1 shipped
+the foundation; Slice 2 enforces it in every assistant response and at
+every slice/checkpoint boundary. No new doctrine — only enforcement.
+
+### New canonical surfaces
+
+- `docs/OPEN_RISKS.md` — append-only R-NNN-N risk ledger. Carry-forward to
+  the structured-checkpoint footer's `UNRESOLVED BLOCKERS → risks-open`
+  field. Every open risk also appears under `docs/EXECUTION_BACKLOG.md`
+  `## Risk references`.
+- `docs/EXECUTION_BACKLOG.md` extended with `## Lane log` (chronological
+  lane handoffs, mutated by `laneSync.js`) and `## Risk references`
+  (active R-NNN-N IDs).
+- `docs/OPERATIONAL_FOOTER_TEMPLATE.md` extended with the
+  **structured-checkpoint footer** required for slice closure, checkpoint
+  seal, lane handoff, or any bettor-visible mutation: REPO STATE,
+  TERM 1 / TERM 2 / TERM 3 sections, NEXT, FE VALIDATION,
+  BETTOR-VISIBLE EXPECTED RESULT, UNRESOLVED BLOCKERS, BACKLOG REFS.
+  Ambiguity ban: no "tbd" / "later" / "see above" / empty fields.
+
+### New ops scripts (all registered in `backend/scripts/ops/runtime.js`)
+
+```sh
+node backend/scripts/ops/riskAdd.js          <lane> "<title>" [slice]   # append R-NNN-N
+node backend/scripts/ops/riskList.js         [--all] [--lane X] [--ids] # list open risks
+node backend/scripts/ops/laneSync.js         <new-lane> "<reason>"      # atomic lane handoff
+node backend/scripts/ops/playbookSync.js     <slice-id> "<summary>" [commit]  # slice-close trigger
+node backend/scripts/ops/checkpointPersist.js [tag]                     # write .checkpoint/operational_state_<tag>.json
+```
+
+### Lane synchronization procedure (binding)
+
+Any lane transition MUST go through `laneSync.js`, which atomically:
+
+1. Mutates `## Active slice` `lane` field in EXECUTION_BACKLOG.md
+2. Appends a dated line to `## Lane log`
+3. Appends a `statusLog` line to the linked BBL-NNNN entry
+
+The structured-checkpoint footer reads `active-lane` from EXECUTION_BACKLOG,
+so propagation here is what makes lane sync stick. Free-form lane changes
+in the footer alone are forbidden.
+
+### Playbook auto-update triggers (binding)
+
+`playbookSync.js` fires on slice close (status → shipped). It:
+
+1. Appends `Phase <slice-id> appended <today>.` to the RUNBOOK header.
+2. Asserts the four continuity-propagation surfaces all reference the
+   shipped slice: EXECUTION_BACKLOG, BETTOR_BACKLOG, OPERATOR_RUNBOOK,
+   ARCHITECTURE_LAWS (last optional). If any surface lacks the reference,
+   slice close is BLOCKED.
+
+### Backlog-ingestion workflow (binding)
+
+Operator and assistant submit backlog/risk entries via the registry,
+never by hand-editing YAML:
+
+```sh
+node backend/scripts/ops/runtime.js show backlog-add   # see usage
+node backend/scripts/ops/backlogAdd.js  <lane> "<title>" [submitter]
+node backend/scripts/ops/riskAdd.js     <lane> "<title>" [slice]
+```
+
+`backlogList.js` / `riskList.js` (with `--ids`) feed the structured-checkpoint
+footer's `backlog-refs` and `risks-open` fields.
+
+### Unresolved-risk carry-forward (binding)
+
+Every R-NNN-N in state OPEN or MITIGATED MUST appear in:
+
+1. `docs/EXECUTION_BACKLOG.md` `## Risk references`
+2. Active slice's `risk-refs` field
+3. Every structured-checkpoint footer's `UNRESOLVED BLOCKERS → risks-open`
+
+`verifyOperationalOrchestration.js` Cluster I4 enforces (1) and (2).
+Closure requires a commit SHA cited in `statusLog`. Silent deletion is
+forbidden — use state CLOSED.
+
+### Operational checkpoint persistence (binding)
+
+`ops:checkpoint` MUST inline-call `checkpointPersist.js` to write
+`.checkpoint/operational_state_<tag>.json` capturing: active slice + lane,
+open risks (full list), open backlog (full list), term-1/term-2/term-3
+commands, canonical surface paths. A fresh session reads
+`.checkpoint/operational_state_latest.json` first.
+
+### Verifier extension (Clusters G/H/I/J)
+
+```sh
+node backend/scripts/verifyOperationalOrchestration.js
+# Expected: clusters A/B/C/D/E/F (OO-1) + G/H/I/J (OO-2) — all PASS
+```
+
+- G — footer template structured-checkpoint shape (TERM 1/2/3 + FE-validation + bettor-visible + blockers + ambiguity ban)
+- H — OPEN_RISKS.md schema + state values
+- I — EXECUTION_BACKLOG Lane log + Risk references + risk-refs field + carry-forward parity
+- J — five OO-2 scripts exist + are registered in runtime.js
+
+---
+
+_Phase OO-2 — 2026-05-19. Enforcement live. Operator should never again ask "what's next" / "which lane" / "what changed"._
+
+---
+
+## BETTOR COGNITION BACKLOG INGESTION (Phase BC-1, 2026-05-19)
+
+### Canonical ingestion workflow
+
+```sh
+node backend/scripts/ops/cognitionAdd.js \
+  --lane "FRONTEND/UX LAB" \
+  --title "Discover surfaces too many no-name longshots" \
+  --cognition no-name-overload \
+  --sportsbook DraftKings \
+  --ux discover \
+  --severity high \
+  [--priority P1] \
+  [--risks R-001-1,R-002-1] \
+  [--screenshots docs/screenshots/BBL-NNNN-slug-1.png] \
+  [--feelsfake] \
+  [--realism 35] \
+  [--body "free-form OR pipe via stdin"]
+```
+
+Auto-fills BBL-NNNN, statusLog OPEN line, auto-priority from severity when omitted.
+
+### Ranking + next-execution surfacing
+
+```sh
+node backend/scripts/ops/cognitionRank.js                     # all OPEN/IN-SLICE ranked
+node backend/scripts/ops/cognitionRank.js --top 5             # top 5 only
+node backend/scripts/ops/cognitionRank.js --category role-archetype
+node backend/scripts/ops/cognitionNext.js                     # top + recommended slice + lane
+```
+
+### Cognition category → execution slice mapping (binding)
+
+| cognitionCategory       | recommended slice family                  | owning lane            |
+|-------------------------|-------------------------------------------|------------------------|
+| role-archetype          | item-0007-role-relative-strength          | INFRA / GOVERNANCE     |
+| sportsbook              | item-0003-slice-N-sportsbook-extension    | INFRA / GOVERNANCE     |
+| market-psychology       | item-0010-market-psychology               | INFRA / GOVERNANCE     |
+| timing                  | item-0011-timing-cognition                | INFRA / GOVERNANCE     |
+| gameflow                | item-0008-game-flow-activation            | INFRA / GOVERNANCE     |
+| cashout                 | item-0012-cashout-cognition               | ACTIVE EXECUTION       |
+| no-name-overload        | item-0009-archetype-diversification       | INFRA / GOVERNANCE     |
+| superstar-gravity       | item-0009-archetype-diversification       | INFRA / GOVERNANCE     |
+| ladder-realism          | item-0013-ladder-realism                  | INFRA / GOVERNANCE     |
+| deep-cut-prop-ecology   | item-0014-deep-cut-ecology                | INFRA / GOVERNANCE     |
+| fe-workflow             | item-0015-fe-workflow                     | FRONTEND / UX LAB      |
+| operational-friction    | oo-N-operational-friction                 | OPERATOR PLAYBOOK      |
+| mobile-sportsbook-os    | item-0016-mobile-sportsbook-os            | FRONTEND / UX LAB      |
+| feels-fake              | item-0017-feels-fake-audit                | FULL SYSTEM AUDIT      |
+| realism                 | item-0018-realism-cognition               | FULL SYSTEM AUDIT      |
+
+### Composite ranking formula
+
+```
+score = priorityWeight + severityWeight + cognitionWeight
+      + (feelsFakeFlag ? 5 : 0)
+      + (linkedRisks.length × 2)
+      + (screenshots.length × 1)
+      + ((100 - realismScore) / 10)    if realismScore != null
+```
+
+priorityWeight: P0=100, P1=60, P2=30, P3=10.
+severityWeight: critical=40, high=25, medium=12, low=4.
+cognitionWeight: role-archetype/sportsbook/market-psychology highest (30/24/22); fe-workflow/operational-friction/mobile lowest (8/8/6).
+
+### Screenshot evidence
+
+Convention: `docs/screenshots/BBL-NNNN-<slug>-<n>.png`. Filename slug is kebab-case ≤ 40 chars. Verifier Cluster K7 asserts every path in `screenshots:` exists on disk.
+
+### Persistence guarantees
+
+- Append-only: `cognitionAdd.js` never edits historical entries.
+- Schema-fixed: 18 mandatory fields per entry (9 legacy + 9 BC-1).
+- Verifier-gated: Cluster K (16 assertions) fails commit if schema drifts.
+- Cross-linked: `linkedRisks` references `docs/OPEN_RISKS.md` R-NNN-N ids.
+- Lane-mapped: every entry routes to one of six lanes via `cognitionNext.js`.
+
+---
+
+_Phase BC-1 — 2026-05-19. Bettor frustrations become persistent governed backlog intelligence. Use `cognition-add` for every UX complaint, sportsbook gap, feels-fake observation, realism issue._

@@ -23,6 +23,14 @@
  *       Active slice block carries risk-refs field
  *   J — OO-2 ops scripts exist (riskAdd/riskList/laneSync/playbookSync/
  *       checkpointPersist) AND are registered in runtime.js COMMANDS
+ *
+ * BC-1 enforcement extension:
+ *   K — BC-1 cognition ingestion scripts exist (cognitionAdd/cognitionRank/
+ *       cognitionNext) AND registered in runtime.js. BETTOR_BACKLOG schema
+ *       declares cognitionCategory + sportsbookCategory + uxTag + severity
+ *       + priority + linkedRisks + screenshots + feelsFakeFlag + realismScore.
+ *       docs/screenshots/ exists with README. Every BC-1-tagged entry's
+ *       screenshots[] paths point to real files.
  */
 
 const fs   = require("fs")
@@ -47,6 +55,11 @@ const RISK_LIST          = path.join(BACKEND, "scripts", "ops", "riskList.js")
 const LANE_SYNC          = path.join(BACKEND, "scripts", "ops", "laneSync.js")
 const PLAYBOOK_SYNC      = path.join(BACKEND, "scripts", "ops", "playbookSync.js")
 const CHECKPOINT_PERSIST = path.join(BACKEND, "scripts", "ops", "checkpointPersist.js")
+// ── BC-1 ─────────────────────────────────────────────────────────────
+const COGNITION_ADD      = path.join(BACKEND, "scripts", "ops", "cognitionAdd.js")
+const COGNITION_RANK     = path.join(BACKEND, "scripts", "ops", "cognitionRank.js")
+const COGNITION_NEXT     = path.join(BACKEND, "scripts", "ops", "cognitionNext.js")
+const SCREENSHOTS_README = path.join(DOCS, "screenshots", "README.md")
 
 const CANONICAL_LANES = ["MCR","ACTIVE EXECUTION","FULL SYSTEM AUDIT","FRONTEND / UX LAB","INFRA / GOVERNANCE","OPERATOR PLAYBOOK"]
 
@@ -269,6 +282,47 @@ try {
   }
 } catch (e) {
   failed++; failures.push("J6 — registry load: " + e.message)
+}
+
+// ── K — BC-1 cognition ingestion ───────────────────────────────────────
+console.log("")
+console.log("Cluster K — BC-1 bettor-cognition ingestion (schema + scripts + screenshots)")
+assert(fs.existsSync(COGNITION_ADD),      "K1 — backend/scripts/ops/cognitionAdd.js exists")
+assert(fs.existsSync(COGNITION_RANK),     "K2 — backend/scripts/ops/cognitionRank.js exists")
+assert(fs.existsSync(COGNITION_NEXT),     "K3 — backend/scripts/ops/cognitionNext.js exists")
+assert(fs.existsSync(SCREENSHOTS_README), "K4 — docs/screenshots/README.md exists")
+try {
+  delete require.cache[RUNTIME_REGISTRY]
+  const { COMMANDS } = require(RUNTIME_REGISTRY)
+  for (const name of ["cognition-add","cognition-rank","cognition-next"]) {
+    assert(name in COMMANDS, `K5 — registry contains "${name}"`)
+  }
+} catch (e) {
+  failed++; failures.push("K5 — registry load: " + e.message)
+}
+// Schema declaration in BETTOR_BACKLOG.md
+if (fs.existsSync(BETTOR_BACKLOG)) {
+  const bb = fs.readFileSync(BETTOR_BACKLOG, "utf8")
+  for (const f of ["cognitionCategory","sportsbookCategory","uxTag","severity","priority","linkedRisks","screenshots","feelsFakeFlag","realismScore"]) {
+    assert(bb.includes(f + ":"), `K6 — BETTOR_BACKLOG schema declares "${f}"`)
+  }
+}
+// Every BC-1 entry's screenshots[] paths point to existing files
+if (fs.existsSync(BETTOR_BACKLOG)) {
+  const src = fs.readFileSync(BETTOR_BACKLOG, "utf8")
+  const blocks = src.split(/^---\s*$/m).slice(1).filter(b => /^id:\s*BBL-/m.test(b))
+  let allOk = true, missing = []
+  for (const b of blocks) {
+    const m = b.match(/^screenshots:\s*\[(.*)\]/m)
+    if (!m) continue
+    const paths = m[1].split(",").map(s => s.trim()).filter(Boolean)
+    for (const p of paths) {
+      const full = path.join(REPO, p)
+      if (!fs.existsSync(full)) { allOk = false; missing.push(p) }
+    }
+  }
+  assert(allOk, `K7 — every screenshots[] path exists on disk (missing=${missing.length})`)
+  if (missing.length > 0) for (const m of missing.slice(0,5)) console.error("    - " + m)
 }
 
 console.log("")
