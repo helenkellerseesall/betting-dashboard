@@ -67,8 +67,12 @@ if (runbookExists) {
     "A3 — OPERATOR_RUNBOOK names the canonical regeneration command (recordMlbBestProps or /api/best-available)")
   assert(/no replay-only closure|replay.{0,10}only.{0,10}is.{0,10}not.{0,10}closure|probe.{0,12}informational/i.test(rb),
     "A4 — OPERATOR_RUNBOOK contains the no-replay-only-closure doctrine sentence")
-  assert(/DraftKings/.test(rb) && /FanDuel/.test(rb) && /BetMGM/.test(rb) && /Caesars/.test(rb),
-    "A5 — OPERATOR_RUNBOOK lists the four-book allowlist (DraftKings / FanDuel / BetMGM / Caesars)")
+  // Phase Item 0003 Slice 1 — 7-book allowlist (DraftKings, FanDuel, Fanatics,
+  // Caesars, BetMGM, Hard Rock, BetRivers). All seven must appear in the runbook.
+  const sevenBookOk = ["DraftKings","FanDuel","Fanatics","Caesars","BetMGM","Hard Rock","BetRivers"]
+    .every(b => rb.includes(b))
+  assert(sevenBookOk,
+    "A5 — OPERATOR_RUNBOOK lists the seven-book allowlist (DraftKings/FanDuel/Fanatics/Caesars/BetMGM/Hard Rock/BetRivers)")
   assert(/single[- ]book/i.test(rb),
     "A6 — OPERATOR_RUNBOOK contains the single-book curated discipline phrase")
   assert(/sportsbookAllowlist/.test(rb),

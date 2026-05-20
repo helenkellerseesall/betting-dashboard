@@ -64,9 +64,10 @@ if (allowlistMod) {
 console.log("")
 console.log("Cluster D — allowlist integrity (exact 4-book set)")
 if (allowlistMod) {
-  const expected = ["DraftKings", "FanDuel", "BetMGM", "Caesars"]
+  // Phase Item 0003 Slice 1 — 7-book allowlist.
+  const expected = ["DraftKings", "FanDuel", "Fanatics", "Caesars", "BetMGM", "Hard Rock", "BetRivers"]
   const actual   = [...allowlistMod.ALLOWED_SPORTSBOOKS]
-  assert(actual.length === 4, `D1 — allowlist length is exactly 4 (got ${actual.length})`)
+  assert(actual.length === 7, `D1 — allowlist length is exactly 7 (got ${actual.length})`)
   for (const book of expected) {
     assert(actual.includes(book), `D2 — allowlist contains "${book}"`)
   }

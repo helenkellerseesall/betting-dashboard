@@ -1,0 +1,158 @@
+{
+  "version": "2026-05-19",
+  "phase":   "Item-0003-Slice-1",
+  "doctrine": "Canonical sportsbook capability topology. Per-book capability flags + market support + slip-construction constraints. Drives bestBookForSlip selection in curated emit-paths. Conservative defaults assume modern parity unless live feed evidence narrows. Operator-authorized 2026-05-19.",
+  "books": {
+    "DraftKings": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -10000,
+      "maxOddsPerLeg":         100000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts","batter_walks",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Most complete US MLB prop coverage; SGP+ available; favored as fallback for ladder-builder."
+    },
+    "FanDuel": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -10000,
+      "maxOddsPerLeg":         100000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts","batter_walks",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Parity with DK on MLB; aggressive HR ladders; favored for cleanup-hitter HR longshots."
+    },
+    "Fanatics": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  false,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        10,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -5000,
+      "maxOddsPerLeg":         50000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_strikeouts",
+        "pitcher_strikeouts","pitcher_outs"
+      ],
+      "operatorNotes": "Newer entrant; same-game SGP supported; cross-game SGP NOT yet supported per operator feed. Conservative market coverage; pitcher props limited."
+    },
+    "Caesars": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -5000,
+      "maxOddsPerLeg":         50000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Strong alt-line coverage; deep RBI ladders; favored for middle-of-order RBI conviction stacks."
+    },
+    "BetMGM": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -5000,
+      "maxOddsPerLeg":         50000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts","batter_walks",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Strong pitcher prop coverage; favored when slip leans pitcher-side or strikeout-environment."
+    },
+    "Hard Rock": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  false,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        8,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -2000,
+      "maxOddsPerLeg":         25000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_strikeouts",
+        "pitcher_strikeouts","pitcher_outs"
+      ],
+      "operatorNotes": "Regional book; conservative leg cap; no cross-game SGP. Use for single-game stacks."
+    },
+    "BetRivers": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -5000,
+      "maxOddsPerLeg":         50000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Solid US coverage; competitive odds on TB / Hits ladders; favored for top-of-order TB stacks."
+    }
+  },
+  "marketKeyAliases": {
+    "homeruns":              "batter_home_runs",
+    "home_runs":             "batter_home_runs",
+    "home runs":             "batter_home_runs",
+    "hr":                    "batter_home_runs",
+    "hits":                  "batter_hits",
+    "total bases":           "batter_total_bases",
+    "totalbases":            "batter_total_bases",
+    "total_bases":           "batter_total_bases",
+    "tb":                    "batter_total_bases",
+    "rbis":                  "batter_rbis",
+    "rbi":                   "batter_rbis",
+    "runs scored":           "batter_runs_scored",
+    "runs":                  "batter_runs_scored",
+    "stolen bases":          "batter_stolen_bases",
+    "stolen_bases":          "batter_stolen_bases",
+    "sb":                    "batter_stolen_bases",
+    "strikeouts":            "pitcher_strikeouts",
+    "pitcher_k":             "pitcher_strikeouts",
+    "ks":                    "pitcher_strikeouts",
+    "outs":                  "pitcher_outs",
+    "pitcher_outs":          "pitcher_outs",
+    "alt_home_runs":         "alternate_batter_home_runs",
+    "alt_hits":              "alternate_batter_hits",
+    "alt_total_bases":       "alternate_batter_total_bases",
+    "alt_rbis":              "alternate_batter_rbis"
+  }
+}

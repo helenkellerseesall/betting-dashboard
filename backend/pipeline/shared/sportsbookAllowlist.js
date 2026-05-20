@@ -24,39 +24,56 @@
  *   - Anti-fabrication: callers receive `null` from canonicalBookName(input)
  *     when the input is unrecognized — never substitute a default book.
  *
- * Initial allowlist (operator-authorized 2026-05-19):
- *   - DraftKings
- *   - FanDuel
- *   - BetMGM
- *   - Caesars
+ * Allowlist evolution:
+ *   2026-05-19 — initial 4-book set (DraftKings / FanDuel / BetMGM / Caesars).
+ *   2026-05-19 — Phase Item 0003 Slice 1: expanded to 7-book set
+ *                (added Fanatics / Hard Rock / BetRivers). Operator-authorized.
  */
 
 const ALLOWED_SPORTSBOOKS = Object.freeze([
   "DraftKings",
   "FanDuel",
-  "BetMGM",
+  "Fanatics",
   "Caesars",
+  "BetMGM",
+  "Hard Rock",
+  "BetRivers",
 ])
 
 const ALLOWED_SET = Object.freeze(new Set(ALLOWED_SPORTSBOOKS.map(s => s.toLowerCase())))
 
 const SPORTSBOOK_ALIASES = Object.freeze({
   // DraftKings
-  "draftkings":   "DraftKings",
-  "draft kings":  "DraftKings",
-  "dk":           "DraftKings",
+  "draftkings":     "DraftKings",
+  "draft kings":    "DraftKings",
+  "dk":             "DraftKings",
   // FanDuel
-  "fanduel":      "FanDuel",
-  "fan duel":     "FanDuel",
-  "fd":           "FanDuel",
+  "fanduel":        "FanDuel",
+  "fan duel":       "FanDuel",
+  "fd":             "FanDuel",
+  // Fanatics — Phase Item 0003 Slice 1
+  "fanatics":       "Fanatics",
+  "fanatics sportsbook": "Fanatics",
+  "fanatics betting": "Fanatics",
   // BetMGM
-  "betmgm":       "BetMGM",
-  "bet mgm":      "BetMGM",
-  "mgm":          "BetMGM",
+  "betmgm":         "BetMGM",
+  "bet mgm":        "BetMGM",
+  "mgm":            "BetMGM",
   // Caesars
-  "caesars":      "Caesars",
-  "caesar":       "Caesars",
-  "czr":          "Caesars",
+  "caesars":        "Caesars",
+  "caesar":         "Caesars",
+  "czr":            "Caesars",
+  // Hard Rock — Phase Item 0003 Slice 1
+  "hard rock":      "Hard Rock",
+  "hardrock":       "Hard Rock",
+  "hard rock bet":  "Hard Rock",
+  "hardrockbet":    "Hard Rock",
+  "hr":             "Hard Rock",
+  // BetRivers — Phase Item 0003 Slice 1
+  "betrivers":      "BetRivers",
+  "bet rivers":     "BetRivers",
+  "br":             "BetRivers",
+  "rivers":         "BetRivers",
 })
 
 /**

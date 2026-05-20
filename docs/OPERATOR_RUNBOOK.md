@@ -2024,3 +2024,39 @@ A slice that passes the probe but fails any of the above is NOT closed; it is re
 ---
 
 _Phase Item 0002 Slice 1.5 — 2026-05-19. Additive only; no prior doctrine modified. Establishes live-regeneration enforcement + sportsbook governance to prevent the replay-vs-live closure regression observed on Slice 1._
+
+---
+
+## SPORTSBOOK TOPOLOGY + 7-BOOK ALLOWLIST EXPANSION (Phase Item 0003 Slice 1, 2026-05-19)
+
+### Allowlist (operator-authorized 2026-05-19)
+
+DraftKings · FanDuel · Fanatics · Caesars · BetMGM · Hard Rock · BetRivers. All others blocked by default. Allowlist evolution requires explicit operator approval and commit through `backend/pipeline/shared/sportsbookAllowlist.js`.
+
+### Canonical topology
+
+`backend/data/sportsbookTopology.json` is the canonical topology data. Owned by `backend/pipeline/shared/sportsbookTopology.js`. Per-book capability flags drive `bestBookForSlip(legs)` which selects the single book that can construct ALL legs of a curated slip. Best-CONSTRUCTABLE-ECOSYSTEM doctrine: NO per-leg best-odds fragmentation; selection is per-slip.
+
+### Best-constructable-book scoring (Slice 1 deterministic gate)
+
+- constructability — every leg's marketKey supported by the book's marketKeys
+- leg-capacity — legs.length ≤ caps.maxLegsPerSlip
+- cross-game SGP — required when distinct eventIds > 1 (Fanatics + Hard Rock blocked here)
+
+Slice 2 will add odds-quality + parlay-boost weighting above this gate.
+
+### Verifier matrix additions (V5 expansion)
+
+- `backend/scripts/verifySportsbookTopologyShape.js` — data shape, module contract, no parallel defs, deterministic selection
+- `backend/scripts/verifySameBookConstructability.js` — persisted slip integrity + synthetic shape probes
+
+### Slice 2 binding requirements (deferred from Slice 1)
+
+- Wire `bestBookForSlip` into `buildSlipAi.js` curated emit path
+- Wire `rankBooksForLeg` into `buildFeaturedPlays.compactPlay`
+- FE `FeaturedCard` + `RecommendationLadder` display single-book badge
+- Slip persistence book-field hydration (closes R-EXEC-S2-1)
+
+---
+
+_Phase Item 0003 Slice 1 — 2026-05-19. Additive only. Allowlist 4→7. Topology foundation + verifier-first insertion. Consumer wiring deferred to Slice 2._
