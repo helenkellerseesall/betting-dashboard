@@ -306,6 +306,22 @@ const COMMANDS = Object.freeze({
     body: "node backend/scripts/ops/groupedTerm.js",
     lane: "INFRA / GOVERNANCE",
   },
+
+  // ── Operator Cockpit Phase 1 (read-only) ──────────────────────────────
+  "cockpit-start": {
+    desc: "Boot the read-only operator cockpit (port 4001; standalone http server; no mutation routes). View at http://127.0.0.1:4001/cockpit.",
+    cmd:  "node backend/cockpit/server.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/cockpit/server.js",
+    lane: "OPERATOR PLAYBOOK",
+  },
+  "verify-cockpit": {
+    desc: "Run the Operator Cockpit Phase 1 verifier (read-only enforcement + anti-shadow + canonical-source-only + FE isolation + hydration proof).",
+    cmd:  "node backend/scripts/verifyCockpitReadOnly.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifyCockpitReadOnly.js",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 // ── cwd-safe emission ───────────────────────────────────────────────────
