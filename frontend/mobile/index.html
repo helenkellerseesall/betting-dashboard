@@ -112,14 +112,45 @@
     }
 
     /* ── Freshness banner ──────────────────────────────────────── */
+    /* Bettor-native: informational tone, never alarming.
+       Even "stale" reads as soft grey, not blood-red — staleness is a
+       data-pipeline reality, not a bettor-blame surface. */
     .freshness {
       font-size: 11px; padding: 6px 10px; border-radius: 8px;
       margin-bottom: 10px; display: flex; justify-content: space-between;
       background: #141828; border: 1px solid #1F2937;
+      color: #9CA3AF;
     }
-    .freshness.fresh { color: #34D399; }
-    .freshness.warning { color: #FBBF24; }
-    .freshness.stale { color: #F87171; border-color: #7F1D1D; background: #1F0A0E; }
+    .freshness.fresh { color: #6EE7B7; }
+    .freshness.warning { color: #FCD34D; }
+    .freshness.stale { color: #9CA3AF; }
+
+    /* ── Conviction section (operator 2026-05-21: "holy shit THESE 2-3") ── */
+    .conviction-section {
+      margin-bottom: 18px;
+    }
+    .section-header {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: #FBBF24;
+      padding: 2px 4px 8px;
+    }
+    .section-header .section-icon {
+      font-size: 14px; line-height: 1;
+    }
+    .section-header .section-sub {
+      color: #6B7280; font-weight: 600; letter-spacing: 0.4px; flex: 1;
+    }
+    .section-header.all-opps { color: #9CA3AF; }
+    .conviction-card {
+      border: 1px solid #B45309 !important;
+      box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.15);
+      background: linear-gradient(180deg, #1A1424 0%, #141828 100%) !important;
+    }
+    .conviction-card .tier-pill {
+      box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
+    }
 
     /* ── Play card ─────────────────────────────────────────────── */
     .card {
@@ -148,7 +179,8 @@
       text-transform: uppercase; letter-spacing: 0.4px;
       margin-top: 1px;
     }
-    .player-meta .gap { color: #F87171; }
+    .player-meta .pending { color: #FCD34D; font-style: italic; }
+    .player-meta .gap { color: #9CA3AF; } /* legacy alias */
 
     .tier-pill {
       font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
@@ -255,9 +287,12 @@
       border-radius: 4px; text-transform: uppercase;
       letter-spacing: 0.4px; font-weight: 700;
     }
-    .note-gap { background: rgba(248, 113, 113, 0.12); color: #F87171; }
-    .note-good { background: rgba(52, 211, 153, 0.12); color: #34D399; }
-    .note-warn { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
+    /* Bettor-native: informational tones, not blood-red alarms.
+       Missing data is a normal slate-stage condition, not a defect. */
+    .note-pending { background: rgba(251, 191, 36, 0.10); color: #FCD34D; }
+    .note-good    { background: rgba(52, 211, 153, 0.12); color: #34D399; }
+    .note-warn    { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
+    .note-gap     { background: rgba(156, 163, 175, 0.12); color: #9CA3AF; } /* legacy alias */
 
     /* ── Expand panel ──────────────────────────────────────────── */
     .expand-toggle {
@@ -412,9 +447,13 @@
         if (typeof last5 === "number") {
           why.push(`last 5 avg: ${last5.toFixed(1)}`);
         }
-        // Days since
+        // Days since — suppress when >=6 in active NBA playoffs because
+        // playoff teams play every other day; values >=6 almost always
+        // indicate stale ESPN/source data, not real rest. Surfacing them
+        // kills bettor trust instantly. (Real fix tracked in BUILD_LOG as
+        // NBA playoff-schedule-awareness work.)
         const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
-        if (typeof days === "number" && days >= 5) why.push(`${days}d rest`);
+        if (typeof days === "number" && days >= 2 && days <= 5) why.push(`${days}d rest`);
       }
       return why;
     }
@@ -422,24 +461,51 @@
     // ─────────────────────────────────────────────────────────────
     // Honest gap notes — flags missing canonical inputs
     // ─────────────────────────────────────────────────────────────
+    // Bettor-facing honesty notes. Tone is INFORMATIONAL ("pending" /
+    // "awaiting") not BROKEN ("no data" / "missing"). Missing canonical
+    // inputs at slate-build time are a normal pipeline stage, not a
+    // defect — the language reflects that.
     function buildNotes(c, sport) {
       const notes = [];
       if (sport === "mlb") {
         if (c.lineupSpot == null && c.plateAppearancesProxy == null && /hitter|over/i.test(c.side || "")) {
-          notes.push({ type: "gap", text: "no lineup data" });
+          notes.push({ type: "pending", text: "lineups pending" });
         }
         if (c.convictionNote) {
           notes.push({ type: "good", text: "conviction" });
         }
       } else if (sport === "nba") {
         if (c?.roleContext?.sample_count != null && c.roleContext.sample_count < 5) {
-          notes.push({ type: "warn", text: `${c.roleContext.sample_count}-game sample` });
+          notes.push({ type: "warn", text: `small sample (${c.roleContext.sample_count}g)` });
         }
         if (c.starterFlag === 0 && /over/i.test(c.side || "")) {
           notes.push({ type: "warn", text: "bench over" });
         }
+        if (typeof c?.roleContext?.minutes_volatility === "number" && c.roleContext.minutes_volatility >= 8) {
+          notes.push({ type: "warn", text: "minutes volatile" });
+        }
       }
       return notes;
+    }
+
+    // Returns true when a play passes the "Tonight's Conviction" filter.
+    // v0.1.1: conservative composite — tight edge, top tier, multiple
+    // canonical signals, zero pending/gap flags, no stale-rest contradiction.
+    // Real conviction-compression cognition lives in v0.2 (BUILD_LOG).
+    function isConviction(c, sport, why, notes) {
+      const edgeProb = c.edgeProbability ?? c.edge;
+      if (typeof edgeProb !== "number" || edgeProb < 0.20) return false;
+      const tier = String(c.confidenceTier || c.tier || "").toUpperCase();
+      if (tier !== "ELITE" && tier !== "BEST") return false;
+      if (why.length < 2) return false;
+      // Any pending/gap note disqualifies
+      if (notes.some(n => n.type === "pending" || n.type === "gap")) return false;
+      // NBA: stale rest data (>=6 days during playoffs) disqualifies
+      if (sport === "nba") {
+        const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
+        if (typeof days === "number" && days >= 6) return false;
+      }
+      return true;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -489,9 +555,10 @@
     // ─────────────────────────────────────────────────────────────
     // Render a single play card
     // ─────────────────────────────────────────────────────────────
-    function renderCard(c, sport, idx) {
+    function renderCard(c, sport, idx, isConv) {
       const tier = tierClass(c.confidenceTier || c.tier);
       const tierTxt = tierLabel(c.confidenceTier || c.tier);
+      const convClass = isConv ? "conviction-card" : "";
       const book = c.sportsbook || c.book || "—";
       const bookCls = bookClass(book);
       const odds = c.oddsAmerican ?? c.odds;
@@ -504,8 +571,11 @@
       const why = buildWhy(c, sport);
       const notes = buildNotes(c, sport);
 
-      const teamTxt = c.team || (sport === "nba" ? "team unknown" : "—");
-      const teamCls = c.team ? "" : "gap";
+      // Bettor-native: "team pending" reads as slate-stage normal,
+      // not as broken/missing data. Same yellow informational tone as
+      // "lineups pending" on MLB.
+      const teamTxt = c.team || (sport === "nba" ? "team pending" : "—");
+      const teamCls = c.team ? "" : "pending";
       const matchupTxt = c.matchup || "—";
 
       const side = String(c.side || "").toLowerCase();
@@ -524,43 +594,47 @@
       if (sport === "mlb") {
         push("implied team total", c.impliedTeamTotal);
         push("game total", c.gameTotal);
-        push("HR env", c.hrEnvironmentTag);
+        push("HR environment", c.hrEnvironmentTag);
         push("wind", c.windDirectionTag);
-        push("temp °F", c.temperatureF);
+        push("temperature °F", c.temperatureF);
         push("carry shift", c.carryShift);
-        push("HR factor", c.hrFactor);
+        push("park HR factor", c.hrFactor);
         push("lineup spot", c.lineupSpot, c.lineupSpot == null);
-        push("depth", c.depth, c.depth == null);
-        push("PA proxy", c.plateAppearancesProxy, c.plateAppearancesProxy == null);
-        push("run env", c.runEnvironment, c.runEnvironment == null);
-        push("RBI env", c.rbiEnvironment, c.rbiEnvironment == null);
+        push("lineup depth", c.depth, c.depth == null);
+        push("plate appearances", c.plateAppearancesProxy, c.plateAppearancesProxy == null);
+        push("run environment", c.runEnvironment, c.runEnvironment == null);
+        push("RBI environment", c.rbiEnvironment, c.rbiEnvironment == null);
         push("contextual tags", Array.isArray(c.contextualTags) ? c.contextualTags.join(", ") : null,
           !Array.isArray(c.contextualTags) || c.contextualTags.length === 0);
       } else if (sport === "nba") {
-        push("starter flag", c.starterFlag);
-        push("projected mins", c.projectedMinutes);
+        push("starter status", c.starterFlag === 1 ? "starter" : c.starterFlag === 0 ? "bench" : null,
+             c.starterFlag == null);
+        push("projected minutes", c.projectedMinutes);
         push("last 5 avg", c?.recentForm?.last5_avg);
         push("last 10 avg", c?.recentForm?.last10_avg);
-        push("baseline", c?.recentForm?.baseline);
-        push("sample count", c?.recentForm?.sample_count);
-        push("days since last", c?.recentForm?.days_since_last_game);
-        push("starter rate recent", c?.roleContext?.starter_rate_recent);
-        push("minutes avg recent", c?.roleContext?.minutes_avg_recent);
+        push("season baseline", c?.recentForm?.baseline);
+        push("recent games sampled", c?.recentForm?.sample_count);
+        push("days since last game", c?.recentForm?.days_since_last_game);
+        push("starter rate (recent)", c?.roleContext?.starter_rate_recent);
+        push("minutes avg (recent)", c?.roleContext?.minutes_avg_recent);
         push("minutes trend", c?.roleContext?.minutes_trend);
         push("minutes volatility", c?.roleContext?.minutes_volatility);
-        push("DNPs recent", c?.roleContext?.dnp_count_recent);
-        push("source", c?.roleContext?.source || c?.recentForm?.source);
+        push("recent DNPs", c?.roleContext?.dnp_count_recent);
+        push("data source", c?.roleContext?.source || c?.recentForm?.source);
       }
       push("event ID", c.eventId);
       push("timestamp", c.timestamp);
       push("bucket", c.bucket);
 
+      // Bettor-native null rendering: em-dash, not the word "null". The
+      // operator-facing key labels are already bettor-language (see push()
+      // call sites above); raw "null" exposure read as engine-incomplete.
       const sigsHtml = sigs.map(s =>
-        `<dt>${s.k}</dt><dd class="${s.isNull ? "null" : ""}">${s.isNull ? "null" : escapeHtml(String(s.v))}</dd>`
+        `<dt>${s.k}</dt><dd class="${s.isNull ? "null" : ""}">${s.isNull ? "—" : escapeHtml(String(s.v))}</dd>`
       ).join("");
 
       return `
-        <div class="card" data-idx="${idx}">
+        <div class="card ${convClass}" data-idx="${idx}">
           <div class="card-top">
             <div class="player-block">
               <div class="player-name">${escapeHtml(c.player || "Unknown player")}</div>
@@ -590,7 +664,7 @@
 
           <div class="why">
             ${why.length ? `<div class="why-chips">${why.map(w => `<span class="why-chip">${escapeHtml(w)}</span>`).join("")}</div>`
-                         : `<span class="why-empty">no canonical context signals fired</span>`}
+                         : `<span class="why-empty">context loading</span>`}
           </div>
 
           ${notes.length ? `
@@ -647,20 +721,47 @@
       }
 
       const cands = Array.isArray(payload.candidates) ? [...payload.candidates] : [];
-      cands.sort((a, b) => (b.edgeProbability ?? b.edge ?? 0) - (a.edgeProbability ?? a.edge ?? 0));
+
+      // Sort: tier rank desc, then edge desc. Surfaces ELITE/BEST first
+      // even when their edge isn't highest — answers operator's "smartest
+      // bets" vs "crazy payouts" feedback at the visible-order level.
+      const tierRank = (c) => {
+        const t = String(c.confidenceTier || c.tier || "").toUpperCase();
+        if (t === "ELITE") return 4;
+        if (t === "BEST")  return 3;
+        if (t === "STRONG") return 2;
+        if (t === "GOOD")  return 1;
+        return 0;
+      };
+      cands.sort((a, b) => {
+        const tr = tierRank(b) - tierRank(a);
+        if (tr !== 0) return tr;
+        return (b.edgeProbability ?? b.edge ?? 0) - (a.edgeProbability ?? a.edge ?? 0);
+      });
       const top = cands.slice(0, MAX_PLAYS);
 
-      // Freshness banner
+      // Bettor-native freshness banner: "updated Xh Xm ago" reads as
+      // normal operational status, never "STALE 114min" red alarm.
       const fresh = payload.snapshotFreshness;
       let freshHtml = "";
       if (fresh) {
-        const label = fresh.label || fresh.status || fresh.freshness || "unknown";
         const ageMin = fresh.snapshotAgeMinutes;
+        const label = fresh.label || fresh.status || fresh.freshness || "";
         const cls = String(label).toLowerCase().includes("stale") ? "stale"
                   : String(label).toLowerCase().includes("warning") ? "warning"
                   : "fresh";
+        let ageTxt = "live";
+        if (typeof ageMin === "number") {
+          if (ageMin < 1) ageTxt = "updated just now";
+          else if (ageMin < 60) ageTxt = `updated ${Math.round(ageMin)}m ago`;
+          else {
+            const h = Math.floor(ageMin / 60);
+            const m = Math.round(ageMin % 60);
+            ageTxt = m > 0 ? `updated ${h}h ${m}m ago` : `updated ${h}h ago`;
+          }
+        }
         freshHtml = `<div class="freshness ${cls}">
-          <span>snapshot: ${escapeHtml(label)}${ageMin != null ? ` · ${Number(ageMin).toFixed(1)}min old` : ""}</span>
+          <span>${ageTxt}</span>
           <span>${payload.counts?.propsWithMultiBook ?? 0} multi-book props</span>
         </div>`;
       }
@@ -668,12 +769,47 @@
       if (top.length === 0) {
         main.innerHTML = freshHtml + `<div class="empty">
           No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
-          Backend may still be building the slate — try refresh in a few seconds.
+          Slate may still be building — pull to refresh in a few seconds.
         </div>`;
         return;
       }
 
-      main.innerHTML = freshHtml + top.map((c, i) => renderCard(c, sport, i)).join("");
+      // Conviction split: separate "holy shit THESE 2-3" from the broader
+      // opportunity list. Conviction filter uses isConviction() — strict
+      // multi-factor agreement. v0.2 will iterate on the criteria once we
+      // see what surfaces nightly. Operator can tap any conviction card
+      // to drill into the canonical signals.
+      const convictionMax = 3;
+      const conviction = [];
+      const rest = [];
+      for (const c of top) {
+        const why = buildWhy(c, sport);
+        const notes = buildNotes(c, sport);
+        if (conviction.length < convictionMax && isConviction(c, sport, why, notes)) {
+          conviction.push(c);
+        } else {
+          rest.push(c);
+        }
+      }
+
+      let html = freshHtml;
+      if (conviction.length > 0) {
+        html += `<div class="conviction-section">
+          <div class="section-header">
+            <span class="section-icon">★</span>
+            <span>Tonight's Convictions</span>
+            <span class="section-sub">${conviction.length} of ${top.length} surfaced</span>
+          </div>
+          ${conviction.map((c, i) => renderCard(c, sport, i, true)).join("")}
+        </div>`;
+      }
+      html += `<div class="section-header all-opps">
+        <span>All Opportunities</span>
+        <span class="section-sub">${rest.length} more · ranked by tier + edge</span>
+      </div>`;
+      html += rest.map((c, i) => renderCard(c, sport, conviction.length + i, false)).join("");
+
+      main.innerHTML = html;
     }
 
     // ─────────────────────────────────────────────────────────────

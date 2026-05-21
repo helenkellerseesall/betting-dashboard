@@ -6,6 +6,32 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-21 — Mobile PWA v0.1.1 (operator-feedback iteration)
+
+**What:** Operator opened v0.1 on phone, gave substantive bettor review. Most-cited issues were bettor-language tone (red "no lineup data" alarms, raw "null" in expand panel, "STALE 114min" freshness scare) and missing conviction hierarchy ("model REALLY loves these 2-3"). v0.1.1 ships Bucket-A language/UX fixes and a first-pass conviction section. Deeper Bucket B/C work (NBA playoff schedule data, opponent intelligence, sportsbook movement, conviction compression cognition) tracked as separate tasks #11-#17.
+
+**Done (frontend/mobile/index.html, +175 / -39):**
+- Bettor-native language across the surface — `no lineup data` → `lineups pending`, `team unknown` → `team pending`, raw `null` in expand panel → `—` em-dash, `no canonical context signals fired` → `context loading`, `snapshot stale 114min` → `updated 1h 54m ago` (neutral grey, never red).
+- Expand-panel keys renamed to bettor-language: `PA proxy` → `plate appearances`, `RBI env` → `RBI environment`, `starter flag` → `starter status (starter/bench)`, `DNPs recent` → `recent DNPs`, `source` → `data source`, etc.
+- Note-style refactor: replaced `note-gap` red with `note-pending` informational yellow. Missing canonical inputs at slate-build time are normal pipeline stage, not defect.
+- Tier+edge composite sort: ELITE/BEST surface above STRONG/GOOD even at lower edge — answers "smartest bets vs crazy payouts" feedback at the visible-order level. Lotto-heavy raw-edge sort no longer dominates the top of the list.
+- **Tonight's Convictions section** at top — first-pass conviction-compression surface. Filter: edge ≥ 20% AND tier ELITE/BEST AND ≥ 2 WHY chips AND no pending/gap notes AND (NBA) days_since_last_game < 6. Capped at 3 cards. Gold-bordered conviction-card style, glow on tier pill. Below: "All Opportunities" header + the rest.
+- NBA stale-rest chip suppression: chip only shown when days_since_last_game ∈ [2, 5]. Values ≥ 6 are almost always broken data (active playoff teams play every 2-3 days); surfacing them killed bettor trust. Underlying data fix tracked as task #12.
+- Volatility note added: NBA cards with minutes_volatility ≥ 8 get a "minutes volatile" warning chip.
+
+**NOT in v0.1.1 (operator-flagged, tracked separately):**
+- Task #11 — NBA team-name resolution (real fix vs "team pending" placeholder)
+- Task #12 — NBA playoff-schedule data (real fix vs chip suppression)
+- Task #13 — iPhone external access (firewall/bind debug)
+- Task #14 — consume state.featured buckets (Anchors/Strong/Lotto UI)
+- Task #15 — true conviction compression cognition (design first)
+- Task #16 — sportsbook movement intelligence (wire steam/stale/sharp into WHY chips)
+- Task #17 — opponent matchup intelligence (defensive ratings per position, splits, pace)
+
+**Validation:** operator restarts backend, reloads `http://localhost:4000/m/`, validates: (a) tone shifted from alarming red to informational, (b) Tonight's Convictions section surfaces sensible plays only, (c) "10d rest" chips gone, (d) expand panel reads as bettor-language not engine-internals.
+
+---
+
 ## 2026-05-21 — Mobile PWA v0.1 (Edge)
 
 **What:** First bettor-mobile surface. Single-file HTML+CSS+JS PWA at `frontend/mobile/index.html`, served by backend at `/m`. No framework, no build step, no React bloat. Fetches `/api/ws/state?sport={mlb|nba}` same-origin and renders the top 15 candidates per sport with sportsbook-flavored UI.
