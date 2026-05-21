@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Edge — Tonight's Slate</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Edge">
+  <meta name="theme-color" content="#0A0E1A">
+  <style>
+    /* ───────────────────────────────────────────────────────────────
+       Edge — bettor-native mobile PWA v0.1
+       Dark sportsbook feel, no framework, single-file portable.
+       ─────────────────────────────────────────────────────────────── */
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #0A0E1A;
+      color: #E5E7EB;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior-y: contain;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: linear-gradient(180deg, #0F1424 0%, #0A0E1A 100%);
+      border-bottom: 1px solid #1F2937;
+      padding: max(env(safe-area-inset-top), 8px) 16px 0;
+    }
+    .header-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0 4px;
+    }
+    .brand {
+      font-size: 22px; font-weight: 800; letter-spacing: 0.5px;
+      background: linear-gradient(90deg, #FBBF24 0%, #F59E0B 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .refresh-btn {
+      background: #1F2937; border: 1px solid #374151; color: #E5E7EB;
+      width: 36px; height: 36px; border-radius: 50%;
+      font-size: 18px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform 0.4s ease;
+    }
+    .refresh-btn:active { background: #374151; }
+    .refresh-btn.spinning { animation: spin 0.8s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .header-meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #6B7280; padding: 0 0 8px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .header-meta .live-dot {
+      display: inline-block; width: 6px; height: 6px;
+      background: #10B981; border-radius: 50%;
+      margin-right: 4px; vertical-align: middle;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .sport-tabs {
+      display: flex; gap: 4px; padding-bottom: 8px;
+    }
+    .tab {
+      flex: 1; padding: 10px 12px;
+      background: #141828; border: 1px solid transparent; color: #9CA3AF;
+      border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s ease;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .tab .tab-count {
+      background: #1F2937; color: #9CA3AF;
+      font-size: 11px; padding: 2px 6px; border-radius: 6px;
+      font-weight: 700;
+    }
+    .tab.active {
+      background: linear-gradient(135deg, #1E293B 0%, #141828 100%);
+      border-color: #FBBF24; color: #FBBF24;
+    }
+    .tab.active .tab-count {
+      background: #FBBF24; color: #0A0E1A;
+    }
+    .tab[data-sport="mlb"].active { border-color: #34D399; color: #34D399; }
+    .tab[data-sport="mlb"].active .tab-count { background: #34D399; color: #0A0E1A; }
+    .tab[data-sport="nba"].active { border-color: #F97316; color: #F97316; }
+    .tab[data-sport="nba"].active .tab-count { background: #F97316; color: #0A0E1A; }
+
+    /* ── Main scroll area ──────────────────────────────────────── */
+    main {
+      padding: 12px 12px max(env(safe-area-inset-bottom), 24px);
+    }
+    .empty, .loading, .error {
+      text-align: center; padding: 48px 16px;
+      color: #6B7280; font-size: 14px;
+    }
+    .error { color: #F87171; }
+    .error code {
+      display: block; margin-top: 8px;
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 11px; color: #9CA3AF;
+      word-break: break-all;
+    }
+
+    /* ── Freshness banner ──────────────────────────────────────── */
+    .freshness {
+      font-size: 11px; padding: 6px 10px; border-radius: 8px;
+      margin-bottom: 10px; display: flex; justify-content: space-between;
+      background: #141828; border: 1px solid #1F2937;
+    }
+    .freshness.fresh { color: #34D399; }
+    .freshness.warning { color: #FBBF24; }
+    .freshness.stale { color: #F87171; border-color: #7F1D1D; background: #1F0A0E; }
+
+    /* ── Play card ─────────────────────────────────────────────── */
+    .card {
+      background: linear-gradient(180deg, #141828 0%, #11151F 100%);
+      border: 1px solid #1F2937;
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      transition: border-color 0.15s ease;
+    }
+    .card.expanded { border-color: #374151; }
+
+    .card-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .player-block {
+      display: flex; flex-direction: column; min-width: 0; flex: 1;
+    }
+    .player-name {
+      font-size: 17px; font-weight: 700; color: #F9FAFB;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .player-meta {
+      font-size: 11px; color: #6B7280;
+      text-transform: uppercase; letter-spacing: 0.4px;
+      margin-top: 1px;
+    }
+    .player-meta .gap { color: #F87171; }
+
+    .tier-pill {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.6px;
+      padding: 4px 8px; border-radius: 6px;
+      text-transform: uppercase;
+      flex-shrink: 0; margin-left: 8px;
+    }
+    .tier-elite    { background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%); color: #0A0E1A; }
+    .tier-best     { background: linear-gradient(135deg, #34D399 0%, #10B981 100%); color: #0A0E1A; }
+    .tier-strong   { background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%); color: #0A0E1A; }
+    .tier-good     { background: #374151; color: #D1D5DB; }
+    .tier-unknown  { background: #1F2937; color: #6B7280; border: 1px dashed #374151; }
+
+    .prop-line {
+      font-size: 14px; color: #D1D5DB; margin-bottom: 8px;
+    }
+    .prop-line .side {
+      text-transform: uppercase; font-weight: 700;
+      padding: 1px 6px; border-radius: 4px;
+      font-size: 11px; margin-right: 5px;
+      vertical-align: middle;
+    }
+    .side-over   { background: rgba(52, 211, 153, 0.15); color: #34D399; }
+    .side-under  { background: rgba(248, 113, 113, 0.15); color: #F87171; }
+
+    .odds-book-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .odds {
+      font-family: ui-monospace, "SF Mono", "Menlo", monospace;
+      font-size: 22px; font-weight: 700; color: #F9FAFB;
+      letter-spacing: -0.5px;
+    }
+    .odds.positive { color: #34D399; }
+    .book-pill {
+      font-size: 11px; font-weight: 700; padding: 4px 8px;
+      border-radius: 6px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .book-DraftKings { background: rgba(83, 211, 55, 0.15); color: #53D337; }
+    .book-FanDuel    { background: rgba(20, 147, 255, 0.15); color: #1493FF; }
+    .book-Fanatics   { background: rgba(211, 30, 38, 0.15); color: #EF4444; }
+    .book-BetRivers  { background: rgba(0, 122, 204, 0.15); color: #38BDF8; }
+    .book-BetMGM     { background: rgba(200, 170, 118, 0.15); color: #C8AA76; }
+    .book-HardRock   { background: rgba(215, 30, 44, 0.15); color: #EF4444; }
+    .book-bet365     { background: rgba(0, 123, 91, 0.15); color: #10B981; }
+    .book-unknown    { background: #1F2937; color: #9CA3AF; }
+
+    /* ── Edge bar ──────────────────────────────────────────────── */
+    .edge-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .edge-bar {
+      flex: 1; height: 6px; background: #1F2937;
+      border-radius: 3px; overflow: hidden;
+    }
+    .edge-fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, #34D399 0%, #FBBF24 100%);
+      transition: width 0.4s ease;
+    }
+    .edge-fill.huge { background: linear-gradient(90deg, #FBBF24 0%, #F97316 100%); }
+    .edge-pct {
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 12px; font-weight: 700; color: #FBBF24;
+      min-width: 44px; text-align: right;
+    }
+
+    /* ── Why this play exists (core surface) ───────────────────── */
+    .why {
+      background: rgba(251, 191, 36, 0.06);
+      border-left: 2px solid #FBBF24;
+      padding: 8px 10px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #FDE68A;
+      margin-top: 4px;
+    }
+    .why-chips {
+      display: flex; flex-wrap: wrap; gap: 4px 6px;
+    }
+    .why-chip {
+      font-size: 12px;
+      color: #FDE68A;
+    }
+    .why-chip + .why-chip::before {
+      content: "·";
+      color: #6B7280;
+      margin-right: 6px;
+      font-weight: 700;
+    }
+    .why-empty {
+      color: #6B7280; font-style: italic; font-size: 12px;
+    }
+
+    /* ── Honesty / gap notes ───────────────────────────────────── */
+    .notes {
+      display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: 8px;
+    }
+    .note {
+      font-size: 10px; padding: 2px 6px;
+      border-radius: 4px; text-transform: uppercase;
+      letter-spacing: 0.4px; font-weight: 700;
+    }
+    .note-gap { background: rgba(248, 113, 113, 0.12); color: #F87171; }
+    .note-good { background: rgba(52, 211, 153, 0.12); color: #34D399; }
+    .note-warn { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
+
+    /* ── Expand panel ──────────────────────────────────────────── */
+    .expand-toggle {
+      display: block; width: 100%; text-align: center;
+      padding: 8px 0 0; margin-top: 8px;
+      border-top: 1px solid #1F2937;
+      background: transparent; color: #6B7280;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+      font-weight: 700; cursor: pointer; border-left: 0; border-right: 0; border-bottom: 0;
+    }
+    .expand-panel {
+      display: none;
+      margin-top: 10px; padding-top: 10px;
+      border-top: 1px solid #1F2937;
+      font-size: 12px;
+    }
+    .card.expanded .expand-panel { display: block; }
+    .expand-panel dl {
+      margin: 0; display: grid;
+      grid-template-columns: 130px 1fr; gap: 4px 12px;
+    }
+    .expand-panel dt {
+      color: #6B7280; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.3px; font-size: 11px;
+    }
+    .expand-panel dd {
+      margin: 0; color: #D1D5DB;
+      font-family: ui-monospace, "SF Mono", monospace; font-size: 11px;
+      word-break: break-word;
+    }
+    .expand-panel dd.null { color: #6B7280; font-style: italic; }
+
+    /* ── Footer / scroll spacer ────────────────────────────────── */
+    .footer-note {
+      text-align: center; color: #4B5563; font-size: 10px;
+      padding: 16px 0; text-transform: uppercase; letter-spacing: 0.6px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-bar">
+      <div class="brand">EDGE</div>
+      <button class="refresh-btn" id="refreshBtn" aria-label="Refresh">↻</button>
+    </div>
+    <div class="header-meta">
+      <span><span class="live-dot"></span><span id="dateLabel">—</span></span>
+      <span id="lastUpdate">—</span>
+    </div>
+    <div class="sport-tabs">
+      <button class="tab active" data-sport="mlb">MLB <span class="tab-count" id="mlbCount">—</span></button>
+      <button class="tab" data-sport="nba">NBA <span class="tab-count" id="nbaCount">—</span></button>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="loading">Loading tonight's edges…</div>
+  </main>
+
+  <div class="footer-note">edge v0.1 · honest gaps surfaced · never fabricated</div>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────
+    // State + config
+    // ─────────────────────────────────────────────────────────────
+    const API = ""; // same-origin; backend serves both /m and /api/ws/*
+    const MAX_PLAYS = 15;
+    const REFRESH_MIN_INTERVAL_MS = 5000;
+
+    let state = {
+      activeSport: "mlb",
+      data: { mlb: null, nba: null },
+      lastFetchAt: null,
+      fetching: false,
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // Reasoning compiler — translates canonical signals to WHY chips
+    // Pure function. No fabrication. Returns array of strings.
+    // ─────────────────────────────────────────────────────────────
+    function buildWhy(c, sport) {
+      const why = [];
+      if (sport === "mlb") {
+        // Team environment
+        if (typeof c.impliedTeamTotal === "number") {
+          if (c.impliedTeamTotal >= 5.5) why.push(`high team total (${c.impliedTeamTotal.toFixed(1)})`);
+          else if (c.impliedTeamTotal <= 3.5) why.push(`low team total (${c.impliedTeamTotal.toFixed(1)})`);
+        }
+        // Park
+        if (typeof c.hrFactor === "number") {
+          if (c.hrFactor >= 1.10) why.push("hitter park");
+          else if (c.hrFactor <= 0.90) why.push("pitcher park");
+        }
+        // HR env tag (overrides park if explicitly tagged)
+        if (c.hrEnvironmentTag === "HR_FAVORING") why.push("HR-favoring env");
+        else if (c.hrEnvironmentTag === "HR_SUPPRESSING") why.push("HR-suppressing env");
+        // Weather
+        if (c.windDirectionTag === "out") why.push("wind out");
+        else if (c.windDirectionTag === "in") why.push("wind in");
+        else if (c.windDirectionTag === "indoor") why.push("indoor");
+        if (typeof c.temperatureF === "number" && c.temperatureF >= 85) {
+          why.push(`hot night (${Math.round(c.temperatureF)}°F)`);
+        }
+        if (typeof c.carryShift === "number" && Math.abs(c.carryShift) >= 0.01) {
+          why.push(c.carryShift > 0 ? "+carry" : "-carry");
+        }
+        // Lineup
+        if (typeof c.lineupSpot === "number") {
+          if (c.lineupSpot <= 4) why.push(`top-of-order (${c.lineupSpot})`);
+          else if (c.lineupSpot >= 8) why.push(`back of order (${c.lineupSpot})`);
+        }
+        // Contextual tags from backend (already canonical phrases)
+        if (Array.isArray(c.contextualTags)) {
+          for (const tag of c.contextualTags) {
+            // Lowercase + underscore→space; backend tags are CAPS_LIKE_THIS
+            const phrase = String(tag).toLowerCase().replace(/_/g, " ");
+            // Skip duplicates already in why
+            if (!why.some(w => w.toLowerCase().includes(phrase))) why.push(phrase);
+          }
+        }
+        // Conviction signal (PCE-1A) if present
+        if (c.convictionNote) why.push(String(c.convictionNote).toLowerCase());
+      } else if (sport === "nba") {
+        // Starter / role
+        if (c.starterFlag === 1) {
+          const rate = c?.roleContext?.starter_rate_recent;
+          if (rate === 1) why.push("every-game starter");
+          else why.push("starter");
+        } else if (c.starterFlag === 0) {
+          why.push("bench role");
+        }
+        if (c?.roleContext?.role_change === "promoted") why.push("promoted to starter");
+        else if (c?.roleContext?.role_change === "demoted") why.push("demoted from starter");
+        // Minutes
+        if (typeof c.projectedMinutes === "number") {
+          if (c.projectedMinutes >= 32) why.push(`${Math.round(c.projectedMinutes)}+ min projected`);
+          else if (c.projectedMinutes < 22) why.push(`limited mins (${c.projectedMinutes.toFixed(0)})`);
+        }
+        if (typeof c?.roleContext?.minutes_trend === "number") {
+          if (c.roleContext.minutes_trend >= 3) why.push("minutes trending up");
+          else if (c.roleContext.minutes_trend <= -3) why.push("minutes trending down");
+        }
+        if (typeof c?.roleContext?.minutes_volatility === "number" && c.roleContext.minutes_volatility >= 8) {
+          why.push(`volatile minutes (±${c.roleContext.minutes_volatility.toFixed(1)})`);
+        }
+        // DNPs
+        if (typeof c?.roleContext?.dnp_count_recent === "number" && c.roleContext.dnp_count_recent > 0) {
+          why.push(`${c.roleContext.dnp_count_recent} DNPs recently`);
+        }
+        // Recent form
+        const last5 = c?.recentForm?.last5_avg;
+        if (typeof last5 === "number") {
+          why.push(`last 5 avg: ${last5.toFixed(1)}`);
+        }
+        // Days since
+        const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
+        if (typeof days === "number" && days >= 5) why.push(`${days}d rest`);
+      }
+      return why;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Honest gap notes — flags missing canonical inputs
+    // ─────────────────────────────────────────────────────────────
+    function buildNotes(c, sport) {
+      const notes = [];
+      if (sport === "mlb") {
+        if (c.lineupSpot == null && c.plateAppearancesProxy == null && /hitter|over/i.test(c.side || "")) {
+          notes.push({ type: "gap", text: "no lineup data" });
+        }
+        if (c.convictionNote) {
+          notes.push({ type: "good", text: "conviction" });
+        }
+      } else if (sport === "nba") {
+        if (c?.roleContext?.sample_count != null && c.roleContext.sample_count < 5) {
+          notes.push({ type: "warn", text: `${c.roleContext.sample_count}-game sample` });
+        }
+        if (c.starterFlag === 0 && /over/i.test(c.side || "")) {
+          notes.push({ type: "warn", text: "bench over" });
+        }
+      }
+      return notes;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Tier resolution
+    // ─────────────────────────────────────────────────────────────
+    function tierClass(tier) {
+      const t = String(tier || "").toUpperCase();
+      if (t === "ELITE") return "tier-elite";
+      if (t === "BEST")  return "tier-best";
+      if (t === "STRONG") return "tier-strong";
+      if (t === "GOOD") return "tier-good";
+      return "tier-unknown";
+    }
+    function tierLabel(tier) {
+      const t = String(tier || "").toUpperCase();
+      return t || "—";
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Book brand pill
+    // ─────────────────────────────────────────────────────────────
+    function bookClass(book) {
+      const b = String(book || "").replace(/\s+/g, "");
+      const known = ["DraftKings","FanDuel","Fanatics","BetRivers","BetMGM","HardRock","bet365"];
+      const match = known.find(k => k.toLowerCase() === b.toLowerCase());
+      return match ? `book-${match}` : "book-unknown";
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Odds formatter
+    // ─────────────────────────────────────────────────────────────
+    function fmtOdds(o) {
+      if (o == null) return "—";
+      const n = Number(o);
+      if (!Number.isFinite(n)) return "—";
+      return n > 0 ? `+${n}` : `${n}`;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Edge percentage formatter
+    // ─────────────────────────────────────────────────────────────
+    function edgePct(e) {
+      if (typeof e !== "number" || !Number.isFinite(e)) return null;
+      return Math.round(e * 100);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Render a single play card
+    // ─────────────────────────────────────────────────────────────
+    function renderCard(c, sport, idx) {
+      const tier = tierClass(c.confidenceTier || c.tier);
+      const tierTxt = tierLabel(c.confidenceTier || c.tier);
+      const book = c.sportsbook || c.book || "—";
+      const bookCls = bookClass(book);
+      const odds = c.oddsAmerican ?? c.odds;
+      const oddsTxt = fmtOdds(odds);
+      const oddsCls = (typeof odds === "number" && odds > 0) ? "positive" : "";
+      const ep = edgePct(c.edgeProbability ?? c.edge);
+      const edgeWidth = ep == null ? 0 : Math.min(100, Math.max(0, ep * 2)); // 50% edge = bar full
+      const edgeHuge = ep != null && ep >= 25;
+
+      const why = buildWhy(c, sport);
+      const notes = buildNotes(c, sport);
+
+      const teamTxt = c.team || (sport === "nba" ? "team unknown" : "—");
+      const teamCls = c.team ? "" : "gap";
+      const matchupTxt = c.matchup || "—";
+
+      const side = String(c.side || "").toLowerCase();
+      const sideCls = side === "over" ? "side-over" : side === "under" ? "side-under" : "";
+      const sideTxt = side ? side.toUpperCase() : "—";
+
+      const propType = c.propType || "—";
+      const line = c.line != null ? c.line : "—";
+
+      // Expand panel: all canonical signals, raw
+      const sigs = [];
+      const push = (k, v, isNull) => sigs.push({ k, v, isNull: isNull || v == null || v === "" });
+      push("matchup", matchupTxt, !c.matchup);
+      push("model prob", typeof c.predictedProbability === "number" ? c.predictedProbability.toFixed(4) : c.predictedProbability);
+      push("edge prob", typeof c.edgeProbability === "number" ? c.edgeProbability.toFixed(4) : c.edgeProbability);
+      if (sport === "mlb") {
+        push("implied team total", c.impliedTeamTotal);
+        push("game total", c.gameTotal);
+        push("HR env", c.hrEnvironmentTag);
+        push("wind", c.windDirectionTag);
+        push("temp °F", c.temperatureF);
+        push("carry shift", c.carryShift);
+        push("HR factor", c.hrFactor);
+        push("lineup spot", c.lineupSpot, c.lineupSpot == null);
+        push("depth", c.depth, c.depth == null);
+        push("PA proxy", c.plateAppearancesProxy, c.plateAppearancesProxy == null);
+        push("run env", c.runEnvironment, c.runEnvironment == null);
+        push("RBI env", c.rbiEnvironment, c.rbiEnvironment == null);
+        push("contextual tags", Array.isArray(c.contextualTags) ? c.contextualTags.join(", ") : null,
+          !Array.isArray(c.contextualTags) || c.contextualTags.length === 0);
+      } else if (sport === "nba") {
+        push("starter flag", c.starterFlag);
+        push("projected mins", c.projectedMinutes);
+        push("last 5 avg", c?.recentForm?.last5_avg);
+        push("last 10 avg", c?.recentForm?.last10_avg);
+        push("baseline", c?.recentForm?.baseline);
+        push("sample count", c?.recentForm?.sample_count);
+        push("days since last", c?.recentForm?.days_since_last_game);
+        push("starter rate recent", c?.roleContext?.starter_rate_recent);
+        push("minutes avg recent", c?.roleContext?.minutes_avg_recent);
+        push("minutes trend", c?.roleContext?.minutes_trend);
+        push("minutes volatility", c?.roleContext?.minutes_volatility);
+        push("DNPs recent", c?.roleContext?.dnp_count_recent);
+        push("source", c?.roleContext?.source || c?.recentForm?.source);
+      }
+      push("event ID", c.eventId);
+      push("timestamp", c.timestamp);
+      push("bucket", c.bucket);
+
+      const sigsHtml = sigs.map(s =>
+        `<dt>${s.k}</dt><dd class="${s.isNull ? "null" : ""}">${s.isNull ? "null" : escapeHtml(String(s.v))}</dd>`
+      ).join("");
+
+      return `
+        <div class="card" data-idx="${idx}">
+          <div class="card-top">
+            <div class="player-block">
+              <div class="player-name">${escapeHtml(c.player || "Unknown player")}</div>
+              <div class="player-meta">
+                <span class="${teamCls}">${escapeHtml(teamTxt)}</span>
+                ${c.matchup ? `· ${escapeHtml(c.matchup)}` : ""}
+              </div>
+            </div>
+            <div class="tier-pill ${tier}">${tierTxt}</div>
+          </div>
+
+          <div class="prop-line">
+            <span class="side ${sideCls}">${sideTxt}</span>
+            <strong>${escapeHtml(String(propType))}</strong> ${line}
+          </div>
+
+          <div class="odds-book-row">
+            <div class="odds ${oddsCls}">${oddsTxt}</div>
+            <div class="book-pill ${bookCls}">${escapeHtml(book)}</div>
+          </div>
+
+          ${ep != null ? `
+          <div class="edge-row">
+            <div class="edge-bar"><div class="edge-fill ${edgeHuge ? "huge" : ""}" style="width:${edgeWidth}%"></div></div>
+            <div class="edge-pct">+${ep}%</div>
+          </div>` : ""}
+
+          <div class="why">
+            ${why.length ? `<div class="why-chips">${why.map(w => `<span class="why-chip">${escapeHtml(w)}</span>`).join("")}</div>`
+                         : `<span class="why-empty">no canonical context signals fired</span>`}
+          </div>
+
+          ${notes.length ? `
+          <div class="notes">
+            ${notes.map(n => `<span class="note note-${n.type}">${escapeHtml(n.text)}</span>`).join("")}
+          </div>` : ""}
+
+          <button class="expand-toggle" onclick="toggleCard(${idx})">▾ show signals</button>
+          <div class="expand-panel"><dl>${sigsHtml}</dl></div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Render current state
+    // ─────────────────────────────────────────────────────────────
+    function render() {
+      const main = document.getElementById("main");
+      const sport = state.activeSport;
+      const payload = state.data[sport];
+
+      // Tab counts
+      const mlbCands = state.data.mlb?.candidates?.length ?? "—";
+      const nbaCands = state.data.nba?.candidates?.length ?? "—";
+      document.getElementById("mlbCount").textContent = mlbCands;
+      document.getElementById("nbaCount").textContent = nbaCands;
+
+      // Date label
+      const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
+      document.getElementById("dateLabel").textContent = todayLabel;
+      if (state.lastFetchAt) {
+        const secs = Math.round((Date.now() - state.lastFetchAt) / 1000);
+        document.getElementById("lastUpdate").textContent =
+          secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+      }
+
+      if (!payload) {
+        main.innerHTML = `<div class="loading">Loading ${sport.toUpperCase()} slate…</div>`;
+        return;
+      }
+
+      if (payload._error) {
+        main.innerHTML = `<div class="error">
+          Failed to load ${sport.toUpperCase()}.
+          <code>${escapeHtml(payload._error)}</code>
+          <br><br>Backend may not be running. Try:<br>
+          <code>cd backend &amp;&amp; npm run engine:start</code>
+        </div>`;
+        return;
+      }
+
+      const cands = Array.isArray(payload.candidates) ? [...payload.candidates] : [];
+      cands.sort((a, b) => (b.edgeProbability ?? b.edge ?? 0) - (a.edgeProbability ?? a.edge ?? 0));
+      const top = cands.slice(0, MAX_PLAYS);
+
+      // Freshness banner
+      const fresh = payload.snapshotFreshness;
+      let freshHtml = "";
+      if (fresh) {
+        const label = fresh.label || fresh.status || fresh.freshness || "unknown";
+        const ageMin = fresh.snapshotAgeMinutes;
+        const cls = String(label).toLowerCase().includes("stale") ? "stale"
+                  : String(label).toLowerCase().includes("warning") ? "warning"
+                  : "fresh";
+        freshHtml = `<div class="freshness ${cls}">
+          <span>snapshot: ${escapeHtml(label)}${ageMin != null ? ` · ${Number(ageMin).toFixed(1)}min old` : ""}</span>
+          <span>${payload.counts?.propsWithMultiBook ?? 0} multi-book props</span>
+        </div>`;
+      }
+
+      if (top.length === 0) {
+        main.innerHTML = freshHtml + `<div class="empty">
+          No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
+          Backend may still be building the slate — try refresh in a few seconds.
+        </div>`;
+        return;
+      }
+
+      main.innerHTML = freshHtml + top.map((c, i) => renderCard(c, sport, i)).join("");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Card expansion
+    // ─────────────────────────────────────────────────────────────
+    function toggleCard(idx) {
+      const card = document.querySelector(`.card[data-idx="${idx}"]`);
+      if (!card) return;
+      card.classList.toggle("expanded");
+      const btn = card.querySelector(".expand-toggle");
+      if (btn) btn.textContent = card.classList.contains("expanded") ? "▴ hide signals" : "▾ show signals";
+    }
+    window.toggleCard = toggleCard;
+
+    // ─────────────────────────────────────────────────────────────
+    // Fetch + refresh
+    // ─────────────────────────────────────────────────────────────
+    async function fetchSport(sport) {
+      try {
+        const r = await fetch(`${API}/api/ws/state?sport=${sport}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        state.data[sport] = j;
+      } catch (e) {
+        state.data[sport] = { _error: e.message || String(e) };
+      }
+    }
+
+    async function refresh(forceRefresh = false) {
+      if (state.fetching) return;
+      if (!forceRefresh && state.lastFetchAt && (Date.now() - state.lastFetchAt) < REFRESH_MIN_INTERVAL_MS) return;
+      state.fetching = true;
+      const btn = document.getElementById("refreshBtn");
+      btn.classList.add("spinning");
+
+      // If forceRefresh: hit /refresh-snapshot endpoints first
+      if (forceRefresh) {
+        try {
+          await Promise.allSettled([
+            fetch(`${API}/refresh-snapshot?sport=baseball_mlb`).catch(() => {}),
+            fetch(`${API}/refresh-snapshot/hard-reset`).catch(() => {}),
+          ]);
+        } catch (_) {}
+      }
+
+      await Promise.all([fetchSport("mlb"), fetchSport("nba")]);
+      state.lastFetchAt = Date.now();
+      state.fetching = false;
+      btn.classList.remove("spinning");
+      render();
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", () => refresh(true));
+
+    // Tab switching
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        state.activeSport = tab.dataset.sport;
+        render();
+      });
+    });
+
+    // Initial load
+    refresh(false);
+
+    // Periodic "X seconds ago" tick for the header
+    setInterval(() => {
+      if (state.lastFetchAt) {
+        const secs = Math.round((Date.now() - state.lastFetchAt) / 1000);
+        document.getElementById("lastUpdate").textContent =
+          secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+      }
+    }, 5000);
+  </script>
+</body>
+</html>

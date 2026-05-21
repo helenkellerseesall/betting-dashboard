@@ -101,6 +101,14 @@ app.use(cors())
 app.use(express.json())
 app.use("/", mlbRoutes)
 app.use("/api/ws", require("./routes/workstationRoutes"))
+
+// ── Mobile PWA (v0.1, 2026-05-21) ─────────────────────────────────────────────
+// Serves the bettor-mobile surface at /m. Single-file HTML+JS+CSS — no build,
+// no framework, no React bloat. Fetches /api/ws/state?sport={mlb|nba} same-origin.
+// Files live at frontend/mobile/ (index.html, manifest.json, icon.svg). See
+// PRESERVED.md Tier 4 + BUILD_LOG.md for context.
+app.use("/m", express.static(path.join(__dirname, "..", "frontend", "mobile")))
+
 console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
 
 let snapshotLoadedFromDisk = false
