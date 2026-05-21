@@ -6,6 +6,38 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-21 — Mobile PWA v0.1.2 (parlay-confidence reframe)
+
+**What:** Most important architectural realization of the project so far. Operator opened v0.1.1 and observed every surfaced play was +500 to +920 longshots ("Hits Over 2.5") and called it out: *"I want to feel confident multi-leg parlays will hit"* — not lottery tickets dressed up as high-edge. The current sort by raw edge% structurally favors longshots because high modelProb on low-implied-prob = inflated edge. The product needs to optimize for **hit rate first, edge second.**
+
+**Done (frontend/mobile/index.html, +147 / -63):**
+
+- **Source switch**: now reads `state.featured` (bucketed curated set from `buildFeaturedPlays.js`) with fallback to `state.candidates`. The featured feed includes `safest` and `bestLadders` buckets — the cognition was always there, we'd been reading the wrong feed.
+- **New parlay-confidence classifier** `playClass(c, sport)` — bins every play into:
+  - **Conviction** — modelProb ≥ 0.65, edge ≥ 0.05, tier ELITE/BEST
+  - **Likely To Hit** — modelProb ≥ 0.55, positive edge (parlay-leg pool)
+  - **Bigger Edges** — modelProb 0.30-0.55, positive edge
+  - **Lotto** — modelProb < 0.30 (honestly quarantined)
+- **Four-section render** replaces the prior conviction+all flat layout:
+  - `★ Tonight's Convictions` (gold-bordered, top 3)
+  - `Likely To Hit` (green-accented header — parlay-leg pool, sorted by modelProb desc, capped 10)
+  - `Bigger Edges` (sorted by edge desc, capped 8)
+  - `Lotto Room` (collapsible `<details>`, honestly labeled "variance plays · big payouts · low hit rate", capped 12)
+- **Force-refresh on initial load** — app open hits `/refresh-snapshot` first. No more "updated 2h 23m ago" on open.
+- **"Lineups pending" visual softening** — transparent background, smaller font, faint border. Stops dominating cards when it's the only note (which is most cards right now until lineup ingest fix lands — task #19).
+- **Diagnostic footer** — small grey line shows which source feed and counts ("source: featured · 18/30 shown · classified by parlay-confidence"). Operator transparency.
+
+**The cognition difference, plainly:** a 4-leg parlay of 65% legs = 17.8% combined hit rate. A 4-leg parlay of 33% legs = 1.2% hit rate. Same number of legs, 14x more likely to cash. The product now surfaces parlay-buildable plays first and quarantines lottery tickets honestly.
+
+**Validation:** operator restarts backend (route is cached — actually no backend change in v0.1.2, just frontend, so hard-reload Safari/PWA suffices), opens `/m/`, validates: (a) "Likely To Hit" section now exists with parlay-leg-friendly plays, (b) longshots are in collapsed Lotto Room not dominating the top, (c) data is fresh on open (no "updated 2h ago"), (d) "lineups pending" notes no longer dominate visually.
+
+**Tracked separately (not in v0.1.2):**
+- Task #19: actual fix for MLB lineup data being null (so PCE-1A reactivates)
+- Task #20: Flow A — screenshot uploader for tail-or-fade analysis
+- Task #21: Flow B — X/Twitter big-winner parlay learning
+
+---
+
 ## 2026-05-21 — Mobile PWA v0.1.1 (operator-feedback iteration)
 
 **What:** Operator opened v0.1 on phone, gave substantive bettor review. Most-cited issues were bettor-language tone (red "no lineup data" alarms, raw "null" in expand panel, "STALE 114min" freshness scare) and missing conviction hierarchy ("model REALLY loves these 2-3"). v0.1.1 ships Bucket-A language/UX fixes and a first-pass conviction section. Deeper Bucket B/C work (NBA playoff schedule data, opponent intelligence, sportsbook movement, conviction compression cognition) tracked as separate tasks #11-#17.

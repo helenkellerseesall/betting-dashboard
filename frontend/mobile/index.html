@@ -152,6 +152,44 @@
       box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
     }
 
+    /* ── Likely To Hit section (parlay-leg pool) ──────────────── */
+    .section-header.likely-section {
+      color: #6EE7B7;
+    }
+
+    /* ── Lotto Room (collapsible, honestly quarantined) ───────── */
+    .lotto-section {
+      margin-top: 16px;
+      border-top: 1px dashed #1F2937;
+      padding-top: 12px;
+    }
+    .lotto-section summary {
+      cursor: pointer;
+      list-style: none;
+      color: #9CA3AF;
+    }
+    .lotto-section summary::-webkit-details-marker { display: none; }
+    .lotto-toggle::before {
+      content: "▸ ";
+      color: #6B7280;
+      font-weight: 700;
+    }
+    .lotto-section[open] .lotto-toggle::before { content: "▾ "; }
+    .lotto-cards {
+      margin-top: 8px;
+      opacity: 0.85;
+    }
+
+    /* ── Diagnostic footer (operator transparency) ────────────── */
+    .diag-footer {
+      text-align: center;
+      color: #4B5563;
+      font-size: 10px;
+      font-family: ui-monospace, "SF Mono", monospace;
+      padding: 16px 0 8px;
+      letter-spacing: 0.3px;
+    }
+
     /* ── Play card ─────────────────────────────────────────────── */
     .card {
       background: linear-gradient(180deg, #141828 0%, #11151F 100%);
@@ -289,7 +327,10 @@
     }
     /* Bettor-native: informational tones, not blood-red alarms.
        Missing data is a normal slate-stage condition, not a defect. */
-    .note-pending { background: rgba(251, 191, 36, 0.10); color: #FCD34D; }
+    /* "Pending" notes are slate-stage normal; reduce visual weight so they
+       don't dominate the card when they're the only note (operator feedback:
+       "LINEUPS PENDING on every card felt broken instead of informational"). */
+    .note-pending { background: transparent; color: #9CA3AF; font-weight: 500; font-size: 9px; opacity: 0.85; padding: 1px 4px; border: 1px solid rgba(251, 191, 36, 0.15); border-radius: 3px; }
     .note-good    { background: rgba(52, 211, 153, 0.12); color: #34D399; }
     .note-warn    { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
     .note-gap     { background: rgba(156, 163, 175, 0.12); color: #9CA3AF; } /* legacy alias */
@@ -488,24 +529,37 @@
       return notes;
     }
 
-    // Returns true when a play passes the "Tonight's Conviction" filter.
-    // v0.1.1: conservative composite — tight edge, top tier, multiple
-    // canonical signals, zero pending/gap flags, no stale-rest contradiction.
-    // Real conviction-compression cognition lives in v0.2 (BUILD_LOG).
-    function isConviction(c, sport, why, notes) {
-      const edgeProb = c.edgeProbability ?? c.edge;
-      if (typeof edgeProb !== "number" || edgeProb < 0.20) return false;
+    // v0.1.2: parlay-confidence reframe. Operator 2026-05-21:
+    // "I want to feel confident multi-leg parlays will hit."
+    //
+    // The cognition: a 4-leg parlay of 65% legs has 17.8% combined hit rate.
+    // A 4-leg parlay of 33% legs has 1.2% combined hit rate. Hit rate IS the
+    // primary signal for parlay-builders. Raw edge% structurally favors
+    // longshots and is misleading as a top-line metric for this product.
+    //
+    // Tier rules:
+    //   - CONVICTION  : modelProb ≥ 0.65, edge ≥ 0.05, tier ELITE/BEST
+    //   - LIKELY      : modelProb ≥ 0.55, positive edge (parlay-leg pool)
+    //   - BIGGER EDGE : modelProb 0.30-0.55, positive edge
+    //   - LOTTO       : modelProb < 0.30 (honestly quarantined; collapsed default)
+    function playClass(c, sport) {
+      const mp = c.predictedProbability ?? c.modelProb;
+      const ep = c.edgeProbability ?? c.edge;
+      if (typeof mp !== "number" || typeof ep !== "number") return "unknown";
+      if (ep < 0) return "neg-edge";
       const tier = String(c.confidenceTier || c.tier || "").toUpperCase();
-      if (tier !== "ELITE" && tier !== "BEST") return false;
-      if (why.length < 2) return false;
-      // Any pending/gap note disqualifies
-      if (notes.some(n => n.type === "pending" || n.type === "gap")) return false;
-      // NBA: stale rest data (>=6 days during playoffs) disqualifies
-      if (sport === "nba") {
-        const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
-        if (typeof days === "number" && days >= 6) return false;
+      // Conviction floor: high hit-rate + meaningful edge + top tier
+      if (mp >= 0.65 && ep >= 0.05 && (tier === "ELITE" || tier === "BEST")) {
+        // NBA rest sanity (broken-data filter, see task #12)
+        if (sport === "nba") {
+          const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
+          if (typeof days === "number" && days >= 6) return "likely"; // demote, not exclude
+        }
+        return "conviction";
       }
-      return true;
+      if (mp >= 0.55) return "likely";       // parlay-leg pool
+      if (mp >= 0.30) return "bigger-edge";  // larger payouts, less reliable
+      return "lotto";                         // honestly quarantined
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -720,25 +774,17 @@
         return;
       }
 
-      const cands = Array.isArray(payload.candidates) ? [...payload.candidates] : [];
-
-      // Sort: tier rank desc, then edge desc. Surfaces ELITE/BEST first
-      // even when their edge isn't highest — answers operator's "smartest
-      // bets" vs "crazy payouts" feedback at the visible-order level.
-      const tierRank = (c) => {
-        const t = String(c.confidenceTier || c.tier || "").toUpperCase();
-        if (t === "ELITE") return 4;
-        if (t === "BEST")  return 3;
-        if (t === "STRONG") return 2;
-        if (t === "GOOD")  return 1;
-        return 0;
-      };
-      cands.sort((a, b) => {
-        const tr = tierRank(b) - tierRank(a);
-        if (tr !== 0) return tr;
-        return (b.edgeProbability ?? b.edge ?? 0) - (a.edgeProbability ?? a.edge ?? 0);
-      });
-      const top = cands.slice(0, MAX_PLAYS);
+      // v0.1.2 source: prefer state.featured (bucketed curated set from
+      // buildFeaturedPlays.js — includes safest/ladders/etc) over raw
+      // state.candidates which is the bestAvailable.best longshot-biased feed.
+      // Defensive: fall back to candidates if featured is missing/empty.
+      let source = Array.isArray(payload.featured) && payload.featured.length > 0
+        ? payload.featured
+        : Array.isArray(payload.candidates) ? payload.candidates : [];
+      const sourceUsed = (Array.isArray(payload.featured) && payload.featured.length > 0)
+        ? "featured"
+        : "candidates";
+      const cands = [...source];
 
       // Bettor-native freshness banner: "updated Xh Xm ago" reads as
       // normal operational status, never "STALE 114min" red alarm.
@@ -766,7 +812,7 @@
         </div>`;
       }
 
-      if (top.length === 0) {
+      if (cands.length === 0) {
         main.innerHTML = freshHtml + `<div class="empty">
           No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
           Slate may still be building — pull to refresh in a few seconds.
@@ -774,40 +820,76 @@
         return;
       }
 
-      // Conviction split: separate "holy shit THESE 2-3" from the broader
-      // opportunity list. Conviction filter uses isConviction() — strict
-      // multi-factor agreement. v0.2 will iterate on the criteria once we
-      // see what surfaces nightly. Operator can tap any conviction card
-      // to drill into the canonical signals.
-      const convictionMax = 3;
-      const conviction = [];
-      const rest = [];
-      for (const c of top) {
-        const why = buildWhy(c, sport);
-        const notes = buildNotes(c, sport);
-        if (conviction.length < convictionMax && isConviction(c, sport, why, notes)) {
-          conviction.push(c);
-        } else {
-          rest.push(c);
-        }
+      // v0.1.2: classify each play by parlay-confidence tier, then group.
+      // Inside each section, sort by modelProb desc (hit-rate first) — NOT
+      // by raw edge. Operator wants parlay-buildable confidence, not lotto.
+      const buckets = { conviction: [], likely: [], biggerEdge: [], lotto: [] };
+      for (const c of cands) {
+        const cls = playClass(c, sport);
+        if (cls === "conviction") buckets.conviction.push(c);
+        else if (cls === "likely") buckets.likely.push(c);
+        else if (cls === "bigger-edge") buckets.biggerEdge.push(c);
+        else if (cls === "lotto") buckets.lotto.push(c);
+        // neg-edge and unknown are silently dropped — not bettor-actionable
       }
+      const byProb = (a, b) => (b.predictedProbability ?? b.modelProb ?? 0) - (a.predictedProbability ?? a.modelProb ?? 0);
+      const byEdge = (a, b) => (b.edgeProbability ?? b.edge ?? 0) - (a.edgeProbability ?? a.edge ?? 0);
+      buckets.conviction.sort(byProb);
+      buckets.likely.sort(byProb);
+      buckets.biggerEdge.sort(byEdge);  // bigger-edge section ranked by edge (its purpose)
+      buckets.lotto.sort(byEdge);
+
+      // Caps to keep the surface scannable
+      buckets.conviction = buckets.conviction.slice(0, 3);
+      buckets.likely = buckets.likely.slice(0, 10);
+      buckets.biggerEdge = buckets.biggerEdge.slice(0, 8);
+      buckets.lotto = buckets.lotto.slice(0, 12);
 
       let html = freshHtml;
-      if (conviction.length > 0) {
+      let idx = 0;
+
+      if (buckets.conviction.length > 0) {
         html += `<div class="conviction-section">
           <div class="section-header">
             <span class="section-icon">★</span>
             <span>Tonight's Convictions</span>
-            <span class="section-sub">${conviction.length} of ${top.length} surfaced</span>
+            <span class="section-sub">model ≥ 65% · edge ≥ 5%</span>
           </div>
-          ${conviction.map((c, i) => renderCard(c, sport, i, true)).join("")}
+          ${buckets.conviction.map(c => renderCard(c, sport, idx++, true)).join("")}
         </div>`;
       }
-      html += `<div class="section-header all-opps">
-        <span>All Opportunities</span>
-        <span class="section-sub">${rest.length} more · ranked by tier + edge</span>
-      </div>`;
-      html += rest.map((c, i) => renderCard(c, sport, conviction.length + i, false)).join("");
+
+      if (buckets.likely.length > 0) {
+        html += `<div class="section-header likely-section">
+          <span>Likely To Hit</span>
+          <span class="section-sub">parlay-leg pool · ${buckets.likely.length} plays</span>
+        </div>`;
+        html += buckets.likely.map(c => renderCard(c, sport, idx++, false)).join("");
+      }
+
+      if (buckets.biggerEdge.length > 0) {
+        html += `<div class="section-header all-opps">
+          <span>Bigger Edges</span>
+          <span class="section-sub">larger payouts · less reliable · ${buckets.biggerEdge.length} plays</span>
+        </div>`;
+        html += buckets.biggerEdge.map(c => renderCard(c, sport, idx++, false)).join("");
+      }
+
+      if (buckets.lotto.length > 0) {
+        html += `<details class="lotto-section">
+          <summary class="section-header lotto-toggle">
+            <span>Lotto Room</span>
+            <span class="section-sub">${buckets.lotto.length} variance plays · big payouts · low hit rate · tap to expand</span>
+          </summary>
+          <div class="lotto-cards">
+            ${buckets.lotto.map(c => renderCard(c, sport, idx++, false)).join("")}
+          </div>
+        </details>`;
+      }
+
+      // Diagnostic footer — small grey line at bottom for operator transparency
+      const totalShown = buckets.conviction.length + buckets.likely.length + buckets.biggerEdge.length + buckets.lotto.length;
+      html += `<div class="diag-footer">source: ${sourceUsed} · ${totalShown}/${cands.length} shown · classified by parlay-confidence</div>`;
 
       main.innerHTML = html;
     }
@@ -874,8 +956,10 @@
       });
     });
 
-    // Initial load
-    refresh(false);
+    // v0.1.2: force-refresh on initial load so the slate is fresh, not whatever
+    // last-cached snapshot the backend has lying around. Operator 2026-05-21:
+    // "updated 2h 23m ago" is bad — opening the app should show me tonight, not history.
+    refresh(true);
 
     // Periodic "X seconds ago" tick for the header
     setInterval(() => {
