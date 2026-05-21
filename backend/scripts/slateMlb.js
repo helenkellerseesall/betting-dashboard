@@ -114,15 +114,36 @@ async function main() {
   const j3 = safeJson(r3.res.body)
   if (j3) {
     // Phase Canonical-Shape-Hardening-1A (HARDEN-2): canonical resolver helpers
-    // replace prior drift sites at the same line numbers. The previous reads
-    // `j3.featuredPlays` and `j3.aiSlips?.slips.length` consulted keys the
-    // canonical /api/ws/state response (workstationRoutes.js:~693-712) never
-    // emits — same INC-017 anti-pattern that affected the NBA equivalent
-    // before Phase Intelligence-Shaping-1A. The canonical authority lives in
-    // backend/pipeline/shared/responseShapeResolvers.js; this script now reads
-    // through it so future API-shape evolution updates one file, not N.
-    console.log("  featured plays count       :", resolveFeaturedCount(j3))
-    console.log("  ai slips count             :", resolveAiSlipCount(j3))
+    // for the two fields the resolver module owns. Additive 2026-05-21:
+    // surface more of the canonical /api/ws/state shape so the operator sees
+    // ALL the populated counts (not just featured + aiSlips), and annotate
+    // featured=n/a as "may be still building" (the featured-plays builder
+    // runs asynchronously after refresh — first ws/state hit can land before
+    // it completes; a re-query usually finds featured populated).
+    const featured = resolveFeaturedCount(j3)
+    const slips    = resolveAiSlipCount(j3)
+    const cands    = j3?.counts?.candidates ?? "n/a"
+    const urgent   = j3?.counts?.urgent ?? "n/a"
+    const multi    = j3?.counts?.propsWithMultiBook ?? "n/a"
+    const steam    = j3?.counts?.steam ?? "n/a"
+    const stale    = j3?.counts?.stale ?? "n/a"
+    const discov   = Array.isArray(j3?.discoveryCandidates) ? j3.discoveryCandidates.length : "n/a"
+    const freshLbl = j3?.snapshotFreshness?.label || j3?.snapshotFreshness?.status || j3?.snapshotFreshness?.freshness || "n/a"
+    const freshAge = j3?.snapshotFreshness?.snapshotAgeMinutes ?? "n/a"
+    const degraded = j3?.degraded ?? "n/a"
+
+    const featuredAnnotation = featured === "n/a" ? " (may be still building — re-run to recheck)" : ""
+    const freshAgeAnnotation = freshAge !== "n/a" ? ` (${freshAge}min old)` : ""
+
+    console.log("  featured plays count       :", featured + featuredAnnotation)
+    console.log("  ai slips count             :", slips)
+    console.log("  candidates (counts field)  :", cands)
+    console.log("  discovery candidates       :", discov)
+    console.log("  urgent plays               :", urgent)
+    console.log("  multi-book props           :", multi)
+    console.log("  steam / stale counts       :", steam, "/", stale)
+    console.log("  snapshot freshness         :", freshLbl + freshAgeAnnotation)
+    console.log("  degraded                   :", degraded)
   } else if (r3.res.body) {
     console.log(`  ${r3.res.body.slice(0, 200)}`)
   }
