@@ -331,6 +331,15 @@ const COMMANDS = Object.freeze({
     body: "node backend/scripts/verifyRoleArchetypeQualification.js",
     lane: "INFRA / GOVERNANCE",
   },
+
+  // ── GSBL Phase A — bootstrap compression enforcement ─────────────────
+  "verify-gsbl-compression": {
+    desc: "Run the GSBL Phase A verifier. Enforces GSBL.md ≤ 300 lines + anti-bloat + anti-personality + anti-roleplay + pointer-not-content + required structural sections + no hidden runtime authority.",
+    cmd:  "node backend/scripts/verifyGSBLCompression.js",
+    cwd:  CWD.REPO_ROOT,
+    body: "node backend/scripts/verifyGSBLCompression.js",
+    lane: "INFRA / GOVERNANCE",
+  },
 })
 
 // ── cwd-safe emission ───────────────────────────────────────────────────
