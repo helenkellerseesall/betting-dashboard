@@ -678,6 +678,10 @@
       lastFetchAt: null,
       fetching: false,
       parlay: loadParlay(),  // v0.2.0: persistent across sessions via localStorage
+      // v0.2.8: player search — type "wemby" / "sga" / any name, see ALL their
+      // props for tonight from the 7-book allowlist. Bypasses edge-filter.
+      search: { mlb: { q: "", results: null, loading: false },
+                nba: { q: "", results: null, loading: false } },
       // v0.2.1: external slip analyzer (Flow A)
       analyze: {
         meta: { sourceType: "twitter", attribution: "", sport: "" },
@@ -1310,8 +1314,19 @@
         </div>`;
       }
 
+      // v0.2.8: search input always rendered above candidates for MLB + NBA
+      const searchState = state.search[sport] || { q: "", results: null, loading: false };
+      const searchHtml = renderSearchBar(sport, searchState);
+      // If there's an active search with results, show ONLY the search results
+      // (override the normal candidate grid). Empty search → normal display.
+      if (searchState.q && searchState.q.length >= 2) {
+        const resultsHtml = renderSearchResults(sport, searchState);
+        main.innerHTML = freshHtml + searchHtml + resultsHtml;
+        return;
+      }
+
       if (cands.length === 0) {
-        main.innerHTML = freshHtml + `<div class="empty">
+        main.innerHTML = freshHtml + searchHtml + `<div class="empty">
           No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
           Slate may still be building — pull to refresh in a few seconds.
         </div>`;
@@ -1343,7 +1358,7 @@
       buckets.biggerEdge = buckets.biggerEdge.slice(0, 8);
       buckets.lotto = buckets.lotto.slice(0, 12);
 
-      let html = freshHtml;
+      let html = freshHtml + searchHtml;
       let idx = 0;
 
       if (buckets.conviction.length > 0) {
@@ -1424,6 +1439,133 @@
     }
     window.toggleCard = toggleCard;
 
+    // ─────────────────────────────────────────────────────────────
+    // v0.2.8: Player Search (Wemby / SGA / any star, regardless of edge)
+    // ─────────────────────────────────────────────────────────────
+    function renderSearchBar(sport, searchState) {
+      const placeholderHints = sport === "nba"
+        ? "Search player — try 'wemby', 'sga', 'castle', 'mobley'…"
+        : "Search player — try 'judge', 'soto', 'ohtani'…";
+      return `
+        <div style="margin-bottom: 12px;">
+          <input id="search-${sport}" type="text"
+                 placeholder="${placeholderHints}"
+                 value="${escapeHtml(searchState.q || "")}"
+                 oninput="onSearchInput('${sport}', this.value)"
+                 style="width: 100%; padding: 10px 12px;
+                        background: #141828; border: 1px solid ${searchState.q ? "#38BDF8" : "#1F2937"};
+                        color: #E5E7EB; border-radius: 10px; font-size: 14px;
+                        font-family: inherit; box-sizing: border-box;
+                        transition: border-color 0.15s ease;" />
+        </div>
+      `;
+    }
+
+    function renderSearchResults(sport, searchState) {
+      if (searchState.loading) {
+        return `<div class="empty" style="padding: 24px;">Searching…</div>`;
+      }
+      const results = searchState.results;
+      if (!results || results.length === 0) {
+        return `<div class="empty" style="padding: 24px;">
+          No props found for "${escapeHtml(searchState.q)}" in tonight's ${sport.toUpperCase()} slate.<br>
+          <span style="font-size: 11px; color: #6B7280;">Try a different spelling, nickname, or check NBA tab if MLB</span>
+        </div>`;
+      }
+      // Group by player + propType so all of "Wemby Points" props are together
+      const groups = new Map();
+      for (const r of results) {
+        const key = `${r.player}|${r.propType}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      }
+      let html = `<div style="font-size: 11px; color: #9CA3AF; padding: 0 4px 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+        ${results.length} prop${results.length === 1 ? "" : "s"} across ${groups.size} player-prop combos
+      </div>`;
+      let idx = 0;
+      for (const [key, group] of groups) {
+        const [player, propType] = key.split("|");
+        const teamTxt = group[0].team || "team pending";
+        html += `<div style="margin-bottom: 14px;">
+          <div style="padding: 4px 4px 6px; font-size: 13px;">
+            <span style="font-weight: 700; color: #F9FAFB;">${escapeHtml(player)}</span>
+            <span style="color: #6B7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;"> · ${escapeHtml(teamTxt)} · ${escapeHtml(propType)}</span>
+          </div>
+          <div class="card-grid">
+            ${group.map(r => renderSearchResultCard(r, sport, idx++)).join("")}
+          </div>
+        </div>`;
+      }
+      return html;
+    }
+
+    function renderSearchResultCard(c, sport, idx) {
+      // Cache in renderedIndex so + add-to-parlay button works
+      if (state._renderedIndex) state._renderedIndex[sport + ":" + idx] = c;
+      const inParlay = isLegInParlay(c);
+      const side = String(c.side || "").toLowerCase();
+      const sideCls = side === "over" ? "side-over" : side === "under" ? "side-under" : "";
+      const sideTxt = side ? side.toUpperCase() : "—";
+      const odds = c.oddsAmerican ?? c.odds;
+      const oddsTxt = fmtOdds(odds);
+      const oddsCls = (typeof odds === "number" && odds > 0) ? "positive" : "";
+      const book = c.sportsbook || c.book || "—";
+      const bookCls = bookClass(book);
+      return `
+        <div class="card" data-idx="${idx}">
+          <button class="add-leg-btn ${inParlay ? "added" : ""}"
+                  onclick="addLegFromCard(${idx}, '${sport}'); event.stopPropagation();"
+                  title="${inParlay ? "Already in parlay" : "Add to parlay"}">${inParlay ? "✓" : "+"}</button>
+          <div class="prop-line">
+            <span class="side ${sideCls}">${sideTxt}</span>
+            <strong>${c.line ?? "—"}</strong>
+          </div>
+          <div class="odds-book-row">
+            <div class="odds ${oddsCls}">${oddsTxt}</div>
+            <div class="book-pill ${bookCls}">${escapeHtml(book)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Debounced search — don't fire on every keystroke, wait 300ms after typing stops
+    let _searchDebounce = null;
+    function onSearchInput(sport, value) {
+      if (!state.search[sport]) state.search[sport] = { q: "", results: null, loading: false };
+      state.search[sport].q = value;
+      clearTimeout(_searchDebounce);
+      if (!value || value.length < 2) {
+        state.search[sport].results = null;
+        state.search[sport].loading = false;
+        render();
+        return;
+      }
+      state.search[sport].loading = true;
+      // Don't re-render immediately — just update input border. Full render on results.
+      const inputEl = document.getElementById(`search-${sport}`);
+      if (inputEl) inputEl.style.borderColor = "#38BDF8";
+      _searchDebounce = setTimeout(async () => {
+        try {
+          const r = await fetch(`${API}/api/ws/player-search?sport=${sport}&q=${encodeURIComponent(value)}`);
+          const json = await r.json();
+          if (!r.ok || !json.ok) {
+            state.search[sport].results = [];
+          } else {
+            state.search[sport].results = Array.isArray(json.results) ? json.results : [];
+          }
+        } catch (_) {
+          state.search[sport].results = [];
+        }
+        state.search[sport].loading = false;
+        // Only re-render if user is still on this tab and still searching this query
+        if (state.activeSport === sport && state.search[sport].q === value) {
+          render();
+        }
+      }, 300);
+    }
+    window.onSearchInput = onSearchInput;
+
+    // ─────────────────────────────────────────────────────────────
     // v0.2.0: Parlay tab renderer. Shows combined odds, single-book buildability,
     // legs list with per-leg remove. localStorage-backed so it persists.
     function renderParlay(main) {

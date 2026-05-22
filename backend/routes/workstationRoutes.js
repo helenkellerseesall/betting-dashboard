@@ -27,6 +27,7 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
+const { isAllowedBook, canonicalBookName } = require("../pipeline/shared/sportsbookAllowlist")
 // Phase Sport-Identity-Integrity-1A (2026-05-17): canonical sport-identity
 // resolver. ONE authoritative alias map. Every sport input (mlb /
 // baseball_mlb / MLB / nba / basketball_nba / etc.) converges onto the
@@ -808,6 +809,121 @@ router.get("/state", (req, res) => {
   } catch (err) {
     console.error("[ws/state]", err)
     res.status(500).json({ error: String(err?.message || err) })
+  }
+})
+
+/**
+ * Player Search — operator 2026-05-22: "i want for sure HITTERS not unknown
+ * small players. so nba not having a wemby, sga, castle, etc is unacceptable."
+ *
+ * Confirmed root cause: nightly tracked_bets pipeline filters by edge → chalk
+ * star lines (Wemby -300 to score 20+) have near-zero edge → filtered. But the
+ * stars ARE in the full snapshot (2147 NBA props tonight). This endpoint lets
+ * the operator type ANY player name and see ALL their props for tonight from
+ * the 7-book allowlist — regardless of model edge.
+ *
+ * GET /api/ws/player-search?sport=nba&q=wemby
+ *   sport: "nba" | "mlb" (defaults to "nba")
+ *   q:     substring, case-insensitive, min 2 chars
+ *
+ * Response: { ok: true, results: [...rows], matchedPlayers: [names] }
+ */
+// Common player nicknames → official name substring used in the snapshot.
+// Operator-friendly: typing "wemby" should find Wembanyama. Additive list —
+// extend as needed when operator discovers a search that misses.
+const PLAYER_NICKNAMES = {
+  // NBA
+  "wemby":   "wembanyama",
+  "sga":     "gilgeous-alexander",
+  "the king":"james",
+  "lebron":  "james",
+  "bron":    "james",
+  "kd":      "durant",
+  "dame":    "lillard",
+  "ad":      "davis",
+  "cp3":     "paul",
+  "klay":    "thompson",
+  "jokic":   "jokić",         // accent variant
+  "shai":    "gilgeous",
+  "jt":      "tatum",
+  "jb":      "brown",
+  "luka":    "dončić",        // accent variant
+  "doncic":  "dončić",
+  "joker":   "jokić",
+  "scoot":   "henderson",
+  // MLB
+  "shohei":  "ohtani",
+  "judge":   "aaron judge",
+}
+function expandQueryWithNicknames(q) {
+  const ql = String(q || "").toLowerCase().trim()
+  if (PLAYER_NICKNAMES[ql]) return PLAYER_NICKNAMES[ql]
+  return ql
+}
+
+router.get("/player-search", (req, res) => {
+  try {
+    const sport = String(req.query.sport || "nba").toLowerCase()
+    const rawQ  = String(req.query.q || "").toLowerCase().trim()
+    if (rawQ.length < 2) {
+      return res.json({ ok: true, results: [], matchedPlayers: [], note: "query must be at least 2 characters" })
+    }
+    // Expand nicknames so "wemby" → "wembanyama" before substring matching
+    const q = expandQueryWithNicknames(rawQ)
+
+    const rows = readSnapshotRows(sport)
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.json({ ok: true, results: [], matchedPlayers: [], note: "snapshot empty or missing" })
+    }
+
+    // Player substring match, then allowlist filter
+    const matched = []
+    const playerSet = new Set()
+    for (const r of rows) {
+      const player = String(r?.player || "").toLowerCase()
+      if (!player.includes(q)) continue
+      const book = String(r?.sportsbook || r?.book || "")
+      if (!isAllowedBook(book)) continue
+      playerSet.add(r.player)
+      matched.push({
+        player:       r.player,
+        team:         r.team || r.teamResolved || null,
+        matchup:      r.matchup || null,
+        propType:     r.propType || r.marketKey || null,
+        side:         r.side || null,
+        line:         r.line ?? null,
+        odds:         r.oddsAmerican ?? r.odds ?? null,
+        oddsAmerican: r.oddsAmerican ?? r.odds ?? null,
+        sportsbook:   canonicalBookName(book) || book,
+        modelProb:    r.predictedProbability ?? r.modelProb ?? null,
+        edge:         r.edgeProbability ?? r.edge ?? null,
+        eventId:      r.eventId || null,
+        gameTime:     r.gameTime || r.commenceTime || null,
+        // Pass through any tier / archetype / signal annotations if present
+        confidenceTier: r.confidenceTier || r.tier || null,
+      })
+    }
+
+    // Sort: by player name then by line (so all of Wemby's points props in order)
+    matched.sort((a, b) => {
+      const p = String(a.player).localeCompare(String(b.player))
+      if (p !== 0) return p
+      const pt = String(a.propType || "").localeCompare(String(b.propType || ""))
+      if (pt !== 0) return pt
+      return Number(a.line ?? 0) - Number(b.line ?? 0)
+    })
+
+    res.json({
+      ok: true,
+      results: matched,
+      matchedPlayers: [...playerSet],
+      totalRows: rows.length,
+      query: q,
+      sport,
+    })
+  } catch (err) {
+    console.error("[player-search]", err)
+    res.status(500).json({ ok: false, error: err?.message || String(err) })
   }
 })
 
