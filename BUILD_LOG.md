@@ -6,6 +6,30 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-21 — Mobile PWA v0.1.3 (layout + allowlist + lotto gating + broken-data hiding)
+
+**What:** Second pass after operator opened v0.1.2 on phone. Spencer Jones via BetOnline.ag leaked through (non-allowed book) — allowlist enforcement gap. Hits Over 2.5 at +700 still surfaced in Bigger Edges — operator: "I'd never play that". Cards wrapping to 2 lines on narrow screens. Tab counts showed 20/17 but only ~8 actually surfaced. Mobley showed 11d rest in expand panel even though he played yesterday — broken ESPN feed value being exposed verbatim.
+
+**Done (frontend/mobile/index.html, +92 / -22):**
+- **Defense-in-depth allowlist** — `ALLOWED_BOOKS` set on the mobile side drops any play from a non-7-book source before classification. BetOnline.ag and any other leaks now never reach the surface. Diagnostic footer reports how many were filtered ("X non-allowed books filtered"). Canonical fix to `sportsbookAllowlist.js` tracked as task #22.
+- **Payout-based lotto gating** — any play paying ≥ +400 lands in Lotto Room regardless of what the model says about hit rate. Catches the structural model overconfidence on tail outcomes (Ketel Marte Hits Over 2.5 surfaced at 34% modelProb — real MLB rate ~10-15%, that's a calibration bug tracked as task #26). Quarantines the lottery tickets honestly.
+- **Tab counts reflect surfaced count** — operator: "mlb shows 20 but only 8 on screen". Now MLB/NBA tab badges show allowed-book count.
+- **2-column grid on ≥720px, 3-column on ≥1100px** — operator: "can we 2 per row instead of 1?" — Mac Safari at full width shows 3 columns, iPad shows 2, phone stays 1. Section headers / freshness / lotto summary stay full-width.
+- **Single-line prop + meta** with ellipsis — long matchups + prop names stop wrapping.
+- **NBA broken "days since last game" hidden** from expand panel — operator confirmed Mobley played yesterday but feed says 11d. Surfaces "playoff data refreshing" instead of misleading "11". Real ESPN-playoff-ingest fix tracked as task #12.
+
+**Tracked separately as new tasks (not in v0.1.3):**
+- **#22** — canonical sportsbookAllowlist.js update to 7 books (matches operator vision, drops BetOnline.ag at persistence boundary)
+- **#23** — Cloudflare Tunnel via edge.motel666.com — operator has Cloudflare account; solves iPhone access AND anywhere-access without LAN dependency (firewall confirmed OFF, so the iPhone hang is router-side or VPN/cellular; tunnel sidesteps all of that)
+- **#24** — Parlay builder: + per-card add button, third "Parlay" tab, single-book constructability
+- **#25** — Playbook-style book optimization + deep-link slip auto-build (operator's @playbook reference)
+- **#26** — MLB tail-outcome calibration audit (model over-predicting 2+ / 3+ outcomes)
+
+**Closed:**
+- **#13** (iPhone external access) — superseded by #23 Cloudflare Tunnel. Diagnosis complete: bind is fine, firewall is off; the hang is router/VPN-side. Tunnel is the proper fix.
+
+---
+
 ## 2026-05-21 — Mobile PWA v0.1.2 (parlay-confidence reframe)
 
 **What:** Most important architectural realization of the project so far. Operator opened v0.1.1 and observed every surfaced play was +500 to +920 longshots ("Hits Over 2.5") and called it out: *"I want to feel confident multi-leg parlays will hit"* — not lottery tickets dressed up as high-edge. The current sort by raw edge% structurally favors longshots because high modelProb on low-implied-prob = inflated edge. The product needs to optimize for **hit rate first, edge second.**
