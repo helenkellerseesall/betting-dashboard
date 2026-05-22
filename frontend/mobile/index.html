@@ -97,6 +97,127 @@
     .tab[data-sport="parlay"].active { border-color: #A78BFA; color: #A78BFA; }
     .tab[data-sport="parlay"].active .tab-count { background: #A78BFA; color: #0A0E1A; }
     .tab[data-sport="parlay"] .tab-count.has-legs { background: #A78BFA; color: #0A0E1A; }
+    .tab[data-sport="analyze"].active { border-color: #38BDF8; color: #38BDF8; }
+
+    /* ── Analyze tab ────────────────────────────────────────── */
+    .analyze-intro {
+      background: rgba(56, 189, 248, 0.06);
+      border-left: 2px solid #38BDF8;
+      color: #BAE6FD;
+      padding: 10px 12px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .analyze-intro strong { color: #38BDF8; }
+    .analyze-intro .ocr-note {
+      display: block;
+      margin-top: 6px;
+      color: #6B7280;
+      font-style: italic;
+      font-size: 11px;
+    }
+    .meta-row {
+      display: flex; gap: 8px; margin-bottom: 10px;
+    }
+    .meta-row select, .meta-row input {
+      flex: 1; padding: 8px 10px;
+      background: #141828; border: 1px solid #1F2937; color: #E5E7EB;
+      border-radius: 8px; font-size: 13px; font-family: inherit;
+    }
+    .leg-form {
+      background: #141828; border: 1px solid #1F2937; border-radius: 10px;
+      padding: 10px; margin-bottom: 8px;
+      position: relative;
+    }
+    .leg-form-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .leg-form-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+      color: #38BDF8; text-transform: uppercase;
+    }
+    .leg-form-remove {
+      background: transparent; border: none; color: #6B7280;
+      font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    .leg-form-remove:hover { color: #F87171; }
+    .leg-form input, .leg-form select {
+      width: 100%; padding: 6px 8px; margin-bottom: 6px;
+      background: #0A0E1A; border: 1px solid #1F2937; color: #E5E7EB;
+      border-radius: 6px; font-size: 12px; font-family: inherit;
+    }
+    .leg-form input::placeholder { color: #4B5563; }
+    .leg-form-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    .leg-form-grid .full { grid-column: 1 / -1; }
+    .add-leg-form-btn, .analyze-submit-btn {
+      width: 100%; padding: 12px; margin-top: 6px;
+      border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s ease;
+    }
+    .add-leg-form-btn {
+      background: rgba(56, 189, 248, 0.08);
+      border-color: rgba(56, 189, 248, 0.3);
+      color: #38BDF8;
+      margin-bottom: 12px;
+    }
+    .add-leg-form-btn:hover { background: rgba(56, 189, 248, 0.15); }
+    .analyze-submit-btn {
+      background: linear-gradient(135deg, #38BDF8 0%, #0284C7 100%);
+      border-color: #0284C7; color: #0A0E1A;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+    }
+    .analyze-submit-btn:disabled {
+      background: #1F2937; color: #6B7280; border-color: #374151;
+      cursor: not-allowed;
+    }
+
+    /* Verdict card */
+    .verdict-card {
+      background: linear-gradient(180deg, #11202E 0%, #141828 100%);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 14px; padding: 14px;
+      margin-bottom: 12px;
+    }
+    .verdict-score-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .verdict-score {
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 36px; font-weight: 700;
+      letter-spacing: -1px;
+    }
+    .verdict-score.high { color: #34D399; }
+    .verdict-score.mid  { color: #FBBF24; }
+    .verdict-score.low  { color: #F87171; }
+    .verdict-archetype {
+      font-size: 11px; font-weight: 700; padding: 4px 10px;
+      border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+      background: rgba(56, 189, 248, 0.15); color: #38BDF8;
+    }
+    .verdict-signals { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+    .verdict-signal {
+      font-size: 10px; font-weight: 700; padding: 2px 6px;
+      border-radius: 4px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .vs-sharp { background: rgba(52, 211, 153, 0.15); color: #34D399; }
+    .vs-bait { background: rgba(248, 113, 113, 0.15); color: #F87171; }
+    .vs-viral { background: rgba(251, 191, 36, 0.15); color: #FBBF24; }
+    .verdict-section {
+      font-size: 12px; padding-top: 10px; border-top: 1px solid #1F2937;
+      color: #D1D5DB;
+    }
+    .verdict-section .label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+      text-transform: uppercase; color: #9CA3AF; margin-bottom: 4px;
+    }
 
     /* ── Parlay add button on cards ──────────────────────────── */
     .add-leg-btn {
@@ -533,6 +654,7 @@
       <button class="tab active" data-sport="mlb">MLB <span class="tab-count" id="mlbCount">—</span></button>
       <button class="tab" data-sport="nba">NBA <span class="tab-count" id="nbaCount">—</span></button>
       <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
+      <button class="tab" data-sport="analyze">ANALYZE</button>
     </div>
   </header>
 
@@ -556,7 +678,18 @@
       lastFetchAt: null,
       fetching: false,
       parlay: loadParlay(),  // v0.2.0: persistent across sessions via localStorage
+      // v0.2.1: external slip analyzer (Flow A)
+      analyze: {
+        meta: { sourceType: "twitter", attribution: "", sport: "" },
+        legs: [emptyLeg()],
+        result: null,
+        submitting: false,
+      },
     };
+
+    function emptyLeg() {
+      return { player: "", propType: "Hits", line: "", side: "over", odds: "", sportsbook: "DraftKings" };
+    }
 
     // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
     // namespaced so future versions can migrate without colliding.
@@ -1074,6 +1207,11 @@
         renderParlay(main);
         return;
       }
+      // Analyze tab — Flow A: paste/type a slip from X/Discord, get verdict.
+      if (sport === "analyze") {
+        renderAnalyze(main);
+        return;
+      }
 
       // Date label
       const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
@@ -1311,6 +1449,263 @@
 
       main.innerHTML = summaryHtml + legsHtml + `<div class="diag-footer">parlay v0.2.0 · persisted in browser · single-book discipline enforced</div>`;
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // v0.2.1: Analyze tab — Flow A "should I tail this slip?"
+    // Backend route: POST /api/ws/screenshots/ingest (JSON only — no OCR yet)
+    // Returns: verdict with archetype, compositeScore, sharp/bait signals
+    // ─────────────────────────────────────────────────────────────
+    function renderAnalyze(main) {
+      const a = state.analyze;
+      const propOptions = ["Hits", "Home Runs", "Total Bases", "RBIs", "Runs Scored",
+                           "Stolen Bases", "Strikeouts", "Walks",
+                           "Points", "Rebounds", "Assists", "Threes", "PRA",
+                           "Steals", "Blocks", "First Basket", "Other"];
+      const bookOptions = ["DraftKings", "FanDuel", "Fanatics", "BetMGM", "Hard Rock", "BetRivers", "bet365"];
+      const sourceOptions = [
+        ["twitter", "X / Twitter"], ["discord", "Discord"],
+        ["screenshot", "Screenshot"], ["sportsbook", "Sportsbook screenshot"],
+        ["viral", "Viral big-win"], ["guru", "Tout / capper"],
+        ["personal", "Mine"]
+      ];
+
+      const introHtml = `
+        <div class="analyze-intro">
+          Drop the legs from a slip you saw on X / Discord / a friend's screenshot. I'll score the slip's
+          <strong>sharpness</strong>, detect bait patterns, and tell you whether it's tail-worthy or fade-worthy.
+          <span class="ocr-note">Image OCR coming next session — for now, type the legs manually as you see them on screen.</span>
+        </div>
+      `;
+
+      const metaHtml = `
+        <div class="meta-row">
+          <select id="anaSourceType" onchange="updateAnalyzeMeta('sourceType', this.value)">
+            ${sourceOptions.map(([v, l]) => `<option value="${v}" ${a.meta.sourceType === v ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+          <select id="anaSport" onchange="updateAnalyzeMeta('sport', this.value)">
+            <option value="" ${!a.meta.sport ? "selected" : ""}>auto-detect sport</option>
+            <option value="mlb" ${a.meta.sport === "mlb" ? "selected" : ""}>MLB</option>
+            <option value="nba" ${a.meta.sport === "nba" ? "selected" : ""}>NBA</option>
+          </select>
+        </div>
+        <div class="meta-row">
+          <input id="anaAttribution" placeholder="Poster name (optional) — e.g. @SomeCapper"
+                 value="${escapeHtml(a.meta.attribution || "")}"
+                 oninput="updateAnalyzeMeta('attribution', this.value)" />
+        </div>
+      `;
+
+      const legsHtml = a.legs.map((leg, i) => `
+        <div class="leg-form" data-leg-idx="${i}">
+          <div class="leg-form-header">
+            <div class="leg-form-title">Leg ${i + 1}</div>
+            ${a.legs.length > 1 ? `<button class="leg-form-remove" onclick="removeAnalyzeLeg(${i})">×</button>` : ""}
+          </div>
+          <input class="full" placeholder="Player name (e.g. Aaron Judge)"
+                 value="${escapeHtml(leg.player || "")}"
+                 oninput="updateAnalyzeLeg(${i}, 'player', this.value)" />
+          <div class="leg-form-grid">
+            <select onchange="updateAnalyzeLeg(${i}, 'propType', this.value)">
+              ${propOptions.map(p => `<option value="${p}" ${leg.propType === p ? "selected" : ""}>${p}</option>`).join("")}
+            </select>
+            <select onchange="updateAnalyzeLeg(${i}, 'side', this.value)">
+              <option value="over" ${leg.side === "over" ? "selected" : ""}>Over</option>
+              <option value="under" ${leg.side === "under" ? "selected" : ""}>Under</option>
+            </select>
+            <input placeholder="Line (e.g. 1.5)" type="number" step="0.5" inputmode="decimal"
+                   value="${leg.line}"
+                   oninput="updateAnalyzeLeg(${i}, 'line', this.value)" />
+            <input placeholder="Odds (+150 or -110)" type="text" inputmode="numeric"
+                   value="${leg.odds}"
+                   oninput="updateAnalyzeLeg(${i}, 'odds', this.value)" />
+            <select class="full" onchange="updateAnalyzeLeg(${i}, 'sportsbook', this.value)">
+              ${bookOptions.map(b => `<option value="${b}" ${leg.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      `).join("");
+
+      const validLegs = a.legs.filter(legHasMinFields).length;
+      const canSubmit = validLegs >= 1 && !a.submitting;
+
+      const submitHtml = `
+        <button class="add-leg-form-btn" onclick="addAnalyzeLeg()">+ Add another leg</button>
+        <button class="analyze-submit-btn" onclick="submitAnalyze()" ${canSubmit ? "" : "disabled"}>
+          ${a.submitting ? "Analyzing…" : `Analyze Slip (${validLegs} leg${validLegs === 1 ? "" : "s"})`}
+        </button>
+      `;
+
+      const resultHtml = a.result ? renderVerdict(a.result) : "";
+
+      main.innerHTML = introHtml + metaHtml + legsHtml + submitHtml + resultHtml +
+        `<div class="diag-footer">analyze v0.2.1 · backend route POST /api/ws/screenshots/ingest · JSON-only</div>`;
+    }
+
+    function legHasMinFields(leg) {
+      return String(leg.player || "").trim().length > 0 &&
+             String(leg.line ?? "").length > 0 &&
+             String(leg.odds ?? "").length > 0;
+    }
+
+    function updateAnalyzeMeta(key, val) {
+      state.analyze.meta[key] = val;
+      // No re-render needed — just store. Re-render only on add/remove legs.
+    }
+
+    function updateAnalyzeLeg(idx, key, val) {
+      if (!state.analyze.legs[idx]) return;
+      state.analyze.legs[idx][key] = val;
+      // Don't re-render on every keystroke — only update the submit button enabled state.
+      const validLegs = state.analyze.legs.filter(legHasMinFields).length;
+      const btn = document.querySelector(".analyze-submit-btn");
+      if (btn) {
+        btn.disabled = !(validLegs >= 1 && !state.analyze.submitting);
+        btn.textContent = state.analyze.submitting ? "Analyzing…" : `Analyze Slip (${validLegs} leg${validLegs === 1 ? "" : "s"})`;
+      }
+    }
+
+    function addAnalyzeLeg() {
+      // Default new leg to same book as previous leg for single-book discipline
+      const lastBook = state.analyze.legs.length > 0
+        ? state.analyze.legs[state.analyze.legs.length - 1].sportsbook
+        : "DraftKings";
+      const newLeg = emptyLeg();
+      newLeg.sportsbook = lastBook;
+      state.analyze.legs.push(newLeg);
+      render();
+    }
+
+    function removeAnalyzeLeg(idx) {
+      if (state.analyze.legs.length <= 1) return;
+      state.analyze.legs.splice(idx, 1);
+      render();
+    }
+
+    async function submitAnalyze() {
+      const a = state.analyze;
+      const legs = a.legs.filter(legHasMinFields).map(leg => ({
+        player: String(leg.player).trim(),
+        statFamily: String(leg.propType).toLowerCase().replace(/\s+/g, "_"),
+        propType: leg.propType,
+        side: leg.side,
+        line: Number(leg.line),
+        odds: Number(String(leg.odds).replace(/[+\s]/g, "")),
+        sportsbook: leg.sportsbook,
+      }));
+      if (legs.length === 0) return;
+
+      const payload = {
+        sourceType: a.meta.sourceType || "screenshot",
+        sourceLabel: a.meta.attribution || null,
+        attribution: a.meta.attribution || null,
+        sport: a.meta.sport || null,
+        slip: { legs },
+      };
+
+      a.submitting = true;
+      a.result = null;
+      render();
+
+      try {
+        const r = await fetch(`${API}/api/ws/screenshots/ingest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await r.json();
+        if (!r.ok || !json.ok) {
+          a.result = { _error: json?.error || `HTTP ${r.status}` };
+        } else {
+          a.result = json.results && json.results[0] ? json.results[0] : json;
+        }
+      } catch (e) {
+        a.result = { _error: e.message || String(e) };
+      } finally {
+        a.submitting = false;
+        render();
+      }
+    }
+
+    function renderVerdict(r) {
+      if (r._error) {
+        return `<div class="verdict-card" style="border-color: rgba(248, 113, 113, 0.4);">
+          <div style="color: #F87171; font-weight: 700; margin-bottom: 6px;">Analysis failed</div>
+          <div style="font-family: ui-monospace, monospace; font-size: 11px; color: #9CA3AF;">${escapeHtml(r._error)}</div>
+          <div style="margin-top: 8px; font-size: 11px; color: #6B7280;">Backend may not be running. Try: cd backend &amp;&amp; npm run engine:start</div>
+        </div>`;
+      }
+      const cs = Number(r.compositeScore);
+      const csTxt = Number.isFinite(cs) ? Math.round(cs) : "—";
+      const csCls = !Number.isFinite(cs) ? "" : cs >= 70 ? "high" : cs >= 50 ? "mid" : "low";
+      const archetype = r.archetype || "unclassified";
+      const signalsHtml = [];
+      if (r.sharpSignal) signalsHtml.push(`<span class="verdict-signal vs-sharp">SHARP</span>`);
+      if (r.baitSignal)  signalsHtml.push(`<span class="verdict-signal vs-bait">BAIT</span>`);
+      if (r.verdict?.viral_signal) signalsHtml.push(`<span class="verdict-signal vs-viral">VIRAL</span>`);
+
+      const verdict = r.verdict || null;
+      let detailHtml = "";
+      if (verdict?.verdictSummary) {
+        detailHtml += `<div class="verdict-section">
+          <div class="label">Verdict</div>
+          <div>${escapeHtml(verdict.verdictSummary)}</div>
+        </div>`;
+      }
+      if (verdict?.bettorLanguageSummary) {
+        detailHtml += `<div class="verdict-section">
+          <div class="label">Bettor-language read</div>
+          <div>${escapeHtml(verdict.bettorLanguageSummary)}</div>
+        </div>`;
+      }
+      if (verdict?.strongestLeg) {
+        const sl = verdict.strongestLeg;
+        detailHtml += `<div class="verdict-section">
+          <div class="label">Strongest leg</div>
+          <div>Leg ${sl.legIndex + 1}${sl.reason ? ` — ${escapeHtml(sl.reason)}` : ""}</div>
+        </div>`;
+      }
+      if (verdict?.weakestLeg) {
+        const wl = verdict.weakestLeg;
+        detailHtml += `<div class="verdict-section">
+          <div class="label">Weakest leg</div>
+          <div>Leg ${wl.legIndex + 1}${wl.reason ? ` — ${escapeHtml(wl.reason)}` : ""}</div>
+        </div>`;
+      }
+      if (Array.isArray(verdict?.contradictionFlags) && verdict.contradictionFlags.length > 0) {
+        detailHtml += `<div class="verdict-section">
+          <div class="label">Contradictions flagged</div>
+          <div>${verdict.contradictionFlags.map(f => escapeHtml(String(f))).join(" · ")}</div>
+        </div>`;
+      }
+
+      return `
+        <div class="verdict-card">
+          <div class="verdict-score-row">
+            <div class="verdict-score ${csCls}">${csTxt}<span style="font-size: 14px; color: #6B7280;">/100</span></div>
+            <div class="verdict-archetype">${escapeHtml(String(archetype).replace(/_/g, " "))}</div>
+          </div>
+          ${signalsHtml.length ? `<div class="verdict-signals">${signalsHtml.join("")}</div>` : ""}
+          ${detailHtml}
+          <div style="margin-top: 12px; text-align: center;">
+            <button class="ps-clear" onclick="resetAnalyze()">Analyze another slip</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function resetAnalyze() {
+      state.analyze.result = null;
+      state.analyze.legs = [emptyLeg()];
+      render();
+    }
+
+    // Expose handlers
+    window.updateAnalyzeMeta = updateAnalyzeMeta;
+    window.updateAnalyzeLeg = updateAnalyzeLeg;
+    window.addAnalyzeLeg = addAnalyzeLeg;
+    window.removeAnalyzeLeg = removeAnalyzeLeg;
+    window.submitAnalyze = submitAnalyze;
+    window.resetAnalyze = resetAnalyze;
 
     // ─────────────────────────────────────────────────────────────
     // Fetch + refresh

@@ -6,6 +6,60 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-22 — Session N+1: Mobile PWA v0.2.1 (slip analyzer) + API-SPORTS audit
+
+### Mobile PWA v0.2.1 — "Analyze a slip" tab (Flow A, manual entry)
+
+**What:** Fourth tab "ANALYZE" on the mobile PWA. Operator looks at a winning parlay screenshot on Twitter / Discord, manually types each leg (player, prop, side, line, odds, book), submits → backend scores the slip via existing `analyzeSlip` cognition (`pipeline/screenshots/screenshotRoutes.js` POST `/api/ws/screenshots/ingest`). Returns: composite score (0-100), archetype tag, sharp/bait/viral signals, verdict summary, strongest/weakest leg, contradiction flags.
+
+**Why manual entry only tonight (not image OCR):** Backend `/screenshots/ingest` endpoint is **JSON-only** today (docstring line 16: "JSON-only ingestion for now — no multer/image upload — deferred to future phase"). The cognition exists and is well-built; the OCR/parsing layer is the gap. v0.2.1 ships the manual-entry path that uses the existing cognition now, and tasks #20.5 + #21 cover OCR + viral-winner learning (Flow B) as next sessions.
+
+**Done (frontend/mobile/index.html, +395):**
+- New "ANALYZE" tab with cyan accent
+- Slip metadata form: source dropdown (X/Twitter/Discord/Sportsbook/Viral/Tout/Mine), auto-detect sport, attribution input
+- Per-leg form: player, prop type (16 options across MLB+NBA), side (over/under), line, odds, sportsbook (operator's 7-book list)
+- "+ Add another leg" / "× remove leg" / "Analyze Slip (N legs)" submit
+- New leg defaults sportsbook to the previous leg's book (encourages single-book discipline)
+- Verdict card renders: large 0-100 composite score (color-graded green/yellow/red), archetype pill, sharp/bait/viral signal badges, verdict summary, bettor-language read, strongest/weakest leg call-outs, contradiction flags
+
+**Validation:** operator opens PWA → ANALYZE tab → types 2-3 legs from any Twitter parlay screenshot → tap "Analyze Slip" → verdict card renders with score + archetype + signals.
+
+---
+
+### API-SPORTS audit (Session N+1 deliverable)
+
+**Today's bill:** $15/mo MLB + $15/mo NBA = $30/mo. 7,500 pulls/day per sport = 450K/month combined headroom. Currently using ~10% of available capacity. Adding NFL + NHL when seasons start = +$30/mo total ($60/mo).
+
+**MLB — what we currently consume** (`pipeline/mlb/external/adapters/fetchMlbApiSportsScaffold.js`):
+- Base: `https://v1.baseball.api-sports.io`
+- Endpoints hit: `/games`, `/lineups`, `/players`, `/teams/statistics`
+
+**MLB — endpoints AVAILABLE but NOT consumed at $15/mo tier:**
+- `/injuries` — player injury reports (HIGH IMPACT — currently zero injury awareness)
+- `/statistics/players` — per-player season splits (vs LHP/RHP, home/away, last 30) (HIGH IMPACT — this is "Soler career vs RHP: .268, 24 HR/season pace" data the operator asked for)
+- `/odds` — could cross-verify against The Odds API
+- `/standings` — division/conference context for pace + motivation
+
+**NBA — the big gap:**
+- **No api-sports NBA adapter exists.** Only a passing reference in `nbaOpportunityCandidates.js` as "api-sports-rolled" source label (just a cache annotation, no live fetcher).
+- NBA cognition currently runs on: `nbaPlayerProjections.json` (21 days old, missing 24/55 current rotation players — task #33), ESPN game logs (`nbaRecentFormCache.js`).
+- **API-SPORTS NBA endpoints we COULD consume at $15/mo:** `/games`, `/games/statistics/players`, `/games/statistics/teams`, `/standings`, `/teams/statistics`, `/players/statistics`, `/injuries`.
+
+**Cognition deepening opportunities (within current $30/mo budget):**
+
+| # | Opportunity | Impact | Effort |
+|---|---|---|---|
+| 1 | Build NBA api-sports adapter (parity with MLB scaffold) — unlocks NBA injuries, team stats, player stats with splits | HIGHEST | 1 session |
+| 2 | Add MLB `/injuries` endpoint to existing scaffold | HIGH | small |
+| 3 | Add MLB `/statistics/players` for season splits (vs handedness, home/away, last 30) | HIGH | 1 session |
+| 4 | DIY opponent-defensive metrics computed from `/games/statistics/teams` (e.g., "Cavs allow 12.2 threes per game to opposing point guards") | HIGHEST | 1-2 sessions |
+| 5 | Per-prop-type calibration audit using settled outcomes (fix the Hits-2.5-at-34% over-prediction) | HIGH | 1 session |
+| 6 | Cross-stat correlation modeling (joint distribution per player — what enables "Wemby WILL hit 40+20" tier predictions) | HIGHEST | multi-session |
+
+**Recommended Session N+2:** opportunity #1 (NBA api-sports adapter) + opportunity #2 (MLB injuries) — both are pure data ingestion work, no model architecture changes, both unlock data the cognition layer can immediately consume. Sets up #4 + #5 + #6 to actually have data to work with.
+
+---
+
 ## 2026-05-22 — Mobile PWA v0.2.0 + v0.1.6 (Parlay Builder + 7-book canonical + NBA team fallback)
 
 **What:** First true product-feature beyond display + filtering. Operator can now build parlays directly in the mobile PWA. Three things shipped in one batch:
