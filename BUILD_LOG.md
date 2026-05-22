@@ -6,6 +6,24 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-22 — Mobile PWA v0.2.2 — Slip Analyzer paste-text parser + milestone props
+
+**What:** Operator tested v0.2.1 ANALYZE tab on a real DK SGP screenshot (Jalen Williams 20+ Points + 4 other legs). Two real blockers: (a) over/under-only side dropdown didn't fit milestone props like Double-Double or Anytime TD, (b) typing 5 legs by hand = hard pass for daily use.
+
+**Done (frontend/mobile/index.html, +~190):**
+- **Milestone prop types added**: Double-Double, Triple-Double, First Basket, Anytime TD, Anytime Goal, Hit a HR (plus combo props Pts+Reb, Pts+Ast, Reb+Ast for SGP-style threshold parlays).
+- **Side dropdown adapts to prop type**: milestone props show Yes/No instead of Over/Under. Line input disabled for milestone props (no line needed). `onPropTypeChange` handler auto-flips side from over→yes when switching from threshold to milestone.
+- **⚡ Quick paste mode**: textarea at top of analyze tab. Operator pastes the slip text from any screenshot, taps "Parse into legs" → `parseSlipText()` regex/keyword parser produces structured legs that populate the form. Saves the 5-leg-by-hand pain operator flagged.
+- **Parser tested** on operator's actual DK SGP screenshot text ("Jalen Williams To Score 20+ Points, Dylan Harper To Score 20+ Points, SGA To Record 8+ Assists, Wembanyama To Score 30+ Points, Stephon Castle To Record A Double-Double") → **5/5 legs parsed correctly** including milestone Double-Double detection.
+- Supported patterns: `X To Score Y+ Points`, `X Y+ Points`, `X Over Y.5 Points`, `X Under Y.5 Points`, `X To Record A Double-Double`, `X Triple-Double`, `X First Basket`, `X Anytime Touchdown`, `X HR`, etc. across MLB + NBA + NFL + soccer prop families.
+- Operator still confirms / edits parsed legs before submitting (odds aren't usually in slip text, so they're the one field operator fills in per leg).
+
+**Validation:** PWA → ANALYZE tab → paste the screenshot's slip text into the cyan textarea → tap "⚡ Parse into legs" → 5 legs appear in form, just fill in odds → tap "Analyze Slip" → verdict card.
+
+**Next:** real image OCR (task #36) so operator doesn't even copy text. For now this drastically reduces typing pain.
+
+---
+
 ## 2026-05-22 — Session N+1: Mobile PWA v0.2.1 (slip analyzer) + API-SPORTS audit
 
 ### Mobile PWA v0.2.1 — "Analyze a slip" tab (Flow A, manual entry)

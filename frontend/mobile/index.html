@@ -688,7 +688,16 @@
     };
 
     function emptyLeg() {
-      return { player: "", propType: "Hits", line: "", side: "over", odds: "", sportsbook: "DraftKings" };
+      return { player: "", propType: "Points", line: "", side: "over", odds: "", sportsbook: "DraftKings" };
+    }
+
+    // v0.2.2: which prop types are milestone (Yes/No) vs threshold (Over/Under)
+    const MILESTONE_PROPS = new Set([
+      "Double-Double", "Triple-Double", "First Basket",
+      "Anytime TD", "Anytime Goal", "Anytime HR", "Hit a HR"
+    ]);
+    function isMilestoneProp(propType) {
+      return MILESTONE_PROPS.has(propType);
     }
 
     // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
@@ -1457,10 +1466,22 @@
     // ─────────────────────────────────────────────────────────────
     function renderAnalyze(main) {
       const a = state.analyze;
-      const propOptions = ["Hits", "Home Runs", "Total Bases", "RBIs", "Runs Scored",
-                           "Stolen Bases", "Strikeouts", "Walks",
-                           "Points", "Rebounds", "Assists", "Threes", "PRA",
-                           "Steals", "Blocks", "First Basket", "Other"];
+      // v0.2.2: prop options include milestone bets (yes/no) for SGP-style slips
+      const propOptions = [
+        // MLB threshold props
+        "Hits", "Home Runs", "Total Bases", "RBIs", "Runs Scored",
+        "Stolen Bases", "Strikeouts", "Walks", "Hit a HR",
+        // NBA threshold props
+        "Points", "Rebounds", "Assists", "Threes", "PRA",
+        "Steals", "Blocks", "Pts+Reb", "Pts+Ast", "Reb+Ast",
+        // NBA milestone (yes/no)
+        "Double-Double", "Triple-Double", "First Basket",
+        // NFL milestone (yes/no, future)
+        "Anytime TD",
+        // Soccer milestone
+        "Anytime Goal",
+        "Other"
+      ];
       const bookOptions = ["DraftKings", "FanDuel", "Fanatics", "BetMGM", "Hard Rock", "BetRivers", "bet365"];
       const sourceOptions = [
         ["twitter", "X / Twitter"], ["discord", "Discord"],
@@ -1495,35 +1516,57 @@
         </div>
       `;
 
-      const legsHtml = a.legs.map((leg, i) => `
-        <div class="leg-form" data-leg-idx="${i}">
-          <div class="leg-form-header">
-            <div class="leg-form-title">Leg ${i + 1}</div>
-            ${a.legs.length > 1 ? `<button class="leg-form-remove" onclick="removeAnalyzeLeg(${i})">×</button>` : ""}
+      const legsHtml = a.legs.map((leg, i) => {
+        const isMilestone = isMilestoneProp(leg.propType);
+        // Side dropdown adapts to prop type — milestone = Yes/No, threshold = Over/Under
+        const sideOptions = isMilestone
+          ? [["yes", "Yes (Hits)"], ["no", "No (Misses)"]]
+          : [["over", "Over"], ["under", "Under"]];
+        // Line input hidden for milestone props (no line needed)
+        const lineInput = isMilestone
+          ? `<input placeholder="—" type="text" disabled value="" style="opacity: 0.4;" />`
+          : `<input placeholder="Line (e.g. 1.5 or 19.5)" type="number" step="0.5" inputmode="decimal"
+                    value="${leg.line}" oninput="updateAnalyzeLeg(${i}, 'line', this.value)" />`;
+        return `
+          <div class="leg-form" data-leg-idx="${i}">
+            <div class="leg-form-header">
+              <div class="leg-form-title">Leg ${i + 1}</div>
+              ${a.legs.length > 1 ? `<button class="leg-form-remove" onclick="removeAnalyzeLeg(${i})">×</button>` : ""}
+            </div>
+            <input class="full" placeholder="Player name (e.g. Jalen Williams)"
+                   value="${escapeHtml(leg.player || "")}"
+                   oninput="updateAnalyzeLeg(${i}, 'player', this.value)" />
+            <div class="leg-form-grid">
+              <select onchange="onPropTypeChange(${i}, this.value)">
+                ${propOptions.map(p => `<option value="${p}" ${leg.propType === p ? "selected" : ""}>${p}</option>`).join("")}
+              </select>
+              <select onchange="updateAnalyzeLeg(${i}, 'side', this.value)">
+                ${sideOptions.map(([v, l]) => `<option value="${v}" ${leg.side === v ? "selected" : ""}>${l}</option>`).join("")}
+              </select>
+              ${lineInput}
+              <input placeholder="Odds (+150 or -110)" type="text" inputmode="numeric"
+                     value="${leg.odds}"
+                     oninput="updateAnalyzeLeg(${i}, 'odds', this.value)" />
+              <select class="full" onchange="updateAnalyzeLeg(${i}, 'sportsbook', this.value)">
+                ${bookOptions.map(b => `<option value="${b}" ${leg.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
+              </select>
+            </div>
           </div>
-          <input class="full" placeholder="Player name (e.g. Aaron Judge)"
-                 value="${escapeHtml(leg.player || "")}"
-                 oninput="updateAnalyzeLeg(${i}, 'player', this.value)" />
-          <div class="leg-form-grid">
-            <select onchange="updateAnalyzeLeg(${i}, 'propType', this.value)">
-              ${propOptions.map(p => `<option value="${p}" ${leg.propType === p ? "selected" : ""}>${p}</option>`).join("")}
-            </select>
-            <select onchange="updateAnalyzeLeg(${i}, 'side', this.value)">
-              <option value="over" ${leg.side === "over" ? "selected" : ""}>Over</option>
-              <option value="under" ${leg.side === "under" ? "selected" : ""}>Under</option>
-            </select>
-            <input placeholder="Line (e.g. 1.5)" type="number" step="0.5" inputmode="decimal"
-                   value="${leg.line}"
-                   oninput="updateAnalyzeLeg(${i}, 'line', this.value)" />
-            <input placeholder="Odds (+150 or -110)" type="text" inputmode="numeric"
-                   value="${leg.odds}"
-                   oninput="updateAnalyzeLeg(${i}, 'odds', this.value)" />
-            <select class="full" onchange="updateAnalyzeLeg(${i}, 'sportsbook', this.value)">
-              ${bookOptions.map(b => `<option value="${b}" ${leg.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
-            </select>
-          </div>
+        `;
+      }).join("");
+
+      // v0.2.2: paste-text mode — operator drops slip text from the screenshot,
+      // we parse it into structured legs. Saves the 5-leg-by-hand pain.
+      const pasteHtml = `
+        <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.3);">
+          <div class="leg-form-title" style="margin-bottom: 6px;">⚡ Quick paste from slip</div>
+          <textarea id="anaPasteText" rows="3"
+            placeholder="Paste the slip text — e.g. &quot;Jalen Williams 20+ Points, Dylan Harper 20+ Points, SGA 8+ Assists, Wembanyama 30+ Points, Stephon Castle Double-Double&quot;"
+            style="width: 100%; padding: 8px; background: #0A0E1A; border: 1px solid #1F2937; color: #E5E7EB; border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical; box-sizing: border-box;"
+          ></textarea>
+          <button onclick="parseAndPopulate()" class="add-leg-form-btn" style="margin-top: 6px; margin-bottom: 0;">⚡ Parse into legs</button>
         </div>
-      `).join("");
+      `;
 
       const validLegs = a.legs.filter(legHasMinFields).length;
       const canSubmit = validLegs >= 1 && !a.submitting;
@@ -1537,9 +1580,151 @@
 
       const resultHtml = a.result ? renderVerdict(a.result) : "";
 
-      main.innerHTML = introHtml + metaHtml + legsHtml + submitHtml + resultHtml +
-        `<div class="diag-footer">analyze v0.2.1 · backend route POST /api/ws/screenshots/ingest · JSON-only</div>`;
+      main.innerHTML = introHtml + metaHtml + pasteHtml + legsHtml + submitHtml + resultHtml +
+        `<div class="diag-footer">analyze v0.2.2 · paste-parse + milestone props · backend POST /api/ws/screenshots/ingest</div>`;
     }
+
+    // v0.2.2: prop type change handler — also auto-flips side to "yes" when
+    // switching to a milestone prop, and clears the line (not applicable).
+    function onPropTypeChange(idx, newPropType) {
+      const leg = state.analyze.legs[idx];
+      if (!leg) return;
+      leg.propType = newPropType;
+      if (isMilestoneProp(newPropType)) {
+        leg.side = "yes";
+        leg.line = "";
+      } else if (leg.side === "yes" || leg.side === "no") {
+        leg.side = "over";
+      }
+      render();
+    }
+
+    // v0.2.2: pasted-text → structured legs parser.
+    // Handles common formats: "X To Score Y+ Points", "X Y+ Points", "X Over Y.5",
+    // "X To Record A Double-Double", "X Anytime Touchdown", "X HR", etc.
+    function parseSlipText(text) {
+      if (!text || typeof text !== "string") return [];
+      const legs = [];
+      // Split on commas and "and" — common slip delimiters
+      const chunks = text
+        .replace(/\bAND\b/gi, ",")
+        .replace(/[\r\n]+/g, ",")
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      const PROP_KEYWORDS = [
+        // [regex, propType, sport]
+        [/\bpoints?\b/i, "Points"],
+        [/\brebounds?\b/i, "Rebounds"],
+        [/\bassists?\b/i, "Assists"],
+        [/\bthrees?\b|\b3\s*-?\s*pointers?\b|\b3pt\b/i, "Threes"],
+        [/\bsteals?\b/i, "Steals"],
+        [/\bblocks?\b/i, "Blocks"],
+        [/\bpra\b|\bpts\s*\+\s*reb\s*\+\s*ast\b/i, "PRA"],
+        [/\bpts\s*\+\s*reb\b|\bpoints\s*\+\s*rebounds\b/i, "Pts+Reb"],
+        [/\bpts\s*\+\s*ast\b|\bpoints\s*\+\s*assists\b/i, "Pts+Ast"],
+        [/\breb\s*\+\s*ast\b|\brebounds\s*\+\s*assists\b/i, "Reb+Ast"],
+        [/\bhome\s*runs?\b|\bhr\b/i, "Home Runs"],
+        [/\btotal\s*bases?\b|\btb\b/i, "Total Bases"],
+        [/\bhits?\b/i, "Hits"],
+        [/\brbis?\b/i, "RBIs"],
+        [/\bruns?\s*scored\b|\bruns?\b/i, "Runs Scored"],
+        [/\bstolen\s*bases?\b|\bsb\b/i, "Stolen Bases"],
+        [/\bstrikeouts?\b|\bks?\b/i, "Strikeouts"],
+        [/\bwalks?\b|\bbb\b/i, "Walks"],
+      ];
+      const MILESTONE_KEYWORDS = [
+        [/\bdouble[- ]?double\b/i, "Double-Double"],
+        [/\btriple[- ]?double\b/i, "Triple-Double"],
+        [/\bfirst\s*basket\b/i, "First Basket"],
+        [/\banytime\s*touchdown\b|\banytime\s*td\b/i, "Anytime TD"],
+        [/\banytime\s*goal\s*(scorer)?\b/i, "Anytime Goal"],
+        [/\bto\s*hit\s*a?\s*hr\b|\bto\s*hit\s*a?\s*home\s*run\b|\bhr\b|\bhome\s*run\b/i, "Hit a HR"],
+      ];
+
+      for (const chunk of chunks) {
+        let propType = null;
+        let isMilestone = false;
+        // Try milestones first (more specific)
+        for (const [re, p] of MILESTONE_KEYWORDS) {
+          if (re.test(chunk)) { propType = p; isMilestone = true; break; }
+        }
+        // Fall back to threshold props
+        if (!propType) {
+          for (const [re, p] of PROP_KEYWORDS) {
+            if (re.test(chunk)) { propType = p; break; }
+          }
+        }
+        if (!propType) continue;  // chunk doesn't look like a prop
+
+        // Extract threshold/line: patterns like "20+", "Over 19.5", "Under 22.5", "1+"
+        let line = "";
+        let side = isMilestone ? "yes" : "over";
+        const plusMatch = chunk.match(/(\d+(?:\.\d+)?)\s*\+/);
+        const overMatch = chunk.match(/\bover\s*(\d+(?:\.\d+)?)/i);
+        const underMatch = chunk.match(/\bunder\s*(\d+(?:\.\d+)?)/i);
+        if (underMatch) {
+          line = String(Number(underMatch[1]));
+          side = "under";
+        } else if (overMatch) {
+          line = String(Number(overMatch[1]));
+          side = "over";
+        } else if (plusMatch && !isMilestone) {
+          // "20+" → over 19.5 (the threshold convention sportsbooks use)
+          const n = Number(plusMatch[1]);
+          line = String(n - 0.5);
+          side = "over";
+        }
+
+        // Extract player name: take everything before the prop keyword,
+        // strip common slip-language like "To Score", "To Record", "A".
+        let beforeProp = chunk;
+        if (propType) {
+          const re = new RegExp(`^(.*?)\\s+(to\\s+(score|record|hit|get|reach|have)\\s+(a\\s+)?)?\\d*\\+?\\s*${propType.replace(/[-+]/g, "\\$&")}`, "i");
+          // Simpler: just take text before the first keyword match
+          const firstKeywordMatch = chunk.search(/\b(points?|rebounds?|assists?|threes?|3pt|pra|pts|home\s*runs?|hr|hits?|rbis?|runs?|stolen|strikeouts?|ks?|walks?|bb|double[- ]?double|triple[- ]?double|first\s*basket|anytime|to\s+(score|record|hit))\b/i);
+          if (firstKeywordMatch > 0) {
+            beforeProp = chunk.slice(0, firstKeywordMatch).trim();
+          }
+        }
+        // Clean: strip "To", trailing punctuation, etc.
+        const player = beforeProp
+          .replace(/\s+to$/i, "")
+          .replace(/\s+(over|under)$/i, "")
+          .replace(/[,;.]+$/, "")
+          .trim();
+        if (!player || player.length < 2) continue;
+
+        legs.push({
+          player,
+          propType,
+          side,
+          line,
+          odds: "",          // operator fills in
+          sportsbook: state.analyze.legs[0]?.sportsbook || "DraftKings",
+        });
+      }
+      return legs;
+    }
+
+    function parseAndPopulate() {
+      const textarea = document.getElementById("anaPasteText");
+      if (!textarea) return;
+      const text = textarea.value;
+      if (!text || !text.trim()) return;
+      const parsed = parseSlipText(text);
+      if (parsed.length === 0) {
+        alert("Couldn't parse any legs from that text. Try a format like:\n\nJalen Williams 20+ Points, Wembanyama 30+ Points, SGA 8+ Assists, Stephon Castle Double-Double");
+        return;
+      }
+      state.analyze.legs = parsed;
+      textarea.value = "";
+      render();
+    }
+
+    window.onPropTypeChange = onPropTypeChange;
+    window.parseAndPopulate = parseAndPopulate;
 
     function legHasMinFields(leg) {
       return String(leg.player || "").trim().length > 0 &&
