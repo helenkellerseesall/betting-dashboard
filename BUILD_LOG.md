@@ -6,6 +6,17 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-21 — Mobile PWA v0.1.4 (prop-aware lotto + grid overflow + empty-explainer)
+
+**What:** Third-pass operator feedback. v0.1.3 +400 lotto threshold sent EVERY MLB play to Lotto because tonight's MLB slate is all +499+. Result: MLB tab showed only collapsed Lotto Room with nothing else — screen looked dead. Also, MLB 2-column grid had cards overflowing the column because grid children default to `min-width: auto` which prevented ellipsis from kicking in.
+
+**Done (frontend/mobile/index.html, +42 / -10):**
+- **Prop-type-aware lotto gating** — Hits 2.5+ always lotto (model over-predicts 3+ hits at ~34% when real rate is ~10-15%). Payout threshold for other props raised +400 → +600 so RBI 1.5 plays at +500-+550 surface in Bigger Edges, HR 0.5 at +500 surfaces normally. Quarantines the genuine tail-outcome lottery tickets without sweeping everything under the rug.
+- **Empty-state explainer** when only Lotto is populated — auto-opens the Lotto details, shows yellow explainer above: "Tonight's slate is variance-heavy — no plays in the high-hit-rate buckets, only longshots. Use small stakes." Honest about the slate condition instead of looking broken.
+- **Grid overflow fix** — `min-width: 0` on `.card-grid .card`. Allows ellipsis on long MLB team names to actually engage; cards stop overflowing the column boundary.
+
+---
+
 ## 2026-05-21 — Mobile PWA v0.1.3 (layout + allowlist + lotto gating + broken-data hiding)
 
 **What:** Second pass after operator opened v0.1.2 on phone. Spencer Jones via BetOnline.ag leaked through (non-allowed book) — allowlist enforcement gap. Hits Over 2.5 at +700 still surfaced in Bigger Edges — operator: "I'd never play that". Cards wrapping to 2 lines on narrow screens. Tab counts showed 20/17 but only ~8 actually surfaced. Mobley showed 11d rest in expand panel even though he played yesterday — broken ESPN feed value being exposed verbatim.
