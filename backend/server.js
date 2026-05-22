@@ -98,7 +98,13 @@ const mlScorer = new MLScorer(modelPath)
 
 
 app.use(cors())
-app.use(express.json())
+// v0.2.4c: bumped from default 100kb to 12mb so screenshot OCR uploads work.
+// Express's per-route json({limit}) overrides DON'T work — the global parser
+// runs first in middleware order and rejects large bodies before they reach
+// the route. Bumping globally is safe (12mb is reasonable for any JSON body
+// we'd legitimately receive). Operator hit "PayloadTooLargeError: request
+// entity too large" on iPhone screenshot upload at the OCR endpoint.
+app.use(express.json({ limit: "12mb" }))
 app.use("/", mlbRoutes)
 app.use("/api/ws", require("./routes/workstationRoutes"))
 

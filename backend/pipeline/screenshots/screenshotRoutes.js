@@ -334,6 +334,23 @@ router.post("/ingest", (req, res) => {
  * affecting the global JSON limit (which stays at the default 100KB for
  * everything else — safer for the rest of the API surface).
  */
+// v0.2.4b: health ping — confirms ANTHROPIC_API_KEY is loaded + well-formed
+// without consuming an API call. Operator hits this from terminal to verify
+// .env setup before debugging upload failures.
+router.get("/ocr-health", (req, res) => {
+  const raw = String(process.env.ANTHROPIC_API_KEY || "")
+  const cleaned = raw.replace(/[ -\s]/g, "").trim()
+  res.json({
+    ok: true,
+    keyPresent:           cleaned.length > 0,
+    keyFormatValid:       /^sk-ant-/.test(cleaned),
+    keyLength:            cleaned.length,
+    keyPreview:           cleaned ? cleaned.slice(0, 14) + "…" + cleaned.slice(-4) : null,
+    hadHiddenWhitespace:  raw.length !== cleaned.length,
+    rawLength:            raw.length,
+  })
+})
+
 router.post("/ocr", express.json({ limit: "10mb" }), async (req, res) => {
   try {
     const { imageBase64, mediaType } = req.body || {}
