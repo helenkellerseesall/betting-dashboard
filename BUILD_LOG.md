@@ -6,6 +6,27 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-22 — Mobile PWA v0.2.3 — Anthropic Vision OCR + validation softening
+
+**What:** Operator tested v0.2.2 paste-mode: parser worked but the analyze button stayed disabled at "0 legs" because per-leg odds + line were required. Sportsbook screenshots only show COMBINED odds, not per-leg. Plus operator said "yes anthropic vision ocr pls" — they want to skip typing entirely.
+
+**Done (backend +59 in `screenshotRoutes.js`, NEW `ocrAnthropicAdapter.js`, frontend +~100):**
+- **NEW `pipeline/screenshots/ocrAnthropicAdapter.js`** (~170 lines) — Anthropic Claude 3.5 Sonnet Vision API call. Strips data-URL prefix, normalizes media_type, sends image + structured-output prompt, extracts legs JSON from response (handles markdown-fence wrapping). Returns `{ sportsbook, combinedOdds, legs[], modelUsage }`. Throws `ANTHROPIC_KEY_MISSING` (503) if env key absent.
+- **NEW route `POST /api/ws/screenshots/ocr`** with per-route `express.json({ limit: "10mb" })` override (so full-resolution mobile screenshots fit; global 100KB limit untouched). Body: `{ imageBase64, mediaType? }`. ~$0.005/call cost.
+- **Frontend `📸 Drop a screenshot` card** in ANALYZE tab — file picker (with camera fallback on mobile) + Cmd-V/share-paste handler. On image: reads as data URL → POSTs to /ocr → populates form with parsed legs → operator just clicks "Analyze Slip."
+- **Validation softened** — per-leg odds optional (sportsbook screenshots usually show only combined). Milestone props don't require line. Backend `analyzeSlip` cognition handles partial data gracefully.
+
+**Operator action required for OCR to work:**
+1. Go to https://console.anthropic.com → Get API Keys → Create Key
+2. Paste into `backend/.env` as: `ANTHROPIC_API_KEY=sk-ant-...`
+3. Restart backend (Ctrl-C TERM 1, `npm run engine:start`)
+
+Until that key is added, OCR route returns 503 with "ANTHROPIC_KEY_MISSING". Other flows (manual entry, paste-text parser, /ingest) work unaffected. Cost is trivial (~$0.50/month even at 100 screenshots).
+
+**Validation:** PWA → ANALYZE tab → "📷 Choose image / take photo" → pick a screenshot from camera roll → wait ~3s → form auto-populates with parsed legs → tap "Analyze Slip" → verdict.
+
+---
+
 ## 2026-05-22 — Mobile PWA v0.2.2 — Slip Analyzer paste-text parser + milestone props
 
 **What:** Operator tested v0.2.1 ANALYZE tab on a real DK SGP screenshot (Jalen Williams 20+ Points + 4 other legs). Two real blockers: (a) over/under-only side dropdown didn't fit milestone props like Double-Double or Anytime TD, (b) typing 5 legs by hand = hard pass for daily use.

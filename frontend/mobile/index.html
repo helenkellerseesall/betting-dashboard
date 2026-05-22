@@ -1555,11 +1555,23 @@
         `;
       }).join("");
 
-      // v0.2.2: paste-text mode — operator drops slip text from the screenshot,
-      // we parse it into structured legs. Saves the 5-leg-by-hand pain.
-      const pasteHtml = `
+      // v0.2.3: image OCR via Anthropic Vision — drop a screenshot, get legs.
+      const ocrStatus = state.analyze.ocrStatus || "";
+      const ocrHtml = `
+        <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.5); background: linear-gradient(180deg, #11202E 0%, #141828 100%);">
+          <div class="leg-form-title" style="margin-bottom: 6px;">📸 Drop a screenshot (Claude Vision OCR)</div>
+          <input type="file" id="anaImageInput" accept="image/*" style="display: none;"
+                 onchange="handleImageFile(this.files[0])" />
+          <button onclick="document.getElementById('anaImageInput').click()" class="add-leg-form-btn" style="margin-top: 0; margin-bottom: 6px;">
+            📷 Choose image / take photo
+          </button>
+          <div id="anaOcrStatus" style="font-size: 11px; color: ${ocrStatus.includes("error") ? "#F87171" : ocrStatus.includes("Parsed") ? "#34D399" : "#9CA3AF"}; min-height: 14px; text-align: center; padding: 2px 0;">
+            ${escapeHtml(ocrStatus) || "Or paste an image (Cmd-V) anywhere on this page."}
+          </div>
+        </div>
+
         <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.3);">
-          <div class="leg-form-title" style="margin-bottom: 6px;">⚡ Quick paste from slip</div>
+          <div class="leg-form-title" style="margin-bottom: 6px;">⚡ Or quick-paste slip text</div>
           <textarea id="anaPasteText" rows="3"
             placeholder="Paste the slip text — e.g. &quot;Jalen Williams 20+ Points, Dylan Harper 20+ Points, SGA 8+ Assists, Wembanyama 30+ Points, Stephon Castle Double-Double&quot;"
             style="width: 100%; padding: 8px; background: #0A0E1A; border: 1px solid #1F2937; color: #E5E7EB; border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical; box-sizing: border-box;"
@@ -1580,9 +1592,90 @@
 
       const resultHtml = a.result ? renderVerdict(a.result) : "";
 
-      main.innerHTML = introHtml + metaHtml + pasteHtml + legsHtml + submitHtml + resultHtml +
-        `<div class="diag-footer">analyze v0.2.2 · paste-parse + milestone props · backend POST /api/ws/screenshots/ingest</div>`;
+      main.innerHTML = introHtml + metaHtml + ocrHtml + legsHtml + submitHtml + resultHtml +
+        `<div class="diag-footer">analyze v0.2.3 · Claude Vision OCR + paste-parse · backend POST /api/ws/screenshots/{ocr,ingest}</div>`;
     }
+
+    // v0.2.3: Image upload + OCR via /api/ws/screenshots/ocr.
+    // Operator drops a sportsbook screenshot, we send to Anthropic Vision,
+    // get back parsed legs, populate the form. Operator just clicks "Analyze Slip."
+    async function handleImageFile(file) {
+      if (!file) return;
+      const statusEl = document.getElementById("anaOcrStatus");
+      const setStatus = (msg, color) => {
+        if (statusEl) {
+          statusEl.textContent = msg;
+          if (color) statusEl.style.color = color;
+        }
+        state.analyze.ocrStatus = msg;
+      };
+      if (file.size > 9 * 1024 * 1024) {
+        setStatus("Image too large (>9MB). Try a screenshot crop.", "#F87171");
+        return;
+      }
+      setStatus("Reading image…", "#9CA3AF");
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("FileReader failed"));
+          reader.readAsDataURL(file);
+        });
+        setStatus("Sending to Claude Vision…", "#38BDF8");
+        const r = await fetch(`${API}/api/ws/screenshots/ocr`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: dataUrl, mediaType: file.type }),
+        });
+        const json = await r.json();
+        if (!r.ok || !json.ok) {
+          if (json?.code === "ANTHROPIC_KEY_MISSING") {
+            setStatus("Need ANTHROPIC_API_KEY in backend .env. See instructions in chat.", "#F87171");
+          } else {
+            setStatus(`OCR error: ${json?.error || `HTTP ${r.status}`}`, "#F87171");
+          }
+          return;
+        }
+        if (!Array.isArray(json.legs) || json.legs.length === 0) {
+          setStatus("Couldn't read any legs from this image. Try a clearer crop.", "#FBBF24");
+          return;
+        }
+        // Populate legs from OCR result
+        state.analyze.legs = json.legs.map(l => ({
+          player: l.player || "",
+          propType: l.propType || "Points",
+          line: l.line == null ? "" : String(l.line),
+          side: l.side || (isMilestoneProp(l.propType) ? "yes" : "over"),
+          odds: l.odds == null ? "" : String(l.odds),
+          sportsbook: l.sportsbook || json.sportsbook || "DraftKings",
+        }));
+        const noteParts = [`Parsed ${json.legs.length} legs from image`];
+        if (json.sportsbook) noteParts.push(`book: ${json.sportsbook}`);
+        if (json.combinedOdds) noteParts.push(`combined: +${json.combinedOdds}`);
+        setStatus(`✓ ${noteParts.join(" · ")}`, "#34D399");
+        render();
+      } catch (e) {
+        setStatus(`OCR error: ${e.message || String(e)}`, "#F87171");
+      }
+    }
+    window.handleImageFile = handleImageFile;
+
+    // Page-level paste handler — operator copies an image (Cmd-V on Mac, share-paste
+    // on iPhone), we route it into the OCR flow. Only fires when ANALYZE tab is active.
+    document.addEventListener("paste", (e) => {
+      if (state.activeSport !== "analyze") return;
+      const items = e.clipboardData?.items || [];
+      for (const item of items) {
+        if (item.type && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            handleImageFile(file);
+            return;
+          }
+        }
+      }
+    });
 
     // v0.2.2: prop type change handler — also auto-flips side to "yes" when
     // switching to a milestone prop, and clears the line (not applicable).
@@ -1727,9 +1820,12 @@
     window.parseAndPopulate = parseAndPopulate;
 
     function legHasMinFields(leg) {
-      return String(leg.player || "").trim().length > 0 &&
-             String(leg.line ?? "").length > 0 &&
-             String(leg.odds ?? "").length > 0;
+      // v0.2.3: operator feedback — sportsbook screenshots usually only show
+      // the COMBINED parlay odds, not per-leg odds. So per-leg odds are now
+      // OPTIONAL. Milestone props (Double-Double etc.) don't need line either.
+      if (!String(leg.player || "").trim()) return false;
+      if (!isMilestoneProp(leg.propType) && !String(leg.line ?? "").length) return false;
+      return true;
     }
 
     function updateAnalyzeMeta(key, val) {
@@ -1768,15 +1864,19 @@
 
     async function submitAnalyze() {
       const a = state.analyze;
-      const legs = a.legs.filter(legHasMinFields).map(leg => ({
-        player: String(leg.player).trim(),
-        statFamily: String(leg.propType).toLowerCase().replace(/\s+/g, "_"),
-        propType: leg.propType,
-        side: leg.side,
-        line: Number(leg.line),
-        odds: Number(String(leg.odds).replace(/[+\s]/g, "")),
-        sportsbook: leg.sportsbook,
-      }));
+      const legs = a.legs.filter(legHasMinFields).map(leg => {
+        const rawOdds = String(leg.odds || "").replace(/[+\s]/g, "");
+        const oddsNum = rawOdds ? Number(rawOdds) : null;
+        return {
+          player: String(leg.player).trim(),
+          statFamily: String(leg.propType).toLowerCase().replace(/\s+/g, "_"),
+          propType: leg.propType,
+          side: leg.side,
+          line: leg.line === "" ? null : Number(leg.line),
+          odds: Number.isFinite(oddsNum) ? oddsNum : null,
+          sportsbook: leg.sportsbook,
+        };
+      });
       if (legs.length === 0) return;
 
       const payload = {

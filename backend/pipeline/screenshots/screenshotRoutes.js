@@ -34,6 +34,8 @@ const { normalizeIngestedSlip, normalizeIngestedSlips } = require("./normalizeIn
 const { classifyIngestedSlip }                          = require("./classifyIngestedSlip")
 const { applyScreenshotSchema }                         = require("../../storage/screenshotSchema")
 const { tryGetDb }                                      = require("../../storage/db")
+// v0.2.3: Anthropic Vision OCR for real image upload (Session N+1.5)
+const { ocrSlipFromImage }                              = require("./ocrAnthropicAdapter")
 // Phase BNSB-1A (FE-VBI-1): wire canonical VBI analyzeSlip into the ingest
 // response so the FE upload card receives the deterministic verdict payload
 // (verdictSummary / strongestLeg / weakestLeg / contradictionFlags /
@@ -299,6 +301,63 @@ router.post("/ingest", (req, res) => {
   } catch (err) {
     console.error("[screenshotRoutes] /ingest error:", err)
     res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// ── POST /ocr ────────────────────────────────────────────────────────────────
+/**
+ * v0.2.3 (Session N+1.5): Image OCR via Anthropic Claude Vision.
+ *
+ * Body (application/json, up to 10 MB to fit base64-encoded screenshots):
+ *   {
+ *     imageBase64: string   // data URL OR raw base64 (data URL prefix auto-stripped)
+ *     mediaType:   string?  // optional hint — "image/jpeg" | "image/png" | etc.
+ *   }
+ *
+ * Response (200):
+ *   {
+ *     ok: true,
+ *     sportsbook:    string|null,
+ *     combinedOdds:  number|null,
+ *     legs: [{ player, propType, side, line, odds, sportsbook }, ...],
+ *     modelUsage:    { input_tokens, output_tokens } | null
+ *   }
+ *
+ * Response (503 if ANTHROPIC_API_KEY missing):
+ *   { ok: false, error: "ANTHROPIC_KEY_MISSING", ... }
+ *
+ * Cost: ~$0.005 per call at Claude 3.5 Sonnet vision rates. Operator gets
+ * API key from console.anthropic.com (separate from Claude Max subscription).
+ *
+ * Mounted with a per-route express.json({ limit: "10mb" }) override so this
+ * specific endpoint can accept full-resolution mobile screenshots without
+ * affecting the global JSON limit (which stays at the default 100KB for
+ * everything else — safer for the rest of the API surface).
+ */
+router.post("/ocr", express.json({ limit: "10mb" }), async (req, res) => {
+  try {
+    const { imageBase64, mediaType } = req.body || {}
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      return res.status(400).json({
+        ok: false,
+        error: "Body must include `imageBase64` (string — data URL or raw base64)"
+      })
+    }
+
+    const result = await ocrSlipFromImage({ imageBase64, mediaType })
+    return res.json({ ok: true, ...result })
+
+  } catch (err) {
+    console.error("[screenshotRoutes] /ocr error:", err?.message || err)
+    const code = err?.code || "OCR_FAILED"
+    const status = code === "ANTHROPIC_KEY_MISSING" ? 503
+                 : code === "EMPTY_IMAGE" ? 400
+                 : 500
+    return res.status(status).json({
+      ok: false,
+      error: err?.message || String(err),
+      code
+    })
   }
 })
 
