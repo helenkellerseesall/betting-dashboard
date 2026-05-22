@@ -1925,12 +1925,21 @@
       const legs = a.legs.filter(legHasMinFields).map(leg => {
         const rawOdds = String(leg.odds || "").replace(/[+\s]/g, "");
         const oddsNum = rawOdds ? Number(rawOdds) : null;
+        const milestone = isMilestoneProp(leg.propType);
+        // v0.2.7: milestone props (Double-Double, Anytime HR, etc.) don't have
+        // a line. Backend resolveSlipLegToPrediction.js requires line non-null
+        // (fails MISSING_LINE → "could not map this leg" error). Pass synthetic
+        // line=0.5 so resolution succeeds; downstream cognition can detect
+        // milestone via propType.
+        const lineValue = milestone
+          ? 0.5
+          : (leg.line === "" ? null : Number(leg.line));
         return {
           player: String(leg.player).trim(),
           statFamily: String(leg.propType).toLowerCase().replace(/\s+/g, "_"),
           propType: leg.propType,
           side: leg.side,
-          line: leg.line === "" ? null : Number(leg.line),
+          line: lineValue,
           odds: Number.isFinite(oddsNum) ? oddsNum : null,
           sportsbook: leg.sportsbook,
         };
@@ -1982,7 +1991,6 @@
         return `<div class="verdict-card" style="border-color: rgba(248, 113, 113, 0.4);">
           <div style="color: #F87171; font-weight: 700; margin-bottom: 6px;">Analysis failed</div>
           <div style="font-family: ui-monospace, monospace; font-size: 11px; color: #9CA3AF;">${escapeHtml(r._error)}</div>
-          <div style="margin-top: 8px; font-size: 11px; color: #6B7280;">Backend may not be running. Try: cd backend &amp;&amp; npm run engine:start</div>
         </div>`;
       }
       const cs = Number(r.compositeScore);
@@ -1994,15 +2002,21 @@
       if (r.baitSignal)  signalsHtml.push(`<span class="verdict-signal vs-bait">BAIT</span>`);
       if (r.verdict?.viral_signal) signalsHtml.push(`<span class="verdict-signal vs-viral">VIRAL</span>`);
 
+      // v0.2.7: Build SLIP-LEVEL structural intelligence from the submitted
+      // legs themselves. Even when deep cognition can't grade individual legs,
+      // parlay math + structural read gives the operator real value.
+      const legs = state.analyze.legs.filter(legHasMinFields);
+      const structureHtml = renderSlipStructureAnalysis(legs);
+
       const verdict = r.verdict || null;
       let detailHtml = "";
-      if (verdict?.verdictSummary) {
+      if (verdict?.verdictSummary && !/could not map|no live/i.test(verdict.verdictSummary)) {
         detailHtml += `<div class="verdict-section">
-          <div class="label">Verdict</div>
+          <div class="label">Cognition verdict</div>
           <div>${escapeHtml(verdict.verdictSummary)}</div>
         </div>`;
       }
-      if (verdict?.bettorLanguageSummary) {
+      if (verdict?.bettorLanguageSummary && !/could not map|no live/i.test(verdict.bettorLanguageSummary)) {
         detailHtml += `<div class="verdict-section">
           <div class="label">Bettor-language read</div>
           <div>${escapeHtml(verdict.bettorLanguageSummary)}</div>
@@ -2036,11 +2050,91 @@
             <div class="verdict-archetype">${escapeHtml(String(archetype).replace(/_/g, " "))}</div>
           </div>
           ${signalsHtml.length ? `<div class="verdict-signals">${signalsHtml.join("")}</div>` : ""}
+          ${structureHtml}
           ${detailHtml}
           <div style="margin-top: 12px; text-align: center;">
             <button class="ps-clear" onclick="resetAnalyze()">Analyze another slip</button>
           </div>
         </div>
+      `;
+    }
+
+    // v0.2.7: Slip-level structural intelligence rendered directly from the
+    // submitted legs. Independent of the backend cognition's grade — gives
+    // useful read EVEN when individual legs can't be deep-analyzed.
+    function renderSlipStructureAnalysis(legs) {
+      if (!legs || legs.length === 0) return "";
+
+      // Combined odds math
+      const oddsToDecimal = (am) => {
+        const n = Number(String(am).replace(/[+\s]/g, ""));
+        if (!Number.isFinite(n) || n === 0) return null;
+        return n > 0 ? (n / 100 + 1) : (100 / Math.abs(n) + 1);
+      };
+      const legDecimals = legs.map(l => oddsToDecimal(l.odds)).filter(Number.isFinite);
+      const hasFullOdds = legDecimals.length === legs.length;
+      let combinedDecimal = null, combinedAmerican = null, impliedHitRate = null;
+      if (hasFullOdds && legDecimals.length > 0) {
+        combinedDecimal = legDecimals.reduce((a, b) => a * b, 1);
+        combinedAmerican = combinedDecimal >= 2
+          ? Math.round((combinedDecimal - 1) * 100)
+          : -Math.round(100 / (combinedDecimal - 1));
+        impliedHitRate = 1 / combinedDecimal;
+      }
+
+      // Structural reads
+      const milestone = legs.filter(l => isMilestoneProp(l.propType)).length;
+      const altLines  = legs.filter(l => {
+        const pt = String(l.propType || "").toLowerCase();
+        const ln = Number(l.line);
+        // Heuristic: stretched alt lines (Points 25+, Rebounds 12+, etc.) — high payout per leg
+        if (!Number.isFinite(ln)) return false;
+        if (pt.includes("points") && ln >= 24.5) return true;
+        if (pt.includes("rebounds") && ln >= 9.5) return true;
+        if (pt.includes("assists") && ln >= 7.5) return true;
+        if (pt.includes("hits") && ln >= 1.5) return true;
+        return false;
+      }).length;
+
+      // Single-book check
+      const books = new Set(legs.map(l => String(l.sportsbook || "").trim()).filter(Boolean));
+      const singleBook = books.size === 1 ? [...books][0] : null;
+
+      // Structural verdict heuristics
+      const verdicts = [];
+      if (impliedHitRate != null) {
+        if (impliedHitRate < 0.01) verdicts.push("Extreme variance play (<1% implied hit rate)");
+        else if (impliedHitRate < 0.05) verdicts.push("Lottery-tier longshot (1-5% implied hit rate)");
+        else if (impliedHitRate < 0.15) verdicts.push("High-variance parlay (5-15% hit rate)");
+        else if (impliedHitRate < 0.35) verdicts.push("Medium-variance parlay (15-35% hit rate)");
+        else verdicts.push("Reasonable hit rate (>35% implied)");
+      }
+      if (legs.length >= 5) verdicts.push(`${legs.length}-leg same-game style — exponential variance compounding`);
+      if (altLines >= 2) verdicts.push(`${altLines} stretched alt lines — depends on tail-event performance`);
+      if (milestone > 0) verdicts.push(`${milestone} milestone bet${milestone > 1 ? "s" : ""} (yes/no, low base rate)`);
+      if (!singleBook && books.size > 1) verdicts.push(`Mixed books (${books.size}) — not constructable as single-book parlay`);
+      else if (singleBook) verdicts.push(`Buildable on ${singleBook} (single-book)`);
+
+      // Display
+      const fmtOdds = (am) => am == null ? "—" : (am > 0 ? `+${am}` : `${am}`);
+      const fmtPct = (p) => p == null ? "—" : (p * 100).toFixed(p < 0.01 ? 3 : p < 0.1 ? 2 : 1) + "%";
+
+      return `
+        <div class="verdict-section" style="border-color: rgba(56, 189, 248, 0.3);">
+          <div class="label">Parlay math</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; margin-top: 4px;">
+            <span style="color: #9CA3AF;">Legs</span><span style="font-family: ui-monospace, monospace;">${legs.length}</span>
+            <span style="color: #9CA3AF;">Combined odds</span><span style="font-family: ui-monospace, monospace; color: ${combinedAmerican != null && combinedAmerican > 0 ? "#34D399" : "#F9FAFB"};">${hasFullOdds ? fmtOdds(combinedAmerican) : "(needs per-leg odds)"}</span>
+            <span style="color: #9CA3AF;">Implied hit rate</span><span style="font-family: ui-monospace, monospace; color: ${impliedHitRate != null && impliedHitRate < 0.05 ? "#F87171" : "#FBBF24"};">${fmtPct(impliedHitRate)}</span>
+          </div>
+        </div>
+        ${verdicts.length ? `
+          <div class="verdict-section">
+            <div class="label">Structural read</div>
+            <div style="font-size: 12px; line-height: 1.6;">
+              ${verdicts.map(v => `<div>• ${escapeHtml(v)}</div>`).join("")}
+            </div>
+          </div>` : ""}
       `;
     }
 
