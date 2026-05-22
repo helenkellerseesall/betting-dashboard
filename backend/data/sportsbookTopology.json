@@ -56,23 +56,23 @@
       ],
       "operatorNotes": "Newer entrant; same-game SGP supported; cross-game SGP NOT yet supported per operator feed. Conservative market coverage; pitcher props limited."
     },
-    "Caesars": {
+    "bet365": {
       "supportsSGP":           true,
       "supportsCrossGameSGP":  true,
       "supportsAltLines":      true,
       "supportsPlayerProps":   true,
       "supportsTeamProps":     true,
-      "maxLegsPerSlip":        12,
+      "maxLegsPerSlip":        14,
       "minLegsForParlayBoost":  3,
-      "minOddsPerLeg":        -5000,
-      "maxOddsPerLeg":         50000,
+      "minOddsPerLeg":        -10000,
+      "maxOddsPerLeg":         100000,
       "marketKeys": [
         "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
-        "batter_runs_scored","batter_stolen_bases","batter_strikeouts",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts","batter_walks",
         "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
         "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
       ],
-      "operatorNotes": "Strong alt-line coverage; deep RBI ladders; favored for middle-of-order RBI conviction stacks."
+      "operatorNotes": "Operator-mandated 2026-05-22 (replaces Caesars). Global parent operator with deep prop coverage and aggressive bet builder; max 14-leg parlays. Favored for long-leg multi-event ladders where SGP+ caps elsewhere bind."
     },
     "BetMGM": {
       "supportsSGP":           true,
