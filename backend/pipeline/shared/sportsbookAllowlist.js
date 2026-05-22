@@ -1,19 +1,14 @@
 "use strict"
 
 /**
- * sportsbookAllowlist.js — canonical authority for the four operator-approved
+ * sportsbookAllowlist.js — canonical authority for the operator's approved
  * U.S. retail sportsbooks. Everything else excluded by default until the
  * operator explicitly authorizes additional books via this file.
  *
- * Phase Item 0002 Slice 1.5 — verifier supplement (sportsbook governance).
- *
  * Consumers:
  *   - backend/scripts/verifySportsbookConstructability.js (single-book + book ∈ allowlist)
- *   - future: buildFeaturedPlays + buildSlipAi curated emission filters
- *   - future: FE PropRail render guards (battlefield rows from non-allowed
- *             books may still surface in Discover battlefield by design —
- *             anti-sterilization invariant — but curated slips never
- *             reference a non-allowed book)
+ *   - frontend/mobile/index.html (defense-in-depth ALLOWED_BOOKS filter)
+ *   - buildFeaturedPlays + buildSlipAi curated emission filters
  *
  * Doctrine:
  *   - ONE canonical allowlist. No parallel definitions.
@@ -28,16 +23,20 @@
  *   2026-05-19 — initial 4-book set (DraftKings / FanDuel / BetMGM / Caesars).
  *   2026-05-19 — Phase Item 0003 Slice 1: expanded to 7-book set
  *                (added Fanatics / Hard Rock / BetRivers). Operator-authorized.
+ *   2026-05-22 — Operator product-vision finalization: Caesars REMOVED,
+ *                bet365 ADDED. Final 7-book operator list:
+ *                DraftKings, FanDuel, Fanatics, BetRivers, BetMGM, Hard Rock, bet365.
+ *                Drops Caesars + BetOnline.ag and any other non-allowed leak.
  */
 
 const ALLOWED_SPORTSBOOKS = Object.freeze([
   "DraftKings",
   "FanDuel",
   "Fanatics",
-  "Caesars",
   "BetMGM",
   "Hard Rock",
   "BetRivers",
+  "bet365",
 ])
 
 const ALLOWED_SET = Object.freeze(new Set(ALLOWED_SPORTSBOOKS.map(s => s.toLowerCase())))
@@ -59,10 +58,6 @@ const SPORTSBOOK_ALIASES = Object.freeze({
   "betmgm":         "BetMGM",
   "bet mgm":        "BetMGM",
   "mgm":            "BetMGM",
-  // Caesars
-  "caesars":        "Caesars",
-  "caesar":         "Caesars",
-  "czr":            "Caesars",
   // Hard Rock — Phase Item 0003 Slice 1
   "hard rock":      "Hard Rock",
   "hardrock":       "Hard Rock",
@@ -74,6 +69,12 @@ const SPORTSBOOK_ALIASES = Object.freeze({
   "bet rivers":     "BetRivers",
   "br":             "BetRivers",
   "rivers":         "BetRivers",
+  // bet365 — added 2026-05-22 (replaces Caesars per operator product vision)
+  "bet365":         "bet365",
+  "bet 365":        "bet365",
+  "bet365.com":     "bet365",
+  "b365":           "bet365",
+  "365":            "bet365",
 })
 
 /**

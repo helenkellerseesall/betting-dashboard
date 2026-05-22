@@ -94,6 +94,111 @@
     .tab[data-sport="mlb"].active .tab-count { background: #34D399; color: #0A0E1A; }
     .tab[data-sport="nba"].active { border-color: #F97316; color: #F97316; }
     .tab[data-sport="nba"].active .tab-count { background: #F97316; color: #0A0E1A; }
+    .tab[data-sport="parlay"].active { border-color: #A78BFA; color: #A78BFA; }
+    .tab[data-sport="parlay"].active .tab-count { background: #A78BFA; color: #0A0E1A; }
+    .tab[data-sport="parlay"] .tab-count.has-legs { background: #A78BFA; color: #0A0E1A; }
+
+    /* ── Parlay add button on cards ──────────────────────────── */
+    .add-leg-btn {
+      position: absolute; top: 10px; right: 10px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      color: #A78BFA; font-size: 16px; font-weight: 700; line-height: 1;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s ease;
+      z-index: 2;
+    }
+    .add-leg-btn:hover, .add-leg-btn:active { background: rgba(167, 139, 250, 0.25); }
+    .add-leg-btn.added {
+      background: #A78BFA; border-color: #A78BFA; color: #0A0E1A;
+    }
+    /* card needs relative positioning for the absolute button */
+    .card { position: relative; }
+
+    /* ── Parlay tab view ─────────────────────────────────────── */
+    .parlay-empty {
+      text-align: center; padding: 60px 24px;
+      color: #6B7280; font-size: 14px;
+    }
+    .parlay-empty .big {
+      font-size: 36px; margin-bottom: 12px;
+      background: linear-gradient(135deg, #A78BFA 0%, #7C3AED 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; font-weight: 800;
+    }
+    .parlay-summary {
+      background: linear-gradient(180deg, #1A1424 0%, #141828 100%);
+      border: 1px solid rgba(167, 139, 250, 0.4);
+      border-radius: 14px; padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.1);
+    }
+    .parlay-summary .ps-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .parlay-summary .ps-title {
+      font-size: 11px; font-weight: 800; letter-spacing: 0.8px;
+      text-transform: uppercase; color: #A78BFA;
+    }
+    .parlay-summary .ps-clear {
+      background: transparent; border: 1px solid #374151; color: #9CA3AF;
+      font-size: 10px; padding: 4px 10px; border-radius: 6px;
+      cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;
+    }
+    .parlay-summary .ps-row {
+      display: flex; justify-content: space-between; padding: 4px 0;
+      font-size: 13px;
+    }
+    .parlay-summary .ps-row .lbl { color: #9CA3AF; }
+    .parlay-summary .ps-row .val {
+      font-family: ui-monospace, "SF Mono", monospace; color: #F9FAFB; font-weight: 700;
+    }
+    .parlay-summary .ps-odds {
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 28px; font-weight: 700; color: #34D399;
+      text-align: center; padding: 8px 0;
+      letter-spacing: -1px;
+    }
+    .parlay-summary .ps-buildable {
+      font-size: 11px; padding: 6px 10px; border-radius: 6px;
+      text-align: center; margin-top: 8px;
+      font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .ps-buildable.ok { background: rgba(52, 211, 153, 0.12); color: #34D399; }
+    .ps-buildable.warn { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
+    .ps-buildable.bad { background: rgba(248, 113, 113, 0.12); color: #F87171; }
+
+    .parlay-leg {
+      background: #141828; border: 1px solid #1F2937;
+      border-radius: 10px; padding: 10px 12px;
+      margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .parlay-leg .leg-main { flex: 1; min-width: 0; }
+    .parlay-leg .leg-player {
+      font-size: 14px; font-weight: 700; color: #F9FAFB;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .parlay-leg .leg-prop {
+      font-size: 12px; color: #9CA3AF; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .parlay-leg .leg-odds {
+      font-family: ui-monospace, "SF Mono", monospace;
+      font-size: 14px; font-weight: 700; color: #34D399;
+      min-width: 50px; text-align: right;
+    }
+    .parlay-leg .leg-book {
+      font-size: 10px; color: #6B7280;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .parlay-leg .leg-remove {
+      background: transparent; border: none; color: #6B7280;
+      font-size: 18px; line-height: 1; cursor: pointer; padding: 4px 8px;
+    }
+    .parlay-leg .leg-remove:hover { color: #F87171; }
 
     /* ── Main scroll area ──────────────────────────────────────── */
     main {
@@ -427,6 +532,7 @@
     <div class="sport-tabs">
       <button class="tab active" data-sport="mlb">MLB <span class="tab-count" id="mlbCount">—</span></button>
       <button class="tab" data-sport="nba">NBA <span class="tab-count" id="nbaCount">—</span></button>
+      <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
     </div>
   </header>
 
@@ -449,7 +555,121 @@
       data: { mlb: null, nba: null },
       lastFetchAt: null,
       fetching: false,
+      parlay: loadParlay(),  // v0.2.0: persistent across sessions via localStorage
     };
+
+    // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
+    // namespaced so future versions can migrate without colliding.
+    const PARLAY_STORAGE_KEY = "edge:parlay:v1";
+    function loadParlay() {
+      try {
+        const raw = localStorage.getItem(PARLAY_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) { return []; }
+    }
+    function saveParlay() {
+      try { localStorage.setItem(PARLAY_STORAGE_KEY, JSON.stringify(state.parlay || [])); } catch (_) {}
+    }
+
+    // Stable per-candidate signature so add/remove and "is this leg already in?"
+    // work even after a refresh changes the surrounding ordering.
+    function legSig(c) {
+      return [
+        c.player || "",
+        c.propType || c.statFamily || "",
+        c.side || "",
+        c.line == null ? "" : c.line,
+        c.sportsbook || c.book || ""
+      ].join("|");
+    }
+    function isLegInParlay(c) {
+      const sig = legSig(c);
+      return state.parlay.some(l => legSig(l) === sig);
+    }
+    function addLeg(c, sport) {
+      if (isLegInParlay(c)) return;
+      // Capture only the fields we need; full row is too big for localStorage at scale
+      state.parlay.push({
+        player: c.player, team: c.team || null,
+        matchup: c.matchup || null, sport,
+        propType: c.propType || c.statFamily, statFamily: c.statFamily,
+        side: c.side, line: c.line,
+        odds: c.oddsAmerican ?? c.odds,
+        oddsAmerican: c.oddsAmerican ?? c.odds,
+        sportsbook: c.sportsbook || c.book,
+        book: c.sportsbook || c.book,
+        addedAt: Date.now(),
+      });
+      saveParlay();
+      render();
+    }
+    function removeLeg(idx) {
+      state.parlay.splice(idx, 1);
+      saveParlay();
+      render();
+    }
+    function clearParlay() {
+      if (state.parlay.length === 0) return;
+      if (!confirm(`Clear all ${state.parlay.length} legs from your parlay?`)) return;
+      state.parlay = [];
+      saveParlay();
+      render();
+    }
+    window.addLegFromCard = function (idx, sport) {
+      const payload = state.data[sport];
+      if (!payload) return;
+      // idx is the visible index; find the candidate by walking the same
+      // bucket-classification we use in render(). Simpler: pull from a cached
+      // index map we attach during render. See render() → state._renderedIndex.
+      const c = (state._renderedIndex || {})[sport + ":" + idx];
+      if (c) addLeg(c, sport);
+    };
+    window.removeLegFromParlay = removeLeg;
+    window.clearParlayConfirm = clearParlay;
+
+    // Odds math — American → decimal multiplier → combined American
+    function americanToDecimal(am) {
+      const n = Number(am);
+      if (!Number.isFinite(n)) return null;
+      return n > 0 ? (n / 100 + 1) : (100 / Math.abs(n) + 1);
+    }
+    function decimalToAmerican(dec) {
+      if (!Number.isFinite(dec) || dec <= 1) return null;
+      return dec >= 2 ? Math.round((dec - 1) * 100) : -Math.round(100 / (dec - 1));
+    }
+    function computeCombinedOdds(legs) {
+      if (!legs.length) return { combinedAmerican: null, combinedDecimal: null, combinedProb: null };
+      let prod = 1;
+      for (const l of legs) {
+        const d = americanToDecimal(l.oddsAmerican ?? l.odds);
+        if (d == null) return { combinedAmerican: null, combinedDecimal: null, combinedProb: null };
+        prod *= d;
+      }
+      return {
+        combinedDecimal: prod,
+        combinedAmerican: decimalToAmerican(prod),
+        combinedProb: 1 / prod,
+      };
+    }
+
+    // Single-book constructability: if all legs share the same canonical book,
+    // surface that book as the buildable target. Otherwise warn — mixed-book
+    // parlays can't be constructed at a single sportsbook.
+    function computeBuildability(legs) {
+      if (!legs.length) return { status: "empty", book: null };
+      const books = new Set();
+      for (const l of legs) {
+        const b = String(l.sportsbook || l.book || "").trim();
+        if (!b) return { status: "missing", book: null };
+        books.add(b);
+      }
+      if (books.size === 1) {
+        return { status: "single", book: [...books][0] };
+      }
+      return { status: "mixed", book: null, books: [...books] };
+    }
 
     // ─────────────────────────────────────────────────────────────
     // Reasoning compiler — translates canonical signals to WHY chips
@@ -675,6 +895,11 @@
     // Render a single play card
     // ─────────────────────────────────────────────────────────────
     function renderCard(c, sport, idx, isConv) {
+      // v0.2.0: cache candidate by (sport, idx) so addLegFromCard can locate
+      // the candidate when the operator taps the + button. State is rebuilt
+      // on every render() so stale indexes don't carry across switches.
+      if (state._renderedIndex) state._renderedIndex[sport + ":" + idx] = c;
+
       const tier = tierClass(c.confidenceTier || c.tier);
       const tierTxt = tierLabel(c.confidenceTier || c.tier);
       const convClass = isConv ? "conviction-card" : "";
@@ -762,8 +987,13 @@
         `<dt>${s.k}</dt><dd class="${s.isNull ? "null" : ""}">${s.isNull ? "—" : escapeHtml(String(s.v))}</dd>`
       ).join("");
 
+      const inParlay = isLegInParlay(c);
       return `
         <div class="card ${convClass}" data-idx="${idx}">
+          <button class="add-leg-btn ${inParlay ? "added" : ""}"
+                  onclick="addLegFromCard(${idx}, '${sport}'); event.stopPropagation();"
+                  aria-label="${inParlay ? "Added to parlay" : "Add to parlay"}"
+                  title="${inParlay ? "Already in parlay" : "Add to parlay"}">${inParlay ? "✓" : "+"}</button>
           <div class="card-top">
             <div class="player-block">
               <div class="player-name">${escapeHtml(c.player || "Unknown player")}</div>
@@ -830,6 +1060,20 @@
       };
       document.getElementById("mlbCount").textContent = allowedCount(state.data.mlb);
       document.getElementById("nbaCount").textContent = allowedCount(state.data.nba);
+      // Parlay tab count
+      const pCountEl = document.getElementById("parlayCount");
+      pCountEl.textContent = state.parlay.length;
+      pCountEl.classList.toggle("has-legs", state.parlay.length > 0);
+
+      // Reset the rendered-index map; will be rebuilt as cards render.
+      state._renderedIndex = {};
+
+      // Parlay tab early-out — its own renderer, doesn't share the
+      // freshness/buckets pipeline.
+      if (sport === "parlay") {
+        renderParlay(main);
+        return;
+      }
 
       // Date label
       const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
@@ -1008,6 +1252,66 @@
     }
     window.toggleCard = toggleCard;
 
+    // v0.2.0: Parlay tab renderer. Shows combined odds, single-book buildability,
+    // legs list with per-leg remove. localStorage-backed so it persists.
+    function renderParlay(main) {
+      if (state.parlay.length === 0) {
+        main.innerHTML = `<div class="parlay-empty">
+          <div class="big">🎯</div>
+          <div>Your parlay is empty.</div>
+          <div style="margin-top: 8px; color: #4B5563;">Tap <strong style="color:#A78BFA">+</strong> on any play in MLB or NBA to build your slip.</div>
+        </div>`;
+        return;
+      }
+      const { combinedAmerican, combinedDecimal, combinedProb } = computeCombinedOdds(state.parlay);
+      const build = computeBuildability(state.parlay);
+      const oddsTxt = combinedAmerican == null ? "—"
+                    : combinedAmerican > 0 ? `+${combinedAmerican}` : `${combinedAmerican}`;
+      const probTxt = combinedProb == null ? "—" : `${(combinedProb * 100).toFixed(1)}%`;
+      const decTxt = combinedDecimal == null ? "—" : combinedDecimal.toFixed(2);
+
+      // Buildability message + styling
+      let buildHtml = "";
+      if (build.status === "single") {
+        buildHtml = `<div class="ps-buildable ok">✓ Buildable on ${escapeHtml(build.book)} (single-book)</div>`;
+      } else if (build.status === "mixed") {
+        buildHtml = `<div class="ps-buildable warn">⚠ Mixed books (${build.books.length}) — can't construct at one sportsbook</div>`;
+      } else if (build.status === "missing") {
+        buildHtml = `<div class="ps-buildable bad">⚠ Some legs missing book info — can't verify buildability</div>`;
+      }
+
+      const summaryHtml = `
+        <div class="parlay-summary">
+          <div class="ps-top">
+            <div class="ps-title">Tonight's Parlay · ${state.parlay.length} legs</div>
+            <button class="ps-clear" onclick="clearParlayConfirm()">Clear All</button>
+          </div>
+          <div class="ps-odds">${oddsTxt}</div>
+          <div class="ps-row"><span class="lbl">Combined decimal</span><span class="val">${decTxt}</span></div>
+          <div class="ps-row"><span class="lbl">Implied hit rate</span><span class="val">${probTxt}</span></div>
+          ${buildHtml}
+        </div>
+      `;
+
+      const legsHtml = state.parlay.map((l, i) => {
+        const sideTxt = String(l.side || "").toUpperCase();
+        const oddsT = l.oddsAmerican == null ? "—" : (l.oddsAmerican > 0 ? `+${l.oddsAmerican}` : `${l.oddsAmerican}`);
+        const teamTxt = l.team || (l.sport === "nba" ? "team pending" : "");
+        return `
+          <div class="parlay-leg">
+            <div class="leg-main">
+              <div class="leg-player">${escapeHtml(l.player || "?")}${teamTxt ? ` <span style="color:#6B7280; font-weight:500; font-size:11px;">· ${escapeHtml(teamTxt)}</span>` : ""}</div>
+              <div class="leg-prop">${sideTxt} ${escapeHtml(String(l.propType || ""))} ${l.line ?? ""} <span class="leg-book">· ${escapeHtml(l.sportsbook || l.book || "?")}</span></div>
+            </div>
+            <div class="leg-odds">${oddsT}</div>
+            <button class="leg-remove" onclick="removeLegFromParlay(${i})" aria-label="Remove leg">×</button>
+          </div>
+        `;
+      }).join("");
+
+      main.innerHTML = summaryHtml + legsHtml + `<div class="diag-footer">parlay v0.2.0 · persisted in browser · single-book discipline enforced</div>`;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Fetch + refresh
     // ─────────────────────────────────────────────────────────────
@@ -1058,10 +1362,13 @@
       });
     });
 
-    // v0.1.2: force-refresh on initial load so the slate is fresh, not whatever
-    // last-cached snapshot the backend has lying around. Operator 2026-05-21:
-    // "updated 2h 23m ago" is bad — opening the app should show me tonight, not history.
-    refresh(true);
+    // v0.1.5: cheap fetch only on initial load — operator 2026-05-21 caught
+    // that force-refreshing on every PWA open would burn ~80 odds-API calls
+    // per launch. Initial load now just reads whatever the backend has cached
+    // (cheap), and the refresh button stays a manual one-tap when operator
+    // wants fresh data. The header "X ago" makes staleness visible so the
+    // operator knows when to tap.
+    refresh(false);
 
     // Periodic "X seconds ago" tick for the header
     setInterval(() => {

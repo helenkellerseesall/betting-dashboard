@@ -554,7 +554,18 @@ router.get("/state", (req, res) => {
         ? mods.timing.buildMarketTiming(snapshotRows, { lineShopping, timingState, bookState })
         : null
 
-      const rawCandidates = pool.enrichedBest.length ? pool.enrichedBest : pool.eligibleBets
+      let rawCandidates = pool.enrichedBest.length ? pool.enrichedBest : pool.eligibleBets
+
+      // NBA TEAM FALLBACK 2026-05-22: tracked_bets files don't write a `team`
+      // field — verified 0/55 entries had it. Result: every NBA card showed
+      // "TEAM PENDING" on the mobile PWA even though projections.json knows the
+      // team for Mobley, Brunson, etc. applyTeamFallbackFromProjections runs in
+      // the snapshot path (buildNbaSnapshotCandidates) but NOT in the tracked-bets
+      // read path. Apply it defensively here so candidates from disk also get
+      // team + opponent inferred from projections.json + matchup string.
+      if (sport === "nba" && rawCandidates.length) {
+        rawCandidates = rawCandidates.map(applyTeamFallbackFromProjections)
+      }
 
       // FIX Q1: Pre-compute snapshot supplement ONCE and reuse for both the portfolio
       // candidate pool AND the featured/slip aiCandidates pool.

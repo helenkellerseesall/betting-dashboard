@@ -6,6 +6,52 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-22 — Mobile PWA v0.2.0 + v0.1.6 (Parlay Builder + 7-book canonical + NBA team fallback)
+
+**What:** First true product-feature beyond display + filtering. Operator can now build parlays directly in the mobile PWA. Three things shipped in one batch:
+
+**v0.1.6 backend (B + A):**
+- `backend/pipeline/shared/sportsbookAllowlist.js`: removed Caesars, added bet365. Final canonical 7-book list = DraftKings / FanDuel / Fanatics / BetMGM / Hard Rock / BetRivers / bet365. 16/16 alias self-tests pass. BetOnline.ag and any other leak drops at the persistence boundary now.
+- `backend/routes/workstationRoutes.js`: defensive `applyTeamFallbackFromProjections` call for NBA candidates in `/state` route. Root cause: NBA `tracked_bets` files don't write a `team` field (0/55 confirmed); team-fallback was only running in snapshot path. Verified: 31/55 NBA candidates now get team populated (Mobley, Brunson, Jarrett Allen, James Harden, etc). 24/55 still missing because projections.json is 21 days old and doesn't cover newer/rookie players (tracked separately).
+
+**v0.2.0 frontend (C — Parlay Builder):**
+- Third tab "PARLAY" with leg-count badge (purple accent).
+- Per-card "+ add to parlay" button (top-right of every card). Tap → leg added. Becomes "✓" when in parlay.
+- Parlay tab shows: combined American odds (large), implied hit rate %, decimal odds, leg count, per-leg list with × to remove.
+- **Single-book constructability check** — when all legs share the same book, surfaces "✓ Buildable on [Book]". When mixed, surfaces "⚠ Mixed books — can't construct at one sportsbook." Enforces the sportsbook-governance discipline canonically.
+- Empty-state explainer with purple gradient.
+- localStorage persistence — parlay legs survive page reloads, app restarts, PWA close/reopen. Namespaced key `edge:parlay:v1` for future migrations.
+- "Clear All" with confirmation.
+- ~315 lines added to `frontend/mobile/index.html`. JS syntax-clean. Total file now 1,383 lines.
+
+**Foundation for next features:** this is the surface for v0.2.1 (Playbook-style book optimization + deep-link slip auto-build — task #25), and the natural place to wire recommendation logging (task #7) since logging happens when operator commits a parlay.
+
+**Validation:** operator opens EDGE PWA, taps + on a card → "+" becomes "✓", PARLAY tab badge increments. Taps PARLAY tab → sees combined odds + buildability. Removes a leg → updates. Closes app + reopens → parlay still there.
+
+---
+
+## 2026-05-21 — MLB lineup ingest reactivated (one env flag, no code change)
+
+**What:** Operator opened v0.1.4 PWA and observed every MLB candidate still showing "LINEUPS PENDING" with PCE-1A canonical inputs null. Investigation traced the data path: `buildMlbBootstrapSnapshot.js` → conditionally calls `applyMlbLiveStateLayers` → `deriveMlbConfirmedLineupState` → `fetchMlbOfficialLineupsSnapshot` (free MLB Stats API). The entire pipeline was gated behind `MLB_LIVE_STATE_ENABLED=1` environment variable, defaulted OFF. Operator's `.env` had `ODDS_API_KEY`, `PORT`, `API_SPORTS_KEY` but not the live-state gate.
+
+**Done:** Operator added `MLB_LIVE_STATE_ENABLED=1` to `backend/.env`, restarted backend. Live-state pipeline now firing. Verified from boot logs: `[MLB-LIVE-STATE-BOOT-PROBE] enabled="1"`, `[MLB-LIVE-STATE-PHASE-2] lineupDerived: 9012, topTags: [['LINEUP_CONFIRMED', 8477]]`. 8,477 MLB candidate rows now carry confirmed-lineup data (Trea Turner / Elly De La Cruz / Bryce Harper / Alec Bohm visible in match results).
+
+**Impact:**
+- PCE-1A (hitter conviction engine) reactivated — canonical inputs (lineupSpot, plateAppearancesProxy, runEnvironment, rbiEnvironment, depth) now populate
+- "LINEUPS PENDING" badges should disappear from most MLB cards after next slate refresh
+- WHY chips for MLB hitter-overs will now include real lineup-derived signals
+- Conviction-tier filter on mobile PWA will start finding qualifying plays (previously zero because lineup-pending notes disqualified everything)
+
+**No code changes.** Pure config. Zero risk to existing cognition; pure additive enrichment.
+
+---
+
+## 2026-05-21 — Mobile PWA v0.1.5 (stop force-refresh on PWA open)
+
+**What:** Operator 2026-05-21 caught that v0.1.2's force-refresh-on-open burns ~80 odds-API calls per PWA launch. Reverted to cheap state-fetch only on initial load. Refresh button (↻) keeps explicit force-refresh behavior. Header "X ago" makes staleness visible. One-line change.
+
+---
+
 ## 2026-05-21 — Mobile PWA v0.1.4 (prop-aware lotto + grid overflow + empty-explainer)
 
 **What:** Third-pass operator feedback. v0.1.3 +400 lotto threshold sent EVERY MLB play to Lotto because tonight's MLB slate is all +499+. Result: MLB tab showed only collapsed Lotto Room with nothing else — screen looked dead. Also, MLB 2-column grid had cards overflowing the column because grid children default to `min-width: auto` which prevented ellipsis from kicking in.
