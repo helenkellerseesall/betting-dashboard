@@ -700,6 +700,31 @@
       return MILESTONE_PROPS.has(propType);
     }
 
+    // v0.2.5: Auto-detect sport from the leg prop types so the slip-analysis
+    // cognition (resolveSlipLegToPrediction) gets a sport string instead of
+    // null. Without sport, every leg is rejected as MISSING_SPORT → verdict
+    // defaults to 1/100 UNKNOWN. NBA props win in ties since most viral parlay
+    // screenshots are NBA player-prop SGPs.
+    const NBA_PROP_SET = new Set([
+      "Points", "Rebounds", "Assists", "Threes", "PRA",
+      "Steals", "Blocks", "Pts+Reb", "Pts+Ast", "Reb+Ast",
+      "Double-Double", "Triple-Double", "First Basket"
+    ]);
+    const MLB_PROP_SET = new Set([
+      "Hits", "Home Runs", "Total Bases", "RBIs", "Runs Scored",
+      "Stolen Bases", "Strikeouts", "Walks", "Hit a HR"
+    ]);
+    function autoDetectSportFromLegs(legs) {
+      let nba = 0, mlb = 0;
+      for (const l of legs || []) {
+        if (NBA_PROP_SET.has(l.propType)) nba++;
+        if (MLB_PROP_SET.has(l.propType)) mlb++;
+      }
+      if (nba >= mlb && nba > 0) return "nba";
+      if (mlb > 0) return "mlb";
+      return null;  // unknown — let backend decide
+    }
+
     // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
     // namespaced so future versions can migrate without colliding.
     const PARLAY_STORAGE_KEY = "edge:parlay:v1";
@@ -1912,12 +1937,20 @@
       });
       if (legs.length === 0) return;
 
+      // v0.2.5: auto-detect sport from prop types when operator left "auto-detect"
+      // selected. Backend resolveSlipLegToPrediction bails MISSING_SPORT if sport
+      // is null — every leg becomes "unresolved" which is why earlier slips
+      // scored 1/100 UNKNOWN. Same for slateDate — default to today.
+      const detectedSport = a.meta.sport || autoDetectSportFromLegs(legs);
+      const todayDate = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
+
       const payload = {
-        sourceType: a.meta.sourceType || "screenshot",
+        sourceType:  a.meta.sourceType || "screenshot",
         sourceLabel: a.meta.attribution || null,
         attribution: a.meta.attribution || null,
-        sport: a.meta.sport || null,
-        slip: { legs },
+        sport:       detectedSport,
+        slateDate:   todayDate,
+        slip:        { legs },
       };
 
       a.submitting = true;
