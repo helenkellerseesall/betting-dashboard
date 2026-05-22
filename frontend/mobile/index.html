@@ -1615,17 +1615,16 @@
       }
       setStatus("Reading image…", "#9CA3AF");
       try {
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error("FileReader failed"));
-          reader.readAsDataURL(file);
-        });
+        // v0.2.4: convert ANY input image to JPEG via canvas. Handles HEIC,
+        // HEIF, and any other format iPhone Safari might hand us. Anthropic
+        // Vision only accepts jpeg/png/gif/webp, so we normalize to jpeg.
+        // Also caps max dimension at 1600px to keep request size reasonable.
+        const dataUrl = await convertImageToJpeg(file, 1600, 0.9);
         setStatus("Sending to Claude Vision…", "#38BDF8");
         const r = await fetch(`${API}/api/ws/screenshots/ocr`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: dataUrl, mediaType: file.type }),
+          body: JSON.stringify({ imageBase64: dataUrl, mediaType: "image/jpeg" }),
         });
         const json = await r.json();
         if (!r.ok || !json.ok) {
@@ -1659,6 +1658,40 @@
       }
     }
     window.handleImageFile = handleImageFile;
+
+    // v0.2.4: Convert any browser-readable image (HEIC/HEIF/JPEG/PNG/WebP) to
+    // a clean JPEG data URL via canvas. Bulletproof against iPhone HEIC.
+    // Also resizes to maxDim so we don't send 4000x3000 screenshots.
+    async function convertImageToJpeg(file, maxDim, quality) {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error("Image could not be decoded (unsupported format?)"));
+          i.src = objectUrl;
+        });
+        // Compute resize dimensions preserving aspect ratio
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        if (w > maxDim || h > maxDim) {
+          const scale = maxDim / Math.max(w, h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        // White background — JPEG doesn't support alpha, prevents black bg on PNGs
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        return canvas.toDataURL("image/jpeg", quality);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
 
     // Page-level paste handler — operator copies an image (Cmd-V on Mac, share-paste
     // on iPhone), we route it into the OCR flow. Only fires when ANALYZE tab is active.

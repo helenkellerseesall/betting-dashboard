@@ -138,14 +138,32 @@ async function ocrSlipFromImage({ imageBase64, mediaType }) {
     ]
   }
 
-  const response = await axios.post(ANTHROPIC_API_URL, requestBody, {
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json"
-    },
-    timeout: ANTHROPIC_TIMEOUT_MS
-  })
+  let response
+  try {
+    response = await axios.post(ANTHROPIC_API_URL, requestBody, {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+      },
+      timeout: ANTHROPIC_TIMEOUT_MS
+    })
+  } catch (axiosErr) {
+    // v0.2.4: surface the real Anthropic API error so operators see WHY
+    // (invalid media_type, content too large, key inactive, rate limited).
+    const respData = axiosErr?.response?.data
+    const respStatus = axiosErr?.response?.status
+    const upstreamMsg = respData?.error?.message || respData?.message
+    const detailedMsg = upstreamMsg
+      ? `Anthropic API ${respStatus}: ${upstreamMsg}`
+      : `Anthropic API error: ${axiosErr.message}`
+    console.error("[ocrAnthropic] upstream error:", { status: respStatus, data: respData, message: axiosErr.message })
+    const err = new Error(detailedMsg)
+    err.code = "ANTHROPIC_API_ERROR"
+    err.upstreamStatus = respStatus
+    err.upstreamBody = respData
+    throw err
+  }
 
   const rawText = response?.data?.content?.[0]?.text || ""
   const parsed = extractJson(rawText)
