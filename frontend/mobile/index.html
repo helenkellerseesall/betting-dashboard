@@ -1314,22 +1314,30 @@
         </div>`;
       }
 
-      // v0.2.8: search input always rendered above candidates for MLB + NBA
+      // v0.2.8b: search input is ALWAYS rendered above candidates. The
+      // results live in #search-results-region — a stable container that
+      // onSearchInput updates without touching the search input element.
+      // This is what keeps the iPhone keyboard alive while typing
+      // (operator-reported bug: keyboard disappearing on each keystroke).
       const searchState = state.search[sport] || { q: "", results: null, loading: false };
       const searchHtml = renderSearchBar(sport, searchState);
-      // If there's an active search with results, show ONLY the search results
-      // (override the normal candidate grid). Empty search → normal display.
-      if (searchState.q && searchState.q.length >= 2) {
-        const resultsHtml = renderSearchResults(sport, searchState);
-        main.innerHTML = freshHtml + searchHtml + resultsHtml;
+      const searchActive = searchState.q && searchState.q.length >= 2;
+
+      if (searchActive) {
+        // When search is active, the results-region holds the search results
+        // and the normal candidate grid is hidden.
+        main.innerHTML = freshHtml + searchHtml +
+          `<div id="search-results-region">${renderSearchResults(sport, searchState)}</div>`;
         return;
       }
 
       if (cands.length === 0) {
-        main.innerHTML = freshHtml + searchHtml + `<div class="empty">
-          No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
-          Slate may still be building — pull to refresh in a few seconds.
-        </div>`;
+        main.innerHTML = freshHtml + searchHtml +
+          `<div id="search-results-region"></div>` +
+          `<div class="empty">
+            No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
+            Slate may still be building — pull to refresh in a few seconds.
+          </div>`;
         return;
       }
 
@@ -1358,7 +1366,7 @@
       buckets.biggerEdge = buckets.biggerEdge.slice(0, 8);
       buckets.lotto = buckets.lotto.slice(0, 12);
 
-      let html = freshHtml + searchHtml;
+      let html = freshHtml + searchHtml + `<div id="search-results-region"></div>`;
       let idx = 0;
 
       if (buckets.conviction.length > 0) {
@@ -1511,6 +1519,7 @@
       const oddsCls = (typeof odds === "number" && odds > 0) ? "positive" : "";
       const book = c.sportsbook || c.book || "—";
       const bookCls = bookClass(book);
+      const propLabel = c.propType ? String(c.propType) : "";
       return `
         <div class="card" data-idx="${idx}">
           <button class="add-leg-btn ${inParlay ? "added" : ""}"
@@ -1518,7 +1527,7 @@
                   title="${inParlay ? "Already in parlay" : "Add to parlay"}">${inParlay ? "✓" : "+"}</button>
           <div class="prop-line">
             <span class="side ${sideCls}">${sideTxt}</span>
-            <strong>${c.line ?? "—"}</strong>
+            <strong>${escapeHtml(propLabel)}</strong> ${c.line ?? "—"}
           </div>
           <div class="odds-book-row">
             <div class="odds ${oddsCls}">${oddsTxt}</div>
@@ -1528,38 +1537,47 @@
       `;
     }
 
-    // Debounced search — don't fire on every keystroke, wait 300ms after typing stops
+    // v0.2.8b: search updates ONLY #search-results-region — never re-renders
+    // the input element, never calls render(). This is what keeps the iPhone
+    // keyboard alive while typing (each render() destroys + recreates DOM,
+    // Safari dismisses the keyboard when the focused input disappears).
     let _searchDebounce = null;
     function onSearchInput(sport, value) {
       if (!state.search[sport]) state.search[sport] = { q: "", results: null, loading: false };
       state.search[sport].q = value;
       clearTimeout(_searchDebounce);
+
+      const region = document.getElementById("search-results-region");
+
       if (!value || value.length < 2) {
         state.search[sport].results = null;
         state.search[sport].loading = false;
-        render();
+        // Clear the search results region but DON'T re-render — that would
+        // destroy the input + close the keyboard. The user can manually clear
+        // and the normal display reappears on next tab switch / refresh.
+        if (region) region.innerHTML = "";
         return;
       }
+
       state.search[sport].loading = true;
-      // Don't re-render immediately — just update input border. Full render on results.
-      const inputEl = document.getElementById(`search-${sport}`);
-      if (inputEl) inputEl.style.borderColor = "#38BDF8";
+      // Show a quick "Searching…" placeholder in the region while we fetch
+      if (region) region.innerHTML = `<div class="empty" style="padding: 24px;">Searching…</div>`;
+
       _searchDebounce = setTimeout(async () => {
         try {
           const r = await fetch(`${API}/api/ws/player-search?sport=${sport}&q=${encodeURIComponent(value)}`);
           const json = await r.json();
-          if (!r.ok || !json.ok) {
-            state.search[sport].results = [];
-          } else {
-            state.search[sport].results = Array.isArray(json.results) ? json.results : [];
-          }
+          state.search[sport].results = (r.ok && json.ok && Array.isArray(json.results)) ? json.results : [];
         } catch (_) {
           state.search[sport].results = [];
         }
         state.search[sport].loading = false;
-        // Only re-render if user is still on this tab and still searching this query
+        // Only update if user is still on this tab and still typing this query
         if (state.activeSport === sport && state.search[sport].q === value) {
-          render();
+          const liveRegion = document.getElementById("search-results-region");
+          if (liveRegion) {
+            liveRegion.innerHTML = renderSearchResults(sport, state.search[sport]);
+          }
         }
       }, 300);
     }
