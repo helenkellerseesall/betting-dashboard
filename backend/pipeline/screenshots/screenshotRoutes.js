@@ -42,6 +42,63 @@ const { ocrSlipFromImage }                              = require("./ocrAnthropi
 // ecologicalCoherence / signals / bettorLanguageSummary). Pure additive on
 // the existing response shape — back-compat preserved.
 const { analyzeSlip }                                   = require("../shared/buildSlipAnalysis")
+// v0.2.6 (Session N+1.6): load FULL snapshot rows to build shopMap for slip
+// analysis. Operator 2026-05-22 hit "1/100 UNKNOWN" verdict because only 2 of
+// 7 slip players (Cason Wallace, Dort) were in the elite candidate pool —
+// Wemby, SGA, Luke Kornet weren't (their props were chalk, didn't make the
+// edge cut). The FULL snapshot has every prop on every player tonight, so
+// every star CAN be looked up. shopMap is keyed off the line-shopping result.
+const fs   = require("fs")
+const path = require("path")
+const { resolveSnapshotRows } = require("../shared/responseShapeResolvers")
+const { buildLineShopping }   = require("../shared/buildLineShoppingIntelligence")
+const { normFam }             = require("../shared/normalizers")
+
+/**
+ * Build shopMap from the on-disk snapshot for a given sport, indexed by the
+ * canonical lookup key that marketSupportFor() consumes:
+ *   `${player.toLowerCase().trim()}|${normFam(propType)}|${side}|${line ?? "any"}`
+ *
+ * buildLineShopping returns `byProp` as an ARRAY of per-prop entries (each
+ * carries player/propType/side/line/bookCount/consensusConfidence). We pivot
+ * that into a Map for O(1) lookup at marketSupportFor() call sites.
+ *
+ * Fail-safe (null on any error) → analyzeSlip emits "*_unavailable" signals.
+ */
+function loadSnapshotShopMap(sport) {
+  try {
+    if (!sport) return null
+    const file = sport === "mlb"
+      ? path.join(__dirname, "..", "..", "snapshot-mlb.json")
+      : path.join(__dirname, "..", "..", "snapshot.json")  // NBA default
+    if (!fs.existsSync(file)) return null
+    const snap = JSON.parse(fs.readFileSync(file, "utf8"))
+    const rows = resolveSnapshotRows(snap)
+    if (!Array.isArray(rows) || rows.length === 0) return null
+
+    const ls = buildLineShopping(rows, { sport })
+    if (!ls || !Array.isArray(ls.byProp)) return null
+
+    // Pivot ARRAY → MAP keyed by canonical lookup key
+    const m = new Map()
+    let added = 0
+    for (const entry of ls.byProp) {
+      if (!entry?.player) continue
+      const playerKey = String(entry.player).toLowerCase().trim()
+      const famKey    = normFam(entry.propType || "")
+      const sideKey   = String(entry.side || "").toLowerCase()
+      const lineKey   = entry.line == null ? "any" : entry.line
+      const key       = [playerKey, famKey, sideKey, lineKey].join("|")
+      m.set(key, entry)
+      added++
+    }
+    console.log("[screenshotRoutes] shopMap loaded:", { sport, rows: rows.length, entries: added })
+    return m
+  } catch (err) {
+    console.warn("[screenshotRoutes] loadSnapshotShopMap failed:", err?.message || err)
+    return null
+  }
+}
 
 // ── Schema bootstrap ──────────────────────────────────────────────────────────
 // Called once when the router module is first loaded.
@@ -261,13 +318,19 @@ router.post("/ingest", (req, res) => {
       // resolve strongestLeg.legIndex / weakestLeg.legIndex to player names.
       let verdict = null
       try {
+        // v0.2.6: load full-snapshot shopMap so EVERY player with props
+        // tonight can be looked up — not just our elite edge candidates.
+        // Cached per-sport per-request below would be a perf win if /ingest
+        // ever takes batched slips; for now one slip per call is fine.
+        const shopMap = loadSnapshotShopMap(normalized.sport)
         verdict = analyzeSlip(normalized, {
           sport:     normalized.sport,
           slateDate: normalized.slate_date,
-          // shopMap + availabilityIndex absent at ingest time → analyzeSlip
-          // emits canonical `*_unavailable` slip signals (anti-fabrication).
+          shopMap,
+          // availabilityIndex still null — wire that next session
         })
       } catch (e) {
+        console.warn("[screenshotRoutes] analyzeSlip failed:", e?.message || e)
         verdict = null
       }
 
