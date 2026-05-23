@@ -9,6 +9,46 @@ const { impliedProbability: impliedProbabilityFromOdds, computeEdge } = require(
 // the dormant DEFENSE_BY_ABBR table is now reachable here too.
 const { computeMatchupAdjustmentFromRow } = require("./nbaMatchupIntelligence")
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-23 — Lane 5 cognition trace (diagnostic, disabled by default).
+//
+// Set NBA_TRACE=1 in env to enable. When on, every call to
+// nbaRowIndependentModelProbability appends one JSON line to
+// backend/runtime/cognition_trace.jsonl containing the full intermediate
+// state of the prediction pipeline (which signals fired, Z-scores, baseProb,
+// market shrinkage, shifts, final). The file is truncated on module load so
+// it only contains the most recent process's traces.
+//
+// Wrapped in try/catch — trace failure NEVER affects model output. Off by
+// default so production runs aren't burdened with sync I/O.
+// ─────────────────────────────────────────────────────────────────────────────
+const fs = require("fs")
+const path = require("path")
+const TRACE_ENABLED = process.env.NBA_TRACE === "1"
+const TRACE_PATH = path.join(__dirname, "..", "..", "runtime", "cognition_trace.jsonl")
+if (TRACE_ENABLED) {
+  try {
+    fs.mkdirSync(path.dirname(TRACE_PATH), { recursive: true })
+    fs.writeFileSync(TRACE_PATH, "")   // truncate
+    console.log(`[nba-trace] cognition trace enabled → ${TRACE_PATH}`)
+  } catch (_) { /* silent */ }
+}
+function _traceRow(entry) {
+  if (!TRACE_ENABLED) return
+  try {
+    // JSON.stringify handles undefined→omit. Pre-process to preserve null
+    // explicitly so a missing signal shows as null not 0 in the trace.
+    fs.appendFileSync(TRACE_PATH, JSON.stringify(entry, (k, v) => v === undefined ? null : v) + "\n")
+  } catch (_) { /* silent */ }
+}
+// Trace-only numeric coercion that preserves null (unlike module-internal
+// toNum which uses Number(null)===0 → 0). Use this in trace payloads.
+function _traceNum(v) {
+  if (v === null || v === undefined) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -323,12 +363,61 @@ function nbaIndependentBaseModelProbability(row) {
   }
 
   const side = String(row?.side || "").toLowerCase()
+  const scoreBeforeInv = score
   if (side === "under") score *= -1
 
   const p = logistic(score)
   const compressed = compressAroundMid(p, family)
   const band = probabilityBandForFamily(family, row)
-  return clamp(band.min, band.max, compressed)
+  const baseOut = clamp(band.min, band.max, compressed)
+
+  // 2026-05-23 — Lane 5 base-cognition trace. Captures the raw signals + Z-scores
+  // BEFORE the wrapper applies market shrinkage. Only fires when NBA_TRACE=1.
+  // This is the definitive answer to "does the model actually see signals at runtime?"
+  if (TRACE_ENABLED) {
+    _traceRow({
+      __layer: "base",
+      ts: new Date().toISOString(),
+      id: {
+        player: row.player,
+        family,
+        side,
+        line:   _traceNum(row.line),
+      },
+      rawSignals: {
+        usage: _traceNum(usage), shots: _traceNum(shots), astRate: _traceNum(astRate),
+        rebRate: _traceNum(rebRate), minutes: _traceNum(minutes), role: _traceNum(role),
+        pace: _traceNum(pace), total: _traceNum(total), spread: _traceNum(spread),
+        oppDef: _traceNum(oppDef), blowoutRisk: _traceNum(blowoutRisk),
+        recent: _traceNum(recent), anchor: _traceNum(anchor),
+      },
+      zScores: {
+        usageZ: _traceNum(usageZ), shotsZ: _traceNum(shotsZ), formZ: _traceNum(formZ),
+        minutesZ: _traceNum(minutesZ), astZ: _traceNum(astZ), rebZ: _traceNum(rebZ),
+        paceZ: _traceNum(paceZ), totalZ: _traceNum(totalZ), spreadZ: _traceNum(spreadZ),
+        oppZ: _traceNum(oppZ), roleZ: _traceNum(roleZ), ctxZ: _traceNum(ctxZ),
+      },
+      weights: w,
+      bundle: {
+        primaryScore: toNum(primaryBundle.score),
+        primarySignalsPresent: primaryBundle.signals_present,
+        primarySignalsTotal: primaryBundle.signals_total,
+        ctxSignalsPresent: ctxBundle.signals_present,
+      },
+      ladder: { severity: toNum(ladderZ) },
+      scoreSteps: {
+        beforeSideInversion: toNum(scoreBeforeInv),
+        afterSideInversion: toNum(score),
+      },
+      baseProbSteps: {
+        logisticOfScore: toNum(p),
+        afterCompression: toNum(compressed),
+        baseFinal: toNum(baseOut),
+      },
+    })
+  }
+
+  return baseOut
 }
 
 function nbaRowIndependentModelProbability(row) {
@@ -412,7 +501,53 @@ function nbaRowIndependentModelProbability(row) {
 
   const withMatchup = compressedToMarket + matchupShift + teammateShift + marketShift + availabilityShift
   const band = probabilityBandForFamily(family, row)
-  return clamp01(clamp(band.min, band.max, withMatchup))
+  const final = clamp01(clamp(band.min, band.max, withMatchup))
+
+  // 2026-05-23 — Lane 5 trace. Captures the full state of this call so post-hoc
+  // inspection can answer: are signals actually present at runtime?
+  // No-op when NBA_TRACE !== "1".
+  if (TRACE_ENABLED) {
+    _traceRow({
+      ts: new Date().toISOString(),
+      id: {
+        player:     row.player,
+        family,
+        side:       String(row?.side || "").toLowerCase(),
+        line:       toNum(row.line),
+        odds:       toNum(row.oddsAmerican ?? row.odds),
+        book:       row.sportsbook || row.book || null,
+        eventId:    row.eventId || null,
+      },
+      enriched: {
+        recentForm:           row.recentForm || null,
+        starterFlag:          row.starterFlag ?? null,
+        projectedMinutes:     row.projectedMinutes ?? null,
+        ceilingScore:         row.ceilingScore ?? null,
+        playerStatus:         row.playerStatus || null,
+        opponent:             row.opponent || null,
+        teammateRedistShift:  _traceNum(row.teammateRedistShift),
+        marketShift:          _traceNum(row.marketShift),
+        availabilityShift:    _traceNum(row.availabilityShift),
+      },
+      probs: {
+        implied:                 _traceNum(implied),
+        baseModel:               _traceNum(modelProb),
+        afterMarketShrink:       _traceNum(compressedToMarket),
+        afterShifts:             _traceNum(withMatchup),
+        final:                   _traceNum(final),
+      },
+      shifts: {
+        matchup:        _traceNum(matchupShift),
+        teammate:       _traceNum(teammateShift),
+        market:         _traceNum(marketShift),
+        availability:   _traceNum(availabilityShift),
+      },
+      alpha,
+      band,
+    })
+  }
+
+  return final
 }
 
 /**
