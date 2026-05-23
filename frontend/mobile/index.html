@@ -682,6 +682,10 @@
       // props for tonight from the 7-book allowlist. Bypasses edge-filter.
       search: { mlb: { q: "", results: null, loading: false },
                 nba: { q: "", results: null, loading: false } },
+      // Phase A2 (2026-05-22): game-first surface as default. Tab mode toggle
+      // lets operator switch to "sharp" view (the old edge-filtered candidates).
+      tabMode: { mlb: "games", nba: "games" },
+      games:   { mlb: null, nba: null, loading: false },
       // v0.2.1: external slip analyzer (Flow A)
       analyze: {
         meta: { sourceType: "twitter", attribution: "", sport: "" },
@@ -1251,6 +1255,15 @@
         return;
       }
 
+      // Phase A2 — game-first view is the DEFAULT for MLB/NBA sport tabs.
+      // Operator can toggle to "sharp" mode for the old edge-filtered view.
+      const mode = state.tabMode[sport] || "games";
+      if (mode === "games") {
+        renderGamesView(main, sport);
+        return;
+      }
+      // Otherwise fall through to the legacy edge-filtered view below.
+
       // Date label
       const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
       document.getElementById("dateLabel").textContent = todayLabel;
@@ -1446,6 +1459,221 @@
       if (btn) btn.textContent = card.classList.contains("expanded") ? "▴ hide signals" : "▾ show signals";
     }
     window.toggleCard = toggleCard;
+
+    // ─────────────────────────────────────────────────────────────
+    // Phase A2 (2026-05-22): Game-first view
+    // Default surface for MLB/NBA tabs — tonight's games → starters → primary
+    // props. Replaces the 6-no-name edge-filtered display the operator hated.
+    // Stars come back as the default. Edge plays move to a secondary toggle.
+    // ─────────────────────────────────────────────────────────────
+    function renderModeToggle(sport) {
+      const mode = state.tabMode[sport] || "games";
+      const isGames = mode === "games";
+      const isSharp = mode === "sharp";
+      return `
+        <div style="display: flex; gap: 4px; margin-bottom: 12px; padding: 0;">
+          <button onclick="setTabMode('${sport}', 'games')" style="
+            flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700;
+            letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+            background: ${isGames ? "linear-gradient(135deg, #1E293B 0%, #141828 100%)" : "transparent"};
+            border: 1px solid ${isGames ? "#FBBF24" : "#1F2937"};
+            color: ${isGames ? "#FBBF24" : "#6B7280"};
+            border-radius: 8px;">Tonight's Games</button>
+          <button onclick="setTabMode('${sport}', 'sharp')" style="
+            flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700;
+            letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+            background: ${isSharp ? "linear-gradient(135deg, #1E293B 0%, #141828 100%)" : "transparent"};
+            border: 1px solid ${isSharp ? "#FBBF24" : "#1F2937"};
+            color: ${isSharp ? "#FBBF24" : "#6B7280"};
+            border-radius: 8px;">Sharp Plays</button>
+        </div>
+      `;
+    }
+    function setTabMode(sport, mode) {
+      state.tabMode[sport] = mode;
+      if (mode === "games" && !state.games[sport]) {
+        // Fetch games data lazily
+        fetchGames(sport);
+      }
+      render();
+    }
+    window.setTabMode = setTabMode;
+
+    async function fetchGames(sport) {
+      state.games.loading = true;
+      try {
+        const r = await fetch(`${API}/api/ws/games?sport=${sport}`);
+        const json = await r.json();
+        state.games[sport] = (r.ok && json.ok) ? json : { ok: false, _error: json?.error || `HTTP ${r.status}` };
+      } catch (e) {
+        state.games[sport] = { ok: false, _error: e.message || String(e) };
+      }
+      state.games.loading = false;
+      render();
+    }
+
+    function renderGamesView(main, sport) {
+      const toggleHtml = renderModeToggle(sport);
+      const data = state.games[sport];
+      if (!data) {
+        // Trigger lazy fetch on first visit
+        fetchGames(sport);
+        main.innerHTML = toggleHtml + `<div class="empty">Loading tonight's games…</div>`;
+        return;
+      }
+      if (data._error) {
+        main.innerHTML = toggleHtml + `<div class="error">
+          Couldn't load games. <code>${escapeHtml(data._error)}</code>
+        </div>`;
+        return;
+      }
+      if (!Array.isArray(data.games) || data.games.length === 0) {
+        main.innerHTML = toggleHtml + `<div class="empty">
+          No ${sport.toUpperCase()} games on the slate tonight.<br>
+          <span style="font-size: 11px; color: #6B7280;">If you expected games, try refreshing the slate (↻)</span>
+        </div>`;
+        return;
+      }
+
+      const gamesHtml = data.games.map(g => renderGameCard(g, sport)).join("");
+      main.innerHTML = toggleHtml + gamesHtml +
+        `<div class="diag-footer">
+          games-view v0.3.0 · ${data.games.length} game${data.games.length === 1 ? "" : "s"} ·
+          ${data.totalRows} snapshot rows · ${data.totalKept} kept after policy filter
+        </div>`;
+    }
+
+    function renderGameCard(g, sport) {
+      const players = Array.isArray(g.players) ? g.players : [];
+      const matchupTxt = g.matchup || `${g.awayTeam || ""} @ ${g.homeTeam || ""}` || "Game";
+      const gameTimeTxt = g.gameTime ? new Date(g.gameTime).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
+
+      // Group props per player; show only PRIMARY families for compact view
+      const primaryFamilies = sport === "nba"
+        ? ["Points", "Rebounds", "Assists", "Threes", "PRA"]
+        : ["Hits", "Home Runs", "Total Bases", "RBIs", "Strikeouts"];
+
+      const playersHtml = players.map(p => renderPlayerCard(p, sport, primaryFamilies)).join("");
+      return `
+        <div style="margin-bottom: 20px;">
+          <div style="
+            background: linear-gradient(180deg, #1A1424 0%, #11151F 100%);
+            border: 1px solid #1F2937; border-radius: 12px 12px 0 0;
+            padding: 12px 14px; border-bottom: none;">
+            <div style="font-size: 13px; font-weight: 700; color: #F9FAFB; text-transform: uppercase; letter-spacing: 0.4px;">
+              ${escapeHtml(matchupTxt)}
+            </div>
+            <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">
+              ${escapeHtml(gameTimeTxt)} · ${players.length} player${players.length === 1 ? "" : "s"} with props
+            </div>
+          </div>
+          <div style="background: #11151F; border: 1px solid #1F2937; border-top: 0; border-radius: 0 0 12px 12px; padding: 8px;">
+            ${playersHtml || `<div style="padding: 16px; color: #6B7280; text-align: center; font-size: 12px;">No players with primary props in this game tonight.</div>`}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPlayerCard(p, sport, primaryFamilies) {
+      const teamTxt = p.team ? p.team : "team pending";
+      const teamCls = p.team ? "#9CA3AF" : "#FCD34D";
+      const starterTag = p.starterFlag === 1
+        ? `<span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(52, 211, 153, 0.15); color: #34D399; letter-spacing: 0.3px;">STARTER</span>`
+        : "";
+      const minutesTxt = (typeof p.projectedMinutes === "number")
+        ? `<span style="color: #6B7280;">${p.projectedMinutes.toFixed(1)}min proj</span>`
+        : "";
+      const ceilingTag = (typeof p.ceilingScore === "number" && p.ceilingScore >= 0.55)
+        ? `<span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+                       background: ${p.ceilingScore >= 0.72 ? "rgba(251, 191, 36, 0.18)" : "rgba(251, 191, 36, 0.10)"};
+                       color: #FBBF24; letter-spacing: 0.3px;">CEILING ${(p.ceilingScore * 100).toFixed(0)}</span>`
+        : "";
+      const recent = p.recentForm;
+      const formTxt = (recent && typeof recent.last5_avg === "number")
+        ? `<span style="color: #6B7280;">L5: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${recent.last5_avg.toFixed(1)}</span></span>`
+        : "";
+
+      // Show primary families that have data
+      const propBlocks = primaryFamilies
+        .filter(fam => Array.isArray(p.propGroups?.[fam]) && p.propGroups[fam].length > 0)
+        .map(fam => renderPlayerPropFamily(fam, p.propGroups[fam], p, sport))
+        .join("");
+
+      if (!propBlocks) return ""; // skip players with no primary props
+
+      return `
+        <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 14px; font-weight: 700; color: #F9FAFB;">${escapeHtml(p.player)}</span>
+            ${starterTag}
+            ${ceilingTag}
+          </div>
+          <div style="font-size: 11px; color: ${teamCls}; margin-bottom: 8px;">
+            ${escapeHtml(teamTxt)}${minutesTxt ? " · " + minutesTxt : ""}${formTxt ? " · " + formTxt : ""}
+          </div>
+          ${propBlocks}
+        </div>
+      `;
+    }
+
+    function renderPlayerPropFamily(fam, props, player, sport) {
+      // Find best over and best under
+      const overs  = props.filter(p => p.side === "over").sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0));
+      const unders = props.filter(p => p.side === "under").sort((a, b) => Number(b.line ?? 0) - Number(a.line ?? 0));
+
+      const renderProp = (pp, isOver) => {
+        const oddsTxt = pp.odds == null ? "—" : (pp.odds > 0 ? `+${pp.odds}` : `${pp.odds}`);
+        const oddsColor = pp.odds > 0 ? "#34D399" : "#D1D5DB";
+        const candForAdd = {
+          player: player.player, team: player.team, sport,
+          propType: fam, statFamily: fam.toLowerCase().replace(/\s+/g, "_"),
+          side: pp.side, line: pp.line, odds: pp.odds, oddsAmerican: pp.odds,
+          sportsbook: pp.book, book: pp.book,
+        };
+        const sig = legSig(candForAdd);
+        const inParlay = state.parlay.some(l => legSig(l) === sig);
+        // Stash candidate so + button can pull by data attribute
+        const stashKey = `gv:${sport}:${player.player}:${fam}:${pp.side}:${pp.line}:${pp.book}`;
+        state._gameViewStash = state._gameViewStash || {};
+        state._gameViewStash[stashKey] = candForAdd;
+        return `
+          <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+                      font-size: 12px; border-radius: 6px;
+                      background: ${isOver ? "rgba(52, 211, 153, 0.04)" : "rgba(248, 113, 113, 0.04)"};">
+            <span style="font-weight: 700; min-width: 42px; color: ${isOver ? "#34D399" : "#F87171"};">${isOver ? "OVER" : "UNDER"}</span>
+            <span style="min-width: 38px; font-family: ui-monospace, monospace; color: #F9FAFB;">${pp.line ?? "—"}</span>
+            <span style="font-family: ui-monospace, monospace; color: ${oddsColor}; min-width: 50px;">${oddsTxt}</span>
+            <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
+                         background: rgba(75, 85, 99, 0.3); color: #9CA3AF; letter-spacing: 0.3px;">${escapeHtml(pp.book || "—")}</span>
+            <button onclick="addLegFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}'); event.stopPropagation();"
+                    style="margin-left: auto; width: 22px; height: 22px; border-radius: 50%;
+                           background: ${inParlay ? "#A78BFA" : "rgba(167, 139, 250, 0.12)"};
+                           border: 1px solid rgba(167, 139, 250, 0.35);
+                           color: ${inParlay ? "#0A0E1A" : "#A78BFA"};
+                           font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer;
+                           display: flex; align-items: center; justify-content: center;">${inParlay ? "✓" : "+"}</button>
+          </div>
+        `;
+      };
+
+      const oversHtml  = overs.slice(0, 4).map(p => renderProp(p, true)).join("");
+      const undersHtml = unders.slice(0, 3).map(p => renderProp(p, false)).join("");
+      return `
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 10px; font-weight: 700; color: #9CA3AF;
+                      text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 0 4px;">${escapeHtml(fam)}</div>
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            ${oversHtml}
+            ${undersHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    window.addLegFromGameView = function (stashKey, sport) {
+      const cand = (state._gameViewStash || {})[stashKey];
+      if (cand) addLeg(cand, sport);
+    };
 
     // ─────────────────────────────────────────────────────────────
     // v0.2.8: Player Search (Wemby / SGA / any star, regardless of edge)

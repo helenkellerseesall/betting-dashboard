@@ -465,18 +465,63 @@ function buildNbaSnapshotCandidates(snapshotRows) {
   return result
 }
 
+// PHASE A1 (2026-05-22): operator-rejected prop patterns. These are
+// filtered OUT of every candidate pool before display. The lotto-room
+// quarantine wasn't strict enough — operator wants them GONE, not buried.
+//
+//   • Hits 2.5+ over → operator-stated "those will never hit and would be
+//     parlay cancer long term"
+//   • Total Bases 3.5+ over → same tail-outcome shape
+//   • Anything with implied probability < 8% → extreme longshots, not
+//     parlay-buildable, not bettor-realizable
+//
+// Filter applies AFTER cognition scoring (so we don't break model training)
+// but BEFORE display (so operator never sees them on the surface).
+function shouldRejectByOperatorPolicy(b) {
+  const propType = String(b?.propType || b?.prop || b?.marketKey || "").toLowerCase()
+  const side = String(b?.side || "").toLowerCase()
+  const line = Number(b?.line)
+  const odds = Number(b?.oddsAmerican ?? b?.odds)
+  // Hits 2.5+ over → reject
+  if (side === "over" && /^hits?$/.test(propType) && Number.isFinite(line) && line >= 2.5) return true
+  if (side === "over" && /batter_hits$|^hits?$/i.test(propType) && Number.isFinite(line) && line >= 2.5) return true
+  // Total Bases 3.5+ over → reject
+  if (side === "over" && /total[\s_]?bases/i.test(propType) && Number.isFinite(line) && line >= 3.5) return true
+  // Extreme longshots (implied prob < 8%) → reject. This catches +1050+ payouts
+  // regardless of prop type (HR 0.5 at +1100, RBI 1.5 at +1500, etc).
+  if (Number.isFinite(odds)) {
+    const implied = odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100)
+    if (implied < 0.08) return true
+  }
+  return false
+}
+
 function buildCandidatePool(sport, date) {
-  const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
-  const trackedBest = readJsonSafe(fileFor(sport, "tracked_best", date), null)
-  const entries = trackedBest?.entries || []
+  const trackedBetsRaw = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
+  const trackedBest    = readJsonSafe(fileFor(sport, "tracked_best", date), null)
+  const entries        = trackedBest?.entries || []
+
+  // PHASE A1: hard-filter operator-rejected prop patterns at the pool source.
+  // Diagnostic count so we can see how aggressive the filter is being.
+  const trackedBets = trackedBetsRaw.filter(b => !shouldRejectByOperatorPolicy(b))
+  const droppedByPolicy = trackedBetsRaw.length - trackedBets.length
+  if (droppedByPolicy > 0) {
+    console.log("[buildCandidatePool] operator-policy filter:", {
+      sport, total: trackedBetsRaw.length, dropped: droppedByPolicy, kept: trackedBets.length,
+    })
+  }
 
   const betsById = new Map()
   for (const b of trackedBets) if (b?.id) betsById.set(b.id, b)
 
-  const enrichedBest = entries.map((e) => enrichBestEntry(e, betsById)).filter(Boolean)
-  // Filter tracked_bets to a sensible quality threshold so the pool is workable
+  const enrichedBest = entries
+    .map((e) => enrichBestEntry(e, betsById))
+    .filter(Boolean)
+    .filter(b => !shouldRejectByOperatorPolicy(b))   // Also filter the enrichedBest path
+
   const eligibleBets = trackedBets
     .filter((b) => Number(b?.edge) > 0.04 && Number(b?.modelProb) > 0.20)
+
   return { trackedBets, trackedBest, enrichedBest, eligibleBets }
 }
 
@@ -575,9 +620,16 @@ router.get("/state", (req, res) => {
       //   (2–4 entries on thin slates) and never supplemented → featured boards and AI
       //   slips always starved on nights without a full runNbaNight.js nightly run.
       // AFTER: both paths share the same scored snapshot supplement, no double-compute.
-      const snapSupplement = (sport === "nba" && snapshotRows.length)
+      let snapSupplement = (sport === "nba" && snapshotRows.length)
         ? buildNbaSnapshotCandidates(snapshotRows)
         : []
+      // PHASE A1: operator-policy filter ALSO on snapshot supplement path
+      const snapSupplementPreFilter = snapSupplement.length
+      snapSupplement = snapSupplement.filter(b => !shouldRejectByOperatorPolicy(b))
+      const snapSupplementDropped = snapSupplementPreFilter - snapSupplement.length
+      if (snapSupplementDropped > 0) {
+        console.log("[WS-PROBE] snapSupplement operator-policy filter: dropped %d", snapSupplementDropped)
+      }
       console.log("[WS-PROBE] snapSupplement=%d rawCandidates=%d (sport=%s snapshotRows=%d)",
         snapSupplement.length, rawCandidates.length, sport, snapshotRows.length)
 
@@ -923,6 +975,180 @@ router.get("/player-search", (req, res) => {
     })
   } catch (err) {
     console.error("[player-search]", err)
+    res.status(500).json({ ok: false, error: err?.message || String(err) })
+  }
+})
+
+/**
+ * PHASE A2 (2026-05-22): Game-first starter view.
+ *
+ * Operator demand: "i need to see his true potential for each game in terms
+ * of o/u, ladder, real predicted ceilings, etc". The current edge-filtered
+ * candidate pool surfaces ~6 longshot no-names per playoff game; stars are
+ * filtered out by design. This endpoint rebuilds the slate as game-first:
+ *
+ *   For each game tonight:
+ *     - matchup, gameTime, sportsbook count
+ *     - For each starter (or notable player):
+ *         - primary props (Points/Rebounds/Assists for NBA, Hits/RBIs/HRs for MLB)
+ *         - over/under lines available at allowed books
+ *         - ceiling score if available (from buildCeilingRoleSpikeSignals)
+ *         - recent form context (last5_avg from nbaRecentFormCache)
+ *
+ * Reads FULL snapshot rows (not edge-filtered tracked_bets pool). Filters by
+ * 7-book allowlist + operator-policy (no 3x hits, no extreme longshots).
+ * Groups by (eventId, player). Selects PRIMARY prop per player by stat family.
+ *
+ * GET /api/ws/games?sport=nba
+ *
+ * Response:
+ *   { ok, sport, games: [
+ *     { eventId, matchup, gameTime, awayTeam, homeTeam,
+ *       players: [
+ *         { player, team, propGroups: {
+ *           points: [{line, side, odds, book, ...}, ...],
+ *           rebounds: [...], assists: [...], etc.
+ *         }, recentForm, ceilingScore, ... }
+ *       ]
+ *     }, ...
+ *   ]}
+ */
+router.get("/games", (req, res) => {
+  try {
+    const sport = String(req.query.sport || "nba").toLowerCase()
+    const rows = readSnapshotRows(sport)
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.json({ ok: true, sport, games: [], note: "snapshot empty or missing" })
+    }
+
+    // Filter: allowlist + operator-policy (no 3x hits, no extreme longshots)
+    const filtered = rows.filter(r =>
+      isAllowedBook(String(r?.sportsbook || r?.book || "")) &&
+      !shouldRejectByOperatorPolicy(r)
+    )
+
+    // Stat family canonicalization — we'll group by these
+    const STAT_FAMILY_MAP = {
+      // NBA
+      "player_points": "Points",
+      "player_rebounds": "Rebounds",
+      "player_assists": "Assists",
+      "player_threes": "Threes",
+      "player_threes_made": "Threes",
+      "player_points_rebounds_assists": "PRA",
+      "player_steals": "Steals",
+      "player_blocks": "Blocks",
+      "player_points_rebounds": "Pts+Reb",
+      "player_points_assists": "Pts+Ast",
+      "player_rebounds_assists": "Reb+Ast",
+      // MLB
+      "batter_hits": "Hits",
+      "batter_home_runs": "Home Runs",
+      "batter_total_bases": "Total Bases",
+      "batter_rbis": "RBIs",
+      "batter_runs_scored": "Runs Scored",
+      "batter_stolen_bases": "Stolen Bases",
+      "pitcher_strikeouts": "Strikeouts",
+      "pitcher_outs": "Pitcher Outs",
+      "pitcher_walks": "Pitcher Walks",
+    }
+    function statFamilyOf(row) {
+      const mk = String(row?.marketKey || row?.propType || "").toLowerCase().replace(/^alternate_/, "")
+      if (STAT_FAMILY_MAP[mk]) return STAT_FAMILY_MAP[mk]
+      // Heuristic fallback
+      const pt = String(row?.propType || "").toLowerCase()
+      if (pt.includes("points") && pt.includes("rebounds") && pt.includes("assists")) return "PRA"
+      if (pt.includes("points")) return "Points"
+      if (pt.includes("rebounds")) return "Rebounds"
+      if (pt.includes("assists")) return "Assists"
+      if (pt.includes("threes") || pt.includes("3pt")) return "Threes"
+      if (pt.includes("home run") || pt === "hr") return "Home Runs"
+      if (/^hits?$/i.test(pt)) return "Hits"
+      if (pt.includes("total bases")) return "Total Bases"
+      if (pt.includes("rbi")) return "RBIs"
+      return null
+    }
+
+    // Group by eventId → player → propGroup
+    const games = new Map()
+    for (const r of filtered) {
+      const eventId = String(r?.eventId || "")
+      if (!eventId) continue
+      if (!games.has(eventId)) {
+        games.set(eventId, {
+          eventId,
+          matchup:  r.matchup || null,
+          gameTime: r.gameTime || r.commenceTime || null,
+          awayTeam: r.awayTeam || r.away_team || null,
+          homeTeam: r.homeTeam || r.home_team || null,
+          playerMap: new Map(),
+        })
+      }
+      const game = games.get(eventId)
+
+      const player = String(r?.player || "").trim()
+      if (!player) continue
+      const fam = statFamilyOf(r)
+      if (!fam) continue
+
+      if (!game.playerMap.has(player)) {
+        game.playerMap.set(player, {
+          player,
+          team: r.team || r.teamResolved || null,
+          recentForm: r.recentForm || null,
+          starterFlag: r.starterFlag ?? null,
+          projectedMinutes: r.projectedMinutes ?? null,
+          ceilingScore: r.ceilingScore ?? null,
+          roleSpikeScore: r.roleSpikeScore ?? null,
+          propGroups: {},
+        })
+      }
+      const p = game.playerMap.get(player)
+      if (!p.propGroups[fam]) p.propGroups[fam] = []
+      p.propGroups[fam].push({
+        side:       String(r?.side || "").toLowerCase(),
+        line:       r.line ?? null,
+        odds:       r.oddsAmerican ?? r.odds ?? null,
+        book:       canonicalBookName(String(r?.sportsbook || r?.book || "")) || r?.sportsbook || r?.book,
+        isAltLine:  Boolean(r?.isAltLine || /alternate_/i.test(String(r?.marketKey || ""))),
+      })
+    }
+
+    // Convert maps to arrays, sort
+    const out = []
+    for (const [, g] of games) {
+      const players = []
+      for (const [, p] of g.playerMap) {
+        // Sort each prop family's options by line ASC
+        for (const fam of Object.keys(p.propGroups)) {
+          p.propGroups[fam].sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0))
+        }
+        players.push(p)
+      }
+      // Sort players: starters first, then by ceiling score (best first), then alphabetical
+      players.sort((a, b) => {
+        const sa = a.starterFlag === 1 ? 1 : 0
+        const sb = b.starterFlag === 1 ? 1 : 0
+        if (sa !== sb) return sb - sa
+        const ca = Number(a.ceilingScore || 0)
+        const cb = Number(b.ceilingScore || 0)
+        if (ca !== cb) return cb - ca
+        return String(a.player).localeCompare(String(b.player))
+      })
+      out.push({
+        eventId: g.eventId,
+        matchup: g.matchup,
+        gameTime: g.gameTime,
+        awayTeam: g.awayTeam,
+        homeTeam: g.homeTeam,
+        players,
+      })
+    }
+    out.sort((a, b) => String(a.gameTime || "").localeCompare(String(b.gameTime || "")))
+
+    res.json({ ok: true, sport, games: out, totalGames: out.length, totalRows: rows.length, totalKept: filtered.length })
+  } catch (err) {
+    console.error("[/games]", err)
     res.status(500).json({ ok: false, error: err?.message || String(err) })
   }
 })
