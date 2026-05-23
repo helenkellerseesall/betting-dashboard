@@ -56,6 +56,24 @@
       ],
       "operatorNotes": "Newer entrant; same-game SGP supported; cross-game SGP NOT yet supported per operator feed. Conservative market coverage; pitcher props limited."
     },
+    "Caesars": {
+      "supportsSGP":           true,
+      "supportsCrossGameSGP":  true,
+      "supportsAltLines":      true,
+      "supportsPlayerProps":   true,
+      "supportsTeamProps":     true,
+      "maxLegsPerSlip":        12,
+      "minLegsForParlayBoost":  3,
+      "minOddsPerLeg":        -5000,
+      "maxOddsPerLeg":         50000,
+      "marketKeys": [
+        "batter_home_runs","batter_hits","batter_total_bases","batter_rbis",
+        "batter_runs_scored","batter_stolen_bases","batter_strikeouts",
+        "pitcher_strikeouts","pitcher_outs","pitcher_walks","pitcher_hits_allowed",
+        "alternate_batter_home_runs","alternate_batter_hits","alternate_batter_total_bases","alternate_batter_rbis"
+      ],
+      "operatorNotes": "Restored 2026-05-22 second pass — Odds API tier delivers HR markets exclusively from Caesars in current feed. Task #15 to investigate config for adding BetMGM/BetRivers/Hard Rock/bet365 actual data."
+    },
     "bet365": {
       "supportsSGP":           true,
       "supportsCrossGameSGP":  true,

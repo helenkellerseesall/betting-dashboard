@@ -29,10 +29,18 @@
  *                Drops Caesars + BetOnline.ag and any other non-allowed leak.
  */
 
+// 2026-05-22 second pass: audit revealed Odds API feed delivers HR props
+// ONLY from Caesars in our current config. Operator's stated 7-book vision
+// (DK/FD/Fanatics/BetMGM/HardRock/BetRivers/bet365) is data-feed-aspirational
+// — 4 of those books (BetMGM, BetRivers, Hard Rock, bet365) return ZERO rows
+// in current feed. Restoring Caesars temporarily so HR markets surface while
+// task #15 audits Odds API config / tier to determine whether the other 4
+// books can be made to flow.
 const ALLOWED_SPORTSBOOKS = Object.freeze([
   "DraftKings",
   "FanDuel",
   "Fanatics",
+  "Caesars",
   "BetMGM",
   "Hard Rock",
   "BetRivers",
@@ -69,7 +77,12 @@ const SPORTSBOOK_ALIASES = Object.freeze({
   "bet rivers":     "BetRivers",
   "br":             "BetRivers",
   "rivers":         "BetRivers",
-  // bet365 — added 2026-05-22 (replaces Caesars per operator product vision)
+  // Caesars — restored 2026-05-22 second pass because Odds API delivers HR
+  // markets exclusively from Caesars in our current feed
+  "caesars":        "Caesars",
+  "caesar":         "Caesars",
+  "czr":            "Caesars",
+  // bet365 — added 2026-05-22 (operator product vision target)
   "bet365":         "bet365",
   "bet 365":        "bet365",
   "bet365.com":     "bet365",

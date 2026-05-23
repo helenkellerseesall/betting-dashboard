@@ -1105,35 +1105,28 @@ router.get("/games", (req, res) => {
       }
       const p = game.playerMap.get(player)
       if (!p.propGroups[fam]) p.propGroups[fam] = {}
-      // Phase A.5 dedupe: key by (side|line). Per (player, propType, side, line)
-      // we keep ONE entry showing the BEST odds across allowed books. Operator
-      // saw duplicates because same prop appears at multiple books or both base
-      // + alt market keys produced identical (side, line) tuples.
+      // Phase A.5b dedupe (operator-corrected): key by (book|side|line).
+      // True duplicates (same book offering the same prop twice, usually
+      // because base + alt market keys produce identical tuples) collapse;
+      // different books showing the same prop are PRESERVED so the operator
+      // can compare prices across books. Operator-stated: "weird dk would
+      // not be seen at all".
       const sideStr = String(r?.side || "").toLowerCase()
       const lineNum = r.line ?? null
-      const dedupeKey = `${sideStr}|${lineNum}`
       const oddsNum  = Number(r.oddsAmerican ?? r.odds)
       const bookName = canonicalBookName(String(r?.sportsbook || r?.book || "")) || r?.sportsbook || r?.book
-      const existing = p.propGroups[fam][dedupeKey]
+      const dedupeKey = `${bookName}|${sideStr}|${lineNum}`
+      const existing  = p.propGroups[fam][dedupeKey]
       if (!existing || (Number.isFinite(oddsNum) && Number.isFinite(existing.odds) &&
-          oddsBetterForBettor(sideStr, oddsNum, existing.odds))) {
+          Number(oddsNum) > Number(existing.odds))) {
         p.propGroups[fam][dedupeKey] = {
           side:       sideStr,
           line:       lineNum,
           odds:       oddsNum,
           book:       bookName,
           isAltLine:  Boolean(r?.isAltLine || /alternate_/i.test(String(r?.marketKey || ""))),
-          allBooks:   [...(existing?.allBooks || []), { book: bookName, odds: oddsNum }],
         }
-      } else if (existing) {
-        existing.allBooks = existing.allBooks || []
-        existing.allBooks.push({ book: bookName, odds: oddsNum })
       }
-    }
-    // Helper: pick higher payout for bettor (American odds)
-    function oddsBetterForBettor(side, a, b) {
-      // For both sides, higher American odds = better payout
-      return Number(a) > Number(b)
     }
 
     // Convert maps to arrays, sort
