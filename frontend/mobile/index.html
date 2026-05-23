@@ -1719,30 +1719,58 @@
         const stashKey = `gv:${sport}:${player.player}:${fam}:${pp.side}:${pp.line}:${pp.book}`;
         state._gameViewStash = state._gameViewStash || {};
         state._gameViewStash[stashKey] = candForAdd;
+
+        // Multi-book chip — show the count of OTHER books offering the same
+        // side+line. Tap-target tooltip lists them. This is the "collapse
+        // noise" fix from operator 2026-05-23: same line from 3 books used
+        // to be 3 rows; now it's 1 row with a small "+2" chip.
+        const otherBooks = Array.isArray(pp.books) ? pp.books.filter(b => b.book !== pp.book) : [];
+        const bookChip = otherBooks.length > 0
+          ? `<span title="${escapeHtml(otherBooks.map(b => `${b.book}: ${b.odds > 0 ? '+' : ''}${b.odds}`).join(' · '))}"
+                   style="font-size: 9px; padding: 1px 4px; border-radius: 3px;
+                          background: rgba(96, 165, 250, 0.15); color: #93C5FD;
+                          letter-spacing: 0.3px;">+${otherBooks.length}</span>`
+          : "";
+
+        // Per-row model signal — surfaces what the cognition thinks about
+        // THIS line (modelProb + edge). Backend joins from tracked_bets.
+        // Without this the operator can't tell which lines the model
+        // actually values vs which are just book offerings.
+        let modelChip = "";
+        if (Number.isFinite(pp.modelProb)) {
+          const edgePp = Number.isFinite(pp.edge) ? pp.edge * 100 : null;
+          const edgeColor = edgePp == null ? "#9CA3AF"
+                          : edgePp >= 5 ? "#34D399"
+                          : edgePp >= 0 ? "#FBBF24"
+                          : "#F87171";
+          const edgeTxt = edgePp == null ? ""
+                        : ` · ${edgePp >= 0 ? "+" : ""}${edgePp.toFixed(0)}pp edge`;
+          modelChip = `<span title="Model probability vs market implied"
+                              style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
+                                     background: rgba(167, 139, 250, 0.12); color: ${edgeColor};
+                                     font-family: ui-monospace, monospace; letter-spacing: 0.2px;">
+                        ${(pp.modelProb * 100).toFixed(0)}%${edgeTxt}
+                      </span>`;
+        }
+
         return `
           <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px;
-                      font-size: 12px; border-radius: 6px;
+                      font-size: 12px; border-radius: 6px; flex-wrap: wrap;
                       background: ${isOver ? "rgba(52, 211, 153, 0.04)" : "rgba(248, 113, 113, 0.04)"};">
             <span style="font-weight: 700; min-width: 42px; color: ${isOver ? "#34D399" : "#F87171"};">${isOver ? "OVER" : "UNDER"}</span>
             <span style="min-width: 38px; font-family: ui-monospace, monospace; color: #F9FAFB;">${pp.line ?? "—"}</span>
             <span style="font-family: ui-monospace, monospace; color: ${oddsColor}; min-width: 50px;">${oddsTxt}</span>
             <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
                          background: rgba(75, 85, 99, 0.3); color: #9CA3AF; letter-spacing: 0.3px;">${escapeHtml(pp.book || "—")}</span>
+            ${bookChip}
+            ${modelChip}
             <button onclick="addLegFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}'); event.stopPropagation();"
-                    style="margin-left: auto; width: 22px; height: 22px; border-radius: 50%;
+                    style="margin-left: auto; width: 24px; height: 24px; border-radius: 50%;
                            background: ${inParlay ? "#A78BFA" : "rgba(167, 139, 250, 0.12)"};
                            border: 1px solid rgba(167, 139, 250, 0.35);
                            color: ${inParlay ? "#0A0E1A" : "#A78BFA"};
-                           font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer;
+                           font-size: 13px; font-weight: 700; line-height: 1; cursor: pointer;
                            display: flex; align-items: center; justify-content: center;">${inParlay ? "✓" : "+"}</button>
-            <button onclick="logPickFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}', this); event.stopPropagation();"
-                    title="Log this pick to the ledger"
-                    style="width: 22px; height: 22px; border-radius: 50%;
-                           background: rgba(251, 191, 36, 0.12);
-                           border: 1px solid rgba(251, 191, 36, 0.35);
-                           color: #FBBF24;
-                           font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer;
-                           display: flex; align-items: center; justify-content: center;">L</button>
           </div>
         `;
       };
@@ -1778,6 +1806,28 @@
                     </span>`;
       }
 
+      // Family-level projection header (2026-05-23) — surfaces the cognition's
+      // top pick within this family so the operator sees what the model
+      // thinks BEFORE scanning the line list. "Model: Over 2.5 +12pp edge".
+      // L5 average from recentForm if available — gives operator immediate
+      // historical context next to the model's take.
+      const fp = player.familyProjection && player.familyProjection[fam];
+      let projectionLine = "";
+      if (fp && Number.isFinite(fp.bestEdge)) {
+        const edgePp = fp.bestEdge * 100;
+        const edgeColor = edgePp >= 5 ? "#34D399" : edgePp >= 0 ? "#FBBF24" : "#F87171";
+        const sideTxt = (fp.bestSide || "").toUpperCase();
+        projectionLine = `
+          <div style="font-size: 10px; color: #9CA3AF; padding: 2px 0 4px; line-height: 1.4;">
+            <span style="color: #A78BFA;">model</span> →
+            <span style="font-weight: 700; color: ${fp.bestSide === "over" || fp.bestSide === "yes" ? "#34D399" : "#F87171"};">${escapeHtml(sideTxt)}</span>
+            <span style="font-family: ui-monospace, monospace; color: #F9FAFB;">${fp.bestLine ?? ""}</span>
+            <span style="color: ${edgeColor}; font-family: ui-monospace, monospace;">${edgePp >= 0 ? "+" : ""}${edgePp.toFixed(0)}pp edge</span>
+            ${fp.tier ? `<span style="font-size: 9px; color: #6B7280; margin-left: 4px;">(${escapeHtml(fp.tier)})</span>` : ""}
+          </div>
+        `;
+      }
+
       return `
         <div style="margin-bottom: 8px;">
           <div style="display: flex; align-items: center; padding: 2px 0 4px;">
@@ -1785,6 +1835,7 @@
                          text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(fam)}</span>
             ${calBadge}
           </div>
+          ${projectionLine}
           <div style="display: flex; flex-direction: column; gap: 2px;">
             ${oversHtml}
             ${undersHtml}

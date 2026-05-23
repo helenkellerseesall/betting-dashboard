@@ -341,11 +341,29 @@ function main() {
       const av = card.averages
       const sample = rc.decided || 0
       if (!card.diagnostics.hasData) return { status: "no_data", sample: 0 }
-      if (sample < 30) return {
-        status: "insufficient_sample",
-        sample,
-        modelAvg: av.modelProb,
-        hitRate:  pf.hitRate,
+      if (sample < 30) {
+        // Early-warning state (2026-05-23) — sample is too small to call the
+        // model "broken" with confidence, but if it's clearly losing money
+        // (ROI < -10%) over the small sample we surface that to the operator
+        // instead of letting them think "PENDING = wait and see." The
+        // distinction matters: PENDING tells you "no signal yet," EARLY_LOSSY
+        // tells you "directional signal exists and it's bad — don't fire on
+        // this prop pending more data."
+        if (pf.roiAt1u != null && pf.roiAt1u < -0.10 && sample >= 5) {
+          return {
+            status: "early_warning_lossy",
+            sample,
+            modelAvg: av.modelProb,
+            hitRate:  pf.hitRate,
+            roi:      pf.roiAt1u,
+          }
+        }
+        return {
+          status: "insufficient_sample",
+          sample,
+          modelAvg: av.modelProb,
+          hitRate:  pf.hitRate,
+        }
       }
       const delta = pf.calibrationDelta == null ? null : pf.calibrationDelta
       const roi   = pf.roiAt1u

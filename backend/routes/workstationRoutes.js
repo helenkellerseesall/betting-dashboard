@@ -164,6 +164,7 @@ function laneStatusBadge(status) {
     miscalibrated_underconfident:{ tone: "amber",   label: "UNDERCONFIDENT",tip: "Model is too cautious — may be hidden value." },
     broken:                     { tone: "red",     label: "BROKEN",       tip: "Model is proven wrong on this prop. Do not bet." },
     insufficient_sample:        { tone: "grey",    label: "PENDING",      tip: "Not enough decided bets yet to verify the model." },
+    early_warning_lossy:        { tone: "amber",   label: "EARLY: LOSSY", tip: "Small sample but losing money on this prop so far. Wait for more data." },
   }
   return BADGES[status] || null
 }
@@ -1082,11 +1083,92 @@ router.get("/games", (req, res) => {
       return res.json({ ok: true, sport, games: [], note: "snapshot empty or missing" })
     }
 
-    // Filter: allowlist + operator-policy (no 3x hits, no extreme longshots)
-    const filtered = rows.filter(r =>
-      isAllowedBook(String(r?.sportsbook || r?.book || "")) &&
-      !shouldRejectByOperatorPolicy(r)
-    )
+    // Filter 1: allowlist + operator-policy (no 3x hits, no extreme longshots)
+    // Filter 2 (2026-05-23): garbage-line filter — drop near-certain "filler"
+    // lines the books offer as parlay-pad (e.g. Harden Under 14.5 rebounds at
+    // -1000). These pollute the surface and the model can't find edge on
+    // them. Threshold: implied prob > 95% OR < 5%, UNLESS edge data later
+    // shows the model strongly disagrees. We don't have edge on raw snapshot
+    // rows here, so a hard implied-prob filter is the right cut at this stage.
+    function impliedFromOdds(o) {
+      const a = Number(o)
+      if (!Number.isFinite(a) || a === 0) return null
+      return a > 0 ? 100 / (a + 100) : Math.abs(a) / (Math.abs(a) + 100)
+    }
+    const filtered = rows.filter(r => {
+      if (!isAllowedBook(String(r?.sportsbook || r?.book || ""))) return false
+      if (shouldRejectByOperatorPolicy(r)) return false
+      const ip = impliedFromOdds(r?.oddsAmerican ?? r?.odds)
+      if (ip != null && (ip > 0.95 || ip < 0.05)) return false
+      return true
+    })
+
+    // Model-prob join (2026-05-23) — pull tracked_bets for this sport+date and
+    // build a lookup so we can surface modelProb/edge onto matching snapshot
+    // rows. Without this, the /games view shows book lines with no model
+    // signal — operator can't tell what the cognition thinks about each line.
+    // Lookup key: `${player}|${family}|${side}|${line}` (normalized).
+    //
+    // CRITICAL: /games display family is "Total Bases" / "Pitcher Outs" but
+    // tracked_bets statFamily is "totalbases" / "outs". Normalize both sides
+    // through a shared canonical form via FAMILY_ALIAS.
+    const FAMILY_ALIAS = {
+      // /games display → canonical family used in tracked_bets
+      "hits": "hits",
+      "totalbases": "totalbases",
+      "total bases": "totalbases",
+      "homeruns": "hr",
+      "home runs": "hr",
+      "hr": "hr",
+      "rbis": "rbis",
+      "rbi": "rbis",
+      "runsscored": "runs",
+      "runs scored": "runs",
+      "runs": "runs",
+      "stolenbases": "sb",
+      "stolen bases": "sb",
+      "strikeouts": "ks",
+      "pitcherstrikeouts": "ks",
+      "pitcheroutts": "outs",
+      "pitcherouts": "outs",
+      "outs": "outs",
+      "pitcherwalks": "walks",
+      "walks": "walks",
+      "earnedruns": "earnedruns",
+      // NBA
+      "points": "points",
+      "rebounds": "rebounds",
+      "assists": "assists",
+      "threes": "threes",
+      "pra": "pra",
+      "ptsreb": "ptsreb",
+      "ptsast": "ptsast",
+      "rebast": "rebast",
+    }
+    function canonFamily(s) {
+      const lc = String(s || "").toLowerCase().trim()
+      if (FAMILY_ALIAS[lc]) return FAMILY_ALIAS[lc]
+      const stripped = lc.replace(/[\s_\-+]+/g, "")
+      return FAMILY_ALIAS[stripped] || stripped
+    }
+    const modelProbLookup = (() => {
+      const map = new Map()
+      try {
+        const date = String(new Date().toISOString().slice(0, 10))
+        const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
+        if (!fs.existsSync(p)) return map
+        const arr = JSON.parse(fs.readFileSync(p, "utf8"))
+        const rows = Array.isArray(arr) ? arr : (arr.bets || [])
+        for (const b of rows) {
+          const key = `${String(b.player||"").toLowerCase().trim()}|${canonFamily(b.statFamily)}|${String(b.side||"").toLowerCase()}|${b.line ?? ""}`
+          const prev = map.get(key)
+          if (!prev || Number(b.edge||0) > Number(prev.edge||0)) {
+            map.set(key, { modelProb: Number(b.modelProb), edge: Number(b.edge), tier: b.tier })
+          }
+        }
+      } catch (_) {}
+      return map
+    })()
 
     // Stat family canonicalization — we'll group by these
     const STAT_FAMILY_MAP = {
@@ -1166,26 +1248,37 @@ router.get("/games", (req, res) => {
       }
       const p = game.playerMap.get(player)
       if (!p.propGroups[fam]) p.propGroups[fam] = {}
-      // Phase A.5b dedupe (operator-corrected): key by (book|side|line).
-      // True duplicates (same book offering the same prop twice, usually
-      // because base + alt market keys produce identical tuples) collapse;
-      // different books showing the same prop are PRESERVED so the operator
-      // can compare prices across books. Operator-stated: "weird dk would
-      // not be seen at all".
+      // Multi-book collapse (2026-05-23) — dedupe key is (side|line) ONLY,
+      // not (book|side|line). When multiple books offer the same side+line,
+      // we aggregate them: best price (highest American odds = best for
+      // bettor) becomes the primary, the rest get listed as alternate
+      // sources. This collapses Harden Over 0.5 Threes from 3 books into
+      // ONE row showing the best price + a small "also at: ..." chip.
       const sideStr = String(r?.side || "").toLowerCase()
       const lineNum = r.line ?? null
       const oddsNum  = Number(r.oddsAmerican ?? r.odds)
       const bookName = canonicalBookName(String(r?.sportsbook || r?.book || "")) || r?.sportsbook || r?.book
-      const dedupeKey = `${bookName}|${sideStr}|${lineNum}`
+      if (!bookName || !Number.isFinite(oddsNum)) continue
+
+      const dedupeKey = `${sideStr}|${lineNum}`
       const existing  = p.propGroups[fam][dedupeKey]
-      if (!existing || (Number.isFinite(oddsNum) && Number.isFinite(existing.odds) &&
-          Number(oddsNum) > Number(existing.odds))) {
+      if (!existing) {
         p.propGroups[fam][dedupeKey] = {
           side:       sideStr,
           line:       lineNum,
-          odds:       oddsNum,
-          book:       bookName,
+          odds:       oddsNum,            // current best price
+          book:       bookName,           // current best book
           isAltLine:  Boolean(r?.isAltLine || /alternate_/i.test(String(r?.marketKey || ""))),
+          books:      [{ book: bookName, odds: oddsNum }],
+        }
+      } else {
+        // Add this book to the books[] roster if not already present
+        const have = existing.books.find(b => b.book === bookName)
+        if (!have) existing.books.push({ book: bookName, odds: oddsNum })
+        // Promote to primary if this price is better than the current primary
+        if (oddsNum > existing.odds) {
+          existing.odds = oddsNum
+          existing.book = bookName
         }
       }
     }
@@ -1220,24 +1313,59 @@ router.get("/games", (req, res) => {
     for (const [, g] of games) {
       const players = []
       for (const [, p] of g.playerMap) {
-        // Phase A.5: propGroups was a Map of dedupeKey→entry; flatten to array
-        // per family and sort by line ASC
+        // Flatten propGroups (Map of dedupeKey→entry) into array per family.
+        // Attach: lane calibration verdict, model probability + edge joined
+        // from tracked_bets, sorted books[] with best price first, top-line
+        // model projection summary per family for the FE header.
         const flatGroups = {}
         const familyCalibration = {}
+        const familyProjection = {}
         for (const fam of Object.keys(p.propGroups)) {
           const arr = Object.values(p.propGroups[fam])
           arr.sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0))
-          // Calibration overlay (2026-05-23) — attach the lane verdict to
-          // every entry in this family so the FE can show a per-row badge.
+
+          // Calibration overlay
           const cal = _laneFor(sport, fam)
           if (cal) {
             for (const e of arr) e.laneCalibration = cal
             familyCalibration[fam] = cal
           }
+
+          // Per-row model-prob join + book sort
+          let bestEdgeEntry = null
+          for (const e of arr) {
+            // Sort the books list by best price desc so FE renders best first
+            if (Array.isArray(e.books) && e.books.length > 1) {
+              e.books.sort((a, b) => Number(b.odds) - Number(a.odds))
+            }
+            // Look up model probability via tracked_bets join
+            const key = `${String(p.player||"").toLowerCase().trim()}|${canonFamily(fam)}|${e.side}|${e.line ?? ""}`
+            const m = modelProbLookup.get(key)
+            if (m) {
+              e.modelProb = Number.isFinite(m.modelProb) ? m.modelProb : null
+              e.edge      = Number.isFinite(m.edge)      ? m.edge      : null
+              e.tier      = m.tier || null
+              if (!bestEdgeEntry || (e.edge != null && bestEdgeEntry.edge != null && e.edge > bestEdgeEntry.edge)) {
+                bestEdgeEntry = e
+              }
+            }
+          }
+          // Family-level projection summary for the FE header
+          if (bestEdgeEntry) {
+            familyProjection[fam] = {
+              bestEdge:     bestEdgeEntry.edge,
+              bestModelProb:bestEdgeEntry.modelProb,
+              bestSide:     bestEdgeEntry.side,
+              bestLine:     bestEdgeEntry.line,
+              tier:         bestEdgeEntry.tier,
+            }
+          }
+
           flatGroups[fam] = arr
         }
         p.propGroups = flatGroups
         p.familyCalibration = familyCalibration
+        p.familyProjection  = familyProjection
         players.push(p)
       }
       // Sort players: starters first, then by ceiling score (best first), then alphabetical

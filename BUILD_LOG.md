@@ -6,6 +6,32 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-23 — Surface fixes from operator iPhone-screenshot audit
+
+**What:** Operator sent 5 screenshots of the post-calibration-overlay iPhone view + Twitter winning-parlay screenshots. Called out: NBA prop view is market noise (same line from 3 books = 3 rows), no model projection surfaced (operator wants "how many threes is Harden hitting tonight"), -1000 / -3000 garbage lines polluting the screen, PENDING badge masking directionally-broken lanes, L log button still present after we agreed feedback loop is system-level. 5 fixes shipped together.
+
+**Done (`workstationRoutes.js` +~120 lines · `laneScoreboard.js` +~20 · `frontend/mobile/index.html` +~80 / −60):**
+
+1. **Multi-book collapse.** Dedupe key in `/api/ws/games` changed from `(book|side|line)` to `(side|line)`. Same line from 3 books now renders as ONE row showing the best price + small blue chip "+2" listing the other books on hover. Cuts visible noise ~60% on NBA pages. Backend aggregates a sorted `books[]` array per entry; FE renders the chip from it.
+
+2. **Per-row model-probability join.** Added `modelProbLookup` map in `/games` that pulls today's tracked_bets and matches rows by `(player|family|side|line)`. Required a new `canonFamily()` normalizer because display labels are "Total Bases" / "Pitcher Outs" while tracked_bets uses "totalBases" / "outs". Result: every row the cognition has actually evaluated now shows a purple model chip "47% +12pp edge" alongside the book price. Where tracked_bets has no entry the chip is omitted (defensible — model didn't speak on that row).
+
+3. **Family-level projection header.** Above each family's line list the FE now renders a one-line summary of the cognition's top pick within that family: `model → OVER 2.5 +12pp edge (PLAYABLE)`. Sourced from a new `familyProjection` object per player (highest-edge entry within the family). Answers operator's "what does the model think" without picking ONE definitive bet — operator can still construct their own parlay around the projection.
+
+4. **Garbage-line filter.** In `/games`, drop rows where implied probability > 95% OR < 5%. Harden Under 14.5 rebounds at -1000 (97% implied) is parlay-pad filler, not a real prop. These pollute the surface and the model can't find edge on them at scale. Hard cut at the backend; no FE flag needed.
+
+5. **Early-warning badge.** `laneScoreboard.js` added new status `early_warning_lossy` triggered when `sample >= 5 AND sample < 30 AND ROI < -10%`. MLB Pitcher Strikeouts (sample 11, ROI -37%) and NBA Rebounds (sample 11, ROI -14%) and NBA Assists (sample 7, ROI -64%) were silently masked under grey "PENDING" before. Now they render as amber "EARLY: LOSSY" so the operator knows the small sample is directionally bad, not just unknown. `laneStatusBadge()` in workstationRoutes.js gets the matching badge config.
+
+6. **L log button removed.** Manual per-prop logging was the wrong shape (system-level grading is the real loop). Button stripped from every prop row in `renderProp`. The POST /api/ws/ledger/log route stays for now (dead code, harmless); the GRADES tab still renders but will see no new entries — separate task to repurpose it as the lane-scorecard view.
+
+**Anti-doctrine check passed:** zero new files, zero new endpoints. Every change is an edit to existing surfaces. The model-prob join is read-only against existing tracked_bets data. The calibration overlay was already there — this just tightens its surface presentation.
+
+**Validation:** Backend modules load cleanly; FE passes `node --check`; live `/api/ws/games?sport=mlb` returns 32 rows with model signal across 31 players (Yordan Alvarez Hits Under 0.5 at +171 DK / +165 HardRock, model 43.5%, edge +6.6pp, tier PLAYABLE — all four data layers joining correctly). Multi-book aggregation confirmed (books[].length > 1 on multi-book lines). Garbage filter active. Early-warning status correctly assigned to 3 props that were hidden behind PENDING.
+
+**What this unlocks:** the operator's "tell me how many threes Harden is hitting" complaint is partially addressed — for any prop the cognition has evaluated, the row now shows model probability + edge, and the family header surfaces the model's top pick. Where tracked_bets is sparse (HR for now, NBA threes, first basket), the chip is blank — still an honest gap pending the capture-fix data clock + the broken pitcher-model rebuild. Surface noise is materially down: NBA Harden card goes from ~21 rows to ~10-12.
+
+---
+
 ## 2026-05-23 — Lane scoreboard + calibration overlay + HR capture fix
 
 **What:** Operator committed to running 7 prop lanes in parallel (MLB HR, NBA 3PM, MLB pitcher Ks, MLB batter hits, NBA points, NBA PRA, NBA first basket) instead of bouncing between feature surfaces. Audit ran first to see what the model is actually worth on each prop.

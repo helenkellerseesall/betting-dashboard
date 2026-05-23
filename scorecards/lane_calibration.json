@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T07:51:45.005Z",
+  "generatedAt": "2026-05-23T08:38:10.207Z",
   "windowDays": 60,
   "verdicts": {
     "mlb_home_runs": {
@@ -69,46 +69,51 @@
     "mlb_pitcher_ks": {
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.3709090909090909
     },
     "mlb:ks": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.3709090909090909
     },
     "mlb:pitcherstrikeouts": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.3709090909090909
     },
     "mlb:strikeouts": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.3709090909090909
     },
     "mlb:pitcherks": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.3709090909090909
     },
     "mlb_batter_hits": {
       "label": "MLB — Batter Hits",
@@ -433,54 +438,60 @@
     "nba_rebounds": {
       "label": "NBA — Rebounds",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.4888897727272727,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.14090909090909093
     },
     "nba:rebounds": {
       "laneId": "nba_rebounds",
       "label": "NBA — Rebounds",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.4888897727272727,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.14090909090909093
     },
     "nba:playerrebounds": {
       "laneId": "nba_rebounds",
       "label": "NBA — Rebounds",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 11,
       "modelAvg": 0.4888897727272727,
-      "hitRate": 0.2727272727272727
+      "hitRate": 0.2727272727272727,
+      "roi": -0.14090909090909093
     },
     "nba_assists": {
       "label": "NBA — Assists",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 7,
       "modelAvg": 0.507821052631579,
-      "hitRate": 0.14285714285714285
+      "hitRate": 0.14285714285714285,
+      "roi": -0.6457142857142857
     },
     "nba:assists": {
       "laneId": "nba_assists",
       "label": "NBA — Assists",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 7,
       "modelAvg": 0.507821052631579,
-      "hitRate": 0.14285714285714285
+      "hitRate": 0.14285714285714285,
+      "roi": -0.6457142857142857
     },
     "nba:playerassists": {
       "laneId": "nba_assists",
       "label": "NBA — Assists",
       "sport": "nba",
-      "status": "insufficient_sample",
+      "status": "early_warning_lossy",
       "sample": 7,
       "modelAvg": 0.507821052631579,
-      "hitRate": 0.14285714285714285
+      "hitRate": 0.14285714285714285,
+      "roi": -0.6457142857142857
     }
   }
 }
