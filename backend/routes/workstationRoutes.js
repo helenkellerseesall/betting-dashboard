@@ -1104,14 +1104,36 @@ router.get("/games", (req, res) => {
         })
       }
       const p = game.playerMap.get(player)
-      if (!p.propGroups[fam]) p.propGroups[fam] = []
-      p.propGroups[fam].push({
-        side:       String(r?.side || "").toLowerCase(),
-        line:       r.line ?? null,
-        odds:       r.oddsAmerican ?? r.odds ?? null,
-        book:       canonicalBookName(String(r?.sportsbook || r?.book || "")) || r?.sportsbook || r?.book,
-        isAltLine:  Boolean(r?.isAltLine || /alternate_/i.test(String(r?.marketKey || ""))),
-      })
+      if (!p.propGroups[fam]) p.propGroups[fam] = {}
+      // Phase A.5 dedupe: key by (side|line). Per (player, propType, side, line)
+      // we keep ONE entry showing the BEST odds across allowed books. Operator
+      // saw duplicates because same prop appears at multiple books or both base
+      // + alt market keys produced identical (side, line) tuples.
+      const sideStr = String(r?.side || "").toLowerCase()
+      const lineNum = r.line ?? null
+      const dedupeKey = `${sideStr}|${lineNum}`
+      const oddsNum  = Number(r.oddsAmerican ?? r.odds)
+      const bookName = canonicalBookName(String(r?.sportsbook || r?.book || "")) || r?.sportsbook || r?.book
+      const existing = p.propGroups[fam][dedupeKey]
+      if (!existing || (Number.isFinite(oddsNum) && Number.isFinite(existing.odds) &&
+          oddsBetterForBettor(sideStr, oddsNum, existing.odds))) {
+        p.propGroups[fam][dedupeKey] = {
+          side:       sideStr,
+          line:       lineNum,
+          odds:       oddsNum,
+          book:       bookName,
+          isAltLine:  Boolean(r?.isAltLine || /alternate_/i.test(String(r?.marketKey || ""))),
+          allBooks:   [...(existing?.allBooks || []), { book: bookName, odds: oddsNum }],
+        }
+      } else if (existing) {
+        existing.allBooks = existing.allBooks || []
+        existing.allBooks.push({ book: bookName, odds: oddsNum })
+      }
+    }
+    // Helper: pick higher payout for bettor (American odds)
+    function oddsBetterForBettor(side, a, b) {
+      // For both sides, higher American odds = better payout
+      return Number(a) > Number(b)
     }
 
     // Convert maps to arrays, sort
@@ -1119,10 +1141,15 @@ router.get("/games", (req, res) => {
     for (const [, g] of games) {
       const players = []
       for (const [, p] of g.playerMap) {
-        // Sort each prop family's options by line ASC
+        // Phase A.5: propGroups was a Map of dedupeKey→entry; flatten to array
+        // per family and sort by line ASC
+        const flatGroups = {}
         for (const fam of Object.keys(p.propGroups)) {
-          p.propGroups[fam].sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0))
+          const arr = Object.values(p.propGroups[fam])
+          arr.sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0))
+          flatGroups[fam] = arr
         }
+        p.propGroups = flatGroups
         players.push(p)
       }
       // Sort players: starters first, then by ceiling score (best first), then alphabetical

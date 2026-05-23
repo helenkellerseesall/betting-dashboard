@@ -686,6 +686,11 @@
       // lets operator switch to "sharp" view (the old edge-filtered candidates).
       tabMode: { mlb: "games", nba: "games" },
       games:   { mlb: null, nba: null, loading: false },
+      // Phase A.5: per-game / per-player expansion state. Games collapsed by
+      // default; operator taps to expand. Inside an expanded game, players
+      // are also collapsed by default — tap a player to see their props.
+      expandedGames:   {},  // { [eventId]: true } when expanded
+      expandedPlayers: {},  // { [eventId+player]: true } when expanded
       // v0.2.1: external slip analyzer (Flow A)
       analyze: {
         meta: { sourceType: "twitter", attribution: "", sport: "" },
@@ -1257,12 +1262,14 @@
 
       // Phase A2 — game-first view is the DEFAULT for MLB/NBA sport tabs.
       // Operator can toggle to "sharp" mode for the old edge-filtered view.
+      // The MODE TOGGLE is always rendered (Phase A.5 fix — operator hit a
+      // dead-end being stuck in Sharp mode with no way back to Games).
       const mode = state.tabMode[sport] || "games";
       if (mode === "games") {
         renderGamesView(main, sport);
         return;
       }
-      // Otherwise fall through to the legacy edge-filtered view below.
+      // Sharp mode falls through to legacy — toggle already prepended above.
 
       // Date label
       const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
@@ -1325,6 +1332,12 @@
           <span>${ageTxt}</span>
           <span>${payload.counts?.propsWithMultiBook ?? 0} multi-book props</span>
         </div>`;
+      }
+      // Phase A.5: persistent mode toggle for MLB/NBA — operator can always
+      // switch back to Games view even from inside Sharp Plays. Prepended
+      // to freshHtml so it sits above the freshness banner.
+      if (sport === "mlb" || sport === "nba") {
+        freshHtml = renderModeToggle(sport) + freshHtml;
       }
 
       // v0.2.8b: search input is ALWAYS rendered above candidates. The
@@ -1548,70 +1561,104 @@
       const matchupTxt = g.matchup || `${g.awayTeam || ""} @ ${g.homeTeam || ""}` || "Game";
       const gameTimeTxt = g.gameTime ? new Date(g.gameTime).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
 
-      // Group props per player; show only PRIMARY families for compact view
       const primaryFamilies = sport === "nba"
         ? ["Points", "Rebounds", "Assists", "Threes", "PRA"]
         : ["Hits", "Home Runs", "Total Bases", "RBIs", "Strikeouts"];
 
-      const playersHtml = players.map(p => renderPlayerCard(p, sport, primaryFamilies)).join("");
+      // Phase A.5: collapsed by default. Show game header only; tap to expand.
+      const isExpanded = !!state.expandedGames[g.eventId];
+      const playersHtml = isExpanded
+        ? (players.map(p => renderPlayerCard(p, sport, primaryFamilies, g.eventId)).join("")
+           || `<div style="padding: 16px; color: #6B7280; text-align: center; font-size: 12px;">No players with primary props in this game tonight.</div>`)
+        : "";
+      const caret = isExpanded ? "▾" : "▸";
+
       return `
-        <div style="margin-bottom: 20px;">
-          <div style="
-            background: linear-gradient(180deg, #1A1424 0%, #11151F 100%);
-            border: 1px solid #1F2937; border-radius: 12px 12px 0 0;
-            padding: 12px 14px; border-bottom: none;">
-            <div style="font-size: 13px; font-weight: 700; color: #F9FAFB; text-transform: uppercase; letter-spacing: 0.4px;">
-              ${escapeHtml(matchupTxt)}
-            </div>
-            <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">
-              ${escapeHtml(gameTimeTxt)} · ${players.length} player${players.length === 1 ? "" : "s"} with props
+        <div style="margin-bottom: 10px;">
+          <div onclick="toggleGameExpand('${escapeHtml(g.eventId)}')"
+               style="background: linear-gradient(180deg, #1A1424 0%, #11151F 100%);
+                      border: 1px solid #1F2937;
+                      border-radius: ${isExpanded ? "12px 12px 0 0" : "12px"};
+                      ${isExpanded ? "border-bottom: none;" : ""}
+                      padding: 12px 14px; cursor: pointer;
+                      display: flex; align-items: center; gap: 10px;">
+            <span style="color: #6B7280; font-size: 14px; min-width: 14px;">${caret}</span>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; font-weight: 700; color: #F9FAFB; text-transform: uppercase; letter-spacing: 0.4px;">
+                ${escapeHtml(matchupTxt)}
+              </div>
+              <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">
+                ${escapeHtml(gameTimeTxt)} · ${players.length} player${players.length === 1 ? "" : "s"} with props
+              </div>
             </div>
           </div>
-          <div style="background: #11151F; border: 1px solid #1F2937; border-top: 0; border-radius: 0 0 12px 12px; padding: 8px;">
-            ${playersHtml || `<div style="padding: 16px; color: #6B7280; text-align: center; font-size: 12px;">No players with primary props in this game tonight.</div>`}
-          </div>
+          ${isExpanded ? `<div style="background: #11151F; border: 1px solid #1F2937; border-top: 0; border-radius: 0 0 12px 12px; padding: 8px;">${playersHtml}</div>` : ""}
         </div>
       `;
     }
 
-    function renderPlayerCard(p, sport, primaryFamilies) {
+    function toggleGameExpand(eventId) {
+      state.expandedGames[eventId] = !state.expandedGames[eventId];
+      render();
+    }
+    window.toggleGameExpand = toggleGameExpand;
+
+    function togglePlayerExpand(key) {
+      state.expandedPlayers[key] = !state.expandedPlayers[key];
+      render();
+    }
+    window.togglePlayerExpand = togglePlayerExpand;
+
+    function renderPlayerCard(p, sport, primaryFamilies, eventId) {
       const teamTxt = p.team ? p.team : "team pending";
       const teamCls = p.team ? "#9CA3AF" : "#FCD34D";
       const starterTag = p.starterFlag === 1
         ? `<span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: rgba(52, 211, 153, 0.15); color: #34D399; letter-spacing: 0.3px;">STARTER</span>`
-        : "";
-      const minutesTxt = (typeof p.projectedMinutes === "number")
-        ? `<span style="color: #6B7280;">${p.projectedMinutes.toFixed(1)}min proj</span>`
         : "";
       const ceilingTag = (typeof p.ceilingScore === "number" && p.ceilingScore >= 0.55)
         ? `<span style="font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
                        background: ${p.ceilingScore >= 0.72 ? "rgba(251, 191, 36, 0.18)" : "rgba(251, 191, 36, 0.10)"};
                        color: #FBBF24; letter-spacing: 0.3px;">CEILING ${(p.ceilingScore * 100).toFixed(0)}</span>`
         : "";
+      const minutesTxt = (typeof p.projectedMinutes === "number")
+        ? `<span style="color: #6B7280;">${p.projectedMinutes.toFixed(1)}min</span>`
+        : "";
       const recent = p.recentForm;
       const formTxt = (recent && typeof recent.last5_avg === "number")
         ? `<span style="color: #6B7280;">L5: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${recent.last5_avg.toFixed(1)}</span></span>`
         : "";
 
-      // Show primary families that have data
-      const propBlocks = primaryFamilies
-        .filter(fam => Array.isArray(p.propGroups?.[fam]) && p.propGroups[fam].length > 0)
-        .map(fam => renderPlayerPropFamily(fam, p.propGroups[fam], p, sport))
-        .join("");
+      // Count available prop families for the summary line
+      const availableFamilies = primaryFamilies
+        .filter(fam => Array.isArray(p.propGroups?.[fam]) && p.propGroups[fam].length > 0);
+      if (availableFamilies.length === 0) return "";
 
-      if (!propBlocks) return ""; // skip players with no primary props
+      // Phase A.5: player row collapsed by default. Tap to expand props.
+      const playerKey = `${eventId}|${p.player}`;
+      const isExpanded = !!state.expandedPlayers[playerKey];
+      const propBlocks = isExpanded
+        ? availableFamilies.map(fam => renderPlayerPropFamily(fam, p.propGroups[fam], p, sport)).join("")
+        : "";
+      const caret = isExpanded ? "▾" : "▸";
 
       return `
-        <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-            <span style="font-size: 14px; font-weight: 700; color: #F9FAFB;">${escapeHtml(p.player)}</span>
-            ${starterTag}
-            ${ceilingTag}
+        <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
+          <div onclick="togglePlayerExpand('${escapeHtml(playerKey).replace(/'/g, "\\'")}')"
+               style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+            <span style="color: #6B7280; font-size: 12px; min-width: 12px;">${caret}</span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                <span style="font-size: 14px; font-weight: 700; color: #F9FAFB;">${escapeHtml(p.player)}</span>
+                ${starterTag}
+                ${ceilingTag}
+              </div>
+              <div style="font-size: 11px; color: ${teamCls}; margin-top: 2px;">
+                ${escapeHtml(teamTxt)}${minutesTxt ? " · " + minutesTxt : ""}${formTxt ? " · " + formTxt : ""}
+                · <span style="color: #4B5563;">${availableFamilies.length} prop type${availableFamilies.length === 1 ? "" : "s"}</span>
+              </div>
+            </div>
           </div>
-          <div style="font-size: 11px; color: ${teamCls}; margin-bottom: 8px;">
-            ${escapeHtml(teamTxt)}${minutesTxt ? " · " + minutesTxt : ""}${formTxt ? " · " + formTxt : ""}
-          </div>
-          ${propBlocks}
+          ${isExpanded ? `<div style="margin-top: 10px;">${propBlocks}</div>` : ""}
         </div>
       `;
     }
@@ -1969,6 +2016,9 @@
       }).join("");
 
       // v0.2.3: image OCR via Anthropic Vision — drop a screenshot, get legs.
+      // Phase A.5: removed the redundant Quick-Paste textarea — operator said
+      // OCR makes it unnecessary. If OCR breaks, paste-parse is still
+      // available via parseAndPopulate() as a fallback handler (no UI).
       const ocrStatus = state.analyze.ocrStatus || "";
       const ocrHtml = `
         <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.5); background: linear-gradient(180deg, #11202E 0%, #141828 100%);">
@@ -1981,15 +2031,6 @@
           <div id="anaOcrStatus" style="font-size: 11px; color: ${ocrStatus.includes("error") ? "#F87171" : ocrStatus.includes("Parsed") ? "#34D399" : "#9CA3AF"}; min-height: 14px; text-align: center; padding: 2px 0;">
             ${escapeHtml(ocrStatus) || "Or paste an image (Cmd-V) anywhere on this page."}
           </div>
-        </div>
-
-        <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.3);">
-          <div class="leg-form-title" style="margin-bottom: 6px;">⚡ Or quick-paste slip text</div>
-          <textarea id="anaPasteText" rows="3"
-            placeholder="Paste the slip text — e.g. &quot;Jalen Williams 20+ Points, Dylan Harper 20+ Points, SGA 8+ Assists, Wembanyama 30+ Points, Stephon Castle Double-Double&quot;"
-            style="width: 100%; padding: 8px; background: #0A0E1A; border: 1px solid #1F2937; color: #E5E7EB; border-radius: 6px; font-size: 12px; font-family: inherit; resize: vertical; box-sizing: border-box;"
-          ></textarea>
-          <button onclick="parseAndPopulate()" class="add-leg-form-btn" style="margin-top: 6px; margin-bottom: 0;">⚡ Parse into legs</button>
         </div>
       `;
 
