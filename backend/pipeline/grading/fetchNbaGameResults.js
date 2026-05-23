@@ -232,14 +232,43 @@ async function fetchNbaGameResults(date) {
  */
 function getNbaStatValue(playerEntry, statFamily) {
   if (!playerEntry) return null
-  const fam = String(statFamily || "").toLowerCase()
+  const fam = String(statFamily || "").toLowerCase().replace(/[\s_\-]+/g, "")
 
-  if (fam === "rebounds") return playerEntry.rebounds ?? null
-  if (fam === "threes")   return playerEntry.threes   ?? null
-  if (fam === "assists")  return playerEntry.assists  ?? null
-  if (fam === "points")   return playerEntry.points   ?? null
-  if (fam === "blocks")   return playerEntry.blocks   ?? null
-  if (fam === "steals")   return playerEntry.steals   ?? null
+  if (fam === "rebounds" || fam === "playerrebounds") return playerEntry.rebounds ?? null
+  if (fam === "threes" || fam === "playerthrees" || fam === "threepointersmade" || fam === "3pm")
+    return playerEntry.threes ?? null
+  if (fam === "assists" || fam === "playerassists")   return playerEntry.assists ?? null
+  if (fam === "points" || fam === "playerpoints")     return playerEntry.points  ?? null
+  if (fam === "blocks" || fam === "playerblocks")     return playerEntry.blocks  ?? null
+  if (fam === "steals" || fam === "playersteals")     return playerEntry.steals  ?? null
+
+  // 2026-05-23 grader trust audit: composer props were never resolvable
+  // because the lookup had no PRA / combo cases. PRA had 24 unresolved.
+  // Composers fall back to 0 for null parts (a player who scored 13 and got
+  // 5 reb with null assists likely got 0 — ESPN box-score zeros nulls anyway).
+  const safe = (k) => Number(playerEntry[k] ?? 0)
+  if (fam === "pra" || fam === "pointsreboundsassists" || fam === "playerpointsreboundsassists")
+    return safe("points") + safe("rebounds") + safe("assists")
+  if (fam === "ptsreb" || fam === "pointsrebounds" || fam === "playerpointsrebounds")
+    return safe("points") + safe("rebounds")
+  if (fam === "ptsast" || fam === "pointsassists" || fam === "playerpointsassists")
+    return safe("points") + safe("assists")
+  if (fam === "rebast" || fam === "reboundsassists" || fam === "playerreboundsassists")
+    return safe("rebounds") + safe("assists")
+
+  // Double-Double / Triple-Double — count categories where stat ≥ 10.
+  // Returns 1 (achieved) or 0 (didn't). settleFromActual then compares to
+  // the line; YES bets at line 0.5 win when actualValue === 1.
+  if (fam === "doubledouble" || fam === "playerdoubledouble") {
+    const cats = [safe("points"), safe("rebounds"), safe("assists"), safe("steals"), safe("blocks")]
+    const tens = cats.filter(v => v >= 10).length
+    return tens >= 2 ? 1 : 0
+  }
+  if (fam === "tripledouble" || fam === "playertripledouble") {
+    const cats = [safe("points"), safe("rebounds"), safe("assists"), safe("steals"), safe("blocks")]
+    const tens = cats.filter(v => v >= 10).length
+    return tens >= 3 ? 1 : 0
+  }
 
   return null
 }
