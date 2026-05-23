@@ -492,4 +492,20 @@ module.exports = {
   nbaRowMatchupContext,        // Phase 1 — Context Ingestion V1
   nbaRowEdge,
   nbaRowLadderLabel,
+  nbaIndependentBaseModelProbability,
+  // 2026-05-23 — Lane 5 decomposition diagnostic. Exported so inspectNbaPick
+  // can dump intermediate values without re-implementing the score path.
+  _diag: {
+    classifyPropFamily,
+    lineAnchorByFamily,
+    roleSignals,
+    contextSignals,
+    recentFormSignal,
+    honestWeightedScore,
+    familyScoreWeights,
+    logistic,
+    compressAroundMid,
+    probabilityBandForFamily,
+    ladderSeverity,
+  },
 }
