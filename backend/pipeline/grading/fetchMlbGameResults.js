@@ -196,8 +196,18 @@ function getStatValue(playerEntry, statFamily) {
     return playerEntry._batting?.rbis       ?? playerEntry.rbis       ?? null
   if (fam === "totalbases" || fam === "battertotalbases")
     return playerEntry._batting?.totalBases ?? playerEntry.totalBases ?? null
-  if (fam === "walks" || fam === "batterwalks")
+  if (fam === "walks" || fam === "batterwalks") {
+    // 2026-05-23 grader trust audit follow-up: statFamily is "walks" for both
+    // pitcher_walks and batter_walks rows (writer doesn't preserve the
+    // pitcher_ prefix). Disambiguate by whether this player pitched today.
+    // If they did, "walks" means walks allowed (_pitching.pitcherWalks).
+    // Else "walks" means walks drawn (_batting.walks). Defends against
+    // two-way players by preferring pitching context for walks (pitcher's
+    // primary identity).
+    const pitched = playerEntry._pitching && Number(playerEntry._pitching.outs) > 0
+    if (pitched) return playerEntry._pitching.pitcherWalks ?? null
     return playerEntry._batting?.walks      ?? playerEntry.walks      ?? null
+  }
   if (fam === "sb" || fam === "stolenbases" || fam === "batterstolenbases")
     return playerEntry._batting?.stolenBases ?? null
   if (fam === "batterstrikeouts" || fam === "batterks")
