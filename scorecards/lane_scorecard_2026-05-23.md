@@ -20,9 +20,11 @@ Window: last 60 days
 
 ### NBA — 3-Pointers Made
 
-- Rows: **11** total · 0 decided · 0 push · 11 pending · 0 unresolved
+- Rows: **11** total · 7 decided · 0 push · 4 pending · 0 unresolved
 - Model avg: **48.9%** · Implied avg: 32.8% · Edge avg: 16.07%
-- **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
+- Hit rate: **100.0%** (7W/0L) · Model said 48.9% → underconfident by 51.1pp
+- Brier: 0.2617 · ROI @ 1u: **+175.9%**
+- ⚠️  Sample size: 7 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
 
 ### MLB — Pitcher Strikeouts
 
@@ -41,14 +43,14 @@ Window: last 60 days
 
 ### NBA — Player Points
 
-- Rows: **547** total · 122 decided · 0 push · 425 pending · 0 unresolved
+- Rows: **547** total · 362 decided · 0 push · 185 pending · 0 unresolved
 - Model avg: **48.5%** · Implied avg: 35.0% · Edge avg: 13.54%
-- Hit rate: **40.2%** (49W/73L) · Model said 48.5% → overconfident by 8.3pp
-- Brier: 0.2451 · ROI @ 1u: **+15.5%**
+- Hit rate: **35.1%** (127W/235L) · Model said 48.5% → overconfident by 13.4pp
+- Brier: 0.2465 · ROI @ 1u: **+2.7%**
 
 ### NBA — PRA
 
-- Rows: **42** total · 0 decided · 0 push · 30 pending · 12 unresolved
+- Rows: **42** total · 0 decided · 0 push · 18 pending · 24 unresolved
 - Model avg: **48.8%** · Implied avg: 33.6% · Edge avg: 15.26%
 - **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
 
@@ -103,17 +105,16 @@ Window: last 60 days
 
 ### NBA — Rebounds
 
-- Rows: **88** total · 11 decided · 0 push · 77 pending · 0 unresolved
+- Rows: **88** total · 62 decided · 0 push · 26 pending · 0 unresolved
 - Model avg: **48.9%** · Implied avg: 34.3% · Edge avg: 14.59%
-- Hit rate: **27.3%** (3W/8L) · Model said 48.9% → overconfident by 21.6pp
-- Brier: 0.2448 · ROI @ 1u: **-14.1%**
-- ⚠️  Sample size: 11 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
+- Hit rate: **21.0%** (13W/49L) · Model said 48.9% → overconfident by 27.9pp
+- Brier: 0.2429 · ROI @ 1u: **-37.4%**
 
 ### NBA — Assists
 
-- Rows: **57** total · 7 decided · 0 push · 50 pending · 0 unresolved
+- Rows: **57** total · 27 decided · 0 push · 30 pending · 0 unresolved
 - Model avg: **50.8%** · Implied avg: 37.1% · Edge avg: 13.68%
-- Hit rate: **14.3%** (1W/6L) · Model said 50.8% → overconfident by 36.5pp
-- Brier: 0.2642 · ROI @ 1u: **-64.6%**
-- ⚠️  Sample size: 7 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
+- Hit rate: **59.3%** (16W/11L) · Model said 50.8% → underconfident by 8.5pp
+- Brier: 0.2428 · ROI @ 1u: **+72.3%**
+- ⚠️  Sample size: 27 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
 
