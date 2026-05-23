@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T21:06:35.627Z",
+  "generatedAt": "2026-05-23T21:18:11.907Z",
   "windowDays": 60,
   "verdicts": {
     "mlb_home_runs": {
@@ -399,28 +399,37 @@
     "mlb_pitcher_walks": {
       "label": "MLB — Pitcher Walks",
       "sport": "mlb",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "miscalibrated_overconfident",
+      "sample": 31,
+      "hitRate": 0.3548387096774194,
       "modelAvg": 0.5049352941176471,
-      "hitRate": null
+      "calibrationDelta": 0.15009658444022778,
+      "brier": 0.24910294387096776,
+      "roi": -0.12774193548387097
     },
     "mlb:walks": {
       "laneId": "mlb_pitcher_walks",
       "label": "MLB — Pitcher Walks",
       "sport": "mlb",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "miscalibrated_overconfident",
+      "sample": 31,
+      "hitRate": 0.3548387096774194,
       "modelAvg": 0.5049352941176471,
-      "hitRate": null
+      "calibrationDelta": 0.15009658444022778,
+      "brier": 0.24910294387096776,
+      "roi": -0.12774193548387097
     },
     "mlb:pitcherwalks": {
       "laneId": "mlb_pitcher_walks",
       "label": "MLB — Pitcher Walks",
       "sport": "mlb",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "miscalibrated_overconfident",
+      "sample": 31,
+      "hitRate": 0.3548387096774194,
       "modelAvg": 0.5049352941176471,
-      "hitRate": null
+      "calibrationDelta": 0.15009658444022778,
+      "brier": 0.24910294387096776,
+      "roi": -0.12774193548387097
     },
     "mlb_earned_runs": {
       "label": "MLB — Earned Runs",

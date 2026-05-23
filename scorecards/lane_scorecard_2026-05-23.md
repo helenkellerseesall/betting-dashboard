@@ -95,9 +95,10 @@ Window: last 60 days
 
 ### MLB — Pitcher Walks
 
-- Rows: **34** total · 0 decided · 0 push · 3 pending · 31 unresolved
+- Rows: **34** total · 31 decided · 0 push · 3 pending · 0 unresolved
 - Model avg: **50.5%** · Implied avg: 41.4% · Edge avg: 9.11%
-- **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
+- Hit rate: **35.5%** (11W/20L) · Model said 50.5% → overconfident by 15.0pp
+- Brier: 0.2491 · ROI @ 1u: **-12.8%**
 
 ### MLB — Earned Runs
 
