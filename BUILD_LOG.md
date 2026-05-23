@@ -6,6 +6,30 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-23 — Lane scoreboard + calibration overlay + HR capture fix
+
+**What:** Operator committed to running 7 prop lanes in parallel (MLB HR, NBA 3PM, MLB pitcher Ks, MLB batter hits, NBA points, NBA PRA, NBA first basket) instead of bouncing between feature surfaces. Audit ran first to see what the model is actually worth on each prop.
+
+**Done (NEW `backend/scripts/laneScoreboard.js`, ~280 lines · backend/routes/workstationRoutes.js +~80 · frontend/mobile/index.html +~70 · backend/pipeline/mlb/phase4Tracking.js +~20):**
+
+- **laneScoreboard.js** — single read-only script. Walks every `mlb_tracked_bets_*.json` + `nba_tracked_bets_*.json` in a date window. Groups by statFamily. Computes per-prop: total/decided/pending counts, avg modelProb, avg impliedProb, avg edge, hit rate, calibration delta (modelAvg − hitRate), Brier score, ROI @ 1u flat stake. Writes two artifacts: dated markdown for human reading (`scorecards/lane_scorecard_<date>.md`), latest JSON for backend consumption (`scorecards/lane_calibration.json`). Pure measurement instrument — no model changes.
+
+- **First honest scoreboard reveals:** MLB batter cognition WORKS — Total Bases (159 decided, calibrated within 2pp, ROI +16.7%), Runs (68 decided, +23.2% ROI), Hits (65 decided, +22.2% ROI), RBIs (32 decided, +20.2% ROI). MLB pitcher cognition is BROKEN — Strikeouts overconfident by 23pp at -37.1% ROI, Pitcher Outs overconfident by 39pp at -67.4% ROI. NBA points works mechanically (+15.5% ROI) but model is 8pp overconfident — profitable for the wrong reason. THREE lanes blind: MLB Home Runs (0 rows EVER captured), NBA First Basket (0 rows), NBA 3PM (11 rows pending grading).
+
+- **Calibration overlay enrichment** in `workstationRoutes.js` — loadLaneCalibration() (5min cache), resolveLaneCalibration(sport, statFamily), laneStatusBadge(status). Status: calibrated_positive / calibrated_neutral / miscalibrated_overconfident / miscalibrated_underconfident / broken / insufficient_sample / no_data. Each prop family on each player in GET /games gets `laneCalibration` enriched onto every entry + a `familyCalibration` summary on the player object.
+
+- **Mobile PWA badge** — every prop family header now renders a per-prop calibration badge (green CALIBRATED + ROI / amber OVERCONFIDENT / red BROKEN / grey PENDING). Families sort within each player card so calibrated props float to top, broken props sink to bottom. Operator now sees per-prop which props the model has earned trust on, with sample size visible. Title tooltip shows ROI + hit rate on hover.
+
+- **HR capture fix in `phase4Tracking.js`** — root cause of the HR blackout found in `buildMlbPropClusters.js` line 869-953: any play with `impliedProb < 0.1` routes to `board.longshotPlays`, NEVER to `board.allPlays`. HR predictions naturally fall in the 5-15% range, so the entire HR market was being silently dropped before tracking. `persistTrackedToday` now also persists `longshotPlays` + HR-flagged `altPlays`. From tonight forward, every HR prediction the model produces lands in tracked_bets. After ~7-10 days of fresh capture, the scorecard will populate the MLB HR lane with real calibration data.
+
+**Anti-doctrine check passed:** zero new tables, zero new modules, zero parallel routes. Lane scorecard is a measurement instrument over existing data. Calibration overlay is an enrichment, not a new write path. HR capture fix is one new branch in an existing function.
+
+**Validation:** Backend modules load cleanly (`node -e require()`); mobile JS passes `node --check`; scoreboard ran against 60 days of data and produced verdicts matching the screenshot of the source files; calibration JSON has 7 lane verdicts + 16 sport-prefixed alias entries.
+
+**What this unlocks operationally:** the iPhone view is now honest. Operator finally sees which props the model has earned trust on (MLB batter props with 30-159 decided bets and +ROI). Broken pitcher props are visibly red. Once HR data accumulates over 1-2 weeks, the green/amber/red signal extends to the operator's #1 lane.
+
+---
+
 ## 2026-05-23 — Feedback loop wired through canonical authority
 
 **What:** Operator approved building the recommendation-logging + grading + CLV-tracking loop as one focused session. Audit found buildPersonalLedger.js + buildClv.js + buildNightlyOrchestrator.js already implement the entire backend — JSON canonical + SQLite mirror, addOrUpdateBet, settleBet, batchSettle, setClosingLine, buildNightlyReport, importFromTrackedBets, runNightlyReview (9-step chain). The original plan would have created a parallel `logged_picks` table + `picksSchema.js` — that's shadow authority per project doctrine. Killed the parallel-table plan and extended the canonical surface instead.

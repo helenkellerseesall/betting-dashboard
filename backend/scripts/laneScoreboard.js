@@ -314,12 +314,72 @@ function main() {
   const md = renderMarkdown(cards, secondaryCards, opts)
   console.log(md)
 
-  // Persist alongside the scorecards/ directory at repo root
+  // Persist two artifacts:
+  //   1. Dated markdown for human reading: scorecards/lane_scorecard_<date>.md
+  //   2. Latest JSON for backend consumption: scorecards/lane_calibration.json
+  //      (overwritten each run — single source of truth for the FE overlay)
   try {
     if (!fs.existsSync(SCORECARDS_DIR)) fs.mkdirSync(SCORECARDS_DIR, { recursive: true })
-    const outPath = path.join(SCORECARDS_DIR, `lane_scorecard_${todayKey()}.md`)
-    fs.writeFileSync(outPath, md, "utf8")
-    console.error(`\n[laneScoreboard] wrote ${outPath}`)
+    const mdPath = path.join(SCORECARDS_DIR, `lane_scorecard_${todayKey()}.md`)
+    fs.writeFileSync(mdPath, md, "utf8")
+    console.error(`\n[laneScoreboard] wrote ${mdPath}`)
+
+    // Latest calibration JSON — a flat map from statFamily alias → verdict.
+    // The backend uses this to enrich candidate rows with a calibration badge.
+    // Verdict shape: { status, hitRate, modelAvg, calibrationDelta, brier, roi, sample }
+    //   status ∈ "calibrated_positive" | "calibrated_neutral" |
+    //            "miscalibrated_overconfident" | "miscalibrated_underconfident" |
+    //            "broken" | "insufficient_sample" | "no_data"
+    const latest = {
+      generatedAt: new Date().toISOString(),
+      windowDays:  opts.days,
+      verdicts:    {},
+    }
+    function verdictFor(card) {
+      const rc = card.rowCounts
+      const pf = card.performance
+      const av = card.averages
+      const sample = rc.decided || 0
+      if (!card.diagnostics.hasData) return { status: "no_data", sample: 0 }
+      if (sample < 30) return {
+        status: "insufficient_sample",
+        sample,
+        modelAvg: av.modelProb,
+        hitRate:  pf.hitRate,
+      }
+      const delta = pf.calibrationDelta == null ? null : pf.calibrationDelta
+      const roi   = pf.roiAt1u
+      let status
+      if (roi != null && roi < -0.15)            status = "broken"
+      else if (delta != null && Math.abs(delta) > 0.08)
+                                                  status = delta > 0
+                                                    ? "miscalibrated_overconfident"
+                                                    : "miscalibrated_underconfident"
+      else if (roi != null && roi > 0.05)        status = "calibrated_positive"
+      else                                       status = "calibrated_neutral"
+      return {
+        status,
+        sample,
+        hitRate:  pf.hitRate,
+        modelAvg: av.modelProb,
+        calibrationDelta: delta,
+        brier:    pf.brier,
+        roi,
+      }
+    }
+    // Index by every alias so any tracked_bets row format hits a match.
+    for (const c of [...cards, ...secondaryCards]) {
+      const lane = [...LANES, ...SECONDARY].find((l) => l.id === c.laneId)
+      if (!lane) continue
+      const v = verdictFor(c)
+      latest.verdicts[lane.id] = { label: c.label, sport: lane.sport, ...v }
+      for (const alias of lane.aliases) {
+        latest.verdicts[`${lane.sport}:${normFamily(alias)}`] = { laneId: lane.id, label: c.label, sport: lane.sport, ...v }
+      }
+    }
+    const jsonPath = path.join(SCORECARDS_DIR, "lane_calibration.json")
+    fs.writeFileSync(jsonPath, JSON.stringify(latest, null, 2), "utf8")
+    console.error(`[laneScoreboard] wrote ${jsonPath}`)
   } catch (err) {
     console.error(`[laneScoreboard] failed to write scorecard file: ${err.message}`)
   }

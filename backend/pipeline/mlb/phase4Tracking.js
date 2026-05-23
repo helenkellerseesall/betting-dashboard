@@ -803,8 +803,24 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   const board = bestBetsBoard
   const allPlays = Array.isArray(board.allPlays) ? board.allPlays : []
 
+  // 2026-05-23 — HR capture fix. buildMlbPropClusters routes any play with
+  // impliedProb < 0.1 to board.longshotPlays (not board.allPlays). That meant
+  // batter_home_runs predictions never landed in tracked_bets — model prob
+  // for HR is naturally 5-15%, all below the 10% longshot threshold.
+  //
+  // Fix: also persist longshotPlays + HR-flavored altPlays. They go through
+  // the same leanBet() path so resulting tracked_bets rows are identical
+  // shape, just with statFamily === "hr" instead of being missing entirely.
+  //
+  // Audit doc: scorecards/lane_scorecard_2026-05-23.md (NO DATA on MLB HR
+  // across 19 days of tracked_bets prior to this fix).
+  const longshotPlays = Array.isArray(board.longshotPlays) ? board.longshotPlays : []
+  const altPlays      = Array.isArray(board.altPlays)      ? board.altPlays      : []
+  const hrAltPlays    = altPlays.filter((p) => p && p.isHrProp)
+  const captureExtras = [...longshotPlays, ...hrAltPlays]
+
   // -------- Bets --------
-  const newBets = allPlays.map((p) => leanBet(p, date))
+  const newBets = [...allPlays, ...captureExtras].map((p) => leanBet(p, date))
   const betsPath = fileFor(BETS_PREFIX, date)
   const existingBets = Array.isArray(readJsonSafe(betsPath, [])) ? readJsonSafe(betsPath, []) : []
   const mergedBetsById = new Map()

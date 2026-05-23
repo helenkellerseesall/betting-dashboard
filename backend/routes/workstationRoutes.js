@@ -107,6 +107,67 @@ router.use("/portfolio-audit", portfolioAuditRoute)
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 
+// ─── Lane calibration overlay (2026-05-23) ───────────────────────────────────
+// scorecards/lane_calibration.json is written by backend/scripts/laneScoreboard.js
+// every time it runs. Reads it lazily (cached 5min) and resolves
+// (sport, statFamily) → {status, hitRate, modelAvg, roi, sample}.
+//
+// This is purely additive — the canonical model behavior is unchanged. The
+// overlay just LABELS each surfaced prop with the model's own track record
+// on that lane so the operator can see which props deserve trust.
+//
+// Statuses (from laneScoreboard.js):
+//   "calibrated_positive"           — green: model is honest + profitable
+//   "calibrated_neutral"            — green-ish: calibrated but flat ROI
+//   "miscalibrated_overconfident"   — amber: model says X but reality is X−Δ
+//   "miscalibrated_underconfident"  — amber-good: model is being too cautious
+//   "broken"                        — red: ROI < -15%, do not bet
+//   "insufficient_sample"           — grey: <30 decided bets yet
+//   "no_data"                       — blank: pipeline isn't capturing this prop
+const LANE_CALIBRATION_PATH = path.join(__dirname, "..", "..", "scorecards", "lane_calibration.json")
+let _laneCalibrationCache = { loadedAt: 0, data: null }
+function loadLaneCalibration() {
+  const now = Date.now()
+  if (now - _laneCalibrationCache.loadedAt < 5 * 60 * 1000 && _laneCalibrationCache.data) {
+    return _laneCalibrationCache.data
+  }
+  try {
+    if (!fs.existsSync(LANE_CALIBRATION_PATH)) {
+      _laneCalibrationCache = { loadedAt: now, data: { verdicts: {} } }
+      return _laneCalibrationCache.data
+    }
+    const raw = JSON.parse(fs.readFileSync(LANE_CALIBRATION_PATH, "utf8"))
+    _laneCalibrationCache = { loadedAt: now, data: raw }
+    return raw
+  } catch (_) {
+    _laneCalibrationCache = { loadedAt: now, data: { verdicts: {} } }
+    return _laneCalibrationCache.data
+  }
+}
+function _normFam(s) { return String(s || "").toLowerCase().replace(/[\s_\-]+/g, "") }
+function resolveLaneCalibration(sport, statFamily) {
+  const cal = loadLaneCalibration()
+  if (!cal || !cal.verdicts) return null
+  const fam = _normFam(statFamily)
+  const sp  = String(sport || "").toLowerCase()
+  // Try sport-prefixed alias first (most specific), then bare familyId
+  return cal.verdicts[`${sp}:${fam}`] || cal.verdicts[fam] || null
+}
+function laneStatusBadge(status) {
+  // FE-friendly badge metadata. Returns null when there's no data so the
+  // FE can simply skip rendering the badge instead of showing a "blank" one.
+  if (!status || status === "no_data") return null
+  const BADGES = {
+    calibrated_positive:        { tone: "green",   label: "CALIBRATED",   tip: "Model trusts itself here. +ROI over decided bets." },
+    calibrated_neutral:         { tone: "green",   label: "CALIBRATED",   tip: "Model is calibrated; flat ROI so far." },
+    miscalibrated_overconfident:{ tone: "amber",   label: "OVERCONFIDENT",tip: "Model says higher than it actually hits — bet smaller." },
+    miscalibrated_underconfident:{ tone: "amber",   label: "UNDERCONFIDENT",tip: "Model is too cautious — may be hidden value." },
+    broken:                     { tone: "red",     label: "BROKEN",       tip: "Model is proven wrong on this prop. Do not bet." },
+    insufficient_sample:        { tone: "grey",    label: "PENDING",      tip: "Not enough decided bets yet to verify the model." },
+  }
+  return BADGES[status] || null
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function todayKey() {
@@ -1129,6 +1190,31 @@ router.get("/games", (req, res) => {
       }
     }
 
+    // Calibration overlay (2026-05-23) — for every family on every player,
+    // attach the lane verdict so the FE can render a per-family badge that
+    // tells the operator if the model has earned trust on this prop yet.
+    // Computed once per (sport, family) pair — the overlay is read from
+    // scorecards/lane_calibration.json (5min cache).
+    const _laneCache = new Map()
+    function _laneFor(sport, fam) {
+      const key = `${sport}|${fam}`
+      if (_laneCache.has(key)) return _laneCache.get(key)
+      const verdict = resolveLaneCalibration(sport, fam)
+      if (!verdict) { _laneCache.set(key, null); return null }
+      const badge = laneStatusBadge(verdict.status)
+      const out = {
+        status:           verdict.status,
+        badge,                           // null when status==="no_data"
+        hitRate:          verdict.hitRate ?? null,
+        modelAvg:         verdict.modelAvg ?? null,
+        roi:              verdict.roi ?? null,
+        sample:           verdict.sample ?? 0,
+        calibrationDelta: verdict.calibrationDelta ?? null,
+      }
+      _laneCache.set(key, out)
+      return out
+    }
+
     // Convert maps to arrays, sort
     const out = []
     for (const [, g] of games) {
@@ -1137,12 +1223,21 @@ router.get("/games", (req, res) => {
         // Phase A.5: propGroups was a Map of dedupeKey→entry; flatten to array
         // per family and sort by line ASC
         const flatGroups = {}
+        const familyCalibration = {}
         for (const fam of Object.keys(p.propGroups)) {
           const arr = Object.values(p.propGroups[fam])
           arr.sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0))
+          // Calibration overlay (2026-05-23) — attach the lane verdict to
+          // every entry in this family so the FE can show a per-row badge.
+          const cal = _laneFor(sport, fam)
+          if (cal) {
+            for (const e of arr) e.laneCalibration = cal
+            familyCalibration[fam] = cal
+          }
           flatGroups[fam] = arr
         }
         p.propGroups = flatGroups
+        p.familyCalibration = familyCalibration
         players.push(p)
       }
       // Sort players: starters first, then by ceiling score (best first), then alphabetical

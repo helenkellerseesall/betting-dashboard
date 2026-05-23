@@ -1651,6 +1651,24 @@
         .filter(fam => Array.isArray(p.propGroups?.[fam]) && p.propGroups[fam].length > 0);
       if (availableFamilies.length === 0) return "";
 
+      // Calibration overlay (2026-05-23) — sort families so the model's
+      // trusted props appear first inside a player card, broken props last.
+      // Order: calibrated > underconfident > insufficient > overconfident > broken
+      const STATUS_RANK = {
+        calibrated_positive: 0,
+        calibrated_neutral: 1,
+        miscalibrated_underconfident: 2,
+        insufficient_sample: 3,
+        no_data: 4,
+        miscalibrated_overconfident: 5,
+        broken: 6,
+      };
+      availableFamilies.sort((a, b) => {
+        const sa = STATUS_RANK[p.familyCalibration?.[a]?.status ?? "no_data"];
+        const sb = STATUS_RANK[p.familyCalibration?.[b]?.status ?? "no_data"];
+        return sa - sb;
+      });
+
       // Phase A.5: player row collapsed by default. Tap to expand props.
       const playerKey = `${eventId}|${p.player}`;
       const isExpanded = !!state.expandedPlayers[playerKey];
@@ -1731,10 +1749,42 @@
 
       const oversHtml  = overs.slice(0, 4).map(p => renderProp(p, true)).join("");
       const undersHtml = unders.slice(0, 3).map(p => renderProp(p, false)).join("");
+
+      // Calibration overlay (2026-05-23) — badge tells the operator if the
+      // model has earned trust on THIS prop family. Sourced from
+      // scorecards/lane_calibration.json via the backend overlay.
+      // Pull from any prop entry (they all share the family-level verdict)
+      // or fall back to player.familyCalibration if set on the player.
+      const calSource = (props && props[0] && props[0].laneCalibration) || (player.familyCalibration && player.familyCalibration[fam]) || null;
+      let calBadge = "";
+      if (calSource && calSource.badge) {
+        const tone = calSource.badge.tone;
+        const toneColors = {
+          green: { bg: "rgba(52, 211, 153, 0.15)", fg: "#34D399" },
+          amber: { bg: "rgba(251, 191, 36, 0.15)", fg: "#FBBF24" },
+          red:   { bg: "rgba(248, 113, 113, 0.15)", fg: "#F87171" },
+          grey:  { bg: "rgba(156, 163, 175, 0.15)", fg: "#9CA3AF" },
+        };
+        const c = toneColors[tone] || toneColors.grey;
+        const sampleTxt = calSource.sample ? ` ${calSource.sample}` : "";
+        const tipParts = [calSource.badge.tip];
+        if (calSource.roi != null) tipParts.push(`ROI ${calSource.roi > 0 ? "+" : ""}${(calSource.roi * 100).toFixed(0)}%`);
+        if (calSource.hitRate != null) tipParts.push(`hits ${(calSource.hitRate * 100).toFixed(0)}%`);
+        const tip = tipParts.join(" · ");
+        calBadge = `<span title="${escapeHtml(tip)}"
+                          style="font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+                                 background: ${c.bg}; color: ${c.fg}; letter-spacing: 0.4px; margin-left: 6px;">
+                      ${escapeHtml(calSource.badge.label)}${sampleTxt}
+                    </span>`;
+      }
+
       return `
         <div style="margin-bottom: 8px;">
-          <div style="font-size: 10px; font-weight: 700; color: #9CA3AF;
-                      text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 0 4px;">${escapeHtml(fam)}</div>
+          <div style="display: flex; align-items: center; padding: 2px 0 4px;">
+            <span style="font-size: 10px; font-weight: 700; color: #9CA3AF;
+                         text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(fam)}</span>
+            ${calBadge}
+          </div>
           <div style="display: flex; flex-direction: column; gap: 2px;">
             ${oversHtml}
             ${undersHtml}
