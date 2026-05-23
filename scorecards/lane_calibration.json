@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T10:37:21.494Z",
+  "generatedAt": "2026-05-23T21:06:35.627Z",
   "windowDays": 60,
   "verdicts": {
     "mlb_home_runs": {
@@ -70,85 +70,85 @@
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
       "status": "early_warning_lossy",
-      "sample": 11,
+      "sample": 25,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727,
-      "roi": -0.3709090909090909
+      "hitRate": 0.4,
+      "roi": -0.10800000000000008
     },
     "mlb:ks": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
       "status": "early_warning_lossy",
-      "sample": 11,
+      "sample": 25,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727,
-      "roi": -0.3709090909090909
+      "hitRate": 0.4,
+      "roi": -0.10800000000000008
     },
     "mlb:pitcherstrikeouts": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
       "status": "early_warning_lossy",
-      "sample": 11,
+      "sample": 25,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727,
-      "roi": -0.3709090909090909
+      "hitRate": 0.4,
+      "roi": -0.10800000000000008
     },
     "mlb:strikeouts": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
       "status": "early_warning_lossy",
-      "sample": 11,
+      "sample": 25,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727,
-      "roi": -0.3709090909090909
+      "hitRate": 0.4,
+      "roi": -0.10800000000000008
     },
     "mlb:pitcherks": {
       "laneId": "mlb_pitcher_ks",
       "label": "MLB — Pitcher Strikeouts",
       "sport": "mlb",
       "status": "early_warning_lossy",
-      "sample": 11,
+      "sample": 25,
       "modelAvg": 0.5042666666666668,
-      "hitRate": 0.2727272727272727,
-      "roi": -0.3709090909090909
+      "hitRate": 0.4,
+      "roi": -0.10800000000000008
     },
     "mlb_batter_hits": {
       "label": "MLB — Batter Hits",
       "sport": "mlb",
       "status": "calibrated_positive",
-      "sample": 65,
-      "hitRate": 0.5846153846153846,
+      "sample": 350,
+      "hitRate": 0.4942857142857143,
       "modelAvg": 0.5485984415584424,
-      "calibrationDelta": -0.03601694305694225,
-      "brier": 0.23980655107692306,
-      "roi": 0.22243973238896464
+      "calibrationDelta": 0.05431272727272812,
+      "brier": 0.2528658560857146,
+      "roi": 0.08397712690930301
     },
     "mlb:hits": {
       "laneId": "mlb_batter_hits",
       "label": "MLB — Batter Hits",
       "sport": "mlb",
       "status": "calibrated_positive",
-      "sample": 65,
-      "hitRate": 0.5846153846153846,
+      "sample": 350,
+      "hitRate": 0.4942857142857143,
       "modelAvg": 0.5485984415584424,
-      "calibrationDelta": -0.03601694305694225,
-      "brier": 0.23980655107692306,
-      "roi": 0.22243973238896464
+      "calibrationDelta": 0.05431272727272812,
+      "brier": 0.2528658560857146,
+      "roi": 0.08397712690930301
     },
     "mlb:batterhits": {
       "laneId": "mlb_batter_hits",
       "label": "MLB — Batter Hits",
       "sport": "mlb",
       "status": "calibrated_positive",
-      "sample": 65,
-      "hitRate": 0.5846153846153846,
+      "sample": 350,
+      "hitRate": 0.4942857142857143,
       "modelAvg": 0.5485984415584424,
-      "calibrationDelta": -0.03601694305694225,
-      "brier": 0.23980655107692306,
-      "roi": 0.22243973238896464
+      "calibrationDelta": 0.05431272727272812,
+      "brier": 0.2528658560857146,
+      "roi": 0.08397712690930301
     },
     "nba_points": {
       "label": "NBA — Player Points",
@@ -188,37 +188,41 @@
     "nba_pra": {
       "label": "NBA — PRA",
       "sport": "nba",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "early_warning_lossy",
+      "sample": 24,
       "modelAvg": 0.48814761904761894,
-      "hitRate": null
+      "hitRate": 0,
+      "roi": -1
     },
     "nba:pra": {
       "laneId": "nba_pra",
       "label": "NBA — PRA",
       "sport": "nba",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "early_warning_lossy",
+      "sample": 24,
       "modelAvg": 0.48814761904761894,
-      "hitRate": null
+      "hitRate": 0,
+      "roi": -1
     },
     "nba:playerpointsreboundsassists": {
       "laneId": "nba_pra",
       "label": "NBA — PRA",
       "sport": "nba",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "early_warning_lossy",
+      "sample": 24,
       "modelAvg": 0.48814761904761894,
-      "hitRate": null
+      "hitRate": 0,
+      "roi": -1
     },
     "nba:pointsreboundsassists": {
       "laneId": "nba_pra",
       "label": "NBA — PRA",
       "sport": "nba",
-      "status": "insufficient_sample",
-      "sample": 0,
+      "status": "early_warning_lossy",
+      "sample": 24,
       "modelAvg": 0.48814761904761894,
-      "hitRate": null
+      "hitRate": 0,
+      "roi": -1
     },
     "nba_first_basket": {
       "label": "NBA — First Basket",
@@ -244,153 +248,153 @@
       "label": "MLB — Total Bases",
       "sport": "mlb",
       "status": "calibrated_positive",
-      "sample": 159,
-      "hitRate": 0.660377358490566,
+      "sample": 411,
+      "hitRate": 0.6423357664233577,
       "modelAvg": 0.6787138297872389,
-      "calibrationDelta": 0.01833647129667293,
-      "brier": 0.22437317635220116,
-      "roi": 0.16706111222040915
+      "calibrationDelta": 0.036378063363881274,
+      "brier": 0.23071273233576797,
+      "roi": 0.12807823209050612
     },
     "mlb:totalbases": {
       "laneId": "mlb_total_bases",
       "label": "MLB — Total Bases",
       "sport": "mlb",
       "status": "calibrated_positive",
-      "sample": 159,
-      "hitRate": 0.660377358490566,
+      "sample": 411,
+      "hitRate": 0.6423357664233577,
       "modelAvg": 0.6787138297872389,
-      "calibrationDelta": 0.01833647129667293,
-      "brier": 0.22437317635220116,
-      "roi": 0.16706111222040915
+      "calibrationDelta": 0.036378063363881274,
+      "brier": 0.23071273233576797,
+      "roi": 0.12807823209050612
     },
     "mlb_runs": {
       "label": "MLB — Runs Scored",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 68,
-      "hitRate": 0.6470588235294118,
+      "status": "miscalibrated_overconfident",
+      "sample": 166,
+      "hitRate": 0.4879518072289157,
       "modelAvg": 0.6056516129032266,
-      "calibrationDelta": -0.04140721062618524,
-      "brier": 0.226042546617647,
-      "roi": 0.23158600576926197
+      "calibrationDelta": 0.11769980567431088,
+      "brier": 0.25418563873493977,
+      "roi": -0.05839289266330603
     },
     "mlb:runs": {
       "laneId": "mlb_runs",
       "label": "MLB — Runs Scored",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 68,
-      "hitRate": 0.6470588235294118,
+      "status": "miscalibrated_overconfident",
+      "sample": 166,
+      "hitRate": 0.4879518072289157,
       "modelAvg": 0.6056516129032266,
-      "calibrationDelta": -0.04140721062618524,
-      "brier": 0.226042546617647,
-      "roi": 0.23158600576926197
+      "calibrationDelta": 0.11769980567431088,
+      "brier": 0.25418563873493977,
+      "roi": -0.05839289266330603
     },
     "mlb:runsscored": {
       "laneId": "mlb_runs",
       "label": "MLB — Runs Scored",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 68,
-      "hitRate": 0.6470588235294118,
+      "status": "miscalibrated_overconfident",
+      "sample": 166,
+      "hitRate": 0.4879518072289157,
       "modelAvg": 0.6056516129032266,
-      "calibrationDelta": -0.04140721062618524,
-      "brier": 0.226042546617647,
-      "roi": 0.23158600576926197
+      "calibrationDelta": 0.11769980567431088,
+      "brier": 0.25418563873493977,
+      "roi": -0.05839289266330603
     },
     "mlb:batterrunsscored": {
       "laneId": "mlb_runs",
       "label": "MLB — Runs Scored",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 68,
-      "hitRate": 0.6470588235294118,
+      "status": "miscalibrated_overconfident",
+      "sample": 166,
+      "hitRate": 0.4879518072289157,
       "modelAvg": 0.6056516129032266,
-      "calibrationDelta": -0.04140721062618524,
-      "brier": 0.226042546617647,
-      "roi": 0.23158600576926197
+      "calibrationDelta": 0.11769980567431088,
+      "brier": 0.25418563873493977,
+      "roi": -0.05839289266330603
     },
     "mlb_rbis": {
       "label": "MLB — RBIs",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 32,
-      "hitRate": 0.59375,
+      "status": "broken",
+      "sample": 56,
+      "hitRate": 0.4107142857142857,
       "modelAvg": 0.5301426229508197,
-      "calibrationDelta": -0.06360737704918029,
-      "brier": 0.17427338718749996,
-      "roi": 0.2022649578108791
+      "calibrationDelta": 0.11942833723653401,
+      "brier": 0.2144495451785715,
+      "roi": -0.1965583764866019
     },
     "mlb:rbis": {
       "laneId": "mlb_rbis",
       "label": "MLB — RBIs",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 32,
-      "hitRate": 0.59375,
+      "status": "broken",
+      "sample": 56,
+      "hitRate": 0.4107142857142857,
       "modelAvg": 0.5301426229508197,
-      "calibrationDelta": -0.06360737704918029,
-      "brier": 0.17427338718749996,
-      "roi": 0.2022649578108791
+      "calibrationDelta": 0.11942833723653401,
+      "brier": 0.2144495451785715,
+      "roi": -0.1965583764866019
     },
     "mlb:rbi": {
       "laneId": "mlb_rbis",
       "label": "MLB — RBIs",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 32,
-      "hitRate": 0.59375,
+      "status": "broken",
+      "sample": 56,
+      "hitRate": 0.4107142857142857,
       "modelAvg": 0.5301426229508197,
-      "calibrationDelta": -0.06360737704918029,
-      "brier": 0.17427338718749996,
-      "roi": 0.2022649578108791
+      "calibrationDelta": 0.11942833723653401,
+      "brier": 0.2144495451785715,
+      "roi": -0.1965583764866019
     },
     "mlb:batterrbis": {
       "laneId": "mlb_rbis",
       "label": "MLB — RBIs",
       "sport": "mlb",
-      "status": "calibrated_positive",
-      "sample": 32,
-      "hitRate": 0.59375,
+      "status": "broken",
+      "sample": 56,
+      "hitRate": 0.4107142857142857,
       "modelAvg": 0.5301426229508197,
-      "calibrationDelta": -0.06360737704918029,
-      "brier": 0.17427338718749996,
-      "roi": 0.2022649578108791
+      "calibrationDelta": 0.11942833723653401,
+      "brier": 0.2144495451785715,
+      "roi": -0.1965583764866019
     },
     "mlb_pitcher_outs": {
       "label": "MLB — Pitcher Outs",
       "sport": "mlb",
       "status": "broken",
-      "sample": 39,
-      "hitRate": 0.15384615384615385,
+      "sample": 128,
+      "hitRate": 0.375,
       "modelAvg": 0.5480358108108103,
-      "calibrationDelta": 0.39418965696465647,
-      "brier": 0.27373135076923083,
-      "roi": -0.6737261936114531
+      "calibrationDelta": 0.17303581081081032,
+      "brier": 0.26402702843750003,
+      "roi": -0.19313383159179157
     },
     "mlb:outs": {
       "laneId": "mlb_pitcher_outs",
       "label": "MLB — Pitcher Outs",
       "sport": "mlb",
       "status": "broken",
-      "sample": 39,
-      "hitRate": 0.15384615384615385,
+      "sample": 128,
+      "hitRate": 0.375,
       "modelAvg": 0.5480358108108103,
-      "calibrationDelta": 0.39418965696465647,
-      "brier": 0.27373135076923083,
-      "roi": -0.6737261936114531
+      "calibrationDelta": 0.17303581081081032,
+      "brier": 0.26402702843750003,
+      "roi": -0.19313383159179157
     },
     "mlb:pitcherouts": {
       "laneId": "mlb_pitcher_outs",
       "label": "MLB — Pitcher Outs",
       "sport": "mlb",
       "status": "broken",
-      "sample": 39,
-      "hitRate": 0.15384615384615385,
+      "sample": 128,
+      "hitRate": 0.375,
       "modelAvg": 0.5480358108108103,
-      "calibrationDelta": 0.39418965696465647,
-      "brier": 0.27373135076923083,
-      "roi": -0.6737261936114531
+      "calibrationDelta": 0.17303581081081032,
+      "brier": 0.26402702843750003,
+      "roi": -0.19313383159179157
     },
     "mlb_pitcher_walks": {
       "label": "MLB — Pitcher Walks",
@@ -422,18 +426,18 @@
       "label": "MLB — Earned Runs",
       "sport": "mlb",
       "status": "insufficient_sample",
-      "sample": 0,
+      "sample": 1,
       "modelAvg": 0.5357,
-      "hitRate": null
+      "hitRate": 0
     },
     "mlb:earnedruns": {
       "laneId": "mlb_earned_runs",
       "label": "MLB — Earned Runs",
       "sport": "mlb",
       "status": "insufficient_sample",
-      "sample": 0,
+      "sample": 1,
       "modelAvg": 0.5357,
-      "hitRate": null
+      "hitRate": 0
     },
     "nba_rebounds": {
       "label": "NBA — Rebounds",

@@ -28,18 +28,18 @@ Window: last 60 days
 
 ### MLB — Pitcher Strikeouts
 
-- Rows: **27** total · 11 decided · 0 push · 16 pending · 0 unresolved
+- Rows: **27** total · 25 decided · 0 push · 2 pending · 0 unresolved
 - Model avg: **50.4%** · Implied avg: 44.3% · Edge avg: 6.11%
-- Hit rate: **27.3%** (3W/8L) · Model said 50.4% → overconfident by 23.2pp
-- Brier: 0.2564 · ROI @ 1u: **-37.1%**
-- ⚠️  Sample size: 11 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
+- Hit rate: **40.0%** (10W/15L) · Model said 50.4% → overconfident by 10.4pp
+- Brier: 0.2471 · ROI @ 1u: **-10.8%**
+- ⚠️  Sample size: 25 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
 
 ### MLB — Batter Hits
 
-- Rows: **385** total · 65 decided · 0 push · 320 pending · 0 unresolved
+- Rows: **385** total · 350 decided · 0 push · 35 pending · 0 unresolved
 - Model avg: **54.9%** · Implied avg: 45.8% · Edge avg: 9.06%
-- Hit rate: **58.5%** (38W/27L) · Model said 54.9% → underconfident by 3.6pp
-- Brier: 0.2398 · ROI @ 1u: **+22.2%**
+- Hit rate: **49.4%** (173W/177L) · Model said 54.9% → overconfident by 5.4pp
+- Brier: 0.2529 · ROI @ 1u: **+8.4%**
 
 ### NBA — Player Points
 
@@ -50,9 +50,11 @@ Window: last 60 days
 
 ### NBA — PRA
 
-- Rows: **42** total · 0 decided · 0 push · 18 pending · 24 unresolved
+- Rows: **42** total · 24 decided · 0 push · 18 pending · 0 unresolved
 - Model avg: **48.8%** · Implied avg: 33.6% · Edge avg: 15.26%
-- **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
+- Hit rate: **0.0%** (0W/24L) · Model said 48.8% → overconfident by 48.8pp
+- Brier: 0.2386 · ROI @ 1u: **-100.0%**
+- ⚠️  Sample size: 24 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
 
 ### NBA — First Basket
 
@@ -65,43 +67,45 @@ Window: last 60 days
 
 ### MLB — Total Bases
 
-- Rows: **470** total · 159 decided · 0 push · 311 pending · 0 unresolved
+- Rows: **470** total · 411 decided · 0 push · 59 pending · 0 unresolved
 - Model avg: **67.9%** · Implied avg: 56.3% · Edge avg: 11.52%
-- Hit rate: **66.0%** (105W/54L) · Model said 67.9% → calibrated (within 2pp)
-- Brier: 0.2244 · ROI @ 1u: **+16.7%**
+- Hit rate: **64.2%** (264W/147L) · Model said 67.9% → overconfident by 3.6pp
+- Brier: 0.2307 · ROI @ 1u: **+12.8%**
 
 ### MLB — Runs Scored
 
-- Rows: **186** total · 68 decided · 0 push · 118 pending · 0 unresolved
+- Rows: **186** total · 166 decided · 0 push · 20 pending · 0 unresolved
 - Model avg: **60.6%** · Implied avg: 51.2% · Edge avg: 9.35%
-- Hit rate: **64.7%** (44W/24L) · Model said 60.6% → underconfident by 4.1pp
-- Brier: 0.2260 · ROI @ 1u: **+23.2%**
+- Hit rate: **48.8%** (81W/85L) · Model said 60.6% → overconfident by 11.8pp
+- Brier: 0.2542 · ROI @ 1u: **-5.8%**
 
 ### MLB — RBIs
 
-- Rows: **61** total · 32 decided · 0 push · 29 pending · 0 unresolved
+- Rows: **61** total · 56 decided · 0 push · 5 pending · 0 unresolved
 - Model avg: **53.0%** · Implied avg: 45.9% · Edge avg: 7.09%
-- Hit rate: **59.4%** (19W/13L) · Model said 53.0% → underconfident by 6.4pp
-- Brier: 0.1743 · ROI @ 1u: **+20.2%**
+- Hit rate: **41.1%** (23W/33L) · Model said 53.0% → overconfident by 11.9pp
+- Brier: 0.2144 · ROI @ 1u: **-19.7%**
 
 ### MLB — Pitcher Outs
 
-- Rows: **148** total · 39 decided · 0 push · 109 pending · 0 unresolved
+- Rows: **148** total · 128 decided · 0 push · 20 pending · 0 unresolved
 - Model avg: **54.8%** · Implied avg: 46.7% · Edge avg: 8.08%
-- Hit rate: **15.4%** (6W/33L) · Model said 54.8% → overconfident by 39.4pp
-- Brier: 0.2737 · ROI @ 1u: **-67.4%**
+- Hit rate: **37.5%** (48W/80L) · Model said 54.8% → overconfident by 17.3pp
+- Brier: 0.2640 · ROI @ 1u: **-19.3%**
 
 ### MLB — Pitcher Walks
 
-- Rows: **34** total · 0 decided · 0 push · 23 pending · 11 unresolved
+- Rows: **34** total · 0 decided · 0 push · 3 pending · 31 unresolved
 - Model avg: **50.5%** · Implied avg: 41.4% · Edge avg: 9.11%
 - **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
 
 ### MLB — Earned Runs
 
-- Rows: **1** total · 0 decided · 0 push · 1 pending · 0 unresolved
+- Rows: **1** total · 1 decided · 0 push · 0 pending · 0 unresolved
 - Model avg: **53.6%** · Implied avg: 47.4% · Edge avg: 6.18%
-- **No decided bets yet** — predictions exist but none have been graded. Calibration unknown.
+- Hit rate: **0.0%** (0W/1L) · Model said 53.6% → overconfident by 53.6pp
+- Brier: 0.2870 · ROI @ 1u: **-100.0%**
+- ⚠️  Sample size: 1 decided bets. Need ≥30 for trustworthy calibration claims, ≥50 for Brier comparisons.
 
 ### NBA — Rebounds
 
