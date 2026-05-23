@@ -18,7 +18,11 @@ const SPORT_CONFIG = {
   nba: {
     sportKey: "basketball_nba",
     label: "NBA",
-    activeBooks: ["DraftKings", "FanDuel"],
+    // Operator's 7-book vision (audit 2026-05-22). Odds-API keys (lowercase).
+    // Whether each book returns data depends on the operator's API tier;
+    // empty returns are silent and don't error. Quota cost is per-call, not
+    // per-book, so adding books doesn't multiply API spend.
+    activeBooks: ["draftkings", "fanduel", "fanatics", "caesars", "betmgm", "betrivers", "hardrockbet", "bet365"],
     baseMarkets: [
       "player_points",
       "player_rebounds",
@@ -69,7 +73,11 @@ const SPORT_CONFIG = {
   mlb: {
     sportKey: "baseball_mlb",
     label: "MLB",
-    activeBooks: ["DraftKings", "FanDuel"],
+    // Operator's 7-book vision (audit 2026-05-22). Odds-API keys (lowercase).
+    // Same as NBA — empty returns silent if a book doesn't carry MLB markets
+    // in operator's API tier. Pre-fix: 190 HR rows leaked through a no-book
+    // fallback path; now we request these books explicitly.
+    activeBooks: ["draftkings", "fanduel", "fanatics", "caesars", "betmgm", "betrivers", "hardrockbet", "bet365"],
     baseMarkets: [
       // GAME LINES (some books only publish these reliably)
       "h2h",

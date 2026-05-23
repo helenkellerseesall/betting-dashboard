@@ -449,17 +449,20 @@ async function fetchEventOddsRows(event, oddsApiKey) {
   if (!eventId) return []
 
   const url = `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${encodeURIComponent(eventId)}/odds`
+  // Operator's 7-book vision (audit 2026-05-22) — was hardcoded "fanduel,draftkings".
+  // Now requests all 8 keys; empty returns are silent. Same quota cost per call.
+  const NBA_BOOKMAKERS_CSV = "draftkings,fanduel,fanatics,caesars,betmgm,betrivers,hardrockbet,bet365"
   const baseParams = {
     apiKey: oddsApiKey,
     regions: "us",
-    bookmakers: "fanduel,draftkings",
+    bookmakers: NBA_BOOKMAKERS_CSV,
     markets: NBA_BASE_MARKETS.join(","),
     oddsFormat: "american",
   }
   const extraParams = {
     apiKey: oddsApiKey,
     regions: "us",
-    bookmakers: "draftkings,fanduel",
+    bookmakers: NBA_BOOKMAKERS_CSV,
     markets: NBA_DK_EXTRA_MARKETS.join(","),
     oddsFormat: "american",
   }
