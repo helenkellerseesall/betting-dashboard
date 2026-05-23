@@ -1299,6 +1299,230 @@ router.get("/ledger", (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err?.message || err) }) }
 })
 
+/**
+ * Feedback-loop surface (2026-05-23). Mobile-driven recommendation logging.
+ *
+ * Doctrine: NO new tables, NO new modules. These routes wrap the canonical
+ * authority in buildPersonalLedger.js + buildNightlyOrchestrator.js.
+ *
+ *   POST /api/ws/ledger/log         — log a single pick the operator tapped
+ *   GET  /api/ws/ledger/yesterday   — yesterday's logged picks + grades
+ *   POST /api/ws/ledger/grade       — manually trigger nightly review
+ */
+
+/**
+ * Log a single recommendation from the mobile UI to the canonical personal
+ * ledger. Wraps `addOrUpdateBet` — idempotent on stableId collision so
+ * re-tapping the same play won't duplicate.
+ *
+ * Body shape (all string/number fields tolerated):
+ *   { sport, sportsbook, player, statFamily, side, line, odds,
+ *     stake?, eventId?, matchup?, modelProb?, modelLine?, edge?,
+ *     confidenceTier?, archetype?, decisionType?, note? }
+ */
+router.post("/ledger/log", express.json(), (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {}
+    // Minimum viable shape — never fabricate a bet from empty input
+    if (!body.player || !body.statFamily || !body.side) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_required_fields",
+        required: ["player", "statFamily", "side"],
+      })
+    }
+    // Build a deterministic id from the natural-key fields so a double-tap
+    // upserts instead of duplicating. buildPersonalLedger.stableId() includes
+    // Date.now() in its suffix which breaks idempotency for mobile-logged
+    // picks. We pin the id here from the same parts stableId hashes so the
+    // ledger's findIndex(b.id === bet.id) match works.
+    function _h32(s) {
+      let h = 2166136261 >>> 0
+      for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+      return (h >>> 0).toString(16)
+    }
+    const _todayKey = (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    })()
+    const _idParts = [
+      String(body.sport || "").toLowerCase(),
+      _todayKey,
+      String(body.player || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+      String(body.statFamily || "").toLowerCase(),
+      String(body.side || "").toLowerCase(),
+      String(body.line ?? ""),
+      String(body.sportsbook || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    ].join("|")
+    const deterministicId = `pl_${_h32(_idParts)}_m`   // "_m" = mobile-logged origin
+
+    const mods = loadSharedModules()
+    const result = mods.ledger.addOrUpdateBet({
+      id:              deterministicId,
+      sport:           body.sport,
+      sportsbook:      body.sportsbook,
+      player:          body.player,
+      team:            body.team,
+      eventId:         body.eventId,
+      matchup:         body.matchup,
+      opponent:        body.opponent,
+      statFamily:      body.statFamily,
+      prop:            body.prop,
+      side:            body.side,
+      line:            body.line,
+      odds:            body.odds,
+      stake:           body.stake != null ? body.stake : 10,
+      modelLine:       body.modelLine,
+      modelOdds:       body.modelOdds,
+      modelProb:       body.modelProb,
+      modelTier:       body.modelTier || body.confidenceTier,
+      confidenceTier:  body.confidenceTier,
+      decisionType:    body.decisionType || "followed",
+      modelSnapshot:   body.modelSnapshot || {
+        edge:                  body.edge,
+        calibratedConfidence:  body.confidence,
+        archetype:             body.archetype,
+      },
+      note:            body.note,
+    })
+    res.json({
+      ok:      true,
+      isNew:   result.isNew,
+      bet: {
+        id:           result.bet.id,
+        date:         result.bet.date,
+        sport:        result.bet.sport,
+        sportsbook:   result.bet.sportsbook,
+        player:       result.bet.player,
+        statFamily:   result.bet.statFamily,
+        side:         result.bet.side,
+        line:         result.bet.line,
+        odds:         result.bet.odds,
+        stake:        result.bet.stake,
+        toWin:        result.bet.toWin,
+        modelProb:    result.bet.modelProb,
+        result:       result.bet.result,
+        integrity:    result.bet.integrity,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
+ * Return yesterday's logged picks (optionally narrowed by sport).
+ * Pure read of the canonical ledger JSON. Picks settled by the nightly
+ * orchestrator will already carry result/payout/clvSnapshot fields.
+ */
+router.get("/ledger/yesterday", (req, res) => {
+  try {
+    const sport = req.query.sport ? String(req.query.sport).toLowerCase() : null
+    const mods = loadSharedModules()
+    const ledger = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null
+    if (!ledger) return res.json({ date: null, picks: [], totals: null })
+
+    // Yesterday in operator's local-day key (matches todayKey() in ledger)
+    const y = new Date()
+    y.setDate(y.getDate() - 1)
+    const yKey = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`
+
+    const picks = (ledger.bets || [])
+      .filter((b) => b.date === yKey && (!sport || b.sport === sport))
+      .map((b) => ({
+        id:            b.id,
+        sport:         b.sport,
+        sportsbook:    b.sportsbook,
+        player:        b.player,
+        team:          b.team,
+        matchup:       b.matchup,
+        statFamily:    b.statFamily,
+        prop:          b.prop,
+        side:          b.side,
+        line:          b.line,
+        odds:          b.odds,
+        stake:         b.stake,
+        toWin:         b.toWin,
+        modelProb:     b.modelProb,
+        edge:          b.modelSnapshot?.edge,
+        archetype:     b.modelSnapshot?.archetype,
+        result:        b.result,
+        actualStat:    b.actualStat,
+        payout:        b.payout,
+        clvScore:      b.clvSnapshot?.clv?.clvScore,
+        clvPct:        b.clvSnapshot?.clv?.clvPct,
+        clvQuality:    b.clvSnapshot?.clv?.quality,
+        beatMarket:    b.clvSnapshot?.clv?.beatMarket,
+      }))
+
+    // Rolling W/L + ROI for yesterday's logged picks only
+    let wins = 0, losses = 0, pushes = 0, pending = 0, staked = 0, profit = 0
+    for (const p of picks) {
+      const stake = Number(p.stake) || 0
+      const toWin = Number(p.toWin) || 0
+      const payout = Number(p.payout)
+      staked += stake
+      if (p.result === "win") {
+        wins++
+        profit += Number.isFinite(payout) ? payout - stake : toWin
+      } else if (p.result === "loss") {
+        losses++
+        profit -= stake
+      } else if (p.result === "push" || p.result === "void") {
+        pushes++
+      } else {
+        pending++
+      }
+    }
+    const settled = wins + losses + pushes
+    const roi = staked > 0 && settled > 0 ? Math.round((profit / staked) * 10000) / 10000 : null
+    const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 10000) / 10000 : null
+
+    res.json({
+      date: yKey,
+      sport: sport || "all",
+      picks,
+      totals: {
+        count: picks.length,
+        wins, losses, pushes, pending, settled,
+        staked: Math.round(staked * 100) / 100,
+        profit: Math.round(profit * 100) / 100,
+        roi, winRate,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
+ * Manually trigger the nightly orchestrator. Used by the mobile "Grade now"
+ * button so the operator can grade yesterday's slate without shelling into
+ * the box. The orchestrator's slate-completion guard prevents poisoning
+ * partial slates — pass { force: true } to override.
+ *
+ * Body: { sport: "mlb"|"nba", date?: "YYYY-MM-DD", force?: boolean }
+ */
+router.post("/ledger/grade", express.json(), (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {}
+    const sport = String(body.sport || "").toLowerCase()
+    if (!sport || (sport !== "mlb" && sport !== "nba")) {
+      return res.status(400).json({ ok: false, error: "sport must be 'mlb' or 'nba'" })
+    }
+    const { runNightlyReview } = require("../pipeline/shared/buildNightlyOrchestrator")
+    const result = runNightlyReview({
+      sport,
+      date:  body.date || undefined,
+      force: !!body.force,
+      verbose: false,
+    })
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
 /** First basket (NBA-only, gracefully empty otherwise). */
 router.get("/first-basket", (req, res) => {
   try {

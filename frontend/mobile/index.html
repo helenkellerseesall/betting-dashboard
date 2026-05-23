@@ -98,6 +98,8 @@
     .tab[data-sport="parlay"].active .tab-count { background: #A78BFA; color: #0A0E1A; }
     .tab[data-sport="parlay"] .tab-count.has-legs { background: #A78BFA; color: #0A0E1A; }
     .tab[data-sport="analyze"].active { border-color: #38BDF8; color: #38BDF8; }
+    .tab[data-sport="grades"].active { border-color: #FBBF24; color: #FBBF24; }
+    .tab[data-sport="grades"].active .tab-count { background: #FBBF24; color: #0A0E1A; }
 
     /* ── Analyze tab ────────────────────────────────────────── */
     .analyze-intro {
@@ -655,6 +657,7 @@
       <button class="tab" data-sport="nba">NBA <span class="tab-count" id="nbaCount">—</span></button>
       <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
       <button class="tab" data-sport="analyze">ANALYZE</button>
+      <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
     </div>
   </header>
 
@@ -697,6 +700,16 @@
         legs: [emptyLeg()],
         result: null,
         submitting: false,
+      },
+      // Feedback loop (2026-05-23): yesterday's logged picks + grading status
+      grades: {
+        date: null,
+        picks: [],
+        totals: null,
+        loading: false,
+        error: null,
+        grading: false,    // true while a manual /grade trigger is in flight
+        gradeNote: null,   // last grade-button outcome line
       },
     };
 
@@ -1259,6 +1272,11 @@
         renderAnalyze(main);
         return;
       }
+      // Grades tab — feedback loop: yesterday's logged picks + W/L + CLV.
+      if (sport === "grades") {
+        renderGradesView(main);
+        return;
+      }
 
       // Phase A2 — game-first view is the DEFAULT for MLB/NBA sport tabs.
       // Operator can toggle to "sharp" mode for the old edge-filtered view.
@@ -1699,6 +1717,14 @@
                            color: ${inParlay ? "#0A0E1A" : "#A78BFA"};
                            font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer;
                            display: flex; align-items: center; justify-content: center;">${inParlay ? "✓" : "+"}</button>
+            <button onclick="logPickFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}', this); event.stopPropagation();"
+                    title="Log this pick to the ledger"
+                    style="width: 22px; height: 22px; border-radius: 50%;
+                           background: rgba(251, 191, 36, 0.12);
+                           border: 1px solid rgba(251, 191, 36, 0.35);
+                           color: #FBBF24;
+                           font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer;
+                           display: flex; align-items: center; justify-content: center;">L</button>
           </div>
         `;
       };
@@ -1720,6 +1746,281 @@
     window.addLegFromGameView = function (stashKey, sport) {
       const cand = (state._gameViewStash || {})[stashKey];
       if (cand) addLeg(cand, sport);
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // Feedback loop — GRADES tab (yesterday's logged picks)
+    // ─────────────────────────────────────────────────────────────
+    async function fetchGrades() {
+      if (state.grades.loading) return;
+      state.grades.loading = true;
+      state.grades.error = null;
+      try {
+        const r = await fetch(`${API}/api/ws/ledger/yesterday`);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+        state.grades.date   = data.date;
+        state.grades.picks  = Array.isArray(data.picks) ? data.picks : [];
+        state.grades.totals = data.totals || null;
+      } catch (err) {
+        state.grades.error = String(err && err.message || err);
+      } finally {
+        state.grades.loading = false;
+        // Update grades tab count badge
+        const el = document.getElementById("gradesCount");
+        if (el) el.textContent = state.grades.picks.length || "0";
+        if (state.activeSport === "grades") render();
+      }
+    }
+
+    async function triggerGrade(sport) {
+      if (state.grades.grading) return;
+      state.grades.grading = true;
+      state.grades.gradeNote = `Grading ${sport.toUpperCase()}…`;
+      if (state.activeSport === "grades") render();
+      try {
+        const r = await fetch(`${API}/api/ws/ledger/grade`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sport, date: state.grades.date || undefined }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok) {
+          const sR = data?.steps?.ledgerSettle;
+          const settled = sR?.settled != null ? sR.settled : (sR?.skipped ? "0 (nothing to settle yet)" : "?");
+          state.grades.gradeNote = `✓ ${sport.toUpperCase()} graded — ${settled} bet${settled === 1 ? "" : "s"} settled.`;
+        } else if (data?.deferred) {
+          state.grades.gradeNote = `⏳ ${sport.toUpperCase()} not ready — ${data.reason || "slate incomplete"}.`;
+        } else {
+          state.grades.gradeNote = `✗ ${data?.error || `HTTP ${r.status}`}`;
+        }
+        await fetchGrades();
+      } catch (err) {
+        state.grades.gradeNote = `✗ ${String(err && err.message || err)}`;
+      } finally {
+        state.grades.grading = false;
+        if (state.activeSport === "grades") render();
+      }
+    }
+    window.triggerGrade = triggerGrade;
+
+    function fmtOdds(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      return v > 0 ? `+${v}` : `${v}`;
+    }
+    function fmtNum(n, decimals = 2) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      return v.toFixed(decimals);
+    }
+    function fmtPct(n, decimals = 1) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      return `${(v * 100).toFixed(decimals)}%`;
+    }
+
+    function renderGradesView(main) {
+      const d = state.grades;
+      // Lazy fetch on first open
+      if (!d.loading && d.date == null && d.picks.length === 0 && !d.error) {
+        fetchGrades();
+      }
+
+      if (d.loading) {
+        main.innerHTML = `<div class="loading">Loading yesterday's picks…</div>`;
+        return;
+      }
+      if (d.error) {
+        main.innerHTML = `<div class="error" style="padding: 16px; color: #F87171;">
+          Failed to load grades.<br><code>${escapeHtml(d.error)}</code>
+        </div>`;
+        return;
+      }
+
+      const t = d.totals || { count: 0, wins: 0, losses: 0, pushes: 0, pending: 0, settled: 0, staked: 0, profit: 0, roi: null, winRate: null };
+      const wrTxt  = t.winRate == null ? "—" : `${(t.winRate * 100).toFixed(0)}%`;
+      const roiTxt = t.roi == null ? "—" : `${(t.roi * 100).toFixed(1)}%`;
+      const profitTxt = `${t.profit >= 0 ? "+" : ""}${fmtNum(t.profit)}`;
+      const profitColor = t.profit > 0 ? "#34D399" : (t.profit < 0 ? "#F87171" : "#D1D5DB");
+
+      const summaryHtml = `
+        <div style="padding: 12px 14px; margin-bottom: 12px; background: #141828; border-radius: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+            <div style="font-size: 12px; color: #9CA3AF; letter-spacing: 0.5px;">LAST NIGHT · ${escapeHtml(d.date || "—")}</div>
+            <div style="font-size: 11px; color: #6B7280;">${t.count} logged</div>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;">
+            <div>
+              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${t.wins}</span>
+              <span style="font-size: 11px; color: #6B7280;">W</span>
+              <span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
+              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${t.losses}</span>
+              <span style="font-size: 11px; color: #6B7280;">L</span>
+              ${t.pushes ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
+                            <span style="font-size: 16px; color: #9CA3AF;">${t.pushes}P</span>` : ""}
+              ${t.pending ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
+                            <span style="font-size: 14px; color: #FBBF24;">${t.pending} pending</span>` : ""}
+            </div>
+            <div style="margin-left: auto; text-align: right;">
+              <div style="font-size: 11px; color: #6B7280;">PROFIT</div>
+              <div style="font-size: 18px; font-weight: 700; color: ${profitColor}; font-family: ui-monospace, monospace;">${profitTxt}</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: #9CA3AF;">
+            <span>Win rate: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${wrTxt}</span></span>
+            <span>ROI: <span style="color: ${t.roi > 0 ? "#34D399" : t.roi < 0 ? "#F87171" : "#D1D5DB"}; font-family: ui-monospace, monospace;">${roiTxt}</span></span>
+            <span>Staked: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${fmtNum(t.staked)}</span></span>
+          </div>
+        </div>
+      `;
+
+      const noteColor = d.gradeNote && d.gradeNote.startsWith("✓") ? "#34D399"
+                      : d.gradeNote && d.gradeNote.startsWith("⏳") ? "#FBBF24"
+                      : d.gradeNote && d.gradeNote.startsWith("✗") ? "#F87171"
+                      : "#9CA3AF";
+      const gradeBtns = `
+        <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+          <button onclick="triggerGrade('mlb')" ${d.grading ? "disabled" : ""}
+                  style="flex: 1; min-width: 110px; padding: 10px; background: rgba(52, 211, 153, 0.12);
+                         border: 1px solid rgba(52, 211, 153, 0.35); color: #34D399; border-radius: 8px;
+                         font-size: 12px; font-weight: 700; letter-spacing: 0.3px; cursor: pointer;
+                         opacity: ${d.grading ? 0.5 : 1};">GRADE MLB</button>
+          <button onclick="triggerGrade('nba')" ${d.grading ? "disabled" : ""}
+                  style="flex: 1; min-width: 110px; padding: 10px; background: rgba(249, 115, 22, 0.12);
+                         border: 1px solid rgba(249, 115, 22, 0.35); color: #F97316; border-radius: 8px;
+                         font-size: 12px; font-weight: 700; letter-spacing: 0.3px; cursor: pointer;
+                         opacity: ${d.grading ? 0.5 : 1};">GRADE NBA</button>
+          <button onclick="fetchGrades()" ${d.loading ? "disabled" : ""}
+                  style="flex: 0 0 auto; padding: 10px 14px; background: rgba(167, 139, 250, 0.12);
+                         border: 1px solid rgba(167, 139, 250, 0.35); color: #A78BFA; border-radius: 8px;
+                         font-size: 12px; font-weight: 700; letter-spacing: 0.3px; cursor: pointer;">↻</button>
+        </div>
+        ${d.gradeNote ? `<div style="font-size: 11px; color: ${noteColor}; margin: -6px 0 12px 4px;">${escapeHtml(d.gradeNote)}</div>` : ""}
+      `;
+
+      if (d.picks.length === 0) {
+        main.innerHTML = `
+          ${summaryHtml}
+          ${gradeBtns}
+          <div style="padding: 24px 16px; text-align: center; color: #6B7280;">
+            <div style="font-size: 14px; margin-bottom: 8px;">No picks logged for ${escapeHtml(d.date || "yesterday")}.</div>
+            <div style="font-size: 11px;">Tap <span style="color: #FBBF24; font-weight: 700;">L</span> next to any prop in the Games view to start logging.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const pickHtml = d.picks.map(p => {
+        const resultColor = p.result === "win" ? "#34D399"
+                          : p.result === "loss" ? "#F87171"
+                          : p.result === "push" ? "#9CA3AF"
+                          : "#FBBF24";
+        const resultTxt = (p.result || "pending").toUpperCase();
+        const sideTxt = (p.side || "").toUpperCase();
+        const sideColor = p.side === "over" || p.side === "yes" ? "#34D399"
+                        : p.side === "under" || p.side === "no" ? "#F87171"
+                        : "#D1D5DB";
+        const clvTag = p.clvPct != null
+          ? `<span style="font-size: 10px; padding: 1px 5px; border-radius: 3px;
+                         background: ${p.beatMarket ? "rgba(52, 211, 153, 0.12)" : "rgba(248, 113, 113, 0.12)"};
+                         color: ${p.beatMarket ? "#34D399" : "#F87171"}; font-family: ui-monospace, monospace;">
+                CLV ${p.clvPct > 0 ? "+" : ""}${p.clvPct.toFixed(1)}¢</span>`
+          : "";
+        const actualTxt = p.actualStat != null
+          ? `<span style="color: #9CA3AF;">actual: <span style="color: #F9FAFB; font-family: ui-monospace, monospace;">${p.actualStat}</span></span>`
+          : "";
+        return `
+          <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
+            <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;">
+              <span style="font-size: 13px; font-weight: 700; color: #F9FAFB; flex: 1; min-width: 0;">${escapeHtml(p.player || "Unknown")}</span>
+              <span style="font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+                           background: ${resultColor === "#FBBF24" ? "rgba(251, 191, 36, 0.12)" : "rgba(75, 85, 99, 0.2)"};
+                           color: ${resultColor}; letter-spacing: 0.5px;">${resultTxt}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #9CA3AF; flex-wrap: wrap;">
+              <span style="color: ${sideColor}; font-weight: 700;">${sideTxt}</span>
+              <span style="font-family: ui-monospace, monospace; color: #F9FAFB;">${p.line ?? "—"}</span>
+              <span>${escapeHtml(p.statFamily || p.prop || "")}</span>
+              <span style="color: #6B7280;">·</span>
+              <span style="font-family: ui-monospace, monospace; color: ${p.odds > 0 ? "#34D399" : "#D1D5DB"};">${fmtOdds(p.odds)}</span>
+              <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
+                           background: rgba(75, 85, 99, 0.3); color: #9CA3AF;">${escapeHtml(p.sportsbook || "—")}</span>
+              ${clvTag}
+            </div>
+            ${actualTxt ? `<div style="font-size: 11px; margin-top: 4px;">${actualTxt}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+
+      main.innerHTML = summaryHtml + gradeBtns + pickHtml;
+    }
+
+    // POSTs to /api/ws/ledger/log which wraps buildPersonalLedger.addOrUpdateBet.
+    // Idempotent on stableId — re-tapping same play won't duplicate.
+    window.logPickFromGameView = async function (stashKey, sport, btnEl) {
+      const cand = (state._gameViewStash || {})[stashKey];
+      if (!cand) return;
+      const originalLabel = btnEl ? btnEl.textContent : null;
+      try {
+        if (btnEl) { btnEl.textContent = "…"; btnEl.disabled = true; }
+        const r = await fetch(`${API}/api/ws/ledger/log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sport,
+            sportsbook:     cand.sportsbook || cand.book,
+            player:         cand.player,
+            team:           cand.team,
+            statFamily:     cand.statFamily,
+            prop:           cand.propType,
+            side:           cand.side,
+            line:           cand.line,
+            odds:           cand.odds,
+            stake:          10,
+            confidenceTier: cand.tier || null,
+            decisionType:   "followed",
+            modelProb:      cand.modelProb,
+            edge:           cand.edge,
+            archetype:      cand.archetype || null,
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok) {
+          if (btnEl) {
+            btnEl.textContent = "✓";
+            btnEl.style.background = "#FBBF24";
+            btnEl.style.color = "#0A0E1A";
+            setTimeout(() => {
+              if (!btnEl) return;
+              btnEl.textContent = originalLabel || "L";
+              btnEl.style.background = "rgba(251, 191, 36, 0.12)";
+              btnEl.style.color = "#FBBF24";
+              btnEl.disabled = false;
+            }, 1400);
+          }
+        } else {
+          if (btnEl) {
+            btnEl.textContent = "!";
+            btnEl.title = data.error || `HTTP ${r.status}`;
+            setTimeout(() => {
+              if (!btnEl) return;
+              btnEl.textContent = originalLabel || "L";
+              btnEl.disabled = false;
+            }, 1800);
+          }
+        }
+      } catch (err) {
+        if (btnEl) {
+          btnEl.textContent = "!";
+          btnEl.title = String(err && err.message || err);
+          setTimeout(() => {
+            if (!btnEl) return;
+            btnEl.textContent = originalLabel || "L";
+            btnEl.disabled = false;
+          }, 1800);
+        }
+      }
     };
 
     // ─────────────────────────────────────────────────────────────

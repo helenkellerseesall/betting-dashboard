@@ -6,6 +6,25 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-23 — Feedback loop wired through canonical authority
+
+**What:** Operator approved building the recommendation-logging + grading + CLV-tracking loop as one focused session. Audit found buildPersonalLedger.js + buildClv.js + buildNightlyOrchestrator.js already implement the entire backend — JSON canonical + SQLite mirror, addOrUpdateBet, settleBet, batchSettle, setClosingLine, buildNightlyReport, importFromTrackedBets, runNightlyReview (9-step chain). The original plan would have created a parallel `logged_picks` table + `picksSchema.js` — that's shadow authority per project doctrine. Killed the parallel-table plan and extended the canonical surface instead.
+
+**Done (backend +~140 in `routes/workstationRoutes.js`, frontend +~250 in `frontend/mobile/index.html`):**
+- **NEW `POST /api/ws/ledger/log`** — wraps `addOrUpdateBet`. Constructs a deterministic id from (sport|date|player|statFamily|side|line|sportsbook) so double-taps upsert instead of duplicating (caught real bug: canonical `stableId()` includes `Date.now()` in suffix → breaks idempotency for mobile-logged picks; patched at route layer, not in canonical authority).
+- **NEW `GET /api/ws/ledger/yesterday`** — pure read of `loadLedger()` filtered to yesterday's date key. Returns picks with W/L, payout, CLV, and computed totals (wins/losses/pushes/pending/staked/profit/roi/winRate).
+- **NEW `POST /api/ws/ledger/grade`** — wraps `runNightlyReview` so the operator can trigger the orchestrator from the iPhone. Existing slate-completion guard prevents poisoning partial slates; `{ force: true }` overrides.
+- **NEW GRADES tab** in mobile PWA — yellow accent. Shows yesterday's logged picks with W/L badges, CLV tags (beat-market vs market-moved-against), actual stat when graded, plus a rolling W/L/ROI/profit header. GRADE MLB / GRADE NBA buttons trigger the orchestrator with inline status feedback ("✓ MLB graded — 3 bets settled" / "⏳ MLB not ready — games_likely_in_progress" / error).
+- **NEW yellow "L" button** next to every "+" in the game-first prop rows. Tap to log a pick. Optimistic UI: "L" → "…" → "✓" → back to "L" on success; "!" with error tooltip on failure.
+
+**What this unlocks:** the operator can now actually test "are these the right bets for the next week" — surface a play, tap L to log, tap GRADES tab next morning, tap GRADE MLB / NBA to settle, see W/L + CLV. Process quality (CLV) is tracked independently of variance (W/L) per existing `classifyResultVsClv` engine (good_process_good_result / good_process_variance_loss / lucky_win / bad_process_bad_result).
+
+**Anti-doctrine check passed:** zero new tables, zero new modules, zero parallel routes. Every new surface wraps existing canonical authority. Personal_ledger.json remains canonical write target; SQLite `personal_ledger` table remains write-through mirror. `runNightlyReview` is the only grading path.
+
+**Validation:** in-process route harness against canonical ledger — POST /log returns 200 with deterministic id; re-POST returns isNew=false with same id; different-line POST gets distinct id; empty-body POST rejects 400; invalid-sport /grade rejects 400. Mobile JS block braces balanced (0); renderGradesView / fetchGrades / triggerGrade / logPickFromGameView all defined; grades state slot present; sport-tab dispatch routes "grades" correctly. 5 test bets removed from canonical personal_ledger.json post-verify.
+
+---
+
 ## 2026-05-22 — Mobile PWA v0.2.3 — Anthropic Vision OCR + validation softening
 
 **What:** Operator tested v0.2.2 paste-mode: parser worked but the analyze button stayed disabled at "0 legs" because per-leg odds + line were required. Sportsbook screenshots only show COMBINED odds, not per-leg. Plus operator said "yes anthropic vision ocr pls" — they want to skip typing entirely.
