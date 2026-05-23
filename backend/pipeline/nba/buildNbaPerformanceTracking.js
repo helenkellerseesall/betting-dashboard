@@ -312,7 +312,22 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
            p.inCoreOddsBand !== false &&
            String(p.tier || "").toUpperCase() !== "FADE"
   )
-  const trackedPlays = [...allPlays, ...altQualified]
+
+  // 2026-05-23 — First Basket capture fix. buildNbaBestBetsBoard routes any
+  // play with impliedProb < 0.1 to board.longshotPlays (not board.allPlays).
+  // First Basket / Triple Double / Double Double / 3+ Threes longshot props
+  // are NATURALLY in the 5-10% range, so they all live in longshotPlays and
+  // were never persisted to tracked_bets. NBA First Basket has 0 rows EVER
+  // across 19 days of tracked_bets prior to this fix — confirmed by lane
+  // scoreboard (status: no_data).
+  //
+  // Same fix shape as MLB HR capture (phase4Tracking.js 2026-05-23). Pulls
+  // longshotPlays into the tracked record so the calibration data clock
+  // starts. After ~7-14 days of capture + grading the Lane 7 (NBA First
+  // Basket) scorecard will populate with real numbers.
+  const longshotPlays = Array.isArray(board.longshotPlays) ? board.longshotPlays : []
+
+  const trackedPlays = [...allPlays, ...altQualified, ...longshotPlays]
 
   // -------- Bets --------
   const newBets = trackedPlays.map((p) => leanBet(p, date))
