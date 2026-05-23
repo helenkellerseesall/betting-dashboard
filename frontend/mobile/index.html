@@ -1704,6 +1704,25 @@
       const overs  = props.filter(p => p.side === "over").sort((a, b) => Number(a.line ?? 0) - Number(b.line ?? 0));
       const unders = props.filter(p => p.side === "under").sort((a, b) => Number(b.line ?? 0) - Number(a.line ?? 0));
 
+      // (2026-05-23 fix) Ensure the model's actual pick line is always
+      // included in the visible ladder. Without this, the family header can
+      // say "model → UNDER 11.5" while the displayed unders are 32.5/33.5/34.5
+      // and the operator never sees the line the model is actually recommending.
+      const fp = player.familyProjection && player.familyProjection[fam];
+      function ensureModelLineVisible(arr, side, sliceN) {
+        if (!fp || fp.bestSide !== side || !Number.isFinite(fp.bestLine)) return arr.slice(0, sliceN);
+        const inWindow = arr.slice(0, sliceN);
+        const alreadyShown = inWindow.some(p => Number(p.line) === Number(fp.bestLine));
+        if (alreadyShown) return inWindow;
+        const modelEntry = arr.find(p => Number(p.line) === Number(fp.bestLine));
+        if (!modelEntry) return inWindow;
+        // Mark the entry so the FE can highlight it as the model's pick.
+        modelEntry._isModelPick = true;
+        return [modelEntry, ...inWindow];
+      }
+      const oversDisplay  = ensureModelLineVisible(overs, "over", 4);
+      const undersDisplay = ensureModelLineVisible(unders, "under", 3);
+
       const renderProp = (pp, isOver) => {
         const oddsTxt = pp.odds == null ? "—" : (pp.odds > 0 ? `+${pp.odds}` : `${pp.odds}`);
         const oddsColor = pp.odds > 0 ? "#34D399" : "#D1D5DB";
@@ -1734,18 +1753,35 @@
 
         // Per-row model signal — surfaces what the cognition thinks about
         // THIS line (modelProb + edge). Backend joins from tracked_bets.
-        // Without this the operator can't tell which lines the model
-        // actually values vs which are just book offerings.
+        // Calibration discount (2026-05-23): when the lane is known
+        // miscalibrated (e.g. OVERCONFIDENT 8pp), subtract the calibration
+        // delta from the displayed edge so the model can't brag past its
+        // actual track record. Calibrated lanes pass through unchanged.
         let modelChip = "";
         if (Number.isFinite(pp.modelProb)) {
-          const edgePp = Number.isFinite(pp.edge) ? pp.edge * 100 : null;
-          const edgeColor = edgePp == null ? "#9CA3AF"
-                          : edgePp >= 5 ? "#34D399"
-                          : edgePp >= 0 ? "#FBBF24"
+          const rawEdgePp = Number.isFinite(pp.edge) ? pp.edge * 100 : null;
+          const calDelta = pp.laneCalibration && Number.isFinite(pp.laneCalibration.calibrationDelta)
+                            ? pp.laneCalibration.calibrationDelta * 100
+                            : 0;
+          // Calibration delta is (modelAvg − hitRate). Positive = model overconfident
+          // → discount the edge by that amount. Negative = underconfident → small bump.
+          const adjEdgePp = rawEdgePp == null ? null : rawEdgePp - calDelta;
+          const edgeColor = adjEdgePp == null ? "#9CA3AF"
+                          : adjEdgePp >= 5 ? "#34D399"
+                          : adjEdgePp >= 0 ? "#FBBF24"
                           : "#F87171";
-          const edgeTxt = edgePp == null ? ""
-                        : ` · ${edgePp >= 0 ? "+" : ""}${edgePp.toFixed(0)}pp edge`;
-          modelChip = `<span title="Model probability vs market implied"
+          let edgeTxt = "";
+          let tipParts = [`raw model edge ${rawEdgePp == null ? "—" : (rawEdgePp >= 0 ? "+" : "") + rawEdgePp.toFixed(1) + "pp"}`];
+          if (rawEdgePp != null) {
+            if (Math.abs(calDelta) >= 1) {
+              edgeTxt = ` · ${adjEdgePp >= 0 ? "+" : ""}${adjEdgePp.toFixed(0)}pp est`;
+              tipParts.push(`calibration discount ${calDelta >= 0 ? "-" : "+"}${Math.abs(calDelta).toFixed(1)}pp`);
+              tipParts.push(`adjusted ${adjEdgePp >= 0 ? "+" : ""}${adjEdgePp.toFixed(1)}pp`);
+            } else {
+              edgeTxt = ` · ${rawEdgePp >= 0 ? "+" : ""}${rawEdgePp.toFixed(0)}pp edge`;
+            }
+          }
+          modelChip = `<span title="${escapeHtml(tipParts.join(' · '))}"
                               style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
                                      background: rgba(167, 139, 250, 0.12); color: ${edgeColor};
                                      font-family: ui-monospace, monospace; letter-spacing: 0.2px;">
@@ -1753,10 +1789,48 @@
                       </span>`;
         }
 
+        // Contradiction flag (2026-05-23) — when the model picks UNDER N but
+        // the player's L5 avg is materially ABOVE N (or vice versa), surface
+        // a red warning. This catches the "Brunson L5 avg 26.6 → model says
+        // UNDER 20.5" pathology where the model contradicts its own visible
+        // evidence. Threshold: |L5 − line| > 15% of the line.
+        let contradictionTag = "";
+        const l5avg = player?.recentForm?.last5_avg;
+        if (Number.isFinite(l5avg) && Number.isFinite(pp.line) && Number.isFinite(pp.modelProb)) {
+          const delta = l5avg - pp.line;
+          const tol = Math.max(0.5, Math.abs(pp.line) * 0.15);
+          const sideStr = String(pp.side || "").toLowerCase();
+          const isOverSide = sideStr === "over" || sideStr === "yes";
+          const isUnderSide = sideStr === "under" || sideStr === "no";
+          const contradicts =
+            (isUnderSide && delta > tol) ||
+            (isOverSide && delta < -tol);
+          if (contradicts) {
+            const dir = isUnderSide ? "above" : "below";
+            contradictionTag = `<span title="Model picked ${escapeHtml(sideStr.toUpperCase())} ${pp.line} but recent L5 avg (${l5avg.toFixed(1)}) is ${dir} the line by ${Math.abs(delta).toFixed(1)} pts. Verify the model has matchup-specific reasoning before trusting."
+                                       style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
+                                              background: rgba(248, 113, 113, 0.18); color: #F87171;
+                                              font-weight: 700; letter-spacing: 0.3px;">
+                                  vs L5 ${l5avg.toFixed(1)}
+                                </span>`;
+          }
+        }
+
+        // Model-pick visual marker — when ensureModelLineVisible promoted
+        // this line into the ladder because it's the model's top pick, we
+        // render a subtle purple left-border so the operator instantly knows
+        // which row the family projection header is referencing.
+        const isModelPickRow = pp._isModelPick === true;
+        const rowBg = isModelPickRow
+          ? (isOver ? "rgba(167, 139, 250, 0.08)" : "rgba(167, 139, 250, 0.08)")
+          : (isOver ? "rgba(52, 211, 153, 0.04)" : "rgba(248, 113, 113, 0.04)");
+        const rowBorder = isModelPickRow ? "2px solid #A78BFA" : "2px solid transparent";
+
         return `
           <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px;
                       font-size: 12px; border-radius: 6px; flex-wrap: wrap;
-                      background: ${isOver ? "rgba(52, 211, 153, 0.04)" : "rgba(248, 113, 113, 0.04)"};">
+                      background: ${rowBg};
+                      border-left: ${rowBorder};">
             <span style="font-weight: 700; min-width: 42px; color: ${isOver ? "#34D399" : "#F87171"};">${isOver ? "OVER" : "UNDER"}</span>
             <span style="min-width: 38px; font-family: ui-monospace, monospace; color: #F9FAFB;">${pp.line ?? "—"}</span>
             <span style="font-family: ui-monospace, monospace; color: ${oddsColor}; min-width: 50px;">${oddsTxt}</span>
@@ -1764,6 +1838,7 @@
                          background: rgba(75, 85, 99, 0.3); color: #9CA3AF; letter-spacing: 0.3px;">${escapeHtml(pp.book || "—")}</span>
             ${bookChip}
             ${modelChip}
+            ${contradictionTag}
             <button onclick="addLegFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}'); event.stopPropagation();"
                     style="margin-left: auto; width: 24px; height: 24px; border-radius: 50%;
                            background: ${inParlay ? "#A78BFA" : "rgba(167, 139, 250, 0.12)"};
@@ -1775,8 +1850,8 @@
         `;
       };
 
-      const oversHtml  = overs.slice(0, 4).map(p => renderProp(p, true)).join("");
-      const undersHtml = unders.slice(0, 3).map(p => renderProp(p, false)).join("");
+      const oversHtml  = oversDisplay.map(p => renderProp(p, true)).join("");
+      const undersHtml = undersDisplay.map(p => renderProp(p, false)).join("");
 
       // Calibration overlay (2026-05-23) — badge tells the operator if the
       // model has earned trust on THIS prop family. Sourced from
@@ -1807,23 +1882,33 @@
       }
 
       // Family-level projection header (2026-05-23) — surfaces the cognition's
-      // top pick within this family so the operator sees what the model
-      // thinks BEFORE scanning the line list. "Model: Over 2.5 +12pp edge".
-      // L5 average from recentForm if available — gives operator immediate
-      // historical context next to the model's take.
-      const fp = player.familyProjection && player.familyProjection[fam];
+      // top pick. Discounted by lane calibration delta so the model can't
+      // brag past its actual track record. Also shows L5 avg next to the
+      // pick so contradictions are visible at a glance.
       let projectionLine = "";
       if (fp && Number.isFinite(fp.bestEdge)) {
-        const edgePp = fp.bestEdge * 100;
-        const edgeColor = edgePp >= 5 ? "#34D399" : edgePp >= 0 ? "#FBBF24" : "#F87171";
+        const rawEdgePp = fp.bestEdge * 100;
+        const calDelta = calSource && Number.isFinite(calSource.calibrationDelta)
+                         ? calSource.calibrationDelta * 100 : 0;
+        const adjEdgePp = rawEdgePp - calDelta;
+        const edgeColor = adjEdgePp >= 5 ? "#34D399" : adjEdgePp >= 0 ? "#FBBF24" : "#F87171";
         const sideTxt = (fp.bestSide || "").toUpperCase();
+        const sideColor = fp.bestSide === "over" || fp.bestSide === "yes" ? "#34D399" : "#F87171";
+        const l5 = player?.recentForm?.last5_avg;
+        const l5Tag = Number.isFinite(l5)
+          ? `<span style="color: #6B7280; margin-left: 4px;">· L5 ${l5.toFixed(1)}</span>` : "";
+        const calTag = Math.abs(calDelta) >= 1
+          ? `<span style="color: #6B7280; font-size: 9px;">(raw +${rawEdgePp.toFixed(0)}pp − ${calDelta.toFixed(0)}pp cal)</span>`
+          : "";
         projectionLine = `
           <div style="font-size: 10px; color: #9CA3AF; padding: 2px 0 4px; line-height: 1.4;">
             <span style="color: #A78BFA;">model</span> →
-            <span style="font-weight: 700; color: ${fp.bestSide === "over" || fp.bestSide === "yes" ? "#34D399" : "#F87171"};">${escapeHtml(sideTxt)}</span>
+            <span style="font-weight: 700; color: ${sideColor};">${escapeHtml(sideTxt)}</span>
             <span style="font-family: ui-monospace, monospace; color: #F9FAFB;">${fp.bestLine ?? ""}</span>
-            <span style="color: ${edgeColor}; font-family: ui-monospace, monospace;">${edgePp >= 0 ? "+" : ""}${edgePp.toFixed(0)}pp edge</span>
+            <span style="color: ${edgeColor}; font-family: ui-monospace, monospace;">${adjEdgePp >= 0 ? "+" : ""}${adjEdgePp.toFixed(0)}pp est</span>
             ${fp.tier ? `<span style="font-size: 9px; color: #6B7280; margin-left: 4px;">(${escapeHtml(fp.tier)})</span>` : ""}
+            ${l5Tag}
+            ${calTag ? `<div style="font-size: 9px; color: #6B7280; margin-top: 2px; padding-left: 50px;">${calTag}</div>` : ""}
           </div>
         `;
       }
