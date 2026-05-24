@@ -502,7 +502,48 @@ function buildNbaPregameContext(row) {
     tags.push(`availability: ${availabilityRawPrimary}`)
   }
 
-  ctx.explanationTags = uniqShortTags(tags, 14)
+  // 2026-05-24 — Phase 2 enrichment tags. Make the new signals bettor-visible
+  // on the FE card. These tags read directly from row fields populated by the
+  // Phase 2 enrichers (nbaTeamStatsCache, nbaPlayerSeasonStatsCache). Tags only
+  // emit when the underlying data is real (no fabrication).
+  const oppDef = num(row?.oppDef)
+  const oppPace = num(row?.pace)
+  const playerSeason = row?.playerSeasonStats || {}
+  const oppShortName = (() => {
+    const raw = String(row?.opponent || "").trim()
+    if (!raw) return null
+    const tokens = raw.split(/\s+/)
+    return tokens[tokens.length - 1] || raw  // last token = team nickname (Spurs/Knicks)
+  })()
+
+  // Opponent defensive rating narrative — use pointsAllowedPerGame (lower = stronger D).
+  // League avg ~113. Below 108 = strong D; above 117 = weak D.
+  if (Number.isFinite(oppDef)) {
+    const oppLabel = oppShortName || "opp"
+    if (oppDef <= 108) tags.push(`vs strong D (${oppLabel} ${oppDef.toFixed(0)} ppg)`)
+    else if (oppDef >= 117) tags.push(`vs weak D (${oppLabel} ${oppDef.toFixed(0)} ppg)`)
+    else tags.push(`vs avg D (${oppLabel} ${oppDef.toFixed(0)} ppg)`)
+  }
+
+  // Game pace tag. League avg ~100. Above 103 = fast; below 97 = slow.
+  if (Number.isFinite(oppPace) && oppPace !== 100) {
+    if (oppPace >= 103) tags.push(`fast-paced game (${oppPace.toFixed(0)})`)
+    else if (oppPace <= 97) tags.push(`slow-paced game (${oppPace.toFixed(0)})`)
+  }
+
+  // Per-stat season-rate tags — surface real player tendencies.
+  const avgFga = num(playerSeason.avgFga)
+  if (Number.isFinite(avgFga) && avgFga >= 16) tags.push(`high shot volume (${avgFga.toFixed(1)} FGA/g)`)
+  const toRate = num(row?.toRate)
+  if (Number.isFinite(toRate) && toRate >= 0.18) tags.push("turnover risk")
+  const avgFta = num(playerSeason.avgFta)
+  if (Number.isFinite(avgFta) && avgFta >= 6) tags.push(`FT volume (${avgFta.toFixed(1)} FTA/g)`)
+  const astRate = num(row?.astRate)
+  if (Number.isFinite(astRate) && astRate >= 0.28) tags.push("primary creator")
+  const rebRate = num(row?.rebRate)
+  if (Number.isFinite(rebRate) && rebRate >= 0.22) tags.push("elite rebounder")
+
+  ctx.explanationTags = uniqShortTags(tags, 18)
   return ctx
 }
 
