@@ -170,25 +170,42 @@ function parseSummary(summary, isoDate) {
         const points   = parseEspnStat(getCol(rawStats, "points"))
         const rebounds = parseEspnStat(getCol(rawStats, "rebounds"))
         const assists  = parseEspnStat(getCol(rawStats, "assists"))
-        const threesM  = parseEspnRatio(getCol(rawStats, "threePointFieldGoals"), "made")
-        const threesA  = parseEspnRatio(getCol(rawStats, "threePointFieldGoals"), "att")
-        const fga      = parseEspnRatio(getCol(rawStats, "fieldGoalsAttempted"), "att")
-                          ?? parseEspnRatio(getCol(rawStats, "fieldGoals"), "att")
+        // 2026-05-24 — fixed via real ESPN dump. Actual key names in athlete
+        // stats array are COMBINED M-A strings:
+        //   "fieldGoalsMade-fieldGoalsAttempted"                     → e.g. "5-12"
+        //   "threePointFieldGoalsMade-threePointFieldGoalsAttempted" → e.g. "2-7"
+        //   "freeThrowsMade-freeThrowsAttempted"                     → e.g. "3-4"
+        // parseEspnRatio reads the M or A half from "M-A" string.
+        const threesM  = parseEspnRatio(getCol(rawStats, "threePointFieldGoalsMade-threePointFieldGoalsAttempted"), "made")
+        const threesA  = parseEspnRatio(getCol(rawStats, "threePointFieldGoalsMade-threePointFieldGoalsAttempted"), "att")
+        const fga      = parseEspnRatio(getCol(rawStats, "fieldGoalsMade-fieldGoalsAttempted"), "att")
+        const fgm      = parseEspnRatio(getCol(rawStats, "fieldGoalsMade-fieldGoalsAttempted"), "made")
+        const fta      = parseEspnRatio(getCol(rawStats, "freeThrowsMade-freeThrowsAttempted"), "att")
+        const ftm      = parseEspnRatio(getCol(rawStats, "freeThrowsMade-freeThrowsAttempted"), "made")
+        const turnovers      = parseEspnStat(getCol(rawStats, "turnovers"))
+        const offReb         = parseEspnStat(getCol(rawStats, "offensiveRebounds"))
+        const defReb         = parseEspnStat(getCol(rawStats, "defensiveRebounds"))
         const blocks   = parseEspnStat(getCol(rawStats, "blocks"))
         const steals   = parseEspnStat(getCol(rawStats, "steals"))
 
         // Only persist values we actually parsed (no synthesis). 0 values for
         // played players are valid; null/undefined values are dropped.
         const stats = {}
-        if (Number.isFinite(minutes))  stats.minutes  = minutes
-        if (Number.isFinite(points))   stats.points   = points
-        if (Number.isFinite(rebounds)) stats.rebounds = rebounds
-        if (Number.isFinite(assists))  stats.assists  = assists
-        if (Number.isFinite(threesM))  stats.threes   = threesM
-        if (Number.isFinite(threesA))  stats.threeAtt = threesA
-        if (Number.isFinite(fga))      stats.fga      = fga
-        if (Number.isFinite(blocks))   stats.blocks   = blocks
-        if (Number.isFinite(steals))   stats.steals   = steals
+        if (Number.isFinite(minutes))   stats.minutes   = minutes
+        if (Number.isFinite(points))    stats.points    = points
+        if (Number.isFinite(rebounds))  stats.rebounds  = rebounds
+        if (Number.isFinite(assists))   stats.assists   = assists
+        if (Number.isFinite(threesM))   stats.threes    = threesM
+        if (Number.isFinite(threesA))   stats.threeAtt  = threesA
+        if (Number.isFinite(fga))       stats.fga       = fga
+        if (Number.isFinite(fgm))       stats.fgm       = fgm
+        if (Number.isFinite(fta))       stats.fta       = fta
+        if (Number.isFinite(ftm))       stats.ftm       = ftm
+        if (Number.isFinite(turnovers)) stats.turnovers = turnovers
+        if (Number.isFinite(offReb))    stats.offReb    = offReb
+        if (Number.isFinite(defReb))    stats.defReb    = defReb
+        if (Number.isFinite(blocks))    stats.blocks    = blocks
+        if (Number.isFinite(steals))    stats.steals    = steals
 
         if (!Object.keys(stats).length) continue
 

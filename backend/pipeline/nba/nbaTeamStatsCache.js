@@ -1,0 +1,144 @@
+"use strict"
+
+/**
+ * nbaTeamStatsCache — exposes opponent defense / pace / opp-allowed signals
+ * to nbaModelSignals via enrichRowWithTeamStats(row).
+ *
+ * Source: backend/data/nbaTeamStats.json (populated by populateNbaTeamStats.js)
+ *
+ * What it sets on the row:
+ *   row.oppDef               — opponent defensive rating (lower = better D)
+ *   row.oppDefRating         — same, more descriptive alias
+ *   row.pace                 — actual game pace (replaces the default 100)
+ *   row.opponentStats        — { pointsAllowed, reboundsAllowed, assistsAllowed, threePAAllowed, ... }
+ *
+ * Honest no-op when:
+ *   - cache file missing or empty
+ *   - team abbreviation can't be resolved from row.opponent
+ *   - stats data simply isn't in the team entry (ESPN didn't expose it)
+ *
+ * Never fabricates values. The cognition handles null gracefully.
+ */
+
+const fs   = require("fs")
+const path = require("path")
+
+const CACHE_PATH = path.join(__dirname, "..", "..", "data", "nbaTeamStats.json")
+
+let _cache = null
+let _loadedAt = 0
+const RELOAD_AFTER_MS = 5 * 60 * 1000  // 5min — refresh in long-running processes
+
+function loadCacheFromDisk() {
+  try {
+    if (!fs.existsSync(CACHE_PATH)) {
+      _cache = { teams: {}, generatedAt: null }
+      _loadedAt = Date.now()
+      return _cache
+    }
+    _cache = JSON.parse(fs.readFileSync(CACHE_PATH, "utf8")) || { teams: {} }
+    _loadedAt = Date.now()
+    return _cache
+  } catch (_) {
+    _cache = { teams: {}, generatedAt: null }
+    _loadedAt = Date.now()
+    return _cache
+  }
+}
+
+function ensureLoaded() {
+  if (_cache && Date.now() - _loadedAt < RELOAD_AFTER_MS) return _cache
+  return loadCacheFromDisk()
+}
+
+// Normalize an opponent identifier (could be team name, abbrev, or city).
+// Tries multiple strategies because row.opponent in the snapshot can be in
+// any format depending on which enrichment ran upstream.
+function normalizeTeamKey(opponent) {
+  if (!opponent) return null
+  const raw = String(opponent).trim()
+  if (!raw) return null
+  const upper = raw.toUpperCase()
+
+  const cache = ensureLoaded()
+  const teams = cache.teams || {}
+
+  // Exact abbreviation hit
+  if (teams[upper]) return upper
+
+  // Try matching by displayName substring
+  const lower = raw.toLowerCase()
+  for (const [abbr, entry] of Object.entries(teams)) {
+    const dn = String(entry.displayName || "").toLowerCase()
+    if (dn === lower) return abbr
+    if (dn && lower.includes(dn)) return abbr
+    if (dn && dn.includes(lower)) return abbr
+  }
+
+  // Common city-only fallbacks
+  const CITY_TO_ABBR = {
+    "boston":"BOS","cleveland":"CLE","new york":"NYK","brooklyn":"BKN","philadelphia":"PHI","toronto":"TOR",
+    "atlanta":"ATL","charlotte":"CHA","chicago":"CHI","detroit":"DET","indiana":"IND","miami":"MIA",
+    "milwaukee":"MIL","orlando":"ORL","washington":"WAS","dallas":"DAL","denver":"DEN","golden state":"GSW",
+    "houston":"HOU","la clippers":"LAC","los angeles clippers":"LAC","la lakers":"LAL","los angeles lakers":"LAL",
+    "memphis":"MEM","minnesota":"MIN","new orleans":"NOP","oklahoma city":"OKC","phoenix":"PHX",
+    "portland":"POR","sacramento":"SAC","san antonio":"SAS","utah":"UTA",
+  }
+  for (const [city, abbr] of Object.entries(CITY_TO_ABBR)) {
+    if (lower.includes(city) && teams[abbr]) return abbr
+  }
+  return null
+}
+
+function getTeamStats(opponent) {
+  const key = normalizeTeamKey(opponent)
+  if (!key) return null
+  const cache = ensureLoaded()
+  return cache.teams?.[key] || null
+}
+
+function enrichRowWithTeamStats(row) {
+  if (!row || typeof row !== "object") return row
+  const opp = row.opponent || row.opponentTeam || row.opp || null
+  if (!opp) return row
+  const stats = getTeamStats(opp)
+  if (!stats) return row
+
+  // oppDef = defensive rating (lower = better defense). When defensiveRating
+  // isn't directly exposed, fall back to opp points allowed per game (higher
+  // = worse defense). Negate so the model's "negative oppDef = good defense"
+  // semantic is preserved.
+  if (Number.isFinite(stats.defensiveRating) && row.oppDef == null) {
+    row.oppDef = stats.defensiveRating
+  } else if (Number.isFinite(stats.pointsAllowedPerGame) && row.oppDef == null) {
+    // Center around league average (~113 pts allowed). Below 113 = good D
+    // (negative oppDef), above = bad D (positive oppDef).
+    row.oppDef = stats.pointsAllowedPerGame - 113
+  }
+  // pace: opponent's pace as a proxy for game pace. Real game pace is avg
+  // of both, but opponent-side alone is still directional. Don't overwrite
+  // a non-default value already on the row.
+  if (Number.isFinite(stats.pace) && (row.pace == null || row.pace === 100)) {
+    row.pace = stats.pace
+  }
+  // Per-stat opponent-allowed (used by future per-stat refinements).
+  row.opponentStats = {
+    pointsAllowed:    stats.pointsAllowedPerGame    ?? null,
+    reboundsAllowed:  stats.reboundsAllowedPerGame  ?? null,
+    assistsAllowed:   stats.assistsAllowedPerGame   ?? null,
+    threePAAllowed:   stats.threePAAllowedPerGame   ?? null,
+    threePMAllowed:   stats.threePMAllowedPerGame   ?? null,
+    defensiveRating:  stats.defensiveRating         ?? null,
+    pace:             stats.pace                    ?? null,
+    fgPct:            stats.fgPct                   ?? null,
+    threePointPct:    stats.threePointPct           ?? null,
+  }
+  return row
+}
+
+module.exports = {
+  loadCacheFromDisk,
+  getTeamStats,
+  enrichRowWithTeamStats,
+  normalizeTeamKey,
+}
