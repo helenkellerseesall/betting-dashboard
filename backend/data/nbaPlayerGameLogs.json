@@ -4,6 +4,90 @@
       "team": "Cleveland Cavaliers",
       "games": [
         {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 38,
+            "points": 23,
+            "rebounds": 1,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 39,
+            "points": 26,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 29,
+            "rebounds": 5,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 6
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 31,
+            "points": 26,
+            "rebounds": 6,
+            "assists": 8,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 18,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 42,
+            "points": 21,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
           "isHome": true,
@@ -104,12 +188,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "evan mobley": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 24,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 14,
+            "rebounds": 6,
+            "assists": 3,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 40,
+            "points": 15,
+            "rebounds": 14,
+            "assists": 3,
+            "blocks": 3,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 21,
+            "rebounds": 12,
+            "assists": 6,
+            "blocks": 2,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 18,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 2,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 43,
+            "points": 19,
+            "rebounds": 8,
+            "assists": 8,
+            "blocks": 3,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -209,12 +377,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "jalen brunson": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 30,
+            "rebounds": 3,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 40,
+            "points": 19,
+            "rebounds": 3,
+            "assists": 14,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 46,
+            "points": 38,
+            "rebounds": 5,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -300,12 +510,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "mike conley": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 19,
+            "points": 6,
+            "rebounds": 0,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 15,
+            "points": 5,
+            "rebounds": 1,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -378,7 +616,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "austin reaves": {
@@ -390,10 +628,10 @@
           "isHome": true,
           "starter": true,
           "stats": {
-            "minutes": 21,
-            "points": 15,
-            "rebounds": 3,
-            "assists": 1,
+            "minutes": 43,
+            "points": 27,
+            "rebounds": 7,
+            "assists": 6,
             "blocks": 2,
             "steals": 0
           }
@@ -469,12 +707,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "max strus": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 31,
+            "points": 13,
+            "rebounds": 7,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 26,
+            "points": 5,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 25,
+            "points": 8,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 28,
+            "points": 9,
+            "rebounds": 3,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 30,
+            "points": 6,
+            "rebounds": 8,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 36,
+            "points": 20,
+            "rebounds": 8,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -574,12 +896,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "james harden": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 19,
+            "rebounds": 5,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 32,
+            "points": 18,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 42,
+            "points": 15,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 9,
+            "rebounds": 5,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 23,
+            "rebounds": 7,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 43,
+            "points": 30,
+            "rebounds": 8,
+            "assists": 6,
+            "blocks": 3,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -679,12 +1085,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "cade cunningham": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 13,
+            "rebounds": 4,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 42,
+            "points": 21,
+            "rebounds": 2,
+            "assists": 8,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 48,
+            "points": 39,
+            "rebounds": 7,
+            "assists": 9,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -784,12 +1232,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "mixed"
     },
     "tobias harris": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 5,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 25,
+            "points": 6,
+            "rebounds": 5,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 40,
+            "points": 13,
+            "rebounds": 6,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -889,12 +1379,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "duncan robinson": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 22,
+            "points": 13,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 20,
+            "points": 14,
+            "rebounds": 2,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -994,12 +1512,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jalen duren": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 26,
+            "points": 7,
+            "rebounds": 9,
+            "assists": 3,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 15,
+            "rebounds": 11,
+            "assists": 0,
+            "blocks": 3,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 25,
+            "points": 9,
+            "rebounds": 5,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1099,12 +1659,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ausar thompson": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 29,
+            "points": 5,
+            "rebounds": 7,
+            "assists": 0,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 24,
+            "points": 10,
+            "rebounds": 9,
+            "assists": 4,
+            "blocks": 1,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 6,
+            "rebounds": 7,
+            "assists": 5,
+            "blocks": 3,
+            "steals": 4
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1204,12 +1806,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "paul reed": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 4,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 16,
+            "points": 17,
+            "rebounds": 6,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 10,
+            "rebounds": 8,
+            "assists": 1,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1267,12 +1911,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "isaiah stewart": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 6,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 11,
+            "points": 8,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1372,7 +2058,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "wendell moore jr.": {
@@ -1405,12 +2091,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ronald holland ii": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 6,
+            "points": 3,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1482,7 +2196,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "isaac jones": {
@@ -1515,7 +2229,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "javonte green": {
@@ -1620,12 +2334,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "caris levert": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 11,
+            "rebounds": 2,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 29,
+            "points": 8,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 24,
+            "points": 7,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1711,12 +2467,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "marcus sasser": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 23,
+            "points": 9,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 18,
+            "points": 9,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 16,
+            "points": 2,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1746,12 +2544,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "daniss jenkins": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 34,
+            "points": 17,
+            "rebounds": 3,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 31,
+            "points": 15,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 19,
+            "rebounds": 2,
+            "assists": 3,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Cleveland Cavaliers",
@@ -1851,12 +2691,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dean wade": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 17,
+            "points": 0,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 21,
+            "points": 3,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 29,
+            "points": 10,
+            "rebounds": 5,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 21,
+            "points": 5,
+            "rebounds": 6,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 22,
+            "points": 3,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 0,
+            "rebounds": 6,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -1956,12 +2880,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jarrett allen": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 17,
+            "rebounds": 7,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 29,
+            "points": 13,
+            "rebounds": 10,
+            "assists": 0,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 35,
+            "points": 10,
+            "rebounds": 7,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 25,
+            "points": 23,
+            "rebounds": 7,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 30,
+            "points": 13,
+            "rebounds": 8,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 16,
+            "rebounds": 10,
+            "assists": 1,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2061,7 +3069,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "olivier sarr": {
@@ -2094,7 +3102,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tristan enaruna": {
@@ -2127,12 +3135,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "nae'qwan tomlin": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 2,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 2,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 1,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2148,7 +3198,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "riley minix": {
@@ -2181,12 +3231,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "thomas bryant": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 0,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2244,12 +3336,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dennis schroder": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 9,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 18,
+            "points": 4,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 18,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 18,
+            "points": 2,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 15,
+            "points": 0,
+            "rebounds": 2,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 5,
+            "rebounds": 0,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2349,12 +3525,96 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "sam merrill": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 24,
+            "points": 6,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 23,
+            "points": 4,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 28,
+            "points": 12,
+            "rebounds": 1,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 25,
+            "points": 23,
+            "rebounds": 1,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 20,
+            "points": 10,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 21,
+            "points": 6,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2440,12 +3700,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jaylon tyson": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "New York Knicks",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 9,
+            "points": 3,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 4,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-13",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2545,12 +3875,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "craig porter jr.": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 2,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2566,12 +3938,68 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "keon ellis": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 5,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Detroit Pistons",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Detroit Pistons",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2615,12 +4043,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tyrese proctor": {
       "team": "Cleveland Cavaliers",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "New York Knicks",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Detroit Pistons",
@@ -2636,24 +4078,66 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "isaiah hartenstein": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 21,
+            "points": 5,
+            "rebounds": 8,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 10,
+            "rebounds": 13,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 12,
+            "points": 2,
+            "rebounds": 2,
+            "assists": 2,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": true,
           "stats": {
-            "minutes": 15,
-            "points": 3,
-            "rebounds": 7,
-            "assists": 0,
+            "minutes": 28,
+            "points": 5,
+            "rebounds": 10,
+            "assists": 5,
             "blocks": 0,
-            "steals": 1
+            "steals": 3
           }
         },
         {
@@ -2699,21 +4183,63 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "chet holmgren": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 28,
+            "points": 14,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 13,
+            "rebounds": 4,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 41,
+            "points": 8,
+            "rebounds": 8,
+            "assists": 0,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": true,
           "stats": {
-            "minutes": 18,
-            "points": 4,
-            "rebounds": 5,
+            "minutes": 35,
+            "points": 16,
+            "rebounds": 9,
             "assists": 0,
             "blocks": 0,
             "steals": 1
@@ -2762,24 +4288,66 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "shai gilgeous-alexander": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 26,
+            "rebounds": 2,
+            "assists": 12,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 38,
+            "points": 30,
+            "rebounds": 4,
+            "assists": 9,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 51,
+            "points": 24,
+            "rebounds": 3,
+            "assists": 12,
+            "blocks": 1,
+            "steals": 5
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": true,
           "stats": {
-            "minutes": 19,
-            "points": 14,
+            "minutes": 39,
+            "points": 35,
             "rebounds": 1,
-            "assists": 4,
+            "assists": 8,
             "blocks": 0,
-            "steals": 0
+            "steals": 1
           }
         },
         {
@@ -2825,21 +4393,63 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "luguentz dort": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 0,
+            "rebounds": 5,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 16,
+            "points": 8,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 22,
+            "points": 5,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": true,
           "stats": {
-            "minutes": 12,
+            "minutes": 31,
             "points": 6,
-            "rebounds": 0,
+            "rebounds": 2,
             "assists": 0,
             "blocks": 0,
             "steals": 0
@@ -2888,24 +4498,66 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ajay mitchell": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 17,
+            "points": 2,
+            "rebounds": 5,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 28,
+            "points": 10,
+            "rebounds": 0,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 34,
+            "points": 4,
+            "rebounds": 4,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": true,
           "stats": {
-            "minutes": 13,
-            "points": 8,
+            "minutes": 33,
+            "points": 28,
             "rebounds": 3,
-            "assists": 3,
+            "assists": 4,
             "blocks": 0,
-            "steals": 2
+            "steals": 4
           }
         },
         {
@@ -2951,19 +4603,61 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jaylin williams": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 22,
+            "points": 18,
+            "rebounds": 5,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 6,
+            "rebounds": 3,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 0,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": false,
           "stats": {
-            "minutes": 5,
+            "minutes": 9,
             "points": 0,
             "rebounds": 1,
             "assists": 0,
@@ -3014,22 +4708,64 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "alex caruso": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 24,
+            "points": 15,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 25,
+            "points": 17,
+            "rebounds": 3,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 32,
+            "points": 31,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 2,
+            "steals": 2
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": false,
           "stats": {
-            "minutes": 12,
+            "minutes": 22,
             "points": 9,
-            "rebounds": 1,
-            "assists": 0,
+            "rebounds": 4,
+            "assists": 1,
             "blocks": 0,
             "steals": 2
           }
@@ -3077,12 +4813,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "isaiah joe": {
       "team": "Oklahoma City Thunder",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 9,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 0,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
@@ -3140,12 +4918,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "aaron wiggins": {
       "team": "Oklahoma City Thunder",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 0,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
@@ -3156,7 +4976,8 @@
             "rebounds": 0,
             "assists": 0,
             "blocks": 0,
-            "steals": 0
+            "steals": 0,
+            "minutes": 0
           }
         },
         {
@@ -3202,24 +5023,66 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "cason wallace": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 28,
+            "points": 11,
+            "rebounds": 5,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 25,
+            "points": 12,
+            "rebounds": 4,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 28,
+            "points": 8,
+            "rebounds": 6,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": false,
           "stats": {
-            "minutes": 11,
-            "points": 0,
+            "minutes": 19,
+            "points": 3,
             "rebounds": 2,
             "assists": 0,
             "blocks": 0,
-            "steals": 0
+            "steals": 1
           }
         },
         {
@@ -3265,20 +5128,62 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jared mccain": {
       "team": "Oklahoma City Thunder",
       "games": [
         {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 27,
+            "points": 24,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 26,
+            "points": 12,
+            "rebounds": 6,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 18,
+            "points": 7,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
           "date": "2026-05-11",
           "opponent": "Los Angeles Lakers",
           "isHome": false,
           "starter": false,
           "stats": {
-            "minutes": 8,
-            "points": 5,
+            "minutes": 16,
+            "points": 13,
             "rebounds": 2,
             "assists": 0,
             "blocks": 0,
@@ -3328,7 +5233,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "lebron james": {
@@ -3340,10 +5245,10 @@
           "isHome": true,
           "starter": true,
           "stats": {
-            "minutes": 19,
-            "points": 10,
-            "rebounds": 6,
-            "assists": 1,
+            "minutes": 40,
+            "points": 24,
+            "rebounds": 12,
+            "assists": 3,
             "blocks": 1,
             "steals": 0
           }
@@ -3419,7 +5324,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "rui hachimura": {
@@ -3431,9 +5336,9 @@
           "isHome": true,
           "starter": true,
           "stats": {
-            "minutes": 22,
-            "points": 4,
-            "rebounds": 3,
+            "minutes": 43,
+            "points": 25,
+            "rebounds": 5,
             "assists": 2,
             "blocks": 1,
             "steals": 0
@@ -3510,7 +5415,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "deandre ayton": {
@@ -3522,10 +5427,10 @@
           "isHome": true,
           "starter": true,
           "stats": {
-            "minutes": 13,
-            "points": 4,
-            "rebounds": 2,
-            "assists": 0,
+            "minutes": 21,
+            "points": 6,
+            "rebounds": 3,
+            "assists": 1,
             "blocks": 0,
             "steals": 0
           }
@@ -3601,7 +5506,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "marcus smart": {
@@ -3613,12 +5518,12 @@
           "isHome": true,
           "starter": true,
           "stats": {
-            "minutes": 15,
-            "points": 2,
-            "rebounds": 1,
-            "assists": 0,
-            "blocks": 1,
-            "steals": 1
+            "minutes": 36,
+            "points": 5,
+            "rebounds": 2,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 2
           }
         },
         {
@@ -3692,7 +5597,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jarred vanderbilt": {
@@ -3741,7 +5646,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "adou thiero": {
@@ -3818,7 +5723,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jaxson hayes": {
@@ -3830,11 +5735,11 @@
           "isHome": true,
           "starter": false,
           "stats": {
-            "minutes": 11,
-            "points": 10,
-            "rebounds": 3,
-            "assists": 0,
-            "blocks": 0,
+            "minutes": 27,
+            "points": 18,
+            "rebounds": 5,
+            "assists": 1,
+            "blocks": 1,
             "steals": 0
           }
         },
@@ -3909,7 +5814,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "luke kennard": {
@@ -3921,10 +5826,10 @@
           "isHome": true,
           "starter": false,
           "stats": {
-            "minutes": 14,
-            "points": 0,
-            "rebounds": 1,
-            "assists": 1,
+            "minutes": 24,
+            "points": 5,
+            "rebounds": 2,
+            "assists": 2,
             "blocks": 0,
             "steals": 1
           }
@@ -4000,12 +5905,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "karl-anthony towns": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 13,
+            "rebounds": 8,
+            "assists": 7,
+            "blocks": 1,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 18,
+            "rebounds": 13,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 40,
+            "points": 13,
+            "rebounds": 13,
+            "assists": 5,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4091,12 +6038,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "josh hart": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 35,
+            "points": 12,
+            "rebounds": 9,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 33,
+            "points": 26,
+            "rebounds": 4,
+            "assists": 7,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 31,
+            "points": 13,
+            "rebounds": 7,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4182,12 +6171,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "mikal bridges": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 39,
+            "points": 22,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 2,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 40,
+            "points": 19,
+            "rebounds": 3,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 42,
+            "points": 18,
+            "rebounds": 5,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4273,12 +6304,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "miles mcbride": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 14,
+            "points": 5,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 14,
+            "points": 5,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 0,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4364,7 +6437,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "trey jemison iii": {
@@ -4384,7 +6457,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jeremy sochan": {
@@ -4461,7 +6534,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dillon jones": {
@@ -4481,12 +6554,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "pacome dadiet": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4558,7 +6645,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "mohamed diawara": {
@@ -4621,12 +6708,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "mitchell robinson": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 9,
+            "points": 2,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 12,
+            "points": 4,
+            "rebounds": 4,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 14,
+            "points": 4,
+            "rebounds": 6,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4698,7 +6827,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ariel hukporti": {
@@ -4789,12 +6918,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jordan clarkson": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 7,
+            "points": 4,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 16,
+            "points": 3,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4880,12 +7051,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "landry shamet": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 28,
+            "points": 14,
+            "rebounds": 1,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 15,
+            "points": 0,
+            "rebounds": 4,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 9,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -4971,12 +7184,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jose alvarado": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 7,
+            "points": 4,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -5062,7 +7317,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "kevin mccullar jr.": {
@@ -5082,12 +7337,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tyler kolek": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Philadelphia 76ers",
@@ -5159,7 +7428,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "paul george": {
@@ -5264,7 +7533,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "joel embiid": {
@@ -5355,7 +7624,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "kelly oubre jr.": {
@@ -5460,7 +7729,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tyrese maxey": {
@@ -5565,7 +7834,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "vj edgecombe": {
@@ -5670,7 +7939,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "trendon watford": {
@@ -5747,7 +8016,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "marjon beauchamp": {
@@ -5767,7 +8036,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jabari walker": {
@@ -5830,7 +8099,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dalen terry": {
@@ -5907,7 +8176,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "johni broome": {
@@ -5942,7 +8211,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "justin edwards": {
@@ -6019,7 +8288,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dominick barlow": {
@@ -6110,7 +8379,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "andre drummond": {
@@ -6215,7 +8484,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "adem bona": {
@@ -6306,7 +8575,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "quentin grimes": {
@@ -6411,7 +8680,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tyrese martin": {
@@ -6431,12 +8700,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "julian champagnie": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 35,
+            "points": 10,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 8,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 44,
+            "points": 11,
+            "rebounds": 9,
+            "assists": 1,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 26,
+            "points": 18,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 29,
+            "points": 8,
+            "rebounds": 4,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6508,12 +8847,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "victor wembanyama": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 39,
+            "points": 26,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 21,
+            "rebounds": 17,
+            "assists": 6,
+            "blocks": 4,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 49,
+            "points": 41,
+            "rebounds": 24,
+            "assists": 3,
+            "blocks": 3,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 19,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 3,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 33,
+            "points": 27,
+            "rebounds": 17,
+            "assists": 5,
+            "blocks": 3,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6585,12 +8994,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "de'aaron fox": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 31,
+            "points": 15,
+            "rebounds": 7,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 24,
+            "points": 21,
+            "rebounds": 4,
+            "assists": 9,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 34,
+            "points": 18,
+            "rebounds": 4,
+            "assists": 5,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6662,12 +9113,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "devin vassell": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 20,
+            "rebounds": 7,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 4
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 38,
+            "points": 22,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 51,
+            "points": 13,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 11,
+            "rebounds": 5,
+            "assists": 4,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 32,
+            "points": 12,
+            "rebounds": 3,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6739,12 +9260,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "stephon castle": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 35,
+            "points": 14,
+            "rebounds": 5,
+            "assists": 7,
+            "blocks": 2,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 38,
+            "points": 25,
+            "rebounds": 5,
+            "assists": 8,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 49,
+            "points": 17,
+            "rebounds": 6,
+            "assists": 11,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 30,
+            "points": 32,
+            "rebounds": 11,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 27,
+            "points": 17,
+            "rebounds": 4,
+            "assists": 6,
+            "blocks": 1,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6816,12 +9407,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "harrison barnes": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 12,
+            "points": 5,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 6,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 7,
+            "points": 3,
+            "rebounds": 4,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 4,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6893,12 +9554,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "keldon johnson": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 12,
+            "points": 5,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 26,
+            "points": 10,
+            "rebounds": 5,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 22,
+            "points": 13,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 22,
+            "points": 21,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -6970,12 +9701,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "carter bryant": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 3,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 10,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 14,
+            "points": 3,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 13,
+            "points": 3,
+            "rebounds": 6,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 12,
+            "points": 3,
+            "rebounds": 4,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -7033,12 +9834,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "luke kornet": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 13,
+            "points": 4,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 11,
+            "points": 4,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 9,
+            "points": 0,
+            "rebounds": 3,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 14,
+            "points": 6,
+            "rebounds": 6,
+            "assists": 1,
+            "blocks": 4,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 11,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -7110,12 +9981,82 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dylan harper": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 6,
+            "rebounds": 3,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 25,
+            "points": 12,
+            "rebounds": 2,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 47,
+            "points": 24,
+            "rebounds": 11,
+            "assists": 6,
+            "blocks": 0,
+            "steals": 7
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 26,
+            "points": 15,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 25,
+            "points": 12,
+            "rebounds": 10,
+            "assists": 2,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "Minnesota Timberwolves",
@@ -7187,12 +10128,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "julius randle": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 24,
+            "points": 3,
+            "rebounds": 7,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 17,
+            "rebounds": 10,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7264,12 +10233,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jaden mcdaniels": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 13,
+            "rebounds": 1,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 30,
+            "points": 17,
+            "rebounds": 6,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7341,12 +10338,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "rudy gobert": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 22,
+            "points": 0,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 4,
+            "rebounds": 5,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 2
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7418,12 +10443,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ayo dosunmu": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 23,
+            "points": 10,
+            "rebounds": 1,
+            "assists": 9,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 33,
+            "points": 16,
+            "rebounds": 9,
+            "assists": 4,
+            "blocks": 2,
+            "steals": 3
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7467,12 +10520,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "anthony edwards": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 36,
+            "points": 24,
+            "rebounds": 2,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 3
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 39,
+            "points": 20,
+            "rebounds": 2,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7530,12 +10611,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "naz reid": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 32,
+            "points": 18,
+            "rebounds": 7,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 31,
+            "points": 12,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7607,12 +10716,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "terrence shannon jr.": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 22,
+            "points": 21,
+            "rebounds": 2,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 17,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-10",
           "opponent": "San Antonio Spurs",
@@ -7684,12 +10821,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "kenrich williams": {
       "team": "Oklahoma City Thunder",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 5,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-09",
           "opponent": "Los Angeles Lakers",
@@ -7733,12 +10884,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "nikola topic": {
       "team": "Oklahoma City Thunder",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-09",
           "opponent": "Los Angeles Lakers",
@@ -7768,12 +10933,26 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "maxi kleber": {
       "team": "Los Angeles Lakers",
       "games": [
+        {
+          "date": "2026-05-11",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 0,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-09",
           "opponent": "Oklahoma City Thunder",
@@ -7789,7 +10968,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "dalton knecht": {
@@ -7852,7 +11031,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "nick smith jr.": {
@@ -7915,7 +11094,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "bronny james": {
@@ -7978,7 +11157,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jake laravia": {
@@ -8041,12 +11220,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "og anunoby": {
       "team": "New York Knicks",
       "games": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": true,
+          "stats": {
+            "minutes": 31,
+            "points": 21,
+            "rebounds": 7,
+            "assists": 4,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-21",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 32,
+            "points": 14,
+            "rebounds": 4,
+            "assists": 3,
+            "blocks": 3,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 34,
+            "points": 13,
+            "rebounds": 5,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Philadelphia 76ers",
@@ -8104,7 +11325,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "joe ingles": {
@@ -8125,12 +11346,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "kyle anderson": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 3,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 1,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "San Antonio Spurs",
@@ -8146,12 +11395,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "julian phillips": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "San Antonio Spurs",
@@ -8167,12 +11444,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "joan beringer": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 4,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 3,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "San Antonio Spurs",
@@ -8188,12 +11493,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jaylen clark": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 2,
+            "rebounds": 3,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "San Antonio Spurs",
@@ -8237,12 +11570,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "bones hyland": {
       "team": "Minnesota Timberwolves",
       "games": [
+        {
+          "date": "2026-05-15",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 3,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "San Antonio Spurs",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "San Antonio Spurs",
@@ -8286,12 +11647,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "kelly olynyk": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 3,
+            "rebounds": 4,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Minnesota Timberwolves",
@@ -8321,12 +11724,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "lindy waters iii": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 2,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 3,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Minnesota Timberwolves",
@@ -8356,12 +11801,54 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "bismack biyombo": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 7,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 2,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 2,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Minnesota Timberwolves",
@@ -8391,12 +11878,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "mason plumlee": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 2,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 1,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 5,
+            "points": 2,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Minnesota Timberwolves",
@@ -8412,12 +11927,68 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jordan mclaughlin": {
       "team": "San Antonio Spurs",
       "games": [
+        {
+          "date": "2026-05-22",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 2,
+            "points": 0,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Oklahoma City Thunder",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 7,
+            "points": 6,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 8,
+            "points": 2,
+            "rebounds": 1,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "opponent": "Minnesota Timberwolves",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 2,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-06",
           "opponent": "Minnesota Timberwolves",
@@ -8447,7 +12018,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jamal cain": {
@@ -8496,7 +12067,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "paolo banchero": {
@@ -8545,7 +12116,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "wendell carter jr.": {
@@ -8594,7 +12165,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "desmond bane": {
@@ -8643,7 +12214,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jalen suggs": {
@@ -8692,7 +12263,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "moritz wagner": {
@@ -8713,7 +12284,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tristan da silva": {
@@ -8762,7 +12333,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jevon carter": {
@@ -8797,7 +12368,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "anthony black": {
@@ -8846,12 +12417,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "tolu smith": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 5,
+            "points": 4,
+            "rebounds": 2,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 1
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 0,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-03",
           "opponent": "Orlando Magic",
@@ -8867,12 +12466,40 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "chaz lanier": {
       "team": "Detroit Pistons",
       "games": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 5,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": false,
+          "starter": false,
+          "stats": {
+            "minutes": 1,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 0
+          }
+        },
         {
           "date": "2026-05-03",
           "opponent": "Orlando Magic",
@@ -8888,7 +12515,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "rj barrett": {
@@ -8937,7 +12564,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "scottie barnes": {
@@ -8986,7 +12613,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jakob poeltl": {
@@ -9035,7 +12662,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jamal shead": {
@@ -9084,7 +12711,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "ja'kobe walter": {
@@ -9133,7 +12760,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "sandro mamukelashvili": {
@@ -9182,7 +12809,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "trayce jackson-davis": {
@@ -9203,7 +12830,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jamison battle": {
@@ -9252,7 +12879,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "collin murray-boyles": {
@@ -9301,7 +12928,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "jonathan mogbo": {
@@ -9322,7 +12949,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "garrett temple": {
@@ -9343,7 +12970,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "a.j. lawson": {
@@ -9392,7 +13019,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "gradey dick": {
@@ -9413,7 +13040,7 @@
           }
         }
       ],
-      "lastUpdated": "2026-05-12",
+      "lastUpdated": "2026-05-24",
       "source": "espn"
     },
     "luka garza": {
@@ -11403,8 +15030,64 @@
       ],
       "lastUpdated": "2026-05-12",
       "source": "espn"
+    },
+    "jalen williams": {
+      "team": "Oklahoma City Thunder",
+      "games": [
+        {
+          "date": "2026-05-20",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 7,
+            "points": 4,
+            "rebounds": 1,
+            "assists": 0,
+            "blocks": 0,
+            "steals": 2
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "San Antonio Spurs",
+          "isHome": true,
+          "starter": true,
+          "stats": {
+            "minutes": 37,
+            "points": 26,
+            "rebounds": 7,
+            "assists": 3,
+            "blocks": 1,
+            "steals": 1
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-24",
+      "source": "espn"
+    },
+    "kevin huerter": {
+      "team": "Detroit Pistons",
+      "games": [
+        {
+          "date": "2026-05-13",
+          "opponent": "Cleveland Cavaliers",
+          "isHome": true,
+          "starter": false,
+          "stats": {
+            "minutes": 3,
+            "points": 0,
+            "rebounds": 0,
+            "assists": 1,
+            "blocks": 0,
+            "steals": 0
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-24",
+      "source": "espn"
     }
   },
-  "generatedAt": "2026-05-12T04:01:02.498Z",
+  "generatedAt": "2026-05-24T04:44:22.339Z",
   "source": "settled_bets_aggregator"
 }
