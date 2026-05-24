@@ -26,19 +26,34 @@ const fs = require("fs")
 const path = require("path")
 const TRACE_ENABLED = process.env.NBA_TRACE === "1"
 const TRACE_PATH = path.join(__dirname, "..", "..", "runtime", "cognition_trace.jsonl")
+const TRACE_MAX_BYTES = 5 * 1024 * 1024  // 5MB cap. After many refreshes the
+// file grew to 440MB once; GitHub rejected the push. Now self-truncates when
+// it crosses the cap so the file stays bounded forever, regardless of how
+// long the backend runs with NBA_TRACE=1.
 if (TRACE_ENABLED) {
   try {
     fs.mkdirSync(path.dirname(TRACE_PATH), { recursive: true })
-    fs.writeFileSync(TRACE_PATH, "")   // truncate
-    console.log(`[nba-trace] cognition trace enabled → ${TRACE_PATH}`)
+    fs.writeFileSync(TRACE_PATH, "")   // truncate at process start
+    console.log(`[nba-trace] cognition trace enabled → ${TRACE_PATH} (max ${TRACE_MAX_BYTES/1024/1024}MB)`)
   } catch (_) { /* silent */ }
 }
+let _traceCheckCounter = 0
 function _traceRow(entry) {
   if (!TRACE_ENABLED) return
   try {
-    // JSON.stringify handles undefined→omit. Pre-process to preserve null
-    // explicitly so a missing signal shows as null not 0 in the trace.
     fs.appendFileSync(TRACE_PATH, JSON.stringify(entry, (k, v) => v === undefined ? null : v) + "\n")
+    // Check file size every 200 writes (cheap stat call). When over cap,
+    // truncate and start fresh. Keeps the latest data only.
+    if (++_traceCheckCounter >= 200) {
+      _traceCheckCounter = 0
+      try {
+        const stat = fs.statSync(TRACE_PATH)
+        if (stat.size > TRACE_MAX_BYTES) {
+          fs.writeFileSync(TRACE_PATH, "")
+          console.log(`[nba-trace] file exceeded ${TRACE_MAX_BYTES/1024/1024}MB cap — truncated`)
+        }
+      } catch (_) { /* silent */ }
+    }
   } catch (_) { /* silent */ }
 }
 // Trace-only numeric coercion that preserves null (unlike module-internal
@@ -122,23 +137,30 @@ function isLadderRow(row) {
 
 function probabilityBandForFamily(family, row) {
   if (isLadderRow(row)) {
-    if (family === "threes") return { min: 0.07, max: 0.63 }
-    if (family === "pra") return { min: 0.07, max: 0.60 }
-    return { min: 0.07, max: 0.61 }
+    if (family === "threes") return { min: 0.05, max: 0.75 }
+    if (family === "pra") return { min: 0.05, max: 0.72 }
+    return { min: 0.05, max: 0.75 }
   }
+  // 2026-05-24 — Lane 5 arithmetic fix. Widened bands from [0.34, 0.65]
+  // (points/rebounds/assists) to [0.15, 0.85]. The narrow band guaranteed
+  // every long-odds pick (+250+) auto-generated +5-10pp "edge" purely from
+  // the band floor regardless of signal. With wider bands the model can
+  // produce honest low probabilities (e.g. 18% over an inflated line for a
+  // star averaging well below it) and the edge claim disappears when the
+  // data agrees with the market.
   switch (family) {
     case "points":
     case "rebounds":
     case "assists":
-      return { min: 0.34, max: 0.65 }
+      return { min: 0.15, max: 0.85 }
     case "pra":
-      return { min: 0.32, max: 0.67 }
+      return { min: 0.12, max: 0.82 }
     case "threes":
-      return { min: 0.28, max: 0.71 }
+      return { min: 0.10, max: 0.85 }
     case "special":
       return { min: 0.03, max: 0.42 }
     default:
-      return { min: 0.32, max: 0.67 }
+      return { min: 0.15, max: 0.85 }
   }
 }
 
@@ -240,9 +262,19 @@ function ladderSeverity(row, family, anchor) {
 }
 
 function familyScoreWeights(family) {
-  if (family === "points") return { usage: 0.27, shots: 0.25, rate: 0.05, form: 0.25, ctx: 0.18 }
-  if (family === "rebounds") return { usage: 0.08, shots: 0.05, rate: 0.28, form: 0.24, ctx: 0.18 }
-  if (family === "assists") return { usage: 0.12, shots: 0.04, rate: 0.30, form: 0.24, ctx: 0.18 }
+  // 2026-05-24 — Lane 5 arithmetic fix. Form (recent L5/L10) was 0.24-0.25
+  // — same weight as usage and shots. For stars with constant high usage
+  // and minutes, those signals always pushed the score positive regardless
+  // of whether the line was achievable, swamping the form signal saying
+  // "no, the player averages well below this line."
+  //
+  // Fix: form is now the DOMINANT signal at 0.50. Usage drops to 0.12,
+  // minutes drops to 0.14, ctx/shots scaled to fit. Net intuition: when
+  // a player's recent average is far from the line, that fact alone should
+  // determine the direction; usage/role contextualize the magnitude.
+  if (family === "points") return { usage: 0.12, shots: 0.15, rate: 0.05, form: 0.50, ctx: 0.18 }
+  if (family === "rebounds") return { usage: 0.06, shots: 0.04, rate: 0.16, form: 0.55, ctx: 0.19 }
+  if (family === "assists") return { usage: 0.08, shots: 0.03, rate: 0.18, form: 0.55, ctx: 0.16 }
   if (family === "pra") return { usage: 0.20, shots: 0.14, rate: 0.17, form: 0.24, ctx: 0.19 }
   if (family === "threes") return { usage: 0.24, shots: 0.30, rate: 0.04, form: 0.23, ctx: 0.17 }
   return { usage: 0.16, shots: 0.16, rate: 0.16, form: 0.16, ctx: 0.16 }

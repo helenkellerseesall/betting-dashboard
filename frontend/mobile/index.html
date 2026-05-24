@@ -1323,8 +1323,36 @@
       // 7-book allowlist BEFORE classification. Logged so we can see how
       // many leaked through (until the canonical sportsbookAllowlist.js fix lands).
       const preFilter = source.length;
-      const cands = source.filter(c => isAllowedBook(c.sportsbook || c.book));
+      let cands = source.filter(c => isAllowedBook(c.sportsbook || c.book));
       const droppedNonAllowed = preFilter - cands.length;
+
+      // 2026-05-24 — multi-book dedupe on Sharp Plays (same fix shape as
+      // Games view, where Vassell-style "same player same line different
+      // book" cards were collapsed). Operator caught Vassell OVER 19.5
+      // showing as 2 ELITE cards (BetMGM + Fanatics). Collapse by
+      // (player|stat|side|line); keep the highest-edge entry, track the
+      // other books for surface display.
+      const dedupeMap = new Map();
+      for (const c of cands) {
+        const key = `${String(c.player||"").toLowerCase()}|${String(c.statFamily||c.propType||"").toLowerCase()}|${String(c.side||"").toLowerCase()}|${c.line ?? ""}`;
+        const existing = dedupeMap.get(key);
+        const cEdge = Number(c.edge ?? 0);
+        if (!existing) {
+          dedupeMap.set(key, { ...c, _alsoAt: [] });
+        } else {
+          const eEdge = Number(existing.edge ?? 0);
+          if (cEdge > eEdge) {
+            const carry = [...(existing._alsoAt || []), { book: existing.sportsbook || existing.book, odds: existing.oddsAmerican || existing.odds }];
+            dedupeMap.set(key, { ...c, _alsoAt: carry });
+          } else {
+            existing._alsoAt = existing._alsoAt || [];
+            existing._alsoAt.push({ book: c.sportsbook || c.book, odds: c.oddsAmerican || c.odds });
+          }
+        }
+      }
+      const beforeDedupe = cands.length;
+      cands = Array.from(dedupeMap.values());
+      const dedupedCount = beforeDedupe - cands.length;
 
       // Bettor-native freshness banner: "updated Xh Xm ago" reads as
       // normal operational status, never "STALE 114min" red alarm.
