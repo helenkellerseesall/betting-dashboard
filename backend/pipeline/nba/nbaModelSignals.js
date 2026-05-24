@@ -598,7 +598,53 @@ function nbaRowModelProbabilityCore(row) {
   return null
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-23 — Lane 5 ENRICHMENT WRAPPER.
+//
+// Trace diagnostic (3,951 rows on 2026-05-23) revealed cognition was running
+// with critical signals missing because not every caller of nbaRowModelProbability
+// applied the enrichers first. workstationRoutes.js DID enrich; nbaIsolatedRoutes
+// and buildNbaBoardSlicesFromSnapshot did NOT. Result: recentForm present in
+// only 22% of rows, shots/astRate/rebRate/oppDef in 0%.
+//
+// Fix: apply enrichers inside nbaRowModelProbability so EVERY caller gets a
+// fully-enriched row by default. Enrichers are documented as no-ops when source
+// data is missing OR when the row already has the enriched fields, so calling
+// from the already-enriched workstationRoutes path is safe (idempotent).
+//
+// Lazy require (in-function, try/catch) so a missing enricher module doesn't
+// break the cognition fallback chain. Cached after first load.
+// ─────────────────────────────────────────────────────────────────────────────
+let _enrichers = null
+function _loadEnrichers() {
+  if (_enrichers) return _enrichers
+  _enrichers = {}
+  try { _enrichers.recentForm = require("./nbaRecentFormCache").enrichRowWithRecentForm } catch (_) {}
+  try { _enrichers.roleContext = require("./nbaRoleContextDeriver").enrichRowWithRoleContext } catch (_) {}
+  try { _enrichers.availability = require("./nbaAvailabilityCache").enrichRowWithAvailability } catch (_) {}
+  // teammateContext + marketContext require slate-level pre-build steps that aren't
+  // available at the per-row entry point. Those remain caller-applied (workstation
+  // routes does the slate build, then enriches each row). The wrapper only
+  // applies enrichers that are pure per-row no-prerequisite functions.
+  return _enrichers
+}
+
+function _ensureEnriched(row) {
+  if (!row || typeof row !== "object") return row
+  const e = _loadEnrichers()
+  // Each is a per-row, no-prerequisite enricher that mutates row in place
+  // and is a no-op when source data is unavailable.
+  try { if (e.recentForm && !row.recentForm) e.recentForm(row) } catch (_) {}
+  try { if (e.roleContext && row.starterFlag == null) e.roleContext(row) } catch (_) {}
+  try { if (e.availability && !row.playerStatus) e.availability(row) } catch (_) {}
+  return row
+}
+
 function nbaRowModelProbability(row) {
+  // 2026-05-23: ensure enrichment before cognition. Without this, callers
+  // outside workstationRoutes (nbaIsolatedRoutes, buildNbaBoardSlices, etc.)
+  // hit the cognition with missing recentForm / role / availability signals.
+  _ensureEnriched(row)
   return nbaRowModelProbabilityCore(row)
 }
 

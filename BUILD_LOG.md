@@ -6,6 +6,35 @@ This is the "what's done, what's next" answer in 60 seconds. Reverse chronologic
 
 ---
 
+## 2026-05-23 — Lane 5 root cause: cognition runs with 4 of 11 signals never present + recent form 78% missing
+
+**What:** Built live cognition trace (`NBA_TRACE=1` → `runtime/cognition_trace.jsonl`), ran one NBA refresh, analyzed 3,951 base-layer cognition calls. Result:
+
+| Signal | % of rows present |
+|---|---|
+| usage, minutes, role, pace, total, spread | 100% |
+| recent (L5 form) | **22%** |
+| shots, astRate, rebRate, oppDef | **0%** |
+
+All 5 Lane 5 contradiction cases (Brunson/Mitchell/Schroder/Strus/Harden) fell into the 78% without recentForm. Model made predictions on usage + minutes + role + game-level pace/total/spread alone. No L5 correction. No opponent-defense correction. No shot-volume correction.
+
+**Brunson UNDER 20.5 trace decomposition:** usage 31 + minutes 35.8 + role=starter → primaryScore +0.71, side=under inverts to -0.47, logistic 38.5%, banded 40.5%, market-shrunk to 37.9%, matchup +2pp → final 39.9% vs market 23.8% → claims +16pp edge. If recentForm (L5=26.6 vs line 20.5) had been present, formZ would have been +1.21 with weight 0.25, dominating the score and pushing the under prob way down.
+
+**Root cause:** `nbaRowModelProbability` is called from 3 places. Only `workstationRoutes.js` (line 469) enriches the row first with `enrichRowWithRecentForm` etc. `nbaIsolatedRoutes.js` (line 1256) and `buildNbaBoardSlicesFromSnapshot.js` (line 158) call cognition on raw rows. Enrichment is per-handler instead of inside the cognition itself.
+
+**Fix shipping:** centralize enrichment by wrapping cognition. Any caller gets correctly-enriched inputs by default.
+
+**Other 4 missing signals (shots/astRate/rebRate/oppDef at 0%):** no enricher exists. New data source needed — Lane 5 phase 2 work.
+
+**Diagnostic tooling shipped:** `scripts/inspectNbaPick.js` (per-pick decomposition) + `scripts/inspectCognitionTrace.js` (trace inspector with --summary mode) + `lanes/nba_points_audit.md` + `lanes/grader_trust_audit.md`.
+
+**Done (`pipeline/nba/nbaModelSignals.js` +trace, `scripts/inspectNbaPick.js`, `scripts/inspectCognitionTrace.js`, `lanes/nba_points_audit.md`):**
+1. Added NBA_TRACE=1 env-gated tracing in `nbaRowIndependentModelProbability` + `nbaIndependentBaseModelProbability` — full intermediate state per call.
+2. Exported `_diag` helpers (Z-score, weights, logistic, compression) so inspector scripts can reproduce math.
+3. Inspector parses JSONL trace, dumps per-pick decomposition and all-rows enrichment summary.
+
+---
+
 ## 2026-05-23 — Surface fixes from operator iPhone-screenshot audit
 
 **What:** Operator sent 5 screenshots of the post-calibration-overlay iPhone view + Twitter winning-parlay screenshots. Called out: NBA prop view is market noise (same line from 3 books = 3 rows), no model projection surfaced (operator wants "how many threes is Harden hitting tonight"), -1000 / -3000 garbage lines polluting the screen, PENDING badge masking directionally-broken lanes, L log button still present after we agreed feedback loop is system-level. 5 fixes shipped together.
