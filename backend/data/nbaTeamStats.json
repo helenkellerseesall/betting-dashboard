@@ -20,7 +20,16 @@
       "assistsPerGame": 22.166666,
       "turnoversPerGame": 14.333333,
       "fgPct": 0.4359999895095825,
-      "lastUpdated": "2026-05-24T07:39:48.791Z"
+      "lastUpdated": "2026-05-24T07:39:48.791Z",
+      "pointsAllowedPerGame": 133,
+      "reboundsAllowedPerGame": 47,
+      "assistsAllowedPerGame": 29.5,
+      "threePMAllowedPerGame": 0,
+      "threePAAllowedPerGame": 0,
+      "fgaAllowedPerGame": 0,
+      "defensiveRating": 133,
+      "opponentGamesObserved": 2,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "BOS": {
       "id": "2",
@@ -40,7 +49,16 @@
       "assistsPerGame": 23.714285,
       "turnoversPerGame": 11.142858,
       "fgPct": 0.4339999854564667,
-      "lastUpdated": "2026-05-24T07:39:48.850Z"
+      "lastUpdated": "2026-05-24T07:39:48.850Z",
+      "pointsAllowedPerGame": 109.33,
+      "reboundsAllowedPerGame": 46.33,
+      "assistsAllowedPerGame": 23.67,
+      "threePMAllowedPerGame": 0,
+      "threePAAllowedPerGame": 0,
+      "fgaAllowedPerGame": 0,
+      "defensiveRating": 109.33,
+      "opponentGamesObserved": 3,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "BKN": {
       "id": "17",
@@ -120,7 +138,16 @@
       "assistsPerGame": 21.6875,
       "turnoversPerGame": 15.25,
       "fgPct": 0.4560000002384186,
-      "lastUpdated": "2026-05-24T07:39:49.098Z"
+      "lastUpdated": "2026-05-24T07:39:49.098Z",
+      "pointsAllowedPerGame": 110.08,
+      "reboundsAllowedPerGame": 40.69,
+      "assistsAllowedPerGame": 25.15,
+      "threePMAllowedPerGame": 9.54,
+      "threePAAllowedPerGame": 25.69,
+      "fgaAllowedPerGame": 72.08,
+      "defensiveRating": 110.08,
+      "opponentGamesObserved": 13,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "DAL": {
       "id": "6",
@@ -160,7 +187,16 @@
       "assistsPerGame": 24.5,
       "turnoversPerGame": 11.833333,
       "fgPct": 0.4359999895095825,
-      "lastUpdated": "2026-05-24T07:39:49.215Z"
+      "lastUpdated": "2026-05-24T07:39:49.215Z",
+      "pointsAllowedPerGame": 110,
+      "reboundsAllowedPerGame": 50,
+      "assistsAllowedPerGame": 26,
+      "threePMAllowedPerGame": 0,
+      "threePAAllowedPerGame": 0,
+      "fgaAllowedPerGame": 0,
+      "defensiveRating": 110,
+      "opponentGamesObserved": 1,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "DET": {
       "id": "8",
@@ -180,7 +216,16 @@
       "assistsPerGame": 22.357143,
       "turnoversPerGame": 14.785714,
       "fgPct": 0.4480000138282776,
-      "lastUpdated": "2026-05-24T07:39:49.304Z"
+      "lastUpdated": "2026-05-24T07:39:49.304Z",
+      "pointsAllowedPerGame": 104.4,
+      "reboundsAllowedPerGame": 38.1,
+      "assistsAllowedPerGame": 21.8,
+      "threePMAllowedPerGame": 9.4,
+      "threePAAllowedPerGame": 27.7,
+      "fgaAllowedPerGame": 63,
+      "defensiveRating": 104.4,
+      "opponentGamesObserved": 10,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "GS": {
       "id": "9",
@@ -220,7 +265,16 @@
       "assistsPerGame": 20.833334,
       "turnoversPerGame": 12.833333,
       "fgPct": 0.4090000092983246,
-      "lastUpdated": "2026-05-24T07:39:49.409Z"
+      "lastUpdated": "2026-05-24T07:39:49.409Z",
+      "pointsAllowedPerGame": 95.5,
+      "reboundsAllowedPerGame": 47.5,
+      "assistsAllowedPerGame": 19,
+      "threePMAllowedPerGame": 0,
+      "threePAAllowedPerGame": 0,
+      "fgaAllowedPerGame": 0,
+      "defensiveRating": 95.5,
+      "opponentGamesObserved": 2,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "IND": {
       "id": "11",
@@ -280,7 +334,16 @@
       "assistsPerGame": 23.8,
       "turnoversPerGame": 17,
       "fgPct": 0.47200000286102295,
-      "lastUpdated": "2026-05-24T07:39:49.599Z"
+      "lastUpdated": "2026-05-24T07:39:49.599Z",
+      "pointsAllowedPerGame": 109.33,
+      "reboundsAllowedPerGame": 38.67,
+      "assistsAllowedPerGame": 23.67,
+      "threePMAllowedPerGame": 9.17,
+      "threePAAllowedPerGame": 22.5,
+      "fgaAllowedPerGame": 56.83,
+      "defensiveRating": 109.33,
+      "opponentGamesObserved": 6,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "MEM": {
       "id": "29",
@@ -360,7 +423,16 @@
       "assistsPerGame": 23.25,
       "turnoversPerGame": 13.166667,
       "fgPct": 0.43700000643730164,
-      "lastUpdated": "2026-05-24T07:39:50.020Z"
+      "lastUpdated": "2026-05-24T07:39:50.020Z",
+      "pointsAllowedPerGame": 117.43,
+      "reboundsAllowedPerGame": 47.71,
+      "assistsAllowedPerGame": 25.57,
+      "threePMAllowedPerGame": 10.43,
+      "threePAAllowedPerGame": 29.14,
+      "fgaAllowedPerGame": 75,
+      "defensiveRating": 117.43,
+      "opponentGamesObserved": 7,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "NO": {
       "id": "3",
@@ -400,7 +472,16 @@
       "assistsPerGame": 26.166666,
       "turnoversPerGame": 12.25,
       "fgPct": 0.5139999985694885,
-      "lastUpdated": "2026-05-24T07:39:50.158Z"
+      "lastUpdated": "2026-05-24T07:39:50.158Z",
+      "pointsAllowedPerGame": 99.89,
+      "reboundsAllowedPerGame": 34,
+      "assistsAllowedPerGame": 21,
+      "threePMAllowedPerGame": 8.67,
+      "threePAAllowedPerGame": 28.56,
+      "fgaAllowedPerGame": 63.56,
+      "defensiveRating": 99.89,
+      "opponentGamesObserved": 9,
+      "oppDefLastComputed": "2026-05-24T09:33:16.758Z"
     },
     "OKC": {
       "id": "25",
@@ -420,7 +501,16 @@
       "assistsPerGame": 26.818182,
       "turnoversPerGame": 10.727273,
       "fgPct": 0.49399998784065247,
-      "lastUpdated": "2026-05-24T07:39:50.231Z"
+      "lastUpdated": "2026-05-24T07:39:50.231Z",
+      "pointsAllowedPerGame": 108.29,
+      "reboundsAllowedPerGame": 41.14,
+      "assistsAllowedPerGame": 24.57,
+      "threePMAllowedPerGame": 12.43,
+      "threePAAllowedPerGame": 34.43,
+      "fgaAllowedPerGame": 82.71,
+      "defensiveRating": 108.29,
+      "opponentGamesObserved": 7,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "ORL": {
       "id": "19",
@@ -440,7 +530,16 @@
       "assistsPerGame": 19.857143,
       "turnoversPerGame": 13.142858,
       "fgPct": 0.3970000147819519,
-      "lastUpdated": "2026-05-24T07:39:50.318Z"
+      "lastUpdated": "2026-05-24T07:39:50.318Z",
+      "pointsAllowedPerGame": 108.33,
+      "reboundsAllowedPerGame": 47.33,
+      "assistsAllowedPerGame": 22,
+      "threePMAllowedPerGame": 5.33,
+      "threePAAllowedPerGame": 11,
+      "fgaAllowedPerGame": 26.67,
+      "defensiveRating": 108.33,
+      "opponentGamesObserved": 3,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "PHI": {
       "id": "20",
@@ -460,7 +559,16 @@
       "assistsPerGame": 21.272728,
       "turnoversPerGame": 11.363636,
       "fgPct": 0.44699999690055847,
-      "lastUpdated": "2026-05-24T07:39:50.368Z"
+      "lastUpdated": "2026-05-24T07:39:50.368Z",
+      "pointsAllowedPerGame": 112.43,
+      "reboundsAllowedPerGame": 44.43,
+      "assistsAllowedPerGame": 25.57,
+      "threePMAllowedPerGame": 8.57,
+      "threePAAllowedPerGame": 19.14,
+      "fgaAllowedPerGame": 47.14,
+      "defensiveRating": 112.43,
+      "opponentGamesObserved": 7,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "PHX": {
       "id": "21",
@@ -500,7 +608,16 @@
       "assistsPerGame": 21.4,
       "turnoversPerGame": 12.4,
       "fgPct": 0.40299999713897705,
-      "lastUpdated": "2026-05-24T07:39:50.471Z"
+      "lastUpdated": "2026-05-24T07:39:50.471Z",
+      "pointsAllowedPerGame": 114,
+      "reboundsAllowedPerGame": 42,
+      "assistsAllowedPerGame": 27,
+      "threePMAllowedPerGame": 0,
+      "threePAAllowedPerGame": 0,
+      "fgaAllowedPerGame": 0,
+      "defensiveRating": 114,
+      "opponentGamesObserved": 1,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "SAC": {
       "id": "23",
@@ -540,7 +657,16 @@
       "assistsPerGame": 25.071428,
       "turnoversPerGame": 14.714286,
       "fgPct": 0.48100000619888306,
-      "lastUpdated": "2026-05-24T07:39:50.743Z"
+      "lastUpdated": "2026-05-24T07:39:50.743Z",
+      "pointsAllowedPerGame": 108.2,
+      "reboundsAllowedPerGame": 42.3,
+      "assistsAllowedPerGame": 23.5,
+      "threePMAllowedPerGame": 11.1,
+      "threePAAllowedPerGame": 30.9,
+      "fgaAllowedPerGame": 83.6,
+      "defensiveRating": 108.2,
+      "opponentGamesObserved": 10,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "TOR": {
       "id": "28",
@@ -560,7 +686,16 @@
       "assistsPerGame": 26.285715,
       "turnoversPerGame": 14.857142,
       "fgPct": 0.4650000035762787,
-      "lastUpdated": "2026-05-24T07:39:50.793Z"
+      "lastUpdated": "2026-05-24T07:39:50.793Z",
+      "pointsAllowedPerGame": 116.33,
+      "reboundsAllowedPerGame": 49,
+      "assistsAllowedPerGame": 22,
+      "threePMAllowedPerGame": 3.67,
+      "threePAAllowedPerGame": 13,
+      "fgaAllowedPerGame": 28.33,
+      "defensiveRating": 116.33,
+      "opponentGamesObserved": 3,
+      "oppDefLastComputed": "2026-05-24T09:33:16.763Z"
     },
     "UTAH": {
       "id": "26",
@@ -602,5 +737,6 @@
       "fgPct": 0.46299999952316284,
       "lastUpdated": "2026-05-24T07:39:50.950Z"
     }
-  }
+  },
+  "oppDefMergedAt": "2026-05-24T09:33:16.763Z"
 }

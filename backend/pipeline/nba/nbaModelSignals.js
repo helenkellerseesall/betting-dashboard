@@ -189,7 +189,7 @@ function roleSignals(row, _family, _line, _anchor) {
   // nbaIndependentBaseModelProbability. No synthetic confidence injected.
   return {
     usage:   readSignal(row, ["usageRate", "playerUsage", "usage", "roleUsagePct"], null),
-    shots:   readSignal(row, ["shotAttempts", "fga", "fieldGoalAttempts", "shotVolume"], null),
+    shots:   readSignal(row, ["shotAttempts", "fga", "fieldGoalAttempts", "shotVolume", "shots", "avgFga"], null),
     astRate: readSignal(row, ["assistRate", "astRate", "assistPct"], null),
     rebRate: readSignal(row, ["reboundRate", "rebRate", "reboundPct"], null),
     minutes: readSignal(row, ["projectedMinutes", "minutesProjection", "minutes", "expectedMinutes"], null),
@@ -208,7 +208,7 @@ function contextSignals(row) {
   const spreadRaw = readSignal(row, ["spread", "gameSpread", "lineSpread"], null)
   const spread    = Number.isFinite(spreadRaw) ? Math.abs(spreadRaw) : null
   const blowoutRisk = Number.isFinite(spread) ? clamp(0, 1, spread / 16) : null
-  const oppDef    = readSignal(row, ["opponentDefenseVsPosition", "oppDefenseVsPosition", "defenseVsPosition", "opponentDvP"], null)
+  const oppDef    = readSignal(row, ["opponentDefenseVsPosition", "oppDefenseVsPosition", "defenseVsPosition", "opponentDvP", "oppDef", "oppDefRating", "defensiveRating"], null)
   return { pace, total, spread, blowoutRisk, oppDef }
 }
 
@@ -323,6 +323,13 @@ function honestWeightedScore(entries) {
 
 function nbaIndependentBaseModelProbability(row) {
   if (!row || typeof row !== "object") return null
+
+  // 2026-05-24 — Phase 2 enrichment was bypassed when callers hit base directly
+  // (fetchNbaOddsSnapshot, nbaOpportunityCandidates, nbaRowIndependentModelProbability).
+  // Trace verifier proved oppDef/pace/shots/astRate/rebRate = 0% reaching base.
+  // _ensureEnriched is idempotent and short-circuits when fields are already set,
+  // so calling it here is safe even when upstream already enriched.
+  _ensureEnriched(row)
 
   const family = classifyPropFamily(row)
   const anchor = lineAnchorByFamily(family)
@@ -654,10 +661,10 @@ function _loadEnrichers() {
   try { _enrichers.recentForm = require("./nbaRecentFormCache").enrichRowWithRecentForm } catch (_) {}
   try { _enrichers.roleContext = require("./nbaRoleContextDeriver").enrichRowWithRoleContext } catch (_) {}
   try { _enrichers.availability = require("./nbaAvailabilityCache").enrichRowWithAvailability } catch (_) {}
-  // teammateContext + marketContext require slate-level pre-build steps that aren't
-  // available at the per-row entry point. Those remain caller-applied (workstation
-  // routes does the slate build, then enriches each row). The wrapper only
-  // applies enrichers that are pure per-row no-prerequisite functions.
+  // 2026-05-24 — Phase 2 data layers. Opponent team stats + player season-rate stats.
+  // Each enricher is per-row, no slate prerequisite, no-op when source missing.
+  try { _enrichers.teamStats = require("./nbaTeamStatsCache").enrichRowWithTeamStats } catch (_) {}
+  try { _enrichers.playerSeasonStats = require("./nbaPlayerSeasonStatsCache").enrichRowWithPlayerSeasonStats } catch (_) {}
   return _enrichers
 }
 
@@ -669,6 +676,11 @@ function _ensureEnriched(row) {
   try { if (e.recentForm && !row.recentForm) e.recentForm(row) } catch (_) {}
   try { if (e.roleContext && row.starterFlag == null) e.roleContext(row) } catch (_) {}
   try { if (e.availability && !row.playerStatus) e.availability(row) } catch (_) {}
+  // 2026-05-24 — Phase 2: team stats (oppDef, pace, opp-allowed) + player season
+  // stats (shots, astRate, rebRate, usage). Apply when source data is missing
+  // on the row. Idempotent — won't clobber upstream enrichment.
+  try { if (e.teamStats         && (row.oppDef == null || row.opponentStats == null)) e.teamStats(row) } catch (_) {}
+  try { if (e.playerSeasonStats && (row.shots == null || row.astRate == null || row.rebRate == null)) e.playerSeasonStats(row) } catch (_) {}
   return row
 }
 

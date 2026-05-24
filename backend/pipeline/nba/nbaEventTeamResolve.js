@@ -222,6 +222,31 @@ function roleHintToPrimaryPosition(role) {
   return null
 }
 
+// 2026-05-24 — gameLogs-based team fallback. The curated projections file is
+// stale and missing ~145 active players. gameLogs is auto-refreshed nightly via
+// populateNbaGameLogs.js and stores the team per player at the top level.
+let _nbaGameLogsTeamCache = null
+let _nbaGameLogsTeamCacheLoadedAt = 0
+const _GAMELOGS_RELOAD_MS = 5 * 60 * 1000
+function _loadGameLogsForTeamFallback() {
+  if (_nbaGameLogsTeamCache && Date.now() - _nbaGameLogsTeamCacheLoadedAt < _GAMELOGS_RELOAD_MS) {
+    return _nbaGameLogsTeamCache
+  }
+  try {
+    const fp = path.join(__dirname, "..", "..", "data", "nbaPlayerGameLogs.json")
+    if (!fs.existsSync(fp)) {
+      _nbaGameLogsTeamCache = { players: {} }
+    } else {
+      _nbaGameLogsTeamCache = JSON.parse(fs.readFileSync(fp, "utf8")) || { players: {} }
+    }
+    _nbaGameLogsTeamCacheLoadedAt = Date.now()
+  } catch (_) {
+    _nbaGameLogsTeamCache = { players: {} }
+    _nbaGameLogsTeamCacheLoadedAt = Date.now()
+  }
+  return _nbaGameLogsTeamCache
+}
+
 function inferOpponentFromParsedMatchup(team, matchup) {
   const t = clampStr(team)
   const { awayTeam, homeTeam } = parseMatchupTeams(matchup)
@@ -308,11 +333,24 @@ function applyTeamFallbackFromProjections(row) {
   if (!clampStr(out.awayTeam) && parsed.awayTeam) out.awayTeam = parsed.awayTeam
 
   if (!clampStr(out.team)) {
-    const proj = loadNbaPlayerProjectionsTeamFallback()
     const pk = String(out.player || "")
       .trim()
       .toLowerCase()
-    const t = String(proj?.players?.[pk]?.team || "").trim()
+    // First try the curated projections file (small, manually maintained — 56 players).
+    const proj = loadNbaPlayerProjectionsTeamFallback()
+    let t = String(proj?.players?.[pk]?.team || "").trim()
+    // 2026-05-24 — Phase 2 fallback. nbaPlayerProjections.json is stale (May 1)
+    // and missing ~145 of the active playoff roster (Wemby/SGA absent). Use the
+    // freshly-populated nbaPlayerGameLogs.json (213 players, auto-refreshed nightly)
+    // as a secondary team source. Trace confirmed opponent=null on 100% of rows
+    // before this fallback was added. Cheap (single JSON read, cached).
+    if (!t) {
+      try {
+        const logs = _loadGameLogsForTeamFallback()
+        const entry = logs?.players?.[pk]
+        if (entry && entry.team) t = String(entry.team).trim()
+      } catch (_) { /* honest no-op */ }
+    }
     if (t) out.team = t
   }
 

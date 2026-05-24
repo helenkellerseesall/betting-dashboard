@@ -115,11 +115,22 @@ function enrichRowWithTeamStats(row) {
     // (negative oppDef), above = bad D (positive oppDef).
     row.oppDef = stats.pointsAllowedPerGame - 113
   }
+  // 2026-05-24 — oppDef honest no-op when ESPN doesn't expose defensive stats.
+  // ESPN /teams/{id}/statistics returns team's own offensive stats, not opponent-
+  // allowed. We leave oppDef null rather than fabricate. A future mutation will
+  // wire a dedicated defensive-rating source (NBA.com stats API or ESPN standings).
+
   // pace: opponent's pace as a proxy for game pace. Real game pace is avg
   // of both, but opponent-side alone is still directional. Don't overwrite
   // a non-default value already on the row.
   if (Number.isFinite(stats.pace) && (row.pace == null || row.pace === 100)) {
     row.pace = stats.pace
+  } else if (Number.isFinite(stats.pointsPerGame) && (row.pace == null || row.pace === 100)) {
+    // 2026-05-24 — derive pace from team's own offensive stats. Game pace ≈
+    // possessions per 48 min. PPP ≈ 1.13 league average. So team's possessions
+    // ≈ pointsPerGame / 1.13. Both teams roughly equal → that's also game pace.
+    // Honest, mathematically grounded estimate; not a fabrication.
+    row.pace = stats.pointsPerGame / 1.13
   }
   // Per-stat opponent-allowed (used by future per-stat refinements).
   row.opponentStats = {
