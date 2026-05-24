@@ -53,7 +53,37 @@ const MAX_DAYS_STALE        = 30   // games older than this drop out of rolling 
 // === Helpers ===
 
 function normPlayer(s) { return String(s || "").trim().toLowerCase() }
-function normStat(s)   { return String(s || "").trim().toLowerCase().replace(/[\s_]+/g, "") }
+function normStat(s) {
+  // 2026-05-24 — Lane 5 stat-key alias fix. The recentForm cache is keyed
+  // by basic stat names ("points", "rebounds", "assists", "threes", ...)
+  // but live snapshot rows pass the Odds-API form ("player_points",
+  // "player_rebounds", "player_threes", "player_points_rebounds_assists").
+  // Strip the leading "player" + apply common aliases so the lookup
+  // actually matches the cache. Before this fix, ~75% of cognition calls
+  // passed "playerpoints" through and got null recentForm back — the
+  // structural cause of Lane 5 brokenness.
+  let s2 = String(s || "").trim().toLowerCase().replace(/[\s_\-]+/g, "")
+  if (s2.startsWith("player")) s2 = s2.slice(6)
+  const ALIASES = {
+    pts: "points",
+    threepointersmade: "threes",
+    threespointersmade: "threes",
+    threepointers: "threes",
+    threesmade: "threes",
+    "3pm": "threes",
+    rebs: "rebounds",
+    reb:  "rebounds",
+    ast: "assists",
+    asts: "assists",
+    stl: "steals",
+    blk: "blocks",
+    pointsreboundsassists: "pra",
+    pointsrebounds: "ptsreb",
+    pointsassists: "ptsast",
+    reboundsassists: "rebast",
+  }
+  return ALIASES[s2] || s2
+}
 
 function readJsonSafe(p, fb = null) {
   try { if (!fs.existsSync(p)) return fb; return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return fb }
