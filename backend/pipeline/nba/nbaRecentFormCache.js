@@ -64,6 +64,15 @@ function normStat(s) {
   // structural cause of Lane 5 brokenness.
   let s2 = String(s || "").trim().toLowerCase().replace(/[\s_\-]+/g, "")
   if (s2.startsWith("player")) s2 = s2.slice(6)
+  // 2026-05-24 — strip alt/alternate/ladder suffix. Snapshot rows for alt
+  // lines pass propType="player_points_alternate" which normalizes to
+  // "pointsalternate" — same stat family, just an alternate ladder line.
+  // Discovered when SGA had 56 rows with form (main lines) but 145 without
+  // (alt-line rows) in the trace. Fixing here lifts coverage on all alt
+  // ladders.
+  if (s2.endsWith("alternate")) s2 = s2.slice(0, -9)
+  if (s2.endsWith("alt"))       s2 = s2.slice(0, -3)
+  if (s2.endsWith("ladder"))    s2 = s2.slice(0, -6)
   const ALIASES = {
     pts: "points",
     threepointersmade: "threes",
