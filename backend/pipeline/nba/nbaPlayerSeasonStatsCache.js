@@ -141,12 +141,77 @@ function getPlayerSeasonStats(player) {
   return cache.get(normName(player)) || null
 }
 
+// 2026-05-25 — Combined recentForm for combo props. Sums components from each
+// game then averages. Used by enrichRowWithPlayerSeasonStats to stamp
+// row.recentForm.last5_avg for Points+Rebounds / Points+Assists / etc.
+// Components: array of stat keys (e.g. ["points","rebounds"] for P+R).
+function getPlayerCombinedRecentForm(player, components) {
+  ensureSeasonCache()  // ensures _logsCache populated
+  if (!_logsCache || !_logsCache.players) return null
+  const entry = _logsCache.players[normName(player)]
+  if (!entry || !Array.isArray(entry.games)) return null
+  // Only count games where player actually played
+  const played = entry.games.filter((g) => Number(g?.stats?.minutes) > 0)
+  if (played.length < 2) return null
+  const samples = played.map((g) => {
+    let sum = 0
+    for (const k of components) {
+      const v = Number(g?.stats?.[k])
+      if (Number.isFinite(v)) sum += v
+    }
+    return sum
+  })
+  const last5 = samples.slice(0, 5)
+  const last10 = samples.slice(0, 10)
+  const last5Avg = last5.length >= 2 ? last5.reduce((a,b) => a+b, 0) / last5.length : null
+  const last10Avg = last10.length >= 2 ? last10.reduce((a,b) => a+b, 0) / last10.length : null
+  const baseline = samples.length >= 5
+    ? samples.reduce((a,b) => a+b, 0) / samples.length
+    : (last10Avg ?? last5Avg)
+  return {
+    last5_avg: last5Avg != null ? Number(last5Avg.toFixed(2)) : null,
+    last10_avg: last10Avg != null ? Number(last10Avg.toFixed(2)) : null,
+    baseline:  baseline != null ? Number(baseline.toFixed(2)) : null,
+    sample_count: samples.length,
+    source: "combo-derived",
+  }
+}
+
+// Determine which components a propType represents
+function comboComponentsFromPropType(propType) {
+  const t = String(propType || "").toLowerCase()
+  if (t.includes("points_rebounds_assists") || /\bpra\b/.test(t)) return ["points", "rebounds", "assists"]
+  if (/points.*rebounds|points\s*\+\s*rebounds/.test(t)) return ["points", "rebounds"]
+  if (/points.*assists|points\s*\+\s*assists/.test(t))   return ["points", "assists"]
+  if (/rebounds.*assists|rebounds\s*\+\s*assists/.test(t)) return ["rebounds", "assists"]
+  return null
+}
+
 function enrichRowWithPlayerSeasonStats(row) {
   if (!row || typeof row !== "object") return row
   const player = row.player || row.playerName
   if (!player) return row
   const stats = getPlayerSeasonStats(player)
   if (!stats) return row
+
+  // 2026-05-25 — Combined recentForm for combo props. If propType is a combo
+  // (P+R, P+A, R+A, PRA) and recentForm is missing/empty, compute a combined
+  // last-N average from gameLogs (sum of components per game, averaged).
+  // Solves "L5: —" blanks on combo prop cards.
+  const components = comboComponentsFromPropType(row.propType || row.statFamily || row.marketKey)
+  const rfMissing = !row.recentForm ||
+    !Number.isFinite(Number(row.recentForm.last5_avg)) ||
+    String(row.recentForm.source || "").toLowerCase() === "projection-fallback"
+  if (components && rfMissing) {
+    const combo = getPlayerCombinedRecentForm(player, components)
+    if (combo) {
+      row.recentForm = {
+        ...combo,
+        days_since_last_game: row?.recentForm?.days_since_last_game ?? null,
+      }
+      row.last5Avg = combo.last5_avg
+    }
+  }
 
   // These are the signal field names nbaModelSignals roleSignals/recentForm
   // reads. We only set them when they're not already present (don't clobber
@@ -184,5 +249,6 @@ module.exports = {
   loadLogsFromDisk,
   computeSeasonStats,
   getPlayerSeasonStats,
+  getPlayerCombinedRecentForm,
   enrichRowWithPlayerSeasonStats,
 }

@@ -1508,11 +1508,45 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     ...(Array.isArray(nbaInsightBoard?.bestOverallPlays) ? nbaInsightBoard.bestOverallPlays : []),
     ...(Array.isArray(nbaInsightBoard?.corePropsBoard) ? nbaInsightBoard.corePropsBoard : []),
   ]
-  const __elitePlays = __allInsightRows.filter((r) => Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0) >= 0.55)
-  const __strongPlays = __allInsightRows.filter((r) => {
+  // 2026-05-25 — Form/projection-contradiction filter. Operator caught Mitchell
+  // OVER threes 3.5 (L5=2.6) reaching ELITE via this insight-board path because
+  // it bypassed classifyNbaTier (which has the form-contradiction + projection-
+  // contradiction gates). Now: drop wrong-direction picks BEFORE bucketing.
+  // Catches the same patterns the main tier classifier catches downstream.
+  function __passesDirectionalGate(r) {
+    if (!r || typeof r !== "object") return false
+    const side = String(r.side || "").toLowerCase()
+    if (side !== "over" && side !== "under") return true  // can't evaluate
+    const line = Number(r.line)
+    if (!Number.isFinite(line) || line <= 0) return true
+    // Form-contradiction check
+    const l5 = Number(r.recentForm && r.recentForm.last5_avg) ||
+               Number(r.recentForm && r.recentForm.last10_avg) ||
+               Number(r.last5Avg)
+    if (Number.isFinite(l5)) {
+      const overshoot = (l5 - line) / line
+      if ((side === "under") && overshoot > 0.07) return false
+      if ((side === "over")  && overshoot < -0.07) return false
+    }
+    // Projection-contradiction check (insight rows carry projection.mostLikely
+    // or stat.mostLikely depending on builder)
+    const projML = Number(r.projection && r.projection.mostLikely) ||
+                   Number(r.stat && r.stat.mostLikely) ||
+                   Number(r.projectionMostLikely)
+    if (Number.isFinite(projML)) {
+      const projGap = (projML - line) / line
+      if ((side === "under") && projGap > 0.15) return false
+      if ((side === "over")  && projGap < -0.15) return false
+    }
+    return true
+  }
+  const __directionalRows = __allInsightRows.filter(__passesDirectionalGate)
+  const __elitePlays = __directionalRows.filter((r) => Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0) >= 0.55)
+  const __strongPlays = __directionalRows.filter((r) => {
     const p = Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0)
     return p >= 0.42 && p < 0.55
   })
+  console.log("[insight-board-gate] filtered " + (__allInsightRows.length - __directionalRows.length) + " wrong-direction picks (form/projection contradiction)")
 
   __profStages.push({ label: "9_response_shape", ms: Date.now() - __t_respShape })
 

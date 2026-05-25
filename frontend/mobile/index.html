@@ -1032,6 +1032,13 @@
       if (isHitsTailOutcome) return "lotto";
       if (typeof odds === "number" && odds >= 600) return "lotto";
       const tier = String(c.confidenceTier || c.tier || "").toUpperCase();
+      // 2026-05-25 — Backend stamps tier=FADE on wrong-direction picks via
+      // form-contradiction and projection-contradiction gates. The FE was
+      // ignoring tier and using modelProb-only bucketing, so FADE picks still
+      // showed under "Likely to hit" / "Bigger edges". Operator caught Mitchell
+      // OVER threes 3.5 (L5=2.6) and Shamet UNDER threes 0.5 (L5=2.6) surfacing
+      // with FADE badges. Hide FADE entirely so the FE respects backend gates.
+      if (tier === "FADE") return "hidden";
       if (mp >= 0.65 && ep >= 0.05 && (tier === "ELITE" || tier === "BEST")) {
         if (sport === "nba") {
           const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
