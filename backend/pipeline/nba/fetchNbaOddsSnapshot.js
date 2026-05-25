@@ -86,9 +86,19 @@ function buildNbaBestProps(rawRows) {
     if (!Number.isFinite(odds) || odds < -200 || odds > 200) { rejectCounts.oddsGate++; continue }
 
     // Known stat family — unknown propTypes produce unreliable model scores
+    // 2026-05-25 — FIFTH (and root) shadow classifier. This is the FIRST place
+    // statFamily gets stamped on the row. Every downstream resolveStatFamily()
+    // honors the stamped value without re-checking. So the bug here propagates
+    // through the entire pipeline. Triple-combo (PRA) → first_basket → two-stat
+    // combos (route to "pra" since they behave more like PRA than pure points)
+    // → singles last. Catches KAT Points+Rebounds 28.5 correctly as "pra" now.
     const propT = String(r?.propType || mk).toLowerCase()
-    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+    const family =
+        propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
+      : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
+      : propT.includes("rebounds_assists")|| /rebounds.*assists/.test(propT)|| /rebounds\s*\+\s*assists/.test(propT)? "pra"
       : propT.includes("points")   ? "points"
       : propT.includes("rebounds") ? "rebounds"
       : propT.includes("assists")  ? "assists"
