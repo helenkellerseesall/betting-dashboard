@@ -267,12 +267,19 @@ function resolveStatFamily(marketProp) {
   const direct = String(marketProp?.statFamily || "").toLowerCase()
   if (STAT_FAMILIES.includes(direct)) return direct
   const s = `${marketProp?.propType || ""} ${marketProp?.marketKey || ""}`.toLowerCase()
+  // 2026-05-25 — SHADOW #6 fix. Two-stat combos (PR, PA, RA) previously
+  // returned null which silently dropped them from bestProps. Worse, the
+  // single-stat fallback /point/, /rebound/, /assist/ regexes downstream
+  // would catch them on any caller that didn't honor null. Route ALL combos
+  // (PRA + two-stat) to "pra" so the math uses the composed PRA projection
+  // (already built in buildNbaPlayerOutcomePredictions at line 1944). Order
+  // MUST be: triple-combo → two-stat combos → singles. The "_" + "+" + word-
+  // boundary variants catch propType strings like "Points + Rebounds",
+  // "player_points_rebounds", "PRA", "pra ladder".
   if (s.includes("points_rebounds_assists") || /\bpra\b/.test(s)) return "pra"
-  // Combo markets we don't model as a first-class family yet (PR / PA / RA).
-  // Returning null prevents mismatching them to single-stat bands (which creates fake edge).
-  if (s.includes("points_rebounds") || /\bpr\b/.test(s)) return null
-  if (s.includes("points_assists") || /\bpa\b/.test(s)) return null
-  if (s.includes("rebounds_assists") || /\bra\b/.test(s)) return null
+  if (s.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(s)) return "pra"
+  if (s.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(s))   return "pra"
+  if (s.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(s)) return "pra"
   if (s.includes("three") || s.includes("3pt") || s.includes("threes")) return "threes"
   if (s.includes("rebound")) return "rebounds"
   if (s.includes("assist")) return "assists"

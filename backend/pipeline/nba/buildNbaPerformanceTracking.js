@@ -240,6 +240,18 @@ function leanBestEntry(play, date) {
     eventId:               play.eventId || null,
     matchup:               matchupStr,
     propType:              play.statFamily || play.propType || null,  // enrichBestEntry reads as statFamily
+    // 2026-05-25 — SHADOW #6+ fix. Persist statFamily as its own field so
+    // downstream consumers (grader, FE, calibration) don't have to re-derive
+    // it from propType. Every previous tracked_best had statFamily=undefined
+    // because this field wasn't persisted; combo detection relied on parsing
+    // propType="points" (lossy — combo info already gone). Now both fields
+    // are persisted: propType for legacy compat, statFamily for cognition.
+    statFamily:            play.statFamily || null,
+    // 2026-05-25 — Also persist the ORIGINAL market propType (e.g. "Points + Rebounds")
+    // so the FE can show the truthful label even when statFamily collapses
+    // combos to "pra". Without this, KAT P+R 28.5 reads as "pra 28.5" on
+    // the card instead of "Points + Rebounds 28.5" — same loss in opposite direction.
+    marketPropType:        play.propType || null,
     side:                  play.side,
     line:                  play.line   ?? null,
     odds:                  play.oddsAmerican ?? null,                 // enrichBestEntry maps to oddsAmerican

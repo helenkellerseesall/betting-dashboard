@@ -126,6 +126,31 @@ function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex, gameContextMa
     if (inferred) out = { ...out, propType: inferred }
   }
 
+  // 2026-05-25 — SHADOW #6+ fix. Stamp canonical statFamily ONCE at the
+  // normalization layer (single source of truth). Every downstream consumer
+  // (buildNbaBestBetsBoard.resolveStatFamily, marketPropsFromPoolRows,
+  // workstationRoutes.buildNbaSnapshotCandidates, buildPlayDisplayBundle.
+  // statFamilyKey, leanBestEntry) honors a pre-stamped statFamily before
+  // running its own fallback regex. This kills the entire shadow-classifier
+  // family at the root: a combo row WITHOUT statFamily ("Points + Rebounds")
+  // could previously hit any classifier with a /point/ branch first and be
+  // mis-routed to "points". With statFamily="pra" stamped here, no shadow
+  // can re-classify it. Order MUST be: triple → two-stat combos → singles.
+  if (!String(out.statFamily || "").trim()) {
+    const t = String(out.propType || out.marketKey || "").toLowerCase()
+    out.statFamily =
+        t.includes("points_rebounds_assists") || /\bpra\b/.test(t) ? "pra"
+      : t.includes("first_basket") || t.includes("firstbasket") ? "first_basket"
+      : t.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(t) ? "pra"
+      : t.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(t)   ? "pra"
+      : t.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(t) ? "pra"
+      : (t.includes("threes") || t.includes("three") || t.includes("3pt")) ? "threes"
+      : t.includes("rebound") ? "rebounds"
+      : t.includes("assist")  ? "assists"
+      : t.includes("point")   ? "points"
+      : null
+  }
+
   // Temporary projections layer: merge projectedMinutes + usageRate for realism ranking.
   // This is intentionally explicit data (static JSON), not guessed per-row.
   const hasMinutes =
