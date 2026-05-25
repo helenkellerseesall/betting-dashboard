@@ -442,9 +442,21 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     if (!Number.isFinite(odds) || odds < -200 || odds > (isAltLine ? 800 : 200)) continue
 
     // Classify stat family
+    // 2026-05-25 — CRITICAL ORDERING. Third shadow classifier (sibling of
+    // classifyPropFamily in nbaModelSignals.js and resolveStatFamily in
+    // buildNbaBestBetsBoard.js). Combos ("Points + Rebounds", "Points + Assists",
+    // "Rebounds + Assists") contain "points" substring — old branch caught
+    // them and returned "points", which is why every KAT/Allen/Brunson combo
+    // line showed up in tracked_best as propType="points" with the combo
+    // line (28.5 etc.) attached. Two-stat combos now route to "pra" for
+    // sigma/projection math (closer to PRA behavior than pure points).
     const propT = String(r?.propType || mk).toLowerCase()
-    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+    const family =
+        propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
+      : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
+      : propT.includes("rebounds_assists")|| /rebounds.*assists/.test(propT)|| /rebounds\s*\+\s*assists/.test(propT)? "pra"
       : propT.includes("points")   ? "points"
       : propT.includes("rebounds") ? "rebounds"
       : propT.includes("assists")  ? "assists"
