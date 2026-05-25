@@ -4,7 +4,17 @@ const { isMilestoneLadderRow, isAltLineLadderRow, STANDARD_PROP_TYPES } = requir
 
 function inferNbaStatPropTypeFromMarket(row) {
   const mk = String(row?.marketKey || "").toLowerCase()
+  // 2026-05-25 — CRITICAL ORDERING. Combo markets (player_points_rebounds,
+  // player_points_assists) contain "player_points" as a substring, so the
+  // old "if (mk.includes('player_points')) return 'Points'" branch caught
+  // them and labeled both as plain Points. Result: KAT Points+Rebounds
+  // line 28.5 displayed as "KAT Points 28.5" on the iPhone, modelProb
+  // computed using points L5 against a P+R line, form-contradiction gate
+  // useless. Triple-combo (PRA) FIRST, two-stat combos NEXT, single stats LAST.
   if (mk.includes("points_rebounds_assists") || mk.includes("player_pra")) return "PRA"
+  if (mk.includes("player_points_rebounds")) return "Points + Rebounds"
+  if (mk.includes("player_points_assists")) return "Points + Assists"
+  if (mk.includes("player_rebounds_assists")) return "Rebounds + Assists"
   if (mk.includes("player_rebounds")) return "Rebounds"
   if (mk.includes("player_assists")) return "Assists"
   if (mk.includes("player_threes") || mk.includes("player_three")) return "Threes"

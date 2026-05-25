@@ -226,13 +226,19 @@ function leanSlip(slip, date) {
  * without changes.
  */
 function leanBestEntry(play, date) {
+  // 2026-05-24 — derive matchup from homeTeam/awayTeam when missing.
+  const matchupStr =
+    play.matchup ||
+    (play.awayTeam && play.homeTeam ? `${play.awayTeam} @ ${play.homeTeam}` : null)
   return {
     slateDate:             date,
     sport:                 "nba",
     player:                play.player,
     team:                  play.team   || null,
+    homeTeam:              play.homeTeam || null,
+    awayTeam:              play.awayTeam || null,
     eventId:               play.eventId || null,
-    matchup:               play.matchup || null,
+    matchup:               matchupStr,
     propType:              play.statFamily || play.propType || null,  // enrichBestEntry reads as statFamily
     side:                  play.side,
     line:                  play.line   ?? null,
@@ -243,6 +249,29 @@ function leanBestEntry(play, date) {
     confidence:            play.confidence  ?? null,
     tier:                  play.tier        || null,
     bucket:                `nba.bestAvailable.${String(play.tier || "playable").toLowerCase()}`,
+    // 2026-05-24 — Phase 2 enrichment persistence. These fields are stamped on
+    // the play object by buildNbaBestBetsBoard from the enriched market row.
+    // The FE NBA tag emitter at frontend/mobile/index.html lines 953+ reads
+    // these directly to render opponent defense / pace / per-stat tags.
+    opponent:              play.opponent          || null,
+    oppDef:                Number.isFinite(play.oppDef) ? play.oppDef : null,
+    pace:                  Number.isFinite(play.pace) ? play.pace : null,
+    shots:                 Number.isFinite(play.shots) ? play.shots : null,
+    astRate:               Number.isFinite(play.astRate) ? play.astRate : null,
+    rebRate:               Number.isFinite(play.rebRate) ? play.rebRate : null,
+    toRate:                Number.isFinite(play.toRate) ? play.toRate : null,
+    turnovers:             Number.isFinite(play.turnovers) ? play.turnovers : null,
+    playerSeasonStats:     play.playerSeasonStats || null,
+    opponentStats:         play.opponentStats || null,
+    recentForm:            play.recentForm || null,
+    roleContext:           play.roleContext || null,
+    // 2026-05-24 — Persist canonical displayBundle for FE consumption.
+    // The FE reads displayBundle.tags / displayBundle.signalsTable directly
+    // instead of recomputing tags from raw fields. Single source of truth.
+    displayBundle:         play.displayBundle || null,
+    starterFlag:           play.starterFlag ?? null,
+    projectedMinutes:      Number.isFinite(Number(play.projectedMinutes)) ? Number(play.projectedMinutes) : null,
+    range:                 play.range || null,
     result:                "pending",
     settledAt:             null,
     timestamp:             new Date().toISOString(),

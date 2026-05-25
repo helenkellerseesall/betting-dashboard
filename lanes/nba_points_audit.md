@@ -1,7 +1,32 @@
 # Lane 5 — NBA Player Points: Cognition Audit
 
 **Started:** 2026-05-23
-**Status:** Audit in progress. NO model code has been touched. This document is the prerequisite for the rebuild.
+**Updated:** 2026-05-24 — Original audit was INCOMPLETE. Found 5 independent NBA tier-stamping paths during operator-caught regression. Consolidated into single canonical classifier (`nbaTierClassifier.js`). Audit gap acknowledged + listed below.
+
+## What the original audit missed (added 2026-05-24)
+
+Operator caught that iPhone Sharp Plays kept showing ELITE ratings even after every "fix" was shipped. Cause: five independent NBA tier-stamping paths existed in the codebase, three of which I had not patched in earlier rounds:
+
+| # | File | Original logic | Status |
+|---|---|---|---|
+| 1 | `backend/pipeline/nba/buildNbaBestBetsBoard.js:343` | `tierForPlay(edge, ev, conf)` | now → `classifyNbaTier()` |
+| 2 | `backend/pipeline/nba/fetchNbaOddsSnapshot.js:117` | inline `edge >= 0.12 ? "ELITE"` | now → `classifyNbaTier()` |
+| 3 | `backend/http/nbaIsolatedRoutes.js:1275` | inline `edge >= 0.12 ? "ELITE"` (copy-paste of #2) | now → `classifyNbaTier()` |
+| 4 | `backend/routes/workstationRoutes.js:495` | inline `edge >= 0.12 ? "ELITE"` (copy-paste of #2) — **this is what Sharp Plays reads** | now → `classifyNbaTier()` |
+| 5 | `backend/pipeline/nba/buildNbaPerformanceTracking.js` | passthrough writes whatever `play.tier` is | n/a — downstream of #1-4 |
+
+**Doctrine violation:** repo-level project doctrine explicitly forbids shadow authority through duplicate runtime systems. This was a clean four-way shadow tier-classification system. Fix: `nbaTierClassifier.js` is now the single canonical source. All callers import and delegate.
+
+**Still potentially-shadow paths (model probability, not tier):**
+
+- `buildNbaBestBetsBoard.js:modelProbForSide` — independent modelProb function with its own shrink + cap (now patched: shrink 0.60, cap 0.85)
+- `nbaModelSignals.js:nbaRowIndependentModelProbability` — the workstation /state path's modelProb (now patched: form weight 0.50, band [0.15, 0.85])
+- `buildNbaDefensiveProps.js:267` — DEFENSIVE-prop modelProb (separate use case, lower priority)
+- `buildNbaPlayerOutcomePredictions.js:1124` — falls back to `nbaRowModelProbability` or 0.5
+
+These produce modelProb in three different ways. Less impactful than the tier-stamping shadow because they all feed INTO tier classification which now goes through the single classifier — but worth noting for the next consolidation pass.
+
+---
 
 ---
 

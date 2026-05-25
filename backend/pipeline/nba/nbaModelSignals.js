@@ -122,7 +122,17 @@ function classifyPropFamily(row) {
   if (/first\s*basket/.test(t)) return "special"
   if (/double\s*double|triple\s*double/.test(t)) return "special"
   if (/threes|three|3pt/.test(t)) return "threes"
+  // 2026-05-25 — CRITICAL ORDERING. The old `if (/point/) return "points"`
+  // caught combo props ("Points + Rebounds", "Points + Assists") because
+  // they contain "point". Result: cognition treated KAT P+R 28.5 as pure
+  // Points, compared his 10-pt L5 against the 28.5 line (false fade),
+  // sigma calc wrong, model prob garbage. Triple-combo PRA first, then
+  // two-stat combos (route to "pra" family for sigma/projection math
+  // since they behave more like PRA than pure-points), then singles.
   if (/pra|points.*rebounds.*assists/.test(t)) return "pra"
+  if (/points.*rebounds|points\s*\+\s*rebounds/.test(t)) return "pra"
+  if (/points.*assists|points\s*\+\s*assists/.test(t)) return "pra"
+  if (/rebounds.*assists|rebounds\s*\+\s*assists/.test(t)) return "pra"
   if (/point/.test(t)) return "points"
   if (/rebound/.test(t)) return "rebounds"
   if (/assist/.test(t)) return "assists"

@@ -162,10 +162,50 @@ function sortRowsByModelDesc(rows, limit) {
   return typeof limit === "number" && limit > 0 ? xs.slice(0, limit) : xs
 }
 
+// 2026-05-25 — Slice cache (operator-requested perf fix). Profiling showed
+// buildNbaBoardSlicesFromSnapshot is 91% of /api/best-available time (95s
+// for 4551 rows). Slices only depend on snapshot — when snapshot fingerprint
+// unchanged, identical input → identical output. Cache module-level
+// (restart invalidates), keyed by a cheap fingerprint that detects:
+//   - snapshot.updatedAt change → odds refreshed
+//   - events / rawProps / props count change → slate changed
+// On cache hit we skip the 95s rebuild and return in <1ms.
+//
+// Safety: any change to slicing/normalization code requires `npm run engine:restart`
+// (the operator already does this for every cognition mutation — no new step).
+let _slicesCache = null
+let _slicesCacheKey = null
+let _slicesCacheHits = 0
+let _slicesCacheMisses = 0
+
+function _fingerprintSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return "null"
+  const updatedAt = snapshot.updatedAt || ""
+  const events = Array.isArray(snapshot.events) ? snapshot.events.length : 0
+  const rawProps = Array.isArray(snapshot.rawProps) ? snapshot.rawProps.length : 0
+  const props = Array.isArray(snapshot.props) ? snapshot.props.length : 0
+  return `${updatedAt}|e=${events}|rp=${rawProps}|p=${props}`
+}
+
+function _invalidateSlicesCache() {
+  _slicesCache = null
+  _slicesCacheKey = null
+}
+
 /**
  * Derive board-shaped row arrays from a persisted / in-memory NBA snapshot object.
  */
 function buildNbaBoardSlicesFromSnapshot(snapshot = {}) {
+  // Cache check — return cached result if snapshot fingerprint unchanged.
+  const key = _fingerprintSnapshot(snapshot)
+  if (_slicesCache && _slicesCacheKey === key) {
+    _slicesCacheHits++
+    console.log(`[SLICES-CACHE] HIT  key=${key}  hits=${_slicesCacheHits} misses=${_slicesCacheMisses} (cycle saved: ~95s)`)
+    return _slicesCache
+  }
+  _slicesCacheMisses++
+  console.log(`[SLICES-CACHE] MISS key=${key}  hits=${_slicesCacheHits} misses=${_slicesCacheMisses} — rebuilding`)
+
   const eventIndex = buildNbaEventTeamIndex(snapshot?.events)
   const merged = mergeSnapshotRowPools(snapshot)
   const gameContextFromEvents = buildNbaEventGameContextMap(snapshot?.events)
@@ -201,7 +241,7 @@ function buildNbaBoardSlicesFromSnapshot(snapshot = {}) {
     }
   }
 
-  return {
+  const result = {
     completeUniverse,
     // IMPORTANT: do not over-trim boards by probability — it collapses ladder tiers and
     // over-selects low-line props. Keep broader boards and let downstream ranking decide.
@@ -210,9 +250,14 @@ function buildNbaBoardSlicesFromSnapshot(snapshot = {}) {
     specialBoard: sortRowsByModelDesc(specialBoard, 120),
     firstBasketBoard: sortRowsByModelDesc(firstBasketBoard, 120),
   }
+
+  _slicesCache = result
+  _slicesCacheKey = key
+  return result
 }
 
 module.exports = {
   buildNbaBoardSlicesFromSnapshot,
   loadNbaSnapshotFromDisk,
+  _invalidateSlicesCache,
 }

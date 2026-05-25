@@ -47,8 +47,8 @@ function computeSeasonStats(games) {
   const played = games.filter((g) => Number(g?.stats?.minutes) > 0)
   if (played.length === 0) return null
 
-  const sum = { min: 0, pts: 0, reb: 0, ast: 0, blk: 0, stl: 0, threes: 0, fga: 0, threeAtt: 0, to: 0, oreb: 0, dreb: 0, ftm: 0, fta: 0 }
-  let fgaCount = 0, threeAttCount = 0, threesCount = 0, toCount = 0, orebCount = 0, drebCount = 0, ftCount = 0
+  const sum = { min: 0, pts: 0, reb: 0, ast: 0, blk: 0, stl: 0, threes: 0, fga: 0, fgm: 0, threeAtt: 0, to: 0, oreb: 0, dreb: 0, ftm: 0, fta: 0 }
+  let fgaCount = 0, fgmCount = 0, threeAttCount = 0, threesCount = 0, toCount = 0, orebCount = 0, drebCount = 0, ftCount = 0
   for (const g of played) {
     const s = g.stats || {}
     sum.min   += Number(s.minutes)  || 0
@@ -59,6 +59,8 @@ function computeSeasonStats(games) {
     sum.stl   += Number(s.steals)   || 0
     if (Number.isFinite(Number(s.threes))) { sum.threes += Number(s.threes); threesCount++ }
     if (Number.isFinite(Number(s.fga)))     { sum.fga += Number(s.fga); fgaCount++ }
+    // 2026-05-24 — track fgm so points cards can show "FG: 8.0/15.3 (52%)" (made/att/%)
+    if (Number.isFinite(Number(s.fgm)))     { sum.fgm += Number(s.fgm); fgmCount++ }
     if (Number.isFinite(Number(s.threeAtt))) { sum.threeAtt += Number(s.threeAtt); threeAttCount++ }
     // 2026-05-24 — Phase 2 expansion. ESPN gameLogs carries these per game; sum
     // them so cognition can see turnover risk and free-throw volume per player.
@@ -80,6 +82,8 @@ function computeSeasonStats(games) {
   // Use real FGA if we have it for >half the games; otherwise estimate from pts
   const haveFgaCoverage = fgaCount / n > 0.5
   const avgFga = haveFgaCoverage ? sum.fga / fgaCount : (avgPts / 2.2)
+  const haveFgmCoverage = fgmCount / n > 0.5
+  const avgFgm = haveFgmCoverage ? sum.fgm / fgmCount : null
   const avgThreeAtt = threeAttCount / n > 0.5 ? sum.threeAtt / threeAttCount : null
 
   // Rate stats — keep null when we don't have enough signal
@@ -112,6 +116,7 @@ function computeSeasonStats(games) {
     avgSteals:   avgStl,
     avgThrees:   avgThrees,
     avgFga:      avgFga,
+    avgFgm:      avgFgm,
     avgThreeAtt: avgThreeAtt,
     avgTurnovers, avgOffRebounds, avgDefRebounds, avgFtm, avgFta, toRate,
     fgaSource:   haveFgaCoverage ? "espn_raw" : "estimated_from_points",
@@ -161,6 +166,8 @@ function enrichRowWithPlayerSeasonStats(row) {
     avgAssists:     stats.avgAssists,
     avgMinutes:     stats.avgMinutes,
     avgFga:         stats.avgFga,
+    avgFgm:         stats.avgFgm,
+    avgThreeAtt:    stats.avgThreeAtt,
     avgThrees:      stats.avgThrees,
     avgTurnovers:   stats.avgTurnovers,
     avgOffRebounds: stats.avgOffRebounds,

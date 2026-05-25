@@ -1165,6 +1165,16 @@ function projectThreesFromAttempts(rows, ctx) {
     raw = Math.max(raw, Math.min(alt, 5.4))
   }
 
+  // 2026-05-24 — Form-anchoring blend. The pa*pct*minutesFactor calc was
+  // over-projecting for low-volume shooters (Champagnie L5=2.4 threes was
+  // being projected at 3.5+). When the rep row carries a real recentForm
+  // for threes, blend it 70/30 with the attempt-based raw to anchor toward
+  // the player's actual recent threes output.
+  const form = predictedMedianOutcome(rep)
+  if (Number.isFinite(form)) {
+    raw = 0.70 * form + 0.30 * raw
+  }
+
   raw = Math.round(raw * 10) / 10
   return { projection: raw, threePA: pa, threePct: pct, minutes, archetype }
 }
@@ -1327,17 +1337,37 @@ function projectStat(family, rows, ctx) {
   }
 
   if (family === "rebounds") {
-    if (!Number.isFinite(raw)) raw = 3.5 + (archetype === "big" ? 4.2 : archetype === "wing" ? 2.2 : 1.1)
-    raw += (usage - 18) * 0.06 + (minutes / 36) * (archetype === "big" ? 5.5 : 2.8)
-    if (archetype === "big" && Number.isFinite(market)) raw = 0.5 * raw + 0.5 * market
+    // 2026-05-24 — Form-anchoring fix. When `form` represents the player's
+    // actual recent rebounds (e.g. SGA at 2.8 reb L5), the function was ADDING
+    // a position-based prior on top (~+2.7 for a 35-min guard) and ballooning
+    // the projection to ~6-8 reb. Now: if form is present, use it as the anchor
+    // and apply ONLY small contextual deltas (usage above/below 22, minutes
+    // above/below 30). Position prior only fires when no form data exists.
+    if (Number.isFinite(form)) {
+      raw = form
+      if (Number.isFinite(usage)) raw += (usage - 22) * 0.04
+      if (Number.isFinite(minutes)) raw += (minutes - 30) * 0.06
+    } else {
+      raw = 3.5 + (archetype === "big" ? 4.2 : archetype === "wing" ? 2.2 : 1.1)
+      raw += (usage - 18) * 0.06 + (minutes / 36) * (archetype === "big" ? 5.5 : 2.8)
+      if (archetype === "big" && Number.isFinite(market)) raw = 0.5 * raw + 0.5 * market
+    }
     raw = Math.max(0.5, Math.min(17, raw))
     return Math.round(raw * 10) / 10
   }
 
   if (family === "assists") {
-    if (!Number.isFinite(raw)) raw = 2.2 + (archetype === "shooter" ? 2.8 : 1.2)
-    raw += (usage - 18) * 0.085 + (minutes / 36) * 4.2
-    if (archetype === "shooter" && Number.isFinite(market)) raw = 0.45 * raw + 0.55 * market
+    // 2026-05-24 — Same form-anchoring fix as rebounds. Trust the player's
+    // recent assist average when present; only apply contextual deltas.
+    if (Number.isFinite(form)) {
+      raw = form
+      if (Number.isFinite(usage)) raw += (usage - 22) * 0.05
+      if (Number.isFinite(minutes)) raw += (minutes - 30) * 0.08
+    } else {
+      raw = 2.2 + (archetype === "shooter" ? 2.8 : 1.2)
+      raw += (usage - 18) * 0.085 + (minutes / 36) * 4.2
+      if (archetype === "shooter" && Number.isFinite(market)) raw = 0.45 * raw + 0.55 * market
+    }
     raw = Math.max(0.5, Math.min(14, raw))
     return Math.round(raw * 10) / 10
   }

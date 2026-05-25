@@ -6,6 +6,7 @@ const path = require("path")
 const { buildSlateEvents } = require("../schedule/buildSlateEvents")
 const { inferMarketTypeFromKey, canonicalPropTypeFromInferred } = require("../markets/classification")
 const { nbaRowModelProbability, nbaRowEdge } = require("./nbaModelSignals")
+const { classifyNbaTier } = require("./nbaTierClassifier")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
 // Phase Market-Ecology-1A (OBS-3): observability-only logging wrapper around
 // Odds-API axios calls. Pure-local, never throws, never adds network calls.
@@ -107,6 +108,7 @@ function buildNbaBestProps(rawRows) {
       : (family === "threes" || family === "first_basket") ? "aggressive"
       : "balanced"
 
+    // Canonical tier classification via nbaTierClassifier (single source of truth)
     rawScored.push({
       ...r,
       statFamily:  family,
@@ -114,7 +116,11 @@ function buildNbaBestProps(rawRows) {
       edge,
       impliedProb: odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       volatility,
-      tier:        edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      tier:        classifyNbaTier({
+                     edge, modelProb: mp,
+                     side: r?.side, line: r?.line,
+                     l5Avg: enriched?.recentForm?.last5_avg ?? enriched?.recentForm?.last10_avg ?? enriched?.last5Avg,
+                   }),
       snapshotSourced: true,
     })
   }

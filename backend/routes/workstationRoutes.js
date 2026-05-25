@@ -33,12 +33,18 @@ const { isAllowedBook, canonicalBookName } = require("../pipeline/shared/sportsb
 // baseball_mlb / MLB / nba / basketball_nba / etc.) converges onto the
 // canonical runtime identity ("mlb" or "nba"). See verifySportIdentityParity.js.
 const { resolveCanonicalSport } = require("../pipeline/shared/resolveCanonicalSport")
+const { classifyNbaTier } = require("../pipeline/nba/nbaTierClassifier")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 // Phase 1 — Recent Form V1 (Session AP). Real per-player rolling stats from
 // settled-bet history. Honest null when sample insufficient.
 // enrichRowWithRecentForm is a no-op when no form exists for that player+stat.
 const { enrichRowWithRecentForm: enrichNbaRowWithRecentForm } = require("../pipeline/nba/nbaRecentFormCache")
+// 2026-05-24 — Phase 2 enrichers also wired into the workstation read path so
+// the FE always sees opponent / oppDef / pace / playerSeasonStats even when
+// the persisted tracked_best entry lacks them (stale snapshots, partial runs).
+const { enrichRowWithTeamStats: enrichNbaRowWithTeamStats }                = require("../pipeline/nba/nbaTeamStatsCache")
+const { enrichRowWithPlayerSeasonStats: enrichNbaRowWithPlayerSeasonStats } = require("../pipeline/nba/nbaPlayerSeasonStatsCache")
 // Phase 1 — Lineup + Rotation Intelligence V1 (Session AR). Real role / minutes-
 // trend deriver from the same ESPN game-log cache. Injects starterFlag +
 // projectedMinutes (already consumed by nbaModelSignals.roleSignals) +
@@ -339,6 +345,9 @@ function enrichBestEntry(e, betsById) {
     oddsAmerican:   e.odds,
     confidence:     tb?.confidence,
     tier:           tb?.tier,
+    // 2026-05-24 — preserve canonical displayBundle for FE rendering.
+    // Spread above keeps the field; explicit assignment here makes intent visible.
+    displayBundle:  e.displayBundle || null,
   }
   // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
   // stats when available. NBA only — MLB tracked_best entries simply won't
@@ -350,6 +359,18 @@ function enrichBestEntry(e, betsById) {
     // Sets row.starterFlag + row.projectedMinutes (consumed by nbaModelSignals)
     // and row.roleContext (explainability). Honest no-op for unknown players.
     enrichNbaRowWithRoleContext(out)
+    // 2026-05-24 — Phase 2 enrichment defense-in-depth. Persisted tracked_best
+    // entries may lack opponent / oppDef / pace / playerSeasonStats if a stale
+    // snapshot persisted before the enricher landed; running the enrichers
+    // here means the FE always sees them. They no-op when data already present.
+    try { enrichNbaRowWithTeamStats(out) } catch (_) {}
+    try { enrichNbaRowWithPlayerSeasonStats(out) } catch (_) {}
+    // Derive matchup string from homeTeam/awayTeam when blank — operator
+    // reported "—" on matchup field. The Phase 2 marketPropsFromPoolRows fix
+    // preserves these so they reach tracked_best; this is the read-side guard.
+    if (!out.matchup && out.awayTeam && out.homeTeam) {
+      out.matchup = `${out.awayTeam} @ ${out.homeTeam}`
+    }
   }
   return out
 }
@@ -466,6 +487,11 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // nbaRowIndependentModelProbability. Honest no-op when player not in
     // injury cache (status remains undefined — no synthetic "active default").
     enrichNbaRowWithAvailability(enriched)
+    // 2026-05-24 — Phase 2 enrichment also applied here so snapshot-sourced
+    // candidates carry opponent / oppDef / pace / playerSeasonStats end-to-end.
+    // Honest no-op when source data unavailable; preserves Lane 5 integrity.
+    try { enrichNbaRowWithTeamStats(enriched) } catch (_) {}
+    try { enrichNbaRowWithPlayerSeasonStats(enriched) } catch (_) {}
     const mp = nbaRowModelProbability(enriched)
     if (!Number.isFinite(mp) || mp < 0.35) continue
     const edge = nbaRowEdge(enriched)
@@ -492,7 +518,11 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       edge,
       impliedProb:    odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       sportsbook:     r?.sportsbook || r?.book || null,
-      tier:           edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      tier:           classifyNbaTier({
+                        edge, modelProb: mp,
+                        side: r?.side, line: r?.line,
+                        l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
+                      }),
       // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
       // NBA-3: Alt-lines always aggressive or lotto — never balanced or safe.
       //   points alt → aggressive (high-volume stat, elevation pushes into volatile range).

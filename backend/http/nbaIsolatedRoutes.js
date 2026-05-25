@@ -11,6 +11,7 @@ const path = require("path")
 const fs = require("fs")
 
 const { buildNbaOpportunityBoard } = require("../pipeline/nba/buildNbaOpportunityBoard")
+const { classifyNbaTier } = require("../pipeline/nba/nbaTierClassifier")
 const { buildNbaInsightBoard } = require("../pipeline/nba/buildNbaInsightBoard")
 const {
   buildNbaBoardSlicesFromSnapshot,
@@ -1272,7 +1273,11 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
       edge,
       impliedProb:  odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       sportsbook:   r?.sportsbook || r?.book || null,
-      tier:         edge >= 0.12 ? "ELITE" : edge >= 0.07 ? "STRONG" : edge >= 0.04 ? "PLAYABLE" : "LONGSHOT",
+      tier:         classifyNbaTier({
+                      edge, modelProb: mp,
+                      side: r?.side, line: r?.line,
+                      l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
+                    }),
       volatility:   family === "pra" ? "lotto"
                   : (family === "threes" || family === "first_basket") ? "aggressive"
                   : "balanced",
@@ -1295,6 +1300,22 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
  */
 async function handleNbaBestAvailableGet(req, res, deps) {
   console.log("TRACE BEST-AVAILABLE HIT (NBA):", { sport: req?.query?.sport })
+  // 2026-05-25 — Profiling instrumentation. Track wall-time per major stage.
+  // Prints final breakdown table at end of request. No logic changes.
+  const __profStart = Date.now()
+  const __profStages = []
+  const __profMark = (label, fn) => {
+    const t0 = Date.now()
+    const result = fn()
+    if (result && typeof result.then === "function") {
+      return result.then((r) => {
+        __profStages.push({ label, ms: Date.now() - t0 })
+        return r
+      })
+    }
+    __profStages.push({ label, ms: Date.now() - t0 })
+    return result
+  }
   const { axios, oddsSnapshot, normalizeBestAvailableSportKey, refreshGuard, snapshotPath } = deps
 
   const bestAvailableSportKey = normalizeBestAvailableSportKey(String(req.query?.sport || "").trim())
@@ -1359,18 +1380,26 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     })
   }
 
+  __profStages.push({ label: "1_snapshot_policy", ms: Date.now() - __profStart })
+
+  const __t_loadDisk = Date.now()
   if (!snapshotHasBody(snap)) {
     const disk = loadNbaSnapshotFromDisk(resolvedSnapshotPath)
     if (disk) snap = disk
   }
+  __profStages.push({ label: "2_load_snapshot_from_disk", ms: Date.now() - __t_loadDisk })
 
+  const __t_slices = Date.now()
   const slices = buildNbaBoardSlicesFromSnapshot(snap && typeof snap === "object" ? snap : {})
+  __profStages.push({ label: "3_build_board_slices", ms: Date.now() - __t_slices, rows: Array.isArray(slices?.completeUniverse) ? slices.completeUniverse.length : 0 })
 
   // REAL RECENT FORM: attach from API-Sports logs BEFORE candidate creation.
+  const __t_recentForm = Date.now()
   await enrichRowsWithRecentForm({
     axios,
     rows: slices?.completeUniverse,
   })
+  __profStages.push({ label: "4_enrich_recent_form", ms: Date.now() - __t_recentForm })
 
   const ingestDiagnostics =
     snap?.diagnostics && typeof snap.diagnostics === "object"
@@ -1381,6 +1410,7 @@ async function handleNbaBestAvailableGet(req, res, deps) {
         }
       : {}
 
+  const __t_oppBoard = Date.now()
   const nbaOpportunityBoard = buildNbaOpportunityBoard({
     ladderBoard: slices.ladderBoard,
     corePropsBoard: slices.corePropsBoard,
@@ -1388,6 +1418,9 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     ingestDiagnostics,
     ingestRows: Array.isArray(snap?.rawProps) ? snap.rawProps : Array.isArray(snap?.props) ? snap.props : [],
   })
+  __profStages.push({ label: "5_build_opportunity_board", ms: Date.now() - __t_oppBoard })
+
+  const __t_insightBoard = Date.now()
   const nbaInsightBoard = buildNbaInsightBoard({
     ladderBoard: slices.ladderBoard,
     corePropsBoard: slices.corePropsBoard,
@@ -1395,7 +1428,9 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     firstBasketBoard: slices.firstBasketBoard,
     nbaOpportunityBoard,
   })
+  __profStages.push({ label: "6_build_insight_board", ms: Date.now() - __t_insightBoard })
 
+  const __t_playerCheck = Date.now()
   const __playerCheckPool = [
     ...(Array.isArray(nbaInsightBoard?.bestOverallPlays) ? nbaInsightBoard.bestOverallPlays : []),
     ...(Array.isArray(nbaInsightBoard?.corePropsBoard) ? nbaInsightBoard.corePropsBoard : []),
@@ -1435,7 +1470,10 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     console.log("PLAYER CHECK:", r.player, "finalWeight=", r.finalWeight, "recentForm=", r.recentForm)
   }
 
+  __profStages.push({ label: "7_player_check_dedup", ms: Date.now() - __t_playerCheck })
+
   // Fix R1 Step 3 — build workstation candidates + featured + slips from corePropsBoard
+  const __t_wsBuild = Date.now()
   const todayStr = new Date().toISOString().slice(0, 10)
   let wsCandidates = []
   let wsFeatured = null
@@ -1462,8 +1500,10 @@ async function handleNbaBestAvailableGet(req, res, deps) {
   } catch (wsErr) {
     console.error("[nbaIsolatedRoutes] bestAvailable workstation build error:", wsErr?.message)
   }
+  __profStages.push({ label: "8_ws_candidates_featured_slips", ms: Date.now() - __t_wsBuild })
 
   // Map insight rows into elite/strong/best buckets using probability field
+  const __t_respShape = Date.now()
   const __allInsightRows = [
     ...(Array.isArray(nbaInsightBoard?.bestOverallPlays) ? nbaInsightBoard.bestOverallPlays : []),
     ...(Array.isArray(nbaInsightBoard?.corePropsBoard) ? nbaInsightBoard.corePropsBoard : []),
@@ -1473,6 +1513,25 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     const p = Number(r?.probability ?? r?.adjustedConfidenceScore ?? 0)
     return p >= 0.42 && p < 0.55
   })
+
+  __profStages.push({ label: "9_response_shape", ms: Date.now() - __t_respShape })
+
+  // ── PROFILING SUMMARY ──────────────────────────────────────────────────
+  // 2026-05-25 — Operator-requested cycle-time analysis. Find which stage
+  // grew 5-10x after gameLogs went 14d→90d + Phase 2 enrichment + book
+  // allowlist expansion. Prints sorted by descending duration.
+  const __profTotal = Date.now() - __profStart
+  const __profSorted = [...__profStages].sort((a, b) => b.ms - a.ms)
+  console.log("\n[PROFILE /api/best-available?sport=basketball_nba]")
+  console.log("  TOTAL: " + __profTotal + "ms (" + (__profTotal/1000).toFixed(1) + "s)")
+  console.log("  --- stages, descending by duration ---")
+  for (const s of __profSorted) {
+    const pct = ((s.ms / __profTotal) * 100).toFixed(1).padStart(5)
+    const ms = String(s.ms).padStart(7)
+    const rows = s.rows != null ? `  [rows=${s.rows}]` : ""
+    console.log(`  ${pct}% ${ms}ms  ${s.label}${rows}`)
+  }
+  console.log("[/PROFILE]\n")
 
   return res.json({
     bestAvailable: {
@@ -1487,13 +1546,6 @@ async function handleNbaBestAvailableGet(req, res, deps) {
     },
     nbaOpportunityBoard,
     nbaInsightBoard,
-    // Phase F2 — additive observability field. Snapshot of owner-B cache
-    // lifecycle counters at response time. Read-only; ignoring this field is
-    // safe for legacy consumers. Use this to diagnose questions like:
-    //   "Did the cache fire for this request?"
-    //   "Were lookups hits or misses?"
-    //   "Did saveApiSportsDiskCache succeed?"
-    //   "Does memory match disk?"
     nbaCacheDiagnostics: getNbaCacheDiagnostics(),
   })
 }

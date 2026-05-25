@@ -32,8 +32,8 @@
  * by union-merging stat keys per game.
  *
  * Usage (from operator's TERM 1 with network access):
- *   node backend/scripts/populateNbaGameLogs.js                  # last 14 days
- *   node backend/scripts/populateNbaGameLogs.js --days=21        # last 21 days
+ *   node backend/scripts/populateNbaGameLogs.js                  # last 90 days (default)
+ *   node backend/scripts/populateNbaGameLogs.js --days=180       # last 180 days (full season)
  *   node backend/scripts/populateNbaGameLogs.js --date=2026-05-09  # single date
  *   node backend/scripts/populateNbaGameLogs.js --dry-run        # parse + log, no persist
  *   node backend/scripts/populateNbaGameLogs.js --fixture=/abs/path/to/summary.json --date=YYYY-MM-DD
@@ -51,7 +51,13 @@ try { axios = require("axios") } catch (_) { axios = null }
 const ESPN_BASE        = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 const REQUEST_TIMEOUT  = 15000
 const CACHE_PATH       = path.join(__dirname, "..", "data", "nbaPlayerGameLogs.json")
-const DEFAULT_DAYS_BACK = 14
+// 2026-05-25 — REVERTED to 21 days. Operator confirmed 90-day window was
+// killing cycle times (95s slice rebuilds, 4551 universe rows). The Path A
+// honesty label fix ("L{N}g pts" using actual gamesPlayed) still works at any
+// window — just shows L7/L14/L21 instead of L27/L34. Trade off: KAT "season
+// pts" sample size shrinks back to ~7-10 games (playoff window). Accept the
+// hit; cycle time matters more than 4-game sample improvement.
+const DEFAULT_DAYS_BACK = 21
 
 // === Helpers ===
 
@@ -338,7 +344,7 @@ function parseArgs(argv) {
     const eq = a.indexOf("=")
     if (eq <= 2) continue
     const k = a.slice(2, eq); const v = a.slice(eq + 1)
-    if (k === "days")    args.days = Math.max(1, Math.min(60, parseInt(v, 10) || DEFAULT_DAYS_BACK))
+    if (k === "days")    args.days = Math.max(1, Math.min(180, parseInt(v, 10) || DEFAULT_DAYS_BACK))
     if (k === "date")    args.date = String(v).trim()
     if (k === "fixture") args.fixture = String(v).trim()
   }

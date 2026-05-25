@@ -324,6 +324,18 @@ function enrichNbaRowStatLayerInputs(row) {
  * Fill `team` from nbaPlayerProjections.json and infer `opponent` from home/away or `matchup` string.
  * Call immediately before computeFinalWeight / matchup so API clients without upstream normalize still work.
  */
+// 2026-05-25 — Manual override map for recently-traded players whose gameLogs
+// cache still shows their previous team. Operator caught Harden displayed on
+// LA Clippers when he was traded to Cleveland Cavaliers. ESPN gameLogs records
+// historical games with the old team and the populator doesn't refresh the
+// top-level team field until the player has enough new-team games to dominate.
+// This map is checked BEFORE projections/gameLogs lookups — highest priority.
+// Format: lowercase player name → current team display name (matches displayName
+// values used by nbaTeamStatsCache normalization).
+const RECENTLY_TRADED_TEAM_OVERRIDES = {
+  "james harden": "Cleveland Cavaliers",
+}
+
 function applyTeamFallbackFromProjections(row) {
   if (!row || typeof row !== "object") return row
   const out = { ...row }
@@ -332,10 +344,15 @@ function applyTeamFallbackFromProjections(row) {
   if (!clampStr(out.homeTeam) && parsed.homeTeam) out.homeTeam = parsed.homeTeam
   if (!clampStr(out.awayTeam) && parsed.awayTeam) out.awayTeam = parsed.awayTeam
 
+  // 2026-05-25 — Always apply trade overrides, even if row.team is already set
+  // (stale upstream resolvers may have stamped the wrong team).
+  const playerKey = String(out.player || "").trim().toLowerCase()
+  if (RECENTLY_TRADED_TEAM_OVERRIDES[playerKey]) {
+    out.team = RECENTLY_TRADED_TEAM_OVERRIDES[playerKey]
+  }
+
   if (!clampStr(out.team)) {
-    const pk = String(out.player || "")
-      .trim()
-      .toLowerCase()
+    const pk = playerKey
     // First try the curated projections file (small, manually maintained — 56 players).
     const proj = loadNbaPlayerProjectionsTeamFallback()
     let t = String(proj?.players?.[pk]?.team || "").trim()

@@ -87,8 +87,19 @@ function insightRowToCandidate(x) {
 
 async function runAll() {
   try {
-    console.log("Refreshing snapshot (NBA path also refreshes MLB sidecar snapshot)...")
-    await fetch("http://localhost:4000/refresh-snapshot?force=1&sport=basketball_nba")
+    // 2026-05-25 — Operator-requested fast-cycle. The snapshot refresh hits the
+    // Odds API for every book + every event and takes ~4 minutes. For changes
+    // that ONLY touch backend display logic (buildPlayDisplayBundle, signal
+    // formatting, tier classifier internals) the on-disk snapshot is still
+    // current — we just need to re-run the board over it. Skip the refresh
+    // with `--skip-snapshot` and the cycle drops from ~5 min to ~30 sec.
+    const skipSnapshot = process.argv.includes("--skip-snapshot")
+    if (skipSnapshot) {
+      console.log("[fast-cycle] --skip-snapshot: using existing snapshot.json (no Odds API refresh)")
+    } else {
+      console.log("Refreshing snapshot (NBA path also refreshes MLB sidecar snapshot)...")
+      await fetch("http://localhost:4000/refresh-snapshot?force=1&sport=basketball_nba")
+    }
 
     console.log("Fetching best available (NBA)...")
     const res = await fetch("http://localhost:4000/api/best-available?sport=basketball_nba")
