@@ -46,9 +46,10 @@
  * @param {string} [opts.side]       "over"/"under" — required for form-contradiction check
  * @param {number} [opts.line]       prop line — required for form-contradiction check
  * @param {number} [opts.l5Avg]      player's last-5 average (or last-10) — required for form check
+ * @param {number} [opts.projMostLikely]  projection.mostLikely value (NEW 2026-05-25 — catches picks where L5 is close to line but projection is far)
  * @returns {"ELITE"|"STRONG"|"PLAYABLE"|"LONGSHOT"|"FADE"}
  */
-function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg } = {}) {
+function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely } = {}) {
   if (isLongshot === true) return "LONGSHOT"
   if (!Number.isFinite(edge)) return "FADE"
   if (Number.isFinite(ev) && ev <= 0) return "FADE"
@@ -58,25 +59,26 @@ function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5
   // structurally conservative — even tightened, it can produce modelProb=0.38
   // on UNDER picks where the player's L5 avg is 7+ pts above the line. The
   // operator's intuition is right: those picks should never reach the FE.
-  //
-  // Rule (tightened 2026-05-24): if pick is UNDER but L5 is ≥12% above line,
-  // FADE; if pick is OVER but L5 is ≥12% below line, FADE. Operator caught
-  // Wemby UNDER reb 11.5 (L5=13.6, gap 18%) slipping through the old 20%
-  // threshold; the gate must trip on smaller gaps in low-line stats (reb,
-  // ast, threes) where a 2-unit gap is a fundamental directional disagreement.
-  // Same logic the operator applies eyeballing: "he averages 13.6, line 11.5,
-  // why would I bet under?"
   if (Number.isFinite(l5Avg) && Number.isFinite(line) && line > 0 && side) {
     const sideStr = String(side).toLowerCase()
     const overshoot = (l5Avg - line) / line  // positive when L5 > line
-    // 2026-05-25 — tightened 12% → 7%. Operator caught 5 wrong-direction picks
-    // surviving at 12%: Harden UNDER pra 23.5 (L5 26.2, overshoot 11.5%),
-    // Mitchell UNDER pra 29.5 (32.2, 9.2%), KAT UNDER reb 9.5 (10, 5.3%),
-    // Mobley OVER pts 20.5 (18.4, -10.2%). 7% catches all of these while
-    // preserving genuinely close-line plays (overshoot < 7% = within typical
-    // game-to-game noise).
     if ((sideStr === "under" || sideStr === "no") && overshoot > 0.07) return "FADE"
     if ((sideStr === "over"  || sideStr === "yes") && overshoot < -0.07) return "FADE"
+  }
+
+  // 2026-05-25 — PROJECTION CONTRADICTION GATE. L5-only gate misses picks
+  // where L5 is similar to line but the projection most likely is materially
+  // opposite. Operator caught 4 such picks tonight all surviving as PLAYABLE:
+  //   Harden UNDER pra 24.5  (L5 26.2 OK, projection 32.6 → wrong direction)
+  //   Harden UNDER assists 4.5 (L5 4 OK, projection 7.3 → wrong direction)
+  //   KAT UNDER reb 9.5       (L5 10 OK, projection 12.3 → wrong direction)
+  //   Mobley OVER points 19.5 (L5 18.4 OK, projection 15.5 → wrong direction)
+  // 15% threshold catches all four (Mobley is exactly 15% off, others 20%+).
+  if (Number.isFinite(projMostLikely) && Number.isFinite(line) && line > 0 && side) {
+    const sideStr = String(side).toLowerCase()
+    const projGap = (projMostLikely - line) / line  // positive when projection > line
+    if ((sideStr === "under" || sideStr === "no") && projGap > 0.15) return "FADE"
+    if ((sideStr === "over"  || sideStr === "yes") && projGap < -0.15) return "FADE"
   }
 
   // Conviction gate — model must have an opinion, not just disagree with

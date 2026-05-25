@@ -219,8 +219,11 @@ function scorePlay({ edge, ev, conf, vol, side }) {
 // the code existed. Operator caught Wemby UNDER 20.5 / Champagnie OVER 3.5
 // reaching PLAYABLE; this is the structural reason why.
 const { classifyNbaTier: _classifyNbaTier } = require("./nbaTierClassifier")
-function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null) {
-  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg })
+// 2026-05-25 — extended to pass projMostLikely so the new projection-contradiction
+// gate inside the classifier can fire. Catches picks where L5 is close to line
+// but projection.mostLikely is materially opposite (Harden UNDER pra 24.5 case).
+function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null, projMostLikely = null) {
+  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely })
 }
 
 // 2026-05-24 — buildPlayDisplayBundle is the canonical FE display payload.
@@ -440,7 +443,11 @@ function buildNbaBestBetsBoard(input = {}) {
         : Number.isFinite(Number(predRealRf.last10_avg)) ? Number(predRealRf.last10_avg)
         : null)) ??
       (Number.isFinite(Number(mp?.last5Avg)) ? Number(mp.last5Avg) : null)
-    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg)
+    // 2026-05-25 — pass projection.mostLikely into the tier classifier so the
+    // projection-contradiction gate can FADE picks where the model projects
+    // the opposite direction from the line (Harden UNDER pra 24.5, projection 32.6).
+    const projMostLikely = Number.isFinite(Number(stat?.mostLikely)) ? Number(stat.mostLikely) : null
+    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely)
     if (!isLongshot && !isAlternate && tier === "FADE") {
       dropped += 1
       continue
