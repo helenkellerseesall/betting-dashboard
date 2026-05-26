@@ -328,6 +328,57 @@ function cached(key, builder) {
   return v
 }
 
+// 2026-05-26 — NBA stale-snapshot auto-refresh for the /state path.
+// /api/best-available already auto-refreshes via the policy in nbaIsolatedRoutes,
+// but the iPhone PWA hits /api/ws/state, which had no refresh trigger and was
+// serving snapshots ageing past 90+ minutes (operator-reported). This guard
+// fires a synchronous /refresh-snapshot call when the on-disk snapshot is
+// older than 8 minutes for NBA. MLB is unaffected (sport-gated).
+//
+// Cross-request mutex prevents concurrent refresh fans-out. The 2-min cooldown
+// lives inside /refresh-snapshot itself (server.js), so we don't double-cooldown.
+let _wsRefreshInProgress = false
+let _wsLastRefreshTriggerMs = 0
+const WS_AUTO_REFRESH_STALE_MIN = 8
+
+async function maybeTriggerNbaSnapshotRefresh(sport, freshness) {
+  if (sport !== "nba") return false
+  const ageMin = Number(freshness?.snapshotAgeMinutes)
+  if (!Number.isFinite(ageMin) || ageMin < WS_AUTO_REFRESH_STALE_MIN) return false
+  if (_wsRefreshInProgress) {
+    console.log("[WS-AUTO-REFRESH] skipped — another refresh in progress")
+    return false
+  }
+  // Local fan-out guard: don't fire more than once every 2 min from this path
+  // (the /refresh-snapshot endpoint has its own 2-min cooldown anyway).
+  if (Date.now() - _wsLastRefreshTriggerMs < 2 * 60 * 1000) {
+    console.log("[WS-AUTO-REFRESH] skipped — local cooldown")
+    return false
+  }
+  _wsRefreshInProgress = true
+  _wsLastRefreshTriggerMs = Date.now()
+  try {
+    const port = Number(process.env.PORT || 4000)
+    const url  = `http://127.0.0.1:${port}/refresh-snapshot?force=1&sport=basketball_nba`
+    console.log("[WS-AUTO-REFRESH] triggering /refresh-snapshot — snapshot stale at %sm", ageMin.toFixed(1))
+    // Node 18+ has global fetch; this avoids adding axios as a route-level dep.
+    const ctl = new AbortController()
+    const t   = setTimeout(() => ctl.abort(), 120000)
+    try {
+      const r = await fetch(url, { signal: ctl.signal })
+      console.log("[WS-AUTO-REFRESH] refresh response status=%s", r.status)
+    } finally {
+      clearTimeout(t)
+    }
+    return true
+  } catch (e) {
+    console.warn("[WS-AUTO-REFRESH] refresh failed:", e?.message || e)
+    return false
+  } finally {
+    _wsRefreshInProgress = false
+  }
+}
+
 // ── candidate normalization (matches buildSlipAi expectations) ───────────────
 
 function enrichBestEntry(e, betsById) {
@@ -681,12 +732,29 @@ router.get("/health", (req, res) => {
  * Comprehensive sport+date snapshot for the workstation.
  * Returns everything needed to hydrate the main views in a single call.
  */
-router.get("/state", (req, res) => {
+router.get("/state", async (req, res) => {
   try {
     const { sport, date } = resolveSportDate(req)
     // [WS-PROBE] Route entry
     console.log("[WS-PROBE] /state entry sport=%s date=%s", sport, date)
     const key = `state:${sport}:${date}`
+
+    // 2026-05-26 — Auto-refresh stale NBA snapshot before serving. Reads the
+    // freshness from disk first; if stale, fires /refresh-snapshot and waits
+    // (the existing 60s response cache is invalidated for this key so the
+    // post-refresh data is rebuilt, not served from stale memo).
+    try {
+      const { freshness: preFreshness } =
+        readSnapshotRowsWithFreshness(sport, { context: "ws_state_pre_refresh_check" })
+      const refreshed = await maybeTriggerNbaSnapshotRefresh(sport, preFreshness)
+      if (refreshed) {
+        cache.delete(key)
+        console.log("[WS-AUTO-REFRESH] cache invalidated for", key)
+      }
+    } catch (e) {
+      console.warn("[WS-AUTO-REFRESH] pre-check failed (non-fatal):", e?.message || e)
+    }
+
     const out = cached(key, () => {
       console.log("[WS-PROBE] cache MISS — building state for", sport, date)
       const mods = loadSharedModules()
