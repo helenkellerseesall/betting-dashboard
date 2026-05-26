@@ -222,6 +222,64 @@ function contextSignals(row) {
   return { pace, total, spread, blowoutRisk, oppDef }
 }
 
+/**
+ * 2026-05-26 — Family-specific opponent defense.
+ *
+ * The legacy `oppDef` signal is generic team defensive rating (PPG-allowed).
+ * For a THREES prop, what matters is opp 3PM-allowed per game. For REBOUNDS,
+ * opp REB-allowed. For ASSISTS, opp AST-allowed. Using generic PPG for all
+ * three is the "half-blind" problem the operator called out — the model
+ * SHOWS the right stat on the card but doesn't USE it in the probability.
+ *
+ * Returns a Z-score on the same scale as `oppZ` (positive = defense allows
+ * MORE → OVER-favorable). Null when the per-stat opp-allowed isn't
+ * populated on the row (e.g. opponentStats absent), in which case the
+ * caller falls back to the generic oppZ.
+ *
+ * Centering values are NBA-league rough averages; std dev is tuned so a
+ * z-score of ~1 means "noticeably above league". These are calibrated
+ * against the existing oppZ scale (`-oppDef / 10`) so the model weights
+ * remain valid.
+ */
+function familySpecificOppZ(row, family) {
+  const os = row?.opponentStats
+  if (!os || typeof os !== "object") return null
+  const num = (k) => {
+    const v = Number(os[k])
+    return Number.isFinite(v) ? v : null
+  }
+  if (family === "threes") {
+    const v = num("threePMAllowed")
+    if (v == null) return null
+    // League avg ~12 3PM/g allowed, std ~1.8. Higher = friendlier to OVER.
+    return (v - 12) / 1.8
+  }
+  if (family === "rebounds") {
+    const v = num("reboundsAllowed")
+    if (v == null) return null
+    // League avg ~43 reb/g allowed, std ~2.5.
+    return (v - 43) / 2.5
+  }
+  if (family === "assists") {
+    const v = num("assistsAllowed")
+    if (v == null) return null
+    // League avg ~25 ast/g allowed, std ~2.5.
+    return (v - 25) / 2.5
+  }
+  if (family === "pra") {
+    // Blend: threes don't matter for PRA but reb + ast + (points implicit via
+    // pointsAllowed) all do. Use rebs+asts average when both present.
+    const r = num("reboundsAllowed")
+    const a = num("assistsAllowed")
+    const rZ = Number.isFinite(r) ? (r - 43) / 2.5 : null
+    const aZ = Number.isFinite(a) ? (a - 25) / 2.5 : null
+    if (rZ != null && aZ != null) return (rZ + aZ) / 2
+    return rZ ?? aZ
+  }
+  // Points + special → null; caller keeps generic oppZ (which IS PPG-allowed).
+  return null
+}
+
 function recentFormSignal(row, line, anchor) {
   // Session AN — Step 2: hash-derived synthetic fallback removed.
   // Session AP — Recent Form V1: when row carries real recentForm with thin
@@ -362,7 +420,14 @@ function nbaIndependentBaseModelProbability(row) {
   const paceZ    = Number.isFinite(pace)    ? (pace - 100) / 8 : null
   const totalZ   = Number.isFinite(total)   ? (total - 224) / 20 : null
   const spreadZ  = Number.isFinite(spread)  ? (5.5 - spread) / 8 : null
-  const oppZ     = Number.isFinite(oppDef)  ? -oppDef / 10 : null
+  // 2026-05-26 — Family-specific defensive Z replaces generic PPG-allowed for
+  // threes / rebounds / assists / pra. Falls back to generic oppDef for
+  // points / special where PPG-allowed remains the right dimension. The
+  // family-specific scale is calibrated to match the generic scale so the
+  // downstream weight (0.35 in ctxBundle below) doesn't need re-tuning.
+  const oppZFamily = familySpecificOppZ(row, family)
+  const oppZGeneric = Number.isFinite(oppDef) ? -oppDef / 10 : null
+  const oppZ     = oppZFamily != null ? oppZFamily : oppZGeneric
   const roleZ    = Number.isFinite(role)    ? (role - 1) / 2 : null
 
   const w = familyScoreWeights(family)
