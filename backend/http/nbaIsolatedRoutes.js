@@ -1063,7 +1063,13 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
     if (!family) continue
 
     const mp = nbaRowModelProbability(r)
-    if (!Number.isFinite(mp) || mp < 0.35) continue
+    // 2026-05-26 — Lane A1: family-aware mp threshold for binary events.
+    // DD floor 0.10, TD floor 0.04 (matches band floor). Continuous-stat
+    // families keep the 0.35 floor — that calibration is unchanged.
+    const __mpFloorBA = family === "triple_double" ? 0.04
+                      : family === "double_double" ? 0.10
+                      : 0.35
+    if (!Number.isFinite(mp) || mp < __mpFloorBA) continue
     const edge = nbaRowEdge(r)
     if (!Number.isFinite(edge) || edge < 0.03) continue
 

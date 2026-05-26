@@ -93,8 +93,12 @@ function buildNbaBestProps(rawRows) {
     // combos (route to "pra" since they behave more like PRA than pure points)
     // → singles last. Catches KAT Points+Rebounds 28.5 correctly as "pra" now.
     const propT = String(r?.propType || mk).toLowerCase()
+    // 2026-05-26 — Lane A1: DD/TD recognized as first-class families.
+    // ORDER: triple_double FIRST (contains "double" substring).
     const family =
-        propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+        /triple[_\s-]*double/.test(propT) ? "triple_double"
+      : /double[_\s-]*double/.test(propT) ? "double_double"
+      : propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
       : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
       : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
@@ -109,7 +113,13 @@ function buildNbaBestProps(rawRows) {
     // Enrichment: adds pace/total/minutes/usage/team — improves model accuracy
     const enriched = applyTeamFallbackFromProjections(enrichNbaRowStatLayerInputs(r))
     const mp = nbaRowModelProbability(enriched)
-    if (!Number.isFinite(mp) || mp < 0.35) { rejectCounts.mpBelow35++; continue }
+    // 2026-05-26 — Lane A1: family-aware mp threshold. Binary low-base-rate
+    // events (DD/TD) use a lower floor; their tight band ceiling prevents
+    // band-floor fake edge so this is safe.
+    const __mpFloorFN = family === "triple_double" ? 0.04
+                      : family === "double_double" ? 0.10
+                      : 0.35
+    if (!Number.isFinite(mp) || mp < __mpFloorFN) { rejectCounts.mpBelow35++; continue }
     const edge = nbaRowEdge(enriched)
     if (!Number.isFinite(edge) || edge < 0.03) { rejectCounts.edgeBelow03++; continue }
 

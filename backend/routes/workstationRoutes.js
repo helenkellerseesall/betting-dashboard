@@ -568,7 +568,16 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     try { enrichNbaRowWithTeamStats(enriched) } catch (_) {}
     try { enrichNbaRowWithPlayerSeasonStats(enriched) } catch (_) {}
     const mp = nbaRowModelProbability(enriched)
-    if (!Number.isFinite(mp) || mp < 0.35) continue
+    // 2026-05-26 — Lane A1: family-aware mp threshold. The flat 0.35 floor
+    // was calibrated for continuous-stat OVER picks. For binary low-base-rate
+    // events (DD, TD), legitimate edge cases sit at mp 0.10-0.30 against
+    // longshot odds. The model's tight band ceiling (0.80 DD, 0.35 TD)
+    // prevents fake band-floor edge, so a lower mp threshold is safe.
+    const __propTQuick = String(r?.propType || r?.marketKey || "").toLowerCase()
+    const __isTdQuick  = /triple[_\s-]*double/.test(__propTQuick)
+    const __isDdQuick  = !__isTdQuick && /double[_\s-]*double/.test(__propTQuick)
+    const __mpFloor    = __isTdQuick ? 0.04 : (__isDdQuick ? 0.10 : 0.35)
+    if (!Number.isFinite(mp) || mp < __mpFloor) continue
     const edge = nbaRowEdge(enriched)
     if (!Number.isFinite(edge) || edge < 0.03) continue
 
