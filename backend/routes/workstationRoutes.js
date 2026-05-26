@@ -437,7 +437,12 @@ function enrichBestEntry(e, betsById) {
     try {
       const __edge      = Number(out.edge ?? out.edgeProbability)
       const __modelProb = Number(out.modelProb ?? out.predictedProbability)
-      const __l5        = Number(out.recentForm?.last5_avg ?? out.last5Avg)
+      // 2026-05-26 v2 — only use family-keyed recentForm.last5_avg; do NOT
+      // fall back to out.last5Avg (single-stat) for combo props, otherwise
+      // the form-contradiction gate fires on the wrong dimension and wipes
+      // every combo prop on the slate. If recentForm is absent, pass NaN
+      // so classifyNbaTier honestly skips the form gate.
+      const __l5        = Number(out.recentForm?.last5_avg ?? out.recentForm?.last10_avg)
       const __projML    = Number(
         out?.range?.mostLikely ??
         out?.projection?.mostLikely ??
@@ -624,18 +629,19 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       // gate can fire here. Also passes projection from multiple possible
       // upstream stamps (range.mostLikely, projection.mostLikely, etc.).
       //
-      // 2026-05-26 — BUG FIX: previously read recentForm / last5Avg from `r`
-      // (the un-enriched raw snapshot row), so the form-contradiction gate
-      // never had data to check. All the recentForm enrichment was applied
-      // to `enriched` above (lines 579/591/595/596). Switched to read from
-      // `enriched` so the gate fires correctly. Caught via Jalen Williams
-      // Threes Ladder OVER 1.5 surviving as ELITE despite L5=0.5.
+      // 2026-05-26 — BUG FIX (v2): read L5 ONLY from `enriched.recentForm`,
+      // which is the family-keyed cache (pra/points/rebounds/etc.). The
+      // earlier fix added a fallback to `enriched.last5Avg`, which is
+      // single-stat (just points) — comparing a Points + Assists Ladder
+      // line against a points-only L5 incorrectly tripped the form gate
+      // and wiped ALL combo props on 2026-05-26. If the family-keyed L5
+      // isn't cached, pass undefined → classifyNbaTier skips the form
+      // gate (honest "no data") rather than firing on the wrong stat.
       tier:           classifyNbaTier({
                         edge, modelProb: mp,
                         side: r?.side, line: r?.line,
                         l5Avg: enriched?.recentForm?.last5_avg
-                            ?? enriched?.recentForm?.last10_avg
-                            ?? enriched?.last5Avg,
+                            ?? enriched?.recentForm?.last10_avg,
                         projMostLikely: Number(enriched?.range?.mostLikely)
                                      ?? Number(enriched?.projection?.mostLikely)
                                      ?? Number(enriched?.projectionMostLikely)
