@@ -1050,11 +1050,15 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
     if (mk.includes("alternate") || mk.includes("_alt") || (pv && pv !== "base" && pv !== "default")) continue
 
     const propT = String(r?.propType || mk).toLowerCase()
-    // 2026-05-26 — Lane A1: DD/TD recognized. ORDER: triple_double FIRST.
+    // 2026-05-26 — Lane A1: DD/TD recognized. Lane A2: steals/blocks/turnovers.
+    // ORDER: triple_double FIRST. Specific families before generic fallbacks.
     const family = /triple[_\s-]*double/.test(propT) ? "triple_double"
       : /double[_\s-]*double/.test(propT) ? "double_double"
       : propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      : propT.includes("steals")   ? "steals"
+      : propT.includes("blocks")   ? "blocks"
+      : propT.includes("turnover") ? "turnovers"
       : propT.includes("points")   ? "points"
       : propT.includes("rebounds") ? "rebounds"
       : propT.includes("assists")  ? "assists"

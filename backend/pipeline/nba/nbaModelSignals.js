@@ -126,6 +126,11 @@ function classifyPropFamily(row) {
   // also contains "double" — regex order avoids false-classifying TD as DD.
   if (/triple[_\s-]*double/.test(t)) return "triple_double"
   if (/double[_\s-]*double/.test(t)) return "double_double"
+  // 2026-05-26 — Lane A2: steals/blocks/turnovers as first-class families.
+  // Continuous low-volume stats — clone threes-style modeling.
+  if (/steals/.test(t)) return "steals"
+  if (/blocks/.test(t)) return "blocks"
+  if (/turnover/.test(t)) return "turnovers"
   if (/threes|three|3pt/.test(t)) return "threes"
   // 2026-05-25 — CRITICAL ORDERING. The old `if (/point/) return "points"`
   // caught combo props ("Points + Rebounds", "Points + Assists") because
@@ -182,6 +187,13 @@ function probabilityBandForFamily(family, row) {
       // prime) sit around 30-35% per game. Ceiling enforced so the model
       // can't claim ELITE on a +1500 longshot via band floor alone.
       return { min: 0.02, max: 0.35 }
+    case "steals":
+    case "blocks":
+    case "turnovers":
+      // 2026-05-26 — Lane A2: Low-volume continuous stats. Bands match threes
+      // shape ([0.10, 0.85]) since they share the same low-volume profile
+      // (typical lines 0.5-3.5, like threes 1.5-3.5).
+      return { min: 0.10, max: 0.85 }
     case "special":
       return { min: 0.03, max: 0.42 }
     default:
@@ -199,6 +211,11 @@ function lineAnchorByFamily(family) {
   // as anchor so projections don't mis-scale. Hit-rate math is line-free.
   if (family === "double_double") return 0.5
   if (family === "triple_double") return 0.5
+  // 2026-05-26 — Lane A2: low-volume continuous stats. Anchors based on
+  // typical NBA per-game averages: steals ~1.0, blocks ~0.6, turnovers ~2.0.
+  if (family === "steals")    return 1.0
+  if (family === "blocks")    return 0.6
+  if (family === "turnovers") return 2.0
   if (family === "special") return 1.0
   return 10
 }

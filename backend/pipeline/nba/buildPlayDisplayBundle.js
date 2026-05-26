@@ -374,6 +374,33 @@ function doubleDoubleTags(play, tags) {
   if (play.starterFlag === 1) tags.push("starter")
 }
 
+// 2026-05-26 — Lane A2: low-volume continuous-stat tags. Same shape as
+// threesTags — surface season avg + role context. Opp-allowed deferred to
+// A2.2 (populator extension).
+function stealsTags(play, tags) {
+  const s = play.playerSeasonStats || {}
+  const avgStl = Number(s.avgSteals)
+  if (Number.isFinite(avgStl)) tags.push(`${windowLabel(s)} stl: ${n1(avgStl)}/g`)
+  if (play.starterFlag === 1) tags.push("starter")
+}
+
+function blocksTags(play, tags) {
+  const s = play.playerSeasonStats || {}
+  const avgBlk = Number(s.avgBlocks)
+  if (Number.isFinite(avgBlk)) tags.push(`${windowLabel(s)} blk: ${n1(avgBlk)}/g`)
+  if (play.starterFlag === 1) tags.push("starter")
+}
+
+function turnoversTags(play, tags) {
+  const s = play.playerSeasonStats || {}
+  const avgTo = Number(s.avgTurnovers ?? play.toRate)
+  if (Number.isFinite(avgTo)) tags.push(`${windowLabel(s)} to: ${n1(avgTo)}/g`)
+  // Turnovers are a "bad" stat — flag high-usage players who naturally accrue
+  // more TOs regardless of line direction. Bettor context.
+  const usage = Number(play.usageRate ?? s.usageRate)
+  if (Number.isFinite(usage) && usage >= 26) tags.push(`high usage (${pct(usage)}%)`)
+}
+
 function tripleDoubleTags(play, tags) {
   const hr5  = Number(play.tdHitRateL5)
   const hr10 = Number(play.tdHitRateL10)
@@ -513,6 +540,9 @@ function buildPlayDisplayBundle(play) {
     case "first_basket":   firstBasketTags(play, tags); break
     case "double_double":  doubleDoubleTags(play, tags); break
     case "triple_double":  tripleDoubleTags(play, tags); break
+    case "steals":         stealsTags(play, tags); break
+    case "blocks":         blocksTags(play, tags); break
+    case "turnovers":      turnoversTags(play, tags); break
     default: break
   }
 

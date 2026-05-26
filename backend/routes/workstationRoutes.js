@@ -566,8 +566,9 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // line (28.5 etc.) attached. Two-stat combos now route to "pra" for
     // sigma/projection math (closer to PRA behavior than pure points).
     const propT = String(r?.propType || mk).toLowerCase()
-    // 2026-05-26 — Lane A1: DD/TD families recognized so the rows reach the
-    // candidate pool. ORDER: triple_double FIRST (contains "double" substring).
+    // 2026-05-26 — Lane A1: DD/TD families. ORDER: triple_double FIRST.
+    // 2026-05-26 — Lane A2: steals/blocks/turnovers added. Check BEFORE
+    // generic single-stat fallbacks ("points" includes "p" in compounds).
     const family =
         /triple[_\s-]*double/.test(propT) ? "triple_double"
       : /double[_\s-]*double/.test(propT) ? "double_double"
@@ -576,6 +577,9 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
       : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
       : propT.includes("rebounds_assists")|| /rebounds.*assists/.test(propT)|| /rebounds\s*\+\s*assists/.test(propT)? "pra"
+      : propT.includes("steals")   ? "steals"
+      : propT.includes("blocks")   ? "blocks"
+      : propT.includes("turnover") ? "turnovers"
       : propT.includes("points")   ? "points"
       : propT.includes("rebounds") ? "rebounds"
       : propT.includes("assists")  ? "assists"

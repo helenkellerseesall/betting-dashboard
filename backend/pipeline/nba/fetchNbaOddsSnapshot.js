@@ -41,6 +41,19 @@ const NBA_DK_EXTRA_MARKETS = [
   "player_rebounds_assists_alternate",
 ]
 
+// 2026-05-26 — Lane A2: steals/blocks/turnovers in a SEPARATE third request.
+// Putting them in NBA_BASE_MARKETS (17 markets) caused silent drops.
+// Putting them in NBA_DK_EXTRA_MARKETS (12 markets) also caused drops.
+// The Odds API silently truncates when combined market lists are long.
+// Focused probe (probeOddsApiSteals.js) confirmed these markets return
+// fine when requested in a 3-market list. So we fire a 3rd parallel
+// request with just these — small enough to come back complete.
+const NBA_DEFENSIVE_MARKETS = [
+  "player_steals",
+  "player_blocks",
+  "player_turnovers",
+]
+
 // ── NBA SP1 fix: score snapshot rows into bestProps ───────────────────────────
 // Previously bestProps was hardcoded []. This function runs the canonical NBA
 // model signals (nbaRowModelProbability + nbaRowEdge) over the deduped raw
@@ -94,7 +107,9 @@ function buildNbaBestProps(rawRows) {
     // → singles last. Catches KAT Points+Rebounds 28.5 correctly as "pra" now.
     const propT = String(r?.propType || mk).toLowerCase()
     // 2026-05-26 — Lane A1: DD/TD recognized as first-class families.
-    // ORDER: triple_double FIRST (contains "double" substring).
+    // 2026-05-26 — Lane A2: steals/blocks/turnovers added as continuous-stat
+    // families. Order matters: specific multi-word combos and binary events
+    // first, then narrow single-word stats, then generic fallbacks.
     const family =
         /triple[_\s-]*double/.test(propT) ? "triple_double"
       : /double[_\s-]*double/.test(propT) ? "double_double"
@@ -103,9 +118,12 @@ function buildNbaBestProps(rawRows) {
       : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
       : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
       : propT.includes("rebounds_assists")|| /rebounds.*assists/.test(propT)|| /rebounds\s*\+\s*assists/.test(propT)? "pra"
-      : propT.includes("points")   ? "points"
-      : propT.includes("rebounds") ? "rebounds"
-      : propT.includes("assists")  ? "assists"
+      : propT.includes("steals")    ? "steals"
+      : propT.includes("blocks")    ? "blocks"
+      : propT.includes("turnover")  ? "turnovers"
+      : propT.includes("points")    ? "points"
+      : propT.includes("rebounds")  ? "rebounds"
+      : propT.includes("assists")   ? "assists"
       : (propT.includes("threes") || propT.includes("three") || propT.includes("3pt")) ? "threes"
       : null
     if (!family) { rejectCounts.noFamily++; continue }
@@ -339,6 +357,12 @@ function getIngestRejectReason(row) {
     "Points + Rebounds",
     "Points + Assists",
     "Rebounds + Assists",
+    // 2026-05-26 — Lane A2: defensive families. Final whitelist gatekeeper —
+    // without these, rows get rejected with reason "invalid_prop_type" even
+    // after inferMarketTypeFromKey returns the right internalType.
+    "Steals",
+    "Blocks",
+    "Turnovers",
   ])
   const ladderPropTypes = new Set([
     "Points Ladder",
@@ -349,6 +373,9 @@ function getIngestRejectReason(row) {
     "Points + Rebounds Ladder",
     "Points + Assists Ladder",
     "Rebounds + Assists Ladder",
+    "Steals Ladder",
+    "Blocks Ladder",
+    "Turnovers Ladder",
   ])
   const specialPropTypes = new Set(["First Basket", "First Team Basket", "Double Double", "Triple Double"])
   const allAllowedPropTypes = new Set([...standardPropTypes, ...ladderPropTypes, ...specialPropTypes])
@@ -492,12 +519,22 @@ async function fetchEventOddsRows(event, oddsApiKey) {
     markets: NBA_DK_EXTRA_MARKETS.join(","),
     oddsFormat: "american",
   }
+  // 2026-05-26 — Lane A2: third parallel request, defensive markets only
+  // (steals/blocks/turnovers). Split out because the Odds API silently
+  // truncates large combined market requests — confirmed via probe.
+  const defParams = {
+    apiKey: oddsApiKey,
+    regions: "us",
+    bookmakers: NBA_BOOKMAKERS_CSV,
+    markets: NBA_DEFENSIVE_MARKETS.join(","),
+    oddsFormat: "american",
+  }
 
   // Phase Market-Ecology-1A (OBS-3): wrap each axios.get with logApiCallAsync.
   // Records ts, sport, endpoint, eventId, status, durationMs, httpStatus, error
   // into runtime/market/api_call_log.jsonl. Pure observability — Promise.all
   // semantics, error propagation, and timeout behavior all unchanged.
-  const [baseRes, extraRes] = await Promise.all([
+  const [baseRes, extraRes, defRes] = await Promise.all([
     logApiCallAsync(
       { sport: "nba", endpoint: "odds-api/v4/events/odds/base", eventId },
       () => axios.get(url, { params: baseParams, timeout: 20000 })
@@ -506,11 +543,36 @@ async function fetchEventOddsRows(event, oddsApiKey) {
       { sport: "nba", endpoint: "odds-api/v4/events/odds/extra", eventId },
       () => axios.get(url, { params: extraParams, timeout: 20000 })
     ),
+    logApiCallAsync(
+      { sport: "nba", endpoint: "odds-api/v4/events/odds/defensive", eventId },
+      () => axios.get(url, { params: defParams, timeout: 20000 })
+    ),
   ])
 
   const baseBooks = baseRes?.data?.bookmakers
   const extraBooks = extraRes?.data?.bookmakers
-  const books = mergeBookmakers(baseBooks, extraBooks)
+  const defBooks = defRes?.data?.bookmakers
+
+  // 2026-05-26 — Lane A2 diagnostic: temporary log to see what each API
+  // response carries. If defBooks is empty/undefined, the 3rd API call
+  // returns no data despite HTTP 200. If defBooks has data but mergeBookmakers
+  // strips it, the issue is in the merge.
+  try {
+    const sum = (arr) => (Array.isArray(arr) ? arr : []).reduce((acc, bk) => {
+      const m = Array.isArray(bk?.markets) ? bk.markets : []
+      const o = m.reduce((a, mk) => a + (Array.isArray(mk?.outcomes) ? mk.outcomes.length : 0), 0)
+      return { books: acc.books + 1, markets: acc.markets + m.length, outcomes: acc.outcomes + o, keys: acc.keys.concat(m.map(mk => mk?.key)) }
+    }, { books: 0, markets: 0, outcomes: 0, keys: [] })
+    const bs = sum(baseBooks), es = sum(extraBooks), ds = sum(defBooks)
+    console.log("[A2-DIAG]", JSON.stringify({
+      eventId,
+      base: { books: bs.books, markets: bs.markets, outcomes: bs.outcomes },
+      extra: { books: es.books, markets: es.markets, outcomes: es.outcomes },
+      defensive: { books: ds.books, markets: ds.markets, outcomes: ds.outcomes, marketKeys: [...new Set(ds.keys)] },
+    }))
+  } catch (e) { console.log("[A2-DIAG] log failed:", e?.message) }
+
+  const books = mergeBookmakers(mergeBookmakers(baseBooks, extraBooks), defBooks)
 
   const observedAtIso = new Date().toISOString()
   const awayTeam = event?.away_team || event?.awayTeam || ""

@@ -168,6 +168,14 @@ function inferMarketTypeFromKey(marketKey) {
   }
   if (k.startsWith("player_assists")) return { internalType: "Assists", family: "standard" }
   if (k.startsWith("player_rebounds")) return { internalType: "Rebounds", family: "standard" }
+  // 2026-05-26 — Lane A2: defensive-stat markets. Row parser returned null
+  // for these market keys (no prefix case) so rows were silently dropped
+  // even when API calls succeeded. This was the actual bug — separate from
+  // the inline family classifiers in fetchNbaOddsSnapshot / workstationRoutes /
+  // nbaIsolatedRoutes / nbaModelSignals.
+  if (k.startsWith("player_steals")) return { internalType: "Steals", family: "standard" }
+  if (k.startsWith("player_blocks")) return { internalType: "Blocks", family: "standard" }
+  if (k.startsWith("player_turnovers")) return { internalType: "Turnovers", family: "standard" }
 
   for (const rule of MARKET_TYPE_RULES) {
     if (rule.matches.some((needle) => k.includes(String(needle).toLowerCase()))) {
@@ -204,6 +212,10 @@ function canonicalPropTypeFromInferred(internalType, marketKey) {
   if (t === "Rebounds" || t === "Rebounds Ladder") return "rebounds"
   if (t === "Assists" || t === "Assists Ladder") return "assists"
   if (t === "Threes" || t === "Threes Ladder") return "threes"
+  // 2026-05-26 — Lane A2: defensive families
+  if (t === "Steals" || t === "Steals Ladder") return "steals"
+  if (t === "Blocks" || t === "Blocks Ladder") return "blocks"
+  if (t === "Turnovers" || t === "Turnovers Ladder") return "turnovers"
 
   if (mk.includes("first_basket") && !mk.includes("team")) return "first_basket"
   if (mk.includes("double_double")) return "double_double"
