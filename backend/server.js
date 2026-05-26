@@ -19389,7 +19389,11 @@ app.get("/refresh-snapshot", async (req, res) => {
     return res.json({ skipped: true, reason: "in_progress" })
   }
 
-  if (Date.now() - __lastRefreshTime < 120000) {
+  // 2026-05-26 slate-rollover fix — force=1 bypasses the 2-min cooldown so the
+  // end-of-slate auto-refresh from /api/best-available (when all events are
+  // commence_time+4h in the past) is not blocked by a recent stale refresh.
+  const __forceRefresh = String(req?.query?.force || "") === "1"
+  if (!__forceRefresh && Date.now() - __lastRefreshTime < 120000) {
     console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
     return res.json({ skipped: true, reason: "cooldown" })
   }

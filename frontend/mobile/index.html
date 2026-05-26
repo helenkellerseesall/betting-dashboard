@@ -1465,12 +1465,22 @@
       }
 
       if (cands.length === 0) {
+        // 2026-05-26 slate-rollover — give the bettor an honest reason for
+        // the empty state. After ~10pm local with no future-game candidates
+        // surfaced, tonight's slate is done and tomorrow's lines haven't
+        // been published by The Odds API yet (typical publish window ~7-10am ET).
+        const __hr = new Date().getHours();
+        let __emptyMsg;
+        if (sport === "nba" && __hr >= 22) {
+          __emptyMsg = `Tonight's slate is complete.<br>Tomorrow's lines aren't posted yet — The Odds API typically publishes the next slate by 10am ET.`;
+        } else if (sport === "nba" && __hr < 10) {
+          __emptyMsg = `Today's slate hasn't been posted by The Odds API yet.<br>Lines typically publish by 10am ET — pull to refresh after then.`;
+        } else {
+          __emptyMsg = `No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>Slate may still be building — pull to refresh in a few seconds.`;
+        }
         main.innerHTML = freshHtml + searchHtml +
           `<div id="search-results-region"></div>` +
-          `<div class="empty">
-            No candidates surfaced for ${sport.toUpperCase()} on ${todayLabel}.<br>
-            Slate may still be building — pull to refresh in a few seconds.
-          </div>`;
+          `<div class="empty">${__emptyMsg}</div>`;
         return;
       }
 

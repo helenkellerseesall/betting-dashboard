@@ -1232,6 +1232,12 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
   if (!Array.isArray(corePropsBoard) || !corePropsBoard.length) return []
   const rawQualified = []
 
+  // 2026-05-26 slate-rollover fix — drop rows whose gameTime is already in the
+  // past (game started >3h ago). Stops completed-game picks from surfacing
+  // while we wait for the next-day slate to publish.
+  const __nowMs = Date.now()
+  const __gameOverThresholdMs = 3 * 3600 * 1000
+
   for (const r of corePropsBoard) {
     const player = String(r?.player || "").trim()
     if (!player) continue
@@ -1239,6 +1245,13 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
     if (!side || side === "unknown") continue
     const odds = Number(r?.odds ?? r?.oddsAmerican)
     if (!Number.isFinite(odds) || odds > 200 || odds < -200) continue
+
+    // Completed-game filter — drop if gameTime+3h is in the past
+    const __gt = r?.gameTime || r?.commenceTime || r?.commence_time
+    if (__gt) {
+      const __gtMs = new Date(__gt).getTime()
+      if (Number.isFinite(__gtMs) && (__nowMs - __gtMs) > __gameOverThresholdMs) continue
+    }
 
     const mk = String(r?.marketKey || "").toLowerCase()
     const pv = String(r?.propVariant || "base").toLowerCase()
@@ -1335,10 +1348,24 @@ async function handleNbaBestAvailableGet(req, res, deps) {
   const snapshotEventsCount = Array.isArray(snap?.events) ? snap.events.length : 0
   const snapshotRawPropsCount = Array.isArray(snap?.rawProps) ? snap.rawProps.length : 0
 
+  // 2026-05-26 slate-rollover fix — detect "slate complete" so refresh fires
+  // even when snapshot has events and is < 8min old (e.g. last refresh was at
+  // 9pm, all games done by 11pm, snapshot still appears "fresh" by age alone).
+  const __nowMs = Date.now()
+  const __eventsArr = Array.isArray(snap?.events) ? snap.events : []
+  const __allEventsComplete =
+    __eventsArr.length > 0 &&
+    __eventsArr.every((ev) => {
+      const t = ev?.commence_time || ev?.commenceTime || ev?.gameTime
+      const ms = t ? new Date(t).getTime() : NaN
+      return Number.isFinite(ms) && (ms + 4 * 3600 * 1000) < __nowMs
+    })
+
   const refreshReasons = []
   if (snapshotEventsCount === 0) refreshReasons.push("events_zero")
   if (snapshotRawPropsCount === 0) refreshReasons.push("rawProps_zero")
   if (snapshotAgeMinutes > 8) refreshReasons.push("stale_over_8m")
+  if (__allEventsComplete) refreshReasons.push("slate_complete")
 
   if (refreshReasons.length) {
     console.log("[NBA SNAPSHOT POLICY]", {
@@ -1347,18 +1374,26 @@ async function handleNbaBestAvailableGet(req, res, deps) {
       ageMinutes: Number.isFinite(snapshotAgeMinutes) ? Math.round(snapshotAgeMinutes * 10) / 10 : null,
       events: snapshotEventsCount,
       rawProps: snapshotRawPropsCount,
+      slateComplete: __allEventsComplete,
     })
 
+    // 2026-05-26 slate-rollover fix — DO NOT pre-acquire refreshGuard.inProgress
+    // here. The /refresh-snapshot handler in server.js checks the SAME module-level
+    // __refreshInProgress (unified Session Y) and bails with "in_progress" if we
+    // hold it. That made the auto-refresh path silently dead. Let /refresh-snapshot
+    // own its mutex; we just trigger it. If it returns skipped:cooldown we continue
+    // with whatever snap we have (best-effort, no deadlock).
+    //
+    // slate_complete bypasses the bestAvailable-side cooldown check so end-of-slate
+    // rollover is not blocked by a recent stale refresh.
     try {
       const now = Date.now()
-      if (refreshGuard.inProgress) {
-        console.log("[REFRESH GUARD]", { skipped: true, reason: "in_progress" })
-      } else if (now - refreshGuard.lastRefreshTime < 2 * 60 * 1000) {
-        console.log("[REFRESH GUARD]", { skipped: true, reason: "cooldown" })
+      const bypassCooldown = __allEventsComplete
+      if (!bypassCooldown && (now - refreshGuard.lastRefreshTime) < 2 * 60 * 1000) {
+        console.log("[REFRESH GUARD]", { skipped: true, reason: "bestavail_cooldown" })
       } else {
-        refreshGuard.inProgress = true
         refreshGuard.lastRefreshTime = now
-        console.log("[REFRESH GUARD]", { skipped: false, reason: null })
+        console.log("[REFRESH GUARD]", { skipped: false, reason: null, bypassCooldown })
 
         const port = Number(process.env.PORT || 4000)
         const sportParam = encodeURIComponent(String(bestAvailableSportKey || "basketball_nba"))
@@ -1369,8 +1404,6 @@ async function handleNbaBestAvailableGet(req, res, deps) {
         message: e?.message || String(e),
         status: e?.response?.status || null,
       })
-    } finally {
-      refreshGuard.inProgress = false
     }
 
     snap = oddsSnapshot && typeof oddsSnapshot === "object" ? oddsSnapshot : null
