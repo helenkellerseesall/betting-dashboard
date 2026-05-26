@@ -296,9 +296,102 @@ function enrichRowWithRecentForm(row) {
   return row
 }
 
+// 2026-05-26 — Lane A1: Binary-event hit rate (double_double, triple_double)
+// directly from gameLogs cache. NOT keyed through the existing recentForm
+// cache (which is family→avg). Computed on-demand from per-game stats:
+//   DD = ≥2 of {points, rebounds, assists, steals, blocks} reaching 10
+//   TD = ≥3 of those reaching 10
+//
+// Returns { hr_l5, hr_l10, hr_season, sample_l5, sample_l10, sample_season }
+// (rates 0..1, samples are game counts). Honest null when player not in cache.
+function getBinaryHitRates(player) {
+  if (!player) return null
+  try {
+    const path = require("path")
+    const fs   = require("fs")
+    const cachePath = path.join(__dirname, "..", "..", "data", "nbaPlayerGameLogs.json")
+    if (!fs.existsSync(cachePath)) return null
+    const blob = JSON.parse(fs.readFileSync(cachePath, "utf8"))
+    const players = blob?.players || {}
+    const key  = normPlayer(player)
+    const pdata = players[key]
+    if (!pdata || !Array.isArray(pdata.games)) return null
+    const games = pdata.games
+
+    function isDoubleDouble(s) {
+      if (!s) return false
+      let n = 0
+      for (const k of ["points","rebounds","assists","steals","blocks"]) {
+        if (Number(s[k]) >= 10) n++
+        if (n >= 2) return true
+      }
+      return false
+    }
+    function isTripleDouble(s) {
+      if (!s) return false
+      let n = 0
+      for (const k of ["points","rebounds","assists","steals","blocks"]) {
+        if (Number(s[k]) >= 10) n++
+      }
+      return n >= 3
+    }
+
+    const ddArr = games.map(g => isDoubleDouble(g?.stats) ? 1 : 0)
+    const tdArr = games.map(g => isTripleDouble(g?.stats) ? 1 : 0)
+    const slice = (arr, n) => arr.slice(0, Math.min(n, arr.length))
+    const rate  = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null
+
+    return {
+      dd_l5:    rate(slice(ddArr, 5)),
+      dd_l10:   rate(slice(ddArr, 10)),
+      dd_season: rate(ddArr),
+      dd_sample_l5:  Math.min(5, ddArr.length),
+      dd_sample_l10: Math.min(10, ddArr.length),
+      dd_sample_season: ddArr.length,
+      td_l5:    rate(slice(tdArr, 5)),
+      td_l10:   rate(slice(tdArr, 10)),
+      td_season: rate(tdArr),
+      td_sample_l5:  Math.min(5, tdArr.length),
+      td_sample_l10: Math.min(10, tdArr.length),
+      td_sample_season: tdArr.length,
+    }
+  } catch (_) {
+    return null
+  }
+}
+
+/**
+ * Idempotent row enricher — stamps DD/TD hit rates onto a snapshot/candidate row.
+ * No-op when player not in gameLogs cache.
+ */
+function enrichRowWithBinaryHitRates(row) {
+  if (!row || typeof row !== "object") return row
+  const player = row.player || row.playerName
+  if (!player) return row
+  // Skip if already enriched (idempotent — cheap short-circuit).
+  if (Number.isFinite(Number(row.ddHitRateL5)) || Number.isFinite(Number(row.tdHitRateL5))) {
+    return row
+  }
+  const r = getBinaryHitRates(player)
+  if (!r) return row
+  row.ddHitRateL5     = r.dd_l5
+  row.ddHitRateL10    = r.dd_l10
+  row.ddHitRateSeason = r.dd_season
+  row.ddSampleL5      = r.dd_sample_l5
+  row.ddSampleL10     = r.dd_sample_l10
+  row.tdHitRateL5     = r.td_l5
+  row.tdHitRateL10    = r.td_l10
+  row.tdHitRateSeason = r.td_season
+  row.tdSampleL5      = r.td_sample_l5
+  row.tdSampleL10     = r.td_sample_l10
+  return row
+}
+
 module.exports = {
   getRecentForm,
   enrichRowWithRecentForm,
+  getBinaryHitRates,
+  enrichRowWithBinaryHitRates,
   aggregateFromSettledBets,
   loadCacheFromDisk,
   resetCache,

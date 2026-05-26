@@ -120,7 +120,12 @@ function propTypeLower(row) {
 function classifyPropFamily(row) {
   const t = propTypeLower(row)
   if (/first\s*basket/.test(t)) return "special"
-  if (/double\s*double|triple\s*double/.test(t)) return "special"
+  // 2026-05-26 — Lane A1: DD/TD become first-class modeled families with
+  // hit-rate logic instead of the generic flat-band `special` treatment.
+  // ORDER MATTERS: triple_double check first because "triple_double" string
+  // also contains "double" — regex order avoids false-classifying TD as DD.
+  if (/triple[_\s-]*double/.test(t)) return "triple_double"
+  if (/double[_\s-]*double/.test(t)) return "double_double"
   if (/threes|three|3pt/.test(t)) return "threes"
   // 2026-05-25 — CRITICAL ORDERING. The old `if (/point/) return "points"`
   // caught combo props ("Points + Rebounds", "Points + Assists") because
@@ -167,6 +172,16 @@ function probabilityBandForFamily(family, row) {
       return { min: 0.12, max: 0.82 }
     case "threes":
       return { min: 0.10, max: 0.85 }
+    case "double_double":
+      // Binary event. Floor is honest — a player can genuinely have ~5% DD
+      // probability if minutes / role suggest it's near-impossible. Ceiling
+      // 0.80 because elite bigs (Jokic, Sabonis) reliably DD ~85% of games.
+      return { min: 0.05, max: 0.80 }
+    case "triple_double":
+      // Rare event. Even elite triple-double threats (Jokic, LBJ in his
+      // prime) sit around 30-35% per game. Ceiling enforced so the model
+      // can't claim ELITE on a +1500 longshot via band floor alone.
+      return { min: 0.02, max: 0.35 }
     case "special":
       return { min: 0.03, max: 0.42 }
     default:
@@ -180,6 +195,10 @@ function lineAnchorByFamily(family) {
   if (family === "rebounds") return 6.0
   if (family === "pra") return 27.5
   if (family === "points") return 18.0
+  // Binary props: line is always 0.5 ("over 0.5" = yes), but we use 0.5
+  // as anchor so projections don't mis-scale. Hit-rate math is line-free.
+  if (family === "double_double") return 0.5
+  if (family === "triple_double") return 0.5
   if (family === "special") return 1.0
   return 10
 }
@@ -402,6 +421,57 @@ function nbaIndependentBaseModelProbability(row) {
   const family = classifyPropFamily(row)
   const anchor = lineAnchorByFamily(family)
   const line = toNum(row?.line)
+
+  // 2026-05-26 — Lane A1: Binary-event families (double_double, triple_double)
+  // skip the z-score/logistic pipeline entirely. Their probability comes from
+  // recent hit-rate, not from "is L5 above the 0.5 line." The hit rate is
+  // computed up-front by enrichNbaRowWithBinaryHitRates (stamped on the row).
+  // Early return short-circuits the rest of the scorer for these families.
+  if (family === "double_double" || family === "triple_double") {
+    const hr5  = toNum(row?.[`${family === "double_double" ? "dd" : "td"}HitRateL5`])
+    const hr10 = toNum(row?.[`${family === "double_double" ? "dd" : "td"}HitRateL10`])
+    const seasonHr = toNum(row?.[`${family === "double_double" ? "dd" : "td"}HitRateSeason`])
+    // Honest null when no hit-rate info — model can't have an opinion.
+    if (!Number.isFinite(hr5) && !Number.isFinite(hr10) && !Number.isFinite(seasonHr)) {
+      // Fall back to band midpoint (0.4 for DD, 0.15 for TD) so picks don't
+      // get random fake edge from the floor.
+      const fallback = family === "double_double" ? 0.40 : 0.12
+      return fallback
+    }
+    // Blended hit rate: L5 weighted heaviest (recent form), then L10, then
+    // season. If only one is present, use it directly.
+    const parts = []
+    if (Number.isFinite(hr5))     parts.push([hr5,     0.55])
+    if (Number.isFinite(hr10))    parts.push([hr10,    0.30])
+    if (Number.isFinite(seasonHr)) parts.push([seasonHr, 0.15])
+    const num   = parts.reduce((a, [v, w]) => a + v * w, 0)
+    const denom = parts.reduce((a, [, w]) => a + w, 0)
+    let prob = denom > 0 ? num / denom : (family === "double_double" ? 0.40 : 0.12)
+
+    // Minor matchup adjustment for binary events:
+    //   - high game pace + high total → more counting stats → more DD/TD
+    //   - large blowout spread → garbage time / early benching → fewer
+    // Capped ±0.05 prob units so the matchup signal is influence-not-dominate.
+    const paceVal  = toNum(row?.pace)
+    const totalVal = toNum(row?.gameTotal ?? row?.total)
+    const spreadVal = toNum(row?.gameSpread ?? row?.spread)
+    let matchupAdj = 0
+    if (Number.isFinite(paceVal))  matchupAdj += (paceVal - 100) / 100 * 0.04    // +/-0.04 typical range
+    if (Number.isFinite(totalVal)) matchupAdj += (totalVal - 224) / 224 * 0.03   // +/-0.03 typical
+    if (Number.isFinite(spreadVal)) matchupAdj -= Math.min(0.04, Math.abs(spreadVal) / 20 * 0.04)
+    matchupAdj = Math.max(-0.05, Math.min(0.05, matchupAdj))
+    prob = prob + matchupAdj
+
+    // Side handling: "yes" / "over" → as-is. "no" / "under" → 1 - prob.
+    // The market convention for DD/TD is OVER 0.5 = yes.
+    const side = String(row?.side || "").toLowerCase()
+    if (side === "under" || side === "no") prob = 1 - prob
+
+    // Clamp to family band.
+    const band = probabilityBandForFamily(family, row)
+    return Math.max(band.min, Math.min(band.max, prob))
+  }
+
   const { usage, shots, astRate, rebRate, minutes, role } = roleSignals(row, family, line, anchor)
   const { pace, total, spread, blowoutRisk, oppDef } = contextSignals(row)
   const recent = recentFormSignal(row, line, anchor)
@@ -734,6 +804,8 @@ function _loadEnrichers() {
   if (_enrichers) return _enrichers
   _enrichers = {}
   try { _enrichers.recentForm = require("./nbaRecentFormCache").enrichRowWithRecentForm } catch (_) {}
+  // 2026-05-26 — Lane A1: binary-event (DD/TD) hit-rate enricher.
+  try { _enrichers.binaryHitRates = require("./nbaRecentFormCache").enrichRowWithBinaryHitRates } catch (_) {}
   try { _enrichers.roleContext = require("./nbaRoleContextDeriver").enrichRowWithRoleContext } catch (_) {}
   try { _enrichers.availability = require("./nbaAvailabilityCache").enrichRowWithAvailability } catch (_) {}
   // 2026-05-24 — Phase 2 data layers. Opponent team stats + player season-rate stats.
@@ -749,6 +821,9 @@ function _ensureEnriched(row) {
   // Each is a per-row, no-prerequisite enricher that mutates row in place
   // and is a no-op when source data is unavailable.
   try { if (e.recentForm && !row.recentForm) e.recentForm(row) } catch (_) {}
+  // 2026-05-26 — Lane A1: DD/TD hit rates. Idempotent — short-circuits if
+  // either ddHitRateL5 or tdHitRateL5 is already finite on the row.
+  try { if (e.binaryHitRates) e.binaryHitRates(row) } catch (_) {}
   try { if (e.roleContext && row.starterFlag == null) e.roleContext(row) } catch (_) {}
   try { if (e.availability && !row.playerStatus) e.availability(row) } catch (_) {}
   // 2026-05-24 — Phase 2: team stats (oppDef, pace, opp-allowed) + player season

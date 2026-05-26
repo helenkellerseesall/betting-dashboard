@@ -339,6 +339,43 @@ function firstBasketTags(play, tags) {
   if (Number.isFinite(avgPts)) tags.push(`${windowLabel(s)} pts: ${n1(avgPts)}/g`)
 }
 
+// 2026-05-26 — Lane A1: Binary-event tags. Hit-rate is the signal that drives
+// modelProb for DD/TD, so the card shows the same numbers — no fabrication,
+// just the basis for the probability the bettor sees.
+function doubleDoubleTags(play, tags) {
+  const hr5  = Number(play.ddHitRateL5)
+  const hr10 = Number(play.ddHitRateL10)
+  const s5   = Number(play.ddSampleL5)
+  const s10  = Number(play.ddSampleL10)
+  if (Number.isFinite(hr5) && Number.isFinite(s5) && s5 > 0) {
+    const hits = Math.round(hr5 * s5)
+    tags.push(`DD last 5: ${hits}/${s5}`)
+  }
+  if (Number.isFinite(hr10) && Number.isFinite(s10) && s10 > 0) {
+    tags.push(`L10 DD rate: ${pct(hr10)}%`)
+  }
+  if (play.starterFlag === 1) tags.push("starter")
+}
+
+function tripleDoubleTags(play, tags) {
+  const hr5  = Number(play.tdHitRateL5)
+  const hr10 = Number(play.tdHitRateL10)
+  const s5   = Number(play.tdSampleL5)
+  const s10  = Number(play.tdSampleL10)
+  if (Number.isFinite(hr5) && Number.isFinite(s5) && s5 > 0) {
+    const hits = Math.round(hr5 * s5)
+    tags.push(`TD last 5: ${hits}/${s5}`)
+  }
+  if (Number.isFinite(hr10) && Number.isFinite(s10) && s10 > 0) {
+    tags.push(`L10 TD rate: ${pct(hr10)}%`)
+  }
+  // Helpful context for TD — rare event, knowing it's happened recently matters
+  const seasonRate = Number(play.tdHitRateSeason)
+  if (Number.isFinite(seasonRate) && seasonRate > 0.1) {
+    tags.push(`season TD rate: ${pct(seasonRate)}%`)
+  }
+}
+
 // ── signals table builder ──────────────────────────────────────────────────
 
 function buildSignalsTable(play, family) {
@@ -451,12 +488,14 @@ function buildPlayDisplayBundle(play) {
 
   // Prop-aware stat tags
   switch (family) {
-    case "points":       pointsTags(play, tags); break
-    case "rebounds":     reboundsTags(play, tags); break
-    case "threes":       threesTags(play, tags); break
-    case "assists":      assistsTags(play, tags); break
-    case "pra":          praTags(play, tags); break
-    case "first_basket": firstBasketTags(play, tags); break
+    case "points":         pointsTags(play, tags); break
+    case "rebounds":       reboundsTags(play, tags); break
+    case "threes":         threesTags(play, tags); break
+    case "assists":        assistsTags(play, tags); break
+    case "pra":            praTags(play, tags); break
+    case "first_basket":   firstBasketTags(play, tags); break
+    case "double_double":  doubleDoubleTags(play, tags); break
+    case "triple_double":  tripleDoubleTags(play, tags); break
     default: break
   }
 

@@ -1031,7 +1031,12 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
     const side = String(r?.side || "").toLowerCase()
     if (!side || side === "unknown") continue
     const odds = Number(r?.odds ?? r?.oddsAmerican)
-    if (!Number.isFinite(odds) || odds > 200 || odds < -200) continue
+    // 2026-05-26 — Lane A1: DD/TD families need wider odds cap (legitimate
+    // longshot markets, model's probability band prevents fake band-floor edge).
+    const __isDdTdQuickBA =
+      /double[_\s-]*double|triple[_\s-]*double/.test(String(r?.propType || r?.marketKey || "").toLowerCase())
+    const __oddsCapBA = __isDdTdQuickBA ? 2500 : 200
+    if (!Number.isFinite(odds) || odds > __oddsCapBA || odds < -200) continue
 
     // Completed-game filter — drop if gameTime+3h is in the past
     const __gt = r?.gameTime || r?.commenceTime || r?.commence_time
@@ -1045,7 +1050,10 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
     if (mk.includes("alternate") || mk.includes("_alt") || (pv && pv !== "base" && pv !== "default")) continue
 
     const propT = String(r?.propType || mk).toLowerCase()
-    const family = propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+    // 2026-05-26 — Lane A1: DD/TD recognized. ORDER: triple_double FIRST.
+    const family = /triple[_\s-]*double/.test(propT) ? "triple_double"
+      : /double[_\s-]*double/.test(propT) ? "double_double"
+      : propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
       : propT.includes("points")   ? "points"
       : propT.includes("rebounds") ? "rebounds"

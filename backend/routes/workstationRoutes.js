@@ -423,49 +423,6 @@ function enrichBestEntry(e, betsById) {
       out.matchup = `${out.awayTeam} @ ${out.homeTeam}`
     }
 
-    // 2026-05-26 — Re-classify tier on read using CURRENT enriched state.
-    // Background: tracked_bets disk files persist the tier stamped at write
-    // time. If recentForm wasn't populated at write time (e.g. thin sample
-    // for a player, or runNbaNight pre-form-gate cycle), the stale tier
-    // bypasses the form-contradiction gate forever. Jalen Williams threes
-    // ladder OVER 1.5 surfaced as ELITE on iPhone 2026-05-26 despite L5=0.5
-    // — direct classifyNbaTier returned FADE, but tb.tier was ELITE on disk.
-    //
-    // Now: the read-side classifier sees the just-enriched recentForm /
-    // projection and is the single source of truth. Disk-stored tier is
-    // discarded.
-    try {
-      const __edge      = Number(out.edge ?? out.edgeProbability)
-      const __modelProb = Number(out.modelProb ?? out.predictedProbability)
-      // 2026-05-26 v2 — only use family-keyed recentForm.last5_avg; do NOT
-      // fall back to out.last5Avg (single-stat) for combo props, otherwise
-      // the form-contradiction gate fires on the wrong dimension and wipes
-      // every combo prop on the slate. If recentForm is absent, pass NaN
-      // so classifyNbaTier honestly skips the form gate.
-      const __l5        = Number(out.recentForm?.last5_avg ?? out.recentForm?.last10_avg)
-      const __projML    = Number(
-        out?.range?.mostLikely ??
-        out?.projection?.mostLikely ??
-        out?.projectionMostLikely
-      )
-      const __reTier = classifyNbaTier({
-        edge:           Number.isFinite(__edge) ? __edge : null,
-        modelProb:      Number.isFinite(__modelProb) ? __modelProb : null,
-        side:           out.side,
-        line:           out.line,
-        l5Avg:          Number.isFinite(__l5) ? __l5 : null,
-        projMostLikely: Number.isFinite(__projML) ? __projML : null,
-      })
-      if (__reTier && __reTier !== out.tier) {
-        console.log("[TIER-RECLASSIFY]", out.player, out.propType, out.side, out.line,
-                    "disk=" + out.tier, "→", __reTier,
-                    "edge=" + (Number.isFinite(__edge) ? __edge.toFixed(3) : "—"),
-                    "l5=" + (Number.isFinite(__l5) ? __l5 : "—"))
-        out.tier = __reTier
-      }
-    } catch (e) {
-      console.warn("[TIER-RECLASSIFY] failed for", out.player, ":", e?.message || e)
-    }
   }
   return out
 }
@@ -533,8 +490,15 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // Odds gate: base lines core market range (-200..+200).
     // NBA-3: Quality alt-lines allowed up to +800 American (dec ~9.0) — calibrated elevation range.
     // Extreme ladder lines (> +800 American) remain hard-killed: model edge not calibrated above that.
+    // 2026-05-26 — Lane A1: DD/TD families are legitimate base-line longshot
+    // markets (DD ~+150 to +800, TD ~+500 to +5000). The model's binary-event
+    // probability band (0.05-0.80 DD, 0.02-0.35 TD) prevents fake band-floor
+    // edge at high odds, so wider odds caps are safe for these families only.
     const odds = Number(r?.odds ?? r?.oddsAmerican)
-    if (!Number.isFinite(odds) || odds < -200 || odds > (isAltLine ? 800 : 200)) continue
+    const __isDdTdQuick =
+      /double[_\s-]*double|triple[_\s-]*double/.test(String(r?.propType || mk).toLowerCase())
+    const __oddsCap = __isDdTdQuick ? 2500 : (isAltLine ? 800 : 200)
+    if (!Number.isFinite(odds) || odds < -200 || odds > __oddsCap) continue
 
     // Classify stat family
     // 2026-05-25 — CRITICAL ORDERING. Third shadow classifier (sibling of
@@ -546,8 +510,12 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // line (28.5 etc.) attached. Two-stat combos now route to "pra" for
     // sigma/projection math (closer to PRA behavior than pure points).
     const propT = String(r?.propType || mk).toLowerCase()
+    // 2026-05-26 — Lane A1: DD/TD families recognized so the rows reach the
+    // candidate pool. ORDER: triple_double FIRST (contains "double" substring).
     const family =
-        propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
+        /triple[_\s-]*double/.test(propT) ? "triple_double"
+      : /double[_\s-]*double/.test(propT) ? "double_double"
+      : propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
       : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "pra"
       : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "pra"
@@ -629,22 +597,16 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       // gate can fire here. Also passes projection from multiple possible
       // upstream stamps (range.mostLikely, projection.mostLikely, etc.).
       //
-      // 2026-05-26 — BUG FIX (v2): read L5 ONLY from `enriched.recentForm`,
-      // which is the family-keyed cache (pra/points/rebounds/etc.). The
-      // earlier fix added a fallback to `enriched.last5Avg`, which is
-      // single-stat (just points) — comparing a Points + Assists Ladder
-      // line against a points-only L5 incorrectly tripped the form gate
-      // and wiped ALL combo props on 2026-05-26. If the family-keyed L5
-      // isn't cached, pass undefined → classifyNbaTier skips the form
-      // gate (honest "no data") rather than firing on the wrong stat.
+      // 2026-05-25 — projMostLikely now passed so projection-contradiction
+      // gate can fire here. Also passes projection from multiple possible
+      // upstream stamps (range.mostLikely, projection.mostLikely, etc.).
       tier:           classifyNbaTier({
                         edge, modelProb: mp,
                         side: r?.side, line: r?.line,
-                        l5Avg: enriched?.recentForm?.last5_avg
-                            ?? enriched?.recentForm?.last10_avg,
-                        projMostLikely: Number(enriched?.range?.mostLikely)
-                                     ?? Number(enriched?.projection?.mostLikely)
-                                     ?? Number(enriched?.projectionMostLikely)
+                        l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
+                        projMostLikely: Number(r?.range?.mostLikely)
+                                     ?? Number(r?.projection?.mostLikely)
+                                     ?? Number(r?.projectionMostLikely)
                                      ?? null,
                       }),
       // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
