@@ -530,10 +530,17 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       edge,
       impliedProb:    odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100),
       sportsbook:     r?.sportsbook || r?.book || null,
+      // 2026-05-25 — projMostLikely now passed so projection-contradiction
+      // gate can fire here. Also passes projection from multiple possible
+      // upstream stamps (range.mostLikely, projection.mostLikely, etc.).
       tier:           classifyNbaTier({
                         edge, modelProb: mp,
                         side: r?.side, line: r?.line,
                         l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
+                        projMostLikely: Number(r?.range?.mostLikely)
+                                     ?? Number(r?.projection?.mostLikely)
+                                     ?? Number(r?.projectionMostLikely)
+                                     ?? null,
                       }),
       // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
       // NBA-3: Alt-lines always aggressive or lotto — never balanced or safe.

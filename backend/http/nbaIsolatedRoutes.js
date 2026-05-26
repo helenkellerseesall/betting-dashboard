@@ -1277,6 +1277,10 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
                       edge, modelProb: mp,
                       side: r?.side, line: r?.line,
                       l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
+                      projMostLikely: Number(r?.range?.mostLikely)
+                                   ?? Number(r?.projection?.mostLikely)
+                                   ?? Number(r?.projectionMostLikely)
+                                   ?? null,
                     }),
       volatility:   family === "pra" ? "lotto"
                   : (family === "threes" || family === "first_basket") ? "aggressive"

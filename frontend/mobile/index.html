@@ -1027,18 +1027,17 @@
       // real MLB rate is 10-15% even for stars; model over-predicts these.
       // Threshold raised from +400 to +600 for other props so RBI 1.5 plays
       // at +500-+550 surface in Bigger Edges, not Lotto.
+      const tier = String(c.confidenceTier || c.tier || "").toUpperCase();
+      // 2026-05-25 — FADE check runs FIRST (above lotto/odds checks) — operator
+      // caught Brunson Threes Ladder OVER 4.5 +650 (L5=2.2, tier=FADE) still
+      // surfacing in LOTTO ROOM because odds>=600 lotto check ran before the
+      // FADE filter. Now FADE wins regardless of odds: a FADE pick is never
+      // betable, even at +650.
+      if (tier === "FADE") return "hidden";
       const propType = String(c.propType || "").toLowerCase();
       const isHitsTailOutcome = /^hits?$/.test(propType) && typeof c.line === "number" && c.line >= 2.5;
       if (isHitsTailOutcome) return "lotto";
       if (typeof odds === "number" && odds >= 600) return "lotto";
-      const tier = String(c.confidenceTier || c.tier || "").toUpperCase();
-      // 2026-05-25 — Backend stamps tier=FADE on wrong-direction picks via
-      // form-contradiction and projection-contradiction gates. The FE was
-      // ignoring tier and using modelProb-only bucketing, so FADE picks still
-      // showed under "Likely to hit" / "Bigger edges". Operator caught Mitchell
-      // OVER threes 3.5 (L5=2.6) and Shamet UNDER threes 0.5 (L5=2.6) surfacing
-      // with FADE badges. Hide FADE entirely so the FE respects backend gates.
-      if (tier === "FADE") return "hidden";
       if (mp >= 0.65 && ep >= 0.05 && (tier === "ELITE" || tier === "BEST")) {
         if (sport === "nba") {
           const days = c?.recentForm?.days_since_last_game ?? c?.roleContext?.days_since_last_game;
