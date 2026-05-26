@@ -713,6 +713,40 @@ router.get("/state", (req, res) => {
 
       let rawCandidates = pool.enrichedBest.length ? pool.enrichedBest : pool.eligibleBets
 
+      // 2026-05-26 SLATE-ROLLOVER STALE-MATCHUP FILTER
+      // Disk files (tracked_best / tracked_bets) persist last-cycle picks. When
+      // the slate rolls over (e.g. NYK@CLE finishes Mon night, SAS@OKC posts
+      // Tue), the new snapshot reflects SAS@OKC but the disk file still holds
+      // NYK@CLE entries (gameTime field is not even persisted, so no per-row
+      // time check is possible). Result: FE mixes fresh + stale matchups.
+      //
+      // Fix: derive the active matchup set from the LIVE snapshot rows; drop
+      // any rawCandidate whose matchup is not in that set. Single-source-of-
+      // truth = current snapshot, no separate cache or new continuity layer.
+      // Sport-gated to NBA so MLB behavior is unchanged.
+      if (sport === "nba" && rawCandidates.length && snapshotRows.length) {
+        const __activeMatchups = new Set()
+        for (const r of snapshotRows) {
+          const m = String(r?.matchup || "").trim()
+          if (m) __activeMatchups.add(m)
+        }
+        if (__activeMatchups.size > 0) {
+          const __preFilter = rawCandidates.length
+          rawCandidates = rawCandidates.filter((c) => {
+            const m = String(c?.matchup || "").trim()
+            // Permissive when matchup missing — don't blow away rows that
+            // simply lack the field. The set membership check only DROPS
+            // rows whose matchup is explicitly NOT in the live slate.
+            if (!m) return true
+            return __activeMatchups.has(m)
+          })
+          const __dropped = __preFilter - rawCandidates.length
+          if (__dropped > 0) {
+            console.log("[SLATE-ROLLOVER] dropped %d stale-matchup candidates (not in live snapshot)", __dropped)
+          }
+        }
+      }
+
       // NBA TEAM FALLBACK 2026-05-22: tracked_bets files don't write a `team`
       // field — verified 0/55 entries had it. Result: every NBA card showed
       // "TEAM PENDING" on the mobile PWA even though projections.json knows the
