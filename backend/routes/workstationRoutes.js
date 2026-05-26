@@ -623,13 +623,22 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       // 2026-05-25 — projMostLikely now passed so projection-contradiction
       // gate can fire here. Also passes projection from multiple possible
       // upstream stamps (range.mostLikely, projection.mostLikely, etc.).
+      //
+      // 2026-05-26 — BUG FIX: previously read recentForm / last5Avg from `r`
+      // (the un-enriched raw snapshot row), so the form-contradiction gate
+      // never had data to check. All the recentForm enrichment was applied
+      // to `enriched` above (lines 579/591/595/596). Switched to read from
+      // `enriched` so the gate fires correctly. Caught via Jalen Williams
+      // Threes Ladder OVER 1.5 surviving as ELITE despite L5=0.5.
       tier:           classifyNbaTier({
                         edge, modelProb: mp,
                         side: r?.side, line: r?.line,
-                        l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
-                        projMostLikely: Number(r?.range?.mostLikely)
-                                     ?? Number(r?.projection?.mostLikely)
-                                     ?? Number(r?.projectionMostLikely)
+                        l5Avg: enriched?.recentForm?.last5_avg
+                            ?? enriched?.recentForm?.last10_avg
+                            ?? enriched?.last5Avg,
+                        projMostLikely: Number(enriched?.range?.mostLikely)
+                                     ?? Number(enriched?.projection?.mostLikely)
+                                     ?? Number(enriched?.projectionMostLikely)
                                      ?? null,
                       }),
       // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
