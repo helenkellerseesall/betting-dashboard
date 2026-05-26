@@ -34,6 +34,11 @@ const { isAllowedBook, canonicalBookName } = require("../pipeline/shared/sportsb
 // canonical runtime identity ("mlb" or "nba"). See verifySportIdentityParity.js.
 const { resolveCanonicalSport } = require("../pipeline/shared/resolveCanonicalSport")
 const { classifyNbaTier } = require("../pipeline/nba/nbaTierClassifier")
+// 2026-05-26 — Stamp displayBundle on snapSupplement candidates so MODEL PROB
+// / EDGE PROB / signals panel render correctly on iPhone. Previously only
+// tracked_best entries (via buildNbaBestBetsBoard) got a displayBundle —
+// snapSupplement candidates showed "—" for those fields.
+const { buildPlayDisplayBundle } = require("../pipeline/nba/buildPlayDisplayBundle")
 const { nbaRowModelProbability, nbaRowEdge } = require("../pipeline/nba/nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("../pipeline/nba/nbaEventTeamResolve")
 // Phase 1 — Recent Form V1 (Session AP). Real per-player rolling stats from
@@ -704,7 +709,20 @@ function buildNbaSnapshotCandidates(snapshotRows) {
   const deduped = Array.from(bestBySig.values())
   deduped.sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
   const result = deduped.slice(0, NBA_SNAPSHOT_TOP_N)
-  console.log("[WS-PROBE] buildNbaSnapshotCandidates: rawQualified=%d deduped=%d returning=%d",
+
+  // 2026-05-26 — Stamp displayBundle on each result so the FE signals panel
+  // (MODEL PROB / EDGE PROB / matchup / opp / pace / family-specific tags)
+  // renders correctly. Previously these snapSupplement candidates reached
+  // the FE without a displayBundle, so the iPhone showed "—" for those
+  // fields on every snapshot-sourced card. tracked_best entries already
+  // get this via buildNbaBestBetsBoard:527 — this is the parallel for
+  // the snapshot path.
+  for (const row of result) {
+    try { row.displayBundle = buildPlayDisplayBundle(row) }
+    catch (_) { row.displayBundle = null }
+  }
+
+  console.log("[WS-PROBE] buildNbaSnapshotCandidates: rawQualified=%d deduped=%d returning=%d (displayBundles stamped)",
     rawQualified.length, deduped.length, result.length)
   return result
 }

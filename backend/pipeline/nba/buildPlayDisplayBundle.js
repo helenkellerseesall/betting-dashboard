@@ -186,19 +186,36 @@ function commonRoleTags(play, tags) {
 function opponentTags(play, tags, family) {
   const oppDef = Number(play.oppDef)
   const oppCode = teamAbbr(play.opponent) || lastTokenOf(play.opponent || "OPP")
-  if (Number.isFinite(oppDef)) {
+  const oppStats = play.opponentStats || {}
+
+  // 2026-05-26 — Family-specific opponent dimension.
+  // For prop families where we have direct opp-allowed data (rebounds/assists/
+  // threes), show THAT instead of the generic PPG-allowed. Generic PPG is
+  // wrong dimension for these props — opp 12.5 3PM/g is the actual defensive
+  // context for a threes pick, not opp 108 ppg. Operator-flagged 2026-05-26.
+  //
+  // For families WITHOUT a family-specific dim (points / pra / dd / td /
+  // first_basket / steals / blocks), keep the generic PPG tag — it's the
+  // best defensive signal we have for those.
+  const hasFamilySpecific =
+    (family === "rebounds" && isNum(Number(oppStats.reboundsAllowed))) ||
+    (family === "assists"  && isNum(Number(oppStats.assistsAllowed))) ||
+    (family === "threes"   && isNum(Number(oppStats.threePMAllowed)))
+
+  if (hasFamilySpecific) {
+    // Family-specific opp-allowed REPLACES generic PPG tag for this prop.
+    if (family === "rebounds") {
+      tags.push(`${oppCode} allows ${n1(oppStats.reboundsAllowed)} reb/g`)
+    } else if (family === "assists") {
+      tags.push(`${oppCode} allows ${n1(oppStats.assistsAllowed)} ast/g`)
+    } else if (family === "threes") {
+      tags.push(`${oppCode} allows ${n1(oppStats.threePMAllowed)} 3PM/g`)
+    }
+  } else if (Number.isFinite(oppDef)) {
+    // Generic PPG tag — correct dimension for points / pra / dd / td.
     if (oppDef <= 108)      tags.push(`v STRONG D (${oppCode} ${n0(oppDef)} ppg)`)
     else if (oppDef >= 117) tags.push(`v WEAK D (${oppCode} ${n0(oppDef)} ppg)`)
     else                    tags.push(`v AVG D (${oppCode} ${n0(oppDef)} ppg)`)
-  }
-  // Family-specific opponent allowed
-  const oppStats = play.opponentStats || {}
-  if (family === "rebounds" && isNum(Number(oppStats.reboundsAllowed))) {
-    tags.push(`opp ${n1(oppStats.reboundsAllowed)} reb/g`)
-  } else if (family === "assists" && isNum(Number(oppStats.assistsAllowed))) {
-    tags.push(`opp ${n1(oppStats.assistsAllowed)} ast/g`)
-  } else if (family === "threes" && isNum(Number(oppStats.threePMAllowed))) {
-    tags.push(`opp ${n1(oppStats.threePMAllowed)} 3PM/g`)
   }
 }
 
