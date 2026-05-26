@@ -880,6 +880,29 @@ router.get("/state", async (req, res) => {
           })()
         : rawCandidates
 
+      // 2026-05-26 — FADE-tier pre-filter (NBA only).
+      // Root cause for "iPhone shows 0 plays" with full DD/TD pipeline working:
+      // diversifyCandidates ranks by edge magnitude. High-edge wrong-direction
+      // picks (Threes Ladder OVER 1.5 with L5=0.5, edge +0.38) beat moderate-
+      // edge legitimate picks (Castle DD edge +0.08) for the maxPerGame:12
+      // slot budget. All 12 surviving slots end up FADE-tier, then the FE
+      // FADE filter hides them all → 0 cards. DD/TD picks that survived the
+      // model never had a chance.
+      //
+      // Fix: drop FADE-tier rows BEFORE diversifyCandidates so the slot
+      // budget goes to picks that will actually be shown. Tier was stamped
+      // upstream by classifyNbaTier (canonical) on both rawCandidates and
+      // snapSupplement paths. NBA-gated so MLB behavior is unchanged.
+      let nonFadeSupplemented = supplementedCandidates
+      if (sport === "nba") {
+        const __preFade = supplementedCandidates.length
+        nonFadeSupplemented = supplementedCandidates.filter(c => String(c?.tier || "").toUpperCase() !== "FADE")
+        const __droppedFade = __preFade - nonFadeSupplemented.length
+        if (__droppedFade > 0) {
+          console.log("[FADE-PREFILTER] dropped %d FADE-tier candidates pre-diversify (was occupying slot budget)", __droppedFade)
+        }
+      }
+
       // FIX Q3: NBA playoff slates typically have 1–2 games per night.
       // maxPerGame:7 × 2 games = hard ceiling of 14 candidates regardless of pool size.
       // Raise to 12 for NBA so a 2-game slate yields up to 24 diversified candidates.
@@ -888,8 +911,9 @@ router.get("/state", async (req, res) => {
 
       // Diversify before downstream views — caps repeats per player/game so the
       // workstation isn't dominated by 17 Donovan Mitchell legs.
-      const candidates = diversifyCandidates(supplementedCandidates, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
-      console.log("[WS-PROBE] supplementedCandidates=%d → candidates(portfolio)=%d", supplementedCandidates.length, candidates.length)
+      const candidates = diversifyCandidates(nonFadeSupplemented, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
+      console.log("[WS-PROBE] supplementedCandidates=%d (post-FADE=%d) → candidates(portfolio)=%d",
+        supplementedCandidates.length, nonFadeSupplemented.length, candidates.length)
 
       // ── Phase BNDS-1B: DISCOVERY-SAFE EXPANSION ───────────────────────────
       //
