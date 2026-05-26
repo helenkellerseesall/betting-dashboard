@@ -422,6 +422,45 @@ function enrichBestEntry(e, betsById) {
     if (!out.matchup && out.awayTeam && out.homeTeam) {
       out.matchup = `${out.awayTeam} @ ${out.homeTeam}`
     }
+
+    // 2026-05-26 — Re-classify tier on read using CURRENT enriched state.
+    // Background: tracked_bets disk files persist the tier stamped at write
+    // time. If recentForm wasn't populated at write time (e.g. thin sample
+    // for a player, or runNbaNight pre-form-gate cycle), the stale tier
+    // bypasses the form-contradiction gate forever. Jalen Williams threes
+    // ladder OVER 1.5 surfaced as ELITE on iPhone 2026-05-26 despite L5=0.5
+    // — direct classifyNbaTier returned FADE, but tb.tier was ELITE on disk.
+    //
+    // Now: the read-side classifier sees the just-enriched recentForm /
+    // projection and is the single source of truth. Disk-stored tier is
+    // discarded.
+    try {
+      const __edge      = Number(out.edge ?? out.edgeProbability)
+      const __modelProb = Number(out.modelProb ?? out.predictedProbability)
+      const __l5        = Number(out.recentForm?.last5_avg ?? out.last5Avg)
+      const __projML    = Number(
+        out?.range?.mostLikely ??
+        out?.projection?.mostLikely ??
+        out?.projectionMostLikely
+      )
+      const __reTier = classifyNbaTier({
+        edge:           Number.isFinite(__edge) ? __edge : null,
+        modelProb:      Number.isFinite(__modelProb) ? __modelProb : null,
+        side:           out.side,
+        line:           out.line,
+        l5Avg:          Number.isFinite(__l5) ? __l5 : null,
+        projMostLikely: Number.isFinite(__projML) ? __projML : null,
+      })
+      if (__reTier && __reTier !== out.tier) {
+        console.log("[TIER-RECLASSIFY]", out.player, out.propType, out.side, out.line,
+                    "disk=" + out.tier, "→", __reTier,
+                    "edge=" + (Number.isFinite(__edge) ? __edge.toFixed(3) : "—"),
+                    "l5=" + (Number.isFinite(__l5) ? __l5 : "—"))
+        out.tier = __reTier
+      }
+    } catch (e) {
+      console.warn("[TIER-RECLASSIFY] failed for", out.player, ":", e?.message || e)
+    }
   }
   return out
 }
