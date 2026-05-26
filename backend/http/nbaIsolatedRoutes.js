@@ -60,6 +60,13 @@ const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDivers
 const { buildFeaturedPlays } = require("../pipeline/shared/buildFeaturedPlays")
 const { buildAiSlips } = require("../pipeline/shared/buildSlipAi")
 
+// 2026-05-26 — Canonical NBA recentForm source. ESPN gameLogs (populated by
+// scripts/populateNbaGameLogs.js) is the single authority. The api-sports
+// integration that used to live in this file was a duplicate path that
+// produced identical data; operator killed api-basketball subscription
+// 2026-05-26 to remove the shadow. See feedback_no_spiral.md.
+const { enrichRowWithRecentForm: enrichNbaRowFromEspn } = require("../pipeline/nba/nbaRecentFormCache")
+
 const DEFAULT_BACKEND_ROOT = path.join(__dirname, "..")
 const API_SPORTS_CACHE_FILE = path.join(DEFAULT_BACKEND_ROOT, "api-sports-cache.json")
 
@@ -964,242 +971,22 @@ function computeRecentFormFromLogs({ logs, statKey, line, side }) {
 }
 
 async function enrichRowsWithRecentForm({ axios, rows }) {
-  __nbaCacheDiag.enrichmentInvocations += 1
-  __nbaCacheDiag.lastEnrichmentIso = new Date().toISOString()
-
-  const apiKey = String(process.env.API_SPORTS_KEY || "").trim()
-  if (!apiKey) {
-    __nbaCacheDiag.enrichmentSkippedNoApiKey += 1
-    if (!__nbaCacheDiag._loggedFirstEnrichmentSummary) {
-      __nbaCacheDiag._loggedFirstEnrichmentSummary = true
-      console.log("[NBA-ENRICHMENT-CACHE-OBSERVED]", JSON.stringify({
-        path: "skipped_no_api_key",
-        message: "API_SPORTS_KEY missing or empty — owner-B enrichment skipped; fallback projection form applied; no disk write attempted",
-        diagnostics: getNbaCacheDiagnostics(),
-      }))
-    }
-    applyProjectionRecentFormFallback(rows)
-    return
-  }
-
-  const disk = loadApiSportsDiskCache()
-  const playerIdCache = { ...(disk.playerIdCache || {}) }
-  const playerStatsCache = { ...(disk.playerStatsCache || {}) }
-
+  // 2026-05-26 — Operator killed api-basketball subscription (no future-
+  // predictive value over ESPN; was duplicate authority).
+  // Canonical source is now ESPN gameLogs via nbaRecentFormCache.js.
+  // Signature preserved (axios still passed by callers) so call sites
+  // remain unchanged. axios is unused here.
+  void axios
   const list = Array.isArray(rows) ? rows : []
-  const normToCanonicalDisplay = new Map()
-  // Phase F6 — norm → team-abbreviation map. First non-empty `row.team` per
-  // normalized player name wins; subsequent rows do not overwrite (avoids
-  // thrashing when a player appears across many props with the same team).
-  // The abbreviation is uppercase-normalized at write time so the call site
-  // can hand it straight to fetchApiSportsPlayerId.
-  const normToTeamAbbr = new Map()
-  for (const r of list) {
-    const d = String(r?.player || "").trim()
-    if (!d) continue
-    const n = normName(d)
-    if (!normToCanonicalDisplay.has(n)) normToCanonicalDisplay.set(n, d)
-    if (!normToTeamAbbr.has(n)) {
-      const teamAbbrRaw = String(r?.team == null ? "" : r.team).trim().toUpperCase()
-      if (teamAbbrRaw) normToTeamAbbr.set(n, teamAbbrRaw)
-    }
-  }
-
-  if (!normToCanonicalDisplay.size) {
-    __nbaCacheDiag.enrichmentSkippedNoRows += 1
-    if (!__nbaCacheDiag._loggedFirstEnrichmentSummary) {
-      __nbaCacheDiag._loggedFirstEnrichmentSummary = true
-      console.log("[NBA-ENRICHMENT-CACHE-OBSERVED]", JSON.stringify({
-        path: "skipped_no_rows",
-        message: "no enrichable rows in batch — nothing to look up; no disk write attempted",
-        diagnostics: getNbaCacheDiagnostics(),
-      }))
-    }
-    saveApiSportsDiskCache({ playerIdCache, playerStatsCache })
-    return
-  }
-
-  const statsByNorm = new Map()
-
-  const uniqueNorms = [...normToCanonicalDisplay.keys()]
-  // Per-request delta counters — for accurate observation, snapshot the
-  // baseline lifetime counters now and report the delta in the summary log.
-  const __preCounters = {
-    cacheReadHitsPlayerId:          __nbaCacheDiag.cacheReadHitsPlayerId,
-    cacheReadMissesPlayerId:        __nbaCacheDiag.cacheReadMissesPlayerId,
-    cacheReadHitsPlayerStats:       __nbaCacheDiag.cacheReadHitsPlayerStats,
-    cacheReadMissesPlayerStats:     __nbaCacheDiag.cacheReadMissesPlayerStats,
-    cacheWriteAttemptsPlayerId:     __nbaCacheDiag.cacheWriteAttemptsPlayerId,
-    cacheWriteAttemptsPlayerStats:  __nbaCacheDiag.cacheWriteAttemptsPlayerStats,
-    cacheWriteSuccessesPlayerId:    __nbaCacheDiag.cacheWriteSuccessesPlayerId,
-    cacheWriteSuccessesPlayerStats: __nbaCacheDiag.cacheWriteSuccessesPlayerStats,
-    cacheWriteSkips:                __nbaCacheDiag.cacheWriteSkips,
-  }
-  const concurrency = 6
-  for (let i = 0; i < uniqueNorms.length; i += concurrency) {
-    const batch = uniqueNorms.slice(i, i + concurrency)
-    await Promise.all(
-      batch.map(async (norm) => {
-        const canonicalDisplay = normToCanonicalDisplay.get(norm)
-        try {
-          let cached = findCachedPlayerIdEntry(canonicalDisplay, playerIdCache)
-          let pid = cached?.id
-
-          if (Number.isFinite(pid)) {
-            // Cache HIT on player-id lookup — no API call needed.
-            __nbaCacheDiag.cacheReadHitsPlayerId += 1
-          } else {
-            // Cache MISS on player-id lookup — API call WILL fire.
-            __nbaCacheDiag.cacheReadMissesPlayerId += 1
-            const searchAs = apiSportsSearchQueryForDisplayName(canonicalDisplay)
-            // Phase F6 — pass the team abbreviation captured from the row
-            // context (uppercase-normalized at map insertion) so the search
-            // resolves players with shared/common names. May be undefined for
-            // rows lacking team context; fetchApiSportsPlayerId tolerates that.
-            const normalizedTeam = normToTeamAbbr.get(norm) || null
-            const resolved = await fetchApiSportsPlayerId({
-              axios,
-              apiKey,
-              playerName: searchAs,
-              team: normalizedTeam,
-            })
-            if (resolved?.id) {
-              pid = resolved.id
-              __nbaCacheDiag.cacheWriteAttemptsPlayerId += 1
-              const wasAbsent = !Object.prototype.hasOwnProperty.call(playerIdCache, canonicalDisplay)
-              playerIdCache[canonicalDisplay] = {
-                id: pid,
-                matchedName: resolved.matchedName,
-                requestedName: canonicalDisplay,
-              }
-              if (wasAbsent) __nbaCacheDiag.cacheWriteSuccessesPlayerId += 1
-            } else {
-              // Resolution returned null — nothing to write. Categorized as
-              // PLAYER_ID_API_RETURNED_NULL with sample capture so operators
-              // can see WHICH players failed and what the API returned.
-              recordCacheWriteSkip("PLAYER_ID_API_RETURNED_NULL", {
-                playerName: canonicalDisplay,
-                normalizedQuery: searchAs,
-                apiRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseRowsReturned,
-                apiSampleNames: __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseSampleNames.slice(),
-                apiHadFiniteId:  __nbaCacheDiag.apiSportsResponseDiagnostics.lastPlayerIdResponseHadFiniteId,
-              })
-              return
-            }
-          }
-
-          const cachedStats = playerStatsCache[String(pid)]
-          if (Array.isArray(cachedStats) && cachedStats.length) {
-            __nbaCacheDiag.cacheReadHitsPlayerStats += 1
-            statsByNorm.set(norm, cachedStats)
-            return
-          }
-          // Cache MISS on stats — API call WILL fire.
-          __nbaCacheDiag.cacheReadMissesPlayerStats += 1
-          const stats = await fetchApiSportsPlayerStats({ axios, apiKey, playerId: pid })
-          if (Array.isArray(stats) && stats.length) {
-            __nbaCacheDiag.cacheWriteAttemptsPlayerStats += 1
-            const wasAbsent = !Object.prototype.hasOwnProperty.call(playerStatsCache, String(pid))
-            playerStatsCache[String(pid)] = stats
-            statsByNorm.set(norm, stats)
-            if (wasAbsent) __nbaCacheDiag.cacheWriteSuccessesPlayerStats += 1
-          } else {
-            // API returned empty array — typically means out-of-season or
-            // player not yet active for the requested season. Categorized as
-            // STATS_API_RETURNED_EMPTY.
-            recordCacheWriteSkip("STATS_API_RETURNED_EMPTY", {
-              playerName: canonicalDisplay,
-              playerId: pid,
-              apiRowsReturned: __nbaCacheDiag.apiSportsResponseDiagnostics.lastStatsResponseRowsReturned,
-            })
-          }
-        } catch (err) {
-          // ignore player failures (preserved original behavior; counted as PLAYER_THROWN_ERROR)
-          recordCacheWriteSkip("PLAYER_THROWN_ERROR", {
-            playerName: canonicalDisplay,
-            errorMessage: err && err.message ? String(err.message).slice(0, 200) : "unknown_error",
-          })
-        }
-      })
-    )
-  }
-
-  saveApiSportsDiskCache({ playerIdCache, playerStatsCache })
-
-  // Update per-call memory snapshot fields.
-  __nbaCacheDiag.memoryPlayerIdCount = Object.keys(playerIdCache).length
-  __nbaCacheDiag.memoryPlayerStatsCount = Object.keys(playerStatsCache).length
-  __nbaCacheDiag.cachePersistenceHealthy =
-    __nbaCacheDiag.memoryPlayerIdCount === __nbaCacheDiag.diskPlayerIdCount &&
-    __nbaCacheDiag.memoryPlayerStatsCount === __nbaCacheDiag.diskPlayerStatsCount
-  __nbaCacheDiag.enrichmentCompleted += 1
-
-  // Emit a single [NBA-ENRICHMENT-CACHE-OBSERVED] line on the FIRST completed
-  // enrichment so operators can see the lifecycle without log spam. After the
-  // first one, diagnostics remain queryable via getNbaCacheDiagnostics() and
-  // via the /api/best-available response (nbaCacheDiagnostics field).
-  if (!__nbaCacheDiag._loggedFirstEnrichmentSummary) {
-    __nbaCacheDiag._loggedFirstEnrichmentSummary = true
-    const delta = {
-      cacheReadHitsPlayerId:          __nbaCacheDiag.cacheReadHitsPlayerId          - __preCounters.cacheReadHitsPlayerId,
-      cacheReadMissesPlayerId:        __nbaCacheDiag.cacheReadMissesPlayerId        - __preCounters.cacheReadMissesPlayerId,
-      cacheReadHitsPlayerStats:       __nbaCacheDiag.cacheReadHitsPlayerStats       - __preCounters.cacheReadHitsPlayerStats,
-      cacheReadMissesPlayerStats:     __nbaCacheDiag.cacheReadMissesPlayerStats     - __preCounters.cacheReadMissesPlayerStats,
-      cacheWriteAttemptsPlayerId:     __nbaCacheDiag.cacheWriteAttemptsPlayerId     - __preCounters.cacheWriteAttemptsPlayerId,
-      cacheWriteAttemptsPlayerStats:  __nbaCacheDiag.cacheWriteAttemptsPlayerStats  - __preCounters.cacheWriteAttemptsPlayerStats,
-      cacheWriteSuccessesPlayerId:    __nbaCacheDiag.cacheWriteSuccessesPlayerId    - __preCounters.cacheWriteSuccessesPlayerId,
-      cacheWriteSuccessesPlayerStats: __nbaCacheDiag.cacheWriteSuccessesPlayerStats - __preCounters.cacheWriteSuccessesPlayerStats,
-      cacheWriteSkips:                __nbaCacheDiag.cacheWriteSkips                - __preCounters.cacheWriteSkips,
-    }
-    console.log("[NBA-ENRICHMENT-CACHE-OBSERVED]", JSON.stringify({
-      path: "completed",
-      uniquePlayers: uniqueNorms.length,
-      requestDelta: delta,
-      diagnostics: getNbaCacheDiagnostics(),
-    }))
-  }
-
-  const formMemo = new Map()
-  let __formLiveN = 0
-
+  if (!list.length) return
+  let enriched = 0
   for (const row of list) {
     if (!row || typeof row !== "object") continue
-    if (row.recentForm && typeof row.recentForm === "object") continue
-    const player = String(row?.player || "").trim()
-    if (!player) continue
-    const statKey = statKeyFromPropType(row?.propType || row?.marketKey)
-    if (!statKey) continue
-    const logs = statsByNorm.get(normName(player))
-    if (!Array.isArray(logs) || !logs.length) continue
-
-    const memoKey = `${normName(player)}__${statKey}__${String(row?.line ?? "")}__${String(row?.side ?? "")}`
-    let rf = formMemo.get(memoKey) || null
-    if (!rf) {
-      rf = computeRecentFormFromLogs({ logs, statKey, line: row?.line, side: row?.side })
-      if (rf) formMemo.set(memoKey, rf)
-    }
-
-    if (rf) {
-      row.recentForm = rf
-      if (__formLiveN < 12) {
-        console.log("FORM DATA LIVE:", player, {
-          propType: row?.propType,
-          line: row?.line,
-          side: row?.side,
-          last5_avg: rf.last5_avg,
-          last10_avg: rf.last10_avg,
-          baseline: rf.baseline,
-          trend_delta: rf.trend_delta,
-          last5_hit_rate: rf.last5_hit_rate,
-          last10_hit_rate: rf.last10_hit_rate,
-          source: rf.source,
-        })
-        __formLiveN++
-      }
-    }
+    const before = row.recentForm
+    enrichNbaRowFromEspn(row)
+    if (row.recentForm && row.recentForm !== before) enriched++
   }
-
-  applyProjectionRecentFormFallback(list)
+  console.log("[NBA-RECENT-FORM]", { rows: list.length, enriched, source: "espn_game_logs" })
 }
 
 function snapshotHasBody(snap) {
