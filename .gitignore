@@ -61,3 +61,4 @@ backend/storage/test.txt
 
 # Checkpoint state (local operational state — never commit)
 .checkpoint/
+.scratch/

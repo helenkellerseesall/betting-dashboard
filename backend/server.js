@@ -19894,6 +19894,17 @@ app.get("/mlb/board", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`)
+  // 2026-05-26 — Lane B: start closing-line capture loop. Runs every 5 min
+  // in the background, looks for tracked bets whose games tip within the
+  // next 30 min, stamps closeOdds + CLV. Non-blocking; reads snapshot.json
+  // from disk and rewrites tracked_bets atomically.
+  try {
+    const { startBackgroundLoop } = require("./scripts/captureClosingLines")
+    startBackgroundLoop({ intervalMs: 5 * 60 * 1000 })
+    console.log("[BOOT] CLV capture loop started (5min interval)")
+  } catch (e) {
+    console.warn("[BOOT] CLV capture loop failed to start (non-fatal):", e?.message || e)
+  }
   // Operational trust — snapshot freshness boot probe.
   // Single line per sport at startup so the operator sees stale state
   // BEFORE the first request hits the server. Read-only; never rebuilds.

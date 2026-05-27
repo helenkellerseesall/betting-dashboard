@@ -35,6 +35,8 @@ console.log("ACTIVE:", __filename)
 
 const fs = require("fs")
 const path = require("path")
+// 2026-05-26 — Lane B: closing-line-value math (impliedFromAmerican / clvQualityLabel).
+const clvMath = require("../grading/clvMath")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 
@@ -160,14 +162,22 @@ function idForSlip(date, slip) {
 /**
  * Convert a bestBetsBoard play into the lean tracked-bet record.
  * Strips projection / range / reasoning to keep the file small.
+ *
+ * 2026-05-26 — Lane B (CLV tracking): stamps open-side CLV fields at write
+ * time. The merge logic in persistTrackedToday preserves openOdds /
+ * openObservedAt on re-runs so the "first observation" stays sticky and
+ * isn't overwritten when the snapshot refreshes hours later. closeOdds
+ * is populated by captureClosingLines.js right before tipoff.
  */
 function leanBet(play, date) {
+  const openImp = clvMath.impliedFromAmerican(play.oddsAmerican)
   return {
     id: idForBet(date, play),
     date,
     player: play.player,
     eventId: play.eventId || null,
     matchup: play.matchup || null,
+    gameTime: play.gameTime || null,  // needed by captureClosingLines.js to schedule
     prop: `${play.statFamily} ${play.side} ${play.line}`,
     statFamily: play.statFamily,
     side: play.side,
@@ -181,6 +191,15 @@ function leanBet(play, date) {
     tier: play.tier,
     result: "pending",
     settledAt: null,
+    // CLV fields (Lane B 2026-05-26):
+    openOdds:        play.oddsAmerican,
+    openObservedAt:  new Date().toISOString(),
+    openImpliedProb: Number.isFinite(openImp) ? openImp : null,
+    closeOdds:        null,  // populated by captureClosingLines.js near tip-off
+    closeObservedAt:  null,
+    closeImpliedProb: null,
+    clv:              null,  // closeImpliedProb - openImpliedProb (positive = good)
+    clvQuality:       null,  // "positive" | "neutral" | "negative"
   }
 }
 
@@ -378,9 +397,32 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
   for (const b of existingBets) mergedBetsById.set(b.id, b)
   for (const b of newBets) {
     const prev = mergedBetsById.get(b.id)
+    // 2026-05-26 — Lane B: CLV preservation rules.
+    //   - openOdds / openObservedAt / openImpliedProb are STICKY — they reflect
+    //     the FIRST time we observed this pick. Re-runs (snapshot refresh
+    //     hours later, multiple cycles per day) MUST NOT overwrite them, or
+    //     CLV measurement is invalid.
+    //   - closeOdds / closeObservedAt / closeImpliedProb / clv / clvQuality
+    //     are populated by captureClosingLines.js. If prev already has them
+    //     (i.e., closing capture already ran for this pick), preserve them.
+    //     Don't let a fresh persistTrackedToday wipe them.
+    //   - Graded result (preserved as before)
+    const preservedClv = prev ? {
+      openOdds:         prev.openOdds         ?? b.openOdds,
+      openObservedAt:   prev.openObservedAt   ?? b.openObservedAt,
+      openImpliedProb:  prev.openImpliedProb  ?? b.openImpliedProb,
+      closeOdds:        prev.closeOdds        ?? b.closeOdds,
+      closeObservedAt:  prev.closeObservedAt  ?? b.closeObservedAt,
+      closeImpliedProb: prev.closeImpliedProb ?? b.closeImpliedProb,
+      clv:              prev.clv              ?? b.clv,
+      clvQuality:       prev.clvQuality       ?? b.clvQuality,
+    } : null
     if (prev && prev.result && prev.result !== "pending") {
-      // Preserve graded result.
-      mergedBetsById.set(b.id, { ...b, result: prev.result, settledAt: prev.settledAt })
+      // Preserve graded result + CLV history.
+      mergedBetsById.set(b.id, { ...b, ...preservedClv, result: prev.result, settledAt: prev.settledAt })
+    } else if (preservedClv) {
+      // Same pick re-observed — keep open + close, refresh modelProb/edge/tier from new compute.
+      mergedBetsById.set(b.id, { ...b, ...preservedClv })
     } else {
       mergedBetsById.set(b.id, b)
     }
