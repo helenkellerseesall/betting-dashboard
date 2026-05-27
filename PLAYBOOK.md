@@ -118,6 +118,33 @@ MLB equivalent: `npm run slate:mlb`
 
 ---
 
+## Nightly audit (Lane C v0.1) — RUN EVERY MORNING
+
+Single command. Grades all pending tracked_bets, then writes a dated audit report.
+
+```
+cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+npm run audit:nightly
+```
+
+What it does:
+1. Runs `grading:run --sport=all --backfill` to settle pending bets across NBA + MLB
+2. Reads last 7 days of tracked_bets files
+3. Computes per-day, per-sport, per-family stats (total / settled / won / lost / CLV captured)
+4. Surfaces anomalies (grading lag, CLV gaps, missing NBA families)
+5. Writes a markdown report to `backend/runtime/audits/YYYY-MM-DD-audit.md`
+6. Prints summary to stdout
+
+Run this once per day, typically after midnight ET (last night's games settled). The output file is scrollable on iPhone via GitHub repo browser, and future-Claude can read it to recover operational state.
+
+Flags:
+- `npm run audit:nightly -- --no-grade` — skip grading, audit only
+- `npm run audit:nightly -- --days=14` — widen window from default 7 days
+
+**Critical**: 2026-05-27 baseline showed 5 days of pending tracked_bets with ZERO graded — grading wasn't running. The audit catches that gap immediately and runs the backfill itself.
+
+---
+
 ## CLV health check (run anytime)
 
 The CLV capture loop populates `closeOdds + clv + clvQuality` on tracked_bets entries within 30 min of each tipoff. If backend stays up, this happens automatically. To verify it's actually working:

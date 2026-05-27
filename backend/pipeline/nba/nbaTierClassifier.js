@@ -50,6 +50,30 @@
  * @returns {"ELITE"|"STRONG"|"PLAYABLE"|"LONGSHOT"|"FADE"}
  */
 function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely } = {}) {
+  // 2026-05-27 — Lane D.5 ALT-LINE MAGNITUDE GATE. Runs FIRST so it fires
+  // BEFORE the LONGSHOT bypass. Previously placed below LONGSHOT — Wemby over
+  // 39.5 points @+1100 was stamped LONGSHOT (implied 8.3% < 10% threshold)
+  // and skipped this gate entirely. 19 longshot picks per slate bypassed it
+  // until 2026-05-27 reorder. Skips binary props (line=null) automatically.
+  if (Number.isFinite(line) && line > 0 && side) {
+    const sideStr = String(side).toLowerCase()
+    const baselines = [l5Avg, projMostLikely].filter((x) => Number.isFinite(x) && x > 0)
+    if (baselines.length > 0) {
+      if (sideStr === "over" || sideStr === "yes") {
+        const maxBaseline = Math.max(...baselines)
+        const gap = line - maxBaseline
+        const ratio = line / maxBaseline
+        if (gap > 3.0 && ratio > 1.30) return "FADE"
+      }
+      if (sideStr === "under" || sideStr === "no") {
+        const minBaseline = Math.min(...baselines)
+        const gap = minBaseline - line
+        const ratio = line / minBaseline
+        if (gap > 3.0 && ratio < 0.70) return "FADE"
+      }
+    }
+  }
+
   if (isLongshot === true) return "LONGSHOT"
   if (!Number.isFinite(edge)) return "FADE"
   if (Number.isFinite(ev) && ev <= 0) return "FADE"

@@ -112,10 +112,18 @@ async function buildSlateEvents({
 	// consumers should prefer scheduledEvents (today pregame) when populated,
 	// and fall back to upcomingEvents (tomorrow / next pregame day) when today
 	// has no remaining pregame games.
+	// 2026-05-27 — Lane D.1 max-lookahead cap. Without an upper bound,
+	// upcomingEvents accepted speculative future games — Knicks @ Thunder
+	// commence June 4 (potential Finals placeholder with eliminated team)
+	// leaked 22 picks into 2026-05-27 tracked_bets. Capping at 72 hours
+	// admits tomorrow's pregame slate (typical NBA schedule gap is 0-2 days
+	// between conf-finals games) but rejects week-out speculative listings.
+	const MAX_LOOKAHEAD_MS = 72 * 60 * 60 * 1000  // 72 hours
+	const maxLookaheadCutoff = now + MAX_LOOKAHEAD_MS
 	const upcomingEvents = allEvents.filter((event) => {
 		const eventTime = getEventTimeForSchedule(event)
 		const ms = new Date(eventTime).getTime()
-		return Number.isFinite(ms) && ms > now
+		return Number.isFinite(ms) && ms > now && ms <= maxLookaheadCutoff
 	})
 
 	console.log("[SCHEDULED-EVENTS-FINAL-DEBUG]", {

@@ -28,6 +28,7 @@
     "grading:backfill-all":          "node scripts/runGradingBackfillAll.js",
     "grading:status":                "node scripts/gradingStatus.js",
     "calibration:status":            "node scripts/calibrationStatus.js",
+    "audit:nightly":                 "node scripts/auditNightly.js",
     "lineage:status":                "node scripts/lineageStatus.js",
     "market:status":                 "node scripts/marketStatus.js",
     "settlement:run":                "node scripts/settlementRun.js",
