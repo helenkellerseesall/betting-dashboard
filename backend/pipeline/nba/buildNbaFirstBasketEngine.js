@@ -202,7 +202,7 @@ function indexFirstBasketMarket(candidates) {
     // Pick the best (worst-priced) odds for the player → most pessimistic implied prob.
     const prev = m.get(k)
     if (!prev) m.set(k, c)
-    else if (Number(c.oddsAmerican || 0) > Number(prev.oddsAmerican || 0)) m.set(k, c)
+    else if (Number(c.oddsAmerican ?? c.odds ?? 0) > Number(prev.oddsAmerican ?? prev.odds ?? 0)) m.set(k, c)
   }
   return m
 }
@@ -316,8 +316,15 @@ function buildNbaFirstBasketEngine(input = {}) {
         modelProb = Math.max(0.005, modelProb)
         const marketKey = `${entry.pred.eventId}__${String(entry.pred.player).toLowerCase()}`
         const marketRow = marketIdx.get(marketKey) || null
-        const marketImpliedProb = marketRow ? americanToImplied(marketRow.oddsAmerican) : null
-        const decOdds = marketRow ? americanToDecimal(marketRow.oddsAmerican) : null
+        // 2026-05-27 — Lane A6.2 fix. firstBasketCandidates come through
+        // nbaExtendedOpportunityPools which stamps `odds` (raw snapshot field
+        // name), NOT `oddsAmerican` (which buildNbaBestBetsBoard uses
+        // post-`marketPropsFromPoolRows`). Without this fallback, the lookup
+        // succeeds but americanToImplied(undefined) returned null, killing
+        // edge/ev → all plays filtered out. Now reads both for safety.
+        const __mrOdds = marketRow ? (marketRow.oddsAmerican ?? marketRow.odds) : null
+        const marketImpliedProb = __mrOdds != null ? americanToImplied(__mrOdds) : null
+        const decOdds = __mrOdds != null ? americanToDecimal(__mrOdds) : null
         const edge =
           marketImpliedProb != null && Number.isFinite(marketImpliedProb)
             ? round4(modelProb - marketImpliedProb)
@@ -339,7 +346,7 @@ function buildNbaFirstBasketEngine(input = {}) {
           firstBasketScore: round4(raw),
           modelProb: round4(modelProb),
           marketImpliedProb: marketImpliedProb != null ? round4(marketImpliedProb) : null,
-          oddsAmerican: marketRow ? marketRow.oddsAmerican : null,
+          oddsAmerican: __mrOdds,
           sportsbook: marketRow ? marketRow.book || marketRow.sportsbook || null : null,
           edge,
           ev,

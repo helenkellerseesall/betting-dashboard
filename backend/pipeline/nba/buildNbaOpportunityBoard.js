@@ -1,12 +1,6 @@
 "use strict"
 
 console.log("ACTIVE:", __filename)
-// 2026-05-27 — Lane A3+A5 load marker. If this line appears in backend.log
-// after restart, the file with my edits IS being loaded by node. If the
-// LANE-A3/A5 merge logs DON'T appear during a cycle but this marker DOES,
-// then buildNbaOpportunityBoard isn't being called at all (route or cache
-// shadow). If THIS marker is also absent, file wasn't loaded (stale cache).
-console.log("[LANE-A3-A5-LOADED]", new Date().toISOString(), "buildNbaOpportunityBoard has A3+A5 bridge code")
 
 const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
