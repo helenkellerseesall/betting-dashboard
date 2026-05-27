@@ -35,6 +35,14 @@
 const fs = require("fs")
 const path = require("path")
 const clvMath = require("../pipeline/grading/clvMath")
+// 2026-05-27 — Lane B Phase 3. After stamping closeOdds on tracked_bets,
+// mirror the same close-line data into personal_ledger via the canonical
+// batchSetClosingLines. The FE GRADES tab reads clvPct + beatMarket from
+// personal_ledger (line 2209 of frontend/mobile/index.html), so without
+// this mirror the FE CLV badges stay dormant even after CLV captures fire.
+let _personalLedger = null
+try { _personalLedger = require("../pipeline/shared/buildPersonalLedger") }
+catch (e) { console.warn("[captureClosingLines] personal_ledger sync disabled (require failed):", e?.message) }
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 const CLOSE_WINDOW_MIN = 30                     // capture within 30min of tip
@@ -223,6 +231,9 @@ async function runOnce({ date } = {}) {
   let captured = 0
   let unmatched = 0
   const matchedKeys = []
+  // 2026-05-27 — Lane B Phase 3. Accumulate (bet.id, closeOdds) so we can
+  // batch-mirror into personal_ledger via batchSetClosingLines after the loop.
+  const ledgerClosingMap = {}
   for (const b of bets) {
     const elig = captureEligibility(b, nowMs, eventTimeMap)
     if (elig !== "in_window") continue
@@ -247,12 +258,33 @@ async function runOnce({ date } = {}) {
     b.clvQuality        = quality
     captured++
     matchedKeys.push(`${b.player} ${b.statFamily} ${b.side} ${b.line}: ${b.openOdds}→${closeOdds} clv=${clv?.toFixed(4)} (${quality})`)
+    if (b.id) {
+      ledgerClosingMap[b.id] = {
+        closingOdds:       closeOdds,
+        closingLine:       (live.line != null ? Number(live.line) : (b.line != null ? Number(b.line) : null)),
+        closingSportsbook: (live.book || live.sportsbook || b.sportsbook || null),
+        closedAt:          b.closeObservedAt,
+      }
+    }
   }
 
   if (captured > 0) {
     writeJsonAtomic(betsPath, bets)
     console.log("[captureClosingLines] WROTE", { date, captured, unmatched })
     for (const m of matchedKeys) console.log("  ", m)
+    // Lane B Phase 3 mirror — stamp the same close-line data on personal_ledger
+    // so the FE GRADES tab's already-wired CLV badge (clvPct + beatMarket reading
+    // from buildPersonalLedger's clvSnapshot at frontend/mobile/index.html line 2209)
+    // lights up automatically. Without this, captureClosingLines stamps tracked_bets
+    // and the FE never sees CLV.
+    if (_personalLedger && typeof _personalLedger.batchSetClosingLines === "function") {
+      try {
+        const r = _personalLedger.batchSetClosingLines(ledgerClosingMap)
+        console.log("[captureClosingLines] ledger mirror:", r?.count || 0, "of", Object.keys(ledgerClosingMap).length, "matched in personal_ledger")
+      } catch (e) {
+        console.warn("[captureClosingLines] ledger mirror failed (non-fatal):", e?.message || e)
+      }
+    }
   } else {
     console.log("[captureClosingLines] nothing to capture", { date, unmatched })
   }
