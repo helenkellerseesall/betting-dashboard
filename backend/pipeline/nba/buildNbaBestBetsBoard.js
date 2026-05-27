@@ -20,7 +20,21 @@ console.log("ACTIVE:", __filename)
  *   }
  */
 
-const STAT_FAMILIES = ["points", "threes", "rebounds", "assists", "pra"]
+// 2026-05-27 — Lane A6: extended families. Originally only 5 families
+// (the ones buildNbaPlayerOutcomePredictions natively projects via STAT_ORDER).
+// Adding steals/blocks/first_basket/double_double/triple_double/turnovers
+// allows marketPropsFromPoolRows to PRESERVE these rows when downstream
+// engines (buildNbaDefensiveProps, buildNbaFirstBasketEngine) need to find
+// them. Predictions module STILL doesn't project these — buildNbaBestBetsBoard's
+// pred.stats[family] lookup will silently miss, dropping these from board.allPlays
+// (which is fine — Lane A3 + A5 bridge them in via separate cognition).
+// Without this expansion, defensiveProps engine receives ZERO steals/blocks
+// market rows because resolveStatFamily returns null → row dropped at line
+// `if (!family) continue` in marketPropsFromPoolRows.
+const STAT_FAMILIES = [
+  "points", "threes", "rebounds", "assists", "pra",
+  "steals", "blocks", "first_basket", "double_double", "triple_double", "turnovers",
+]
 
 function americanOddsToImpliedProb(odds) {
   const n = Number(odds)
@@ -279,10 +293,20 @@ function resolveStatFamily(marketProp) {
   // MUST be: triple-combo → two-stat combos → singles. The "_" + "+" + word-
   // boundary variants catch propType strings like "Points + Rebounds",
   // "player_points_rebounds", "PRA", "pra ladder".
+  // 2026-05-27 — Lane A6: binary-event / defensive families MUST come BEFORE
+  // generic single-stat fallbacks. "triple_double" / "double_double" contain
+  // no points/rebounds/assists substring so they're safe, but "first_basket"
+  // contains nothing single-stat. Order: combo → binary → defensive → singles.
+  if (/triple[_\s-]*double/.test(s)) return "triple_double"
+  if (/double[_\s-]*double/.test(s)) return "double_double"
   if (s.includes("points_rebounds_assists") || /\bpra\b/.test(s)) return "pra"
+  if (s.includes("first_basket") || s.includes("firstbasket")) return "first_basket"
   if (s.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(s)) return "pra"
   if (s.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(s))   return "pra"
   if (s.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(s)) return "pra"
+  if (s.includes("steal"))    return "steals"
+  if (s.includes("block"))    return "blocks"
+  if (s.includes("turnover")) return "turnovers"
   if (s.includes("three") || s.includes("3pt") || s.includes("threes")) return "threes"
   if (s.includes("rebound")) return "rebounds"
   if (s.includes("assist")) return "assists"
