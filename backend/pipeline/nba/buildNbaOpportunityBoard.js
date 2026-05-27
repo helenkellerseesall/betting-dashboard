@@ -10,6 +10,14 @@ const { buildNbaAiPicks } = require("./buildNbaAiPicks")
 const { applyDominanceGapToOpportunityBoard } = require("./nbaAiDominanceGap")
 const { buildNbaPlayerOutcomePredictions } = require("./buildNbaPlayerOutcomePredictions")
 const { buildNbaBestBetsBoard, marketPropsFromPoolRows } = require("./buildNbaBestBetsBoard")
+// 2026-05-27 — Lane A3: bridge mixed-family candidates into the persistence
+// pipeline. buildNbaPlayerOutcomePredictions only models 4 families
+// (STAT_ORDER = points/threes/rebounds/assists), so board.allPlays (the source
+// of tracked_bets) was missing DD/TD/steals/blocks/PRA/combos/first_basket
+// even though buildNbaSnapshotCandidates ranks them all on the FE side.
+// Two parallel cognition pipelines, one source of truth — single-source-of-
+// truth doctrine restored by calling the same function here.
+const { buildNbaSnapshotCandidates } = require("./buildNbaSnapshotCandidates")
 const { buildNbaSlipComposer } = require("./buildNbaSlipComposer")
 const { buildNbaFirstBasketEngine } = require("./buildNbaFirstBasketEngine")
 const { buildNbaDefensiveProps } = require("./buildNbaDefensiveProps")
@@ -292,6 +300,38 @@ function buildNbaOpportunityBoard(input = {}) {
     })
   } else {
     boardPayload.bestBetsBoard.bankroll = null
+  }
+
+  // 2026-05-27 — Lane A3: merge mixed-family snapshot candidates into
+  // board.allPlays BEFORE persistTrackedToday runs. Without this, tracked_bets
+  // only ever sees the 4-family output of buildNbaPlayerOutcomePredictions
+  // (points/threes/rebounds/assists), and CLV measurement (Lane B) can never
+  // populate closeOdds for DD/TD/steals/blocks/PRA/combos. persistTrackedToday's
+  // existing id-based merge handles dedup if a pick is already in allPlays
+  // (same idForBet key → preserves whichever has CLV / graded data via the
+  // merge logic at buildNbaPerformanceTracking.js:410-428).
+  try {
+    const snapCandidates = buildNbaSnapshotCandidates(completeUniverse)
+    if (Array.isArray(snapCandidates) && snapCandidates.length > 0) {
+      const existing = Array.isArray(boardPayload.bestBetsBoard.allPlays)
+        ? boardPayload.bestBetsBoard.allPlays
+        : []
+      // Append snapshot-sourced candidates. They carry the same field shape
+      // leanBet requires (player, eventId, matchup, gameTime, statFamily, side,
+      // line, oddsAmerican, sportsbook, modelProb, impliedProb, edge, confidence,
+      // tier) via the workstation cognition layer. id collisions collapse in
+      // persistTrackedToday's mergedBetsById Map keyed by idForBet.
+      boardPayload.bestBetsBoard.allPlays = [...existing, ...snapCandidates]
+      console.log(
+        "[LANE-A3] merged snapshot candidates into allPlays: existing=%d snapAdded=%d totalAfter=%d",
+        existing.length, snapCandidates.length, boardPayload.bestBetsBoard.allPlays.length
+      )
+    } else {
+      console.log("[LANE-A3] no snapshot candidates to merge (snapCandidates=%d)",
+        Array.isArray(snapCandidates) ? snapCandidates.length : -1)
+    }
+  } catch (e) {
+    console.warn("[LANE-A3] snapshot-candidate merge failed (non-fatal):", e?.message || e)
   }
 
   // PERFORMANCE TRACKING — always on, never blocks pipeline.
