@@ -1351,8 +1351,30 @@
       // Sharp mode falls through to legacy — toggle already prepended above.
 
       // Date label
+      // 2026-05-27 — FE Bug #2 fix. Header showed raw "2026-05-27" with no
+      // context for whether picks were tonight / tomorrow / settled. Operator
+      // had to count days mentally to know which slate. Now we prefix with
+      // relative-day label computed in browser local time (operator's iPhone
+      // is on ET, so "today" matches the Detroit ET slate-date convention
+      // backend uses for tracked_bets filenames).
       const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
-      document.getElementById("dateLabel").textContent = todayLabel;
+      const _relDay = (() => {
+        try {
+          const target = new Date(todayLabel + "T00:00:00");
+          const _now = new Date();
+          const todayISO = _now.toISOString().slice(0, 10);
+          const today = new Date(todayISO + "T00:00:00");
+          const daysDiff = Math.round((target - today) / (24 * 3600 * 1000));
+          if (daysDiff === 0)   return "Tonight";
+          if (daysDiff === 1)   return "Tomorrow";
+          if (daysDiff === -1)  return "Last night";
+          if (daysDiff > 1)     return `${daysDiff} days out`;
+          if (daysDiff < -1)    return `${Math.abs(daysDiff)} days ago`;
+          return "";
+        } catch (_) { return ""; }
+      })();
+      document.getElementById("dateLabel").textContent =
+        _relDay ? `${_relDay} · ${todayLabel}` : todayLabel;
       if (state.lastFetchAt) {
         const secs = Math.round((Date.now() - state.lastFetchAt) / 1000);
         document.getElementById("lastUpdate").textContent =
