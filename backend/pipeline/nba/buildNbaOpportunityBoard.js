@@ -1,6 +1,12 @@
 "use strict"
 
 console.log("ACTIVE:", __filename)
+// 2026-05-27 — Lane A3+A5 load marker. If this line appears in backend.log
+// after restart, the file with my edits IS being loaded by node. If the
+// LANE-A3/A5 merge logs DON'T appear during a cycle but this marker DOES,
+// then buildNbaOpportunityBoard isn't being called at all (route or cache
+// shadow). If THIS marker is also absent, file wasn't loaded (stale cache).
+console.log("[LANE-A3-A5-LOADED]", new Date().toISOString(), "buildNbaOpportunityBoard has A3+A5 bridge code")
 
 const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { ladderCandidateFromRow, dedupeCandidates, sortByProbDesc } = require("./nbaOpportunityCandidates")
@@ -332,6 +338,93 @@ function buildNbaOpportunityBoard(input = {}) {
     }
   } catch (e) {
     console.warn("[LANE-A3] snapshot-candidate merge failed (non-fatal):", e?.message || e)
+  }
+
+  // 2026-05-27 — Lane A5: bridge the two separate-engine outputs
+  // (buildNbaFirstBasketEngine + buildNbaDefensiveProps) into allPlays.
+  // Those engines run their own family-specific cognition (first-shot model
+  // for first_basket; archetype-baseline + sigma band for steals/blocks) and
+  // produce edge-positive plays that buildNbaSnapshotCandidates can't model
+  // (first_basket needs the dedicated engine; defensive engine uses different
+  // archetype math than nbaRowModelProbability and surfaces picks workstation
+  // path misses). Without this bridge:
+  //   - tracked_bets has 0 first_basket (no FE/persistence path produces them)
+  //   - tracked_bets often has 0 blocks (workstation gates filter them today)
+  //   - CLV measurement skips both families
+  //
+  // Normalization: leanBet requires player+eventId+matchup+statFamily+side+
+  // line+oddsAmerican+sportsbook+modelProb+impliedProb+edge+confidence+tier.
+  // firstBasket engine output is missing side/line/statFamily/tier; defensive
+  // engine has all but tier. Stamp the missing fields here (tier=PLAYABLE
+  // since edge>0 already gated; first_basket prop semantics are yes-binary so
+  // side="yes", line=null).
+  try {
+    const fb = boardPayload?.bestBetsBoard?.firstBasket?.plays
+    const dp = boardPayload?.bestBetsBoard?.defensiveProps?.plays
+    const fbPlays = Array.isArray(fb) ? fb : []
+    const dpPlays = Array.isArray(dp) ? dp : []
+    const normalized = []
+    for (const p of fbPlays) {
+      if (!p || !Number.isFinite(p.modelProb) || !Number.isFinite(p.edge)) continue
+      if (!Number.isFinite(p.oddsAmerican) || !p.player) continue
+      normalized.push({
+        player:        p.player,
+        eventId:       p.eventId || null,
+        matchup:       p.matchup || null,
+        team:          p.team || null,
+        opponent:      p.opponent || null,
+        statFamily:    "first_basket",
+        side:          "yes",
+        line:          null,
+        oddsAmerican:  p.oddsAmerican,
+        sportsbook:    p.sportsbook || null,
+        modelProb:     p.modelProb,
+        impliedProb:   Number.isFinite(p.marketImpliedProb) ? p.marketImpliedProb : null,
+        edge:          p.edge,
+        ev:            Number.isFinite(p.ev) ? p.ev : null,
+        confidence:    p.modelProb,  // confidence ≈ modelProb for binary events
+        tier:          "PLAYABLE",   // edge>0 + ev>0 already gated in engine
+        propType:      "First Basket",
+        source:        "firstBasketEngine",
+      })
+    }
+    for (const p of dpPlays) {
+      if (!p || !Number.isFinite(p.modelProb) || !Number.isFinite(p.edge)) continue
+      if (!Number.isFinite(p.oddsAmerican) || !p.player || !p.statFamily) continue
+      normalized.push({
+        player:        p.player,
+        eventId:       p.eventId || null,
+        matchup:       p.matchup || null,
+        statFamily:    p.statFamily,                // "steals" or "blocks"
+        side:          String(p.side || "").toLowerCase(),
+        line:          p.line,
+        oddsAmerican:  p.oddsAmerican,
+        sportsbook:    p.sportsbook || null,
+        modelProb:     p.modelProb,
+        impliedProb:   p.impliedProb,
+        edge:          p.edge,
+        ev:            Number.isFinite(p.ev) ? p.ev : null,
+        confidence:    p.modelProb,
+        tier:          "PLAYABLE",
+        propType:      p.statFamily === "steals" ? "Steals" : "Blocks",
+        source:        "defensivePropsEngine",
+      })
+    }
+    if (normalized.length > 0) {
+      const existing = Array.isArray(boardPayload.bestBetsBoard.allPlays)
+        ? boardPayload.bestBetsBoard.allPlays
+        : []
+      boardPayload.bestBetsBoard.allPlays = [...existing, ...normalized]
+      console.log(
+        "[LANE-A5] merged engine outputs into allPlays: firstBasket=%d defensive=%d totalAfter=%d",
+        fbPlays.length, dpPlays.length, boardPayload.bestBetsBoard.allPlays.length
+      )
+    } else {
+      console.log("[LANE-A5] no engine plays to merge (fb=%d dp=%d)",
+        fbPlays.length, dpPlays.length)
+    }
+  } catch (e) {
+    console.warn("[LANE-A5] engine-output merge failed (non-fatal):", e?.message || e)
   }
 
   // PERFORMANCE TRACKING — always on, never blocks pipeline.
