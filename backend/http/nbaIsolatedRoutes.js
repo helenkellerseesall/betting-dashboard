@@ -1323,12 +1323,15 @@ async function handleNbaBestAvailableGet(req, res, deps) {
 
   try {
     const wsCandidatesRaw = buildNbaBestAvailableWsCandidates(slices.corePropsBoard || [])
+    // 2026-05-26 — Lane A (cap raise): match the workstationRoutes /state caps
+    // (12 → 25 per game, 10 → 15 per stat, 6 → 9 per stat-side). Keep these
+    // two routes consistent so candidate pools don't differ across surfaces.
     wsCandidates = diversifyCandidates(wsCandidatesRaw, {
       sport: "nba",
       maxPerPlayer: 3,
-      maxPerGame: 12,
-      maxPerStat: 10,
-      maxPerStatSide: 6,
+      maxPerGame: 25,
+      maxPerStat: 15,
+      maxPerStatSide: 9,
     })
     wsFeatured = buildFeaturedPlays({
       candidates: wsCandidates,

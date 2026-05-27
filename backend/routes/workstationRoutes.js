@@ -982,15 +982,30 @@ router.get("/state", async (req, res) => {
         }
       }
 
-      // FIX Q3: NBA playoff slates typically have 1–2 games per night.
-      // maxPerGame:7 × 2 games = hard ceiling of 14 candidates regardless of pool size.
-      // Raise to 12 for NBA so a 2-game slate yields up to 24 diversified candidates.
-      // MLB keeps the tighter 7 cap (15+ games per night, candidate explosion risk).
-      const nbaPerGame = sport === "nba" ? 12 : 7
+      // 2026-05-26 — Lane A (cap raise): bumped from 12 to 25 per game.
+      // Earlier (12) was set when FADE-tier picks competed for slot budget;
+      // now that the FADE pre-filter kills wrong-direction junk before
+      // diversification, the 12-cap throws away ~80% of legitimate candidates
+      // on small slates. Diagnostic showed snapSupplement = 116 candidates,
+      // diversify kept only 12. Raising lets DD/TD/steals/blocks/etc. surface
+      // alongside the main families.
+      //
+      // ALSO passing explicit maxPerStat / maxPerStatSide — the 10/6 defaults
+      // would become the NEW binding cap once maxPerGame is raised. Bumped
+      // proportionally (15 / 9) so e.g. a slate full of strong threes picks
+      // can show 8 of them without the per-stat default cutting at 10.
+      //
+      // MLB keeps tighter caps (15+ games × 7-cap = 105 candidates already).
+      const nbaPerGame = sport === "nba" ? 25 : 7
 
       // Diversify before downstream views — caps repeats per player/game so the
       // workstation isn't dominated by 17 Donovan Mitchell legs.
-      const candidates = diversifyCandidates(nonFadeSupplemented, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
+      const candidates = diversifyCandidates(nonFadeSupplemented, {
+        maxPerPlayer:   3,
+        maxPerGame:     nbaPerGame,
+        maxPerStat:     sport === "nba" ? 15 : 10,
+        maxPerStatSide: sport === "nba" ? 9  : 6,
+      })
       console.log("[WS-PROBE] supplementedCandidates=%d (post-FADE=%d) → candidates(portfolio)=%d",
         supplementedCandidates.length, nonFadeSupplemented.length, candidates.length)
 
