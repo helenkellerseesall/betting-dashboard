@@ -49,7 +49,7 @@
  * @param {number} [opts.projMostLikely]  projection.mostLikely value (NEW 2026-05-25 — catches picks where L5 is close to line but projection is far)
  * @returns {"ELITE"|"STRONG"|"PLAYABLE"|"LONGSHOT"|"FADE"}
  */
-function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely } = {}) {
+function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely, statFamily } = {}) {
   // 2026-05-27 — Lane D.5 ALT-LINE MAGNITUDE GATE. Runs FIRST so it fires
   // BEFORE the LONGSHOT bypass. Previously placed below LONGSHOT — Wemby over
   // 39.5 points @+1100 was stamped LONGSHOT (implied 8.3% < 10% threshold)
@@ -59,17 +59,43 @@ function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5
     const sideStr = String(side).toLowerCase()
     const baselines = [l5Avg, projMostLikely].filter((x) => Number.isFinite(x) && x > 0)
     if (baselines.length > 0) {
+      // 2026-05-27 — Lane D.5 calibration update: TWO conditions for FADE:
+      //   (a) "absolute + relative" — large gap (>3 units) AND meaningful ratio
+      //       (>1.30 / <0.70). Catches large-baseline stats like points.
+      //   (b) "extreme ratio alone" — line is 2×+ above baseline (over) or
+      //       under 0.5× (under). Catches small-baseline stats like threes/
+      //       blocks/steals where absolute gap stays small but the multiplier
+      //       is absurd (Wemby threes line 5.5 vs baseline 1.8 = ratio 3.05).
       if (sideStr === "over" || sideStr === "yes") {
         const maxBaseline = Math.max(...baselines)
         const gap = line - maxBaseline
         const ratio = line / maxBaseline
-        if (gap > 3.0 && ratio > 1.30) return "FADE"
+        if ((gap > 3.0 && ratio > 1.30) || ratio > 2.0) return "FADE"
       }
       if (sideStr === "under" || sideStr === "no") {
         const minBaseline = Math.min(...baselines)
         const gap = minBaseline - line
         const ratio = line / minBaseline
-        if (gap > 3.0 && ratio < 0.70) return "FADE"
+        if ((gap > 3.0 && ratio < 0.70) || ratio < 0.50) return "FADE"
+      }
+    } else {
+      // 2026-05-27 — Lane D.6 MAGNITUDE FALLBACK. When the model has NO baseline
+      // for this player (no L5, no projection), D.5 can't compute the magnitude
+      // ratio — falls through to LONGSHOT. But "no data + absurd over line" is
+      // exactly the scenario the operator caught in Castle rebounds over 11.5
+      // @+2200 — Castle's actual L5 reb ≈ 3-4 but data missing → LONGSHOT
+      // accepted. Family-specific absolute thresholds catch the worst of these
+      // without requiring per-player data. Only fires for OVER (under absurd-low
+      // is much rarer in practice). Picks with line ABOVE the threshold get
+      // FADE'd; everything else falls through to existing logic.
+      const fam = String(statFamily || "").toLowerCase()
+      const ABSURD_OVER_LINE = {
+        points: 30, rebounds: 11, assists: 9, threes: 4,
+        pra: 50, steals: 2, blocks: 3, turnovers: 4,
+      }
+      const cap = ABSURD_OVER_LINE[fam]
+      if (Number.isFinite(cap) && (sideStr === "over" || sideStr === "yes") && line > cap) {
+        return "FADE"
       }
     }
   }

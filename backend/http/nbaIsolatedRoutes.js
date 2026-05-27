@@ -1094,6 +1094,7 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
       tier:         classifyNbaTier({
                       edge, modelProb: mp,
                       side: r?.side, line: r?.line,
+                      statFamily: family,  // 2026-05-27 Lane D.6: absolute-cap fallback
                       l5Avg: r?.recentForm?.last5_avg ?? r?.recentForm?.last10_avg ?? r?.last5Avg,
                       projMostLikely: Number(r?.range?.mostLikely)
                                    ?? Number(r?.projection?.mostLikely)

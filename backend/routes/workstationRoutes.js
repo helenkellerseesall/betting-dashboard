@@ -465,6 +465,7 @@ function enrichBestEntry(e, betsById) {
         modelProb:      Number.isFinite(__modelProb) ? __modelProb : null,
         side:           out.side,
         line:           Number(out.line),
+        statFamily:     out.statFamily,  // 2026-05-27 Lane D.6: absolute-cap fallback
         l5Avg:          Number.isFinite(__l5) ? __l5 : null,
         projMostLikely: Number.isFinite(__projML) ? __projML : null,
       })
@@ -1721,8 +1722,20 @@ router.get("/ledger/yesterday", (req, res) => {
     y.setDate(y.getDate() - 1)
     const yKey = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`
 
+    // 2026-05-27 — Lane B Phase 3 v0.3 Path A. Filter LONGSHOT-tier picks from
+    // FE GRADES display. tracked_bets and ledger keep them for audit (CLV
+    // measurement, hit-rate research), but the operator's "Last Night" view
+    // should only show PLAYABLE/STRONG/ELITE picks that were actually
+    // displayable on Sharp Plays. Without this, the 56-100 LONGSHOT alt-line
+    // picks per slate flood the GRADES tab as "0W/130L · −$1300 profit"
+    // calculated from $10 default stake × 130 unwinnable picks.
+    const isLongshotPick = (b) => {
+      const t = String(b.modelTier || b.confidenceTier || "").toUpperCase()
+      return t === "LONGSHOT"
+    }
     const picks = (ledger.bets || [])
       .filter((b) => b.date === yKey && (!sport || b.sport === sport))
+      .filter((b) => !isLongshotPick(b))
       .map((b) => ({
         id:            b.id,
         sport:         b.sport,

@@ -225,6 +225,7 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       tier:           classifyNbaTier({
                         edge, modelProb: mp,
                         side: r?.side, line: r?.line,
+                        statFamily: family,  // 2026-05-27 Lane D.6: needed for absurd-line absolute-cap fallback
                         l5Avg: enriched?.recentForm?.last5_avg
                             ?? enriched?.recentForm?.last10_avg,
                         projMostLikely: Number(enriched?.range?.mostLikely)

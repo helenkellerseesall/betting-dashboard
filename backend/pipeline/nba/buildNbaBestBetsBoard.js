@@ -236,8 +236,10 @@ const { classifyNbaTier: _classifyNbaTier } = require("./nbaTierClassifier")
 // 2026-05-25 — extended to pass projMostLikely so the new projection-contradiction
 // gate inside the classifier can fire. Catches picks where L5 is close to line
 // but projection.mostLikely is materially opposite (Harden UNDER pra 24.5 case).
-function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null, projMostLikely = null) {
-  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely })
+function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null, projMostLikely = null, statFamily = null) {
+  // 2026-05-27 Lane D.6: statFamily needed for absurd-line absolute-cap fallback
+  // when L5/projection baselines are absent for this player.
+  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, statFamily })
 }
 
 // 2026-05-24 — buildPlayDisplayBundle is the canonical FE display payload.
@@ -471,7 +473,7 @@ function buildNbaBestBetsBoard(input = {}) {
     // projection-contradiction gate can FADE picks where the model projects
     // the opposite direction from the line (Harden UNDER pra 24.5, projection 32.6).
     const projMostLikely = Number.isFinite(Number(stat?.mostLikely)) ? Number(stat.mostLikely) : null
-    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely)
+    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, family)
     if (!isLongshot && !isAlternate && tier === "FADE") {
       dropped += 1
       continue
@@ -506,7 +508,12 @@ function buildNbaBestBetsBoard(input = {}) {
       ev: round4(ev),
       confidence: round3(conf),
       volatility: round3(vol),
-      tier: isLongshot ? "LONGSHOT" : tier,
+      // 2026-05-27 Lane D.6 fix — RESPECT FADE returned by tierForPlay even
+      // when isLongshot=true. Previously this line unconditionally stamped
+      // LONGSHOT, overriding D.5/D.6 magnitude FADE returns. Wemby threes
+      // over 5.5 @+1100 was FADE'd by classifyNbaTier but stamped LONGSHOT
+      // here, escaping the gate. FADE > LONGSHOT in precedence.
+      tier: tier === "FADE" ? "FADE" : (isLongshot ? "LONGSHOT" : tier),
       isLongshot,
       isAlternate,
       inCoreOddsBand,

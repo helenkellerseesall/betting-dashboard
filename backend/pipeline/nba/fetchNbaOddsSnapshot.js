@@ -157,6 +157,7 @@ function buildNbaBestProps(rawRows) {
       tier:        classifyNbaTier({
                      edge, modelProb: mp,
                      side: r?.side, line: r?.line,
+                     statFamily: family,  // 2026-05-27 Lane D.6: absolute-cap fallback
                      l5Avg: enriched?.recentForm?.last5_avg ?? enriched?.recentForm?.last10_avg ?? enriched?.last5Avg,
                    }),
       snapshotSourced: true,
