@@ -169,11 +169,19 @@ function resolveBetGameTime(bet, eventTimeMap) {
  * Build a lookup index keyed by (player, statFamily, side, line, book) lowercase.
  * Match a tracked bet against this index to find its current live odds.
  */
+// 2026-05-28 — Lane B Phase 3 v0.1.3 — snapshot family field mismatch.
+// Snapshot rawProps store the machine-friendly slug in canonicalPropType
+// ('threes', 'points_rebounds', 'pra') while propType is UI display
+// ('Threes Ladder', 'Points + Rebounds Ladder', 'PRA Ladder'). statFamily
+// is unpopulated on rawProps (always null). Bets stamp statFamily='threes'.
+// Without preferring canonicalPropType, every ladder/alt-line pick silently
+// missed match (~60% of NBA Game 5 picks would fail; simulation showed
+// 39.5% → 93.1% match rate after this fix).
 function buildPropIndex(rawProps) {
   const ix = new Map()
   for (const r of (Array.isArray(rawProps) ? rawProps : [])) {
     const player = String(r?.player || "").toLowerCase().trim()
-    const fam    = String(r?.statFamily || r?.propType || "").toLowerCase().trim()
+    const fam    = String(r?.canonicalPropType || r?.statFamily || r?.propType || "").toLowerCase().trim()
     const side   = String(r?.side || "").toLowerCase().trim()
     const line   = String(r?.line ?? "")
     const book   = String(r?.book || r?.sportsbook || "").toLowerCase().trim()
@@ -187,7 +195,9 @@ function buildPropIndex(rawProps) {
 
 function matchKeyForBet(bet) {
   const player = String(bet?.player || "").toLowerCase().trim()
-  const fam    = String(bet?.statFamily || bet?.propType || "").toLowerCase().trim()
+  // Bets stamp canonical slug directly into statFamily ('threes', 'pra', etc),
+  // but accept canonicalPropType / propType as fallback for older entries.
+  const fam    = String(bet?.statFamily || bet?.canonicalPropType || bet?.propType || "").toLowerCase().trim()
   const side   = String(bet?.side || "").toLowerCase().trim()
   const line   = String(bet?.line ?? "")
   const book   = String(bet?.sportsbook || bet?.book || "").toLowerCase().trim()
