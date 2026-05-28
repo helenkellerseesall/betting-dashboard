@@ -2,6 +2,9 @@
 
 const fs = require("fs")
 const path = require("path")
+// 2026-05-28 — Lane B Phase 1 port to MLB. Closing-line-value math for the
+// open-side stamping in leanBet. Same module NBA uses (single source).
+const clvMath = require("../grading/clvMath")
 
 const MLB_TRACKED_BEST_PREFIX = "mlb_tracked_best_"
 const MLB_PICKS_PREFIX = "mlb_picks_"
@@ -719,12 +722,18 @@ function leanBet(play, date) {
   //   Persisting them here ensures every downstream consumer (correlation grouping,
   //   ecology grouping, portfolio diversification, slip construction team gates)
   //   gets the current-slate team assignment — not a stale cache or matchup parse.
+  // 2026-05-28 — Lane B Phase 1 port to MLB: stamp gameTime + open-side CLV
+  // fields at write-time. Mirror of NBA leanBet (buildNbaPerformanceTracking).
+  // Without these, captureClosingLines can't determine in-window eligibility
+  // (no gameTime) and the CLV math has no anchor (no openOdds).
+  const openImp = clvMath.impliedFromAmerican(play.oddsAmerican)
   return {
     id: idForBet(date, play),
     date,
     player: play.player,
     eventId: play.eventId || null,
     matchup: play.matchup || null,
+    gameTime: play.gameTime || play.commenceTime || play.commence_time || null,
     team: play.team ?? null,
     teamCode: play.teamCode ?? null,
     awayTeam: play.awayTeam ?? null,
@@ -742,6 +751,15 @@ function leanBet(play, date) {
     tier: play.tier,
     result: "pending",
     settledAt: null,
+    // Lane B Phase 1 CLV fields:
+    openOdds:        play.oddsAmerican,
+    openObservedAt:  new Date().toISOString(),
+    openImpliedProb: Number.isFinite(openImp) ? openImp : null,
+    closeOdds:        null,
+    closeObservedAt:  null,
+    closeImpliedProb: null,
+    clv:              null,
+    clvQuality:       null,
   }
 }
 
@@ -827,9 +845,29 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   for (const b of existingBets) mergedBetsById.set(b.id, b)
   for (const b of newBets) {
     const prev = mergedBetsById.get(b.id)
+    // 2026-05-28 — Lane B Phase 1 port to MLB: CLV preservation rules.
+    //   - openOdds / openObservedAt / openImpliedProb are STICKY — they reflect
+    //     the FIRST observation of this pick. Re-runs MUST NOT overwrite or
+    //     CLV measurement is invalid.
+    //   - closeOdds / closeObservedAt / closeImpliedProb / clv / clvQuality
+    //     are populated by captureClosingLines.js near tipoff. If prev already
+    //     has them, preserve.
+    const preservedClv = prev ? {
+      openOdds:         prev.openOdds         ?? b.openOdds,
+      openObservedAt:   prev.openObservedAt   ?? b.openObservedAt,
+      openImpliedProb:  prev.openImpliedProb  ?? b.openImpliedProb,
+      closeOdds:        prev.closeOdds        ?? b.closeOdds,
+      closeObservedAt:  prev.closeObservedAt  ?? b.closeObservedAt,
+      closeImpliedProb: prev.closeImpliedProb ?? b.closeImpliedProb,
+      clv:              prev.clv              ?? b.clv,
+      clvQuality:       prev.clvQuality       ?? b.clvQuality,
+    } : null
     if (prev && prev.result && prev.result !== "pending") {
-      // Preserve graded result.
-      mergedBetsById.set(b.id, { ...b, result: prev.result, settledAt: prev.settledAt })
+      // Preserve graded result + CLV.
+      mergedBetsById.set(b.id, { ...b, ...preservedClv, result: prev.result, settledAt: prev.settledAt })
+    } else if (preservedClv) {
+      // Same pick re-observed — keep open + close, refresh modelProb/edge/tier.
+      mergedBetsById.set(b.id, { ...b, ...preservedClv })
     } else {
       mergedBetsById.set(b.id, b)
     }

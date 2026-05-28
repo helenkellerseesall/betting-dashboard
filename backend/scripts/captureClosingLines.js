@@ -63,17 +63,10 @@ function localDateKey() {
 function utcDateKey() {
   return new Date().toISOString().slice(0, 10)
 }
-function resolveActiveDate() {
-  // 2026-05-28 — Extended date resolution. Original only tried today's date in
-  // ET/UTC. Bug: when picks for tonight's game tipping in CURRENT day were
-  // persisted UNDER YESTERDAY's tracked_bets file (because persistTrackedToday
-  // ran at write-time which was yesterday in slate terms), the CLV loop
-  // looked at today's file (which doesn't exist yet) and skipped silently.
-  // Example: May 28 picks for Game 5 (tip May 28 8:40 PM ET) live in
-  // nba_tracked_bets_2026-05-27.json — CLV loop returning "skip_no_file"
-  // because it looks for 2026-05-28. Fix: walk back up to 2 days; use the
-  // first file that exists. The 30-min in_window check in captureEligibility
-  // filters out stale picks naturally — old games are long_past.
+function resolveActiveDate(sport = "nba") {
+  // 2026-05-28 — Sport-aware date resolution. Was nba-hardcoded.
+  // Walk back up to 2 days: today-local → today-UTC → yesterday-local.
+  // Returns first date for which a tracked_bets file exists for the sport.
   const todayLocal = localDateKey()
   const todayUtc   = utcDateKey()
   const yesterdayLocal = (() => {
@@ -82,7 +75,7 @@ function resolveActiveDate() {
   })()
   const candidates = [todayLocal, todayUtc, yesterdayLocal]
   for (const d of candidates) {
-    const p = path.join(TRACKING_DIR, `nba_tracked_bets_${d}.json`)
+    const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${d}.json`)
     if (fs.existsSync(p)) return d
   }
   return candidates[0]  // honest "today" even if no file yet
@@ -98,28 +91,44 @@ function writeJsonAtomic(p, data) {
   fs.renameSync(tmp, p)
 }
 
-const SNAPSHOT_PATH = path.join(__dirname, "..", "snapshot.json")
+// 2026-05-28 — Lane B Phase 1 MLB port: per-sport snapshot paths. NBA writes
+// to backend/snapshot.json, MLB writes to backend/snapshot-mlb.json. Different
+// field names too — NBA has `rawProps`, MLB has `props` and `rows`. The reader
+// handles both.
+const SNAPSHOT_PATHS = {
+  nba: path.join(__dirname, "..", "snapshot.json"),
+  mlb: path.join(__dirname, "..", "snapshot-mlb.json"),
+}
+const SNAPSHOT_PATH = SNAPSHOT_PATHS.nba  // legacy alias, used by existing callers
 
 /**
- * Read current odds directly from snapshot.json on disk. Backend writes this
- * file on every refresh. Avoids the /api/odds HTTP endpoint (which only
- * returns counts, not rawProps). Honest empty array on error / stale file.
+ * Read current odds for a sport's snapshot. Backend writes these files on
+ * every refresh. Avoids the /api/odds HTTP endpoint (counts only, no rawProps).
  *
  * Returns { rawProps, events, updatedAt }. The on-disk snapshot uses a wrapper:
  *   { data: { updatedAt, events, rawProps, ... }, savedAt: <unix ms> }
+ *
+ * For MLB the field is `props` not `rawProps` — we normalize the return shape
+ * so downstream consumers don't care about the per-sport schema difference.
  */
-function loadSnapshotRawProps() {
+function loadSnapshotRawProps(sport = "nba") {
+  const snapshotPath = SNAPSHOT_PATHS[sport] || SNAPSHOT_PATH
   try {
-    if (!fs.existsSync(SNAPSHOT_PATH)) return { rawProps: [], events: [], updatedAt: null }
-    const wrap = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, "utf8"))
+    if (!fs.existsSync(snapshotPath)) return { rawProps: [], events: [], updatedAt: null }
+    const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
     const snap = wrap?.data || wrap
+    // MLB uses `props` and `rows`; NBA uses `rawProps`. Try both, prefer rawProps when present.
+    const rawProps = Array.isArray(snap?.rawProps) ? snap.rawProps
+      : Array.isArray(snap?.props) ? snap.props
+      : Array.isArray(snap?.rows) ? snap.rows
+      : []
     return {
-      rawProps: Array.isArray(snap?.rawProps) ? snap.rawProps : [],
+      rawProps,
       events:   Array.isArray(snap?.events)   ? snap.events   : [],
       updatedAt: snap?.updatedAt || null,
     }
   } catch (e) {
-    console.warn("[captureClosingLines] snapshot read failed:", e?.message || e)
+    console.warn(`[captureClosingLines] ${sport} snapshot read failed:`, e?.message || e)
     return { rawProps: [], events: [], updatedAt: null }
   }
 }
@@ -204,20 +213,33 @@ function captureEligibility(bet, nowMs, eventTimeMap = null) {
 }
 
 async function runOnce({ date } = {}) {
-  const resolvedDate = date || resolveActiveDate()
-  const betsPath = path.join(TRACKING_DIR, `nba_tracked_bets_${resolvedDate}.json`)
-  // Eslint-noop: keep the variable observable in logs
-  const _date = resolvedDate
+  // 2026-05-28 — Lane B Phase 1 MLB port. Iterate both sports in one pass.
+  // Each sport uses its own snapshot file + tracked_bets file.
+  const sportResults = {}
+  for (const sport of ["nba", "mlb"]) {
+    sportResults[sport] = await runOnceForSport(sport, { date })
+  }
+  return {
+    captured: (sportResults.nba?.captured || 0) + (sportResults.mlb?.captured || 0),
+    scanned:  (sportResults.nba?.scanned  || 0) + (sportResults.mlb?.scanned  || 0),
+    nba: sportResults.nba,
+    mlb: sportResults.mlb,
+  }
+}
+
+async function runOnceForSport(sport, { date } = {}) {
+  const resolvedDate = date || resolveActiveDate(sport)
+  const betsPath = path.join(TRACKING_DIR, `${sport}_tracked_bets_${resolvedDate}.json`)
   const bets = readJsonSafe(betsPath, null)
   if (!Array.isArray(bets) || bets.length === 0) {
-    console.log("[captureClosingLines]", { date: resolvedDate, bets: 0, action: "skip_no_file" })
-    return { captured: 0, scanned: 0 }
+    console.log(`[captureClosingLines:${sport}]`, { date: resolvedDate, bets: 0, action: "skip_no_file" })
+    return { captured: 0, scanned: 0, sport }
   }
 
-  // Load snapshot once up-front. We need events here (for eventTimeMap fallback
-  // when bet.gameTime is null — see buildEventTimeMap doc) AND rawProps later
-  // for live-odds matching. Single read, two consumers.
-  const { rawProps, events, updatedAt } = loadSnapshotRawProps()
+  // Load sport-specific snapshot. MLB uses snapshot-mlb.json with `props`/`rows`
+  // fields; NBA uses snapshot.json with `rawProps`. loadSnapshotRawProps
+  // normalizes both into the same shape.
+  const { rawProps, events, updatedAt } = loadSnapshotRawProps(sport)
   const eventTimeMap = buildEventTimeMap(events)
 
   const nowMs = Date.now()
@@ -229,7 +251,7 @@ async function runOnce({ date } = {}) {
     if (r === "in_window") eligible.push(b)
   }
 
-  console.log("[captureClosingLines] scan", {
+  console.log(`[captureClosingLines:${sport}] scan`, {
     date: resolvedDate,
     total: bets.length,
     reasons,
@@ -237,11 +259,11 @@ async function runOnce({ date } = {}) {
   })
 
   if (eligible.length === 0) {
-    return { captured: 0, scanned: bets.length }
+    return { captured: 0, scanned: bets.length, sport }
   }
 
   const ix = buildPropIndex(rawProps)
-  console.log("[captureClosingLines] snapshot rawProps:", rawProps.length, "indexed:", ix.size, "snapshotAt:", updatedAt)
+  console.log(`[captureClosingLines:${sport}] snapshot rawProps:`, rawProps.length, "indexed:", ix.size, "snapshotAt:", updatedAt)
 
   let captured = 0
   let unmatched = 0
@@ -285,25 +307,20 @@ async function runOnce({ date } = {}) {
 
   if (captured > 0) {
     writeJsonAtomic(betsPath, bets)
-    console.log("[captureClosingLines] WROTE", { date, captured, unmatched })
+    console.log(`[captureClosingLines:${sport}] WROTE`, { date: resolvedDate, captured, unmatched })
     for (const m of matchedKeys) console.log("  ", m)
-    // Lane B Phase 3 mirror — stamp the same close-line data on personal_ledger
-    // so the FE GRADES tab's already-wired CLV badge (clvPct + beatMarket reading
-    // from buildPersonalLedger's clvSnapshot at frontend/mobile/index.html line 2209)
-    // lights up automatically. Without this, captureClosingLines stamps tracked_bets
-    // and the FE never sees CLV.
     if (_personalLedger && typeof _personalLedger.batchSetClosingLines === "function") {
       try {
         const r = _personalLedger.batchSetClosingLines(ledgerClosingMap)
-        console.log("[captureClosingLines] ledger mirror:", r?.count || 0, "of", Object.keys(ledgerClosingMap).length, "matched in personal_ledger")
+        console.log(`[captureClosingLines:${sport}] ledger mirror:`, r?.count || 0, "of", Object.keys(ledgerClosingMap).length, "matched in personal_ledger")
       } catch (e) {
-        console.warn("[captureClosingLines] ledger mirror failed (non-fatal):", e?.message || e)
+        console.warn(`[captureClosingLines:${sport}] ledger mirror failed (non-fatal):`, e?.message || e)
       }
     }
   } else {
-    console.log("[captureClosingLines] nothing to capture", { date, unmatched })
+    console.log(`[captureClosingLines:${sport}] nothing to capture`, { date: resolvedDate, unmatched })
   }
-  return { captured, scanned: bets.length, unmatched }
+  return { captured, scanned: bets.length, unmatched, sport }
 }
 
 /**
