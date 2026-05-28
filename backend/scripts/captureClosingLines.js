@@ -268,9 +268,12 @@ async function runOnceForSport(sport, { date } = {}) {
   let captured = 0
   let unmatched = 0
   const matchedKeys = []
-  // 2026-05-27 — Lane B Phase 3. Accumulate (bet.id, closeOdds) so we can
-  // batch-mirror into personal_ledger via batchSetClosingLines after the loop.
-  const ledgerClosingMap = {}
+  // 2026-05-28 — Lane B Phase 3 v0.1.2 ID mismatch fix #2. stableId is misnamed:
+  // it embeds Date.now() in its suffix, so identical inputs return different IDs
+  // and we cannot reconstruct ledger keys from bet fields. Switch to field-based
+  // matching via batchSetClosingLinesByFields, which keys on
+  // (sport, date, normalized player, family, side, line, normalized sportsbook).
+  const ledgerClosingEntries = []
   for (const b of bets) {
     const elig = captureEligibility(b, nowMs, eventTimeMap)
     if (elig !== "in_window") continue
@@ -295,24 +298,29 @@ async function runOnceForSport(sport, { date } = {}) {
     b.clvQuality        = quality
     captured++
     matchedKeys.push(`${b.player} ${b.statFamily} ${b.side} ${b.line}: ${b.openOdds}→${closeOdds} clv=${clv?.toFixed(4)} (${quality})`)
-    if (b.id) {
-      ledgerClosingMap[b.id] = {
-        closingOdds:       closeOdds,
-        closingLine:       (live.line != null ? Number(live.line) : (b.line != null ? Number(b.line) : null)),
-        closingSportsbook: (live.book || live.sportsbook || b.sportsbook || null),
-        closedAt:          b.closeObservedAt,
-      }
-    }
+    ledgerClosingEntries.push({
+      sport,
+      date:              b.date,
+      player:            b.player,
+      statFamily:        b.statFamily,
+      side:              b.side,
+      line:              b.line,
+      sportsbook:        b.sportsbook,
+      closingOdds:       closeOdds,
+      closingLine:       (live.line != null ? Number(live.line) : (b.line != null ? Number(b.line) : null)),
+      closingSportsbook: (live.book || live.sportsbook || b.sportsbook || null),
+      closedAt:          b.closeObservedAt,
+    })
   }
 
   if (captured > 0) {
     writeJsonAtomic(betsPath, bets)
     console.log(`[captureClosingLines:${sport}] WROTE`, { date: resolvedDate, captured, unmatched })
     for (const m of matchedKeys) console.log("  ", m)
-    if (_personalLedger && typeof _personalLedger.batchSetClosingLines === "function") {
+    if (_personalLedger && typeof _personalLedger.batchSetClosingLinesByFields === "function") {
       try {
-        const r = _personalLedger.batchSetClosingLines(ledgerClosingMap)
-        console.log(`[captureClosingLines:${sport}] ledger mirror:`, r?.count || 0, "of", Object.keys(ledgerClosingMap).length, "matched in personal_ledger")
+        const r = _personalLedger.batchSetClosingLinesByFields(ledgerClosingEntries)
+        console.log(`[captureClosingLines:${sport}] ledger mirror:`, r?.count || 0, "of", ledgerClosingEntries.length, "matched in personal_ledger")
       } catch (e) {
         console.warn(`[captureClosingLines:${sport}] ledger mirror failed (non-fatal):`, e?.message || e)
       }

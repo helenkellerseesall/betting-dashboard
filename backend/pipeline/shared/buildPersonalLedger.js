@@ -1237,6 +1237,75 @@ function snapshotFromPlay(play) {
   }
 }
 
+// 2026-05-28 — Lane B Phase 3 v0.1.1 — stableId is misnamed: it includes
+// Date.now() in the suffix so identical inputs at different call-times
+// return different IDs. captureClosingLines can't recompute a ledger id
+// from a tracked_bet's fields → batchSetClosingLines matched 0/N.
+// batchSetClosingLinesByFields matches by field tuple instead of id.
+// Field tuple: (sport, date, player, statFamily, side, line, sportsbook)
+// — same fields stableId hashes from, applied directly without the
+// unstable timestamp suffix.
+function batchSetClosingLinesByFields(entries = [], { save = true } = {}) {
+  const ledger = loadLedger()
+  const norm = (v) => String(v ?? "").toLowerCase().trim()
+  const lineKey = (v) => (v == null || v === "" ? "" : String(Number(v)))
+  function fieldKey(sport, date, player, statFamily, side, line, sportsbook) {
+    return [
+      norm(sport),
+      String(date || ""),
+      norm(player).replace(/[^a-z0-9]+/g, ""),
+      norm(statFamily),
+      norm(side),
+      lineKey(line),
+      norm(sportsbook).replace(/[^a-z0-9]+/g, ""),
+    ].join("|")
+  }
+  // Build ledger field-key → bet lookup once
+  const lookup = new Map()
+  for (const b of ledger.bets) {
+    const k = fieldKey(b.sport, b.date, b.player, b.statFamily, b.side, b.line, b.sportsbook)
+    if (!lookup.has(k)) lookup.set(k, [])
+    lookup.get(k).push(b)
+  }
+  // Apply each entry
+  const applied = []
+  for (const e of entries) {
+    if (!e || e.closingOdds == null) continue
+    const k = fieldKey(e.sport, e.date, e.player, e.statFamily, e.side, e.line, e.sportsbook)
+    const bets = lookup.get(k) || []
+    for (const bet of bets) {
+      const cOdds = Number(e.closingOdds)
+      const cLine = e.closingLine != null ? Number(e.closingLine) : null
+      const prev = bet.clvSnapshot || {}
+      const placed = prev.placed || {}
+      const clvResult = computeClv({
+        placedOdds: placed.odds,
+        closingOdds: cOdds,
+        placedLine: placed.line,
+        closingLine: cLine ?? placed.line,
+        side: bet.side,
+        sportsbook: placed.sportsbook,
+        closingSportsbook: e.closingSportsbook || placed.sportsbook || null,
+      })
+      bet.clvSnapshot = {
+        placed,
+        close: {
+          line: cLine ?? placed.line,
+          odds: cOdds,
+          impliedProb: clvResult.closingImpliedProb,
+          sportsbook: e.closingSportsbook || placed.sportsbook || null,
+          timestamp: e.closedAt || new Date().toISOString(),
+        },
+        clv: clvResult,
+      }
+      applied.push({ id: bet.id, fieldKey: k, clvScore: clvResult.clvScore, quality: clvResult.quality })
+    }
+  }
+  ledger.updatedAt = new Date().toISOString()
+  if (save) saveLedger(ledger)
+  return { applied, count: applied.length, requested: entries.length }
+}
+
 module.exports = {
   loadLedger,
   saveLedger,
@@ -1247,7 +1316,9 @@ module.exports = {
   importFromTrackedBets,
   setClosingLine,
   batchSetClosingLines,
+  batchSetClosingLinesByFields,
   snapshotFromPlay,
   applyIntegrityGate,
+  stableId,
   LEDGER_FILE,
 }
