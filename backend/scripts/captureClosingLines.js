@@ -64,8 +64,23 @@ function utcDateKey() {
   return new Date().toISOString().slice(0, 10)
 }
 function resolveActiveDate() {
-  // Try local-date file first (the slate convention), then UTC fallback.
-  const candidates = [localDateKey(), utcDateKey()]
+  // 2026-05-28 — Extended date resolution. Original only tried today's date in
+  // ET/UTC. Bug: when picks for tonight's game tipping in CURRENT day were
+  // persisted UNDER YESTERDAY's tracked_bets file (because persistTrackedToday
+  // ran at write-time which was yesterday in slate terms), the CLV loop
+  // looked at today's file (which doesn't exist yet) and skipped silently.
+  // Example: May 28 picks for Game 5 (tip May 28 8:40 PM ET) live in
+  // nba_tracked_bets_2026-05-27.json — CLV loop returning "skip_no_file"
+  // because it looks for 2026-05-28. Fix: walk back up to 2 days; use the
+  // first file that exists. The 30-min in_window check in captureEligibility
+  // filters out stale picks naturally — old games are long_past.
+  const todayLocal = localDateKey()
+  const todayUtc   = utcDateKey()
+  const yesterdayLocal = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 1)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+  })()
+  const candidates = [todayLocal, todayUtc, yesterdayLocal]
   for (const d of candidates) {
     const p = path.join(TRACKING_DIR, `nba_tracked_bets_${d}.json`)
     if (fs.existsSync(p)) return d
