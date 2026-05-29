@@ -202,6 +202,11 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       player,
       statFamily:     family,
       propType:       r?.propType || family,
+      // 2026-05-28 — Lane B Phase 3 v0.1.5 — propagate marketKey through
+      // snapshot-sourced candidates so leanBet → captureClosingLines can match
+      // alt vs main market correctly. Without this, snapCandidates path strips
+      // marketKey and 74% of tomorrow's picks lose CLV match-identity.
+      marketKey:      r?.marketKey || null,
       side,
       line:           r?.line    ?? null,
       odds,

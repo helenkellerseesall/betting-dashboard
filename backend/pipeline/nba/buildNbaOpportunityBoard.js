@@ -379,6 +379,9 @@ function buildNbaOpportunityBoard(input = {}) {
         confidence:    p.modelProb,  // confidence ≈ modelProb for binary events
         tier:          "PLAYABLE",   // edge>0 + ev>0 already gated in engine
         propType:      "First Basket",
+        // 2026-05-28 — Lane B Phase 3 v0.1.5 — marketKey from engine play (if set).
+        // first_basket markets are typically not duplicated alt/main, so often null.
+        marketKey:     p.marketKey || null,
         source:        "firstBasketEngine",
       })
     }
@@ -401,6 +404,8 @@ function buildNbaOpportunityBoard(input = {}) {
         confidence:    p.modelProb,
         tier:          "PLAYABLE",
         propType:      p.statFamily === "steals" ? "Steals" : "Blocks",
+        // v0.1.5 — propagate marketKey through defensive engine bridge.
+        marketKey:     p.marketKey || null,
         source:        "defensivePropsEngine",
       })
     }
