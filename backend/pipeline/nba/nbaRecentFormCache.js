@@ -223,6 +223,52 @@ function aggregateFromSettledBets({ daysBack = DEFAULT_DAYS_BACK } = {}) {
  *   source: string
  * }|null}
  */
+// 2026-05-29 — Composite-stat L5 support. The cache stores single stats
+// (points, rebounds, assists, threes, blocks, steals) but slate engines
+// frequently ask for composites: pra, points_rebounds, points_assists,
+// rebounds_assists, double_double, triple_double. Without per-composite
+// handling, getRecentForm returned NULL on every composite query, so
+// composite picks (e.g. 25 Wemby PRA picks tomorrow) had ZERO recent-form
+// signal feeding their model probability. Fix: compute composites at lookup
+// time by summing component stats per game. Component combos:
+//   pra              → points + rebounds + assists
+//   points_rebounds  → points + rebounds
+//   points_assists   → points + assists
+//   rebounds_assists → rebounds + assists
+//   double_double    → count of stats >=10 across (points, rebounds, assists)
+//   triple_double    → count of stats >=10 across (points, rebounds, assists, steals, blocks)
+//                       — these last two are binary per game (0 or 1); avg becomes a rate
+// 2026-05-29 — composite keys MUST match normStat output. normStat strips
+// underscores+spaces and applies aliases, so "points_rebounds" becomes
+// "ptsreb", "double_double" becomes "doubledouble", etc. The keys below
+// reflect the POST-normStat values.
+const COMPOSITE_STAT_COMPONENTS = {
+  pra:              ["points", "rebounds", "assists"],
+  ptsreb:           ["points", "rebounds"],
+  ptsast:           ["points", "assists"],
+  rebast:           ["rebounds", "assists"],
+}
+const COMPOSITE_BINARY_STATS = ["doubledouble", "tripledouble"]
+
+function computeCompositeValue(stats, statFamily) {
+  if (!stats || typeof stats !== "object") return null
+  if (statFamily === "doubledouble" || statFamily === "tripledouble") {
+    const components = ["points", "rebounds", "assists", "steals", "blocks"]
+    const doubleCount = components.filter((c) => Number.isFinite(stats[c]) && stats[c] >= 10).length
+    if (statFamily === "doubledouble") return doubleCount >= 2 ? 1 : 0
+    return doubleCount >= 3 ? 1 : 0
+  }
+  const components = COMPOSITE_STAT_COMPONENTS[statFamily]
+  if (!components) return null
+  let sum = 0
+  let hasAny = false
+  for (const c of components) {
+    const v = stats[c]
+    if (Number.isFinite(v)) { sum += v; hasAny = true }
+  }
+  return hasAny ? sum : null
+}
+
 function getRecentForm(player, statFamily) {
   const cache = ensureLoaded()
   const p = normPlayer(player); const s = normStat(statFamily)
@@ -231,13 +277,20 @@ function getRecentForm(player, statFamily) {
   if (!entry || !Array.isArray(entry.games)) return null
 
   // Pull values for this stat from games, most recent first, bounded by MAX_DAYS_STALE.
+  // Composite stats (pra, double_double, etc) computed at lookup from components.
+  const isComposite = (s in COMPOSITE_STAT_COMPONENTS) || COMPOSITE_BINARY_STATS.includes(s)
   const today = todayIso()
   const values = []
   let lastGameDate = null
   for (const g of entry.games) {
     const days = daysBetween(g.date, today)
     if (Number.isFinite(days) && days > MAX_DAYS_STALE) continue
-    const v = g.stats?.[s]
+    let v
+    if (isComposite) {
+      v = computeCompositeValue(g.stats, s)
+    } else {
+      v = g.stats?.[s]
+    }
     if (!Number.isFinite(v)) continue
     values.push(v)
     if (!lastGameDate) lastGameDate = g.date
