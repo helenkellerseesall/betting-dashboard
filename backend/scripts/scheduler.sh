@@ -47,7 +47,24 @@ log "==================================================="
 log "scheduler.sh STARTED (pid $$)"
 log "MLB cadence: hourly at :00 from 9 AM to 11 PM ET"
 log "NBA cadence: every 30 min at :00 and :30 from 4 PM to 11:30 PM ET"
+log "caffeinate watchdog: relaunches if dead, every 30s loop"
 log "==================================================="
+
+# 2026-05-28 — caffeinate watchdog. Without this, if caffeinate dies (terminal
+# closed, manual kill, Mac restart), Mac can sleep → backend suspends → CLV
+# loop stops → scheduler can't reach localhost:4000 → silent autonomy failure.
+# The watchdog checks every loop iteration and relaunches caffeinate with
+# nohup+disown so it survives even if THIS scheduler terminal closes.
+ensure_caffeinate() {
+  if ! pgrep -x caffeinate >/dev/null 2>&1; then
+    log "WATCHDOG: caffeinate is DEAD — relaunching"
+    nohup caffeinate -i >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    sleep 1
+    NEWPID=$(pgrep -x caffeinate | head -1)
+    log "WATCHDOG: caffeinate relaunched as pid $NEWPID"
+  fi
+}
 
 last_ran_min=""
 
@@ -58,6 +75,10 @@ while true; do
   # Strip leading zero for arithmetic comparisons (bash treats 09 as octal)
   HOUR=$((10#$HOUR_RAW))
   MIN=$((10#$MIN_RAW))
+
+  # Caffeinate watchdog runs EVERY loop, before the dedupe gate, so it fires
+  # on every 30s tick regardless of whether a slate is due.
+  ensure_caffeinate
 
   # Dedupe — don't fire twice within the same minute
   if [ "$STAMP" = "$last_ran_min" ]; then
