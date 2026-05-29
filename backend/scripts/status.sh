@@ -56,7 +56,7 @@ check_proc() {
     echo "    ✗ $name           NOT RUNNING"
   fi
 }
-check_proc "caffeinate     " "^caffeinate"
+check_proc "caffeinate     " "/caffeinate( |$)"
 check_proc "backend (node) " "node.*server"
 check_proc "scheduler.sh   " "scheduler\\.sh"
 check_proc "cloudflared    " "cloudflared tunnel"
