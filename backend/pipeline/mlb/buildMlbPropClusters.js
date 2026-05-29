@@ -1120,6 +1120,11 @@ function marketPropsFromMlbRows(rows) {
         out.push({
           player,
           eventId: row.eventId || null,
+          // 2026-05-29 — preserve gameTime through marketProps conversion so
+          // makePlay (and downstream leanBet) can stamp it on tracked_bets.
+          // Without this, MLB picks land with gameTime=null and CLV capture
+          // relies on the fragile eventTimeMap fallback.
+          gameTime: row.gameTime || row.commence_time || row.commenceTime || null,
           statFamily: family,
           line: 0.5,
           oddsAmerican: odds,
@@ -1137,6 +1142,8 @@ function marketPropsFromMlbRows(rows) {
     out.push({
       player,
       eventId: row.eventId || null,
+      // 2026-05-29 — gameTime preservation, see comment above.
+      gameTime: row.gameTime || row.commence_time || row.commenceTime || null,
       statFamily: family,
       line,
       oddsAmerican: odds,
