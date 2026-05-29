@@ -884,7 +884,24 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  writeJsonSync(betsPath, Array.from(mergedBetsById.values()))
+  // 2026-05-29 — stale-pick filter. Same fix as NBA. MLB has even more API
+  // churn (15+ games/day, each with its own commenceTime overlap window).
+  // Without this filter, finished afternoon games pollute the evening slate
+  // file and CLV capture stats.
+  const HOUR_MS = 60 * 60 * 1000
+  const nowMs = Date.now()
+  const allMergedMlb = Array.from(mergedBetsById.values())
+  const beforeCountMlb = allMergedMlb.length
+  const freshMlb = allMergedMlb.filter((b) => {
+    if (!b.gameTime) return true
+    const gtMs = new Date(b.gameTime).getTime()
+    if (!Number.isFinite(gtMs)) return true
+    return gtMs > nowMs - HOUR_MS
+  })
+  if (freshMlb.length < beforeCountMlb) {
+    console.log(`[persistTrackedToday:mlb] filtered ${beforeCountMlb - freshMlb.length} stale picks (gameTime >1h past) — ${freshMlb.length} kept of ${beforeCountMlb}`)
+  }
+  writeJsonSync(betsPath, freshMlb)
 
   // -------- Slips --------
   const slips = board.slips || {}

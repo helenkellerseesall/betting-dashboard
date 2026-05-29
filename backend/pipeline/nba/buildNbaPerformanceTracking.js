@@ -446,7 +446,31 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  writeJsonSync(betsPath, Array.from(mergedBetsById.values()))
+  // 2026-05-29 — stale-pick filter. The slate engine pulls events for the
+  // upcoming game(s) from Cloudflare/odds API, but the API often still includes
+  // events that JUST ENDED (a few hours of overlap). Without this filter, those
+  // stale picks end up in tracked_bets — their CLV capture window has long
+  // closed (long_past) AND they pollute pick counts, FE displays, and stats.
+  // Observed 2026-05-29 at 3:35 AM ET: 307 of 748 NBA picks were for the
+  // game that played 6 hours earlier.
+  // Rule: keep picks whose gameTime is in the future, OR within the last hour
+  // (preserves any in-window picks still actively capturing), OR unknown (null
+  // gameTime — eventTimeMap may rescue, and we don't want to silently drop
+  // picks just because the field wasn't stamped).
+  const HOUR_MS = 60 * 60 * 1000
+  const nowMs = Date.now()
+  const allMerged = Array.from(mergedBetsById.values())
+  const beforeCount = allMerged.length
+  const fresh = allMerged.filter((b) => {
+    if (!b.gameTime) return true
+    const gtMs = new Date(b.gameTime).getTime()
+    if (!Number.isFinite(gtMs)) return true
+    return gtMs > nowMs - HOUR_MS
+  })
+  if (fresh.length < beforeCount) {
+    console.log(`[persistTrackedToday:nba] filtered ${beforeCount - fresh.length} stale picks (gameTime >1h past) — ${fresh.length} kept of ${beforeCount}`)
+  }
+  writeJsonSync(betsPath, fresh)
 
   // -------- Slips --------
   const slips = board.slips || {}
