@@ -751,6 +751,12 @@ function leanBet(play, date) {
     tier: play.tier,
     result: "pending",
     settledAt: null,
+    // 2026-05-28 — Lane B Phase 3 v0.1.4 — marketKey identity preservation.
+    // Same fix as NBA leanBet — without marketKey, captureClosingLines can
+    // land on a different market (main vs alt) for the same logical pick
+    // and produce fake CLV. Stamp marketKey here for downstream identity.
+    marketKey: play.marketKey || null,
+    propType:  play.propType  || null,
     // Lane B Phase 1 CLV fields:
     openOdds:        play.oddsAmerican,
     openObservedAt:  new Date().toISOString(),
@@ -861,6 +867,9 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
       closeImpliedProb: prev.closeImpliedProb ?? b.closeImpliedProb,
       clv:              prev.clv              ?? b.clv,
       clvQuality:       prev.clvQuality       ?? b.clvQuality,
+      // v0.1.4 — marketKey/propType sticky like openOdds for identity preservation.
+      marketKey:        prev.marketKey        ?? b.marketKey,
+      propType:         prev.propType         ?? b.propType,
     } : null
     if (prev && prev.result && prev.result !== "pending") {
       // Preserve graded result + CLV.

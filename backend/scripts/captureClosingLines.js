@@ -177,6 +177,17 @@ function resolveBetGameTime(bet, eventTimeMap) {
 // Without preferring canonicalPropType, every ladder/alt-line pick silently
 // missed match (~60% of NBA Game 5 picks would fail; simulation showed
 // 39.5% → 93.1% match rate after this fix).
+//
+// 2026-05-28 — Lane B Phase 3 v0.1.4 — marketKey added to index/match key.
+// Snapshot stores BOTH main-market and alt/ladder-market entries for the
+// same (player, fam, side, line, book) tuple. Without marketKey in the key,
+// the slate engine and captureClosingLines can land on DIFFERENT markets,
+// producing fake CLV (e.g. PRA over 19.5 open=292 from alt, close=-251
+// from main = +46% measured but artifact). Adding marketKey makes the
+// match apples-to-apples — alt picks only match alt snapshot, main picks
+// only match main. For legacy bets without marketKey (pre-v0.1.4), the key
+// becomes 'player|fam|side|line|book|null' which matches snapshot entries
+// that ALSO have no marketKey (rare) — legacy bets stay best-effort.
 function buildPropIndex(rawProps) {
   const ix = new Map()
   for (const r of (Array.isArray(rawProps) ? rawProps : [])) {
@@ -185,9 +196,11 @@ function buildPropIndex(rawProps) {
     const side   = String(r?.side || "").toLowerCase().trim()
     const line   = String(r?.line ?? "")
     const book   = String(r?.book || r?.sportsbook || "").toLowerCase().trim()
+    const market = String(r?.marketKey || "").toLowerCase().trim()
     if (!player || !fam || !side) continue
-    const key = `${player}|${fam}|${side}|${line}|${book}`
-    // Prefer the freshest row (later observations win)
+    const key = `${player}|${fam}|${side}|${line}|${book}|${market}`
+    // Prefer the freshest row (later observations win — only applies WITHIN
+    // the same marketKey, so main and alt are now separate index entries)
     ix.set(key, r)
   }
   return ix
@@ -201,7 +214,8 @@ function matchKeyForBet(bet) {
   const side   = String(bet?.side || "").toLowerCase().trim()
   const line   = String(bet?.line ?? "")
   const book   = String(bet?.sportsbook || bet?.book || "").toLowerCase().trim()
-  return `${player}|${fam}|${side}|${line}|${book}`
+  const market = String(bet?.marketKey || "").toLowerCase().trim()
+  return `${player}|${fam}|${side}|${line}|${book}|${market}`
 }
 
 /**

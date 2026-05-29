@@ -191,6 +191,15 @@ function leanBet(play, date) {
     tier: play.tier,
     result: "pending",
     settledAt: null,
+    // 2026-05-28 — Lane B Phase 3 v0.1.4 — marketKey identity preservation.
+    // Without marketKey, captureClosingLines can land on a different market
+    // (main vs alt/ladder) for the same (player, family, side, line, book)
+    // tuple and stamp a closeOdds from a different market than openOdds.
+    // Manifests as fake CLV (e.g. PRA over 19.5 stamped open=292 from alt
+    // market, close=-251 from main market = +46% "CLV" that isn't real).
+    // Stamp marketKey here so captureClosingLines can match the SAME market.
+    marketKey: play.marketKey || null,
+    propType:  play.propType  || null,
     // CLV fields (Lane B 2026-05-26):
     openOdds:        play.oddsAmerican,
     openObservedAt:  new Date().toISOString(),
@@ -416,6 +425,11 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
       closeImpliedProb: prev.closeImpliedProb ?? b.closeImpliedProb,
       clv:              prev.clv              ?? b.clv,
       clvQuality:       prev.clvQuality       ?? b.clvQuality,
+      // 2026-05-28 v0.1.4 — marketKey/propType sticky like openOdds. Re-runs
+      // may have stale marketKey if upstream changed pool selection between
+      // runs; the FIRST observed market identity wins, same rule as openOdds.
+      marketKey:        prev.marketKey        ?? b.marketKey,
+      propType:         prev.propType         ?? b.propType,
     } : null
     if (prev && prev.result && prev.result !== "pending") {
       // Preserve graded result + CLV history.
