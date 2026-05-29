@@ -34,6 +34,19 @@
 
 set -uo pipefail
 
+# 2026-05-29 — PATH fix. launchd does NOT inherit user shell PATH. When
+# scheduler.sh runs as a LaunchAgent, npm/node aren't reachable unless we
+# explicitly add their install directories. Without this, every slate:mlb
+# and slate:nba fires "npm: command not found" exit 127 — silently dropping
+# every autonomous slate. Diagnosed 2026-05-29 4 PM ET when the overnight
+# MLB slates that were supposed to fire at 9 AM, 10 AM, 11 AM, etc. ALL
+# failed with this exact error. Same fix as run-backend-daemon.sh.
+for p in /opt/homebrew/bin /usr/local/bin "$HOME/.nvm/versions/node/v24.14.0/bin" "$HOME/.nvm/versions/node/v22.18.0/bin" /usr/bin; do
+  if [ -x "$p/npm" ] || [ -x "$p/node" ]; then
+    export PATH="$p:${PATH:-}"
+  fi
+done
+
 cd /Users/andrewmoore/Desktop/betting-dashboard/backend
 
 LOG=/Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler.log
