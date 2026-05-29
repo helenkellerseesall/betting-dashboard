@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.backend.plist — backend Node server as LaunchAgent.
+  Replaces TERM 1 'npm run engine:restart'. After install:
+    - Starts at login (RunAtLoad)
+    - Auto-restarts if it dies (KeepAlive)
+    - Survives terminal close, Mac restart (re-loads at next login)
+    - Logs to .scratch/backend.log (where status.sh + Claude already look)
+
+  Install:
+    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.backend.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.motel666.backend.plist
+
+  Stop:
+    launchctl unload -w ~/Library/LaunchAgents/com.motel666.backend.plist
+
+  WARNING — before installing, kill any existing TERM 1 backend so port 4000 is free:
+    lsof -ti tcp:4000 | xargs kill -9
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/run-backend-daemon.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/backend</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend-launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend-launchd.log</string>
+</dict>
+</plist>

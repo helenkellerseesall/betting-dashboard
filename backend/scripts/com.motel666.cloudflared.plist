@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.cloudflared.plist — Cloudflare tunnel as LaunchAgent.
+  Replaces TERM 3 'cloudflared tunnel run edge'. After install:
+    - Starts at login
+    - Auto-restarts if dies (network blip, process crash)
+    - Mac restart → re-loads at next login
+
+  Cloudflare also offers `cloudflared service install` which does the same
+  thing but installs at the system level (requires sudo, runs as LaunchDaemon
+  not LaunchAgent). User-level LaunchAgent is simpler and adequate for
+  operator-driven autonomy.
+
+  cloudflared binary path detection: tries Homebrew ARM first, Intel second.
+  If neither found, plist will fail to start — diagnostic in launchd log.
+
+  Install:
+    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.cloudflared.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.motel666.cloudflared.plist
+
+  Stop:
+    launchctl unload -w ~/Library/LaunchAgents/com.motel666.cloudflared.plist
+
+  WARNING — before installing, kill any manually-launched tunnel:
+    pkill -f "cloudflared tunnel run"
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.cloudflared</string>
+
+    <!-- /opt/homebrew/bin is Apple Silicon Homebrew, /usr/local/bin is Intel
+         Homebrew. Operator's Mac is Apple Silicon (Andy-MacBook-Pro Air or
+         later) so /opt/homebrew/bin/cloudflared is the typical path.
+         If Intel-based, edit this to /usr/local/bin/cloudflared. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/cloudflared</string>
+        <string>tunnel</string>
+        <string>run</string>
+        <string>edge</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/cloudflared-launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/cloudflared-launchd.log</string>
+</dict>
+</plist>

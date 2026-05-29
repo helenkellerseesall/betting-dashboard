@@ -32,7 +32,14 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/caffeinate</string>
-        <string>-i</string>
+        <!-- -d prevent display sleep (off by default with -i but harmless)
+             -i prevent idle sleep
+             -m prevent disk idle sleep
+             -s prevent system sleep (CRITICAL for MacBook lid-close / clamshell)
+             -u declares user is active (counts as activity)
+             Together these block all sleep paths including clamshell sleep.
+             Trade-off: Mac runs full power 24/7 — energy use ~30W idle. -->
+        <string>-dimsu</string>
     </array>
 
     <!-- Start at login. -->

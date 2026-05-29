@@ -62,6 +62,41 @@ check_proc "scheduler.sh   " "scheduler\\.sh"
 check_proc "cloudflared    " "cloudflared tunnel"
 echo ""
 
+# ─── 1b. Daemon status (which are auto-restarting vs terminal-bound) ──
+echo "[1b] AUTONOMY MODE (LaunchAgent vs terminal-bound)"
+if launchctl list 2>/dev/null | grep -q "com.motel666.caffeinate"; then
+  CAFF_PID=$(launchctl list 2>/dev/null | grep "com.motel666.caffeinate" | awk '{print $1}')
+  echo "    ✓ caffeinate is LaunchAgent (auto-restart on death, survives reboot) [launchd pid $CAFF_PID]"
+else
+  echo "    ✗ caffeinate NOT a LaunchAgent — terminal-bound, dies on Mac restart"
+fi
+for label in com.motel666.backend com.motel666.scheduler com.motel666.cloudflared; do
+  if launchctl list 2>/dev/null | grep -q "$label"; then
+    echo "    ✓ $label is LaunchAgent"
+  else
+    echo "    ✗ $label NOT a LaunchAgent — terminal-bound, dies on Mac restart"
+  fi
+done
+echo ""
+
+# ─── 1c. Sleep prevention diagnostics ─────────────────────────────────
+echo "[1c] SLEEP PREVENTION"
+if command -v pmset >/dev/null 2>&1; then
+  ASSERT=$(pmset -g assertions 2>/dev/null | grep -E "PreventUserIdleSystemSleep|PreventSystemSleep" | head -3)
+  if [ -n "$ASSERT" ]; then
+    echo "    ✓ active sleep-prevention assertions:"
+    echo "$ASSERT" | sed 's/^/      /'
+  else
+    echo "    ✗ NO sleep-prevention assertions active — Mac will sleep"
+  fi
+  # Idle sleep timer
+  IDLE=$(pmset -g | grep -E "^ *sleep" | awk '{print $2}')
+  echo "    Mac idle-sleep timer: ${IDLE:-?} minutes (0 = never)"
+else
+  echo "    (pmset unavailable — sandbox or non-macOS)"
+fi
+echo ""
+
 # ─── 2. CLV capture loop liveness ──────────────────────────────────
 echo "[2] CLV CAPTURE LOOP"
 if [ -f "$SCRATCH/backend.log" ]; then

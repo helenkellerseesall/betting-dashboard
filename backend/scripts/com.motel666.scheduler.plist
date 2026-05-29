@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.scheduler.plist — scheduler.sh as LaunchAgent.
+  Replaces TERM 5 'bash scheduler.sh'. After install:
+    - Starts at login
+    - Auto-restarts if dies (KeepAlive)
+    - Mac restart → re-loads at next login → autonomous from boot
+    - Logs go through scheduler.sh's own logging to .scratch/scheduler.log
+      AND launchd captures stdout/stderr to .scratch/scheduler-launchd.log
+
+  Install:
+    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.scheduler.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.motel666.scheduler.plist
+
+  Stop:
+    launchctl unload -w ~/Library/LaunchAgents/com.motel666.scheduler.plist
+
+  WARNING — before installing, kill any manually-launched scheduler.sh:
+    pkill -f scheduler.sh
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.scheduler</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/scheduler.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/backend</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler-launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler-launchd.log</string>
+</dict>
+</plist>
