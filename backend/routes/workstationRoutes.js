@@ -1713,6 +1713,12 @@ router.post("/ledger/log", express.json(), (req, res) => {
 router.get("/ledger/yesterday", (req, res) => {
   try {
     const sport = req.query.sport ? String(req.query.sport).toLowerCase() : null
+    // 2026-05-29 — GRADES truthfulness fix. ?showAll=true bypasses both
+    // tier filtering AND cross-sportsbook dedup, returning the full tracked
+    // inventory. Default behavior shows the BETTABLE subset (operator's
+    // intended view) — what the system actually recommends betting.
+    const showAll = String(req.query.showAll || "").toLowerCase() === "true"
+
     const mods = loadSharedModules()
     const ledger = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null
     if (!ledger) return res.json({ date: null, picks: [], totals: null })
@@ -1729,13 +1735,20 @@ router.get("/ledger/yesterday", (req, res) => {
     // displayable on Sharp Plays. Without this, the 56-100 LONGSHOT alt-line
     // picks per slate flood the GRADES tab as "0W/130L · −$1300 profit"
     // calculated from $10 default stake × 130 unwinnable picks.
-    const isLongshotPick = (b) => {
+    //
+    // 2026-05-29 — extended to FADE filter. FADE tier means the system
+    // explicitly tagged "do not bet" because edge<0 or model contradicts.
+    // Including them in the ROI calc inflated the loss column to -98% ROI
+    // on yesterday's NBA Game 5 (225 of 359 FADE picks inflated -$3540).
+    // Real bettable picks excluding FADE+LONGSHOT yields the honest number.
+    const isUnbettableTier = (b) => {
       const t = String(b.modelTier || b.confidenceTier || "").toUpperCase()
-      return t === "LONGSHOT"
+      return t === "LONGSHOT" || t === "FADE"
     }
-    const picks = (ledger.bets || [])
+
+    let picks = (ledger.bets || [])
       .filter((b) => b.date === yKey && (!sport || b.sport === sport))
-      .filter((b) => !isLongshotPick(b))
+      .filter((b) => showAll || !isUnbettableTier(b))
       .map((b) => ({
         id:            b.id,
         sport:         b.sport,
@@ -1762,6 +1775,38 @@ router.get("/ledger/yesterday", (req, res) => {
         beatMarket:    b.clvSnapshot?.clv?.beatMarket,
       }))
 
+    // 2026-05-29 — Cross-sportsbook dedup. Same logical pick (player +
+    // statFamily + side + line) at DraftKings + FanDuel + BetMGM is ONE
+    // bet you'd shop the line on, not three. Without dedup, the GRADES
+    // tab counts each as a separate W/L. Yesterday: 1226 graded entries
+    // collapsed to 761 unique logical picks (38% duplication).
+    // Strategy: group by (player, statFamily, side, line) and keep the row
+    // with the best odds (highest toWin for fixed stake = best for bettor).
+    // ?showAll=true bypasses dedup so operator can audit the full inventory.
+    if (!showAll) {
+      const norm = (v) => String(v ?? "").toLowerCase().trim()
+      const lineKey = (v) => (v == null || v === "" ? "" : String(Number(v)))
+      const dedupKey = (p) =>
+        `${norm(p.player)}|${norm(p.statFamily)}|${norm(p.side)}|${lineKey(p.line)}`
+      const best = new Map()
+      for (const p of picks) {
+        const k = dedupKey(p)
+        const prev = best.get(k)
+        if (!prev) { best.set(k, p); continue }
+        // Tiebreaker: pick row with higher toWin (better odds for bettor),
+        // and if equal, prefer a result that's settled over pending.
+        const prevWin = Number(prev.toWin) || 0
+        const pWin = Number(p.toWin) || 0
+        if (pWin > prevWin) { best.set(k, p); continue }
+        if (pWin === prevWin) {
+          const prevSettled = prev.result && prev.result !== "pending"
+          const pSettled = p.result && p.result !== "pending"
+          if (pSettled && !prevSettled) best.set(k, p)
+        }
+      }
+      picks = Array.from(best.values())
+    }
+
     // Rolling W/L + ROI for yesterday's logged picks only
     let wins = 0, losses = 0, pushes = 0, pending = 0, staked = 0, profit = 0
     for (const p of picks) {
@@ -1785,9 +1830,13 @@ router.get("/ledger/yesterday", (req, res) => {
     const roi = staked > 0 && settled > 0 ? Math.round((profit / staked) * 10000) / 10000 : null
     const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 10000) / 10000 : null
 
+    // 2026-05-29 — expose viewMode so FE can label the display honestly.
+    // Default "bettable" view = FADE+LONGSHOT excluded + cross-sportsbook
+    // deduped. ?showAll=true returns the raw tracked inventory.
     res.json({
       date: yKey,
       sport: sport || "all",
+      viewMode: showAll ? "all_tracked" : "bettable_subset",
       picks,
       totals: {
         count: picks.length,
