@@ -233,6 +233,10 @@ function scorePlay({ edge, ev, conf, vol, side }) {
 // the code existed. Operator caught Wemby UNDER 20.5 / Champagnie OVER 3.5
 // reaching PLAYABLE; this is the structural reason why.
 const { classifyNbaTier: _classifyNbaTier } = require("./nbaTierClassifier")
+// 2026-05-29 — Lane B Phase 3 v0.3.0 — calibration feedback wire (NBA).
+// Same module MLB uses. Applied as a multiplicative adjustment on modelProb
+// after the raw projection-based computation. See pipeline/grading/calibrationFeedback.js.
+const { getCalibrationFactor: _getNbaCalFactor } = require("../grading/calibrationFeedback")
 // 2026-05-25 — extended to pass projMostLikely so the new projection-contradiction
 // gate inside the classifier can fire. Catches picks where L5 is close to line
 // but projection.mostLikely is materially opposite (Harden UNDER pra 24.5 case).
@@ -409,11 +413,25 @@ function buildNbaBestBetsBoard(input = {}) {
     const impliedProb = americanOddsToImpliedProb(odds)
     const decOdds = americanToDecimal(odds)
     const conf = projectionConfidence(stat, line)
-    const modelProb = modelProbForSide(family, stat, line, side, conf)
-    if (impliedProb == null || decOdds == null || modelProb == null) {
+    const rawModelProb = modelProbForSide(family, stat, line, side, conf)
+    if (impliedProb == null || decOdds == null || rawModelProb == null) {
       dropped += 1
       continue
     }
+    // 2026-05-29 — calibration feedback wire (v1). Adjust modelProb by the
+    // multiplicative factor derived from historical per-(family, side) hit
+    // rates. Sample-weighted Bayesian shrinkage: small samples stay near
+    // 1.0; large samples with clear over/underconfidence get proportionally
+    // weighted. Observed: NBA points OVER currently 0.682× (0 hits on 14
+    // historical picks); NBA threes OVER 0.714× (0 hits on 12 picks).
+    // Default 1.0 when sample < 5 picks. Clamp to [0.1, 2.0] applied inside
+    // getCalibrationFactor — extreme rates can't zero or double the model.
+    let calFactor = 1.0
+    try {
+      const f = _getNbaCalFactor({ sport: "nba", statFamily: family, side })
+      if (Number.isFinite(f)) calFactor = f
+    } catch (_) { /* no-op */ }
+    const modelProb = Math.max(0, Math.min(1, rawModelProb * calFactor))
     const edge = modelProb - impliedProb
     const ev = modelProb * (decOdds - 1) - (1 - modelProb)
     const vol = volatilityGap(stat)

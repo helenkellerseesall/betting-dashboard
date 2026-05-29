@@ -1,5 +1,12 @@
 "use strict"
 
+// 2026-05-29 — Lane B Phase 3 v0.3.0 — calibration feedback wire.
+// Reads historical per-(family, side) hit rates from outcome_snapshots ×
+// prediction_snapshots and returns a multiplicative adjustment factor.
+// Sample-weighted Bayesian shrinkage prevents over-correction on small
+// samples. Safe default 1.0 when DB unavailable or sample too small.
+const { getCalibrationFactor: _getCalFactor } = require("../grading/calibrationFeedback")
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -662,6 +669,18 @@ function calibrateMlbConfidence(family, line, side, vol, rawConf, mp) {
   const volWt =
     f === "hr" ? 0.38 : f === "rbis" || f === "runs" ? 0.22 : f === "totalbases" ? 0.14 : f === "hits" ? 0.12 : f === "ks" ? 0.06 : 0.15
   r *= mult * (1 - volWt * volN)
+
+  // 2026-05-29 — calibration feedback wire (v1). Multiply by adjustment
+  // factor derived from historical hit rates (rolling 30-day window).
+  // Bayesian-shrinkage-weighted: small samples stay near 1.0; large
+  // samples with clear over/underconfidence get correspondingly weighted.
+  // Example: MLB runs OVER currently 0.679× (13% historical hit vs 40% model).
+  // Default 1.0 when sample < 5 picks for that (family, side) tuple.
+  try {
+    const calFactor = _getCalFactor({ sport: "mlb", statFamily: f, side: String(side || "").toLowerCase() })
+    if (Number.isFinite(calFactor)) r *= calFactor
+  } catch (_) { /* no-op: calibration wire is non-fatal */ }
+
   return Math.max(0, Math.min(1, r))
 }
 
