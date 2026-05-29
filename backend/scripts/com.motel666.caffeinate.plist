@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.caffeinate.plist — macOS LaunchAgent for caffeinate
+  Built 2026-05-28. Replaces the manual `caffeinate -i &` pattern that died
+  when terminals closed. With this loaded:
+    - caffeinate starts automatically at login
+    - launchd restarts it if it dies (KeepAlive)
+    - No terminal needed — fully background daemon
+    - Survives Mac restart (loads at next login)
+
+  Install once:
+    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.caffeinate.plist \
+       ~/Library/LaunchAgents/com.motel666.caffeinate.plist
+    launchctl load -w ~/Library/LaunchAgents/com.motel666.caffeinate.plist
+
+  Verify:
+    launchctl list | grep motel666.caffeinate    (should show pid and label)
+    pgrep caffeinate                              (should show the caffeinate pid)
+
+  Stop (if ever needed):
+    launchctl unload -w ~/Library/LaunchAgents/com.motel666.caffeinate.plist
+
+  Logs:
+    tail -f /Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.caffeinate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-i</string>
+    </array>
+
+    <!-- Start at login. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Auto-restart if process dies for any reason. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Throttle restarts so we don't spin if something's badly broken. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Logging for diagnostics. -->
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log</string>
+</dict>
+</plist>
