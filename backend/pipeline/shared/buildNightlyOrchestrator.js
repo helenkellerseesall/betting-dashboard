@@ -34,6 +34,7 @@ const { runPostGameReview }        = require("./buildPostGameReview")
 const {
   loadLedger,
   batchSettle,
+  batchSettleByFields,
   batchSetClosingLines,
   buildNightlyReport,
   importFromTrackedBets,
@@ -264,19 +265,53 @@ function stepLedgerSettle(sport, date, extraResults = {}) {
   try {
     const betsFile = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
     const tracked  = readJsonSafe(betsFile, []) || []
-    const resultsMap = {}
 
+    // 2026-05-29 — Lane B Phase 3 v0.2.0 — switch from id-based batchSettle to
+    // field-tuple based batchSettleByFields. batchSettle silently 0-matched
+    // because ledger IDs (stableId with Date.now suffix) don't equal tracked
+    // IDs (idForBet format). Observed: ledger had 8011 entries all pending
+    // despite MLB 5/16 having 147 graded tracked_bets. Same bug class as the
+    // CLV mirror fix (v0.1.2). Field-tuple matching is apples-to-apples.
+    const entries = []
     for (const t of tracked) {
-      if (!t.id || !t.result || t.result === "pending") continue
-      resultsMap[t.id] = { result: t.result, actualStat: t.actualStat ?? null }
+      if (!t.result || t.result === "pending") continue
+      entries.push({
+        sport,
+        date,
+        player: t.player,
+        statFamily: t.statFamily,
+        side: t.side,
+        line: t.line,
+        sportsbook: t.sportsbook,
+        result: t.result,
+        actualStat: t.actualStat ?? null,
+        payout: t.payout ?? null,
+      })
     }
-    // Merge any caller-supplied overrides
-    Object.assign(resultsMap, extraResults)
+    // Merge any caller-supplied id-keyed overrides (for legacy callers)
+    // by converting to field-tuple entries. The override expects the caller
+    // to supply at least player+statFamily+side+line+sportsbook.
+    for (const [_id, value] of Object.entries(extraResults)) {
+      if (value && typeof value === "object" && value.player && value.statFamily) {
+        entries.push({
+          sport,
+          date,
+          player: value.player,
+          statFamily: value.statFamily,
+          side: value.side,
+          line: value.line,
+          sportsbook: value.sportsbook,
+          result: value.result,
+          actualStat: value.actualStat ?? null,
+          payout: value.payout ?? null,
+        })
+      }
+    }
 
-    if (!Object.keys(resultsMap).length) return { skipped: true, reason: "no_settled_tracked_bets" }
+    if (!entries.length) return { skipped: true, reason: "no_settled_tracked_bets" }
 
-    const r = batchSettle(resultsMap)
-    return { ok: true, settled: r.count }
+    const r = batchSettleByFields(entries)
+    return { ok: true, settled: r.count, requested: r.requested, skippedAlreadySettled: r.skippedAlreadySettled }
   } catch (err) {
     return { ok: false, error: String(err?.message || err) }
   }

@@ -874,6 +874,71 @@ function batchSettle(resultsMap = {}, { save = true } = {}) {
   return { applied, count: applied.length }
 }
 
+// 2026-05-29 — Lane B Phase 3 v0.2.0 — settlement field-tuple matcher.
+// batchSettle (above) matches by ledger.bet.id === tracked.id, but the two ID
+// schemes don't match (ledger.id = stableId() with Date.now() suffix, tracked.id
+// = idForBet() format). Result: settlement batch silently 0-matches → ledger
+// stays all-pending forever even when tracked_bets are correctly graded.
+// Observed 2026-05-29: 8011 ledger entries, 8011 pending; meanwhile MLB 5/16
+// had 147/179 tracked_bets settled. The propagation never happened.
+//
+// Same fix pattern as batchSetClosingLinesByFields (v0.1.2): match by field
+// tuple (sport, date, player, statFamily, side, line, sportsbook) instead of
+// the unstable ID. Same normalization rules so callers can reuse the field
+// extraction logic.
+function batchSettleByFields(entries = [], { save = true } = {}) {
+  const ledger = loadLedger()
+  const norm = (v) => String(v ?? "").toLowerCase().trim()
+  const lineKey = (v) => (v == null || v === "" ? "" : String(Number(v)))
+  function fieldKey(sport, date, player, statFamily, side, line, sportsbook) {
+    return [
+      norm(sport),
+      String(date || ""),
+      norm(player).replace(/[^a-z0-9]+/g, ""),
+      norm(statFamily),
+      norm(side),
+      lineKey(line),
+      norm(sportsbook).replace(/[^a-z0-9]+/g, ""),
+    ].join("|")
+  }
+  // Build ledger lookup by field tuple
+  const lookup = new Map()
+  for (const b of ledger.bets) {
+    const k = fieldKey(b.sport, b.date, b.player, b.statFamily, b.side, b.line, b.sportsbook)
+    if (!lookup.has(k)) lookup.set(k, [])
+    lookup.get(k).push(b)
+  }
+  const applied = []
+  let skippedAlreadySettled = 0
+  for (const e of entries) {
+    if (!e || !e.result) continue
+    const r = String(e.result || "").toLowerCase()
+    if (!["win", "loss", "push", "void"].includes(r)) continue
+    const k = fieldKey(e.sport, e.date, e.player, e.statFamily, e.side, e.line, e.sportsbook)
+    const bets = lookup.get(k) || []
+    for (const bet of bets) {
+      // Idempotent: skip if already settled with same result
+      if (bet.result && bet.result !== "pending" && bet.result !== "unresolved") {
+        skippedAlreadySettled++
+        continue
+      }
+      const prevBalance = ledger.bankroll?.current
+      bet.result = r
+      bet.settledAt = new Date().toISOString()
+      if (e.payout != null && Number.isFinite(Number(e.payout))) bet.payout = Number(e.payout)
+      if (e.actualStat != null && Number.isFinite(Number(e.actualStat))) bet.actualStat = Number(e.actualStat)
+      if (ledger.bankroll) {
+        ledger.bankroll.current = computeCurrentBankroll({ bankroll: { current: prevBalance } }, bet)
+      }
+      applied.push({ id: bet.id, fieldKey: k, result: r })
+    }
+  }
+  ledger.analytics = rebuildAnalytics(ledger.bets, ledger.bankroll?.current ?? 0, ledger.bankroll?.initial ?? 0)
+  ledger.updatedAt = new Date().toISOString()
+  if (save) saveLedger(ledger)
+  return { applied, count: applied.length, requested: entries.length, skippedAlreadySettled }
+}
+
 /**
  * Generate a nightly report from the current ledger.
  *
@@ -1318,6 +1383,7 @@ module.exports = {
   addOrUpdateBet,
   settleBet,
   batchSettle,
+  batchSettleByFields,
   buildNightlyReport,
   importFromTrackedBets,
   setClosingLine,
