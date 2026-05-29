@@ -34,10 +34,26 @@
          Homebrew. Operator's Mac is Apple Silicon (Andy-MacBook-Pro Air or
          later) so /opt/homebrew/bin/cloudflared is the typical path.
          If Intel-based, edit this to /usr/local/bin/cloudflared. -->
+    <!-- 2026-05-28 — explicit env vars + credentials path required for remote-
+         config tunnels (Cloudflare Zero Trust dashboard). Without HOME set,
+         launchd's minimal env doesn't tell cloudflared where to find
+         cert.pem and the credentials JSON; it falls back to "no ingress"
+         and returns 503 to all requests. With these set, LaunchAgent matches
+         the behavior of `cloudflared tunnel run edge` from operator's shell. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/andrewmoore</string>
+        <key>TUNNEL_ORIGIN_CERT</key>
+        <string>/Users/andrewmoore/.cloudflared/cert.pem</string>
+    </dict>
+
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/cloudflared</string>
         <string>tunnel</string>
+        <string>--credentials-file</string>
+        <string>/Users/andrewmoore/.cloudflared/f7a3253b-5d80-439d-b347-d6ef8386019b.json</string>
         <string>run</string>
         <string>edge</string>
     </array>
