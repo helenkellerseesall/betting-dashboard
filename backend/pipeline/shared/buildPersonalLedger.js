@@ -26,7 +26,13 @@ const { computeClv, buildClvAnalytics, classifyResultVsClv } = require("./buildC
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 const LEDGER_FILE = path.join(TRACKING_DIR, "personal_ledger.json")
-const MAX_BETS = 2000
+// 2026-05-29 — bumped 2000 → 50000. Old cap dropped 491 of 2491 MLB picks
+// on a single auto-import. With autonomous scheduler.sh firing slate:nba
+// every 30 min and slate:mlb hourly across 2 sports (500-2500 picks each
+// per day), we need ~3 weeks of dual-sport history to fit comfortably.
+// 50K row-buffer is well within JSON load performance (file stays <50MB
+// even at full capacity).
+const MAX_BETS = 50000
 const MAX_BETS_IN_REPORT = 50
 const CURRENT_VERSION = "personal-ledger-v1"
 

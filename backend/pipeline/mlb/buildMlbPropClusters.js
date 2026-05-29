@@ -1020,6 +1020,15 @@ function makePlay(args) {
   return {
     player: pred.player,
     eventId: pred.eventId || mp.eventId || null,
+    // 2026-05-29 — gameTime propagation. MLB snapshot rawProps carry
+    // gameTime (e.g. "2026-05-29T22:41:00Z"); without explicitly stamping
+    // it onto play, leanBet → tracked_bets ends up with gameTime=null on
+    // EVERY MLB pick. Observed 2026-05-29: 0/2491 MLB picks had gameTime
+    // stamped. CLV capture then relies on the fragile eventTimeMap fallback
+    // (snapshot.events lookup at capture time) which can fail when an event
+    // ages out of the snapshot between slate-gen and capture-window-open.
+    // NBA stamps gameTime correctly upstream; bringing MLB to parity.
+    gameTime: mp.gameTime || mp.commence_time || mp.commenceTime || pred.gameTime || null,
     matchup: pred.matchup || null,
     team: pred.team || null,
     teamCode: pred.teamCode || null,
