@@ -446,29 +446,66 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  // 2026-05-29 — stale-pick filter. The slate engine pulls events for the
-  // upcoming game(s) from Cloudflare/odds API, but the API often still includes
-  // events that JUST ENDED (a few hours of overlap). Without this filter, those
-  // stale picks end up in tracked_bets — their CLV capture window has long
-  // closed (long_past) AND they pollute pick counts, FE displays, and stats.
+  // 2026-05-29 — stale-pick filter (TWO LAYERS).
+  //
+  // Layer 1: drop picks with explicit gameTime more than 1h in the past.
+  // Layer 2: drop picks with NULL gameTime but eventId NOT in current snapshot
+  //          (event has aged out of the API — almost certainly past).
+  //
+  // Background: Cloudflare/odds API returns events for both upcoming AND just-
+  // finished games within a few-hour overlap. Without layer 1, picks for just-
+  // played games stay in tracked_bets with explicit past gameTime. Without
+  // layer 2, the alt-line/ladder picks (which often have NULL gameTime in
+  // source data) ALSO bleed through, just without an obvious timestamp.
   // Observed 2026-05-29 at 3:35 AM ET: 307 of 748 NBA picks were for the
-  // game that played 6 hours earlier.
-  // Rule: keep picks whose gameTime is in the future, OR within the last hour
-  // (preserves any in-window picks still actively capturing), OR unknown (null
-  // gameTime — eventTimeMap may rescue, and we don't want to silently drop
-  // picks just because the field wasn't stamped).
+  // game played 6 hours earlier; 127 had explicit past gameTime (caught by
+  // layer 1) + 180 had null gameTime but the past event's eventId (caught
+  // by layer 2 after this change).
+  //
+  // Conservative: picks with NULL gameTime AND NULL eventId are kept (can't
+  // determine state). Picks with eventId in current snapshot are kept
+  // (event is still tradable). This file lives at backend/snapshot.json.
   const HOUR_MS = 60 * 60 * 1000
   const nowMs = Date.now()
+  // Build known-current eventId set from current snapshot.events
+  const knownEventIds = new Set()
+  try {
+    const snapshotPath = path.join(__dirname, "..", "..", "snapshot.json")
+    if (fs.existsSync(snapshotPath)) {
+      const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
+      const snap = wrap?.data || wrap
+      const evs = Array.isArray(snap?.events) ? snap.events : []
+      for (const e of evs) {
+        const id = e?.id || e?.eventId
+        if (id) knownEventIds.add(String(id))
+      }
+    }
+  } catch (_) {
+    // Snapshot read failure non-fatal — skip layer 2, layer 1 still applies
+  }
   const allMerged = Array.from(mergedBetsById.values())
   const beforeCount = allMerged.length
+  let droppedLayer1 = 0
+  let droppedLayer2 = 0
   const fresh = allMerged.filter((b) => {
-    if (!b.gameTime) return true
-    const gtMs = new Date(b.gameTime).getTime()
-    if (!Number.isFinite(gtMs)) return true
-    return gtMs > nowMs - HOUR_MS
+    // Layer 1: explicit gameTime check
+    if (b.gameTime) {
+      const gtMs = new Date(b.gameTime).getTime()
+      if (Number.isFinite(gtMs)) {
+        if (gtMs <= nowMs - HOUR_MS) { droppedLayer1++; return false }
+        return true
+      }
+    }
+    // Layer 2: gameTime null/invalid — check eventId against current snapshot
+    if (b.eventId && knownEventIds.size > 0 && !knownEventIds.has(String(b.eventId))) {
+      droppedLayer2++
+      return false
+    }
+    // Else: unknown state, keep conservatively
+    return true
   })
   if (fresh.length < beforeCount) {
-    console.log(`[persistTrackedToday:nba] filtered ${beforeCount - fresh.length} stale picks (gameTime >1h past) — ${fresh.length} kept of ${beforeCount}`)
+    console.log(`[persistTrackedToday:nba] filtered ${beforeCount - fresh.length} stale picks (layer1=${droppedLayer1} explicit-past, layer2=${droppedLayer2} eventId-not-in-snapshot) — ${fresh.length} kept of ${beforeCount}`)
   }
   writeJsonSync(betsPath, fresh)
 

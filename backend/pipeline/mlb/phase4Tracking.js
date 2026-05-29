@@ -884,22 +884,44 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  // 2026-05-29 — stale-pick filter. Same fix as NBA. MLB has even more API
-  // churn (15+ games/day, each with its own commenceTime overlap window).
-  // Without this filter, finished afternoon games pollute the evening slate
-  // file and CLV capture stats.
+  // 2026-05-29 — stale-pick filter (TWO LAYERS). See full doc in NBA's
+  // buildNbaPerformanceTracking.persistTrackedToday. MLB snapshot is at
+  // backend/snapshot-mlb.json with the same {data: {events: [...]}} shape.
   const HOUR_MS = 60 * 60 * 1000
   const nowMs = Date.now()
+  const knownEventIdsMlb = new Set()
+  try {
+    const snapshotPath = path.join(__dirname, "..", "..", "snapshot-mlb.json")
+    if (fs.existsSync(snapshotPath)) {
+      const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
+      const snap = wrap?.data || wrap
+      const evs = Array.isArray(snap?.events) ? snap.events : []
+      for (const e of evs) {
+        const id = e?.id || e?.eventId
+        if (id) knownEventIdsMlb.add(String(id))
+      }
+    }
+  } catch (_) {}
   const allMergedMlb = Array.from(mergedBetsById.values())
   const beforeCountMlb = allMergedMlb.length
+  let droppedLayer1Mlb = 0
+  let droppedLayer2Mlb = 0
   const freshMlb = allMergedMlb.filter((b) => {
-    if (!b.gameTime) return true
-    const gtMs = new Date(b.gameTime).getTime()
-    if (!Number.isFinite(gtMs)) return true
-    return gtMs > nowMs - HOUR_MS
+    if (b.gameTime) {
+      const gtMs = new Date(b.gameTime).getTime()
+      if (Number.isFinite(gtMs)) {
+        if (gtMs <= nowMs - HOUR_MS) { droppedLayer1Mlb++; return false }
+        return true
+      }
+    }
+    if (b.eventId && knownEventIdsMlb.size > 0 && !knownEventIdsMlb.has(String(b.eventId))) {
+      droppedLayer2Mlb++
+      return false
+    }
+    return true
   })
   if (freshMlb.length < beforeCountMlb) {
-    console.log(`[persistTrackedToday:mlb] filtered ${beforeCountMlb - freshMlb.length} stale picks (gameTime >1h past) — ${freshMlb.length} kept of ${beforeCountMlb}`)
+    console.log(`[persistTrackedToday:mlb] filtered ${beforeCountMlb - freshMlb.length} stale picks (layer1=${droppedLayer1Mlb} explicit-past, layer2=${droppedLayer2Mlb} eventId-not-in-snapshot) — ${freshMlb.length} kept of ${beforeCountMlb}`)
   }
   writeJsonSync(betsPath, freshMlb)
 
