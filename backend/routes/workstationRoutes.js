@@ -1808,15 +1808,26 @@ router.get("/ledger/yesterday", (req, res) => {
     }
 
     // Rolling W/L + ROI for yesterday's logged picks only
+    // 2026-05-29 — CRITICAL BUG FIX (worth flagging). Number(null) returns 0,
+    // not NaN, so the original check `Number.isFinite(Number(p.payout))` was
+    // true whenever payout was null (which is EVERY win — grading never sets
+    // payout). That made the win path compute `0 - stake = -10` per win,
+    // treating every winning pick as a -$10 LOSS in the profit accumulator.
+    // Visible symptom: yesterday's NBA Game 5 displayed -98% ROI / -$3540
+    // loss on 76W/278L when the real number (using toWin field) is closer to
+    // -4% ROI on the bettable subset. Fix: explicit null/undefined check
+    // BEFORE Number() conversion. Same logic for stake/toWin (those can be 0
+    // legitimately so isFinite check after Number() is still safe).
     let wins = 0, losses = 0, pushes = 0, pending = 0, staked = 0, profit = 0
     for (const p of picks) {
       const stake = Number(p.stake) || 0
       const toWin = Number(p.toWin) || 0
-      const payout = Number(p.payout)
+      const hasRealPayout = p.payout != null && Number.isFinite(Number(p.payout))
+      const payout = hasRealPayout ? Number(p.payout) : null
       staked += stake
       if (p.result === "win") {
         wins++
-        profit += Number.isFinite(payout) ? payout - stake : toWin
+        profit += hasRealPayout ? (payout - stake) : toWin
       } else if (p.result === "loss") {
         losses++
         profit -= stake
