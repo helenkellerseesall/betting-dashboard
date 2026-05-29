@@ -2145,39 +2145,71 @@
         return;
       }
 
-      const t = d.totals || { count: 0, wins: 0, losses: 0, pushes: 0, pending: 0, settled: 0, staked: 0, profit: 0, roi: null, winRate: null };
-      const wrTxt  = t.winRate == null ? "—" : `${(t.winRate * 100).toFixed(0)}%`;
-      const roiTxt = t.roi == null ? "—" : `${(t.roi * 100).toFixed(1)}%`;
-      const profitTxt = `${t.profit >= 0 ? "+" : ""}${fmtNum(t.profit)}`;
-      const profitColor = t.profit > 0 ? "#34D399" : (t.profit < 0 ? "#F87171" : "#D1D5DB");
+      // 2026-05-29 — separate model-tracking display from placed-bets display.
+      // When d.placedBets is null, operator hasn't actually bet anything, so
+      // we show ONLY W/L accuracy of the model, not hypothetical profit/loss.
+      // When d.placedBets has data, we show real money totals (future state).
+      const tr = d.tracking || d.totals || { count: 0, wins: 0, losses: 0, pushes: 0, pending: 0, hitRate: null };
+      const pb = d.placedBets || null;
+      const wrTxt  = (tr.hitRate ?? tr.winRate) == null ? "—" : `${((tr.hitRate ?? tr.winRate) * 100).toFixed(0)}%`;
+      const hasPlacedBets = pb && pb.count > 0;
+
+      // Build right-side metric: HIT RATE for tracking-only, PROFIT for placed bets
+      let rightMetricHtml;
+      if (hasPlacedBets) {
+        const profitTxt = `${pb.profit >= 0 ? "+" : ""}${fmtNum(pb.profit)}`;
+        const profitColor = pb.profit > 0 ? "#34D399" : (pb.profit < 0 ? "#F87171" : "#D1D5DB");
+        rightMetricHtml = `
+          <div style="font-size: 11px; color: #6B7280;">PROFIT</div>
+          <div style="font-size: 18px; font-weight: 700; color: ${profitColor}; font-family: ui-monospace, monospace;">${profitTxt}</div>
+        `;
+      } else {
+        rightMetricHtml = `
+          <div style="font-size: 11px; color: #6B7280;">MODEL HIT RATE</div>
+          <div style="font-size: 18px; font-weight: 700; color: #D1D5DB; font-family: ui-monospace, monospace;">${wrTxt}</div>
+        `;
+      }
+
+      // Build bottom row: ROI + Staked when placed; mode label when tracking-only
+      let bottomRowHtml;
+      if (hasPlacedBets) {
+        const roiTxt = pb.roi == null ? "—" : `${(pb.roi * 100).toFixed(1)}%`;
+        bottomRowHtml = `
+          <span>Win rate: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${wrTxt}</span></span>
+          <span>ROI: <span style="color: ${pb.roi > 0 ? "#34D399" : pb.roi < 0 ? "#F87171" : "#D1D5DB"}; font-family: ui-monospace, monospace;">${roiTxt}</span></span>
+          <span>Staked: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${fmtNum(pb.staked)}</span></span>
+        `;
+      } else {
+        const viewLabel = d.viewMode === "bettable_subset" ? "Bettable subset" : "All tracked";
+        bottomRowHtml = `
+          <span style="color: #6B7280;">${viewLabel} · model accuracy only · no bets placed yet</span>
+        `;
+      }
 
       const summaryHtml = `
         <div style="padding: 12px 14px; margin-bottom: 12px; background: #141828; border-radius: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
             <div style="font-size: 12px; color: #9CA3AF; letter-spacing: 0.5px;">LAST NIGHT · ${escapeHtml(d.date || "—")}</div>
-            <div style="font-size: 11px; color: #6B7280;">${t.count} logged</div>
+            <div style="font-size: 11px; color: #6B7280;">${tr.count} logged</div>
           </div>
           <div style="display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;">
             <div>
-              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${t.wins}</span>
+              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${tr.wins}</span>
               <span style="font-size: 11px; color: #6B7280;">W</span>
               <span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
-              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${t.losses}</span>
+              <span style="font-size: 22px; font-weight: 700; color: #F9FAFB;">${tr.losses}</span>
               <span style="font-size: 11px; color: #6B7280;">L</span>
-              ${t.pushes ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
-                            <span style="font-size: 16px; color: #9CA3AF;">${t.pushes}P</span>` : ""}
-              ${t.pending ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
-                            <span style="font-size: 14px; color: #FBBF24;">${t.pending} pending</span>` : ""}
+              ${tr.pushes ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
+                            <span style="font-size: 16px; color: #9CA3AF;">${tr.pushes}P</span>` : ""}
+              ${tr.pending ? `<span style="font-size: 18px; color: #6B7280; margin: 0 4px;">·</span>
+                            <span style="font-size: 14px; color: #FBBF24;">${tr.pending} pending</span>` : ""}
             </div>
             <div style="margin-left: auto; text-align: right;">
-              <div style="font-size: 11px; color: #6B7280;">PROFIT</div>
-              <div style="font-size: 18px; font-weight: 700; color: ${profitColor}; font-family: ui-monospace, monospace;">${profitTxt}</div>
+              ${rightMetricHtml}
             </div>
           </div>
           <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: #9CA3AF;">
-            <span>Win rate: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${wrTxt}</span></span>
-            <span>ROI: <span style="color: ${t.roi > 0 ? "#34D399" : t.roi < 0 ? "#F87171" : "#D1D5DB"}; font-family: ui-monospace, monospace;">${roiTxt}</span></span>
-            <span>Staked: <span style="color: #D1D5DB; font-family: ui-monospace, monospace;">${fmtNum(t.staked)}</span></span>
+            ${bottomRowHtml}
           </div>
         </div>
       `;

@@ -1844,17 +1844,40 @@ router.get("/ledger/yesterday", (req, res) => {
     // 2026-05-29 — expose viewMode so FE can label the display honestly.
     // Default "bettable" view = FADE+LONGSHOT excluded + cross-sportsbook
     // deduped. ?showAll=true returns the raw tracked inventory.
+    //
+    // ALSO 2026-05-29 — separate MODEL TRACKING from PLACED BETS conceptually.
+    // The operator's correct framing: GRADES tab should show W/L accuracy of
+    // the model across tracked picks. It should NOT compute hypothetical
+    // profit/loss in dollar terms because the operator hasn't actually placed
+    // any bets at $10 stakes. Real money tracking happens when (eventually)
+    // operator taps a Sharp Plays card → marks it placed → sets real stake.
+    // Until that flow exists, placedBets remains null and the FE hides $$.
+    const tracking = {
+      count: picks.length,
+      wins, losses, pushes, pending, settled,
+      hitRate: winRate,                                  // semantic: model accuracy
+      hypotheticalStaked: Math.round(staked * 100) / 100, // if all $10 stakes — for audit only
+      hypotheticalProfit: Math.round(profit * 100) / 100, // if all $10 stakes — for audit only
+      hypotheticalRoi: roi,                              // if all $10 stakes — for audit only
+    }
     res.json({
       date: yKey,
       sport: sport || "all",
       viewMode: showAll ? "all_tracked" : "bettable_subset",
       picks,
+      tracking,            // model accuracy stats (purely informational)
+      placedBets: null,    // future: { count, wins, losses, staked, profit, roi }
+                           // null = operator hasn't placed any bets yet
+      // legacy field — preserved for backward compat with older FE bundles
       totals: {
         count: picks.length,
         wins, losses, pushes, pending, settled,
-        staked: Math.round(staked * 100) / 100,
-        profit: Math.round(profit * 100) / 100,
-        roi, winRate,
+        // 2026-05-29 — financial fields nulled by default because operator
+        // hasn't placed real bets. FE checks placedBets; if null, hides $$.
+        staked: null,
+        profit: null,
+        roi: null,
+        winRate,
       },
     })
   } catch (err) {
