@@ -5,6 +5,9 @@ const path = require("path")
 // 2026-05-28 — Lane B Phase 1 port to MLB. Closing-line-value math for the
 // open-side stamping in leanBet. Same module NBA uses (single source).
 const clvMath = require("../grading/clvMath")
+// 2026-05-29 — auto-mirror tracked_bets into personal_ledger after every slate
+// write. Same idempotent pattern as NBA's buildNbaPerformanceTracking.
+const _personalLedger = require("../shared/buildPersonalLedger")
 
 const MLB_TRACKED_BEST_PREFIX = "mlb_tracked_best_"
 const MLB_PICKS_PREFIX = "mlb_picks_"
@@ -907,6 +910,25 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
     }
   }
   writeJsonSync(slipsPath, Array.from(mergedSlipsById.values()))
+
+  // 2026-05-29 — auto-mirror to personal_ledger. After tracked_bets is written,
+  // import to ledger so the CLV capture loop's mirror has matching entries.
+  // Same pattern as NBA buildNbaPerformanceTracking. Wrapped in try/catch —
+  // ledger import failure must never break the pipeline.
+  try {
+    if (_personalLedger && typeof _personalLedger.importFromTrackedBets === "function") {
+      const r = _personalLedger.importFromTrackedBets({ sport: "mlb", date })
+      if (r?.ok !== false) {
+        const added = typeof r?.added === "number" ? r.added : (r?.added?.length || 0)
+        const skipped = typeof r?.skipped === "number" ? r.skipped : (r?.skipped?.length || 0)
+        console.log(`[persistTrackedToday:mlb] ledger auto-import: added ${added}, skipped ${skipped} (already in ledger)`)
+      } else {
+        console.log(`[persistTrackedToday:mlb] ledger auto-import skipped: ${r?.reason}`)
+      }
+    }
+  } catch (e) {
+    console.warn("[persistTrackedToday:mlb] ledger auto-import failed (non-fatal):", e?.message || e)
+  }
 }
 
 /**

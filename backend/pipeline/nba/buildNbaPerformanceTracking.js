@@ -35,6 +35,11 @@ console.log("ACTIVE:", __filename)
 
 const fs = require("fs")
 const path = require("path")
+// 2026-05-29 — auto-mirror tracked_bets into personal_ledger after every slate
+// write. Without this, slate generates picks but ledger stays empty → CLV
+// capture mirror fails 0/N → FE GRADES tab shows nothing. importFromTrackedBets
+// is idempotent (skips already-imported by id) so safe to call after every persist.
+const _personalLedger = require("../shared/buildPersonalLedger")
 // 2026-05-26 — Lane B: closing-line-value math (impliedFromAmerican / clvQualityLabel).
 const clvMath = require("../grading/clvMath")
 
@@ -471,6 +476,26 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
   // Write nba_tracked_best — mirrors MLB's phase4Tracking best-props file.
   // The workstation reads this as enrichedBest, giving a richer featured pool.
   persistNbaTrackedBest(board, date)
+
+  // 2026-05-29 — auto-mirror to personal_ledger. After tracked_bets is written,
+  // import to ledger so the CLV capture loop's mirror has matching entries.
+  // Without this, every slate writes picks but ledger stays empty for the new
+  // date → CLV mirror calls report `0 of N matched` → FE GRADES tab blank.
+  // Wrapped in try/catch — ledger import failure must never break the pipeline.
+  try {
+    if (_personalLedger && typeof _personalLedger.importFromTrackedBets === "function") {
+      const r = _personalLedger.importFromTrackedBets({ sport: "nba", date })
+      if (r?.ok !== false) {
+        const added = typeof r?.added === "number" ? r.added : (r?.added?.length || 0)
+        const skipped = typeof r?.skipped === "number" ? r.skipped : (r?.skipped?.length || 0)
+        console.log(`[persistTrackedToday:nba] ledger auto-import: added ${added}, skipped ${skipped} (already in ledger)`)
+      } else {
+        console.log(`[persistTrackedToday:nba] ledger auto-import skipped: ${r?.reason}`)
+      }
+    }
+  } catch (e) {
+    console.warn("[persistTrackedToday:nba] ledger auto-import failed (non-fatal):", e?.message || e)
+  }
 }
 
 /**
