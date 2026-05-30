@@ -180,6 +180,22 @@ function attachOpponentDvP(row, opp) {
       row.opponentStealsMultiplier = Number(Math.max(0.85, Math.min(1.15, oppStl / baseline)).toFixed(3))
     }
   }
+
+  // 2026-05-30 — Tier 2 #7: per-role opp blocks-allowed (opposing-player blocks
+  // generated AGAINST team Y). Teams that allow more interior shots / rim
+  // attempts surrender more blocks to opposing rim protectors.
+  // Per-opposing-player-game baselines:
+  //   guards: 0.3 blk  ·  wings: 0.4 blk  ·  bigs: 1.0 blk
+  // Multiplier capped ±15%.
+  if (playerRole && teamEntry[playerRole]?.blocks?.mean != null) {
+    const oppBlk = Number(teamEntry[playerRole].blocks.mean)
+    const baselineByRole = { guard: 0.3, wing: 0.4, big: 1.0 }
+    const baseline = baselineByRole[playerRole]
+    if (Number.isFinite(oppBlk) && baseline > 0) {
+      row.opponentBlocksAllowedForRole = Number(oppBlk.toFixed(2))
+      row.opponentBlocksMultiplier = Number(Math.max(0.85, Math.min(1.15, oppBlk / baseline)).toFixed(3))
+    }
+  }
 }
 
 function enrichRowWithTeamStats(row) {

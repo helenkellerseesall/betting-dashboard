@@ -275,6 +275,11 @@ function buildNbaDefensiveProps(input = {}) {
     const oppStlMul = num(repRow?.opponentStealsMultiplier)
     if (Number.isFinite(oppStlMul) && oppStlMul > 0) stealsBase *= oppStlMul
 
+    // 2026-05-30 — Tier 2 #7: opp blocks-allowed multiplier. Same pattern.
+    // Teams that surrender more interior shots → more block opportunities.
+    const oppBlkMul = num(repRow?.opponentBlocksMultiplier)
+    if (Number.isFinite(oppBlkMul) && oppBlkMul > 0) blocksBase *= oppBlkMul
+
     // Wide sigma — high variance stats.
     const stealsSigma = clamp(0.85, 1.25, 0.95 + Math.abs(salt - 0.5) * 0.4)
     const blocksSigma = clamp(0.8, 1.2, 0.9 + Math.abs(salt - 0.5) * 0.4)
