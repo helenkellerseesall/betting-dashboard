@@ -93,4 +93,25 @@ const ok =
 	result.rows[0].handednessContext
 console.log("\n=== WIRE STATUS ===")
 console.log(ok ? "PASS — context layer attaches batter+pitcher identity+stats and handedness lights up." : "FAIL — see fields above")
+
+// ── Probe the surface-score context bonuses (TB / Runs / Outs path) ─────
+console.log("\n=== surface-score context bonus probe (TB/Runs/Outs path) ===")
+try {
+	const ib = require("../pipeline/mlb/buildMlbInspectionBoard")
+	const computeBatterCtx = ib.__test__?.computeBatterContextBonus
+	const computePitcherCtx = ib.__test__?.computePitcherContextBonus
+	if (!computeBatterCtx || !computePitcherCtx) {
+		console.log("  (bonus fns not exported for test — skipping direct probe; check via score deltas)")
+	} else {
+		const tbRow = { ...result.rows[0], marketKey: "batter_total_bases", side: "over", line: 1.5 }
+		const runsRow = { ...result.rows[0], marketKey: "batter_runs_scored", side: "over", line: 0.5 }
+		const outsRow = { ...result.rows[2], marketKey: "pitcher_outs", side: "over", line: 16.5 }
+		console.log("  Benintendi TB over 1.5:    batterContextBonus =", computeBatterCtx(tbRow).toFixed(4))
+		console.log("  Benintendi Runs over 0.5:  batterContextBonus =", computeBatterCtx(runsRow).toFixed(4))
+		console.log("  Anthony Kay Outs over 16.5: pitcherContextBonus =", computePitcherCtx(outsRow).toFixed(4))
+	}
+} catch (e) {
+	console.log("  surface bonus probe error:", e?.message || e)
+}
+
 process.exit(ok ? 0 : 1)

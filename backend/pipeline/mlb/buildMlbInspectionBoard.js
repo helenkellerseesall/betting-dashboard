@@ -300,6 +300,80 @@ function computePositiveProductionBonus(row) {
   return 0
 }
 
+// 2026-05-30 — Cache-driven context bonuses for the families that DON'T have
+// dedicated Poisson engines (Total Bases, Runs Scored, Pitcher Outs, also HR).
+// These families ship picks via this surface-score path. row.batterStats /
+// row.pitcherStats are now populated by applyMlbContextualLayers (post-cache
+// wire), so we can multiply the heuristic bonus by real per-player signal.
+//
+// Returns an additive surface-score adjustment in roughly [-0.10, +0.16].
+function computeBatterContextBonus(row) {
+  const stats = row?.batterStats
+  if (!stats || typeof stats !== "object") return 0
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  if (!(side === "over" || side === "yes")) return 0
+
+  let bonus = 0
+  const slg = toNumberOrNull(stats.slg)
+  const iso = toNumberOrNull(stats.iso)
+  const obp = toNumberOrNull(stats.obp)
+  const hrRate = toNumberOrNull(stats.hrRate)
+
+  if (marketKey.includes("home_run")) {
+    // Real per-batter HR/AB drives HR confidence — clamp at +0.12.
+    if (Number.isFinite(hrRate)) bonus += clamp((hrRate - 0.035) * 2.4, -0.05, 0.12)
+    if (Number.isFinite(iso))    bonus += clamp((iso - 0.140) * 0.40, -0.03, 0.06)
+  } else if (marketKey.includes("total_bases")) {
+    // SLG drives total bases; ISO secondary.
+    if (Number.isFinite(slg)) bonus += clamp((slg - 0.410) * 0.35, -0.04, 0.10)
+    if (Number.isFinite(iso)) bonus += clamp((iso - 0.140) * 0.25, -0.02, 0.06)
+  } else if (marketKey.includes("runs_scored")) {
+    // Runs scored = get on base + teammates drive in. OBP + lineup position
+    // are the levers. Lineup position is read via row.battingOrderIndex
+    // already in computePositiveProductionBonus; here we add OBP only.
+    if (Number.isFinite(obp)) bonus += clamp((obp - 0.320) * 0.50, -0.04, 0.10)
+  } else if (marketKey.includes("rbis") || marketKey.includes("rbi")) {
+    if (Number.isFinite(slg)) bonus += clamp((slg - 0.410) * 0.30, -0.03, 0.08)
+  }
+
+  // Platoon advantage adds a tiny bump on any batter prop.
+  const platoon = row?.handednessContext?.platoonRelation
+  if (platoon === "opp") bonus += 0.02
+  else if (platoon === "same") bonus -= 0.01
+
+  return bonus
+}
+
+function computePitcherContextBonus(row) {
+  const stats = row?.pitcherStats
+  if (!stats || typeof stats !== "object") return 0
+  const marketKey = String(row?.marketKey || "").toLowerCase()
+  const side = String(row?.side || "").toLowerCase()
+  if (!(side === "over" || side === "yes")) return 0
+
+  let bonus = 0
+  const whip = toNumberOrNull(stats.whip)
+  const kRate = toNumberOrNull(stats.kRate)
+  const era = toNumberOrNull(stats.era)
+  const ip = toNumberOrNull(stats.inningsPitched)
+  const gs = toNumberOrNull(stats.gamesStarted)
+  const ipPerStart = (Number.isFinite(ip) && Number.isFinite(gs) && gs > 0) ? ip / gs : null
+
+  if (marketKey.includes("pitcher_outs")) {
+    // Outs over = pitcher goes deep. Drivers: low WHIP, low ERA, high IP/start.
+    if (Number.isFinite(whip)) bonus += clamp((1.30 - whip) * 0.10, -0.04, 0.08)
+    if (Number.isFinite(era))  bonus += clamp((4.00 - era) * 0.03,  -0.04, 0.06)
+    if (Number.isFinite(ipPerStart)) bonus += clamp((ipPerStart - 5.5) * 0.04, -0.03, 0.08)
+  } else if (marketKey.includes("pitcher_strikeouts") || marketKey.includes("strikeout")) {
+    // Ks over — already handled by the Poisson engine, but add a tiny surface
+    // bump for high-K starters so they out-rank price-equivalents.
+    if (Number.isFinite(kRate)) bonus += clamp((kRate - 0.22) * 0.30, -0.03, 0.08)
+  }
+
+  return bonus
+}
+
 // Penalise props that represent negative outcomes or near-zero player production.
 // These contaminate "best hitter" and "best pitcher" lanes with low-value rows.
 function computeNegativeDirectionalPropPenalty(row) {
@@ -570,6 +644,10 @@ function rankRows(rows, options = {}) {
       const lowInformationPenalty = computeLowInformationPenalty(row)
       const negativeDirectionalPenalty = computeNegativeDirectionalPropPenalty(row)
       const positiveProductionBonus = computePositiveProductionBonus(row)
+      // 2026-05-30 — Cache-driven context bonuses for families that don't have
+      // dedicated Poisson engines (TB, Runs Scored, Pitcher Outs, HR surface).
+      const batterContextBonus = computeBatterContextBonus(row)
+      const pitcherContextBonus = computePitcherContextBonus(row)
 
       const score = Number((
         (impliedSignal * 0.2) +
@@ -580,7 +658,9 @@ function rankRows(rows, options = {}) {
         (bookSignal * 0.06) +
         (matchupSignal * 0.06) +
         familyBonus +
-        positiveProductionBonus -
+        positiveProductionBonus +
+        batterContextBonus +
+        pitcherContextBonus -
         trivialAltPenalty -
         heavyFavoritePenalty -
         lowInformationPenalty -
@@ -1735,5 +1815,11 @@ module.exports = {
   compactMlbRow,
   buildMlbSurfaceBoard,
   buildPlayerTeamIndex,
-  inferSurfaceTeamLabel
+  inferSurfaceTeamLabel,
+  __test__: {
+    // Exposed so backend/scripts/probeMlbContextWiring.js can verify the
+    // cache-driven bonuses fire for TB/Runs/Outs without spinning the backend.
+    computeBatterContextBonus,
+    computePitcherContextBonus,
+  },
 }
