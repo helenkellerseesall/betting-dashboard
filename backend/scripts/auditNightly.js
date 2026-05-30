@@ -163,6 +163,10 @@ function runPopulators() {
     // batter in mlbBatterStats.json. ORDER MATTERS: must run AFTER batter
     // stats. Unlocks hot/cold streak signal across HR/Hits/RBI/TB/Runs.
     { label: "MLB batter game logs", script: "populateMlbBatterGameLogs.js" },
+    // 2026-05-30 — per-start pitching logs for every pitcher in mlbPitcherStats.
+    // Unlocks L3/L5 pitcher streak signal for Ks engine + Hits engine's
+    // opposing-pitcher dampening.
+    { label: "MLB pitcher game logs", script: "populateMlbPitcherGameLogs.js" },
   ]
   const results = []
   for (const p of populators) {

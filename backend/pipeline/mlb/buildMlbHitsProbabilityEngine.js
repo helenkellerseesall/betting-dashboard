@@ -223,6 +223,16 @@ function buildHitsRowFromPropRow(r) {
     expectedHitsRaw *= _streakMomentumMultiplier(r, "hitsPerGame")
   }
 
+  // 2026-05-30 — opposing pitcher's L3 hits-allowed vs L5. If pitcher is
+  // giving up MORE hits recently (worse), bump expectedHits up. If pitcher is
+  // dominating lately (fewer hits), dampen. Inverted because LOWER hits
+  // allowed = better for the pitcher.
+  try {
+    const pSm = require("./mlbPitcherFormCache").streakMomentumMultiplier(r, "hitsPerStart", { invert: true })
+    // pSm > 1 = pitcher worse recently = more hits for batter
+    expectedHitsRaw *= pSm
+  } catch (_) {}
+
   if (Number.isFinite(gameTotal)) {
     expectedHitsRaw *= clamp(1 + (gameTotal - 8.5) * 0.02, 0.92, 1.10)
   }

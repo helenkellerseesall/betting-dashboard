@@ -54,6 +54,10 @@ const normalizeName                            = require("../../../utils/normali
 let _enrichRowWithBatterForm = null
 try { _enrichRowWithBatterForm = require("../mlbBatterFormCache").enrichRowWithBatterForm }
 catch (_) { _enrichRowWithBatterForm = null }
+// 2026-05-30 — pitcher L3/L5 form (per-start streak detection)
+let _enrichRowWithPitcherForm = null
+try { _enrichRowWithPitcherForm = require("../mlbPitcherFormCache").enrichRowWithPitcherForm }
+catch (_) { _enrichRowWithPitcherForm = null }
 
 // ── Data file loading (additive, fail-open) ──────────────────────────────────
 
@@ -323,6 +327,13 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 		// for hot/cold streak adjustments (HR/Hits/RBI/TB/Runs).
 		if (_enrichRowWithBatterForm) {
 			try { _enrichRowWithBatterForm(row) } catch (_) {}
+		}
+
+		// 2026-05-30 — attach L3 + L5 pitcher form. For pitcher-market rows
+		// this sets row.pitcherL3/L5. For batter-market rows it sets
+		// row.opposingPitcherL3/L5 so hits/HR engines can dampen vs hot starters.
+		if (_enrichRowWithPitcherForm) {
+			try { _enrichRowWithPitcherForm(row) } catch (_) {}
 		}
 
 		// 2026-05-30 — Vegas team total backfill. buildMlbBootstrapSnapshot's

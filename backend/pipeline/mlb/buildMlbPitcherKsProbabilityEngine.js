@@ -174,7 +174,17 @@ function buildPitcherRowFromPropRow(r, context = {}) {
   }
   adjFromContext = Math.max(-1.5, Math.min(1.5, adjFromContext))
 
-  const expectedKs = Math.max(0.25, marketLambda + adjFromProb + adjFromEdgeProb + adjFromContext)
+  // 2026-05-30 — Pitcher L3/L5 streak signal. If kRate is up in last 3 starts
+  // vs last 5, add small expected-Ks bonus. Cold start streak → dampen.
+  // Conservative ±0.6 K adjustment (smaller than the existing context budget).
+  let adjFromStreak = 0
+  try {
+    const sm = require("./mlbPitcherFormCache").streakMomentumMultiplier(r, "kRate")
+    adjFromStreak = (sm - 1) * 7.5  // 0.92..1.08 → ±0.6 K
+    adjFromStreak = Math.max(-0.6, Math.min(0.6, adjFromStreak))
+  } catch (_) { adjFromStreak = 0 }
+
+  const expectedKs = Math.max(0.25, marketLambda + adjFromProb + adjFromEdgeProb + adjFromContext + adjFromStreak)
 
   // Probability of OVER line is derived from expectedKs distribution (Poisson).
   // When the underlying prediction is unresolved, modelProbability is the

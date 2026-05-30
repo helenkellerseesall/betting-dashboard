@@ -1,0 +1,1529 @@
+{
+  "generatedAt": "2026-05-30T22:08:59.470Z",
+  "source": "mlb_statsapi_gamelog_pitching",
+  "windowDays": 14,
+  "players": {
+    "anthony kay": {
+      "playerId": 641743,
+      "fullName": "Anthony Kay",
+      "throws": "L",
+      "teamId": 145,
+      "teamName": "Chicago White Sox",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Detroit Tigers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 22,
+            "strikeOuts": 3,
+            "walks": 1,
+            "hits": 6,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 1,
+            "pitchCount": 84,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-25",
+          "opponent": "Minnesota Twins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 5,
+            "walks": 1,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 1,
+            "pitchCount": 94,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Seattle Mariners",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5.1,
+            "battersFaced": 22,
+            "strikeOuts": 5,
+            "walks": 3,
+            "hits": 1,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 89,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "framber valdez": {
+      "playerId": 664285,
+      "fullName": "Framber Valdez",
+      "throws": "L",
+      "teamId": 116,
+      "teamName": "Detroit Tigers",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Chicago White Sox",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6.2,
+            "battersFaced": 27,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 6,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 89,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Baltimore Orioles",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 22,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 2,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 1,
+            "pitchCount": 92,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Cleveland Guardians",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 23,
+            "strikeOuts": 3,
+            "walks": 4,
+            "hits": 5,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 0,
+            "pitchCount": 89,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "foster griffin": {
+      "playerId": 656492,
+      "fullName": "Foster Griffin",
+      "throws": "L",
+      "teamId": 120,
+      "teamName": "Washington Nationals",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "San Diego Padres",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 3,
+            "pitchCount": 90,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Atlanta Braves",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 22,
+            "strikeOuts": 6,
+            "walks": 1,
+            "hits": 3,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 90,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "New York Mets",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 24,
+            "strikeOuts": 5,
+            "walks": 0,
+            "hits": 8,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 2,
+            "pitchCount": 97,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "michael king": {
+      "playerId": 650633,
+      "fullName": "Michael King",
+      "throws": "R",
+      "teamId": 135,
+      "teamName": "San Diego Padres",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Washington Nationals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 25,
+            "strikeOuts": 2,
+            "walks": 1,
+            "hits": 6,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 77,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Athletics",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 3.2,
+            "battersFaced": 19,
+            "strikeOuts": 4,
+            "walks": 4,
+            "hits": 5,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 81,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Los Angeles Dodgers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 7,
+            "battersFaced": 24,
+            "strikeOuts": 9,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 100,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "kumar rocker": {
+      "playerId": 677958,
+      "fullName": "Kumar Rocker",
+      "throws": "R",
+      "teamId": 140,
+      "teamName": "Texas Rangers",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Kansas City Royals",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 2,
+            "walks": 3,
+            "hits": 3,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 85,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-25",
+          "opponent": "Houston Astros",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 22,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 85,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Colorado Rockies",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 7.2,
+            "battersFaced": 28,
+            "strikeOuts": 7,
+            "walks": 3,
+            "hits": 3,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 103,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "seth lugo": {
+      "playerId": 607625,
+      "fullName": "Seth Lugo",
+      "throws": "R",
+      "teamId": 118,
+      "teamName": "Kansas City Royals",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Texas Rangers",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 26,
+            "strikeOuts": 6,
+            "walks": 0,
+            "hits": 6,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 1,
+            "pitchCount": 90,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Seattle Mariners",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6.1,
+            "battersFaced": 27,
+            "strikeOuts": 3,
+            "walks": 2,
+            "hits": 6,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 1,
+            "pitchCount": 86,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Boston Red Sox",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 25,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 1,
+            "pitchCount": 93,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "brandon young": {
+      "playerId": 687064,
+      "fullName": "Brandon Young",
+      "throws": "R",
+      "teamId": 110,
+      "teamName": "Baltimore Orioles",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Toronto Blue Jays",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6.2,
+            "battersFaced": 27,
+            "strikeOuts": 7,
+            "walks": 1,
+            "hits": 7,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 86,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Detroit Tigers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6.2,
+            "battersFaced": 28,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 105,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Washington Nationals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 3.2,
+            "battersFaced": 19,
+            "strikeOuts": 3,
+            "walks": 3,
+            "hits": 5,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 1,
+            "pitchCount": 70,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "trey yesavage": {
+      "playerId": 702056,
+      "fullName": "Trey Yesavage",
+      "throws": "R",
+      "teamId": 141,
+      "teamName": "Toronto Blue Jays",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Baltimore Orioles",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 4,
+            "walks": 7,
+            "hits": 2,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 92,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-25",
+          "opponent": "Miami Marlins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6.2,
+            "battersFaced": 27,
+            "strikeOuts": 6,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 0,
+            "pitchCount": 98,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "New York Yankees",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 20,
+            "strikeOuts": 8,
+            "walks": 0,
+            "hits": 2,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 95,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "mitch keller": {
+      "playerId": 656605,
+      "fullName": "Mitch Keller",
+      "throws": "R",
+      "teamId": 134,
+      "teamName": "Pittsburgh Pirates",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Minnesota Twins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 23,
+            "strikeOuts": 5,
+            "walks": 1,
+            "hits": 10,
+            "earnedRuns": 7,
+            "homeRunsAllowed": 0,
+            "pitchCount": 77,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Toronto Blue Jays",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 25,
+            "strikeOuts": 5,
+            "walks": 3,
+            "hits": 4,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 101,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "St. Louis Cardinals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5.2,
+            "battersFaced": 22,
+            "strikeOuts": 3,
+            "walks": 1,
+            "hits": 4,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 83,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "bailey ober": {
+      "playerId": 641927,
+      "fullName": "Bailey Ober",
+      "throws": "R",
+      "teamId": 142,
+      "teamName": "Minnesota Twins",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Pittsburgh Pirates",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4.2,
+            "battersFaced": 27,
+            "strikeOuts": 3,
+            "walks": 1,
+            "hits": 12,
+            "earnedRuns": 7,
+            "homeRunsAllowed": 3,
+            "pitchCount": 97,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Boston Red Sox",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 22,
+            "strikeOuts": 3,
+            "walks": 0,
+            "hits": 7,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 2,
+            "pitchCount": 82,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Milwaukee Brewers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 23,
+            "strikeOuts": 1,
+            "walks": 2,
+            "hits": 6,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 2,
+            "pitchCount": 77,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "parker messick": {
+      "playerId": 800048,
+      "fullName": "Parker Messick",
+      "throws": "L",
+      "teamId": 114,
+      "teamName": "Cleveland Guardians",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Boston Red Sox",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 22,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 93,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Philadelphia Phillies",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5.2,
+            "battersFaced": 24,
+            "strikeOuts": 6,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 91,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Detroit Tigers",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 6,
+            "walks": 3,
+            "hits": 4,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 1,
+            "pitchCount": 81,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "sonny gray": {
+      "playerId": 543243,
+      "fullName": "Sonny Gray",
+      "throws": "R",
+      "teamId": 111,
+      "teamName": "Boston Red Sox",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Cleveland Guardians",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 7,
+            "walks": 3,
+            "hits": 4,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 92,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Minnesota Twins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 19,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 6,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 75,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Kansas City Royals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 9,
+            "walks": 1,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 80,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "drew rasmussen": {
+      "playerId": 656876,
+      "fullName": "Drew Rasmussen",
+      "throws": "R",
+      "teamId": 139,
+      "teamName": "Tampa Bay Rays",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Los Angeles Angels",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 18,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 1,
+            "pitchCount": 70,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "New York Yankees",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 7,
+            "battersFaced": 24,
+            "strikeOuts": 6,
+            "walks": 1,
+            "hits": 5,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 92,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Miami Marlins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5.1,
+            "battersFaced": 24,
+            "strikeOuts": 2,
+            "walks": 2,
+            "hits": 7,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 93,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "reid detmers": {
+      "playerId": 672282,
+      "fullName": "Reid Detmers",
+      "throws": "L",
+      "teamId": 108,
+      "teamName": "Los Angeles Angels",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Tampa Bay Rays",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 23,
+            "strikeOuts": 7,
+            "walks": 3,
+            "hits": 5,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 1,
+            "pitchCount": 92,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Texas Rangers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 8,
+            "battersFaced": 25,
+            "strikeOuts": 14,
+            "walks": 0,
+            "hits": 1,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 1,
+            "pitchCount": 96,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Athletics",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5.2,
+            "battersFaced": 27,
+            "strikeOuts": 8,
+            "walks": 2,
+            "hits": 8,
+            "earnedRuns": 8,
+            "homeRunsAllowed": 0,
+            "pitchCount": 92,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "christian scott": {
+      "playerId": 681035,
+      "fullName": "Christian Scott",
+      "throws": "R",
+      "teamId": 121,
+      "teamName": "New York Mets",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Miami Marlins",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 8,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 96,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Miami Marlins",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5.2,
+            "battersFaced": 24,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 94,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Washington Nationals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 20,
+            "strikeOuts": 5,
+            "walks": 3,
+            "hits": 4,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 81,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "tyler phillips": {
+      "playerId": 663969,
+      "fullName": "Tyler Phillips",
+      "throws": "R",
+      "teamId": 146,
+      "teamName": "Miami Marlins",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "New York Mets",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 2,
+            "walks": 1,
+            "hits": 6,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 72,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "New York Mets",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 3.2,
+            "battersFaced": 16,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 2,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 59,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-20",
+          "opponent": "Atlanta Braves",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 3,
+            "battersFaced": 12,
+            "strikeOuts": 2,
+            "walks": 1,
+            "hits": 2,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 43,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Tampa Bay Rays",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 2,
+            "battersFaced": 10,
+            "strikeOuts": 0,
+            "walks": 2,
+            "hits": 2,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 43,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "peter lambert": {
+      "playerId": 663567,
+      "fullName": "Peter Lambert",
+      "throws": "R",
+      "teamId": 117,
+      "teamName": "Houston Astros",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Milwaukee Brewers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 22,
+            "strikeOuts": 3,
+            "walks": 3,
+            "hits": 5,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 90,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Chicago Cubs",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 24,
+            "strikeOuts": 5,
+            "walks": 4,
+            "hits": 5,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 103,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Texas Rangers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 6,
+            "walks": 2,
+            "hits": 3,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 1,
+            "pitchCount": 93,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "brandon sproat": {
+      "playerId": 687075,
+      "fullName": "Brandon Sproat",
+      "throws": "R",
+      "teamId": 158,
+      "teamName": "Milwaukee Brewers",
+      "starts": [
+        {
+          "date": "2026-05-30",
+          "opponent": "Houston Astros",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4.1,
+            "battersFaced": 21,
+            "strikeOuts": 4,
+            "walks": 0,
+            "hits": 6,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 1,
+            "pitchCount": 95,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-24",
+          "opponent": "Los Angeles Dodgers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 21,
+            "strikeOuts": 7,
+            "walks": 4,
+            "hits": 4,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 89,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Chicago Cubs",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4.2,
+            "battersFaced": 21,
+            "strikeOuts": 5,
+            "walks": 3,
+            "hits": 3,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 1,
+            "pitchCount": 78,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "kyle leahy": {
+      "playerId": 681517,
+      "fullName": "Kyle Leahy",
+      "throws": "R",
+      "teamId": 138,
+      "teamName": "St. Louis Cardinals",
+      "starts": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Cincinnati Reds",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 24,
+            "strikeOuts": 8,
+            "walks": 2,
+            "hits": 7,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 2,
+            "pitchCount": 87,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-16",
+          "opponent": "Kansas City Royals",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 25,
+            "strikeOuts": 2,
+            "walks": 3,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 90,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "ben brown": {
+      "playerId": 676962,
+      "fullName": "Ben Brown",
+      "throws": "R",
+      "teamId": 112,
+      "teamName": "Chicago Cubs",
+      "starts": [
+        {
+          "date": "2026-05-25",
+          "opponent": "Pittsburgh Pirates",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 7,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 83,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Milwaukee Brewers",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 25,
+            "strikeOuts": 6,
+            "walks": 2,
+            "hits": 7,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 82,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "brady singer": {
+      "playerId": 663903,
+      "fullName": "Brady Singer",
+      "throws": "R",
+      "teamId": 113,
+      "teamName": "Cincinnati Reds",
+      "starts": [
+        {
+          "date": "2026-05-17",
+          "opponent": "Cleveland Guardians",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4,
+            "battersFaced": 20,
+            "strikeOuts": 6,
+            "walks": 1,
+            "hits": 7,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 3,
+            "pitchCount": 86,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "martn prez": {
+      "playerId": 527048,
+      "fullName": "Martín Pérez",
+      "throws": "L",
+      "teamId": 144,
+      "teamName": "Atlanta Braves",
+      "starts": [
+        {
+          "date": "2026-05-24",
+          "opponent": "Washington Nationals",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5.2,
+            "battersFaced": 22,
+            "strikeOuts": 2,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 86,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Miami Marlins",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 23,
+            "strikeOuts": 10,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 1,
+            "pitchCount": 78,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-16",
+          "opponent": "Boston Red Sox",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 1,
+            "battersFaced": 3,
+            "strikeOuts": 2,
+            "walks": 0,
+            "hits": 0,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 14,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "adrian houser": {
+      "playerId": 605288,
+      "fullName": "Adrian Houser",
+      "throws": "R",
+      "teamId": 137,
+      "teamName": "San Francisco Giants",
+      "starts": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Chicago White Sox",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 4.2,
+            "battersFaced": 21,
+            "strikeOuts": 5,
+            "walks": 0,
+            "hits": 7,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 0,
+            "pitchCount": 79,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Athletics",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 25,
+            "strikeOuts": 3,
+            "walks": 5,
+            "hits": 4,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 93,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "jt ginn": {
+      "playerId": 669372,
+      "fullName": "J.T. Ginn",
+      "throws": "R",
+      "teamId": 133,
+      "teamName": "Athletics",
+      "starts": [
+        {
+          "date": "2026-05-23",
+          "opponent": "San Diego Padres",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 2.1,
+            "battersFaced": 14,
+            "strikeOuts": 4,
+            "walks": 6,
+            "hits": 0,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 73,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Los Angeles Angels",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 8,
+            "battersFaced": 28,
+            "strikeOuts": 10,
+            "walks": 1,
+            "hits": 2,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 1,
+            "pitchCount": 105,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "ryan weathers": {
+      "playerId": 677960,
+      "fullName": "Ryan Weathers",
+      "throws": "L",
+      "teamId": 147,
+      "teamName": "New York Yankees",
+      "starts": [
+        {
+          "date": "2026-05-24",
+          "opponent": "Tampa Bay Rays",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 7,
+            "battersFaced": 26,
+            "strikeOuts": 4,
+            "walks": 3,
+            "hits": 4,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 95,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Toronto Blue Jays",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 5.1,
+            "battersFaced": 23,
+            "strikeOuts": 7,
+            "walks": 0,
+            "hits": 7,
+            "earnedRuns": 5,
+            "homeRunsAllowed": 2,
+            "pitchCount": 90,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "bryan woo": {
+      "playerId": 693433,
+      "fullName": "Bryan Woo",
+      "throws": "R",
+      "teamId": 136,
+      "teamName": "Seattle Mariners",
+      "starts": [
+        {
+          "date": "2026-05-24",
+          "opponent": "Kansas City Royals",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 4.2,
+            "battersFaced": 23,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 6,
+            "earnedRuns": 4,
+            "homeRunsAllowed": 0,
+            "pitchCount": 91,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-18",
+          "opponent": "Chicago White Sox",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 22,
+            "strikeOuts": 8,
+            "walks": 2,
+            "hits": 3,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 90,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "ryne nelson": {
+      "playerId": 669194,
+      "fullName": "Ryne Nelson",
+      "throws": "R",
+      "teamId": 109,
+      "teamName": "Arizona Diamondbacks",
+      "starts": [
+        {
+          "date": "2026-05-24",
+          "opponent": "Colorado Rockies",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 8,
+            "battersFaced": 31,
+            "strikeOuts": 3,
+            "walks": 3,
+            "hits": 6,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 103,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "San Francisco Giants",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 7,
+            "battersFaced": 31,
+            "strikeOuts": 3,
+            "walks": 2,
+            "hits": 8,
+            "earnedRuns": 3,
+            "homeRunsAllowed": 2,
+            "pitchCount": 88,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "roki sasaki": {
+      "playerId": 808963,
+      "fullName": "Roki Sasaki",
+      "throws": "R",
+      "teamId": 119,
+      "teamName": "Los Angeles Dodgers",
+      "starts": [
+        {
+          "date": "2026-05-23",
+          "opponent": "Milwaukee Brewers",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 5,
+            "battersFaced": 21,
+            "strikeOuts": 4,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 87,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-17",
+          "opponent": "Los Angeles Angels",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 7,
+            "battersFaced": 24,
+            "strikeOuts": 8,
+            "walks": 0,
+            "hits": 4,
+            "earnedRuns": 1,
+            "homeRunsAllowed": 0,
+            "pitchCount": 91,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    },
+    "jess luzardo": {
+      "playerId": 666200,
+      "fullName": "Jesús Luzardo",
+      "throws": "L",
+      "teamId": 143,
+      "teamName": "Philadelphia Phillies",
+      "starts": [
+        {
+          "date": "2026-05-25",
+          "opponent": "San Diego Padres",
+          "isHome": false,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 24,
+            "strikeOuts": 6,
+            "walks": 2,
+            "hits": 4,
+            "earnedRuns": 0,
+            "homeRunsAllowed": 0,
+            "pitchCount": 104,
+            "decision": null
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "opponent": "Cincinnati Reds",
+          "isHome": true,
+          "stats": {
+            "inningsPitched": 6,
+            "battersFaced": 23,
+            "strikeOuts": 5,
+            "walks": 2,
+            "hits": 5,
+            "earnedRuns": 2,
+            "homeRunsAllowed": 0,
+            "pitchCount": 95,
+            "decision": null
+          }
+        }
+      ],
+      "lastUpdated": "2026-05-30"
+    }
+  }
+}
