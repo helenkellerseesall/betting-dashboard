@@ -248,6 +248,20 @@ function enrichRowWithRoleContext(row) {
     row.projectedMinutes = Number(blended.toFixed(1))
   }
 
+  // 2026-05-30 — Rest-based minutes scaler. row.restContext is attached
+  // upstream by nbaRestCache.enrichRowWithRestContext. B2B → 0.95x, 3-in-3
+  // → 0.93x, 3+ days rest → 1.02x. Clamped ±5%. No-op when restContext absent.
+  if (Number.isFinite(row.projectedMinutes) && row.restContext) {
+    let restMul = 1
+    try {
+      restMul = require("./nbaRestCache").restMinutesMultiplier(row)
+    } catch (_) { restMul = 1 }
+    if (restMul !== 1) {
+      row.projectedMinutes = Number((row.projectedMinutes * restMul).toFixed(1))
+      row.restMinutesAdjustment = restMul
+    }
+  }
+
   row.roleContext = ctx
   return row
 }

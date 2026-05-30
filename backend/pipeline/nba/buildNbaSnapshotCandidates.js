@@ -37,6 +37,9 @@ const { nbaRowModelProbability, nbaRowEdge } = require("./nbaModelSignals")
 const { enrichNbaRowStatLayerInputs, applyTeamFallbackFromProjections } = require("./nbaEventTeamResolve")
 const { enrichRowWithRecentForm: enrichNbaRowWithRecentForm } = require("./nbaRecentFormCache")
 const { enrichRowWithTeamStats: enrichNbaRowWithTeamStats } = require("./nbaTeamStatsCache")
+// 2026-05-30 — rest tracker (daysSinceLastGame + isBackToBack)
+let _enrichRowWithRestContext = null
+try { _enrichRowWithRestContext = require("./nbaRestCache").enrichRowWithRestContext } catch (_) {}
 const { enrichRowWithPlayerSeasonStats: enrichNbaRowWithPlayerSeasonStats } = require("./nbaPlayerSeasonStatsCache")
 const { enrichRowWithRoleContext: enrichNbaRowWithRoleContext } = require("./nbaRoleContextDeriver")
 const { buildSlateContextFromSnapshot: buildNbaTeammateSlateContext,
@@ -143,6 +146,12 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // projections.json remain team=null (sameTeam boosts simply don't fire for them — not an error).
     // Coverage on current slate: 18/24 diversified candidates receive team → sameTeam boosts activate.
     const enriched = applyTeamFallbackFromProjections(enrichNbaRowStatLayerInputs(r))
+    // 2026-05-30 — rest tracker MUST run BEFORE roleContext because roleContext
+    // applies the restMinutesMultiplier when projectedMinutes is being set.
+    // Sets row.restContext from nbaPlayerGameLogs.json.
+    if (_enrichRowWithRestContext) {
+      try { _enrichRowWithRestContext(enriched) } catch (_) {}
+    }
     // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
     // stats from settled-bet history BEFORE modelProb is computed, so
     // nbaModelSignals.recentFormSignal sees row.recentForm and contributes a
