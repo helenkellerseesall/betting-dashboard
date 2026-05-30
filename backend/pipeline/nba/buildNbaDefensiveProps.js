@@ -2,6 +2,13 @@
 
 console.log("ACTIVE:", __filename)
 
+// 2026-05-30 — read per-player L5 STL/BLK from recentFormCache so we stop
+// projecting every guard at the same 1.05 STL baseline and every big at the
+// same 1.05 BLK baseline. The cache already stores per-stat L5 for steals +
+// blocks; engine was simply ignoring it.
+let _getRecentForm = null
+try { _getRecentForm = require("./nbaRecentFormCache").getRecentForm } catch (_) { _getRecentForm = null }
+
 /**
  * NBA Defensive Props (steals + blocks).
  *
@@ -228,8 +235,39 @@ function buildNbaDefensiveProps(input = {}) {
     const usageMul = usageDefensivePenalty(usage)
     const salt = playerSalt(p.player, p.eventId)
 
-    const stealsBase = stealsBaselinePerArchetype(archetype) * minutesScale * paceMul * usageMul
-    const blocksBase = blocksBaselinePerArchetype(archetype) * minutesScale * paceMul
+    // 2026-05-30 — Per-player L5 lookup. When the cache has ≥3 samples,
+    // trust the player's actual recent STL/BLK rate (already minutes-weighted)
+    // and only adjust by matchup pace. When missing or low-sample, fall back
+    // to the archetype baseline + minutes/usage scaling.
+    let stealsBase, blocksBase
+    let stealsBasis = "archetype"
+    let blocksBasis = "archetype"
+
+    if (_getRecentForm) {
+      const stlForm = _getRecentForm(p.player, "steals")
+      const stlL5 = num(stlForm?.last5_avg)
+      const stlSample = num(stlForm?.sample_count)
+      if (stlL5 != null && stlSample != null && stlSample >= 3) {
+        // Blend: more samples → trust L5 more. 3 samples = 60%, 5 = 100%.
+        const lambda = clamp(0.6, 1.0, stlSample / 5)
+        const archetypeStl = stealsBaselinePerArchetype(archetype) * minutesScale * paceMul * usageMul
+        stealsBase = (lambda * stlL5 * paceMul) + ((1 - lambda) * archetypeStl)
+        stealsBasis = `L5(${stlSample})`
+      }
+
+      const blkForm = _getRecentForm(p.player, "blocks")
+      const blkL5 = num(blkForm?.last5_avg)
+      const blkSample = num(blkForm?.sample_count)
+      if (blkL5 != null && blkSample != null && blkSample >= 3) {
+        const lambda = clamp(0.6, 1.0, blkSample / 5)
+        const archetypeBlk = blocksBaselinePerArchetype(archetype) * minutesScale * paceMul
+        blocksBase = (lambda * blkL5 * paceMul) + ((1 - lambda) * archetypeBlk)
+        blocksBasis = `L5(${blkSample})`
+      }
+    }
+
+    if (stealsBase == null) stealsBase = stealsBaselinePerArchetype(archetype) * minutesScale * paceMul * usageMul
+    if (blocksBase == null) blocksBase = blocksBaselinePerArchetype(archetype) * minutesScale * paceMul
 
     // Wide sigma — high variance stats.
     const stealsSigma = clamp(0.85, 1.25, 0.95 + Math.abs(salt - 0.5) * 0.4)
@@ -248,6 +286,10 @@ function buildNbaDefensiveProps(input = {}) {
       usage: usage != null ? round1(usage) : null,
       steals: stealsBand,
       blocks: blocksBand,
+      // 2026-05-30 — diagnostic: did we use this player's L5 form or the
+      // archetype baseline? Helps verify the L5 wire is firing.
+      stealsBasis,
+      blocksBasis,
     })
   }
 
