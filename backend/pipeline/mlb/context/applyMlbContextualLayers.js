@@ -325,6 +325,17 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			try { _enrichRowWithBatterForm(row) } catch (_) {}
 		}
 
+		// 2026-05-30 — Vegas team total backfill. buildMlbBootstrapSnapshot's
+		// primary path requires gameTotal + BOTH moneyline odds + isHome. When
+		// ANY missing → impliedTeamTotal stays null → RBI + Runs engines
+		// silently drop the row. Conservative fallback: split gameTotal evenly
+		// (50/50 neutral assumption). Better than null; degrades gracefully
+		// for non-pitcher rows on games without moneyline data.
+		if ((row.impliedTeamTotal == null) && Number.isFinite(Number(row.gameTotal))) {
+			row.impliedTeamTotal = Number((Number(row.gameTotal) / 2).toFixed(3))
+			row._impliedTeamTotalSource = "fallback_half_total"
+		}
+
 		const weather    = deriveMlbWeatherContext(row, { weatherByEventId, parkMetaByTeam })
 		const park       = deriveMlbParkContext(row, { parkFactorsByTeam })
 		const handedness = deriveMlbHandednessContext(row)
