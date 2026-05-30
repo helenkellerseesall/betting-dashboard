@@ -33,7 +33,7 @@
 
 const http = require("http")
 
-function request(method, pathname, timeoutMs = 90_000) {
+function request(method, pathname, timeoutMs = 240_000) {
   return new Promise((resolve, reject) => {
     const opts = { host: "localhost", port: 4000, path: pathname, method, timeout: timeoutMs }
     const req = http.request(opts, (res) => {

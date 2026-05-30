@@ -1860,14 +1860,69 @@ router.get("/ledger/yesterday", (req, res) => {
       hypotheticalProfit: Math.round(profit * 100) / 100, // if all $10 stakes — for audit only
       hypotheticalRoi: roi,                              // if all $10 stakes — for audit only
     }
+    // 2026-05-30 — placed-bets surface. Real-money bets are added via
+    // addPlacedBet.js (CLI today; mobile-tap-to-bet later). Marked with
+    // decisionType="placed" OR realMoney=true. The GRADES tab needs to show
+    // these separately from the 50000+ model-tracked picks. Surface BOTH
+    // yesterday's settled placed bets AND today's pending ones.
+    const tdy = new Date()
+    const todayKey = `${tdy.getFullYear()}-${String(tdy.getMonth() + 1).padStart(2, "0")}-${String(tdy.getDate()).padStart(2, "0")}`
+
+    function rollupPlaced(bets) {
+      let pwins = 0, plosses = 0, ppushes = 0, ppending = 0, pstaked = 0, pprofit = 0, ptoWin = 0
+      for (const b of bets) {
+        const s = Number(b.stake) || 0
+        const w = Number(b.toWin) || 0
+        pstaked += s
+        ptoWin += w
+        if (b.result === "win")  { pwins++;  pprofit += w }
+        else if (b.result === "loss") { plosses++; pprofit -= s }
+        else if (b.result === "push" || b.result === "void") ppushes++
+        else ppending++
+      }
+      const settledP = pwins + plosses + ppushes
+      const roiP = pstaked > 0 && settledP > 0 ? Math.round((pprofit / pstaked) * 10000) / 10000 : null
+      const hitRateP = (pwins + plosses) > 0 ? Math.round((pwins / (pwins + plosses)) * 10000) / 10000 : null
+      return {
+        count: bets.length,
+        wins: pwins, losses: plosses, pushes: ppushes, pending: ppending,
+        settled: settledP,
+        staked: Math.round(pstaked * 100) / 100,
+        toWin: Math.round(ptoWin * 100) / 100,
+        profit: Math.round(pprofit * 100) / 100,
+        roi: roiP,
+        hitRate: hitRateP,
+      }
+    }
+    const isPlaced = (b) => b.decisionType === "placed" || b.realMoney === true
+    const placedAll = (ledger.bets || []).filter(isPlaced).filter((b) => !sport || b.sport === sport)
+    const placedYesterday = placedAll.filter((b) => b.date === yKey)
+    const placedToday     = placedAll.filter((b) => b.date === todayKey)
+    // Combined rollup (FE expects flat shape: { count, wins, losses, profit, roi, staked }).
+    // ALSO expose structured today/yesterday breakdown for richer UI later.
+    const placedCombinedRollup = rollupPlaced([...placedYesterday, ...placedToday])
+    const placedBets = (placedYesterday.length || placedToday.length) ? {
+      ...placedCombinedRollup,  // flat fields for FE backward compat
+      yesterdayRollup: rollupPlaced(placedYesterday),
+      todayRollup:     rollupPlaced(placedToday),
+      bets: [...placedYesterday, ...placedToday].map((b) => ({
+        id: b.id, date: b.date, sport: b.sport, sportsbook: b.sportsbook,
+        betType: b.betType, prop: b.prop, player: b.player, matchup: b.matchup,
+        statFamily: b.statFamily, side: b.side, line: b.line, odds: b.odds,
+        stake: b.stake, toWin: b.toWin, result: b.result || "pending",
+        payout: b.payout, settledAt: b.settledAt, placedAt: b.placedAt,
+        legs: b.legs || null, notes: b.notes || b.note || null,
+      })),
+    } : null
+
     res.json({
       date: yKey,
+      today: todayKey,
       sport: sport || "all",
       viewMode: showAll ? "all_tracked" : "bettable_subset",
       picks,
       tracking,            // model accuracy stats (purely informational)
-      placedBets: null,    // future: { count, wins, losses, staked, profit, roi }
-                           // null = operator hasn't placed any bets yet
+      placedBets,          // 2026-05-30 — real-money bets if any exist, else null
       // legacy field — preserved for backward compat with older FE bundles
       totals: {
         count: picks.length,

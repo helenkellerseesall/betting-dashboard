@@ -40,8 +40,10 @@ const result = buildNbaDefensiveProps({ predictions, completeUniverse })
 console.log("\n=== defensive engine output ===")
 for (const r of result.players) {
 	console.log(`\n  ${r.player} (${r.archetype})`)
-	console.log(`    STL band: floor=${r.steals.floor} median=${r.steals.mostLikely} ceiling=${r.steals.ceiling}  basis=${r.stealsBasis}`)
-	console.log(`    BLK band: floor=${r.blocks.floor} median=${r.blocks.mostLikely} ceiling=${r.blocks.ceiling}  basis=${r.blocksBasis}`)
+	console.log(`    STL band:   floor=${r.steals.floor} median=${r.steals.mostLikely} ceiling=${r.steals.ceiling}  basis=${r.stealsBasis}`)
+	console.log(`    STL ladder: ${Object.entries(r.stealsLadder || {}).map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`).join("  ")}`)
+	console.log(`    BLK band:   floor=${r.blocks.floor} median=${r.blocks.mostLikely} ceiling=${r.blocks.ceiling}  basis=${r.blocksBasis}`)
+	console.log(`    BLK ladder: ${Object.entries(r.blocksLadder || {}).map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`).join("  ")}`)
 }
 
 const L5wired = result.players.some((r) => r.stealsBasis !== "archetype" || r.blocksBasis !== "archetype")

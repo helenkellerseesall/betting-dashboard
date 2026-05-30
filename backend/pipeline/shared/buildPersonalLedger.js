@@ -567,6 +567,13 @@ function normalizeBet(input) {
     note: typeof input.note === "string" ? input.note.slice(0, 200) : null,
     // CLV snapshot — placed filled now, close filled later via setClosingLine()
     clvSnapshot: buildClvSnapshot(input, odds, line, sbImpliedProb),
+    // 2026-05-30 — preserve real-money flag + parlay legs through normalizeBet
+    // so the GRADES tab can filter on realMoney === true and render leg-level
+    // detail for parlays.
+    realMoney: input.realMoney === true,
+    placedAt: input.placedAt || null,
+    legs: Array.isArray(input.legs) ? input.legs : null,
+    notes: typeof input.notes === "string" ? input.notes.slice(0, 500) : null,
   }
 
   return applyIntegrityGate(base, input)
@@ -574,7 +581,10 @@ function normalizeBet(input) {
 
 function resolveDecisionType(input) {
   const raw = String(input.decisionType || "").toLowerCase()
-  if (raw === "followed" || raw === "modified" || raw === "ignored" || raw === "custom") return raw
+  // 2026-05-30 — added "placed" so real-money bets logged via addPlacedBet
+  // CLI survive normalizeBet. The GRADES tab filters on this value to show
+  // only real $ vs model-tracked picks.
+  if (raw === "followed" || raw === "modified" || raw === "ignored" || raw === "custom" || raw === "placed") return raw
   // Infer from modelLine presence.
   const userLine = num(input.line)
   const modelLine = num(input.modelLine ?? null)

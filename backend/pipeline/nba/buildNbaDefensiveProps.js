@@ -276,6 +276,38 @@ function buildNbaDefensiveProps(input = {}) {
     const stealsBand = projectDefensiveBand(stealsBase, salt, stealsSigma)
     const blocksBand = projectDefensiveBand(blocksBase, salt, blocksSigma)
 
+    // 2026-05-30 — LADDER MVP. Per operator's product direction
+    // (product_ladder_direction.md), O/U binary picks aren't the endgame —
+    // engineered milestone parlays from per-rung probabilities are.
+    //
+    // Note: don't reuse probOverFromBand here — that function has a 0.62 cap
+    // and a 2.6x sigma multiplier specifically to flatten single-OVER probs
+    // on defensive props (high variance → defensive against overconfidence).
+    // For a ladder we want the NATURAL probability shape across thresholds.
+    // Use the band's median + sigma directly with a logistic CDF, no cap.
+    function probAtLeastForLadder(band, rung) {
+      const m = num(band?.mostLikely)
+      const sigma = num(band?.sigma) || 0.9
+      if (m == null || !Number.isFinite(rung)) return null
+      // Logistic CDF: P(stat >= rung) = 1 - P(stat < rung) ≈ 1 - sigmoid((rung - m) / sigma_eff)
+      // sigma_eff ≈ 0.6 * sigma gives shape close to normal for these distributions.
+      const sigEff = Math.max(0.4, sigma * 0.6)
+      const z = (rung - m) / sigEff
+      const pUnder = 1 / (1 + Math.exp(-z))
+      const pOver = 1 - pUnder
+      return Math.max(0.001, Math.min(0.999, pOver))
+    }
+    function buildLadder(band, rungs) {
+      const out = {}
+      for (const r of rungs) {
+        const p = probAtLeastForLadder(band, r)
+        out[`${r}+`] = p != null ? Number(p.toFixed(3)) : null
+      }
+      return out
+    }
+    const stealsLadder = buildLadder(stealsBand, [0.5, 1.5, 2.5, 3.5, 4.5])
+    const blocksLadder = buildLadder(blocksBand, [0.5, 1.5, 2.5, 3.5, 4.5, 5.5])
+
     players.push({
       player: p.player,
       eventId: p.eventId,
@@ -286,8 +318,11 @@ function buildNbaDefensiveProps(input = {}) {
       usage: usage != null ? round1(usage) : null,
       steals: stealsBand,
       blocks: blocksBand,
-      // 2026-05-30 — diagnostic: did we use this player's L5 form or the
-      // archetype baseline? Helps verify the L5 wire is firing.
+      // 2026-05-30 — ladder MVP (proof-of-concept; ship full ladder coverage to
+      // all stat families post-Game-7).
+      stealsLadder,
+      blocksLadder,
+      // diagnostic: did we use this player's L5 form or the archetype baseline?
       stealsBasis,
       blocksBasis,
     })
