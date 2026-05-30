@@ -1349,6 +1349,10 @@ function projectStat(family, rows, ctx) {
   if (family === "points") {
     if (!Number.isFinite(raw)) raw = 11 + usage * 0.55 + (minutes / 36) * 8
     raw += (usage - 22) * 0.35 + (minutes - 28) * 0.12
+    // 2026-05-30 — Tier 3 #8: home/away splits multiplier. Set upstream by
+    // nbaHomeAwaySplits.enrichRowWithHomeAwaySplit. Range 0.93..1.07.
+    const hAwayMul = Number(rep?.homeAwayMultiplier)
+    if (Number.isFinite(hAwayMul) && hAwayMul > 0) raw *= hAwayMul
     raw = Math.max(5, Math.min(46, raw))
     return Math.round(raw * 10) / 10
   }
@@ -1373,6 +1377,9 @@ function projectStat(family, rows, ctx) {
     // Attached upstream in nbaTeamStatsCache.attachOpponentDvP. Range 0.85..1.15.
     const oppRebMul = Number(rep?.opponentReboundsMultiplier)
     if (Number.isFinite(oppRebMul) && oppRebMul > 0) raw *= oppRebMul
+    // 2026-05-30 — Tier 3 #8: home/away splits multiplier (±7%).
+    const hAwayMulR = Number(rep?.homeAwayMultiplier)
+    if (Number.isFinite(hAwayMulR) && hAwayMulR > 0) raw *= hAwayMulR
     raw = Math.max(0.5, Math.min(17, raw))
     return Math.round(raw * 10) / 10
   }
@@ -1380,6 +1387,7 @@ function projectStat(family, rows, ctx) {
   if (family === "assists") {
     // 2026-05-24 — Same form-anchoring fix as rebounds. Trust the player's
     // recent assist average when present; only apply contextual deltas.
+    // 2026-05-30 — Tier 3 #8: home/away splits multiplier applied at end.
     if (Number.isFinite(form)) {
       raw = form
       if (Number.isFinite(usage)) raw += (usage - 22) * 0.05
@@ -1389,6 +1397,8 @@ function projectStat(family, rows, ctx) {
       raw += (usage - 18) * 0.085 + (minutes / 36) * 4.2
       if (archetype === "shooter" && Number.isFinite(market)) raw = 0.45 * raw + 0.55 * market
     }
+    const hAwayMulA = Number(rep?.homeAwayMultiplier)
+    if (Number.isFinite(hAwayMulA) && hAwayMulA > 0) raw *= hAwayMulA
     raw = Math.max(0.5, Math.min(14, raw))
     return Math.round(raw * 10) / 10
   }

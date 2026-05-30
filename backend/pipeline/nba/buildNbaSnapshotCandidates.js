@@ -40,6 +40,9 @@ const { enrichRowWithTeamStats: enrichNbaRowWithTeamStats } = require("./nbaTeam
 // 2026-05-30 — rest tracker (daysSinceLastGame + isBackToBack)
 let _enrichRowWithRestContext = null
 try { _enrichRowWithRestContext = require("./nbaRestCache").enrichRowWithRestContext } catch (_) {}
+// 2026-05-30 — home/away splits (Tier 3 #8)
+let _enrichRowWithHomeAwaySplit = null
+try { _enrichRowWithHomeAwaySplit = require("./nbaHomeAwaySplits").enrichRowWithHomeAwaySplit } catch (_) {}
 const { enrichRowWithPlayerSeasonStats: enrichNbaRowWithPlayerSeasonStats } = require("./nbaPlayerSeasonStatsCache")
 const { enrichRowWithRoleContext: enrichNbaRowWithRoleContext } = require("./nbaRoleContextDeriver")
 const { buildSlateContextFromSnapshot: buildNbaTeammateSlateContext,
@@ -151,6 +154,12 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // Sets row.restContext from nbaPlayerGameLogs.json.
     if (_enrichRowWithRestContext) {
       try { _enrichRowWithRestContext(enriched) } catch (_) {}
+    }
+    // 2026-05-30 — home/away splits attach (Tier 3 #8). Sets
+    // row.homeAwaySplit + row.homeAwayMultiplier based on tonight's row.isHome
+    // vs the player's historical home/away stat avg.
+    if (_enrichRowWithHomeAwaySplit) {
+      try { _enrichRowWithHomeAwaySplit(enriched) } catch (_) {}
     }
     // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
     // stats from settled-bet history BEFORE modelProb is computed, so
