@@ -1712,7 +1712,24 @@ function stripMisalignedBets(stats) {
 function buildNbaPlayerOutcomePredictions(opportunityBoard) {
   const generatedAt = new Date().toISOString()
   let outcomeBandQuality = { ok: true, failReasons: [], thTotal: 0, dupRatio: 0 }
+  // 2026-05-29 — Lane B Phase 3 v0.4.8 — predictions pool inclusion fix.
+  // The original pool came from collectFullPool which reads filtered
+  // candidate buckets (coreCandidates filtered by TH.core=0.58 etc).
+  // Result: most players' rows didn't reach the predictions module — e.g.
+  // Wemby had 101 points props in snapshot but ZERO points rows in byFam,
+  // so st.points/st.assists never built, so st.pra never derived, so the
+  // model fell back to nbaRowModelProbability which doesn't use L5.
+  // Fix: also include completeUniverse (unfiltered slice) so projection
+  // building runs on every player who has rows in the snapshot.
   const pool = collectFullPool(opportunityBoard)
+  const completeUniverse = Array.isArray(opportunityBoard?.completeUniverse)
+    ? opportunityBoard.completeUniverse
+    : []
+  // Merge — collectFullPool already deduped; we append completeUniverse,
+  // then byPe map will dedupe by playerEventKey naturally.
+  if (completeUniverse.length) {
+    for (const row of completeUniverse) pool.push(row)
+  }
   // 2026-05-29 — enrich pool rows with recentForm BEFORE projection so the
   // L5/L10 baselines actually reach projectStat. Without this enrichment,
   // projectStat's `predictedMedianOutcome(rep)` returns null and the model
