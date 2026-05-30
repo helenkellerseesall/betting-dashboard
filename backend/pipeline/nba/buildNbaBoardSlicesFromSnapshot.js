@@ -138,12 +138,20 @@ function normalizeNbaSnapshotRow(row, eventIndex, playerTeamIndex, gameContextMa
   // can re-classify it. Order MUST be: triple → two-stat combos → singles.
   if (!String(out.statFamily || "").trim()) {
     const t = String(out.propType || out.marketKey || "").toLowerCase()
+    // 2026-05-29 — separate 2-stat composites from PRA. The slicer was the
+    // FIRST classifier to alias these to "pra" (before buildNbaBestBetsBoard's
+    // resolveStatFamily even ran). Snapshot has 102 points_assists, 120
+    // points_rebounds, 106 rebounds_assists (plus 540+ alt-line variants).
+    // Routing all of them to "pra" meant they were compared against the
+    // 3-stat PRA projection (wrong distance, edge gates dropped silently).
+    // Now: separate families that match the projection-side derivations in
+    // buildNbaPlayerOutcomePredictions (st.points_rebounds etc).
     out.statFamily =
         t.includes("points_rebounds_assists") || /\bpra\b/.test(t) ? "pra"
       : t.includes("first_basket") || t.includes("firstbasket") ? "first_basket"
-      : t.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(t) ? "pra"
-      : t.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(t)   ? "pra"
-      : t.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(t) ? "pra"
+      : t.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(t) ? "points_rebounds"
+      : t.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(t)   ? "points_assists"
+      : t.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(t) ? "rebounds_assists"
       : (t.includes("threes") || t.includes("three") || t.includes("3pt")) ? "threes"
       : t.includes("rebound") ? "rebounds"
       : t.includes("assist")  ? "assists"
