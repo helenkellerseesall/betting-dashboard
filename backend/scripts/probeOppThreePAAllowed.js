@@ -32,30 +32,42 @@ for (const team of ["Oklahoma City Thunder", "San Antonio Spurs"]) {
 	console.log()
 }
 
-console.log("=== STEP 2 — per-role opp 3PA-allowed attachment ===\n")
+console.log("=== STEP 2 — per-role opp 3PA-allowed attachment ===")
+console.log("Tonight Game 7: SAS @ OKC. SGA/Holmgren/Caruso/Joe play FOR OKC, face SAS.")
+console.log("Wemby/Vassell/Fox play FOR SAS, face OKC.\n")
 const cases = [
-	{ label: "SGA (guard) vs OKC's opp guards (4.74 vs baseline 3.5)", row: { player: "Shai Gilgeous-Alexander", opponent: "Oklahoma City Thunder", role: "guard" } },
-	{ label: "Vassell (wing) vs OKC's opp wings (2.38 vs baseline 2.8)", row: { player: "Devin Vassell",        opponent: "Oklahoma City Thunder", role: "wing"  } },
-	{ label: "Wemby (big) vs OKC's opp bigs (2.50 vs baseline 1.5)",   row: { player: "Victor Wembanyama",     opponent: "Oklahoma City Thunder", role: "big"   } },
-	{ label: "Isaiah Joe (guard) vs SAS opp guards",                    row: { player: "Isaiah Joe",            opponent: "San Antonio Spurs",     role: "guard" } },
-	{ label: "Caruso (wing) vs SAS opp wings",                          row: { player: "Alex Caruso",           opponent: "San Antonio Spurs",     role: "wing"  } },
+	// Each row: who they ARE for, who they FACE tonight
+	{ player: "Shai Gilgeous-Alexander", playsFor: "OKC", opponent: "San Antonio Spurs",     role: "guard" },
+	{ player: "Chet Holmgren",           playsFor: "OKC", opponent: "San Antonio Spurs",     role: "big"   },
+	{ player: "Alex Caruso",             playsFor: "OKC", opponent: "San Antonio Spurs",     role: "wing"  },
+	{ player: "Isaiah Joe",              playsFor: "OKC", opponent: "San Antonio Spurs",     role: "guard" },
+	{ player: "Victor Wembanyama",       playsFor: "SAS", opponent: "Oklahoma City Thunder", role: "big"   },
+	{ player: "Devin Vassell",           playsFor: "SAS", opponent: "Oklahoma City Thunder", role: "wing"  },
+	{ player: "De'Aaron Fox",            playsFor: "SAS", opponent: "Oklahoma City Thunder", role: "guard" },
 ]
+const BASELINES = { guard: 3.5, wing: 2.8, big: 1.5 }
 for (const c of cases) {
-	enrichRowWithTeamStats(c.row)
-	const v = c.row.opponentThreePAAllowedForRole
-	const m = c.row.opponentThreePAMultiplier
-	console.log(`${c.label}`)
-	console.log(`  opp 3PA-allowed for role: ${v}  ·  multiplier: ${m}`)
+	const row = { player: c.player, opponent: c.opponent, role: c.role }
+	enrichRowWithTeamStats(row)
+	const v = row.opponentThreePAAllowedForRole
+	const m = row.opponentThreePAMultiplier
+	const base = BASELINES[c.role]
+	const shortOpp = c.opponent.includes("Oklahoma") ? "OKC" : "SAS"
+	console.log(`${c.player} plays for ${c.playsFor}, tonight faces ${shortOpp}`)
+	console.log(`  ${shortOpp} allows opposing ${c.role}s ${v} 3PA/game (vs league baseline ${base})`)
+	console.log(`  → multiplier: ${m}  ·  ${m > 1 ? `BOOST his 3PA projection +${((m-1)*100).toFixed(1)}%` : m < 1 ? `DAMPEN his 3PA projection ${((m-1)*100).toFixed(1)}%` : 'neutral'}`)
 	console.log()
 }
 
 console.log("=== STEP 3 — projected threes adjustment for a 6.0 3PA / 36% shooter ===\n")
 for (const c of cases) {
-	const m = Number(c.row.opponentThreePAMultiplier) || 1
+	const row = { player: c.player, opponent: c.opponent, role: c.role }
+	enrichRowWithTeamStats(row)
+	const m = Number(row.opponentThreePAMultiplier) || 1
 	const baseProj = 6.0 * 0.36
 	const adjusted = (baseProj * m).toFixed(2)
 	const delta = (((m - 1) * 100)).toFixed(1)
-	console.log(`  ${c.row.player.padEnd(28)} multiplier=${m.toFixed(3)}  · baseline proj ${baseProj.toFixed(2)} → adjusted ${adjusted}  (${delta >= 0 ? '+' : ''}${delta}%)`)
+	console.log(`  ${c.player.padEnd(28)} (${c.playsFor} ${c.role}) → multiplier=${m.toFixed(3)}  baseline proj ${baseProj.toFixed(2)} → adjusted ${adjusted}  (${delta >= 0 ? '+' : ''}${delta}%)`)
 }
 
 console.log("\n=== Lane verified: cache includes threeAtt, row attachment fires, multiplier produces real adjustment ===")
