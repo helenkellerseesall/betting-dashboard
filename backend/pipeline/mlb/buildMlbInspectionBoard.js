@@ -384,6 +384,26 @@ function computePitcherContextBonus(row) {
     if (Number.isFinite(whip)) bonus += clamp((1.30 - whip) * 0.10, -0.04, 0.08)
     if (Number.isFinite(era))  bonus += clamp((4.00 - era) * 0.03,  -0.04, 0.06)
     if (Number.isFinite(ipPerStart)) bonus += clamp((ipPerStart - 5.5) * 0.04, -0.03, 0.08)
+
+    // 2026-05-30 — Tier 3 #10: recent-form pitcher signals from L3 cache.
+    // L3 ipPerStart is more predictive than season for "will he go deep
+    // tonight" because pitch counts shift with workload trends.
+    const l3 = row?.pitcherL3
+    if (l3) {
+      const l3IpPerStart = toNumberOrNull(l3.ipPerStart)
+      if (Number.isFinite(l3IpPerStart)) {
+        bonus += clamp((l3IpPerStart - 5.5) * 0.06, -0.04, 0.10)
+      }
+      // Rest signal: pitchers benefit from 5+ days; struggle on 3 days or less.
+      const dsl = toNumberOrNull(l3.daysSinceLastStart)
+      if (Number.isFinite(dsl)) {
+        if (dsl >= 5)      bonus += 0.02  // fresh
+        else if (dsl <= 3) bonus -= 0.03  // short rest, more likely to be pulled early
+      }
+      // L3 pitch count trend: above 95 pitches/start = team trusts him to throw deep
+      const l3PpS = toNumberOrNull(l3.pitchesPerStart)
+      if (Number.isFinite(l3PpS) && l3PpS > 95) bonus += clamp((l3PpS - 95) * 0.005, 0, 0.04)
+    }
   } else if (marketKey.includes("pitcher_strikeouts") || marketKey.includes("strikeout")) {
     // Ks over — already handled by the Poisson engine, but add a tiny surface
     // bump for high-K starters so they out-rank price-equivalents.
