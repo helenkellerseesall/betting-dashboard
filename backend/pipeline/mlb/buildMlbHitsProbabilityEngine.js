@@ -188,6 +188,30 @@ function buildHitsRowFromPropRow(r) {
     expectedHitsRaw *= clamp(1 + recent * 0.06, 0.90, 1.10)
   }
 
+  // 2026-05-30 — wire mlbBatterStats + mlbPitcherStats. Pre-tonight these
+  // engines ignored both even though both populate nightly. Conservative
+  // weights — each factor clamped at ±8% to avoid over-tuning before we
+  // grade enough slates to calibrate.
+  const batterAvg = toNum(r?.batterStats?.avg)
+  if (Number.isFinite(batterAvg)) {
+    // baseline .250 league avg; +20 pts BA → +8% expectedHits, capped.
+    expectedHitsRaw *= clamp(1 + (batterAvg - 0.250) * 1.6, 0.92, 1.08)
+  }
+  const oppWhip = toNum(r?.opposingPitcherWhip) ?? toNum(r?.pitcherEnvironmentContext?.whip)
+  if (Number.isFinite(oppWhip)) {
+    // baseline WHIP 1.30; +0.20 WHIP → +6% expectedHits.
+    expectedHitsRaw *= clamp(1 + (oppWhip - 1.30) * 0.30, 0.92, 1.08)
+  }
+  const oppKRate = toNum(r?.pitcherEnvironmentContext?.kRate)
+  if (Number.isFinite(oppKRate)) {
+    // baseline 22% K rate; higher K pitcher → fewer hits.
+    expectedHitsRaw *= clamp(1 - (oppKRate - 0.22) * 0.80, 0.92, 1.08)
+  }
+  // Platoon advantage — opposite-hand batter vs pitcher is a small bump.
+  const platoon = r?.handednessContext?.platoonRelation
+  if (platoon === "opp") expectedHitsRaw *= 1.025
+  else if (platoon === "same") expectedHitsRaw *= 0.985
+
   if (Number.isFinite(gameTotal)) {
     expectedHitsRaw *= clamp(1 + (gameTotal - 8.5) * 0.02, 0.92, 1.10)
   }

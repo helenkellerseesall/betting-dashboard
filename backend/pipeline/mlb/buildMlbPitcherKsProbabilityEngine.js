@@ -148,7 +148,33 @@ function buildPitcherRowFromPropRow(r, context = {}) {
     ? Math.max(-1, Math.min(1, (predSafeForAdj - impliedProbSafe) * 8))
     : 0
   const adjFromEdgeProb = Math.max(-0.5, Math.min(0.5, edgeProb * 10))
-  const expectedKs = Math.max(0.25, marketLambda + adjFromProb + adjFromEdgeProb)
+
+  // 2026-05-30 — wire mlbPitcherStats + weather. Pre-tonight this engine
+  // ignored kRate/k9/whip/weather even though the cache was populated nightly.
+  // Conservative weights — capped at ±1.5 Ks of total adjustment.
+  let adjFromContext = 0
+  const pitcherKRate = toNum(r?.pitcherStats?.kRate)
+  if (Number.isFinite(pitcherKRate)) {
+    // baseline 22% K rate per PA. +2pp K → +0.7 expected Ks (≈ 25 BFs × .02).
+    adjFromContext += Math.max(-1, Math.min(1, (pitcherKRate - 0.22) * 25))
+  }
+  const pitcherWhip = toNum(r?.pitcherStats?.whip)
+  if (Number.isFinite(pitcherWhip)) {
+    // high WHIP = traffic on bases = pitcher pulled earlier = fewer Ks.
+    adjFromContext += Math.max(-0.5, Math.min(0.5, (1.30 - pitcherWhip) * 1.5))
+  }
+  // Cool weather = more Ks (ball moves more, hitters worse). Indoor = neutral.
+  const isIndoor = !!r?.weatherContext?.isIndoor
+  if (!isIndoor) {
+    const temp = toNum(r?.weatherContext?.temperature ?? r?.weatherContext?.temp)
+    if (Number.isFinite(temp)) {
+      // baseline 70F; each 15F below adds ~0.15 expected Ks; cap ±0.3.
+      adjFromContext += Math.max(-0.3, Math.min(0.3, (70 - temp) * 0.01))
+    }
+  }
+  adjFromContext = Math.max(-1.5, Math.min(1.5, adjFromContext))
+
+  const expectedKs = Math.max(0.25, marketLambda + adjFromProb + adjFromEdgeProb + adjFromContext)
 
   // Probability of OVER line is derived from expectedKs distribution (Poisson).
   // When the underlying prediction is unresolved, modelProbability is the

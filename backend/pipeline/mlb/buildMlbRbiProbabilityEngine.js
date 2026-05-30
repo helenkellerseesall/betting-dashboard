@@ -120,6 +120,28 @@ function expectedRbiFromContext(r, hits = null) {
   const recent = toNum(r?.recentFormScore)
   if (Number.isFinite(recent)) exp += Math.max(-0.05, Math.min(0.08, recent * 0.02))
 
+  // 2026-05-30 — wire mlbBatterStats. Batter SLG / ISO are key drivers of
+  // converting opportunity into RBIs. Conservative weights (±0.10 expected).
+  const slg = toNum(r?.batterStats?.slg)
+  if (Number.isFinite(slg)) {
+    // baseline SLG .410 league avg; +50 pts SLG → +0.06 expected RBI.
+    exp += Math.max(-0.08, Math.min(0.10, (slg - 0.410) * 1.2))
+  }
+  const hrRate = toNum(r?.batterStats?.hrRate)
+  if (Number.isFinite(hrRate)) {
+    // baseline HR/AB ~0.035 (league); +2pp → +0.06.
+    exp += Math.max(-0.05, Math.min(0.10, (hrRate - 0.035) * 3.0))
+  }
+  // Opp pitcher WHIP — high WHIP = more runners = more RBI chances.
+  const oppWhip = toNum(r?.opposingPitcherWhip) ?? toNum(r?.pitcherEnvironmentContext?.whip)
+  if (Number.isFinite(oppWhip)) {
+    exp += Math.max(-0.06, Math.min(0.08, (oppWhip - 1.30) * 0.20))
+  }
+  // Platoon advantage adds a small RBI bump (opp-hand = better contact).
+  const platoon = r?.handednessContext?.platoonRelation
+  if (platoon === "opp") exp += 0.03
+  else if (platoon === "same") exp -= 0.02
+
   // keep in sane band
   if (!Number.isFinite(exp)) return null
   exp = Math.max(0.05, Math.min(1.35, exp))

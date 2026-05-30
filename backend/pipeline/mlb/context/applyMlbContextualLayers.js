@@ -49,6 +49,7 @@ const { deriveMlbPitcherEnvironmentContext }   = require("./deriveMlbPitcherEnvi
 const { deriveMlbBullpenContext }              = require("./deriveMlbBullpenContext")
 const { deriveMlbLineupContext }               = require("./deriveMlbLineupContext")
 const { composeMlbContextualSignal }           = require("./composeMlbContextualSignal")
+const normalizeName                            = require("../../../utils/normalizeName")
 
 // ── Data file loading (additive, fail-open) ──────────────────────────────────
 
@@ -85,6 +86,100 @@ function loadParkMeta(dataDir) {
 	// Phase 1B — optional. When present, enables dome/retractable detection
 	// in the weather deriver (indoor venues zero out wind + precip shifts).
 	return safeReadJson(path.join(dataDir, "mlbParkMeta.json")) || {}
+}
+
+function loadBatterStats(dataDir) {
+	// 2026-05-30 — batter cache landed. Keyed by normalized lowercase full name
+	// (matching the normalizeName util). Used to fill row.batterHand + per-batter
+	// HR/AB, ISO, K%, SLG for the HR / Hits / RBI / TB / Runs engines.
+	return safeReadJson(path.join(dataDir, "mlbBatterStats.json")) || {}
+}
+
+// ── Row prep: fill batterHand + pitcherHand + batterStats from caches ──────
+
+function buildNormalizedLookup(map) {
+	const out = {}
+	if (!map || typeof map !== "object") return out
+	for (const k of Object.keys(map)) {
+		const norm = normalizeName(k)
+		if (norm) out[norm] = map[k]
+	}
+	return out
+}
+
+/**
+ * 2026-05-30 — until tonight, row.batterHand was null on every row (no batter
+ * cache existed). Handedness derivation returned null on every row as a result,
+ * and HR engine fell back to defaulting every pitcher to "R". Now we look the
+ * batter up in mlbBatterStats and attach batterHand + batterStats so the
+ * existing derivers and downstream engines can read real signal.
+ *
+ * Pitcher side: probable-pitcher resolution is already handled by other
+ * pipeline steps; we additionally backfill pitcherHand from the pitcher cache
+ * if the row arrives without it.
+ */
+function attachIdentityAndStats(row, { batterByNormName, pitcherByNormName }) {
+	if (!row || typeof row !== "object") return row
+	const isPitcherMarket = row.isPitcherMarket === true
+	const playerKey = row.player ? normalizeName(row.player) : null
+
+	if (!isPitcherMarket && playerKey) {
+		const bEntry = batterByNormName[playerKey] || null
+		if (bEntry) {
+			if (!row.batterHand && bEntry.batSide) row.batterHand = bEntry.batSide
+			// Attach a compact stats blob — engines read it without re-loading the
+			// 282KB JSON every row.
+			row.batterStats = {
+				batSide: bEntry.batSide,
+				avg: bEntry.avg,
+				obp: bEntry.obp,
+				slg: bEntry.slg,
+				ops: bEntry.ops,
+				iso: bEntry.iso,
+				hrRate: bEntry.hrRate,
+				kRate: bEntry.kRate,
+				bbRate: bEntry.bbRate,
+				xbhRate: bEntry.xbhRate,
+				atBats: bEntry.atBats,
+				plateAppearances: bEntry.plateAppearances,
+				homeRuns: bEntry.homeRuns,
+			}
+		}
+	}
+
+	// Opposing pitcher handedness — fill from cache when absent on the row.
+	if (!row.pitcherHand) {
+		const oppName = row.opposingPitcher || row.opposingPitcherName || row.oppPitcher
+		const oppKey = oppName ? normalizeName(oppName) : null
+		if (oppKey) {
+			const pEntry = pitcherByNormName[oppKey] || null
+			if (pEntry?.throws) row.pitcherHand = pEntry.throws
+		}
+	}
+
+	// Pitcher-market rows (Ks, outs): the row's player IS the pitcher. Attach
+	// their stats blob and fill `throws` if missing.
+	if (isPitcherMarket && playerKey) {
+		const pEntry = pitcherByNormName[playerKey] || null
+		if (pEntry) {
+			if (!row.pitcherHand && pEntry.throws) row.pitcherHand = pEntry.throws
+			row.pitcherStats = {
+				throws: pEntry.throws,
+				kRate: pEntry.kRate,
+				bbRate: pEntry.bbRate,
+				k9: pEntry.k9,
+				whip: pEntry.whip,
+				era: pEntry.era,
+				inningsPitched: pEntry.inningsPitched,
+				battersFaced: pEntry.battersFaced,
+				strikeOuts: pEntry.strikeOuts,
+				homeRunsAllowed: pEntry.homeRunsAllowed,
+				gamesStarted: pEntry.gamesStarted,
+			}
+		}
+	}
+
+	return row
 }
 
 // ── Market sanity (Phase 1B) ─────────────────────────────────────────────────
@@ -140,8 +235,14 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 	const weatherByEventId   = (overrides && overrides.weatherByEventId)   || loadWeatherMap(dir)
 	const parkFactorsByTeam  = (overrides && overrides.parkFactorsByTeam)  || loadParkFactors(dir)
 	const pitcherStatsByName = (overrides && overrides.pitcherStatsByName) || loadPitcherStats(dir)
+	const batterStatsByName  = (overrides && overrides.batterStatsByName)  || loadBatterStats(dir)
 	const bullpenByTeam      = (overrides && overrides.bullpenByTeam)      || loadBullpenStats(dir)
 	const parkMetaByTeam     = (overrides && overrides.parkMetaByTeam)     || loadParkMeta(dir)
+
+	// Normalized-name indexes built ONCE per slate — engines look up via the
+	// same normalizeName the caches were keyed with.
+	const batterByNormName  = buildNormalizedLookup(batterStatsByName)
+	const pitcherByNormName = buildNormalizedLookup(pitcherStatsByName)
 
 	const eventsIndex = buildEventsIndex(events)
 
@@ -166,6 +267,7 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			weatherMapEntries: Object.keys(weatherByEventId || {}).length,
 			parkFactorTeams:   Object.keys(parkFactorsByTeam || {}).length,
 			pitcherStatNames:  Object.keys(pitcherStatsByName || {}).length,
+			batterStatNames:   Object.keys(batterStatsByName || {}).length,
 			bullpenTeams:      Object.keys(bullpenByTeam || {}).length,
 			parkMetaTeams:     Object.keys(parkMetaByTeam || {}).filter(k => !k.startsWith("_")).length,
 			eventsIndexed:     eventsIndex.size,
@@ -206,6 +308,11 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 				mlbContextualSkipReason: "synthetic_market",
 			}
 		}
+
+		// 2026-05-30 — fill row.batterHand + row.pitcherHand + per-side stats
+		// blobs from caches before derivers run. Until this hop existed, the
+		// handedness deriver returned null on ~100% of rows.
+		attachIdentityAndStats(row, { batterByNormName, pitcherByNormName })
 
 		const weather    = deriveMlbWeatherContext(row, { weatherByEventId, parkMetaByTeam })
 		const park       = deriveMlbParkContext(row, { parkFactorsByTeam })
