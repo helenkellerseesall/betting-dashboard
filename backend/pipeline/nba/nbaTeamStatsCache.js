@@ -150,6 +150,21 @@ function attachOpponentDvP(row, opp) {
       row.opponentThreePAMultiplier = Number(Math.max(0.85, Math.min(1.15, opp3PA / baseline)).toFixed(3))
     }
   }
+
+  // 2026-05-30 — Tier 2 #5: per-role opp rebounds-allowed.
+  // Same pattern as threes. Per-opposing-player-game baselines:
+  //   guards: 3.5 reb  ·  wings: 4.5 reb  ·  bigs: 8.5 reb
+  // Multiplier capped ±15%. A team that gives up MORE rebounds to bigs
+  // boosts an opposing big's rebound projection; stingy teams dampen.
+  if (playerRole && teamEntry[playerRole]?.rebounds?.mean != null) {
+    const oppReb = Number(teamEntry[playerRole].rebounds.mean)
+    const baselineByRole = { guard: 3.5, wing: 4.5, big: 8.5 }
+    const baseline = baselineByRole[playerRole]
+    if (Number.isFinite(oppReb) && baseline > 0) {
+      row.opponentReboundsAllowedForRole = Number(oppReb.toFixed(2))
+      row.opponentReboundsMultiplier = Number(Math.max(0.85, Math.min(1.15, oppReb / baseline)).toFixed(3))
+    }
+  }
 }
 
 function enrichRowWithTeamStats(row) {

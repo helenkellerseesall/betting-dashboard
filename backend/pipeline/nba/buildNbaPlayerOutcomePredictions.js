@@ -1369,6 +1369,10 @@ function projectStat(family, rows, ctx) {
       raw += (usage - 18) * 0.06 + (minutes / 36) * (archetype === "big" ? 5.5 : 2.8)
       if (archetype === "big" && Number.isFinite(market)) raw = 0.5 * raw + 0.5 * market
     }
+    // 2026-05-30 — Tier 2 #5: opp rebounds-allowed multiplier (per-role).
+    // Attached upstream in nbaTeamStatsCache.attachOpponentDvP. Range 0.85..1.15.
+    const oppRebMul = Number(rep?.opponentReboundsMultiplier)
+    if (Number.isFinite(oppRebMul) && oppRebMul > 0) raw *= oppRebMul
     raw = Math.max(0.5, Math.min(17, raw))
     return Math.round(raw * 10) / 10
   }
