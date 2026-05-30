@@ -370,6 +370,13 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			}
 		}
 
+		// 2026-05-30 — surface a top-level isPlatoonAdvantage flag so
+		// buildMlbBestBetsBoard (which writes the persistent tracked_bets
+		// picks for Hits/TB/RBI/Runs) can read the platoon signal. The flag
+		// existed in the cluster engine as a row reader but nothing was
+		// writing it upstream — wiring it from handednessContext closes that.
+		const isPlatoonAdvantage = handedness?.platoonRelation === "opp"
+
 		return {
 			...row,
 			weatherContext:                 weather    || null,
@@ -381,6 +388,7 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 			mlbContextualSignal:            composed?.contextualSignal || null,
 			mlbContextualShift:             shift ?? null,
 			mlbContextualTags:              tags,
+			isPlatoonAdvantage,
 		}
 	})
 
