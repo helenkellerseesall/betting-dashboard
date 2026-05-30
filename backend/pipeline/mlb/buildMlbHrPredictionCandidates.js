@@ -441,7 +441,15 @@ function buildMlbHrPredictionCandidates(input = {}) {
     const parkKey = (row?.homeTeam || "").trim().toLowerCase()
     const parkData = parkKey ? parkFactors?.[parkKey] : null
     if (parkData) {
-      const factor = toNum(parkData.hrFactor)
+      // 2026-05-30 — Tier 3 #9: prefer per-handedness park HR factor when
+      // available. Yankee Stadium L 1.25 vs R 1.05; Fenway L 0.95 vs R 1.20.
+      // Falls back to general hrFactor if batterHand unknown.
+      let factor = null
+      const batterHand = String(row?.batterHand || "").toUpperCase()
+      if (parkData.hrFactorByHand && (batterHand === "L" || batterHand === "R")) {
+        factor = toNum(parkData.hrFactorByHand[batterHand])
+      }
+      if (!Number.isFinite(factor)) factor = toNum(parkData.hrFactor)
       if (Number.isFinite(factor)) {
         if (factor >= 1.2) {
           parkScore += 2.5

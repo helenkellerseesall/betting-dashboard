@@ -250,6 +250,18 @@ function buildHitsRowFromPropRow(r) {
     expectedHitsRaw *= (1 + streakBonus)
   }
 
+  // 2026-05-30 — Tier 3 #9: park hits factor. Coors 1.20, Fenway 1.10,
+  // Petco 0.94, Oracle 0.93. Direct multiplier capped at ±10%.
+  try {
+    const pf = require("../../data/mlbParkFactors.json")
+    const parkKey = String(r?.homeTeam || "").trim().toLowerCase()
+    const parkData = parkKey ? pf?.[parkKey] : null
+    const hitsFactor = parkData ? Number(parkData.hitsFactor) : null
+    if (Number.isFinite(hitsFactor) && hitsFactor > 0) {
+      expectedHitsRaw *= clamp(hitsFactor, 0.90, 1.10)
+    }
+  } catch (_) {}
+
   if (Number.isFinite(gameTotal)) {
     expectedHitsRaw *= clamp(1 + (gameTotal - 8.5) * 0.02, 0.92, 1.10)
   }
