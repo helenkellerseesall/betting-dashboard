@@ -97,10 +97,53 @@ function getTeamStats(opponent) {
   return cache.teams?.[key] || null
 }
 
+// 2026-05-30 — Defense-vs-position cache. Lazy load + memoize.
+let _dvpCache = null
+let _dvpLoaded = false
+function loadDvpCache() {
+  if (_dvpLoaded) return _dvpCache
+  _dvpLoaded = true
+  try {
+    const fs = require("fs")
+    const path = require("path")
+    const p = path.join(__dirname, "..", "..", "data", "nbaDvP.json")
+    if (fs.existsSync(p)) {
+      const raw = JSON.parse(fs.readFileSync(p, "utf8"))
+      _dvpCache = raw?.teams || raw || {}
+    }
+  } catch (_) { _dvpCache = null }
+  return _dvpCache
+}
+
+function attachOpponentDvP(row, opp) {
+  const dvp = loadDvpCache()
+  if (!dvp || !opp) return
+  const teamEntry = dvp[opp]
+  if (!teamEntry) return
+  // Match the row's player role to the DvP bucket. Read from playerSeasonStats
+  // or roleContext if available; otherwise leave per-role data on row for
+  // downstream consumers to pick the right bucket.
+  const playerRole = (() => {
+    const r = String(row.role || row.roleContext?.role || row.archetype || "").toLowerCase()
+    if (r === "guard" || r === "pg" || r === "sg") return "guard"
+    if (r === "big" || r === "c" || r === "pf") return "big"
+    if (r === "wing" || r === "sf") return "wing"
+    return null
+  })()
+  row.opponentDvP = teamEntry  // full per-role table so any consumer can pick
+  if (playerRole && teamEntry[playerRole]) {
+    row.opponentDvPForRole = { role: playerRole, ...teamEntry[playerRole] }
+  }
+}
+
 function enrichRowWithTeamStats(row) {
   if (!row || typeof row !== "object") return row
   const opp = row.opponent || row.opponentTeam || row.opp || null
   if (!opp) return row
+  // 2026-05-30 — Attach opponent DvP (derived from game logs) regardless of
+  // whether nbaTeamStats has the team. DvP file may have coverage where
+  // nbaTeamStats doesn't, and vice versa.
+  attachOpponentDvP(row, opp)
   const stats = getTeamStats(opp)
   if (!stats) return row
 

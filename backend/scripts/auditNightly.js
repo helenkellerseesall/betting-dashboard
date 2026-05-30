@@ -148,10 +148,17 @@ function runPopulators() {
     { label: "NBA game logs",     script: "populateNbaGameLogs.js" },
     { label: "NBA team stats",    script: "populateNbaTeamStats.js" },
     { label: "NBA injury report", script: "populateNbaInjuryReport.js" },
+    // 2026-05-30 — derives DvP cache from already-fetched game logs.
+    // ORDER MATTERS: must run AFTER NBA game logs (it reads them).
+    { label: "NBA DvP (derived)", script: "deriveNbaDvP.js" },
     // 2026-05-30 — biggest single MLB blind spot was missing per-batter HR/AB,
     // ISO, K%, BB%, OBP, SLG, handedness. Wire into nightly so HR + Hits + RBI
     // + Total Bases + Runs Scored engines (#21) have real per-batter signal.
     { label: "MLB batter stats",  script: "populateMlbBatterStats.js" },
+    // 2026-05-30 — derives powerScore from the batter cache's iso + hrRate.
+    // Replaces the 9-hardcoded-player mlbStatcastPower.json. ORDER MATTERS:
+    // must run AFTER MLB batter stats; this script reads that cache.
+    { label: "MLB Statcast power (derived)", script: "deriveMlbStatcastPower.js" },
   ]
   const results = []
   for (const p of populators) {
