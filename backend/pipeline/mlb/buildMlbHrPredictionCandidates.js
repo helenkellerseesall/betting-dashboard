@@ -428,6 +428,15 @@ function buildMlbHrPredictionCandidates(input = {}) {
     } catch (_) { streakHrAdj = 0 }
     hrScore = hrScore + streakHrAdj
 
+    // 2026-05-30 — Power burst signal. hrInWindow from L15 = "recent
+    // hot zone." Schwarber: 9 HR in 15 games is exceptional. League average
+    // is ~1.5 HR per 15 games. Bonus ramps at 4+, caps at +1.5.
+    const hrIn15 = Number(row?.batterL15?.hrInWindow)
+    if (Number.isFinite(hrIn15) && hrIn15 >= 4) {
+      const burstBonus = Math.min(1.5, (hrIn15 - 3) * 0.25)
+      hrScore = hrScore + burstBonus
+    }
+
     let parkScore = 0
     const parkKey = (row?.homeTeam || "").trim().toLowerCase()
     const parkData = parkKey ? parkFactors?.[parkKey] : null

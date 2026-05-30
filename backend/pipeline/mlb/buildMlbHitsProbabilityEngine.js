@@ -233,6 +233,23 @@ function buildHitsRowFromPropRow(r) {
     expectedHitsRaw *= pSm
   } catch (_) {}
 
+  // 2026-05-30 — L5 K-rate dampening. Batter striking out a lot recently =
+  // fewer balls in play = fewer hits. League average K% ~22%; each 10pp above
+  // = -5% expectedHits, capped at ±5%.
+  const batterKRateL5 = toNum(r?.batterL5?.kRate)
+  if (Number.isFinite(batterKRateL5)) {
+    const kPenalty = clamp(1 - (batterKRateL5 - 0.22) * 0.5, 0.95, 1.05)
+    expectedHitsRaw *= kPenalty
+  }
+
+  // 2026-05-30 — Active hit streak bonus. Hit streaks ≥3 games are a real
+  // contact-form signal. Cap at +4% so it doesn't overrule the math.
+  const hitStreak = toNum(r?.batterL5?.hitStreak)
+  if (Number.isFinite(hitStreak) && hitStreak >= 3) {
+    const streakBonus = Math.min(0.04, (hitStreak - 2) * 0.012)
+    expectedHitsRaw *= (1 + streakBonus)
+  }
+
   if (Number.isFinite(gameTotal)) {
     expectedHitsRaw *= clamp(1 + (gameTotal - 8.5) * 0.02, 0.92, 1.10)
   }

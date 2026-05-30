@@ -333,6 +333,10 @@ function computeBatterContextBonus(row) {
     // are the levers. Lineup position is read via row.battingOrderIndex
     // already in computePositiveProductionBonus; here we add OBP only.
     if (Number.isFinite(obp)) bonus += clamp((obp - 0.320) * 0.50, -0.04, 0.10)
+    // 2026-05-30 — L5 OBP signal specifically for runs_scored. If batter is
+    // getting on base recently, they score more often. Capped at +5%.
+    const obpL5 = toNumberOrNull(row?.batterL5?.obp)
+    if (Number.isFinite(obpL5)) bonus += clamp((obpL5 - 0.320) * 0.30, -0.03, 0.05)
   } else if (marketKey.includes("rbis") || marketKey.includes("rbi")) {
     if (Number.isFinite(slg)) bonus += clamp((slg - 0.410) * 0.30, -0.03, 0.08)
   }
