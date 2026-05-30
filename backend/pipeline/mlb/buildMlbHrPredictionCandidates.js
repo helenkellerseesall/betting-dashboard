@@ -415,6 +415,19 @@ function buildMlbHrPredictionCandidates(input = {}) {
 
     hrScore = hrScore + weatherScore
 
+    // 2026-05-30 — L5/L15 HR streak signal. If batter is hitting more HR
+    // recently (L5 vs L15), add a small score bump. If cold, slight penalty.
+    // Schwarber: L15=9 HR in 15 games (very hot) → ~+1 hrScore.
+    // Capped at ±1.5 to prevent runaway streak boosts on small samples.
+    let streakHrAdj = 0
+    try {
+      const sm = require("./mlbBatterFormCache").streakMomentumMultiplier(row, "hrPerGame")
+      // sm is 0.92..1.08; convert to ±1.5 score adjustment
+      streakHrAdj = (sm - 1) * 18.75
+      streakHrAdj = Math.max(-1.5, Math.min(1.5, streakHrAdj))
+    } catch (_) { streakHrAdj = 0 }
+    hrScore = hrScore + streakHrAdj
+
     let parkScore = 0
     const parkKey = (row?.homeTeam || "").trim().toLowerCase()
     const parkData = parkKey ? parkFactors?.[parkKey] : null

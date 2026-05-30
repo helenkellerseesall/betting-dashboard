@@ -1,6 +1,10 @@
 "use strict"
 
 const normalizeName = require("../../utils/normalizeName")
+// 2026-05-30 — L5/L15 streak momentum (hot/cold detection)
+let _streakMomentumMultiplier = null
+try { _streakMomentumMultiplier = require("./mlbBatterFormCache").streakMomentumMultiplier }
+catch (_) { _streakMomentumMultiplier = null }
 
 function toNum(v) {
   const n = Number(v)
@@ -211,6 +215,13 @@ function buildHitsRowFromPropRow(r) {
   const platoon = r?.handednessContext?.platoonRelation
   if (platoon === "opp") expectedHitsRaw *= 1.025
   else if (platoon === "same") expectedHitsRaw *= 0.985
+
+  // 2026-05-30 — L5/L15 streak momentum. Batter hot in last 5 vs last 15 =
+  // small expected-hits boost. Clamped at ±8% via the shared helper.
+  // Reads row.batterL5 / row.batterL15 attached by applyMlbContextualLayers.
+  if (_streakMomentumMultiplier) {
+    expectedHitsRaw *= _streakMomentumMultiplier(r, "hitsPerGame")
+  }
 
   if (Number.isFinite(gameTotal)) {
     expectedHitsRaw *= clamp(1 + (gameTotal - 8.5) * 0.02, 0.92, 1.10)

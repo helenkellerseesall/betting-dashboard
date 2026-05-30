@@ -161,9 +161,52 @@ function enrichRowWithBatterForm(row) {
 	return row
 }
 
+/**
+ * 2026-05-30 — streak-momentum multiplier. Compares L5 to L15 on the chosen
+ * metric and returns a clamped multiplier engines can apply to their
+ * projection. Conservative by design: max ±8% adjustment per call.
+ *
+ *   metric: one of "avg" | "slg" | "hrRate" | "iso" | "hitsPerGame" | "hrPerGame" | "totalBasesPerGame"
+ *
+ * Returns 1.0 (neutral) when either window is missing or when their delta
+ * is within a small noise band. Hot streak (L5 > L15) → multiplier > 1.
+ * Cold streak (L5 < L15) → multiplier < 1.
+ */
+function streakMomentumMultiplier(row, metric) {
+	const l5 = row?.batterL5
+	const l15 = row?.batterL15
+	if (!l5 || !l15) return 1
+	const a = Number(l5[metric])
+	const b = Number(l15[metric])
+	if (!Number.isFinite(a) || !Number.isFinite(b) || b <= 0) return 1
+	const ratio = a / b
+	// Within ±20% is noise; outside that, apply graduated shift.
+	if (ratio >= 0.80 && ratio <= 1.20) return 1
+	// Hot streak: linear ramp from 1.00 → 1.08 as ratio goes 1.20 → 1.80
+	if (ratio > 1.20) {
+		const excess = Math.min(0.60, ratio - 1.20)
+		return 1 + (excess / 0.60) * 0.08
+	}
+	// Cold streak: 1.00 → 0.92 as ratio goes 0.80 → 0.30
+	const deficit = Math.min(0.50, 0.80 - ratio)
+	return 1 - (deficit / 0.50) * 0.08
+}
+
+/**
+ * Returns "hot" | "cold" | "neutral" classification for human readability.
+ */
+function streakLabel(row, metric) {
+	const m = streakMomentumMultiplier(row, metric)
+	if (m > 1.025) return "hot"
+	if (m < 0.975) return "cold"
+	return "neutral"
+}
+
 module.exports = {
 	getBatterForm,
 	enrichRowWithBatterForm,
+	streakMomentumMultiplier,
+	streakLabel,
 	loadCache,
 	resetCache,
 	DEFAULT_WINDOWS,

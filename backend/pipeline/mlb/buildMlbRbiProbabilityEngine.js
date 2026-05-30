@@ -142,6 +142,13 @@ function expectedRbiFromContext(r, hits = null) {
   if (platoon === "opp") exp += 0.03
   else if (platoon === "same") exp -= 0.02
 
+  // 2026-05-30 — L5/L15 streak momentum applied to expected RBI.
+  // Hot batter (L5 SLG > L15 SLG by 20%+) → ~+5% expected RBI; cold → -5%.
+  let _streakMul
+  try { _streakMul = require("./mlbBatterFormCache").streakMomentumMultiplier(r, "slg") }
+  catch (_) { _streakMul = 1 }
+  exp *= _streakMul
+
   // keep in sane band
   if (!Number.isFinite(exp)) return null
   exp = Math.max(0.05, Math.min(1.35, exp))

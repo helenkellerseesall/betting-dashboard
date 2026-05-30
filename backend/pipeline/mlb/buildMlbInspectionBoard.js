@@ -342,6 +342,21 @@ function computeBatterContextBonus(row) {
   if (platoon === "opp") bonus += 0.02
   else if (platoon === "same") bonus -= 0.01
 
+  // 2026-05-30 — L5 vs L15 streak momentum. Hot streak amplifies the surface
+  // bonus; cold streak dampens it. Picks the metric that matches the market.
+  try {
+    const sm = require("../mlb/mlbBatterFormCache").streakMomentumMultiplier
+    let streakMetric = "slg" // default for power-y markets
+    if (marketKey.includes("home_run"))  streakMetric = "hrPerGame"
+    else if (marketKey.includes("total_bases")) streakMetric = "totalBasesPerGame"
+    else if (marketKey.includes("hits")) streakMetric = "hitsPerGame"
+    else if (marketKey.includes("runs_scored")) streakMetric = "runsPerGame"
+    else if (marketKey.includes("rbis")) streakMetric = "rbiPerGame"
+    const m = sm(row, streakMetric)
+    // m is 0.92..1.08 → ±0.04 bonus shift (smaller weight than the SLG/ISO bonus)
+    bonus += (m - 1) * 0.5
+  } catch (_) {}
+
   return bonus
 }
 
