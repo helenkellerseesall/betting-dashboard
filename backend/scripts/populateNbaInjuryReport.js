@@ -193,6 +193,32 @@ async function fetchTeamInjuries(teamId) {
   return r.data
 }
 
+/**
+ * 2026-05-30 — the per-team injuries endpoint stopped returning data (returns
+ * `{}` on every request). The slate-wide endpoint still works and returns ALL
+ * teams in one call. Shape:
+ *   {
+ *     timestamp, status, season,
+ *     injuries: [
+ *       { id, displayName, injuries: [ {athlete, status, ...}, ... ] },
+ *       ...28 teams...
+ *     ]
+ *   }
+ *
+ * Returns an array of { teamId, payload } objects so the rest of the pipeline
+ * can re-use the existing per-team parser.
+ */
+async function fetchAllInjuriesSlateWide() {
+  if (!axios) throw new Error("axios not available — install or use --fixture mode")
+  const url = `${ESPN_BASE}/injuries`
+  const r = await axios.get(url, { timeout: REQUEST_TIMEOUT })
+  const teamGroups = Array.isArray(r?.data?.injuries) ? r.data.injuries : []
+  return teamGroups.map((g) => ({
+    teamId:  String(g?.id || ""),
+    payload: { team: { displayName: g?.displayName }, injuries: Array.isArray(g?.injuries) ? g.injuries : [] },
+  }))
+}
+
 async function fetchTodayScoreboard() {
   if (!axios) return null
   const d = new Date()
@@ -237,11 +263,30 @@ function statusStrength(status) {
 
 // === Orchestration ===
 
-async function processTeamLive(teamId) {
+async function processTeamLive(teamId, opts = {}) {
   console.log(`[populator] live fetch team_id=${teamId} ...`)
   let payload
   try { payload = await fetchTeamInjuries(teamId) }
   catch (err) { console.warn(`[populator] team ${teamId} fetch failed: ${err.message}`); return [] }
+
+  if (opts.verbose) {
+    console.log(`[populator:debug] team ${teamId} TOP KEYS: ${Object.keys(payload || {}).join(",")}`)
+    console.log(`[populator:debug] team object: ${JSON.stringify(payload?.team, null, 2)?.slice(0, 400)}`)
+    console.log(`[populator:debug] payload.injuries is array? ${Array.isArray(payload?.injuries)}  length=${payload?.injuries?.length ?? "n/a"}`)
+    // Some ESPN endpoints nest it differently:
+    if (!Array.isArray(payload?.injuries)) {
+      console.log(`[populator:debug] payload.athletes?: ${Array.isArray(payload?.athletes)}`)
+      console.log(`[populator:debug] payload.items?: ${Array.isArray(payload?.items)}`)
+      console.log(`[populator:debug] payload.entries?: ${Array.isArray(payload?.entries)}`)
+      console.log(`[populator:debug] FULL PAYLOAD (first 2000 chars):`)
+      console.log(JSON.stringify(payload, null, 2)?.slice(0, 2000))
+    } else if (payload.injuries.length > 0) {
+      console.log(`[populator:debug] FIRST injury entry shape:`)
+      console.log(JSON.stringify(payload.injuries[0], null, 2)?.slice(0, 1200))
+    } else {
+      console.log(`[populator:debug] payload.injuries is empty array (team genuinely has no injuries — try a different team)`)
+    }
+  }
   return parseTeamInjuries(payload, teamId)
 }
 
@@ -254,10 +299,20 @@ function processFixture(fixturePath, teamId) {
 // === CLI ===
 
 function parseArgs(argv) {
-  const args = { dryRun: false, slateOnly: false, fixture: null, team: null }
+  const args = { dryRun: false, slateOnly: false, fixture: null, team: null, verbose: false, probeFirstTeamOnly: false, legacyPerTeam: false }
   for (const a of argv.slice(2)) {
-    if (a === "--dry-run")    { args.dryRun = true; continue }
-    if (a === "--slate-only") { args.slateOnly = true; continue }
+    if (a === "--dry-run")              { args.dryRun = true; continue }
+    if (a === "--slate-only")           { args.slateOnly = true; continue }
+    if (a === "--verbose")              { args.verbose = true; continue }
+    // 2026-05-30 — debug aid. Cache has been writing players:{} for weeks;
+    // suspect ESPN endpoint shape changed. --probe-first-team-only hits ONE
+    // team (Lakers ID 13, always has injury history), dumps the raw payload
+    // shape + first injury entry, then exits without writing the cache.
+    if (a === "--probe-first-team-only"){ args.probeFirstTeamOnly = true; args.dryRun = true; args.verbose = true; continue }
+    // 2026-05-30 — fallback. Default path uses slate-wide endpoint (one call).
+    // If ESPN ever flips the slate-wide endpoint off, --legacy-per-team falls
+    // back to 30 per-team calls (currently dead, but kept for symmetry).
+    if (a === "--legacy-per-team")      { args.legacyPerTeam = true; continue }
     const eq = a.indexOf("=")
     if (eq <= 2) continue
     const k = a.slice(2, eq), v = a.slice(eq + 1)
@@ -285,9 +340,15 @@ async function main() {
   if (args.fixture) {
     console.log(`[populator] fixture mode — parsing ${args.fixture} for team_id=${args.team}`)
     allEntries = processFixture(args.fixture, args.team)
-  } else {
+  } else if (args.legacyPerTeam || args.probeFirstTeamOnly) {
+    // 2026-05-30 — legacy / debug path: per-team URL. Currently returns {}
+    // on every request (endpoint dead), kept for symmetry + future regression
+    // detection. --probe-first-team-only also forces this path against Lakers.
     let teamIds
-    if (args.slateOnly) {
+    if (args.probeFirstTeamOnly) {
+      console.log("[populator] --probe-first-team-only — fetching Lakers (id=13) ONLY via legacy per-team URL")
+      teamIds = ["13"]
+    } else if (args.slateOnly) {
       teamIds = await discoverSlateTeamIds()
       if (!teamIds.length) {
         console.warn("[populator] --slate-only: scoreboard returned no teams; falling back to all 30")
@@ -298,10 +359,37 @@ async function main() {
     } else {
       teamIds = Object.values(NBA_TEAM_ID_BY_NAME)
     }
-    // Sequential to be polite to ESPN; ~50ms/team naturally throttled
     for (const tid of teamIds) {
-      const entries = await processTeamLive(tid)
+      const entries = await processTeamLive(tid, { verbose: args.verbose })
       console.log(`  team ${tid}: ${entries.length} injuries`)
+      allEntries.push(...entries)
+    }
+  } else {
+    // 2026-05-30 — DEFAULT path: slate-wide single call. Returns all 28 teams
+    // grouped, ~30 lines per response. The per-team endpoint returned `{}` —
+    // see git history for the broken legacy code path.
+    console.log("[populator] slate-wide fetch (single call for all teams)...")
+    let groups = []
+    try { groups = await fetchAllInjuriesSlateWide() }
+    catch (err) { console.error("[populator] slate-wide fetch failed:", err.message); throw err }
+    console.log(`[populator] received ${groups.length} team-groupings from ESPN`)
+    let slateTeamFilter = null
+    if (args.slateOnly) {
+      const slateIds = await discoverSlateTeamIds()
+      if (slateIds.length) {
+        slateTeamFilter = new Set(slateIds.map(String))
+        console.log("[populator] --slate-only: filtering to teams playing today:", slateIds.join(", "))
+      }
+    }
+    for (const g of groups) {
+      if (slateTeamFilter && !slateTeamFilter.has(g.teamId)) continue
+      const entries = parseTeamInjuries(g.payload, g.teamId)
+      if (args.verbose) {
+        console.log(`  team ${g.teamId} (${g.payload?.team?.displayName}): ${entries.length} injuries parsed`)
+        if (entries.length > 0) console.log(`    sample: ${JSON.stringify(entries[0])?.slice(0, 200)}`)
+      } else {
+        console.log(`  team ${g.teamId} (${g.payload?.team?.displayName}): ${entries.length} injuries`)
+      }
       allEntries.push(...entries)
     }
   }
