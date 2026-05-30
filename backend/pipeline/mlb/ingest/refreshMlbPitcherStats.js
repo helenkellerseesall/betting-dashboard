@@ -129,6 +129,13 @@ function extractSeasonPitchingStats(personJson, season) {
 	const person = personJson?.people?.[0]
 	if (!person) return null
 
+	// 2026-05-30 — extract handedness HERE. The /schedule?hydrate=probablePitcher
+	// endpoint does NOT include pitchHand, so every pitcher had throws:null —
+	// HR engine then defaulted every L/R matchup to righty. The /people endpoint
+	// (which we're already calling for stats) returns it cleanly.
+	const pitchHandCode = person?.pitchHand?.code || null
+	const batSideCode = person?.batSide?.code || null
+
 	const statsArr = Array.isArray(person?.stats) ? person.stats : []
 	// Prefer a season-group=pitching, season=YYYY block; fall back to the first pitching season we find.
 	let target = null
@@ -172,6 +179,8 @@ function extractSeasonPitchingStats(personJson, season) {
 		? ((walks + hits) / inningsPitched) : null
 
 	return {
+		throwsFromPerson: pitchHandCode,
+		batSideFromPerson: batSideCode,
 		season: String(target?.season ?? season),
 		gamesPitched,
 		gamesStarted,
@@ -270,13 +279,22 @@ async function refreshMlbPitcherStats({ slateDate, season, concurrency = DEFAULT
 		}
 		const key = normalizePitcherKey(r.pitcher?.fullName)
 		if (!key) continue
+		// 2026-05-30 — schedule's probablePitcher hydrate omits pitchHand, so
+		// r.pitcher.throws was null on every entry. Prefer the /people endpoint's
+		// pitchHand (extracted in extractSeasonPitchingStats) and fall back to
+		// the schedule value only if /people didn't have it either.
+		const throws = r.stats?.throwsFromPerson || r.pitcher.throws || null
+		const batSide = r.stats?.batSideFromPerson || null
+		// Strip the temporary extraction keys from the persisted entry.
+		const { throwsFromPerson: _t, batSideFromPerson: _b, ...statsClean } = r.stats
 		pitcherStatsByName[key] = {
 			playerId: r.pitcher.playerId,
 			fullName: r.pitcher.fullName,
-			throws: r.pitcher.throws,
+			throws,
+			batSide,
 			teamId: r.pitcher.teamId,
 			teamName: r.pitcher.teamName,
-			...r.stats,
+			...statsClean,
 			recentPitches: null,
 			restDays: null,
 			velocityMph: null,
