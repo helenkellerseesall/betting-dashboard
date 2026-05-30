@@ -519,6 +519,10 @@ function buildNbaBestBetsBoard(input = {}) {
     const play = {
       player: pred.player,
       eventId: pred.eventId || eventId || null,
+      // 2026-05-29 — gameTime propagation. leanBet stamps play.gameTime onto
+      // tracked_bets; without it here the field is null. Pull from mp first
+      // (just preserved by marketPropsFromPoolRows), then pred as backup.
+      gameTime: mp.gameTime || pred.gameTime || null,
       matchup: matchupStr,
       team: mp.team || null,
       homeTeam: mp.homeTeam || null,
@@ -661,6 +665,13 @@ function marketPropsFromPoolRows(rows) {
     out.push({
       player,
       eventId: row.eventId || null,
+      // 2026-05-29 — gameTime preservation. Same gap as MLB had — without
+      // this, NBA picks land in tracked_bets with gameTime=null and the CLV
+      // capture loop relies entirely on eventTimeMap fallback. Coverage
+      // observed: rebounds 26%, blocks 30%, steals 42%, points 49% — i.e.
+      // CLV capture flakes on half the slate. Snapshot rows DO carry
+      // gameTime; just needs to flow through here.
+      gameTime: row.gameTime || row.commence_time || row.commenceTime || null,
       statFamily: family,
       line,
       oddsAmerican: odds,

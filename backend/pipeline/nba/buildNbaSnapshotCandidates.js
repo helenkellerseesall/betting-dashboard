@@ -208,6 +208,11 @@ function buildNbaSnapshotCandidates(snapshotRows) {
       // alt vs main market correctly. Without this, snapCandidates path strips
       // marketKey and 74% of tomorrow's picks lose CLV match-identity.
       marketKey:      r?.marketKey || null,
+      // 2026-05-29 — gameTime propagation. Same gap as marketKey had.
+      // snapCandidates feed Lane A3 bridge → leanBet → tracked_bets. Without
+      // gameTime here, alt-line picks (74% of slate volume) lose CLV
+      // capture-window eligibility.
+      gameTime:       r?.gameTime || r?.commence_time || r?.commenceTime || null,
       side,
       line:           r?.line    ?? null,
       odds,

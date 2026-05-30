@@ -1,12 +1,3494 @@
 {
-  "shohei ohtani": { "avgExitVelocity": 94.5, "powerScore": 47 },
-  "aaron judge": { "avgExitVelocity": 95.2, "powerScore": 48 },
-  "kyle schwarber": { "avgExitVelocity": 93.8, "powerScore": 45 },
-  "matt olson": { "avgExitVelocity": 94.0, "powerScore": 46 },
-  "yordan alvarez": { "avgExitVelocity": 95.0, "powerScore": 48 },
-  "corey seager": { "avgExitVelocity": 92.5, "powerScore": 43 },
-  "vladimir guerrero": { "avgExitVelocity": 93.0, "powerScore": 44 },
-  "ronald acuna": { "avgExitVelocity": 93.2, "powerScore": 45 },
-  "pete alonso": { "avgExitVelocity": 94.2, "powerScore": 46 }
+  "andrew benintendi": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 177,
+    "iso": 0.1304,
+    "hrRate": 0.0186,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "chase meidroth": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 235,
+    "iso": 0.122,
+    "hrRate": 0.0244,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "colson montgomery": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 236,
+    "iso": 0.2367,
+    "hrRate": 0.0628,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "derek hill": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 73,
+    "iso": 0.1563,
+    "hrRate": 0.0469,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "drew romo": {
+    "avgExitVelocity": null,
+    "powerScore": 50,
+    "plateAppearances": 69,
+    "iso": 0.3051,
+    "hrRate": 0.0847,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "edgar quero": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 130,
+    "iso": 0.0367,
+    "hrRate": 0.0092,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "luisangel acua": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 109,
+    "iso": 0.0101,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "miguel vargas": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 244,
+    "iso": 0.25,
+    "hrRate": 0.065,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "munetaka murakami": {
+    "avgExitVelocity": null,
+    "powerScore": 53,
+    "plateAppearances": 246,
+    "iso": 0.32,
+    "hrRate": 0.1,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "randal grichuk": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 71,
+    "iso": 0.2537,
+    "hrRate": 0.0597,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "rikuu nishida": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 13,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "sam antonacci": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 155,
+    "iso": 0.0916,
+    "hrRate": 0.0076,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "tristan peters": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 157,
+    "iso": 0.1151,
+    "hrRate": 0.0144,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "colt keith": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 168,
+    "iso": 0.0641,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "dillon dingler": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 212,
+    "iso": 0.2366,
+    "hrRate": 0.0591,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "gage workman": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 37,
+    "iso": 0.2432,
+    "hrRate": 0.0541,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "haoyu lee": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 77,
+    "iso": 0.1096,
+    "hrRate": 0.0137,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "jahmai jones": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 74,
+    "iso": 0.1176,
+    "hrRate": 0.0294,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "jake rogers": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 56,
+    "iso": 0.0833,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.312Z"
+  },
+  "kevin mcgonigle": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 246,
+    "iso": 0.128,
+    "hrRate": 0.0142,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "matt vierling": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 164,
+    "iso": 0.1438,
+    "hrRate": 0.0274,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "riley greene": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 240,
+    "iso": 0.1298,
+    "hrRate": 0.0192,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "spencer torkelson": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 219,
+    "iso": 0.1915,
+    "hrRate": 0.0426,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "wenceel prez": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 141,
+    "iso": 0.1231,
+    "hrRate": 0.0308,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "zach mckinstry": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 120,
+    "iso": 0.0571,
+    "hrRate": 0.0095,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "zack short": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 32,
+    "iso": 0.0417,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "andrs chaparro": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 25,
+    "iso": 0.05,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "cj abrams": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 245,
+    "iso": 0.2524,
+    "hrRate": 0.0583,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "curtis mead": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 150,
+    "iso": 0.252,
+    "hrRate": 0.063,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "daylen lile": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 253,
+    "iso": 0.1659,
+    "hrRate": 0.0306,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "drew millas": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 100,
+    "iso": 0.0682,
+    "hrRate": 0.0114,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dylan crews": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 39,
+    "iso": 0.1053,
+    "hrRate": 0.0263,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jacob young": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 197,
+    "iso": 0.1484,
+    "hrRate": 0.0385,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "james wood": {
+    "avgExitVelocity": null,
+    "powerScore": 46,
+    "plateAppearances": 273,
+    "iso": 0.2727,
+    "hrRate": 0.0682,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jorbit vivas": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 120,
+    "iso": 0.0891,
+    "hrRate": 0.0099,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jos tena": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 113,
+    "iso": 0.1714,
+    "hrRate": 0.0286,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "keibert ruiz": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 116,
+    "iso": 0.2432,
+    "hrRate": 0.045,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luis garca": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 179,
+    "iso": 0.1512,
+    "hrRate": 0.0233,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nasim nuez": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 196,
+    "iso": 0.024,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryce johnson": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 36,
+    "iso": 0.0625,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "fernando tatis": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 236,
+    "iso": 0.039,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "freddy fermin": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 112,
+    "iso": 0.0412,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "gavin sheets": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 176,
+    "iso": 0.2372,
+    "hrRate": 0.0577,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jackson merrill": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 221,
+    "iso": 0.1307,
+    "hrRate": 0.0251,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "manny machado": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 225,
+    "iso": 0.1658,
+    "hrRate": 0.0466,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "miguel andujar": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 172,
+    "iso": 0.1867,
+    "hrRate": 0.0301,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick castellanos": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 119,
+    "iso": 0.1504,
+    "hrRate": 0.0354,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ramn laureano": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 202,
+    "iso": 0.1732,
+    "hrRate": 0.0391,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "rodolfo durn": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 24,
+    "iso": 0.15,
+    "hrRate": 0.05,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sungmun song": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 25,
+    "iso": 0.0476,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ty france": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 103,
+    "iso": 0.2551,
+    "hrRate": 0.0612,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "xander bogaerts": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 217,
+    "iso": 0.1224,
+    "hrRate": 0.0357,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alejandro osuna": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 94,
+    "iso": 0.026,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brandon nimmo": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 241,
+    "iso": 0.1643,
+    "hrRate": 0.0329,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "danny jansen": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 134,
+    "iso": 0.1368,
+    "hrRate": 0.0256,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "evan carter": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 199,
+    "iso": 0.1687,
+    "hrRate": 0.0361,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ezequiel duran": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 171,
+    "iso": 0.1677,
+    "hrRate": 0.0258,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jake burger": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 223,
+    "iso": 0.1875,
+    "hrRate": 0.0481,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "joc pederson": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 164,
+    "iso": 0.1926,
+    "hrRate": 0.0519,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "josh jung": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 216,
+    "iso": 0.1675,
+    "hrRate": 0.0305,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "justin foscue": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 59,
+    "iso": 0.1667,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle higashioka": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 95,
+    "iso": 0.1163,
+    "hrRate": 0.0349,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "michael helman": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 15,
+    "iso": 0.0714,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nicky lopez": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 16,
+    "iso": 0.2,
+    "hrRate": 0.0667,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sam haggerty": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 45,
+    "iso": 0.0238,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bobby witt": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 250,
+    "iso": 0.1911,
+    "hrRate": 0.04,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "carter jensen": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 186,
+    "iso": 0.1605,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "isaac collins": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 180,
+    "iso": 0.0993,
+    "hrRate": 0.0199,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jac caglianone": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 186,
+    "iso": 0.1529,
+    "hrRate": 0.0294,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle isbel": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 155,
+    "iso": 0.1223,
+    "hrRate": 0.0216,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "lane thomas": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 121,
+    "iso": 0.0619,
+    "hrRate": 0.0103,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "maikel garcia": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 242,
+    "iso": 0.1182,
+    "hrRate": 0.0136,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "michael massey": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 114,
+    "iso": 0.1698,
+    "hrRate": 0.0283,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick loftin": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 76,
+    "iso": 0.1111,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "salvador perez": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 227,
+    "iso": 0.1579,
+    "hrRate": 0.0431,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "starling marte": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 63,
+    "iso": 0.0536,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler tolbert": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 6,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "vinnie pasquantino": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 229,
+    "iso": 0.1256,
+    "hrRate": 0.0251,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "adley rutschman": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 168,
+    "iso": 0.22,
+    "hrRate": 0.0467,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "blaze alexander": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 134,
+    "iso": 0.0902,
+    "hrRate": 0.0082,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "coby mayo": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 153,
+    "iso": 0.1667,
+    "hrRate": 0.0435,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "colton cowser": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 120,
+    "iso": 0.1048,
+    "hrRate": 0.0286,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "gunnar henderson": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 261,
+    "iso": 0.2107,
+    "hrRate": 0.0537,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jackson holliday": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 31,
+    "iso": 0.2222,
+    "hrRate": 0.0741,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jeremiah jackson": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 172,
+    "iso": 0.1506,
+    "hrRate": 0.0361,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "leody taveras": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 165,
+    "iso": 0.1143,
+    "hrRate": 0.0143,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "pete alonso": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 249,
+    "iso": 0.2045,
+    "hrRate": 0.05,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "samuel basallo": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 169,
+    "iso": 0.2338,
+    "hrRate": 0.0584,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "taylor ward": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 260,
+    "iso": 0.1014,
+    "hrRate": 0.0097,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler oneill": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 109,
+    "iso": 0.0737,
+    "hrRate": 0.0211,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "weston wilson": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 46,
+    "iso": 0.1026,
+    "hrRate": 0.0256,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "andrs gimnez": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 197,
+    "iso": 0.1467,
+    "hrRate": 0.0326,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brandon valenzuela": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 113,
+    "iso": 0.1531,
+    "hrRate": 0.0408,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "charles mcadoo": {
+    "avgExitVelocity": null,
+    "powerScore": 58,
+    "plateAppearances": 4,
+    "iso": 0.75,
+    "hrRate": 0.25,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "daulton varsho": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 218,
+    "iso": 0.1582,
+    "hrRate": 0.0255,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ernie clement": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 228,
+    "iso": 0.1507,
+    "hrRate": 0.0228,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "george springer": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 170,
+    "iso": 0.1523,
+    "hrRate": 0.0331,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jess snchez": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 177,
+    "iso": 0.1728,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kazuma okamoto": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 230,
+    "iso": 0.2059,
+    "hrRate": 0.0588,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "myles straw": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 97,
+    "iso": 0.1047,
+    "hrRate": 0.0233,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nathan lukes": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 71,
+    "iso": 0.0923,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler heineman": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 76,
+    "iso": 0.0441,
+    "hrRate": 0.0147,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "vladimir guerrero": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 235,
+    "iso": 0.0859,
+    "hrRate": 0.0152,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "yohendrick piango": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 88,
+    "iso": 0.1205,
+    "hrRate": 0.0241,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brandon lowe": {
+    "avgExitVelocity": null,
+    "powerScore": 47,
+    "plateAppearances": 229,
+    "iso": 0.28,
+    "hrRate": 0.07,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryan reynolds": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 248,
+    "iso": 0.1659,
+    "hrRate": 0.0293,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "endy rodrguez": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 33,
+    "iso": 0.0435,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "henry davis": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 127,
+    "iso": 0.1339,
+    "hrRate": 0.0357,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jake mangum": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 109,
+    "iso": 0.0206,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jared triolo": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 78,
+    "iso": 0.0274,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jhostynxon garcia": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 29,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "konnor griffin": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 203,
+    "iso": 0.1304,
+    "hrRate": 0.0217,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "marcell ozuna": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 192,
+    "iso": 0.1163,
+    "hrRate": 0.0291,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick gonzales": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 207,
+    "iso": 0.0474,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "oneil cruz": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 252,
+    "iso": 0.2009,
+    "hrRate": 0.0524,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "spencer horwitz": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 198,
+    "iso": 0.1656,
+    "hrRate": 0.0368,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler callihan": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 3,
+    "iso": 0.5,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alex jackson": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 10,
+    "iso": 0.1,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "austin martin": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 179,
+    "iso": 0.0993,
+    "hrRate": 0.0132,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brooks lee": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 212,
+    "iso": 0.148,
+    "hrRate": 0.0306,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "byron buxton": {
+    "avgExitVelocity": null,
+    "powerScore": 50,
+    "plateAppearances": 224,
+    "iso": 0.3088,
+    "hrRate": 0.0833,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "james outman": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 67,
+    "iso": 0.0984,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "josh bell": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 221,
+    "iso": 0.1194,
+    "hrRate": 0.0249,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kody clemens": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 174,
+    "iso": 0.1948,
+    "hrRate": 0.039,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luke keaschall": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 216,
+    "iso": 0.0785,
+    "hrRate": 0.0052,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "orlando arcia": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 20,
+    "iso": 0.0526,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ryan kreidler": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 52,
+    "iso": 0.234,
+    "hrRate": 0.0638,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "trevor larnach": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 163,
+    "iso": 0.1367,
+    "hrRate": 0.0216,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tristan gray": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 98,
+    "iso": 0.125,
+    "hrRate": 0.0341,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "victor caratini": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 157,
+    "iso": 0.0543,
+    "hrRate": 0.0155,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "angel martnez": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 198,
+    "iso": 0.2077,
+    "hrRate": 0.0492,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "austin hedges": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 82,
+    "iso": 0.0986,
+    "hrRate": 0.0141,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brayan rocchio": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 208,
+    "iso": 0.1215,
+    "hrRate": 0.0221,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "chase delauter": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 223,
+    "iso": 0.1735,
+    "hrRate": 0.0357,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "daniel schneemann": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 167,
+    "iso": 0.1409,
+    "hrRate": 0.0268,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "david fry": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 89,
+    "iso": 0.1447,
+    "hrRate": 0.0395,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jos ramrez": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 258,
+    "iso": 0.1667,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle manzardo": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 173,
+    "iso": 0.1373,
+    "hrRate": 0.0327,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "patrick bailey": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 119,
+    "iso": 0.0734,
+    "hrRate": 0.0183,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "petey halpin": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 26,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "rhys hoskins": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 159,
+    "iso": 0.1905,
+    "hrRate": 0.0397,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "travis bazzana": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 117,
+    "iso": 0.15,
+    "hrRate": 0.03,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "andruw monasterio": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 95,
+    "iso": 0.1236,
+    "hrRate": 0.0112,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "caleb durbin": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 172,
+    "iso": 0.0839,
+    "hrRate": 0.0065,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "carlos narvez": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 118,
+    "iso": 0.1048,
+    "hrRate": 0.019,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ceddanne rafaela": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 206,
+    "iso": 0.1543,
+    "hrRate": 0.0266,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "connor wong": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 67,
+    "iso": 0.1034,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "isiah kinerfalefa": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 73,
+    "iso": 0.0781,
+    "hrRate": 0.0156,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jarren duran": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 227,
+    "iso": 0.1699,
+    "hrRate": 0.0388,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "marcelo mayer": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 167,
+    "iso": 0.0795,
+    "hrRate": 0.0132,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "masataka yoshida": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 122,
+    "iso": 0.1038,
+    "hrRate": 0.0094,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mickey gasper": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 51,
+    "iso": 0.0638,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick sogard": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 39,
+    "iso": 0.1212,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "willson contreras": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 227,
+    "iso": 0.2228,
+    "hrRate": 0.057,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "wilyer abreu": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 237,
+    "iso": 0.1449,
+    "hrRate": 0.028,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ben williamson": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 130,
+    "iso": 0.0702,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "cedric mullins": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 187,
+    "iso": 0.0843,
+    "hrRate": 0.0181,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "chandler simpson": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 227,
+    "iso": 0.0569,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "hunter feduccia": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 75,
+    "iso": 0.0781,
+    "hrRate": 0.0156,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jonathan aranda": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 234,
+    "iso": 0.2021,
+    "hrRate": 0.0518,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "junior caminero": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 237,
+    "iso": 0.2184,
+    "hrRate": 0.0631,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick fortes": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 138,
+    "iso": 0.0698,
+    "hrRate": 0.0078,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "oliver dunn": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 9,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "richie palacios": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 122,
+    "iso": 0.0777,
+    "hrRate": 0.0097,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ryan vilade": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 86,
+    "iso": 0.1507,
+    "hrRate": 0.0274,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "taylor walls": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 147,
+    "iso": 0.0806,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "victor mesa": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 12,
+    "iso": 0.3,
+    "hrRate": 0.1,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "yandy daz": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 222,
+    "iso": 0.2103,
+    "hrRate": 0.0513,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "adam frazier": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 84,
+    "iso": 0.1351,
+    "hrRate": 0.0135,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "donovan walton": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 20,
+    "iso": 0.0526,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jo adell": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 240,
+    "iso": 0.1435,
+    "hrRate": 0.0359,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jorge soler": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 222,
+    "iso": 0.1846,
+    "hrRate": 0.0462,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jose siri": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 16,
+    "iso": 0.3333,
+    "hrRate": 0.0667,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "logan ohoppe": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 129,
+    "iso": 0.0536,
+    "hrRate": 0.0089,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mike trout": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 257,
+    "iso": 0.245,
+    "hrRate": 0.065,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick madrigal": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 4,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "oswald peraza": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 166,
+    "iso": 0.1733,
+    "hrRate": 0.04,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sebastin rivero": {
+    "avgExitVelocity": null,
+    "powerScore": 25,
+    "plateAppearances": 41,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "vaughn grissom": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 132,
+    "iso": 0.1478,
+    "hrRate": 0.0261,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "wade meckler": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 23,
+    "iso": 0.1364,
+    "hrRate": 0.0455,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "zach neto": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 266,
+    "iso": 0.2026,
+    "hrRate": 0.0441,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "aj ewing": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 66,
+    "iso": 0.0893,
+    "hrRate": 0.0179,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bo bichette": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 250,
+    "iso": 0.0909,
+    "hrRate": 0.0216,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brett baty": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 191,
+    "iso": 0.1124,
+    "hrRate": 0.0178,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "carson benge": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 208,
+    "iso": 0.0842,
+    "hrRate": 0.0158,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "eric wagaman": {
+    "avgExitVelocity": null,
+    "powerScore": 58,
+    "plateAppearances": 4,
+    "iso": 0.75,
+    "hrRate": 0.25,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "hayden senger": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 12,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jared young": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 30,
+    "iso": 0.08,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "juan soto": {
+    "avgExitVelocity": null,
+    "powerScore": 49,
+    "plateAppearances": 172,
+    "iso": 0.2857,
+    "hrRate": 0.0816,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luis torrens": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 99,
+    "iso": 0.0778,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mj melendez": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 90,
+    "iso": 0.1867,
+    "hrRate": 0.04,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "marcus semien": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 225,
+    "iso": 0.0922,
+    "hrRate": 0.0194,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mark vientos": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 184,
+    "iso": 0.1667,
+    "hrRate": 0.0402,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "vidal brujn": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 5,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "christopher morel": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 63,
+    "iso": 0.0508,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "connor norby": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 193,
+    "iso": 0.1273,
+    "hrRate": 0.0242,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "esteury ruiz": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 44,
+    "iso": 0.2619,
+    "hrRate": 0.0476,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "heriberto hernndez": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 106,
+    "iso": 0.086,
+    "hrRate": 0.0215,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jakob marsee": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 240,
+    "iso": 0.1045,
+    "hrRate": 0.0149,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "javier sanoja": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 130,
+    "iso": 0.1083,
+    "hrRate": 0.0083,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "joe mack": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 65,
+    "iso": 0.0492,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle stowers": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 144,
+    "iso": 0.1406,
+    "hrRate": 0.0234,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "leo jimnez": {
+    "avgExitVelocity": null,
+    "powerScore": 26,
+    "plateAppearances": 52,
+    "iso": 0.0227,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "liam hicks": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 209,
+    "iso": 0.2088,
+    "hrRate": 0.0604,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "otto lopez": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 239,
+    "iso": 0.1345,
+    "hrRate": 0.0179,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "owen caissie": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 154,
+    "iso": 0.1667,
+    "hrRate": 0.0362,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "xavier edwards": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 246,
+    "iso": 0.1713,
+    "hrRate": 0.0278,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "braden shewmake": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 77,
+    "iso": 0.1667,
+    "hrRate": 0.0417,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brice matthews": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 155,
+    "iso": 0.1268,
+    "hrRate": 0.0282,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "cam smith": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 219,
+    "iso": 0.1368,
+    "hrRate": 0.0316,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "csar salazar": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 22,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "christian vzquez": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 120,
+    "iso": 0.1481,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "christian walker": {
+    "avgExitVelocity": null,
+    "powerScore": 46,
+    "plateAppearances": 238,
+    "iso": 0.2582,
+    "hrRate": 0.0704,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "isaac paredes": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 218,
+    "iso": 0.1354,
+    "hrRate": 0.0313,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jake meyers": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 72,
+    "iso": 0.1385,
+    "hrRate": 0.0308,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jeremy pea": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 91,
+    "iso": 0.1205,
+    "hrRate": 0.0241,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick allen": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 52,
+    "iso": 0.087,
+    "hrRate": 0.0217,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "taylor trammell": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 48,
+    "iso": 0.1163,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "yordan alvarez": {
+    "avgExitVelocity": null,
+    "powerScore": 53,
+    "plateAppearances": 253,
+    "iso": 0.3397,
+    "hrRate": 0.0957,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "zach dezenzo": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 48,
+    "iso": 0.1591,
+    "hrRate": 0.0227,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "andrew vaughn": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 61,
+    "iso": 0.1698,
+    "hrRate": 0.0189,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "blake perkins": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 71,
+    "iso": 0.0476,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brice turang": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 232,
+    "iso": 0.1818,
+    "hrRate": 0.0374,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "christian yelich": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 106,
+    "iso": 0.1959,
+    "hrRate": 0.0412,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "david hamilton": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 147,
+    "iso": 0.0565,
+    "hrRate": 0.0081,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "garrett mitchell": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 170,
+    "iso": 0.1418,
+    "hrRate": 0.0213,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "gary snchez": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 113,
+    "iso": 0.2222,
+    "hrRate": 0.0556,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jackson chourio": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 97,
+    "iso": 0.1444,
+    "hrRate": 0.0222,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jake bauers": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 186,
+    "iso": 0.2036,
+    "hrRate": 0.0479,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "joey ortiz": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 133,
+    "iso": 0.0442,
+    "hrRate": 0.0088,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luis rengifo": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 170,
+    "iso": 0.0519,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sal frelick": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 196,
+    "iso": 0.0824,
+    "hrRate": 0.0176,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "william contreras": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 226,
+    "iso": 0.1034,
+    "hrRate": 0.0197,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alec burleson": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 235,
+    "iso": 0.1619,
+    "hrRate": 0.0333,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryan torres": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 21,
+    "iso": 0.2632,
+    "hrRate": 0.0526,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ivn herrera": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 250,
+    "iso": 0.1716,
+    "hrRate": 0.0343,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jj wetherholt": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 249,
+    "iso": 0.1627,
+    "hrRate": 0.0431,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jordan walker": {
+    "avgExitVelocity": null,
+    "powerScore": 47,
+    "plateAppearances": 230,
+    "iso": 0.2718,
+    "hrRate": 0.0728,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jos fermn": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 74,
+    "iso": 0.1538,
+    "hrRate": 0.0308,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "masyn winn": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 208,
+    "iso": 0.0824,
+    "hrRate": 0.0055,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nelson velzquez": {
+    "avgExitVelocity": null,
+    "powerScore": 58,
+    "plateAppearances": 4,
+    "iso": 1,
+    "hrRate": 0.3333,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nolan gorman": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 202,
+    "iso": 0.1243,
+    "hrRate": 0.0339,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "pedro pags": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 125,
+    "iso": 0.1404,
+    "hrRate": 0.0351,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "thomas saggese": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 76,
+    "iso": 0.0704,
+    "hrRate": 0.0141,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "victor scott": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 159,
+    "iso": 0.0657,
+    "hrRate": 0.0146,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alex bregman": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 261,
+    "iso": 0.0952,
+    "hrRate": 0.0173,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "carson kelly": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 156,
+    "iso": 0.087,
+    "hrRate": 0.0145,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dansby swanson": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 218,
+    "iso": 0.1505,
+    "hrRate": 0.0376,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ian happ": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 243,
+    "iso": 0.2451,
+    "hrRate": 0.0637,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kevin alcntara": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 4,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "michael busch": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 253,
+    "iso": 0.1505,
+    "hrRate": 0.0291,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "michael conforto": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 91,
+    "iso": 0.2632,
+    "hrRate": 0.0526,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "miguel amaya": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 96,
+    "iso": 0.1375,
+    "hrRate": 0.0375,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "moiss ballesteros": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 142,
+    "iso": 0.184,
+    "hrRate": 0.048,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nico hoerner": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 262,
+    "iso": 0.1096,
+    "hrRate": 0.0175,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "pedro ramrez": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 8,
+    "iso": 0.1429,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "pete crowarmstrong": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 240,
+    "iso": 0.1381,
+    "hrRate": 0.0286,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "seiya suzuki": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 187,
+    "iso": 0.1534,
+    "hrRate": 0.0429,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "blake dunn": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 61,
+    "iso": 0.125,
+    "hrRate": 0.0179,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dane myers": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 96,
+    "iso": 0.1481,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "elly de la cruz": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 250,
+    "iso": 0.2257,
+    "hrRate": 0.0531,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "eugenio surez": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 122,
+    "iso": 0.1284,
+    "hrRate": 0.0275,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jj bleday": {
+    "avgExitVelocity": null,
+    "powerScore": 50,
+    "plateAppearances": 120,
+    "iso": 0.3168,
+    "hrRate": 0.0792,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "matt mclain": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 218,
+    "iso": 0.1257,
+    "hrRate": 0.0262,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nathaniel lowe": {
+    "avgExitVelocity": null,
+    "powerScore": 48,
+    "plateAppearances": 136,
+    "iso": 0.2975,
+    "hrRate": 0.0744,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "pj higgins": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 22,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sal stewart": {
+    "avgExitVelocity": null,
+    "powerScore": 43,
+    "plateAppearances": 245,
+    "iso": 0.2227,
+    "hrRate": 0.0569,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "spencer steer": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 215,
+    "iso": 0.1606,
+    "hrRate": 0.0363,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tj friedl": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 174,
+    "iso": 0.0789,
+    "hrRate": 0.0132,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler stephenson": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 161,
+    "iso": 0.1304,
+    "hrRate": 0.029,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "will benson": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 96,
+    "iso": 0.1266,
+    "hrRate": 0.0253,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "austin riley": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 241,
+    "iso": 0.1574,
+    "hrRate": 0.037,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "chadwick tromp": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 22,
+    "iso": 0.05,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dominic smith": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 128,
+    "iso": 0.1765,
+    "hrRate": 0.042,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "eli white": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 73,
+    "iso": 0.1471,
+    "hrRate": 0.0294,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "haseong kim": {
+    "avgExitVelocity": null,
+    "powerScore": 25,
+    "plateAppearances": 47,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jorge mateo": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 77,
+    "iso": 0.1389,
+    "hrRate": 0.0278,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "matt olson": {
+    "avgExitVelocity": null,
+    "powerScore": 46,
+    "plateAppearances": 256,
+    "iso": 0.2788,
+    "hrRate": 0.0664,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mauricio dubn": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 217,
+    "iso": 0.1238,
+    "hrRate": 0.0149,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "michael harris": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 207,
+    "iso": 0.2273,
+    "hrRate": 0.0657,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mike yastrzemski": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 161,
+    "iso": 0.1319,
+    "hrRate": 0.0208,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ozzie albies": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 251,
+    "iso": 0.1593,
+    "hrRate": 0.0398,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ronald acua": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 198,
+    "iso": 0.1411,
+    "hrRate": 0.0245,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sandy len": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 22,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "braxton fulford": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 19,
+    "iso": 0.1765,
+    "hrRate": 0.0588,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brett sullivan": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 84,
+    "iso": 0.1169,
+    "hrRate": 0.013,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "chad stevens": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 17,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "edouard julien": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 155,
+    "iso": 0.0803,
+    "hrRate": 0.0146,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ezequiel tovar": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 208,
+    "iso": 0.1204,
+    "hrRate": 0.0209,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "hunter goodman": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 215,
+    "iso": 0.2437,
+    "hrRate": 0.066,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jake mccarthy": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 149,
+    "iso": 0.1481,
+    "hrRate": 0.0148,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle karros": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 183,
+    "iso": 0.0828,
+    "hrRate": 0.0127,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "sterlin thompson": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 27,
+    "iso": 0.0417,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tj rumfield": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 222,
+    "iso": 0.1624,
+    "hrRate": 0.0355,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "troy johnston": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 192,
+    "iso": 0.1149,
+    "hrRate": 0.0115,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler freeman": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 142,
+    "iso": 0.0726,
+    "hrRate": 0.0161,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "willi castro": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 172,
+    "iso": 0.0955,
+    "hrRate": 0.0127,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryce eldridge": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 57,
+    "iso": 0.125,
+    "hrRate": 0.0208,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "casey schmitt": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 201,
+    "iso": 0.262,
+    "hrRate": 0.0642,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "daniel susac": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 61,
+    "iso": 0.0909,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "drew gilbert": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 113,
+    "iso": 0.1143,
+    "hrRate": 0.019,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "eric haase": {
+    "avgExitVelocity": null,
+    "powerScore": 56,
+    "plateAppearances": 30,
+    "iso": 0.3793,
+    "hrRate": 0.1034,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "harrison bader": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 111,
+    "iso": 0.1887,
+    "hrRate": 0.0472,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jesus rodriguez": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 42,
+    "iso": 0.0789,
+    "hrRate": 0.0263,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jung hoo lee": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 198,
+    "iso": 0.1196,
+    "hrRate": 0.0163,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luis arraez": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 233,
+    "iso": 0.1048,
+    "hrRate": 0.0095,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "matt chapman": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 235,
+    "iso": 0.0857,
+    "hrRate": 0.0048,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "rafael devers": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 236,
+    "iso": 0.1735,
+    "hrRate": 0.032,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "victor bericoto": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 5,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "willy adames": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 239,
+    "iso": 0.177,
+    "hrRate": 0.031,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alika williams": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 7,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brent rooker": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 167,
+    "iso": 0.1565,
+    "hrRate": 0.0476,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "carlos cortes": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 154,
+    "iso": 0.1894,
+    "hrRate": 0.0379,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "colby thomas": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 41,
+    "iso": 0.1316,
+    "hrRate": 0.0263,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "darell hernaiz": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 115,
+    "iso": 0.05,
+    "hrRate": 0.01,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "henry bolte": {
+    "avgExitVelocity": null,
+    "powerScore": 27,
+    "plateAppearances": 55,
+    "iso": 0.0426,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jeff mcneil": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 197,
+    "iso": 0.0862,
+    "hrRate": 0.0115,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jonah heim": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 74,
+    "iso": 0.1364,
+    "hrRate": 0.0152,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "lawrence butler": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 160,
+    "iso": 0.0845,
+    "hrRate": 0.0211,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nick kurtz": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 255,
+    "iso": 0.199,
+    "hrRate": 0.0448,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "shea langeliers": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 237,
+    "iso": 0.2406,
+    "hrRate": 0.0613,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tyler soderstrom": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 230,
+    "iso": 0.1872,
+    "hrRate": 0.0296,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "zack gelof": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 141,
+    "iso": 0.1846,
+    "hrRate": 0.0462,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "aaron judge": {
+    "avgExitVelocity": null,
+    "powerScore": 49,
+    "plateAppearances": 252,
+    "iso": 0.2961,
+    "hrRate": 0.0825,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "amed rosario": {
+    "avgExitVelocity": null,
+    "powerScore": 46,
+    "plateAppearances": 97,
+    "iso": 0.2614,
+    "hrRate": 0.0682,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "anthony volpe": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 44,
+    "iso": 0.1714,
+    "hrRate": 0.0286,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "austin wells": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 153,
+    "iso": 0.0992,
+    "hrRate": 0.0305,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ben rice": {
+    "avgExitVelocity": null,
+    "powerScore": 53,
+    "plateAppearances": 219,
+    "iso": 0.3511,
+    "hrRate": 0.0904,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "cody bellinger": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 241,
+    "iso": 0.2118,
+    "hrRate": 0.0394,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jc escarra": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 64,
+    "iso": 0.0847,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jazz chisholm": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 224,
+    "iso": 0.15,
+    "hrRate": 0.03,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jos caballero": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 167,
+    "iso": 0.129,
+    "hrRate": 0.0258,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "max schuemann": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 20,
+    "iso": 0.1429,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "paul goldschmidt": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 118,
+    "iso": 0.2524,
+    "hrRate": 0.0583,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ryan mcmahon": {
+    "avgExitVelocity": null,
+    "powerScore": 37,
+    "plateAppearances": 158,
+    "iso": 0.1517,
+    "hrRate": 0.0414,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "trent grisham": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 214,
+    "iso": 0.1778,
+    "hrRate": 0.0389,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "cole young": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 228,
+    "iso": 0.104,
+    "hrRate": 0.0149,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "colt emerson": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 40,
+    "iso": 0.2286,
+    "hrRate": 0.0286,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dominic canzone": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 133,
+    "iso": 0.2051,
+    "hrRate": 0.0427,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jp crawford": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 209,
+    "iso": 0.1782,
+    "hrRate": 0.0517,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jhonny pereda": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 34,
+    "iso": 0.1,
+    "hrRate": 0.0333,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "josh naylor": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 235,
+    "iso": 0.0939,
+    "hrRate": 0.0235,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "julio rodrguez": {
+    "avgExitVelocity": null,
+    "powerScore": 40,
+    "plateAppearances": 254,
+    "iso": 0.1923,
+    "hrRate": 0.047,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "luke raley": {
+    "avgExitVelocity": null,
+    "powerScore": 50,
+    "plateAppearances": 157,
+    "iso": 0.2986,
+    "hrRate": 0.0833,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mitch garver": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 85,
+    "iso": 0.1159,
+    "hrRate": 0.029,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "patrick wisdom": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 13,
+    "iso": 0.0769,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "randy arozarena": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 246,
+    "iso": 0.1698,
+    "hrRate": 0.0283,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "rob refsnyder": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 86,
+    "iso": 0.12,
+    "hrRate": 0.04,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "victor robles": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 24,
+    "iso": 0.0833,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "adrian del castillo": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 127,
+    "iso": 0.1379,
+    "hrRate": 0.0345,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "aramis garcia": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 11,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "corbin carroll": {
+    "avgExitVelocity": null,
+    "powerScore": 41,
+    "plateAppearances": 228,
+    "iso": 0.2526,
+    "hrRate": 0.0361,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "gabriel moreno": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 126,
+    "iso": 0.1518,
+    "hrRate": 0.0268,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "geraldo perdomo": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 226,
+    "iso": 0.1297,
+    "hrRate": 0.0162,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ildemaro vargas": {
+    "avgExitVelocity": null,
+    "powerScore": 38,
+    "plateAppearances": 204,
+    "iso": 0.1762,
+    "hrRate": 0.0363,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jorge barrosa": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 96,
+    "iso": 0.1647,
+    "hrRate": 0.0118,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jose fernandez": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 159,
+    "iso": 0.1074,
+    "hrRate": 0.0201,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ketel marte": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 233,
+    "iso": 0.1963,
+    "hrRate": 0.0421,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "nolan arenado": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 196,
+    "iso": 0.1871,
+    "hrRate": 0.0409,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ryan waldschmidt": {
+    "avgExitVelocity": null,
+    "powerScore": 29,
+    "plateAppearances": 75,
+    "iso": 0.1029,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tim tawa": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 67,
+    "iso": 0.0877,
+    "hrRate": 0.0175,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "tommy troy": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 19,
+    "iso": 0.125,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alex call": {
+    "avgExitVelocity": null,
+    "powerScore": 28,
+    "plateAppearances": 66,
+    "iso": 0.0755,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alex freeland": {
+    "avgExitVelocity": null,
+    "powerScore": 32,
+    "plateAppearances": 117,
+    "iso": 0.0971,
+    "hrRate": 0.0194,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "andy pages": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 232,
+    "iso": 0.2406,
+    "hrRate": 0.0613,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "dalton rushing": {
+    "avgExitVelocity": null,
+    "powerScore": 49,
+    "plateAppearances": 93,
+    "iso": 0.2805,
+    "hrRate": 0.0854,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "freddie freeman": {
+    "avgExitVelocity": null,
+    "powerScore": 39,
+    "plateAppearances": 235,
+    "iso": 0.202,
+    "hrRate": 0.0394,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle tucker": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 232,
+    "iso": 0.1508,
+    "hrRate": 0.0201,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "max muncy": {
+    "avgExitVelocity": null,
+    "powerScore": 47,
+    "plateAppearances": 197,
+    "iso": 0.2647,
+    "hrRate": 0.0765,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "miguel rojas": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 95,
+    "iso": 0.0833,
+    "hrRate": 0.0119,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "mookie betts": {
+    "avgExitVelocity": null,
+    "powerScore": 44,
+    "plateAppearances": 99,
+    "iso": 0.2198,
+    "hrRate": 0.0659,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "ryan ward": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 6,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "santiago espinal": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 44,
+    "iso": 0.1463,
+    "hrRate": 0.0244,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "shohei ohtani": {
+    "avgExitVelocity": null,
+    "powerScore": 42,
+    "plateAppearances": 245,
+    "iso": 0.2234,
+    "hrRate": 0.0508,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "will smith": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 181,
+    "iso": 0.1401,
+    "hrRate": 0.0382,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "adolis garca": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 219,
+    "iso": 0.1094,
+    "hrRate": 0.0208,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "alec bohm": {
+    "avgExitVelocity": null,
+    "powerScore": 34,
+    "plateAppearances": 213,
+    "iso": 0.114,
+    "hrRate": 0.0259,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "brandon marsh": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 197,
+    "iso": 0.1576,
+    "hrRate": 0.0272,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryce harper": {
+    "avgExitVelocity": null,
+    "powerScore": 45,
+    "plateAppearances": 237,
+    "iso": 0.2512,
+    "hrRate": 0.064,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "bryson stott": {
+    "avgExitVelocity": null,
+    "powerScore": 36,
+    "plateAppearances": 191,
+    "iso": 0.1534,
+    "hrRate": 0.0284,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "edmundo sosa": {
+    "avgExitVelocity": null,
+    "powerScore": 33,
+    "plateAppearances": 94,
+    "iso": 0.1034,
+    "hrRate": 0.023,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "garrett stubbs": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 21,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "jt realmuto": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 137,
+    "iso": 0.0813,
+    "hrRate": 0.0163,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "justin crawford": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 175,
+    "iso": 0.1063,
+    "hrRate": 0.0125,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "kyle schwarber": {
+    "avgExitVelocity": null,
+    "powerScore": 56,
+    "plateAppearances": 242,
+    "iso": 0.3738,
+    "hrRate": 0.1068,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "rafael marchn": {
+    "avgExitVelocity": null,
+    "powerScore": 30,
+    "plateAppearances": 64,
+    "iso": 0.0492,
+    "hrRate": 0.0164,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "steward berroa": {
+    "avgExitVelocity": null,
+    "powerScore": 31,
+    "plateAppearances": 3,
+    "iso": 0,
+    "hrRate": 0,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  },
+  "trea turner": {
+    "avgExitVelocity": null,
+    "powerScore": 35,
+    "plateAppearances": 248,
+    "iso": 0.1304,
+    "hrRate": 0.0304,
+    "source": "derived_from_batter_cache_iso_hr",
+    "derivedAt": "2026-05-30T08:47:34.313Z"
+  }
 }
-

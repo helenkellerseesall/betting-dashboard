@@ -364,6 +364,8 @@ function buildNbaOpportunityBoard(input = {}) {
       normalized.push({
         player:        p.player,
         eventId:       p.eventId || null,
+        // 2026-05-29 — gameTime propagation through Lane A5 firstBasket bridge.
+        gameTime:      p.gameTime || p.commence_time || p.commenceTime || null,
         matchup:       p.matchup || null,
         team:          p.team || null,
         opponent:      p.opponent || null,
@@ -391,6 +393,9 @@ function buildNbaOpportunityBoard(input = {}) {
       normalized.push({
         player:        p.player,
         eventId:       p.eventId || null,
+        // 2026-05-29 — gameTime propagation through Lane A5 defensive bridge.
+        // steals/blocks coverage was 42%/30% — this is the gap.
+        gameTime:      p.gameTime || p.commence_time || p.commenceTime || null,
         matchup:       p.matchup || null,
         statFamily:    p.statFamily,                // "steals" or "blocks"
         side:          String(p.side || "").toLowerCase(),

@@ -1,35 +1,14 @@
 {
-  "e3e38b1f0ba0517d7e95030e6f0b6a8d": {
-    "temperature": 66.2,
-    "temp": 66.2,
-    "windSpeed": 24.158952000000003,
-    "windDirectionDeg": 330,
+  "2104fc0f4d7adc96b751d4f8c716488b": {
+    "temperature": 66.74000000000001,
+    "temp": 66.74000000000001,
+    "windSpeed": 57.041970000000006,
+    "windDirectionDeg": 341,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T18:00",
-    "humidityPct": 70,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Cleveland Guardians",
-      "geocode": {
-        "lat": 41.4995,
-        "lon": -81.69541,
-        "nameUsed": "Cleveland"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.373Z"
-    }
-  },
-  "3612f76561632387afb3c6779ef370b1": {
-    "temperature": 76.28,
-    "temp": 76.28,
-    "windSpeed": 10.513618000000001,
-    "windDirectionDeg": 122,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T19:00",
-    "humidityPct": 67,
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 42,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Baltimore Orioles",
@@ -38,124 +17,19 @@
         "lon": -76.61219,
         "nameUsed": "Baltimore"
       },
-      "ingestedAt": "2026-05-26T04:53:54.374Z"
+      "ingestedAt": "2026-05-30T09:02:52.169Z"
     }
   },
-  "2a617b3c38b4cfff06d9866d761bb481": {
-    "temperature": 84.74,
-    "temp": 84.74,
-    "windSpeed": 19.908766000000004,
-    "windDirectionDeg": 256,
+  "efa0af51f919239d99680943c9c381f1": {
+    "temperature": 65.12,
+    "temp": 65.12,
+    "windSpeed": 40.488614000000005,
+    "windDirectionDeg": 13,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T19:00",
-    "humidityPct": 44,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Pittsburgh Pirates",
-      "geocode": {
-        "lat": 40.44062,
-        "lon": -79.99589,
-        "nameUsed": "Pittsburgh"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.371Z"
-    }
-  },
-  "6c64b931bb7cda75b570159a5a4ed328": {
-    "temperature": 82.22,
-    "temp": 82.22,
-    "windSpeed": 32.883018,
-    "windDirectionDeg": 197,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T19:00",
-    "humidityPct": 25,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Detroit Tigers",
-      "geocode": {
-        "lat": 42.33143,
-        "lon": -83.04575,
-        "nameUsed": "Detroit"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.369Z"
-    }
-  },
-  "42ec808f3f2b51bde3830094a2d31f59": {
-    "temperature": 80.78,
-    "temp": 80.78,
-    "windSpeed": 26.172198,
-    "windDirectionDeg": 223,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T19:00",
-    "humidityPct": 34,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "New York Mets",
-      "geocode": {
-        "lat": 40.71427,
-        "lon": -74.00597,
-        "nameUsed": "New York"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.792Z"
-    }
-  },
-  "ba00397c03fc2b6ae2ee60c76dbab901": {
-    "temperature": 86.18,
-    "temp": 86.18,
-    "windSpeed": 27.066974000000002,
-    "windDirectionDeg": 113,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T20:00",
-    "humidityPct": 31,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Kansas City Royals",
-      "geocode": {
-        "lat": 39.09973,
-        "lon": -94.57857,
-        "nameUsed": "Kansas City"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.782Z"
-    }
-  },
-  "99d8354792f828bd962e089d4ab8c5bf": {
-    "temperature": 86.53999999999999,
-    "temp": 86.53999999999999,
-    "windSpeed": 24.158952000000003,
-    "windDirectionDeg": 154,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T20:00",
-    "humidityPct": 31,
-    "precipitationMm": 0,
-    "_meta": {
-      "homeTeam": "Milwaukee Brewers",
-      "geocode": {
-        "lat": 43.0389,
-        "lon": -87.90647,
-        "nameUsed": "Milwaukee"
-      },
-      "ingestedAt": "2026-05-26T04:53:54.791Z"
-    }
-  },
-  "d8d4e1b2c44eb56c7b6ab81de4f6b385": {
-    "temperature": 80.06,
-    "temp": 80.06,
-    "windSpeed": 17.671826000000003,
-    "windDirectionDeg": 227,
-    "windOut": false,
-    "windIn": false,
-    "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T20:00",
-    "humidityPct": 62,
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 41,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Texas Rangers",
@@ -164,61 +38,229 @@
         "lon": -80.13175,
         "nameUsed": "Texas"
       },
-      "ingestedAt": "2026-05-26T04:53:54.789Z"
+      "ingestedAt": "2026-05-30T09:02:52.176Z"
     }
   },
-  "82e37a8a126f9724f8872ec1669446da": {
-    "temperature": 64.04,
-    "temp": 64.04,
-    "windSpeed": 36.462122,
-    "windDirectionDeg": 284,
+  "3cd955325a156c1972d7e1925a6ed38a": {
+    "temperature": 66.02,
+    "temp": 66.02,
+    "windSpeed": 37.804286,
+    "windDirectionDeg": 12,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T22:00",
-    "humidityPct": 69,
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 38,
     "precipitationMm": 0,
     "_meta": {
-      "homeTeam": "San Diego Padres",
+      "homeTeam": "Pittsburgh Pirates",
       "geocode": {
-        "lat": 32.71571,
-        "lon": -117.16472,
-        "nameUsed": "San Diego"
+        "lat": 40.44062,
+        "lon": -79.99589,
+        "nameUsed": "Pittsburgh"
       },
-      "ingestedAt": "2026-05-26T04:53:55.164Z"
+      "ingestedAt": "2026-05-30T09:02:52.184Z"
     }
   },
-  "178bf0e15a0e6812cdf47d0523e51ac7": {
-    "temperature": 62.78,
-    "temp": 62.78,
-    "windSpeed": 70.23991600000001,
-    "windDirectionDeg": 300,
+  "adde69ed429a06ae4ecc9bd2fed0984b": {
+    "temperature": 68.9,
+    "temp": 68.9,
+    "windSpeed": 55.252418,
+    "windDirectionDeg": 341,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T22:00",
-    "humidityPct": 59,
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 35,
     "precipitationMm": 0,
     "_meta": {
-      "homeTeam": "San Francisco Giants",
+      "homeTeam": "Washington Nationals",
       "geocode": {
-        "lat": 37.77493,
-        "lon": -122.41942,
-        "nameUsed": "San Francisco"
+        "lat": 38.89511,
+        "lon": -77.03637,
+        "nameUsed": "Washington"
       },
-      "ingestedAt": "2026-05-26T04:53:55.179Z"
+      "ingestedAt": "2026-05-30T09:02:52.138Z"
     }
   },
-  "acd23c21d644ac44611a206f197cdd6b": {
-    "temperature": 63.32,
-    "temp": 63.32,
-    "windSpeed": 21.474624000000002,
-    "windDirectionDeg": 200,
+  "d6a18ca53a7a4bc724578be12562f52e": {
+    "temperature": 59.540000000000006,
+    "temp": 59.540000000000006,
+    "windSpeed": 64.647566,
+    "windDirectionDeg": 23,
     "windOut": false,
     "windIn": false,
     "windDir": "neutral",
-    "forecastTimeUtc": "2026-05-26T22:00",
-    "humidityPct": 72,
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 58,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Cleveland Guardians",
+      "geocode": {
+        "lat": 41.4995,
+        "lon": -81.69541,
+        "nameUsed": "Cleveland"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.407Z"
+    }
+  },
+  "312c8ae0a68b17cfe087b0cb699c91d6": {
+    "temperature": 83.84,
+    "temp": 83.84,
+    "windSpeed": 10.513618000000001,
+    "windDirectionDeg": 212,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 66,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Houston Astros",
+      "geocode": {
+        "lat": 29.76328,
+        "lon": -95.36327,
+        "nameUsed": "Houston"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.592Z"
+    }
+  },
+  "2858c7dd0f121c4fc015a186967f1917": {
+    "temperature": 87.26,
+    "temp": 87.26,
+    "windSpeed": 27.066974000000002,
+    "windDirectionDeg": 258,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 61,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Tampa Bay Rays",
+      "geocode": {
+        "lat": 27.94667,
+        "lon": -82.46417,
+        "nameUsed": "Tampa Bay"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.600Z"
+    }
+  },
+  "475aad858baf7596355b69a42c08671d": {
+    "temperature": 55.04,
+    "temp": 55.04,
+    "windSpeed": 76.50334800000002,
+    "windDirectionDeg": 348,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T16:00",
+    "humidityPct": 53,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "New York Mets",
+      "geocode": {
+        "lat": 40.71427,
+        "lon": -74.00597,
+        "nameUsed": "New York"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.618Z"
+    }
+  },
+  "53b2820ab963d7d15496c7dad7cf9d41": {
+    "temperature": 79.34,
+    "temp": 79.34,
+    "windSpeed": 40.041226,
+    "windDirectionDeg": 38,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T19:00",
+    "humidityPct": 42,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Cincinnati Reds",
+      "geocode": {
+        "lat": 39.12711,
+        "lon": -84.51439,
+        "nameUsed": "Cincinnati"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.626Z"
+    }
+  },
+  "2611e27228d544fecc9bd38fe032e568": {
+    "temperature": 84.91999999999999,
+    "temp": 84.91999999999999,
+    "windSpeed": 21.25093,
+    "windDirectionDeg": 79,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T19:00",
+    "humidityPct": 52,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "St. Louis Cardinals",
+      "geocode": {
+        "lat": 38.62727,
+        "lon": -90.19789,
+        "nameUsed": "St. Louis"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.804Z"
+    }
+  },
+  "eb70ec93c7895787db43edd88fbc1d5e": {
+    "temperature": 95.18,
+    "temp": 95.18,
+    "windSpeed": 58.83152200000001,
+    "windDirectionDeg": 176,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T21:00",
+    "humidityPct": 35,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Colorado Rockies",
+      "geocode": {
+        "lat": 32.38817,
+        "lon": -100.86456,
+        "nameUsed": "Colorado"
+      },
+      "ingestedAt": "2026-05-30T09:02:52.998Z"
+    }
+  },
+  "92ca4d6ea5ebab8f636d967c1efb0fbc": {
+    "temperature": 60.26,
+    "temp": 60.26,
+    "windSpeed": 25.053728,
+    "windDirectionDeg": 318,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T22:00",
+    "humidityPct": 50,
+    "precipitationMm": 0,
+    "_meta": {
+      "homeTeam": "Seattle Mariners",
+      "geocode": {
+        "lat": 47.60621,
+        "lon": -122.33207,
+        "nameUsed": "Seattle"
+      },
+      "ingestedAt": "2026-05-30T09:02:53.007Z"
+    }
+  },
+  "af2ba278de4989977f4bea35a317ab65": {
+    "temperature": 75.02,
+    "temp": 75.02,
+    "windSpeed": 37.580592,
+    "windDirectionDeg": 255,
+    "windOut": false,
+    "windIn": false,
+    "windDir": "neutral",
+    "forecastTimeUtc": "2026-05-30T22:00",
+    "humidityPct": 54,
     "precipitationMm": 0,
     "_meta": {
       "homeTeam": "Los Angeles Dodgers",
@@ -227,7 +269,7 @@
         "lon": -118.24368,
         "nameUsed": "Los Angeles"
       },
-      "ingestedAt": "2026-05-26T04:53:55.208Z"
+      "ingestedAt": "2026-05-30T09:02:53.033Z"
     }
   }
 }

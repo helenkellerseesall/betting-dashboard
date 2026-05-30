@@ -894,6 +894,20 @@ function buildMlbBestBetsBoard(input = {}) {
       /alternate/i.test(String(mp?.propType || "")) ||
       Boolean(mp?.ladder)
 
+    // 2026-05-29 — Lane B Phase 3 v0.4.9 — MLB odds cap. Audit showed 94% of
+    // MLB picks were LONGSHOT (3027 of 3206), mostly "over 3.5 hits" type
+    // extreme alt-lines at +15000 to +22500 odds. modelProb ~0.16 with
+    // implied ~0.04 = huge edge, but practical betting value near zero
+    // because games where a batter gets 4+ hits are rare lottery events.
+    // Mirrors NBA's existing alt-line cap (+800). Higher cap for HR family
+    // because HR is intrinsically high-variance and operator may want longshot
+    // HR picks. Triple/double markets don't exist in MLB so no equivalent.
+    const __mlbOddsCap = isHrProp ? 2500 : 1500
+    if (odds > __mlbOddsCap) {
+      dropped += 1
+      continue
+    }
+
     if (!isLongshot && !isAlternate) {
       if (edge < 0.04 || ev <= 0) {
         dropped += 1
