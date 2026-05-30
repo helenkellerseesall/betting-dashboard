@@ -1056,6 +1056,12 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
       : /double[_\s-]*double/.test(propT) ? "double_double"
       : propT.includes("points_rebounds_assists") || /\bpra\b/.test(propT) ? "pra"
       : propT.includes("first_basket") || propT.includes("firstbasket") ? "first_basket"
+      // 2026-05-29 — 2-stat composites (v0.4.5). MUST come BEFORE the
+      // single-stat fallbacks below — a "points_rebounds" string contains
+      // "points" and would otherwise fall through to family="points".
+      : propT.includes("points_rebounds") || /points.*rebounds/.test(propT) || /points\s*\+\s*rebounds/.test(propT) ? "points_rebounds"
+      : propT.includes("points_assists")  || /points.*assists/.test(propT)  || /points\s*\+\s*assists/.test(propT)  ? "points_assists"
+      : propT.includes("rebounds_assists")|| /rebounds.*assists/.test(propT)|| /rebounds\s*\+\s*assists/.test(propT)? "rebounds_assists"
       : propT.includes("steals")   ? "steals"
       : propT.includes("blocks")   ? "blocks"
       : propT.includes("turnover") ? "turnovers"
