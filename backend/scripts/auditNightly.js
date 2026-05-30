@@ -167,6 +167,10 @@ function runPopulators() {
     // Unlocks L3/L5 pitcher streak signal for Ks engine + Hits engine's
     // opposing-pitcher dampening.
     { label: "MLB pitcher game logs", script: "populateMlbPitcherGameLogs.js" },
+    // 2026-05-30 — bullpen workload populator. Source statsapi schedule for
+    // today's events, then fetch last-3-day boxscores per team for reliever
+    // pitch counts. Consumed by deriveMlbBullpenContext.
+    { label: "MLB bullpen workload", script: "populateMlbBullpenWorkload.js" },
   ]
   const results = []
   for (const p of populators) {
