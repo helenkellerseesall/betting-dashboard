@@ -50,6 +50,10 @@ const { deriveMlbBullpenContext }              = require("./deriveMlbBullpenCont
 const { deriveMlbLineupContext }               = require("./deriveMlbLineupContext")
 const { composeMlbContextualSignal }           = require("./composeMlbContextualSignal")
 const normalizeName                            = require("../../../utils/normalizeName")
+// 2026-05-30 — batter L5/L15 form (hot/cold streak detection)
+let _enrichRowWithBatterForm = null
+try { _enrichRowWithBatterForm = require("../mlbBatterFormCache").enrichRowWithBatterForm }
+catch (_) { _enrichRowWithBatterForm = null }
 
 // ── Data file loading (additive, fail-open) ──────────────────────────────────
 
@@ -313,6 +317,13 @@ function applyMlbContextualLayers({ rows, events, dataDir, overrides } = {}) {
 		// blobs from caches before derivers run. Until this hop existed, the
 		// handedness deriver returned null on ~100% of rows.
 		attachIdentityAndStats(row, { batterByNormName, pitcherByNormName })
+
+		// 2026-05-30 — attach L5 + L15 hitting form when game-log cache exists.
+		// No-op when player not in cache. Engines read row.batterL5 / row.batterL15
+		// for hot/cold streak adjustments (HR/Hits/RBI/TB/Runs).
+		if (_enrichRowWithBatterForm) {
+			try { _enrichRowWithBatterForm(row) } catch (_) {}
+		}
 
 		const weather    = deriveMlbWeatherContext(row, { weatherByEventId, parkMetaByTeam })
 		const park       = deriveMlbParkContext(row, { parkFactorsByTeam })

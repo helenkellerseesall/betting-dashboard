@@ -159,6 +159,10 @@ function runPopulators() {
     // Replaces the 9-hardcoded-player mlbStatcastPower.json. ORDER MATTERS:
     // must run AFTER MLB batter stats; this script reads that cache.
     { label: "MLB Statcast power (derived)", script: "deriveMlbStatcastPower.js" },
+    // 2026-05-30 — per-game hitting logs (L5/L15 streak detection) for every
+    // batter in mlbBatterStats.json. ORDER MATTERS: must run AFTER batter
+    // stats. Unlocks hot/cold streak signal across HR/Hits/RBI/TB/Runs.
+    { label: "MLB batter game logs", script: "populateMlbBatterGameLogs.js" },
   ]
   const results = []
   for (const p of populators) {
