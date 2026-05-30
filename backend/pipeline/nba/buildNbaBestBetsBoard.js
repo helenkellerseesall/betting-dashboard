@@ -34,6 +34,11 @@ console.log("ACTIVE:", __filename)
 const STAT_FAMILIES = [
   "points", "threes", "rebounds", "assists", "pra",
   "steals", "blocks", "first_basket", "double_double", "triple_double", "turnovers",
+  // 2026-05-29 — 2-stat composites added. Snapshot has 462 points_assists,
+  // 657 points_rebounds, 280 rebounds_assists rows. Previously routed to "pra"
+  // which used the 3-stat projection — wrong distance to line → 0 picks.
+  // Now: separate families using their own projections from pred.stats.
+  "points_rebounds", "points_assists", "rebounds_assists",
 ]
 
 function americanOddsToImpliedProb(odds) {
@@ -307,9 +312,15 @@ function resolveStatFamily(marketProp) {
   if (/double[_\s-]*double/.test(s)) return "double_double"
   if (s.includes("points_rebounds_assists") || /\bpra\b/.test(s)) return "pra"
   if (s.includes("first_basket") || s.includes("firstbasket")) return "first_basket"
-  if (s.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(s)) return "pra"
-  if (s.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(s))   return "pra"
-  if (s.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(s)) return "pra"
+  // 2026-05-29 — 2-stat combos route to their own family (not PRA). The PRA
+  // projection sums 3 stats including assists; using it on a points_rebounds
+  // line meant comparing a 27.5 line against a ~35 PRA projection — wrong
+  // distance → edge gates dropped these silently. Now 2-stat projections
+  // exist in pred.stats (see buildNbaPlayerOutcomePredictions ~line 1944);
+  // resolveStatFamily routes the snapshot rows to those families correctly.
+  if (s.includes("points_rebounds") || /points.*rebounds|points\s*\+\s*rebounds/.test(s)) return "points_rebounds"
+  if (s.includes("points_assists")  || /points.*assists|points\s*\+\s*assists/.test(s))   return "points_assists"
+  if (s.includes("rebounds_assists")|| /rebounds.*assists|rebounds\s*\+\s*assists/.test(s)) return "rebounds_assists"
   if (s.includes("steal"))    return "steals"
   if (s.includes("block"))    return "blocks"
   if (s.includes("turnover")) return "turnovers"

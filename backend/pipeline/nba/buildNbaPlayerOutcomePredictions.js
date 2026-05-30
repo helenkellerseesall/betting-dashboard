@@ -1963,6 +1963,31 @@ function buildNbaPlayerOutcomePredictions(opportunityBoard) {
         const praCeiling   = Math.round(((st.points.ceiling    ?? 0) + (st.rebounds.ceiling    ?? 0) + (st.assists.ceiling    ?? 0)) * 10) / 10
         st.pra = { floor: praFloor, mostLikely: praMostLikely, ceiling: praCeiling, betLabel: "over" }
       }
+      // 2026-05-29 — Derive 2-stat composite projections. Snapshot has 462
+      // points_assists props, 657 points_rebounds props, 280 rebounds_assists
+      // props but the slate engine generated ZERO picks for any of them because
+      // they were never derived from component stats. Same derivation pattern
+      // as PRA — sum the components for floor/mostLikely/ceiling. After this,
+      // buildNbaBestBetsBoard's `pred.stats[family]` lookup for these
+      // composites will succeed and the slate produces real picks.
+      if (st.points && st.rebounds) {
+        const f  = Math.round(((st.points.floor      ?? 0) + (st.rebounds.floor      ?? 0)) * 10) / 10
+        const ml = Math.round(((st.points.mostLikely ?? 0) + (st.rebounds.mostLikely ?? 0)) * 10) / 10
+        const c  = Math.round(((st.points.ceiling    ?? 0) + (st.rebounds.ceiling    ?? 0)) * 10) / 10
+        st.points_rebounds = { floor: f, mostLikely: ml, ceiling: c, betLabel: "over" }
+      }
+      if (st.points && st.assists) {
+        const f  = Math.round(((st.points.floor      ?? 0) + (st.assists.floor      ?? 0)) * 10) / 10
+        const ml = Math.round(((st.points.mostLikely ?? 0) + (st.assists.mostLikely ?? 0)) * 10) / 10
+        const c  = Math.round(((st.points.ceiling    ?? 0) + (st.assists.ceiling    ?? 0)) * 10) / 10
+        st.points_assists = { floor: f, mostLikely: ml, ceiling: c, betLabel: "over" }
+      }
+      if (st.rebounds && st.assists) {
+        const f  = Math.round(((st.rebounds.floor      ?? 0) + (st.assists.floor      ?? 0)) * 10) / 10
+        const ml = Math.round(((st.rebounds.mostLikely ?? 0) + (st.assists.mostLikely ?? 0)) * 10) / 10
+        const c  = Math.round(((st.rebounds.ceiling    ?? 0) + (st.assists.ceiling    ?? 0)) * 10) / 10
+        st.rebounds_assists = { floor: f, mostLikely: ml, ceiling: c, betLabel: "over" }
+      }
       outPlayers.push({
         ...rest,
         stats: toPublicStats(st),
