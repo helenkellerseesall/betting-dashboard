@@ -86,9 +86,11 @@ async function chunkedPromiseAll(items, fn, concurrency) {
 }
 
 async function fetchTeamScheduleWindow({ teamId, startDate, endDate, season }) {
-	const url = `${SCHEDULE_URL_BASE}/${teamId}/schedule`
+	// 2026-05-30 — the per-team URL `/api/v1/teams/{id}/schedule` returns 404.
+	// Canonical pattern is `/api/v1/schedule?sportId=1&teamId=X&startDate=...&endDate=...`.
+	const url = "https://statsapi.mlb.com/api/v1/schedule"
 	const res = await axios.get(url, {
-		params: { sportId: 1, season, startDate, endDate },
+		params: { sportId: 1, teamId, startDate, endDate },
 		timeout: 15000,
 	})
 	const dates = res?.data?.dates || []
