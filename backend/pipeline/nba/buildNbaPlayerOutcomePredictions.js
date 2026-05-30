@@ -8,6 +8,16 @@
 const { statFamilyKey, predictedMedianOutcome } = require("./nbaAiOutcomeRange")
 const { collectFullPool } = require("./buildNbaAiSlips")
 const { nbaRowModelProbability } = require("./nbaModelSignals")
+// 2026-05-29 — Lane B Phase 3 v0.4.4. The predictions module reads
+// rep.recentForm.last5_avg / baseline via predictedMedianOutcome. But the
+// pool rows fed in here come from collectFullPool and were NEVER enriched
+// with recentForm — the enrichment was only happening downstream in
+// buildNbaBestBetsBoard's `mp` loop. Result: projectStat falls back to
+// usage/minutes priors instead of using actual L5 data, even when the L5
+// cache is fully populated. Importing the enricher so we can apply it
+// upfront before any projection runs.
+let _enrichRowWithRecentForm = null
+try { _enrichRowWithRecentForm = require("./nbaRecentFormCache").enrichRowWithRecentForm } catch (_) {}
 
 const STAT_ORDER = ["points", "threes", "rebounds", "assists"]
 
@@ -1703,6 +1713,16 @@ function buildNbaPlayerOutcomePredictions(opportunityBoard) {
   const generatedAt = new Date().toISOString()
   let outcomeBandQuality = { ok: true, failReasons: [], thTotal: 0, dupRatio: 0 }
   const pool = collectFullPool(opportunityBoard)
+  // 2026-05-29 — enrich pool rows with recentForm BEFORE projection so the
+  // L5/L10 baselines actually reach projectStat. Without this enrichment,
+  // projectStat's `predictedMedianOutcome(rep)` returns null and the model
+  // falls back to usage/minutes priors — making the projection blind to
+  // recent game outcomes. Idempotent: enricher no-ops when L5 isn't in cache.
+  if (_enrichRowWithRecentForm) {
+    for (const row of pool) {
+      if (row && typeof row === "object") _enrichRowWithRecentForm(row)
+    }
+  }
   const byPe = new Map()
   for (const row of pool) {
     if (!row || typeof row !== "object") continue
