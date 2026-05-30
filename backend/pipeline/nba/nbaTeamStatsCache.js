@@ -135,22 +135,20 @@ function attachOpponentDvP(row, opp) {
     row.opponentDvPForRole = { role: playerRole, ...teamEntry[playerRole] }
   }
 
-  // 2026-05-30 — Team-level opp 3PA-allowed aggregated across all roles.
-  // For player_threes projections we care less about role and more about
-  // total shot volume the opponent surrenders. Sum across roles, weighted
-  // by gp per role for accuracy.
-  let total3PA = 0, totalGp = 0
-  for (const role of ["guard", "wing", "big"]) {
-    const r = teamEntry[role]
-    if (!r) continue
-    const ta = r.threeAtt
-    if (ta && Number.isFinite(ta.mean) && Number.isFinite(ta.gp) && ta.gp > 0) {
-      total3PA += ta.mean * ta.gp
-      totalGp += ta.gp
+  // 2026-05-30 — Per-role opp 3PA-allowed. Per-player-game avg from DvP cache.
+  // For player_threes projections we want to compare THIS player's role's
+  // 3PA-allowed against the league baseline FOR THAT ROLE. League per-role
+  // baselines (approximate, per opposing player-game):
+  //   guards: 3.5  ·  wings: 2.8  ·  bigs: 1.5
+  // Multiplier = opp_role_3PA_allowed / role_baseline. Capped ±15%.
+  if (playerRole && teamEntry[playerRole]?.threeAtt?.mean != null) {
+    const opp3PA = Number(teamEntry[playerRole].threeAtt.mean)
+    const baselineByRole = { guard: 3.5, wing: 2.8, big: 1.5 }
+    const baseline = baselineByRole[playerRole]
+    if (Number.isFinite(opp3PA) && baseline > 0) {
+      row.opponentThreePAAllowedForRole = Number(opp3PA.toFixed(2))
+      row.opponentThreePAMultiplier = Number(Math.max(0.85, Math.min(1.15, opp3PA / baseline)).toFixed(3))
     }
-  }
-  if (totalGp > 0) {
-    row.opponentThreePAAllowedPerGame = Number((total3PA / totalGp).toFixed(2))
   }
 }
 

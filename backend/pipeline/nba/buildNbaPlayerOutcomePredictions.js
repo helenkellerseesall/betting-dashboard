@@ -1162,15 +1162,12 @@ function projectThreesFromAttempts(rows, ctx) {
 
   const minutesFactor = minutes / 32
 
-  // 2026-05-30 — Opp 3PA-allowed shot-volume multiplier. Teams that surrender
-  // more total 3PA per game create more shot opportunities for opposing
-  // shooters. League avg ~33 3PA allowed. Multiplier capped ±10%.
-  let oppShotVolMul = 1
-  const opp3PA = Number(rep?.opponentThreePAAllowedPerGame)
-  if (Number.isFinite(opp3PA) && opp3PA > 0) {
-    // (opp3PA / 33) capped 0.90..1.10
-    oppShotVolMul = Math.max(0.90, Math.min(1.10, opp3PA / 33))
-  }
+  // 2026-05-30 — Opp 3PA-allowed shot-volume multiplier (per-role). Set
+  // upstream in nbaTeamStatsCache.attachOpponentDvP using opp_3PA_allowed
+  // for THIS player's role vs the league baseline FOR THAT role.
+  // Range: 0.85..1.15 (already clamped upstream).
+  let oppShotVolMul = Number(rep?.opponentThreePAMultiplier)
+  if (!Number.isFinite(oppShotVolMul) || oppShotVolMul <= 0) oppShotVolMul = 1
   let raw = pa * pct * minutesFactor * oppShotVolMul
 
   if (pa < 1) raw = Math.min(raw, 1.0)

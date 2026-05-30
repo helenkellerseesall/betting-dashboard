@@ -32,31 +32,30 @@ for (const team of ["Oklahoma City Thunder", "San Antonio Spurs"]) {
 	console.log()
 }
 
-console.log("=== STEP 2 — enrichRowWithTeamStats attaches opp 3PA-allowed at team level ===\n")
+console.log("=== STEP 2 — per-role opp 3PA-allowed attachment ===\n")
 const cases = [
-	{ label: "SAS shooter vs OKC defense", row: { player: "Devin Vassell", opponent: "Oklahoma City Thunder", role: "wing" } },
-	{ label: "OKC shooter vs SAS defense", row: { player: "Isaiah Joe",      opponent: "San Antonio Spurs",     role: "guard" } },
+	{ label: "SGA (guard) vs OKC's opp guards (4.74 vs baseline 3.5)", row: { player: "Shai Gilgeous-Alexander", opponent: "Oklahoma City Thunder", role: "guard" } },
+	{ label: "Vassell (wing) vs OKC's opp wings (2.38 vs baseline 2.8)", row: { player: "Devin Vassell",        opponent: "Oklahoma City Thunder", role: "wing"  } },
+	{ label: "Wemby (big) vs OKC's opp bigs (2.50 vs baseline 1.5)",   row: { player: "Victor Wembanyama",     opponent: "Oklahoma City Thunder", role: "big"   } },
+	{ label: "Isaiah Joe (guard) vs SAS opp guards",                    row: { player: "Isaiah Joe",            opponent: "San Antonio Spurs",     role: "guard" } },
+	{ label: "Caruso (wing) vs SAS opp wings",                          row: { player: "Alex Caruso",           opponent: "San Antonio Spurs",     role: "wing"  } },
 ]
 for (const c of cases) {
 	enrichRowWithTeamStats(c.row)
+	const v = c.row.opponentThreePAAllowedForRole
+	const m = c.row.opponentThreePAMultiplier
 	console.log(`${c.label}`)
-	console.log(`  row.opponentThreePAAllowedPerGame = ${c.row.opponentThreePAAllowedPerGame}`)
-	console.log(`  oppPace = ${c.row.pace}`)
+	console.log(`  opp 3PA-allowed for role: ${v}  ·  multiplier: ${m}`)
 	console.log()
 }
 
-console.log("=== STEP 3 — shot-volume multiplier projection ===\n")
-function mul(opp3PA) {
-	if (!Number.isFinite(opp3PA) || opp3PA <= 0) return 1
-	return Math.max(0.90, Math.min(1.10, opp3PA / 33))
-}
-console.log("League avg opp 3PA-allowed: 33  (multiplier baseline = 1.00)")
+console.log("=== STEP 3 — projected threes adjustment for a 6.0 3PA / 36% shooter ===\n")
 for (const c of cases) {
-	const v = c.row.opponentThreePAAllowedPerGame
-	const m = mul(v)
-	const sample3PA = 6.0
-	const adjusted = (sample3PA * 0.36 * m).toFixed(2)  // sample: 6 attempts × 36% × multiplier
-	console.log(`  opp 3PA-allowed=${v}  → multiplier=${m.toFixed(3)}  · for a 6.0 3PA / 36% shooter → adjusted threes proj = ${adjusted}`)
+	const m = Number(c.row.opponentThreePAMultiplier) || 1
+	const baseProj = 6.0 * 0.36
+	const adjusted = (baseProj * m).toFixed(2)
+	const delta = (((m - 1) * 100)).toFixed(1)
+	console.log(`  ${c.row.player.padEnd(28)} multiplier=${m.toFixed(3)}  · baseline proj ${baseProj.toFixed(2)} → adjusted ${adjusted}  (${delta >= 0 ? '+' : ''}${delta}%)`)
 }
 
 console.log("\n=== Lane verified: cache includes threeAtt, row attachment fires, multiplier produces real adjustment ===")
