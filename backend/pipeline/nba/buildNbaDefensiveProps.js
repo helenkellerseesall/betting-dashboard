@@ -274,6 +274,9 @@ function buildNbaDefensiveProps(input = {}) {
         plays.push({
           player: pl.player,
           eventId: pl.eventId,
+          // 2026-05-29 — gameTime propagation through defensive engine.
+          // blocks/steals coverage was 14%/36% before — this closes the gap.
+          gameTime: row.gameTime || row.commence_time || row.commenceTime || pl.gameTime || null,
           matchup: pl.matchup,
           statFamily: fam,
           side,
@@ -284,6 +287,9 @@ function buildNbaDefensiveProps(input = {}) {
           impliedProb: round4(impliedProb),
           edge: round4(edge),
           ev: round4(ev),
+          // 2026-05-29 — also propagate marketKey so Lane A5 bridge can pass
+          // it through to leanBet (was 38% coverage on blocks before).
+          marketKey: row.marketKey || null,
           range: pl[fam],
         })
       }
