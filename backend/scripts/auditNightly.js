@@ -148,6 +148,10 @@ function runPopulators() {
     { label: "NBA game logs",     script: "populateNbaGameLogs.js" },
     { label: "NBA team stats",    script: "populateNbaTeamStats.js" },
     { label: "NBA injury report", script: "populateNbaInjuryReport.js" },
+    // 2026-05-30 — biggest single MLB blind spot was missing per-batter HR/AB,
+    // ISO, K%, BB%, OBP, SLG, handedness. Wire into nightly so HR + Hits + RBI
+    // + Total Bases + Runs Scored engines (#21) have real per-batter signal.
+    { label: "MLB batter stats",  script: "populateMlbBatterStats.js" },
   ]
   const results = []
   for (const p of populators) {
