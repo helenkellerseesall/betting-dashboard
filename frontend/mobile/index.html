@@ -1051,18 +1051,29 @@
     }
 
     // v0.1.3: defense-in-depth book allowlist filter. Canonical authority is
-    // backend/pipeline/shared/sportsbookAllowlist.js (currently 4 books;
-    // needs operator-mandated 7-book update — see task #22). Until that lands,
-    // the mobile surface NEVER displays a non-allowed book. Operator
-    // 2026-05-21: "Spencer Jones is showing betonline.ag (not one of the
-    // books i want)".
+    // backend/pipeline/shared/sportsbookAllowlist.js. Mobile surface NEVER
+    // displays a non-allowed book.
     const ALLOWED_BOOKS = new Set([
       "draftkings", "fanduel", "fanatics",
       "betrivers", "betmgm", "hardrock", "bet365"
     ]);
+    // 2026-05-30: Path B soft-narrow. Backend keeps tracking all 7 books for
+    // line-shopping intelligence + calibration data. Operator only WANTS to
+    // see picks from these 4 books on the iPhone (decided 2026-05-30 after
+    // observing the 7-book inventory was too noisy and the bottom 3 books
+    // rarely had the best price on anything the top 4 didn't already cover).
+    // To revert: set PREFERRED_BOOKS = ALLOWED_BOOKS.
+    const PREFERRED_BOOKS = new Set([
+      "draftkings", "fanduel", "fanatics", "betmgm"
+    ]);
+    function normalizeBookName(name) {
+      return String(name || "").toLowerCase().replace(/\s+/g, "");
+    }
     function isAllowedBook(name) {
-      const n = String(name || "").toLowerCase().replace(/\s+/g, "");
-      return ALLOWED_BOOKS.has(n);
+      return ALLOWED_BOOKS.has(normalizeBookName(name));
+    }
+    function isPreferredBook(name) {
+      return PREFERRED_BOOKS.has(normalizeBookName(name));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -1310,7 +1321,10 @@
         if (!payload || payload._error) return "—";
         const source = (Array.isArray(payload.featured) && payload.featured.length > 0)
           ? payload.featured : (payload.candidates || []);
-        return source.filter(c => isAllowedBook(c.sportsbook || c.book)).length;
+        // 2026-05-30 — Path B soft-narrow: tab counts now reflect PREFERRED
+        // books (4) not ALLOWED books (7). Backend still surfaces all 7;
+        // FE just hides the bottom 3 per operator preference.
+        return source.filter(c => isPreferredBook(c.sportsbook || c.book)).length;
       };
       document.getElementById("mlbCount").textContent = allowedCount(state.data.mlb);
       document.getElementById("nbaCount").textContent = allowedCount(state.data.nba);
@@ -1403,10 +1417,12 @@
         ? "featured"
         : "candidates";
       // v0.1.3 defense-in-depth: drop any play from a book not in the operator
-      // 7-book allowlist BEFORE classification. Logged so we can see how
-      // many leaked through (until the canonical sportsbookAllowlist.js fix lands).
+      // 7-book allowlist BEFORE classification.
+      // 2026-05-30 — Path B soft-narrow: FE-display filter narrowed to the
+      // 4 PREFERRED books (FD/DK/Fanatics/BetMGM). Backend keeps all 7 for
+      // line-shopping intelligence + calibration; this is FE display only.
       const preFilter = source.length;
-      let cands = source.filter(c => isAllowedBook(c.sportsbook || c.book));
+      let cands = source.filter(c => isPreferredBook(c.sportsbook || c.book));
       const droppedNonAllowed = preFilter - cands.length;
 
       // 2026-05-24 — multi-book dedupe on Sharp Plays (same fix shape as
