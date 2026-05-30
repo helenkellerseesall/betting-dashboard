@@ -137,6 +137,38 @@ function runGrading() {
   return { ran: true, status: r.status }
 }
 
+// 2026-05-29 — populators were NEVER auto-run. nbaPlayerGameLogs.json was
+// 3.5 days stale when operator's instinct caught it (cards looking identical
+// across Game 5 / Game 7 days). Wire all three populators into nightly chain
+// so cache stays fresh. Each script is idempotent + bounded (last 21 days for
+// game logs). If any fails, log and continue — never fatal to grading.
+function runPopulators() {
+  console.log("=== Step 0: refresh recent-form data ===")
+  const populators = [
+    { label: "NBA game logs",     script: "populateNbaGameLogs.js" },
+    { label: "NBA team stats",    script: "populateNbaTeamStats.js" },
+    { label: "NBA injury report", script: "populateNbaInjuryReport.js" },
+  ]
+  const results = []
+  for (const p of populators) {
+    const target = path.join(__dirname, p.script)
+    if (!fs.existsSync(target)) {
+      console.warn(`[audit:nightly] ${p.script} missing — skipping ${p.label}`)
+      results.push({ label: p.label, ran: false, status: -1, reason: "script_missing" })
+      continue
+    }
+    console.log(`[audit:nightly] running populator: ${p.label} (${p.script})`)
+    const r = spawnSync("node", [target], {
+      stdio: "inherit",
+      timeout: 5 * 60 * 1000,
+    })
+    const ok = r.status === 0
+    results.push({ label: p.label, ran: true, status: r.status, ok })
+    if (!ok) console.warn(`[audit:nightly] populator ${p.label} exit=${r.status}`)
+  }
+  return results
+}
+
 function gitCheckpoint() {
   const r = spawnSync("git", ["-C", REPO_ROOT, "log", "--oneline", "-5"], { encoding: "utf8" })
   const s = spawnSync("git", ["-C", REPO_ROOT, "status", "--short"], { encoding: "utf8" })
@@ -263,6 +295,11 @@ function buildReport({ window, args, gradingResult, perFile, totals, anomalies, 
 function main() {
   const args = parseArgs()
   if (!fs.existsSync(AUDIT_DIR)) fs.mkdirSync(AUDIT_DIR, { recursive: true })
+
+  // Step 0: refresh recent-form data (NBA game logs, team stats, injury report)
+  // BEFORE grading so populator-pulled box scores can supplement grading data
+  // and the next day's slate has fresh L5/L10 baselines.
+  const populatorResults = args.grade ? runPopulators() : []
 
   // Step 1: grading backfill
   const gradingResult = args.grade ? runGrading() : { ran: false, status: 0 }
