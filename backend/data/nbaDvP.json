@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "generatedAt": "2026-05-30T09:10:16.146Z",
+    "generatedAt": "2026-05-30T22:44:28.991Z",
     "teams": 8,
     "totalPlayerGames": 720,
     "minGpPerRoleStat": 2,
@@ -25,12 +25,20 @@
           "mean": 1.81,
           "gp": 27
         },
+        "threeAtt": {
+          "mean": 4.7,
+          "gp": 27
+        },
         "steals": {
           "mean": 1.67,
           "gp": 27
         },
         "blocks": {
           "mean": 0.48,
+          "gp": 27
+        },
+        "fga": {
+          "mean": 11.3,
           "gp": 27
         }
       },
@@ -51,12 +59,20 @@
           "mean": 0.95,
           "gp": 87
         },
+        "threeAtt": {
+          "mean": 2.87,
+          "gp": 87
+        },
         "steals": {
           "mean": 0.45,
           "gp": 87
         },
         "blocks": {
           "mean": 0.22,
+          "gp": 87
+        },
+        "fga": {
+          "mean": 6.82,
           "gp": 87
         }
       },
@@ -77,12 +93,20 @@
           "mean": 0.29,
           "gp": 24
         },
+        "threeAtt": {
+          "mean": 1.42,
+          "gp": 24
+        },
         "steals": {
           "mean": 0.58,
           "gp": 24
         },
         "blocks": {
           "mean": 0.63,
+          "gp": 24
+        },
+        "fga": {
+          "mean": 8.46,
           "gp": 24
         }
       }
@@ -105,12 +129,20 @@
           "mean": 1.7,
           "gp": 20
         },
+        "threeAtt": {
+          "mean": 4,
+          "gp": 20
+        },
         "steals": {
           "mean": 1.2,
           "gp": 20
         },
         "blocks": {
           "mean": 0.3,
+          "gp": 20
+        },
+        "fga": {
+          "mean": 10.6,
           "gp": 20
         }
       },
@@ -131,12 +163,20 @@
           "mean": 0.76,
           "gp": 21
         },
+        "threeAtt": {
+          "mean": 2,
+          "gp": 21
+        },
         "steals": {
           "mean": 0.33,
           "gp": 21
         },
         "blocks": {
           "mean": 0,
+          "gp": 21
+        },
+        "fga": {
+          "mean": 2.76,
           "gp": 21
         }
       },
@@ -157,12 +197,20 @@
           "mean": 0.63,
           "gp": 8
         },
+        "threeAtt": {
+          "mean": 1.63,
+          "gp": 8
+        },
         "steals": {
           "mean": 1.63,
           "gp": 8
         },
         "blocks": {
           "mean": 1.13,
+          "gp": 8
+        },
+        "fga": {
+          "mean": 8.88,
           "gp": 8
         }
       }
@@ -185,12 +233,20 @@
           "mean": 1.55,
           "gp": 31
         },
+        "threeAtt": {
+          "mean": 4.74,
+          "gp": 31
+        },
         "steals": {
           "mean": 1.1,
           "gp": 31
         },
         "blocks": {
           "mean": 0.42,
+          "gp": 31
+        },
+        "fga": {
+          "mean": 10.13,
           "gp": 31
         }
       },
@@ -211,12 +267,20 @@
           "mean": 0.85,
           "gp": 72
         },
+        "threeAtt": {
+          "mean": 2.38,
+          "gp": 72
+        },
         "steals": {
           "mean": 0.46,
           "gp": 72
         },
         "blocks": {
           "mean": 0.19,
+          "gp": 72
+        },
+        "fga": {
+          "mean": 5.11,
           "gp": 72
         }
       },
@@ -237,12 +301,20 @@
           "mean": 0.93,
           "gp": 14
         },
+        "threeAtt": {
+          "mean": 2.5,
+          "gp": 14
+        },
         "steals": {
           "mean": 0.79,
           "gp": 14
         },
         "blocks": {
           "mean": 1.5,
+          "gp": 14
+        },
+        "fga": {
+          "mean": 11.36,
           "gp": 14
         }
       }
@@ -265,12 +337,20 @@
           "mean": 1.78,
           "gp": 18
         },
+        "threeAtt": {
+          "mean": 4.72,
+          "gp": 18
+        },
         "steals": {
           "mean": 1.06,
           "gp": 18
         },
         "blocks": {
           "mean": 0.39,
+          "gp": 18
+        },
+        "fga": {
+          "mean": 12.67,
           "gp": 18
         }
       },
@@ -291,12 +371,20 @@
           "mean": 0.69,
           "gp": 49
         },
+        "threeAtt": {
+          "mean": 1.86,
+          "gp": 49
+        },
         "steals": {
           "mean": 0.59,
           "gp": 49
         },
         "blocks": {
           "mean": 0.45,
+          "gp": 49
+        },
+        "fga": {
+          "mean": 4.39,
           "gp": 49
         }
       },
@@ -317,12 +405,20 @@
           "mean": 1.17,
           "gp": 6
         },
+        "threeAtt": {
+          "mean": 4.67,
+          "gp": 6
+        },
         "steals": {
           "mean": 0.33,
           "gp": 6
         },
         "blocks": {
           "mean": 4.17,
+          "gp": 6
+        },
+        "fga": {
+          "mean": 13.67,
           "gp": 6
         }
       }
@@ -345,12 +441,20 @@
           "mean": 1.94,
           "gp": 34
         },
+        "threeAtt": {
+          "mean": 5.06,
+          "gp": 34
+        },
         "steals": {
           "mean": 1.12,
           "gp": 34
         },
         "blocks": {
           "mean": 0.26,
+          "gp": 34
+        },
+        "fga": {
+          "mean": 12.41,
           "gp": 34
         }
       },
@@ -371,12 +475,20 @@
           "mean": 0.87,
           "gp": 79
         },
+        "threeAtt": {
+          "mean": 2.23,
+          "gp": 79
+        },
         "steals": {
           "mean": 0.82,
           "gp": 79
         },
         "blocks": {
           "mean": 0.41,
+          "gp": 79
+        },
+        "fga": {
+          "mean": 5.9,
           "gp": 79
         }
       },
@@ -397,12 +509,20 @@
           "mean": 0,
           "gp": 7
         },
+        "threeAtt": {
+          "mean": 0,
+          "gp": 7
+        },
         "steals": {
           "mean": 0.86,
           "gp": 7
         },
         "blocks": {
           "mean": 1.14,
+          "gp": 7
+        },
+        "fga": {
+          "mean": 8,
           "gp": 7
         }
       }
@@ -425,12 +545,20 @@
           "mean": 2.15,
           "gp": 20
         },
+        "threeAtt": {
+          "mean": 4.6,
+          "gp": 20
+        },
         "steals": {
           "mean": 0.75,
           "gp": 20
         },
         "blocks": {
           "mean": 0.45,
+          "gp": 20
+        },
+        "fga": {
+          "mean": 9.55,
           "gp": 20
         }
       },
@@ -451,12 +579,20 @@
           "mean": 0.52,
           "gp": 33
         },
+        "threeAtt": {
+          "mean": 1.27,
+          "gp": 33
+        },
         "steals": {
           "mean": 0.52,
           "gp": 33
         },
         "blocks": {
           "mean": 0.21,
+          "gp": 33
+        },
+        "fga": {
+          "mean": 4.21,
           "gp": 33
         }
       }
@@ -479,12 +615,20 @@
           "mean": 1.87,
           "gp": 23
         },
+        "threeAtt": {
+          "mean": 6.17,
+          "gp": 23
+        },
         "steals": {
           "mean": 1.04,
           "gp": 23
         },
         "blocks": {
           "mean": 0.26,
+          "gp": 23
+        },
+        "fga": {
+          "mean": 12.57,
           "gp": 23
         }
       },
@@ -505,12 +649,20 @@
           "mean": 0.61,
           "gp": 54
         },
+        "threeAtt": {
+          "mean": 2.07,
+          "gp": 54
+        },
         "steals": {
           "mean": 0.46,
           "gp": 54
         },
         "blocks": {
           "mean": 0.15,
+          "gp": 54
+        },
+        "fga": {
+          "mean": 4.09,
           "gp": 54
         }
       },
@@ -531,12 +683,20 @@
           "mean": 0.8,
           "gp": 15
         },
+        "threeAtt": {
+          "mean": 2.6,
+          "gp": 15
+        },
         "steals": {
           "mean": 0.53,
           "gp": 15
         },
         "blocks": {
           "mean": 1,
+          "gp": 15
+        },
+        "fga": {
+          "mean": 8.87,
           "gp": 15
         }
       }
@@ -559,12 +719,20 @@
           "mean": 1.81,
           "gp": 27
         },
+        "threeAtt": {
+          "mean": 5.48,
+          "gp": 27
+        },
         "steals": {
           "mean": 0.81,
           "gp": 27
         },
         "blocks": {
           "mean": 0.33,
+          "gp": 27
+        },
+        "fga": {
+          "mean": 11.67,
           "gp": 27
         }
       },
@@ -585,12 +753,20 @@
           "mean": 0.67,
           "gp": 30
         },
+        "threeAtt": {
+          "mean": 2.03,
+          "gp": 30
+        },
         "steals": {
           "mean": 0.43,
           "gp": 30
         },
         "blocks": {
           "mean": 0.13,
+          "gp": 30
+        },
+        "fga": {
+          "mean": 3.03,
           "gp": 30
         }
       },
@@ -611,12 +787,20 @@
           "mean": 0.71,
           "gp": 21
         },
+        "threeAtt": {
+          "mean": 1.81,
+          "gp": 21
+        },
         "steals": {
           "mean": 0.86,
           "gp": 21
         },
         "blocks": {
           "mean": 1.38,
+          "gp": 21
+        },
+        "fga": {
+          "mean": 7.1,
           "gp": 21
         }
       }

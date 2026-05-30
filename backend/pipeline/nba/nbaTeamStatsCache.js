@@ -134,6 +134,24 @@ function attachOpponentDvP(row, opp) {
   if (playerRole && teamEntry[playerRole]) {
     row.opponentDvPForRole = { role: playerRole, ...teamEntry[playerRole] }
   }
+
+  // 2026-05-30 — Team-level opp 3PA-allowed aggregated across all roles.
+  // For player_threes projections we care less about role and more about
+  // total shot volume the opponent surrenders. Sum across roles, weighted
+  // by gp per role for accuracy.
+  let total3PA = 0, totalGp = 0
+  for (const role of ["guard", "wing", "big"]) {
+    const r = teamEntry[role]
+    if (!r) continue
+    const ta = r.threeAtt
+    if (ta && Number.isFinite(ta.mean) && Number.isFinite(ta.gp) && ta.gp > 0) {
+      total3PA += ta.mean * ta.gp
+      totalGp += ta.gp
+    }
+  }
+  if (totalGp > 0) {
+    row.opponentThreePAAllowedPerGame = Number((total3PA / totalGp).toFixed(2))
+  }
 }
 
 function enrichRowWithTeamStats(row) {

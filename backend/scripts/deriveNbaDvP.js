@@ -41,7 +41,11 @@ const GAME_LOGS = path.join(__dirname, "..", "data", "nbaPlayerGameLogs.json")
 const PROJECTIONS = path.join(__dirname, "..", "data", "nbaPlayerProjections.json")
 const OUT_PATH = path.join(__dirname, "..", "data", "nbaDvP.json")
 
-const STATS = ["points", "rebounds", "assists", "threes", "steals", "blocks"]
+// 2026-05-30 — added "threeAtt" for opp 3PA-allowed (separate from threes
+// MADE). Needed for player_threes projection: opponents that allow 35+ 3PA
+// per game create more shot volume for opposing shooters, regardless of
+// make rate. Also added "fga" for opp shot volume generally.
+const STATS = ["points", "rebounds", "assists", "threes", "threeAtt", "steals", "blocks", "fga"]
 const ROLES = ["guard", "wing", "big"]
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
