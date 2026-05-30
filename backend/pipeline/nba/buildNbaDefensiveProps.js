@@ -269,6 +269,12 @@ function buildNbaDefensiveProps(input = {}) {
     if (stealsBase == null) stealsBase = stealsBaselinePerArchetype(archetype) * minutesScale * paceMul * usageMul
     if (blocksBase == null) blocksBase = blocksBaselinePerArchetype(archetype) * minutesScale * paceMul
 
+    // 2026-05-30 — Tier 2 #6: opp steals-allowed multiplier. Set upstream
+    // in nbaTeamStatsCache.attachOpponentDvP. Range 0.85..1.15.
+    // High-TOV opponents → more steals for defenders.
+    const oppStlMul = num(repRow?.opponentStealsMultiplier)
+    if (Number.isFinite(oppStlMul) && oppStlMul > 0) stealsBase *= oppStlMul
+
     // Wide sigma — high variance stats.
     const stealsSigma = clamp(0.85, 1.25, 0.95 + Math.abs(salt - 0.5) * 0.4)
     const blocksSigma = clamp(0.8, 1.2, 0.9 + Math.abs(salt - 0.5) * 0.4)

@@ -165,6 +165,21 @@ function attachOpponentDvP(row, opp) {
       row.opponentReboundsMultiplier = Number(Math.max(0.85, Math.min(1.15, oppReb / baseline)).toFixed(3))
     }
   }
+
+  // 2026-05-30 — Tier 2 #6: per-role opp steals-allowed (opposing-player steals
+  // generated AGAINST team Y). High-TOV teams = more steal opportunities for
+  // opposing defenders. Per-opposing-player-game baselines:
+  //   guards: 1.0 stl  ·  wings: 0.8 stl  ·  bigs: 0.5 stl
+  // Multiplier capped ±15%.
+  if (playerRole && teamEntry[playerRole]?.steals?.mean != null) {
+    const oppStl = Number(teamEntry[playerRole].steals.mean)
+    const baselineByRole = { guard: 1.0, wing: 0.8, big: 0.5 }
+    const baseline = baselineByRole[playerRole]
+    if (Number.isFinite(oppStl) && baseline > 0) {
+      row.opponentStealsAllowedForRole = Number(oppStl.toFixed(2))
+      row.opponentStealsMultiplier = Number(Math.max(0.85, Math.min(1.15, oppStl / baseline)).toFixed(3))
+    }
+  }
 }
 
 function enrichRowWithTeamStats(row) {
