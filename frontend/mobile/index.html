@@ -2840,7 +2840,9 @@
           const t = String(p.tier || p.modelTier || "").toUpperCase();
           if (byTier[t]) byTier[t].push(p);
         }
+        const fellBackBadge = d.fellBack ? `<div style="font-size:11px;color:#FBBF24;background:#1F1A0A;padding:6px 10px;border-radius:6px;border-left:3px solid #FBBF24;margin-bottom:8px;">📅 No slate yet for ${escapeHtml(d.todayKey || d.requestedDate || "today")} — showing last available date <b>${escapeHtml(d.date)}</b></div>` : "";
         let html = `<div style="padding:8px 10px;">
+          ${fellBackBadge}
           <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">
             ${picks.length} picks · ${byTier.ELITE.length} ELITE · ${byTier.STRONG.length} STRONG · ${byTier.PLAYABLE.length} PLAYABLE · cross-sport ${(d.sportsScanned || []).join("+")}
           </div>`;

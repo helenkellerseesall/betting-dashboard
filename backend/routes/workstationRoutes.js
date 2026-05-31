@@ -2273,12 +2273,39 @@ function buildReasoning(pick, bestEntry) {
  */
 router.get("/top-picks", (req, res) => {
   try {
-    const date = req.query.date ? String(req.query.date) : (() => {
+    const todayK = (() => {
       const d = new Date()
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     })()
+    let date = req.query.date ? String(req.query.date) : todayK
+    let fellBack = false
+    let requestedDate = date
     const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50))
     const sports = ["nba", "mlb"]
+
+    // Date-rollover fallback (2026-05-31): when "today" has no tracking files
+    // yet (e.g. post-midnight ET, scheduler hasn't generated tomorrow's slate),
+    // fall back to the most recent date that DOES have data. Without this the
+    // FE shows "No top picks available for {today}" at midnight every night.
+    const probeAnySport = (d) => {
+      for (const sport of sports) {
+        const f = readJsonSafe(fileFor(sport, "tracked_bets", d), null)
+        if (Array.isArray(f) && f.length) return true
+      }
+      return false
+    }
+    if (!req.query.date && !probeAnySport(date)) {
+      // Try latest date with data for either sport
+      let latest = null
+      for (const sport of sports) {
+        try {
+          const d = findLatestDateWithData(sport)
+          if (d && (!latest || d > latest)) latest = d
+        } catch (_) {}
+      }
+      if (latest && latest !== date) { date = latest; fellBack = true }
+    }
+
     const reasoningIdx = {}
     for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
     const all = []
@@ -2330,6 +2357,9 @@ router.get("/top-picks", (req, res) => {
 
     res.json({
       date,
+      requestedDate,
+      fellBack,
+      todayKey: todayK,
       sportsScanned: sports,
       counts: {
         ELITE: byTier.ELITE.length, STRONG: byTier.STRONG.length, PLAYABLE: byTier.PLAYABLE.length,
@@ -2352,11 +2382,32 @@ router.get("/top-picks", (req, res) => {
  */
 router.get("/games-browser", (req, res) => {
   try {
-    const date = req.query.date ? String(req.query.date) : (() => {
+    const todayK = (() => {
       const d = new Date()
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     })()
+    let date = req.query.date ? String(req.query.date) : todayK
+    let fellBack = false
+    const requestedDate = date
     const sports = ["nba", "mlb"]
+    // Same date-rollover fallback as /top-picks (2026-05-31 fix)
+    const probeAnySport = (d) => {
+      for (const sport of sports) {
+        const f = readJsonSafe(fileFor(sport, "tracked_bets", d), null)
+        if (Array.isArray(f) && f.length) return true
+      }
+      return false
+    }
+    if (!req.query.date && !probeAnySport(date)) {
+      let latest = null
+      for (const sport of sports) {
+        try {
+          const d = findLatestDateWithData(sport)
+          if (d && (!latest || d > latest)) latest = d
+        } catch (_) {}
+      }
+      if (latest && latest !== date) { date = latest; fellBack = true }
+    }
     const reasoningIdx = {}
     for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
     const games = new Map()
@@ -2451,7 +2502,7 @@ router.get("/games-browser", (req, res) => {
       if (so !== 0) return so
       return (a.gameTime || "").localeCompare(b.gameTime || "")
     })
-    res.json({ date, sportsScanned: sports, gameCount: gamesArr.length, games: gamesArr })
+    res.json({ date, requestedDate, fellBack, todayKey: todayK, sportsScanned: sports, gameCount: gamesArr.length, games: gamesArr })
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) })
   }
