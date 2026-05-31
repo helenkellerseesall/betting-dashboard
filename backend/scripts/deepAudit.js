@@ -127,22 +127,32 @@ async function main() {
 
   // 4. CROSS-ENGINE CONSISTENCY — same prop in snapshot vs inspection paths
   H("4. CROSS-ENGINE CONSISTENCY")
-  // For now: check that tracked_bets and tracked_best agree on bet IDs / players for today
+  // 2026-05-31 — design-vs-drift distinction. tracked_best is a curated subset
+  // (NBA: full coverage. MLB: BATTER-ONLY power families = Total Bases / Home Runs /
+  // Hits / RBIs). Pitcher props (ks, outs) and non-power batter props (walks,
+  // runs) intentionally have no tracked_best entries. So MLB "only-in-bets"
+  // should be compared against BATTER-family players only, not all players.
+  const MLB_BEST_COVERED_FAMILIES = new Set(["totalBases", "totalbases", "total_bases", "hr", "home_runs", "homeruns", "hits", "rbis"])
   for (const sport of ["nba", "mlb"]) {
     const bets = readJsonSafe(path.join(TRACKING, `${sport}_tracked_bets_${TK}.json`)) || []
     const best = readJsonSafe(path.join(TRACKING, `${sport}_tracked_best_${TK}.json`)) || { entries: [] }
     if (!bets.length && !best.entries.length) { I(`${sport.toUpperCase()} ${TK}: both empty, nothing to compare`); continue }
-    const betPlayers = new Set((bets || []).map((b) => String(b.player || "").toLowerCase()))
+    // For MLB, restrict the bets-side comparison to families that tracked_best actually covers
+    const relevantBets = sport === "mlb"
+      ? bets.filter((b) => MLB_BEST_COVERED_FAMILIES.has(String(b.statFamily || "").toLowerCase()))
+      : bets
+    const betPlayers = new Set((relevantBets || []).map((b) => String(b.player || "").toLowerCase()))
     const bestPlayers = new Set((best.entries || []).map((e) => String(e.player || "").toLowerCase()))
     const onlyInBets = [...betPlayers].filter((p) => !bestPlayers.has(p)).length
     const onlyInBest = [...bestPlayers].filter((p) => !betPlayers.has(p)).length
     const overlap = [...betPlayers].filter((p) => bestPlayers.has(p)).length
-    if (overlap > 0 && onlyInBets < betPlayers.size * 0.5) {
-      P(`${sport.toUpperCase()} ${TK}: ${overlap} players in BOTH bets+best (${onlyInBets} only-bets, ${onlyInBest} only-best)`)
+    const scopeLabel = sport === "mlb" ? " (scope: batter-power-families only — pitcher props excluded by design)" : ""
+    if (overlap > 0 && onlyInBets < Math.max(betPlayers.size * 0.3, 5)) {
+      P(`${sport.toUpperCase()} ${TK}: ${overlap} players in BOTH bets+best${scopeLabel} (${onlyInBets} only-bets, ${onlyInBest} only-best)`)
     } else if (overlap > 0) {
-      W(`${sport.toUpperCase()} ${TK}: ${overlap} overlap but ${onlyInBets} only in bets — check enrichment join`)
+      W(`${sport.toUpperCase()} ${TK}: ${overlap} overlap but ${onlyInBets} only in bets${scopeLabel} — check enrichment join for covered families`)
     } else if (betPlayers.size && bestPlayers.size) {
-      F(`${sport.toUpperCase()} ${TK}: ZERO overlap between bets (${betPlayers.size}) and best (${bestPlayers.size}) — pipelines diverged`)
+      F(`${sport.toUpperCase()} ${TK}: ZERO overlap between bets (${betPlayers.size}) and best (${bestPlayers.size})${scopeLabel} — pipelines diverged`)
     }
   }
 
