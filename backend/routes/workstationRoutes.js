@@ -2196,15 +2196,33 @@ function buildReasoning(pick, bestEntry) {
     // Driver bullets from displayBundle.tags. Reject tags that fabricate a
     // zero opponent stat ("SAS allows 0 reb/g") — those are nullish values
     // being printed as literal 0 from upstream display formatters.
+    // Also drop "MINS ↓" when game context (elimination/Game 7) invalidates
+    // the trend signal (#60 — 2026-05-31 fix).
     const tags = Array.isArray(bestEntry?.displayBundle?.tags) ? bestEntry.displayBundle.tags : []
     const isFakeZeroTag = (t) =>
       /\ballows\s+0(\.0+)?\b/i.test(t) ||           // "SAS allows 0 reb/g"
       /\b=\s*0(\.0+)?\b/i.test(t) ||                // "opp X = 0"
       /\b0(\.0+)?\s*(reb|3pa|3pm|ast|stl|blk|pts|tov)\/g\b/i.test(t)  // "0 reb/g" naked
+    // gameContext-aware filter: drop MINS ↓ for starters facing elimination
+    let suppressMinsDown = false
+    try {
+      if (bestEntry?.gameContext) {
+        const { shouldSuppressMinsDownTag } = require("../pipeline/nba/nbaGameContextCache")
+        const roleStr = bestEntry?.starterFlag === 1 ? "starter" : (bestEntry?.starterFlag === 0 ? "bench" : "unknown")
+        suppressMinsDown = shouldSuppressMinsDownTag(bestEntry.team, bestEntry.gameContext, roleStr)
+      }
+    } catch (_) {}
     for (const tag of tags.slice(0, 6)) {
       if (typeof tag !== "string" || tag.length >= 60) continue
       if (isFakeZeroTag(tag)) continue
+      if (suppressMinsDown && /MINS\s*↓/.test(tag)) continue
       out.drivers.push(tag)
+    }
+    // Surface game-context awareness in drivers when relevant
+    if (bestEntry?.gameContext?.isGame7) {
+      out.drivers.push(`Game 7 (${bestEntry.gameContext.seriesStatus || "decider"}) — starter minutes boosted, bench rotation tightened`)
+    } else if (bestEntry?.gameContext?.isElimination) {
+      out.drivers.push(`Elimination spot — projected minutes adjusted for stakes`)
     }
   } else if (sport === "mlb" && bestEntry) {
     // MLB tracked_best doesn't carry L5 today — surface implied team total as proxy "form gauge".

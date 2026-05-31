@@ -43,6 +43,10 @@ try { _enrichRowWithRestContext = require("./nbaRestCache").enrichRowWithRestCon
 // 2026-05-30 — home/away splits (Tier 3 #8)
 let _enrichRowWithHomeAwaySplit = null
 try { _enrichRowWithHomeAwaySplit = require("./nbaHomeAwaySplits").enrichRowWithHomeAwaySplit } catch (_) {}
+// 2026-05-31 — game-context boost (#60). Elimination / Game-7 starters play
+// MORE minutes, bench rotation tightens. Reverses "MINS ↓" tag invalidation.
+let _enrichRowWithGameContext = null
+try { _enrichRowWithGameContext = require("./nbaGameContextCache").enrichRowWithGameContext } catch (_) {}
 const { enrichRowWithPlayerSeasonStats: enrichNbaRowWithPlayerSeasonStats } = require("./nbaPlayerSeasonStatsCache")
 const { enrichRowWithRoleContext: enrichNbaRowWithRoleContext } = require("./nbaRoleContextDeriver")
 const { buildSlateContextFromSnapshot: buildNbaTeammateSlateContext,
@@ -160,6 +164,13 @@ function buildNbaSnapshotCandidates(snapshotRows) {
     // vs the player's historical home/away stat avg.
     if (_enrichRowWithHomeAwaySplit) {
       try { _enrichRowWithHomeAwaySplit(enriched) } catch (_) {}
+    }
+    // 2026-05-31 — game context (#60). Attach row.gameContext from hand-curated
+    // nbaSeriesState.json so roleContext below can override the "MINS ↓" tag
+    // and bump starter minutes in elimination/Game-7 spots. Must run BEFORE
+    // enrichNbaRowWithRoleContext so the multiplier composes with rest.
+    if (_enrichRowWithGameContext) {
+      try { _enrichRowWithGameContext(enriched) } catch (_) {}
     }
     // Phase 1 — Recent Form V1 (Session AP): inject real per-player rolling
     // stats from settled-bet history BEFORE modelProb is computed, so

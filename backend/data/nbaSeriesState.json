@@ -1,0 +1,29 @@
+{
+  "_doc": "Hand-curated NBA playoff series state. Used by nbaGameContextCache to override the 12-game minutes-trend window when the game has elimination/closeout stakes. Each entry keyed by ISO date, values are arrays of games with context flags. The MVP cure for 2026-05-31 lesson: SGA/Caruso/Dylan Harper MINS ↓ tag fired during Game 7 closeout where starters actually played MORE not less. Operator-editable as new playoff games scheduled.",
+  "_schema": {
+    "matchup": "string — exactly matches matchup field on tracked_bets rows",
+    "homeTeam": "string — used to determine which team is at home",
+    "awayTeam": "string",
+    "isPlayoff": "boolean",
+    "isElimination": "boolean — winner advances, loser eliminated (true for all Game 7s; true when trailing team is at game point in 1-elim)",
+    "isGame7": "boolean — exactly game 7 of a series",
+    "seriesStatus": "string — human readable e.g. 'tied 3-3', 'NYK leads 3-2'",
+    "facingElimination": "string[] — team names whose season ends if they lose this game",
+    "round": "string — first_round | conference_semis | conference_finals | finals"
+  },
+  "games": {
+    "2026-05-30": [
+      {
+        "matchup": "San Antonio Spurs @ Oklahoma City Thunder",
+        "homeTeam": "Oklahoma City Thunder",
+        "awayTeam": "San Antonio Spurs",
+        "isPlayoff": true,
+        "isElimination": true,
+        "isGame7": true,
+        "seriesStatus": "tied 3-3",
+        "facingElimination": ["San Antonio Spurs", "Oklahoma City Thunder"],
+        "round": "conference_finals"
+      }
+    ]
+  }
+}

@@ -262,6 +262,24 @@ function enrichRowWithRoleContext(row) {
     }
   }
 
+  // 2026-05-31 — Game-context minutes scaler (#60). Elimination/Game-7
+  // starters play MORE (1.07x), bench rotation tightens (0.92x). About-to-
+  // clinch starters slight bump (1.04x). Composes with restMul above.
+  // Built in direct response to 2026-05-30 Game 7 lessons.json: every losing
+  // OKC leg had model saying "MINS ↓" while starters actually played 32+.
+  if (Number.isFinite(row.projectedMinutes) && row.gameContext) {
+    let gcMul = 1
+    try {
+      const { gameContextMinutesMultiplier } = require("./nbaGameContextCache")
+      const roleStr = row.starterFlag === 1 ? "starter" : (row.starterFlag === 0 ? "bench" : "unknown")
+      gcMul = gameContextMinutesMultiplier(row.team, row.gameContext, roleStr) || 1
+    } catch (_) { gcMul = 1 }
+    if (gcMul !== 1) {
+      row.projectedMinutes = Number((row.projectedMinutes * gcMul).toFixed(1))
+      row.gameContextMinutesAdjustment = gcMul
+    }
+  }
+
   row.roleContext = ctx
   return row
 }
