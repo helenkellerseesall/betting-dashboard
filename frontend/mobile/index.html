@@ -2680,18 +2680,20 @@
     }
 
     // Global modal for card expansion. One body-level overlay populated on tap.
-    // Click-outside / Esc closes. Replaces inline expand drop-down.
+    // 2026-05-31 R2.2.1: anchored to the source card, NOT center of screen.
+    // Backdrop is full-screen but the .inner card positions itself over (or
+    // beside) the tapped element, flipping to stay in viewport.
     if (!document.getElementById("v2-modal-style")) {
       const _ms = document.createElement("style");
       _ms.id = "v2-modal-style";
       _ms.textContent = `
-        #v2-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9999; display: none; align-items: flex-start; justify-content: center; padding-top: 8vh; }
-        #v2-modal.open { display: flex; }
-        #v2-modal .inner { background: #141828; max-width: 92vw; width: 420px; max-height: 80vh; overflow-y: auto; border-radius: 14px; padding: 18px; border: 1px solid #1F2937; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
-        #v2-modal .close { float: right; background: transparent; border: 0; color: #9CA3AF; font-size: 22px; cursor: pointer; padding: 0 8px; }
+        #v2-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9999; display: none; }
+        #v2-modal.open { display: block; }
+        #v2-modal .inner { position: absolute; background: #141828; width: 320px; max-width: 92vw; max-height: 70vh; overflow-y: auto; border-radius: 12px; padding: 16px; border: 1px solid #2A3142; box-shadow: 0 14px 40px rgba(0,0,0,0.75); }
+        #v2-modal .close { float: right; background: transparent; border: 0; color: #D1D5DB; font-size: 22px; cursor: pointer; padding: 0 8px; line-height: 1; }
         #v2-modal .hdr { font-size: 16px; font-weight: 700; color: #F9FAFB; margin-bottom: 4px; }
         #v2-modal .sub { font-size: 13px; color: #D1D5DB; margin-bottom: 4px; }
-        #v2-modal .mu { font-size: 11px; color: #9CA3AF; margin-bottom: 12px; }
+        #v2-modal .mu { font-size: 11px; color: #D1D5DB; margin-bottom: 12px; }
       `;
       document.head.appendChild(_ms);
       const overlay = document.createElement("div");
@@ -2701,18 +2703,21 @@
       document.body.appendChild(overlay);
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") overlay.classList.remove("open"); });
     }
-    // Open the modal with reasoning for a given pick. Called inline from card.
-    window._v2OpenModal = function(pickJson) {
+    // Open the modal anchored to the tapped element. `srcEl` is the card DOM
+    // element that was tapped — we use its bounding rect to position the
+    // modal next to it (above if there's no room below, etc.).
+    window._v2OpenModal = function(pickJson, srcEl) {
       try {
         const p = typeof pickJson === "string" ? JSON.parse(pickJson) : pickJson;
         const overlay = document.getElementById("v2-modal");
+        const inner = overlay.querySelector(".inner");
         const tier = String(p.tier || p.modelTier || "").toUpperCase();
         const tierC = _tierColor(tier);
         const conf = _confPct(p.modelProb);
         const edge = _edgePct(p.edge);
         const odds = _oddsNice(p.oddsAmerican || p.odds);
         const book = escapeHtml(p.sportsbook || p.book || "?");
-        overlay.querySelector(".inner").innerHTML = `
+        inner.innerHTML = `
           <button class="close" onclick="document.getElementById('v2-modal').classList.remove('open');">×</button>
           <div class="hdr">${escapeHtml(p.player || "?")}</div>
           <div class="sub">${_famNice(p.statFamily)} <b style="color:#F9FAFB;">${_sideNice(p.side)} ${p.line}</b></div>
@@ -2721,6 +2726,26 @@
           ${_renderBookOptions(p.bookOptions)}
         `;
         overlay.classList.add("open");
+        // Position over/near source. Compute after .open so dims are real.
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const innerW = Math.min(320, vw * 0.92);
+        let left, top;
+        if (srcEl && srcEl.getBoundingClientRect) {
+          const r = srcEl.getBoundingClientRect();
+          // Prefer overlaying the card (so eyeline doesn't jump); horizontally center on the card, clamp to viewport.
+          left = Math.max(8, Math.min(vw - innerW - 8, r.left + (r.width / 2) - (innerW / 2)));
+          // Vertical: try to anchor top of modal at top of card. If would overflow, lift up to fit.
+          const innerH = Math.min(inner.scrollHeight || 400, vh * 0.7);
+          top = r.top;
+          if (top + innerH > vh - 8) top = Math.max(8, vh - innerH - 8);
+          if (top < 8) top = 8;
+        } else {
+          // Fallback: center
+          left = (vw - innerW) / 2; top = vh * 0.08;
+        }
+        inner.style.left = left + "px";
+        inner.style.top = top + "px";
+        inner.style.width = innerW + "px";
       } catch (e) { console.error("modal open failed", e); }
     };
 
@@ -2742,7 +2767,7 @@
       const _stashId = `v2-pick-${cardId}`;
       if (!window._v2PickStash) window._v2PickStash = {};
       window._v2PickStash[_stashId] = pick;
-      const onTap = `window._v2OpenModal(window._v2PickStash['${_stashId}'])`;
+      const onTap = `window._v2OpenModal(window._v2PickStash['${_stashId}'], this)`;
 
       if (opts.compact) {
         // 3-col friendly: stacked, gaudy hierarchy. Player + line dominant.
