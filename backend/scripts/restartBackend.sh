@@ -90,3 +90,13 @@ echo "sysAudit exit=$AUDIT_EXIT (0=GREEN, 1=YELLOW, 2=RED)"
 if [ "$AUDIT_EXIT" -ge 2 ]; then
   echo "⚠ RED status — review .scratch/last.txt before proceeding"
 fi
+
+# 2026-05-31 (g) — post-boot delta check. If this restart was triggered by
+# a code change that broke something previously working, the radar fires.
+echo
+echo "--- auditDeltaCheck (radar) ---"
+node "$REPO_ROOT/backend/scripts/auditDeltaCheck.js" 2>&1
+DELTA_EXIT=$?
+if [ "$DELTA_EXIT" -eq 2 ]; then
+  echo "⚠ REGRESSION DETECTED — see backend/runtime/audits/regression_alerts.log"
+fi

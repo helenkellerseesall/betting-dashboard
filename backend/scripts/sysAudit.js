@@ -451,6 +451,26 @@ async function main() {
   else if (FAILED === 0) console.log("STATUS: YELLOW — pipeline functional, freshness concerns above")
   else console.log("STATUS: RED — at least one critical failure, see ✗ lines")
 
+  // 2026-05-31 (g) — audit history JSONL for delta detector. Append one line
+  // per run so auditDeltaCheck.js can compare hour-over-hour and flag
+  // regressions (the "radar" — fires when a fix breaks something we already
+  // had right).
+  try {
+    const histFile = path.join(REPO, "backend", "runtime", "audits", "audit_history.jsonl")
+    let commit = "unknown"
+    try { commit = execSync("git rev-parse HEAD", { cwd: REPO, timeout: 2000 }).toString().trim() } catch {}
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      audit: "sys",
+      commit: commit.slice(0, 7),
+      commitFull: commit,
+      totals: { passed: PASSED, warned: WARNED, failed: FAILED, total },
+      status: FAILED === 0 && WARNED === 0 ? "GREEN" : (FAILED === 0 ? "YELLOW" : "RED"),
+    })
+    fs.mkdirSync(path.dirname(histFile), { recursive: true })
+    fs.appendFileSync(histFile, line + "\n")
+  } catch (e) { /* don't fail the audit because history append failed */ }
+
   process.exit(FAILED > 0 ? 2 : (WARNED > 0 ? 1 : 0))
 }
 

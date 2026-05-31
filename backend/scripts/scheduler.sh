@@ -158,6 +158,14 @@ while true; do
     else
       log "sysAudit GREEN — exit 0"
     fi
+    # 2026-05-31 (g) — delta check: fires regression alert when this run
+    # is WORSE than the previous run. Catches "the fix we just shipped
+    # broke a category we already had right." Writes to regression_alerts.log.
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/auditDeltaCheck.js >> "$LOG" 2>&1; then
+      log "auditDeltaCheck: clean (no regressions vs prior hour)"
+    else
+      log "auditDeltaCheck: REGRESSION DETECTED (see regression_alerts.log)"
+    fi
     fired=true
   fi
 
