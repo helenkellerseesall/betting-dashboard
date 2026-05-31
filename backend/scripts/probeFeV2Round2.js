@@ -10,30 +10,57 @@
 // `.scratch/last.txt` by the operator's run wrapper).
 
 const http = require("http")
+const fs = require("fs")
+const path = require("path")
 
-const PORT = process.env.PORT || 4000
 const HOST = "127.0.0.1"
 
-function fetchJson(path) {
-  return new Promise((resolve, reject) => {
-    const req = http.request({ host: HOST, port: PORT, path, method: "GET", timeout: 60000 }, (res) => {
+// Auto-detect backend port. Read from RUNTIME_FACTS.md if present, else
+// fall through a candidate list. Never hard-code a single port — that was
+// the exact failure mode that caused operator wave 2026-05-31.
+function detectPort() {
+  if (process.env.PORT) return [Number(process.env.PORT)]
+  try {
+    const facts = fs.readFileSync(path.join(__dirname, "..", "..", "RUNTIME_FACTS.md"), "utf8")
+    const m = facts.match(/\*\*Port:\*\*\s*`?(\d{2,5})`?/i)
+    if (m) return [Number(m[1]), 4000, 5050].filter((v, i, a) => a.indexOf(v) === i)
+  } catch (e) { /* fall through */ }
+  return [4000, 5050]
+}
+const CANDIDATE_PORTS = detectPort()
+let RESOLVED_PORT = null
+
+function _try(port, p) {
+  return new Promise((resolve) => {
+    const req = http.request({ host: HOST, port, path: p, method: "GET", timeout: 5000 }, (res) => {
       let body = ""
       res.on("data", (chunk) => (body += chunk))
       res.on("end", () => {
-        try { resolve({ status: res.statusCode, json: JSON.parse(body) }) }
-        catch (e) { resolve({ status: res.statusCode, raw: body, parseError: String(e) }) }
+        try { resolve({ status: res.statusCode, json: JSON.parse(body), port }) }
+        catch (e) { resolve({ status: res.statusCode, raw: body, parseError: String(e), port }) }
       })
     })
-    req.on("error", reject)
-    req.on("timeout", () => { req.destroy(new Error("timeout")) })
+    req.on("error", (e) => resolve({ error: String(e?.message || e), port }))
+    req.on("timeout", () => { req.destroy(); resolve({ error: "timeout", port }) })
     req.end()
   })
+}
+
+async function fetchJson(p) {
+  if (RESOLVED_PORT) return _try(RESOLVED_PORT, p)
+  // First request: try each candidate until one responds
+  for (const port of CANDIDATE_PORTS) {
+    const r = await _try(port, p)
+    if (!r.error) { RESOLVED_PORT = port; return r }
+  }
+  return { error: `all candidate ports ECONNREFUSED: ${CANDIDATE_PORTS.join(", ")}` }
 }
 
 function _short(s, n = 60) { return String(s || "").slice(0, n) }
 
 async function main() {
-  console.log("=== FE v2 round 2 probe — " + new Date().toISOString() + " ===\n")
+  console.log("=== FE v2 round 2 probe — " + new Date().toISOString() + " ===")
+  console.log(`Candidate ports (from RUNTIME_FACTS or default): ${CANDIDATE_PORTS.join(", ")}\n`)
 
   // 1. TOP PICKS
   console.log("--- /api/ws/top-picks?limit=15 ---")
