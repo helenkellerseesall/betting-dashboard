@@ -791,7 +791,27 @@ function addOrUpdateBet(input = {}, { ledger: existingLedger = null, save = true
   const isNew = existingIdx === -1
   if (isNew) {
     ledger.bets.push(bet)
-    if (ledger.bets.length > MAX_BETS) ledger.bets.splice(0, ledger.bets.length - MAX_BETS)
+    if (ledger.bets.length > MAX_BETS) {
+      // 2026-05-31 — placed-bet protection. Original FIFO prune wiped real-money
+      // bets (decisionType="placed" / realMoney=true) along with old model-tracked
+      // entries. Operator's 2 Game 7 parlays got swept off the front overnight.
+      // Fix: partition into [placed, modelTracked]. Always keep ALL placed bets.
+      // Prune ONLY model-tracked entries until total ≤ MAX_BETS.
+      const isPlaced = (b) => b.decisionType === "placed" || b.realMoney === true
+      const placed = ledger.bets.filter(isPlaced)
+      const modelTracked = ledger.bets.filter((b) => !isPlaced(b))
+      const overage = (placed.length + modelTracked.length) - MAX_BETS
+      if (overage > 0 && modelTracked.length >= overage) {
+        modelTracked.splice(0, overage)
+      } else if (overage > 0) {
+        // Edge case: more placed bets than MAX_BETS — operator must triage.
+        // Bump MAX_BETS or archive old placed. For now, keep all placed,
+        // drop ALL model-tracked, log a warning.
+        modelTracked.length = 0
+        console.warn(`[buildPersonalLedger] placed-bet count (${placed.length}) exceeds MAX_BETS (${MAX_BETS}) — model-tracked entries dropped. Bump MAX_BETS or archive old placed bets.`)
+      }
+      ledger.bets = [...placed, ...modelTracked]
+    }
   } else {
     // Merge: keep settled results, allow updating pending fields.
     const prev = ledger.bets[existingIdx]
