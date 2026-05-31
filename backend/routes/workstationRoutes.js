@@ -2402,7 +2402,6 @@ router.get("/games-browser", (req, res) => {
  *
  * Cached at module-load time — calling this endpoint does NOT shell out.
  */
-const path = require("path")
 let _VERSION_CACHE = null
 function _computeVersion() {
   if (_VERSION_CACHE) return _VERSION_CACHE
