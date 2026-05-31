@@ -138,9 +138,17 @@ async function main() {
     const best = readJsonSafe(path.join(TRACKING, `${sport}_tracked_best_${TK}.json`)) || { entries: [] }
     if (!bets.length && !best.entries.length) { I(`${sport.toUpperCase()} ${TK}: both empty, nothing to compare`); continue }
     // For MLB, restrict the bets-side comparison to families that tracked_best actually covers
+    // AND exclude LONGSHOT/FADE tier (those are filtered from FE display, so missing reasoning blurbs doesn't matter for them)
     const relevantBets = sport === "mlb"
-      ? bets.filter((b) => MLB_BEST_COVERED_FAMILIES.has(String(b.statFamily || "").toLowerCase()))
-      : bets
+      ? bets.filter((b) => {
+          const fam = String(b.statFamily || "").toLowerCase()
+          const tier = String(b.tier || b.modelTier || "").toUpperCase()
+          return MLB_BEST_COVERED_FAMILIES.has(fam) && tier !== "LONGSHOT" && tier !== "FADE"
+        })
+      : bets.filter((b) => {
+          const tier = String(b.tier || b.modelTier || "").toUpperCase()
+          return tier !== "LONGSHOT" && tier !== "FADE"
+        })
     const betPlayers = new Set((relevantBets || []).map((b) => String(b.player || "").toLowerCase()))
     const bestPlayers = new Set((best.entries || []).map((e) => String(e.player || "").toLowerCase()))
     const onlyInBets = [...betPlayers].filter((p) => !bestPlayers.has(p)).length
