@@ -90,6 +90,14 @@
     .tab.active .tab-count {
       background: #FBBF24; color: #0A0E1A;
     }
+    /* 2026-05-30 FE v2 tab colors */
+    .tab[data-sport="top"].active { border-color: #FBBF24; color: #FBBF24; }
+    .tab[data-sport="top"].active .tab-count { background: #FBBF24; color: #0A0E1A; }
+    .tab[data-sport="mybets"].active { border-color: #34D399; color: #34D399; }
+    .tab[data-sport="mybets"].active .tab-count { background: #34D399; color: #0A0E1A; }
+    .tab[data-sport="games"].active { border-color: #38BDF8; color: #38BDF8; }
+    .tab[data-sport="games"].active .tab-count { background: #38BDF8; color: #0A0E1A; }
+    /* Legacy colors preserved for hidden tabs */
     .tab[data-sport="mlb"].active { border-color: #34D399; color: #34D399; }
     .tab[data-sport="mlb"].active .tab-count { background: #34D399; color: #0A0E1A; }
     .tab[data-sport="nba"].active { border-color: #F97316; color: #F97316; }
@@ -665,11 +673,14 @@
       <span id="lastUpdate">—</span>
     </div>
     <div class="sport-tabs">
-      <button class="tab active" data-sport="mlb">MLB <span class="tab-count" id="mlbCount">—</span></button>
-      <button class="tab" data-sport="nba">NBA <span class="tab-count" id="nbaCount">—</span></button>
-      <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
-      <button class="tab" data-sport="analyze">ANALYZE</button>
+      <!-- 2026-05-30 FE v2 overhaul. New tab structure per operator design session.
+           Legacy tabs (MLB/NBA/PARLAY/ANALYZE) hidden but kept in code for now —
+           remove after v2 stabilizes. -->
+      <button class="tab active" data-sport="top">TOP PICKS <span class="tab-count" id="topCount">—</span></button>
+      <button class="tab" data-sport="mybets">MY BETS <span class="tab-count" id="myBetsCount">0</span></button>
+      <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
       <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
+      <!-- legacy tabs hidden but available via dev console: data-sport=mlb|nba|parlay|analyze -->
     </div>
   </header>
 
@@ -1326,16 +1337,35 @@
         // FE just hides the bottom 3 per operator preference.
         return source.filter(c => isPreferredBook(c.sportsbook || c.book)).length;
       };
-      document.getElementById("mlbCount").textContent = allowedCount(state.data.mlb);
-      document.getElementById("nbaCount").textContent = allowedCount(state.data.nba);
-      // Parlay tab count
+      // Legacy tab counts (mlb/nba/parlay) — kept for backward-compat with
+      // hidden legacy tabs. New v2 tab counts are fetched lazily per-tab.
+      const _mlbCountEl = document.getElementById("mlbCount");
+      const _nbaCountEl = document.getElementById("nbaCount");
+      if (_mlbCountEl) _mlbCountEl.textContent = allowedCount(state.data.mlb);
+      if (_nbaCountEl) _nbaCountEl.textContent = allowedCount(state.data.nba);
       const pCountEl = document.getElementById("parlayCount");
-      pCountEl.textContent = state.parlay.length;
-      pCountEl.classList.toggle("has-legs", state.parlay.length > 0);
+      if (pCountEl) {
+        pCountEl.textContent = state.parlay.length;
+        pCountEl.classList.toggle("has-legs", state.parlay.length > 0);
+      }
 
       // Reset the rendered-index map; will be rebuilt as cards render.
       state._renderedIndex = {};
 
+      // ── 2026-05-30 FE v2 tab routing ──────────────────────────────────
+      if (sport === "top") {
+        renderTopPicks(main);
+        return;
+      }
+      if (sport === "mybets") {
+        renderMyBets(main);
+        return;
+      }
+      if (sport === "games") {
+        renderGamesBrowser(main);
+        return;
+      }
+      // ── Legacy tab routes (still available; hidden from default UI) ───
       // Parlay tab early-out — its own renderer, doesn't share the
       // freshness/buckets pipeline.
       if (sport === "parlay") {
@@ -2513,6 +2543,244 @@
       }, 300);
     }
     window.onSearchInput = onSearchInput;
+
+    // ═════════════════════════════════════════════════════════════════
+    // 2026-05-30 FE v2 — TOP PICKS / MY BETS / GAMES renderers
+    // ═════════════════════════════════════════════════════════════════
+
+    // ── Shared helpers for v2 cards ──────────────────────────────────
+    function _tierColor(t) {
+      const tier = String(t || "").toUpperCase();
+      if (tier === "ELITE") return "#FBBF24";
+      if (tier === "STRONG") return "#34D399";
+      if (tier === "PLAYABLE") return "#38BDF8";
+      return "#9CA3AF";
+    }
+    function _confPct(p) { return p == null ? "—" : `${(p * 100).toFixed(0)}%`; }
+    function _edgePct(e) { return e == null ? "—" : `${(e >= 0 ? "+" : "")}${(e * 100).toFixed(1)}%`; }
+    function _famNice(f) {
+      const s = String(f || "").replace(/_/g, " ");
+      const M = { "points rebounds assists": "PRA", "points rebounds": "P+R", "points assists": "P+A", "rebounds assists": "R+A",
+                  "ks": "Ks", "rbis": "RBI", "totalbases": "Total Bases", "hr": "HR" };
+      return M[s] || s.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    function _sideNice(s) { return String(s || "").toUpperCase(); }
+    function _oddsNice(o) {
+      const n = Number(o); if (!Number.isFinite(n)) return "—";
+      return n > 0 ? `+${n}` : `${n}`;
+    }
+
+    // ── v2 collapsed card: player + prop + line + side + conf% + edge% ──
+    function renderV2Card(pick, opts = {}) {
+      const tier = String(pick.tier || pick.modelTier || "").toUpperCase();
+      const tierC = _tierColor(tier);
+      const conf = _confPct(pick.modelProb);
+      const edge = _edgePct(pick.edge);
+      const sportBadge = pick.sport ? `<span style="background:#1F2937;color:#9CA3AF;font-size:9px;padding:2px 6px;border-radius:4px;margin-right:6px;">${pick.sport.toUpperCase()}</span>` : "";
+      const starBadge = opts.showStar && pick.isTopPick ? `<span style="color:#FBBF24;margin-left:6px;">⭐</span>` : "";
+      const cardId = `v2card-${(pick.id || "") + "-" + Math.random().toString(36).slice(2,8)}`;
+      return `
+        <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:3px solid ${tierC};">
+          <div style="display:flex;align-items:center;cursor:pointer;" onclick="document.getElementById('${cardId}-exp').classList.toggle('open');this.querySelector('.v2-chev').textContent=document.getElementById('${cardId}-exp').classList.contains('open')?'▾':'▸';">
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;flex-wrap:wrap;">
+                ${sportBadge}
+                <span style="font-size:14px;font-weight:600;color:#F9FAFB;">${escapeHtml(pick.player || "?")}</span>${starBadge}
+              </div>
+              <div style="font-size:13px;color:#D1D5DB;margin-top:2px;">${_famNice(pick.statFamily)} ${_sideNice(pick.side)} ${pick.line}</div>
+            </div>
+            <div style="text-align:right;font-family:ui-monospace,monospace;">
+              <div style="font-size:14px;color:${tierC};font-weight:700;">${conf}</div>
+              <div style="font-size:11px;color:#9CA3AF;">${edge}</div>
+            </div>
+            <span class="v2-chev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
+          </div>
+          <div id="${cardId}-exp" class="v2-card-exp" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1F2937;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9CA3AF;">
+              <span><b style="color:${tierC};">${tier || "—"}</b></span>
+              <span>${_oddsNice(pick.oddsAmerican || pick.odds)} @ ${escapeHtml(pick.sportsbook || "?")}</span>
+            </div>
+            ${(pick.matchup) ? `<div style="font-size:11px;color:#6B7280;margin-top:4px;">${escapeHtml(pick.matchup)}</div>` : ""}
+          </div>
+        </div>
+      `;
+    }
+    // CSS for the expand state
+    if (!document.getElementById("v2-card-style")) {
+      const _s = document.createElement("style");
+      _s.id = "v2-card-style";
+      _s.textContent = `.v2-card-exp.open { display: block !important; }`;
+      document.head.appendChild(_s);
+    }
+
+    // ── TOP PICKS renderer ──────────────────────────────────────────────
+    async function renderTopPicks(main) {
+      main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading top picks…</div>`;
+      try {
+        const r = await fetch(`${API}/api/ws/top-picks?limit=50`);
+        const d = await r.json();
+        const picks = d.picks || [];
+        document.getElementById("topCount").textContent = picks.length;
+        if (!picks.length) {
+          main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No top picks available for ${d.date}.</div>`;
+          return;
+        }
+        // Group by tier for visual separation
+        const byTier = { ELITE: [], STRONG: [], PLAYABLE: [] };
+        for (const p of picks) {
+          const t = String(p.tier || p.modelTier || "").toUpperCase();
+          if (byTier[t]) byTier[t].push(p);
+        }
+        let html = `<div style="padding:8px 12px;">
+          <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">
+            ${picks.length} picks · ${byTier.ELITE.length} ELITE · ${byTier.STRONG.length} STRONG · ${byTier.PLAYABLE.length} PLAYABLE · cross-sport ${(d.sportsScanned || []).join("+")}
+          </div>`;
+        for (const tier of ["ELITE", "STRONG", "PLAYABLE"]) {
+          if (!byTier[tier].length) continue;
+          const c = _tierColor(tier);
+          html += `<div style="margin-top:14px;font-size:11px;color:${c};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${tier} · ${byTier[tier].length}</div>`;
+          for (const p of byTier[tier]) html += renderV2Card(p);
+        }
+        html += `</div>`;
+        main.innerHTML = html;
+      } catch (e) {
+        main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading top picks: ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    }
+
+    // ── MY BETS renderer ────────────────────────────────────────────────
+    async function renderMyBets(main) {
+      main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading placed bets…</div>`;
+      try {
+        const r = await fetch(`${API}/api/ws/ledger/yesterday`);
+        const d = await r.json();
+        const pb = d.placedBets || null;
+        const bets = pb?.bets || [];
+        document.getElementById("myBetsCount").textContent = bets.length;
+        if (!bets.length) {
+          main.innerHTML = `<div style="padding:24px;color:#9CA3AF;text-align:center;">
+            <div style="font-size:28px;margin-bottom:10px;">📝</div>
+            No placed bets yet.<br>
+            <span style="font-size:12px;color:#6B7280;">Log a bet via <code style="background:#141828;padding:2px 6px;border-radius:4px;">backend/scripts/addPlacedBet.js</code> CLI.</span>
+          </div>`;
+          return;
+        }
+        let html = `<div style="padding:8px 12px;">`;
+        // Summary card
+        html += `
+          <div style="background:#141828;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid #34D399;">
+            <div style="font-size:11px;color:#6B7280;letter-spacing:1px;margin-bottom:6px;">TOTAL EXPOSURE</div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <div>
+                <span style="font-size:22px;font-weight:700;color:#F9FAFB;">$${pb.staked}</span>
+                <span style="font-size:11px;color:#6B7280;margin-left:6px;">staked</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px;color:#6B7280;">POTENTIAL</div>
+                <div style="font-size:18px;color:#34D399;font-family:ui-monospace,monospace;">+$${pb.toWin}</div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:#9CA3AF;margin-top:10px;">
+              ${pb.count} bet${pb.count === 1 ? "" : "s"} · ${pb.pending} pending · ${pb.wins}W ${pb.losses}L${pb.pushes ? ' ' + pb.pushes + 'P' : ''}
+              ${pb.hitRate != null ? ` · hit ${(pb.hitRate*100).toFixed(0)}%` : ''}
+              ${pb.roi != null ? ` · roi ${(pb.roi*100).toFixed(1)}%` : ''}
+            </div>
+          </div>
+        `;
+        for (const b of bets) {
+          const isWin = b.result === "win"; const isLoss = b.result === "loss";
+          const resultC = isWin ? "#34D399" : isLoss ? "#F87171" : "#FBBF24";
+          const resultTxt = isWin ? "WON" : isLoss ? "LOST" : "PENDING";
+          const legsHtml = (b.legs || []).map((l) => `
+            <div style="font-size:12px;color:#D1D5DB;padding:4px 0;border-top:1px solid #1F2937;">
+              <span style="color:#9CA3AF;">${escapeHtml(l.player || "")}</span> · ${_famNice(l.statFamily)} ${_sideNice(l.side)} ${l.line}
+              ${l.result ? `<span style="float:right;font-size:10px;color:${l.result === 'win' ? '#34D399' : l.result === 'loss' ? '#F87171' : '#FBBF24'};">${l.result.toUpperCase()}</span>` : ""}
+            </div>
+          `).join("");
+          html += `
+            <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${resultC};">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <div>
+                  <span style="font-size:11px;background:#1F2937;color:#9CA3AF;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${b.betType || "single"} · ${escapeHtml(b.sportsbook || "?")}</span>
+                </div>
+                <span style="font-size:11px;font-weight:700;color:${resultC};">${resultTxt}</span>
+              </div>
+              <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
+                <span style="font-size:13px;color:#F9FAFB;">$${b.stake} @ ${_oddsNice(b.odds)}</span>
+                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>
+              </div>
+              ${legsHtml ? `<div style="margin-top:8px;">${legsHtml}</div>` : ""}
+              ${b.notes ? `<div style="margin-top:6px;font-size:10px;color:#6B7280;font-style:italic;">${escapeHtml(b.notes)}</div>` : ""}
+            </div>
+          `;
+        }
+        html += `</div>`;
+        main.innerHTML = html;
+      } catch (e) {
+        main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading My Bets: ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    }
+
+    // ── GAMES drill-down renderer ──────────────────────────────────────
+    let _gamesBrowserCache = null;
+    async function renderGamesBrowser(main) {
+      main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading games…</div>`;
+      try {
+        const r = await fetch(`${API}/api/ws/games-browser`);
+        const d = await r.json();
+        _gamesBrowserCache = d;
+        document.getElementById("gamesCount").textContent = d.gameCount || 0;
+        const games = d.games || [];
+        if (!games.length) {
+          main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No games tonight.</div>`;
+          return;
+        }
+        let html = `<div style="padding:8px 12px;">`;
+        for (let gi = 0; gi < games.length; gi++) {
+          const g = games[gi];
+          const totalProps = g.players.reduce((s, p) => s + p.props.length, 0);
+          const starCount = g.players.reduce((s, p) => s + p.props.filter((pr) => pr.isTopPick).length, 0);
+          const gameId = `game-${gi}`;
+          const sportBadge = g.sport ? `<span style="background:#1F2937;color:#9CA3AF;font-size:9px;padding:2px 6px;border-radius:4px;margin-right:6px;">${g.sport.toUpperCase()}</span>` : "";
+          html += `
+            <div style="background:#141828;border-radius:10px;margin-bottom:10px;">
+              <div style="padding:12px;cursor:pointer;" onclick="document.getElementById('${gameId}').classList.toggle('open');this.querySelector('.gchev').textContent=document.getElementById('${gameId}').classList.contains('open')?'▾':'▸';">
+                <div style="display:flex;align-items:center;">
+                  <div style="flex:1;">
+                    ${sportBadge}
+                    <span style="font-size:14px;color:#F9FAFB;">${escapeHtml(g.matchup || "")}</span>
+                  </div>
+                  <div style="text-align:right;font-size:11px;color:#9CA3AF;">
+                    ${g.players.length} players · ${totalProps} props ${starCount ? `· <span style="color:#FBBF24;">⭐${starCount}</span>` : ''}
+                  </div>
+                  <span class="gchev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
+                </div>
+              </div>
+              <div id="${gameId}" class="v2-card-exp" style="display:none;padding:0 12px 12px 12px;">`;
+          for (let pi = 0; pi < g.players.length; pi++) {
+            const player = g.players[pi];
+            const pId = `${gameId}-p${pi}`;
+            const playerStarCount = player.props.filter((pr) => pr.isTopPick).length;
+            html += `
+              <div style="border-top:1px solid #1F2937;">
+                <div style="padding:8px 0;cursor:pointer;" onclick="document.getElementById('${pId}').classList.toggle('open');this.querySelector('.pchev').textContent=document.getElementById('${pId}').classList.contains('open')?'▾':'▸';">
+                  <span style="font-size:13px;color:#D1D5DB;">${escapeHtml(player.player)}</span>
+                  <span style="float:right;font-size:11px;color:#9CA3AF;">${player.props.length} props ${playerStarCount ? `<span style="color:#FBBF24;">⭐${playerStarCount}</span>` : ''} <span class="pchev" style="color:#6B7280;margin-left:6px;">▸</span></span>
+                </div>
+                <div id="${pId}" class="v2-card-exp" style="display:none;padding-left:12px;">`;
+            for (const prop of player.props) {
+              html += renderV2Card(prop, { showStar: true });
+            }
+            html += `</div></div>`;
+          }
+          html += `</div></div>`;
+        }
+        html += `</div>`;
+        main.innerHTML = html;
+      } catch (e) {
+        main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading games: ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────
     // v0.2.0: Parlay tab renderer. Shows combined odds, single-book buildability,
