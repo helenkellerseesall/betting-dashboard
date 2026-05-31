@@ -2283,10 +2283,16 @@ router.get("/top-picks", (req, res) => {
     const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50))
     const sports = ["nba", "mlb"]
 
-    // Date-rollover fallback (2026-05-31): when "today" has no tracking files
-    // yet (e.g. post-midnight ET, scheduler hasn't generated tomorrow's slate),
-    // fall back to the most recent date that DOES have data. Without this the
-    // FE shows "No top picks available for {today}" at midnight every night.
+    // Date-rollover fallback (2026-05-31): when "today" has no tracked_bets
+    // yet (e.g. post-midnight ET, scheduler hasn't generated tomorrow's slate
+    // or it generated a tracked_best but no bets crossed cutoffs), fall back
+    // to the most recent date with NON-EMPTY tracked_bets across ANY sport.
+    //
+    // IMPORTANT: must check tracked_BETS specifically, not findLatestDateWithData
+    // which also accepts tracked_best — that gap caused the 2026-05-31 4:55am
+    // bug where NBA tracked_best had 163 entries but tracked_bets was [],
+    // so findLatestDateWithData returned 5-31 and the endpoint then read the
+    // empty bets file → 0 picks served.
     const probeAnySport = (d) => {
       for (const sport of sports) {
         const f = readJsonSafe(fileFor(sport, "tracked_bets", d), null)
@@ -2294,15 +2300,28 @@ router.get("/top-picks", (req, res) => {
       }
       return false
     }
+    function findLatestDateWithBets() {
+      try {
+        const today = todayK
+        const files = require("fs").readdirSync(TRACKING_DIR)
+        const dayKeys = files
+          .filter((f) => /^(nba|mlb)_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f))
+          .map((f) => (f.match(/_(\d{4}-\d{2}-\d{2})\.json$/) || [])[1])
+          .filter(Boolean)
+          .filter((dk) => dk <= today)
+          .sort()
+          .reverse()
+        const seen = new Set()
+        for (const dk of dayKeys) {
+          if (seen.has(dk)) continue
+          seen.add(dk)
+          if (probeAnySport(dk)) return dk
+        }
+      } catch (_) {}
+      return null
+    }
     if (!req.query.date && !probeAnySport(date)) {
-      // Try latest date with data for either sport
-      let latest = null
-      for (const sport of sports) {
-        try {
-          const d = findLatestDateWithData(sport)
-          if (d && (!latest || d > latest)) latest = d
-        } catch (_) {}
-      }
+      const latest = findLatestDateWithBets()
       if (latest && latest !== date) { date = latest; fellBack = true }
     }
 
@@ -2390,7 +2409,8 @@ router.get("/games-browser", (req, res) => {
     let fellBack = false
     const requestedDate = date
     const sports = ["nba", "mlb"]
-    // Same date-rollover fallback as /top-picks (2026-05-31 fix)
+    // Same date-rollover fallback as /top-picks. MUST check tracked_BETS
+    // specifically (not findLatestDateWithData which also accepts tracked_best).
     const probeAnySport = (d) => {
       for (const sport of sports) {
         const f = readJsonSafe(fileFor(sport, "tracked_bets", d), null)
@@ -2398,14 +2418,27 @@ router.get("/games-browser", (req, res) => {
       }
       return false
     }
+    function findLatestDateWithBets() {
+      try {
+        const files = require("fs").readdirSync(TRACKING_DIR)
+        const dayKeys = files
+          .filter((f) => /^(nba|mlb)_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f))
+          .map((f) => (f.match(/_(\d{4}-\d{2}-\d{2})\.json$/) || [])[1])
+          .filter(Boolean)
+          .filter((dk) => dk <= todayK)
+          .sort()
+          .reverse()
+        const seen = new Set()
+        for (const dk of dayKeys) {
+          if (seen.has(dk)) continue
+          seen.add(dk)
+          if (probeAnySport(dk)) return dk
+        }
+      } catch (_) {}
+      return null
+    }
     if (!req.query.date && !probeAnySport(date)) {
-      let latest = null
-      for (const sport of sports) {
-        try {
-          const d = findLatestDateWithData(sport)
-          if (d && (!latest || d > latest)) latest = d
-        } catch (_) {}
-      }
+      const latest = findLatestDateWithBets()
       if (latest && latest !== date) { date = latest; fellBack = true }
     }
     const reasoningIdx = {}
