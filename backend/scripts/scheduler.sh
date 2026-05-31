@@ -123,6 +123,30 @@ while true; do
     fired=true
   fi
 
+  # 2026-05-31 — Hourly sysAudit (self-awareness layer task #69).
+  # Fires at every :00 between 9 AM and 11 PM ET. Writes per-hour audit
+  # snapshot to .scratch/audit_HH.txt. If exit ≥ 2 (RED — critical drift),
+  # appends a one-line alert to backend/runtime/audits/drift_alerts.log
+  # with timestamp + first failure line so operator can grep history.
+  if [ "$MIN" -eq 0 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
+    AUDIT_FILE="/Users/andrewmoore/Desktop/betting-dashboard/.scratch/audit_${HOUR_RAW}.txt"
+    ALERT_LOG="/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/audits/drift_alerts.log"
+    mkdir -p "$(dirname "$ALERT_LOG")"
+    log "sysAudit starting (will write to audit_${HOUR_RAW}.txt)"
+    node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/sysAudit.js > "$AUDIT_FILE" 2>&1
+    AUDIT_EXIT=$?
+    if [ "$AUDIT_EXIT" -ge 2 ]; then
+      FIRST_FAIL=$(grep -m1 '^\[✗\]' "$AUDIT_FILE" || echo "(no fail line found)")
+      echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] RED · exit=$AUDIT_EXIT · ${FIRST_FAIL}" >> "$ALERT_LOG"
+      log "sysAudit RED — exit $AUDIT_EXIT — alert appended to drift_alerts.log"
+    elif [ "$AUDIT_EXIT" -eq 1 ]; then
+      log "sysAudit YELLOW — warnings only (exit 1)"
+    else
+      log "sysAudit GREEN — exit 0"
+    fi
+    fired=true
+  fi
+
   if [ "$fired" = "true" ]; then
     last_ran_min="$STAMP"
   fi

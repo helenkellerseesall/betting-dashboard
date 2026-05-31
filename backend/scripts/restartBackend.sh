@@ -72,3 +72,21 @@ if [[ -n "$RESP" && "$RESP" == *"Cannot GET /api/ws/version"* ]]; then
 fi
 
 echo "OK: backend restarted, OLD ${OLD_PID:-<none>} → NEW ${NEW_PID}, version endpoint live"
+
+# 2026-05-31 — post-boot self-check (task #69 self-awareness layer).
+# Run sysAudit immediately so any drift introduced by the just-loaded code
+# is caught before the operator places real money or runs further work.
+# Writes to .scratch/last.txt as the canonical sscope-shared location.
+echo
+echo "==================================================="
+echo "Running post-boot sysAudit (writes to .scratch/last.txt)..."
+echo "==================================================="
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+node "$REPO_ROOT/backend/scripts/sysAudit.js" > "$REPO_ROOT/.scratch/last.txt" 2>&1
+AUDIT_EXIT=$?
+# Surface the summary line and exit status
+tail -3 "$REPO_ROOT/.scratch/last.txt"
+echo "sysAudit exit=$AUDIT_EXIT (0=GREEN, 1=YELLOW, 2=RED)"
+if [ "$AUDIT_EXIT" -ge 2 ]; then
+  echo "⚠ RED status — review .scratch/last.txt before proceeding"
+fi
