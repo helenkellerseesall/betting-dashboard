@@ -118,7 +118,12 @@ async function buildSlateEvents({
 	// leaked 22 picks into 2026-05-27 tracked_bets. Capping at 72 hours
 	// admits tomorrow's pregame slate (typical NBA schedule gap is 0-2 days
 	// between conf-finals games) but rejects week-out speculative listings.
-	const MAX_LOOKAHEAD_MS = 72 * 60 * 60 * 1000  // 72 hours
+	// 2026-05-31 — bumped 72h → 120h. NBA Finals matchup confirmed (SAS vs NYK
+	// after Game 7) but Game 1 is Wednesday (~3.5 days out), getting filtered
+	// by the 72h cap. 120h (5 days) admits Game 1 + tomorrow's MLB without
+	// re-opening the week-out speculative leak — placeholder games with
+	// eliminated teams are only listed 6-7+ days out historically.
+	const MAX_LOOKAHEAD_MS = 120 * 60 * 60 * 1000  // 120 hours / 5 days
 	const maxLookaheadCutoff = now + MAX_LOOKAHEAD_MS
 	const upcomingEvents = allEvents.filter((event) => {
 		const eventTime = getEventTimeForSchedule(event)
