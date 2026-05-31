@@ -2382,7 +2382,23 @@ router.get("/top-picks", (req, res) => {
     // is honest about (MLB HR) are unaffected; picks in miscalibrated
     // families (NBA rebounds: ×0.227) drop significantly in modelProb +
     // recalculated edge, so they de-prioritize in TOP PICKS automatically.
-    for (const p of all) applyCalibrationDampener(p)
+    // CRITICAL: when dampening makes edge ≤ 0, the model is effectively saying
+    // "this is a losing bet at these odds." We REMOVE those from TOP PICKS so
+    // ELITE-labeled picks that became -EV after dampening don't surface.
+    let dampenedRejected = 0
+    const dampened = []
+    for (const p of all) {
+      applyCalibrationDampener(p)
+      // If dampening fired AND edge dropped to ≤ 0, drop the pick.
+      // Keep picks where no dampening fired (no calibration data, n < min).
+      if (p.modelProbRaw != null && Number(p.edge) <= 0) {
+        dampenedRejected++
+        continue
+      }
+      dampened.push(p)
+    }
+    all.length = 0
+    all.push(...dampened)
 
     // Dedup across books — keep best-odds row for each (sport,player,stat,side,line)
     const dedup = new Map()
@@ -2430,6 +2446,7 @@ router.get("/top-picks", (req, res) => {
       counts: {
         ELITE: byTier.ELITE.length, STRONG: byTier.STRONG.length, PLAYABLE: byTier.PLAYABLE.length,
         returned: picks.length,
+        dampenedRejected,
       },
       picks,
     })

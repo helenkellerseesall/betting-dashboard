@@ -105,9 +105,13 @@ function dampenModelProb(modelProb, sport, statFamily) {
 }
 
 function shouldShowCalibrationBadge(sport, statFamily) {
+  // Show whenever calibration data exists for this family — surface even small
+  // dampenings (5pp+) since the operator needs full transparency on what got
+  // adjusted. Lowering from 10pp → 5pp 2026-05-31 after MLB HR (9.2pp gap)
+  // was being hidden from the badge despite multiplier 0.29 firing.
   const cal = getCalibrationForFamily(sport, statFamily)
   if (!cal) return false
-  return Math.abs(cal.gapPp) >= 10
+  return Math.abs(cal.gapPp) >= 5
 }
 
 module.exports = {
