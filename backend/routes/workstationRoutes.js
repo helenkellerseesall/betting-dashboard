@@ -2391,6 +2391,41 @@ router.get("/games-browser", (req, res) => {
 })
 
 /**
+ * GET /api/ws/version
+ *
+ * Returns the commit hash + boot timestamp of the currently-running backend.
+ * Used by probes and FE to detect "stale backend serving old code" — the same
+ * trust-killer that hit us 2026-05-31 (LaunchAgent didn't reload after a
+ * commit, so the FE looked fixed in chat but was still serving fabricated
+ * "allows 0" tags from the old code path). If `commit` from this endpoint
+ * doesn't match `git rev-parse HEAD` on disk, the backend needs a reload.
+ *
+ * Cached at module-load time — calling this endpoint does NOT shell out.
+ */
+const path = require("path")
+let _VERSION_CACHE = null
+function _computeVersion() {
+  if (_VERSION_CACHE) return _VERSION_CACHE
+  let commit = "unknown"
+  let commitShort = "unknown"
+  let commitDate = null
+  try {
+    const { execSync } = require("child_process")
+    const repoRoot = path.join(__dirname, "..", "..")
+    commit = execSync("git rev-parse HEAD", { cwd: repoRoot, timeout: 2000 }).toString().trim()
+    commitShort = commit.slice(0, 7)
+    commitDate = execSync("git log -1 --format=%cI HEAD", { cwd: repoRoot, timeout: 2000 }).toString().trim()
+  } catch (e) { /* git may not be available in some environments */ }
+  _VERSION_CACHE = {
+    commit, commitShort, commitDate,
+    bootAt: new Date().toISOString(),
+    pid: process.pid,
+  }
+  return _VERSION_CACHE
+}
+router.get("/version", (req, res) => res.json(_computeVersion()))
+
+/**
  * GET /api/ws/grades-health?days=7
  * Fast CLV-stamping + model-accuracy health probe. Reads only the small
  * per-day tracked_bets_*.json files (NOT the heavy ledger.json), so it never

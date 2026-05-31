@@ -62,6 +62,40 @@ async function main() {
   console.log("=== FE v2 round 2 probe — " + new Date().toISOString() + " ===")
   console.log(`Candidate ports (from RUNTIME_FACTS or default): ${CANDIDATE_PORTS.join(", ")}\n`)
 
+  // 0. STALE-CODE GUARD. Compare backend's served commit to local HEAD.
+  // If they differ, the backend wasn't reloaded since the last commit and
+  // every subsequent assertion below is unreliable.
+  console.log("--- /api/ws/version (stale-code guard) ---")
+  let localHead = "unknown"
+  try {
+    const { execSync } = require("child_process")
+    const repoRoot = require("path").join(__dirname, "..", "..")
+    localHead = execSync("git rev-parse HEAD", { cwd: repoRoot, timeout: 2000 }).toString().trim()
+  } catch (e) { /* ignore */ }
+  try {
+    const r = await fetchJson("/api/ws/version")
+    if (r.error) {
+      console.log("ERROR:", r.error)
+    } else if (r.status !== 200) {
+      console.log("HTTP", r.status, r.raw || r.json)
+    } else {
+      const v = r.json
+      const match = v.commit === localHead
+      console.log(`Backend commit:   ${v.commitShort} (full: ${v.commit})`)
+      console.log(`Backend booted:   ${v.bootAt} (pid ${v.pid})`)
+      console.log(`Backend git date: ${v.commitDate}`)
+      console.log(`Local HEAD:       ${localHead.slice(0, 7)} (full: ${localHead})`)
+      if (match) {
+        console.log("STATUS: ✓ backend running latest committed code")
+      } else {
+        console.log("STATUS: ⚠⚠⚠ BACKEND IS STALE — running an OLDER commit than your working tree")
+        console.log("        Endpoint output below reflects OLD code. Reload LaunchAgent to ship.")
+        console.log("        launchctl unload <plist>; launchctl load <plist>")
+      }
+    }
+  } catch (e) { console.log("ERROR:", String(e?.message || e)) }
+  console.log()
+
   // 1. TOP PICKS
   console.log("--- /api/ws/top-picks?limit=15 ---")
   try {
