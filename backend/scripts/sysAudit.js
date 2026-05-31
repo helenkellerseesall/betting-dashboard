@@ -340,8 +340,58 @@ async function main() {
     }
   } catch { I("Could not enumerate LaunchAgents") }
 
-  // 9. DRIFT MARKERS
-  H("9. DRIFT MARKERS")
+  // 9. CALIBRATION (model claim vs realized hit rate per family)
+  // The bug class that cost the operator $10 on Game 7 (2026-05-31): model
+  // said 65% UNDER rebounds, family hit 9.4%. Every settled pick in window
+  // gives us {modelProb, actual win/loss}. Group by family, compare stated
+  // mean model probability to realized win rate. Flag when |stated - realized|
+  // > thresholds, dampening can then bring these in line.
+  H("10. CALIBRATION (model claim vs realized hit rate per family)")
+  const CAL_WINDOW_DAYS = 7
+  const CAL_MIN_SAMPLE = 20
+  for (const sport of ["nba", "mlb"]) {
+    const buckets = {}  // statFamily → { stated: [], wins: 0, losses: 0, pushes: 0 }
+    for (let i = 0; i < CAL_WINDOW_DAYS; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+      const arr = readJsonSafe(path.join(TRACKING, `${sport}_tracked_bets_${dk}.json`))
+      if (!Array.isArray(arr)) continue
+      for (const b of arr) {
+        const fam = b.statFamily || "unknown"
+        const r = String(b.result || "").toLowerCase()
+        if (r !== "win" && r !== "loss" && r !== "push" && r !== "void") continue
+        const mp = Number(b.modelProb)
+        if (!Number.isFinite(mp)) continue
+        if (!buckets[fam]) buckets[fam] = { stated: [], wins: 0, losses: 0, pushes: 0 }
+        buckets[fam].stated.push(mp)
+        if (r === "win") buckets[fam].wins++
+        else if (r === "loss") buckets[fam].losses++
+        else buckets[fam].pushes++
+      }
+    }
+    console.log(`  ${sport.toUpperCase()} (window ${CAL_WINDOW_DAYS}d, min sample ${CAL_MIN_SAMPLE}):`)
+    const fams = Object.keys(buckets).sort()
+    if (!fams.length) { I(`  (no settled picks to calibrate against)`); continue }
+    for (const fam of fams) {
+      const b = buckets[fam]
+      const settled = b.wins + b.losses + b.pushes
+      if (settled < CAL_MIN_SAMPLE) {
+        I(`  ${fam}: n=${settled} (below min ${CAL_MIN_SAMPLE} — defer)`)
+        continue
+      }
+      const meanStated = b.stated.reduce((s, v) => s + v, 0) / b.stated.length
+      const realized = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0
+      const gap = Math.abs(meanStated - realized) * 100  // percentage points
+      const fmt = `model ${(meanStated * 100).toFixed(1)}% / realized ${(realized * 100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${settled})`
+      if (gap < 10) P(`  ${fam}: ${fmt}`)
+      else if (gap < 20) W(`  ${fam}: ${fmt} — meaningful gap, dampen`)
+      else if (gap < 35) W(`  ${fam}: ${fmt} — LARGE gap, dampen aggressively`)
+      else F(`  ${fam}: ${fmt} — SEVERELY MISCALIBRATED, model claims overstated by ${gap.toFixed(0)}pp`)
+    }
+  }
+
+  // 10. DRIFT MARKERS
+  H("10. DRIFT MARKERS")
   const canonical = ["RUNTIME_FACTS.md", "PLAYBOOK.md", ".gitignore"]
   for (const f of canonical) {
     if (fs.existsSync(path.join(REPO, f))) P(`Canonical file present: ${f}`)
