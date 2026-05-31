@@ -11,7 +11,7 @@
 
 const http = require("http")
 
-const PORT = process.env.PORT || 5050
+const PORT = process.env.PORT || 4000
 const HOST = "127.0.0.1"
 
 function fetchJson(path) {
