@@ -2382,16 +2382,19 @@ router.get("/top-picks", (req, res) => {
     // is honest about (MLB HR) are unaffected; picks in miscalibrated
     // families (NBA rebounds: ×0.227) drop significantly in modelProb +
     // recalculated edge, so they de-prioritize in TOP PICKS automatically.
-    // CRITICAL: when dampening makes edge ≤ 0, the model is effectively saying
-    // "this is a losing bet at these odds." We REMOVE those from TOP PICKS so
-    // ELITE-labeled picks that became -EV after dampening don't surface.
+    //
+    // 2026-05-31 (e) — RELAX the filter. The original "drop if dampened edge ≤ 0"
+    // was mathematically pure but produced 0 picks on a fresh Finals slate
+    // because rebounds/threes/points multipliers (0.23-0.41) crush almost
+    // every pick below break-even. UX preference: show picks ranked by
+    // dampened edge regardless of sign, let operator see the model's calls
+    // alongside calibration's verdict. ONLY filter picks that are SEVERELY
+    // dampened (edge < -10%) since those are unambiguously losing at any odds.
     let dampenedRejected = 0
     const dampened = []
     for (const p of all) {
       applyCalibrationDampener(p)
-      // If dampening fired AND edge dropped to ≤ 0, drop the pick.
-      // Keep picks where no dampening fired (no calibration data, n < min).
-      if (p.modelProbRaw != null && Number(p.edge) <= 0) {
+      if (p.modelProbRaw != null && Number(p.edge) < -0.10) {
         dampenedRejected++
         continue
       }

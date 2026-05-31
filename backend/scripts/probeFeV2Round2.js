@@ -88,9 +88,21 @@ async function main() {
       if (match) {
         console.log("STATUS: ✓ backend running latest committed code")
       } else {
-        console.log("STATUS: ⚠⚠⚠ BACKEND IS STALE — running an OLDER commit than your working tree")
-        console.log("        Endpoint output below reflects OLD code. Reload LaunchAgent to ship.")
-        console.log("        launchctl unload <plist>; launchctl load <plist>")
+        // 2026-05-31 — diff-aware: if the gap is doc-only / scripts-only, this
+        // is benign (sysAudit's stale-code check already does this; mirror here).
+        let routeChanged = false
+        try {
+          const { execSync } = require("child_process")
+          const repoRoot = require("path").join(__dirname, "..", "..")
+          const diff = execSync(`git diff --name-only ${v.commit} ${localHead}`, { cwd: repoRoot, timeout: 3000 }).toString().trim().split("\n").filter(Boolean)
+          routeChanged = diff.some((p) => /^backend\/(routes|pipeline|server\.js|http)/.test(p)) || diff.some((p) => /^frontend\//.test(p))
+        } catch {}
+        if (routeChanged) {
+          console.log("STATUS: ⚠⚠⚠ BACKEND IS STALE — running an OLDER commit with route/pipeline changes pending. Reload required.")
+          console.log("        bash backend/scripts/restartBackend.sh")
+        } else {
+          console.log("STATUS: ! backend 1+ commits behind (script/doc-only diff — no restart needed)")
+        }
       }
     }
   } catch (e) { console.log("ERROR:", String(e?.message || e)) }
