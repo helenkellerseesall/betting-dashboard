@@ -2203,13 +2203,19 @@ function buildReasoning(pick, bestEntry) {
       /\ballows\s+0(\.0+)?\b/i.test(t) ||           // "SAS allows 0 reb/g"
       /\b=\s*0(\.0+)?\b/i.test(t) ||                // "opp X = 0"
       /\b0(\.0+)?\s*(reb|3pa|3pm|ast|stl|blk|pts|tov)\/g\b/i.test(t)  // "0 reb/g" naked
-    // gameContext-aware filter: drop MINS ↓ for starters facing elimination
+    // gameContext-aware filter: drop MINS ↓ for starters facing elimination.
+    // Retroactive — looks up game context FRESH from nbaSeriesState.json at
+    // request time using pick.matchup + pick.date, so stored entries that
+    // predate the fix still get the right filtering.
     let suppressMinsDown = false
+    let runtimeGameCtx = null
     try {
-      if (bestEntry?.gameContext) {
-        const { shouldSuppressMinsDownTag } = require("../pipeline/nba/nbaGameContextCache")
+      const { getGameContext, shouldSuppressMinsDownTag } = require("../pipeline/nba/nbaGameContextCache")
+      runtimeGameCtx = bestEntry?.gameContext || getGameContext(pick.matchup || bestEntry?.matchup, pick.date || bestEntry?.slateDate) || null
+      if (runtimeGameCtx) {
+        const team = bestEntry?.team || pick.team
         const roleStr = bestEntry?.starterFlag === 1 ? "starter" : (bestEntry?.starterFlag === 0 ? "bench" : "unknown")
-        suppressMinsDown = shouldSuppressMinsDownTag(bestEntry.team, bestEntry.gameContext, roleStr)
+        suppressMinsDown = shouldSuppressMinsDownTag(team, runtimeGameCtx, roleStr)
       }
     } catch (_) {}
     for (const tag of tags.slice(0, 6)) {
@@ -2218,10 +2224,10 @@ function buildReasoning(pick, bestEntry) {
       if (suppressMinsDown && /MINS\s*↓/.test(tag)) continue
       out.drivers.push(tag)
     }
-    // Surface game-context awareness in drivers when relevant
-    if (bestEntry?.gameContext?.isGame7) {
-      out.drivers.push(`Game 7 (${bestEntry.gameContext.seriesStatus || "decider"}) — starter minutes boosted, bench rotation tightened`)
-    } else if (bestEntry?.gameContext?.isElimination) {
+    // Surface game-context awareness in drivers (use the same runtime lookup)
+    if (runtimeGameCtx?.isGame7) {
+      out.drivers.push(`Game 7 (${runtimeGameCtx.seriesStatus || "decider"}) — starter minutes boosted, bench rotation tightened`)
+    } else if (runtimeGameCtx?.isElimination) {
       out.drivers.push(`Elimination spot — projected minutes adjusted for stakes`)
     }
   } else if (sport === "mlb" && bestEntry) {
