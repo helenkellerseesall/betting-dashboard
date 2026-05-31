@@ -2049,4 +2049,154 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 // compactLineShopping, compactTiming, compactPortfolio — imported from
 // pipeline/shared/buildWorkstationCompactors.js (extracted from here, Session Y)
 
+// 2026-05-30 — FE v2 endpoints (Phase 1 of FE overhaul). All cross-sport,
+// signal-enriched, and operator-preferred-book aware.
+
+/**
+ * GET /api/ws/top-picks?limit=50&date=2026-05-30
+ * Cross-sport curated top picks. Smart-mix tier composition (top-N per tier),
+ * dedup by player+stat+side+line, sorted by edge-weighted confidence.
+ */
+router.get("/top-picks", (req, res) => {
+  try {
+    const date = req.query.date ? String(req.query.date) : (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    })()
+    const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50))
+    const sports = ["nba", "mlb"]
+    const all = []
+    for (const sport of sports) {
+      const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
+      for (const b of trackedBets) {
+        if (shouldRejectByOperatorPolicy(b)) continue
+        const tier = String(b.tier || b.modelTier || "").toUpperCase()
+        if (tier === "FADE" || tier === "LONGSHOT") continue
+        all.push({ ...b, sport })
+      }
+    }
+    // Dedup across books — keep best-odds row for each (sport,player,stat,side,line)
+    const dedup = new Map()
+    for (const p of all) {
+      const key = `${p.sport}|${(p.player||'').toLowerCase()}|${p.statFamily}|${p.side}|${p.line}`
+      const prev = dedup.get(key)
+      const score = (Number(p.edge) || 0) * (Number(p.modelProb) || 0)
+      const prevScore = prev ? (Number(prev.edge) || 0) * (Number(prev.modelProb) || 0) : -Infinity
+      if (!prev || score > prevScore) dedup.set(key, p)
+    }
+    const unique = Array.from(dedup.values())
+
+    // Smart-mix: hierarchical top-N per tier, proportional
+    const byTier = { ELITE: [], STRONG: [], PLAYABLE: [] }
+    for (const p of unique) {
+      const t = String(p.tier || p.modelTier || "").toUpperCase()
+      if (byTier[t]) byTier[t].push(p)
+    }
+    for (const t of Object.keys(byTier)) {
+      byTier[t].sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+    }
+    // Allocation: ELITE 25% · STRONG 50% · PLAYABLE 25%
+    const eliteN = Math.max(3, Math.floor(limit * 0.25))
+    const strongN = Math.max(5, Math.floor(limit * 0.50))
+    const playableN = limit - eliteN - strongN
+
+    const picks = [
+      ...byTier.ELITE.slice(0, eliteN),
+      ...byTier.STRONG.slice(0, strongN),
+      ...byTier.PLAYABLE.slice(0, playableN),
+    ]
+
+    res.json({
+      date,
+      sportsScanned: sports,
+      counts: {
+        ELITE: byTier.ELITE.length, STRONG: byTier.STRONG.length, PLAYABLE: byTier.PLAYABLE.length,
+        returned: picks.length,
+      },
+      picks,
+    })
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) })
+  }
+})
+
+/**
+ * GET /api/ws/games-browser?date=2026-05-30
+ * Returns list of games with all picks grouped under each, ⭐ flag if pick is in top-picks.
+ */
+router.get("/games-browser", (req, res) => {
+  try {
+    const date = req.query.date ? String(req.query.date) : (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    })()
+    const sports = ["nba", "mlb"]
+    const games = new Map()
+    const allPicks = []
+    for (const sport of sports) {
+      const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
+      for (const b of trackedBets) {
+        if (shouldRejectByOperatorPolicy(b)) continue
+        const tier = String(b.tier || b.modelTier || "").toUpperCase()
+        if (tier === "FADE" || tier === "LONGSHOT") continue
+        allPicks.push({ ...b, sport })
+        const key = `${sport}|${b.eventId || b.matchup}`
+        if (!games.has(key)) {
+          games.set(key, {
+            sport, eventId: b.eventId, matchup: b.matchup,
+            gameTime: b.gameTime, players: new Map(),
+          })
+        }
+        const g = games.get(key)
+        const pkey = (b.player || "?").toLowerCase()
+        if (!g.players.has(pkey)) g.players.set(pkey, { player: b.player, props: [] })
+        g.players.get(pkey).props.push(b)
+      }
+    }
+    // Compute top-picks key set (same algo as /top-picks, used to set ⭐)
+    const dedup = new Map()
+    for (const p of allPicks) {
+      const key = `${p.sport}|${(p.player||'').toLowerCase()}|${p.statFamily}|${p.side}|${p.line}`
+      const prev = dedup.get(key)
+      const score = (Number(p.edge) || 0) * (Number(p.modelProb) || 0)
+      const prevScore = prev ? (Number(prev.edge) || 0) * (Number(prev.modelProb) || 0) : -Infinity
+      if (!prev || score > prevScore) dedup.set(key, p)
+    }
+    const unique = Array.from(dedup.values())
+    const byTier = { ELITE: [], STRONG: [], PLAYABLE: [] }
+    for (const p of unique) {
+      const t = String(p.tier || p.modelTier || "").toUpperCase()
+      if (byTier[t]) byTier[t].push(p)
+    }
+    for (const t of Object.keys(byTier)) {
+      byTier[t].sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+    }
+    const limit = 50
+    const topKeys = new Set([
+      ...byTier.ELITE.slice(0, Math.max(3, Math.floor(limit * 0.25))),
+      ...byTier.STRONG.slice(0, Math.max(5, Math.floor(limit * 0.50))),
+      ...byTier.PLAYABLE.slice(0, limit - Math.max(3, Math.floor(limit * 0.25)) - Math.max(5, Math.floor(limit * 0.50))),
+    ].map((p) => `${p.sport}|${(p.player||'').toLowerCase()}|${p.statFamily}|${p.side}|${p.line}`))
+
+    const gamesArr = []
+    for (const g of games.values()) {
+      const players = []
+      for (const p of g.players.values()) {
+        p.props.sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+        for (const prop of p.props) {
+          const k = `${g.sport}|${(prop.player||'').toLowerCase()}|${prop.statFamily}|${prop.side}|${prop.line}`
+          prop.isTopPick = topKeys.has(k)
+        }
+        players.push(p)
+      }
+      players.sort((a, b) => a.player.localeCompare(b.player))
+      gamesArr.push({ sport: g.sport, eventId: g.eventId, matchup: g.matchup, gameTime: g.gameTime, players })
+    }
+    gamesArr.sort((a, b) => (a.gameTime || "").localeCompare(b.gameTime || ""))
+    res.json({ date, sportsScanned: sports, gameCount: gamesArr.length, games: gamesArr })
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) })
+  }
+})
+
 module.exports = router
