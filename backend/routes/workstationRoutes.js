@@ -2052,6 +2052,36 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 // 2026-05-30 — FE v2 endpoints (Phase 1 of FE overhaul). All cross-sport,
 // signal-enriched, and operator-preferred-book aware.
 // 2026-05-31 — round 2: reasoning hydration + per-prop dedup in games-browser.
+// 2026-05-31 (c) — per-family calibration dampener applied at response time.
+const { dampenModelProb, getCalibrationForFamily, shouldShowCalibrationBadge } =
+  require("../pipeline/shared/calibrationDampener")
+
+/**
+ * Apply per-family calibration to a pick. Mutates the pick in place:
+ *   modelProbRaw     — the original model probability
+ *   modelProb        — dampened value (what FE displays + sorts on)
+ *   calibratedEdge   — edge computed from dampened modelProb
+ *   calibration      — { stated, realized, gapPp, multiplier, n } when meaningful
+ */
+function applyCalibrationDampener(pick) {
+  if (!pick || !Number.isFinite(Number(pick.modelProb))) return pick
+  const sport = pick.sport
+  const fam = pick.statFamily || pick.propType
+  const raw = Number(pick.modelProb)
+  const dampened = dampenModelProb(raw, sport, fam)
+  if (dampened === raw) return pick
+  pick.modelProbRaw = raw
+  pick.modelProb = Math.round(dampened * 10000) / 10000
+  const impliedP = Number(pick.impliedProb)
+  if (Number.isFinite(impliedP)) {
+    pick.edgeRaw = pick.edge
+    pick.edge = Math.round((dampened - impliedP) * 10000) / 10000
+  }
+  if (shouldShowCalibrationBadge(sport, fam)) {
+    pick.calibration = getCalibrationForFamily(sport, fam)
+  }
+  return pick
+}
 
 /**
  * Build a join index from tracked_best entries. KEY DESIGN: do NOT include
@@ -2260,8 +2290,18 @@ function buildReasoning(pick, bestEntry) {
     }
   }
 
-  // Always include the model's own confidence + edge stamp at the end
-  out.drivers.push(`Model: ${(Number(pick.modelProb) * 100).toFixed(1)}% conf · edge ${(Number(pick.edge) * 100).toFixed(1)}%`)
+  // Always include the model's own confidence + edge stamp at the end.
+  // 2026-05-31 (c) — when the dampener fired, show BOTH raw and calibrated
+  // so operator can see the gap. Calibration audit data on the pick tells us.
+  if (pick.calibration && Number.isFinite(pick.modelProbRaw)) {
+    const rawPct = (pick.modelProbRaw * 100).toFixed(1)
+    const dampPct = (Number(pick.modelProb) * 100).toFixed(1)
+    const realPct = (pick.calibration.realized * 100).toFixed(1)
+    const n = pick.calibration.n
+    out.drivers.push(`⚖ Model raw ${rawPct}% → calibrated ${dampPct}% (this family hits ${realPct}% historically, n=${n})`)
+  } else {
+    out.drivers.push(`Model: ${(Number(pick.modelProb) * 100).toFixed(1)}% conf · edge ${(Number(pick.edge) * 100).toFixed(1)}%`)
+  }
   return out
 }
 
@@ -2337,6 +2377,13 @@ router.get("/top-picks", (req, res) => {
         all.push({ ...b, sport })
       }
     }
+    // 2026-05-31 (c) — apply calibration dampener BEFORE dedup/sort, so the
+    // dampened probability flows through ranking. Picks in families the model
+    // is honest about (MLB HR) are unaffected; picks in miscalibrated
+    // families (NBA rebounds: ×0.227) drop significantly in modelProb +
+    // recalculated edge, so they de-prioritize in TOP PICKS automatically.
+    for (const p of all) applyCalibrationDampener(p)
+
     // Dedup across books — keep best-odds row for each (sport,player,stat,side,line)
     const dedup = new Map()
     for (const p of all) {
@@ -2517,6 +2564,9 @@ router.get("/games-browser", (req, res) => {
             return ob - oa
           })
           prop.bookOptions = slot.bookOptions
+          // 2026-05-31 (c) — calibration dampener applied at games-browser too
+          prop.sport = g.sport
+          applyCalibrationDampener(prop)
           // Hydrate reasoning (no propType in join key — alias map handles family naming)
           const best = findReasoningEntry(reasoningIdx[g.sport], { ...prop, sport: g.sport })
           prop.reasoning = buildReasoning(prop, best)

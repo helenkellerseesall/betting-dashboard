@@ -345,10 +345,12 @@ async function main() {
   // said 65% UNDER rebounds, family hit 9.4%. Every settled pick in window
   // gives us {modelProb, actual win/loss}. Group by family, compare stated
   // mean model probability to realized win rate. Flag when |stated - realized|
-  // > thresholds, dampening can then bring these in line.
+  // > thresholds. PERSISTS calibration data to family_calibration.json so the
+  // dampener (calibrationDampener.js) can apply the multiplier downstream.
   H("9. CALIBRATION (model claim vs realized hit rate per family)")
   const CAL_WINDOW_DAYS = 7
   const CAL_MIN_SAMPLE = 20
+  const CALIBRATION_OUT = { generatedAt: new Date().toISOString(), windowDays: CAL_WINDOW_DAYS, minSample: CAL_MIN_SAMPLE, sports: {} }
   for (const sport of ["nba", "mlb"]) {
     const buckets = {}  // statFamily → { stated: [], wins: 0, losses: 0, pushes: 0 }
     for (let i = 0; i < CAL_WINDOW_DAYS; i++) {
@@ -372,6 +374,7 @@ async function main() {
     console.log(`  ${sport.toUpperCase()} (window ${CAL_WINDOW_DAYS}d, min sample ${CAL_MIN_SAMPLE}):`)
     const fams = Object.keys(buckets).sort()
     if (!fams.length) { I(`  (no settled picks to calibrate against)`); continue }
+    CALIBRATION_OUT.sports[sport] = {}
     for (const fam of fams) {
       const b = buckets[fam]
       const settled = b.wins + b.losses + b.pushes
@@ -382,13 +385,31 @@ async function main() {
       const meanStated = b.stated.reduce((s, v) => s + v, 0) / b.stated.length
       const realized = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0
       const gap = Math.abs(meanStated - realized) * 100  // percentage points
-      const fmt = `model ${(meanStated * 100).toFixed(1)}% / realized ${(realized * 100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${settled})`
+      // Persist multiplier for dampener — clipped to [0.20, 1.10] so we never
+      // suppress to zero or amplify unreasonably. A family realized at 9.4%
+      // and claimed at 41.4% yields multiplier 0.227 (apply: claim 65% → 14.8%).
+      const rawMul = meanStated > 0 ? realized / meanStated : 1
+      const multiplier = Math.max(0.20, Math.min(1.10, rawMul))
+      CALIBRATION_OUT.sports[sport][fam] = {
+        n: settled, stated: Math.round(meanStated * 10000) / 10000,
+        realized: Math.round(realized * 10000) / 10000,
+        gapPp: Math.round(gap * 10) / 10,
+        multiplier: Math.round(multiplier * 10000) / 10000,
+      }
+      const fmt = `model ${(meanStated * 100).toFixed(1)}% / realized ${(realized * 100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${settled}) · mul ×${multiplier.toFixed(2)}`
       if (gap < 10) P(`  ${fam}: ${fmt}`)
       else if (gap < 20) W(`  ${fam}: ${fmt} — meaningful gap, dampen`)
       else if (gap < 35) W(`  ${fam}: ${fmt} — LARGE gap, dampen aggressively`)
       else F(`  ${fam}: ${fmt} — SEVERELY MISCALIBRATED, model claims overstated by ${gap.toFixed(0)}pp`)
     }
   }
+  // Persist calibration data for the dampener (calibrationDampener.js reads this)
+  try {
+    const calOut = path.join(REPO, "backend", "runtime", "calibration")
+    fs.mkdirSync(calOut, { recursive: true })
+    fs.writeFileSync(path.join(calOut, "family_calibration.json"), JSON.stringify(CALIBRATION_OUT, null, 2))
+    I(`  → persisted to backend/runtime/calibration/family_calibration.json`)
+  } catch (e) { W(`  calibration persistence failed: ${e.message}`) }
 
   // 10. DRIFT MARKERS
   H("10. DRIFT MARKERS")
