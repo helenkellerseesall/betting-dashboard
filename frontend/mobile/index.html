@@ -2631,23 +2631,25 @@
       } catch (e) { return ""; }
     }
 
-    // Render reasoning blob → 3 always-on rows + driver bullets
+    // Render reasoning blob → 3 always-on rows + driver bullets.
+    // 2026-05-31 R2.2: contrast bump. Labels #9CA3AF → #D1D5DB, values keep their
+    // semantic color (green/blue/yellow) at #F9FAFB-bright shade, drivers #D1D5DB.
     function _renderReasoning(reasoning) {
       if (!reasoning) return "";
       const row = (item, color) => {
         if (!item) return "";
-        return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:11px;border-top:1px solid #1F2937;">
-          <span style="color:#6B7280;">${escapeHtml(item.label || "")}</span>
-          <span style="color:${color || "#D1D5DB"};text-align:right;font-family:ui-monospace,monospace;">${escapeHtml(String(item.value ?? "—"))}</span>
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;font-size:13px;border-top:1px solid #1F2937;">
+          <span style="color:#D1D5DB;">${escapeHtml(item.label || "")}</span>
+          <span style="color:${color || "#F9FAFB"};text-align:right;font-family:ui-monospace,monospace;font-weight:600;">${escapeHtml(String(item.value ?? "—"))}</span>
         </div>`;
       };
-      let html = `<div style="margin-top:8px;">`;
+      let html = `<div>`;
       html += row(reasoning.l5, "#34D399");
       html += row(reasoning.opp, "#60A5FA");
       html += row(reasoning.propSpec, "#FBBF24");
       const drivers = (reasoning.drivers || []).filter(Boolean);
       if (drivers.length) {
-        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1F2937;font-size:10px;color:#9CA3AF;line-height:1.5;">`;
+        html += `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1F2937;font-size:12px;color:#D1D5DB;line-height:1.7;">`;
         for (const dr of drivers) html += `· ${escapeHtml(String(dr))}<br>`;
         html += `</div>`;
       }
@@ -2655,19 +2657,72 @@
       return html;
     }
 
-    // Render book options list (when a prop has multiple book/odds pairs)
+    // Render book options list (when a prop has multiple book/odds pairs).
+    // Dedup by book, keep best odds per book.
     function _renderBookOptions(opts) {
       if (!opts || opts.length <= 1) return "";
-      const allowed = opts.filter((o) => isPreferredBook(o.book));
+      // Dedup by book — keep best odds for each book
+      const byBook = new Map();
+      for (const o of opts) {
+        if (!isPreferredBook(o.book)) continue;
+        const prev = byBook.get(o.book);
+        if (!prev || Number(o.odds) > Number(prev.odds)) byBook.set(o.book, o);
+      }
+      const allowed = Array.from(byBook.values());
       if (allowed.length <= 1) return "";
-      let html = `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1F2937;font-size:10px;color:#9CA3AF;">
-        <div style="color:#6B7280;margin-bottom:3px;">Other books:</div>`;
+      let html = `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1F2937;font-size:12px;color:#D1D5DB;">
+        <div style="color:#9CA3AF;margin-bottom:5px;font-size:11px;">Other books:</div>`;
       for (const o of allowed.slice(0, 6)) {
-        html += `<span style="display:inline-block;background:#0F1422;padding:2px 6px;border-radius:4px;margin:2px 4px 2px 0;">${escapeHtml(o.book || "?")} ${_oddsNice(o.odds)}</span>`;
+        html += `<span style="display:inline-block;background:#0F1422;padding:4px 8px;border-radius:5px;margin:3px 6px 3px 0;font-family:ui-monospace,monospace;">${escapeHtml(o.book || "?")} <b>${_oddsNice(o.odds)}</b></span>`;
       }
       html += `</div>`;
       return html;
     }
+
+    // Global modal for card expansion. One body-level overlay populated on tap.
+    // Click-outside / Esc closes. Replaces inline expand drop-down.
+    if (!document.getElementById("v2-modal-style")) {
+      const _ms = document.createElement("style");
+      _ms.id = "v2-modal-style";
+      _ms.textContent = `
+        #v2-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9999; display: none; align-items: flex-start; justify-content: center; padding-top: 8vh; }
+        #v2-modal.open { display: flex; }
+        #v2-modal .inner { background: #141828; max-width: 92vw; width: 420px; max-height: 80vh; overflow-y: auto; border-radius: 14px; padding: 18px; border: 1px solid #1F2937; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
+        #v2-modal .close { float: right; background: transparent; border: 0; color: #9CA3AF; font-size: 22px; cursor: pointer; padding: 0 8px; }
+        #v2-modal .hdr { font-size: 16px; font-weight: 700; color: #F9FAFB; margin-bottom: 4px; }
+        #v2-modal .sub { font-size: 13px; color: #D1D5DB; margin-bottom: 4px; }
+        #v2-modal .mu { font-size: 11px; color: #9CA3AF; margin-bottom: 12px; }
+      `;
+      document.head.appendChild(_ms);
+      const overlay = document.createElement("div");
+      overlay.id = "v2-modal";
+      overlay.innerHTML = `<div class="inner"></div>`;
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("open"); });
+      document.body.appendChild(overlay);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") overlay.classList.remove("open"); });
+    }
+    // Open the modal with reasoning for a given pick. Called inline from card.
+    window._v2OpenModal = function(pickJson) {
+      try {
+        const p = typeof pickJson === "string" ? JSON.parse(pickJson) : pickJson;
+        const overlay = document.getElementById("v2-modal");
+        const tier = String(p.tier || p.modelTier || "").toUpperCase();
+        const tierC = _tierColor(tier);
+        const conf = _confPct(p.modelProb);
+        const edge = _edgePct(p.edge);
+        const odds = _oddsNice(p.oddsAmerican || p.odds);
+        const book = escapeHtml(p.sportsbook || p.book || "?");
+        overlay.querySelector(".inner").innerHTML = `
+          <button class="close" onclick="document.getElementById('v2-modal').classList.remove('open');">×</button>
+          <div class="hdr">${escapeHtml(p.player || "?")}</div>
+          <div class="sub">${_famNice(p.statFamily)} <b style="color:#F9FAFB;">${_sideNice(p.side)} ${p.line}</b></div>
+          <div class="mu">${escapeHtml(p.matchup || "")} · ${odds} @ ${book} · <b style="color:${tierC};">${tier}</b> · conf ${conf} · edge ${edge}</div>
+          ${_renderReasoning(p.reasoning)}
+          ${_renderBookOptions(p.bookOptions)}
+        `;
+        overlay.classList.add("open");
+      } catch (e) { console.error("modal open failed", e); }
+    };
 
     // ── v2 compact card: tiny collapsed face, inline expand with reasoning ──
     // opts.compact = true → 3-col-grid friendly stacked layout (TOP PICKS, GAMES inside player)
@@ -2683,54 +2738,49 @@
       const odds = _oddsNice(pick.oddsAmerican || pick.odds);
       const book = escapeHtml(pick.sportsbook || pick.book || "?");
 
+      // Stash the full pick JSON for modal hydration (avoids long inline strings)
+      const _stashId = `v2-pick-${cardId}`;
+      if (!window._v2PickStash) window._v2PickStash = {};
+      window._v2PickStash[_stashId] = pick;
+      const onTap = `window._v2OpenModal(window._v2PickStash['${_stashId}'])`;
+
       if (opts.compact) {
-        // 3-col friendly: stacked, tiny
+        // 3-col friendly: stacked, gaudy hierarchy. Player + line dominant.
         return `
-          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:8px;padding:8px;border-left:3px solid ${tierC};display:flex;flex-direction:column;">
-            <div style="cursor:pointer;flex:1;" onclick="document.getElementById('${cardId}-exp').classList.toggle('open');this.querySelector('.v2-chev').textContent=document.getElementById('${cardId}-exp').classList.contains('open')?'▾':'▸';">
-              <div style="display:flex;align-items:center;justify-content:space-between;">
-                <span>${sportBadge}${starBadge}</span>
-                <span class="v2-chev" style="color:#6B7280;font-size:11px;">▸</span>
-              </div>
-              <div style="font-size:12px;font-weight:600;color:#F9FAFB;margin-top:4px;line-height:1.2;">${escapeHtml(pick.player || "?")}</div>
-              <div style="font-size:10px;color:#D1D5DB;margin-top:3px;line-height:1.3;">${_famNice(pick.statFamily)}<br><b style="color:#F9FAFB;">${_sideNice(pick.side)} ${pick.line}</b></div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;font-family:ui-monospace,monospace;">
-                <span style="font-size:13px;color:${tierC};font-weight:700;">${conf}</span>
-                <span style="font-size:9px;color:#9CA3AF;">${edge}</span>
-              </div>
-              <div style="font-size:9px;color:#6B7280;margin-top:3px;text-align:right;">${odds} ${book}</div>
+          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:10px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span>${sportBadge}${starBadge}</span>
+              <span style="color:#6B7280;font-size:11px;">›</span>
             </div>
-            <div id="${cardId}-exp" class="v2-card-exp" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid #1F2937;">
-              <div style="font-size:9px;color:#6B7280;margin-bottom:4px;">${escapeHtml(pick.matchup || "")}</div>
-              ${_renderReasoning(pick.reasoning)}
-              ${_renderBookOptions(pick.bookOptions)}
+            <div style="font-size:13px;font-weight:700;color:#F9FAFB;margin-top:5px;line-height:1.2;">${escapeHtml(pick.player || "?")}</div>
+            <div style="font-size:11px;color:#D1D5DB;margin-top:4px;line-height:1.3;">${_famNice(pick.statFamily)}</div>
+            <div style="font-size:14px;font-weight:700;color:#F9FAFB;margin-top:2px;line-height:1.2;">${_sideNice(pick.side)} ${pick.line}</div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;font-family:ui-monospace,monospace;">
+              <span style="font-size:16px;color:${tierC};font-weight:800;">${conf}</span>
+              <span style="font-size:10px;color:#D1D5DB;">${edge}</span>
             </div>
+            <div style="font-size:10px;color:#D1D5DB;margin-top:4px;text-align:right;">${odds} ${book}</div>
           </div>
         `;
       }
 
-      // Standard (single-column) card
+      // Standard (single-column) card — also taps into modal now
       return `
-        <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:3px solid ${tierC};">
-          <div style="display:flex;align-items:center;cursor:pointer;" onclick="document.getElementById('${cardId}-exp').classList.toggle('open');this.querySelector('.v2-chev').textContent=document.getElementById('${cardId}-exp').classList.contains('open')?'▾':'▸';">
+        <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${tierC};cursor:pointer;" onclick="${onTap}">
+          <div style="display:flex;align-items:center;">
             <div style="flex:1;min-width:0;">
               <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                 ${sportBadge}
-                <span style="font-size:14px;font-weight:600;color:#F9FAFB;">${escapeHtml(pick.player || "?")}</span>${starBadge}
+                <span style="font-size:15px;font-weight:700;color:#F9FAFB;">${escapeHtml(pick.player || "?")}</span>${starBadge}
               </div>
-              <div style="font-size:13px;color:#D1D5DB;margin-top:2px;">${_famNice(pick.statFamily)} <b>${_sideNice(pick.side)} ${pick.line}</b></div>
-              <div style="font-size:10px;color:#6B7280;margin-top:3px;">${odds} @ ${book}</div>
+              <div style="font-size:13px;color:#D1D5DB;margin-top:3px;">${_famNice(pick.statFamily)} <b style="color:#F9FAFB;">${_sideNice(pick.side)} ${pick.line}</b></div>
+              <div style="font-size:11px;color:#D1D5DB;margin-top:3px;">${odds} @ ${book}</div>
             </div>
             <div style="text-align:right;font-family:ui-monospace,monospace;">
-              <div style="font-size:14px;color:${tierC};font-weight:700;">${conf}</div>
-              <div style="font-size:11px;color:#9CA3AF;">${edge}</div>
+              <div style="font-size:16px;color:${tierC};font-weight:800;">${conf}</div>
+              <div style="font-size:12px;color:#D1D5DB;">${edge}</div>
             </div>
-            <span class="v2-chev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
-          </div>
-          <div id="${cardId}-exp" class="v2-card-exp" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1F2937;">
-            <div style="font-size:11px;color:#6B7280;margin-bottom:4px;">${escapeHtml(pick.matchup || "")}</div>
-            ${_renderReasoning(pick.reasoning)}
-            ${_renderBookOptions(pick.bookOptions)}
+            <span style="color:#6B7280;margin-left:8px;font-size:14px;">›</span>
           </div>
         </div>
       `;

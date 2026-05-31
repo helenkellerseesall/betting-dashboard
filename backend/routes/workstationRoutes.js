@@ -2107,24 +2107,27 @@ function buildReasoning(pick, bestEntry) {
       out.drivers.push(`L5 ${_round(l5v, 1)} ${dir} season baseline ${_round(baseline, 1)}`)
     }
 
-    // Opponent matchup
+    // Opponent matchup. CRITICAL: gate on value > 0, not just != null.
+    // Null pretending to be 0 was being printed as "allows 0 reb/g" (fabrication).
     const oppStats = bestEntry?.opponentStats || {}
+    const isReal = (v) => v != null && Number.isFinite(Number(v)) && Number(v) > 0
     let oppLabel = `vs ${opp}`
     let oppVal = ""
-    if (fam.includes("reb") && oppStats.reboundsAllowed != null) {
+    if (fam.includes("reb") && isReal(oppStats.reboundsAllowed)) {
       oppVal = `allows ${_round(oppStats.reboundsAllowed, 1)} reb/g`
-    } else if ((fam.includes("three") || fam === "threes") && oppStats.threePAAllowed != null) {
+    } else if ((fam.includes("three") || fam === "threes") && isReal(oppStats.threePAAllowed)) {
       oppVal = `allows ${_round(oppStats.threePAAllowed, 1)} 3PA/g`
-    } else if (fam.includes("ast") && oppStats.assistsAllowed != null) {
+    } else if (fam.includes("ast") && isReal(oppStats.assistsAllowed)) {
       oppVal = `allows ${_round(oppStats.assistsAllowed, 1)} ast/g`
-    } else if (oppStats.pointsAllowed != null) {
+    } else if (isReal(oppStats.pointsAllowed)) {
       oppVal = `allows ${_round(oppStats.pointsAllowed, 1)} pts/g`
     } else if (bestEntry?.oppDef) {
       oppVal = `def grade ${bestEntry.oppDef}`
-    } else if (oppStats.defensiveRating != null) {
+    } else if (isReal(oppStats.defensiveRating)) {
       oppVal = `def rtg ${_round(oppStats.defensiveRating, 1)}`
     } else {
-      oppVal = "defense data N/A"
+      // Honest "stats pending" instead of either "N/A" or fabricated 0
+      oppVal = "team stats pending sync"
     }
     out.opp = { label: oppLabel, value: oppVal, source: "espn opp stats" }
 
@@ -2145,10 +2148,18 @@ function buildReasoning(pick, bestEntry) {
       out.propSpec = { label: "Minutes + pace", value: `${_round(minutes, 1) ?? "?"} min/g, pace ${_round(pace, 0) ?? "?"}`, source: "role context" }
     }
 
-    // Driver bullets from displayBundle.tags
+    // Driver bullets from displayBundle.tags. Reject tags that fabricate a
+    // zero opponent stat ("SAS allows 0 reb/g") — those are nullish values
+    // being printed as literal 0 from upstream display formatters.
     const tags = Array.isArray(bestEntry?.displayBundle?.tags) ? bestEntry.displayBundle.tags : []
-    for (const tag of tags.slice(0, 4)) {
-      if (typeof tag === "string" && tag.length < 60) out.drivers.push(tag)
+    const isFakeZeroTag = (t) =>
+      /\ballows\s+0(\.0+)?\b/i.test(t) ||           // "SAS allows 0 reb/g"
+      /\b=\s*0(\.0+)?\b/i.test(t) ||                // "opp X = 0"
+      /\b0(\.0+)?\s*(reb|3pa|3pm|ast|stl|blk|pts|tov)\/g\b/i.test(t)  // "0 reb/g" naked
+    for (const tag of tags.slice(0, 6)) {
+      if (typeof tag !== "string" || tag.length >= 60) continue
+      if (isFakeZeroTag(tag)) continue
+      out.drivers.push(tag)
     }
   } else if (sport === "mlb" && bestEntry) {
     // MLB tracked_best doesn't carry L5 today — surface implied team total as proxy "form gauge".
