@@ -6,6 +6,13 @@ This file is the canonical source of truth for runtime values that conversationa
 
 Last updated: 2026-05-31
 
+## Directory layout — WATCH OUT
+
+- **Repo root:** `~/Desktop/betting-dashboard` (use for `git`, `.gitignore`, top-level docs)
+- **Backend root:** `~/Desktop/betting-dashboard/backend` (use for `npm`, `node`)
+- **`package.json` IS at `backend/`, NOT at repo root.** Running `npm run slate:nba` from the repo root errors with `ENOENT: package.json` and silently does nothing in chained commands. Always `cd ~/Desktop/betting-dashboard/backend` before any `npm run`. scheduler.sh and other automation cds there explicitly.
+- Quick rule: **`git` commands → repo root. `npm`/`node` commands → backend root.**
+
 ## Backend
 
 - **Port:** `4000`  (overridable via `PORT` env var; default in `backend/server.js`)
