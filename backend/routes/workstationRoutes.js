@@ -2054,20 +2054,65 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 // 2026-05-31 — round 2: reasoning hydration + per-prop dedup in games-browser.
 
 /**
- * Build a join index from tracked_best entries (rich enrichment side) keyed by
- *   `${sport}|${playerLower}|${propTypeLower}|${sideLower}|${line}`
- * so tracked_bets rows can be merged with reasoning fields at request time.
+ * Build a join index from tracked_best entries. KEY DESIGN: do NOT include
+ * propType in the join key. tracked_bets and tracked_best disagree on
+ * propType labels for the same logical prop (e.g. tracked_bets
+ * "points_rebounds_assists" vs tracked_best "pra"; MLB "Total Bases" vs
+ * "batter_total_bases_alternate"). Caught 2026-05-31 by traceMyBets when
+ * Caruso PRA U17.5 returned "no pre-game entry found." Fix: index by
+ * (sport, player, side, line) only, with statFamily/propType collected as a
+ * disambiguator list for the rare same-player-same-line cases.
+ *
+ * Returns Map<key, Array<entry>> where key = `${sport}|${player}|${side}|${line}`.
  */
 function loadReasoningIndex(sport, date) {
   const file = readJsonSafe(fileFor(sport, "tracked_best", date), null)
   const idx = new Map()
   if (!file || !Array.isArray(file.entries)) return idx
   for (const e of file.entries) {
-    const propLabel = String(e.marketPropType || e.propType || "").toLowerCase()
-    const key = `${sport}|${(e.player || "").toLowerCase()}|${propLabel}|${String(e.side || "").toLowerCase()}|${e.line}`
-    idx.set(key, e)
+    const key = `${sport}|${(e.player || "").toLowerCase()}|${String(e.side || "").toLowerCase()}|${e.line}`
+    if (!idx.has(key)) idx.set(key, [])
+    idx.get(key).push(e)
   }
   return idx
+}
+
+/** Family aliases — tracked_bets ↔ tracked_best naming differences. Used to
+ * disambiguate when multiple entries share player+side+line. */
+const _FAMILY_ALIASES = {
+  pra: ["pra", "points_rebounds_assists", "playerpointsreboundsassists"],
+  points_rebounds_assists: ["pra", "points_rebounds_assists"],
+  total_bases: ["totalbases", "total bases", "batter_total_bases", "batter_total_bases_alternate"],
+  totalbases: ["totalbases", "total bases", "batter_total_bases", "batter_total_bases_alternate"],
+  home_runs: ["home_runs", "homeruns", "hr", "batter_home_runs"],
+  hr: ["home_runs", "homeruns", "hr"],
+}
+function _familyMatches(a, b) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/[\s_-]+/g, "")
+  const an = norm(a), bn = norm(b)
+  if (an === bn) return true
+  const aliasesA = (_FAMILY_ALIASES[a] || _FAMILY_ALIASES[an] || []).map(norm)
+  if (aliasesA.includes(bn)) return true
+  const aliasesB = (_FAMILY_ALIASES[b] || _FAMILY_ALIASES[bn] || []).map(norm)
+  if (aliasesB.includes(an)) return true
+  return false
+}
+
+/** Resolve the best-matching tracked_best entry for a pick. */
+function findReasoningEntry(reasoningIdx, pick) {
+  const sport = pick.sport
+  const key = `${sport}|${(pick.player||'').toLowerCase()}|${String(pick.side||'').toLowerCase()}|${pick.line}`
+  const candidates = reasoningIdx?.get(key) || []
+  if (!candidates.length) return null
+  if (candidates.length === 1) return candidates[0]
+  // Multiple entries — disambiguate by family/propType match
+  const pickFam = pick.statFamily || pick.propType || ""
+  for (const c of candidates) {
+    if (_familyMatches(pickFam, c.statFamily) || _familyMatches(pickFam, c.propType) || _familyMatches(pickFam, c.marketPropType)) {
+      return c
+    }
+  }
+  return candidates[0] // fall back to first if no family match
 }
 
 function _round(n, p = 2) {
@@ -2253,10 +2298,9 @@ router.get("/top-picks", (req, res) => {
       ...byTier.PLAYABLE.slice(0, playableN),
     ]
 
-    // Hydrate reasoning on each pick
+    // Hydrate reasoning on each pick (uses findReasoningEntry — no propType in join key)
     for (const pick of picks) {
-      const k = `${pick.sport}|${(pick.player||'').toLowerCase()}|${String(pick.propType||'').toLowerCase()}|${String(pick.side||'').toLowerCase()}|${pick.line}`
-      const best = reasoningIdx[pick.sport]?.get(k) || null
+      const best = findReasoningEntry(reasoningIdx[pick.sport], pick)
       pick.reasoning = buildReasoning(pick, best)
     }
 
@@ -2365,9 +2409,8 @@ router.get("/games-browser", (req, res) => {
             return ob - oa
           })
           prop.bookOptions = slot.bookOptions
-          // Hydrate reasoning
-          const rk = `${g.sport}|${(prop.player||'').toLowerCase()}|${String(prop.propType||'').toLowerCase()}|${String(prop.side||'').toLowerCase()}|${prop.line}`
-          const best = reasoningIdx[g.sport]?.get(rk) || null
+          // Hydrate reasoning (no propType in join key — alias map handles family naming)
+          const best = findReasoningEntry(reasoningIdx[g.sport], { ...prop, sport: g.sport })
           prop.reasoning = buildReasoning(prop, best)
           propsArr.push(prop)
         }
