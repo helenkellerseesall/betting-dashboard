@@ -346,7 +346,7 @@ async function main() {
   // gives us {modelProb, actual win/loss}. Group by family, compare stated
   // mean model probability to realized win rate. Flag when |stated - realized|
   // > thresholds, dampening can then bring these in line.
-  H("10. CALIBRATION (model claim vs realized hit rate per family)")
+  H("9. CALIBRATION (model claim vs realized hit rate per family)")
   const CAL_WINDOW_DAYS = 7
   const CAL_MIN_SAMPLE = 20
   for (const sport of ["nba", "mlb"]) {
