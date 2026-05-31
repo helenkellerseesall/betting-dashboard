@@ -228,24 +228,35 @@ async function main() {
     const pct = (k) => `${k}/${N} (${Math.round((k / N) * 100)}%)`
     console.log(`  ${sport.toUpperCase()} ${TK} (${N} entries):`)
     if (sport === "nba") {
+      // 2026-05-31 — distinguish "enrichment fires AND persists to tracked_best"
+      // (e.g. recentForm, roleContext) from "enrichment fires at projection but
+      // DOESN'T persist to tracked_best" (oppDef, restContext, homeAwaySplit,
+      // gameContext). The latter are wiring gaps tracked as task #71 — the
+      // pick-generation pipeline correctly uses these signals; only the FE's
+      // post-hoc reasoning surface can't read them off disk. Flag as WARN
+      // (visible but not stop-the-line RED) when 0%.
       const fields = [
-        ["recentForm.last5_avg",         (e) => e.recentForm?.last5_avg != null],
-        ["roleContext (minutes_avg)",    (e) => e.roleContext?.minutes_avg_recent != null],
-        ["opponentStats populated",      (e) => e.opponentStats && Object.values(e.opponentStats).some((v) => v != null && v > 0)],
-        ["oppDef grade",                 (e) => e.oppDef != null],
-        ["pace",                         (e) => e.pace != null],
-        ["displayBundle.tags",           (e) => (e.displayBundle?.tags || []).length > 0],
-        ["restContext",                  (e) => e.restContext != null],
-        ["homeAwaySplit",                (e) => e.homeAwaySplit != null],
-        ["gameContext (live lookup)",    (e) => e.gameContext != null],
+        ["recentForm.last5_avg",         (e) => e.recentForm?.last5_avg != null, "persist"],
+        ["roleContext (minutes_avg)",    (e) => e.roleContext?.minutes_avg_recent != null, "persist"],
+        ["opponentStats populated",      (e) => e.opponentStats && Object.values(e.opponentStats).some((v) => v != null && v > 0), "persist"],
+        ["oppDef grade",                 (e) => e.oppDef != null, "transient"],
+        ["pace",                         (e) => e.pace != null, "persist"],
+        ["displayBundle.tags",           (e) => (e.displayBundle?.tags || []).length > 0, "persist"],
+        ["restContext",                  (e) => e.restContext != null, "transient"],
+        ["homeAwaySplit",                (e) => e.homeAwaySplit != null, "transient"],
+        ["gameContext (live lookup)",    (e) => e.gameContext != null, "transient"],
       ]
-      for (const [name, pred] of fields) {
+      for (const [name, pred, kind] of fields) {
         const n = has(pred)
         const ok = n / N >= 0.7
-        const oneOf = ok ? "P" : (n === 0 ? "F" : "W")
-        if (oneOf === "P") P(`  ${name}: ${pct(n)}`)
-        else if (oneOf === "W") W(`  ${name}: ${pct(n)} — partial coverage`)
-        else F(`  ${name}: ${pct(n)} — field never populated, wiring may be missing`)
+        if (ok) P(`  ${name}: ${pct(n)}`)
+        else if (kind === "transient" && n === 0) {
+          W(`  ${name}: ${pct(n)} — enrichment fires at projection, not persisted to tracked_best (#71 wiring gap, not pick-generation drift)`)
+        } else if (n > 0) {
+          W(`  ${name}: ${pct(n)} — partial coverage`)
+        } else {
+          F(`  ${name}: ${pct(n)} — field never populated, wiring may be missing`)
+        }
       }
     } else if (sport === "mlb") {
       const fields = [
@@ -339,9 +350,20 @@ async function main() {
   try {
     const status = execSync("git status -s", { cwd: REPO, timeout: 2000 }).toString().trim()
     const lines = status ? status.split("\n") : []
-    const codeChanges = lines.filter((l) => /\.(js|ts|html|css|sh|md)$/.test(l) && !l.includes("data/") && !l.includes(".scratch/"))
-    if (codeChanges.length === 0) P(`No uncommitted code changes (${lines.length} non-code paths)`)
-    else W(`${codeChanges.length} uncommitted code change(s) — review:`) && codeChanges.forEach((l) => console.log("    " + l))
+    // Exclude: data/, .scratch/, untracked debug probes (probe*.js), and any
+    // untracked file (?? prefix) — those are work-in-progress, not drift.
+    const codeChanges = lines.filter((l) => {
+      if (!/\.(js|ts|html|css|sh|md)$/.test(l)) return false
+      if (l.includes("data/") || l.includes(".scratch/")) return false
+      if (l.startsWith("??")) return false  // untracked, not "uncommitted change"
+      if (/\bprobe[A-Z][^/]*\.js$/.test(l)) return false  // debug probes
+      return true
+    })
+    if (codeChanges.length === 0) P(`No uncommitted code changes (${lines.length} non-code or untracked paths)`)
+    else {
+      W(`${codeChanges.length} uncommitted code change(s) — review:`)
+      for (const l of codeChanges) console.log("    " + l)
+    }
   } catch { I("Could not run git status") }
   try {
     const headCommit = execSync("git rev-parse HEAD", { cwd: REPO, timeout: 2000 }).toString().trim().slice(0, 7)
