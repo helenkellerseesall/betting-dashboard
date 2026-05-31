@@ -172,7 +172,20 @@ async function main() {
     [`${process.env.HOME}/Library/Logs/com.motel666.caffeinate.err`, "caffeinate"],
     ["/tmp/motel666-backend.err", "backend (alt)"],
   ]
+  // 2026-05-31 — distinguish "plist configured but quiet" from "not configured."
+  // If the plist HAS StandardErrorPath but the file doesn't exist, the agent
+  // has just been quiet (healthy). If the plist DOESN'T have it, the redirect
+  // is missing and we need to run configureLaunchAgentLogs.sh.
+  function plistHasStderrRedirect(label) {
+    const plistPath = `${process.env.HOME}/Library/LaunchAgents/${label}.plist`
+    try {
+      const out = execSync(`/usr/libexec/PlistBuddy -c "Print :StandardErrorPath" "${plistPath}" 2>/dev/null`, { timeout: 2000 }).toString().trim()
+      return out.length > 0 && !out.includes("Does Not Exist")
+    } catch { return false }
+  }
   for (const [p, label] of logPaths) {
+    // Derive the agent label from the log path (com.motel666.backend.err → com.motel666.backend)
+    const agentLabel = path.basename(p).replace(/\.(err|out)$/, "")
     try {
       const stat = fs.statSync(p)
       const tail = execSync(`tail -200 "${p}" | grep -ciE "error|fatal|exception|EADDR|ECONN|throw "`, { timeout: 2000 }).toString().trim()
@@ -182,8 +195,15 @@ async function main() {
       else if (errCount < 5) W(`${label} log: ${errCount} error patterns in last 200 lines (last write ${ageH}h ago)`)
       else F(`${label} log: ${errCount} error patterns in last 200 lines — investigate`)
     } catch (e) {
-      if (e.code === "ENOENT") I(`${label} log: not found at ${p} (LaunchAgent may not redirect stderr)`)
-      else W(`${label} log: read failed (${e.message})`)
+      if (e.code === "ENOENT") {
+        // File missing — is the redirect configured or not?
+        if (label.includes("alt")) { I(`${label} log: not found at ${p} (legacy alt path, ignore)`); continue }
+        if (plistHasStderrRedirect(agentLabel)) {
+          P(`${label} log: plist configured for ${p} but agent silent (no stderr written — healthy)`)
+        } else {
+          W(`${label} log: plist NOT configured to redirect stderr — run configureLaunchAgentLogs.sh`)
+        }
+      } else W(`${label} log: read failed (${e.message})`)
     }
   }
 
