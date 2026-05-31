@@ -49,7 +49,7 @@ Last updated: 2026-05-31
 ## Other runtime ports / paths I keep getting wrong
 
 - Tracking dir: `backend/runtime/tracking/`
-- Personal ledger: `backend/runtime/operator/personal_ledger.json`
+- **Personal ledger CANONICAL LOCATION: `backend/storage/betting.db` table `personal_ledger`** (273k+ bets, snake_case columns, 8 indexes including `idx_pl_decision` on decision_type). Dual-written automatically from JSON via `_mirrorAllBetsToSqlite()` inside `saveLedger()` in `buildPersonalLedger.js`. **The JSON file at `backend/runtime/tracking/personal_ledger.json` is the secondary copy** (FIFO-capped at MAX_BETS=50k). When picking which to read, SQLite has more history and is FIFO-immune. The existing infrastructure: `backend/storage/db.js` for db lifecycle, `backend/storage/queries.js` for upsertLedgerBet + upsertManyLedgerBets.
 - Scratch dir for diagnostics: `.scratch/last.txt` (always overwrite, never append)
 
 ## How to verify a fact in this file is current

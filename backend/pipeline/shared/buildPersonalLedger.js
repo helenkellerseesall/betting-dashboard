@@ -36,31 +36,15 @@ const MAX_BETS = 50000
 const MAX_BETS_IN_REPORT = 50
 const CURRENT_VERSION = "personal-ledger-v1"
 
-// 2026-05-31 — SQLite shadow (Phase 1 of personal_ledger JSON → SQLite migration).
-// JSON is canonical. After every successful JSON write, _mirrorBetToSqlite()
-// dual-writes the single changed bet to personal_ledger.db. The mirror is wrapped
-// in try/catch and lazy-required so:
-//   • If better-sqlite3 is missing, the JSON write proceeds normally
-//   • If the SQLite upsert fails (disk full, lock contention), the JSON is unaffected
-//   • SQLITE_DUAL_WRITE=0 env var disables the mirror entirely (rollback)
-// The audit's parity-check section verifies JSON.bets.length === sqlite SELECT COUNT(*)
-// hourly. Once parity holds for 48 hrs, Phase 2 flips reads to SQLite.
-let _ledgerDb = null
-let _ledgerDbLoadAttempted = false
-function _mirrorBetToSqlite(bet) {
-  if (process.env.SQLITE_DUAL_WRITE === "0") return
-  if (!bet || !bet.id) return
-  try {
-    if (!_ledgerDbLoadAttempted) {
-      _ledgerDbLoadAttempted = true
-      _ledgerDb = require("./personalLedgerDb")
-    }
-    if (_ledgerDb) _ledgerDb.upsertBet(bet)
-  } catch (e) {
-    // Never propagate — JSON canonical write already succeeded
-    console.warn(`[buildPersonalLedger] SQLite mirror failed (id=${bet.id}): ${e.message}`)
-  }
-}
+// 2026-05-31 — REVERTED my added _mirrorBetToSqlite duplicate. The pre-existing
+// function at line ~95 (which uses backend/storage/db.js + queries.js writing
+// to betting.db.personal_ledger — the canonical SQLite mirror with 273k+ bets,
+// FIFO-immune) was being shadowed by my added definition. JS function-hoisting
+// silenced my version. After verifying that smoke + diag bets DID land in the
+// canonical SQLite via the existing _mirrorAllBetsToSqlite call inside saveLedger(),
+// my duplicate + the orphan personalLedgerDb.js / personal_ledger.db / backfill /
+// smoke-test scripts are removed. CANONICAL LEDGER LOCATION: backend/storage/betting.db.
+// See RUNTIME_FACTS.md.
 
 // ─── SQLite mirror (lazy init, graceful degradation) ─────────────────────────
 //
@@ -865,10 +849,7 @@ function addOrUpdateBet(input = {}, { ledger: existingLedger = null, save = true
   )
   ledger.updatedAt = new Date().toISOString()
 
-  if (save) {
-    saveLedger(ledger)
-    _mirrorBetToSqlite(bet)  // 2026-05-31 Phase 1 dual-write
-  }
+  if (save) saveLedger(ledger)  // saveLedger handles SQLite mirror via _mirrorAllBetsToSqlite
   return { ledger, bet, isNew }
 }
 
@@ -901,10 +882,7 @@ function settleBet(id, { result, payout, actualStat, note } = {}, { save = true 
   )
   ledger.updatedAt = new Date().toISOString()
 
-  if (save) {
-    saveLedger(ledger)
-    _mirrorBetToSqlite(bet)  // 2026-05-31 Phase 1 dual-write
-  }
+  if (save) saveLedger(ledger)  // saveLedger handles SQLite mirror via _mirrorAllBetsToSqlite
   return { ok: true, bet, prevBalance, newBalance: ledger.bankroll.current }
 }
 
@@ -932,14 +910,7 @@ function batchSettle(resultsMap = {}, { save = true } = {}) {
   }
   ledger.analytics = rebuildAnalytics(ledger.bets, ledger.bankroll.current, ledger.bankroll.initial)
   ledger.updatedAt = new Date().toISOString()
-  if (save) {
-    saveLedger(ledger)
-    // 2026-05-31 Phase 1 dual-write — mirror each settled bet to SQLite
-    for (const a of applied) {
-      const b = ledger.bets.find((x) => x.id === a.id)
-      if (b) _mirrorBetToSqlite(b)
-    }
-  }
+  if (save) saveLedger(ledger)  // saveLedger handles SQLite mirror via _mirrorAllBetsToSqlite
   return { applied, count: applied.length }
 }
 
