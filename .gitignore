@@ -62,3 +62,27 @@ backend/storage/test.txt
 # Checkpoint state (local operational state — never commit)
 .checkpoint/
 .scratch/
+
+# 2026-05-31 — populator outputs (regenerated every slate by refresh*.js scripts).
+# These were tracked historically, which blocked `git pull --rebase` after every
+# slate run because the populators modify them. Also: mlbLiveStateHistory/ was
+# 431MB in git history. We KEEP the curated static seeds (mlbParkFactors.json,
+# mlbParkMeta.json, sportsbookTopology.json) — those are hand-edited reference data.
+backend/data/intelligence.db
+backend/data/mlbBatterGameLogs.json
+backend/data/mlbBatterStats.json
+backend/data/mlbBullpenWorkload.json
+backend/data/mlbGameWeather.json
+backend/data/mlbPitcherGameLogs.json
+backend/data/mlbPitcherStats.json
+backend/data/mlbPlayerPower.json
+backend/data/mlbStatcastPower.json
+backend/data/nbaDvP.json
+backend/data/nbaInjuryReport.json
+backend/data/nbaPlayerGameLogs.json
+backend/data/nbaPlayerProjections.json
+backend/data/nbaTeamStats.json
+backend/data/mlbLiveStateHistory/
+
+# Also bak files from past slate scripts
+backend/scripts/*.bak*
