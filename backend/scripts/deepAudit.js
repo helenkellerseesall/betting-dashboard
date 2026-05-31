@@ -48,10 +48,16 @@ function detectPort() {
   } catch {}
   return 4000
 }
-function fetchJson(p) {
+function fetchJson(p, timeoutMs = 30000) {
+  // 2026-05-31 — bumped 5s → 30s. Personal ledger is 65MB and parsing on every
+  // /ledger/yesterday request takes several seconds — perfectly healthy backend
+  // can take 3-10s on heavy reads. 5s was producing false RED status on
+  // games-browser / grades-health / ledger/yesterday. SQLite migration of the
+  // ledger (Phase 1 queued) would make this 10x faster, but until then the
+  // probe needs a realistic window.
   const port = detectPort()
   return new Promise((resolve) => {
-    const req = http.request({ host: "127.0.0.1", port, path: p, method: "GET", timeout: 5000 }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port, path: p, method: "GET", timeout: timeoutMs }, (res) => {
       let body = ""
       res.on("data", (c) => body += c)
       res.on("end", () => {
