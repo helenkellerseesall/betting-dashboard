@@ -123,6 +123,20 @@ while true; do
     fired=true
   fi
 
+  # 2026-05-31 — NBA injury report refresh at :15. Wired in response to
+  # deepAudit flagging NBA injuries 16h stale (max 6h). Slate-wide ESPN
+  # endpoint, ~2s runtime, refreshes nbaInjuryReport.json. Fires at :15 so
+  # it doesn't collide with slate runs at :00/:30 or sysAudit at :00.
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
+    log "populateNbaInjuryReport starting..."
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaInjuryReport.js >> "$LOG" 2>&1; then
+      log "populateNbaInjuryReport OK"
+    else
+      log "populateNbaInjuryReport FAILED (exit $?) — ESPN may be down or injury endpoint moved"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 — Hourly sysAudit (self-awareness layer task #69).
   # Fires at every :00 between 9 AM and 11 PM ET. Writes per-hour audit
   # snapshot to .scratch/audit_HH.txt. If exit ≥ 2 (RED — critical drift),

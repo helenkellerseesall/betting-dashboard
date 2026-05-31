@@ -695,6 +695,50 @@
     // State + config
     // ─────────────────────────────────────────────────────────────
     const API = ""; // same-origin; backend serves both /m and /api/ws/*
+
+    // 2026-05-31 — Version polling + auto-refresh banner. Closes the deepAudit
+    // ✗ "FE has NO version polling — PWA cache can serve infinitely-stale UI."
+    // Polls /api/ws/version every 60s. Stores backend commit on first load.
+    // On mismatch, shows yellow banner: "Backend updated — tap to refresh."
+    // Banner click → location.reload(true). No auto-reload trap; operator
+    // explicitly opts in. Survives PWA cache via per-poll fetch (HEAD request
+    // doesn't hit cache).
+    let _initialBackendCommit = null;
+    let _versionPollInterval = null;
+    async function _pollBackendVersion() {
+      try {
+        const r = await fetch(`${API}/api/ws/version?_t=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!d?.commit) return;
+        if (_initialBackendCommit == null) {
+          _initialBackendCommit = d.commit;
+          // expose for debugging in DevTools
+          window.__FE_BACKEND_COMMIT_AT_LOAD = d.commit;
+          return;
+        }
+        if (d.commit !== _initialBackendCommit) {
+          // Mismatch — show banner if not already shown
+          _showStaleBanner(_initialBackendCommit, d.commit);
+        }
+      } catch (e) { /* network blip — ignore, next tick will retry */ }
+    }
+    function _showStaleBanner(oldCommit, newCommit) {
+      if (document.getElementById("fe-stale-banner")) return; // already shown
+      const banner = document.createElement("div");
+      banner.id = "fe-stale-banner";
+      banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#FBBF24;color:#1F1A0A;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;justify-content:space-between;align-items:center;";
+      banner.innerHTML = `
+        <div>⚖ Backend updated (${oldCommit.slice(0,7)} → ${newCommit.slice(0,7)}). <u>Tap to refresh.</u></div>
+        <div style="font-size:12px;opacity:0.7;">PWA is stale</div>
+      `;
+      banner.onclick = () => { location.reload(true); };
+      document.body.appendChild(banner);
+    }
+    // Start poll. First call captures the commit; subsequent calls compare.
+    _pollBackendVersion();
+    _versionPollInterval = setInterval(_pollBackendVersion, 60000);
+
     const MAX_PLAYS = 15;
     const REFRESH_MIN_INTERVAL_MS = 5000;
 
