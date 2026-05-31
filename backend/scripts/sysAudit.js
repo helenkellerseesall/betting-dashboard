@@ -107,7 +107,22 @@ async function main() {
     try { head = execSync("git rev-parse HEAD", { cwd: REPO, timeout: 2000 }).toString().trim() } catch {}
     const match = head && ver.json.commit === head
     if (match) P(`Backend pid ${ver.json.pid} on commit ${ver.json.commitShort} (matches local HEAD)`)
-    else F(`Backend serving ${ver.json.commitShort} but local HEAD is ${head?.slice(0,7) || "?"} — STALE CODE, restart needed`)
+    else {
+      // Distinguish "code that affects backend behavior" from script/doc-only commits.
+      // Backend only needs a restart when files it actually loads at boot changed.
+      let routeChanged = false
+      try {
+        const diff = execSync(`git diff --name-only ${ver.json.commit} ${head}`, { cwd: REPO, timeout: 3000 }).toString().trim().split("\n").filter(Boolean)
+        routeChanged = diff.some((p) =>
+          /^backend\/(routes|pipeline|server\.js|http|data\/[a-z]+\.json)/.test(p) ||
+          /^backend\/(pipeline|routes)\/.+\.js$/.test(p)
+        ) || diff.some((p) => /^frontend\//.test(p))
+        if (routeChanged) F(`Backend serving ${ver.json.commitShort} but local HEAD is ${head?.slice(0,7)} — STALE CODE (route/pipeline change), restart needed`)
+        else W(`Backend serving ${ver.json.commitShort} (1 commit behind ${head?.slice(0,7)}) — script/doc-only diff, no restart needed`)
+      } catch {
+        F(`Backend serving ${ver.json.commitShort} but local HEAD is ${head?.slice(0,7) || "?"} — STALE CODE, restart needed`)
+      }
+    }
     const bootAge = Math.round((Date.now() - new Date(ver.json.bootAt).getTime()) / 60000)
     I(`Booted ${ver.json.bootAt} (${bootAge} min ago)`)
   }
@@ -173,11 +188,11 @@ async function main() {
     ["nbaPlayerGameLogs.json",  "NBA player game logs",         48, "warn"],
     ["nbaTeamStats.json",       "NBA team stats",               48, "warn"],
     ["nbaDvP.json",             "NBA defense-vs-position",      48, "warn"],
-    ["nbaPlayerProjections.json","NBA player projections",      48, "warn"],
-    // Static seeds
+    // Static seeds — hand-curated, not auto-refreshed by populators
     ["mlbParkFactors.json",     "MLB park factors (STATIC)",   null, "static"],
     ["mlbParkMeta.json",        "MLB park meta (STATIC)",      null, "static"],
     ["sportsbookTopology.json", "Sportsbook topology (STATIC)",null, "static"],
+    ["nbaPlayerProjections.json","NBA projections seed (STATIC, defaults fallback when roleContext missing)",null, "static"],
   ]
   for (const [fname, label, maxAge, sev] of populators) {
     const p = path.join(DATA, fname)
@@ -256,9 +271,13 @@ async function main() {
   // 6. FAMILY COVERAGE (today's tracked_bets — what prop types surfaced)
   H("6. FAMILY COVERAGE (latest tracked_bets per sport)")
   for (const sport of ["nba", "mlb"]) {
-    // Use latest date with bets
+    // Use latest date with bets — REJECT future-dated sentinel files (e.g.
+    // 9999-12-31), match the production findLatestDateWithData guard.
     const files = fs.readdirSync(TRACKING).filter((f) => new RegExp(`^${sport}_tracked_bets_\\d{4}-\\d{2}-\\d{2}\\.json$`).test(f))
-    const latest = files.map((f) => f.match(/(\d{4}-\d{2}-\d{2})/)[1]).sort().reverse()[0]
+    const latest = files
+      .map((f) => f.match(/(\d{4}-\d{2}-\d{2})/)[1])
+      .filter((dk) => dk <= TK)  // anti-sentinel
+      .sort().reverse()[0]
     if (!latest) { I(`${sport.toUpperCase()}: no tracked_bets files`); continue }
     const bets = readJsonSafe(path.join(TRACKING, `${sport}_tracked_bets_${latest}.json`)) || []
     if (!bets.length) { I(`${sport.toUpperCase()} ${latest}: empty`); continue }
