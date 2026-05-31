@@ -2173,6 +2173,48 @@
       return `${(v * 100).toFixed(decimals)}%`;
     }
 
+    // 2026-05-31 — fast CLV-stamping health probe. Reads tracked_bets_*.json
+    // directly (small files), so this loads even when the heavy ledger panel
+    // times out. Operator's #1 GRADES ask was "proof the CLV is working."
+    async function _fetchGradesHealth(targetDivId) {
+      try {
+        const r = await fetch(`${API}/api/ws/grades-health?days=7`);
+        const d = await r.json();
+        const el = document.getElementById(targetDivId); if (!el) return;
+        const renderSport = (sport, w) => {
+          const stampPct = w.clvStampRate == null ? "—" : `${(w.clvStampRate * 100).toFixed(0)}%`;
+          const beatPct = w.beatMarketRate == null ? "—" : `${(w.beatMarketRate * 100).toFixed(0)}%`;
+          const hit = w.hitRate == null ? "—" : `${(w.hitRate * 100).toFixed(0)}%`;
+          const avgClv = w.avgClvCents == null ? "—" : `${w.avgClvCents > 0 ? "+" : ""}${w.avgClvCents.toFixed(1)}¢`;
+          const okClv = w.clvStampRate != null && w.clvStampRate > 0;
+          const okStatus = okClv ? "#34D399" : "#F87171";
+          return `
+            <div style="background:#0F1422;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid ${okStatus};">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <span style="font-size:13px;font-weight:600;color:#F9FAFB;">${sport === "nba" ? "🏀 NBA" : "⚾ MLB"}</span>
+                <span style="font-size:10px;color:#6B7280;">${w.total} picks · ${w.days.length}d</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:8px;font-family:ui-monospace,monospace;">
+                <div><div style="font-size:9px;color:#6B7280;">CLV STAMPED</div><div style="font-size:14px;color:${okClv ? '#34D399' : '#F87171'};">${stampPct}</div></div>
+                <div><div style="font-size:9px;color:#6B7280;">AVG CLV</div><div style="font-size:14px;color:${w.avgClvCents > 0 ? '#34D399' : '#F87171'};">${avgClv}</div></div>
+                <div><div style="font-size:9px;color:#6B7280;">BEAT MKT</div><div style="font-size:14px;color:#D1D5DB;">${beatPct}</div></div>
+                <div><div style="font-size:9px;color:#6B7280;">HIT</div><div style="font-size:14px;color:#D1D5DB;">${hit}</div></div>
+              </div>
+              <div style="font-size:9px;color:#6B7280;margin-top:6px;">${w.wins}W ${w.losses}L${w.pushes ? ' ' + w.pushes + 'P' : ''} ${w.pending ? ' · ' + w.pending + ' pending' : ''} · ${w.clvStamped} CLV-stamped</div>
+            </div>
+          `;
+        };
+        let html = `<div style="font-size:11px;color:#9CA3AF;letter-spacing:1px;margin-bottom:8px;">⚙️ SYSTEM HEALTH · last ${d.days} days</div>`;
+        for (const sport of ["nba", "mlb"]) {
+          if (d.sports?.[sport]) html += renderSport(sport, d.sports[sport]);
+        }
+        el.innerHTML = html;
+      } catch (e) {
+        const el = document.getElementById(targetDivId); if (!el) return;
+        el.innerHTML = `<div style="color:#F87171;font-size:11px;padding:8px;">CLV health probe failed: ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    }
+
     function renderGradesView(main) {
       const d = state.grades;
       // Lazy fetch on first open
@@ -2180,13 +2222,21 @@
         fetchGrades();
       }
 
+      // Health panel always renders first (fast endpoint, fires async)
+      const healthDivId = `grades-health-${Math.random().toString(36).slice(2, 8)}`;
+      const healthShell = `<div style="padding:12px 14px 0 14px;">
+        <div id="${healthDivId}"><div style="color:#6B7280;font-size:11px;">Loading system health…</div></div>
+      </div>`;
+      setTimeout(() => _fetchGradesHealth(healthDivId), 50);
+
       if (d.loading) {
-        main.innerHTML = `<div class="loading">Loading yesterday's picks…</div>`;
+        main.innerHTML = `${healthShell}<div class="loading" style="padding:20px;color:#9CA3AF;">Loading yesterday's picks…</div>`;
         return;
       }
       if (d.error) {
-        main.innerHTML = `<div class="error" style="padding: 16px; color: #F87171;">
-          Failed to load grades.<br><code>${escapeHtml(d.error)}</code>
+        main.innerHTML = `${healthShell}<div class="error" style="padding: 16px; color: #F87171;">
+          Ledger panel failed to load (likely heavy file timeout).<br><code style="font-size:10px;">${escapeHtml(d.error)}</code>
+          <div style="margin-top:8px;font-size:11px;color:#9CA3AF;">System health panel above pulls from per-day tracked_bets files and is unaffected.</div>
         </div>`;
         return;
       }
@@ -2286,6 +2336,7 @@
 
       if (d.picks.length === 0) {
         main.innerHTML = `
+          ${healthShell}
           ${summaryHtml}
           ${gradeBtns}
           <div style="padding: 24px 16px; text-align: center; color: #6B7280;">
@@ -2338,7 +2389,7 @@
         `;
       }).join("");
 
-      main.innerHTML = summaryHtml + gradeBtns + pickHtml;
+      main.innerHTML = healthShell + summaryHtml + gradeBtns + pickHtml;
     }
 
     // POSTs to /api/ws/ledger/log which wraps buildPersonalLedger.addOrUpdateBet.
@@ -2570,24 +2621,105 @@
       return n > 0 ? `+${n}` : `${n}`;
     }
 
-    // ── v2 collapsed card: player + prop + line + side + conf% + edge% ──
+    // Format ISO gameTime → "8:00 PM ET"
+    function _gameTimeNice(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      try {
+        return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+      } catch (e) { return ""; }
+    }
+
+    // Render reasoning blob → 3 always-on rows + driver bullets
+    function _renderReasoning(reasoning) {
+      if (!reasoning) return "";
+      const row = (item, color) => {
+        if (!item) return "";
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:11px;border-top:1px solid #1F2937;">
+          <span style="color:#6B7280;">${escapeHtml(item.label || "")}</span>
+          <span style="color:${color || "#D1D5DB"};text-align:right;font-family:ui-monospace,monospace;">${escapeHtml(String(item.value ?? "—"))}</span>
+        </div>`;
+      };
+      let html = `<div style="margin-top:8px;">`;
+      html += row(reasoning.l5, "#34D399");
+      html += row(reasoning.opp, "#60A5FA");
+      html += row(reasoning.propSpec, "#FBBF24");
+      const drivers = (reasoning.drivers || []).filter(Boolean);
+      if (drivers.length) {
+        html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1F2937;font-size:10px;color:#9CA3AF;line-height:1.5;">`;
+        for (const dr of drivers) html += `· ${escapeHtml(String(dr))}<br>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+
+    // Render book options list (when a prop has multiple book/odds pairs)
+    function _renderBookOptions(opts) {
+      if (!opts || opts.length <= 1) return "";
+      const allowed = opts.filter((o) => isPreferredBook(o.book));
+      if (allowed.length <= 1) return "";
+      let html = `<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1F2937;font-size:10px;color:#9CA3AF;">
+        <div style="color:#6B7280;margin-bottom:3px;">Other books:</div>`;
+      for (const o of allowed.slice(0, 6)) {
+        html += `<span style="display:inline-block;background:#0F1422;padding:2px 6px;border-radius:4px;margin:2px 4px 2px 0;">${escapeHtml(o.book || "?")} ${_oddsNice(o.odds)}</span>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+
+    // ── v2 compact card: tiny collapsed face, inline expand with reasoning ──
+    // opts.compact = true → 3-col-grid friendly stacked layout (TOP PICKS, GAMES inside player)
+    // opts.showStar = true → show ⭐ for top-pick props (used in GAMES tab)
     function renderV2Card(pick, opts = {}) {
       const tier = String(pick.tier || pick.modelTier || "").toUpperCase();
       const tierC = _tierColor(tier);
       const conf = _confPct(pick.modelProb);
       const edge = _edgePct(pick.edge);
-      const sportBadge = pick.sport ? `<span style="background:#1F2937;color:#9CA3AF;font-size:9px;padding:2px 6px;border-radius:4px;margin-right:6px;">${pick.sport.toUpperCase()}</span>` : "";
-      const starBadge = opts.showStar && pick.isTopPick ? `<span style="color:#FBBF24;margin-left:6px;">⭐</span>` : "";
-      const cardId = `v2card-${(pick.id || "") + "-" + Math.random().toString(36).slice(2,8)}`;
+      const sportBadge = pick.sport ? `<span style="background:#1F2937;color:#9CA3AF;font-size:8px;padding:1px 4px;border-radius:3px;">${pick.sport.toUpperCase()}</span>` : "";
+      const starBadge = opts.showStar && pick.isTopPick ? `<span style="color:#FBBF24;font-size:11px;margin-left:4px;">⭐</span>` : "";
+      const cardId = `v2card-${Math.random().toString(36).slice(2, 9)}`;
+      const odds = _oddsNice(pick.oddsAmerican || pick.odds);
+      const book = escapeHtml(pick.sportsbook || pick.book || "?");
+
+      if (opts.compact) {
+        // 3-col friendly: stacked, tiny
+        return `
+          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:8px;padding:8px;border-left:3px solid ${tierC};display:flex;flex-direction:column;">
+            <div style="cursor:pointer;flex:1;" onclick="document.getElementById('${cardId}-exp').classList.toggle('open');this.querySelector('.v2-chev').textContent=document.getElementById('${cardId}-exp').classList.contains('open')?'▾':'▸';">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span>${sportBadge}${starBadge}</span>
+                <span class="v2-chev" style="color:#6B7280;font-size:11px;">▸</span>
+              </div>
+              <div style="font-size:12px;font-weight:600;color:#F9FAFB;margin-top:4px;line-height:1.2;">${escapeHtml(pick.player || "?")}</div>
+              <div style="font-size:10px;color:#D1D5DB;margin-top:3px;line-height:1.3;">${_famNice(pick.statFamily)}<br><b style="color:#F9FAFB;">${_sideNice(pick.side)} ${pick.line}</b></div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;font-family:ui-monospace,monospace;">
+                <span style="font-size:13px;color:${tierC};font-weight:700;">${conf}</span>
+                <span style="font-size:9px;color:#9CA3AF;">${edge}</span>
+              </div>
+              <div style="font-size:9px;color:#6B7280;margin-top:3px;text-align:right;">${odds} ${book}</div>
+            </div>
+            <div id="${cardId}-exp" class="v2-card-exp" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid #1F2937;">
+              <div style="font-size:9px;color:#6B7280;margin-bottom:4px;">${escapeHtml(pick.matchup || "")}</div>
+              ${_renderReasoning(pick.reasoning)}
+              ${_renderBookOptions(pick.bookOptions)}
+            </div>
+          </div>
+        `;
+      }
+
+      // Standard (single-column) card
       return `
         <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:3px solid ${tierC};">
           <div style="display:flex;align-items:center;cursor:pointer;" onclick="document.getElementById('${cardId}-exp').classList.toggle('open');this.querySelector('.v2-chev').textContent=document.getElementById('${cardId}-exp').classList.contains('open')?'▾':'▸';">
             <div style="flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                 ${sportBadge}
                 <span style="font-size:14px;font-weight:600;color:#F9FAFB;">${escapeHtml(pick.player || "?")}</span>${starBadge}
               </div>
-              <div style="font-size:13px;color:#D1D5DB;margin-top:2px;">${_famNice(pick.statFamily)} ${_sideNice(pick.side)} ${pick.line}</div>
+              <div style="font-size:13px;color:#D1D5DB;margin-top:2px;">${_famNice(pick.statFamily)} <b>${_sideNice(pick.side)} ${pick.line}</b></div>
+              <div style="font-size:10px;color:#6B7280;margin-top:3px;">${odds} @ ${book}</div>
             </div>
             <div style="text-align:right;font-family:ui-monospace,monospace;">
               <div style="font-size:14px;color:${tierC};font-weight:700;">${conf}</div>
@@ -2596,11 +2728,9 @@
             <span class="v2-chev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
           </div>
           <div id="${cardId}-exp" class="v2-card-exp" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1F2937;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#9CA3AF;">
-              <span><b style="color:${tierC};">${tier || "—"}</b></span>
-              <span>${_oddsNice(pick.oddsAmerican || pick.odds)} @ ${escapeHtml(pick.sportsbook || "?")}</span>
-            </div>
-            ${(pick.matchup) ? `<div style="font-size:11px;color:#6B7280;margin-top:4px;">${escapeHtml(pick.matchup)}</div>` : ""}
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px;">${escapeHtml(pick.matchup || "")}</div>
+            ${_renderReasoning(pick.reasoning)}
+            ${_renderBookOptions(pick.bookOptions)}
           </div>
         </div>
       `;
@@ -2609,7 +2739,11 @@
     if (!document.getElementById("v2-card-style")) {
       const _s = document.createElement("style");
       _s.id = "v2-card-style";
-      _s.textContent = `.v2-card-exp.open { display: block !important; }`;
+      _s.textContent = `.v2-card-exp.open { display: block !important; }
+        .v2-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .v2-sport-section { margin-bottom: 18px; }
+        .v2-sport-header { font-size: 11px; color: #9CA3AF; letter-spacing: 2px; font-weight: 600; padding: 8px 2px; border-bottom: 1px solid #1F2937; margin-bottom: 8px; }
+        .v2-prop-divider { border-top: 1px dashed #1F2937; }`;
       document.head.appendChild(_s);
     }
 
@@ -2631,7 +2765,7 @@
           const t = String(p.tier || p.modelTier || "").toUpperCase();
           if (byTier[t]) byTier[t].push(p);
         }
-        let html = `<div style="padding:8px 12px;">
+        let html = `<div style="padding:8px 10px;">
           <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">
             ${picks.length} picks · ${byTier.ELITE.length} ELITE · ${byTier.STRONG.length} STRONG · ${byTier.PLAYABLE.length} PLAYABLE · cross-sport ${(d.sportsScanned || []).join("+")}
           </div>`;
@@ -2639,7 +2773,9 @@
           if (!byTier[tier].length) continue;
           const c = _tierColor(tier);
           html += `<div style="margin-top:14px;font-size:11px;color:${c};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${tier} · ${byTier[tier].length}</div>`;
-          for (const p of byTier[tier]) html += renderV2Card(p);
+          html += `<div class="v2-grid">`;
+          for (const p of byTier[tier]) html += renderV2Card(p, { compact: true });
+          html += `</div>`;
         }
         html += `</div>`;
         main.innerHTML = html;
@@ -2735,45 +2871,67 @@
           main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No games tonight.</div>`;
           return;
         }
+        // Group games by sport (NBA section, MLB section, etc.)
+        const bySport = {};
+        for (const g of games) {
+          const s = String(g.sport || "other").toLowerCase();
+          if (!bySport[s]) bySport[s] = [];
+          bySport[s].push(g);
+        }
+        const sportOrder = ["nba", "mlb"]; // operator preference: NBA first
+        const sportTitle = { nba: "🏀 NBA", mlb: "⚾ MLB" };
         let html = `<div style="padding:8px 12px;">`;
-        for (let gi = 0; gi < games.length; gi++) {
-          const g = games[gi];
-          const totalProps = g.players.reduce((s, p) => s + p.props.length, 0);
-          const starCount = g.players.reduce((s, p) => s + p.props.filter((pr) => pr.isTopPick).length, 0);
-          const gameId = `game-${gi}`;
-          const sportBadge = g.sport ? `<span style="background:#1F2937;color:#9CA3AF;font-size:9px;padding:2px 6px;border-radius:4px;margin-right:6px;">${g.sport.toUpperCase()}</span>` : "";
-          html += `
-            <div style="background:#141828;border-radius:10px;margin-bottom:10px;">
-              <div style="padding:12px;cursor:pointer;" onclick="document.getElementById('${gameId}').classList.toggle('open');this.querySelector('.gchev').textContent=document.getElementById('${gameId}').classList.contains('open')?'▾':'▸';">
-                <div style="display:flex;align-items:center;">
-                  <div style="flex:1;">
-                    ${sportBadge}
-                    <span style="font-size:14px;color:#F9FAFB;">${escapeHtml(g.matchup || "")}</span>
-                  </div>
-                  <div style="text-align:right;font-size:11px;color:#9CA3AF;">
-                    ${g.players.length} players · ${totalProps} props ${starCount ? `· <span style="color:#FBBF24;">⭐${starCount}</span>` : ''}
-                  </div>
-                  <span class="gchev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
-                </div>
-              </div>
-              <div id="${gameId}" class="v2-card-exp" style="display:none;padding:0 12px 12px 12px;">`;
-          for (let pi = 0; pi < g.players.length; pi++) {
-            const player = g.players[pi];
-            const pId = `${gameId}-p${pi}`;
-            const playerStarCount = player.props.filter((pr) => pr.isTopPick).length;
+        let gIdxGlobal = 0;
+        for (const sport of sportOrder.concat(Object.keys(bySport).filter((k) => !sportOrder.includes(k)))) {
+          const sg = bySport[sport]; if (!sg || !sg.length) continue;
+          const sgPropCount = sg.reduce((s, gg) => s + gg.players.reduce((ss, pp) => ss + pp.props.length, 0), 0);
+          const sgStarCount = sg.reduce((s, gg) => s + gg.players.reduce((ss, pp) => ss + pp.props.filter((pr) => pr.isTopPick).length, 0), 0);
+          html += `<div class="v2-sport-section">
+            <div class="v2-sport-header">${sportTitle[sport] || sport.toUpperCase()} · ${sg.length} game${sg.length === 1 ? "" : "s"} · ${sgPropCount} props${sgStarCount ? ` · <span style="color:#FBBF24;">⭐${sgStarCount}</span>` : ""}</div>`;
+          for (const g of sg) {
+            const gi = gIdxGlobal++;
+            const totalProps = g.players.reduce((s, p) => s + p.props.length, 0);
+            const starCount = g.players.reduce((s, p) => s + p.props.filter((pr) => pr.isTopPick).length, 0);
+            const gameId = `game-${gi}`;
+            const timeStr = _gameTimeNice(g.gameTime);
             html += `
-              <div style="border-top:1px solid #1F2937;">
-                <div style="padding:8px 0;cursor:pointer;" onclick="document.getElementById('${pId}').classList.toggle('open');this.querySelector('.pchev').textContent=document.getElementById('${pId}').classList.contains('open')?'▾':'▸';">
-                  <span style="font-size:13px;color:#D1D5DB;">${escapeHtml(player.player)}</span>
-                  <span style="float:right;font-size:11px;color:#9CA3AF;">${player.props.length} props ${playerStarCount ? `<span style="color:#FBBF24;">⭐${playerStarCount}</span>` : ''} <span class="pchev" style="color:#6B7280;margin-left:6px;">▸</span></span>
+              <div style="background:#141828;border-radius:10px;margin-bottom:10px;">
+                <div style="padding:12px;cursor:pointer;" onclick="document.getElementById('${gameId}').classList.toggle('open');this.querySelector('.gchev').textContent=document.getElementById('${gameId}').classList.contains('open')?'▾':'▸';">
+                  <div style="display:flex;align-items:center;">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:14px;color:#F9FAFB;">${escapeHtml(g.matchup || "")}</div>
+                      ${timeStr ? `<div style="font-size:11px;color:#9CA3AF;margin-top:2px;">⏰ ${timeStr}</div>` : ""}
+                    </div>
+                    <div style="text-align:right;font-size:11px;color:#9CA3AF;">
+                      ${g.players.length} players · ${totalProps} props${starCount ? ` · <span style="color:#FBBF24;">⭐${starCount}</span>` : ''}
+                    </div>
+                    <span class="gchev" style="color:#6B7280;margin-left:8px;font-size:14px;">▸</span>
+                  </div>
                 </div>
-                <div id="${pId}" class="v2-card-exp" style="display:none;padding-left:12px;">`;
-            for (const prop of player.props) {
-              html += renderV2Card(prop, { showStar: true });
+                <div id="${gameId}" class="v2-card-exp" style="display:none;padding:0 12px 12px 12px;">`;
+            for (let pi = 0; pi < g.players.length; pi++) {
+              const player = g.players[pi];
+              const pId = `${gameId}-p${pi}`;
+              const playerStarCount = player.props.filter((pr) => pr.isTopPick).length;
+              html += `
+                <div style="border-top:2px solid #1F2937;margin-top:6px;">
+                  <div style="padding:10px 0 6px 0;cursor:pointer;" onclick="document.getElementById('${pId}').classList.toggle('open');this.querySelector('.pchev').textContent=document.getElementById('${pId}').classList.contains('open')?'▾':'▸';">
+                    <span style="font-size:13px;color:#D1D5DB;font-weight:600;">${escapeHtml(player.player)}</span>
+                    <span style="float:right;font-size:11px;color:#9CA3AF;">${player.props.length} prop${player.props.length === 1 ? "" : "s"}${playerStarCount ? ` <span style="color:#FBBF24;">⭐${playerStarCount}</span>` : ''} <span class="pchev" style="color:#6B7280;margin-left:6px;">▸</span></span>
+                  </div>
+                  <div id="${pId}" class="v2-card-exp" style="display:none;">`;
+              for (let propI = 0; propI < player.props.length; propI++) {
+                const prop = player.props[propI];
+                // Each prop wrapped with a divider so it doesn't blend into siblings
+                html += `<div class="${propI > 0 ? "v2-prop-divider" : ""}" style="padding:6px 0;">`;
+                html += renderV2Card(prop, { showStar: true });
+                html += `</div>`;
+              }
+              html += `</div></div>`;
             }
             html += `</div></div>`;
           }
-          html += `</div></div>`;
+          html += `</div>`;
         }
         html += `</div>`;
         main.innerHTML = html;

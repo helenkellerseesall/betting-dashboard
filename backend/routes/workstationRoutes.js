@@ -2051,11 +2051,145 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 
 // 2026-05-30 — FE v2 endpoints (Phase 1 of FE overhaul). All cross-sport,
 // signal-enriched, and operator-preferred-book aware.
+// 2026-05-31 — round 2: reasoning hydration + per-prop dedup in games-browser.
+
+/**
+ * Build a join index from tracked_best entries (rich enrichment side) keyed by
+ *   `${sport}|${playerLower}|${propTypeLower}|${sideLower}|${line}`
+ * so tracked_bets rows can be merged with reasoning fields at request time.
+ */
+function loadReasoningIndex(sport, date) {
+  const file = readJsonSafe(fileFor(sport, "tracked_best", date), null)
+  const idx = new Map()
+  if (!file || !Array.isArray(file.entries)) return idx
+  for (const e of file.entries) {
+    const propLabel = String(e.marketPropType || e.propType || "").toLowerCase()
+    const key = `${sport}|${(e.player || "").toLowerCase()}|${propLabel}|${String(e.side || "").toLowerCase()}|${e.line}`
+    idx.set(key, e)
+  }
+  return idx
+}
+
+function _round(n, p = 2) {
+  if (n == null || !isFinite(n)) return null
+  const m = Math.pow(10, p)
+  return Math.round(Number(n) * m) / m
+}
+
+/**
+ * Build a reasoning blob for a single pick, given its tracked_best entry.
+ * Shape (FE renders these as 3 always-on blurbs + driver bullets):
+ *   {
+ *     l5:       { label, value, source }       // player L5 in this stat
+ *     opp:      { label, value, source }       // opponent matchup vs this family
+ *     propSpec: { label, value, source }       // one prop-specific signal
+ *     drivers:  [string, ...]                  // 2-5 supporting bullets
+ *   }
+ */
+function buildReasoning(pick, bestEntry) {
+  const out = { l5: null, opp: null, propSpec: null, drivers: [] }
+  const sport = String(pick.sport || "").toLowerCase()
+  const fam = String(pick.statFamily || pick.propType || "").toLowerCase()
+  const opp = bestEntry?.opponent || (() => {
+    // derive opponent from matchup if needed
+    const m = String(pick.matchup || "")
+    const teamA = m.split(" @ ")[0]
+    const teamB = m.split(" @ ")[1]
+    return pick.team && pick.team === teamA ? teamB : teamA
+  })()
+
+  if (sport === "nba" && bestEntry) {
+    const l5v = bestEntry?.recentForm?.last5_avg
+    if (l5v != null) out.l5 = { label: "L5 avg", value: _round(l5v, 1), source: "espn game logs" }
+    const baseline = bestEntry?.recentForm?.baseline
+    if (l5v != null && baseline != null && Math.abs(l5v - baseline) >= 0.4) {
+      const dir = l5v > baseline ? "above" : "below"
+      out.drivers.push(`L5 ${_round(l5v, 1)} ${dir} season baseline ${_round(baseline, 1)}`)
+    }
+
+    // Opponent matchup
+    const oppStats = bestEntry?.opponentStats || {}
+    let oppLabel = `vs ${opp}`
+    let oppVal = ""
+    if (fam.includes("reb") && oppStats.reboundsAllowed != null) {
+      oppVal = `allows ${_round(oppStats.reboundsAllowed, 1)} reb/g`
+    } else if ((fam.includes("three") || fam === "threes") && oppStats.threePAAllowed != null) {
+      oppVal = `allows ${_round(oppStats.threePAAllowed, 1)} 3PA/g`
+    } else if (fam.includes("ast") && oppStats.assistsAllowed != null) {
+      oppVal = `allows ${_round(oppStats.assistsAllowed, 1)} ast/g`
+    } else if (oppStats.pointsAllowed != null) {
+      oppVal = `allows ${_round(oppStats.pointsAllowed, 1)} pts/g`
+    } else if (bestEntry?.oppDef) {
+      oppVal = `def grade ${bestEntry.oppDef}`
+    } else if (oppStats.defensiveRating != null) {
+      oppVal = `def rtg ${_round(oppStats.defensiveRating, 1)}`
+    } else {
+      oppVal = "defense data N/A"
+    }
+    out.opp = { label: oppLabel, value: oppVal, source: "espn opp stats" }
+
+    // Prop-specific signal (one)
+    const minutes = bestEntry?.roleContext?.minutes_avg_recent
+    const pace = bestEntry?.pace
+    if (fam === "blocks" || fam.includes("block")) {
+      out.propSpec = { label: "Role + opp", value: `${bestEntry?.roleContext?.role_change || "stable"} role, ${opp} pace ${_round(pace, 0) ?? "?"}`, source: "role + pace" }
+    } else if (fam === "steals" || fam.includes("steal")) {
+      out.propSpec = { label: "Opp TO rate", value: `pace ${_round(pace, 0) ?? "?"}, role ${bestEntry?.roleContext?.role_change || "stable"}`, source: "pace + role" }
+    } else if (fam.includes("reb")) {
+      out.propSpec = { label: "Reb rate", value: `${_round((bestEntry?.rebRate || 0) * 100, 1)}% of opportunities`, source: "season splits" }
+    } else if (fam.includes("ast")) {
+      out.propSpec = { label: "Ast rate", value: `${_round((bestEntry?.astRate || 0) * 100, 1)}% of possessions`, source: "season splits" }
+    } else if (fam.includes("three")) {
+      out.propSpec = { label: "Shots vol", value: `${_round(bestEntry?.shots, 1) ?? "?"} FGA/g, pace ${_round(pace, 0) ?? "?"}`, source: "shot volume" }
+    } else {
+      out.propSpec = { label: "Minutes + pace", value: `${_round(minutes, 1) ?? "?"} min/g, pace ${_round(pace, 0) ?? "?"}`, source: "role context" }
+    }
+
+    // Driver bullets from displayBundle.tags
+    const tags = Array.isArray(bestEntry?.displayBundle?.tags) ? bestEntry.displayBundle.tags : []
+    for (const tag of tags.slice(0, 4)) {
+      if (typeof tag === "string" && tag.length < 60) out.drivers.push(tag)
+    }
+  } else if (sport === "mlb" && bestEntry) {
+    // MLB tracked_best doesn't carry L5 today — surface implied team total as proxy "form gauge".
+    if (bestEntry.impliedTeamTotal != null) {
+      out.l5 = { label: "Team implied total", value: `${_round(bestEntry.impliedTeamTotal, 2)} runs`, source: "vegas-derived" }
+    }
+    out.opp = { label: `vs ${opp}`, value: opp, source: "matchup" }
+    if (fam === "home_runs" || fam === "hr" || /home.run/.test(fam)) {
+      const parts = []
+      if (bestEntry.hrFactor != null) parts.push(`park HR factor ${_round(bestEntry.hrFactor, 2)}`)
+      if (bestEntry.windDirectionTag) parts.push(`wind ${bestEntry.windDirectionTag}`)
+      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
+      out.propSpec = { label: "HR environment", value: parts.join(" · ") || (bestEntry.hrEnvironmentTag || "neutral"), source: "park + weather + handedness" }
+    } else if (fam.includes("pitch") || fam.includes("strikeout")) {
+      const parts = []
+      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
+      if (bestEntry.gameTotal != null) parts.push(`O/U ${_round(bestEntry.gameTotal, 1)}`)
+      out.propSpec = { label: "Game environment", value: parts.join(" · ") || "—", source: "weather + total" }
+    } else {
+      const parts = []
+      if (bestEntry.gameTotal != null) parts.push(`O/U ${_round(bestEntry.gameTotal, 1)}`)
+      if (bestEntry.lineupSpot != null) parts.push(`bats ${bestEntry.lineupSpot}`)
+      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
+      out.propSpec = { label: "Spot + environment", value: parts.join(" · ") || "—", source: "lineup + weather" }
+    }
+    const tags = Array.isArray(bestEntry.contextualTags) ? bestEntry.contextualTags : []
+    for (const tag of tags) {
+      if (typeof tag === "string") out.drivers.push(tag)
+    }
+  }
+
+  // Always include the model's own confidence + edge stamp at the end
+  out.drivers.push(`Model: ${(Number(pick.modelProb) * 100).toFixed(1)}% conf · edge ${(Number(pick.edge) * 100).toFixed(1)}%`)
+  return out
+}
 
 /**
  * GET /api/ws/top-picks?limit=50&date=2026-05-30
  * Cross-sport curated top picks. Smart-mix tier composition (top-N per tier),
  * dedup by player+stat+side+line, sorted by edge-weighted confidence.
+ * Each pick is hydrated with a `reasoning` blob from tracked_best.
  */
 router.get("/top-picks", (req, res) => {
   try {
@@ -2065,6 +2199,8 @@ router.get("/top-picks", (req, res) => {
     })()
     const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50))
     const sports = ["nba", "mlb"]
+    const reasoningIdx = {}
+    for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
     const all = []
     for (const sport of sports) {
       const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
@@ -2106,6 +2242,13 @@ router.get("/top-picks", (req, res) => {
       ...byTier.PLAYABLE.slice(0, playableN),
     ]
 
+    // Hydrate reasoning on each pick
+    for (const pick of picks) {
+      const k = `${pick.sport}|${(pick.player||'').toLowerCase()}|${String(pick.propType||'').toLowerCase()}|${String(pick.side||'').toLowerCase()}|${pick.line}`
+      const best = reasoningIdx[pick.sport]?.get(k) || null
+      pick.reasoning = buildReasoning(pick, best)
+    }
+
     res.json({
       date,
       sportsScanned: sports,
@@ -2123,6 +2266,10 @@ router.get("/top-picks", (req, res) => {
 /**
  * GET /api/ws/games-browser?date=2026-05-30
  * Returns list of games with all picks grouped under each, ⭐ flag if pick is in top-picks.
+ * Round 2 (2026-05-31):
+ *   • Props within a player are deduped by statFamily+side+line.
+ *   • Each deduped prop carries bookOptions[] with every (book, odds) pairing for that line.
+ *   • Reasoning blob attached to the kept (best-edge) row.
  */
 router.get("/games-browser", (req, res) => {
   try {
@@ -2131,6 +2278,8 @@ router.get("/games-browser", (req, res) => {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     })()
     const sports = ["nba", "mlb"]
+    const reasoningIdx = {}
+    for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
     const games = new Map()
     const allPicks = []
     for (const sport of sports) {
@@ -2149,8 +2298,18 @@ router.get("/games-browser", (req, res) => {
         }
         const g = games.get(key)
         const pkey = (b.player || "?").toLowerCase()
-        if (!g.players.has(pkey)) g.players.set(pkey, { player: b.player, props: [] })
-        g.players.get(pkey).props.push(b)
+        if (!g.players.has(pkey)) g.players.set(pkey, { player: b.player, props: new Map() })
+        // Dedup at prop level: group by statFamily+side+line, accumulate book options
+        const propKey = `${b.statFamily}|${String(b.side).toLowerCase()}|${b.line}`
+        if (!g.players.get(pkey).props.has(propKey)) {
+          g.players.get(pkey).props.set(propKey, { kept: b, bookOptions: [] })
+        }
+        const slot = g.players.get(pkey).props.get(propKey)
+        slot.bookOptions.push({ book: b.sportsbook, odds: b.oddsAmerican })
+        // Keep the row with best edge as the "kept" representative
+        const curScore = (Number(slot.kept.edge) || 0) * (Number(slot.kept.modelProb) || 0)
+        const newScore = (Number(b.edge) || 0) * (Number(b.modelProb) || 0)
+        if (newScore > curScore) slot.kept = b
       }
     }
     // Compute top-picks key set (same algo as /top-picks, used to set ⭐)
@@ -2182,18 +2341,91 @@ router.get("/games-browser", (req, res) => {
     for (const g of games.values()) {
       const players = []
       for (const p of g.players.values()) {
-        p.props.sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
-        for (const prop of p.props) {
+        // Flatten props map → array of kept rows with bookOptions attached
+        const propsArr = []
+        for (const slot of p.props.values()) {
+          const prop = { ...slot.kept }
           const k = `${g.sport}|${(prop.player||'').toLowerCase()}|${prop.statFamily}|${prop.side}|${prop.line}`
           prop.isTopPick = topKeys.has(k)
+          // Sort book options by best odds for the side
+          slot.bookOptions.sort((a, b) => {
+            // For the operator: best price = highest positive or closest-to-zero negative
+            const oa = Number(a.odds), ob = Number(b.odds)
+            return ob - oa
+          })
+          prop.bookOptions = slot.bookOptions
+          // Hydrate reasoning
+          const rk = `${g.sport}|${(prop.player||'').toLowerCase()}|${String(prop.propType||'').toLowerCase()}|${String(prop.side||'').toLowerCase()}|${prop.line}`
+          const best = reasoningIdx[g.sport]?.get(rk) || null
+          prop.reasoning = buildReasoning(prop, best)
+          propsArr.push(prop)
         }
-        players.push(p)
+        propsArr.sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+        players.push({ player: p.player, props: propsArr })
       }
       players.sort((a, b) => a.player.localeCompare(b.player))
       gamesArr.push({ sport: g.sport, eventId: g.eventId, matchup: g.matchup, gameTime: g.gameTime, players })
     }
-    gamesArr.sort((a, b) => (a.gameTime || "").localeCompare(b.gameTime || ""))
+    // Sort by sport first (nba, mlb) then gameTime within sport
+    const sportOrder = { nba: 0, mlb: 1 }
+    gamesArr.sort((a, b) => {
+      const so = (sportOrder[a.sport] ?? 99) - (sportOrder[b.sport] ?? 99)
+      if (so !== 0) return so
+      return (a.gameTime || "").localeCompare(b.gameTime || "")
+    })
     res.json({ date, sportsScanned: sports, gameCount: gamesArr.length, games: gamesArr })
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) })
+  }
+})
+
+/**
+ * GET /api/ws/grades-health?days=7
+ * Fast CLV-stamping + model-accuracy health probe. Reads only the small
+ * per-day tracked_bets_*.json files (NOT the heavy ledger.json), so it never
+ * hits the cloudflared 524 timeout. Surfaces proof that CLV is being stamped
+ * and that grading/feedback is alive.
+ */
+router.get("/grades-health", (req, res) => {
+  try {
+    const days = Math.min(30, Math.max(1, Number(req.query.days) || 7))
+    const sports = ["nba", "mlb"]
+    const today = new Date()
+    const out = { days, today: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`, sports: {} }
+    for (const sport of sports) {
+      const window = { days: [], total: 0, clvStamped: 0, settled: 0, wins: 0, losses: 0, pushes: 0, pending: 0, clvSumCents: 0, clvBeatMarket: 0 }
+      for (let i = 0; i < days; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i)
+        const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+        const file = readJsonSafe(fileFor(sport, "tracked_bets", dk), null)
+        if (!file) continue
+        const arr = Array.isArray(file) ? file : []
+        const dayStat = { date: dk, total: arr.length, clvStamped: 0, wins: 0, losses: 0, pushes: 0, pending: 0 }
+        for (const b of arr) {
+          window.total++
+          const stamped = b.closeOdds != null
+          if (stamped) { window.clvStamped++; dayStat.clvStamped++ }
+          const clv = Number(b.clv)
+          if (Number.isFinite(clv)) {
+            window.clvSumCents += clv * 100
+            if (clv > 0) window.clvBeatMarket++
+          }
+          const r = String(b.result || "pending").toLowerCase()
+          if (r === "win") { window.wins++; window.settled++; dayStat.wins++ }
+          else if (r === "loss") { window.losses++; window.settled++; dayStat.losses++ }
+          else if (r === "push" || r === "void") { window.pushes++; window.settled++; dayStat.pushes++ }
+          else { window.pending++; dayStat.pending++ }
+        }
+        window.days.push(dayStat)
+      }
+      const settledWL = window.wins + window.losses
+      window.hitRate = settledWL > 0 ? Math.round((window.wins / settledWL) * 10000) / 10000 : null
+      window.clvStampRate = window.total > 0 ? Math.round((window.clvStamped / window.total) * 10000) / 10000 : null
+      window.avgClvCents = window.clvStamped > 0 ? Math.round((window.clvSumCents / window.clvStamped) * 10) / 10 : null
+      window.beatMarketRate = window.clvStamped > 0 ? Math.round((window.clvBeatMarket / window.clvStamped) * 10000) / 10000 : null
+      out.sports[sport] = window
+    }
+    res.json(out)
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) })
   }
