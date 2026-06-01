@@ -39,18 +39,54 @@
 const fs = require("fs")
 const path = require("path")
 
-const SERIES_FILE = path.join(__dirname, "..", "..", "data", "nbaSeriesState.json")
+const SERIES_FILE      = path.join(__dirname, "..", "..", "data", "nbaSeriesState.json")
+const SERIES_FILE_AUTO = path.join(__dirname, "..", "..", "data", "nbaSeriesStateAuto.json")
 
 let _cache = null
 
+/**
+ * 2026-06-01 Phase NBA-Series-State-Auto-1A — auto-derived series state from
+ * ESPN scoreboard now layers UNDER the hand-curated file. Hand-curated entries
+ * still win where both exist (operator override preserved for edge-case
+ * overrides like flipping a "starters tighten rotation" expectation). The
+ * auto file (written by populateNbaSeriesState.js, runs daily in the
+ * populator chain) fills the gap for everything else so the operator no
+ * longer has to hand-edit nbaSeriesState.json after every playoff game.
+ *
+ * Merge rule: for each (date, matchup) tuple, hand-curated entry wins.
+ * Auto entries are added only when no matching hand-curated entry exists.
+ */
+function _loadOne(p) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, "utf8"))
+    return raw && typeof raw === "object" && raw.games ? raw : { games: {} }
+  } catch (_) {
+    return { games: {} }
+  }
+}
+
+function _normMatchupKey(s) {
+  return String(s || "").trim().toLowerCase().replace(/\s+/g, " ")
+}
+
 function _load() {
   if (_cache !== null) return _cache
-  try {
-    const raw = JSON.parse(fs.readFileSync(SERIES_FILE, "utf8"))
-    _cache = raw && typeof raw === "object" ? raw : { games: {} }
-  } catch (e) {
-    _cache = { games: {} }
+  const handCurated = _loadOne(SERIES_FILE)
+  const auto = _loadOne(SERIES_FILE_AUTO)
+  // Merge: walk each date from BOTH files, hand-curated wins per matchup
+  const mergedGames = {}
+  const allDates = new Set([
+    ...Object.keys(handCurated.games || {}),
+    ...Object.keys(auto.games || {}),
+  ])
+  for (const date of allDates) {
+    const hcList = Array.isArray(handCurated.games?.[date]) ? handCurated.games[date] : []
+    const autoList = Array.isArray(auto.games?.[date]) ? auto.games[date] : []
+    const hcKeys = new Set(hcList.map(g => _normMatchupKey(g.matchup)))
+    const filledFromAuto = autoList.filter(g => !hcKeys.has(_normMatchupKey(g.matchup)))
+    mergedGames[date] = [...hcList, ...filledFromAuto]
   }
+  _cache = { games: mergedGames, _sources: { handCurated: !!handCurated.games, auto: !!auto.games } }
   return _cache
 }
 

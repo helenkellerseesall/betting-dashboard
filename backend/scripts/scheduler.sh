@@ -282,6 +282,23 @@ while true; do
     fired=true
   fi
 
+  # 2026-06-01 Phase NBA-Series-State-Auto-1A — auto-derive NBA playoff series
+  # state from ESPN scoreboard daily. Eliminates the maintenance burden of
+  # hand-curating backend/data/nbaSeriesState.json after each playoff game.
+  # Hand-curated file still wins where it has entries (operator override
+  # preserved); auto-derived file fills the gap for everything else.
+  # Fires at 3:30 ET — after the other populators in this chain so we don't
+  # compete with them for the same ESPN rate-limit window.
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 3 ]; then
+    log "populateNbaSeriesState starting (nightly autopilot — Phase NBA-Series-State-Auto-1A)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaSeriesState.js >> "$LOG" 2>&1; then
+      log "populateNbaSeriesState OK"
+    else
+      log "populateNbaSeriesState FAILED (exit $?) — ESPN scoreboard may be down"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 Phase Autonomous-Orchestrator-1A — nightly grading autopilot.
   # Closes INC-010 (buildNightlyOrchestrator dormant — zero production callers
   # outside operator-triggered CLI). Fires `grading:backfill-all` at 4 AM ET
