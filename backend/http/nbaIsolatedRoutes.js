@@ -500,6 +500,24 @@ const __nbaTeamRosterCache = new Map()
 const __NBA_REJECTION_SAMPLE_CAP = 25
 const __NBA_UNRESOLVED_SAMPLE_CAP = 25
 
+/**
+ * @orphan (Law 11) — Phase F3 cacheability-gate categorization helper.
+ *
+ * Marked orphan 2026-05-31: the consuming Owner-B path
+ * (fetchApiSportsPlayerId + fetchApiSportsPlayerStats + the API-Sports
+ * branch of enrichRowsWithRecentForm) was retired 2026-05-26 when the
+ * operator killed the api-basketball subscription and routed NBA
+ * enrichment through ESPN gameLogs via nbaRecentFormCache.js +
+ * enrichNbaRowFromEspn. This helper is preserved verbatim under the
+ * additive-only doctrine but has zero callers in the current code path.
+ *
+ * Per Law 11, deletion requires a MASTER_BRAIN DO-NOT-REINTRODUCE entry
+ * first. Until then, the @orphan marker plus this doc block is the
+ * canonical record of the function's dead-but-preserved status.
+ *
+ * verifyNbaCacheabilityGate.js fixture asserts on this helper's source
+ * patterns; per Law 11 the fixture can be retired alongside the helper.
+ */
 function recordCacheWriteSkip(reason, sample) {
   __nbaCacheDiag.cacheWriteSkips += 1
   const reasonKey = String(reason || "UNKNOWN_REASON")
@@ -747,6 +765,19 @@ function saveApiSportsDiskCache(next) {
   }
 }
 
+/**
+ * @orphan (Law 11) — Phase F6.3 canonical API-NBA player-resolution contract.
+ *
+ * Marked orphan 2026-05-31: superseded by ESPN gameLogs canonical path
+ * 2026-05-26 (operator killed api-basketball subscription).
+ * enrichRowsWithRecentForm no longer calls this. New canonical:
+ * enrichNbaRowFromEspn + nbaRecentFormCache.enrichRowWithRecentForm.
+ *
+ * Preserved verbatim under additive-only doctrine. Deletion requires
+ * a MASTER_BRAIN DO-NOT-REINTRODUCE entry first.
+ * verifyNbaApiSportsContractFix.js fixture asserts on this function's
+ * source patterns; per Law 11 the fixture can be retired alongside.
+ */
 async function fetchApiSportsPlayerId({ axios, apiKey, playerName, team }) {
   // Phase F6.3 — canonical API-NBA player-resolution contract.
   //
@@ -904,6 +935,12 @@ async function fetchApiSportsPlayerId({ axios, apiKey, playerName, team }) {
     : null
 }
 
+/**
+ * @orphan (Law 11) — Phase F5-A shared-season per-player stats fetcher.
+ *
+ * Marked orphan 2026-05-31: superseded by ESPN gameLogs 2026-05-26.
+ * enrichRowsWithRecentForm no longer calls this. Preserved verbatim.
+ */
 async function fetchApiSportsPlayerStats({ axios, apiKey, playerId }) {
   // Phase F5-A — Use shared NBA_API_SPORTS_SEASON constant so player lookup AND
   // stats lookup reference the SAME season authority. A drift between the two
