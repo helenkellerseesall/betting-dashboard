@@ -27,6 +27,16 @@
 const path = require("path")
 const { spawnSync } = require("child_process")
 
+// 2026-05-31 Phase ESPN-Enrichment-1A — retired 3 obsolete F-series fixtures
+// that asserted on Owner-B API-Sports instrumentation (dead since 2026-05-26
+// when operator killed api-basketball subscription). Owner-B helpers are now
+// @orphan-marked per Law 11 in nbaIsolatedRoutes.js. Replacement fixture
+// `verifyNbaEspnEnrichment` asserts on the live ESPN canonical path.
+// Retired (preserved verbatim under additive-only doctrine — fixture files
+// stay on disk for archaeology, just not in the matrix):
+//   verifyNbaApiSportsContractFix  (Phase F5/F5-A/F5-B/F5-C/F6/F6.3)
+//   verifyNbaCacheObservability    (Phase F2)
+//   verifyNbaCacheabilityGate      (Phase F3)
 const SUITES = [
   "verifyCalibrationHonesty",
   "verifyCompositeKeyIntegrity",
@@ -36,9 +46,7 @@ const SUITES = [
   "verifyMlbFutureOnlyHardening",
   "verifyMlbImmutabilityHardening",
   "verifyMlbLiveStatePhase2",
-  "verifyNbaApiSportsContractFix",
-  "verifyNbaCacheObservability",
-  "verifyNbaCacheabilityGate",
+  "verifyNbaEspnEnrichment",
   "verifyOrphanAuthorityHardening",
   "verifyResponseAuthority",
   "verifySnapshotFreshness",
