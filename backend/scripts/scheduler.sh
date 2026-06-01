@@ -171,6 +171,42 @@ while true; do
       FIRST_FAIL=$(grep -m1 '^\[✗\]' "$AUDIT_FILE" || echo "(no fail line found)")
       echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] RED · exit=$AUDIT_EXIT · ${FIRST_FAIL}" >> "$ALERT_LOG"
       log "sysAudit RED — exit $AUDIT_EXIT — alert appended to drift_alerts.log"
+
+      # 2026-06-01 Phase Backend-AutoRecovery-1A (#124) — auto-fire
+      # restartBackend.sh when sysAudit's RED is specifically a
+      # backend-not-responding alert (ECONNREFUSED on /api/ws/version).
+      # Closes the 2026-05-31 20:01 ET silent-outage window: sysAudit DETECTED
+      # the backend was down and logged the restart command, but nothing
+      # actually executed the recovery. By the time operator looked the next
+      # morning, the system had self-recovered via LaunchAgent KeepAlive but
+      # the CLV-capture window had been missed for hours.
+      #
+      # Scope: ONLY fires on backend-down RED — cognition-overconfidence RED
+      # (e.g. "points_assists 37pp gap") doesn't need a restart, it needs a
+      # cognition fix. The grep distinguishes the two.
+      #
+      # Rate-limit: 15-min lockfile prevents restart-loop if backend is
+      # genuinely broken (would just churn forever otherwise).
+      RECOVERY_LOCK="/Users/andrewmoore/Desktop/betting-dashboard/.scratch/.auto_recovery_lock"
+      if echo "$FIRST_FAIL" | grep -qE 'ECONNREFUSED|Backend not responding'; then
+        LAST_RECOVERY=0
+        if [ -f "$RECOVERY_LOCK" ]; then
+          LAST_RECOVERY=$(cat "$RECOVERY_LOCK" 2>/dev/null || echo 0)
+        fi
+        NOW=$(date +%s)
+        GAP=$(( NOW - LAST_RECOVERY ))
+        if [ "$GAP" -ge 900 ]; then
+          log "sysAudit RED is BACKEND-DOWN — firing restartBackend.sh (Phase Backend-AutoRecovery-1A)"
+          bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/restartBackend.sh >> "$LOG" 2>&1
+          RECOVERY_RC=$?
+          echo "$NOW" > "$RECOVERY_LOCK"
+          echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] AUTO-RECOVERY · restartBackend.sh exit=${RECOVERY_RC} (Phase Backend-AutoRecovery-1A)" >> "$ALERT_LOG"
+          log "Auto-recovery restartBackend.sh exit=${RECOVERY_RC} — see drift_alerts.log"
+        else
+          log "Auto-recovery skipped — last restart was ${GAP}s ago (rate limit 900s)"
+          echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] AUTO-RECOVERY SKIPPED · last restart ${GAP}s ago < 900s rate limit" >> "$ALERT_LOG"
+        fi
+      fi
     elif [ "$AUDIT_EXIT" -eq 1 ]; then
       log "sysAudit YELLOW — warnings only (exit 1)"
     else
