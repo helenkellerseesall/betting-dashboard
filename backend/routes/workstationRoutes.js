@@ -2053,6 +2053,10 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 // signal-enriched, and operator-preferred-book aware.
 // 2026-05-31 — round 2: reasoning hydration + per-prop dedup in games-browser.
 // 2026-05-31 (c) — per-family calibration dampener applied at response time.
+// 2026-05-31 Phase Calibration-Dampener-1B — source migrated to canonical
+//   outcome_snapshots × prediction_snapshots SQLite join (same join
+//   `calibration:status` reads). Side parameter added to surface per-side
+//   asymmetry (UNDER 48.7% / OVER 25.5% on n=666 corpus).
 const { dampenModelProb, getCalibrationForFamily, shouldShowCalibrationBadge } =
   require("../pipeline/shared/calibrationDampener")
 
@@ -2067,8 +2071,9 @@ function applyCalibrationDampener(pick) {
   if (!pick || !Number.isFinite(Number(pick.modelProb))) return pick
   const sport = pick.sport
   const fam = pick.statFamily || pick.propType
+  const side = pick.side  // 2026-05-31 #101: per-side asymmetry is real (UNDER 48.7% / OVER 25.5%)
   const raw = Number(pick.modelProb)
-  const dampened = dampenModelProb(raw, sport, fam)
+  const dampened = dampenModelProb(raw, sport, fam, side)
   if (dampened === raw) return pick
   pick.modelProbRaw = raw
   pick.modelProb = Math.round(dampened * 10000) / 10000
@@ -2077,8 +2082,8 @@ function applyCalibrationDampener(pick) {
     pick.edgeRaw = pick.edge
     pick.edge = Math.round((dampened - impliedP) * 10000) / 10000
   }
-  if (shouldShowCalibrationBadge(sport, fam)) {
-    pick.calibration = getCalibrationForFamily(sport, fam)
+  if (shouldShowCalibrationBadge(sport, fam, side)) {
+    pick.calibration = getCalibrationForFamily(sport, fam, side)
   }
   return pick
 }

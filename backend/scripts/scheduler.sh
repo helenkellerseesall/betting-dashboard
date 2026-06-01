@@ -169,6 +169,28 @@ while true; do
     fired=true
   fi
 
+  # 2026-05-31 Phase Autonomous-Orchestrator-1A — nightly grading autopilot.
+  # Closes INC-010 (buildNightlyOrchestrator dormant — zero production callers
+  # outside operator-triggered CLI). Fires `grading:backfill-all` at 4 AM ET
+  # daily. Idempotent per-date SKIP logic (SQLite outcome count ≥ JSON settled
+  # count → SKIP); safe to re-fire. Settles previous evening's bets into
+  # outcome_snapshots and cascades the Session W intelligence tables
+  # (calibration_records / process_classifications / ecology_grades /
+  # volatility_realizations / eruption_events / daily_intelligence_reports).
+  # 4 AM chosen because all West Coast NBA games and late MLB games have
+  # settled by then, and it's outside every other scheduler gate.
+  # Without this the calibration loop only learns on operator-initiated
+  # manual `npm run grading:backfill-all` invocations.
+  if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 4 ]; then
+    log "grading:backfill-all starting (nightly autopilot — Phase Autonomous-Orchestrator-1A)"
+    if npm run grading:backfill-all >> "$LOG" 2>&1; then
+      log "grading:backfill-all OK — calibration corpus refreshed"
+    else
+      log "grading:backfill-all FAILED (exit $?) — see log for per-date detail"
+    fi
+    fired=true
+  fi
+
   if [ "$fired" = "true" ]; then
     last_ran_min="$STAMP"
   fi
