@@ -322,6 +322,28 @@ function leanBestEntry(play, date) {
     starterFlag:           play.starterFlag ?? null,
     projectedMinutes:      Number.isFinite(Number(play.projectedMinutes)) ? Number(play.projectedMinutes) : null,
     range:                 play.range || null,
+    // 2026-06-01 Phase NBA-Context-Persistence-Fix-1A (closes #71) — three
+    // NBA context objects were being computed by nbaRestCache / nbaHomeAwaySplits
+    // / nbaGameContextCache, written to row.{restContext, homeAwaySplit, gameContext},
+    // CONSUMED by nbaRoleContextDeriver.js (lines 254, 270) for scoring, but
+    // never persisted to tracked_best. sysAudit's NBA checks at lines 245-247
+    // have been firing yellow on this for weeks (comment at line 233-234
+    // explicitly tracks the gap as task #71). The dashboard surfaced the
+    // 0/275 ratio across today's entries. Adding all three nested objects +
+    // lifting the most-consumed flat fields so the FE + dashboard don't have
+    // to traverse the nested structure for common signals. Anti-fabrication:
+    // every field `?? null` — never invented.
+    restContext:           play.restContext   ?? null,  // { restDaysSince, isBackToBack, daysSinceLastGame, ... }
+    homeAwaySplit:         play.homeAwaySplit ?? null,  // { statKey, isHome, splitDelta, sample, ... }
+    gameContext:           play.gameContext   ?? null,  // { elimination, game7, playoffLeg, leverage, ... }
+    // Lifted flat fields (mirror MLB pattern of top-level canonical signals for
+    // BC-1 realism scoring / FE display / sysAudit checks).
+    isBackToBack:          play.restContext?.isBackToBack      ?? null,
+    daysSinceLastGame:     play.restContext?.daysSinceLastGame ?? null,
+    isHome:                play.homeAwaySplit?.isHome          ?? null,
+    elimination:           play.gameContext?.elimination       ?? null,
+    game7:                 play.gameContext?.game7             ?? null,
+    playoffLeg:            play.gameContext?.playoffLeg        ?? null,
     result:                "pending",
     settledAt:             null,
     timestamp:             new Date().toISOString(),
