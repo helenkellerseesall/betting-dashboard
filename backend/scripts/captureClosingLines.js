@@ -45,8 +45,17 @@ try { _personalLedger = require("../pipeline/shared/buildPersonalLedger") }
 catch (e) { console.warn("[captureClosingLines] personal_ledger sync disabled (require failed):", e?.message) }
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
-const CLOSE_WINDOW_MIN = 30                     // capture within 30min of tip
-const POST_TIP_WINDOW_MIN = 10                  // also capture for games that started up to 10min ago
+// 2026-06-01 Phase CLV-Resilience-1A — widened both windows substantially
+// after 2026-05-31 incident: backend ECONNREFUSED at 20:01 ET (mid-tipoff
+// window) caused 0% CLV capture for the whole day on both NBA + MLB. Prior
+// windows (30 / 10 min) were too tight — a single backend bounce in the
+// 30-min run-up to tipoff blew the entire slate's CLV. Widening to
+// 180 / 30 means the 5-min loop catches close lines even if backend was
+// down for an hour out of the run-up. The "close odds" semantics is still
+// honored — we're stamping the LATEST odds we observe in the window, which
+// is by definition the most recent pre-tip line.
+const CLOSE_WINDOW_MIN = 180                    // capture within 3h of tip (was 30)
+const POST_TIP_WINDOW_MIN = 30                  // also capture for games tipped up to 30min ago (was 10)
 
 // 2026-05-26 — Date resolution: tracked_bets files are written under the
 // Detroit (ET) slate date by buildNbaPerformanceTracking (matches the

@@ -319,6 +319,68 @@ async function main() {
     }
   }
 
+  // 2026-06-01 Phase CLV-Resilience-1A — filesystem-direct CLV check.
+  // The HTTP block above depends on /api/ws/grades-health returning per-sport
+  // breakdowns. On 2026-05-31 that endpoint silently returned no sport entries
+  // and section 7 fell through with NO fail line — losing the entire day of
+  // CLV with zero alert. This filesystem-direct check reads today's tracked_bets
+  // files and computes closeStamped/totalTippedToday. It cannot be silenced by
+  // an HTTP shape mismatch: if today's tipped picks have 0% close stamping,
+  // it fires F (RED) every time. The HTTP check above stays as informational
+  // for the 7-day rollup; this is the canary for TODAY.
+  try {
+    const trackingDir = path.join(REPO, "backend", "runtime", "tracking")
+    const dayKey = (() => {
+      // ET-local date key — matches the captureClosingLines + slate writers
+      const d = new Date()
+      const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" })
+      return fmt.format(d)
+    })()
+    const nowMs = Date.now()
+    for (const sport of ["nba", "mlb"]) {
+      const fp = path.join(trackingDir, `${sport}_tracked_bets_${dayKey}.json`)
+      if (!fs.existsSync(fp)) {
+        I(`  [today] ${sport.toUpperCase()}: no tracked_bets file for ${dayKey} (slate may not have run yet)`)
+        continue
+      }
+      let arr
+      try {
+        const raw = JSON.parse(fs.readFileSync(fp, "utf8"))
+        arr = Array.isArray(raw) ? raw : (raw?.entries || [])
+      } catch (e) {
+        W(`  [today] ${sport.toUpperCase()}: tracked_bets ${dayKey} unreadable (${e.message})`)
+        continue
+      }
+      const total = arr.length
+      // "tipped" = the game has started (gameTime is in the past). A pick whose
+      // game already tipped should have a close stamped by now if CLV is healthy.
+      const tipped = arr.filter((b) => {
+        const t = b?.gameTime ? Date.parse(b.gameTime) : NaN
+        return Number.isFinite(t) && t <= nowMs
+      })
+      const tippedCount = tipped.length
+      const tippedWithClose = tipped.filter((b) => b.closeOdds != null && b.closeOdds !== "" && b.closeOdds !== 0).length
+      const totalWithClose = arr.filter((b) => b.closeOdds != null && b.closeOdds !== "" && b.closeOdds !== 0).length
+      const pctOfTipped = tippedCount > 0 ? (tippedWithClose / tippedCount) : null
+      const stampStr = pctOfTipped != null ? `${(pctOfTipped * 100).toFixed(1)}%` : "n/a"
+      // Anything with >= 50 tipped picks AND <30% close-stamping is RED — the
+      // capture loop is dead. >=30% but <70% is WARN (degraded; missed some
+      // windows due to bounces). >=70% is PASS. <50 tipped = not enough signal.
+      const line = `  [today] ${sport.toUpperCase()} ${dayKey}: total=${total} tipped=${tippedCount} closeStamped(tipped)=${tippedWithClose} (${stampStr}) · closeStamped(all)=${totalWithClose}`
+      if (tippedCount < 50) {
+        I(line + ` · sample too small for CLV verdict`)
+      } else if (pctOfTipped == null || pctOfTipped < 0.30) {
+        F(line + ` · CLV LOOP DEAD — closeStamping below 30% on a tipped slate. captureClosingLines.js loop not firing or backend was down through tipoff windows.`)
+      } else if (pctOfTipped < 0.70) {
+        W(line + ` · CLV degraded — some tipoff windows missed (likely backend bounce). Investigate backend uptime during PM ET tipoff windows.`)
+      } else {
+        P(line + ` · CLV healthy`)
+      }
+    }
+  } catch (e) {
+    W(`CLV filesystem-direct check failed: ${e.message}`)
+  }
+
   // 8. PROCESS STATE
   H("8. PROCESS STATE")
   try {
