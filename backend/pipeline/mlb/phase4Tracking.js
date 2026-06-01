@@ -228,6 +228,13 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     marketKey: row?.marketKey ?? null,
     bucket: "mlb.bestAvailable.best",
 
+    // 2026-05-31 Phase #71-MLB — propagate tier + volatility so
+    // archetypeHistoryLookup can hit the richer (sport, volatility, tier)
+    // bucket on MLB picks instead of falling back to family-only.
+    // Anti-fabrication: `?? null` — never invented.
+    tier:       row?.tier       ?? null,
+    volatility: row?.volatility ?? null,
+
     // ── Phase Item 0002 Slice 1 — canonical hydration lift ──────────────
     // (a) game-identity (FE Discover indexing)
     eventId:          row?.eventId  ?? null,

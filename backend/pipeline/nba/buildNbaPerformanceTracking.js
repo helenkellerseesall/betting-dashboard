@@ -293,6 +293,11 @@ function leanBestEntry(play, date) {
     edgeProbability:       play.edge        ?? null,                  // enrichBestEntry maps to edge
     confidence:            play.confidence  ?? null,
     tier:                  play.tier        || null,
+    // 2026-05-31 Phase #71-NBA — propagate volatility from canonical
+    // nbaVolatilityResolver-stamped row. Lets archetypeHistoryLookup hit
+    // the richer (sport, volatility, tier) bucket instead of falling back
+    // to (sport, family). Anti-fabrication: `?? null` — never invented.
+    volatility:            play.volatility  ?? null,
     bucket:                `nba.bestAvailable.${String(play.tier || "playable").toLowerCase()}`,
     // 2026-05-24 — Phase 2 enrichment persistence. These fields are stamped on
     // the play object by buildNbaBestBetsBoard from the enriched market row.
