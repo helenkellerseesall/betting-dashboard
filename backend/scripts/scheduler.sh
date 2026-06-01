@@ -187,6 +187,65 @@ while true; do
     fired=true
   fi
 
+  # 2026-06-01 Phase Stale-Populators-Autopilot-1A — overnight refresh of the
+  # 5 populator caches that were drifting 26+ hours stale: mlbBatterStats,
+  # mlbBatterGameLogs, mlbPitcherGameLogs, nbaDvP, nbaTeamStats. These feed
+  # the slate scoring engines (batter/pitcher signal, NBA defense-vs-position,
+  # NBA team-level baselines). Without nightly refresh, TOP PICKS uses stale
+  # signals for ~24h after each missed refresh window.
+  # Sequenced 3:05-3:25 AM ET — overnight, finishes BEFORE grading:backfill-all
+  # at 4 AM so grading review has fresh signals. Sequential firing (5 min apart)
+  # avoids rate limits on MLB Stats API + ESPN.
+  if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 3 ]; then
+    log "populateMlbBatterStats starting (nightly autopilot)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbBatterStats.js >> "$LOG" 2>&1; then
+      log "populateMlbBatterStats OK"
+    else
+      log "populateMlbBatterStats FAILED (exit $?) — MLB Stats API may be down"
+    fi
+    fired=true
+  fi
+
+  if [ "$MIN" -eq 10 ] && [ "$HOUR" -eq 3 ]; then
+    log "populateMlbBatterGameLogs starting (nightly autopilot)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbBatterGameLogs.js >> "$LOG" 2>&1; then
+      log "populateMlbBatterGameLogs OK"
+    else
+      log "populateMlbBatterGameLogs FAILED (exit $?) — MLB Stats API may be down"
+    fi
+    fired=true
+  fi
+
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 3 ]; then
+    log "populateMlbPitcherGameLogs starting (nightly autopilot)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbPitcherGameLogs.js >> "$LOG" 2>&1; then
+      log "populateMlbPitcherGameLogs OK"
+    else
+      log "populateMlbPitcherGameLogs FAILED (exit $?) — MLB Stats API may be down"
+    fi
+    fired=true
+  fi
+
+  if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 3 ]; then
+    log "deriveNbaDvP starting (nightly autopilot)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/deriveNbaDvP.js >> "$LOG" 2>&1; then
+      log "deriveNbaDvP OK"
+    else
+      log "deriveNbaDvP FAILED (exit $?) — depends on nbaPlayerGameLogs.json being fresh"
+    fi
+    fired=true
+  fi
+
+  if [ "$MIN" -eq 25 ] && [ "$HOUR" -eq 3 ]; then
+    log "populateNbaTeamStats starting (nightly autopilot)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaTeamStats.js >> "$LOG" 2>&1; then
+      log "populateNbaTeamStats OK"
+    else
+      log "populateNbaTeamStats FAILED (exit $?) — ESPN team stats endpoint may be down"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 Phase Autonomous-Orchestrator-1A — nightly grading autopilot.
   # Closes INC-010 (buildNightlyOrchestrator dormant — zero production callers
   # outside operator-triggered CLI). Fires `grading:backfill-all` at 4 AM ET
