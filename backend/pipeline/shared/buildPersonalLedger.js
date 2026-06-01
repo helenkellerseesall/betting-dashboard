@@ -191,14 +191,26 @@ function stableId(sport, date, player, statFamily, side, line, sportsbook) {
     String(line ?? ""),
     String(sportsbook || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
   ]
-  // Simple hash so ids are reproducible without crypto.
+  // Simple FNV-1a hash so ids are reproducible without crypto.
   const raw = parts.join("|")
   let h = 2166136261
   for (let i = 0; i < raw.length; i++) {
     h ^= raw.charCodeAt(i)
     h = Math.imul(h, 16777619)
   }
-  return `pl_${(h >>> 0).toString(16)}_${Date.now().toString(36)}`
+  // 2026-06-01 Phase Ledger-Dedup-Fix-1A (#81) — fix the misnamed stableId.
+  // The function was previously returning `pl_<hash>_${Date.now().toString(36)}`,
+  // which made every call produce a unique id even for the same play. That
+  // broke the dedup check at importFromTrackedBets() line 1173
+  // (`existingIds.has(personId)` was always false), so every NBA slate fire
+  // (16/day) and every MLB slate fire (15/day) re-imported every tracked bet
+  // as a fresh "placed bet" with stake=10. Result: JSON ledger saturated at
+  // MAX_BETS=50000 cap, SQLite mirror (FIFO-immune) at 293k rows. workstationRoutes
+  // already bypassed stableId for the mobile /ledger/log path because of this
+  // bug — see the comment + _h32 helper at workstationRoutes:1630-1652. This
+  // fix makes the canonical function actually live up to its name, eliminating
+  // the special-case bypass and closing the leak at source.
+  return `pl_${(h >>> 0).toString(16)}`
 }
 
 // ─── event / team integrity (compact, no duplicate pipelines) ─────────────────
