@@ -162,8 +162,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_nr_unique ON nightly_runs (run_date, sport
 -- The JSON file uses atomic rename; the DB write is transactional — both
 -- operations succeed or both are skipped.
 --
--- ID: from personal bet stableId() — deterministic composite hash + timestamp suffix.
+-- ID: from personal bet stableId() — deterministic composite hash over
+--     (sport, date, player, statFamily, side, line, sportsbook). Format: pl_<8hex>.
 --     INSERT OR REPLACE used so re-imports and updates are idempotent.
+--     (Pre-2026-06-01 Phase Ledger-Dedup-Fix-1A this id had a Date.now()
+--     timestamp suffix that broke dedup — fixed at the canonical function.)
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS personal_ledger (
   id                TEXT    PRIMARY KEY,

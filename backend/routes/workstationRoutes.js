@@ -1627,10 +1627,17 @@ router.post("/ledger/log", express.json(), (req, res) => {
       })
     }
     // Build a deterministic id from the natural-key fields so a double-tap
-    // upserts instead of duplicating. buildPersonalLedger.stableId() includes
-    // Date.now() in its suffix which breaks idempotency for mobile-logged
-    // picks. We pin the id here from the same parts stableId hashes so the
-    // ledger's findIndex(b.id === bet.id) match works.
+    // upserts instead of duplicating. The `_m` suffix marks mobile-origin
+    // for traceability in the ledger.
+    //
+    // 2026-06-01 — Phase Ledger-Dedup-Fix-1A made buildPersonalLedger.stableId()
+    // actually stable (dropped the Date.now() suffix that was breaking dedup
+    // for ALL callers). The local _h32 + `_m` pinning below is now technically
+    // redundant — the canonical stableId would produce a matching deterministic
+    // id from the same parts. Keeping the local computation for now under
+    // Law 11 conservatism (verbatim-preserve until intentional removal); the
+    // `_m` suffix gives us mobile-vs-other origin tracing that the bare
+    // stableId hash doesn't. Safe to retire if origin tracing is unneeded.
     function _h32(s) {
       let h = 2166136261 >>> 0
       for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
