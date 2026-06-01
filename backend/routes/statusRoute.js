@@ -341,6 +341,91 @@ function sectionTrackedBestToday() {
   }
 }
 
+/**
+ * Predict the next scheduled fires based on scheduler.sh's documented cadences.
+ * Phase Status-Dashboard-1C — gives operator answer to "when's the next thing
+ * supposed to fire?" so the dashboard surfaces forward-looking schedule, not
+ * just historical.
+ *
+ * Known fires (per backend/scripts/scheduler.sh):
+ *   - 03:05-03:25 ET each day: MLB batter stats + game logs, pitcher game logs,
+ *     NBA DvP, NBA team stats (5 populators, 5 min apart).
+ *   - 04:00 ET each day: grading:backfill-all (Phase Autonomous-Orchestrator-1A).
+ *   - 05:00 ET each day: audit:nightly (Phase Audit-Nightly-Autopilot-1A).
+ *   - :00 hourly 09:00-23:00 ET: slate:mlb + sysAudit (CLV resilience canary).
+ *   - :00 / :30 hourly 16:00-23:30 ET: slate:nba.
+ *   - :15 hourly 9:00-23:00 ET: populateNbaInjuryReport.
+ *   - :45 hourly 9:00-23:00 ET: populateNbaGameLogs.
+ */
+function sectionSchedule() {
+  try {
+    const now = new Date()
+    // Get current ET time as a JS Date — we use the ET-formatted year/month/day/hour/minute
+    // to construct a "today in ET" anchor, then advance.
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    })
+    const parts = fmt.formatToParts(now).reduce((acc, p) => {
+      if (p.type !== "literal") acc[p.type] = Number(p.value)
+      return acc
+    }, {})
+    // parts = { year, month, day, hour, minute, second }
+    const hr  = parts.hour
+    const min = parts.minute
+
+    // Helper — construct an ET-anchored Date for today at (h, m)
+    const etDate = (h, m, dayOffset = 0) => {
+      // We need an absolute UTC timestamp that corresponds to (today ET, h:m).
+      // ET is UTC-4 in June (EDT). Use Date.UTC then offset.
+      // For dayOffset, advance the date by adding days to parts.day.
+      const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + dayOffset, h + 4, m, 0))
+      return d
+    }
+
+    // Generate fires across today + tomorrow window, then pick those after `now`.
+    const fires = []
+
+    for (const dayOffset of [0, 1]) {
+      // Populators 3:05-3:25 (treat the chain as one event at 3:05 AM)
+      fires.push({ at: etDate(3, 5, dayOffset),  label: "populator chain", detail: "MLB batter+pitcher+game logs, NBA DvP+team stats (5 populators, 5 min apart)" })
+      // 4 AM grading
+      fires.push({ at: etDate(4, 0, dayOffset),  label: "grading:backfill-all", detail: "nightly grading autopilot — refreshes calibration corpus" })
+      // 5 AM audit:nightly
+      fires.push({ at: etDate(5, 0, dayOffset),  label: "audit:nightly", detail: "writes daily proof report to backend/runtime/audits/" })
+      // Hourly events 9-23
+      for (let h = 9; h <= 23; h++) {
+        fires.push({ at: etDate(h, 0, dayOffset),  label: "hourly sysAudit + slate:mlb",  detail: "CLV canary + MLB slate refresh" })
+        fires.push({ at: etDate(h, 15, dayOffset), label: "NBA injuries refresh", detail: "ESPN injuries scrape" })
+        fires.push({ at: etDate(h, 45, dayOffset), label: "NBA game logs refresh", detail: "ESPN per-team game logs" })
+      }
+      // NBA slates every 30 min 16:00-23:30
+      for (let h = 16; h <= 23; h++) {
+        fires.push({ at: etDate(h, 0,  dayOffset), label: "slate:nba (:00)", detail: "NBA slate refresh" })
+        fires.push({ at: etDate(h, 30, dayOffset), label: "slate:nba (:30)", detail: "NBA slate refresh" })
+      }
+    }
+
+    const upcoming = fires
+      .filter(f => f.at.getTime() > now.getTime())
+      .sort((a, b) => a.at.getTime() - b.at.getTime())
+      .slice(0, 8)
+      .map(f => ({
+        atIso: f.at.toISOString(),
+        atEt: new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(f.at),
+        inSec: Math.round((f.at.getTime() - now.getTime()) / 1000),
+        label: f.label,
+        detail: f.detail,
+      }))
+
+    return { ok: true, upcoming, currentEt: `${parts.hour.toString().padStart(2,"0")}:${parts.minute.toString().padStart(2,"0")}` }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 function sectionRecentCommits(n = 5) {
   try {
     const log = execSync(`git log --oneline -${n}`, { cwd: REPO_ROOT, timeout: 3000 }).toString().trim()
@@ -358,6 +443,7 @@ router.get("/", (req, res) => {
   const t0 = Date.now()
   const out = {}
   out.meta              = sectionMeta()
+  out.schedule          = sectionSchedule()
   out.launchAgents      = sectionLaunchAgents()
   out.scheduler         = sectionScheduler()
   out.backend           = sectionBackend()

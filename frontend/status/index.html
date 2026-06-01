@@ -26,23 +26,24 @@
   header .et { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 12px; }
   .card h2 { font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+  .card .legend { font-size: 11px; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
   .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bg-card-deep); }
   .row:last-child { border-bottom: 0; }
   .row .label { flex: 0 0 auto; }
-  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text); font-size: 13px; }
+  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text); font-size: 13px; text-align: right; }
+  .row .val.sm { font-size: 12px; color: var(--text-dim); }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; flex-shrink: 0; }
   .dot.green { background: var(--green); box-shadow: 0 0 0 3px rgba(52,211,153,0.15); }
   .dot.yellow { background: var(--yellow); box-shadow: 0 0 0 3px rgba(251,191,36,0.15); }
   .dot.red { background: var(--red); box-shadow: 0 0 0 3px rgba(248,113,113,0.15); }
   .dot.gray { background: var(--text-faint); }
+  .dot.blue { background: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.15); }
   .big { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
   .big.green { color: var(--green); }
   .big.yellow { color: var(--yellow); }
   .big.red { color: var(--red); }
-  .big-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .big-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.4; }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; }
-  .mono.tail { display: block; padding: 6px 0; color: var(--text-dim); word-break: break-all; white-space: pre-wrap; line-height: 1.4; border-bottom: 1px solid var(--bg-card-deep); }
-  .mono.tail:last-child { border-bottom: 0; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .agent { background: var(--bg-card-deep); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
   .agent .name { font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
@@ -50,15 +51,31 @@
   .agent .top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
   .pillRow { display: flex; flex-wrap: wrap; gap: 6px; }
   .pill { background: var(--bg-card-deep); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
-  .pill.green { color: var(--green); border-color: rgba(52,211,153,0.3); }
-  .pill.red { color: var(--red); border-color: rgba(248,113,113,0.3); }
-  .pill.dim { color: var(--text-faint); }
   .actionBar { display: flex; gap: 8px; margin-top: 8px; }
   .actionBar button { flex: 1; background: var(--bg-card-deep); color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
   .actionBar button:hover { color: var(--text); border-color: var(--text-faint); }
   .nudge { font-size: 11px; color: var(--text-faint); margin-top: 8px; text-align: center; font-variant-numeric: tabular-nums; }
   .empty { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 4px 0; }
   .err { color: var(--red); font-size: 12px; font-family: ui-monospace, monospace; }
+  /* Schedule list (WHAT'S NEXT) */
+  .sched { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--bg-card-deep); }
+  .sched:last-child { border-bottom: 0; }
+  .sched .time { font-family: ui-monospace, monospace; font-size: 14px; font-weight: 600; color: var(--blue); flex: 0 0 56px; padding-top: 1px; }
+  .sched .body { flex: 1; min-width: 0; }
+  .sched .body .lbl { font-size: 13px; color: var(--text); font-weight: 500; }
+  .sched .body .det { font-size: 11px; color: var(--text-faint); margin-top: 2px; line-height: 1.3; }
+  .sched .countdown { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim); flex: 0 0 auto; padding-top: 3px; }
+  /* Autopilot clean rows */
+  .auto { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--bg-card-deep); }
+  .auto:last-child { border-bottom: 0; }
+  .auto .lbl { flex: 1; font-size: 13px; color: var(--text); }
+  .auto .lbl .sub { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+  .auto .stat { font-family: ui-monospace, monospace; font-size: 12px; flex: 0 0 auto; text-align: right; }
+  .auto .stat.green { color: var(--green); }
+  .auto .stat.yellow { color: var(--yellow); }
+  .auto .stat.red { color: var(--red); }
+  .auto .stat.gray { color: var(--text-faint); }
+  /* Dampener table */
   table.calib { width: 100%; border-collapse: collapse; font-size: 12px; }
   table.calib th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: 11px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
   table.calib td { padding: 4px 6px; border-bottom: 1px solid var(--bg-card-deep); font-variant-numeric: tabular-nums; }
@@ -67,6 +84,14 @@
   table.calib td.mul.green { color: var(--green); }
   table.calib td.mul.yellow { color: var(--yellow); }
   table.calib td.mul.red { color: var(--red); }
+  /* Translated drift alert / commit cards */
+  .pretty { padding: 8px 0; border-bottom: 1px solid var(--bg-card-deep); }
+  .pretty:last-child { border-bottom: 0; }
+  .pretty .ts { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); margin-bottom: 2px; }
+  .pretty .ts.red { color: var(--red); }
+  .pretty .ts.yellow { color: var(--yellow); }
+  .pretty .msg { font-size: 13px; color: var(--text); line-height: 1.4; }
+  .pretty .msg .hl { color: var(--yellow); }
 </style>
 </head>
 <body>
@@ -84,9 +109,17 @@
   </div>
 </div>
 
+<!-- WHAT'S NEXT — schedule preview -->
+<div class="card">
+  <h2>what's next</h2>
+  <div class="legend">scheduled autopilot fires (ET). green dot = on track, scheduler is alive and will fire these.</div>
+  <div id="schedList"></div>
+</div>
+
 <!-- LaunchAgents grid -->
 <div class="card">
-  <h2>launchagents (4)</h2>
+  <h2>background processes (4)</h2>
+  <div class="legend">all four must be GREEN for the system to run autonomously overnight.</div>
   <div class="grid2" id="agentGrid"></div>
 </div>
 
@@ -100,7 +133,8 @@
 
 <!-- CLV today -->
 <div class="card">
-  <h2>clv capture today</h2>
+  <h2>CLV capture today</h2>
+  <div class="legend">% of tipped picks where we captured the closing odds. 0/0 just means no games have tipped yet.</div>
   <div id="clvBigWrap">
     <div class="big" id="clvBig">—</div>
     <div class="big-sub" id="clvSub">—</div>
@@ -112,15 +146,14 @@
 <!-- Autopilots today -->
 <div class="card">
   <h2>autopilots today</h2>
-  <div class="row"><span class="dot" id="dotGrading"></span><span class="label">4 am grading:backfill-all</span><span class="val" id="gradingStatus">—</span></div>
-  <div class="row"><span class="dot" id="dotAudit"></span><span class="label">5 am audit:nightly</span><span class="val" id="auditStatus">—</span></div>
-  <div class="row"><span class="dot" id="dotSlateNba"></span><span class="label">last slate:nba</span><span class="val" id="slateNbaStatus">—</span></div>
-  <div class="row"><span class="dot" id="dotSlateMlb"></span><span class="label">last slate:mlb</span><span class="val" id="slateMlbStatus">—</span></div>
+  <div class="legend">green = fired & completed · yellow = started but not done · red = failed · gray = not fired yet (waiting for scheduled time).</div>
+  <div id="autoList"></div>
 </div>
 
 <!-- Tracked best counts -->
 <div class="card">
-  <h2>tracked_best today</h2>
+  <h2>tonight's picks (tracked_best)</h2>
+  <div class="legend">how many picks the engine generated for tonight's slate, by prop family.</div>
   <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
   <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
   <div id="tbFamilies" class="pillRow" style="margin-top:8px"></div>
@@ -128,7 +161,15 @@
 
 <!-- Family calibration -->
 <div class="card">
-  <h2>family calibration (dampener)</h2>
+  <h2>dampener (engine self-correction)</h2>
+  <div class="legend">
+    The engine grades itself nightly and auto-dampens overconfident families.
+    <strong>n</strong> = sample size (recently graded picks).
+    <strong>stated</strong> = engine's claimed win rate.
+    <strong>realized</strong> = what actually won.
+    <strong>gap</strong> = overconfidence in percentage points (higher = worse).
+    <strong>mul</strong> = correction multiplier the engine now applies (closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened).
+  </div>
   <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
   <table class="calib">
     <thead><tr><th>family</th><th>n</th><th>stated</th><th>realized</th><th>gap</th><th>mul</th></tr></thead>
@@ -138,13 +179,15 @@
 
 <!-- Recent commits -->
 <div class="card">
-  <h2>recent commits</h2>
+  <h2>recent code changes</h2>
+  <div class="legend">last 5 commits to the repo. proves new changes are landing on disk.</div>
   <div id="commits"></div>
 </div>
 
 <!-- Drift alerts tail -->
 <div class="card">
-  <h2>drift alerts (last 10)</h2>
+  <h2>recent system alerts</h2>
+  <div class="legend">last 10 RED events from sysAudit. translated to plain English. cognition alerts are the engine flagging its own overconfidence — those get auto-dampened above.</div>
   <div id="driftTail"></div>
 </div>
 
@@ -156,14 +199,7 @@
 <script>
 const ENDPOINT = "/api/ws/status";
 const POLL_MS = 30000;
-let timer = null;
 let lastSuccessAt = null;
-
-function dotFor(state) {
-  const el = document.createElement("span");
-  el.className = "dot " + state;
-  return el;
-}
 
 function formatUptime(sec) {
   if (sec == null) return "—";
@@ -177,10 +213,39 @@ function formatUptime(sec) {
   return s + "s";
 }
 
-function shortLine(line) {
-  if (!line) return "—";
-  // Strip the leading [date time ET] prefix for brevity
-  return String(line).replace(/^\[[^\]]+\]\s*/, "").trim();
+function formatCountdown(sec) {
+  if (sec == null) return "";
+  if (sec < 60) return "<1m";
+  if (sec < 3600) return Math.floor(sec/60) + "m";
+  if (sec < 86400) {
+    const h = Math.floor(sec/3600);
+    const m = Math.floor((sec%3600)/60);
+    return h + "h" + (m > 0 ? " " + m + "m" : "");
+  }
+  return Math.floor(sec/86400) + "d+";
+}
+
+function formatFiredDuration(startedLine, endedLine) {
+  // Extract timestamps from "[YYYY-MM-DD HH:MM:SS ET] ..." format
+  const tsRx = /^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}) ET\]/;
+  const sMatch = (startedLine || "").match(tsRx);
+  const eMatch = (endedLine || "").match(tsRx);
+  if (!sMatch || !eMatch) return null;
+  const toSec = (hms) => {
+    const [h,m,s] = hms.split(":").map(Number);
+    return h*3600 + m*60 + s;
+  };
+  let diff = toSec(eMatch[1]) - toSec(sMatch[1]);
+  if (diff < 0) diff += 86400;
+  if (diff < 60) return diff + "s";
+  if (diff < 3600) return Math.floor(diff/60) + "m " + (diff%60) + "s";
+  return Math.floor(diff/3600) + "h " + Math.floor((diff%3600)/60) + "m";
+}
+
+function timeOnly(line) {
+  // Return "HH:MM" extracted from a "[YYYY-MM-DD HH:MM:SS ET]" prefix
+  const m = (line || "").match(/^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}):\d{2} ET\]/);
+  return m ? m[1] : "—";
 }
 
 function renderAgents(data) {
@@ -209,24 +274,24 @@ function renderSysHeadline(data) {
   if (!allHealthy) {
     big.textContent = "DEGRADED";
     big.className = "big red";
-    sub.textContent = "one or more LaunchAgents not running";
+    sub.textContent = "one or more background processes are down — system is not running autonomously";
     return;
   }
   if (audit && audit.includes("Backend not responding")) {
     big.textContent = "BACKEND DOWN";
     big.className = "big red";
-    sub.textContent = shortLine(audit);
+    sub.textContent = "the backend is not responding — auto-recovery will fire on the next hourly sysAudit";
     return;
   }
   if (audit && audit.includes("RED")) {
     big.textContent = "WATCHING";
     big.className = "big yellow";
-    sub.textContent = shortLine(audit);
+    sub.textContent = "all processes running; one or more families flagged as overconfident — the dampener is auto-correcting. see below.";
     return;
   }
   big.textContent = "GREEN";
   big.className = "big green";
-  sub.textContent = "all systems nominal";
+  sub.textContent = "all systems nominal — autopilots firing, backend up, no active alerts";
 }
 
 function renderBackend(data) {
@@ -238,8 +303,25 @@ function renderBackend(data) {
   document.getElementById("bePid").textContent = b?.pid || "—";
 }
 
+function renderSchedule(data) {
+  const wrap = document.getElementById("schedList");
+  wrap.innerHTML = "";
+  const s = data.schedule;
+  if (!s?.ok) { wrap.innerHTML = '<div class="err">' + (s?.error || "schedule unavailable") + '</div>'; return; }
+  for (const u of s.upcoming) {
+    const el = document.createElement("div");
+    el.className = "sched";
+    el.innerHTML =
+      '<div class="time">' + u.atEt + '</div>' +
+      '<div class="body"><div class="lbl">' + u.label + '</div><div class="det">' + u.detail + '</div></div>' +
+      '<div class="countdown">in ' + formatCountdown(u.inSec) + '</div>';
+    wrap.appendChild(el);
+  }
+}
+
 function renderClv(data) {
   const c = data.clvCaptureToday;
+  const sched = data.schedule;
   if (!c?.ok) {
     document.getElementById("clvBig").textContent = "—";
     document.getElementById("clvBig").className = "big";
@@ -251,37 +333,84 @@ function renderClv(data) {
   if (r == null) {
     big.textContent = "—";
     big.className = "big";
-    document.getElementById("clvSub").textContent = "no tipped picks yet today";
+    // Find next slate from schedule
+    let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
+    const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "waiting for the next slate fire";
+    document.getElementById("clvSub").textContent = "no games have tipped yet today — " + nextTxt;
   } else {
     big.textContent = r.toFixed(1) + "%";
     big.className = "big " + (r >= 70 ? "green" : r >= 30 ? "yellow" : "red");
-    document.getElementById("clvSub").textContent = c.totalStamped + " of " + c.totalTipped + " tipped picks have closing odds";
+    document.getElementById("clvSub").textContent = c.totalStamped + " of " + c.totalTipped + " tipped picks have closing odds captured";
   }
   const nba = c.perSport?.nba;
   const mlb = c.perSport?.mlb;
-  document.getElementById("clvNba").textContent = nba?.hasFile ? (nba.rate == null ? nba.stamped + "/" + nba.tipped : nba.rate + "% (" + nba.stamped + "/" + nba.tipped + ")") : "no file";
-  document.getElementById("clvMlb").textContent = mlb?.hasFile ? (mlb.rate == null ? mlb.stamped + "/" + mlb.tipped : mlb.rate + "% (" + mlb.stamped + "/" + mlb.tipped + ")") : "no file";
+  // Find next slate of each sport
+  const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
+  const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
+  document.getElementById("clvNba").innerHTML = nba?.hasFile
+    ? (nba.rate == null ? nba.stamped + "/" + nba.tipped : nba.rate + "% (" + nba.stamped + "/" + nba.tipped + ")")
+    : '<span class="sm">no NBA slate today yet · next ' + (nextNba?.atEt || "—") + ' ET</span>';
+  document.getElementById("clvMlb").innerHTML = mlb?.hasFile
+    ? (mlb.rate == null ? mlb.stamped + "/" + mlb.tipped : mlb.rate + "% (" + mlb.stamped + "/" + mlb.tipped + ")")
+    : '<span class="sm">no MLB slate today yet · next ' + (nextMlb?.atEt || "—") + ' ET</span>';
 }
 
 function renderAutopilots(data) {
   const fires = data.autopilotFiresToday;
   const slates = data.slateFiresToday;
-  const setRow = (dotId, statusId, started, completed, failed) => {
-    const dot = document.getElementById(dotId);
-    const st = document.getElementById(statusId);
-    if (failed) { dot.className = "dot red"; st.textContent = "FAILED — " + shortLine(failed); return; }
-    if (completed) { dot.className = "dot green"; st.textContent = "OK — " + shortLine(completed); return; }
-    if (started) { dot.className = "dot yellow"; st.textContent = "started, no completion line — " + shortLine(started); return; }
-    dot.className = "dot gray"; st.textContent = "not fired yet today";
+  const sched = data.schedule;
+  const wrap = document.getElementById("autoList");
+  wrap.innerHTML = "";
+
+  const buildRow = (label, sub, started, completed, failed, nextLabelHint) => {
+    const auto = document.createElement("div");
+    auto.className = "auto";
+    let dotClass = "gray", statClass = "gray", statText = "not fired yet today";
+    if (failed) { dotClass = "red"; statClass = "red"; statText = "FAILED at " + timeOnly(failed); }
+    else if (completed && started) {
+      dotClass = "green"; statClass = "green";
+      const dur = formatFiredDuration(started, completed);
+      statText = "✓ " + timeOnly(started) + (dur ? " · " + dur : "");
+    }
+    else if (completed) { dotClass = "green"; statClass = "green"; statText = "✓ " + timeOnly(completed); }
+    else if (started) { dotClass = "yellow"; statClass = "yellow"; statText = "running — " + timeOnly(started); }
+    else if (nextLabelHint) {
+      const next = sched?.upcoming?.find(u => u.label.includes(nextLabelHint));
+      if (next) { statText = "next " + next.atEt + " ET (in " + formatCountdown(next.inSec) + ")"; }
+    }
+    auto.innerHTML =
+      '<span class="dot ' + dotClass + '" style="margin-top:5px"></span>' +
+      '<div class="lbl">' + label + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' +
+      '<div class="stat ' + statClass + '">' + statText + '</div>';
+    wrap.appendChild(auto);
   };
+
   if (fires?.ok) {
-    setRow("dotGrading", "gradingStatus", fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, null);
-    setRow("dotAudit", "auditStatus", fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null);
+    buildRow("4 AM grading:backfill-all",
+      "refreshes calibration corpus from last night's outcomes",
+      fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, null,
+      "grading:backfill-all");
+    buildRow("5 AM audit:nightly",
+      "writes the daily proof report",
+      fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null,
+      "audit:nightly");
   }
+  buildRow("3:05 AM populator chain",
+    "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats",
+    null, null, null, "populator chain");
   if (slates?.ok) {
-    setRow("dotSlateNba", "slateNbaStatus", null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed);
-    setRow("dotSlateMlb", "slateMlbStatus", null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed);
+    buildRow("last slate:mlb fire",
+      "MLB slate refresh — hourly :00 from 9 AM to 11 PM",
+      null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed,
+      "slate:mlb");
+    buildRow("last slate:nba fire",
+      "NBA slate refresh — every 30 min from 4 PM to 11:30 PM",
+      null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed,
+      "slate:nba");
   }
+  buildRow("hourly sysAudit",
+    "drift detection + backend health canary — fires every :00 from 9 AM to 11 PM",
+    null, null, null, "sysAudit");
 }
 
 function renderTrackedBest(data) {
@@ -289,8 +418,11 @@ function renderTrackedBest(data) {
   if (!t?.ok) { document.getElementById("tbNbaTotal").textContent = "—"; return; }
   const nba = t.perSport?.nba;
   const mlb = t.perSport?.mlb;
-  document.getElementById("tbNbaTotal").textContent = nba?.hasFile ? nba.total : "no file";
-  document.getElementById("tbMlbTotal").textContent = mlb?.hasFile ? mlb.total : "no file";
+  const sched = data.schedule;
+  const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
+  const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
+  document.getElementById("tbNbaTotal").innerHTML = nba?.hasFile ? String(nba.total) : '<span class="sm">no file yet · next NBA slate ' + (nextNba?.atEt || "—") + ' ET</span>';
+  document.getElementById("tbMlbTotal").innerHTML = mlb?.hasFile ? String(mlb.total) : '<span class="sm">no file yet · next MLB slate ' + (nextMlb?.atEt || "—") + ' ET</span>';
   const pillRow = document.getElementById("tbFamilies");
   pillRow.innerHTML = "";
   const allFams = { ...(nba?.byFamily || {}), ...(mlb?.byFamily || {}) };
@@ -310,7 +442,12 @@ function renderCalibration(data) {
     body.innerHTML = '<tr><td colspan="6" class="empty">' + (c?.error || "no calibration data") + '</td></tr>';
     return;
   }
-  document.getElementById("calibGeneratedAt").textContent = "rebuilt " + (c.generatedAt || "—");
+  // Friendlier timestamp
+  let when = "—";
+  if (c.generatedAt) {
+    try { when = new Date(c.generatedAt).toLocaleString("en-US", { timeZone: "America/New_York", hour12: false }) + " ET"; } catch (_) { when = c.generatedAt; }
+  }
+  document.getElementById("calibGeneratedAt").textContent = "corpus last rebuilt: " + when;
   const rows = [];
   for (const [sport, fams] of Object.entries(c.sports)) {
     for (const [fam, info] of Object.entries(fams)) {
@@ -337,22 +474,73 @@ function renderCommits(data) {
   div.innerHTML = "";
   if (!data.recentCommits?.ok) { div.innerHTML = '<div class="err">commits unavailable</div>'; return; }
   for (const line of data.recentCommits.commits) {
+    // Format: "<sha> <message>"
+    const m = line.match(/^(\S+)\s+(.+)$/);
+    if (!m) continue;
+    const sha = m[1];
+    let msg = m[2];
+    // Strip "Phase X-Y-Z: " prefix → leave just the human-readable description
+    msg = msg.replace(/^Phase [A-Za-z0-9-]+: /, "");
+    // Strip task numbers in parens
+    msg = msg.replace(/\s*\([#0-9, ]+(?:closes [^)]+)?\)\s*$/, "");
+    // Strip jargony tail
+    msg = msg.replace(/—.*$/, "").trim();
     const d = document.createElement("div");
-    d.className = "mono tail";
-    d.textContent = line;
+    d.className = "pretty";
+    d.innerHTML = '<div class="ts">' + sha + '</div><div class="msg">' + msg + '</div>';
     div.appendChild(d);
   }
+}
+
+/**
+ * Translate a cryptic drift_alerts line into plain English for the bettor.
+ * Input examples:
+ *   [2026-05-31 23:01:48 ET] RED · exit=2 · [✗]   points_assists: model 57.7% / realized 20.2% — gap 37.5pp (n=84) · mul ×0.35 — SEVERELY MISCALIBRATED, model claims overstated by 37pp
+ *   [2026-05-31 20:01:24 ET] RED · exit=2 · [✗] Backend not responding (connect ECONNREFUSED 127.0.0.1:4000) — restart with: bash backend/scripts/restartBackend.sh
+ */
+function translateDriftLine(line) {
+  // Extract timestamp
+  const tsMatch = line.match(/^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}):\d{2} ET\]/);
+  const time = tsMatch ? tsMatch[1] + " ET" : "?";
+
+  // Backend down pattern
+  if (/Backend not responding|ECONNREFUSED/.test(line)) {
+    return { ts: time, kind: "red", msg: "The backend stopped responding. Auto-recovery should fire on the next hourly sysAudit (within 60 min)." };
+  }
+
+  // Family overconfidence pattern: "points_assists: model 57.7% / realized 20.2% — gap 37.5pp (n=84) · mul ×0.35"
+  const famMatch = line.match(/(\w+):\s*model\s+([0-9.]+)%\s*\/\s*realized\s+([0-9.]+)%[^·]*·\s*mul\s*×([0-9.]+)/);
+  if (famMatch) {
+    const [, fam, stated, realized, mul] = famMatch;
+    const dampPct = Math.round((1 - Number(mul)) * 100);
+    return {
+      ts: time,
+      kind: "yellow",
+      msg: "<strong>" + fam + "</strong> family: engine claimed " + stated + "% win rate but only " + realized + "% actually won. Auto-dampening engine claims by " + dampPct + "% to compensate.",
+    };
+  }
+
+  // CLV close-capture 0% pattern
+  if (/CLV close-capture rate only 0/.test(line)) {
+    return { ts: time, kind: "red", msg: "Closing-odds capture rate was 0% — likely backend was down during tipoff windows." };
+  }
+
+  // Fallback — return raw with light cleanup
+  const cleaned = line.replace(/^\[[^\]]+\]\s*/, "").replace(/exit=\d+\s*·\s*/, "");
+  return { ts: time, kind: "yellow", msg: cleaned };
 }
 
 function renderDrift(data) {
   const div = document.getElementById("driftTail");
   div.innerHTML = "";
   const lines = data.driftAlertsTail?.lines || [];
-  if (lines.length === 0) { div.innerHTML = '<div class="empty">no drift alerts logged yet</div>'; return; }
-  for (const line of lines) {
+  if (lines.length === 0) { div.innerHTML = '<div class="empty">no alerts logged in the recent window — GREEN.</div>'; return; }
+  // Newest first
+  for (const line of [...lines].reverse()) {
+    const t = translateDriftLine(line);
     const d = document.createElement("div");
-    d.className = "mono tail";
-    d.textContent = line;
+    d.className = "pretty";
+    d.innerHTML = '<div class="ts ' + t.kind + '">' + t.ts + '</div><div class="msg">' + t.msg + '</div>';
     div.appendChild(d);
   }
 }
@@ -365,6 +553,7 @@ async function loadStatus() {
     document.getElementById("etTime").textContent = (data.meta?.et || "—") + " · " + (data.meta?.elapsedMs ?? "—") + "ms";
     renderAgents(data.launchAgents);
     renderSysHeadline(data);
+    renderSchedule(data);
     renderBackend(data);
     renderClv(data);
     renderAutopilots(data);
@@ -373,6 +562,7 @@ async function loadStatus() {
     renderCommits(data);
     renderDrift(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
+    document.getElementById("nudge").style.color = "var(--text-faint)";
   } catch (e) {
     document.getElementById("nudge").textContent = "FETCH FAILED — " + (e?.message || e) + (lastSuccessAt ? " · last ok " + lastSuccessAt.toLocaleTimeString() : "");
     document.getElementById("nudge").style.color = "var(--red)";
@@ -380,7 +570,7 @@ async function loadStatus() {
 }
 
 loadStatus();
-timer = setInterval(loadStatus, POLL_MS);
+setInterval(loadStatus, POLL_MS);
 </script>
 </body>
 </html>
