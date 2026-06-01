@@ -168,6 +168,15 @@ function toTrackedMlbPick(row, { slateDate, timestamp }) {
     impliedTeamTotal: Number.isFinite(Number(row?.impliedTeamTotal)) ? Number(row.impliedTeamTotal) : null,
     gameTotal:        Number.isFinite(Number(row?.gameTotal))        ? Number(row.gameTotal)        : null,
     hrEnvironmentTag: pc?.hrEnvironmentTag ?? row?.hrEnvironmentTag ?? null,
+    // 2026-06-01 Phase MLB-Platoon-Persistence-Fix-1A (#135) — isPlatoonAdvantage
+    // is one of buildMlbBestBetsBoard's 4 canonical projection inputs per
+    // [[project-pick-origin-architecture]] memory ("Single platoon-flag wire
+    // fixed 2026-05-30"). It was populated at the snapshot source (94.7% per
+    // probe 2026-06-01) but never made the persistence whitelist here, so
+    // every tracked_best entry had isPlatoonAdvantage=undefined regardless.
+    // sysAudit's hourly lineupSpot RED was the dashboard surfacing one of
+    // four canonical-input gaps; this fix closes the platoon side of the gap.
+    isPlatoonAdvantage: typeof row?.isPlatoonAdvantage === "boolean" ? row.isPlatoonAdvantage : null,
 
     lineupSpot:            lc?.lineupSpot            ?? row?.lineupPosition ?? row?.battingOrderIndex ?? null,
     depth:                 lc?.depth                 ?? null,
@@ -247,6 +256,10 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     impliedTeamTotal: Number.isFinite(Number(row?.impliedTeamTotal)) ? Number(row.impliedTeamTotal) : null,
     gameTotal:        Number.isFinite(Number(row?.gameTotal))        ? Number(row.gameTotal)        : null,
     hrEnvironmentTag: pc?.hrEnvironmentTag ?? row?.hrEnvironmentTag ?? null,
+    // 2026-06-01 Phase MLB-Platoon-Persistence-Fix-1A (#135) — see toMlbBestEntry
+    // (b) above for full context. Canonical 4-input contract per
+    // [[project-pick-origin-architecture]] — was being dropped at the whitelist.
+    isPlatoonAdvantage: typeof row?.isPlatoonAdvantage === "boolean" ? row.isPlatoonAdvantage : null,
 
     // (c) lineup / survivability inputs (lifted from nested lineupContextV2)
     lineupSpot:            lc?.lineupSpot            ?? row?.lineupPosition ?? row?.battingOrderIndex ?? null,
