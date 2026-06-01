@@ -721,6 +721,49 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
   if (lineupGamesWithData === 0) {
     notes.push("API-Sports lineups endpoint returned no starter rows for matched games; probable pitcher coverage unavailable in current window.")
   }
+
+  // 2026-06-01 Phase MLB-Lineup-Adapter-Fix-1A — free MLB Stats API fallback.
+  // When the paid API-Sports /lineups endpoint is unsupported on this account
+  // (lineupsEndpointUnsupported=true) OR coverage is partial (some games got
+  // data, some didn't), fill the gaps via statsapi.mlb.com/boxscore.
+  // This same data source already runs cleanly for populateMlbBullpenWorkload.
+  //
+  // Closes the silent-failure window surfaced by Phase Status-Dashboard
+  // rollout 2026-06-01: lineupSpot 0/71 (0%) — never populated alert. The
+  // lineupPosition field is one of four canonical inputs to
+  // buildMlbBestBetsBoard per [[project-pick-origin-architecture]] — without
+  // it, projections lose precision and the dampener crushes MLB families.
+  //
+  // Merge rule: API-Sports data wins where present (paid source is canonical).
+  // Fallback only adds entries for events API-Sports didn't cover.
+  // Anti-fabrication: helper returns ONLY confirmed lineups from live MLB API.
+  // Games without confirmed lineups are omitted, never invented.
+  let statsApiFallbackDiagnostics = null
+  const fallbackShouldFire = lineupsEndpointUnsupported || lineupGamesWithData < apiGamesMatchedToSlate
+  if (fallbackShouldFire && safeEvents.length > 0) {
+    try {
+      const { fetchMlbStatsApiLineups } = require("./fetchMlbStatsApiLineups")
+      const slateDate = new Date(now).toISOString().slice(0, 10)
+      const fallbackResult = await fetchMlbStatsApiLineups({ events: safeEvents, slateDate })
+      statsApiFallbackDiagnostics = fallbackResult.diagnostics
+      let fallbackEventsAdded = 0
+      for (const [eventId, players] of Object.entries(fallbackResult.playersByEventId || {})) {
+        // Only fill gaps — don't overwrite API-Sports data
+        if (Array.isArray(playersByEventId[eventId]) && playersByEventId[eventId].length > 0) continue
+        playersByEventId[eventId] = players
+        fallbackEventsAdded += 1
+      }
+      for (const [eventId, conf] of Object.entries(fallbackResult.lineupConfirmationByEventId || {})) {
+        if (lineupConfirmationByEventId[eventId]) continue
+        lineupConfirmationByEventId[eventId] = conf
+      }
+      notes.push(`MLB Stats API fallback fired: ${fallbackEventsAdded} events filled from statsapi.mlb.com/boxscore`)
+    } catch (e) {
+      notes.push(`MLB Stats API fallback FAILED: ${String(e?.message || e)}`)
+      statsApiFallbackDiagnostics = { fatal: String(e?.message || e) }
+    }
+  }
+
   if (teamRosterTeamsWithData === 0) {
     notes.push("No team-roster player rows were available for matched event teams in current window.")
   }
@@ -758,6 +801,7 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
         lineupRowsFound,
         lineupGamesWithData,
         lineupsEndpointSupported: !lineupsEndpointUnsupported,
+        statsApiFallback: statsApiFallbackDiagnostics,
         teamStatsFetched,
         teamStatsMissing,
         teamRosterCalls,
