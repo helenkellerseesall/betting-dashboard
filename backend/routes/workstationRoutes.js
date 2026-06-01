@@ -2073,7 +2073,11 @@ const { getArchetypeHistoryForPick } =
 
 function attachArchetypeHistory(pick) {
   if (!pick) return
-  const h = getArchetypeHistoryForPick(pick.sport, pick.volatility, pick.tier || pick.modelTier)
+  // Lookup ladder: (sport, volatility, tier) → (sport, statFamily) → null.
+  // Phase Archetype-Surfacing-1A.1 — tracked_best response payloads lack
+  // volatility/tier (queued #71 wiring gap); family fallback fires on bulk.
+  const fam = pick.statFamily || pick.propType
+  const h = getArchetypeHistoryForPick(pick.sport, pick.volatility, pick.tier || pick.modelTier, fam)
   if (h) pick.archetypeHistory = h
 }
 
