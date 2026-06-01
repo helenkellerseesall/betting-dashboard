@@ -268,6 +268,23 @@ while true; do
     fired=true
   fi
 
+  # 2026-06-01 Phase Audit-Nightly-Autopilot-1A — fire `npm run audit:nightly`
+  # at 5 AM ET (after 3:05-3:25 populator refresh + 4:00 grading:backfill-all).
+  # Closes the original #11 gap: auditNightly.js wrapper exists + is callable
+  # via npm script but no autopilot was invoking it nightly. Generates the
+  # daily markdown proof report at backend/runtime/audits/YYYY-MM-DD-audit.md
+  # so operator wakes up to fresh proof of pipeline health (CLV capture rate,
+  # grading completion, per-family hit rates, anomaly flags).
+  if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 5 ]; then
+    log "audit:nightly starting (Phase Audit-Nightly-Autopilot-1A)"
+    if npm run audit:nightly >> "$LOG" 2>&1; then
+      log "audit:nightly OK — daily proof report written to backend/runtime/audits/"
+    else
+      log "audit:nightly FAILED (exit $?) — pipeline health report skipped"
+    fi
+    fired=true
+  fi
+
   if [ "$fired" = "true" ]; then
     last_ran_min="$STAMP"
   fi
