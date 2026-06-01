@@ -276,8 +276,14 @@ while true; do
   # so operator wakes up to fresh proof of pipeline health (CLV capture rate,
   # grading completion, per-family hit rates, anomaly flags).
   if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 5 ]; then
-    log "audit:nightly starting (Phase Audit-Nightly-Autopilot-1A)"
-    if npm run audit:nightly >> "$LOG" 2>&1; then
+    log "audit:nightly starting (Phase Audit-Nightly-Autopilot-1A, report-only mode)"
+    # 2026-06-01 — `--no-populators --no-grade` skips Step 0 + Step 1 which are
+    # now autonomous via #123 / #84 / #92 / #102. Without these flags the
+    # 5 AM call would block scheduler's main loop for 5-15 min (9 populators
+    # serially + grading backfill). With flags it generates the markdown report
+    # in <10 seconds. Manual `npm run audit:nightly` from operator's terminal
+    # still defaults to full-fat (populators + grading + report).
+    if npm run audit:nightly -- --no-populators --no-grade >> "$LOG" 2>&1; then
       log "audit:nightly OK — daily proof report written to backend/runtime/audits/"
     else
       log "audit:nightly FAILED (exit $?) — pipeline health report skipped"

@@ -40,9 +40,16 @@ const EXPECTED_NBA_FAMILIES = new Set([
 // turnovers intentionally excluded — API gap, see memory project_nba_turnovers_api_unavailable
 
 function parseArgs() {
-  const out = { grade: true, days: 7 }
+  // 2026-06-01 Phase Audit-Nightly-Autopilot-1A — `--no-populators` added so
+  // the 5 AM ET scheduler.sh autopilot can run report-generation-only without
+  // re-running the 9 populator subprocesses (each up to 5 min timeout — worst
+  // case 45 min). Populators are now autonomous via #123 (3:05-3:25 ET) +
+  // #84 (NBA injuries :15) + #92 (NBA game logs :45). Manual operator runs
+  // (`npm run audit:nightly`) still default to full-fat.
+  const out = { grade: true, populators: true, days: 7 }
   for (const a of process.argv.slice(2)) {
     if (a === "--no-grade") out.grade = false
+    if (a === "--no-populators") out.populators = false
     if (a.startsWith("--days=")) out.days = Number(a.slice("--days=".length)) || 7
   }
   return out
@@ -322,7 +329,12 @@ function main() {
   // Step 0: refresh recent-form data (NBA game logs, team stats, injury report)
   // BEFORE grading so populator-pulled box scores can supplement grading data
   // and the next day's slate has fresh L5/L10 baselines.
-  const populatorResults = args.grade ? runPopulators() : []
+  // 2026-06-01 Phase Audit-Nightly-Autopilot-1A — also gated on args.populators
+  // so the 5 AM ET scheduler call (`--no-populators --no-grade`) skips both
+  // expensive sub-runs (populators are autonomous via #123 / #84 / #92;
+  // grading is autonomous via #102 at 4 AM ET). Manual operator runs default
+  // to args.grade=true + args.populators=true and behave as before.
+  const populatorResults = (args.grade && args.populators) ? runPopulators() : []
 
   // Step 1: grading backfill
   const gradingResult = args.grade ? runGrading() : { ran: false, status: 0 }
