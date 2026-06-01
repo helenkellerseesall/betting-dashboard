@@ -292,11 +292,39 @@ function sectionAutopilotFiresToday() {
       const end = lines.find(l => l.includes(substrEnd))
       return { startedLine: start || null, endedLine: end || null, fired: !!start, completed: !!end }
     }
+    // 2026-06-01 Phase Status-Dashboard-1C dashboard-feedback fix —
+    // populator chain at 3:05-3:25 ET emits 5 named scripts (populateMlbBatterStats,
+    // populateMlbBatterGameLogs, populateMlbPitcherGameLogs, populateNbaDvP,
+    // populateNbaTeamStats). Treat the chain as one event: first start = chain
+    // started, last OK = chain ended. Catches the dashboard-row regression where
+    // the populator chain showed "not fired yet today" even though it ran.
+    const popStarts = lines.filter(l =>
+      l.includes("populateMlbBatterStats starting") ||
+      l.includes("populateMlbBatterGameLogs starting") ||
+      l.includes("populateMlbPitcherGameLogs starting") ||
+      l.includes("populateNbaDvP starting") ||
+      l.includes("populateNbaTeamStats starting")
+    )
+    const popOks = lines.filter(l =>
+      l.includes("populateMlbBatterStats OK") ||
+      l.includes("populateMlbBatterGameLogs OK") ||
+      l.includes("populateMlbPitcherGameLogs OK") ||
+      l.includes("populateNbaDvP OK") ||
+      l.includes("populateNbaTeamStats OK")
+    )
+    const populatorChain = {
+      startedLine: popStarts[0] || null,
+      endedLine: popOks[popOks.length - 1] || null,
+      fired: popStarts.length > 0,
+      completed: popOks.length >= 5,  // chain has 5 populators
+      okCount: popOks.length,
+    }
     return {
       ok: true,
       dateKey,
       gradingBackfillAll: findEvent("grading:backfill-all starting", "grading:backfill-all OK"),
       auditNightly: findEvent("audit:nightly starting", "audit:nightly OK"),
+      populatorChain,
     }
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }

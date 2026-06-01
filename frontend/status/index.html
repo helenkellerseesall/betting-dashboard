@@ -395,9 +395,20 @@ function renderAutopilots(data) {
       fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null,
       "audit:nightly");
   }
-  buildRow("3:05 AM populator chain",
-    "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats",
-    null, null, null, "populator chain");
+  // Phase Status-Dashboard-1C feedback fix — populator chain row now reads from
+  // fires.populatorChain so OK history is surfaced instead of always showing
+  // "not fired yet today". Operator caught the regression 2026-06-01 ~15:17 ET.
+  if (fires?.populatorChain) {
+    buildRow("3:05 AM populator chain",
+      "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats" +
+        (fires.populatorChain.okCount ? " (" + fires.populatorChain.okCount + "/5 OK today)" : ""),
+      fires.populatorChain.startedLine, fires.populatorChain.endedLine, null,
+      "populator chain");
+  } else {
+    buildRow("3:05 AM populator chain",
+      "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats",
+      null, null, null, "populator chain");
+  }
   if (slates?.ok) {
     buildRow("last slate:mlb fire",
       "MLB slate refresh — hourly :00 from 9 AM to 11 PM",
@@ -523,6 +534,19 @@ function translateDriftLine(line) {
   // CLV close-capture 0% pattern
   if (/CLV close-capture rate only 0/.test(line)) {
     return { ts: time, kind: "red", msg: "Closing-odds capture rate was 0% — likely backend was down during tipoff windows." };
+  }
+
+  // Field "never populated" pattern (e.g. lineupSpot, restContext, gameContext)
+  // Caught in dashboard rollout 2026-06-01: lineupSpot firing hourly RED meant
+  // MLB picks were missing a canonical buildMlbBestBetsBoard input.
+  const neverPopMatch = line.match(/(\w+):\s*0\/(\d+)\s*\(0%\)\s*—\s*never populated/);
+  if (neverPopMatch) {
+    const [, field, denom] = neverPopMatch;
+    return {
+      ts: time,
+      kind: "red",
+      msg: "<strong>" + field + "</strong> field is 0% populated across " + denom + " picks — a wiring gap. This is the kind of silent data hole that degrades pick quality. Investigate which populator should write " + field + ".",
+    };
   }
 
   // Fallback — return raw with light cleanup
