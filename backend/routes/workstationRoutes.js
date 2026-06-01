@@ -2063,6 +2063,19 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 //   call; all mutation + absence logic lives in the helper.
 const { applyCalibrationDampener } =
   require("../pipeline/shared/calibrationDampener")
+// 2026-05-31 Phase Archetype-Surfacing-1A — per-(sport, volatility, tier)
+//   historical archetype hit-rate attached to TOP PICKS + GAMES BROWSER picks
+//   so the bettor can see "plays like this hit X% historically" in dimension
+//   terms (Law 24 + Law 27 class-not-identity recognition). Reader-only wraps
+//   the canonical intel.getArchetypePerf SQLite reader.
+const { getArchetypeHistoryForPick } =
+  require("../pipeline/shared/archetypeHistoryLookup")
+
+function attachArchetypeHistory(pick) {
+  if (!pick) return
+  const h = getArchetypeHistoryForPick(pick.sport, pick.volatility, pick.tier || pick.modelTier)
+  if (h) pick.archetypeHistory = h
+}
 
 /**
  * Build a join index from tracked_best entries. KEY DESIGN: do NOT include
@@ -2375,6 +2388,7 @@ router.get("/top-picks", (req, res) => {
     const dampened = []
     for (const p of all) {
       applyCalibrationDampener(p)
+      attachArchetypeHistory(p)  // Phase Archetype-Surfacing-1A
       if (p.modelProbRaw != null && Number(p.edge) < -0.10) {
         dampenedRejected++
         continue
@@ -2568,6 +2582,7 @@ router.get("/games-browser", (req, res) => {
           // 2026-05-31 (c) — calibration dampener applied at games-browser too
           prop.sport = g.sport
           applyCalibrationDampener(prop)
+          attachArchetypeHistory(prop)  // Phase Archetype-Surfacing-1A
           // Hydrate reasoning (no propType in join key — alias map handles family naming)
           const best = findReasoningEntry(reasoningIdx[g.sport], { ...prop, sport: g.sport })
           prop.reasoning = buildReasoning(prop, best)
