@@ -108,6 +108,15 @@ app.use(express.json({ limit: "12mb" }))
 app.use("/", mlbRoutes)
 app.use("/api/ws", require("./routes/workstationRoutes"))
 
+// 2026-06-01 Phase Status-Dashboard-1A — self-monitoring view at
+// /api/ws/status. Aggregates LaunchAgent state, scheduler heartbeat,
+// sysAudit last result, CLV capture %, autopilot fires, family calibration,
+// tracked_best counts, recent commits. Closes the structural trust gap
+// (operator depending on chat memory across compaction is unsustainable —
+// repo describes itself at this endpoint). Layer 2 will be a static HTML
+// page that renders this JSON with auto-poll.
+app.use("/api/ws/status", require("./routes/statusRoute"))
+
 // ── Mobile PWA (v0.1, 2026-05-21) ─────────────────────────────────────────────
 // Serves the bettor-mobile surface at /m. Single-file HTML+JS+CSS — no build,
 // no framework, no React bloat. Fetches /api/ws/state?sport={mlb|nba} same-origin.
