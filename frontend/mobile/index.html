@@ -674,13 +674,20 @@
     </div>
     <div class="sport-tabs">
       <!-- 2026-05-30 FE v2 overhaul. New tab structure per operator design session.
-           Legacy tabs (MLB/NBA/PARLAY/ANALYZE) hidden but kept in code for now —
-           remove after v2 stabilizes. -->
+           2026-06-01 Phase Screenshot-Tab-Restore-1A — ANALYZE tab restored
+           to visible nav (was incorrectly hidden as "legacy" during the v2
+           overhaul). Backend pipeline at /api/ws/screenshots/{ingest,ocr} +
+           analyzeSlip verdict logic + Claude Vision OCR have all been live
+           the whole time — only the visible button was missing. Operator
+           uses this to paste/upload a slip (own or someone else's) and get a
+           tail-or-bail verdict from the engine.
+           Legacy MLB/NBA/PARLAY tabs remain hidden, available via dev console. -->
       <button class="tab active" data-sport="top">TOP PICKS <span class="tab-count" id="topCount">—</span></button>
       <button class="tab" data-sport="mybets">MY BETS <span class="tab-count" id="myBetsCount">0</span></button>
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
+      <button class="tab" data-sport="analyze">ANALYZE <span class="tab-count" id="analyzeCount">📸</span></button>
       <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
-      <!-- legacy tabs hidden but available via dev console: data-sport=mlb|nba|parlay|analyze -->
+      <!-- legacy MLB/NBA/PARLAY tabs hidden — accessible via dev console: data-sport=mlb|nba|parlay -->
     </div>
   </header>
 
