@@ -402,6 +402,62 @@ async function main() {
     }
   } catch { I("Could not enumerate LaunchAgents") }
 
+  // 2026-06-01 Phase Backend-Log-Audit-1A — verify LaunchAgent stderr/stdout
+  // log paths are actually being WRITTEN at runtime, not just configured in
+  // the plist. Tonight surfaced: plist had StandardErrorPath/StandardOutPath
+  // set per Phase #86 PlistBuddy work, but the files DIDN'T EXIST until we
+  // unload/reload'd the plist. Backend was crashing ~20x/day (runs=26) with
+  // ZERO visible trace anywhere. Catches:
+  //   (a) log files missing — Phase #86 doctrine gap
+  //   (b) stdout mtime stale while backend reportedly running (silent log break)
+  //   (c) backend.err has fresh crash trace in last hour — surface first line
+  try {
+    const homeDir = process.env.HOME || `/Users/${process.env.USER || ""}`
+    const logDir = path.join(homeDir, "Library", "Logs")
+    const BACKEND_LABEL = "com.motel666.backend"
+    const errPath = path.join(logDir, `${BACKEND_LABEL}.err`)
+    const outPath = path.join(logDir, `${BACKEND_LABEL}.out`)
+    const FRESH_WINDOW_MS = 60 * 60 * 1000  // 1 hour
+    const STALE_WARN_MIN = 30
+
+    for (const [label, fp] of [["stderr", errPath], ["stdout", outPath]]) {
+      if (!fs.existsSync(fp)) {
+        F(`backend ${label} log MISSING — ${fp} (plist paths configured but files don't exist; LaunchAgent unload/load required)`)
+        continue
+      }
+      const st = fs.statSync(fp)
+      const ageMin = Math.round((Date.now() - st.mtimeMs) / 60000)
+      if (label === "stdout" && ageMin > STALE_WARN_MIN) {
+        W(`backend stdout log stale — ${ageMin}m old (${fp}). Backend appears running but no log writes — LaunchAgent may not be redirecting`)
+      } else {
+        I(`backend ${label} log: ${st.size}B, ${ageMin}m old`)
+      }
+    }
+
+    // Scan backend.err for recent crash traces (canary for next crash)
+    if (fs.existsSync(errPath)) {
+      const errSize = fs.statSync(errPath).size
+      if (errSize > 0) {
+        const raw = fs.readFileSync(errPath, "utf8")
+        const recent = raw.split("\n").slice(-200)
+        const traceRegex = /^\s*(at\s|Error[\w]*:|TypeError|ReferenceError|throw |UnhandledPromiseRejection|FATAL|Segmentation fault|Abort trap)/
+        const firstTraceLine = recent.find((l) => traceRegex.test(l))
+        if (firstTraceLine) {
+          const freshMs = Date.now() - fs.statSync(errPath).mtimeMs
+          if (freshMs < FRESH_WINDOW_MS) {
+            F(`backend.err FRESH CRASH TRACE in last hour: "${firstTraceLine.trim().slice(0, 200)}" — investigate ${errPath}`)
+          } else {
+            I(`backend.err has historical trace ("${firstTraceLine.trim().slice(0, 100)}") but file mtime > 1h old`)
+          }
+        } else {
+          I(`backend.err non-empty (${errSize}B) but no crash marker pattern detected in recent slice`)
+        }
+      }
+    }
+  } catch (e) {
+    W(`backend log audit failed: ${e.message}`)
+  }
+
   // 9. CALIBRATION (model claim vs realized hit rate per family)
   // The bug class that cost the operator $10 on Game 7 (2026-05-31): model
   // said 65% UNDER rebounds, family hit 9.4%. Every settled pick in window
