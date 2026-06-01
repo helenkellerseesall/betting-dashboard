@@ -2057,36 +2057,12 @@ router.post("/bet-builder/preview", express.json(), (req, res) => {
 //   outcome_snapshots × prediction_snapshots SQLite join (same join
 //   `calibration:status` reads). Side parameter added to surface per-side
 //   asymmetry (UNDER 48.7% / OVER 25.5% on n=666 corpus).
-const { dampenModelProb, getCalibrationForFamily, shouldShowCalibrationBadge } =
+// 2026-05-31 Phase Calibration-Dampener-1B-cleanup — applyCalibrationDampener
+//   moved into the canonical dampener module per Law 1 (single authority) +
+//   Law 19 (single absence point). Consumer here is just an unconditional
+//   call; all mutation + absence logic lives in the helper.
+const { applyCalibrationDampener } =
   require("../pipeline/shared/calibrationDampener")
-
-/**
- * Apply per-family calibration to a pick. Mutates the pick in place:
- *   modelProbRaw     — the original model probability
- *   modelProb        — dampened value (what FE displays + sorts on)
- *   calibratedEdge   — edge computed from dampened modelProb
- *   calibration      — { stated, realized, gapPp, multiplier, n } when meaningful
- */
-function applyCalibrationDampener(pick) {
-  if (!pick || !Number.isFinite(Number(pick.modelProb))) return pick
-  const sport = pick.sport
-  const fam = pick.statFamily || pick.propType
-  const side = pick.side  // 2026-05-31 #101: per-side asymmetry is real (UNDER 48.7% / OVER 25.5%)
-  const raw = Number(pick.modelProb)
-  const dampened = dampenModelProb(raw, sport, fam, side)
-  if (dampened === raw) return pick
-  pick.modelProbRaw = raw
-  pick.modelProb = Math.round(dampened * 10000) / 10000
-  const impliedP = Number(pick.impliedProb)
-  if (Number.isFinite(impliedP)) {
-    pick.edgeRaw = pick.edge
-    pick.edge = Math.round((dampened - impliedP) * 10000) / 10000
-  }
-  if (shouldShowCalibrationBadge(sport, fam, side)) {
-    pick.calibration = getCalibrationForFamily(sport, fam, side)
-  }
-  return pick
-}
 
 /**
  * Build a join index from tracked_best entries. KEY DESIGN: do NOT include

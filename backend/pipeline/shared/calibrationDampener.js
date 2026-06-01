@@ -279,12 +279,51 @@ function getCalibrationSnapshot() {
 
 function getLastError() { return _lastError }
 
+/**
+ * Apply per-family per-side calibration to a response-payload pick.
+ * Mutates the pick in place:
+ *   modelProbRaw     — the original model probability
+ *   modelProb        — dampened value (what FE displays + sorts on)
+ *   edgeRaw          — original edge (preserved when re-derived)
+ *   edge             — edge computed from dampened modelProb
+ *   calibration      — { stated, realized, gapPp, multiplier, n, bucket, side }
+ *                       attached only when the gap is bettor-visible
+ *
+ * Phase Calibration-Dampener-1B-cleanup (2026-05-31):
+ *   Moved into the canonical dampener module from `workstationRoutes.js`
+ *   per Law 1 (single canonical authority) + Law 19 (single canonical
+ *   absence point per signal). Consumer becomes a one-liner; all
+ *   absence policy (no pick / no modelProb / no calibration data /
+ *   no actual change) lives here.
+ */
+function applyCalibrationDampener(pick) {
+  if (!pick || !Number.isFinite(Number(pick.modelProb))) return pick
+  const sport = pick.sport
+  const fam = pick.statFamily || pick.propType
+  const side = pick.side  // per-side asymmetry: UNDER 48.7% / OVER 25.5% on n=666 corpus
+  const raw = Number(pick.modelProb)
+  const dampened = dampenModelProb(raw, sport, fam, side)
+  if (dampened === raw) return pick
+  pick.modelProbRaw = raw
+  pick.modelProb = Math.round(dampened * 10000) / 10000
+  const impliedP = Number(pick.impliedProb)
+  if (Number.isFinite(impliedP)) {
+    pick.edgeRaw = pick.edge
+    pick.edge = Math.round((dampened - impliedP) * 10000) / 10000
+  }
+  if (shouldShowCalibrationBadge(sport, fam, side)) {
+    pick.calibration = getCalibrationForFamily(sport, fam, side)
+  }
+  return pick
+}
+
 module.exports = {
   dampenModelProb,
   getCalibrationForFamily,
   shouldShowCalibrationBadge,
   getCalibrationSnapshot,
   getLastError,
+  applyCalibrationDampener,
   reload,
   // exported for tests/diagnostics
   _constants: {
