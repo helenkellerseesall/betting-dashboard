@@ -207,6 +207,12 @@ function lineAnchorByFamily(family) {
   if (family === "rebounds") return 6.0
   if (family === "pra") return 27.5
   if (family === "points") return 18.0
+  // 2026-06-01 Phase Composite-Variance-Fix-1A note (#130) — 2-stat composites
+  // (points_assists, points_rebounds, rebounds_assists) are deliberately
+  // collapsed to the "pra" family upstream by classifyPropFamily for this
+  // base-scorer path. No composite-specific anchors are needed here — they
+  // unreachable in this function. The composite-variance fix lives in
+  // buildNbaBestBetsBoard.js (production sigma path), not here.
   // Binary props: line is always 0.5 ("over 0.5" = yes), but we use 0.5
   // as anchor so projections don't mis-scale. Hit-rate math is line-free.
   if (family === "double_double") return 0.5

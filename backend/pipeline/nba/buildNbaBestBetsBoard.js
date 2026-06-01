@@ -67,6 +67,15 @@ function minSigmaByFamily(family) {
   if (f === "assists") return 2.0
   if (f === "threes") return 1.5
   if (f === "pra") return 5
+  // 2026-06-01 Phase Composite-Variance-Fix-1A (#130 / closes #12, #13, #125) —
+  // 2-stat composites were falling through to default min=2, which mismodels
+  // their true variance. σ(P+A) ≈ √(σ²_P + σ²_A + 2·Cov) ≈ 5–6,
+  // σ(P+R) ≈ 5–6, σ(R+A) ≈ 2.5–3.5. Per-family minSigma added so the model
+  // starts at composite-appropriate uncertainty floors. Same architectural
+  // lane as the PRA fix (min=5).
+  if (f === "points_assists") return 4
+  if (f === "points_rebounds") return 4
+  if (f === "rebounds_assists") return 2.5
   return 2
 }
 
@@ -80,6 +89,12 @@ function zScaleByFamily(family) {
   if (f === "assists") return 1.4
   if (f === "pra") return 1.3
   if (f === "points") return 1.2
+  // 2026-06-01 Phase Composite-Variance-Fix-1A (#130) — match the PRA
+  // zScale (1.3) for 2-stat composites since their distribution shape is
+  // similar (sum of two correlated continuous stats).
+  if (f === "points_assists") return 1.3
+  if (f === "points_rebounds") return 1.3
+  if (f === "rebounds_assists") return 1.4
   return 1.4
 }
 
@@ -99,6 +114,11 @@ function probShrinkByFamily(family) {
   if (f === "assists") return 0.55
   if (f === "pra") return 0.50
   if (f === "points") return 0.60
+  // 2026-06-01 Phase Composite-Variance-Fix-1A (#130) — composites are a sum
+  // of correlated continuous stats, structurally similar to PRA (shrink 0.50).
+  if (f === "points_assists") return 0.50
+  if (f === "points_rebounds") return 0.50
+  if (f === "rebounds_assists") return 0.55
   return 0.55
 }
 
@@ -128,6 +148,16 @@ function maxSigmaByFamily(family) {
   if (f === "assists")  return 2.8
   if (f === "threes")   return 1.8
   if (f === "pra")      return 12
+  // 2026-06-01 Phase Composite-Variance-Fix-1A (#130) — 2-stat composites
+  // were falling through to default max=4 → effective sigma capped at 4 with
+  // true σ ~5–6. That mis-modeled them as low-variance singles, producing
+  // 30–37pp overconfidence per family_calibration corpus (points_assists
+  // gapPp=37.5, points_rebounds=32.6, rebounds_assists=36.3 as of 2026-06-01).
+  // Caps set proportional to PRA (12) — a 2-stat composite carries roughly
+  // 2/3 of PRA's spread.
+  if (f === "points_assists")   return 7
+  if (f === "points_rebounds")  return 7
+  if (f === "rebounds_assists") return 4.5
   return 4
 }
 
