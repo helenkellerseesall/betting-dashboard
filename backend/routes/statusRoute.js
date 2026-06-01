@@ -294,7 +294,7 @@ function sectionAutopilotFiresToday() {
     }
     // 2026-06-01 Phase Status-Dashboard-1C dashboard-feedback fix —
     // populator chain at 3:05-3:25 ET emits 5 named scripts (populateMlbBatterStats,
-    // populateMlbBatterGameLogs, populateMlbPitcherGameLogs, populateNbaDvP,
+    // populateMlbBatterGameLogs, populateMlbPitcherGameLogs, deriveNbaDvP,
     // populateNbaTeamStats). Treat the chain as one event: first start = chain
     // started, last OK = chain ended. Catches the dashboard-row regression where
     // the populator chain showed "not fired yet today" even though it ran.
@@ -302,14 +302,14 @@ function sectionAutopilotFiresToday() {
       l.includes("populateMlbBatterStats starting") ||
       l.includes("populateMlbBatterGameLogs starting") ||
       l.includes("populateMlbPitcherGameLogs starting") ||
-      l.includes("populateNbaDvP starting") ||
+      l.includes("deriveNbaDvP starting") ||
       l.includes("populateNbaTeamStats starting")
     )
     const popOks = lines.filter(l =>
       l.includes("populateMlbBatterStats OK") ||
       l.includes("populateMlbBatterGameLogs OK") ||
       l.includes("populateMlbPitcherGameLogs OK") ||
-      l.includes("populateNbaDvP OK") ||
+      l.includes("deriveNbaDvP OK") ||
       l.includes("populateNbaTeamStats OK")
     )
     const populatorChain = {
