@@ -124,6 +124,14 @@ app.use("/api/ws/status", require("./routes/statusRoute"))
 // PRESERVED.md Tier 4 + BUILD_LOG.md for context.
 app.use("/m", express.static(path.join(__dirname, "..", "frontend", "mobile")))
 
+// ── Status dashboard — Phase Status-Dashboard-1B (2026-06-01) ────────────────
+// Visual self-monitoring view at /status. Single-file HTML that polls
+// /api/ws/status every 30s and renders GREEN/YELLOW/RED dots for every
+// background subsystem. Mobile-first. Closes operator's binding ask
+// 2026-06-01: "we need another website off motel666 that just shows all
+// the running background shit so i can see it myself".
+app.use("/status", express.static(path.join(__dirname, "..", "frontend", "status")))
+
 console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
 
 let snapshotLoadedFromDisk = false

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>motel666 — status</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --bg-card: #161a21;
+    --bg-card-deep: #11141a;
+    --border: #252b35;
+    --text: #e4e7eb;
+    --text-dim: #98a1b0;
+    --text-faint: #586273;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding: 16px 12px 80px; max-width: 720px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  header .et { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 12px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bg-card-deep); }
+  .row:last-child { border-bottom: 0; }
+  .row .label { flex: 0 0 auto; }
+  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text); font-size: 13px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; flex-shrink: 0; }
+  .dot.green { background: var(--green); box-shadow: 0 0 0 3px rgba(52,211,153,0.15); }
+  .dot.yellow { background: var(--yellow); box-shadow: 0 0 0 3px rgba(251,191,36,0.15); }
+  .dot.red { background: var(--red); box-shadow: 0 0 0 3px rgba(248,113,113,0.15); }
+  .dot.gray { background: var(--text-faint); }
+  .big { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+  .big.green { color: var(--green); }
+  .big.yellow { color: var(--yellow); }
+  .big.red { color: var(--red); }
+  .big-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+  .mono.tail { display: block; padding: 6px 0; color: var(--text-dim); word-break: break-all; white-space: pre-wrap; line-height: 1.4; border-bottom: 1px solid var(--bg-card-deep); }
+  .mono.tail:last-child { border-bottom: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .agent { background: var(--bg-card-deep); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .agent .name { font-size: 11px; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .agent .pid { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text); }
+  .agent .top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .pillRow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--bg-card-deep); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+  .pill.green { color: var(--green); border-color: rgba(52,211,153,0.3); }
+  .pill.red { color: var(--red); border-color: rgba(248,113,113,0.3); }
+  .pill.dim { color: var(--text-faint); }
+  .actionBar { display: flex; gap: 8px; margin-top: 8px; }
+  .actionBar button { flex: 1; background: var(--bg-card-deep); color: var(--text-dim); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .actionBar button:hover { color: var(--text); border-color: var(--text-faint); }
+  .nudge { font-size: 11px; color: var(--text-faint); margin-top: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 4px 0; }
+  .err { color: var(--red); font-size: 12px; font-family: ui-monospace, monospace; }
+  table.calib { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.calib th { text-align: left; color: var(--text-dim); font-weight: 500; font-size: 11px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  table.calib td { padding: 4px 6px; border-bottom: 1px solid var(--bg-card-deep); font-variant-numeric: tabular-nums; }
+  table.calib td:nth-child(1) { color: var(--text-dim); }
+  table.calib td.mul { font-weight: 600; }
+  table.calib td.mul.green { color: var(--green); }
+  table.calib td.mul.yellow { color: var(--yellow); }
+  table.calib td.mul.red { color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <h1>motel666 — status</h1>
+  <div class="et" id="etTime">—</div>
+</header>
+
+<!-- Headline: sysAudit -->
+<div class="card" id="cardSys">
+  <h2>system status</h2>
+  <div id="sysSummary">
+    <div class="big" id="sysBig">…</div>
+    <div class="big-sub" id="sysSub">loading…</div>
+  </div>
+</div>
+
+<!-- LaunchAgents grid -->
+<div class="card">
+  <h2>launchagents (4)</h2>
+  <div class="grid2" id="agentGrid"></div>
+</div>
+
+<!-- Backend health -->
+<div class="card">
+  <h2>backend</h2>
+  <div class="row"><span class="dot" id="beDot"></span><span class="label">commit</span><span class="val mono" id="beCommit">—</span></div>
+  <div class="row"><span class="label">uptime</span><span class="val" id="beUptime">—</span></div>
+  <div class="row"><span class="label">pid</span><span class="val mono" id="bePid">—</span></div>
+</div>
+
+<!-- CLV today -->
+<div class="card">
+  <h2>clv capture today</h2>
+  <div id="clvBigWrap">
+    <div class="big" id="clvBig">—</div>
+    <div class="big-sub" id="clvSub">—</div>
+  </div>
+  <div class="row" style="margin-top:6px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
+  <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
+</div>
+
+<!-- Autopilots today -->
+<div class="card">
+  <h2>autopilots today</h2>
+  <div class="row"><span class="dot" id="dotGrading"></span><span class="label">4 am grading:backfill-all</span><span class="val" id="gradingStatus">—</span></div>
+  <div class="row"><span class="dot" id="dotAudit"></span><span class="label">5 am audit:nightly</span><span class="val" id="auditStatus">—</span></div>
+  <div class="row"><span class="dot" id="dotSlateNba"></span><span class="label">last slate:nba</span><span class="val" id="slateNbaStatus">—</span></div>
+  <div class="row"><span class="dot" id="dotSlateMlb"></span><span class="label">last slate:mlb</span><span class="val" id="slateMlbStatus">—</span></div>
+</div>
+
+<!-- Tracked best counts -->
+<div class="card">
+  <h2>tracked_best today</h2>
+  <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
+  <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
+  <div id="tbFamilies" class="pillRow" style="margin-top:8px"></div>
+</div>
+
+<!-- Family calibration -->
+<div class="card">
+  <h2>family calibration (dampener)</h2>
+  <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
+  <table class="calib">
+    <thead><tr><th>family</th><th>n</th><th>stated</th><th>realized</th><th>gap</th><th>mul</th></tr></thead>
+    <tbody id="calibBody"></tbody>
+  </table>
+</div>
+
+<!-- Recent commits -->
+<div class="card">
+  <h2>recent commits</h2>
+  <div id="commits"></div>
+</div>
+
+<!-- Drift alerts tail -->
+<div class="card">
+  <h2>drift alerts (last 10)</h2>
+  <div id="driftTail"></div>
+</div>
+
+<div class="actionBar">
+  <button onclick="loadStatus()">refresh now</button>
+</div>
+<div class="nudge" id="nudge">—</div>
+
+<script>
+const ENDPOINT = "/api/ws/status";
+const POLL_MS = 30000;
+let timer = null;
+let lastSuccessAt = null;
+
+function dotFor(state) {
+  const el = document.createElement("span");
+  el.className = "dot " + state;
+  return el;
+}
+
+function formatUptime(sec) {
+  if (sec == null) return "—";
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (d > 0) return d + "d " + h + "h " + m + "m";
+  if (h > 0) return h + "h " + m + "m";
+  if (m > 0) return m + "m " + s + "s";
+  return s + "s";
+}
+
+function shortLine(line) {
+  if (!line) return "—";
+  // Strip the leading [date time ET] prefix for brevity
+  return String(line).replace(/^\[[^\]]+\]\s*/, "").trim();
+}
+
+function renderAgents(data) {
+  const grid = document.getElementById("agentGrid");
+  grid.innerHTML = "";
+  if (!data?.ok) { grid.innerHTML = '<div class="err">' + (data?.error || "agents unavailable") + '</div>'; return; }
+  for (const a of data.agents) {
+    const div = document.createElement("div");
+    div.className = "agent";
+    const state = a.healthy ? "green" : "red";
+    const labelShort = a.label.replace(/^com\.motel666\./, "");
+    div.innerHTML =
+      '<div class="top"><span class="dot ' + state + '"></span><span class="name">' + labelShort + '</span></div>' +
+      '<div class="pid">pid ' + (a.pid ?? "—") + '</div>' +
+      '<div class="pid" style="color:var(--text-faint)">exit ' + (a.lastExit ?? "—") + '</div>';
+    grid.appendChild(div);
+  }
+}
+
+function renderSysHeadline(data) {
+  const big = document.getElementById("sysBig");
+  const sub = document.getElementById("sysSub");
+  const agents = data.launchAgents;
+  const audit = data.sysAuditLast?.lastRed;
+  const allHealthy = agents?.ok && agents.allHealthy;
+  if (!allHealthy) {
+    big.textContent = "DEGRADED";
+    big.className = "big red";
+    sub.textContent = "one or more LaunchAgents not running";
+    return;
+  }
+  if (audit && audit.includes("Backend not responding")) {
+    big.textContent = "BACKEND DOWN";
+    big.className = "big red";
+    sub.textContent = shortLine(audit);
+    return;
+  }
+  if (audit && audit.includes("RED")) {
+    big.textContent = "WATCHING";
+    big.className = "big yellow";
+    sub.textContent = shortLine(audit);
+    return;
+  }
+  big.textContent = "GREEN";
+  big.className = "big green";
+  sub.textContent = "all systems nominal";
+}
+
+function renderBackend(data) {
+  const b = data.backend;
+  const dot = document.getElementById("beDot");
+  dot.className = "dot " + (b?.healthy ? "green" : "red");
+  document.getElementById("beCommit").textContent = b?.commitShort || "—";
+  document.getElementById("beUptime").textContent = formatUptime(b?.uptimeSec);
+  document.getElementById("bePid").textContent = b?.pid || "—";
+}
+
+function renderClv(data) {
+  const c = data.clvCaptureToday;
+  if (!c?.ok) {
+    document.getElementById("clvBig").textContent = "—";
+    document.getElementById("clvBig").className = "big";
+    document.getElementById("clvSub").textContent = c?.error || "no data";
+    return;
+  }
+  const r = c.overallRate;
+  const big = document.getElementById("clvBig");
+  if (r == null) {
+    big.textContent = "—";
+    big.className = "big";
+    document.getElementById("clvSub").textContent = "no tipped picks yet today";
+  } else {
+    big.textContent = r.toFixed(1) + "%";
+    big.className = "big " + (r >= 70 ? "green" : r >= 30 ? "yellow" : "red");
+    document.getElementById("clvSub").textContent = c.totalStamped + " of " + c.totalTipped + " tipped picks have closing odds";
+  }
+  const nba = c.perSport?.nba;
+  const mlb = c.perSport?.mlb;
+  document.getElementById("clvNba").textContent = nba?.hasFile ? (nba.rate == null ? nba.stamped + "/" + nba.tipped : nba.rate + "% (" + nba.stamped + "/" + nba.tipped + ")") : "no file";
+  document.getElementById("clvMlb").textContent = mlb?.hasFile ? (mlb.rate == null ? mlb.stamped + "/" + mlb.tipped : mlb.rate + "% (" + mlb.stamped + "/" + mlb.tipped + ")") : "no file";
+}
+
+function renderAutopilots(data) {
+  const fires = data.autopilotFiresToday;
+  const slates = data.slateFiresToday;
+  const setRow = (dotId, statusId, started, completed, failed) => {
+    const dot = document.getElementById(dotId);
+    const st = document.getElementById(statusId);
+    if (failed) { dot.className = "dot red"; st.textContent = "FAILED — " + shortLine(failed); return; }
+    if (completed) { dot.className = "dot green"; st.textContent = "OK — " + shortLine(completed); return; }
+    if (started) { dot.className = "dot yellow"; st.textContent = "started, no completion line — " + shortLine(started); return; }
+    dot.className = "dot gray"; st.textContent = "not fired yet today";
+  };
+  if (fires?.ok) {
+    setRow("dotGrading", "gradingStatus", fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, null);
+    setRow("dotAudit", "auditStatus", fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null);
+  }
+  if (slates?.ok) {
+    setRow("dotSlateNba", "slateNbaStatus", null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed);
+    setRow("dotSlateMlb", "slateMlbStatus", null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed);
+  }
+}
+
+function renderTrackedBest(data) {
+  const t = data.trackedBestToday;
+  if (!t?.ok) { document.getElementById("tbNbaTotal").textContent = "—"; return; }
+  const nba = t.perSport?.nba;
+  const mlb = t.perSport?.mlb;
+  document.getElementById("tbNbaTotal").textContent = nba?.hasFile ? nba.total : "no file";
+  document.getElementById("tbMlbTotal").textContent = mlb?.hasFile ? mlb.total : "no file";
+  const pillRow = document.getElementById("tbFamilies");
+  pillRow.innerHTML = "";
+  const allFams = { ...(nba?.byFamily || {}), ...(mlb?.byFamily || {}) };
+  for (const [k, v] of Object.entries(allFams).sort((a,b)=>b[1]-a[1])) {
+    const p = document.createElement("span");
+    p.className = "pill";
+    p.textContent = k + " " + v;
+    pillRow.appendChild(p);
+  }
+}
+
+function renderCalibration(data) {
+  const c = data.familyCalibration;
+  const body = document.getElementById("calibBody");
+  body.innerHTML = "";
+  if (!c?.ok || !c.sports) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">' + (c?.error || "no calibration data") + '</td></tr>';
+    return;
+  }
+  document.getElementById("calibGeneratedAt").textContent = "rebuilt " + (c.generatedAt || "—");
+  const rows = [];
+  for (const [sport, fams] of Object.entries(c.sports)) {
+    for (const [fam, info] of Object.entries(fams)) {
+      rows.push({ sport, fam, ...info });
+    }
+  }
+  rows.sort((a,b) => (b.gapPp || 0) - (a.gapPp || 0));
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const mulClass = r.multiplier >= 0.85 ? "green" : r.multiplier >= 0.6 ? "yellow" : "red";
+    tr.innerHTML =
+      '<td>' + r.sport + ' / ' + r.fam + '</td>' +
+      '<td>' + (r.n || 0) + '</td>' +
+      '<td>' + ((r.stated*100).toFixed(1)) + '%</td>' +
+      '<td>' + ((r.realized*100).toFixed(1)) + '%</td>' +
+      '<td>' + (r.gapPp || 0).toFixed(1) + 'pp</td>' +
+      '<td class="mul ' + mulClass + '">' + (r.multiplier || 0).toFixed(2) + '</td>';
+    body.appendChild(tr);
+  }
+}
+
+function renderCommits(data) {
+  const div = document.getElementById("commits");
+  div.innerHTML = "";
+  if (!data.recentCommits?.ok) { div.innerHTML = '<div class="err">commits unavailable</div>'; return; }
+  for (const line of data.recentCommits.commits) {
+    const d = document.createElement("div");
+    d.className = "mono tail";
+    d.textContent = line;
+    div.appendChild(d);
+  }
+}
+
+function renderDrift(data) {
+  const div = document.getElementById("driftTail");
+  div.innerHTML = "";
+  const lines = data.driftAlertsTail?.lines || [];
+  if (lines.length === 0) { div.innerHTML = '<div class="empty">no drift alerts logged yet</div>'; return; }
+  for (const line of lines) {
+    const d = document.createElement("div");
+    d.className = "mono tail";
+    d.textContent = line;
+    div.appendChild(d);
+  }
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch(ENDPOINT, { cache: "no-store" });
+    const data = await r.json();
+    lastSuccessAt = new Date();
+    document.getElementById("etTime").textContent = (data.meta?.et || "—") + " · " + (data.meta?.elapsedMs ?? "—") + "ms";
+    renderAgents(data.launchAgents);
+    renderSysHeadline(data);
+    renderBackend(data);
+    renderClv(data);
+    renderAutopilots(data);
+    renderTrackedBest(data);
+    renderCalibration(data);
+    renderCommits(data);
+    renderDrift(data);
+    document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
+  } catch (e) {
+    document.getElementById("nudge").textContent = "FETCH FAILED — " + (e?.message || e) + (lastSuccessAt ? " · last ok " + lastSuccessAt.toLocaleTimeString() : "");
+    document.getElementById("nudge").style.color = "var(--red)";
+  }
+}
+
+loadStatus();
+timer = setInterval(loadStatus, POLL_MS);
+</script>
+</body>
+</html>
