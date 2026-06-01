@@ -137,6 +137,24 @@ while true; do
     fired=true
   fi
 
+  # 2026-05-31 — NBA game-logs refresh at :45 (Phase NBA-GameLogs-Autopilot-1A).
+  # Pulls per-player per-game ESPN boxscore data into nbaPlayerGameLogs.json
+  # which nbaRecentFormCache.js reads as the ESPN canonical source (post
+  # 2026-05-26 api-basketball retirement). Without autopilot the cache was
+  # only refreshed by manual `populateNbaGameLogs.js` runs — same silent
+  # staleness mode #84 fixed for injuries. Idempotent (re-run on same date
+  # does NOT duplicate). Fires at :45 — clean slot (no collisions with slate
+  # :00/:30, injury :15, sysAudit :00, grading 4:00 AM).
+  if [ "$MIN" -eq 45 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
+    log "populateNbaGameLogs starting..."
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaGameLogs.js >> "$LOG" 2>&1; then
+      log "populateNbaGameLogs OK"
+    else
+      log "populateNbaGameLogs FAILED (exit $?) — ESPN may be down or boxscore endpoint moved"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 — Hourly sysAudit (self-awareness layer task #69).
   # Fires at every :00 between 9 AM and 11 PM ET. Writes per-hour audit
   # snapshot to .scratch/audit_HH.txt. If exit ≥ 2 (RED — critical drift),
