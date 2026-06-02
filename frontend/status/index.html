@@ -288,10 +288,17 @@ function renderAgents(data) {
     div.className = "agent";
     const state = a.healthy ? "green" : "red";
     const labelShort = a.label.replace(/^com\.motel666\./, "");
+    // Phase Status-LaunchAgent-Visibility-1A — show kind + (for scheduled) next fire
+    const kindSuffix = a.kind === "scheduled"
+      ? '<div class="pid" style="color:var(--text-faint)">scheduled · next ' + (a.nextFire || '?') + '</div>'
+      : a.kind === "daemon"
+        ? '<div class="pid" style="color:var(--text-faint)">daemon · always-on</div>'
+        : '';
     div.innerHTML =
       '<div class="top"><span class="dot ' + state + '"></span><span class="name">' + labelShort + '</span></div>' +
       '<div class="pid">pid ' + (a.pid ?? "—") + '</div>' +
-      '<div class="pid" style="color:var(--text-faint)">exit ' + (a.lastExit ?? "—") + '</div>';
+      '<div class="pid" style="color:var(--text-faint)">exit ' + (a.lastExit ?? "—") + '</div>' +
+      kindSuffix;
     grid.appendChild(div);
   }
 }

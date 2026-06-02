@@ -20,7 +20,7 @@
  *
  * Sections (each is a top-level key in the JSON response):
  *   - meta                — generatedAt, currentTimeEt, host info
- *   - launchAgents        — 4-agent dot state with PIDs + exit status
+ *   - launchAgents        — all-agent dot state (4 daemons + 3 scheduled autopilots) with PIDs + exit status; per-kind healthy rule
  *   - scheduler           — last tick, last-hour event count, last 5 events
  *   - backend             — version commit, uptime, pid, healthy bool
  *   - sysAuditLast        — most recent RED line from drift_alerts.log (last 24h)
@@ -54,11 +54,20 @@ const DRIFT_ALERTS    = path.join(AUDITS_DIR, "drift_alerts.log")
 const FAMILY_CALIB    = path.join(CALIBRATION_DIR, "family_calibration.json")
 const SQLITE_PATH     = path.join(REPO_ROOT, "backend", "storage", "betting.db")
 
+// Phase Status-LaunchAgent-Visibility-1A (2026-06-02) — full 7-agent roster with
+// per-kind healthy semantics so scheduled autopilots don't fake-red the dot.
+//
+// kind: "daemon"    = must be running 24/7 (PID required → healthy)
+// kind: "scheduled" = fires on cadence + exits cleanly (lastExit ∈ {0,null,<0} → healthy;
+//                     only positive non-zero lastExit = real failure = unhealthy)
 const LAUNCHAGENT_LABELS = [
-  "com.motel666.backend",
-  "com.motel666.scheduler",
-  "com.motel666.caffeinate",
-  "com.motel666.cloudflared",
+  { label: "com.motel666.backend",          kind: "daemon" },
+  { label: "com.motel666.scheduler",        kind: "daemon" },
+  { label: "com.motel666.caffeinate",       kind: "daemon" },
+  { label: "com.motel666.cloudflared",      kind: "daemon" },
+  { label: "com.motel666.populator-chain",  kind: "scheduled", nextFire: "3:05 AM ET" },
+  { label: "com.motel666.grading-nightly",  kind: "scheduled", nextFire: "4:00 AM ET" },
+  { label: "com.motel666.audit-nightly",    kind: "scheduled", nextFire: "5:00 AM ET" },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,7 +175,11 @@ function sectionLaunchAgents() {
 
     const lines = result.stdout.split("\n")
     const agents = []
-    for (const label of LAUNCHAGENT_LABELS) {
+    for (const entry of LAUNCHAGENT_LABELS) {
+      // Phase Status-LaunchAgent-Visibility-1A — entry is now {label, kind, nextFire?}
+      const label    = entry.label
+      const kind     = entry.kind            // "daemon" | "scheduled"
+      const nextFire = entry.nextFire || null
       const line = lines.find(l => l.includes(label))
       const isScheduler = label === "com.motel666.scheduler"
       if (!line) {
@@ -175,21 +188,40 @@ function sectionLaunchAgents() {
         // resurrected it), count as healthy with source="cron-spawned".
         if (isScheduler && schedulerProcessPid != null) {
           agents.push({
-            label, present: true, pid: schedulerProcessPid, lastExit: null, healthy: true,
+            label, kind, nextFire, present: true, pid: schedulerProcessPid, lastExit: null, healthy: true,
             source: "cron-spawned",
             note: "LaunchAgent intentionally unloaded — scheduler.sh resurrected by cron watchdog every minute. See CRON_BACKUP_v1 entries.",
           })
         } else {
-          agents.push({ label, present: false, pid: null, lastExit: null, healthy: false })
+          // Not present in launchctl → unhealthy regardless of kind. This is
+          // a real failure (operator hasn't installed it OR it got purged).
+          agents.push({ label, kind, nextFire, present: false, pid: null, lastExit: null, healthy: false, source: "launchd", note: "not loaded in launchctl" })
         }
         continue
       }
       const parts = line.trim().split(/\s+/)
       const pid = parts[0] === "-" ? null : Number(parts[0])
       const lastExit = parts[1] === "-" ? null : Number(parts[1])
-      // Healthy = currently running. Negative lastExit (killed by signal) is
-      // historical and doesn't mean unhealthy if PID is set.
-      let healthy = pid != null
+
+      // Phase Status-LaunchAgent-Visibility-1A — per-kind healthy rule.
+      // No fake greens (default healthy:true), no fake reds (scheduled agent
+      // between fires marked unhealthy because pid is null). Every truthy
+      // healthy traces to a real source: either pid (daemon running) or
+      // lastExit (scheduled agent's last fire was clean).
+      let healthy
+      if (kind === "daemon") {
+        // Daemon must be currently running
+        healthy = pid != null
+      } else if (kind === "scheduled") {
+        // Scheduled autopilot: between fires PID is null (correct, not a failure).
+        // Healthy iff present AND lastExit is in {0, null, negative-signal}.
+        // Positive non-zero lastExit = real npm/script failure = unhealthy.
+        const exitOk = lastExit === 0 || lastExit === null || (Number.isFinite(lastExit) && lastExit < 0)
+        healthy = exitOk
+      } else {
+        // Unknown kind = treat as daemon (conservative — surfaces config bug)
+        healthy = pid != null
+      }
       let source = "launchd"
       let note = null
       // Phase Status-Headline-Cron-Aware-1A — even if LaunchAgent says
@@ -199,7 +231,7 @@ function sectionLaunchAgents() {
         source = "cron-spawned"
         note = "LaunchAgent has no PID but scheduler.sh process detected via pgrep — cron watchdog covering."
       }
-      agents.push({ label, present: true, pid: pid ?? schedulerProcessPid, lastExit, healthy, source, note })
+      agents.push({ label, kind, nextFire, present: true, pid: pid ?? schedulerProcessPid, lastExit, healthy, source, note })
     }
     const allHealthy = agents.every(a => a.healthy)
     return { ok: true, allHealthy, agents }
