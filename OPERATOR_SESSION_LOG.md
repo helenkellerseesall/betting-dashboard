@@ -364,3 +364,27 @@ Plus: **Phase Date-Doctrine-1A (#12) created** for the system-wide date-time con
 - Repo-wide sweep: 0 functional `new Date().toISOString().slice(0,10)` sites, 0 inline `${d.getFullYear()}-...` patterns
 
 **Doctrine status**: every date-touching call site in the repo now routes through the canonical helper. The Date-Doctrine is now structurally enforced — a new contributor can't accidentally re-introduce the bug by writing fresh code, because the only way to get the slate date is through the helper.
+
+### Post-deploy probe → Phase Date-Doctrine-1B-fix1 (shadow-helper sweep)
+
+**What operator ran**: the post-deploy verification probe I dropped — returned `undefined` for the slate-date fields. That itself wasn't the deploy failing; it was MY probe naming the wrong /api/ws/status JSON keys.
+
+**What surfaced from the wrong-field investigation**: a class of shadow date helpers Batch 2 missed because its regex only matched `new Date().toISOString().slice(0,10)` and `${d.getFullYear()}-...` patterns. Helpers using `Intl.DateTimeFormat` slipped through.
+
+**Sites found + migrated this fix-pass**:
+- `backend/routes/statusRoute.js:84` — `etDateKey()` (the function backing operator's /status dashboard — was reporting calendar-day rollover at 00:00 ET, but canonical slate doesn't roll until 04:00 ET, so the dashboard's "today" diverged from the writers' "today" between 00:00 ET and 04:00 ET every single night)
+- `backend/scripts/deepAudit.js:82` — `etDateStr` (audit's ET reference now matches writers')
+- `backend/scripts/sysAudit.js:335` — `dayKey` inner shadow (separate from the line-60 todayKey() I migrated in Batch 2 — same file, second hidden helper)
+- `backend/pipeline/schedule/buildSlateEvents.js:42` — `toDetroitDateKey()` (slate-event builder now agrees with every other date-touching site)
+
+All four routed through `slateDateForTimestamp()` / `currentSlateDateEt()`. Verified:
+- 4/4 syntax checks PASS
+- `statusRoute.js` module loads with new helper wired
+- Boundary math: now (00:30 ET June 2) → 2026-06-01; 04:00 ET June 2 → 2026-06-02
+
+**Honest post-mortem**: I declared Batch 2 "complete" with a narrow regex sweep that missed an entire pattern class (Intl-based shadow helpers). The verification was syntax+load, not "audit every way the repo could compute a date." Operator's binding rule [[feedback-always-verify]] is "every change ships with non-zero probe; verify before claim" — the sweep WAS the verification, and it was incomplete. Fix this generation forward: any future "audit" pass on date sites must grep for BOTH `toISOString().slice(0,10)` AND `Intl.DateTimeFormat.*America` AND `getFullYear().*getMonth()` patterns.
+
+**Remaining Intl hits** (intentional, display-only — NOT shadow date authority):
+- `statusRoute.js:96` `etTimeStr()` — HH:MM:SS time-of-day formatter
+- `statusRoute.js:450` `atEt` — HH:MM display formatter
+- `deepAudit.js:94` — regex string literal that meta-checks `buildSlateEvents.js` (the file it checks is now migrated)

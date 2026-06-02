@@ -1,4 +1,5 @@
 const axios = require("axios")
+const { slateDateForTimestamp } = require("../shared/slateDate")
 
 function getEventIdForSchedule(event) {
 	const id = event?.id ?? event?.eventId ?? event?.event_id ?? event?.key
@@ -39,15 +40,13 @@ function normalizeSlateEvent(event) {
 	}
 }
 
+// Phase Date-Doctrine-1B-fix1 — was a shadow Intl helper (America/Detroit,
+// no 4 AM boundary). Now routes through canonical slateDate.js so slate-event
+// builder agrees with every other date-touching site (ET, 4 AM boundary).
 function toDetroitDateKey(value) {
-	const date = new Date(value)
-	if (!Number.isFinite(date.getTime())) return ""
-	return new Intl.DateTimeFormat("en-CA", {
-		timeZone: "America/Detroit",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit"
-	}).format(date)
+	const ts = new Date(value).getTime()
+	if (!Number.isFinite(ts)) return ""
+	return slateDateForTimestamp(ts)
 }
 
 async function buildSlateEvents({

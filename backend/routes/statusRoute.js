@@ -37,6 +37,7 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { execSync, spawnSync } = require("child_process")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const router = express.Router()
 
@@ -81,10 +82,14 @@ function safeReadJson(p) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch (_) { return null }
 }
 
+// Phase Date-Doctrine-1B-fix1 — was a shadow Intl helper. Now routes through
+// canonical slateDate.js so the /status dashboard honors the 4 AM ET rollover
+// (was reporting the new calendar day immediately at 00:00 ET, but canonical
+// slate doesn't roll until 04:00 ET, so the dashboard's "today" diverged from
+// the writers' "today" between 00:00 ET and 04:00 ET).
 function etDateKey(d = new Date()) {
-  // Compute YYYY-MM-DD in America/New_York
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" })
-  return fmt.format(d)
+  const ts = (d instanceof Date) ? d.getTime() : new Date(d).getTime()
+  return Number.isFinite(ts) ? slateDateForTimestamp(ts) : currentSlateDateEt()
 }
 
 function etTimeStr(d = new Date()) {

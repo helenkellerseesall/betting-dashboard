@@ -79,7 +79,10 @@ async function main() {
   const TK = todayKey()
   const serverNow = new Date()
   const utcKey = `${serverNow.getUTCFullYear()}-${String(serverNow.getUTCMonth() + 1).padStart(2, "0")}-${String(serverNow.getUTCDate()).padStart(2, "0")}`
-  const etDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" }).format(serverNow)
+  // Phase Date-Doctrine-1B-fix1 — was a shadow Intl helper. Route through canonical
+  // slateDate helper so the audit's ET reference matches the writers' ET reference
+  // (4 AM ET boundary). Intl-only would have rolled over at midnight ET.
+  const etDateStr = currentSlateDateEt()
   const localTooEarly = serverNow.getHours() < 6 || serverNow.getHours() > 23
   if (TK === etDateStr) P(`Server local-day-key (${TK}) matches Detroit ET date (${etDateStr})`)
   else W(`Server local-day-key (${TK}) DIFFERS from Detroit ET date (${etDateStr}) — may produce wrong tracked_bets filenames`)

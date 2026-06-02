@@ -329,12 +329,10 @@ async function main() {
   // for the 7-day rollup; this is the canary for TODAY.
   try {
     const trackingDir = path.join(REPO, "backend", "runtime", "tracking")
-    const dayKey = (() => {
-      // ET-local date key — matches the captureClosingLines + slate writers
-      const d = new Date()
-      const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Detroit", year: "numeric", month: "2-digit", day: "2-digit" })
-      return fmt.format(d)
-    })()
+    // Phase Date-Doctrine-1B-fix1 — was a shadow Intl helper. Route through canonical
+    // slateDate helper so this canary's "today" matches what captureClosingLines and
+    // the slate writers actually use (ET, 4 AM boundary).
+    const dayKey = currentSlateDateEt()
     const nowMs = Date.now()
     for (const sport of ["nba", "mlb"]) {
       const fp = path.join(trackingDir, `${sport}_tracked_bets_${dayKey}.json`)
