@@ -1,0 +1,85 @@
+# cron-backup.crontab — Phase Scheduler-Resilience-1A (2026-06-02)
+#
+# Purpose: independent safety net for critical autopilots so a scheduler.sh
+# failure (crash loop / FDA denial / Desktop permission issue / etc.) does
+# NOT cause a missed-day outage.
+#
+# Tonight (2026-06-02 ~02:50 ET): scheduler.sh entered macOS-denied crash
+# loop after a file edit triggered Desktop folder permission revocation for
+# the LaunchAgent. 03:05 ET populator chain was lost. This file prevents
+# recurrence.
+#
+# Layering with scheduler.sh:
+#   - scheduler.sh (LaunchAgent) remains the PRIMARY orchestrator. Handles
+#     slate fires, sysAudit, caffeinate watchdog, status snapshot autoticker.
+#   - cron is the SAFETY NET for the 3 critical nightly autopilots that
+#     refresh the calibration loop:
+#       3:05 populator chain
+#       4:00 grading:backfill-all
+#       5:00 audit:nightly
+#   - Both can fire — the npm scripts are idempotent (SQLite INSERT OR IGNORE
+#     for snapshotPredictions, JSON file mtime-checks for populators, etc.).
+#     Double-fires are no-ops, not corruption.
+#
+# Why cron not another LaunchAgent:
+#   - cron runs in user crontab context which inherits operator's FDA grant
+#     reliably. LaunchAgents lose FDA when their plist reloads (the bug we
+#     hit tonight).
+#   - cron is OS-level, ~40 years of reliability. No script-language bug
+#     can take it down.
+#   - Each cron entry is independent — one failing doesn't block others.
+#
+# Install (one-time):
+#   crontab -l > /tmp/_curr_cron 2>/dev/null; \
+#   cat /tmp/_curr_cron \
+#       /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/cron-backup.crontab \
+#     | crontab -
+#
+# Verify:
+#   crontab -l | grep CRON_BACKUP
+#
+# Uninstall (if ever needed):
+#   crontab -l | grep -v CRON_BACKUP_v1 | crontab -
+#
+# IMPORTANT: macOS may prompt for cron Full Disk Access the first time
+# entries fire. Grant it via System Settings → Privacy & Security →
+# Full Disk Access → enable "cron".
+#
+# Cron format: min hour day mon dow CMD
+# All times in operator's local timezone (the Mac's clock, which is set to
+# America/New_York). NO timezone prefix needed inside cron lines.
+
+# ─── 3:05 AM populator chain — refresh MLB stats/logs + NBA team stats ───
+# CRON_BACKUP_v1 marker — used by uninstall filter
+5 3 * * * cd /Users/andrewmoore/Desktop/betting-dashboard && (date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 populator chain starting' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log; npm run populate:mlb-batter-stats >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; npm run populate:mlb-batter-game-logs >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; npm run populate:mlb-pitcher-game-logs >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; npm run derive:nba-dvp >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; npm run populate:nba-team-stats >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 populator chain done' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log)
+
+# ─── 4:00 AM grading:backfill-all — refresh calibration corpus ───
+# CRON_BACKUP_v1
+0 4 * * * cd /Users/andrewmoore/Desktop/betting-dashboard && (date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 grading:backfill-all starting' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log; npm run grading:backfill-all >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 grading done' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log)
+
+# ─── 5:00 AM audit:nightly — daily proof report ───
+# CRON_BACKUP_v1
+0 5 * * * cd /Users/andrewmoore/Desktop/betting-dashboard && (date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 audit:nightly starting' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log; npm run audit:nightly -- --no-populators --no-grade >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1; date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 audit done' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log)
+
+# ─── 9 AM - 11 PM hourly MLB slate refresh ───
+# CRON_BACKUP_v1
+0 9-23 * * * cd /Users/andrewmoore/Desktop/betting-dashboard && (date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 slate:mlb starting' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log; npm run slate:mlb >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1)
+
+# ─── 4 PM - 11:30 PM every 30 min NBA slate refresh ───
+# CRON_BACKUP_v1
+0,30 16-23 * * * cd /Users/andrewmoore/Desktop/betting-dashboard && (date '+[%Y-%m-%d %H:%M:%S] CRON_BACKUP_v1 slate:nba starting' >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log; npm run slate:nba >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cron-backup.log 2>&1)
+
+# ─── Scheduler.sh watchdog — auto-resurrect if dead (CRON_BACKUP_v1) ───
+#
+# Fires EVERY MINUTE. If scheduler.sh isn't running, launches it as a
+# nohup child of cron (which has FDA via user crontab). Bypasses launchd's
+# permission gate entirely. Within 60 seconds of any scheduler death,
+# this respawns it.
+#
+# `pgrep -f scheduler.sh` is the liveness test. Quote-escape carefully:
+# - `> /dev/null 2>&1` discards pgrep output
+# - `||` triggers next command only if pgrep returns non-zero (no match)
+# - `nohup ... &` detaches so cron exits cleanly without waiting
+* * * * * pgrep -f "/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/scheduler.sh" > /dev/null 2>&1 || nohup bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/scheduler.sh > /tmp/sched.log 2>&1 & # CRON_BACKUP_v1 watchdog
+
+# ─── End cron-backup.crontab ───
