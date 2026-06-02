@@ -21,14 +21,14 @@
 #
 # Operator usage:
 #   In a new terminal, run:
-#     bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/scheduler.sh
+#     bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scheduler.sh
 #
 #   Leave the terminal open. The script logs each run to scheduler.log.
 #   To stop: Ctrl-C in that terminal, or `pkill -f scheduler.sh`.
 #
 # To verify it's running:
 #   pgrep -f scheduler.sh
-#   tail -20 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler.log
+#   tail -20 /Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler.log
 #
 # To change cadence, edit the HOUR/MIN gates below.
 
@@ -47,9 +47,9 @@ for p in /opt/homebrew/bin /usr/local/bin "$HOME/.nvm/versions/node/v24.14.0/bin
   fi
 done
 
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 
-LOG=/Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler.log
+LOG=/Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler.log
 mkdir -p "$(dirname "$LOG")"
 
 log() {
@@ -80,6 +80,12 @@ ensure_caffeinate() {
 }
 
 last_ran_min=""
+# Phase Status-Snapshot-Autoticker-1A-fix1 (2026-06-02 17:00 ET) — explicit
+# init. The autoticker block at line 103 references this var; macOS bash
+# treats unset var as fatal under some conditions ("unbound variable" error)
+# even without `set -u`. Was crashing scheduler.sh every ~10 sec for hours
+# = 0 autopilots fired overnight 2026-06-01 → 06-02. ONE missing line of mine.
+last_status_snapshot_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -100,7 +106,10 @@ while true; do
   # parallel write path. Fires on minutes divisible by 5 (00/05/10/.../55).
   # Runs in background (&) so it never blocks the scheduler main loop;
   # silent stdout (`>/dev/null`) so scheduler.log stays clean.
-  if [ $((MIN % 5)) -eq 0 ] && [ "$STAMP" != "$last_status_snapshot_min" ]; then
+  # Phase Status-Snapshot-Autoticker-1A-fix1 — ${var:-} fallback so this
+  # line can't crash even if init missed. Belt + suspenders after the
+  # overnight crash-loop incident.
+  if [ $((MIN % 5)) -eq 0 ] && [ "$STAMP" != "${last_status_snapshot_min:-}" ]; then
     curl -s -X POST -m 10 "http://localhost:4000/api/ws/status/snapshot" >/dev/null 2>&1 &
     last_status_snapshot_min="$STAMP"
   fi
@@ -141,7 +150,7 @@ while true; do
   # it doesn't collide with slate runs at :00/:30 or sysAudit at :00.
   if [ "$MIN" -eq 15 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
     log "populateNbaInjuryReport starting..."
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaInjuryReport.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaInjuryReport.js >> "$LOG" 2>&1; then
       log "populateNbaInjuryReport OK"
     else
       log "populateNbaInjuryReport FAILED (exit $?) — ESPN may be down or injury endpoint moved"
@@ -159,7 +168,7 @@ while true; do
   # :00/:30, injury :15, sysAudit :00, grading 4:00 AM).
   if [ "$MIN" -eq 45 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
     log "populateNbaGameLogs starting..."
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaGameLogs.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaGameLogs.js >> "$LOG" 2>&1; then
       log "populateNbaGameLogs OK"
     else
       log "populateNbaGameLogs FAILED (exit $?) — ESPN may be down or boxscore endpoint moved"
@@ -173,11 +182,11 @@ while true; do
   # appends a one-line alert to backend/runtime/audits/drift_alerts.log
   # with timestamp + first failure line so operator can grep history.
   if [ "$MIN" -eq 0 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
-    AUDIT_FILE="/Users/andrewmoore/Desktop/betting-dashboard/.scratch/audit_${HOUR_RAW}.txt"
-    ALERT_LOG="/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/audits/drift_alerts.log"
+    AUDIT_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/audit_${HOUR_RAW}.txt"
+    ALERT_LOG="/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/audits/drift_alerts.log"
     mkdir -p "$(dirname "$ALERT_LOG")"
     log "sysAudit starting (will write to audit_${HOUR_RAW}.txt)"
-    node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/sysAudit.js > "$AUDIT_FILE" 2>&1
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/sysAudit.js > "$AUDIT_FILE" 2>&1
     AUDIT_EXIT=$?
     if [ "$AUDIT_EXIT" -ge 2 ]; then
       FIRST_FAIL=$(grep -m1 '^\[✗\]' "$AUDIT_FILE" || echo "(no fail line found)")
@@ -199,7 +208,7 @@ while true; do
       #
       # Rate-limit: 15-min lockfile prevents restart-loop if backend is
       # genuinely broken (would just churn forever otherwise).
-      RECOVERY_LOCK="/Users/andrewmoore/Desktop/betting-dashboard/.scratch/.auto_recovery_lock"
+      RECOVERY_LOCK="/Users/andrewmoore/Projects/betting-dashboard/.scratch/.auto_recovery_lock"
       if echo "$FIRST_FAIL" | grep -qE 'ECONNREFUSED|Backend not responding'; then
         LAST_RECOVERY=0
         if [ -f "$RECOVERY_LOCK" ]; then
@@ -209,7 +218,7 @@ while true; do
         GAP=$(( NOW - LAST_RECOVERY ))
         if [ "$GAP" -ge 900 ]; then
           log "sysAudit RED is BACKEND-DOWN — firing restartBackend.sh (Phase Backend-AutoRecovery-1A)"
-          bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/restartBackend.sh >> "$LOG" 2>&1
+          bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/restartBackend.sh >> "$LOG" 2>&1
           RECOVERY_RC=$?
           echo "$NOW" > "$RECOVERY_LOCK"
           echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] AUTO-RECOVERY · restartBackend.sh exit=${RECOVERY_RC} (Phase Backend-AutoRecovery-1A)" >> "$ALERT_LOG"
@@ -227,7 +236,7 @@ while true; do
     # 2026-05-31 (g) — delta check: fires regression alert when this run
     # is WORSE than the previous run. Catches "the fix we just shipped
     # broke a category we already had right." Writes to regression_alerts.log.
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/auditDeltaCheck.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/auditDeltaCheck.js >> "$LOG" 2>&1; then
       log "auditDeltaCheck: clean (no regressions vs prior hour)"
     else
       log "auditDeltaCheck: REGRESSION DETECTED (see regression_alerts.log)"
@@ -246,7 +255,7 @@ while true; do
   # avoids rate limits on MLB Stats API + ESPN.
   if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 3 ]; then
     log "populateMlbBatterStats starting (nightly autopilot)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbBatterStats.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbBatterStats.js >> "$LOG" 2>&1; then
       log "populateMlbBatterStats OK"
     else
       log "populateMlbBatterStats FAILED (exit $?) — MLB Stats API may be down"
@@ -256,7 +265,7 @@ while true; do
 
   if [ "$MIN" -eq 10 ] && [ "$HOUR" -eq 3 ]; then
     log "populateMlbBatterGameLogs starting (nightly autopilot)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbBatterGameLogs.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbBatterGameLogs.js >> "$LOG" 2>&1; then
       log "populateMlbBatterGameLogs OK"
     else
       log "populateMlbBatterGameLogs FAILED (exit $?) — MLB Stats API may be down"
@@ -266,7 +275,7 @@ while true; do
 
   if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 3 ]; then
     log "populateMlbPitcherGameLogs starting (nightly autopilot)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateMlbPitcherGameLogs.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbPitcherGameLogs.js >> "$LOG" 2>&1; then
       log "populateMlbPitcherGameLogs OK"
     else
       log "populateMlbPitcherGameLogs FAILED (exit $?) — MLB Stats API may be down"
@@ -276,7 +285,7 @@ while true; do
 
   if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 3 ]; then
     log "deriveNbaDvP starting (nightly autopilot)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/deriveNbaDvP.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deriveNbaDvP.js >> "$LOG" 2>&1; then
       log "deriveNbaDvP OK"
     else
       log "deriveNbaDvP FAILED (exit $?) — depends on nbaPlayerGameLogs.json being fresh"
@@ -286,7 +295,7 @@ while true; do
 
   if [ "$MIN" -eq 25 ] && [ "$HOUR" -eq 3 ]; then
     log "populateNbaTeamStats starting (nightly autopilot)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaTeamStats.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaTeamStats.js >> "$LOG" 2>&1; then
       log "populateNbaTeamStats OK"
     else
       log "populateNbaTeamStats FAILED (exit $?) — ESPN team stats endpoint may be down"
@@ -303,7 +312,7 @@ while true; do
   # compete with them for the same ESPN rate-limit window.
   if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 3 ]; then
     log "populateNbaSeriesState starting (nightly autopilot — Phase NBA-Series-State-Auto-1A)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/populateNbaSeriesState.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaSeriesState.js >> "$LOG" 2>&1; then
       log "populateNbaSeriesState OK"
     else
       log "populateNbaSeriesState FAILED (exit $?) — ESPN scoreboard may be down"
@@ -324,7 +333,7 @@ while true; do
   # calls.
   if [ "$MIN" -eq 35 ] && [ "$HOUR" -eq 3 ]; then
     log "deriveNbaTeamDefensive starting (nightly autopilot — Phase Truth-Fix-1B)"
-    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/deriveNbaTeamDefensive.js >> "$LOG" 2>&1; then
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deriveNbaTeamDefensive.js >> "$LOG" 2>&1; then
       log "deriveNbaTeamDefensive OK"
     else
       log "deriveNbaTeamDefensive FAILED (exit $?) — check that nbaPlayerGameLogs.json + nbaTeamStats.json exist"

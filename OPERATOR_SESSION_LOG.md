@@ -826,7 +826,7 @@ This is the same anti-pattern that bit us in #1 (Screenshot-Tab-Restore-1A — r
   2. Stop all 4 LaunchAgents cleanly
   3. Kill straggler scheduler.sh + node server.js processes
   4. Remove cron entries pointing at old path
-  5. mv /Users/andrewmoore/Desktop/betting-dashboard → /Users/andrewmoore/Projects/betting-dashboard
+  5. mv /Users/andrewmoore/Projects/betting-dashboard → /Users/andrewmoore/Projects/betting-dashboard
   6. sed-replace ALL absolute path refs (in scripts, plists, cron-backup) — skips node_modules + .git + .scratch
   7. Re-install 4 LaunchAgent plists from new location
   8. Re-install cron entries from new location
