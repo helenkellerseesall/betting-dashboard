@@ -284,7 +284,11 @@ function sectionClvCaptureToday() {
 
 function sectionSlateFiresToday() {
   try {
-    const dateKey = etDateKey()
+    // Phase Status-Autopilot-Calendar-Date-Fix-1A — same reasoning as
+    // sectionAutopilotFiresToday: scheduler.log uses calendar timestamps,
+    // "slate fires today" is a wall-clock event count, not a slate-data
+    // lookup. Use calendar date.
+    const dateKey = calendarDateKey()
     const txt = safeReadText(SCHEDULER_LOG)
     if (!txt) return { ok: false, error: "scheduler.log not readable" }
     const lines = txt.split("\n")
@@ -309,7 +313,13 @@ function sectionSlateFiresToday() {
 
 function sectionAutopilotFiresToday() {
   try {
-    const dateKey = etDateKey()
+    // Phase Status-Autopilot-Calendar-Date-Fix-1A (2026-06-02 ~03:30 ET) —
+    // scheduler.log timestamps lines with CALENDAR date (when the event
+    // physically occurred on the operator's wall clock). The autopilot
+    // section is "events that happened today" semantically — use calendar.
+    // Previous bug: between 00:00-04:00 ET, slate was yesterday's but log
+    // lines were today's calendar = filter missed freshly-fired events.
+    const dateKey = calendarDateKey()
     const txt = safeReadText(SCHEDULER_LOG)
     if (!txt) return { ok: false, error: "scheduler.log not readable" }
     const lines = txt.split("\n").filter(l => l.includes(dateKey))
@@ -684,6 +694,112 @@ router.post("/snapshot", (req, res) => {
   } catch (e) {
     res.status(500).json({ written: false, error: String(e?.message || e) })
   }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase Status-Push-SSE-1A (2026-06-02) — Server-Sent Events stream
+//
+// GET /api/ws/status/stream — long-poll SSE endpoint. Client subscribes via
+// EventSource; server pushes events on:
+//   - new RED appears in openIssues (file change to drift_alerts.log)
+//   - calibration recomputed (file change to family_calibration.json)
+//   - 30s heartbeat (so client knows connection is alive)
+//
+// Anti-fabrication: events only emitted when source files actually change
+// (fs.watch event). Heartbeat carries no claimed state — only "connection
+// still alive at <ts>".
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _sseClients = new Set()  // Set<res> — each connected EventSource client
+let _sseWatchersInstalled = false
+let _lastOpenIssuesSnapshot = null
+
+function _ssePush(eventName, dataObj) {
+  const payload = `event: ${eventName}\ndata: ${JSON.stringify(dataObj)}\n\n`
+  for (const client of _sseClients) {
+    try { client.write(payload) } catch (_) { /* dropped client cleaned up by close handler */ }
+  }
+}
+
+function _installSseWatchersOnce() {
+  if (_sseWatchersInstalled) return
+  _sseWatchersInstalled = true
+
+  // Debounce — file watchers can fire multiple times for one logical change
+  let driftDebounce = null
+  let calibDebounce = null
+
+  function recomputeAndBroadcast(reason) {
+    try {
+      const oi = sectionOpenIssues()
+      const sigBefore = _lastOpenIssuesSnapshot
+      const sigAfter = JSON.stringify({ red: oi.red.map(r => r.title).sort(), yellow: oi.yellow.map(y => y.title).sort() })
+      _lastOpenIssuesSnapshot = sigAfter
+      if (sigBefore !== sigAfter) {
+        // Find new RED entries (entries in after but not in before)
+        const newReds = sigBefore ? (() => {
+          try {
+            const beforeSet = new Set(JSON.parse(sigBefore).red || [])
+            return oi.red.filter(r => !beforeSet.has(r.title))
+          } catch (_) { return oi.red }
+        })() : oi.red
+        _ssePush("openIssues", {
+          reason,
+          summary: oi.summary,
+          newReds,
+          allRed: oi.red,
+          allYellow: oi.yellow,
+        })
+      }
+    } catch (e) {
+      _ssePush("watcherError", { reason, error: String(e?.message || e) })
+    }
+  }
+
+  try {
+    fs.watch(DRIFT_ALERTS, () => {
+      if (driftDebounce) clearTimeout(driftDebounce)
+      driftDebounce = setTimeout(() => recomputeAndBroadcast("drift_alerts.log changed"), 500)
+    })
+  } catch (_) { /* file may not exist yet — watcher will be reinstalled on next attempt */ }
+
+  try {
+    fs.watch(FAMILY_CALIB, () => {
+      if (calibDebounce) clearTimeout(calibDebounce)
+      calibDebounce = setTimeout(() => recomputeAndBroadcast("family_calibration.json changed"), 500)
+    })
+  } catch (_) { /* file may not exist yet */ }
+
+  // Heartbeat every 30s — keeps long-poll alive through proxies (cloudflared)
+  setInterval(() => {
+    _ssePush("heartbeat", { ts: new Date().toISOString(), clientCount: _sseClients.size })
+  }, 30000)
+}
+
+router.get("/stream", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",  // disable proxy buffering
+  })
+  res.flushHeaders()
+
+  // Send initial snapshot immediately so client renders without waiting
+  const initialIssues = sectionOpenIssues()
+  _lastOpenIssuesSnapshot = JSON.stringify({
+    red: initialIssues.red.map(r => r.title).sort(),
+    yellow: initialIssues.yellow.map(y => y.title).sort(),
+  })
+  res.write(`event: snapshot\ndata: ${JSON.stringify({ summary: initialIssues.summary, allRed: initialIssues.red, allYellow: initialIssues.yellow, connectedAt: new Date().toISOString() })}\n\n`)
+
+  _sseClients.add(res)
+  _installSseWatchersOnce()
+
+  req.on("close", () => {
+    _sseClients.delete(res)
+    try { res.end() } catch (_) {}
+  })
 })
 
 module.exports = router

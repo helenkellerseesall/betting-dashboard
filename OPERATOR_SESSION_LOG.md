@@ -554,3 +554,43 @@ The `/status` page is the single pane of glass for operational trust. Every conc
 - Export-to-scratch button now writes openIssues into scratch — Claude reads it without operator hunting through 5 sections
 
 **Doctrine reinforced (this file is the binding ref)**: /status is the trust surface, every surface is symbiotic, never fake.
+
+### 03:30 ET — Phase Status-Push-SSE-1A + Snapshot-Autoticker-1A + Autopilot-Calendar-Date-Fix-1A (bundled — Option D)
+
+**Operator quote**: "option D"
+
+**What operator picked**: real-time SSE push for in-app alerts when RED state changes. Bundled with foundation: A (server-side scratch auto-snapshot every 5 min) + B (autopilot/slateFires calendar-date fix). OS-level web push (Phase 1B) deferred to its own session — VAPID + service worker + iOS PWA permission flow deserves discrete focus.
+
+**Three phases shipped in one fence**:
+
+**A — `backend/scripts/scheduler.sh`** got a 5-min ticker that POSTs to `/api/ws/status/snapshot`. Fires on minutes divisible by 5 (00/05/10/.../55). Background curl (`&`), silent stdout, ≤10s timeout. Effect: scratch always has data ≤5 min old without operator-tap requirement. Claude reads scratch any time, sees current truth.
+
+**B — `backend/routes/statusRoute.js`** `sectionAutopilotFiresToday()` + `sectionSlateFiresToday()` switched from `etDateKey()` (slate-aware) to `calendarDateKey()` (wall-clock). Closes the 00:00-04:00 ET blind spot where freshly-fired autopilots showed as "not fired" because slate was still yesterday but log lines used today's calendar timestamp. Fix1's slate-aware etDateKey was structurally right for tracked_best file lookups (date in the FILENAME) but wrong for "events that happened today by wall clock" (date in scheduler.log line prefix). Now both semantics correctly partitioned.
+
+**D Phase 1 — `backend/routes/statusRoute.js`** got a new SSE endpoint `GET /api/ws/status/stream`. Server installs `fs.watch` on `family_calibration.json` + `drift_alerts.log`. On file change → debounced 500ms → recompute `sectionOpenIssues()` → broadcast SSE event to all connected clients. 30s heartbeat keeps the connection alive through cloudflared. Anti-fabrication: events only emitted when source files actually change (no synthetic heartbeats carry state claims). `_lastOpenIssuesSnapshot` signature comparison ensures only TRUE changes broadcast (no spurious notifications).
+
+**FE — `frontend/status/index.html`** got:
+- Header live indicator (green dot "live", yellow "connecting", red "disconnected")
+- Toast container (fixed top, full-width) — RED toasts pop with severe color, stay until operator dismisses; YELLOW auto-dismiss after 8s
+- `EventSource("/api/ws/status/stream")` subscription with auto-reconnect via browser's native EventSource retry
+- On `openIssues` event: tracks `_seenReds` Set, toasts every new RED title, triggers `loadStatus()` to refresh the full openIssues card
+- On `snapshot` event (initial connection): seeds `_seenReds` so no false toasts on first load
+- On `heartbeat`: silent — connection-alive proof only
+
+**Verification (all pre-deploy)**:
+- 3/3 syntax PASS (statusRoute.js + scheduler.sh + index.html script blocks)
+- statusRoute module loads
+- SSE endpoint defined, fs.watch on both files, heartbeat 30s, _sseClients Set, calendarDateKey used in both autopilot/slateFires
+- Scheduler has 5 occurrences of the autoticker pattern (phase tag + var + curl)
+- FE EventSource + toast + liveDot wired
+
+**Bettor-visible expected outcome after deploy**:
+- On /status page: header shows green "live · N red · N yellow" indicator
+- If a new RED appears (e.g., MLB lineup adapter goes down, calibration spike, sysAudit RED fires) — toast pops INSTANTLY at top of page, no 30s poll wait
+- iPhone PWA in foreground sees toasts immediately
+- AUTOPILOTS TODAY card displays correctly all 24 hours (no more 00-04 AM blind spot)
+- `.scratch/last.txt` self-updates every 5 min from scheduler — Claude can read current state any time without operator interaction
+
+**Phase Status-Push-WebPush-1B queued (task #37)**: adds OS-level push notifications so phone alerts even when /status page is closed / phone locked. Requires VAPID key gen + service worker + iOS PWA push permission flow — own session.
+
+**Deploy note**: scheduler.sh changes require scheduler LaunchAgent reload (NOT just backend). Fence below includes the scheduler kickstart.

@@ -92,11 +92,26 @@
   .pretty .ts.yellow { color: var(--yellow); }
   .pretty .msg { font-size: 13px; color: var(--text); line-height: 1.4; }
   .pretty .msg .hl { color: var(--yellow); }
+  /* Phase Status-Push-SSE-1A — live indicator + toast styles */
+  .liveDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+  .liveDot.connected { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  .liveDot.disconnected { background: #ef4444; }
+  .liveDot.connecting { background: #fbbf24; }
+  #liveStatus { font-size: 11px; color: var(--text-faint); margin-left: 8px; font-variant-numeric: tabular-nums; }
+  #pushToastContainer { position: fixed; top: 12px; right: 12px; left: 12px; z-index: 9999; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .pushToast { background: rgba(20,20,28,0.96); border: 1px solid var(--red); border-radius: 8px; padding: 10px 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.6); pointer-events: auto; animation: slideIn 0.3s ease-out; max-width: 600px; }
+  .pushToast.yellow { border-color: var(--yellow); }
+  .pushToast .toastTitle { font-weight: 600; font-size: 13px; color: var(--red); }
+  .pushToast.yellow .toastTitle { color: var(--yellow); }
+  .pushToast .toastBody { font-size: 12px; color: var(--text); margin-top: 4px; line-height: 1.3; }
+  .pushToast .toastClose { float: right; cursor: pointer; color: var(--text-faint); font-size: 16px; margin-left: 8px; }
+  @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 </style>
 </head>
 <body>
+<div id="pushToastContainer"></div>
 <header>
-  <h1>motel666 — status</h1>
+  <h1>motel666 — status <span id="liveStatus"><span class="liveDot connecting" id="liveDot"></span>connecting…</span></h1>
   <div class="et" id="etTime">—</div>
 </header>
 
@@ -657,6 +672,72 @@ async function exportToScratch() {
 
 loadStatus();
 setInterval(loadStatus, POLL_MS);
+
+// Phase Status-Push-SSE-1A — real-time SSE subscription. Pushes RED/YELLOW
+// alerts the moment server detects file changes in drift_alerts.log or
+// family_calibration.json. Independent of the 30s poll loop — events fire
+// instantly. EventSource auto-reconnects on disconnect.
+let _sseSource = null;
+let _seenReds = new Set();
+function _setLiveStatus(state, label) {
+  const dot = document.getElementById("liveDot");
+  const lbl = document.getElementById("liveStatus");
+  if (dot) dot.className = "liveDot " + state;
+  if (lbl) lbl.lastChild.textContent = label;
+}
+function _showToast(kind, title, body) {
+  const c = document.getElementById("pushToastContainer");
+  if (!c) return;
+  const div = document.createElement("div");
+  div.className = "pushToast " + (kind === "yellow" ? "yellow" : "");
+  div.innerHTML = '<span class="toastClose" onclick="this.parentNode.remove()">×</span>'
+                + '<div class="toastTitle">' + (kind === "yellow" ? "YELLOW · " : "RED · ") + title + '</div>'
+                + '<div class="toastBody">' + body + '</div>';
+  c.appendChild(div);
+  // Auto-dismiss YELLOW after 8s; RED stays until operator dismisses
+  if (kind === "yellow") setTimeout(() => { try { div.remove(); } catch(_){} }, 8000);
+}
+function _initSse() {
+  if (_sseSource) { try { _sseSource.close(); } catch(_){} }
+  try {
+    _sseSource = new EventSource("/api/ws/status/stream");
+  } catch (e) {
+    _setLiveStatus("disconnected", "EventSource not supported");
+    return;
+  }
+  _sseSource.addEventListener("open", () => _setLiveStatus("connected", "live"));
+  _sseSource.addEventListener("error", () => _setLiveStatus("disconnected", "reconnecting…"));
+  _sseSource.addEventListener("snapshot", (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      _seenReds = new Set((d.allRed || []).map(r => r.title));
+      _setLiveStatus("connected", "live · " + (d.summary?.redCount || 0) + " red · " + (d.summary?.yellowCount || 0) + " yellow");
+    } catch (_) {}
+  });
+  _sseSource.addEventListener("openIssues", (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      // Toast every new RED that wasn't in the previous snapshot
+      for (const r of (d.newReds || [])) {
+        if (_seenReds.has(r.title)) continue;
+        _seenReds.add(r.title);
+        _showToast("red", r.title, r.detail || "");
+      }
+      // Update seenReds against new state (so cleared REDs can re-fire if they come back)
+      _seenReds = new Set((d.allRed || []).map(r => r.title));
+      _setLiveStatus("connected", "live · " + (d.summary?.redCount || 0) + " red · " + (d.summary?.yellowCount || 0) + " yellow");
+      // Trigger a fresh full reload so the openIssues card updates too
+      loadStatus();
+    } catch (_) {}
+  });
+  _sseSource.addEventListener("heartbeat", (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      // No UI update on heartbeat; just keeps the connection alive
+    } catch (_) {}
+  });
+}
+_initSse();
 </script>
 </body>
 </html>

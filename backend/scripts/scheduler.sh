@@ -93,6 +93,18 @@ while true; do
   # on every 30s tick regardless of whether a slate is due.
   ensure_caffeinate
 
+  # 2026-06-02 Phase Status-Snapshot-Autoticker-1A — write /status snapshot
+  # to .scratch/last.txt every 5 minutes so Claude always has fresh
+  # operational truth without operator needing to tap the export button.
+  # Same endpoint the FE button uses (POST /api/ws/status/snapshot) — no
+  # parallel write path. Fires on minutes divisible by 5 (00/05/10/.../55).
+  # Runs in background (&) so it never blocks the scheduler main loop;
+  # silent stdout (`>/dev/null`) so scheduler.log stays clean.
+  if [ $((MIN % 5)) -eq 0 ] && [ "$STAMP" != "$last_status_snapshot_min" ]; then
+    curl -s -X POST -m 10 "http://localhost:4000/api/ws/status/snapshot" >/dev/null 2>&1 &
+    last_status_snapshot_min="$STAMP"
+  fi
+
   # Dedupe — don't fire twice within the same minute
   if [ "$STAMP" = "$last_ran_min" ]; then
     sleep 30
