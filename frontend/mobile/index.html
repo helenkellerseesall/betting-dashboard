@@ -3336,9 +3336,97 @@
 
       const resultHtml = a.result ? renderVerdict(a.result) : "";
 
-      main.innerHTML = introHtml + metaHtml + ocrHtml + legsHtml + submitHtml + resultHtml +
-        `<div class="diag-footer">analyze v0.2.3 · Claude Vision OCR + paste-parse · backend POST /api/ws/screenshots/{ocr,ingest}</div>`;
+      // Phase Screenshot-Operator-Visible-1A — "Your Taste Profile" card.
+      // Anti-fabrication: empty state when no profile yet, honest about what's
+      // wired vs pending (active biasing still Phase 2C-2).
+      const tasteHtml = renderTasteProfile(a.tasteProfile);
+
+      main.innerHTML = introHtml + tasteHtml + metaHtml + ocrHtml + legsHtml + submitHtml + resultHtml +
+        `<div class="diag-footer">analyze v0.2.4 · Claude Vision OCR + multi-file ingest + loop closure (Phases #5/#2/#3/#4 active)</div>`;
+
+      // Lazy-load taste profile on first render OR when stale.
+      if (!a.tasteProfile || (a.tasteProfileFetchedAt && Date.now() - a.tasteProfileFetchedAt > 30000)) {
+        fetchTasteProfile();
+      }
     }
+
+    // Phase Screenshot-Operator-Visible-1A — fetch operator's aggregated
+    // taste profile from backend. Refreshes after each ingest (since the
+    // profile mutated). Anti-fabrication: failures surface as null, never
+    // synthesized data.
+    async function fetchTasteProfile() {
+      try {
+        const r = await fetch(`${API}/api/ws/screenshots/taste-profile`, { cache: "no-store" });
+        const j = await r.json();
+        if (j.ok) {
+          state.analyze.tasteProfile = j;
+          state.analyze.tasteProfileFetchedAt = Date.now();
+          // Re-render the card without disrupting the form
+          const el = document.getElementById("tasteProfileCard");
+          if (el) el.outerHTML = renderTasteProfile(j);
+        }
+      } catch (_) { /* anti-fabrication: silent on failure, no UI noise */ }
+    }
+    window.fetchTasteProfile = fetchTasteProfile;
+
+    function renderTasteProfile(p) {
+      // Empty state — honest about the absence of data
+      if (!p || !p.ok || !p.taste?.hasSignal) {
+        return `<div class="card" id="tasteProfileCard" style="margin-bottom: 12px; border: 1px solid rgba(168, 162, 158, 0.2);">
+          <div style="font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Your taste profile</div>
+          <div style="color: var(--text-faint); font-size: 13px;">
+            Drop a few slips and we'll learn your pattern. ${p?.taste?.reason ? `(${p.taste.reason})` : ""}
+          </div>
+        </div>`;
+      }
+
+      const t = p.taste;
+      const archetypeChips = (t.preferred_archetypes || []).slice(0, 5).map(a => {
+        const hit = Number.isFinite(a.hit_rate) ? ` · ${(a.hit_rate * 100).toFixed(0)}% hit (n=${a.count})` : ` · n=${a.count}`;
+        return `<span style="display: inline-block; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 4px; padding: 2px 8px; margin: 2px; font-size: 11px; color: #38BDF8;">${escapeHtml(a.archetype)}${escapeHtml(hit)}</span>`;
+      }).join("");
+
+      const avgLegs = Number.isFinite(t.preferred_leg_count_avg) ? t.preferred_leg_count_avg.toFixed(1) : "—";
+      const avgDec = Number.isFinite(t.preferred_combined_dec_avg) ? t.preferred_combined_dec_avg.toFixed(1) : "—";
+      const americanFromDec = Number.isFinite(t.preferred_combined_dec_avg) && t.preferred_combined_dec_avg > 1
+        ? "+" + Math.round((t.preferred_combined_dec_avg - 1) * 100)
+        : "—";
+
+      const sports = Object.entries(t.preferred_sports || {})
+        .sort(([, a], [, b]) => b - a)
+        .map(([s, n]) => `${s.toUpperCase()}: ${n}`)
+        .join(" · ");
+
+      const biasNote = p.engineBehavior?.activeBias
+        ? `<div style="color: #34D399; font-size: 11px; margin-top: 8px;">✓ Engine actively biases picks toward your taste pattern.</div>`
+        : `<div style="color: #FBBF24; font-size: 11px; margin-top: 8px;">⚠ Engine LOGS your taste signal but does not yet shape picks toward it. Active biasing ships in Phase 2C-2 (queued).</div>`;
+
+      const outcomeNote = (p.outcomeCounts?.graded_legs || 0) > 0
+        ? `<div style="color: #34D399; font-size: 11px;">${p.outcomeCounts.hit_legs}/${p.outcomeCounts.graded_legs} legs hit (${p.outcomeCounts.total_legs} total tracked)</div>`
+        : `<div style="color: var(--text-faint); font-size: 11px;">No legs graded yet — outcomes populate when your slip dates overlap with the engine's tracked picks.</div>`;
+
+      return `<div class="card" id="tasteProfileCard" style="margin-bottom: 12px; border: 1px solid rgba(56, 189, 248, 0.4); background: linear-gradient(180deg, rgba(56, 189, 248, 0.08) 0%, rgba(20, 24, 40, 0.6) 100%);">
+        <div style="font-size: 11px; color: #38BDF8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 600;">Your taste profile · ${t.sample_count} slip${t.sample_count === 1 ? "" : "s"} seen</div>
+
+        <div style="font-size: 13px; line-height: 1.6; color: var(--text); margin-bottom: 8px;">
+          You share <strong>${avgLegs}-leg parlays</strong> averaging <strong>${avgDec}x</strong> payout (~<strong>${americanFromDec}</strong> American).
+          Sports: <strong>${escapeHtml(sports || "—")}</strong>.
+        </div>
+
+        <div style="margin-bottom: 6px;">
+          <div style="font-size: 10px; color: var(--text-faint); text-transform: uppercase; margin-bottom: 4px;">Archetype mix${t.graded_count > 0 ? "" : " (frequency-based · 0 graded yet)"}</div>
+          ${archetypeChips || '<span style="color: var(--text-faint); font-size: 11px;">no signal</span>'}
+        </div>
+
+        ${outcomeNote}
+        ${biasNote}
+
+        <div style="border-top: 1px solid rgba(168, 162, 158, 0.15); margin-top: 10px; padding-top: 8px; font-size: 10px; color: var(--text-faint);">
+          Stored in SQLite (betting.db) · persistent · rolling means weight all history equally · ${p.taste.profile_count} distinct source profile${p.taste.profile_count === 1 ? "" : "s"}
+        </div>
+      </div>`;
+    }
+    window.renderTasteProfile = renderTasteProfile;
 
     // Phase Screenshot-FE-Ingest-Fix-1A — multi-file handler. Operator can
     // drop N screenshots at once; we OCR + auto-submit each one sequentially
@@ -3369,6 +3457,9 @@
       const summary = `✓ ${okCount}/${total} ingested` +
         (archetypes.length ? ` · archetypes: ${archetypes.join(", ")}` : "");
       setStatus(summary, okCount === total ? "#34D399" : "#FBBF24");
+      // Phase Screenshot-Operator-Visible-1A — refresh taste profile card
+      // so operator IMMEDIATELY sees what was learned from the new slips.
+      try { await fetchTasteProfile(); } catch (_) {}
     }
     window.handleImageFiles = handleImageFiles;
 

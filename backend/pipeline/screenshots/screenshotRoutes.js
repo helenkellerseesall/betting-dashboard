@@ -465,6 +465,65 @@ router.post("/ocr", express.json({ limit: "10mb" }), async (req, res) => {
   }
 })
 
+// ── GET /taste-profile ────────────────────────────────────────────────────────
+// Phase Screenshot-Operator-Visible-1A (2026-06-02) — operator-facing endpoint
+// returning everything the engine has learned about the operator's taste from
+// ingested slips. Backs the "Your Taste Profile" card on the ANALYZE tab.
+//
+// Anti-fabrication: returns hasSignal=false when no profiles exist. Never
+// synthesizes a fake profile. Honestly reports what's wired vs what's pending
+// (active biasing still Phase 2C-2 — surfaced as `engineBehavior.activeBias`).
+router.get("/taste-profile", (req, res) => {
+  try {
+    const db = tryGetDb()
+    if (!db) return res.json({ ok: false, error: "sqlite_unavailable" })
+
+    const { getOperatorTasteSignal } = require("./bettorTasteSignal")
+    const taste = getOperatorTasteSignal(db)
+
+    // Recent ingest activity for the timeline view
+    const recentSlips = db.prepare(`
+      SELECT p.id, p.source_type, p.sport, p.total_legs, p.combined_dec, p.sportsbook,
+             p.created_at, c.archetype, c.composite_score
+      FROM parsed_slips p
+      LEFT JOIN slip_classifications c ON c.slip_id = p.id
+      ORDER BY p.created_at DESC
+      LIMIT 10
+    `).all()
+
+    // Outcome stats — how many graded vs ungraded
+    const outcomeCounts = db.prepare(`
+      SELECT
+        COUNT(*) as total_legs,
+        SUM(CASE WHEN hit IS NOT NULL THEN 1 ELSE 0 END) as graded_legs,
+        SUM(CASE WHEN hit = 1 THEN 1 ELSE 0 END) as hit_legs
+      FROM outcome_links
+    `).get()
+
+    return res.json({
+      ok: true,
+      taste,
+      recentSlips,
+      outcomeCounts,
+      engineBehavior: {
+        activeBias: false,  // Phase 2C-2 not yet shipped
+        biasNote: "Engine LOGS your taste signal on every pick-gen run but does not yet shape picks toward your pattern. Active biasing is Phase Screenshot-Loop-Close-2C-2 (deferred).",
+        biasPhase: "Screenshot-Loop-Close-2C-2",
+        loggedAs: "[BETTOR-TASTE] in backend stdout per pick-gen run",
+      },
+      outcomeBehavior: {
+        gradingActive: true,
+        gradingNote: "Each leg attempts match against engine's tracked_bets for the slip's slate_date. Currently 0 legs graded because slip slate dates do not yet overlap with engine's tracked picks. As you ingest slips for current dates with players the engine also tracks, outcomes will populate.",
+        graded: outcomeCounts.graded_legs || 0,
+        total: outcomeCounts.total_legs || 0,
+      },
+      generatedAt: new Date().toISOString(),
+    })
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) })
+  }
+})
+
 // ── GET /list ─────────────────────────────────────────────────────────────────
 /**
  * Paginated list of parsed slips with their classification scores.

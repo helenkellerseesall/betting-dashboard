@@ -760,3 +760,36 @@ These exemplify the two patterns operator's endgame needs: pure HR parlays + sam
 - Plus all 6 files from prior screenshot-loop fence (still un-shipped — `classifyIngestedSlip`, `screenshotRoutes`, `bettorProfilesUpdater`, `bettorTasteSignal`, `outcomeLinksPopulator`, `buildSlipAi`)
 
 **After deploy, operator drops 3 examples → ingest succeeds → bettor_profiles updates → bettorTaste signal aggregates new patterns. THAT'S the deploy-verified evidence #2/#3/#4 need to close honestly.**
+
+### 05:30 ET — Loop deploy-verified end-to-end. #2/#3/#4 closed honestly.
+
+Operator ran the verification probe after FE-Ingest-Fix-1B shipped. 3 new slips persisted, all classified as `viral_lotto`, bettor_profile updated 5→8 slips, archetype_dist `{viral_lotto:2, recreational_chase:3}` → `{viral_lotto:5, recreational_chase:3}`, bettorTaste signal evolved (avg combined_dec 40.9 → 114.2, sports nba:5 → nba:6+mlb:2). Loop closure proven on operator's real data.
+
+### 05:40 ET — Operator surfaced the OPERATOR-VISIBLE gap
+
+**Operator quote (load-bearing — exposes the real product gap)**:
+> "so ss uploader is done? what did the repo learn from those? did those help at all? with what? does that info or shit get stored somewhere? if so where and how long is it relevant? if not why or why not? in no way did it tell me anything based on what i uploaded?"
+
+**The diagnosis**: I built the persistence + classification + read-back PLUMBING but never built the operator-visible SURFACE. Operator uploaded 3 slips and got nothing back in the FE proving anything was learned. "Loop structurally closed" ≠ "operator sees value."
+
+This is the same anti-pattern that bit us in #1 (Screenshot-Tab-Restore-1A — restored visible tab without closing the learning loop). Now it bit us in reverse: closed the learning loop without restoring the visible-output surface.
+
+**Phase Screenshot-Operator-Visible-1A shipped**:
+
+- NEW `GET /api/ws/screenshots/taste-profile` endpoint — returns full taste state in one call: taste signal + recentSlips + outcomeCounts + engineBehavior (HONESTLY reports activeBias=false because Phase 2C-2 not yet shipped) + outcomeBehavior (HONESTLY reports 0 graded because no temporal overlap with engine picks yet)
+- NEW FE "Your Taste Profile" card on ANALYZE tab — surfaces:
+  - Sample count (N slips seen)
+  - Plain English: "You share 4.9-leg parlays averaging 114.2x payout (~+11320 American). Sports: NBA: 6 · MLB: 2"
+  - Archetype mix chips (clickable later — for now just informational)
+  - Outcome stats line (HONESTLY reports "0 legs graded because slip dates don't overlap with engine's picks yet")
+  - Engine behavior note (HONESTLY reports "Engine LOGS your taste but does not yet shape picks toward it. Active biasing ships in Phase 2C-2.")
+  - Storage transparency footer: "Stored in SQLite (betting.db) · persistent · rolling means · N distinct source profiles"
+- Auto-refresh after every successful multi-file ingest so operator IMMEDIATELY sees the updated profile
+
+**Anti-fabrication discipline**:
+- Empty state when no profiles ("Drop a few slips and we'll learn your pattern")
+- Yellow warning about active biasing not yet wired (never claims engine is acting when it's only logging)
+- Honest "0 graded" message about outcomes (never synthesizes hit rates)
+- Real archetype counts only — no fake "preferred" labels when sample size too low
+
+**This closes the operator-visible gap**: operator now SEES what the engine learned the moment they upload. Plus honest disclosure about what's wired vs what's pending.
