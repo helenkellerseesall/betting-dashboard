@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.grading-nightly.plist — Phase Cron-To-LaunchAgent-1A
+  Fires npm run grading:backfill-all at 4:00 AM ET daily.
+  Refreshes calibration corpus with last night's settled outcomes.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.grading-nightly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/andrewmoore/Projects/betting-dashboard/backend/scripts/autopilots/grading-nightly.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/backend</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/autopilot-grading-nightly.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/autopilot-grading-nightly.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

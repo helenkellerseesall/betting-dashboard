@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  com.motel666.populator-chain.plist — Phase Cron-To-LaunchAgent-1A
+  Fires 5 populators in sequence at 3:05 AM ET daily.
+  Independent of scheduler.sh (redundant fire path).
+
+  Wrapped by: backend/scripts/autopilots/populator-chain.sh
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.motel666.populator-chain</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/andrewmoore/Projects/betting-dashboard/backend/scripts/autopilots/populator-chain.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/backend</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>5</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/autopilot-populator-chain.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/autopilot-populator-chain.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
