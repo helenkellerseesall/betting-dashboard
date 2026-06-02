@@ -18,6 +18,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../../pipeline/shared/slateDate")
 
 const REPO = path.join(__dirname, "..", "..", "..", "..")
 const DOCS = path.join(REPO, "docs")
@@ -70,7 +71,8 @@ function readOpenBacklog() {
 
 function readRuntimeFreshness() {
   try {
-    const today = new Date().toISOString().slice(0, 10)
+    // Phase Date-Doctrine-1B — canonical ET slate date
+    const today = currentSlateDateEt()
     const p = path.join(TRACKING_DIR, "mlb_tracked_best_" + today + ".json")
     if (!fs.existsSync(p)) return { mlbTrackedBestPath: null, mlbTrackedBestAgeMs: null }
     const stat = fs.statSync(p)

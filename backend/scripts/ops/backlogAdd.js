@@ -16,6 +16,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../pipeline/shared/slateDate")
 
 const LANES = ["MCR","INFRA","ACTIVE EXECUTION","FRONTEND/UX LAB","FULL SYSTEM AUDIT","OPERATOR PLAYBOOK"]
 const BACKLOG_PATH = path.join(__dirname, "..", "..", "..", "docs", "BETTOR_BACKLOG.md")
@@ -47,7 +48,7 @@ function main() {
   const submitter = submitterRaw === "assistant" ? "assistant" : "operator"
   const src = fs.readFileSync(BACKLOG_PATH, "utf8")
   const id = nextId(src)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   const body = (readStdin() || "(operator to fill in)").trim().split("\n").map(l => "  " + l).join("\n")
 
   const entry = `---

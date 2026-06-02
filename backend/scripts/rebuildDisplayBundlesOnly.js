@@ -38,15 +38,11 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
-function todayUtcKey() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function yesterdayUtcKey() {
-  const d = new Date(Date.now() - 86400000)
-  return d.toISOString().slice(0, 10)
-}
+// Phase Date-Doctrine-1B — names retained for callers; both resolve to canonical ET slate date.
+function todayUtcKey() { return currentSlateDateEt() }
+function yesterdayUtcKey() { return slateDateForTimestamp(Date.now() - 86400000) }
 
 function parseArgs() {
   const args = { date: todayUtcKey() }

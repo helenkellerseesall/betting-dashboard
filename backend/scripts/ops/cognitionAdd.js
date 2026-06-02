@@ -28,6 +28,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../pipeline/shared/slateDate")
 
 const LANES = ["MCR","INFRA","ACTIVE EXECUTION","FRONTEND/UX LAB","FULL SYSTEM AUDIT","OPERATOR PLAYBOOK"]
 
@@ -108,7 +109,7 @@ function main() {
 
   const src = fs.readFileSync(BACKLOG_PATH, "utf8")
   const id = nextId(src)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   const submitter = args.submitter === "assistant" ? "assistant" : "operator"
   const rawBody = (args.body && typeof args.body === "string") ? args.body : readStdin()
   const body = (rawBody || "(operator to fill in)").trim().split("\n").map(l => "  " + l).join("\n")

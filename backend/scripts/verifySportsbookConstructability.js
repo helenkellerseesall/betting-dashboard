@@ -24,6 +24,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const REPO    = path.join(__dirname, "..", "..")
 const BACKEND = path.join(REPO, "backend")
@@ -103,7 +104,7 @@ console.log("Cluster C — empirical curated slip single-book integrity")
 const trackingDir = path.join(BACKEND, "runtime", "tracking")
 let slipsFile = null
 try {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   const candidates = fs.readdirSync(trackingDir)
     .filter(f => /^mlb_tracked_slips_\d{4}-\d{2}-\d{2}\.json$/.test(f))
     .sort()

@@ -29,6 +29,7 @@ const fs = require("fs")
 const path = require("path")
 const http = require("http")
 const { execSync, spawnSync } = require("child_process")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const REPO = path.join(__dirname, "..", "..")
 const TRACKING = path.join(REPO, "backend", "runtime", "tracking")
@@ -55,13 +56,11 @@ function ageHours(p) {
     return Math.round(((Date.now() - m) / 3600000) * 10) / 10
   } catch { return null }
 }
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — slateDate helper (ET 4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 function yesterdayKey() {
   const d = new Date(); d.setDate(d.getDate() - 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  return slateDateForTimestamp(d.getTime())
 }
 
 // HTTP fetch with port auto-detect
@@ -473,7 +472,7 @@ async function main() {
     const buckets = {}  // statFamily → { stated: [], wins: 0, losses: 0, pushes: 0 }
     for (let i = 0; i < CAL_WINDOW_DAYS; i++) {
       const d = new Date(); d.setDate(d.getDate() - i)
-      const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+      const dk = slateDateForTimestamp(d.getTime())
       const arr = readJsonSafe(path.join(TRACKING, `${sport}_tracked_bets_${dk}.json`))
       if (!Array.isArray(arr)) continue
       for (const b of arr) {

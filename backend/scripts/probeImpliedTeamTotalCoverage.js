@@ -9,8 +9,10 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
-const today = new Date().toISOString().slice(0, 10)
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+const today = currentSlateDateEt()
 const file = path.join(__dirname, "..", "runtime", "tracking", `mlb_tracked_bets_${today}.json`)
 
 if (!fs.existsSync(file)) {

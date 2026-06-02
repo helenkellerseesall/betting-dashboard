@@ -703,6 +703,30 @@
     // ─────────────────────────────────────────────────────────────
     const API = ""; // same-origin; backend serves both /m and /api/ws/*
 
+    // Phase Date-Doctrine-1B — canonical ET slate date (mirrors backend/pipeline/shared/slateDate.js).
+    // Rule: slate date = ET calendar day with 04:00 ET boundary. Late games
+    // (10pm/11pm ET) still belong to that day's slate; the rollover happens at
+    // 4 AM ET, after the last NBA late game settles.
+    function currentSlateDateEt(now) {
+      const ms = (now == null ? Date.now() : (now instanceof Date ? now.getTime() : Number(now)));
+      // Extract ET wall-clock parts via Intl
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false,
+      }).formatToParts(new Date(ms));
+      const get = (t) => parts.find((p) => p.type === t)?.value;
+      let y = Number(get("year")), m = Number(get("month")), d = Number(get("day"));
+      const h = Number(get("hour"));
+      // Before 4 AM ET → still previous slate
+      if (h < 4) {
+        const back = new Date(Date.UTC(y, m - 1, d) - 86400000);
+        y = back.getUTCFullYear(); m = back.getUTCMonth() + 1; d = back.getUTCDate();
+      }
+      return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+
     // 2026-05-31 — Version polling + auto-refresh banner. Closes the deepAudit
     // ✗ "FE has NO version polling — PWA cache can serve infinitely-stale UI."
     // Polls /api/ws/version every 60s. Stores backend commit on first load.
@@ -1452,7 +1476,7 @@
       // relative-day label computed in browser local time (operator's iPhone
       // is on ET, so "today" matches the Detroit ET slate-date convention
       // backend uses for tracked_bets filenames).
-      const todayLabel = payload?.date || new Date().toISOString().slice(0, 10);
+      const todayLabel = payload?.date || currentSlateDateEt();
       const _relDay = (() => {
         try {
           const target = new Date(todayLabel + "T00:00:00");
@@ -3636,7 +3660,7 @@
       // is null — every leg becomes "unresolved" which is why earlier slips
       // scored 1/100 UNKNOWN. Same for slateDate — default to today.
       const detectedSport = a.meta.sport || autoDetectSportFromLegs(legs);
-      const todayDate = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
+      const todayDate = currentSlateDateEt();  // Phase Date-Doctrine-1B — ET slate date
 
       const payload = {
         sourceType:  a.meta.sourceType || "screenshot",

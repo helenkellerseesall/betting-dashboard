@@ -31,6 +31,7 @@
 
 const { tryGetDb }                = require("../../../storage/db")
 const { applyIntelligenceSchema } = require("../../../storage/intelligenceSchema")
+const { currentSlateDateEt }      = require("../../shared/slateDate")
 
 let _schemaApplied = false
 function ensureSchema() {
@@ -111,7 +112,7 @@ function freezeMlbLiveStateEpoch(args = {}) {
 		if (!db) { out.error = "sqlite_unavailable"; return out }
 
 		const liveRows = Array.isArray(args.liveRows) ? args.liveRows : []
-		const slateDate = safeStr(args.slateDate) || new Date().toISOString().slice(0, 10)
+		const slateDate = safeStr(args.slateDate) || currentSlateDateEt()
 		const capturedAtIso = safeStr(args.capturedAtIso) || liveRows[0]?.mlbLiveState?.capturedAt || new Date().toISOString()
 		const snapshotUpdatedAt = safeStr(args.snapshotUpdatedAt)
 		const source = safeStr(args.source) || "live_refresh"

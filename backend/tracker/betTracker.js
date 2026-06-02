@@ -3,6 +3,7 @@
 const fs = require("fs")
 const path = require("path")
 const crypto = require("crypto")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const STORAGE_PATH = path.join(__dirname, "betStorage.json")
 
@@ -10,11 +11,14 @@ function normalizeArray(value) {
   return Array.isArray(value) ? value : []
 }
 
+// Phase Date-Doctrine-1B — canonical ET slate-date helper
 function todayKey(date = new Date()) {
   try {
-    return new Date(date).toISOString().slice(0, 10)
+    const ts = new Date(date).getTime()
+    if (Number.isFinite(ts)) return slateDateForTimestamp(ts)
+    return currentSlateDateEt()
   } catch {
-    return new Date().toISOString().slice(0, 10)
+    return currentSlateDateEt()
   }
 }
 

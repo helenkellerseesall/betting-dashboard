@@ -38,6 +38,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const SERIES_FILE      = path.join(__dirname, "..", "..", "data", "nbaSeriesState.json")
 const SERIES_FILE_AUTO = path.join(__dirname, "..", "..", "data", "nbaSeriesStateAuto.json")
@@ -92,11 +93,8 @@ function _load() {
 
 function _reset() { _cache = null }
 
-/** Today in ISO YYYY-MM-DD (operator local-day style — matches tracked_bets). */
-function _todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+/** Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary). */
+function _todayKey() { return currentSlateDateEt() }
 
 /** Normalize matchup string for fuzzy comparison. */
 function _normMatchup(s) {

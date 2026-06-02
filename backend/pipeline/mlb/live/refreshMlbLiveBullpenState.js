@@ -24,6 +24,7 @@
 const fs = require("fs")
 const path = require("path")
 const axios = require("axios")
+const { currentSlateDateEt } = require("../../shared/slateDate")
 
 const SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 const BOXSCORE_URL_BASE = "https://statsapi.mlb.com/api/v1/game"
@@ -32,7 +33,8 @@ const DEFAULT_CONCURRENCY = 4
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
 function teamKey(s) { return String(s || "").trim().toLowerCase() }
-function isoToday() { return new Date().toISOString().slice(0, 10) }
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function isoToday() { return currentSlateDateEt() }
 
 async function chunkedPromiseAll(items, fn, concurrency = DEFAULT_CONCURRENCY) {
 	const out = new Array(items.length)

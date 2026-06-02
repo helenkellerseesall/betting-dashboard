@@ -26,6 +26,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("./slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 const STATE_FILE   = path.join(TRACKING_DIR, "timing_intelligence_state.json")
@@ -60,10 +61,8 @@ function writeJsonSync(p, d) {
 function num(v) { if (v == null) return null; const n = Number(v); return Number.isFinite(n) ? n : null }
 function r4(x)  { return Math.round(Number(x) * 10000) / 10000 }
 function r2(x)  { return Math.round(Number(x) * 100) / 100 }
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 // ── LAYER 1: MARKET STATE CLASSIFICATION ─────────────────────────────────────
 

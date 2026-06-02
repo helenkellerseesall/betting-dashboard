@@ -36,6 +36,9 @@
  * present; missing → 0 contribution. role_change is informational only.
  */
 
+// Phase Date-Doctrine-1B — canonical ET slate-date helper
+const { currentSlateDateEt } = require("../shared/slateDate")
+
 let _cacheReader = null
 function getCacheReader() {
   // Lazy require to avoid load-order coupling; nbaRecentFormCache loads
@@ -62,7 +65,7 @@ const MIN_GAMES_FOR_VOLATILITY     = 4   // std-dev needs ≥ 4 datapoints
 
 function normPlayer(s) { return String(s || "").trim().toLowerCase() }
 
-function todayIso() { return new Date().toISOString().slice(0, 10) }
+function todayIso() { return currentSlateDateEt() }
 
 function daysBetween(isoA, isoB) {
   const a = new Date(isoA + "T00:00:00Z").getTime()

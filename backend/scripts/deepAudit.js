@@ -20,6 +20,7 @@ const fs = require("fs")
 const path = require("path")
 const http = require("http")
 const { execSync, spawnSync } = require("child_process")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const REPO = path.join(__dirname, "..", "..")
 const TRACKING = path.join(REPO, "backend", "runtime", "tracking")
@@ -35,10 +36,8 @@ const I = (l) => { console.log("[—]", l) }
 const H = (t) => { console.log("\n=== " + t + " ===") }
 
 function readJsonSafe(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return null } }
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 function detectPort() {
   if (process.env.PORT) return Number(process.env.PORT)
   try {

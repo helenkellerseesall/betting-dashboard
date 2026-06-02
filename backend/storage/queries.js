@@ -16,6 +16,9 @@
 // Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Phase Date-Doctrine-1B — canonical ET slate-date helper
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+
 function safeNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -27,11 +30,11 @@ function safeStr(v) {
   return s.length ? s : null
 }
 
-/** Infer run_date from a row — falls back to today if absent. */
+/** Infer run_date from a row — falls back to canonical ET slate date if absent. */
 function inferDate(row) {
   const d = row.date || row.slateDate || row.run_date || row.runDate
   if (d) return String(d).slice(0, 10)
-  return new Date().toISOString().slice(0, 10)
+  return currentSlateDateEt()
 }
 
 /** Infer sport from file context or row fields. */

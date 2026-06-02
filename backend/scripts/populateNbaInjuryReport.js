@@ -52,6 +52,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 let axios; try { axios = require("axios") } catch (_) { axios = null }
 
 const { normalizeNbaOfficialAvailabilityStatus } =
@@ -102,7 +103,8 @@ const NBA_TEAM_ID_BY_NAME = {
 
 function normPlayer(s) { return String(s || "").trim().toLowerCase() }
 function normTeam(s)   { return String(s || "").trim().toLowerCase() }
-function todayIso()    { return new Date().toISOString().slice(0, 10) }
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayIso()    { return currentSlateDateEt() }
 
 function readJsonSafe(p, fb) {
   try { if (!fs.existsSync(p)) return fb; return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return fb }
@@ -221,8 +223,8 @@ async function fetchAllInjuriesSlateWide() {
 
 async function fetchTodayScoreboard() {
   if (!axios) return null
-  const d = new Date()
-  const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`
+  // Phase Date-Doctrine-1B — ET slate date, packed YYYYMMDD for ESPN URL
+  const dateStr = currentSlateDateEt().replace(/-/g, "")
   try {
     const r = await axios.get(`${ESPN_BASE}/scoreboard?dates=${dateStr}&limit=30`, { timeout: REQUEST_TIMEOUT })
     return r.data

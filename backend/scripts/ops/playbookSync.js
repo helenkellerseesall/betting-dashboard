@@ -23,6 +23,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../pipeline/shared/slateDate")
 
 const REPO = path.join(__dirname, "..", "..", "..")
 const DOCS = path.join(REPO, "docs")
@@ -64,7 +65,7 @@ function main() {
     console.error("usage: playbookSync.js <slice-id> \"<one-line summary>\" [commit-sha]")
     process.exit(1)
   }
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
 
   // 1. Append phase ledger entry
   const { alreadyPresent } = appendRunbookPhaseLedger(slice, today)

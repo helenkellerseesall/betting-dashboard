@@ -43,6 +43,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const REPO    = path.join(__dirname, "..", "..")
 const BACKEND = path.join(REPO, "backend")
@@ -130,7 +131,7 @@ const buildSlipAiSrc = fs.readFileSync(buildSlipAiPath, "utf8")
 // ─────────────────────────────────────────────────────────────────────────────
 function loadEligibleAndDate(sport) {
   if (!fs.existsSync(TRACKING_DIR)) return null
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   const files = fs.readdirSync(TRACKING_DIR)
   const days = files
     .filter((f) => f.startsWith(`${sport}_tracked_bets_`) && f.endsWith(".json"))

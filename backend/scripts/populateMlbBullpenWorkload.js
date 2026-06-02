@@ -13,6 +13,7 @@
 
 const axios = require("axios")
 const { refreshMlbBullpenWorkload } = require("../pipeline/mlb/ingest/refreshMlbBullpenWorkload")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 
@@ -39,7 +40,8 @@ async function fetchEventsForDate(date) {
 }
 
 async function main() {
-	const slateDate = process.argv[2] || new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+	const slateDate = process.argv[2] || currentSlateDateEt()
 	const events = await fetchEventsForDate(slateDate)
 	console.log(`[populateBullpen] events found for ${slateDate}: ${events.length}`)
 	for (const e of events.slice(0, 5)) {

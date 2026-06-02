@@ -23,6 +23,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const REPO    = path.join(__dirname, "..", "..")
 const BACKEND = path.join(REPO, "backend")
@@ -44,7 +45,7 @@ console.log("  verifyRuntimeRegenerationEnforcement.js (VS-3)")
 console.log("════════════════════════════════════════════════════════════════════")
 console.log("")
 
-const today = new Date().toISOString().slice(0, 10)
+const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
 const bestPath  = path.join(TRACKING, `mlb_tracked_best_${today}.json`)
 const picksPath = path.join(TRACKING, `mlb_picks_${today}.json`)
 

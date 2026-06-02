@@ -1317,7 +1317,9 @@ async function runAll() {
     // ── Intelligence snapshot (additive — never breaks pipeline) ────────────
     try {
       const intel = require("../storage/intelligence")
-      const today = new Date().toISOString().slice(0, 10)
+      // Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+      const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+      const today = currentSlateDateEt()
       const intelBoard = opp?.bestBetsBoard
       const intelPlays = Array.isArray(intelBoard?.allPlays) ? intelBoard.allPlays : []
       const intelSlips = (intelBoard?.slips && typeof intelBoard.slips === "object") ? intelBoard.slips : {}

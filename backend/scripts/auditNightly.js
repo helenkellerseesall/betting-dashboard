@@ -28,6 +28,7 @@
 const fs = require("fs")
 const path = require("path")
 const { spawnSync } = require("child_process")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 const AUDIT_DIR    = path.join(__dirname, "..", "runtime", "audits")
@@ -214,7 +215,8 @@ function pct(n, d) {
 }
 
 function buildReport({ window, args, gradingResult, perFile, totals, anomalies, git }) {
-  const today = new Date().toISOString().slice(0, 10)
+  // Phase Date-Doctrine-1B — canonical ET slate date
+  const today = currentSlateDateEt()
   const lines = []
   lines.push(`# Betting Dashboard — Nightly Audit`)
   lines.push("")

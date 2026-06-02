@@ -18,6 +18,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("./slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 const MAX_HISTORY_DAYS = 30
@@ -169,7 +170,7 @@ function bumpArchetype(state, archetypes, hit) {
     const e = state.archetypes[key] || (state.archetypes[key] = { samples: 0, hits: 0, lastSeen: null })
     e.samples += 1
     if (hit === true) e.hits += 1
-    e.lastSeen = new Date().toISOString().slice(0, 10)
+    e.lastSeen = currentSlateDateEt()
   }
 }
 

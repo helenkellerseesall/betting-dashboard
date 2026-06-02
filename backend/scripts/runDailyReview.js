@@ -30,6 +30,7 @@
  */
 
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const {
   runDailyIntelligenceReview,
@@ -47,10 +48,8 @@ function parseArgs(argv) {
   return args
 }
 
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 // ── Human-readable summary printer ───────────────────────────────────────────
 

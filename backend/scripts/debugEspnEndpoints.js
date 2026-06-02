@@ -20,6 +20,7 @@
  */
 
 const axios = require("axios")
+const { slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 const TIMEOUT_MS = 15000
@@ -69,7 +70,8 @@ async function main() {
   // Try yesterday
   const d = new Date()
   d.setDate(d.getDate() - 1)
-  const dateStr = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0")
+  // Phase Date-Doctrine-1B — ET slate date, packed YYYYMMDD for ESPN URL
+  const dateStr = slateDateForTimestamp(d.getTime()).replace(/-/g, "")
   const scoreboardUrl = `${ESPN_BASE}/scoreboard?dates=${dateStr}`
   console.log("\n--- 3. SCOREBOARD (yesterday) ---")
   console.log("URL:", scoreboardUrl)

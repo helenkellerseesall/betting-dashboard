@@ -32,6 +32,7 @@
 const { tryGetDb }              = require("./db")
 const { applyIntelligenceSchema } = require("./intelligenceSchema")
 const { classifyVolatility }    = require("../pipeline/shared/buildPortfolioOptimizer")
+const { currentSlateDateEt }    = require("../pipeline/shared/slateDate")
 // Phase E1 — Composite-key integrity hardening.
 // Sportsbook alias canonicalization shares the BOOK_ALIASES map with the rest
 // of the pipeline (single source of truth). `canonicalBook()` accepts any of
@@ -416,7 +417,8 @@ function deriveCanonicalSlateDate(value, opts = {}) {
   const timeZone = opts.timeZone || "America/Detroit"
   const d = new Date(value == null ? Date.now() : value)
   if (!Number.isFinite(d.getTime())) {
-    return new Date().toISOString().slice(0, 10)
+    // Phase Date-Doctrine-1B — fall back to canonical ET slate date
+    return currentSlateDateEt()
   }
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -786,7 +788,7 @@ function snapshotEcology(candidates, slipsByTier, opts = {}) {
     if (!db || !Array.isArray(candidates)) return false
 
     const sport   = safeStr(opts.sport) || "mlb"
-    const runDate = safeStr(opts.date)  || new Date().toISOString().slice(0, 10)
+    const runDate = safeStr(opts.date)  || currentSlateDateEt()
 
     // Pool composition
     const overs   = candidates.filter(c => String(c.side || "").toLowerCase() === "over").length

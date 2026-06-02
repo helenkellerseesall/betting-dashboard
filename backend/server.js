@@ -44,6 +44,10 @@ const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeO
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
 const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
+// 2026-06-01 Phase Date-Doctrine-1B — canonical ET slate date helper. Replaces
+// all `new Date().toISOString().slice(0,10)` and server-local date math
+// throughout this file. See SLATE_DATE_DOCTRINE.md.
+const { currentSlateDateEt, slateDateForTimestamp } = require("./pipeline/shared/slateDate")
 const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
 const {
   buildMlbInspectionBoard,
@@ -10257,7 +10261,7 @@ app.get("/api/odds", (req, res) => {
 // === Tracking (Phase 1): read-only inspection endpoints ===
 app.get("/api/tracking/summary", async (req, res) => {
   const date = typeof req.query?.date === "string" ? req.query.date : null
-  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : currentSlateDateEt()
 
   const runtimeDir = path.join(__dirname, "runtime", "tracking")
   const summaryPath = path.join(runtimeDir, `tracking_summary_${dateKey}.json`)
@@ -10313,7 +10317,7 @@ app.get("/api/tracking/summary", async (req, res) => {
 
 app.get("/api/tracking/tracked", (req, res) => {
   const date = typeof req.query?.date === "string" ? req.query.date : null
-  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : currentSlateDateEt()
   const runtimeDir = path.join(__dirname, "runtime", "tracking")
   const filePath = path.join(runtimeDir, `tracked_props_${dateKey}.json`)
   if (!fs.existsSync(filePath)) {
@@ -10330,7 +10334,7 @@ app.get("/api/tracking/tracked", (req, res) => {
 // MLB Phase 4 best picks only (isolated from `tracked_props_*` NBA / Phase-1 slate snapshots).
 app.get("/api/tracking/mlb-best", (req, res) => {
   const date = typeof req.query?.date === "string" ? req.query.date : null
-  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : currentSlateDateEt()
   const snap = readMlbTrackedBestSnapshot(dateKey)
   if (!fs.existsSync(snap.path)) {
     return res.json({
@@ -10355,7 +10359,7 @@ app.get("/api/tracking/mlb-best", (req, res) => {
 
 app.get("/api/tracking/graded", async (req, res) => {
   const date = typeof req.query?.date === "string" ? req.query.date : null
-  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10)
+  const dateKey = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : currentSlateDateEt()
   const runtimeDir = path.join(__dirname, "runtime", "tracking")
   const filePath = path.join(runtimeDir, `graded_props_${dateKey}.json`)
 
@@ -10449,7 +10453,7 @@ app.get("/api/decision/pairs", (req, res) => {
     const reqQueryDate = typeof req.query?.date === "string" ? req.query.date : ""
     const requestedDate = String(reqQueryDate || "").slice(0, 10)
     const liveSlateDate = typeof payload?.bestAvailable?.slateDate === "string" ? payload.bestAvailable.slateDate.slice(0, 10) : ""
-    const slateDate = requestedDate || liveSlateDate || new Date().toISOString().slice(0, 10)
+    const slateDate = requestedDate || liveSlateDate || currentSlateDateEt()
 
     const runtimeDir = path.join(__dirname, "runtime", "tracking")
     const trackedPath = path.join(runtimeDir, `tracked_props_${slateDate}.json`)

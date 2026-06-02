@@ -23,6 +23,7 @@
 const fs = require("fs")
 const path = require("path")
 const normalizeName = require("../../utils/normalizeName")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const CACHE_FILE = path.join(__dirname, "..", "..", "data", "nbaPlayerGameLogs.json")
 
@@ -57,9 +58,8 @@ function daysBetween(a, b) {
 	return Math.floor(Math.abs(bx - ax) / (1000 * 60 * 60 * 24))
 }
 
-function todayKey() {
-	return new Date().toISOString().slice(0, 10)
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 function getRestStatus(playerName, slateDate) {
 	const map = loadCache()

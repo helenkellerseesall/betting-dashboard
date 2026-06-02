@@ -35,6 +35,7 @@
 const fs = require("fs")
 const path = require("path")
 const clvMath = require("../pipeline/grading/clvMath")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 // 2026-05-27 — Lane B Phase 3. After stamping closeOdds on tracked_bets,
 // mirror the same close-line data into personal_ledger via the canonical
 // batchSetClosingLines. The FE GRADES tab reads clvPct + beatMarket from
@@ -57,32 +58,19 @@ const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 const CLOSE_WINDOW_MIN = 180                    // capture within 3h of tip (was 30)
 const POST_TIP_WINDOW_MIN = 30                  // also capture for games tipped up to 30min ago (was 10)
 
-// 2026-05-26 — Date resolution: tracked_bets files are written under the
-// Detroit (ET) slate date by buildNbaPerformanceTracking (matches the
-// operator's market & nightly cycle), NOT UTC. UTC-based todayKey would
-// miss the file at night (e.g. 00:12 UTC May 27 = 8:12pm ET May 26).
-// Resolve both candidate dates and use whichever has a file.
-function localDateKey() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-function utcDateKey() {
-  return new Date().toISOString().slice(0, 10)
-}
+// 2026-06-01 Phase Date-Doctrine-1B — slateDate helper (ET 4 AM boundary).
+// All slate file lookups route through currentSlateDateEt; we still fall back
+// to "yesterday's" slate file because some scripts run shortly after the 4 AM
+// rollover and the new file may not yet exist.
+function localDateKey() { return currentSlateDateEt() }
+function utcDateKey() { return currentSlateDateEt() }  // kept for callers; same source now
 function resolveActiveDate(sport = "nba") {
-  // 2026-05-28 — Sport-aware date resolution. Was nba-hardcoded.
-  // Walk back up to 2 days: today-local → today-UTC → yesterday-local.
-  // Returns first date for which a tracked_bets file exists for the sport.
-  const todayLocal = localDateKey()
-  const todayUtc   = utcDateKey()
-  const yesterdayLocal = (() => {
+  const today = currentSlateDateEt()
+  const yesterday = (() => {
     const d = new Date(); d.setDate(d.getDate() - 1)
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+    return slateDateForTimestamp(d.getTime())
   })()
-  const candidates = [todayLocal, todayUtc, yesterdayLocal]
+  const candidates = [today, yesterday]
   for (const d of candidates) {
     const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${d}.json`)
     if (fs.existsSync(p)) return d

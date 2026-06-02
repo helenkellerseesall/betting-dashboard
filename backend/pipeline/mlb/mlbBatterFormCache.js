@@ -23,6 +23,7 @@
 const fs = require("fs")
 const path = require("path")
 const normalizeName = require("../../utils/normalizeName")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const CACHE_FILE = path.join(__dirname, "..", "..", "data", "mlbBatterGameLogs.json")
 const DEFAULT_WINDOWS = [5, 10, 15]
@@ -119,7 +120,8 @@ function getBatterForm(playerName, window = 5) {
 	const hrInWindow = sumStat(recent, "homeRuns").total
 
 	// Days since last game (versus today)
-	const today = new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+	const today = currentSlateDateEt()
 	const lastDate = recent[0]?.date
 	const daysSinceLastGame = lastDate ? daysBetween(today, lastDate) : null
 

@@ -23,6 +23,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../pipeline/shared/slateDate")
 
 const DOCS = path.join(__dirname, "..", "..", "..", "docs")
 const EXEC_PATH = path.join(DOCS, "EXECUTION_BACKLOG.md")
@@ -95,7 +96,7 @@ function main() {
     process.exit(1)
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   let execSrc = fs.readFileSync(EXEC_PATH, "utf8")
   const parsed = activeSliceBlock(execSrc)
   const oldLane = getField(parsed.block, "lane")

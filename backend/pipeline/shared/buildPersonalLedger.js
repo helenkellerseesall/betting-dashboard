@@ -23,6 +23,7 @@
 const fs = require("fs")
 const path = require("path")
 const { computeClv, buildClvAnalytics, classifyResultVsClv } = require("./buildClv")
+const { currentSlateDateEt } = require("./slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 const LEDGER_FILE = path.join(TRACKING_DIR, "personal_ledger.json")
@@ -162,10 +163,8 @@ function round4(x) {
   return Math.round(Number(x) * 10000) / 10000
 }
 
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 function americanToDecimal(american) {
   const a = num(american)

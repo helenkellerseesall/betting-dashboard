@@ -26,6 +26,7 @@
 
 const { tryGetDb }                = require("../../../storage/db")
 const { applyIntelligenceSchema } = require("../../../storage/intelligenceSchema")
+const { currentSlateDateEt }      = require("../../shared/slateDate")
 
 let _schemaApplied = false
 
@@ -161,7 +162,7 @@ function freezeMlbContextualEpoch(args = {}) {
 		if (!db) { out.error = "sqlite_unavailable"; return out }
 
 		const predictions = Array.isArray(args.predictions) ? args.predictions : []
-		const slateDate   = safeStr(args.slateDate) || new Date().toISOString().slice(0, 10)
+		const slateDate   = safeStr(args.slateDate) || currentSlateDateEt()
 		const snapshotUpdatedAt = safeStr(args.snapshotUpdatedAt)
 		const source      = safeStr(args.source) || "workstation_state"
 		const notes       = safeStr(args.notes)

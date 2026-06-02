@@ -15,6 +15,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../../pipeline/shared/slateDate")
 
 const LANES = ["MCR","INFRA","INFRA / GOVERNANCE","ACTIVE EXECUTION","FRONTEND/UX LAB","FRONTEND / UX LAB","FULL SYSTEM AUDIT","OPERATOR PLAYBOOK"]
 const RISKS_PATH = path.join(__dirname, "..", "..", "..", "docs", "OPEN_RISKS.md")
@@ -44,7 +45,7 @@ function main() {
   }
   const src   = fs.readFileSync(RISKS_PATH, "utf8")
   const id    = nextId(src)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
   const body  = (readStdin() || "(assistant to fill in)").trim().split("\n").map(l => "  " + l).join("\n")
   const slice = sliceArg || "none"
 

@@ -24,6 +24,7 @@
 const fs = require("fs")
 const path = require("path")
 const normalizeName = require("../../utils/normalizeName")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const CACHE_FILE = path.join(__dirname, "..", "..", "data", "mlbPitcherGameLogs.json")
 const MIN_STARTS_FOR_FORM = 2
@@ -101,7 +102,8 @@ function getPitcherForm(playerName, window = 3) {
 	const hitsPerStart = recent.length > 0 ? hits / recent.length : null
 	const krPerStart = recent.length > 0 ? k / recent.length : null
 
-	const today = new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+	const today = currentSlateDateEt()
 	const lastDate = recent[0]?.date
 	const daysSinceLastStart = lastDate ? daysBetween(today, lastDate) : null
 

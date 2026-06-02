@@ -39,6 +39,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const CACHE_PATH = path.join(__dirname, "..", "..", "data", "nbaPlayerGameLogs.json")
 const PROJ_PATH  = path.join(__dirname, "..", "..", "data", "nbaPlayerProjections.json")
@@ -76,7 +77,8 @@ function statFamilyToCacheKey(fam) {
 
 function normPlayer(s) { return String(s || "").trim().toLowerCase() }
 function normTeam(s)   { return String(s || "").trim().toLowerCase() }
-function todayIso()    { return new Date().toISOString().slice(0, 10) }
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayIso()    { return currentSlateDateEt() }
 
 function daysBetween(isoA, isoB) {
   const a = new Date(isoA + "T00:00:00Z").getTime()

@@ -83,6 +83,9 @@ const { enrichRowWithAvailability: enrichNbaRowWithAvailability } = require("../
 const { freezePredictionEpoch } = require("../pipeline/memory/freezePredictionEpoch")
 const screenshotRoutes = require("../pipeline/screenshots/screenshotRoutes")
 const { compactLineShopping, compactTiming, compactPortfolio } = require("../pipeline/shared/buildWorkstationCompactors")
+// 2026-06-01 Phase Date-Doctrine-1B — canonical ET slate date helper. Replaces
+// all server-local + UTC date math throughout this file. See SLATE_DATE_DOCTRINE.md.
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 const slipAuditRoute      = require("./slipAuditRoute")
 const portfolioAuditRoute = require("./portfolioAuditRoute")
 // Operational trust hardening — snapshot freshness probe. Read-only.
@@ -183,8 +186,8 @@ function laneStatusBadge(status) {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
+  return currentSlateDateEt()
 }
 
 function readJsonSafe(p, fallback = null) {
@@ -1226,8 +1229,7 @@ router.get("/games", (req, res) => {
     const modelProbLookup = (() => {
       const map = new Map()
       try {
-        // 2026-06-01 Phase Date-Doctrine-1A — canonical ET slate date.
-        const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+        // 2026-06-01 Phase Date-Doctrine-1A/1B — canonical ET slate date.
         const date = currentSlateDateEt()
         const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
         if (!fs.existsSync(p)) return map
@@ -1645,10 +1647,8 @@ router.post("/ledger/log", express.json(), (req, res) => {
       for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
       return (h >>> 0).toString(16)
     }
-    const _todayKey = (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    })()
+    // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
+    const _todayKey = currentSlateDateEt()
     const _idParts = [
       String(body.sport || "").toLowerCase(),
       _todayKey,
@@ -1732,10 +1732,10 @@ router.get("/ledger/yesterday", (req, res) => {
     const ledger = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null
     if (!ledger) return res.json({ date: null, picks: [], totals: null })
 
-    // Yesterday in operator's local-day key (matches todayKey() in ledger)
+    // Yesterday's slate date — 2026-06-01 Phase Date-Doctrine-1B canonical helper.
     const y = new Date()
     y.setDate(y.getDate() - 1)
-    const yKey = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`
+    const yKey = slateDateForTimestamp(y.getTime())
 
     // 2026-05-27 — Lane B Phase 3 v0.3 Path A. Filter LONGSHOT-tier picks from
     // FE GRADES display. tracked_bets and ledger keep them for audit (CLV
@@ -1874,8 +1874,8 @@ router.get("/ledger/yesterday", (req, res) => {
     // decisionType="placed" OR realMoney=true. The GRADES tab needs to show
     // these separately from the 50000+ model-tracked picks. Surface BOTH
     // yesterday's settled placed bets AND today's pending ones.
-    const tdy = new Date()
-    const todayKey = `${tdy.getFullYear()}-${String(tdy.getMonth() + 1).padStart(2, "0")}-${String(tdy.getDate()).padStart(2, "0")}`
+    // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
+    const todayKey = currentSlateDateEt()
 
     function rollupPlaced(bets) {
       let pwins = 0, plosses = 0, ppushes = 0, ppending = 0, pstaked = 0, pprofit = 0, ptoWin = 0
@@ -1923,10 +1923,10 @@ router.get("/ledger/yesterday", (req, res) => {
       if (!Number.isFinite(stake) || stake < 1) return false  // exclude penny test entries
       return true
     }
-    // Date window: last 14 days inclusive of today
+    // Date window: last 14 days inclusive of today — 2026-06-01 Phase Date-Doctrine-1B helper.
     const fourteenDaysAgo = new Date()
     fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
-    const windowKey = `${fourteenDaysAgo.getFullYear()}-${String(fourteenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(fourteenDaysAgo.getDate()).padStart(2, "0")}`
+    const windowKey = slateDateForTimestamp(fourteenDaysAgo.getTime())
     const placedAll = (ledger.bets || [])
       .filter(isPlaced)
       .filter((b) => !sport || b.sport === sport)
@@ -2347,10 +2347,7 @@ function buildReasoning(pick, bestEntry) {
  */
 router.get("/top-picks", (req, res) => {
   try {
-    // 2026-06-01 Phase Date-Doctrine-1A — canonical ET slate date with
-    // 4 AM boundary. Was: server-local `getFullYear/Month/Date` which read
-    // as ET on operator's mac but UTC in sandbox/CI. Now: same everywhere.
-    const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+    // 2026-06-01 Phase Date-Doctrine-1A/1B — canonical ET slate date.
     const todayK = currentSlateDateEt()
     let date = req.query.date ? String(req.query.date) : todayK
     let fellBack = false
@@ -2519,10 +2516,8 @@ router.get("/top-picks", (req, res) => {
  */
 router.get("/games-browser", (req, res) => {
   try {
-    const todayK = (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    })()
+    // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
+    const todayK = currentSlateDateEt()
     let date = req.query.date ? String(req.query.date) : todayK
     let fellBack = false
     const requestedDate = date
@@ -2708,13 +2703,13 @@ router.get("/grades-health", (req, res) => {
   try {
     const days = Math.min(30, Math.max(1, Number(req.query.days) || 7))
     const sports = ["nba", "mlb"]
-    const today = new Date()
-    const out = { days, today: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`, sports: {} }
+    // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
+    const out = { days, today: currentSlateDateEt(), sports: {} }
     for (const sport of sports) {
       const window = { days: [], total: 0, clvStamped: 0, settled: 0, wins: 0, losses: 0, pushes: 0, pending: 0, clvSumCents: 0, clvBeatMarket: 0 }
       for (let i = 0; i < days; i++) {
         const d = new Date(); d.setDate(d.getDate() - i)
-        const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+        const dk = slateDateForTimestamp(d.getTime())
         const file = readJsonSafe(fileFor(sport, "tracked_bets", dk), null)
         if (!file) continue
         const arr = Array.isArray(file) ? file : []

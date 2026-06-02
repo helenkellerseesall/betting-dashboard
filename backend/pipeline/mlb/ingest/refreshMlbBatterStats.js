@@ -70,6 +70,7 @@ const fs = require("fs")
 const path = require("path")
 const axios = require("axios")
 const normalizeName = require("../../../utils/normalizeName")
+const { currentSlateDateEt } = require("../../shared/slateDate")
 
 const SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 const PEOPLE_URL = "https://statsapi.mlb.com/api/v1/people"
@@ -84,7 +85,8 @@ function toNum(v) {
 
 function deriveSlateDate(date) {
 	if (date) return String(date).slice(0, 10)
-	return new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+	return currentSlateDateEt()
 }
 
 async function fetchTeamsPlayingOnDate(date) {

@@ -2,12 +2,14 @@
 
 const fs = require("fs/promises")
 const path = require("path")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const RUNTIME_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
 function toDateKey(dateLike) {
   if (typeof dateLike === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateLike)) return dateLike
-  return new Date().toISOString().slice(0, 10)
+  return currentSlateDateEt()
 }
 
 function norm(v) {

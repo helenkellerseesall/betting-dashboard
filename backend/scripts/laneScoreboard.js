@@ -32,6 +32,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const TRACKING_DIR  = path.join(__dirname, "..", "runtime", "tracking")
 const SCORECARDS_DIR = path.join(__dirname, "..", "..", "scorecards")
@@ -73,15 +74,13 @@ function parseArgs() {
   return out
 }
 
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 function isoDaysAgo(n) {
   const d = new Date()
   d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
+  return slateDateForTimestamp(d.getTime())
 }
 
 function readJsonSafe(p, fb = null) {

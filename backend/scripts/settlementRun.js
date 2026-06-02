@@ -47,6 +47,7 @@
 const fs   = require("fs")
 const path = require("path")
 const { spawnSync } = require("child_process")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const BACKEND_DIR    = path.join(__dirname, "..")
 const REPO_ROOT      = path.join(BACKEND_DIR, "..")
@@ -55,10 +56,8 @@ const GRADE_CLI      = path.join(__dirname, "runHistoricalGrade.js")
 const NIGHTLY_CLI    = path.join(REPO_ROOT, "scripts", "nightlyReview.js")
 const BACKFILL_ALL   = path.join(__dirname, "runGradingBackfillAll.js")
 
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 
 // ── Phase Settlement-Ingestion-Window-1A (AUTO-3) ────────────────────────────
 //

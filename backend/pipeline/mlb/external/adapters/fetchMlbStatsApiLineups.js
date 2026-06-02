@@ -76,6 +76,7 @@
  */
 
 const axios = require("axios")
+const { currentSlateDateEt } = require("../../../shared/slateDate")
 
 const STATSAPI_BASE = "https://statsapi.mlb.com/api/v1"
 const SCHEDULE_URL = `${STATSAPI_BASE}/schedule`
@@ -244,7 +245,8 @@ async function fetchMlbStatsApiLineups({ events = [], slateDate = null, axiosIns
 
   // Step 1: resolve gamePk for each event. If event already has gamePk on it,
   // use that. Otherwise, fetch the MLB Stats schedule and match by team names.
-  const derivedSlateDate = slateDate || new Date().toISOString().slice(0, 10)
+  // Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+  const derivedSlateDate = slateDate || currentSlateDateEt()
   let scheduleIdx = null
   const needSchedule = safeEvents.some(e => e?.gamePk == null && e?.mlbStatsApiGamePk == null)
   if (needSchedule) {

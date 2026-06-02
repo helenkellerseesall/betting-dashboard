@@ -25,6 +25,7 @@
 
 const path = require("path")
 const { addOrUpdateBet } = require("../pipeline/shared/buildPersonalLedger")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 function parseArgs(argv) {
 	const mode = argv[2]
@@ -71,7 +72,8 @@ function makeSingleLeg(args) {
 		console.error("[addPlacedBet] single requires --player, --stake, --odds")
 		process.exit(1)
 	}
-	const today = new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date
+	const today = currentSlateDateEt()
 	const bet = {
 		date: today,
 		sport: o.sport || "nba",
@@ -105,7 +107,8 @@ function makeParlay(args) {
 		console.error("[addPlacedBet] parlay requires --stake, --odds, and ≥2 --leg=player|stat|line|side")
 		process.exit(1)
 	}
-	const today = new Date().toISOString().slice(0, 10)
+	// Phase Date-Doctrine-1B — canonical ET slate date
+	const today = currentSlateDateEt()
 	const toWin = Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2))
 	const legSummary = args.legs.map((l) => `${l.player.split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
 	const parlay = {

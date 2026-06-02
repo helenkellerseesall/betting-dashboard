@@ -49,6 +49,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../shared/slateDate")
 
 const { computeCalibration, gradeCalibration }         = require("./buildCalibrationMetrics")
 const { gradeEcologyForDay }                           = require("./buildEcologyGrader")
@@ -648,7 +649,7 @@ function persistToSqlite({ sport, date, report, calResult, ecoResult, volResult,
  */
 function runDailyIntelligenceReview(opts = {}) {
   const sport   = String(opts.sport || "mlb").toLowerCase()
-  const date    = opts.date || new Date().toISOString().slice(0, 10)
+  const date    = opts.date || currentSlateDateEt()
   const write   = opts.dryRun ? false : (opts.write !== false)
   const verbose = !!opts.verbose
 

@@ -5,6 +5,8 @@
  * No NBA oddsSnapshot reads/writes here — only mlbSnapshot and MLB builders.
  */
 
+// 2026-06-01 Phase Date-Doctrine-1B — canonical ET slate date helper.
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 const { buildMlbAutoTickets } = require("../pipeline/mlb/buildMlbAutoTickets")
 const { buildMlbHrPredictionCandidates } = require("../pipeline/mlb/buildMlbHrPredictionCandidates")
 const { buildMlbHrStacks } = require("../pipeline/mlb/buildMlbHrStacks")
@@ -548,7 +550,7 @@ async function handleMlbBestAvailableGet(req, res, deps) {
   }
 
   const hrSlips = buildMlbHrSlips({ hrPredictionToday })
-  const today = new Date().toISOString().slice(0, 10)
+  const today = currentSlateDateEt()
   console.log('[TRACK VERIFY] hrSlips:', hrSlips)
   trackMlbHrSlips({
     hrSlips,

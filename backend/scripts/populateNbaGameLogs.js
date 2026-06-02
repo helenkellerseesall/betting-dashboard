@@ -45,6 +45,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 let axios
 try { axios = require("axios") } catch (_) { axios = null }
 
@@ -255,7 +256,7 @@ function mergeIntoCache(cache, entries) {
   for (const e of entries) {
     const pk = normName(e.player)
     if (!cache.players[pk]) {
-      cache.players[pk] = { team: e.team || null, games: [], lastUpdated: new Date().toISOString().slice(0, 10), source: "espn" }
+      cache.players[pk] = { team: e.team || null, games: [], lastUpdated: currentSlateDateEt(), source: "espn" }
     }
     const entry = cache.players[pk]
     if (!seenPlayer.has(pk)) { playersTouched++; seenPlayer.add(pk) }
@@ -280,7 +281,7 @@ function mergeIntoCache(cache, entries) {
       })
       gamesAdded++
     }
-    entry.lastUpdated = new Date().toISOString().slice(0, 10)
+    entry.lastUpdated = currentSlateDateEt()
     // Mark source as mixed if we already had non-espn entries
     entry.source = entry.source && entry.source !== "espn" ? "mixed" : "espn"
   }

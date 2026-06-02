@@ -10,6 +10,9 @@ console.log("ACTIVE:", __filename)
 const path = require("path")
 const fs = require("fs")
 
+// 2026-06-01 Phase Date-Doctrine-1B — canonical ET slate date helper.
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+
 const { buildNbaOpportunityBoard } = require("../pipeline/nba/buildNbaOpportunityBoard")
 const { classifyNbaTier } = require("../pipeline/nba/nbaTierClassifier")
 const { buildNbaInsightBoard } = require("../pipeline/nba/buildNbaInsightBoard")
@@ -46,7 +49,10 @@ function _lazyFreezePredictionEpoch(args) {
 // without taking a hard dependency on that module here.
 function _detroitSlateDateKey(value) {
   const date = new Date(value || Date.now())
-  if (!Number.isFinite(date.getTime())) return new Date().toISOString().slice(0, 10)
+  // 2026-06-01 Phase Date-Doctrine-1B — ET fallback (was UTC). America/Detroit
+  // is in the ET timezone so the formatter still produces an ET-keyed date;
+  // the fallback now also uses ET via the canonical helper.
+  if (!Number.isFinite(date.getTime())) return currentSlateDateEt()
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Detroit",
     year: "numeric", month: "2-digit", day: "2-digit",
@@ -1360,7 +1366,7 @@ async function handleNbaBestAvailableGet(req, res, deps) {
 
   // Fix R1 Step 3 — build workstation candidates + featured + slips from corePropsBoard
   const __t_wsBuild = Date.now()
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = currentSlateDateEt()
   let wsCandidates = []
   let wsFeatured = null
   let wsAiSlips = { slips: { safe: [], balanced: [], aggressive: [], lotto: [] } }

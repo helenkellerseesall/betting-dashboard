@@ -28,6 +28,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("./slateDate")
 
 // ── sub-engines ───────────────────────────────────────────────────────────────
 const { runPostGameReview }        = require("./buildPostGameReview")
@@ -75,10 +76,8 @@ function readJsonSafe(p, fb = null) {
 function writeJsonSync(p, d) {
   try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(d)); return true } catch (_) { return false }
 }
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return currentSlateDateEt() }
 function elapsed(label, t0) {
   return `${label} +${Date.now() - t0}ms`
 }

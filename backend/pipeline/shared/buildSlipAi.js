@@ -36,6 +36,7 @@
 
 const { resolveNbaVolatility } = require("../nba/nbaVolatilityResolver")
 const { isOffensiveAttackStat } = require("./normalizers")
+const { currentSlateDateEt } = require("./slateDate")
 // Phase Item 0003 Slice 2 — canonical sportsbook topology selector. Used at
 // the curated slip emit boundary (after buildSlipsForTier produces slips) to
 // enforce same-book constructability + reject mixed-book / unauthorized-book
@@ -1299,7 +1300,7 @@ function buildAiSlips(opts = {}) {
   } = opts
 
   const sport      = options.sport || "any"
-  const date       = options.date  || new Date().toISOString().slice(0, 10)
+  const date       = options.date  || currentSlateDateEt()
   const maxPerTier = options.maxPerTier || 4
 
   // Phase MLB-Correlation-Engine-1A: reset per-run MLB covariance counters

@@ -14,6 +14,7 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const ROOT = path.join(__dirname, "..", "..")
 const TRACK_DIR = path.join(ROOT, "backend", "runtime", "tracking")
@@ -24,8 +25,9 @@ function mtime(p) { try { return fs.statSync(p).mtime.toISOString() } catch { re
 function readJson(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return null } }
 function fileContains(p, s) { try { return fs.readFileSync(p, "utf8").includes(s) } catch { return false } }
 
-const today = new Date().toISOString().slice(0, 10)
-const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+const today = currentSlateDateEt()
+const yesterday = slateDateForTimestamp(Date.now() - 86400000)
 
 console.log("================================================================")
 console.log("  BETTING-DASHBOARD STATE EXPORT  " + new Date().toISOString())

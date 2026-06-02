@@ -22,6 +22,7 @@
 const path = require("path")
 const fs = require("fs")
 const { importFromTrackedBets } = require(path.join(__dirname, "..", "pipeline", "shared", "buildPersonalLedger"))
+const { slateDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 function parseArgs() {
   const out = { from: null, to: null, sport: null, dryRun: false, days: 7 }
@@ -35,9 +36,8 @@ function parseArgs() {
   return out
 }
 
-function localDateKey(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function localDateKey(d) { return slateDateForTimestamp(d.getTime()) }
 
 function dateRange(from, to) {
   const out = []

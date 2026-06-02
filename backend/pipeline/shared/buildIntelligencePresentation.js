@@ -829,10 +829,8 @@ function loadAndBuildBoard({ sport = "mlb", date = null, compact = false } = {})
   return buildBoard({ bets, lineShopping, timingResult, bookState, ledgerReport, sport, date: d, bankrollInfo, compact })
 }
 
-function todayKey() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
-}
+// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
+function todayKey() { return require("./slateDate").currentSlateDateEt() }
 
 module.exports = {
   buildBoard,

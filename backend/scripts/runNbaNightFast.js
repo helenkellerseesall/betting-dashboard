@@ -32,16 +32,16 @@
 
 const fs = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 
-function todayUtc() { return new Date().toISOString().slice(0, 10) }
+// Phase Date-Doctrine-1B — both helpers now resolve to canonical ET slate date.
+// Kept dual names so existing call sites that pass --date=local or --date=utc
+// retain their public arg, but data path is unified to ET.
+function todayUtc() { return currentSlateDateEt() }
 function todayLocal() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
+  return currentSlateDateEt()
 }
 
 async function main() {

@@ -18,6 +18,7 @@
 
 const fs   = require("fs")
 const path = require("path")
+const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const REPO     = path.join(__dirname, "..", "..")
 const BACKEND  = path.join(REPO, "backend")
@@ -74,7 +75,7 @@ assert(/leanSlip[\s\S]{0,2000}book\s*:\s*l\.book\s*\?\?/.test(phase4Src),
 // ── C — empirical persisted slips ────────────────────────────────────────
 console.log("")
 console.log("Cluster C — empirical persisted slips (single-book + topology-constructable)")
-const today = new Date().toISOString().slice(0, 10)
+const today = currentSlateDateEt()  // Phase Date-Doctrine-1B
 const slipFiles = fs.existsSync(TRACKING)
   ? fs.readdirSync(TRACKING).filter(f => /^mlb_tracked_slips_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
   : []
