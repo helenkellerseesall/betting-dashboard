@@ -36,7 +36,7 @@ If TERM 1 dies, restart it first. If you accidentally type slate:nba in TERM 1, 
 - Commits in TERM 2 use line-separated commands inside the fence:
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard
+cd /Users/andrewmoore/Projects/betting-dashboard
 git add <specific files>
 git commit -m "<message>"
 git push origin stable-nba-engine
@@ -53,7 +53,7 @@ When code changes, pick the right cycle to verify the change. Picking wrong wast
 **ULTRA-FAST (~2 sec)** — format-only changes (FE strings, tag wording, CSS):
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 node scripts/rebuildDisplayBundlesOnly.js
 ```
 
@@ -62,7 +62,7 @@ No backend restart. Just regenerates display bundles. iPhone reload shows new st
 **MEDIUM (~30 sec)** — cognition changes (model math, gates, classifier logic) — backend restart required:
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 npm run engine:restart
 ```
 
@@ -71,7 +71,7 @@ Wait for boot markers (below). Backend now runs new code with cached snapshot.
 **SLOW (~5 min)** — fresh odds + full cycle (snapshot refresh + all engines + tracked_bets):
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 npm run slate:nba
 ```
 
@@ -84,15 +84,15 @@ Calls the backend's `/refresh-snapshot/hard-reset` + `/api/best-available` + `/a
 Canonical:
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 npm run engine:restart
 ```
 
 With log capture (preferred when verifying a change):
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
-npm run engine:restart 2>&1 | tee /Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend.log
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
+npm run engine:restart 2>&1 | tee /Users/andrewmoore/Projects/betting-dashboard/.scratch/backend.log
 ```
 
 **Wait for ALL THREE boot markers before declaring ready**:
@@ -108,8 +108,8 @@ If you see `port 4000 in use` — kill the old process first or use engine:resta
 ## Slate refresh (TERM 2 after backend up)
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
-npm run slate:nba 2>&1 | tee /Users/andrewmoore/Desktop/betting-dashboard/.scratch/slate-nba.log
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
+npm run slate:nba 2>&1 | tee /Users/andrewmoore/Projects/betting-dashboard/.scratch/slate-nba.log
 ```
 
 Returns in 30s-2min. Look for `slate:nba completed in XXXXms`. After it returns, tracked_bets file has been rewritten.
@@ -123,7 +123,7 @@ MLB equivalent: `npm run slate:mlb`
 Single command. Grades all pending tracked_bets, then writes a dated audit report.
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard/backend
+cd /Users/andrewmoore/Projects/betting-dashboard/backend
 npm run audit:nightly
 ```
 
@@ -150,7 +150,7 @@ Flags:
 The CLV capture loop populates `closeOdds + clv + clvQuality` on tracked_bets entries within 30 min of each tipoff. If backend stays up, this happens automatically. To verify it's actually working:
 
 ```
-node -e "const fs=require('fs');const dir='/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const total=b.length;const captured=b.filter(x=>x.closeOdds!=null).length;const open=b.filter(x=>x.openOdds!=null).length;console.log(f+': total='+total+' openStamped='+open+' closeStamped='+captured+' clvHealthy='+(captured/total>0.3?'YES':'NO (low capture rate)'));"
+node -e "const fs=require('fs');const dir='/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const total=b.length;const captured=b.filter(x=>x.closeOdds!=null).length;const open=b.filter(x=>x.openOdds!=null).length;console.log(f+': total='+total+' openStamped='+open+' closeStamped='+captured+' clvHealthy='+(captured/total>0.3?'YES':'NO (low capture rate)'));"
 ```
 
 **Healthy state (1+ day after first game tipped)**:
@@ -168,7 +168,7 @@ node -e "const fs=require('fs');const dir='/Users/andrewmoore/Desktop/betting-da
 See what families landed in tracked_bets today:
 
 ```
-node -e "const fs=require('fs');const dir='/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const by={};for(const x of b)by[x.statFamily]=(by[x.statFamily]||0)+1;console.log(f+' ('+b.length+' bets)');for(const k of Object.keys(by).sort())console.log('  '+k.padEnd(20)+' '+by[k]);"
+node -e "const fs=require('fs');const dir='/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const by={};for(const x of b)by[x.statFamily]=(by[x.statFamily]||0)+1;console.log(f+' ('+b.length+' bets)');for(const k of Object.keys(by).sort())console.log('  '+k.padEnd(20)+' '+by[k]);"
 ```
 
 **Expected NBA families (as of Lane A6)** — 8 active:
@@ -194,9 +194,9 @@ Pattern: TERM 2 writes diagnostic output to `.scratch/last.txt` with `>` (overwr
 Single command to dump the operational truth to scratch for Claude to read:
 
 ```
-node -e "const fs=require('fs');const dir='/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const by={};for(const x of b)by[x.statFamily]=(by[x.statFamily]||0)+1;console.log(f+' total='+b.length);for(const k of Object.keys(by).sort())console.log('  '+k.padEnd(20)+' '+by[k]);" > /Users/andrewmoore/Desktop/betting-dashboard/.scratch/last.txt
-tail -50 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend.log >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/last.txt
-git -C /Users/andrewmoore/Desktop/betting-dashboard log --oneline -5 >> /Users/andrewmoore/Desktop/betting-dashboard/.scratch/last.txt
+node -e "const fs=require('fs');const dir='/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const by={};for(const x of b)by[x.statFamily]=(by[x.statFamily]||0)+1;console.log(f+' total='+b.length);for(const k of Object.keys(by).sort())console.log('  '+k.padEnd(20)+' '+by[k]);" > /Users/andrewmoore/Projects/betting-dashboard/.scratch/last.txt
+tail -50 /Users/andrewmoore/Projects/betting-dashboard/.scratch/backend.log >> /Users/andrewmoore/Projects/betting-dashboard/.scratch/last.txt
+git -C /Users/andrewmoore/Projects/betting-dashboard log --oneline -5 >> /Users/andrewmoore/Projects/betting-dashboard/.scratch/last.txt
 ```
 
 Then say `check` in chat.
@@ -232,9 +232,9 @@ This is intentional. Predictions module is purpose-built and deep; workstation i
 Run this before any new lane to make sure runtime state matches doctrine:
 
 ```
-git -C /Users/andrewmoore/Desktop/betting-dashboard log --oneline -3
-git -C /Users/andrewmoore/Desktop/betting-dashboard status --short
-node -e "const fs=require('fs');const dir='/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const captured=b.filter(x=>x.closeOdds!=null).length;console.log(f+': bets='+b.length+' clvCaptured='+captured);"
+git -C /Users/andrewmoore/Projects/betting-dashboard log --oneline -3
+git -C /Users/andrewmoore/Projects/betting-dashboard status --short
+node -e "const fs=require('fs');const dir='/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/';const f=fs.readdirSync(dir).filter(x=>x.startsWith('nba_tracked_bets_')).sort().slice(-1)[0];const b=JSON.parse(fs.readFileSync(dir+f,'utf8'));const captured=b.filter(x=>x.closeOdds!=null).length;console.log(f+': bets='+b.length+' clvCaptured='+captured);"
 ```
 
 Confirms: latest commits visible, no surprise uncommitted code, CLV state visible.

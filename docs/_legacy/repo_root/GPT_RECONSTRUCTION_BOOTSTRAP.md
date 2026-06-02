@@ -6,7 +6,7 @@
 
 ## ⚠️ READ THIS FIRST — INSTRUCTIONS FOR A FRESH GPT CHAT
 
-You are picking up an in-progress betting-intelligence repo at **`/Users/andrewmoore/Desktop/betting-dashboard`**. This file consolidates the operating state. You must follow these rules immediately:
+You are picking up an in-progress betting-intelligence repo at **`/Users/andrewmoore/Projects/betting-dashboard`**. This file consolidates the operating state. You must follow these rules immediately:
 
 1. **DO NOT rediscover architecture.** Architecture is settled across 25 shipped phases. Use what you read here.
 2. **DO NOT re-solve solved problems.** § 4 lists 28 SOLVED items linked to phases.

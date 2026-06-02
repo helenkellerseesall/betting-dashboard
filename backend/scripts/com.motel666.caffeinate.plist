@@ -10,7 +10,7 @@
     - Survives Mac restart (loads at next login)
 
   Install once:
-    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.caffeinate.plist \
+    cp /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/com.motel666.caffeinate.plist \
        ~/Library/LaunchAgents/com.motel666.caffeinate.plist
     launchctl load -w ~/Library/LaunchAgents/com.motel666.caffeinate.plist
 
@@ -22,7 +22,7 @@
     launchctl unload -w ~/Library/LaunchAgents/com.motel666.caffeinate.plist
 
   Logs:
-    tail -f /Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log
+    tail -f /Users/andrewmoore/Projects/betting-dashboard/.scratch/caffeinate-launchd.log
 -->
 <plist version="1.0">
 <dict>
@@ -56,9 +56,9 @@
 
     <!-- Logging for diagnostics. -->
     <key>StandardOutPath</key>
-    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log</string>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/caffeinate-launchd.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log</string>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/caffeinate-launchd.log</string>
 </dict>
 </plist>

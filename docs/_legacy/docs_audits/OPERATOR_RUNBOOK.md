@@ -1959,7 +1959,7 @@ Run after ANY mutation that touches `phase4Tracking.toTrackedMlbBestEntry`, `toT
 
 ```sh
 # 0. precondition — confirm working tree
-cd /Users/andrewmoore/Desktop/betting-dashboard
+cd /Users/andrewmoore/Projects/betting-dashboard
 git log --oneline -1
 
 # 1. flush in-process cache (kill any running server)

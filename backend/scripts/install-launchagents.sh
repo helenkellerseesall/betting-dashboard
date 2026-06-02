@@ -7,7 +7,7 @@
 # RE-RUNNABLE — unloads any existing version before re-installing.
 #
 # Usage:
-#   bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/install-launchagents.sh
+#   bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/install-launchagents.sh
 #
 # After this runs:
 #   - All four daemons are managed by launchd
@@ -23,11 +23,11 @@
 #   pgrep -f "cloudflared tunnel"
 #
 # To uninstall everything:
-#   bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/install-launchagents.sh uninstall
+#   bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/install-launchagents.sh uninstall
 
 set -u
 
-REPO=/Users/andrewmoore/Desktop/betting-dashboard
+REPO=/Users/andrewmoore/Projects/betting-dashboard
 SCRIPTS=$REPO/backend/scripts
 AGENTS=$HOME/Library/LaunchAgents
 
@@ -147,7 +147,7 @@ if grep -q "betting-dashboard/backend/scripts" "$HOME/.zshrc" 2>/dev/null; then
 else
   echo '' >> "$HOME/.zshrc"
   echo '# motel666 betting-dashboard scripts on PATH (2026-05-28)' >> "$HOME/.zshrc"
-  echo 'export PATH="$PATH:/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts"' >> "$HOME/.zshrc"
+  echo 'export PATH="$PATH:/Users/andrewmoore/Projects/betting-dashboard/backend/scripts"' >> "$HOME/.zshrc"
   echo "  ✓ appended PATH export to ~/.zshrc"
   echo "    reload current shell with: source ~/.zshrc"
   echo "    or open a new terminal — then 'status.sh' works as bare command"
@@ -174,9 +174,9 @@ for name in caffeinate "node.*server" scheduler.sh "cloudflared tunnel"; do
 done
 echo ""
 echo "If anything's ✗, check:"
-echo "  tail -20 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/caffeinate-launchd.log"
-echo "  tail -20 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend-launchd.log"
-echo "  tail -20 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler-launchd.log"
-echo "  tail -20 /Users/andrewmoore/Desktop/betting-dashboard/.scratch/cloudflared-launchd.log"
+echo "  tail -20 /Users/andrewmoore/Projects/betting-dashboard/.scratch/caffeinate-launchd.log"
+echo "  tail -20 /Users/andrewmoore/Projects/betting-dashboard/.scratch/backend-launchd.log"
+echo "  tail -20 /Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler-launchd.log"
+echo "  tail -20 /Users/andrewmoore/Projects/betting-dashboard/.scratch/cloudflared-launchd.log"
 echo ""
 echo "All set. Mac restart → all four auto-start within 30s of login. No terminals needed."

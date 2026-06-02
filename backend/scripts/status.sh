@@ -16,14 +16,14 @@
 # read latest state via Read tool).
 #
 # Usage:
-#   bash /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/status.sh
+#   bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/status.sh
 #
 # Exit code: always 0 (informational). Use the visual ✓/✗ markers to spot
 # problems.
 
 set -u
 
-REPO=/Users/andrewmoore/Desktop/betting-dashboard
+REPO=/Users/andrewmoore/Projects/betting-dashboard
 SCRATCH=$REPO/.scratch
 LOG=$SCRATCH/status.log
 TRACKING=$REPO/backend/runtime/tracking

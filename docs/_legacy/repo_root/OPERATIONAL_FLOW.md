@@ -166,7 +166,7 @@ for f in backend/scripts/verify*.js; do
 done                                              # expect: every line "RESULT: PASS"
 
 # 5-probe canonical integrity matrix
-cd /Users/andrewmoore/Desktop/betting-dashboard
+cd /Users/andrewmoore/Projects/betting-dashboard
 for p in probe_grading_backfill_v1.js probe_lineage_v1.js probe_epoch_authority_v1.js probe_persistence_idempotency_v1.js probe_ledger_mirror_v1.js; do
   node "$p" | tail -2
 done                                              # expect: every probe "fail: 0"

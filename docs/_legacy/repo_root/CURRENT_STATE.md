@@ -2596,7 +2596,7 @@ cd ~/Desktop/betting-dashboard/backend && \
 # Step 0 — baseline counts
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 for (const t of ['prediction_epochs','prediction_snapshots','frozen_contextual_states','outcome_snapshots']) {
   console.log(t.padEnd(28), db.prepare('SELECT COUNT(*) AS n FROM '+t).get().n);
 }
@@ -2612,7 +2612,7 @@ curl -sS -X POST http://localhost:4000/api/nba/refresh-snapshot/hard-reset > /de
 # Step 2 — verify ALL FOUR tables now have rows (epochs + contextual increased)
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 for (const t of ['prediction_epochs','prediction_snapshots','frozen_contextual_states','outcome_snapshots']) {
   console.log(t.padEnd(28), db.prepare('SELECT COUNT(*) AS n FROM '+t).get().n);
 }
@@ -2633,7 +2633,7 @@ curl -sS http://localhost:4000/api/nba/props/best | python3 -c \
 # Step 4 — inspect the latest epoch
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 const e = db.prepare(\"SELECT epoch_id, captured_at, source, prediction_count, contextual_count, slip_count FROM prediction_epochs ORDER BY captured_at DESC LIMIT 1\").get();
 console.log('latest epoch:', JSON.stringify(e, null, 2));
 " 2>&1 | grep -v Experimental | grep -v trace
@@ -2642,7 +2642,7 @@ console.log('latest epoch:', JSON.stringify(e, null, 2));
 # Step 5 — show one frozen contextual row (honest NULL sparsity)
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 const r = db.prepare('SELECT prediction_id, epoch_id, matchup_shift, starter_flag, market_shift, availability_shift, final_model_prob, final_edge FROM frozen_contextual_states ORDER BY created_at DESC LIMIT 1').get();
 console.log('latest contextual freeze:', JSON.stringify(r, null, 2));
 " 2>&1 | grep -v Experimental | grep -v trace
@@ -2855,12 +2855,12 @@ cd ~/Desktop/betting-dashboard/backend && \
 # IMMEDIATELY in the boot log (before any ACTIVE: lines), expect:
 #   [SERVER-BOOT-DB-INIT] {
 #     ok: true,
-#     dbPath: '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db',
+#     dbPath: '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db',
 #     criticalTablesOk: true,
 #     missing: []
 #   }
 #   [DB-BOOT] {
-#     canonicalPath: '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db',
+#     canonicalPath: '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db',
 #     tablesPresent: 23,
 #     criticalTables: {
 #       ..., prediction_epochs: '✓', frozen_contextual_states: '✓', ...
@@ -2875,7 +2875,7 @@ cd ~/Desktop/betting-dashboard/backend && \
 # Step 1 — assert all 4 longitudinal tables + show row counts
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const ABS = '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db';
+const ABS = '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db';
 const db = new DatabaseSync(ABS);
 const t = new Set(db.prepare(\"SELECT name FROM sqlite_master WHERE type='table'\").all().map(r=>r.name));
 const need = ['prediction_epochs','prediction_snapshots','frozen_contextual_states','outcome_snapshots'];
@@ -2903,7 +2903,7 @@ curl -sS "http://localhost:4000/api/ws/state?sport=nba" > /dev/null
 # Step 4 — verify epoch + contextual rows now exist
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 const ep = db.prepare('SELECT COUNT(*) AS c FROM prediction_epochs').get().c;
 const fcs = db.prepare('SELECT COUNT(*) AS c FROM frozen_contextual_states').get().c;
 console.log('prediction_epochs rows:', ep);
@@ -3092,7 +3092,7 @@ cd ~/Desktop/betting-dashboard/backend && \
 # Watch for these lines on boot:
 #   [DB-BOOT-REPAIR] AZ table self-heal: { created: [ 'prediction_epochs', 'frozen_contextual_states' ], ... }
 #   [DB-BOOT] {
-#     canonicalPath: '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db',
+#     canonicalPath: '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db',
 #     tablesPresent: 23,
 #     criticalTables: { ..., prediction_epochs: '✓', frozen_contextual_states: '✓', ... },
 #     azRepairApplied: [ 'prediction_epochs', 'frozen_contextual_states' ]
@@ -3121,7 +3121,7 @@ cd ~/Desktop/betting-dashboard && \
 # Verify all 4 longitudinal-memory tables exist + row counts
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const ABS = '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db';
+const ABS = '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db';
 const db = new DatabaseSync(ABS);
 const t = new Set(db.prepare(\"SELECT name FROM sqlite_master WHERE type='table'\").all().map(r=>r.name));
 const need = ['prediction_epochs','prediction_snapshots','frozen_contextual_states','outcome_snapshots'];
@@ -3142,7 +3142,7 @@ curl -sS "http://localhost:4000/api/ws/state?sport=nba" > /dev/null
 # Verify the new prediction_epochs row appeared
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const db = new DatabaseSync('/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db');
+const db = new DatabaseSync('/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db');
 const epochs = db.prepare(\"SELECT epoch_id, captured_at, prediction_count, contextual_count FROM prediction_epochs ORDER BY captured_at DESC LIMIT 3\").all();
 console.log('latest epochs:'); epochs.forEach(r => console.log(' ', JSON.stringify(r)));
 const fcs = db.prepare('SELECT COUNT(*) AS c FROM frozen_contextual_states').get();
@@ -3223,7 +3223,7 @@ Critical observations:
 After server restart, the operator will see in TERM 1:
 ```
 [DB-BOOT] {
-  canonicalPath: '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db',
+  canonicalPath: '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db',
   tablesPresent: 23,
   criticalTables: {
     tracked_props: '✓',
@@ -3295,7 +3295,7 @@ cd ~/Desktop/betting-dashboard/backend && \
   node server.js
 # expect very early in the boot log:
 # [DB-BOOT] {
-#   canonicalPath: '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db',
+#   canonicalPath: '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db',
 #   tablesPresent: 23,
 #   criticalTables: {
 #     ... outcome_snapshots: '✓', prediction_epochs: '✓', frozen_contextual_states: '✓', ...
@@ -3309,7 +3309,7 @@ cd ~/Desktop/betting-dashboard/backend && \
 # Step 1 — confirm canonical DB has all 9 critical tables
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const ABS = '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db';
+const ABS = '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db';
 const db = new DatabaseSync(ABS);
 const t = new Set(db.prepare(\"SELECT name FROM sqlite_master WHERE type='table'\").all().map(r=>r.name));
 const need = ['tracked_props','slip_catalog','personal_ledger','prediction_snapshots','outcome_snapshots','slip_outcomes','ecology_snapshots','prediction_epochs','frozen_contextual_states'];
@@ -3322,7 +3322,7 @@ need.forEach(n => console.log(' ', n + ':', t.has(n) ? '✓' : '✗'));
 # Step 2 — show the four required counts
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const ABS = '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db';
+const ABS = '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db';
 const db = new DatabaseSync(ABS);
 for (const t of ['prediction_epochs','prediction_snapshots','frozen_contextual_states','outcome_snapshots']) {
   const n = db.prepare('SELECT COUNT(*) AS n FROM '+t).get().n;
@@ -3342,7 +3342,7 @@ curl -sS "http://localhost:4000/api/ws/state?sport=nba" > /dev/null
 # Step 5 — confirm outcome_snapshots remains queryable (no "no such table" error)
 node -e "
 const {DatabaseSync} = require('node:sqlite');
-const ABS = '/Users/andrewmoore/Desktop/betting-dashboard/backend/storage/betting.db';
+const ABS = '/Users/andrewmoore/Projects/betting-dashboard/backend/storage/betting.db';
 const db = new DatabaseSync(ABS);
 const sample = db.prepare('SELECT * FROM outcome_snapshots LIMIT 3').all();
 console.log('outcome_snapshots queryable:', true, 'sample rows:', sample.length);

@@ -94,6 +94,6 @@ echo "Errors:     $errors"
 echo
 echo "Verify with:"
 echo "  ls -la $LOG_DIR/com.motel666.*.{err,out}"
-echo "  node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/deepAudit.js | sed -n '/LAUNCHAGENT/,/===/p'"
+echo "  node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deepAudit.js | sed -n '/LAUNCHAGENT/,/===/p'"
 
 exit $errors

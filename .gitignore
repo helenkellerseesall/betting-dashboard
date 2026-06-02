@@ -86,3 +86,8 @@ backend/data/mlbLiveStateHistory/
 
 # Also bak files from past slate scripts
 backend/scripts/*.bak*
+
+# 2026-06-02 — runtime caches/state (regenerated; never commit)
+backend/data/mlbLineupCache.json
+backend/data/nbaSeriesStateAuto.json
+backend/storage/*.sqlite

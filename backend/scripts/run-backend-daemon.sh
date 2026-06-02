@@ -20,8 +20,8 @@ for p in /opt/homebrew/bin /usr/local/bin "$HOME/.nvm/versions/node/v24.14.0/bin
   fi
 done
 
-BACKEND_DIR=/Users/andrewmoore/Desktop/betting-dashboard/backend
-LOG=/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend.log
+BACKEND_DIR=/Users/andrewmoore/Projects/betting-dashboard/backend
+LOG=/Users/andrewmoore/Projects/betting-dashboard/.scratch/backend.log
 mkdir -p "$(dirname "$LOG")"
 
 cd "$BACKEND_DIR" || {

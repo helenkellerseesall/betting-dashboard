@@ -53,7 +53,7 @@ Prints process aliveness, LaunchAgent state, sleep prevention, CLV ticks, slate 
 Run anywhere:
 
 ```
-cd /Users/andrewmoore/Desktop/betting-dashboard
+cd /Users/andrewmoore/Projects/betting-dashboard
 git add <files>
 git commit -m "..."
 git push origin stable-nba-engine
@@ -63,13 +63,13 @@ Then restart backend daemon if the change is backend code.
 
 ## Useful diagnostic paths
 
-- Backend log: `/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend.log`
-- Scheduler log: `/Users/andrewmoore/Desktop/betting-dashboard/.scratch/scheduler.log`
+- Backend log: `/Users/andrewmoore/Projects/betting-dashboard/.scratch/backend.log`
+- Scheduler log: `/Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler.log`
 - Slate logs: `.scratch/slate-nba.log`, `.scratch/slate-mlb.log`
 - LaunchAgent stdout/stderr: `.scratch/{backend,scheduler,cloudflared,caffeinate}-launchd.log`
 - Status snapshot: `.scratch/status.log` (overwritten each `status.sh` run)
 - Diagnostic dump: `.scratch/last.txt` (Claude reads directly)
-- Personal ledger: `/Users/andrewmoore/Desktop/betting-dashboard/backend/runtime/tracking/personal_ledger.json`
+- Personal ledger: `/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/personal_ledger.json`
 
 ## Mac restart recovery
 

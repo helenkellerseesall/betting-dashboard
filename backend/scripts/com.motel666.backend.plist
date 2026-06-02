@@ -9,7 +9,7 @@
     - Logs to .scratch/backend.log (where status.sh + Claude already look)
 
   Install:
-    cp /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/com.motel666.backend.plist ~/Library/LaunchAgents/
+    cp /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/com.motel666.backend.plist ~/Library/LaunchAgents/
     launchctl load -w ~/Library/LaunchAgents/com.motel666.backend.plist
 
   Stop:
@@ -26,11 +26,11 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/run-backend-daemon.sh</string>
+        <string>/Users/andrewmoore/Projects/betting-dashboard/backend/scripts/run-backend-daemon.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/andrewmoore/Desktop/betting-dashboard/backend</string>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/backend</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -42,9 +42,9 @@
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend-launchd.log</string>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/backend-launchd.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/andrewmoore/Desktop/betting-dashboard/.scratch/backend-launchd.log</string>
+    <string>/Users/andrewmoore/Projects/betting-dashboard/.scratch/backend-launchd.log</string>
 </dict>
 </plist>
