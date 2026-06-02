@@ -197,10 +197,20 @@ function opponentTags(play, tags, family) {
   // For families WITHOUT a family-specific dim (points / pra / dd / td /
   // first_basket / steals / blocks), keep the generic PPG tag — it's the
   // best defensive signal we have for those.
+  // 2026-06-01 Phase Truth-Fix-1D (audit RED #6) — null-as-zero fabrication fix.
+  // The previous gates (`isNum(Number(x))` + `Number.isFinite(oppDef)`)
+  // treated 0 as valid because Number(null) === 0 and Number.isFinite(0) is
+  // true. That caused "SAS allows 0 reb/g" + "v STRONG D (SAS 0 ppg)" tags
+  // on every Brunson/Wemby pick when opponentStats was missing. The pre-fix
+  // count was 41 fabrications today across the slate. The gates below now
+  // explicitly require the source value to be non-null AND > 0, so missing
+  // data omits the tag entirely (anti-fabrication per the doctrine — never
+  // invent a "perfect defense" signal from a null source).
+  const finite = (v) => v != null && Number.isFinite(Number(v)) && Number(v) > 0
   const hasFamilySpecific =
-    (family === "rebounds" && isNum(Number(oppStats.reboundsAllowed))) ||
-    (family === "assists"  && isNum(Number(oppStats.assistsAllowed))) ||
-    (family === "threes"   && isNum(Number(oppStats.threePMAllowed)))
+    (family === "rebounds" && finite(oppStats.reboundsAllowed)) ||
+    (family === "assists"  && finite(oppStats.assistsAllowed)) ||
+    (family === "threes"   && finite(oppStats.threePMAllowed))
 
   if (hasFamilySpecific) {
     // Family-specific opp-allowed REPLACES generic PPG tag for this prop.
@@ -211,8 +221,9 @@ function opponentTags(play, tags, family) {
     } else if (family === "threes") {
       tags.push(`${oppCode} allows ${n1(oppStats.threePMAllowed)} 3PM/g`)
     }
-  } else if (Number.isFinite(oppDef)) {
+  } else if (Number.isFinite(oppDef) && oppDef > 0) {
     // Generic PPG tag — correct dimension for points / pra / dd / td.
+    // Requires oppDef > 0 to skip the null-as-zero case.
     if (oppDef <= 108)      tags.push(`v STRONG D (${oppCode} ${n0(oppDef)} ppg)`)
     else if (oppDef >= 117) tags.push(`v WEAK D (${oppCode} ${n0(oppDef)} ppg)`)
     else                    tags.push(`v AVG D (${oppCode} ${n0(oppDef)} ppg)`)
