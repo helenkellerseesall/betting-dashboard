@@ -234,3 +234,59 @@ Will append a session log entry after each ship with commit ref + verification r
 **Anti-fabrication preserved**: only 8 teams have game logs cached (current playoff bracket). Other 22 teams stay null — we don't invent values for teams we have no data for. When regular season resumes, the cache fills naturally and the deriver picks them up at the 3:35 ET fire.
 
 **Next**: deploy fence + verify oppDef starts populating on next NBA slate refresh, then move to RED #5 (books filter — small).
+
+### 22:00 ET — RED #14 oppDef derivation deployed (commit c997512)
+
+**Lane**: Truth-audit RED-list shipping (ship 2 of 5 — deployed, EFFECT verification pending 21:30 slate)
+
+**Phase**: Truth-Fix-1B · **Commit**: `c997512` · **Audit RED #14**
+
+**Verification post-deploy**:
+- 8 teams now in cache with `pointsAllowedPerGame`: CLE 111.55, DET 108.86, LAL 119.75, MIN 120.67, NY 100.75, OKC 109.45, PHI 124.25, SA 106.92
+- All 4 Finals-window teams covered (SA, NY, OKC, CLE)
+- Both LaunchAgents reloaded (scheduler + backend) with fresh PIDs
+- Manual deriver fired immediately so today's data seeded without waiting for 3:35 AM autopilot
+
+**Pending verification at 21:30 ET slate fire**: confirm `row.oppDef` populates on fresh tracked_best entries (was 0/331 today). Will probe after slate completes.
+
+**Next ship**: RED #5 books filter — start in parallel while #8 verification waits for 21:30 slate.
+
+### 22:24 ET — RED #5 books filter closed (commit adc7b83); RED #14 verification pending 21:30 NBA slate
+
+**Lane**: Truth-audit RED-list shipping (ship 3 of 5 done; ship 2 verification pending)
+
+**Phase**: Truth-Fix-1C · **Commit**: `adc7b83` · **Audit RED #5**
+
+**What shipped**: defense-in-depth preferred-books filter at BOTH layers:
+- Backend `/api/ws/top-picks` filters trackedBets by `PREFERRED_BOOKS` set (FD/DK/Fanatics/BetMGM only)
+- FE `renderTopPicks` adds `isPreferredBook` filter on response — second-line gate
+- Surfaces `droppedNonPreferredBook` count in response so dashboard can show it
+
+**Verification post-deploy**: live endpoint returned 34 picks, distribution: DraftKings 13, FanDuel 12, BetMGM 9. **306 off-allowlist picks dropped at source.** Hard Rock + BetRivers are gone from operator-facing TOP PICKS.
+
+**Side observation on #8 (oppDef) verification**: NBA tracked_best file mtime is 19:30 ET — the 20:00, 20:30, 21:00 slate fires all reported OK but didn't rewrite the file (likely "no new market data → no file update" optimization). Next slate at 21:30 ET (6 min from this entry) should write fresh entries with oppDef populated because:
+- nbaTeamStats.json cache has derived defensive fields seeded (verified at deploy)
+- Backend restarted at 21:17 ET (in-memory caches cleared)
+- 21:30 slate will be the first slate processing rows fresh from disk
+
+If 21:30 slate doesn't refresh the file either, deeper investigation needed.
+
+**Next**: verify RED #14 after 21:30 slate, then move to RED #6 (null-as-zero "SAS 0 ppg" fabrication — small fix).
+
+### 22:00 ET — Date-time consistency doctrine locked (task #12 created)
+
+**Lane**: Cross-cutting doctrine — repo-wide date/time consistency
+
+**Operator quote**:
+> "we can do red 4 but then we need to fix the slate rollover date on all accounts, like the repo as a whole needs common knowledge forever to always use the same time and time zone.... we need defined rules for showing slates or what?"
+
+**Doctrine locked (binding from here forward)**:
+1. Slate date = ET calendar day (`America/New_York` timezone). Never UTC, never sandbox-local, never inferred from `new Date().toISOString()`.
+2. Slate boundary = 4:00 AM ET (NBA late games settle before this; grading autopilot already fires at 4 AM ET; natural cycle).
+3. Display labels = ET always. No UTC strings anywhere operator-visible.
+4. ONE canonical helper module: `backend/pipeline/shared/slateDate.js`.
+5. Every date-touching call site replaced with calls to the helper (~30-60 sites).
+
+**Action**: created task #12 (Phase Date-Doctrine-1A) replacing task #10 (single-bug patch). Doctrine is the right scope — patches won't survive without it.
+
+**Order**: per operator direction, ship RED #4 (bettor language) first, then Date-Doctrine-1A as the next major build.

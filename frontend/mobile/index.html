@@ -2666,6 +2666,22 @@
                   "ks": "Ks", "rbis": "RBI", "totalbases": "Total Bases", "hr": "HR" };
       return M[s] || s.replace(/\b\w/g, (c) => c.toUpperCase());
     }
+    // 2026-06-01 Phase Truth-Fix-1E (audit RED #4) — bettor-readable tier
+    // labels. Internal tier names (ELITE/STRONG/PLAYABLE/BEST) get exposed to
+    // operator on TOP PICKS section headers + summary line. Operator
+    // doesn't intuitively know what "PLAYABLE" means — translate to
+    // bettor-facing language. Falls through to original for unknown labels
+    // so we never lose information.
+    function _tierNice(t) {
+      const k = String(t || "").toUpperCase();
+      if (k === "ELITE")    return "Top tier";
+      if (k === "BEST")     return "Best";
+      if (k === "STRONG")   return "Strong";
+      if (k === "PLAYABLE") return "Worth a look";
+      if (k === "FADE")     return "Fade";
+      if (k === "LONGSHOT") return "Longshot";
+      return t;
+    }
     function _sideNice(s) { return String(s || "").toUpperCase(); }
     function _oddsNice(o) {
       const n = Number(o); if (!Number.isFinite(n)) return "—";
@@ -2818,13 +2834,18 @@
       // Law 24 (dimension-explainable) + Law 27 (class-not-identity).
       // Chip only renders when archetypeHistory present (single canonical
       // absence point — backend decides, FE never synthesizes).
+      //
+      // 2026-06-01 Phase Truth-Fix-1E (audit RED #4) — bettor-readable
+      // phrasing. Was: "📊 class hits 50.0% · n=14" (operator: "what the
+      // fuck is n=124"). Now: "📊 won 50% of 14 similar picks like this".
+      // Tooltip still explains the bucket for the curious.
       let archetypeChip = "";
       if (pick.archetypeHistory && pick.archetypeHistory.hitRate != null) {
         const ah = pick.archetypeHistory;
-        const hitPct = (ah.hitRate * 100).toFixed(1);
-        const bucketLabel = ah.bucket === "tier" ? "tier" : "class";
-        const titleAttr = `Plays of this ${bucketLabel} hit ${hitPct}% across ${ah.n} historical samples`;
-        archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 ${bucketLabel} hits <b>${hitPct}%</b> · n=${ah.n}</div>`;
+        const hitPct = (ah.hitRate * 100).toFixed(0);  // 0 decimals — bettor-readable
+        const bucketLabel = ah.bucket === "tier" ? "tier-bucket" : "this kind of pick";
+        const titleAttr = `Across ${ah.n} historical ${bucketLabel} samples, ${hitPct}% won`;
+        archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 won <b>${hitPct}%</b> of ${ah.n} similar picks</div>`;
       }
 
       // Stash the full pick JSON for modal hydration (avoids long inline strings)
@@ -2919,12 +2940,13 @@
           ${fellBackBadge}
           ${dampenedBadge}
           <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">
-            ${picks.length} picks · ${byTier.ELITE.length} ELITE · ${byTier.STRONG.length} STRONG · ${byTier.PLAYABLE.length} PLAYABLE · cross-sport ${(d.sportsScanned || []).join("+")}
+            ${picks.length} picks · ${byTier.ELITE.length} top tier · ${byTier.STRONG.length} strong · ${byTier.PLAYABLE.length} worth a look · cross-sport ${(d.sportsScanned || []).join("+")}
           </div>`;
         for (const tier of ["ELITE", "STRONG", "PLAYABLE"]) {
           if (!byTier[tier].length) continue;
           const c = _tierColor(tier);
-          html += `<div style="margin-top:14px;font-size:11px;color:${c};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${tier} · ${byTier[tier].length}</div>`;
+          // 2026-06-01 Phase Truth-Fix-1E — use _tierNice for bettor-readable section header
+          html += `<div style="margin-top:14px;font-size:11px;color:${c};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${_tierNice(tier).toUpperCase()} · ${byTier[tier].length}</div>`;
           html += `<div class="v2-grid">`;
           for (const p of byTier[tier]) html += renderV2Card(p, { compact: true });
           html += `</div>`;
