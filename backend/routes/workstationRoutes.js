@@ -1901,18 +1901,45 @@ router.get("/ledger/yesterday", (req, res) => {
         hitRate: hitRateP,
       }
     }
-    const isPlaced = (b) => b.decisionType === "placed" || b.realMoney === true
-    const placedAll = (ledger.bets || []).filter(isPlaced).filter((b) => !sport || b.sport === sport)
+    // 2026-06-01 Phase Truth-Fix-1A — MY BETS filter fix (audit RED #7). Two bugs:
+    //   (a) isPlaced accepted test entries created by QA tooling with
+    //       sportsbook IN (smoke-test, diag, verify) at stake $0.01 each —
+    //       surfaced 3 of those instead of operator's 2 real $5 bets.
+    //   (b) date window was yesterday+today only — operator's real bets from
+    //       2026-05-30 fell outside the 2-day window and never appeared, while
+    //       the test entries dated 2026-05-31 fit and surfaced.
+    // Fix: tighten isPlaced (exclude test sportsbooks + require stake >= 1)
+    // AND widen the window to last 14 days so real bets persist visibly even
+    // after grading. The yesterday/today rollups remain for summary cards.
+    const TEST_SPORTSBOOKS = new Set(["smoke-test", "diag", "verify"])
+    const isPlaced = (b) => {
+      const tagged = b.decisionType === "placed" || b.realMoney === true
+      if (!tagged) return false
+      const sb = String(b.sportsbook || "").toLowerCase().trim()
+      if (TEST_SPORTSBOOKS.has(sb)) return false   // exclude QA/test entries
+      const stake = Number(b.stake)
+      if (!Number.isFinite(stake) || stake < 1) return false  // exclude penny test entries
+      return true
+    }
+    // Date window: last 14 days inclusive of today
+    const fourteenDaysAgo = new Date()
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+    const windowKey = `${fourteenDaysAgo.getFullYear()}-${String(fourteenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(fourteenDaysAgo.getDate()).padStart(2, "0")}`
+    const placedAll = (ledger.bets || [])
+      .filter(isPlaced)
+      .filter((b) => !sport || b.sport === sport)
+      .filter((b) => b.date && b.date >= windowKey)
     const placedYesterday = placedAll.filter((b) => b.date === yKey)
     const placedToday     = placedAll.filter((b) => b.date === todayKey)
-    // Combined rollup (FE expects flat shape: { count, wins, losses, profit, roi, staked }).
-    // ALSO expose structured today/yesterday breakdown for richer UI later.
-    const placedCombinedRollup = rollupPlaced([...placedYesterday, ...placedToday])
-    const placedBets = (placedYesterday.length || placedToday.length) ? {
+    // Combined rollup spans the full 14-day window now, not just yesterday+today.
+    // yesterdayRollup / todayRollup remain available for summary cards.
+    const placedCombinedRollup = rollupPlaced(placedAll)
+    const placedBets = placedAll.length ? {
       ...placedCombinedRollup,  // flat fields for FE backward compat
+      windowDays: 14,
       yesterdayRollup: rollupPlaced(placedYesterday),
       todayRollup:     rollupPlaced(placedToday),
-      bets: [...placedYesterday, ...placedToday].map((b) => ({
+      bets: placedAll.map((b) => ({
         id: b.id, date: b.date, sport: b.sport, sportsbook: b.sportsbook,
         betType: b.betType, prop: b.prop, player: b.player, matchup: b.matchup,
         statFamily: b.statFamily, side: b.side, line: b.line, odds: b.odds,
