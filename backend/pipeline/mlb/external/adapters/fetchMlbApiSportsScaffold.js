@@ -777,6 +777,25 @@ async function fetchMlbApiSportsScaffold({ events = [], now = Date.now(), source
     notes.push("API-Sports team statistics endpoint returned no team stats for matched teams.")
   }
 
+  // Phase MLB-Lineup-Cache-1A (2026-06-02) — persist lineup data so later
+  // slate fires don't lose lineups when the adapter rate-limits or returns
+  // partial data. Fresh fetch always wins on the current call; cache only
+  // covers gaps. Same-day-only cache (cross-day entries discarded by reader).
+  let lineupCachePersistDiagnostics = null
+  try {
+    if (Object.keys(playersByEventId).length > 0 || Object.keys(lineupConfirmationByEventId).length > 0) {
+      const { persistFreshIntoCache } = require("../../cache/mlbLineupCache")
+      const persistResult = persistFreshIntoCache({ playersByEventId, lineupConfirmationByEventId })
+      lineupCachePersistDiagnostics = persistResult
+      if (persistResult.written) {
+        notes.push(`Lineup cache: persisted ${persistResult.mergedEventCount} events (added=${persistResult.diagnostics.eventsAdded}, updated=${persistResult.diagnostics.eventsUpdated}, preserved-from-prior-fire=${persistResult.diagnostics.eventsPreservedFromCache})`)
+      }
+    }
+  } catch (e) {
+    notes.push(`Lineup cache persist FAILED: ${String(e?.message || e)}`)
+    lineupCachePersistDiagnostics = { fatal: String(e?.message || e) }
+  }
+
   const liveSnapshot = {
     ...defaultSnapshot,
     eventContextByEventId,

@@ -219,7 +219,28 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
 
   console.log("[LINEUP SOURCE SAMPLE]", Object.values(normalizedExternalSnapshot?.playersByEventId || {})?.[0]?.slice?.(0, 5))
 
-  const playersByEventId = normalizedExternalSnapshot?.playersByEventId || {}
+  // Phase MLB-Lineup-Cache-1A (2026-06-02) — fill any missing eventIds from
+  // same-day persisted cache. Fresh adapter data ALWAYS wins for events it
+  // actually fetched; cache only fills gaps where this slate fire's adapter
+  // returned nothing (rate limit, transient error, or lineups not yet posted
+  // when this fire ran). The cache reader silently returns empty if its
+  // entries belong to a different slate date — no stale cross-day data.
+  let playersByEventId = normalizedExternalSnapshot?.playersByEventId || {}
+  try {
+    const { mergeCacheIntoFresh } = require("../cache/mlbLineupCache")
+    const cached = mergeCacheIntoFresh({
+      playersByEventId,
+      lineupConfirmationByEventId: normalizedExternalSnapshot?.lineupConfirmationByEventId || {},
+    })
+    playersByEventId = cached.playersByEventId
+    if (cached.diagnostics.filledFromCacheCount > 0) {
+      console.log("[LINEUP CACHE] filled", cached.diagnostics.filledFromCacheCount,
+        "event(s) from same-day cache (slateDate=" + cached.diagnostics.cacheSlateDate + ")")
+    }
+  } catch (e) {
+    console.warn("[LINEUP CACHE] read failed (continuing with fresh-only):", e?.message || e)
+  }
+
   const externalIndexByEventId = new Map()
   for (const eventId of Object.keys(playersByEventId)) {
     externalIndexByEventId.set(eventId, buildExternalLineupIndexForEvent({ playersByEventId, eventId }))

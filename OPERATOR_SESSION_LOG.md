@@ -479,3 +479,30 @@ Empirical confirmation:
 - Step 4: brain doc `CALIBRATION_DIAGNOSIS.md` with verdict + next-phase recommendation.
 
 **Bettor-visible impact today**: none (passive instrumentation). Bettor-visible impact in ~2 weeks: definitive answer to "is the model broken or just being graded blind."
+
+### 02:30 ET — Phase MLB-Lineup-Cache-1A: persistent same-day lineup cache
+
+**Operator quote**: "fix the lineupSpot"
+
+**Root cause identified**: Every MLB slate fire calls `fetchMlbStatsApiLineups` inline with no persistence between fires. When the adapter rate-limits / hits a transient error / runs before lineups are posted, that fire's tracked_bets entries get lineupPosition=null with NO recovery path. The 27% lineupSpot population on tracked_best was the dashboard surfacing this gap. The earlier Phase MLB-Lineup-Adapter-Fix-1A (commit 2e798b0) added the statsapi.mlb.com FALLBACK but didn't add caching between fires.
+
+**Shipped (3 files)**:
+- NEW `backend/pipeline/mlb/cache/mlbLineupCache.js` — 3-function helper: `loadCacheForCurrentSlate()`, `persistFreshIntoCache()`, `mergeCacheIntoFresh()`. Same-day-only cache (anti-fabrication: cross-day entries silently discarded). Cache at `backend/data/mlbLineupCache.json`.
+- PATCHED `backend/pipeline/mlb/external/adapters/fetchMlbApiSportsScaffold.js` — after the fallback section, persist whatever the adapter just fetched into the cache. Adds "preserved-from-prior-fire" count to diagnostics notes.
+- PATCHED `backend/pipeline/mlb/enrichment/mergeMlbExternalContext.js` — before building the lineup index, merge cache into fresh data. Live always wins for events the adapter actually fetched; cache only fills events this fire's adapter missed. Logs "[LINEUP CACHE] filled N event(s)" when cache fills gaps.
+
+**Verification**:
+- 3/3 syntax PASS
+- Helper module loads, 4 exports present
+- 4/4 self-test cases verified end-to-end: empty read → write → read-back → mergeCacheIntoFresh fills 2 cached events into 1 fresh event
+
+**Expected behavior change**:
+- 09:00 ET fire: lineups not posted → cache empty → tracked_bets lineupPosition=null (expected — data doesn't exist yet)
+- 12:00 ET fire: early-game lineups posted → adapter fetches → cache persists → tracked_bets has lineupPosition for early games
+- 15:00 ET fire: more lineups posted → adapter fetches MORE + cache reads earlier → tracked_bets has lineupPosition for all games-with-lineups
+- 18:00 ET fire: IF adapter rate-limits or fails transiently → cache fills from earlier → tracked_bets STILL has lineupPosition (this is the new behavior)
+- 22:00 ET fire: all lineups posted → full coverage from cache + fresh fetch
+
+**Anti-fabrication preserved**: cache only persists what adapter actually returned; never invents entries. Cross-day cache discarded by reader (no stale data leaks across days).
+
+**Combined with Phase Calibration-Root-Cause-Audit-1A Step 1 (leanBet patches)**: starting tomorrow's MLB slate, tracked_bets entries will (a) carry the lineupSpot signal AND (b) have higher lineupSpot coverage thanks to the cache. Both fixes feed the eventual per-signal calibration analysis.
