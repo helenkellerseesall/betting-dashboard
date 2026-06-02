@@ -290,3 +290,45 @@ If 21:30 slate doesn't refresh the file either, deeper investigation needed.
 **Action**: created task #12 (Phase Date-Doctrine-1A) replacing task #10 (single-bug patch). Doctrine is the right scope — patches won't survive without it.
 
 **Order**: per operator direction, ship RED #4 (bettor language) first, then Date-Doctrine-1A as the next major build.
+
+### 22:17 ET — RED #6 null-as-zero + RED #4 bettor language both verified clean
+
+**Lane**: Truth-audit RED-list shipping (final ships of tonight's batch)
+
+**Phase**: Truth-Fix-1D · **Commit**: `44007be` · **Audit RED #6**
+**Phase**: Truth-Fix-1E · **Commit**: `8870706` · **Audit RED #4**
+
+**RED #6 verification**: split today's tracked_best by entry timestamp:
+- Post-fix entries (174 generated after the 22:00 ET deploy): **0 null-as-zero fabrications** ✓
+- Pre-fix entries (112 from 20:00 and 21:01 ET slates): 26 stale fabrications — immutable, will clear when date file rolls
+
+Sample post-fix entries showing the chain working end-to-end:
+- Brunson P+R: `"v STRONG D (SAS 107 ppg)"` with `oppDef: 106.92`
+- Wemby P+R: `"v STRONG D (NYK 101 ppg)"` with `oppDef: 100.75`
+
+Both real derived values from RED #14 oppDef fix flow through correctly into RED #6's gated tag emission. End-to-end works.
+
+**RED #4 verification**: deploy clean, FE needs hard refresh. Operator-side verification pending visual check.
+
+### Tonight's complete RED-list ship tally — 5 of 6 closed
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| #7 MY BETS filter | ✅ shipped + verified | f2f9924 | endpoint probe |
+| #5 books filter | ✅ shipped + verified | adc7b83 | endpoint probe — 306 off-allowlist dropped |
+| #14 oppDef wiring | ✅ shipped + verified | c997512 | 53% population + real values (106.92 / 100.75) |
+| #6 null-as-zero | ✅ shipped + verified | 44007be | 0/174 post-fix entries |
+| #4 bettor language | ✅ shipped, refresh PWA to see | 8870706 | code-level verified, visual pending |
+| #10 CLV stamping | ⏳ defer to tomorrow morning | — | needs tomorrow's data |
+
+Plus: **Phase Date-Doctrine-1A (#12) created** for the system-wide date-time consistency rule operator named ("we need defined rules forever to always use the same time and time zone"). Replaces task #10 which was the single-bug patch — doctrine is the right scope.
+
+### 22:25 ET — Operator chose #12 Date-Doctrine-1A
+
+**Operator quote**: "12"
+
+**Action**: starting the canonical slateDate.js helper. Scope for THIS phase:
+1. Build helper module + unit tests (~100 lines, ~5 functions)
+2. Migrate 3-5 highest-impact call sites: tracked_best filename writer (the bug that triggered the doctrine), /api/ws/top-picks date defaulting, /api/ws/status currentSlateDateEt
+3. Document doctrine in brain doc + memory entry
+4. Skip (queued for follow-up phases): scheduler.sh, all populator scripts, FE renderers — multi-phase rollout safer than one-shot migration

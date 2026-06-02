@@ -1226,7 +1226,9 @@ router.get("/games", (req, res) => {
     const modelProbLookup = (() => {
       const map = new Map()
       try {
-        const date = String(new Date().toISOString().slice(0, 10))
+        // 2026-06-01 Phase Date-Doctrine-1A — canonical ET slate date.
+        const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+        const date = currentSlateDateEt()
         const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
         if (!fs.existsSync(p)) return map
         const arr = JSON.parse(fs.readFileSync(p, "utf8"))
@@ -2345,10 +2347,11 @@ function buildReasoning(pick, bestEntry) {
  */
 router.get("/top-picks", (req, res) => {
   try {
-    const todayK = (() => {
-      const d = new Date()
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    })()
+    // 2026-06-01 Phase Date-Doctrine-1A — canonical ET slate date with
+    // 4 AM boundary. Was: server-local `getFullYear/Month/Date` which read
+    // as ET on operator's mac but UTC in sandbox/CI. Now: same everywhere.
+    const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+    const todayK = currentSlateDateEt()
     let date = req.query.date ? String(req.query.date) : todayK
     let fellBack = false
     let requestedDate = date

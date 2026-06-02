@@ -53,8 +53,15 @@ const BEST_PREFIX = "nba_tracked_best_"
 const DEFAULT_WINDOW_DAYS = 14
 const DEFAULT_PRUNE_KEEP_DAYS = 14
 
+// 2026-06-01 Phase Date-Doctrine-1A — replaced `new Date().toISOString().slice(0,10)`
+// (UTC date) with the canonical ET-with-4-AM-boundary helper. Previous code
+// caused nba_tracked_best_2026-06-02.json to be written at 20:00 ET June 1
+// because UTC ticked over to June 2 — operator caught the bug 2026-06-01 22:00 ET.
+// All slate writers must route through this helper from here forward.
+const { currentSlateDateEt } = require("../shared/slateDate")
+
 function todayKey() {
-  return new Date().toISOString().slice(0, 10)
+  return currentSlateDateEt()
 }
 
 function fileFor(prefix, date) {

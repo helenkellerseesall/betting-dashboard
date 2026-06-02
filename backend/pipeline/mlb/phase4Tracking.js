@@ -13,13 +13,15 @@ const MLB_TRACKED_BEST_PREFIX = "mlb_tracked_best_"
 const MLB_PICKS_PREFIX = "mlb_picks_"
 const LEGACY_TRACKED_PREFIX = "tracked_props_"
 
+// 2026-06-01 Phase Date-Doctrine-1A — replaced server-local date math with
+// canonical ET-with-4-AM-boundary helper. The previous comment claimed
+// "server-local to avoid UTC midnight drift" but server-local is only ET
+// on the operator's mac and was UTC in sandbox/CI. The doctrine: every
+// slate writer uses currentSlateDateEt() / slateDateForTimestamp(ts).
+const { slateDateForTimestamp } = require("../shared/slateDate")
+
 function dateKeyFromNow(now = Date.now()) {
-  // Use server-local date to avoid UTC midnight drift between write/read.
-  const d = new Date(now)
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
-  return `${yyyy}-${mm}-${dd}`
+  return slateDateForTimestamp(now)
 }
 
 function runtimeTrackingDir() {
