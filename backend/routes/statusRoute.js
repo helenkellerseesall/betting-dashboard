@@ -37,7 +37,7 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { execSync, spawnSync } = require("child_process")
-const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
+const { currentSlateDateEt, slateDateForTimestamp, calendarDateEt, calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const router = express.Router()
 
@@ -82,14 +82,29 @@ function safeReadJson(p) {
   try { return JSON.parse(fs.readFileSync(p, "utf8")) } catch (_) { return null }
 }
 
-// Phase Date-Doctrine-1B-fix1 — was a shadow Intl helper. Now routes through
-// canonical slateDate.js so the /status dashboard honors the 4 AM ET rollover
-// (was reporting the new calendar day immediately at 00:00 ET, but canonical
-// slate doesn't roll until 04:00 ET, so the dashboard's "today" diverged from
-// the writers' "today" between 00:00 ET and 04:00 ET).
+// Phase Date-Doctrine-1B-fix2 — TWO date concepts, distinct callers:
+//
+//   etDateKey()      — SLATE date (4 AM ET boundary). For tracked_best file
+//                      lookups, slate-fires bucketing, CLV today windows — any
+//                      "which slate does this belong to" lookup. At 02:30 ET
+//                      this returns yesterday's slate, because late games
+//                      haven't settled until 04:00 ET.
+//
+//   calendarDateKey()— CALENDAR date (wall clock, no boundary). For the
+//                      /status header timestamp display, "what does my clock
+//                      say right now." At 02:30 ET this returns today's
+//                      calendar date.
+//
+// fix1 (2026-06-02) conflated these — made etDateKey use slate semantics for
+// EVERYTHING, including the header, which broke operator's natural
+// expectation that the wall-clock header shows wall-clock date.
 function etDateKey(d = new Date()) {
   const ts = (d instanceof Date) ? d.getTime() : new Date(d).getTime()
   return Number.isFinite(ts) ? slateDateForTimestamp(ts) : currentSlateDateEt()
+}
+function calendarDateKey(d = new Date()) {
+  const ts = (d instanceof Date) ? d.getTime() : new Date(d).getTime()
+  return Number.isFinite(ts) ? calendarDateForTimestamp(ts) : calendarDateEt()
 }
 
 function etTimeStr(d = new Date()) {
@@ -103,10 +118,16 @@ function etTimeStr(d = new Date()) {
 
 function sectionMeta() {
   const now = new Date()
+  // Phase Date-Doctrine-1B-fix2 — header uses CALENDAR date (wall clock).
+  // At 12:58 AM ET June 2, header shows "2026-06-02 00:58 ET" (matches every
+  // clock on Earth). The 4 AM boundary is a betting-slate concept and lives
+  // in sectionTrackedBestToday + sectionClvCaptureToday + sectionSlateFiresToday
+  // (all use etDateKey, which IS slate-date).
   return {
     ok: true,
     generatedAt: now.toISOString(),
-    et: etDateKey(now) + " " + etTimeStr(now) + " ET",
+    et: calendarDateKey(now) + " " + etTimeStr(now) + " ET",
+    slateDate: etDateKey(now),   // also surfaced separately so operator can see both
     nodeVersion: process.version,
     pid: process.pid,
   }
@@ -490,6 +511,39 @@ router.get("/", (req, res) => {
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
   res.json(out)
+})
+
+// Phase Status-Dashboard-Export-1A — POST /api/ws/status/snapshot
+// Writes the current /status JSON to .scratch/last.txt so Claude can read it
+// without operator screenshotting. Triggered by the "export to scratch" button
+// on the /status page. Returns { written: true, bytes, path }.
+router.post("/snapshot", (req, res) => {
+  try {
+    const t0 = Date.now()
+    const out = {}
+    out.meta              = sectionMeta()
+    out.schedule          = sectionSchedule()
+    out.launchAgents      = sectionLaunchAgents()
+    out.scheduler         = sectionScheduler()
+    out.backend           = sectionBackend()
+    out.sysAuditLast      = sectionSysAuditLast()
+    out.driftAlertsTail   = sectionDriftAlertsTail(10)
+    out.clvCaptureToday   = sectionClvCaptureToday()
+    out.slateFiresToday   = sectionSlateFiresToday()
+    out.autopilotFiresToday = sectionAutopilotFiresToday()
+    out.familyCalibration = sectionFamilyCalibration()
+    out.trackedBestToday  = sectionTrackedBestToday()
+    out.recentCommits     = sectionRecentCommits(5)
+    out.meta.elapsedMs    = Date.now() - t0
+
+    const scratchPath = path.join(REPO_ROOT, ".scratch", "last.txt")
+    const body = JSON.stringify(out, null, 2)
+    fs.mkdirSync(path.dirname(scratchPath), { recursive: true })
+    fs.writeFileSync(scratchPath, body)
+    res.json({ written: true, bytes: Buffer.byteLength(body), path: scratchPath })
+  } catch (e) {
+    res.status(500).json({ written: false, error: String(e?.message || e) })
+  }
 })
 
 module.exports = router

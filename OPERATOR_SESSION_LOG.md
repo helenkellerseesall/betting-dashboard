@@ -388,3 +388,39 @@ All four routed through `slateDateForTimestamp()` / `currentSlateDateEt()`. Veri
 - `statusRoute.js:96` `etTimeStr()` — HH:MM:SS time-of-day formatter
 - `statusRoute.js:450` `atEt` — HH:MM display formatter
 - `deepAudit.js:94` — regex string literal that meta-checks `buildSlateEvents.js` (the file it checks is now migrated)
+
+### Post-fix1 deploy verification — operator asked the doctrine question that fixed everything
+
+**Operator quote (load-bearing — preserve verbatim)**:
+> "check, and im confused on why status showing 6/2 is a bad thing? its 1258 am EST so it is 6/2??"
+
+**What this exposed**: I had conflated TWO distinct date concepts in fix1 — slate date (4 AM boundary, betting concept) and calendar date (wall clock, what every human clock shows). The fix1 patch made the /status header use slate date, which was structurally wrong. Operator's natural intuition was correct: at 12:58 AM ET, the wall clock IS June 2 — the dashboard header should say June 2.
+
+**The two-concept doctrine (LOCKED 2026-06-02 ~01:00 ET)**:
+- **Calendar date (`calendarDateEt`, `calendarDateForTimestamp`)** — wall clock, no boundary. Use for: human-readable timestamps, /status header, "what time is it" displays.
+- **Slate date (`currentSlateDateEt`, `slateDateForTimestamp`)** — betting concept, 4 AM ET boundary. Use for: file lookups (`*_tracked_best_<date>.json`), pick-gen "which slate are we generating for", CLV stamping, TONIGHT/TOMORROW labels.
+
+Both now live in canonical `backend/pipeline/shared/slateDate.js`. Each call site picks the right one.
+
+**Phase Date-Doctrine-1B-fix2 — sites updated**:
+- `slateDate.js` — added `calendarDateEt()` + `calendarDateForTimestamp()` exports
+- `statusRoute.js` — split: `sectionMeta()` now uses `calendarDateKey()` for the header, ALSO surfaces `slateDate` as a separate field so operator can see both side-by-side. All other section builders (tracked_best, CLV, slate-fires, autopilot-fires) keep slate semantics — correct because they look up data files.
+
+**Verification**:
+- 3/3 syntax checks PASS
+- 4/4 exports load (calendarDateEt, calendarDateForTimestamp, currentSlateDateEt, slateDateForTimestamp)
+- Boundary smoke: at 12:58 AM ET June 2, `calendarDateForTimestamp` returns `2026-06-02` (header), `slateDateForTimestamp` returns `2026-06-01` (data lookups). Both correct.
+
+**Live-vs-disk mystery — NOT YET CLOSED**: H3 diagnostic showed live backend's `etDateKey` returned 2026-06-02 even though on-disk source had the fix1 patch and standalone require returned 2026-06-01. Hypothesis: kickstart -k didn't truly replace the process despite the new PID. Resolution path: fix2 deploy will force a fresh restart; if header now shows 2026-06-02 (matching calendar — which is fix2's intent) the bug self-resolves cosmetically; if it doesn't, the live-vs-disk gap is real and needs deeper investigation (plist check, double-kickstart, manual `kill -9` + load).
+
+### 01:30 ET — Phase Status-Dashboard-Export-1A (operator-requested instrumentation)
+
+**Operator quote**:
+> "also how about a button on the /status page that imports the current page to scratch for you to read so i dont need to keep doing 4 screenshots each time?"
+
+**Shipped same fence as fix2**:
+- New endpoint: `POST /api/ws/status/snapshot` — writes full status JSON to `.scratch/last.txt`
+- New button on /status page: "export to scratch" — one tap, shows "✓ saved N bytes" confirmation
+- Replaces the 4-screenshot workflow with one button tap → Claude reads scratch directly
+
+**Why this matters per [[feedback-scratch-discipline-post-compaction]]**: `.scratch/last.txt` is operator's verification sink. Now operator controls when it's overwritten (button tap), AND it captures the FULL status payload (not just the surface visible in screenshots), so Claude sees everything (sysAuditLast, driftAlertsTail, familyCalibration, etc.) without operator scrolling and shotting.

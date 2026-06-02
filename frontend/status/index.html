@@ -193,6 +193,7 @@
 
 <div class="actionBar">
   <button onclick="loadStatus()">refresh now</button>
+  <button onclick="exportToScratch()" id="exportBtn" title="POST /api/ws/status/snapshot — writes the full status JSON to .scratch/last.txt so Claude can read it without you screenshotting.">export to scratch</button>
 </div>
 <div class="nudge" id="nudge">—</div>
 
@@ -590,6 +591,29 @@ async function loadStatus() {
   } catch (e) {
     document.getElementById("nudge").textContent = "FETCH FAILED — " + (e?.message || e) + (lastSuccessAt ? " · last ok " + lastSuccessAt.toLocaleTimeString() : "");
     document.getElementById("nudge").style.color = "var(--red)";
+  }
+}
+
+// Phase Status-Dashboard-Export-1A — one-tap snapshot to .scratch/last.txt
+// so operator doesn't have to screenshot the dashboard for Claude to read.
+async function exportToScratch() {
+  const btn = document.getElementById("exportBtn");
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "exporting…";
+  try {
+    const r = await fetch("/api/ws/status/snapshot", { method: "POST", cache: "no-store" });
+    const j = await r.json();
+    if (j.written) {
+      btn.textContent = "✓ saved " + j.bytes + " bytes";
+      setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2500);
+    } else {
+      btn.textContent = "✗ failed";
+      setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2500);
+    }
+  } catch (e) {
+    btn.textContent = "✗ error";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2500);
   }
 }
 

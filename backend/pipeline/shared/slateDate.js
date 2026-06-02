@@ -108,6 +108,28 @@ function currentSlateDateEt() {
 }
 
 /**
+ * Phase Date-Doctrine-1B-fix2 — calendar date in ET, NO 4 AM boundary.
+ *
+ * USE THIS FOR: human-readable wall-clock displays. The /status header,
+ * "current time" labels, anywhere operator expects to see "what date is it
+ * right now per a normal clock."
+ *
+ * DO NOT USE FOR: file lookups, slate semantics, "which slate does this prop
+ * belong to" — that's slateDateForTimestamp/currentSlateDateEt's job.
+ *
+ * At 12:58 AM ET June 2: calendarDateEt() = "2026-06-02" (calendar), but
+ * currentSlateDateEt() = "2026-06-01" (slate, pre-4 AM boundary). Both are
+ * correct for their respective concepts. Conflating them was the fix1 bug.
+ */
+function calendarDateForTimestamp(ts = Date.now()) {
+  const parts = etParts(ts)
+  return `${parts.year}-${_pad(parts.month)}-${_pad(parts.day)}`
+}
+function calendarDateEt() {
+  return calendarDateForTimestamp(Date.now())
+}
+
+/**
  * Returns the ms window {startMs, endMs} for a given slate-date key.
  * startMs = 04:00:00 ET on the given date.
  * endMs   = 03:59:59.999 ET on the next date.
@@ -244,6 +266,8 @@ if (require.main === module) {
 module.exports = {
   currentSlateDateEt,
   slateDateForTimestamp,
+  calendarDateEt,            // Phase Date-Doctrine-1B-fix2 — wall-clock date, no 4 AM boundary
+  calendarDateForTimestamp,  // Phase Date-Doctrine-1B-fix2 — wall-clock date for any ts
   slateWindowEt,
   isInSlate,
   formatEt,
