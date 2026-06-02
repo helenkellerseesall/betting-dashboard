@@ -715,20 +715,33 @@ function _initSse() {
   }
   _sseSource.addEventListener("open", () => _setLiveStatus("watching", "connecting…"));
   _sseSource.addEventListener("error", () => _setLiveStatus("disconnected", "SSE down · reconnecting…"));
+  // Phase Status-Issue-Taxonomy-1A — single helper for dot+label.
+  // Reads INFRA counts only for dot state; COGNITION shown as informational
+  // suffix. Falls back to legacy total counts if server hasn't redeployed yet.
+  function _computeDotFromSummary(summary) {
+    const s = summary || {};
+    const infraReds    = s.infraRedCount    ?? s.redCount    ?? 0;
+    const infraYellows = s.infraYellowCount ?? s.yellowCount ?? 0;
+    const cogReds      = s.cognitionRedCount    ?? 0;
+    const cogYellows   = s.cognitionYellowCount ?? 0;
+    const dotState = infraReds > 0 ? "degraded" : infraYellows > 0 ? "watching" : "healthy";
+    const cogTotal = cogReds + cogYellows;
+    const cogSuffix = cogTotal > 0
+      ? ` · (+${cogTotal} cognition flag${cogTotal === 1 ? '' : 's'})`
+      : '';
+    const label = infraReds > 0
+      ? `INFRA DEGRADED · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
+      : infraYellows > 0
+        ? `watching · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
+        : `healthy · 0 infra issues${cogSuffix}`;
+    return { dotState, label };
+  }
+
   _sseSource.addEventListener("snapshot", (ev) => {
     try {
       const d = JSON.parse(ev.data);
       _seenReds = new Set((d.allRed || []).map(r => r.title));
-      // Phase Live-Dot-Honesty-1A — dot reflects ACTUAL system state, not just
-      // SSE connection. Red counts > 0 OR system degraded → red dot.
-      const reds = d.summary?.redCount || 0;
-      const yellows = d.summary?.yellowCount || 0;
-      const dotState = reds > 0 ? "degraded" : yellows > 0 ? "watching" : "healthy";
-      const label = reds > 0
-        ? `DEGRADED · ${reds} red · ${yellows} yellow`
-        : yellows > 0
-          ? `watching · ${reds} red · ${yellows} yellow`
-          : `healthy · 0 red · 0 yellow`;
+      const { dotState, label } = _computeDotFromSummary(d.summary);
       _setLiveStatus(dotState, label);
     } catch (_) {}
   });
@@ -736,6 +749,8 @@ function _initSse() {
     try {
       const d = JSON.parse(ev.data);
       // Toast every new RED that wasn't in the previous snapshot
+      // (both infra AND cognition still toast — you want to know when
+      // calibration suddenly jumps, just not have it inflate the dot)
       for (const r of (d.newReds || [])) {
         if (_seenReds.has(r.title)) continue;
         _seenReds.add(r.title);
@@ -743,7 +758,8 @@ function _initSse() {
       }
       // Update seenReds against new state (so cleared REDs can re-fire if they come back)
       _seenReds = new Set((d.allRed || []).map(r => r.title));
-      _setLiveStatus("connected", "live · " + (d.summary?.redCount || 0) + " red · " + (d.summary?.yellowCount || 0) + " yellow");
+      const { dotState, label } = _computeDotFromSummary(d.summary);
+      _setLiveStatus(dotState, label);
       // Trigger a fresh full reload so the openIssues card updates too
       loadStatus();
     } catch (_) {}

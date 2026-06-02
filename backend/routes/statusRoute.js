@@ -154,7 +154,7 @@ function sectionLaunchAgents() {
     // Probe scheduler.sh via pgrep (handles cron-spawned case)
     let schedulerProcessPid = null
     try {
-      const pgrep = spawnSync("/usr/bin/pgrep", ["-f", "/Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/scheduler.sh"], { encoding: "utf8", timeout: 2000 })
+      const pgrep = spawnSync("/usr/bin/pgrep", ["-f", "/Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scheduler.sh"], { encoding: "utf8", timeout: 2000 })
       if (pgrep.status === 0 && pgrep.stdout) {
         const pids = pgrep.stdout.trim().split("\n").map(p => Number(p)).filter(p => Number.isFinite(p))
         // Filter out the pgrep sub-shells launched BY the cron watchdog (they
@@ -449,11 +449,15 @@ function sectionOpenIssues() {
   const yellow = []
 
   // Source 1: family_calibration.json — flag families with severe gaps
+  // Phase Status-Issue-Taxonomy-1A — categories:
+  //   - file missing / read error  → infra  (pipeline broken, engine can't grade)
+  //   - per-family gap (≥15pp)    → cognition (engine self-grading is overconfident)
   try {
     const cal = safeReadJson(FAMILY_CALIB)
     if (!cal || !cal.sports) {
       red.push({
         source: "family_calibration",
+        category: "infra",
         title: "Calibration file missing or unreadable",
         detail: "Engine cannot grade itself — pick trust unknown.",
         path: FAMILY_CALIB,
@@ -467,6 +471,7 @@ function sectionOpenIssues() {
           if (gap >= 35) {
             red.push({
               source: "family_calibration",
+              category: "cognition",
               title: `${sport}/${fam} severely miscalibrated`,
               detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
               gapPp: gap,
@@ -475,6 +480,7 @@ function sectionOpenIssues() {
           } else if (gap >= 15) {
             yellow.push({
               source: "family_calibration",
+              category: "cognition",
               title: `${sport}/${fam} overconfident`,
               detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
               gapPp: gap,
@@ -485,10 +491,11 @@ function sectionOpenIssues() {
       }
     }
   } catch (e) {
-    red.push({ source: "family_calibration", title: "Calibration read error", detail: String(e?.message || e) })
+    red.push({ source: "family_calibration", category: "infra", title: "Calibration read error", detail: String(e?.message || e) })
   }
 
   // Source 2: drift_alerts.log — surface recent RED lines not already covered above
+  // Phase Status-Issue-Taxonomy-1A — wiring gaps = pipeline broken = infra.
   try {
     const txt = safeReadText(DRIFT_ALERTS)
     if (txt) {
@@ -502,6 +509,7 @@ function sectionOpenIssues() {
           seenWiringFields.add(field)
           yellow.push({
             source: "drift_alerts",
+            category: "infra",
             title: `Data wiring gap: ${field}`,
             detail: line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim(),
           })
@@ -510,12 +518,13 @@ function sectionOpenIssues() {
     } else {
       yellow.push({
         source: "drift_alerts",
+        category: "infra",
         title: "drift_alerts.log missing",
         detail: "sysAudit has never fired RED, OR log file was deleted — can't verify silent failures.",
       })
     }
   } catch (e) {
-    yellow.push({ source: "drift_alerts", title: "drift_alerts read error", detail: String(e?.message || e) })
+    yellow.push({ source: "drift_alerts", category: "infra", title: "drift_alerts read error", detail: String(e?.message || e) })
   }
 
   // Source 3: git state — uncommitted code = deploy-risk
@@ -525,6 +534,7 @@ function sectionOpenIssues() {
     if (lines.length > 0) {
       yellow.push({
         source: "git",
+        category: "infra",
         title: `${lines.length} uncommitted code change(s)`,
         detail: "Backend may be running pre-edit code; restart after commit to pick up changes.",
         files: lines.slice(0, 8).map(l => l.trim()),
@@ -540,6 +550,7 @@ function sectionOpenIssues() {
     if (up < 60) {
       yellow.push({
         source: "backend",
+        category: "infra",
         title: `Backend just restarted (${up}s ago)`,
         detail: "Caches may still be warming; first slate fire after restart may have partial data.",
       })
@@ -550,11 +561,26 @@ function sectionOpenIssues() {
   red.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
   yellow.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
 
+  // Phase Status-Issue-Taxonomy-1A — per-category counts.
+  // INFRA  = machine state (pipeline broken, file missing, deploy hygiene, restart).
+  // COGNITION = engine self-grading signal (calibration gaps) — dampeners already applied.
+  // Live dot reads infra*Count only so cognition warnings don't trigger DEGRADED state.
+  // Original redCount/yellowCount kept as TOTALS for backwards compat with any consumer
+  // not yet aware of the category split.
+  const infraRedCount       = red.filter(r => r.category === "infra").length
+  const infraYellowCount    = yellow.filter(y => y.category === "infra").length
+  const cognitionRedCount   = red.filter(r => r.category === "cognition").length
+  const cognitionYellowCount= yellow.filter(y => y.category === "cognition").length
+
   return {
     ok: true,
     summary: {
       redCount: red.length,
       yellowCount: yellow.length,
+      infraRedCount,
+      infraYellowCount,
+      cognitionRedCount,
+      cognitionYellowCount,
       checkedAt: new Date().toISOString(),
       sourcesChecked: ["family_calibration", "drift_alerts", "git", "backend.uptime"],
     },
