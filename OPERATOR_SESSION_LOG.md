@@ -506,3 +506,51 @@ Empirical confirmation:
 **Anti-fabrication preserved**: cache only persists what adapter actually returned; never invents entries. Cross-day cache discarded by reader (no stale data leaks across days).
 
 **Combined with Phase Calibration-Root-Cause-Audit-1A Step 1 (leanBet patches)**: starting tomorrow's MLB slate, tracked_bets entries will (a) carry the lineupSpot signal AND (b) have higher lineupSpot coverage thanks to the cache. Both fixes feed the eventual per-signal calibration analysis.
+
+### 03:00 ET — /status as canonical trust mirror (BINDING DOCTRINE)
+
+**Operator quote (load-bearing — locks the doctrine)**:
+> "yes the front end /status should reflect all my woriess, concerns, trusts, etc that i can not SEE with my own eyes, but it should also be 100% symbiotic and not fake"
+
+**Doctrine locked (binding from here forward)**:
+
+The `/status` page is the single pane of glass for operational trust. Every concern, worry, or trust signal that the operator can't see with their own eyes must surface here. AND every surface must be **100% symbiotic with reality** — every field traces to a real data source, never defaulted, never aggregated into a comforting lie.
+
+**Anti-fabrication rules for trust-mirror sections**:
+1. Empty arrays/zero counts ONLY if the source actually reports zero. Missing/unreadable sources become their own RED entries — never default to "all good."
+2. Severity classification uses real thresholds, never "if exists then green."
+3. Stale data shown AS stale (with age), never masked.
+4. Missing data shown AS missing, never defaulted to placeholder values.
+5. Aggregate counts must reconcile with per-item data (no synthesis).
+
+**Phase Status-Trust-Mirror is a multi-phase build** (tasks #27-#33):
+- #27 (THIS SHIP): openIssues — flat RED/YELLOW list at top
+- #28: dataFreshness — per-cache last-update + staleness
+- #29: realMoneyPosition — MY BETS state + recent results + pending stake
+- #30: liveAdapterHealth — per-external-API last-fetch + success rate
+- #31: wiringGaps — known 0%/partial-populated fields with bettor-language reasons
+- #32: pickQualityToday — tier counts + confidence histogram + uniqueness
+- #33: screenshotIngesterState — slips ingested + classifier hit rate + loop status
+
+**Phase Status-Trust-Mirror-1A shipped this fence (openIssues)**:
+- NEW `sectionOpenIssues()` in `backend/routes/statusRoute.js` — 4-source classifier (family_calibration, drift_alerts, git uncommitted, backend uptime). Severity thresholds: ≥35pp gap = RED, 15-34pp = YELLOW. Wiring gaps from drift_alerts.log auto-dedup'd by field name.
+- Wired in BOTH GET `/api/ws/status` AND POST `/api/ws/status/snapshot` (the export-to-scratch button) — so operator's button writes openIssues to scratch where Claude reads it first.
+- NEW FE card "open issues right now" on `/status` page (rendered between `system status` headline and `what's next`). Bettor-language legend: "RED = broken / can lose you money. YELLOW = degraded / worth knowing. Empty = nothing wrong, all checked sources clean."
+- Empty-state copy explicitly cites which sources were checked — never "all clear" without proof.
+
+**Live smoke against operator's actual data (pre-deploy)**:
+- 2 RED: nba/points_assists (37.5pp gap), nba/rebounds_assists (36.3pp gap) — severely miscalibrated
+- 12 YELLOW: nba/{assists, points, points_rebounds, pra, rebounds, steals, threes} + mlb/{hits, ks, outs, rbis, totalBases} — overconfident, dampener actively correcting
+
+**Verification**:
+- 2/2 syntax PASS (statusRoute.js + FE HTML scripts)
+- statusRoute module loads
+- Both wire points confirmed (GET + POST)
+- Live smoke reflects real calibration data — no synthesis, no defaults
+
+**Bettor-visible expected outcome at next /status refresh post-deploy**:
+- New "open issues right now" card appears at top of page (between system status and what's next)
+- Operator sees the 2 RED + 12 YELLOW at a glance
+- Export-to-scratch button now writes openIssues into scratch — Claude reads it without operator hunting through 5 sections
+
+**Doctrine reinforced (this file is the binding ref)**: /status is the trust surface, every surface is symbiotic, never fake.

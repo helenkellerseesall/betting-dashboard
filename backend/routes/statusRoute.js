@@ -373,6 +373,139 @@ function sectionFamilyCalibration() {
   }
 }
 
+// Phase Status-Trust-Mirror-1A (2026-06-02) — openIssues flat summary.
+//
+// Operator doctrine (locked 2026-06-02 ~02:30 ET): /status reflects all
+// operator concerns/worries/trust signals that can't be seen with operator's
+// own eyes AND is 100% symbiotic with reality, never fake.
+//
+// Anti-fabrication rules enforced here:
+//   - Every entry traces to a real source (calibration file, drift log,
+//     git state, sysAudit summary). No synthesized issues.
+//   - Empty red/yellow arrays ONLY if all sources actually report 0.
+//     If a source is missing/unreadable, that BECOMES its own RED entry
+//     ("can't read calibration file → can't grade picks") rather than
+//     defaulting to "no issues."
+//   - Severity classification uses real thresholds, not "if exists then yellow."
+function sectionOpenIssues() {
+  const red = []
+  const yellow = []
+
+  // Source 1: family_calibration.json — flag families with severe gaps
+  try {
+    const cal = safeReadJson(FAMILY_CALIB)
+    if (!cal || !cal.sports) {
+      red.push({
+        source: "family_calibration",
+        title: "Calibration file missing or unreadable",
+        detail: "Engine cannot grade itself — pick trust unknown.",
+        path: FAMILY_CALIB,
+      })
+    } else {
+      for (const sport of Object.keys(cal.sports || {})) {
+        for (const fam of Object.keys(cal.sports[sport] || {})) {
+          const x = cal.sports[sport][fam]
+          const gap = Number(x.gapPp)
+          if (!Number.isFinite(gap)) continue
+          if (gap >= 35) {
+            red.push({
+              source: "family_calibration",
+              title: `${sport}/${fam} severely miscalibrated`,
+              detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
+              gapPp: gap,
+              multiplier: x.multiplier,
+            })
+          } else if (gap >= 15) {
+            yellow.push({
+              source: "family_calibration",
+              title: `${sport}/${fam} overconfident`,
+              detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
+              gapPp: gap,
+              multiplier: x.multiplier,
+            })
+          }
+        }
+      }
+    }
+  } catch (e) {
+    red.push({ source: "family_calibration", title: "Calibration read error", detail: String(e?.message || e) })
+  }
+
+  // Source 2: drift_alerts.log — surface recent RED lines not already covered above
+  try {
+    const txt = safeReadText(DRIFT_ALERTS)
+    if (txt) {
+      const lines = txt.split("\n").filter(l => l.trim() && /RED/.test(l)).slice(-20)
+      const wiringLines = lines.filter(l => /never populated|wiring may be missing|0\/\d+\s*\(0%\)/.test(l))
+      const seenWiringFields = new Set()
+      for (const line of wiringLines) {
+        const m = line.match(/\[✗\]\s+(\w+):/)
+        const field = m && m[1]
+        if (field && !seenWiringFields.has(field)) {
+          seenWiringFields.add(field)
+          yellow.push({
+            source: "drift_alerts",
+            title: `Data wiring gap: ${field}`,
+            detail: line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim(),
+          })
+        }
+      }
+    } else {
+      yellow.push({
+        source: "drift_alerts",
+        title: "drift_alerts.log missing",
+        detail: "sysAudit has never fired RED, OR log file was deleted — can't verify silent failures.",
+      })
+    }
+  } catch (e) {
+    yellow.push({ source: "drift_alerts", title: "drift_alerts read error", detail: String(e?.message || e) })
+  }
+
+  // Source 3: git state — uncommitted code = deploy-risk
+  try {
+    const dirty = execSync("git status --porcelain", { cwd: REPO_ROOT, timeout: 2000 }).toString().trim()
+    const lines = dirty.split("\n").filter(l => l.trim() && /^\s*[MADR]/.test(l))  // only modified/added/deleted, not untracked
+    if (lines.length > 0) {
+      yellow.push({
+        source: "git",
+        title: `${lines.length} uncommitted code change(s)`,
+        detail: "Backend may be running pre-edit code; restart after commit to pick up changes.",
+        files: lines.slice(0, 8).map(l => l.trim()),
+      })
+    }
+  } catch (e) {
+    // git unavailable — not an operational issue, skip
+  }
+
+  // Source 4: backend uptime — < 60s = just restarted (may not have settled)
+  try {
+    const up = Math.floor(process.uptime())
+    if (up < 60) {
+      yellow.push({
+        source: "backend",
+        title: `Backend just restarted (${up}s ago)`,
+        detail: "Caches may still be warming; first slate fire after restart may have partial data.",
+      })
+    }
+  } catch (_) {}
+
+  // Sort: red first, then yellow; within each, source-grouped
+  red.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
+  yellow.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
+
+  return {
+    ok: true,
+    summary: {
+      redCount: red.length,
+      yellowCount: yellow.length,
+      checkedAt: new Date().toISOString(),
+      sourcesChecked: ["family_calibration", "drift_alerts", "git", "backend.uptime"],
+    },
+    red,
+    yellow,
+  }
+}
+
 function sectionTrackedBestToday() {
   try {
     const dateKey = etDateKey()
@@ -497,6 +630,9 @@ router.get("/", (req, res) => {
   const t0 = Date.now()
   const out = {}
   out.meta              = sectionMeta()
+  // Phase Status-Trust-Mirror-1A — openIssues surfaced near the top so
+  // operator-visible "what's wrong right now" hits the eye first.
+  out.openIssues        = sectionOpenIssues()
   out.schedule          = sectionSchedule()
   out.launchAgents      = sectionLaunchAgents()
   out.scheduler         = sectionScheduler()
@@ -522,6 +658,10 @@ router.post("/snapshot", (req, res) => {
     const t0 = Date.now()
     const out = {}
     out.meta              = sectionMeta()
+    // Phase Status-Trust-Mirror-1A — openIssues surfaced near the top so
+    // export-to-scratch captures it where operator (+ Claude reading scratch)
+    // sees it first.
+    out.openIssues        = sectionOpenIssues()
     out.schedule          = sectionSchedule()
     out.launchAgents      = sectionLaunchAgents()
     out.scheduler         = sectionScheduler()

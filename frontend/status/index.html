@@ -109,6 +109,13 @@
   </div>
 </div>
 
+<!-- Phase Status-Trust-Mirror-1A — open issues at top, operator-visible -->
+<div class="card" id="cardOpenIssues">
+  <h2>open issues right now</h2>
+  <div class="legend">RED = broken / can lose you money. YELLOW = degraded / worth knowing. Empty = nothing wrong, all checked sources clean.</div>
+  <div id="openIssuesList">loading…</div>
+</div>
+
 <!-- WHAT'S NEXT — schedule preview -->
 <div class="card">
   <h2>what's next</h2>
@@ -264,6 +271,36 @@ function renderAgents(data) {
       '<div class="pid" style="color:var(--text-faint)">exit ' + (a.lastExit ?? "—") + '</div>';
     grid.appendChild(div);
   }
+}
+
+// Phase Status-Trust-Mirror-1A — render the flat openIssues list at top.
+// Symbiotic discipline: data already classified RED/YELLOW server-side
+// (sectionOpenIssues in statusRoute.js). FE renders verbatim — never
+// invents flags, never aggregates into a different status.
+function renderOpenIssues(data) {
+  const div = document.getElementById("openIssuesList");
+  const oi = data.openIssues;
+  if (!oi || !oi.ok) {
+    div.innerHTML = '<div class="empty">openIssues section unavailable.</div>';
+    return;
+  }
+  const reds = Array.isArray(oi.red) ? oi.red : [];
+  const yells = Array.isArray(oi.yellow) ? oi.yellow : [];
+  if (reds.length === 0 && yells.length === 0) {
+    div.innerHTML = '<div class="empty">no open issues — every checked source clean (' + (oi.summary?.sourcesChecked || []).join(", ") + ')</div>';
+    return;
+  }
+  let html = '';
+  for (const r of reds) {
+    html += '<div class="pretty"><div class="ts red">RED · ' + (r.source || 'unknown') + '</div>'
+         +  '<div class="msg"><strong>' + (r.title || '') + '</strong> — ' + (r.detail || '') + '</div></div>';
+  }
+  for (const y of yells) {
+    html += '<div class="pretty"><div class="ts yellow">YELLOW · ' + (y.source || 'unknown') + '</div>'
+         +  '<div class="msg"><strong>' + (y.title || '') + '</strong> — ' + (y.detail || '') + '</div></div>';
+  }
+  html += '<div class="legend" style="margin-top:10px">summary: ' + (oi.summary?.redCount || 0) + ' red · ' + (oi.summary?.yellowCount || 0) + ' yellow · sources: ' + (oi.summary?.sourcesChecked || []).join(", ") + '</div>';
+  div.innerHTML = html;
 }
 
 function renderSysHeadline(data) {
@@ -578,6 +615,7 @@ async function loadStatus() {
     document.getElementById("etTime").textContent = (data.meta?.et || "—") + " · " + (data.meta?.elapsedMs ?? "—") + "ms";
     renderAgents(data.launchAgents);
     renderSysHeadline(data);
+    renderOpenIssues(data);
     renderSchedule(data);
     renderBackend(data);
     renderClv(data);
