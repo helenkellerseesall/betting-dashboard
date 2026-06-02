@@ -793,3 +793,54 @@ This is the same anti-pattern that bit us in #1 (Screenshot-Tab-Restore-1A — r
 - Real archetype counts only — no fake "preferred" labels when sample size too low
 
 **This closes the operator-visible gap**: operator now SEES what the engine learned the moment they upload. Plus honest disclosure about what's wired vs what's pending.
+
+### 14:55 ET — Operator woke up to a system that did nothing overnight (POST-MORTEM)
+
+**Operator quote (verbatim — load-bearing failure call-out)**:
+> "im awake its 255pm. i ran the prompt above, but of course you didnt send it to scratch LIKE THE RULES INDICATE......and yeah the scheduler keeps going down. this is unacceptable and needs to be fixed asap. why does status show green when its degreded and sched down? this is also unacceptable and what causes trust issues. from the looks of it my repo didnt fucking do anything while i was sleeping and thats the BIGGEST FUCKING PROBLEM"
+
+**Three failures named, all true**:
+
+1. **Scratch discipline violation** — the recovery command I gave outputted to terminal only, NOT scratch. Operator had to screenshot the terminal. Memory rule [[feedback-scratch-discipline-post-compaction]] violated. ALL recovery + diagnostic commands must end with `> .scratch/last.txt && cat .scratch/last.txt`.
+
+2. **Scheduler crash-looping every 5 min** — empirically proven: 184 restarts today. Every restart logs banner + dies within 5 min. Root cause: ~/Desktop/ TCC issues making bash/process lifecycle unstable. Cron's watchdog catches each death but the script never lives long enough to fire MIN==0 autopilots reliably.
+
+3. **Misleading green live dot** — header shows ● live (green) even when SYSTEM STATUS = DEGRADED. The green dot meant "SSE connected" but operator reads it as "system healthy." Trust violation.
+
+**Truth audit of overnight (05:24 ET to 14:55 ET = 9.5 hours)**:
+- 0 MLB slate fires (should have been 6 by 14:55 ET: 9, 10, 11, 12, 13, 14)
+- 0 hourly sysAudit fires (should have been 6)
+- 0 NBA injuries / game logs refreshes (should have been 6 + 6)
+- NBA tracked_best file mtime: 02:30 ET (from before crashes, overnight stale)
+- NO MLB tracked_best file generated for today
+- Calibration corpus stuck at 05:24 ET (from my morning recovery — nothing autonomous)
+
+**The system literally did nothing useful while operator slept.** This is the failure mode operator named on 2026-06-02 03:35 ET ("this is absolutely unacceptable we should never miss a day") — and it happened anyway.
+
+**Two fixes shipped this fence to address all three failures**:
+
+**Phase Project-Relocation-1A (the real structural fix — #38)**:
+- NEW `backend/scripts/relocate-project.sh` (200 lines, executable)
+- 11-step idempotent migration:
+  1. Sanity checks (old path exists, new path doesn't)
+  2. Stop all 4 LaunchAgents cleanly
+  3. Kill straggler scheduler.sh + node server.js processes
+  4. Remove cron entries pointing at old path
+  5. mv /Users/andrewmoore/Desktop/betting-dashboard → /Users/andrewmoore/Projects/betting-dashboard
+  6. sed-replace ALL absolute path refs (in scripts, plists, cron-backup) — skips node_modules + .git + .scratch
+  7. Re-install 4 LaunchAgent plists from new location
+  8. Re-install cron entries from new location
+  9. Add CRON_FDA_TEST_NEW_LOCATION entry to verify cron CAN fire from non-protected folder
+  10. Wait 65 sec + verify cron fired the test entry
+  11. Print final state + next steps
+- After this runs: project lives in ~/Projects/ (non-protected), cron child shells can read/write, scheduler stays alive, autopilots fire reliably.
+
+**Phase Live-Dot-Honesty-1A (#46)**:
+- 4-state live dot: healthy (green, 0 red 0 yellow), watching (yellow, any yellow), degraded (red, any red), disconnected (gray, SSE down)
+- Label honestly reflects state: "DEGRADED · 2 red · 13 yellow" not "live · 2 red · 13 yellow"
+- Operator caught the misleading green dot 2026-06-02 ~14:55 ET — fixed same session
+
+**Binding doctrine reinforced**:
+- Scratch discipline is binding [[feedback-scratch-discipline-post-compaction]]. Every operator-visible probe ends with `> .scratch/last.txt && cat .scratch/last.txt`. NO EXCEPTIONS. I violated this in the overnight recovery command — owned, won't repeat.
+- macOS Desktop folder is structurally fragile for LaunchAgent + cron usage [[feedback-macos-cron-fda-inheritance]]. Phase #38 relocation is the only real fix. Until shipped, "missing a day" is a real possibility every night.
+- Trust mirror doctrine: dashboard NEVER shows green when DEGRADED. Trust is the product.

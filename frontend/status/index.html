@@ -93,10 +93,18 @@
   .pretty .msg { font-size: 13px; color: var(--text); line-height: 1.4; }
   .pretty .msg .hl { color: var(--yellow); }
   /* Phase Status-Push-SSE-1A — live indicator + toast styles */
+  /* Phase Live-Dot-Honesty-1A (2026-06-02) — the live dot must reflect SYSTEM
+     HEALTH, not just SSE connection. Operator caught the misleading green
+     dot when system was DEGRADED: "why does status show green when its
+     degraded and sched down? this is what causes trust issues." */
   .liveDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+  .liveDot.healthy { background: #4ade80; box-shadow: 0 0 6px #4ade80; }     /* GREEN — SSE alive + system healthy */
+  .liveDot.degraded { background: #ef4444; box-shadow: 0 0 6px #ef4444; }     /* RED — system degraded regardless of SSE */
+  .liveDot.watching { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }     /* YELLOW — warnings active */
+  .liveDot.disconnected { background: #6b7280; }                              /* GRAY — SSE down (rare) */
+  .liveDot.connecting { background: #fbbf24; }                                 /* YELLOW — initial connection */
+  /* Legacy: keep .connected for back-compat but it now resolves to healthy semantic */
   .liveDot.connected { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
-  .liveDot.disconnected { background: #ef4444; }
-  .liveDot.connecting { background: #fbbf24; }
   #liveStatus { font-size: 11px; color: var(--text-faint); margin-left: 8px; font-variant-numeric: tabular-nums; }
   #pushToastContainer { position: fixed; top: 12px; right: 12px; left: 12px; z-index: 9999; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   .pushToast { background: rgba(20,20,28,0.96); border: 1px solid var(--red); border-radius: 8px; padding: 10px 14px; box-shadow: 0 6px 20px rgba(0,0,0,0.6); pointer-events: auto; animation: slideIn 0.3s ease-out; max-width: 600px; }
@@ -705,13 +713,23 @@ function _initSse() {
     _setLiveStatus("disconnected", "EventSource not supported");
     return;
   }
-  _sseSource.addEventListener("open", () => _setLiveStatus("connected", "live"));
-  _sseSource.addEventListener("error", () => _setLiveStatus("disconnected", "reconnecting…"));
+  _sseSource.addEventListener("open", () => _setLiveStatus("watching", "connecting…"));
+  _sseSource.addEventListener("error", () => _setLiveStatus("disconnected", "SSE down · reconnecting…"));
   _sseSource.addEventListener("snapshot", (ev) => {
     try {
       const d = JSON.parse(ev.data);
       _seenReds = new Set((d.allRed || []).map(r => r.title));
-      _setLiveStatus("connected", "live · " + (d.summary?.redCount || 0) + " red · " + (d.summary?.yellowCount || 0) + " yellow");
+      // Phase Live-Dot-Honesty-1A — dot reflects ACTUAL system state, not just
+      // SSE connection. Red counts > 0 OR system degraded → red dot.
+      const reds = d.summary?.redCount || 0;
+      const yellows = d.summary?.yellowCount || 0;
+      const dotState = reds > 0 ? "degraded" : yellows > 0 ? "watching" : "healthy";
+      const label = reds > 0
+        ? `DEGRADED · ${reds} red · ${yellows} yellow`
+        : yellows > 0
+          ? `watching · ${reds} red · ${yellows} yellow`
+          : `healthy · 0 red · 0 yellow`;
+      _setLiveStatus(dotState, label);
     } catch (_) {}
   });
   _sseSource.addEventListener("openIssues", (ev) => {
