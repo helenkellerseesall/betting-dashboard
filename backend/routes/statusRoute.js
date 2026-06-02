@@ -496,6 +496,38 @@ function sectionOpenIssues() {
 
   // Source 2: drift_alerts.log — surface recent RED lines not already covered above
   // Phase Status-Issue-Taxonomy-1A — wiring gaps = pipeline broken = infra.
+  // Phase Status-OpenIssues-LiveReconcile-1A (2026-06-02) — re-validate each
+  // wiring-gap RED against LIVE tracked_best data before surfacing. Suppresses
+  // stale REDs whose underlying wiring has been fixed since the log entry was
+  // written. Same live-data-wins model the calibration check above uses. The
+  // drift_alerts.log is APPEND-ONLY — without this reconciliation, a wiring gap
+  // flagged once and resolved hours later would keep re-surfacing on /status
+  // forever (e.g. lineupSpot: was 0% on 2026-06-01 morning, now 77%, but the
+  // morning's RED log entry was still showing on /status until this fix).
+  //
+  // Reconciliation rule: use the BETTER of NBA/MLB latest tracked_best rate for
+  // the field. If best rate ≥ sysAudit threshold (50%), suppress as resolved.
+  // If both < 50% (or files unreadable): surface with LIVE numbers, not stale log %.
+  function validateWiringGapLive(fieldName) {
+    if (!fieldName) return null
+    let best = null  // { populated, total, rate, sport }
+    for (const sport of ["mlb", "nba"]) {
+      try {
+        const files = fs.readdirSync(TRACKING_DIR).filter(f => new RegExp(`^${sport}_tracked_best_\\d{4}-\\d{2}-\\d{2}\\.json$`).test(f))
+        if (!files.length) continue
+        const latest = files.sort().reverse()[0]
+        const j = safeReadJson(path.join(TRACKING_DIR, latest))
+        const entries = Array.isArray(j) ? j : (j?.entries || [])
+        if (!entries.length) continue
+        const populated = entries.filter(e => e[fieldName] != null).length
+        const total = entries.length
+        const rate = populated / total
+        if (!best || rate > best.rate) best = { populated, total, rate, sport }
+      } catch (_) { /* skip this sport */ }
+    }
+    return best
+  }
+
   try {
     const txt = safeReadText(DRIFT_ALERTS)
     if (txt) {
@@ -507,11 +539,19 @@ function sectionOpenIssues() {
         const field = m && m[1]
         if (field && !seenWiringFields.has(field)) {
           seenWiringFields.add(field)
+          // Phase Status-OpenIssues-LiveReconcile-1A — re-validate against live data
+          const live = validateWiringGapLive(field)
+          if (live && live.rate >= 0.5) {
+            // Gap resolved since log was written — suppress stale RED
+            continue
+          }
           yellow.push({
             source: "drift_alerts",
             category: "infra",
             title: `Data wiring gap: ${field}`,
-            detail: line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim(),
+            detail: live
+              ? `[live] ${field}: ${live.populated}/${live.total} (${(live.rate*100).toFixed(0)}%) in ${live.sport.toUpperCase()} tracked_best — still below 50% threshold`
+              : line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim() + " (couldn't validate against tracked_best — surfacing log line as-is)",
           })
         }
       }
