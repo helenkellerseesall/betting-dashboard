@@ -424,3 +424,58 @@ Both now live in canonical `backend/pipeline/shared/slateDate.js`. Each call sit
 - Replaces the 4-screenshot workflow with one button tap → Claude reads scratch directly
 
 **Why this matters per [[feedback-scratch-discipline-post-compaction]]**: `.scratch/last.txt` is operator's verification sink. Now operator controls when it's overwritten (button tap), AND it captures the FULL status payload (not just the surface visible in screenshots), so Claude sees everything (sysAuditLast, driftAlertsTail, familyCalibration, etc.) without operator scrolling and shotting.
+
+### 02:00 ET — Phase Calibration-Root-Cause-Audit-1A — SMOKING GUN found in Step 1
+
+**Operator quotes (consecutive — both load-bearing)**:
+> "wouldnt the broken miscalibration be more important first? and also lineup is for mlb i thought? not nba?"
+>
+> "yep lets do the audit (but with everything else needing to be fixed, dont forget them as we move on)"
+
+**What I had to own**: my prior recommendation prioritized loop closure over miscalibration. Operator's instinct was correct — miscalibration is more important because real money rides on the engine's numbers (proven: 0/2 on placed bets). Loop closure builds on top of the engine; if the engine is broken, the loop teaches it to be broken-with-style. Also: lineupSpot is MLB-specific (batting order), NOT NBA — my prior framing wrong. Owned both.
+
+**Don't-forget queue locked as tasks #21-#25**: Per-Archetype-EV-1A (lottos need ROI grading), Joint-Distribution-Parlay-1A (correlated legs), Engine-Pick-Archetype-Tags-1A (classifier on generated picks), Live-Game-State-Integration-1A (real-time data), MY-BETS-Lesson-Learned-1A (post-mortem surface). Plus pre-existing #2/#3/#4/#5 (screenshot loop closure).
+
+**Step 1 deep-probe finding (SMOKING GUN)**:
+
+The audit started by probing why lineupSpot is 0% populated. What surfaced is much bigger:
+
+**BOTH `leanBet()` functions (the persistence layer for the calibration corpus) drop EVERY context signal the engine uses.**
+
+- `backend/pipeline/mlb/phase4Tracking.js:741` — MLB `leanBet()` persists CLV fields + raw odds + tier but NOTHING about lineupSpot, hrEnvironmentTag, isPlatoonAdvantage, runEnvironment, depth, plateAppearancesProxy.
+- `backend/pipeline/nba/buildNbaPerformanceTracking.js:184` — NBA `leanBet()` persists same minimal set; drops oppDef, restContext, homeAwaySplit, gameContext, starterFlag, projectedMinutes, recentForm, last5_avg, isPlatoonAdvantage.
+
+Empirical confirmation:
+- NBA `tracked_bets` 1259 rows: oppDef=0/1259, restContext=0/1259, starterFlag=0/1259, etc.
+- MLB `tracked_bets` 662 rows: lineupSpot=0/299 batter props.
+- Meanwhile `tracked_best` (curated subset) DOES have signals — leanBestEntry/toTrackedMlbBestEntry captures them. So data exists at curation time, just lost at bet-persistence time.
+
+**Why this matters**:
+- Calibration corpus reads `tracked_bets` (not `tracked_best`).
+- Grader sees: stated_prob + side + line + odds + result. NO context signals.
+- "Stated 57% / realized 20% / gap 37pp on points_assists" cannot be diagnosed per-signal-bucket because the bucket-defining signals were never persisted.
+- The engine MAY be using oppDef/lineupSpot correctly, OR it MAY be overfit to them — we can't tell because the grader is blind.
+
+**Patch shipped (same fence)**:
+- NBA `leanBet()` extended to mirror `leanBestEntry`'s context-signal whitelist (16 new fields)
+- MLB `leanBet()` extended to mirror `toTrackedMlbBestEntry`'s context-signal whitelist (13 new fields)
+- Anti-fabrication preserved: every field `?? null` — never invented.
+- Pattern is the SAME class as Truth-Fix-1B (oppDef) + MLB-Platoon-Persistence-1A (platoon flag): "two persistence paths, only one stays in sync with new signals." This is a structural anti-pattern. Both leanBet and leanBest now share the same whitelist surface for context signals.
+
+**Verification**:
+- 2/2 syntax PASS
+- Both modules load with exports intact
+- Field presence in patched code confirmed by grep
+
+**What this DOESN'T fix immediately**:
+- Past tracked_bets entries are immutable — historical calibration corpus stays blind.
+- Going forward (next slate fire onward), tracked_bets will have signals.
+- The audit can run for real once ~1-2 weeks of new data accumulates with signals.
+
+**Revised audit plan** (in task #20):
+- Step 1 ✓ DONE: patch persistence so signals reach the grader
+- Step 2: accumulate signal-rich tracked_bets (passive, ~2 weeks)
+- Step 3: per-signal calibration analysis — does lineupSpot=1 (top of order) vs =8 (bottom) grade differently? Does oppDef=elite (low pts allowed) vs weak grade differently? If yes → model is using signals correctly. If no → model is overfit to noise.
+- Step 4: brain doc `CALIBRATION_DIAGNOSIS.md` with verdict + next-phase recommendation.
+
+**Bettor-visible impact today**: none (passive instrumentation). Bettor-visible impact in ~2 weeks: definitive answer to "is the model broken or just being graded blind."

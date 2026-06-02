@@ -221,6 +221,39 @@ function leanBet(play, date) {
     closeImpliedProb: null,
     clv:              null,  // closeImpliedProb - openImpliedProb (positive = good)
     clvQuality:       null,  // "positive" | "neutral" | "negative"
+    // Phase Calibration-Root-Cause-Audit-1A (2026-06-02 ~02:00 ET) — mirror
+    // leanBestEntry's context-signal whitelist so the calibration corpus
+    // (which reads tracked_bets) can see which signals the engine actually
+    // used. Without this every NBA tracked_bet has oppDef/restContext/etc.
+    // = undefined → calibration corpus is BLIND → per-signal grading
+    // impossible → "stated 57% / realized 20% / gap 37pp" can't be
+    // diagnosed as model-bad vs signal-blind-grader. Anti-fabrication: every
+    // field uses `?? null` — never invented. Mirrors leanBestEntry 313-353.
+    team:                  play.team   || null,
+    homeTeam:              play.homeTeam || null,
+    awayTeam:              play.awayTeam || null,
+    opponent:              play.opponent           || null,
+    oppDef:                Number.isFinite(play.oppDef) ? play.oppDef : null,
+    pace:                  Number.isFinite(play.pace) ? play.pace : null,
+    shots:                 Number.isFinite(play.shots) ? play.shots : null,
+    astRate:               Number.isFinite(play.astRate) ? play.astRate : null,
+    rebRate:               Number.isFinite(play.rebRate) ? play.rebRate : null,
+    toRate:                Number.isFinite(play.toRate) ? play.toRate : null,
+    turnovers:             Number.isFinite(play.turnovers) ? play.turnovers : null,
+    starterFlag:           play.starterFlag ?? null,
+    projectedMinutes:      Number.isFinite(Number(play.projectedMinutes)) ? Number(play.projectedMinutes) : null,
+    recentForm:            play.recentForm   ?? null,
+    roleContext:           play.roleContext  ?? null,
+    restContext:           play.restContext  ?? null,
+    homeAwaySplit:         play.homeAwaySplit ?? null,
+    gameContext:           play.gameContext  ?? null,
+    isBackToBack:          play.restContext?.isBackToBack      ?? null,
+    daysSinceLastGame:     play.restContext?.daysSinceLastGame ?? null,
+    isHome:                play.homeAwaySplit?.isHome          ?? null,
+    elimination:           play.gameContext?.elimination       ?? null,
+    game7:                 play.gameContext?.game7             ?? null,
+    playoffLeg:            play.gameContext?.playoffLeg        ?? null,
+    volatility:            play.volatility ?? null,
   }
 }
 

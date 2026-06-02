@@ -791,6 +791,28 @@ function leanBet(play, date) {
     closeImpliedProb: null,
     clv:              null,
     clvQuality:       null,
+    // Phase Calibration-Root-Cause-Audit-1A (2026-06-02 ~02:00 ET) — mirror
+    // toTrackedMlbBestEntry's context-signal whitelist so the calibration
+    // corpus (which reads tracked_bets) can see which signals the engine
+    // actually used. Without this every MLB tracked_bet had lineupSpot/
+    // hrEnvironmentTag/isPlatoonAdvantage/etc. = undefined → calibration
+    // corpus was BLIND → per-signal grading impossible. Mirrors
+    // toTrackedMlbBestEntry lines 162-189. Anti-fabrication: every field
+    // uses `?? null` — never invented.
+    impliedTeamTotal:      Number.isFinite(Number(play?.impliedTeamTotal)) ? Number(play.impliedTeamTotal) : null,
+    gameTotal:             Number.isFinite(Number(play?.gameTotal))        ? Number(play.gameTotal)        : null,
+    hrEnvironmentTag:      play?.hrEnvironmentTag ?? null,
+    isPlatoonAdvantage:    typeof play?.isPlatoonAdvantage === "boolean" ? play.isPlatoonAdvantage : null,
+    lineupSpot:            play?.lineupSpot ?? play?.lineupPosition ?? play?.battingOrderIndex ?? null,
+    depth:                 play?.depth ?? null,
+    plateAppearancesProxy: play?.plateAppearancesProxy ?? null,
+    runEnvironment:        play?.runEnvironment ?? null,
+    rbiEnvironment:        play?.rbiEnvironment ?? null,
+    hrFactor:              play?.hrFactor ?? null,
+    windDirectionTag:      play?.windDirectionTag ?? null,
+    carryShift:            play?.carryShift ?? null,
+    temperatureF:          play?.temperatureF ?? null,
+    contextualTags:        Array.isArray(play?.mlbContextualTags) ? play.mlbContextualTags : (Array.isArray(play?.contextualTags) ? play.contextualTags : null),
   }
 }
 
