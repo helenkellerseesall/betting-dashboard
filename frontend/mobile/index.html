@@ -816,12 +816,20 @@
     }
 
     // v0.2.2: which prop types are milestone (Yes/No) vs threshold (Over/Under)
+    // Phase Screenshot-FE-Ingest-Fix-1A (2026-06-02) — added HR variants
+    // FanDuel/DraftKings emit as "Home Runs" / "Home Run" / "To Hit A Home Run"
+    // depending on the market label OCR sees. All are yes/no (line=0.5 implicit).
+    // Without this set membership, legHasMinFields rejected every HR slip → button
+    // greyed → operator couldn't submit HR parlays (the canonical MLB lotto shape).
     const MILESTONE_PROPS = new Set([
       "Double-Double", "Triple-Double", "First Basket",
-      "Anytime TD", "Anytime Goal", "Anytime HR", "Hit a HR"
+      "Anytime TD", "Anytime Goal", "Anytime HR", "Hit a HR",
+      "Home Runs", "Home Run", "HR", "To Hit A Home Run", "To Hit a Home Run",
+      "First Touchdown", "First TD", "First Goal"
     ]);
     function isMilestoneProp(propType) {
-      return MILESTONE_PROPS.has(propType);
+      const v = String(propType || "").trim();
+      return MILESTONE_PROPS.has(v) || /home\s*run|anytime/i.test(v);
     }
 
     // v0.2.5: Auto-detect sport from the leg prop types so the slip-analysis
@@ -3303,10 +3311,12 @@
       const ocrHtml = `
         <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.5); background: linear-gradient(180deg, #11202E 0%, #141828 100%);">
           <div class="leg-form-title" style="margin-bottom: 6px;">📸 Drop a screenshot (Claude Vision OCR)</div>
-          <input type="file" id="anaImageInput" accept="image/*" style="display: none;"
-                 onchange="handleImageFile(this.files[0])" />
+          <!-- Phase Screenshot-FE-Ingest-Fix-1A: multi-file. Drop as many as you want;
+               each one is OCR'd + auto-submitted sequentially. -->
+          <input type="file" id="anaImageInput" accept="image/*" multiple style="display: none;"
+                 onchange="handleImageFiles(this.files)" />
           <button onclick="document.getElementById('anaImageInput').click()" class="add-leg-form-btn" style="margin-top: 0; margin-bottom: 6px;">
-            📷 Choose image / take photo
+            📷 Choose images (multiple OK)
           </button>
           <div id="anaOcrStatus" style="font-size: 11px; color: ${ocrStatus.includes("error") ? "#F87171" : ocrStatus.includes("Parsed") ? "#34D399" : "#9CA3AF"}; min-height: 14px; text-align: center; padding: 2px 0;">
             ${escapeHtml(ocrStatus) || "Or paste an image (Cmd-V) anywhere on this page."}
@@ -3330,11 +3340,15 @@
         `<div class="diag-footer">analyze v0.2.3 · Claude Vision OCR + paste-parse · backend POST /api/ws/screenshots/{ocr,ingest}</div>`;
     }
 
-    // v0.2.3: Image upload + OCR via /api/ws/screenshots/ocr.
-    // Operator drops a sportsbook screenshot, we send to Anthropic Vision,
-    // get back parsed legs, populate the form. Operator just clicks "Analyze Slip."
-    async function handleImageFile(file) {
-      if (!file) return;
+    // Phase Screenshot-FE-Ingest-Fix-1A — multi-file handler. Operator can
+    // drop N screenshots at once; we OCR + auto-submit each one sequentially
+    // (don't parallelize — Claude Vision rate limits). Each ingest writes a
+    // bettor_profiles update via Phase 2A hook + slip_classifications row.
+    // After all done, show a per-slip summary.
+    async function handleImageFiles(filesList) {
+      const files = Array.from(filesList || []);
+      if (!files.length) return;
+      const total = files.length;
       const statusEl = document.getElementById("anaOcrStatus");
       const setStatus = (msg, color) => {
         if (statusEl) {
@@ -3343,9 +3357,39 @@
         }
         state.analyze.ocrStatus = msg;
       };
+      const results = [];
+      for (let i = 0; i < total; i++) {
+        const f = files[i];
+        setStatus(`Processing image ${i + 1}/${total}: ${f.name || "screenshot"}…`, "#38BDF8");
+        const result = await handleImageFile(f, { autoSubmit: true, suppressStatusReset: true });
+        results.push({ file: f.name || `image_${i + 1}`, ...result });
+      }
+      const okCount = results.filter(r => r.ok).length;
+      const archetypes = results.filter(r => r.archetype).map(r => r.archetype);
+      const summary = `✓ ${okCount}/${total} ingested` +
+        (archetypes.length ? ` · archetypes: ${archetypes.join(", ")}` : "");
+      setStatus(summary, okCount === total ? "#34D399" : "#FBBF24");
+    }
+    window.handleImageFiles = handleImageFiles;
+
+    // v0.2.3: Image upload + OCR via /api/ws/screenshots/ocr.
+    // Phase Screenshot-FE-Ingest-Fix-1A — returns { ok, archetype, error }
+    // so the multi-file caller can aggregate results. autoSubmit: when true,
+    // automatically calls submitAnalyze() after OCR populates the form.
+    async function handleImageFile(file, { autoSubmit = false, suppressStatusReset = false } = {}) {
+      if (!file) return { ok: false, error: "no file" };
+      const statusEl = document.getElementById("anaOcrStatus");
+      const setStatus = (msg, color) => {
+        if (suppressStatusReset) return;  // multi-file caller manages its own status
+        if (statusEl) {
+          statusEl.textContent = msg;
+          if (color) statusEl.style.color = color;
+        }
+        state.analyze.ocrStatus = msg;
+      };
       if (file.size > 9 * 1024 * 1024) {
         setStatus("Image too large (>9MB). Try a screenshot crop.", "#F87171");
-        return;
+        return { ok: false, error: "too_large" };
       }
       setStatus("Reading image…", "#9CA3AF");
       try {
@@ -3363,32 +3407,51 @@
         const json = await r.json();
         if (!r.ok || !json.ok) {
           if (json?.code === "ANTHROPIC_KEY_MISSING") {
-            setStatus("Need ANTHROPIC_API_KEY in backend .env. See instructions in chat.", "#F87171");
+            setStatus("Need ANTHROPIC_API_KEY in backend .env.", "#F87171");
           } else {
             setStatus(`OCR error: ${json?.error || `HTTP ${r.status}`}`, "#F87171");
           }
-          return;
+          return { ok: false, error: json?.error || `HTTP ${r.status}` };
         }
         if (!Array.isArray(json.legs) || json.legs.length === 0) {
           setStatus("Couldn't read any legs from this image. Try a clearer crop.", "#FBBF24");
-          return;
+          return { ok: false, error: "no_legs_parsed" };
         }
         // Populate legs from OCR result
-        state.analyze.legs = json.legs.map(l => ({
-          player: l.player || "",
-          propType: l.propType || "Points",
-          line: l.line == null ? "" : String(l.line),
-          side: l.side || (isMilestoneProp(l.propType) ? "yes" : "over"),
-          odds: l.odds == null ? "" : String(l.odds),
-          sportsbook: l.sportsbook || json.sportsbook || "DraftKings",
-        }));
+        // Phase Screenshot-FE-Ingest-Fix-1A — auto-fill line=0.5 for milestone
+        // markets (HR, "Anytime TD", etc.) when OCR returns no explicit line.
+        // Otherwise legHasMinFields rejects → button greyed → no submit.
+        state.analyze.legs = json.legs.map(l => {
+          const isMilestone = isMilestoneProp(l.propType);
+          return {
+            player: l.player || "",
+            propType: l.propType || "Points",
+            line: l.line == null ? (isMilestone ? "0.5" : "") : String(l.line),
+            side: l.side || (isMilestone ? "yes" : "over"),
+            odds: l.odds == null ? "" : String(l.odds),
+            sportsbook: l.sportsbook || json.sportsbook || "DraftKings",
+          };
+        });
         const noteParts = [`Parsed ${json.legs.length} legs from image`];
         if (json.sportsbook) noteParts.push(`book: ${json.sportsbook}`);
         if (json.combinedOdds) noteParts.push(`combined: +${json.combinedOdds}`);
         setStatus(`✓ ${noteParts.join(" · ")}`, "#34D399");
         render();
+
+        // Phase Screenshot-FE-Ingest-Fix-1A — auto-submit when caller asked
+        // (multi-file path). Operator's flow: drop image → done, no clicks.
+        if (autoSubmit) {
+          try {
+            const submitResult = await submitAnalyze({ silent: true });
+            return { ok: true, archetype: submitResult?.archetype, legs: state.analyze.legs.length };
+          } catch (e) {
+            return { ok: false, error: "submit_failed: " + (e?.message || e) };
+          }
+        }
+        return { ok: true, legs: state.analyze.legs.length };
       } catch (e) {
         setStatus(`OCR error: ${e.message || String(e)}`, "#F87171");
+        return { ok: false, error: e?.message || String(e) };
       }
     }
     window.handleImageFile = handleImageFile;
@@ -3629,7 +3692,10 @@
       render();
     }
 
-    async function submitAnalyze() {
+    // Phase Screenshot-FE-Ingest-Fix-1A — accept { silent } param so multi-file
+    // caller can submit without triggering full re-render between iterations.
+    // Returns { ok, archetype, error } for caller-side result aggregation.
+    async function submitAnalyze({ silent = false } = {}) {
       const a = state.analyze;
       const legs = a.legs.filter(legHasMinFields).map(leg => {
         const rawOdds = String(leg.odds || "").replace(/[+\s]/g, "");
@@ -3653,7 +3719,7 @@
           sportsbook: leg.sportsbook,
         };
       });
-      if (legs.length === 0) return;
+      if (legs.length === 0) return { ok: false, error: "no_valid_legs" };
 
       // v0.2.5: auto-detect sport from prop types when operator left "auto-detect"
       // selected. Backend resolveSlipLegToPrediction bails MISSING_SPORT if sport
@@ -3684,14 +3750,19 @@
         const json = await r.json();
         if (!r.ok || !json.ok) {
           a.result = { _error: json?.error || `HTTP ${r.status}` };
-        } else {
-          a.result = json.results && json.results[0] ? json.results[0] : json;
+          return { ok: false, error: json?.error || `HTTP ${r.status}` };
         }
+        a.result = json.results && json.results[0] ? json.results[0] : json;
+        // Phase Screenshot-FE-Ingest-Fix-1A — extract archetype from response
+        // so multi-file caller can show per-slip summary.
+        const archetype = a.result?.archetype || a.result?.classification?.archetype || null;
+        return { ok: true, archetype, result: a.result };
       } catch (e) {
         a.result = { _error: e.message || String(e) };
+        return { ok: false, error: e.message || String(e) };
       } finally {
         a.submitting = false;
-        render();
+        if (!silent) render();
       }
     }
 
