@@ -2397,15 +2397,29 @@ router.get("/top-picks", (req, res) => {
       if (latest && latest !== date) { date = latest; fellBack = true }
     }
 
+    // 2026-06-01 Phase Truth-Fix-1C (audit RED #5) — preferred-books filter.
+    // FE display narrows to 4 operator-preferred books (FD/DK/Fanatics/BetMGM)
+    // per memory [[operator-preferred-books]]. Backend keeps the full 7-book
+    // allowlist for line-shopping intelligence; this endpoint serves the
+    // FE-facing TOP PICKS so it filters down to the 4. Audit found 22% NBA
+    // and 62% MLB picks today were from Hard Rock + BetRivers (off-allowlist).
+    // Defense-in-depth: the FE renderTopPicks also filters; this backend
+    // filter is the source-of-truth gate.
+    const PREFERRED_BOOKS = new Set(["draftkings", "fanduel", "fanatics", "betmgm"])
+    const normBookName = (s) => String(s || "").toLowerCase().replace(/\s+/g, "")
+    const isPreferredBook = (b) => PREFERRED_BOOKS.has(normBookName(b.book || b.sportsbook))
+
     const reasoningIdx = {}
     for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
     const all = []
+    let droppedNonPreferredBook = 0
     for (const sport of sports) {
       const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
       for (const b of trackedBets) {
         if (shouldRejectByOperatorPolicy(b)) continue
         const tier = String(b.tier || b.modelTier || "").toUpperCase()
         if (tier === "FADE" || tier === "LONGSHOT") continue
+        if (!isPreferredBook(b)) { droppedNonPreferredBook++; continue }
         all.push({ ...b, sport })
       }
     }
@@ -2483,6 +2497,7 @@ router.get("/top-picks", (req, res) => {
         ELITE: byTier.ELITE.length, STRONG: byTier.STRONG.length, PLAYABLE: byTier.PLAYABLE.length,
         returned: picks.length,
         dampenedRejected,
+        droppedNonPreferredBook,
       },
       picks,
     })

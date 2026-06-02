@@ -2894,7 +2894,14 @@
       try {
         const r = await fetch(`${API}/api/ws/top-picks?limit=50`);
         const d = await r.json();
-        const picks = d.picks || [];
+        // 2026-06-01 Phase Truth-Fix-1C (audit RED #5) — defense-in-depth
+        // preferred-books filter. Backend /api/ws/top-picks now filters out
+        // off-allowlist books at source, this FE filter is the second-line
+        // gate so no future code path can ever leak Hard Rock/BetRivers/
+        // bet365 onto the visible TOP PICKS cards. isPreferredBook is
+        // defined at line ~1137 (FD/DK/Fanatics/BetMGM).
+        const rawPicks = d.picks || [];
+        const picks = rawPicks.filter(p => isPreferredBook(p.sportsbook || p.book));
         document.getElementById("topCount").textContent = picks.length;
         if (!picks.length) {
           main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No top picks available for ${d.date}.</div>`;
