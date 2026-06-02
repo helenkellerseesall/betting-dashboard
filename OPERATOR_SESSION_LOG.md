@@ -627,3 +627,89 @@ Edit to scheduler.sh in ~/Desktop/ during Option D ship triggered macOS to revok
 - **Trust mirror symbiotic doctrine**: /status must reflect ACTUAL coverage state, not LaunchAgent metadata. If cron is covering for a dead LaunchAgent, the headline should not lie. #41 enforces this.
 
 **My accountability**: I introduced the failure by editing scheduler.sh during Option D. The code was fine, but the FACT of editing a LaunchAgent script in Desktop is what broke it. The cron backup + watchdog should have been in place before I touched anything in Desktop. Tonight I owe operator the missed 03:05 populator chain — there's no recovery for that data refresh, but the structural fix is shipped so it can never happen again.
+
+### 04:00-04:30 ET — Screenshot loop FULLY CLOSED (Phases #5, #2, #3, #4 — all four shipped)
+
+**Operator quote (load-bearing — pivot from "wait for calibration audit" to "ship loop now")**:
+> "STOP FUCKING TELLING ME TO SLEEP, what should we do now. think we will still be working on this daily, so if i cant even bet for 2 weeks while we wait, then we will need to fully finish the screenshot uploader/grader/learner/predictor"
+
+**Doctrine reinforced**: never tell operator to sleep / rest / break (saved binding memory `feedback_never_tell_operator_to_sleep.md`). Parallel tracks advance the work — calibration audit can be passive while loop closure ships actively.
+
+**What shipped (4 phases in one sequence)**:
+
+**Phase #5 Screenshot-Classifier-Fix-1A** (the diagnosis was sharper than expected):
+- Real bug: `classifyArchetype` had ZERO rules for twitter/discord/viral source — operator's actual workflow. Every twitter slip fell through legacy internal/personal/guru/sportsbook rules → 'unknown'.
+- Probe of `betting.db` confirmed 5/5 stored slips classified as 'unknown' despite clear signals (40.9-decimal lottery payouts = obvious viral_lotto pattern, just no rule to recognize it).
+- Fix: added source-aware classification at TOP of classifyArchetype with combined_dec-shape rules (>=40 = viral_lotto, >=10 + structural>=0.55 = sharp_aggressive, etc.). Preserved null distinction (combined_dec=null must NOT default to 0, that triggered safe_grind false positives in v1 of the fix).
+- After fix: 5/5 slips correctly classified as 2 viral_lotto (40.9 decimal lottery tickets) + 3 recreational_chase (5-leg twitter parlays without parseable payout). Zero 'unknown'.
+
+**Phase #2 Screenshot-Loop-Close-2A bettor_profiles updater**:
+- NEW file `backend/pipeline/screenshots/bettorProfilesUpdater.js`
+- Functions: `profileIdFor`, `upsertBettorProfileForSlip`, `getBettorProfile`, `backfillFromExistingClassifications`
+- Profile identity: sha256(`${source_type}|${attribution || 'anonymous'}`):16 — collapses twitter slips without attribution into one profile.
+- Maintains rolling means: avg_leg_count, avg_combined_dec, avg_structural_quality, avg_hidden_sharpness, avg_emotional_bait, avg_payout_realism, avg_appeal_score, avg_composite_score
+- archetype_dist incremented per classification
+- sport_focus tracks which sports the source bets
+- Hooked into screenshotRoutes.js POST /ingest after classification persist (line ~310), wrapped in try/catch (non-fatal observational layer)
+- Backfill ran against existing 5 slips: profile `twitter-anonymous` created with 5 slips, archetype_dist={viral_lotto:2, recreational_chase:3}, sport_focus={nba:5}, avg_leg_count=5.8, avg_combined_dec=40.92
+
+**Phase #3 Screenshot-Loop-Close-2B outcome_links populator**:
+- NEW file `backend/pipeline/screenshots/outcomeLinksPopulator.js`
+- Functions: `gradeAllUngraded`, `gradeSlip`, `refreshBettorProfileOutcomeStats`
+- Per-leg matching against engine's tracked_bets_YYYY-MM-DD.json by (player, statFamily, side, line, slate_date) — normalized (case + alias map)
+- Idempotent: DELETE existing outcome_links for slip_id before INSERT
+- Writes per-leg row + computes parlay-level slip_won (AND across all legs, null if any ungraded)
+- Anti-fabrication: ungraded legs marked source="ungraded_no_engine_match" rather than synthesized
+- First run against 5 existing slips: 29 outcome_links rows written, all ungraded (slips' slate_dates are 2026-05-22, engine's tracked_bets only go back to 2026-05-28 — no temporal overlap)
+- `refreshBettorProfileOutcomeStats` aggregates per-archetype hit rates back into bettor_profiles.outcome_stats — but with 0 graded slips, nothing to refresh yet
+
+**Phase #4 Screenshot-Loop-Close-2C engine read-back**:
+- NEW file `backend/pipeline/screenshots/bettorTasteSignal.js`
+- Function: `getOperatorTasteSignal(db)` → aggregate signal across all bettor_profiles
+- Returns: preferred_archetypes (hit_rate >= 0.35 OR frequency_fallback when no graded outcomes), avoid_archetypes (hit_rate < 0.10), preferred_leg_count_range, preferred_combined_dec_range, preferred_sports, summary_for_log
+- Wired into `buildAiSlips` ctx as `ctx.bettorTaste` (line ~1360 of buildSlipAi.js)
+- Logs one-line summary at start of every pick-gen run: `[BETTOR-TASTE] 5 slips · 0 graded · top archetypes: recreational_chase/viral_lotto · avg legs: 5.8 · avg combinedDec: 40.9 · sports: nba:5`
+- **Phase 2C-1 (THIS PHASE) is observability-only** — bettorTaste is ATTACHED to ctx but does NOT yet bias scoreLeg. Active biasing is Phase 2C-2 (deferred — requires careful threshold work to avoid overfitting to small samples).
+
+**Loop architecture (now closed)**:
+
+```
+operator screenshots slip
+  ↓
+POST /api/ws/screenshots/ingest
+  ↓
+normalizeIngestedSlip → parsed_slips row
+  ↓
+classifyIngestedSlip → slip_classifications row (NEW: real archetype, not 'unknown')
+  ↓
+upsertBettorProfileForSlip → bettor_profiles row (NEW: archetype_dist + preference_signals updated)
+  ↓
+[NIGHTLY: outcomeLinksPopulator.gradeAllUngraded] → outcome_links rows (per-leg hit/miss)
+  ↓
+[NIGHTLY: refreshBettorProfileOutcomeStats] → bettor_profiles.outcome_stats updated (per-archetype hit rates)
+  ↓
+[EVERY PICK-GEN RUN: bettorTasteSignal] → ctx.bettorTaste (engine sees operator's pattern)
+  ↓
+[FUTURE Phase 2C-2: scoreLeg biases on bettorTaste] → picks shaped like operator's appeal pattern
+```
+
+**What this enables NOW**:
+- Operator can drop a slip on /analyze and get a real archetype label (not 'unknown')
+- Engine logs operator's accumulated taste signal on every pick-gen run (observability)
+- bettor_profiles is the substrate for future learning (graded outcomes will accumulate as operator ingests slips with players the engine also tracks)
+
+**What this DOESN'T yet enable**:
+- Active pick-gen biasing on taste signal (Phase 2C-2)
+- Per-archetype EV grading (task #21 — lottos need ROI not win-rate)
+- Joint distribution on correlated legs (task #22 — where lotto +EV actually lives)
+- Archetype tags on engine-generated picks (task #23)
+
+**Files shipping this fence**:
+- NEW `backend/pipeline/screenshots/bettorProfilesUpdater.js` (~210 lines)
+- NEW `backend/pipeline/screenshots/outcomeLinksPopulator.js` (~270 lines)
+- NEW `backend/pipeline/screenshots/bettorTasteSignal.js` (~190 lines)
+- MODIFIED `backend/pipeline/screenshots/classifyIngestedSlip.js` (classifier fix, ~50 lines net)
+- MODIFIED `backend/pipeline/screenshots/screenshotRoutes.js` (hook upsert into ingest, ~10 lines)
+- MODIFIED `backend/pipeline/shared/buildSlipAi.js` (load bettorTaste into ctx, ~20 lines)
+
+**Operator-doctrine memory locked**: `feedback_never_tell_operator_to_sleep.md` saved to spaces memory + indexed in MEMORY.md. Future Claude will not tell operator to sleep.

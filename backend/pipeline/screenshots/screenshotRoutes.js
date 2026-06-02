@@ -32,6 +32,8 @@ const router   = express.Router()
 
 const { normalizeIngestedSlip, normalizeIngestedSlips } = require("./normalizeIngestedSlip")
 const { classifyIngestedSlip }                          = require("./classifyIngestedSlip")
+// Phase Screenshot-Loop-Close-2A — post-classification bettor profile updater
+const { upsertBettorProfileForSlip }                    = require("./bettorProfilesUpdater")
 const { applyScreenshotSchema }                         = require("../../storage/screenshotSchema")
 const { tryGetDb }                                      = require("../../storage/db")
 // v0.2.3: Anthropic Vision OCR for real image upload (Session N+1.5)
@@ -308,6 +310,19 @@ router.post("/ingest", (req, res) => {
       )
 
       updateSlipStatus.run(normalized.id)
+
+      // Phase Screenshot-Loop-Close-2A (2026-06-02) — update bettor profile.
+      // Tier 3 learning loop: every classified slip updates the source's
+      // archetype distribution + preference signals. Anti-fabrication: wrapped
+      // in try/catch so any profile update failure NEVER blocks the ingest
+      // response — slip persistence + classification stays as the canonical
+      // operation, profile update is best-effort observational layer.
+      let profileUpdate = null
+      try {
+        profileUpdate = upsertBettorProfileForSlip(db, normalized, { ...classification, id: classId })
+      } catch (e) {
+        console.warn("[Screenshot-Loop-Close-2A] bettor profile update failed (non-fatal):", e?.message || e)
+      }
 
       // Phase BNSB-1A (FE-VBI-1): compute canonical VBI verdict from the
       // already-normalized slip + canonical sport/slateDate. Pure additive on

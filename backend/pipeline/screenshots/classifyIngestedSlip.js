@@ -443,6 +443,62 @@ function classifyArchetype(dims, slip) {
   const legs = slip._legs || []
   const avgOdds = legs.map(l => l.odds).filter(Number.isFinite)
   const avgOddsVal = avgOdds.length ? avgOdds.reduce((a, b) => a + b, 0) / avgOdds.length : 0
+  // Phase Screenshot-Classifier-Fix-1A — preserve null distinction. Null
+  // combined_dec means parser couldn't extract payout; treat as "unknown
+  // payout shape", do NOT collapse to 0 (which would falsely trigger
+  // "low payout = safe grind" branches).
+  const hasCombinedDec = Number.isFinite(Number(slip.combined_dec)) && Number(slip.combined_dec) > 0
+  const combinedDec = hasCombinedDec ? Number(slip.combined_dec) : null
+  const isViralSource = slip.source_type === "twitter" || slip.source_type === "discord" || slip.source_type === "viral"
+
+  // ── PHASE Screenshot-Classifier-Fix-1A (2026-06-02 ~04:00 ET) ──────────────
+  //
+  // Operator's actual workflow: drops slips from X (twitter) and Discord. Prior
+  // classifier had ZERO rules for these sources — every twitter/discord slip
+  // fell through to 'unknown'. Probe 2026-06-02: 5/5 ingested slips classified
+  // as 'unknown' despite clear archetype signals (40.9 decimal payout = lotto;
+  // 7 legs from same source pattern = viral spread).
+  //
+  // New rules below run BEFORE the legacy rules so source-aware classification
+  // gets first shot. Legacy rules preserved for internal/personal/guru/sportsbook.
+  //
+  // Decimal odds thresholds based on real-world parlay structure:
+  //   >= 50  decimal = ~+4900 American = lotto territory
+  //   >= 10  decimal = ~+900 American  = aggressive parlay
+  //   <  10  decimal                   = grinder structure
+  //
+  // Source-aware rules first (catches the 80%+ case for twitter/discord):
+
+  if (isViralSource) {
+    // safe_grind is INTENTIONALLY OMITTED from viral-source branches — that
+    // label is reserved for internal/personal grinder picks. Social-source
+    // slips default to viral_lotto/sharp_aggressive/recreational_chase.
+
+    // Only fire combined-dec rules when we ACTUALLY know the payout shape.
+    if (hasCombinedDec) {
+      // viral_lotto: lottery-shaped payout (40+ decimal) from social source
+      if (combinedDec >= 40) return "viral_lotto"
+
+      // sharp_aggressive: solid structure + aggressive odds from social source =
+      // someone shared a thoughtful longshot (often capper-style or community-vetted)
+      if (combinedDec >= 10 && structural_quality >= 0.55 && hidden_sharpness >= 0.45) {
+        return "sharp_aggressive"
+      }
+
+      // recreational_chase: moderate odds, any structure = casual social parlay
+      if (combinedDec >= 5) return "recreational_chase"
+
+      // Very short payout (< 5 dec) from social source = atypical, mark as recreational
+      return "recreational_chase"
+    }
+
+    // No combined_dec data — infer from leg count / odds alone
+    if (legs.length >= 5) return "recreational_chase"   // many legs = likely parlay
+    if (avgOddsVal > 100) return "sharp_aggressive"     // plus-money lean
+    return "recreational_chase"                          // sensible default for social
+  }
+
+  // ── LEGACY RULES (preserved — operate on internal/personal/guru/sportsbook) ──
 
   // sharp_aggressive: genuine edge, low bait, process-driven
   if (hidden_sharpness >= 0.60 && emotional_bait <= 0.30 && structural_quality >= 0.60) {
@@ -462,7 +518,7 @@ function classifyArchetype(dims, slip) {
   }
 
   // viral_lotto: extreme payout ratio, high bait, payout inflation
-  if (emotional_bait >= 0.55 && payout_realism <= 0.50 && (slip.combined_dec || 0) >= 100) {
+  if (emotional_bait >= 0.55 && payout_realism <= 0.50 && combinedDec >= 100) {
     return "viral_lotto"
   }
 
@@ -475,6 +531,15 @@ function classifyArchetype(dims, slip) {
   if (structural_quality <= 0.50 && emotional_bait >= 0.30 && avgOddsVal > 0) {
     return "recreational_chase"
   }
+
+  // ── Fallback (Phase Screenshot-Classifier-Fix-1A) ─────────────────────────
+  // 'unknown' should be a last resort. If combined_dec exists at all, infer
+  // archetype from payout shape alone. Better imperfect classification than
+  // nothing — every downstream surface (bettor_profiles, outcome_links) needs
+  // a real label to learn from.
+  if (combinedDec >= 50) return "viral_lotto"
+  if (combinedDec >= 10) return "sharp_aggressive"
+  if (combinedDec > 0)  return "recreational_chase"
 
   return "unknown"
 }

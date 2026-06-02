@@ -1357,7 +1357,33 @@ function buildAiSlips(opts = {}) {
       stackReinforcementScore = require("./buildFeaturedPlays").stackReinforcementScore || null
     } catch { /* anti-fabrication: silent degrade to legacy behavior */ }
   }
-  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport, isNba, eventMetaMap, stackReinforcementScore }
+  // Phase Screenshot-Loop-Close-2C (2026-06-02) — load operator's taste
+  // signal from bettor_profiles. This closes the screenshot intelligence
+  // loop: classifier (2A) → outcome grader (2B) → engine read-back (THIS).
+  // Wrapped in try/catch + lazy require so failure NEVER blocks pick gen.
+  // ctx.bettorTaste exposed for downstream scorers — Phase 2C-1 is
+  // OBSERVABILITY ONLY (logged, attached to ctx). Phase 2C-2 (future) will
+  // add active scoreLeg biasing once we have enough graded outcomes to
+  // avoid overfitting to small samples.
+  let bettorTaste = { hasSignal: false, reason: "not_attempted" }
+  try {
+    const { tryGetDb } = require("../../storage/db")
+    const db = tryGetDb()
+    if (db) {
+      const { getOperatorTasteSignal } = require("../screenshots/bettorTasteSignal")
+      bettorTaste = getOperatorTasteSignal(db)
+      if (bettorTaste.hasSignal) {
+        console.log("[BETTOR-TASTE]", bettorTaste.summary_for_log)
+      } else {
+        console.log("[BETTOR-TASTE] no signal yet (reason:", bettorTaste.reason + ")")
+      }
+    }
+  } catch (e) {
+    console.warn("[BETTOR-TASTE] read-back failed (non-fatal):", e?.message || e)
+    bettorTaste = { hasSignal: false, reason: "exception", error: String(e?.message || e) }
+  }
+
+  const ctx = { timingMap, bookState, ledgerStats, exposureMap, date, sport, isNba, eventMetaMap, stackReinforcementScore, bettorTaste }
 
   // Score every leg once
   const scored = normalized.map((leg) => {
