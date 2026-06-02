@@ -331,22 +331,31 @@ router.post("/ingest", (req, res) => {
       // (AnalyzeSlipView / VerdictCard) reads the verdict to render the
       // canonical 12-field shape. legs[] preserved on result so the FE can
       // resolve strongestLeg.legIndex / weakestLeg.legIndex to player names.
+      //
+      // Phase Screenshot-FE-Ingest-Fix-1B (2026-06-02 ~05:00 ET) — multi-file
+      // ingest hangs on this step (sport projection + leg resolution can take
+      // 10-30s per slip). Add skipVerdict flag — multi-file path sets it true
+      // (loop closure only needs classification + bettor_profile, not verdict).
+      // Solo-analyze path keeps verdict on (operator wants projection score).
       let verdict = null
-      try {
-        // v0.2.6: load full-snapshot shopMap so EVERY player with props
-        // tonight can be looked up — not just our elite edge candidates.
-        // Cached per-sport per-request below would be a perf win if /ingest
-        // ever takes batched slips; for now one slip per call is fine.
-        const shopMap = loadSnapshotShopMap(normalized.sport)
-        verdict = analyzeSlip(normalized, {
-          sport:     normalized.sport,
-          slateDate: normalized.slate_date,
-          shopMap,
-          // availabilityIndex still null — wire that next session
-        })
-      } catch (e) {
-        console.warn("[screenshotRoutes] analyzeSlip failed:", e?.message || e)
-        verdict = null
+      const skipVerdict = req.body?.skipVerdict === true
+      if (!skipVerdict) {
+        try {
+          // v0.2.6: load full-snapshot shopMap so EVERY player with props
+          // tonight can be looked up — not just our elite edge candidates.
+          // Cached per-sport per-request below would be a perf win if /ingest
+          // ever takes batched slips; for now one slip per call is fine.
+          const shopMap = loadSnapshotShopMap(normalized.sport)
+          verdict = analyzeSlip(normalized, {
+            sport:     normalized.sport,
+            slateDate: normalized.slate_date,
+            shopMap,
+            // availabilityIndex still null — wire that next session
+          })
+        } catch (e) {
+          console.warn("[screenshotRoutes] analyzeSlip failed:", e?.message || e)
+          verdict = null
+        }
       }
 
       results.push({

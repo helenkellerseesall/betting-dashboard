@@ -3442,7 +3442,8 @@
         // (multi-file path). Operator's flow: drop image → done, no clicks.
         if (autoSubmit) {
           try {
-            const submitResult = await submitAnalyze({ silent: true });
+            // Phase Screenshot-FE-Ingest-Fix-1B — multi-file path skips verdict.
+            const submitResult = await submitAnalyze({ silent: true, skipVerdict: true });
             return { ok: true, archetype: submitResult?.archetype, legs: state.analyze.legs.length };
           } catch (e) {
             return { ok: false, error: "submit_failed: " + (e?.message || e) };
@@ -3695,7 +3696,10 @@
     // Phase Screenshot-FE-Ingest-Fix-1A — accept { silent } param so multi-file
     // caller can submit without triggering full re-render between iterations.
     // Returns { ok, archetype, error } for caller-side result aggregation.
-    async function submitAnalyze({ silent = false } = {}) {
+    // Phase Screenshot-FE-Ingest-Fix-1B — accept { skipVerdict } to bypass
+    // the slow VBI verdict step in multi-file mode (loop closure needs only
+    // classification + bettor profile, not the projection lookup).
+    async function submitAnalyze({ silent = false, skipVerdict = false } = {}) {
       const a = state.analyze;
       const legs = a.legs.filter(legHasMinFields).map(leg => {
         const rawOdds = String(leg.odds || "").replace(/[+\s]/g, "");
@@ -3735,6 +3739,10 @@
         sport:       detectedSport,
         slateDate:   todayDate,
         slip:        { legs },
+        // Phase Screenshot-FE-Ingest-Fix-1B — multi-file path opts out of the
+        // slow VBI verdict computation. Loop closure only needs the persist +
+        // classify + bettor_profile update steps.
+        skipVerdict: !!skipVerdict,
       };
 
       a.submitting = true;
@@ -3742,11 +3750,18 @@
       render();
 
       try {
+        // Phase Screenshot-FE-Ingest-Fix-1B — 30s timeout. Without this, a
+        // hung backend (slow projection lookup, missing snapshot, etc.) leaves
+        // the FE stuck in "Analyzing…" forever.
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 30000);
         const r = await fetch(`${API}/api/ws/screenshots/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: ctrl.signal,
         });
+        clearTimeout(tid);
         const json = await r.json();
         if (!r.ok || !json.ok) {
           a.result = { _error: json?.error || `HTTP ${r.status}` };
