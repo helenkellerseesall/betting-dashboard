@@ -134,3 +134,103 @@ d67f538  Add REPO_INVENTORY.md               — discovery audit artifact
 **Doctrine reinforced**: "completed" task status is a LIE until empirically verified at the bettor-visible layer. Many completed-marked tasks have regressed. Need a "what's actually true vs what tasks claim" audit pass.
 
 **Followup**: this is the largest open work in the repo right now — bigger than any single phase. Trust audit precedes everything.
+
+### 20:45 ET — Truth audit delivered (commit e0a0c0f)
+
+**Lane**: Operator-facing truth audit (Phase Operator-Truth-Audit-1A)
+
+**Operator quote (response to audit proposal)**:
+> "do the audit"
+
+**Action**: 16-item audit doc written to `OPERATOR_TRUTH_AUDIT.md` at repo root. Probed actual data with two scripts (saved to `.scratch/truth_audit_probe.js` + `truth_audit_probe2.js`, local-only since .scratch is gitignored). Doc committed (e0a0c0f) and pushed. Two-step deploy because first fence tried to add the .scratch files and git bailed — operator had to re-paste.
+
+**Verdict summary**:
+- 🔴 6 RED: books filter, null-as-zero fabrications, MY BETS filter, CLV stamping, lifted-flat-field bugs, bettor language
+- 🟡 5 YELLOW: top picks usability, info accuracy, GRADES tab, dead code, status tab scope
+- 🟢 5 GREEN: blurb correlation (per prop family), grading, CLV ticks, autopilots firing, auditing catching
+
+**Critical regression findings** (tasks marked completed that aren't):
+- Task #29 (preferred books to FD/DK/Fanatics/BetMGM) — 22% NBA / 62% MLB picks today are off-allowlist (Hard Rock + BetRivers)
+- Task #54 (null-as-zero tag filter) — 41 fabrications today including "SAS allows 0 ppg" on Brunson P+R
+- Task #67 (date rollover) — tracked_best files use UTC date for naming in some paths, ET in others; this surfaced when the sandbox crossed midnight UTC mid-audit
+
+**Doctrine reinforced**: "completed" task status is a LIE until the bettor-visible layer confirms. The completed list is not a trust source.
+
+**Proposed fix order** (operator to confirm/reorder):
+1. #5 books filter — small
+2. #6 null-as-zero fabrications — small
+3. #7 MY BETS filter — tiny (2-line FE)
+4. #4 bettor language — medium
+5. #14 oppDef wiring — small-medium
+6. #16 status tab in PWA — medium (needs scope conversation first)
+7. #10 CLV stamping — verify tomorrow morning whether today's fix held
+8. lifted flat fields (isHome/elimination/game7) — small, cosmetic
+9+. screenshot intelligence loop closure (tasks #2/#3/#4/#5 from earlier batch)
+
+**Awaiting operator direction** on which RED to ship first.
+
+### 21:00 ET — Operator confirmed ship order
+
+**Lane**: Truth-audit RED-list shipping
+
+**Operator quote**: "we can ship in your rec order"
+
+**Action**: Shipping in this order (each its own phase + commit):
+1. **#7 MY BETS filter** (tiny, 2-line FE) — start now
+2. **#14 oppDef wiring** (small-medium)
+3. **#5 Books filter** (small)
+4. **#6 Null-as-zero "SAS 0 ppg"** (small)
+5. **#4 Bettor language pass** (medium)
+
+Will append a session log entry after each ship with commit ref + verification result.
+
+### 21:15 ET — RED #7 closed (MY BETS filter)
+
+**Lane**: Truth-audit RED-list shipping (ship 1 of 5)
+
+**Phase**: Truth-Fix-1A · **Commit**: `f2f9924` · **Audit RED #7**
+
+**What was broken**: workstationRoutes.js:1904 `isPlaced = (b) => b.decisionType === "placed" || b.realMoney === true` accepted test entries (sportsbook=smoke-test/diag/verify, stake=$0.01) PLUS the date window was yesterday+today only — operator's 2 real bets from 2026-05-30 fell outside the window so the 3 test entries from 2026-05-31 surfaced instead.
+
+**What shipped**: Two fixes in one edit. Tightened `isPlaced` to exclude `TEST_SPORTSBOOKS` set + require `stake >= 1`. Widened date window from yesterday+today to last 14 days so settled real bets persist visibly.
+
+**Verification** (live endpoint probe post-deploy):
+- `placedBets.count: 2` (was 3 test entries)
+- `placedBets.staked: $10` ($5 × 2 real bets, was $0.03 of test entries)
+- Both real bets surfacing: 2026-05-30 FanDuel +656 loss + 2026-05-30 BetMGM +1350 loss
+- Test entries no longer in response
+
+**Next**: RED #14 oppDef wiring (small-medium).
+
+### 21:30 ET — Operator chose Path A on RED #14 oppDef
+
+**Lane**: Truth-audit RED-list shipping (ship 2 of 5)
+
+**Operator quote**: "A"
+
+**Context**: surfaced that ESPN's NBA team-stats endpoint has NO `defensiveRating` / `pointsAllowedPerGame` / `pace` / opponent-against statistics — only 3 categories (general/offensive/defensive) and "defensive" only contains the team's OWN blocks/steals/def-rebs. The engine has been operating without true oppDef historically (0% populated is the steady state, not a recent regression). Original NAME_MAP guesses were hallucinated names.
+
+**Path A chosen**: derive `pointsAllowedPerGame` + `pace` from per-game log data we already cache (`nbaPlayerGameLogs.json`). Iterate every NBA game, sum opponents' points scored against each team, divide by games. Real signal from real data. ~1-2 hour build.
+
+**Action plan**:
+1. Inspect nbaPlayerGameLogs.json structure (what's per-game shape, can we resolve opponent + team-total points)
+2. Build derive script `deriveNbaTeamDefensiveFromGameLogs.js` (similar pattern to deriveNbaDvP)
+3. Wire into populator chain (3:30 ET, after populateNbaTeamStats at 3:25)
+4. Update populateNbaTeamStats or a separate writer to MERGE the derived defensive fields into the team-stats cache
+5. Verify on next NBA slate fire that `row.oppDef` populates
+6. Ship + commit + log
+
+### 21:50 ET — RED #14 oppDef derivation ready to deploy
+
+**Lane**: Truth-audit RED-list shipping (ship 2 of 5)
+
+**Phase**: Truth-Fix-1B · **Commits pending**: scheduler.sh + new deriveNbaTeamDefensive.js
+
+**Findings before ship**:
+- Confirmed ESPN's team-stats endpoint exposes ZERO opponent-against metrics (general/offensive/defensive categories only; "defensive" = team's own def-rebs/blocks/steals)
+- This means oppDef has been 0% populated since day one — not a recent regression, a structural data-source limitation
+- Path A chosen: derive from per-game logs already cached. Built `deriveNbaTeamDefensive.js` (~210 lines), wired into scheduler at 3:35 ET, Law 13 12/12 PASS, sandbox dry-run shows 8 playoff teams with sane derived values (SA 106.9 pts/g allowed n=13, OKC 109.5 n=11, etc.)
+
+**Anti-fabrication preserved**: only 8 teams have game logs cached (current playoff bracket). Other 22 teams stay null — we don't invent values for teams we have no data for. When regular season resumes, the cache fills naturally and the deriver picks them up at the 3:35 ET fire.
+
+**Next**: deploy fence + verify oppDef starts populating on next NBA slate refresh, then move to RED #5 (books filter — small).

@@ -299,6 +299,27 @@ while true; do
     fired=true
   fi
 
+  # 2026-06-01 Phase Truth-Fix-1B — derive NBA team defensive stats from the
+  # per-game logs already cached by populateNbaGameLogs. Closes truth-audit
+  # RED #14: ESPN's NBA team-stats endpoint exposes ZERO defensive metrics
+  # (no pointsAllowedPerGame, no defensiveRating, no pace), so oppDef was 0%
+  # populated on every tracked_best entry historically. This deriver
+  # reconstructs team-game scores from player game logs and computes real
+  # per-team points-allowed averages, merging into nbaTeamStats.json so the
+  # downstream nbaTeamStatsCache sets row.oppDef correctly. Fires at 3:35 ET —
+  # after populateNbaTeamStats at 3:25 (which seeds the offensive fields)
+  # and populateNbaSeriesState at 3:30. Pure file-derivation, no network
+  # calls.
+  if [ "$MIN" -eq 35 ] && [ "$HOUR" -eq 3 ]; then
+    log "deriveNbaTeamDefensive starting (nightly autopilot — Phase Truth-Fix-1B)"
+    if node /Users/andrewmoore/Desktop/betting-dashboard/backend/scripts/deriveNbaTeamDefensive.js >> "$LOG" 2>&1; then
+      log "deriveNbaTeamDefensive OK"
+    else
+      log "deriveNbaTeamDefensive FAILED (exit $?) — check that nbaPlayerGameLogs.json + nbaTeamStats.json exist"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 Phase Autonomous-Orchestrator-1A — nightly grading autopilot.
   # Closes INC-010 (buildNightlyOrchestrator dormant — zero production callers
   # outside operator-triggered CLI). Fires `grading:backfill-all` at 4 AM ET
