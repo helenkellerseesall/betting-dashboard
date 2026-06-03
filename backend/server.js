@@ -121,6 +121,14 @@ app.use("/api/ws", require("./routes/workstationRoutes"))
 // page that renders this JSON with auto-poll.
 app.use("/api/ws/status", require("./routes/statusRoute"))
 
+// Phase MLB-Daily-Coverage-Surface-1A (2026-06-02) — GET /api/ws/coverage-today
+// Read-only diagnostic. Reads personal_ledger.json (append-only full record) and
+// returns per-sport per-date breakdown of game coverage. Closes "10 vs 5 games"
+// trust gap: tracked_bets Layer-1-filters tipped games (correct for CLV), but
+// operator needs to see "did the engine cover all N today games?" — answer
+// lives in personal_ledger, surfaced here. Does NOT touch /status.
+app.use("/api/ws/coverage-today", require("./routes/coverageRoute"))
+
 // ── Mobile PWA (v0.1, 2026-05-21) ─────────────────────────────────────────────
 // Serves the bettor-mobile surface at /m. Single-file HTML+JS+CSS — no build,
 // no framework, no React bloat. Fetches /api/ws/state?sport={mlb|nba} same-origin.
