@@ -129,6 +129,15 @@ app.use("/api/ws/status", require("./routes/statusRoute"))
 // lives in personal_ledger, surfaced here. Does NOT touch /status.
 app.use("/api/ws/coverage-today", require("./routes/coverageRoute"))
 
+// Phase True-Game-Schedule-1A (2026-06-03) — GET /api/ws/true-schedule-today
+// THIRD canonical source per [[ledger-vs-tracked-bets-canonical-source]]:
+// reads the EXTERNAL league schedule (MLB Stats API + ESPN NBA scoreboard,
+// both auth-free) and cross-references against today's tracked_bets to
+// answer "how many games are ACTUALLY scheduled and how many of those does
+// the engine have picks for?". Closes "10 vs 5 games" + "NBA Finals tomorrow"
+// trust gaps with an authoritative external reference. Does NOT touch /status.
+app.use("/api/ws/true-schedule-today", require("./routes/trueScheduleRoute"))
+
 // ── Mobile PWA (v0.1, 2026-05-21) ─────────────────────────────────────────────
 // Serves the bettor-mobile surface at /m. Single-file HTML+JS+CSS — no build,
 // no framework, no React bloat. Fetches /api/ws/state?sport={mlb|nba} same-origin.
