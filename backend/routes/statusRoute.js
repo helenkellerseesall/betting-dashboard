@@ -412,6 +412,13 @@ function sectionClvCaptureToday() {
       // pre-picked under Tuesday's slate were counted in the CLV recap, giving
       // operator 21 instead of the meaningful 15.
       const eventIdToGameCalEt = new Map()
+      // Phase Status-Overhaul-1C-fix4 (2026-06-03) — track which events on
+      // CALENDAR-today are tipped + which have any close-stamped pick. These
+      // power the dual-view rendering when slate-date != calendar-date (the
+      // 12:01-3:59 AM ET window). Operator can see Tuesday's slate recap AND
+      // today's (Wed's) calendar coverage in the same card.
+      const eventTippedCalendarToday = new Set()
+      const eventStampedCalendarToday = new Set()
       let nextGameAt = null
       let nextGameLabel = null
       for (const e of arr) {
@@ -421,7 +428,13 @@ function sectionClvCaptureToday() {
         const gameDateEt = calendarDateForTimestamp(gt)
         if (e.eventId) eventIdToGameCalEt.set(e.eventId, gameDateEt)
         // Count toward gamesToday ONLY if game's ET calendar date == today
-        if (gameDateEt === todayCalEt && e.eventId) eventIdsToday.add(e.eventId)
+        if (gameDateEt === todayCalEt && e.eventId) {
+          eventIdsToday.add(e.eventId)
+          // Phase 1C-fix4 — also track tipped + stamped event sets for the
+          // calendar-today view.
+          if (gt <= now) eventTippedCalendarToday.add(e.eventId)
+          if (e.closeOdds != null) eventStampedCalendarToday.add(e.eventId)
+        }
         // Track earliest FUTURE gameTime + matchup for "next game" display
         // (independent of whether it's today — could be tomorrow's Finals)
         if (gt > now && (nextGameAt == null || gt < nextGameAt)) {
@@ -431,6 +444,13 @@ function sectionClvCaptureToday() {
       }
       const gamesToday = eventIdsToday.size
       totalGamesToday += gamesToday
+      // Phase 1C-fix4 — calendar-day view aggregates for this sport.
+      const gamesCalendarToday        = gamesToday                           // alias for clarity
+      const gamesCalendarTipped       = eventTippedCalendarToday.size
+      const gamesCalendarStamped      = eventStampedCalendarToday.size
+      const captureRateCalendar = gamesCalendarTipped > 0
+        ? Math.round((gamesCalendarStamped / gamesCalendarTipped) * 1000) / 10
+        : null
 
       // Phase Status-Overhaul-1C — ledger-backed completed-games view.
       // Source: personal_ledger entries with sport=X AND date=slateDate.
@@ -498,6 +518,20 @@ function sectionClvCaptureToday() {
         gamesCloseStamped,
         captureRate,
         gamesFutureExcluded,
+        // Phase Status-Overhaul-1C-fix4 (2026-06-03) — CALENDAR-DAY view fields
+        // (operator's wall-clock "today"). When slate-date != calendar-date
+        // (between 12:01 and 4:00 AM ET), the FE renders a dual view: slate
+        // recap above + calendar preview below. When slate == calendar, FE
+        // merges to single view.
+        //   gamesCalendarToday    = distinct events in tracked_bets with
+        //                           gameTime on today's ET calendar
+        //   gamesCalendarTipped   = subset whose gameTime <= now (already tipped)
+        //   gamesCalendarStamped  = subset with at least 1 pick that has closeOdds
+        //   captureRateCalendar   = stamped/tipped (null if tipped == 0)
+        gamesCalendarToday,
+        gamesCalendarTipped,
+        gamesCalendarStamped,
+        captureRateCalendar,
       }
       totalTipped += tipped.length
       totalStamped += stamped.length
@@ -505,6 +539,10 @@ function sectionClvCaptureToday() {
     return {
       ok: true,
       dateKey,
+      // Phase Status-Overhaul-1C-fix4 — surface BOTH slate-date and calendar-date
+      // so FE knows when to render the dual view (slate != calendar = 12:01-3:59 AM).
+      slateDateKey:    dateKey,
+      calendarDateKey: calendarDateKey(),
       totalTipped,
       totalStamped,
       totalGamesToday,
