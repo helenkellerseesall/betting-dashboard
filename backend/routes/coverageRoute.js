@@ -80,42 +80,57 @@ router.get("/", (req, res) => {
   }
   const entries = Array.isArray(ledger) ? ledger : (ledger?.entries || ledger?.bets || [])
 
-  // Phase MLB-Daily-Coverage-Surface-1A-fix1 (2026-06-02) — group by MATCHUP
-  // primary so that series-continuation games (same teams play tonight AND
-  // tomorrow) collapse into one matchup entry. Each matchup tracks its
-  // distinct eventIds + per-event pickCount underneath. This matches the
-  // operator's mental model: "15 MLB games today" = 15 unique matchups. The
-  // distinctEventCount metric stays exposed for transparency (when a series
-  // is in flight, distinctEventCount > uniqueMatchupCount). The eventId-based
-  // pre-fix1 dedup reported 18-MLB for today (15 unique matchups + 3 series
-  // doubles like Dodgers @ Diamondbacks playing tonight + tomorrow).
+  // Phase MLB-Daily-Coverage-Surface-1A-fix1 — group by MATCHUP primary so
+  // series-continuation games (same teams play tonight AND tomorrow) collapse
+  // into one matchup entry.
   //
-  // Anti-fabrication: every count derived from real ledger entries. The
-  // distinctEventCount is summed from the same source as uniqueMatchupCount;
-  // they're two views of the same set, not independent fabrications.
+  // Phase MLB-Daily-Coverage-Surface-1A-fix2 (2026-06-02) — TWO-PASS bucketing
+  // to handle ledger entries with missing matchup field. Some NBA ledger
+  // entries have matchup=null but eventId populated; pre-fix2 single-pass
+  // code created a separate "(no matchup, eventId=X)" bucket for those even
+  // when other entries with the SAME eventId had matchup populated. Result:
+  // NBA today reported uniqueMatchupCount=2 for what was actually 1 game.
+  //
+  // Pass 1: scope-filter entries + build eventId → bestMatchup map (so entries
+  //         missing matchup can recover the canonical label from siblings).
+  // Pass 2: bucket each entry by looked-up matchup. NBA: eventId=A with
+  //         matchup=null + eventId=A with matchup="NYK@SAS" both land in the
+  //         "NYK@SAS" bucket. MLB: same matchup string with different eventIds
+  //         (series) still collapses correctly because matchup is the bucket key.
   //
   // Structure: buckets[sport][dateKey][matchup] = {
   //   matchup,
-  //   pickCount,                       // total picks across all events in this matchup
+  //   pickCount,                       // total picks across all events
   //   events: { [eventId]: pickCount } // distinct events under this matchup
   // }
-  const buckets = { nba: {}, mlb: {} }
+  const scopedEntries = []
   let scannedEntries = 0
-  let inScopeEntries = 0
+  const eventIdToBestMatchup = new Map()
   for (const e of entries) {
     scannedEntries++
     const sport = String(e.sport || "").toLowerCase()
     if (sport !== "nba" && sport !== "mlb") continue
     const dk = entryDateKey(e)
     if (!dk) continue
-    // Scope: today + tomorrow only (the operator's forward-looking window)
     if (dk !== todayEt && dk !== tomorrowEt) continue
-    // gameKey for routing — but matchup is the dedup primary
     const gk = gameKeyFor(e)
     if (!gk) continue
-    const matchup = e.matchup || `(no matchup, eventId=${e.eventId || "unknown"})`
+    scopedEntries.push({ sport, dk, e })
+    // Record the first non-null matchup we see for each eventId; siblings
+    // with null matchup can recover the string from this map in pass 2.
+    if (e.eventId && e.matchup && !eventIdToBestMatchup.has(e.eventId)) {
+      eventIdToBestMatchup.set(e.eventId, e.matchup)
+    }
+  }
+
+  const buckets = { nba: {}, mlb: {} }
+  let inScopeEntries = 0
+  for (const { sport, dk, e } of scopedEntries) {
+    // Resolve matchup label: entry's own → eventId lookup → synthetic fallback
+    const lookedUp = e.eventId ? eventIdToBestMatchup.get(e.eventId) : null
+    const matchup = e.matchup || lookedUp || `(no matchup, eventId=${e.eventId || "unknown"})`
     inScopeEntries++
-    if (!buckets[sport][dk])              buckets[sport][dk] = {}
+    if (!buckets[sport][dk]) buckets[sport][dk] = {}
     if (!buckets[sport][dk][matchup]) {
       buckets[sport][dk][matchup] = {
         matchup,
