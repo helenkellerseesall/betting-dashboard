@@ -143,27 +143,58 @@ async function fetchNbaSchedule(yyyymmdd) {
   }
 }
 
-// ── Cross-reference with tracked_bets for "withPicks" count ──────────────────
+// ── Cross-reference with PERSONAL_LEDGER for "withPicks" count ──────────────
+//
+// Phase True-Game-Schedule-1A-fix1 (2026-06-03) — was reading tracked_bets,
+// which is the Layer-1-filtered current CLV window (drops games >1hr past
+// tip). At any point past mid-afternoon, early-tipped games are GONE from
+// tracked_bets even though the engine fully covered them. Caught when the
+// route reported 3 "missing" MLB matchups for today (Marlins@Nationals,
+// Tigers@Rays, WhiteSox@Twins) — all 3 had 200+ picks in personal_ledger
+// with 100+ close-stamped each. They tipped at 1 PM ET and finished by ~4 PM,
+// so Layer-1 dropped them from tracked_bets by the time the probe ran at
+// 4:21 PM ET.
+//
+// Fix per [[ledger-vs-tracked-bets-canonical-source]]: "did we cover X games"
+// is a personal_ledger question (append-only history), NOT a tracked_bets
+// question (Layer-1-filtered current window). Switching source. The function
+// signature stays the same so the caller in the route handler doesn't change.
+//
+// Per [[status-must-be-real]]: every "withPicks" number now traces to ledger
+// entries with sport=X AND date=slateDate AND matchup matches. No defaults.
+
+const PERSONAL_LEDGER = path.join(REPO_ROOT, "backend", "runtime", "tracking", "personal_ledger.json")
 
 function crossReferenceCoverage(scheduleGames, sport, slateDate) {
-  const file = path.join(TRACKING_DIR, `${sport}_tracked_bets_${slateDate}.json`)
-  if (!fs.existsSync(file)) {
+  const ledger = safeReadJson(PERSONAL_LEDGER)
+  if (!ledger) {
     return {
-      ok: true,
-      source: file,
+      ok: false,
+      source: PERSONAL_LEDGER,
+      error: "personal_ledger.json not readable",
       withPicks: 0,
-      missing: scheduleGames.map(g => ({ matchup: g.matchup, gameTimeUtc: g.gameTimeUtc, reason: "no_tracked_bets_file_yet" })),
-      note: `tracked_bets file for slate-date ${slateDate} does not exist yet — slate engine has not generated picks`,
+      missing: [],
     }
   }
-  const j = safeReadJson(file)
-  const arr = Array.isArray(j) ? j : (j?.entries || j?.bets || [])
-  // Build set of distinct matchups (awayTeam @ homeTeam) that have ANY pick
+  const entries = Array.isArray(ledger) ? ledger : (ledger.entries || ledger.bets || [])
+
+  // Build set of matchups WITH at least one pick for this sport+slate.
+  // Also build eventId set as fallback (some entries may have eventId but not matchup).
   const matchupsWithPicks = new Set()
-  for (const e of arr) {
-    if (e.matchup) matchupsWithPicks.add(e.matchup)
-    else if (e.awayTeam && e.homeTeam) matchupsWithPicks.add(`${e.awayTeam} @ ${e.homeTeam}`)
+  let scannedForSport = 0
+  let inScopeEntries = 0
+  for (const e of entries) {
+    if (String(e.sport || "").toLowerCase() !== sport) continue
+    scannedForSport++
+    if (e.date !== slateDate) continue
+    inScopeEntries++
+    if (e.matchup) {
+      matchupsWithPicks.add(e.matchup)
+    } else if (e.awayTeam && e.homeTeam) {
+      matchupsWithPicks.add(`${e.awayTeam} @ ${e.homeTeam}`)
+    }
   }
+
   let withPicks = 0
   const missing = []
   for (const g of scheduleGames) {
@@ -173,11 +204,21 @@ function crossReferenceCoverage(scheduleGames, sport, slateDate) {
       missing.push({
         matchup: g.matchup,
         gameTimeUtc: g.gameTimeUtc,
-        reason: "no_picks_for_matchup_in_tracked_bets",
+        reason: "no_picks_for_matchup_in_personal_ledger",
       })
     }
   }
-  return { ok: true, source: file, withPicks, missing }
+  return {
+    ok: true,
+    source: PERSONAL_LEDGER,
+    withPicks,
+    missing,
+    diagnostics: {
+      ledgerEntriesScannedForSport: scannedForSport,
+      inScopeEntriesForSlate: inScopeEntries,
+      distinctMatchupsWithPicks: matchupsWithPicks.size,
+    },
+  }
 }
 
 // ── Route handler ────────────────────────────────────────────────────────────
