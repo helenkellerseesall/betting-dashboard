@@ -370,26 +370,31 @@ function sectionClvCaptureToday() {
       const stamped = tipped.filter(e => e.closeOdds != null)
       const rate = tipped.length === 0 ? null : Math.round(stamped.length / tipped.length * 1000) / 10
 
-      // Phase Status-CLV-Field-Fix-1A — per-sport "games today" count via
-      // distinct eventId from tracked_bets. Each event = one game; this
-      // counts both already-tipped and upcoming games for today's slate.
-      const eventIds = new Set()
+      // Phase Status-CLV-Field-Fix-1A-fix1 — gamesToday must be CALENDAR-date
+      // filtered. Previous version counted ALL distinct eventIds in tracked_bets,
+      // which included tomorrow's games (e.g. NBA Finals Game 1 picks loaded
+      // today for tomorrow's tipoff would falsely count as "1 NBA game today").
+      // Real definition: a game IS today only if its gameTime falls on today's
+      // ET calendar date. NBA tonight should be gamesToday=0 (Finals tomorrow).
+      const todayCalEt = calendarDateKey()
+      const eventIdsToday = new Set()
       let nextGameAt = null
       let nextGameLabel = null
       for (const e of arr) {
-        if (e.eventId) eventIds.add(e.eventId)
+        if (!e.gameTime) continue
+        const gt = Date.parse(e.gameTime)
+        if (!Number.isFinite(gt)) continue
+        const gameDateEt = calendarDateForTimestamp(gt)
+        // Count toward gamesToday ONLY if game's ET calendar date == today
+        if (gameDateEt === todayCalEt && e.eventId) eventIdsToday.add(e.eventId)
         // Track earliest FUTURE gameTime + matchup for "next game" display
-        if (e.gameTime) {
-          const gt = Date.parse(e.gameTime)
-          if (Number.isFinite(gt) && gt > now) {
-            if (nextGameAt == null || gt < nextGameAt) {
-              nextGameAt = gt
-              nextGameLabel = e.matchup || (e.awayTeam && e.homeTeam ? `${e.awayTeam} @ ${e.homeTeam}` : null)
-            }
-          }
+        // (independent of whether it's today — could be tomorrow's Finals)
+        if (gt > now && (nextGameAt == null || gt < nextGameAt)) {
+          nextGameAt = gt
+          nextGameLabel = e.matchup || (e.awayTeam && e.homeTeam ? `${e.awayTeam} @ ${e.homeTeam}` : null)
         }
       }
-      const gamesToday = eventIds.size
+      const gamesToday = eventIdsToday.size
       totalGamesToday += gamesToday
 
       results[sport] = {
