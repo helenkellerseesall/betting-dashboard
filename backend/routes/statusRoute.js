@@ -331,27 +331,76 @@ function sectionDriftAlertsTail(n = 10) {
 }
 
 function sectionClvCaptureToday() {
-  // Look at today's NBA + MLB tracked_bets and compute close-stamped %
+  // Look at today's NBA + MLB tracked_bets and compute close-stamped %.
+  //
+  // Phase Status-CLV-Field-Fix-1A (2026-06-02) — FIELD-NAME BUG FIX.
+  // Previous code checked `e.closingOdds != null || e.closeStamped === true`
+  // but the actual schema (per captureClosingLines.js + leanBet) uses
+  // `closeOdds` (no "ing"), `closeObservedAt`, `closeImpliedProb`, `clv`.
+  // Result: /status reported fake 0% capture rate for weeks while real
+  // capture rate was 40-90% depending on day. Real source: e.closeOdds.
+  //
+  // Also adds per-sport gamesToday + nextGameAt + nextGameLabel so the FE
+  // can distinguish "no games scheduled today" (NBA tonight, Finals Game 1
+  // is tomorrow) from "games scheduled, capture failed" — per
+  // [[no-games-today-aware]] rule. Both backend and FE consumers can use
+  // these to render honest "no games" messaging instead of fake red.
   try {
     const dateKey = etDateKey()
     const sports = ["nba", "mlb"]
     const results = {}
     let totalTipped = 0
     let totalStamped = 0
+    let totalGamesToday = 0
     for (const sport of sports) {
       const file = path.join(TRACKING_DIR, `${sport}_tracked_bets_${dateKey}.json`)
-      if (!fs.existsSync(file)) { results[sport] = { tipped: 0, stamped: 0, rate: null, hasFile: false }; continue }
+      if (!fs.existsSync(file)) {
+        results[sport] = { tipped: 0, stamped: 0, rate: null, hasFile: false, gamesToday: 0, nextGameAt: null, nextGameLabel: null }
+        continue
+      }
       const j = safeReadJson(file)
       const arr = Array.isArray(j) ? j : (j?.entries || j?.bets || [])
       const now = Date.now()
-      // "tipped" = gameTime < now (already in progress or finished)
+      // "tipped" = gameTime <= now (already in progress or finished)
       const tipped = arr.filter(e => {
         const gt = e.gameTime ? Date.parse(e.gameTime) : null
         return gt && gt <= now
       })
-      const stamped = tipped.filter(e => e.closingOdds != null || e.closeStamped === true)
+      // FIELD-NAME FIX: closeOdds (canonical) instead of closingOdds (never existed)
+      const stamped = tipped.filter(e => e.closeOdds != null)
       const rate = tipped.length === 0 ? null : Math.round(stamped.length / tipped.length * 1000) / 10
-      results[sport] = { tipped: tipped.length, stamped: stamped.length, rate, hasFile: true }
+
+      // Phase Status-CLV-Field-Fix-1A — per-sport "games today" count via
+      // distinct eventId from tracked_bets. Each event = one game; this
+      // counts both already-tipped and upcoming games for today's slate.
+      const eventIds = new Set()
+      let nextGameAt = null
+      let nextGameLabel = null
+      for (const e of arr) {
+        if (e.eventId) eventIds.add(e.eventId)
+        // Track earliest FUTURE gameTime + matchup for "next game" display
+        if (e.gameTime) {
+          const gt = Date.parse(e.gameTime)
+          if (Number.isFinite(gt) && gt > now) {
+            if (nextGameAt == null || gt < nextGameAt) {
+              nextGameAt = gt
+              nextGameLabel = e.matchup || (e.awayTeam && e.homeTeam ? `${e.awayTeam} @ ${e.homeTeam}` : null)
+            }
+          }
+        }
+      }
+      const gamesToday = eventIds.size
+      totalGamesToday += gamesToday
+
+      results[sport] = {
+        tipped: tipped.length,
+        stamped: stamped.length,
+        rate,
+        hasFile: true,
+        gamesToday,
+        nextGameAt: nextGameAt ? new Date(nextGameAt).toISOString() : null,
+        nextGameLabel,
+      }
       totalTipped += tipped.length
       totalStamped += stamped.length
     }
@@ -360,6 +409,7 @@ function sectionClvCaptureToday() {
       dateKey,
       totalTipped,
       totalStamped,
+      totalGamesToday,
       overallRate: totalTipped === 0 ? null : Math.round(totalStamped / totalTipped * 1000) / 10,
       perSport: results,
     }

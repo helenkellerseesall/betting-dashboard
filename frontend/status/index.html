@@ -387,6 +387,30 @@ function renderSchedule(data) {
   }
 }
 
+// Phase Status-CLV-Field-Fix-1A (2026-06-02) — uses new gamesToday + nextGameAt
+// + nextGameLabel from backend so we can render "no NBA games today, next: Wed
+// 8:30 PM ET Pacers @ Thunder" instead of misleading "0% capture failure".
+// Per [[no-games-today-aware]]: zero with no games is healthy, not failure.
+function _fmtClvSportLine(label, sportData, nextSlate) {
+  if (!sportData?.hasFile) {
+    return '<span class="sm">no ' + label + ' slate today yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
+  }
+  // Has file. Three cases:
+  //   1. gamesToday === 0   → no games scheduled (healthy, not a failure)
+  //   2. tipped === 0       → games scheduled but none tipped yet
+  //   3. tipped > 0         → real capture rate
+  if (sportData.gamesToday === 0) {
+    const nextLine = sportData.nextGameAt
+      ? ' · next ' + (sportData.nextGameLabel || 'game') + ' ' + new Date(sportData.nextGameAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+      : '';
+    return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
+  }
+  if (sportData.tipped === 0) {
+    return '<span class="sm">' + sportData.gamesToday + ' ' + label + ' games today, none tipped yet</span>';
+  }
+  return sportData.rate + '% (' + sportData.stamped + '/' + sportData.tipped + ')';
+}
+
 function renderClv(data) {
   const c = data.clvCaptureToday;
   const sched = data.schedule;
@@ -398,13 +422,18 @@ function renderClv(data) {
   }
   const r = c.overallRate;
   const big = document.getElementById("clvBig");
+  // Phase Status-CLV-Field-Fix-1A — distinguish "no games anywhere today"
+  // from "games scheduled but none tipped yet" in the headline.
   if (r == null) {
     big.textContent = "—";
     big.className = "big";
-    // Find next slate from schedule
-    let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
-    const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "waiting for the next slate fire";
-    document.getElementById("clvSub").textContent = "no games have tipped yet today — " + nextTxt;
+    if ((c.totalGamesToday || 0) === 0) {
+      document.getElementById("clvSub").textContent = "no games scheduled today (NBA + MLB)";
+    } else {
+      let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
+      const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "waiting for the next slate fire";
+      document.getElementById("clvSub").textContent = c.totalGamesToday + " games scheduled, none tipped yet — " + nextTxt;
+    }
   } else {
     big.textContent = r.toFixed(1) + "%";
     big.className = "big " + (r >= 70 ? "green" : r >= 30 ? "yellow" : "red");
@@ -412,15 +441,10 @@ function renderClv(data) {
   }
   const nba = c.perSport?.nba;
   const mlb = c.perSport?.mlb;
-  // Find next slate of each sport
   const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
-  document.getElementById("clvNba").innerHTML = nba?.hasFile
-    ? (nba.rate == null ? nba.stamped + "/" + nba.tipped : nba.rate + "% (" + nba.stamped + "/" + nba.tipped + ")")
-    : '<span class="sm">no NBA slate today yet · next ' + (nextNba?.atEt || "—") + ' ET</span>';
-  document.getElementById("clvMlb").innerHTML = mlb?.hasFile
-    ? (mlb.rate == null ? mlb.stamped + "/" + mlb.tipped : mlb.rate + "% (" + mlb.stamped + "/" + mlb.tipped + ")")
-    : '<span class="sm">no MLB slate today yet · next ' + (nextMlb?.atEt || "—") + ' ET</span>';
+  document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
+  document.getElementById("clvMlb").innerHTML = _fmtClvSportLine("MLB", mlb, nextMlb);
 }
 
 function renderAutopilots(data) {
