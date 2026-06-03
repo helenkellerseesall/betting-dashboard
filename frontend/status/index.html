@@ -549,8 +549,10 @@ function renderClv(data) {
       document.getElementById("clvSub").textContent = c.totalGamesToday + " games loaded for today, ledger empty (early in day or pre-pick)" + (nextSlate ? " — " + nextTxt : "");
     }
   }
-  const nba = c.perSport?.nba;
-  const mlb = c.perSport?.mlb;
+  // Phase Status-Overhaul-1C-fix1 — nba/mlb already declared at top of function
+  // (used for the headline rate computation). Re-declaring here was a SyntaxError
+  // that broke the entire <script> block and hung the page. Just reuse + add the
+  // schedule lookups.
   const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
   document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
