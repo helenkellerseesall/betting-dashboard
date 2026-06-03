@@ -476,7 +476,30 @@ function classifyArchetype(dims, slip) {
 
     // Only fire combined-dec rules when we ACTUALLY know the payout shape.
     if (hasCombinedDec) {
-      // viral_lotto: lottery-shaped payout (40+ decimal) from social source
+      // ── Phase Screenshot-Classifier-Fix-1B (2026-06-03) ──────────────────
+      // Same-game SGP detection BEFORE the viral_lotto threshold. A 4-leg
+      // same-game NBA SGP (e.g. the Brunson NYK SGP at combinedDec ~42) was
+      // misclassified as viral_lotto because the >=40 threshold fired before
+      // sharp_aggressive could match.
+      //
+      // Operator memory: viral_lotto = multi-game pure longshot (random
+      // unrelated picks, viral shareability); sharp_aggressive = same-game
+      // correlated SGP (intentional research, real edge construction). The
+      // differentiator is game-count, NOT payout magnitude.
+      //
+      // Rule: if all legs share one game (eventId or game field) AND there
+      // are 2+ legs AND combinedDec >= 10 (aggressive enough to warrant the
+      // call), it's an SGP = sharp_aggressive. Multi-game high-payout slips
+      // still fall through to the viral_lotto check below.
+      const distinctGames = new Set(legs.map(l => l.eventId || l.game).filter(Boolean))
+      const isSameGameParlay = distinctGames.size === 1 && legs.length >= 2
+      if (isSameGameParlay && combinedDec >= 10) {
+        return "sharp_aggressive"
+      }
+
+      // viral_lotto: lottery-shaped payout (40+ decimal) from social source.
+      // Now only fires for multi-game (or single-leg) high-payout slips since
+      // same-game SGPs are pre-empted above (Phase #44 fix).
       if (combinedDec >= 40) return "viral_lotto"
 
       // sharp_aggressive: solid structure + aggressive odds from social source =
