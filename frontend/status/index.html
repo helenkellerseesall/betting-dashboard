@@ -27,6 +27,19 @@
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 12px; }
   .card h2 { font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
   .card .legend { font-size: 11px; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
+  /* Phase Status-Overhaul-1A (2026-06-02) — collapsible card styling.
+     Each card (except cardSys headline) is a <details class="card collapsible">.
+     Collapsed by default on every page load (no localStorage persistence).
+     The <summary> shows h2 + a one-line health summary; clicking toggles. */
+  details.card { padding: 0; }                                                  /* container has no inner padding; summary + body each pad themselves */
+  details.card > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; user-select: none; }
+  details.card > summary::-webkit-details-marker { display: none; }             /* hide default disclosure triangle (Webkit/Blink) */
+  details.card > summary::marker { display: none; }                             /* hide default disclosure triangle (Firefox) */
+  details.card > summary > h2 { margin-bottom: 0; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+  details.card > summary > h2::before { content: "▸"; color: var(--text-faint); font-size: 10px; transition: transform 0.15s ease; display: inline-block; }
+  details.card[open] > summary > h2::before { content: "▾"; }
+  details.card > summary > .summaryLine { flex: 1 1 auto; text-align: right; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  details.card > .cardBody { padding: 0 14px 14px; }                            /* card content below summary (when expanded) */
   .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bg-card-deep); }
   .row:last-child { border-bottom: 0; }
   .row .label { flex: 0 0 auto; }
@@ -123,7 +136,7 @@
   <div class="et" id="etTime">—</div>
 </header>
 
-<!-- Headline: sysAudit -->
+<!-- Headline: sysAudit — stays at top, NOT collapsible (the big GREEN/DEGRADED banner) -->
 <div class="card" id="cardSys">
   <h2>system status</h2>
   <div id="sysSummary">
@@ -132,94 +145,119 @@
   </div>
 </div>
 
-<!-- Phase Status-Trust-Mirror-1A — open issues at top, operator-visible -->
-<div class="card" id="cardOpenIssues">
-  <h2>open issues right now</h2>
-  <div class="legend">RED = broken / can lose you money. YELLOW = degraded / worth knowing. Empty = nothing wrong, all checked sources clean.</div>
-  <div id="openIssuesList">loading…</div>
-</div>
+<!-- Phase Status-Overhaul-1A — operator's locked vertical order:
+     backend → background processes → autopilots → whats next → clv → open issues →
+     tonights picks → dampener → recent alerts → recent commits. All collapsible.
+     See memory rule [[operator-status-layout]] for the binding order. -->
 
-<!-- WHAT'S NEXT — schedule preview -->
-<div class="card">
-  <h2>what's next</h2>
-  <div class="legend">scheduled autopilot fires (ET). green dot = on track, scheduler is alive and will fire these.</div>
-  <div id="schedList"></div>
-</div>
-
-<!-- LaunchAgents grid -->
-<div class="card">
-  <h2>background processes (4)</h2>
-  <div class="legend">all four must be GREEN for the system to run autonomously overnight.</div>
-  <div class="grid2" id="agentGrid"></div>
-</div>
-
-<!-- Backend health -->
-<div class="card">
-  <h2>backend</h2>
-  <div class="row"><span class="dot" id="beDot"></span><span class="label">commit</span><span class="val mono" id="beCommit">—</span></div>
-  <div class="row"><span class="label">uptime</span><span class="val" id="beUptime">—</span></div>
-  <div class="row"><span class="label">pid</span><span class="val mono" id="bePid">—</span></div>
-</div>
-
-<!-- CLV today -->
-<div class="card">
-  <h2>CLV capture today</h2>
-  <div class="legend">% of tipped picks where we captured the closing odds. 0/0 just means no games have tipped yet.</div>
-  <div id="clvBigWrap">
-    <div class="big" id="clvBig">—</div>
-    <div class="big-sub" id="clvSub">—</div>
+<!-- 1. backend -->
+<details class="card" id="cardBackend">
+  <summary><h2>backend</h2><span class="summaryLine" id="sumBackend">…</span></summary>
+  <div class="cardBody">
+    <div class="row"><span class="dot" id="beDot"></span><span class="label">commit</span><span class="val mono" id="beCommit">—</span></div>
+    <div class="row"><span class="label">uptime</span><span class="val" id="beUptime">—</span></div>
+    <div class="row"><span class="label">pid</span><span class="val mono" id="bePid">—</span></div>
   </div>
-  <div class="row" style="margin-top:6px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
-  <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
-</div>
+</details>
 
-<!-- Autopilots today -->
-<div class="card">
-  <h2>autopilots today</h2>
-  <div class="legend">green = fired & completed · yellow = started but not done · red = failed · gray = not fired yet (waiting for scheduled time).</div>
-  <div id="autoList"></div>
-</div>
-
-<!-- Tracked best counts -->
-<div class="card">
-  <h2>tonight's picks (tracked_best)</h2>
-  <div class="legend">how many picks the engine generated for tonight's slate, by prop family.</div>
-  <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
-  <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
-  <div id="tbFamilies" class="pillRow" style="margin-top:8px"></div>
-</div>
-
-<!-- Family calibration -->
-<div class="card">
-  <h2>dampener (engine self-correction)</h2>
-  <div class="legend">
-    The engine grades itself nightly and auto-dampens overconfident families.
-    <strong>n</strong> = sample size (recently graded picks).
-    <strong>stated</strong> = engine's claimed win rate.
-    <strong>realized</strong> = what actually won.
-    <strong>gap</strong> = overconfidence in percentage points (higher = worse).
-    <strong>mul</strong> = correction multiplier the engine now applies (closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened).
+<!-- 2. background processes -->
+<details class="card" id="cardAgents">
+  <summary><h2>background processes</h2><span class="summaryLine" id="sumAgents">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">all four daemons must be GREEN for the system to run autonomously overnight. 3 scheduled autopilots fire on cadence.</div>
+    <div class="grid2" id="agentGrid"></div>
   </div>
-  <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
-  <table class="calib">
-    <thead><tr><th>family</th><th>n</th><th>stated</th><th>realized</th><th>gap</th><th>mul</th></tr></thead>
-    <tbody id="calibBody"></tbody>
-  </table>
-</div>
+</details>
 
-<!-- Recent commits -->
-<div class="card">
-  <h2>recent code changes</h2>
-  <div class="legend">last 5 commits to the repo. proves new changes are landing on disk.</div>
-  <div id="commits"></div>
-</div>
+<!-- 3. autopilots today -->
+<details class="card" id="cardAutopilots">
+  <summary><h2>autopilots today</h2><span class="summaryLine" id="sumAutopilots">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">green = fired & completed · yellow = started but not done · red = failed · gray = not fired yet (waiting for scheduled time).</div>
+    <div id="autoList"></div>
+  </div>
+</details>
 
-<!-- Drift alerts tail -->
-<div class="card">
-  <h2>recent system alerts</h2>
-  <div class="legend">last 10 RED events from sysAudit. translated to plain English. cognition alerts are the engine flagging its own overconfidence — those get auto-dampened above.</div>
-  <div id="driftTail"></div>
-</div>
+<!-- 4. whats next -->
+<details class="card" id="cardSchedule">
+  <summary><h2>what's next</h2><span class="summaryLine" id="sumSchedule">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">scheduled autopilot fires (ET). green dot = on track, scheduler is alive and will fire these.</div>
+    <div id="schedList"></div>
+  </div>
+</details>
+
+<!-- 5. clv capture today -->
+<details class="card" id="cardClv">
+  <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">% of tipped picks where we captured the closing odds. 0/0 just means no games have tipped yet.</div>
+    <div id="clvBigWrap">
+      <div class="big" id="clvBig">—</div>
+      <div class="big-sub" id="clvSub">—</div>
+    </div>
+    <div class="row" style="margin-top:6px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
+    <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
+  </div>
+</details>
+
+<!-- 6. open issues right now -->
+<details class="card" id="cardOpenIssues">
+  <summary><h2>open issues right now</h2><span class="summaryLine" id="sumOpenIssues">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">RED = broken / can lose you money. YELLOW = degraded / worth knowing. Empty = nothing wrong, all checked sources clean.</div>
+    <div id="openIssuesList">loading…</div>
+  </div>
+</details>
+
+<!-- 7. tonight's picks (tracked_best) -->
+<details class="card" id="cardTrackedBest">
+  <summary><h2>tonight's picks (tracked_best)</h2><span class="summaryLine" id="sumTrackedBest">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">how many picks the engine generated for tonight's slate, by prop family.</div>
+    <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
+    <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
+    <div id="tbFamilies" class="pillRow" style="margin-top:8px"></div>
+  </div>
+</details>
+
+<!-- 8. dampener (engine self-correction) -->
+<details class="card" id="cardCalib">
+  <summary><h2>dampener (engine self-correction)</h2><span class="summaryLine" id="sumCalib">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">
+      The engine grades itself nightly and auto-dampens overconfident families.
+      <strong>n</strong> = sample size (recently graded picks).
+      <strong>stated</strong> = engine's claimed win rate.
+      <strong>realized</strong> = what actually won.
+      <strong>gap</strong> = overconfidence in percentage points (higher = worse).
+      <strong>mul</strong> = correction multiplier the engine now applies (closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened).
+    </div>
+    <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
+    <table class="calib">
+      <thead><tr><th>family</th><th>n</th><th>stated</th><th>realized</th><th>gap</th><th>mul</th></tr></thead>
+      <tbody id="calibBody"></tbody>
+    </table>
+  </div>
+</details>
+
+<!-- 9. recent system alerts -->
+<details class="card" id="cardDrift">
+  <summary><h2>recent system alerts</h2><span class="summaryLine" id="sumDrift">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">last 10 RED events from sysAudit. translated to plain English. cognition alerts are the engine flagging its own overconfidence — those get auto-dampened above.</div>
+    <div id="driftTail"></div>
+  </div>
+</details>
+
+<!-- 10. recent code changes -->
+<details class="card" id="cardCommits">
+  <summary><h2>recent code changes</h2><span class="summaryLine" id="sumCommits">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">last 5 commits to the repo. proves new changes are landing on disk.</div>
+    <div id="commits"></div>
+  </div>
+</details>
 
 <div class="actionBar">
   <button onclick="loadStatus()">refresh now</button>
@@ -279,10 +317,28 @@ function timeOnly(line) {
   return m ? m[1] : "—";
 }
 
+// Phase Status-Overhaul-1A — one-line health summary shown in collapsed-state
+// <summary> bars. Each render function calls _setSummary with a short status
+// string traced to real data per [[status-must-be-real]].
+function _setSummary(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text || "—";
+}
+
 function renderAgents(data) {
   const grid = document.getElementById("agentGrid");
   grid.innerHTML = "";
-  if (!data?.ok) { grid.innerHTML = '<div class="err">' + (data?.error || "agents unavailable") + '</div>'; return; }
+  if (!data?.ok) {
+    grid.innerHTML = '<div class="err">' + (data?.error || "agents unavailable") + '</div>';
+    _setSummary("sumAgents", "unavailable");
+    return;
+  }
+  // Phase Status-Overhaul-1A — collapsed summary: "N of M healthy · daemon+scheduled mix"
+  const total = data.agents.length;
+  const healthy = data.agents.filter(a => a.healthy).length;
+  const daemons = data.agents.filter(a => a.kind === "daemon").length;
+  const scheduled = data.agents.filter(a => a.kind === "scheduled").length;
+  _setSummary("sumAgents", healthy + " of " + total + " healthy · " + daemons + " daemons + " + scheduled + " scheduled");
   for (const a of data.agents) {
     const div = document.createElement("div");
     div.className = "agent";
@@ -312,10 +368,22 @@ function renderOpenIssues(data) {
   const oi = data.openIssues;
   if (!oi || !oi.ok) {
     div.innerHTML = '<div class="empty">openIssues section unavailable.</div>';
+    _setSummary("sumOpenIssues", "unavailable");
     return;
   }
   const reds = Array.isArray(oi.red) ? oi.red : [];
   const yells = Array.isArray(oi.yellow) ? oi.yellow : [];
+  // Phase Status-Overhaul-1A — collapsed summary uses category split:
+  // infra (actionable now) headlined; cognition (calibration) as suffix.
+  const s = oi.summary || {};
+  const ir = s.infraRedCount ?? 0, iy = s.infraYellowCount ?? 0;
+  const cr = s.cognitionRedCount ?? 0, cy = s.cognitionYellowCount ?? 0;
+  const cogSuffix = (cr + cy) > 0 ? " · (+" + (cr + cy) + " cognition)" : "";
+  if ((ir + iy + cr + cy) === 0) {
+    _setSummary("sumOpenIssues", "all clean");
+  } else {
+    _setSummary("sumOpenIssues", ir + " red · " + iy + " yellow" + cogSuffix);
+  }
   if (reds.length === 0 && yells.length === 0) {
     div.innerHTML = '<div class="empty">no open issues — every checked source clean (' + (oi.summary?.sourcesChecked || []).join(", ") + ')</div>';
     return;
@@ -369,13 +437,20 @@ function renderBackend(data) {
   document.getElementById("beCommit").textContent = b?.commitShort || "—";
   document.getElementById("beUptime").textContent = formatUptime(b?.uptimeSec);
   document.getElementById("bePid").textContent = b?.pid || "—";
+  // Phase Status-Overhaul-1A — collapsed summary: "commit · uptime · healthy/down"
+  const state = b?.healthy ? "healthy" : "DOWN";
+  _setSummary("sumBackend", (b?.commitShort || "?") + " · " + formatUptime(b?.uptimeSec) + " · " + state);
 }
 
 function renderSchedule(data) {
   const wrap = document.getElementById("schedList");
   wrap.innerHTML = "";
   const s = data.schedule;
-  if (!s?.ok) { wrap.innerHTML = '<div class="err">' + (s?.error || "schedule unavailable") + '</div>'; return; }
+  if (!s?.ok) {
+    wrap.innerHTML = '<div class="err">' + (s?.error || "schedule unavailable") + '</div>';
+    _setSummary("sumSchedule", "unavailable");
+    return;
+  }
   for (const u of s.upcoming) {
     const el = document.createElement("div");
     el.className = "sched";
@@ -385,6 +460,9 @@ function renderSchedule(data) {
       '<div class="countdown">in ' + formatCountdown(u.inSec) + '</div>';
     wrap.appendChild(el);
   }
+  // Phase Status-Overhaul-1A — collapsed summary: next upcoming fire's label + countdown
+  const next = s.upcoming?.[0];
+  _setSummary("sumSchedule", next ? "next: " + next.label + " in " + formatCountdown(next.inSec) : "nothing upcoming");
 }
 
 // Phase Status-CLV-Field-Fix-1A (2026-06-02) — uses new gamesToday + nextGameAt
@@ -445,6 +523,16 @@ function renderClv(data) {
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
   document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
   document.getElementById("clvMlb").innerHTML = _fmtClvSportLine("MLB", mlb, nextMlb);
+  // Phase Status-Overhaul-1A — collapsed summary, no-games-aware per
+  // [[no-games-today-aware]]: zero games = healthy "no games today"; rate
+  // present = "X% (M/T)"; both sports show their state.
+  const fmtSport = (s, label) => {
+    if (!s) return label + ": —";
+    if (s.gamesToday === 0) return label + ": no games today";
+    if (s.tipped === 0) return label + ": " + s.gamesToday + " scheduled, none tipped";
+    return label + ": " + s.rate + "% (" + s.stamped + "/" + s.tipped + ")";
+  };
+  _setSummary("sumClv", fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB"));
 }
 
 function renderAutopilots(data) {
@@ -514,13 +602,45 @@ function renderAutopilots(data) {
   buildRow("hourly sysAudit",
     "drift detection + backend health canary — fires every :00 from 9 AM to 11 PM",
     null, null, null, "sysAudit");
+
+  // Phase Status-Overhaul-1A — collapsed summary tallies the same rows that
+  // were just rendered. Real source: fires + slates from /status payload.
+  let fired = 0, failed = 0, pending = 0;
+  const tally = (started, completed, lastFailed) => {
+    if (lastFailed) failed++;
+    else if (completed) fired++;
+    else if (started) pending++;
+    else pending++;
+  };
+  if (fires?.ok) {
+    tally(fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, null);
+    tally(fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null);
+    tally(fires.populatorChain?.startedLine, fires.populatorChain?.endedLine, null);
+  }
+  if (slates?.ok) {
+    tally(null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed);
+    tally(null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed);
+  }
+  const parts = [];
+  if (failed > 0) parts.push(failed + " failed");
+  if (fired > 0) parts.push(fired + " fired");
+  if (pending > 0) parts.push(pending + " pending");
+  _setSummary("sumAutopilots", parts.length ? parts.join(" · ") : "no data");
 }
 
 function renderTrackedBest(data) {
   const t = data.trackedBestToday;
-  if (!t?.ok) { document.getElementById("tbNbaTotal").textContent = "—"; return; }
+  if (!t?.ok) {
+    document.getElementById("tbNbaTotal").textContent = "—";
+    _setSummary("sumTrackedBest", "unavailable");
+    return;
+  }
   const nba = t.perSport?.nba;
   const mlb = t.perSport?.mlb;
+  // Phase Status-Overhaul-1A — collapsed summary: "NBA: N · MLB: M"
+  _setSummary("sumTrackedBest",
+    "NBA " + (nba?.hasFile ? nba.total : 0) + " · MLB " + (mlb?.hasFile ? mlb.total : 0)
+  );
   const sched = data.schedule;
   const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
@@ -543,8 +663,18 @@ function renderCalibration(data) {
   body.innerHTML = "";
   if (!c?.ok || !c.sports) {
     body.innerHTML = '<tr><td colspan="6" class="empty">' + (c?.error || "no calibration data") + '</td></tr>';
+    _setSummary("sumCalib", "no calibration data");
     return;
   }
+  // Phase Status-Overhaul-1A — collapsed summary: count of dampened families
+  let famCount = 0, dampenedCount = 0;
+  for (const fams of Object.values(c.sports)) {
+    for (const info of Object.values(fams)) {
+      famCount++;
+      if (info.multiplier != null && info.multiplier < 0.85) dampenedCount++;
+    }
+  }
+  _setSummary("sumCalib", famCount + " families graded · " + dampenedCount + " currently dampened");
   // Friendlier timestamp
   let when = "—";
   if (c.generatedAt) {
@@ -575,7 +705,21 @@ function renderCalibration(data) {
 function renderCommits(data) {
   const div = document.getElementById("commits");
   div.innerHTML = "";
-  if (!data.recentCommits?.ok) { div.innerHTML = '<div class="err">commits unavailable</div>'; return; }
+  if (!data.recentCommits?.ok) {
+    div.innerHTML = '<div class="err">commits unavailable</div>';
+    _setSummary("sumCommits", "unavailable");
+    return;
+  }
+  // Phase Status-Overhaul-1A — collapsed summary: most recent commit short
+  const top = data.recentCommits.commits?.[0] || "";
+  const mTop = top.match(/^(\S+)\s+(.+)$/);
+  if (mTop) {
+    let shortMsg = mTop[2].replace(/^Phase [A-Za-z0-9-]+: /, "").replace(/—.*$/, "").trim();
+    if (shortMsg.length > 60) shortMsg = shortMsg.slice(0, 57) + "...";
+    _setSummary("sumCommits", mTop[1] + " · " + shortMsg);
+  } else {
+    _setSummary("sumCommits", "—");
+  }
   for (const line of data.recentCommits.commits) {
     // Format: "<sha> <message>"
     const m = line.match(/^(\S+)\s+(.+)$/);
@@ -650,7 +794,18 @@ function renderDrift(data) {
   const div = document.getElementById("driftTail");
   div.innerHTML = "";
   const lines = data.driftAlertsTail?.lines || [];
-  if (lines.length === 0) { div.innerHTML = '<div class="empty">no alerts logged in the recent window — GREEN.</div>'; return; }
+  if (lines.length === 0) {
+    div.innerHTML = '<div class="empty">no alerts logged in the recent window — GREEN.</div>';
+    _setSummary("sumDrift", "no recent alerts");
+    return;
+  }
+  // Phase Status-Overhaul-1A — collapsed summary: latest alert's timestamp + short kind
+  const latest = lines[lines.length - 1];
+  const t = translateDriftLine(latest);
+  // Strip HTML tags from the translated message for the one-liner
+  const msgPlain = String(t.msg || "").replace(/<[^>]+>/g, "").trim();
+  const short = msgPlain.length > 70 ? msgPlain.slice(0, 67) + "..." : msgPlain;
+  _setSummary("sumDrift", t.ts + " · " + short);
   // Newest first
   for (const line of [...lines].reverse()) {
     const t = translateDriftLine(line);
