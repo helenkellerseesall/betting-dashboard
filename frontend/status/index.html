@@ -569,21 +569,41 @@ function renderClv(data) {
   const ledgerCoverageRate = totalLedgerPlayed > 0
     ? Math.round(totalLedgerStamped / totalLedgerPlayed * 1000) / 10
     : null;
+  // Phase Status-Overhaul-1C-fix5 (2026-06-03) — revert to single-view per
+  // operator: dual-view was cluttered. Keep slate-date semantics (4 AM ET
+  // rollover) but make the subtitle explicit about which slate is showing,
+  // so operator never confuses "Tuesday data displayed at 3 AM Wed" with
+  // "fake claim about Wednesday". Subtitle pattern: "Slate: <pretty date> ·
+  // rolls <next day> at 4 AM ET".
+  const _prettySlate = (yyyyMmDd) => {
+    if (!yyyyMmDd) return "—";
+    try {
+      const d = new Date(yyyyMmDd + "T12:00:00-04:00");
+      return d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
+    } catch (_) { return yyyyMmDd; }
+  };
+  const _nextDay = (yyyyMmDd) => {
+    if (!yyyyMmDd) return "—";
+    try {
+      const d = new Date(yyyyMmDd + "T12:00:00-04:00");
+      d.setDate(d.getDate() + 1);
+      return d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long" });
+    } catch (_) { return "tomorrow"; }
+  };
+  const slateLabel = "Slate: " + _prettySlate(c.slateDateKey || c.dateKey) + " · rolls " + _nextDay(c.slateDateKey || c.dateKey) + " at 4 AM ET";
   if (ledgerCoverageRate != null) {
     big.textContent = ledgerCoverageRate.toFixed(1) + "%";
     big.className = "big " + (ledgerCoverageRate >= 70 ? "green" : ledgerCoverageRate >= 30 ? "yellow" : "red");
-    document.getElementById("clvSub").textContent = totalLedgerStamped + " of " + totalLedgerPlayed + " games today have at least 1 close-stamped pick (slate ledger view)";
+    document.getElementById("clvSub").textContent = totalLedgerStamped + " of " + totalLedgerPlayed + " games close-stamped · " + slateLabel;
   } else {
-    // No ledger coverage for today's slate. Fall back to "no games today" or
-    // legacy overallRate display — same as pre-1C behavior for the edge case.
     big.textContent = "—";
     big.className = "big";
     if ((c.totalGamesToday || 0) === 0) {
-      document.getElementById("clvSub").textContent = "no games scheduled today (NBA + MLB)";
+      document.getElementById("clvSub").textContent = "no games this slate · " + slateLabel;
     } else {
       let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
-      const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "waiting for the next slate fire";
-      document.getElementById("clvSub").textContent = c.totalGamesToday + " games loaded for today, ledger empty (early in day or pre-pick)" + (nextSlate ? " — " + nextTxt : "");
+      const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "";
+      document.getElementById("clvSub").textContent = c.totalGamesToday + " games loaded · ledger empty (early in slate or pre-pick) · " + slateLabel + (nextTxt ? " · " + nextTxt : "");
     }
   }
   // Phase Status-Overhaul-1C-fix1 — nba/mlb already declared at top of function
@@ -592,37 +612,14 @@ function renderClv(data) {
   // schedule lookups.
   const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
-  // Phase Status-Overhaul-1C-fix4 — dual-view rendering when slate-date !=
-  // calendar-date (the 12:01-3:59 AM ET window between wall-clock day rollover
-  // and the slate engine's 4 AM rollover). Each per-sport row shows the slate
-  // recap on top and today's calendar preview below. When slate == calendar
-  // (normal hours), single-line behavior preserved.
-  const slateKey = c.slateDateKey;
-  const calKey   = c.calendarDateKey;
-  const isDualView = slateKey && calKey && slateKey !== calKey;
-  // Pretty date for sub-headers — e.g. "Tue Jun 2"
-  const prettyDate = (yyyyMmDd) => {
-    if (!yyyyMmDd) return "—";
-    try {
-      // Parse as YYYY-MM-DD and format in ET timezone
-      const d = new Date(yyyyMmDd + "T12:00:00-04:00");
-      return d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" });
-    } catch (_) { return yyyyMmDd; }
-  };
-  if (isDualView) {
-    // Update subtitle to clarify dual-view (replaces single-view subtitle)
-    document.getElementById("clvSub").textContent =
-      "current slate (" + prettyDate(slateKey) + "): " + totalLedgerStamped + "/" + totalLedgerPlayed +
-      " stamped · today (" + prettyDate(calKey) + "): calendar coverage shown below (slate rolls 4 AM ET)";
-    const stackedRow = (slateHtml, calHtml) =>
-      '<div>' + slateHtml + '</div>' +
-      '<div class="sm" style="opacity:0.75;margin-top:3px">today: ' + calHtml + '</div>';
-    document.getElementById("clvNba").innerHTML = stackedRow(_fmtClvSportLine("NBA", nba, nextNba), _fmtClvCalendarView("NBA", nba));
-    document.getElementById("clvMlb").innerHTML = stackedRow(_fmtClvSportLine("MLB", mlb, nextMlb), _fmtClvCalendarView("MLB", mlb));
-  } else {
-    document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
-    document.getElementById("clvMlb").innerHTML = _fmtClvSportLine("MLB", mlb, nextMlb);
-  }
+  // Phase Status-Overhaul-1C-fix5 — single-view rendering (operator feedback:
+  // dual-view was cluttered, unacceptable). Slate-date semantics throughout,
+  // with explicit subtitle clarifying which slate is shown. Per-sport rows
+  // show the slate view only. Calendar-view fields stay in the backend
+  // payload (gamesCalendarToday/Tipped/Stamped/captureRateCalendar) for
+  // future use; not rendered here.
+  document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
+  document.getElementById("clvMlb").innerHTML = _fmtClvSportLine("MLB", mlb, nextMlb);
   // Phase Status-Overhaul-1C — collapsed summary uses ledger-backed
   // captureRate as primary signal. Falls back to legacy gamesToday/tipped
   // when ledger has no entries for today's slate.
@@ -641,26 +638,8 @@ function renderClv(data) {
     if ((s.tipped || 0) === 0) return label + ": " + s.gamesToday + " loaded, none tipped yet";
     return label + ": " + (s.rate != null ? s.rate + "% (" + s.stamped + "/" + s.tipped + " tipped)" : "—");
   };
-  // Phase 1C-fix4 — dual-view collapsed summary
-  if (isDualView) {
-    const slateDayLabel = prettyDate(slateKey).split(" ")[0].toUpperCase(); // e.g. "TUE"
-    const calDayLabel   = prettyDate(calKey).split(" ")[0].toUpperCase();   // e.g. "WED"
-    const fmtCal = (s, label) => {
-      if (!s) return label + ": —";
-      const today = s.gamesCalendarToday || 0;
-      const tipped = s.gamesCalendarTipped || 0;
-      if (today === 0) return label + ": no games";
-      if (tipped === 0) return label + ": " + today + " loaded, 0 tipped";
-      if (s.captureRateCalendar != null) return label + ": " + s.captureRateCalendar + "% (" + s.gamesCalendarStamped + "/" + tipped + ")";
-      return label + ": " + tipped + "/" + today + " tipped, 0 stamped";
-    };
-    _setSummary("sumClv",
-      "[" + slateDayLabel + " slate] " + fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB") +
-      " | [" + calDayLabel + " today] " + fmtCal(nba, "NBA") + " · " + fmtCal(mlb, "MLB")
-    );
-  } else {
-    _setSummary("sumClv", fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB"));
-  }
+  // Phase Status-Overhaul-1C-fix5 — single-line collapsed summary
+  _setSummary("sumClv", fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB"));
 }
 
 function renderAutopilots(data) {
