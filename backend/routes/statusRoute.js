@@ -405,6 +405,13 @@ function sectionClvCaptureToday() {
       // ET calendar date. NBA tonight should be gamesToday=0 (Finals tomorrow).
       const todayCalEt = calendarDateKey()
       const eventIdsToday = new Set()
+      // Phase Status-Overhaul-1C-fix2 — also build a per-event gameTime
+      // calendar-date map so the ledger filter (below) can drop events whose
+      // games are on a different ET calendar day than the slate-date. Without
+      // this, at 02:27 ET Wed (slate = 2026-06-02), Wed-future games already
+      // pre-picked under Tuesday's slate were counted in the CLV recap, giving
+      // operator 21 instead of the meaningful 15.
+      const eventIdToGameCalEt = new Map()
       let nextGameAt = null
       let nextGameLabel = null
       for (const e of arr) {
@@ -412,6 +419,7 @@ function sectionClvCaptureToday() {
         const gt = Date.parse(e.gameTime)
         if (!Number.isFinite(gt)) continue
         const gameDateEt = calendarDateForTimestamp(gt)
+        if (e.eventId) eventIdToGameCalEt.set(e.eventId, gameDateEt)
         // Count toward gamesToday ONLY if game's ET calendar date == today
         if (gameDateEt === todayCalEt && e.eventId) eventIdsToday.add(e.eventId)
         // Track earliest FUTURE gameTime + matchup for "next game" display
@@ -430,16 +438,35 @@ function sectionClvCaptureToday() {
       // least 1 pick that has clvSnapshot.close.odds populated = stamped.
       // captureRate = stamped/played. This view survives Layer-1 drop so
       // operator sees yesterday's full capture even after games age out.
+      //
+      // Phase Status-Overhaul-1C-fix2 (2026-06-03) — filter out future-day
+      // games pre-picked under today's slate. The slate engine sometimes
+      // generates picks for tomorrow's games during late-night fires (e.g.
+      // at 11 PM Tuesday, picks for some Wed games land under Tue's slate-
+      // date). Those entries inflate gamesPlayedToday with games that
+      // haven't tipped yet → fake-low captureRate. Filter rule: if we KNOW
+      // the gameTime calendar (event is in slate-date tracked_bets file)
+      // AND it's NOT on slate-date calendar → SKIP. If we DON'T know the
+      // gameTime (event Layer-1-dropped from tracked_bets — i.e. already
+      // played and aged out) → INCLUDE (assume slate-date past game).
       let gamesPlayedToday = 0
       let gamesCloseStamped = 0
       let captureRate = null
+      let gamesFutureExcluded = 0
       if (ledgerEntries.length > 0) {
         const events = new Set()
         const eventsCloseStamped = new Set()
+        const futureExcluded = new Set()
         for (const e of ledgerEntries) {
           if (String(e.sport || "").toLowerCase() !== sport) continue
           if (e.date !== dateKey) continue
-          if (!e.eventId) continue
+          if (e.eventId == null) continue
+          // Phase 1C-fix2 — exclude future-day pre-picked events
+          const gameCalEt = eventIdToGameCalEt.get(e.eventId)
+          if (gameCalEt != null && gameCalEt !== dateKey) {
+            futureExcluded.add(e.eventId)
+            continue
+          }
           events.add(e.eventId)
           if (e.clvSnapshot && e.clvSnapshot.close && e.clvSnapshot.close.odds != null) {
             eventsCloseStamped.add(e.eventId)
@@ -447,6 +474,7 @@ function sectionClvCaptureToday() {
         }
         gamesPlayedToday = events.size
         gamesCloseStamped = eventsCloseStamped.size
+        gamesFutureExcluded = futureExcluded.size
         captureRate = events.size > 0
           ? Math.round((eventsCloseStamped.size / events.size) * 1000) / 10
           : null
@@ -463,9 +491,13 @@ function sectionClvCaptureToday() {
         // Phase Status-Overhaul-1C — new ledger-backed fields. Use these for
         // honest day-coverage display; existing tipped/stamped/rate kept for
         // FE backwards-compat. captureRate is the operator-meaningful number.
+        // Phase 1C-fix2 — gamesFutureExcluded: count of events skipped because
+        // their gameTime is on a different ET calendar day than slate-date
+        // (e.g. Wed games pre-picked under Tue's slate). Surface for transparency.
         gamesPlayedToday,
         gamesCloseStamped,
         captureRate,
+        gamesFutureExcluded,
       }
       totalTipped += tipped.length
       totalStamped += stamped.length
