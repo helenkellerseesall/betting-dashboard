@@ -1121,6 +1121,17 @@ function _initSse() {
   });
 }
 _initSse();
+
+// Phase Status-SSE-VisibilityChange-1A — re-init SSE when page wakes from sleep.
+// macOS sleep severs the long-lived EventSource; sometimes the browser's
+// auto-reconnect gets stuck in a half-state showing "reconnecting…" forever.
+// Listen for visibilitychange and force re-init when page becomes visible.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    try { _initSse(); } catch (_) {}
+    try { loadStatus(); } catch (_) {}
+  }
+});
 </script>
 </body>
 </html>
