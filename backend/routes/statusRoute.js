@@ -53,6 +53,11 @@ const SCHEDULER_LOG   = path.join(REPO_ROOT, ".scratch", "scheduler.log")
 const DRIFT_ALERTS    = path.join(AUDITS_DIR, "drift_alerts.log")
 const FAMILY_CALIB    = path.join(CALIBRATION_DIR, "family_calibration.json")
 const SQLITE_PATH     = path.join(REPO_ROOT, "backend", "storage", "betting.db")
+// Phase Status-Overhaul-1C (2026-06-03) — ledger path for CLV completed-games view.
+// personal_ledger is append-only, retains the day's full pick history even after
+// tracked_bets Layer-1-filters tipped games out. Used by sectionClvCaptureToday
+// to show "15 of 15 MLB games close-stamped" instead of "6 games loaded, none tipped".
+const LEDGER_PATH     = path.join(REPO_ROOT, "backend", "runtime", "tracking", "personal_ledger.json")
 
 // Phase Status-LaunchAgent-Visibility-1A (2026-06-02) — full 7-agent roster with
 // per-kind healthy semantics so scheduled autopilots don't fake-red the dot.
@@ -345,6 +350,20 @@ function sectionClvCaptureToday() {
   // is tomorrow) from "games scheduled, capture failed" — per
   // [[no-games-today-aware]] rule. Both backend and FE consumers can use
   // these to render honest "no games" messaging instead of fake red.
+  //
+  // Phase Status-Overhaul-1C (2026-06-03) — LEDGER-BACKED COMPLETED-GAMES view.
+  // tracked_bets gets Layer-1-filtered as games tip (>1hr past tip drops from
+  // the file). So at 00:07 ET Wednesday, Tuesday's 15 MLB games are GONE from
+  // tracked_bets even though they were all close-stamped. Operator sees the
+  // empty card and thinks something broke. Fix: read personal_ledger (append-
+  // only, full history) for the day's true coverage and add gamesPlayedToday +
+  // gamesCloseStamped + captureRate per sport. Existing fields stay for FE
+  // backwards-compat.
+  //
+  // Slate-date semantics (etDateKey, 4 AM ET boundary): at 00:07 ET Wed, slate
+  // is still 2026-06-02 (Tuesday). Operator's mental "tonight" matches slate.
+  // ledger entries store .date = slate-date when pick was generated, so the
+  // join is direct: filter ledger.date === etDateKey().
   try {
     const dateKey = etDateKey()
     const sports = ["nba", "mlb"]
@@ -352,6 +371,14 @@ function sectionClvCaptureToday() {
     let totalTipped = 0
     let totalStamped = 0
     let totalGamesToday = 0
+
+    // Phase Status-Overhaul-1C — read ledger once, reuse for all sports.
+    // Cost: ~100-200ms on 50K-entry ledger. Acceptable for /status poll cadence.
+    // Future optimization: mtime-invalidated cache if /status fetch rate climbs.
+    const ledger = safeReadJson(LEDGER_PATH)
+    const ledgerEntries = ledger
+      ? (Array.isArray(ledger) ? ledger : (ledger.entries || ledger.bets || []))
+      : []
     for (const sport of sports) {
       const file = path.join(TRACKING_DIR, `${sport}_tracked_bets_${dateKey}.json`)
       if (!fs.existsSync(file)) {
@@ -397,6 +424,34 @@ function sectionClvCaptureToday() {
       const gamesToday = eventIdsToday.size
       totalGamesToday += gamesToday
 
+      // Phase Status-Overhaul-1C — ledger-backed completed-games view.
+      // Source: personal_ledger entries with sport=X AND date=slateDate.
+      // Distinct eventIds = games picked for today's slate; events with at
+      // least 1 pick that has clvSnapshot.close.odds populated = stamped.
+      // captureRate = stamped/played. This view survives Layer-1 drop so
+      // operator sees yesterday's full capture even after games age out.
+      let gamesPlayedToday = 0
+      let gamesCloseStamped = 0
+      let captureRate = null
+      if (ledgerEntries.length > 0) {
+        const events = new Set()
+        const eventsCloseStamped = new Set()
+        for (const e of ledgerEntries) {
+          if (String(e.sport || "").toLowerCase() !== sport) continue
+          if (e.date !== dateKey) continue
+          if (!e.eventId) continue
+          events.add(e.eventId)
+          if (e.clvSnapshot && e.clvSnapshot.close && e.clvSnapshot.close.odds != null) {
+            eventsCloseStamped.add(e.eventId)
+          }
+        }
+        gamesPlayedToday = events.size
+        gamesCloseStamped = eventsCloseStamped.size
+        captureRate = events.size > 0
+          ? Math.round((eventsCloseStamped.size / events.size) * 1000) / 10
+          : null
+      }
+
       results[sport] = {
         tipped: tipped.length,
         stamped: stamped.length,
@@ -405,6 +460,12 @@ function sectionClvCaptureToday() {
         gamesToday,
         nextGameAt: nextGameAt ? new Date(nextGameAt).toISOString() : null,
         nextGameLabel,
+        // Phase Status-Overhaul-1C — new ledger-backed fields. Use these for
+        // honest day-coverage display; existing tipped/stamped/rate kept for
+        // FE backwards-compat. captureRate is the operator-meaningful number.
+        gamesPlayedToday,
+        gamesCloseStamped,
+        captureRate,
       }
       totalTipped += tipped.length
       totalStamped += stamped.length

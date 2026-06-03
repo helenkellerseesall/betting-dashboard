@@ -465,28 +465,50 @@ function renderSchedule(data) {
   _setSummary("sumSchedule", next ? "next: " + next.label + " in " + formatCountdown(next.inSec) : "nothing upcoming");
 }
 
-// Phase Status-CLV-Field-Fix-1A (2026-06-02) — uses new gamesToday + nextGameAt
-// + nextGameLabel from backend so we can render "no NBA games today, next: Wed
-// 8:30 PM ET Pacers @ Thunder" instead of misleading "0% capture failure".
-// Per [[no-games-today-aware]]: zero with no games is healthy, not failure.
+// Phase Status-CLV-Field-Fix-1A (2026-06-02) — uses gamesToday + nextGameAt + nextGameLabel.
+// Phase Status-Overhaul-1C (2026-06-03) — promotes new ledger-backed fields
+// (gamesPlayedToday, gamesCloseStamped, captureRate) as primary signal so the
+// card shows yesterday's full capture even after Layer-1 drops games from
+// tracked_bets. Legacy gamesToday/tipped/rate kept as fallback if backend
+// hasn't redeployed yet. Per [[no-games-today-aware]] + [[status-must-be-real]]:
+// distinguish "no games today" (healthy) from "games loaded for tomorrow"
+// (healthy, just early) from "X of Y games close-stamped" (real capture rate).
 function _fmtClvSportLine(label, sportData, nextSlate) {
   if (!sportData?.hasFile) {
-    return '<span class="sm">no ' + label + ' slate today yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
+    return '<span class="sm">no ' + label + ' slate file yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
   }
-  // Has file. Three cases:
-  //   1. gamesToday === 0   → no games scheduled (healthy, not a failure)
-  //   2. tipped === 0       → games scheduled but none tipped yet
-  //   3. tipped > 0         → real capture rate
-  if (sportData.gamesToday === 0) {
+  // Phase 1C — prefer ledger-backed fields. gamesPlayedToday is the count
+  // of distinct games picked for today's slate (slate-date, 4 AM ET boundary).
+  const ledgerPlayed  = sportData.gamesPlayedToday;
+  const ledgerStamped = sportData.gamesCloseStamped;
+  const ledgerRate    = sportData.captureRate;
+  if (ledgerPlayed != null && ledgerPlayed > 0) {
+    // Real coverage from ledger
+    const rateStr = ledgerRate != null ? ledgerRate + '%' : '—';
+    const stampedStr = ledgerStamped + '/' + ledgerPlayed;
+    return rateStr + ' (' + stampedStr + ' ' + label + ' games close-stamped)';
+  }
+  // No games picked for today's slate (per ledger). Could be:
+  //   (a) genuinely no games scheduled today (e.g. NBA off-day)
+  //   (b) tomorrow's slate already loaded but today's slate is empty
+  //   (c) early in the day, engine hasn't generated picks yet
+  // Use the legacy gamesToday (from tracked_bets calendar-date count) +
+  // nextGameAt/nextGameLabel to disambiguate honestly.
+  const todayCount = sportData.gamesToday || 0;
+  if (todayCount === 0) {
     const nextLine = sportData.nextGameAt
       ? ' · next ' + (sportData.nextGameLabel || 'game') + ' ' + new Date(sportData.nextGameAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
       : '';
     return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
   }
-  if (sportData.tipped === 0) {
-    return '<span class="sm">' + sportData.gamesToday + ' ' + label + ' games today, none tipped yet</span>';
+  // todayCount > 0 (calendar) but ledgerPlayed == 0: games loaded for today
+  // but ledger doesn't have their picks under today's slate-date yet (likely
+  // picks under previous slate-date pre-rollover, or no picks generated yet).
+  if ((sportData.tipped || 0) === 0) {
+    return '<span class="sm">' + todayCount + ' ' + label + ' games today, none tipped yet</span>';
   }
-  return sportData.rate + '% (' + sportData.stamped + '/' + sportData.tipped + ')';
+  // Fallback to legacy tipped-based rate if ledger data missing
+  return (sportData.rate != null ? sportData.rate + '%' : '—') + ' (' + (sportData.stamped || 0) + '/' + (sportData.tipped || 0) + ' tipped)';
 }
 
 function renderClv(data) {
@@ -498,11 +520,25 @@ function renderClv(data) {
     document.getElementById("clvSub").textContent = c?.error || "no data";
     return;
   }
-  const r = c.overallRate;
   const big = document.getElementById("clvBig");
-  // Phase Status-CLV-Field-Fix-1A — distinguish "no games anywhere today"
-  // from "games scheduled but none tipped yet" in the headline.
-  if (r == null) {
+  // Phase Status-Overhaul-1C — prefer ledger-backed coverage view for headline.
+  // Aggregate gamesPlayedToday + gamesCloseStamped across sports → captureRate
+  // for the day. Operator sees "100% (15/15 MLB games captured)" instead of
+  // "no games today" after Layer-1 drops everything.
+  const nba = c.perSport?.nba;
+  const mlb = c.perSport?.mlb;
+  const totalLedgerPlayed  = (nba?.gamesPlayedToday  || 0) + (mlb?.gamesPlayedToday  || 0);
+  const totalLedgerStamped = (nba?.gamesCloseStamped || 0) + (mlb?.gamesCloseStamped || 0);
+  const ledgerCoverageRate = totalLedgerPlayed > 0
+    ? Math.round(totalLedgerStamped / totalLedgerPlayed * 1000) / 10
+    : null;
+  if (ledgerCoverageRate != null) {
+    big.textContent = ledgerCoverageRate.toFixed(1) + "%";
+    big.className = "big " + (ledgerCoverageRate >= 70 ? "green" : ledgerCoverageRate >= 30 ? "yellow" : "red");
+    document.getElementById("clvSub").textContent = totalLedgerStamped + " of " + totalLedgerPlayed + " games today have at least 1 close-stamped pick (slate ledger view)";
+  } else {
+    // No ledger coverage for today's slate. Fall back to "no games today" or
+    // legacy overallRate display — same as pre-1C behavior for the edge case.
     big.textContent = "—";
     big.className = "big";
     if ((c.totalGamesToday || 0) === 0) {
@@ -510,12 +546,8 @@ function renderClv(data) {
     } else {
       let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
       const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "waiting for the next slate fire";
-      document.getElementById("clvSub").textContent = c.totalGamesToday + " games scheduled, none tipped yet — " + nextTxt;
+      document.getElementById("clvSub").textContent = c.totalGamesToday + " games loaded for today, ledger empty (early in day or pre-pick)" + (nextSlate ? " — " + nextTxt : "");
     }
-  } else {
-    big.textContent = r.toFixed(1) + "%";
-    big.className = "big " + (r >= 70 ? "green" : r >= 30 ? "yellow" : "red");
-    document.getElementById("clvSub").textContent = c.totalStamped + " of " + c.totalTipped + " tipped picks have closing odds captured";
   }
   const nba = c.perSport?.nba;
   const mlb = c.perSport?.mlb;
@@ -523,14 +555,17 @@ function renderClv(data) {
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
   document.getElementById("clvNba").innerHTML = _fmtClvSportLine("NBA", nba, nextNba);
   document.getElementById("clvMlb").innerHTML = _fmtClvSportLine("MLB", mlb, nextMlb);
-  // Phase Status-Overhaul-1A — collapsed summary, no-games-aware per
-  // [[no-games-today-aware]]: zero games = healthy "no games today"; rate
-  // present = "X% (M/T)"; both sports show their state.
+  // Phase Status-Overhaul-1C — collapsed summary uses ledger-backed
+  // captureRate as primary signal. Falls back to legacy gamesToday/tipped
+  // when ledger has no entries for today's slate.
   const fmtSport = (s, label) => {
     if (!s) return label + ": —";
-    if (s.gamesToday === 0) return label + ": no games today";
-    if (s.tipped === 0) return label + ": " + s.gamesToday + " scheduled, none tipped";
-    return label + ": " + s.rate + "% (" + s.stamped + "/" + s.tipped + ")";
+    if (s.gamesPlayedToday != null && s.gamesPlayedToday > 0) {
+      return label + ": " + s.captureRate + "% (" + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " games)";
+    }
+    if ((s.gamesToday || 0) === 0) return label + ": no games today";
+    if ((s.tipped || 0) === 0) return label + ": " + s.gamesToday + " loaded, none tipped yet";
+    return label + ": " + (s.rate != null ? s.rate + "% (" + s.stamped + "/" + s.tipped + " tipped)" : "—");
   };
   _setSummary("sumClv", fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB"));
 }
