@@ -691,6 +691,142 @@ function sectionOpenIssues() {
     }
   } catch (_) {}
 
+  // Phase Status-OpenIssues-CompleteCoverage-1A (2026-06-02) — Sources 5/6/7.
+  //
+  // Previously, sectionOpenIssues only checked 4 sources (calibration, drift,
+  // git, uptime). Real failures in slate fires, CLV capture, and nightly
+  // autopilots were visible in their own /status cards but NEVER drove the
+  // live dot. Result: dot stayed green during the 2026-06-02 20:00 ET slate
+  // failure + the all-day CLV capture gap (later traced to a field-name bug)
+  // + today's missed nightly autopilots from the overnight scheduler crash.
+  //
+  // Adds 3 sources, all wired honestly per [[status-must-be-real]] +
+  // [[no-games-today-aware]]:
+  //   Source 5 slate_fires        — slate:nba/slate:mlb FAILED today (not recovered = RED, recovered = informational YELLOW)
+  //   Source 6 clv_capture        — rate < 30% RED, < 70% YELLOW, no-games-aware skip
+  //   Source 7 autopilot_fires    — past scheduled time AND fired:false = RED, with 30min grace
+
+  // ── Source 5: slateFiresToday — slate fire failures (with recovery awareness) ──
+  try {
+    const sft = sectionSlateFiresToday()
+    if (sft && sft.ok) {
+      const parseLineTs = (line) => {
+        if (!line) return null
+        const m = line.match(/^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ET\]/)
+        if (!m) return null
+        // ET fixed offset for ordering (DST doesn't matter for relative comparison)
+        return Date.parse(m[1] + "T" + m[2] + "-04:00")
+      }
+      for (const [sport, key] of [["nba", "slateNba"], ["mlb", "slateMlb"]]) {
+        const fires = sft[key]
+        if (!fires) continue
+        const failTs = parseLineTs(fires.lastFailed)
+        const okTs   = parseLineTs(fires.lastOk)
+        if (failTs && (!okTs || failTs > okTs)) {
+          // Current failure — most recent slate event for this sport is a FAILED
+          red.push({
+            source: "slate_fires",
+            category: "infra",
+            title: `${sport.toUpperCase()} slate fire FAILED today, not recovered`,
+            detail: fires.lastFailed.trim(),
+          })
+        } else if (failTs && okTs && okTs > failTs) {
+          // Recovered — show as informational yellow (operator wants to know it happened)
+          const failTime = (fires.lastFailed.match(/\[([\d\-:\s]+ET)\]/) || [])[1] || "?"
+          const okTime   = (fires.lastOk.match(/\[([\d\-:\s]+ET)\]/) || [])[1] || "?"
+          yellow.push({
+            source: "slate_fires",
+            category: "infra",
+            title: `${sport.toUpperCase()} slate had transient failure earlier today (recovered)`,
+            detail: `Failed at ${failTime}, recovered at ${okTime} — investigate if pattern repeats.`,
+          })
+        }
+      }
+    } else {
+      yellow.push({ source: "slate_fires", category: "infra", title: "Slate fires status unavailable", detail: sft?.error || "Could not read slate fires section" })
+    }
+  } catch (e) {
+    yellow.push({ source: "slate_fires", category: "infra", title: "Slate fires read error", detail: String(e?.message || e) })
+  }
+
+  // ── Source 6: clvCaptureToday — close-stamp capture rate, no-games-aware ──
+  try {
+    const clv = sectionClvCaptureToday()
+    if (clv && clv.ok) {
+      for (const sport of ["nba", "mlb"]) {
+        const s = clv.perSport?.[sport]
+        if (!s || !s.hasFile) continue
+        // No-games-aware: skip if no games today OR no picks tipped yet
+        if (s.gamesToday === 0) continue
+        if (s.tipped === 0) continue
+        const rate = Number(s.rate)
+        if (!Number.isFinite(rate)) continue
+        if (rate < 30) {
+          red.push({
+            source: "clv_capture",
+            category: "infra",
+            title: `${sport.toUpperCase()} CLV capture broken — only ${rate}% of tipped picks stamped`,
+            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have closeOdds stamped (threshold 30%). Capture loop may be missing snapshot matches or backend was down through tipoff windows.`,
+          })
+        } else if (rate < 70) {
+          yellow.push({
+            source: "clv_capture",
+            category: "infra",
+            title: `${sport.toUpperCase()} CLV capture degraded — ${rate}% capture rate`,
+            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have closeOdds stamped (healthy ≥70%). Could indicate market-key drift between open and close, or snapshot stale at close window.`,
+          })
+        }
+      }
+    } else {
+      yellow.push({ source: "clv_capture", category: "infra", title: "CLV capture status unavailable", detail: clv?.error || "Could not read tracked_bets files" })
+    }
+  } catch (e) {
+    yellow.push({ source: "clv_capture", category: "infra", title: "CLV capture read error", detail: String(e?.message || e) })
+  }
+
+  // ── Source 7: autopilotFiresToday — nightly autopilots missed schedule ──
+  try {
+    const auto = sectionAutopilotFiresToday()
+    if (auto && auto.ok) {
+      // Get current ET hour:minute for "is it past the scheduled fire time?"
+      const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" })
+      const parts = fmt.formatToParts(new Date()).reduce((acc, p) => { if (p.type !== "literal") acc[p.type] = Number(p.value); return acc }, {})
+      const nowMinutes = (parts.hour || 0) * 60 + (parts.minute || 0)
+      const checks = [
+        { key: "populatorChain",     name: "populator-chain", h: 3,  m: 5,  scheduledStr: "3:05 AM ET" },
+        { key: "gradingBackfillAll", name: "grading-nightly", h: 4,  m: 0,  scheduledStr: "4:00 AM ET" },
+        { key: "auditNightly",       name: "audit-nightly",   h: 5,  m: 0,  scheduledStr: "5:00 AM ET" },
+      ]
+      // Grace window: don't flag until 30 min past scheduled time (gives autopilot
+      // time to actually execute before declaring missed).
+      const grace = 30
+      for (const c of checks) {
+        const fired = auto[c.key]?.fired === true
+        const completed = auto[c.key]?.completed === true
+        const scheduledMin = c.h * 60 + c.m
+        if (nowMinutes >= scheduledMin + grace && !fired) {
+          red.push({
+            source: "autopilot_fires",
+            category: "infra",
+            title: `${c.name} did NOT fire today (scheduled ${c.scheduledStr})`,
+            detail: `Current ET time is past scheduled fire + ${grace}min grace, no "starting" log line found in scheduler.log. The Phase #48 LaunchAgent backup (~/Library/LaunchAgents/com.motel666.${c.name}.plist) fires the same job; check it loaded with launchctl list | grep com.motel666.${c.name}.`,
+          })
+        } else if (nowMinutes >= scheduledMin + grace && fired && !completed) {
+          yellow.push({
+            source: "autopilot_fires",
+            category: "infra",
+            title: `${c.name} started today but didn't complete`,
+            detail: (auto[c.key]?.startedLine || "started line missing").trim(),
+          })
+        }
+      }
+    } else {
+      yellow.push({ source: "autopilot_fires", category: "infra", title: "Autopilot fires status unavailable", detail: auto?.error || "Could not read scheduler.log" })
+    }
+  } catch (e) {
+    yellow.push({ source: "autopilot_fires", category: "infra", title: "Autopilot fires read error", detail: String(e?.message || e) })
+  }
+
   // Sort: red first, then yellow; within each, source-grouped
   red.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
   yellow.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
@@ -716,7 +852,7 @@ function sectionOpenIssues() {
       cognitionRedCount,
       cognitionYellowCount,
       checkedAt: new Date().toISOString(),
-      sourcesChecked: ["family_calibration", "drift_alerts", "git", "backend.uptime"],
+      sourcesChecked: ["family_calibration", "drift_alerts", "git", "backend.uptime", "slate_fires", "clv_capture", "autopilot_fires"],
     },
     red,
     yellow,
