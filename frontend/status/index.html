@@ -330,6 +330,11 @@ function formatFiredDuration(startedLine, endedLine) {
   };
   let diff = toSec(eMatch[1]) - toSec(sMatch[1]);
   if (diff < 0) diff += 86400;
+  // Phase Status-FormatDuration-Polish-1A (2026-06-03) — show "<1s" instead
+  // of "0s" when start and end timestamps round to the same second. Honest:
+  // timestamp resolution is 1 second; audit:nightly (report-only mode)
+  // genuinely finishes sub-second so both stamps land in the same second.
+  if (diff === 0) return "<1s";
   if (diff < 60) return diff + "s";
   if (diff < 3600) return Math.floor(diff/60) + "m " + (diff%60) + "s";
   return Math.floor(diff/3600) + "h " + Math.floor((diff%3600)/60) + "m";
