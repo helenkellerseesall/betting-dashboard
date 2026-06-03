@@ -231,7 +231,14 @@ function sectionLaunchAgents() {
         source = "cron-spawned"
         note = "LaunchAgent has no PID but scheduler.sh process detected via pgrep — cron watchdog covering."
       }
-      agents.push({ label, kind, nextFire, present: true, pid: pid ?? schedulerProcessPid, lastExit, healthy, source, note })
+      // Phase Status-LaunchAgent-Visibility-1A-fix1 — schedulerProcessPid fallback
+      // is ONLY valid for the scheduler agent. Pre-existing bug (`pid ?? schedulerProcessPid`)
+      // leaked scheduler's PID to every agent with pid:null — was harmless with 4 daemons
+      // (all had running PIDs) but surfaced when 3 scheduled autopilots joined (their
+      // pid is null between fires, so they all displayed scheduler's PID as their own).
+      // Real source: null PID for non-scheduler agents must stay null, never fabricate.
+      const finalPid = (isScheduler && pid == null) ? schedulerProcessPid : pid
+      agents.push({ label, kind, nextFire, present: true, pid: finalPid, lastExit, healthy, source, note })
     }
     const allHealthy = agents.every(a => a.healthy)
     return { ok: true, allHealthy, agents }
