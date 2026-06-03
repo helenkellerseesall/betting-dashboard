@@ -80,8 +80,25 @@ router.get("/", (req, res) => {
   }
   const entries = Array.isArray(ledger) ? ledger : (ledger?.entries || ledger?.bets || [])
 
-  // Build per-sport per-date breakdown.
-  // Structure: buckets[sport][dateKey][gameKey] = {matchup, eventId, pickCount}
+  // Phase MLB-Daily-Coverage-Surface-1A-fix1 (2026-06-02) — group by MATCHUP
+  // primary so that series-continuation games (same teams play tonight AND
+  // tomorrow) collapse into one matchup entry. Each matchup tracks its
+  // distinct eventIds + per-event pickCount underneath. This matches the
+  // operator's mental model: "15 MLB games today" = 15 unique matchups. The
+  // distinctEventCount metric stays exposed for transparency (when a series
+  // is in flight, distinctEventCount > uniqueMatchupCount). The eventId-based
+  // pre-fix1 dedup reported 18-MLB for today (15 unique matchups + 3 series
+  // doubles like Dodgers @ Diamondbacks playing tonight + tomorrow).
+  //
+  // Anti-fabrication: every count derived from real ledger entries. The
+  // distinctEventCount is summed from the same source as uniqueMatchupCount;
+  // they're two views of the same set, not independent fabrications.
+  //
+  // Structure: buckets[sport][dateKey][matchup] = {
+  //   matchup,
+  //   pickCount,                       // total picks across all events in this matchup
+  //   events: { [eventId]: pickCount } // distinct events under this matchup
+  // }
   const buckets = { nba: {}, mlb: {} }
   let scannedEntries = 0
   let inScopeEntries = 0
@@ -93,18 +110,23 @@ router.get("/", (req, res) => {
     if (!dk) continue
     // Scope: today + tomorrow only (the operator's forward-looking window)
     if (dk !== todayEt && dk !== tomorrowEt) continue
+    // gameKey for routing — but matchup is the dedup primary
     const gk = gameKeyFor(e)
     if (!gk) continue
+    const matchup = e.matchup || `(no matchup, eventId=${e.eventId || "unknown"})`
     inScopeEntries++
-    if (!buckets[sport][dk])      buckets[sport][dk] = {}
-    if (!buckets[sport][dk][gk]) {
-      buckets[sport][dk][gk] = {
-        matchup: e.matchup || "(no matchup field in ledger entry)",
-        eventId: e.eventId || null,
+    if (!buckets[sport][dk])              buckets[sport][dk] = {}
+    if (!buckets[sport][dk][matchup]) {
+      buckets[sport][dk][matchup] = {
+        matchup,
         pickCount: 0,
+        events: {},
       }
     }
-    buckets[sport][dk][gk].pickCount++
+    const bucket = buckets[sport][dk][matchup]
+    bucket.pickCount++
+    const evKey = e.eventId || "no-eventId"
+    bucket.events[evKey] = (bucket.events[evKey] || 0) + 1
   }
 
   // Shape the response
@@ -116,16 +138,25 @@ router.get("/", (req, res) => {
     diagnostics: {
       ledgerEntriesScanned: scannedEntries,
       inScopeEntries,
+      _note: "uniqueMatchupCount = distinct team pairings (the operator-meaningful number). distinctEventCount = distinct eventIds (counts series-continuation games where same teams play tonight AND tomorrow as separate events). Difference = number of in-flight series.",
     },
   }
   for (const sport of ["nba", "mlb"]) {
     out[sport] = {}
     for (const dk of [todayEt, tomorrowEt]) {
-      const gamesObj = buckets[sport][dk] || {}
-      const games = Object.values(gamesObj).sort((a, b) => (a.matchup || "").localeCompare(b.matchup || ""))
+      const matchupsObj = buckets[sport][dk] || {}
+      const games = Object.values(matchupsObj)
+        .map(m => ({
+          matchup: m.matchup,
+          pickCount: m.pickCount,
+          distinctEventCount: Object.keys(m.events).length,
+          events: Object.entries(m.events).map(([eventId, pickCount]) => ({ eventId, pickCount })),
+        }))
+        .sort((a, b) => (a.matchup || "").localeCompare(b.matchup || ""))
       out[sport][dk] = {
         dateKey: dk,
-        gameCount: games.length,
+        uniqueMatchupCount: games.length,
+        distinctEventCount: games.reduce((s, g) => s + g.distinctEventCount, 0),
         totalPicks: games.reduce((s, g) => s + g.pickCount, 0),
         games,
       }
