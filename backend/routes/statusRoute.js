@@ -458,49 +458,79 @@ function sectionAutopilotFiresToday() {
     // scheduler.log timestamps lines with CALENDAR date (when the event
     // physically occurred on the operator's wall clock). The autopilot
     // section is "events that happened today" semantically — use calendar.
-    // Previous bug: between 00:00-04:00 ET, slate was yesterday's but log
-    // lines were today's calendar = filter missed freshly-fired events.
+    //
+    // Phase Status-OpenIssues-CompleteCoverage-1A-fix1 (2026-06-02) — DUAL SOURCE.
+    // Phase #48 installed LaunchAgent versions of the 3 nightlies (populator-chain,
+    // grading-nightly, audit-nightly). Their wrappers write to .scratch/autopilot.log
+    // with markers like "AUTOPILOT <name> starting|OK|FAILED|finished" — NOT to
+    // scheduler.log. Pre-fix1: scheduler-log-only check would fail-RED every day
+    // even if LaunchAgents fired successfully. Now: EITHER source firing counts
+    // as fired/completed. Source field on output identifies which path triggered.
     const dateKey = calendarDateKey()
-    const txt = safeReadText(SCHEDULER_LOG)
-    if (!txt) return { ok: false, error: "scheduler.log not readable" }
-    const lines = txt.split("\n").filter(l => l.includes(dateKey))
-    const findEvent = (substrStart, substrEnd) => {
-      const start = lines.find(l => l.includes(substrStart))
-      const end = lines.find(l => l.includes(substrEnd))
-      return { startedLine: start || null, endedLine: end || null, fired: !!start, completed: !!end }
+    const schedTxt    = safeReadText(SCHEDULER_LOG)
+    const autopilotTxt = safeReadText(path.join(REPO_ROOT, ".scratch", "autopilot.log"))
+
+    if (!schedTxt && !autopilotTxt) {
+      return { ok: false, error: "neither scheduler.log nor autopilot.log readable" }
     }
-    // 2026-06-01 Phase Status-Dashboard-1C dashboard-feedback fix —
-    // populator chain at 3:05-3:25 ET emits 5 named scripts (populateMlbBatterStats,
-    // populateMlbBatterGameLogs, populateMlbPitcherGameLogs, deriveNbaDvP,
-    // populateNbaTeamStats). Treat the chain as one event: first start = chain
-    // started, last OK = chain ended. Catches the dashboard-row regression where
-    // the populator chain showed "not fired yet today" even though it ran.
-    const popStarts = lines.filter(l =>
+    const schedLines    = schedTxt ? schedTxt.split("\n").filter(l => l.includes(dateKey)) : []
+    const autopilotLines = autopilotTxt ? autopilotTxt.split("\n").filter(l => l.includes(dateKey)) : []
+
+    // Helper that checks BOTH log sources. EITHER firing = fired/completed.
+    const findEvent = (schedStart, schedEnd, agentStart, agentEnd) => {
+      const schedStartLine = schedLines.find(l => l.includes(schedStart))
+      const schedEndLine   = schedLines.find(l => l.includes(schedEnd))
+      const agentStartLine = autopilotLines.find(l => l.includes(agentStart))
+      const agentEndLine   = autopilotLines.find(l => l.includes(agentEnd))
+      const startedLine = schedStartLine || agentStartLine || null
+      const endedLine   = schedEndLine   || agentEndLine   || null
+      return {
+        startedLine,
+        endedLine,
+        fired: !!startedLine,
+        completed: !!endedLine,
+        source: schedStartLine ? "scheduler.log" : (agentStartLine ? "autopilot.log (LaunchAgent)" : null),
+      }
+    }
+
+    // populator chain — scheduler.log fires 5 named populators; autopilot.log fires
+    // a single "AUTOPILOT populator-chain starting/finished" pair from the wrapper.
+    // EITHER signal = chain fired.
+    const popStarts = schedLines.filter(l =>
       l.includes("populateMlbBatterStats starting") ||
       l.includes("populateMlbBatterGameLogs starting") ||
       l.includes("populateMlbPitcherGameLogs starting") ||
       l.includes("deriveNbaDvP starting") ||
       l.includes("populateNbaTeamStats starting")
     )
-    const popOks = lines.filter(l =>
+    const popOks = schedLines.filter(l =>
       l.includes("populateMlbBatterStats OK") ||
       l.includes("populateMlbBatterGameLogs OK") ||
       l.includes("populateMlbPitcherGameLogs OK") ||
       l.includes("deriveNbaDvP OK") ||
       l.includes("populateNbaTeamStats OK")
     )
+    const agentPopStart  = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain starting"))
+    const agentPopFinish = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain finished"))
     const populatorChain = {
-      startedLine: popStarts[0] || null,
-      endedLine: popOks[popOks.length - 1] || null,
-      fired: popStarts.length > 0,
-      completed: popOks.length >= 5,  // chain has 5 populators
+      startedLine: popStarts[0] || agentPopStart || null,
+      endedLine: popOks[popOks.length - 1] || agentPopFinish || null,
+      fired: popStarts.length > 0 || !!agentPopStart,
+      completed: popOks.length >= 5 || !!agentPopFinish,
       okCount: popOks.length,
+      source: popStarts.length > 0 ? "scheduler.log" : (agentPopStart ? "autopilot.log (LaunchAgent)" : null),
     }
     return {
       ok: true,
       dateKey,
-      gradingBackfillAll: findEvent("grading:backfill-all starting", "grading:backfill-all OK"),
-      auditNightly: findEvent("audit:nightly starting", "audit:nightly OK"),
+      gradingBackfillAll: findEvent(
+        "grading:backfill-all starting", "grading:backfill-all OK",
+        "AUTOPILOT grading-nightly starting", "AUTOPILOT grading-nightly OK"
+      ),
+      auditNightly: findEvent(
+        "audit:nightly starting", "audit:nightly OK",
+        "AUTOPILOT audit-nightly starting", "AUTOPILOT audit-nightly OK"
+      ),
       populatorChain,
     }
   } catch (e) {
