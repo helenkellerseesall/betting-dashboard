@@ -217,6 +217,8 @@
     <div class="legend">how many picks the engine generated for tonight's slate, by prop family.</div>
     <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
     <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
+    <!-- Phase True-Schedule-FE-Surface-1B (2026-06-03) — external schedule coverage -->
+    <div class="row"><span class="label">scheduled today</span><span class="val" id="tbScheduledToday">—</span></div>
     <div id="tbFamilies" class="pillRow" style="margin-top:8px"></div>
   </div>
 </details>
@@ -269,6 +271,28 @@
 const ENDPOINT = "/api/ws/status";
 const POLL_MS = 30000;
 let lastSuccessAt = null;
+
+// Phase True-Schedule-FE-Surface-1B (2026-06-03) — separate poll for
+// /api/ws/true-schedule-today. Hits MLB Stats API + ESPN NBA scoreboard
+// (both external) so refresh slow (5 min interval). Cache in memory; if
+// fetch fails, keep the last known data. Re-render the TONIGHT'S PICKS
+// card after each successful fetch so the new row updates without
+// waiting for the next 30s /status poll.
+let _lastTrueSchedule = null;
+let _lastTrueScheduleAt = null;
+let _lastStatusData = null;  // captured by loadStatus() for re-render after schedule fetch
+const TRUE_SCHED_POLL_MS = 5 * 60 * 1000;
+async function _fetchTrueSchedule() {
+  try {
+    const r = await fetch("/api/ws/true-schedule-today", { cache: "no-store" });
+    const j = await r.json();
+    if (j && j.ok) {
+      _lastTrueSchedule = j;
+      _lastTrueScheduleAt = Date.now();
+      if (_lastStatusData) renderTrackedBest(_lastStatusData);
+    }
+  } catch (_) { /* keep old cache; graceful fallback */ }
+}
 
 function formatUptime(sec) {
   if (sec == null) return "—";
@@ -762,6 +786,27 @@ function renderTrackedBest(data) {
     p.textContent = k + " " + v;
     pillRow.appendChild(p);
   }
+  // Phase True-Schedule-FE-Surface-1B — render external schedule coverage.
+  // Reads in-memory cache populated by _fetchTrueSchedule (separate 5-min
+  // poll, see top of script). Per [[no-games-today-aware]]: 0 scheduled =
+  // healthy "no games today", not failure. Per [[status-must-be-real]]:
+  // every number traces to MLB Stats API or ESPN scoreboard, no defaults.
+  const tbSched = document.getElementById("tbScheduledToday");
+  const truSched = _lastTrueSchedule;
+  if (!truSched) {
+    tbSched.innerHTML = '<span class="sm">checking external schedule…</span>';
+  } else {
+    const mlbT = truSched.mlb?.schedule?.totalScheduled || 0;
+    const mlbC = truSched.mlb?.coverage?.withPicks || 0;
+    const nbaT = truSched.nba?.schedule?.totalScheduled || 0;
+    const nbaC = truSched.nba?.coverage?.withPicks || 0;
+    const fmtPair = (label, total, cov) => {
+      if (total === 0) return label + ': no games today';
+      if (cov === total) return label + ': ' + cov + ' of ' + total + ' ✓';
+      return label + ': ' + cov + ' of ' + total + ' (' + (total - cov) + ' missing)';
+    };
+    tbSched.innerHTML = '<span class="sm">' + fmtPair('NBA', nbaT, nbaC) + ' · ' + fmtPair('MLB', mlbT, mlbC) + '</span>';
+  }
 }
 
 function renderCalibration(data) {
@@ -928,6 +973,8 @@ async function loadStatus() {
     const r = await fetch(ENDPOINT, { cache: "no-store" });
     const data = await r.json();
     lastSuccessAt = new Date();
+    // Phase True-Schedule-FE-Surface-1B — capture for re-render after async true-schedule fetch
+    _lastStatusData = data;
     document.getElementById("etTime").textContent = (data.meta?.et || "—") + " · " + (data.meta?.elapsedMs ?? "—") + "ms";
     renderAgents(data.launchAgents);
     renderSysHeadline(data);
@@ -973,6 +1020,10 @@ async function exportToScratch() {
 
 loadStatus();
 setInterval(loadStatus, POLL_MS);
+// Phase True-Schedule-FE-Surface-1B — true-schedule poll (5min interval).
+// Initial fetch deferred 1s so loadStatus has a chance to populate _lastStatusData first.
+setTimeout(_fetchTrueSchedule, 1000);
+setInterval(_fetchTrueSchedule, TRUE_SCHED_POLL_MS);
 
 // Phase Status-Push-SSE-1A — real-time SSE subscription. Pushes RED/YELLOW
 // alerts the moment server detects file changes in drift_alerts.log or
