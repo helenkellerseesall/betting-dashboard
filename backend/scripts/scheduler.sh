@@ -189,9 +189,28 @@ while true; do
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/sysAudit.js > "$AUDIT_FILE" 2>&1
     AUDIT_EXIT=$?
     if [ "$AUDIT_EXIT" -ge 2 ]; then
-      FIRST_FAIL=$(grep -m1 '^\[✗\]' "$AUDIT_FILE" || echo "(no fail line found)")
-      echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] RED · exit=$AUDIT_EXIT · ${FIRST_FAIL}" >> "$ALERT_LOG"
-      log "sysAudit RED — exit $AUDIT_EXIT — alert appended to drift_alerts.log"
+      # Phase SysAudit-Multi-RED-1A (2026-06-03 ~04:00 ET) — write EVERY
+      # distinct [✗] fail line to drift_alerts.log, not just the first.
+      # Pre-fix: `grep -m1` only kept the top RED, which meant calibration
+      # (always the loudest first finding) silently shadowed every other
+      # failure. CLV breaking on 2026-05-31 went undetected for 2 days
+      # because every hourly sysAudit caught it but only logged calibration.
+      # Now multiple RED rows per run = honest visibility on every distinct
+      # failure class. drift_alerts.log grows slightly faster but Phase #52
+      # LiveReconcile already deduplicates stale entries server-side.
+      TS="$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')"
+      FAIL_LINES=$(grep '^\[✗\]' "$AUDIT_FILE" || true)
+      FAIL_COUNT=0
+      if [ -n "$FAIL_LINES" ]; then
+        while IFS= read -r FAIL_LINE; do
+          [ -z "$FAIL_LINE" ] && continue
+          echo "[$TS] RED · exit=$AUDIT_EXIT · ${FAIL_LINE}" >> "$ALERT_LOG"
+          FAIL_COUNT=$((FAIL_COUNT + 1))
+        done <<< "$FAIL_LINES"
+      else
+        echo "[$TS] RED · exit=$AUDIT_EXIT · (no fail line found)" >> "$ALERT_LOG"
+      fi
+      log "sysAudit RED — exit $AUDIT_EXIT — ${FAIL_COUNT} distinct fail line(s) appended to drift_alerts.log"
 
       # 2026-06-01 Phase Backend-AutoRecovery-1A (#124) — auto-fire
       # restartBackend.sh when sysAudit's RED is specifically a
@@ -206,10 +225,15 @@ while true; do
       # (e.g. "points_assists 37pp gap") doesn't need a restart, it needs a
       # cognition fix. The grep distinguishes the two.
       #
+      # Phase SysAudit-Multi-RED-1A — now scans FAIL_LINES (multi-line var)
+      # via grep -qE which still returns true if ANY of the multiple fail
+      # lines contains the backend-down pattern. AutoRecovery behavior
+      # preserved exactly; just the source variable changed shape.
+      #
       # Rate-limit: 15-min lockfile prevents restart-loop if backend is
       # genuinely broken (would just churn forever otherwise).
       RECOVERY_LOCK="/Users/andrewmoore/Projects/betting-dashboard/.scratch/.auto_recovery_lock"
-      if echo "$FIRST_FAIL" | grep -qE 'ECONNREFUSED|Backend not responding'; then
+      if echo "$FAIL_LINES" | grep -qE 'ECONNREFUSED|Backend not responding'; then
         LAST_RECOVERY=0
         if [ -f "$RECOVERY_LOCK" ]; then
           LAST_RECOVERY=$(cat "$RECOVERY_LOCK" 2>/dev/null || echo 0)
