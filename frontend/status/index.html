@@ -488,6 +488,17 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
     const stampedStr = ledgerStamped + '/' + ledgerPlayed;
     return rateStr + ' (' + stampedStr + ' ' + label + ' games close-stamped)';
   }
+  // Phase Status-Overhaul-1C-fix3 (2026-06-03) — if ledger says 0 games on
+  // slate-date BUT we excluded future-day events (the slate engine pre-picked
+  // tomorrow's games under today's slate), semantically that means today's
+  // slate has no games. Show "no games today · next X" instead of falling
+  // through to the misleading "1 games today, none tipped yet" branch.
+  if (ledgerPlayed != null && ledgerPlayed === 0 && (sportData.gamesFutureExcluded || 0) > 0) {
+    const nextLine = sportData.nextGameAt
+      ? ' · next ' + (sportData.nextGameLabel || 'game') + ' ' + new Date(sportData.nextGameAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+      : '';
+    return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
+  }
   // No games picked for today's slate (per ledger). Could be:
   //   (a) genuinely no games scheduled today (e.g. NBA off-day)
   //   (b) tomorrow's slate already loaded but today's slate is empty
@@ -560,10 +571,15 @@ function renderClv(data) {
   // Phase Status-Overhaul-1C — collapsed summary uses ledger-backed
   // captureRate as primary signal. Falls back to legacy gamesToday/tipped
   // when ledger has no entries for today's slate.
+  // Phase 1C-fix3 — same future-excluded short-circuit as the detail row:
+  // if all picks were for future-day games, treat as "no games today".
   const fmtSport = (s, label) => {
     if (!s) return label + ": —";
     if (s.gamesPlayedToday != null && s.gamesPlayedToday > 0) {
       return label + ": " + s.captureRate + "% (" + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " games)";
+    }
+    if (s.gamesPlayedToday != null && s.gamesPlayedToday === 0 && (s.gamesFutureExcluded || 0) > 0) {
+      return label + ": no games today";
     }
     if ((s.gamesToday || 0) === 0) return label + ": no games today";
     if ((s.tipped || 0) === 0) return label + ": " + s.gamesToday + " loaded, none tipped yet";
