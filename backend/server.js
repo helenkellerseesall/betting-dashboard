@@ -43,7 +43,6 @@ const { buildDecisionLayer } = require("./pipeline/edge/buildDecisionLayer")
 const { buildExternalEdgeOverlay } = require("./pipeline/edge/buildExternalEdgeOverlay")
 const { adaptAvailabilitySignal, toPlayerKey } = require("./pipeline/edge/buildAvailabilitySignalAdapter")
 const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOfficialInjuryReport")
-const { ingestRotoWireSignals } = require("./pipeline/edge/ingestRotoWireSignals")
 // 2026-06-01 Phase Date-Doctrine-1B — canonical ET slate date helper. Replaces
 // all `new Date().toISOString().slice(0,10)` and server-local date math
 // throughout this file. See SLATE_DATE_DOCTRINE.md.

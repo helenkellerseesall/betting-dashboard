@@ -1002,3 +1002,38 @@ Escape hatch: `git commit --no-verify` (git-native).
 
 **Stale doc spotted**: RUNTIME_FACTS.md still says repo root is `~/Desktop/betting-dashboard`; actual is `~/Projects/betting-dashboard` (Project-Relocation-1A landed). Worth a `runtime-facts:` fix.
 
+## 2026-06-04 — WAVE 2 (mechanical cleanup) — 7 of 9 shipped, B4 deferred, C1 reclassified
+
+**Operator**: "lets start wave 2" + (prior) batch it / don't ping per commit.
+
+**Re-verified every target before deleting (orphan-detection discipline + hook gate-3 net). Disposition:**
+
+SHIPPED (7):
+- **B5** `backend/brain/` (10 files: _DEPRECATED.md + chat_control.md + 8 governance .json) — git rm. Verified: 0 code requires; no fs-reads outside scripts/brain/ (which reads `runtime/brain/`, a DIFFERENT live dir); brain:* npm scripts manual-only, not in scheduler/cron/plist.
+- **C10** `pipeline/edge/ingestRotoWireSignals.js` + removed dead `require` at `server.js:46` — git rm + edit. Verified: import never invoked (only the require line referenced it anywhere). server.js node --check OK post-edit.
+- **C11** `pipeline/memory/readFrozenEpoch.js` — git rm. Verified: 0 inbound requires (sibling freezePredictionEpoch.js stays, different basename).
+- **C6** `runtime/operator/baseline_snapshots/` (22 files), **C8** `runtime/calibration_snapshots/` (2), **C9** `.checkpoint/` (3) — plain rm (all UNTRACKED/gitignored runtime data; not a git op). Verified: 0 .js, no code reads the dirs (.checkpoint writer checkpointRepo/ops:checkpoint not in scheduler).
+- **C7** tracking debris: `mlb_tracked_bets_9999-12-31.json` sentinel + `*.tmp.*` orphan + `betting_test.db-journal` — plain rm (untracked).
+
+DEFERRED:
+- **B4** (runtime/verifications/ + pipeline/verification/ + scripts/runVerification.js) — **NOT zero-risk.** `runVerification.js` is the documented re-enable gate for the live cognition flag `FREEZE_AGGRESSIVE_LOTTO = true` in BOTH buildNbaSlipComposer.js + buildMlbSlipEngine.js ("disabled until calibration verified healthy via runVerification.js… DO NOT delete — must remain auditable and reversible"). Deleting it orphans that audit trail + trips hook gate-3 on the comments. **Operator decision needed**: keep as audit trail, or archive + rewrite the freeze doctrine. Pulled from the mechanical batch.
+
+SKIPPED / RECLASSIFIED:
+- **C1** supervisor scripts — the plan's `backend/scripts/supervisor*.js` paths don't exist; the real files are `backend/scripts/ops/supervisor*.js` (+ cockpit/readers/supervisorReader.js), which belong to **Wave 3 C2** (ops/ governance CLI), not Wave 2. Not approved yet → left alone.
+
+**Verification (pre-fence)**: gate-1 server.js node --check OK; gate-4 runtime:verify 12/12; gate-3 will pass (no remaining refs to the deleted .js after server.js edit). Tracked-vs-untracked confirmed via git ls-files so the fence uses git rm only for tracked, plain rm for runtime data. server.js change → backend reload in fence.
+
+**Net**: ~40 files removed (12 tracked: brain 10 + 2 modules; ~28 untracked runtime files), server.js loses 1 dead import.
+
+### Wave 2 commit BLOCKED by own hook → exposed TWO gate-3 bugs (both fixed)
+
+**Operator**: "see my screenshot, theres an issue in your fence." The Wave-2 commit was blocked by the A4 pre-commit hook — gate 3 flagged `ingestRotoWireSignals`/`readFrozenEpoch` as "still referenced." The hook was doing its job, but had two real flaws:
+
+1. **Too broad — scanned docs.** Gate 3 grepped ALL files, so `ARCHITECTURE.md`, `docs/ARCHITECTURE.md`, and THIS session log (which NAMES the files being deleted) tripped it. A markdown mention is not a code reference. **Fix:** scope gate-3 git grep to code/config pathspecs (`*.js *.cjs *.mjs *.ts *.json *.sh *.bash *.zsh *.crontab *.plist *.yml *.yaml`).
+
+2. **Self-filter masked path-based refs (the serious one).** The `grep -v -F "$f"` (meant to drop the deleted file's own self-references) actually dropped ANY line containing the file's path — including a legit `"node backend/$f"` in package.json/scheduler, the exact dynamic-invocation reference gate 3 exists to catch. It was also unnecessary: the deleted file is already absent from the `--cached` tree, so it can't self-match. **Fix:** removed the self-filter. Gate 3 has been silently UNDER-catching path-based references since A4 — this fix closes that gap.
+
+**Regression (isolated, both fixes)**: array-basename ref in .js BLOCKS · path ref in package.json BLOCKS (was the bug) · dynamic path.join ref BLOCKS · require ref BLOCKS · docs-only .md ref PASSES · no-refs PASSES. Real staged tree: 0 code refs to either deleted file → recovery commit passes gate 3.
+
+**State**: the blocked commit left the Wave-2 deletions STAGED (git rm ran before the block); untracked debris already rm'd. Recovery = add the hook fix + re-commit through the corrected hook (no need to re-run the deletions).
+

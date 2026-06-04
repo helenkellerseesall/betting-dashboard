@@ -106,10 +106,17 @@ while IFS= read -r f; do
   # Match the basename as a whole token (word boundary on both sides). Covers
   # require("./base"), import "base", "base" in a hardcoded SUITES array, and
   # path.join(__dirname, "base.js") dynamic invocation. Rejects longer
-  # identifiers like baseHelper. Positive pathspec '.' is required (git aborts
-  # on exclude-only pathspecs); _legacy and the deleted file are post-filtered.
-  hits="$(git grep --cached -n -E "(^|[^A-Za-z0-9_])${base_esc}([^A-Za-z0-9_]|\$)" -- '.' 2>/dev/null \
-          | grep -v -F "$f" | grep -v '/_legacy/' | grep -v '^_legacy/')"
+  # identifiers like baseHelper. Scoped to CODE/CONFIG files ONLY — a docs/.md
+  # file that merely NAMES a deleted file (architecture notes, this session log)
+  # is not a code reference and must never block a delete. Positive pathspecs
+  # are required (git aborts on exclude-only ones). No self-filter needed: the
+  # deleted file is already absent from the --cached tree, so it can't self-
+  # match. (An earlier self-filter `grep -v -F "$f"` was REMOVED because it also
+  # dropped legit path-based refs like "node backend/$f" in package.json /
+  # scheduler — the exact dynamic-invocation case we must catch.) _legacy only.
+  hits="$(git grep --cached -n -E "(^|[^A-Za-z0-9_])${base_esc}([^A-Za-z0-9_]|\$)" \
+          -- '*.js' '*.cjs' '*.mjs' '*.ts' '*.json' '*.sh' '*.bash' '*.zsh' '*.crontab' '*.plist' '*.yml' '*.yaml' 2>/dev/null \
+          | grep -v '/_legacy/' | grep -v '^_legacy/')"
   if [ -n "$hits" ]; then
     fail "Deleting '$f' but its name '$base' is still referenced in the staged tree:"
     printf '%s\n' "$hits" | sed 's/^/    /' >&2
