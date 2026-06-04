@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+#
+# pre-commit — Wave 1 A4 (Repo Discovery Audit synthesis, item A4)
+#
+# Four gates run against the STAGED content before every commit. Any gate that
+# fails blocks the commit. Escape hatch for a known-good commit: `git commit
+# --no-verify` (git's built-in bypass — no special handling needed here).
+#
+#   Gate 1  node --check on every staged .js          (catches syntax errors)
+#   Gate 2  inline <script> parse on every staged .html (FE JS syntax)
+#   Gate 3  deleted-file reference check               (catches the Stage-2
+#           verify-purge class of regression: deleting a .js that is still
+#           referenced — incl. dynamic path.join / hardcoded-name-list wiring)
+#   Gate 4  npm run runtime:verify (12-suite matrix)   (catches runtime breakage)
+#
+# Gates are checked against staged content (`git show :file` / `git grep
+# --cached`), not the working tree, so unstaged edits don't mask or trigger
+# failures. Fail-fast: the first failing gate stops the commit.
+#
+# Bash 3.2 compatible (macOS /bin/bash). No bash-4 features.
+
+set -u
+
+ROOT="$(git rev-parse --show-toplevel)"
+HOOK_DIR="$ROOT/scripts/hooks"
+RED=""; YEL=""; RST=""
+if [ -t 2 ]; then RED="$(printf '\033[31m')"; YEL="$(printf '\033[33m')"; RST="$(printf '\033[0m')"; fi
+
+fail() { printf '%s[pre-commit BLOCKED]%s %s\n' "$RED" "$RST" "$1" >&2; }
+note() { printf '%s[pre-commit]%s %s\n' "$YEL" "$RST" "$1" >&2; }
+
+# node is required for gates 1, 2, 4. Fail closed with clear instructions.
+if ! command -v node >/dev/null 2>&1; then
+  fail "node not found on PATH — cannot run syntax/runtime checks."
+  fail "Fix PATH, or bypass once with:  git commit --no-verify"
+  exit 1
+fi
+
+# Staged files by intent. ACMR = present in the new tree; D = deleted.
+STAGED_PRESENT="$(git diff --cached --name-only --diff-filter=ACMR)"
+STAGED_DELETED="$(git diff --cached --name-only --diff-filter=D)"
+
+is_skippable() {
+  # Skip vendored/archived/minified paths — not ours to lint.
+  case "$1" in
+    */node_modules/*|node_modules/*) return 0 ;;
+    */_legacy/*|_legacy/*)           return 0 ;;
+    *.min.js)                        return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ── Gate 1: staged .js syntax ───────────────────────────────────────────────
+JS_FAIL=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in *.js) ;; *) continue ;; esac
+  is_skippable "$f" && continue
+  if ! git show ":$f" | node --check 2>/tmp/.pc_js_err; then
+    fail "JS syntax error in staged file: $f"
+    sed 's/^/    /' /tmp/.pc_js_err >&2
+    JS_FAIL=1
+  fi
+done <<EOF
+$STAGED_PRESENT
+EOF
+rm -f /tmp/.pc_js_err
+if [ "$JS_FAIL" -ne 0 ]; then
+  fail "Fix the syntax above, or bypass once with:  git commit --no-verify"
+  exit 1
+fi
+
+# ── Gate 2: staged .html inline <script> syntax ─────────────────────────────
+HTML_FAIL=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in *.html) ;; *) continue ;; esac
+  is_skippable "$f" && continue
+  if ! git show ":$f" | node "$HOOK_DIR/check-html-syntax.js" --stdin "$f" >/tmp/.pc_html_out 2>&1; then
+    cat /tmp/.pc_html_out >&2
+    HTML_FAIL=1
+  fi
+done <<EOF
+$STAGED_PRESENT
+EOF
+rm -f /tmp/.pc_html_out
+if [ "$HTML_FAIL" -ne 0 ]; then
+  fail "Fix the FE script syntax above, or bypass once with:  git commit --no-verify"
+  exit 1
+fi
+
+# ── Gate 3: deleted .js still referenced (dynamic-invocation aware) ──────────
+# For each .js being deleted, check whether its basename is still referenced in
+# the STAGED tree (git grep --cached reflects post-deletion + any same-commit
+# reference removal). Catches literal require/import AND dynamic invocation:
+# hardcoded name lists ("verifyX") run through path.join + spawnSync, and
+# readdirSync+regex scans that match the basename. Per binding memory
+# [[orphan-detection-dynamic-invocation]].
+DEL_FAIL=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in *.js) ;; *) continue ;; esac
+  base="$(basename "$f" .js)"
+  # Escape regex metachars so a dotted basename (foo.bar) can't over-match.
+  base_esc="$(printf '%s' "$base" | sed 's/[.[\\*^$()+?{|]/\\&/g')"
+  # Match the basename as a whole token (word boundary on both sides). Covers
+  # require("./base"), import "base", "base" in a hardcoded SUITES array, and
+  # path.join(__dirname, "base.js") dynamic invocation. Rejects longer
+  # identifiers like baseHelper. Positive pathspec '.' is required (git aborts
+  # on exclude-only pathspecs); _legacy and the deleted file are post-filtered.
+  hits="$(git grep --cached -n -E "(^|[^A-Za-z0-9_])${base_esc}([^A-Za-z0-9_]|\$)" -- '.' 2>/dev/null \
+          | grep -v -F "$f" | grep -v '/_legacy/' | grep -v '^_legacy/')"
+  if [ -n "$hits" ]; then
+    fail "Deleting '$f' but its name '$base' is still referenced in the staged tree:"
+    printf '%s\n' "$hits" | sed 's/^/    /' >&2
+    DEL_FAIL=1
+  fi
+done <<EOF
+$STAGED_DELETED
+EOF
+if [ "$DEL_FAIL" -ne 0 ]; then
+  fail "Remove the references (or confirm they are false positives), then re-commit."
+  fail "If these are genuinely safe, bypass once with:  git commit --no-verify"
+  exit 1
+fi
+
+# ── Gate 4: runtime:verify regression matrix ────────────────────────────────
+# Only run when the commit touches code (any staged .js, or anything under
+# backend/). Docs-only / brain-doc / scratch commits skip it — keeps them fast
+# and avoids blocking a doc commit on unrelated runtime state.
+RUN_VERIFY=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in *.js) RUN_VERIFY=1; break ;; backend/*) RUN_VERIFY=1; break ;; esac
+done <<EOF
+$STAGED_PRESENT
+$STAGED_DELETED
+EOF
+
+if [ "$RUN_VERIFY" -eq 1 ]; then
+  VERIFY_SCRIPT="$ROOT/backend/scripts/runtimeVerify.js"
+  if [ ! -f "$VERIFY_SCRIPT" ]; then
+    note "runtime:verify script missing ($VERIFY_SCRIPT) — skipping Gate 4."
+  else
+    note "running runtime:verify (12-suite regression matrix)…"
+    if ! ( cd "$ROOT/backend" && node scripts/runtimeVerify.js >/tmp/.pc_verify_out 2>&1 ); then
+      tail -25 /tmp/.pc_verify_out >&2
+      rm -f /tmp/.pc_verify_out
+      fail "runtime:verify FAILED — a regression suite did not pass."
+      fail "Fix the failure above, or bypass once with:  git commit --no-verify"
+      exit 1
+    fi
+    tail -2 /tmp/.pc_verify_out >&2
+    rm -f /tmp/.pc_verify_out
+  fi
+fi
+
+printf '%s[pre-commit]%s all gates passed.\n' "$YEL" "$RST" >&2
+exit 0
