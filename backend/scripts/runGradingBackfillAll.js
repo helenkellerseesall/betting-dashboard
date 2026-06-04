@@ -288,6 +288,38 @@ function main() {
     }
   }
 
+  // Phase Outcome-Links-Wire-1A (2026-06-03) — after settling all tracked_bets
+  // via the per-date loop above, grade the parsed_slips against those outcomes
+  // via outcomeLinksPopulator. This populator was shipped as task #3
+  // (Screenshot-Loop-Close-2B) but never wired into any autopilot path —
+  // outcome_links table stayed at 0 rows, breaking the screenshot intelligence
+  // learning loop at the second hop (bettorProfiles updated on classification
+  // but no settled-outcome feedback). Inline call here so it runs in the
+  // same nightly window as bet settlement. Wrapped in try/catch — any failure
+  // here does NOT fail the whole grading job (we still want to exit 0 if the
+  // per-date bet settlement succeeded).
+  try {
+    const Database = require("better-sqlite3")
+    const dbPath = path.join(__dirname, "..", "storage", "betting.db")
+    if (fs.existsSync(dbPath)) {
+      const db = new Database(dbPath, { readonly: false })
+      try {
+        const { gradeAllUngraded, refreshBettorProfileOutcomeStats } = require("../pipeline/screenshots/outcomeLinksPopulator")
+        const r1 = gradeAllUngraded(db)
+        const r2 = refreshBettorProfileOutcomeStats(db)
+        const cov = r1.totalLegs > 0 ? (100 * r1.gradedLegs / r1.totalLegs).toFixed(1) : "n/a"
+        console.log(`[outcomeLinks] slipsProcessed=${r1.slipsProcessed} fullyGraded=${r1.fullyGradedSlips} legCoverage=${cov}% (${r1.gradedLegs}/${r1.totalLegs}) · profilesUpdated=${r2.profilesUpdated}`)
+      } finally {
+        db.close()
+      }
+    } else {
+      console.log("[outcomeLinks] betting.db not found at " + dbPath + " — skipping")
+    }
+  } catch (e) {
+    console.error("[outcomeLinks] failed:", (e && e.message) || e)
+    // do not fail the whole grading job
+  }
+
   process.exit(tally.failed === 0 ? 0 : 1)
 }
 
