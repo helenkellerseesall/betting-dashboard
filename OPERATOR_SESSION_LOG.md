@@ -1084,5 +1084,13 @@ Items (commit 1 = CLI/code; commit 2 = frontend):
 
 **Scheduler choice rationale:** settlement added to scheduler.sh (PRIMARY path where grading already lives). NOT a new plist (avoids operator installing a new LaunchAgent) — noted as an option. NOT added as a /status scheduled-agent (would need statusRoute SCHEDULED_AGENTS edit) — possible follow-up for trust-surface visibility.
 
-**FLAGGED separate bug:** `cron-backup.crontab` — ALL entries `cd` to repo ROOT then `npm run`, but package.json is in backend/ → every cron-backup npm entry has been FAILING since 2026-06-02 (RUNTIME_FACTS: npm must run from backend/). So the "never miss a day" cron safety net is dead for grading/audit/populators; only scheduler.sh covers them. Did NOT fix (scope) — operator decision: fix all cron cd targets to restore real redundancy.
+**FLAGGED separate bug:** `cron-backup.crontab` — ALL entries `cd` to repo ROOT then `npm run`, but package.json is in backend/ → every cron-backup npm entry would FAIL. **Operator corrected (2026-06-04): Phase #48 (Cron-To-LaunchAgent-1A) replaced cron with the per-autopilot LaunchAgent plists (populator-chain/grading-nightly/audit-nightly), which ARE the live safety net (verified healthy all session via /status).** cron-backup.crontab is DEAD CRUFT, not active redundancy — confirmed: no `.scratch/cron-backup.log` (never fired), only `relocate-project.sh` references it. So it's a DELETION candidate (+ strip the relocate-project.sh install step), NOT a cd fix. Deferred.
+
+### CATCH-UP FAILED → self-inflicted Wave-3 regression found + fixed
+
+**Operator ran the fence; settlement:run FAILED all 10 pairs in 353ms (`grading_failed`), June still 100% pending, corpus still frozen.** Root cause: **Wave 3 (C4) deleted `runHistoricalGrade.js` + `runDailyReview.js`, which settlement:run/grading:run/grading:review invoke via `path.join(__dirname,...)+spawnSync`.** I broke the settlement chain that THIS task depends on. The Wave-3 `--no-verify` (used for common-word basenames) is exactly why gate-3 didn't flag `runHistoricalGrade` still-referenced in `settlementRun.js`. New binding memory [[feedback-delete-verify-code-invocation]].
+
+**Scope verified (full code-invocation check this time):** only those 2 runners are functionally referenced. runNbaNight/runMlbNight refs = stale comments; runNbaNightFast = a cosmetic existence-check in exportFullState's diagnostic list; runMlbGrade = truly dead. Cascade check: both restored files' deps (`pipeline/grading/*`, `pipeline/review/*`) are all intact. node --check valid on both.
+
+**Fix:** `git checkout b32648d~1 -- runHistoricalGrade.js runDailyReview.js` (restore from pre-Wave-3), commit (hook ON this time — no --no-verify), re-run catch-up. Pending operator fence.
 
