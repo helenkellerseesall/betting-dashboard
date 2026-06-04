@@ -844,3 +844,93 @@ This is the same anti-pattern that bit us in #1 (Screenshot-Tab-Restore-1A — r
 - Scratch discipline is binding [[feedback-scratch-discipline-post-compaction]]. Every operator-visible probe ends with `> .scratch/last.txt && cat .scratch/last.txt`. NO EXCEPTIONS. I violated this in the overnight recovery command — owned, won't repeat.
 - macOS Desktop folder is structurally fragile for LaunchAgent + cron usage [[feedback-macos-cron-fda-inheritance]]. Phase #38 relocation is the only real fix. Until shipped, "missing a day" is a real possibility every night.
 - Trust mirror doctrine: dashboard NEVER shows green when DEGRADED. Trust is the product.
+
+---
+
+## 2026-06-04 SESSION — Full Discovery Audit (closed) + Wave 1 A1 shipped
+
+**Operator (verbatim):** "i want extensive knowledge into every single nook and cranny before we move on ton any more changes. i want you to scour the internet and find a solid repo structure. something we can iron clad what we have, and make it solid. do. not stop until we know every goddamn detail of this repo. the ins and outs, goods and bads, shadows, orphans, dead code, dead ends, dupes, etc. and use common knowledge, dont be dumb and deep dive anything to verify you didnt just get confused."
+
+**Operator added critical context:** "server.js was the OG file chatgpt created to make this repo, everything was built in that one file and then was supposedly moved out with cursor. it was my understanding even to right now that you were still heavily using server.js since there was so much built into it before i switched over here to claude opus 4.7."
+
+**Operator established BINDING rule mid-session:** "i want c [pause stages, finish audit first], because in the end i want the repo to be iron clad and like a top to bottom solid machine, we cant do that with all this random shit, you not looking at everything before patches, etc and furthermore i have zero trust because youre always fixing one thing that fucks another i never know if we are actually good and progressing daily." → New memory [[feedback-audit-before-patches]] locked.
+
+---
+
+### Session work — FULL DISCOVERY AUDIT (Phases 2A-2I), all closed
+
+10 audit phases shipped, each documented in `.scratch/audit_NN_*.md`:
+
+| # | File | What |
+|---|---|---|
+| 2A | `audit_01_inventory.md` | Top-level numbers, dir tree (1,203 files, 1.6 GB, 22 backend/pipeline subdirs) |
+| 2A.5 | `audit_01b_prior_art.md` | Reconciled 7 existing canonical docs (REPO_INVENTORY, ARCHITECTURE, ARCHITECTURAL_REVIEW, OPERATOR_TRUTH_AUDIT, PRESERVED, COGNITION_AUDIT, BUILD_LOG) |
+| 2B | `audit_02_pipeline_map.md` | 225 .js across 22 subdirs. NBA has 10+ overlapping modules (not 5 as ARCHITECTURE.md said). **CRITICAL FINDING: `buildCeilingRoleSpikeSignals` (flagged in COGNITION_AUDIT.md as "potentially huge — investigate next") DOES NOT EXIST. Never has. COGNITION_AUDIT.md had a fabrication/hallucination.** |
+| 2C | `audit_03_scripts_map.md` | 200+ scripts mapped. Stages 1+2 of dead-code purge already executed (83 files moved to _legacy). |
+| 2D | `audit_04_runtime_map.md` | 416 runtime files. `runtime/supervisor/` dead since May 21. 3 brain directories conflict. Tracking debris (9999 sentinel, .tmp orphan). |
+| 2E | `audit_05_routes_map.md` | 7 route files + 43 server.js inline routes. **frontend/ is structurally orphan — no express.static mount serves React workstation.** Only `/m/` (mobile PWA) and `/status/` are live. |
+| 2F | `audit_06_frontend_map.md` | Confirmed ~55 frontend/ files + 179 MB node_modules are DEAD. Mobile PWA has NO service worker (blocks Phase #37 web push). |
+| 2G | `audit_07_orphans_dupes_shadows.md` | ~225 cleanup candidates (~19% of repo). |
+| 2H' | `audit_07b_valuation.md` | **The most important audit file** — per-orphan VALUE check (not just wiring). 43 server.js routes categorized KEEP/MIGRATE/DELETE. 5 routes contain irreplaceable ChatGPT-era business logic. |
+| 2H | `audit_08_external_benchmarks.md` | Industry comparison: 5 high-priority gaps (server.js monolith, no schema validation, dual-write violation, pre-commit hook missing, pipeline staging implicit). |
+| 2I | `audit_09_synthesis_action_plan.md` | **THE DELIVERABLE** — 29 ranked items across 6 Waves. Operator approved Waves 1+2. |
+
+---
+
+### Operator's 3 unblocking decisions (during audit close)
+
+1. **`runMlbNight.js` / `runNbaNight.js` ever invoked manually?** → "no, i wanted clear options in a handbook so i knew what to run etc but as the repo evolved it never needed to be used anymore or we drifted away from it" — Stage 6 + 7 runners + `/api/best-available` route → DELETE-SAFE
+2. **mlScorer alive?** → "not sure, and i have no clue how to check" — trace revealed model.json wired to 10 modules but stale since 2026-04-14. Operator response: "i honestly dont know? it sounds bad if its still weighting from 7 weeks ago?" — Decision: KEEP all, surface staleness on /status first, retrain-or-disable AFTER
+3. **`/mlb/refresh` used?** → "Not sure" — Default KEEP, mark low-confidence dupe
+
+---
+
+### Wave 1 A1 SHIPPED — mlScorer staleness now visible on /status
+
+**Commit `867adae`** Phase Wave-1-A1
+- `backend/routes/statusRoute.js` — added `sectionMlScorer()` + wired into both GET / and POST /snapshot handlers
+- `frontend/status/index.html` — new `cardMlScorer` between dampener and recent-system-alerts cards + `renderMlScorer()` function
+
+**Live verification (commit 867adae, 23:45 ET):**
+- `j.mlScorer = {modelExists:true, trainingDateISO:"2026-04-14T04:40:26Z", ageDays:51, featureCount:10, modelType:"logistic_regression", isStale:true, staleThresholdDays:30}`
+- /status card displays: "STALE · 51 days old · retrain or disable"
+- Backend healthy, 7 agents up, scheduler ticking, no /status regression
+
+---
+
+### Wave 1 + Wave 2 remaining (operator-approved this round)
+
+**Wave 1 remaining:**
+- A4 — install pre-commit hook (`node --check` + dynamic-invocation grep + `npm run runtime:verify` on every commit)
+- A3 — Schema Golden Files for top 5 JSON shapes
+- A2 — mlScorer retrain-or-disable decision (operator decides AFTER seeing A1 on their screen)
+
+**Wave 2 (9 mechanical-cleanup items, ZERO risk):**
+- B5 `backend/brain/` (10 governance files with _DEPRECATED.md)
+- C1 Stage 3: 4 supervisor scripts → _legacy/
+- C6 `runtime/operator/baseline_snapshots/` (22 files)
+- C7 Tracking debris (9999 sentinel + .tmp orphan + betting_test.db-journal)
+- C8 `runtime/calibration_snapshots/` (2 files)
+- C9 `.checkpoint/` (3 files)
+- C10 `ingestRotoWireSignals.js` + server.js line 46 require (confirmed dead — imported but never invoked)
+- C11 `pipeline/memory/readFrozenEpoch.js` (confirmed orphan, sibling freezePredictionEpoch is WIRED)
+- B4 `runtime/verifications/` + `pipeline/verification/` + `scripts/runVerification.js` (whole subsystem dead since May 17)
+
+**Tasks #84/85/86 pending; tasks #69-83 completed this session.**
+
+---
+
+### CRITICAL CONTEXT for next chat (operator switching to fresh Opus)
+
+1. **server.js is the OG ChatGPT monolith.** Cursor extracted pieces to `pipeline/shared/` but extraction is half-done. 5 routes still contain irreplaceable original business logic (`/props/clean`, `/picks/today`, `/parlays`, `/parlays/compare`, `/parlays/dual`). Cannot delete without migrating logic first. See `audit_07b_valuation.md` §2.6.
+
+2. **`buildCeilingRoleSpikeSignals` does NOT exist.** COGNITION_AUDIT.md called it "potentially huge — investigate next" but it's a fabrication. Winner-prediction is greenfield work, not a hidden-module excavation.
+
+3. **mlScorer is wired to 10 cognition modules but stale since 2026-04-14.** Now visible on /status. Operator decision pending (A2).
+
+4. **Binding rule [[feedback-audit-before-patches]]:** NO patches until operator has approved each Wave's items. Currently approved: Waves 1+2 only. After those execute clean, ask before Waves 3-6.
+
+5. **Operator's trust state:** "i have zero trust because youre always fixing one thing that fucks another." Slow down. Verify each step. Two-phase deep-dive-and-verify-downstream on every change.
+
+6. **For Wave 1 A4 (pre-commit hook) — already planned design in audit_07b_valuation.md** — covers node --check on .js, new Function on .html inline scripts, dynamic-invocation grep on deleted files, runtime:verify before commit. Would have caught Stage 2 verify-purge regression.
+
