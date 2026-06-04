@@ -147,7 +147,7 @@
 
 <!-- Phase Status-Overhaul-1A — operator's locked vertical order:
      backend → background processes → autopilots → whats next → clv → open issues →
-     tonights picks → dampener → recent alerts → recent commits. All collapsible.
+     tonights picks → dampener → ml scorer → data integrity → recent alerts → recent commits. All collapsible.
      See memory rule [[operator-status-layout]] for the binding order. -->
 
 <!-- 1. backend -->
@@ -253,6 +253,18 @@
       <strong>If older than 30 days, the engine is using outdated weights</strong> — retrain via <code>backend/ml/train.py</code> or disable via <code>scorer.js</code>.
     </div>
     <div id="mlScorerBody" style="margin-top:8px"></div>
+  </div>
+</details>
+
+<!-- 8c. schema golden / data integrity (Phase Wave-1-A3b 2026-06-04) -->
+<details class="card" id="cardSchemaGolden">
+  <summary><h2>data integrity (schema golden)</h2><span class="summaryLine" id="sumSchemaGolden">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">
+      Checks the 5 core data files (<code>personal_ledger</code>, <code>tracked_bets</code>, <code>tracked_best</code>, <code>family_calibration</code>, <code>lessons</code>) against a known-good shape on every page load.
+      <strong>WARN-ONLY</strong> — it reports drift, it never blocks a write. Green = the files still carry the keys + types the engine expects. The null-as-zero / oppDef-0% class of bug would show up here as drift.
+    </div>
+    <div id="schemaGoldenBody" style="margin-top:8px"></div>
   </div>
 </details>
 
@@ -862,6 +874,39 @@ function renderMlScorer(data) {
   _setSummary("sumMlScorer", summary);
 }
 
+// Phase Wave-1-A3b (2026-06-04) — surface schema-golden drift for the 5 core
+// JSON shapes. WARN-ONLY mirror. Summary line NAMES the file + problem on drift
+// (e.g. "personal_ledger missing bankroll.unitSize") so the operator knows what's
+// wrong at a glance without expanding the card.
+function renderSchemaGolden(data) {
+  const s = data.schemaGolden;
+  const body = document.getElementById("schemaGoldenBody");
+  if (!s || s.status === "error") {
+    body.innerHTML = '<div class="err">' + ((s && s.error) || "schema validator unavailable") + '</div>';
+    _setSummary("sumSchemaGolden", "validator error");
+    return;
+  }
+  let when = "—";
+  if (s.checkedAt) {
+    try { when = new Date(s.checkedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false }) + " ET"; } catch (_) { when = s.checkedAt; }
+  }
+  let rows = "";
+  (s.files || []).forEach(function (f) {
+    const badge = f.ok
+      ? '<span style="color:var(--green)">✓ ok</span>'
+      : '<span style="color:var(--red);font-weight:600">⚠ ' + (f.findings || []).join("; ") + '</span>';
+    rows += '<div class="row"><span class="label">' + f.shape + '</span><span class="val">' + badge + '</span></div>';
+  });
+  if (!rows) rows = '<div class="empty">no files checked</div>';
+  body.innerHTML =
+    '<div class="row"><span class="label">checked</span><span class="val">' + when + (s.cached ? ' · cached' : '') + '</span></div>' +
+    rows;
+  const summary = (s.status === "clean")
+    ? ((s.filesChecked || 0) + '/' + (s.filesChecked || 0) + ' files clean')
+    : (s.headline || (s.totalFindings + ' drift finding(s)'));
+  _setSummary("sumSchemaGolden", summary);
+}
+
 function renderCalibration(data) {
   const c = data.familyCalibration;
   const body = document.getElementById("calibBody");
@@ -1039,6 +1084,7 @@ async function loadStatus() {
     renderTrackedBest(data);
     renderCalibration(data);
     renderMlScorer(data);
+    renderSchemaGolden(data);
     renderCommits(data);
     renderDrift(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();

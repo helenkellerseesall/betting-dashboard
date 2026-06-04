@@ -960,3 +960,45 @@ Escape hatch: `git commit --no-verify` (git-native).
 
 **Wave 1 remaining**: A3 (Schema Golden Files for top-5 JSON shapes) next. A2 (mlScorer retrain-or-disable) is operator's call after seeing A1 staleness card on /status.
 
+### 01:32 ET — Wave 1 A3a SHIPPED + verified on operator machine (commit 5090237)
+
+**Operator decision**: schema validation should be **WARN + SURFACE, never block** (chose recommended option). A false-positive schema check can flag for the operator but must NEVER stop a populator mid-slate — honors [[feedback-no-games-today-aware]]-adjacent "never miss a day" doctrine.
+
+**A3 split into two sub-ships** (each independently verifiable): A3a = golden files + validator + runnable probe (THIS); A3b = wire onto /status trust-mirror card (next, touches statusRoute.js + needs backend reload).
+
+**What shipped (A3a)**:
+- `backend/pipeline/shared/schemaGoldenValidator.js` — warn-only validator. Uses fs/path only, NEVER throws (every internal error becomes a reported violation, not an exception). Checks: root type, requiredTopKeys, single nested objects, object-of-records maps, sampled arrays. Resolves dated/sport-prefixed files to NEWEST per prefix, with `exclude:["9999"]` so the `mlb_tracked_bets_9999-12-31.json` sentinel (C7 debris) doesn't falsely sort as newest.
+- `backend/pipeline/shared/goldenSchemas/*.golden.json` — 5 golden specs (data, not code, so the contract is editable without a code change).
+- `backend/scripts/schemaGoldenCheck.js` + `npm run schema:check` — runnable probe, always exits 0.
+
+**Golden design discipline**: required keys are the **cross-sport intersection** only (deep-dived both NBA + MLB real files). E.g. `statFamily` is NOT required on tracked_best (MLB entries lack it); `tier`/`result` are `[string,null]` (MLB tracked_best has them null). Nullable CLV + context fields are NOT required — their absence is a known wiring gap, not corruption. This keeps the validator high-signal / low-false-positive — correct for warn-only.
+
+**Verification**:
+- Real run: CLEAN across all 7 files (5 shapes × NBA/MLB), 0 findings, sentinel correctly excluded. Zero false positives = goldens match reality.
+- 11 injected-drift tests (temp files, real files untouched): missing top key, top-key type drift, element missing key, element type drift, root flip, parse fail, missing file, objectMap record drift — ALL caught. Clean cases pass. Validator never threw. 11/11.
+- Pre-commit gates pre-confirmed green (node --check on 2 new .js + runtime:verify 12/12) so the operator's own commit passed the hook cleanly — verified it did (HEAD 5090237 committed, schema:check CLEAN in scratch).
+
+**No runtime touched**: validator is a standalone probe, not yet wired into the running backend → no LaunchAgent reload for A3a. A3b (statusRoute card) WILL need a backend reload.
+
+**Next**: A3b — sectionSchemaGolden() on /status (mirror A1's sectionMlScorer pattern), wired into GET / + POST /snapshot + FE card. Then A2 (operator's mlScorer call).
+
+### 02:10 ET — Wave 1 A3b built + verified (operator ship pending)
+
+**Operator tweaks on the A3b plan** (all applied): (1) DRIFT summary line must NAME the file + what's wrong ("personal_ledger missing bankroll.unitSize"), glanceable without expanding; (2) cache by file mtime, not 5-min TTL, so changes show immediately; (3) skip openIssues integration for now. Plus going-forward cadence: Wave-end rundown + flag decisions; don't ask permission for every tiny commit; keep operator in loop on bigger stuff → saved [[feedback-wave-end-rundown]].
+
+**What changed**:
+- `backend/pipeline/shared/schemaGoldenValidator.js` — added `getSourceSignature()` (resolved-file mtime+size signature, no parse) + exported it. Enables mtime-based cache instead of blind TTL.
+- `backend/routes/statusRoute.js` — new `sectionSchemaGolden()` (lazy-requires validator; caches by source signature so the 65 MB ledger parse only runs when a file actually changes; builds a glanceable `headline` via `_phraseFinding` that names the file + problem). Wired into GET `/` AND POST `/snapshot`. Additive — no existing section touched.
+- `frontend/status/index.html` — new collapsible card "data integrity (schema golden)" after the ml-scorer card; `renderSchemaGolden()` (summary line uses the backend `headline`); call added to the render loop; layout-order comment updated.
+
+**Verification (sandbox)**:
+- Gate previews (so operator's commit passes the active hook): node --check on both .js PASS, HTML inline-script check on index.html PASS, runtime:verify 12/12 PASS.
+- Real GET handler invoked in-process: clean path → `status: clean, filesChecked: 7, headline: "7/7 files clean"`. Drift path (temp golden) → `status: drift, headline: "drifttest missing bankroll"` — confirms the headline NAMES the file + problem exactly as operator wanted. Handler did not throw; other sections intact.
+- Real `schema:check` CLEAN after cleanup.
+
+**Self-inflicted cleanup (logged)**: temp drift-test golden + a handler-spawned `.git/index.lock` got stuck in the mount — **sandbox can create but not delete files in the mounted repo**. Fixed via `mcp__cowork__allow_cowork_file_delete` (operator approved) then rm. goldenSchemas back to 5, lock gone, schema:check CLEAN. Lesson appended to [[sandbox-git-index-lock]]: temp files go in /tmp, never the real repo.
+
+**Deploy note**: A3b changes statusRoute.js → backend LaunchAgent reload required (unlike A3a). Ship fence includes unload/load + live `curl /api/ws/status` probe to confirm the schemaGolden field renders post-reload.
+
+**Stale doc spotted**: RUNTIME_FACTS.md still says repo root is `~/Desktop/betting-dashboard`; actual is `~/Projects/betting-dashboard` (Project-Relocation-1A landed). Worth a `runtime-facts:` fix.
+

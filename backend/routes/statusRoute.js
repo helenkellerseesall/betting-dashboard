@@ -716,6 +716,67 @@ function sectionMlScorer() {
   }
 }
 
+// Phase Wave-1-A3b (2026-06-04) — surface schema-golden drift for the 5 core
+// JSON shapes (personal_ledger, tracked_bets, tracked_best, family_calibration,
+// lessons). WARN-ONLY mirror: reports drift, NEVER blocks anything. Cached by a
+// source-file mtime+size signature so a fresh write shows up immediately, but the
+// 65 MB ledger parse doesn't run on every /status poll. Anti-fabrication: a
+// missing/corrupt file is its own finding, never defaulted to clean.
+let _schemaGoldenCache = { sig: null, val: null }
+function _phraseFinding(shape, v) {
+  switch (v.severity) {
+    case "file_missing": return shape + " file not found"
+    case "parse_fail":
+    case "read_fail": return shape + " file unreadable/corrupt"
+    case "root_drift": return shape + " wrong root type"
+    case "missing_key": return shape + " missing " + v.where
+    case "type_drift": return shape + " " + v.where + " wrong type"
+    default: return shape + " " + v.severity + " " + v.where
+  }
+}
+function _schemaGoldenHeadline(val) {
+  if (val.status === "error") return "validator error: " + (val.error || "unknown")
+  if (val.status === "clean") return val.filesChecked + "/" + val.filesChecked + " files clean"
+  const more = val.totalFindings > 1 ? " (+" + (val.totalFindings - 1) + " more)" : ""
+  return (val.topFinding || "schema drift") + more
+}
+function sectionSchemaGolden() {
+  try {
+    const validator = require("../pipeline/shared/schemaGoldenValidator")
+    const sig = validator.getSourceSignature()
+    if (_schemaGoldenCache.val && _schemaGoldenCache.sig === sig) {
+      return Object.assign({}, _schemaGoldenCache.val, { cached: true })
+    }
+    const full = validator.runSchemaGoldenCheck()
+    const files = []
+    let topFinding = null
+    for (const r of full.results) {
+      for (const t of r.targets) {
+        const findings = t.violations.map((v) => _phraseFinding(r.name, v))
+        if (!topFinding && findings.length) topFinding = findings[0]
+        files.push({ shape: r.name, file: t.file, ok: t.violations.length === 0, findings })
+      }
+    }
+    const val = {
+      ok: full.summary.status !== "error",
+      status: full.summary.status, // clean | drift | error
+      checkedAt: full.generatedAt,
+      filesChecked: full.summary.filesChecked || 0,
+      driftFiles: full.summary.driftFiles || 0,
+      totalFindings: full.summary.totalViolations || 0,
+      topFinding,
+      files,
+    }
+    if (full.summary.status === "error") val.error = full.summary.message
+    val.headline = _schemaGoldenHeadline(val)
+    _schemaGoldenCache = { sig, val }
+    return Object.assign({}, val, { cached: false })
+  } catch (e) {
+    const msg = String(e?.message || e)
+    return { ok: false, status: "error", error: msg, headline: "validator error: " + msg }
+  }
+}
+
 function sectionFamilyCalibration() {
   try {
     const j = safeReadJson(FAMILY_CALIB)
@@ -1205,6 +1266,7 @@ router.get("/", (req, res) => {
   out.autopilotFiresToday = sectionAutopilotFiresToday()
   out.familyCalibration = sectionFamilyCalibration()
   out.mlScorer          = sectionMlScorer()
+  out.schemaGolden      = sectionSchemaGolden()
   out.trackedBestToday  = sectionTrackedBestToday()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
@@ -1235,6 +1297,7 @@ router.post("/snapshot", (req, res) => {
     out.autopilotFiresToday = sectionAutopilotFiresToday()
     out.familyCalibration = sectionFamilyCalibration()
   out.mlScorer          = sectionMlScorer()
+    out.schemaGolden      = sectionSchemaGolden()
     out.trackedBestToday  = sectionTrackedBestToday()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0

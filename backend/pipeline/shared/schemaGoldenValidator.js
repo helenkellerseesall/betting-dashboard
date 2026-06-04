@@ -135,6 +135,50 @@ function resolveTargets(target) {
   return [{ label: "(unknown target kind: " + target.kind + ")", absPath: null, missing: true }]
 }
 
+/**
+ * Cheap signature of all source files the check would read (resolved filename +
+ * mtime + size, no parse). Lets a caller cache runSchemaGoldenCheck() and
+ * recompute only when a source file actually changes — instead of a blind TTL.
+ * Resolving + statvfs is microseconds; parsing the 65 MB ledger is the cost we
+ * skip when nothing changed.
+ */
+function getSourceSignature() {
+  let wrap
+  try {
+    wrap = loadGoldens()
+  } catch (e) {
+    return "golden-load-throw:" + e.message
+  }
+  if (wrap.error) return "golden-dir-error:" + wrap.error
+  const parts = []
+  for (const g of wrap.goldens) {
+    if (g._loadError) {
+      parts.push((g.name || "?") + ":golden-load-fail")
+      continue
+    }
+    let targets
+    try {
+      targets = resolveTargets(g.target)
+    } catch (e) {
+      parts.push((g.name || "?") + ":resolve-fail")
+      continue
+    }
+    for (const t of targets) {
+      if (!t.absPath || t.missing) {
+        parts.push(t.label + ":missing")
+        continue
+      }
+      try {
+        const st = fs.statSync(t.absPath)
+        parts.push(t.label + ":" + st.mtimeMs + ":" + st.size)
+      } catch (e) {
+        parts.push(t.label + ":stat-fail")
+      }
+    }
+  }
+  return parts.sort().join("|")
+}
+
 function validateOneTarget(golden, tgt) {
   const res = { file: tgt.label, exists: !tgt.missing, parsed: false, violations: [] }
   if (tgt.missing || !tgt.absPath) {
@@ -292,4 +336,8 @@ function runSchemaGoldenCheck() {
   return out
 }
 
-module.exports = { runSchemaGoldenCheck, _internal: { typeName, getByPath, validateOneTarget, resolveTargets } }
+module.exports = {
+  runSchemaGoldenCheck,
+  getSourceSignature,
+  _internal: { typeName, getByPath, validateOneTarget, resolveTargets },
+}
