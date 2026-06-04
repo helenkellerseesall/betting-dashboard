@@ -1,0 +1,39 @@
+{
+  "name": "family_calibration",
+  "title": "Per-family calibration (stated vs realized hit rate) — read by /status trust mirror + calibrationDampener",
+  "writers": ["pipeline/shared/calibrationDampener.js", "pipeline/nba/buildNbaBestBetsBoard.js"],
+  "target": { "kind": "static", "path": "runtime/calibration/family_calibration.json" },
+  "root": "object",
+  "checks": {
+    "requiredTopKeys": {
+      "generatedAt": ["string"],
+      "windowDays": ["number"],
+      "minSample": ["number"],
+      "sports": ["object"]
+    },
+    "objectMaps": [
+      {
+        "path": "sports.nba",
+        "sampleN": 16,
+        "recordKeys": {
+          "n": ["number"],
+          "stated": ["number", "null"],
+          "realized": ["number", "null"],
+          "gapPp": ["number", "null"],
+          "multiplier": ["number", "null"]
+        }
+      },
+      {
+        "path": "sports.mlb",
+        "sampleN": 16,
+        "recordKeys": {
+          "n": ["number"],
+          "stated": ["number", "null"],
+          "realized": ["number", "null"],
+          "gapPp": ["number", "null"],
+          "multiplier": ["number", "null"]
+        }
+      }
+    ]
+  }
+}

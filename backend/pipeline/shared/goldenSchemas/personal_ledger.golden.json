@@ -1,0 +1,66 @@
+{
+  "name": "personal_ledger",
+  "title": "Append-only bet history + bankroll + analytics rollups (canonical bet ledger)",
+  "writers": ["pipeline/shared/buildPersonalLedger.js", "pipeline/mlb/phase4Tracking.js", "pipeline/nba/buildNbaPerformanceTracking.js"],
+  "target": { "kind": "static", "path": "runtime/tracking/personal_ledger.json" },
+  "root": "object",
+  "checks": {
+    "requiredTopKeys": {
+      "version": ["string"],
+      "updatedAt": ["string"],
+      "bankroll": ["object"],
+      "bets": ["array"],
+      "analytics": ["object"]
+    },
+    "objects": [
+      {
+        "path": "bankroll",
+        "requiredKeys": {
+          "initial": ["number"],
+          "current": ["number"],
+          "currency": ["string"],
+          "unitSize": ["number"]
+        }
+      },
+      {
+        "path": "analytics",
+        "requiredKeys": {
+          "totals": ["object"],
+          "financial": ["object"],
+          "bySport": ["object"],
+          "bySportsbook": ["object"],
+          "byTier": ["object"],
+          "performance": ["object"]
+        }
+      },
+      {
+        "path": "analytics.totals",
+        "requiredKeys": {
+          "bets": ["number"],
+          "settled": ["number"],
+          "wins": ["number"],
+          "losses": ["number"],
+          "pending": ["number"]
+        }
+      }
+    ],
+    "arrays": [
+      {
+        "path": "bets",
+        "sampleN": 60,
+        "requiredKeys": {
+          "id": ["string"],
+          "date": ["string"],
+          "sport": ["string"],
+          "sportsbook": ["string"],
+          "betType": ["string"],
+          "stake": ["number"],
+          "odds": ["number"],
+          "decisionType": ["string"],
+          "realMoney": ["boolean"],
+          "result": ["string"]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "name": "tracked_best",
+  "title": "Curated best-available picks per slate (dashboard subset) — sport-prefixed, dated",
+  "writers": ["pipeline/nba/buildNbaBestBetsBoard.js", "pipeline/mlb/phase4Tracking.js", "pipeline/nba/buildNbaPerformanceTracking.js"],
+  "target": {
+    "kind": "newestByPrefix",
+    "dir": "runtime/tracking",
+    "prefixes": ["nba_tracked_best_", "mlb_tracked_best_"],
+    "suffix": ".json",
+    "exclude": ["9999"]
+  },
+  "root": "object",
+  "checks": {
+    "requiredTopKeys": {
+      "metadata": ["object"],
+      "entries": ["array"]
+    },
+    "objects": [
+      {
+        "path": "metadata",
+        "requiredKeys": {
+          "sport": ["string"],
+          "slateDate": ["string"],
+          "generatedAt": ["string"],
+          "version": ["string"],
+          "bucket": ["string"],
+          "storage": ["string"]
+        }
+      }
+    ],
+    "arrays": [
+      {
+        "path": "entries",
+        "sampleN": 60,
+        "requiredKeys": {
+          "slateDate": ["string"],
+          "sport": ["string"],
+          "player": ["string"],
+          "eventId": ["string"],
+          "propType": ["string"],
+          "side": ["string"],
+          "line": ["number", "null"],
+          "odds": ["number"],
+          "book": ["string"],
+          "predictedProbability": ["number"],
+          "edgeProbability": ["number"],
+          "tier": ["string", "null"],
+          "result": ["string", "null"],
+          "timestamp": ["string"]
+        }
+      }
+    ]
+  }
+}

@@ -22,6 +22,7 @@
     "slate:nba": "node scripts/slateNba.js",
     "slate:mlb": "node scripts/slateMlb.js",
     "runtime:verify": "node scripts/runtimeVerify.js",
+    "schema:check": "node scripts/schemaGoldenCheck.js",
     "grading:run": "node scripts/gradingRun.js",
     "grading:review": "node scripts/gradingReview.js",
     "grading:backfill": "node ../scripts/nightlyReview.js",

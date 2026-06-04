@@ -1,0 +1,41 @@
+{
+  "name": "tracked_bets",
+  "title": "Per-bet calibration corpus (the grader's input) — sport-prefixed, dated",
+  "writers": ["pipeline/grading/gradeTrackedBets.js", "pipeline/grading/buildGradingSummary.js", "pipeline/schedule/buildSlateEvents.js"],
+  "target": {
+    "kind": "newestByPrefix",
+    "dir": "runtime/tracking",
+    "prefixes": ["nba_tracked_bets_", "mlb_tracked_bets_"],
+    "suffix": ".json",
+    "exclude": ["9999"]
+  },
+  "root": "array",
+  "checks": {
+    "arrays": [
+      {
+        "path": "$",
+        "sampleN": 60,
+        "requiredKeys": {
+          "id": ["string"],
+          "date": ["string"],
+          "player": ["string"],
+          "eventId": ["string"],
+          "statFamily": ["string"],
+          "prop": ["string"],
+          "propType": ["string"],
+          "marketKey": ["string"],
+          "side": ["string"],
+          "line": ["number", "null"],
+          "oddsAmerican": ["number"],
+          "sportsbook": ["string"],
+          "modelProb": ["number"],
+          "impliedProb": ["number"],
+          "edge": ["number"],
+          "confidence": ["number"],
+          "tier": ["string"],
+          "result": ["string"]
+        }
+      }
+    ]
+  }
+}

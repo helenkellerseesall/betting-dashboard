@@ -1,0 +1,32 @@
+{
+  "name": "lessons",
+  "title": "Post-hoc settled-bet lessons (process classifier output) — operator learning surface",
+  "writers": ["pipeline/review/* (grading backfill)"],
+  "target": { "kind": "static", "path": "runtime/operator/lessons.json" },
+  "root": "object",
+  "checks": {
+    "requiredTopKeys": {
+      "generatedAt": ["string"],
+      "entries": ["array"]
+    },
+    "arrays": [
+      {
+        "path": "entries",
+        "sampleN": 60,
+        "requiredKeys": {
+          "betId": ["string"],
+          "sport": ["string"],
+          "date": ["string"],
+          "sportsbook": ["string"],
+          "betType": ["string"],
+          "stake": ["number"],
+          "odds": ["number"],
+          "overallVerdict": ["string"],
+          "hits": ["number"],
+          "misses": ["number"],
+          "pending": ["number"]
+        }
+      }
+    ]
+  }
+}
