@@ -1107,3 +1107,10 @@ Catch-up was incomplete (06-01 only 75/662). Three findings (`.scratch/audit_set
 
 **Honest scope:** this is fix #1 (settler date). It WILL settle the stuck bets (nightly path reads graded bets, doesn't re-fetch — verified). Whether it grows the DAMPENER JOIN is unverified — depends on the recordOutcome id scheme (fix #2, not touched). Fence VERIFIES both (bets settle + join count); claiming nothing until output shows it. NOT repeating the Finding-3 overclaim.
 
+**SHIPPED + verified commit 75ead7d:**
+- VERIFY 1 (date fix WORKS): mlb 06-01 `587 pending/75 settled` -> `510 loss + 52 win = 562 settled, 100 pending`. The settler now fetches the 06-02 games. Remaining 100 = not-Final-in-feed / DNP.
+- VERIFY 2 (dampener join did NOT grow): still **39, all run_date 06-03**. The 562 settled 06-01 bets produced orphan rows (constructed key, null stat_family) that don't join prediction_snapshots. **Step 1 HALF-DONE — fix #1 settles bets; the dampener corpus did NOT un-freeze.**
+- System health (auto-snapshot): backend healthy, 7/7 LaunchAgents healthy, grading 4:00 + audit 5:00 + populator 3:05 all fired, schemaGolden 7/7 clean.
+
+**Fix #2 (task #16) REQUIRED before A2:** the 39 joinable rows come from a real-predId path; buildPostGameReview->recordOutcomes writes orphan constructed keys. Need: curated predictions' outcomes written with their prediction_snapshots.id so the dampener can read them (operator chose curated-picks-only). Read-only trace first.
+
