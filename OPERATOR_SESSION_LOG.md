@@ -1092,5 +1092,18 @@ Items (commit 1 = CLI/code; commit 2 = frontend):
 
 **Scope verified (full code-invocation check this time):** only those 2 runners are functionally referenced. runNbaNight/runMlbNight refs = stale comments; runNbaNightFast = a cosmetic existence-check in exportFullState's diagnostic list; runMlbGrade = truly dead. Cascade check: both restored files' deps (`pipeline/grading/*`, `pipeline/review/*`) are all intact. node --check valid on both.
 
-**Fix:** `git checkout b32648d~1 -- runHistoricalGrade.js runDailyReview.js` (restore from pre-Wave-3), commit (hook ON this time — no --no-verify), re-run catch-up. Pending operator fence.
+**Fix:** `git checkout b32648d~1 -- runHistoricalGrade.js runDailyReview.js` (restore from pre-Wave-3), commit (hook ON this time — no --no-verify), re-run catch-up. SHIPPED commit 5d736ab. Catch-up ran 73s, settled MOST May31-Jun3 bets, corpus newest run_date May31 -> Jun3.
+
+### Settlement/corpus diagnostics (read-only) → root cause = settler fetches by slate-date
+
+Catch-up was incomplete (06-01 only 75/662). Three findings (`.scratch/audit_settlement_corpus_diagnostics.md`):
+1. **06-01 ROOT CAUSE (operator nailed it):** tracked_bets files are SLATE-date-named, but the games play on a DIFFERENT calendar day. Every game in the 06-01 file has gameTime ET-date = **06-02**. Settler called `fetchMlbGameResults("2026-06-01")` → got 06-01 games → 06-02 games' players absent → pending. Per [[operator-slate-date-doctrine]]. **Both sports** (shared `gradeDate`).
+2. **"46 missing outcome rows" = counting artifact**, not a lost write. outcome_snapshots keys on `date|sport|player|stat|side|line|book` via INSERT OR REPLACE (drops odds) → multi-odds bets collapse. settlement:run's "partial FAIL" is a false alarm (per-bet count vs per-deduped-key count).
+3. **Dampener orphans (I OWNED the "corpus un-frozen" overclaim):** of 707 June outcome rows only 39 JOIN prediction_snapshots; 668 are orphans (constructed key, NULL stat_family) the dampener can't read. The dampener join already ignores orphans (`WHERE ps.stat_family IS NOT NULL`) so it's starved, not broken. **Operator chose curated-picks-only** for the dampener corpus.
+
+### Step-1 real fix shipped (this fence): Phase Settlement-GameDate-1A
+
+`runHistoricalGrade.js` — settler now derives distinct ET game-dates from each bet's `gameTime` (`gameDatesForSlate`), fetches each, and MERGES (sorted ascending, **newer-date-wins** last-write-wins — documented deterministic collision rule per operator ask). Fixes the wrong-date fetch for BOTH sports. Slate-date file naming unchanged. Verified (sandbox logic): 06-01 file -> resolves to game-date `["2026-06-02"]`; node --check + runtime:verify 12/12 pass.
+
+**Honest scope:** this is fix #1 (settler date). It WILL settle the stuck bets (nightly path reads graded bets, doesn't re-fetch — verified). Whether it grows the DAMPENER JOIN is unverified — depends on the recordOutcome id scheme (fix #2, not touched). Fence VERIFIES both (bets settle + join count); claiming nothing until output shows it. NOT repeating the Finding-3 overclaim.
 

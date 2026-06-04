@@ -48,6 +48,9 @@ const path = require("path")
 const { spawnSync } = require("child_process")
 
 const RUNTIME_DIR = path.join(__dirname, "..", "runtime", "tracking")
+// Phase Settlement-GameDate-1A (2026-06-04) — canonical ET calendar date for a
+// timestamp, used to derive a game's actual play-date from its gameTime.
+const { calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 // Phase Settlement-Orchestration-1A (AUTO-1): post-grading chain to the
 // canonical nightlyReview.js orchestrator. After every successful per-date
@@ -202,6 +205,42 @@ async function findPendingDates(sport, retryUnresolved) {
   return dates.sort()
 }
 
+/**
+ * Phase Settlement-GameDate-1A (2026-06-04) — derive the ACTUAL game calendar
+ * dates a slate's bets need, from each bet's gameTime (ET).
+ *
+ * Why: tracked_bets files are named by SLATE date (when the slate was built),
+ * but the games they cover often play on a DIFFERENT calendar day (slate built
+ * Tuesday -> games Wednesday). The settler used to fetch results for the slate
+ * date, so off-date games never matched and bets sat "pending" forever, freezing
+ * the calibration corpus. We fetch results for every distinct ET game-date in
+ * the file instead. Slate-date doctrine is UNCHANGED — file naming stays slate
+ * date; only the results FETCH keys off game-date.
+ *
+ * Returns dates SORTED ASCENDING. Falls back to [slateDate] when no usable
+ * gameTime exists, so nothing is ever skipped.
+ */
+async function gameDatesForSlate(sport, slateDate) {
+  const filePath = path.join(RUNTIME_DIR, `${sport}_tracked_bets_${slateDate}.json`)
+  let bets
+  try {
+    bets = JSON.parse(await fs.readFile(filePath, "utf8"))
+  } catch {
+    return [slateDate]
+  }
+  if (!Array.isArray(bets)) return [slateDate]
+  const dates = new Set()
+  for (const b of bets) {
+    const gt = b && b.gameTime
+    if (!gt) continue
+    const ms = new Date(gt).getTime()
+    if (!Number.isFinite(ms)) continue
+    dates.add(calendarDateForTimestamp(ms)) // game's ET calendar date
+  }
+  if (dates.size === 0) return [slateDate]
+  return [...dates].sort() // ascending — the merge below relies on this order
+}
+
 // ── Per-date grading ─────────────────────────────────────────────────────────
 
 async function gradeDate({ sport, date, fetcher, opts }) {
@@ -215,20 +254,37 @@ async function gradeDate({ sport, date, fetcher, opts }) {
     return { success: true, summary }
   }
 
-  // 1. Fetch game results
+  // 1. Fetch game results — for the ACTUAL game date(s), not the slate date.
+  // tracked_bets are slate-date-named but cover games that may play on another
+  // calendar day (Phase Settlement-GameDate-1A). Fetch each distinct ET
+  // game-date and MERGE into one map (gradeTrackedBets matches by player name).
   let resultsMap = new Map()
   if (!dryRun) {
+    const gameDates = await gameDatesForSlate(sport, date)
     try {
-      resultsMap = await fetcher.fetchGameResults(date)
+      // MERGE collision rule (deterministic): iterate gameDates ASCENDING and
+      // let later (NEWER) dates overwrite earlier ones — last-write-wins. So if
+      // the same player has stats on two fetched dates (rare: late game crossing
+      // midnight, doubleheader spanning the slate, mid-series), the NEWER date's
+      // line wins. Deterministic because gameDates is sorted, not Set/object
+      // order. Precise fix for that rare case = match each bet to its own
+      // gameTime-date map; refinement, not needed for the common single-date slate.
+      for (const gd of gameDates) {
+        const dayMap = await fetcher.fetchGameResults(gd)
+        for (const [name, stats] of dayMap) resultsMap.set(name, stats)
+      }
     } catch (err) {
       console.error(`  ✗ fetchGameResults failed: ${err.message}`)
       return { success: false, error: err.message }
     }
 
+    const dlabel = (gameDates.length === 1 && gameDates[0] === date)
+      ? date
+      : `${gameDates.join(", ")} (slate ${date})`
     if (resultsMap.size === 0) {
-      console.warn(`  ⚠ No game results fetched for ${date} — bets will remain pending`)
+      console.warn(`  ⚠ No game results fetched for game-date(s) ${dlabel} — bets will remain pending`)
     } else {
-      console.log(`  ✓ Fetched ${resultsMap.size} player stat lines`)
+      console.log(`  ✓ Fetched ${resultsMap.size} player stat lines for game-date(s) ${dlabel}`)
       if (verbose) {
         for (const [name, stats] of resultsMap) {
           console.log(`    ${name}: ${JSON.stringify(stats)}`)
@@ -236,7 +292,7 @@ async function gradeDate({ sport, date, fetcher, opts }) {
       }
     }
   } else {
-    console.log(`  [dry-run] Would fetch game results for ${date}`)
+    console.log(`  [dry-run] Would fetch game results for slate ${date} (resolved to game-date(s))`)
   }
 
   // 2. Grade individual bets
