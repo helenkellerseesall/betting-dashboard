@@ -53,6 +53,7 @@ const SCHEDULER_LOG   = path.join(REPO_ROOT, ".scratch", "scheduler.log")
 const DRIFT_ALERTS    = path.join(AUDITS_DIR, "drift_alerts.log")
 const FAMILY_CALIB    = path.join(CALIBRATION_DIR, "family_calibration.json")
 const SQLITE_PATH     = path.join(REPO_ROOT, "backend", "storage", "betting.db")
+const ML_MODEL_JSON   = path.join(REPO_ROOT, "backend", "ml", "model.json")
 // Phase Status-Overhaul-1C (2026-06-03) — ledger path for CLV completed-games view.
 // personal_ledger is append-only, retains the day's full pick history even after
 // tracked_bets Layer-1-filters tipped games out. Used by sectionClvCaptureToday
@@ -669,6 +670,52 @@ function sectionAutopilotFiresToday() {
   }
 }
 
+// Phase Wave-1-A1 (2026-06-04) — surface mlScorer staleness.
+// scorer.js loads model.json once at boot and uses its coefficients to score
+// every prop. If model.json is stale (training data drifts from current prop
+// distribution), the scorer feeds outdated signal into 10 cognition modules
+// (buildSlipAi, buildFeaturedPlays, survivabilityGate, etc.). The calibrationDampener
+// provides per-family backstop but doesn't fix the underlying ranking shape.
+// This section makes staleness VISIBLE so operator can decide retrain-or-disable.
+//
+// Source: file mtime of backend/ml/model.json (model.json itself has no
+// trainingDate field; mtime is the only proxy).
+function sectionMlScorer() {
+  try {
+    if (!fs.existsSync(ML_MODEL_JSON)) {
+      return { ok: true, modelExists: false, note: "no model.json — scorer is disabled" }
+    }
+    const stat = fs.statSync(ML_MODEL_JSON)
+    const trainingDateISO = stat.mtime.toISOString()
+    const ageMs = Date.now() - stat.mtime.getTime()
+    const ageDays = Math.round(ageMs / (24 * 60 * 60 * 1000))
+    let featureCount = null
+    let modelType = null
+    try {
+      const j = JSON.parse(fs.readFileSync(ML_MODEL_JSON, "utf8"))
+      featureCount = Array.isArray(j.features) ? j.features.length : null
+      modelType = j.type || null
+    } catch (_) {
+      // model.json unreadable — still report mtime
+    }
+    const STALE_THRESHOLD_DAYS = 30
+    const isStale = ageDays > STALE_THRESHOLD_DAYS
+    return {
+      ok: true,
+      modelExists: true,
+      modelPath: "backend/ml/model.json",
+      trainingDateISO,
+      ageDays,
+      featureCount,
+      modelType,
+      isStale,
+      staleThresholdDays: STALE_THRESHOLD_DAYS,
+    }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 function sectionFamilyCalibration() {
   try {
     const j = safeReadJson(FAMILY_CALIB)
@@ -1157,6 +1204,7 @@ router.get("/", (req, res) => {
   out.slateFiresToday   = sectionSlateFiresToday()
   out.autopilotFiresToday = sectionAutopilotFiresToday()
   out.familyCalibration = sectionFamilyCalibration()
+  out.mlScorer          = sectionMlScorer()
   out.trackedBestToday  = sectionTrackedBestToday()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
@@ -1186,6 +1234,7 @@ router.post("/snapshot", (req, res) => {
     out.slateFiresToday   = sectionSlateFiresToday()
     out.autopilotFiresToday = sectionAutopilotFiresToday()
     out.familyCalibration = sectionFamilyCalibration()
+  out.mlScorer          = sectionMlScorer()
     out.trackedBestToday  = sectionTrackedBestToday()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0

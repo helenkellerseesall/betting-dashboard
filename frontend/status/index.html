@@ -243,6 +243,19 @@
   </div>
 </details>
 
+<!-- 8b. ml scorer staleness (Phase Wave-1-A1 2026-06-04) -->
+<details class="card" id="cardMlScorer">
+  <summary><h2>ml scorer (logistic model)</h2><span class="summaryLine" id="sumMlScorer">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">
+      The engine has a trained ML model that scores each prop's hit probability. It's loaded once at backend boot from <code>backend/ml/model.json</code> and fed into 10 cognition modules.
+      A stale model = April patterns scoring June props. The <strong>dampener</strong> above provides per-family backstop but doesn't fix ranking shape.
+      <strong>If older than 30 days, the engine is using outdated weights</strong> — retrain via <code>backend/ml/train.py</code> or disable via <code>scorer.js</code>.
+    </div>
+    <div id="mlScorerBody" style="margin-top:8px"></div>
+  </div>
+</details>
+
 <!-- 9. recent system alerts -->
 <details class="card" id="cardDrift">
   <summary><h2>recent system alerts</h2><span class="summaryLine" id="sumDrift">…</span></summary>
@@ -814,6 +827,41 @@ function renderTrackedBest(data) {
   }
 }
 
+// Phase Wave-1-A1 (2026-06-04) — surface mlScorer staleness so operator can
+// see the model.json training date at a glance and decide retrain-or-disable.
+function renderMlScorer(data) {
+  const m = data.mlScorer;
+  const body = document.getElementById("mlScorerBody");
+  if (!m || !m.ok) {
+    body.innerHTML = '<div class="err">' + (m?.error || "mlScorer status unavailable") + '</div>';
+    _setSummary("sumMlScorer", "unavailable");
+    return;
+  }
+  if (!m.modelExists) {
+    body.innerHTML = '<div class="empty">no model.json found — scorer is disabled · no predictions feeding cognition</div>';
+    _setSummary("sumMlScorer", "no model · scorer DISABLED");
+    return;
+  }
+  // Friendly date
+  let when = "—";
+  if (m.trainingDateISO) {
+    try { when = new Date(m.trainingDateISO).toLocaleString("en-US", { timeZone: "America/New_York", hour12: false }) + " ET"; } catch (_) { when = m.trainingDateISO; }
+  }
+  const ageBadge = m.isStale
+    ? '<span style="color:var(--red);font-weight:600">STALE (>' + m.staleThresholdDays + ' days)</span>'
+    : '<span style="color:var(--green)">fresh</span>';
+  body.innerHTML =
+    '<div class="row"><span class="label">model file</span><span class="val">' + (m.modelPath || "—") + '</span></div>' +
+    '<div class="row"><span class="label">last trained</span><span class="val">' + when + '</span></div>' +
+    '<div class="row"><span class="label">age</span><span class="val">' + m.ageDays + ' days · ' + ageBadge + '</span></div>' +
+    '<div class="row"><span class="label">model type</span><span class="val">' + (m.modelType || "—") + '</span></div>' +
+    '<div class="row"><span class="label">features</span><span class="val">' + (m.featureCount != null ? m.featureCount : "—") + '</span></div>';
+  const summary = m.isStale
+    ? ('STALE · ' + m.ageDays + ' days old · retrain or disable')
+    : ('fresh · ' + m.ageDays + ' days old');
+  _setSummary("sumMlScorer", summary);
+}
+
 function renderCalibration(data) {
   const c = data.familyCalibration;
   const body = document.getElementById("calibBody");
@@ -990,6 +1038,7 @@ async function loadStatus() {
     renderAutopilots(data);
     renderTrackedBest(data);
     renderCalibration(data);
+    renderMlScorer(data);
     renderCommits(data);
     renderDrift(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
