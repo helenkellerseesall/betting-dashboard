@@ -365,6 +365,24 @@ while true; do
     fired=true
   fi
 
+  # 2026-06-04 Phase Settlement-Autopilot-1A — settle pending bets BEFORE the
+  # 4 AM grading backfill. ROOT-CAUSE FIX (May-31 -> Jun-3 corpus stall):
+  # grading:backfill-all only COPIES already-settled bets into outcome_snapshots
+  # and SKIPS any date with 0 settled bets. Nothing settled autonomously, so
+  # bets sat "pending" forever and the calibration corpus froze. Fires 3:45 AM
+  # ET, 15 min before grading. settlement:run --window=3 sweeps the last 3 slate
+  # dates (idempotent INSERT OR REPLACE) and chains grading -> nightlyReview ->
+  # outcome_snapshots, so bets are settled AND in the corpus by the 4 AM grading.
+  if [ "$MIN" -eq 45 ] && [ "$HOUR" -eq 3 ]; then
+    log "settlement:run starting (nightly autopilot — Phase Settlement-Autopilot-1A)"
+    if npm run settlement:run -- --window=3 >> "$LOG" 2>&1; then
+      log "settlement:run OK — pending bets settled into corpus before grading"
+    else
+      log "settlement:run FAILED (exit $?) — bets may stay pending; grading will skip them"
+    fi
+    fired=true
+  fi
+
   # 2026-05-31 Phase Autonomous-Orchestrator-1A — nightly grading autopilot.
   # Closes INC-010 (buildNightlyOrchestrator dormant — zero production callers
   # outside operator-triggered CLI). Fires `grading:backfill-all` at 4 AM ET

@@ -86,6 +86,17 @@ let _lastError   = null
 const _ALIASES = {
   pra:                       ["pra", "points_rebounds_assists"],
   points_rebounds_assists:   ["pra", "points_rebounds_assists"],
+  // 2026-06-04 — combo families are stored WITHOUT underscores in the corpus
+  // (prediction_snapshots.stat_family = "pointsassists") but picks/sysAudit use
+  // the underscore form ("points_assists"). Without these bridges the dampener
+  // lookup misses entirely, so the worst-calibrated NBA combo families were
+  // never corrected even when corpus data exists. (Audit 2026-06-04.)
+  points_assists:            ["points_assists", "pointsassists"],
+  pointsassists:             ["points_assists", "pointsassists"],
+  points_rebounds:           ["points_rebounds", "pointsrebounds"],
+  pointsrebounds:            ["points_rebounds", "pointsrebounds"],
+  rebounds_assists:          ["rebounds_assists", "reboundsassists"],
+  reboundsassists:           ["rebounds_assists", "reboundsassists"],
   totalbases:                ["totalbases", "totalBases", "total_bases"],
   totalBases:                ["totalbases", "totalBases", "total_bases"],
   total_bases:               ["totalbases", "totalBases", "total_bases"],
@@ -326,6 +337,7 @@ module.exports = {
   applyCalibrationDampener,
   reload,
   // exported for tests/diagnostics
+  _famNames,
   _constants: {
     MIN_SAMPLE_SIDE,
     MIN_SAMPLE_FAMILY,

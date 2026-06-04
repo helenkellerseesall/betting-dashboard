@@ -1062,3 +1062,27 @@ Items (commit 1 = CLI/code; commit 2 = frontend):
 
 **Audit waves 1+2+3 now COMPLETE.** Remaining: A2 (mlScorer retrain/disable — operator), B4 (verification subsystem keep/archive — operator), and audit Waves 4 (server.js shrinkage C12/C13/C14 — RISKIEST, touches OG monolith biz-logic routes), 5 (B2 dual-write cut + D1-D4 docs), 6 (E1/E2/E3/E5 observability) — none yet approved.
 
+## 2026-06-04 — BEFORE A2: calibration/wiring audits + Step 1 (grading-feed fix)
+
+**Operator redirected away from A2 first:** "if certain props arent even pulling their full ingredient list, retraining doesnt fix anything." Two read-only audits written to .scratch: `audit_calibration_corpus_health.md` + `audit_per_prop_wiring.md`.
+
+**Audit findings (operator verified, +corrections):**
+- Calibration: /status shows `family_calibration.json` (sysAudit, from tracked_bets) but the runtime dampener reads a SEPARATE SQLite corpus. They diverge. Overconfidence is REAL (OVERs worst: NBA under 40% vs over 22% hit) but the displayed magnitude isn't trustworthy.
+- Corpus FROZEN since May 31 (operator: NBA froze May 30). Per-prop wiring: NBA core well-fed; MLB Hits/TB/RBIs/Runs ignore batter form/power/weather/park (cluster engine reads only 4 signals). Batter caches FULLY populated (389 each — I mis-probed "4" at first, corrected). steals/blocks/first_basket + pitcher props still gaps.
+- points_assists ZERO-correctable: corpus keys combos WITHOUT underscores (`pointsassists`), picks use `points_assists` — dampener alias table didn't bridge → never matched.
+
+**3-step plan (operator-ranked): 1=unstick grading feed, 2=wire batter signals, 3=/status source. A2 deferred until corpus trustworthy.**
+
+### Step 1 ROOT CAUSE (read-only trace) + FIX (this ship)
+
+**Root cause:** the pipeline assumes bets are settled BEFORE the 4 AM `grading:backfill-all`, but `backfill-all` only COPIES already-settled bets into `outcome_snapshots` (it SKIPS dates with 0 settled). The actual settler (`settlement:run` → gradeTrackedBets) is **not scheduled anywhere** — it was manual-only and stopped after May 31. So June bets sat 100% `pending` (MLB 06-01/02/03 = 662/427/206 all pending) → backfill skipped them → corpus froze. (The sandbox 403 on the MLB API is a sandbox-network artifact, NOT the cause — May settled fine in prod.)
+
+**Shipped (this fence):**
+- `backend/scripts/scheduler.sh` — new 3:45 AM `settlement:run -- --window=3` block BEFORE the 4 AM grading. Settles pending → chains nightlyReview → outcome_snapshots, so corpus stays current autonomously. **Restart: reload `com.motel666.scheduler` LaunchAgent.** (scheduler.sh cds to backend/ at line 50 so `npm run` works; editing in ~/Projects is non-protected so no FDA revocation.)
+- `backend/pipeline/shared/calibrationDampener.js` (PRESERVED) — additive: 3 combo-family alias pairs (points_assists↔pointsassists etc.) + `_famNames` export for test. Verified: bridge resolves all 3; runtime:verify 12/12; combos still null only due to n<30 gate (fill when NBA Finals games accumulate, Game 1 = Jun 6).
+- Catch-up: operator runs `settlement:run --window=6` to settle the ~4,600 May31–today pending bets.
+
+**Scheduler choice rationale:** settlement added to scheduler.sh (PRIMARY path where grading already lives). NOT a new plist (avoids operator installing a new LaunchAgent) — noted as an option. NOT added as a /status scheduled-agent (would need statusRoute SCHEDULED_AGENTS edit) — possible follow-up for trust-surface visibility.
+
+**FLAGGED separate bug:** `cron-backup.crontab` — ALL entries `cd` to repo ROOT then `npm run`, but package.json is in backend/ → every cron-backup npm entry has been FAILING since 2026-06-02 (RUNTIME_FACTS: npm must run from backend/). So the "never miss a day" cron safety net is dead for grading/audit/populators; only scheduler.sh covers them. Did NOT fix (scope) — operator decision: fix all cron cd targets to restore real redundancy.
+
