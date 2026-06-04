@@ -1053,3 +1053,12 @@ Items (commit 1 = CLI/code; commit 2 = frontend):
 
 **Pre-fence verification**: package.json valid (25 scripts, 0 ops/brain, critical kept); runtime:verify 12/12; frontend mobile(3)+status(1) tracked files preserved; no kept code requires any deleted dir.
 
+**Fence v1 FAILED at zsh parse** (operator: "another issue in the fence") — verify block had `echo "  MISSING(!): $p"`; zsh history-expands `!` even in double quotes → `zsh: event not found: )` → whole fence rejected, NOTHING ran (repo confirmed untouched, HEAD still 3a9cf4d). Fixed: removed `!` (`MISSING(!)`→`MISSING`, `!!j.backend`→`Boolean(j.backend)`). New binding memory [[feedback-no-bang-in-zsh-fences]]: never put `!` in a fence; grep own fence for `!` before sending.
+
+**SHIPPED + verified (operator ran corrected fence): commit b32648d.**
+- Git: all targets gone from committed tree; frontend/ now tracks only mobile/ + status/ (on disk too — node_modules/src/dist/config gone, ~206 MB freed). Preserved: nightlyReview.js, scripts/hooks/, runVerification.js, runtimeVerify.js, both live frontend apps.
+- Downstream (verify-nothing-broke): runtime:verify 12/12; schema:check CLEAN; live /status snapshot shows backend healthy on b32648d, all 7 LaunchAgents healthy, scheduler ticking (3:05–3:35 populator chain fired+completed), schemaGolden 7/7 clean, mlScorer card intact. Zero infra issues from cleanup — only pre-existing cognition miscalibration reds + benign "backend restarted" yellow. No stale lock.
+- Note: scheduler 5-min auto-snapshot overwrote the fence's custom verify block in scratch before read; confirmed health from that snapshot + direct sandbox git/regression checks instead.
+
+**Audit waves 1+2+3 now COMPLETE.** Remaining: A2 (mlScorer retrain/disable — operator), B4 (verification subsystem keep/archive — operator), and audit Waves 4 (server.js shrinkage C12/C13/C14 — RISKIEST, touches OG monolith biz-logic routes), 5 (B2 dual-write cut + D1-D4 docs), 6 (E1/E2/E3/E5 observability) — none yet approved.
+
