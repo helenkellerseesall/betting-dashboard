@@ -934,3 +934,29 @@ This is the same anti-pattern that bit us in #1 (Screenshot-Tab-Restore-1A — r
 
 6. **For Wave 1 A4 (pre-commit hook) — already planned design in audit_07b_valuation.md** — covers node --check on .js, new Function on .html inline scripts, dynamic-invocation grep on deleted files, runtime:verify before commit. Would have caught Stage 2 verify-purge regression.
 
+### 01:05 ET — Wave 1 A4 SHIPPED + verified on operator machine (commit d947713)
+
+**Operator quote**: "prompt ran, check"
+
+**What shipped**: tracked pre-commit hook, activated via `git config core.hooksPath scripts/hooks`. Two new files:
+- `scripts/hooks/pre-commit` (bash, 100755) — four staged-content gates
+- `scripts/hooks/check-html-syntax.js` (node, 100755) — multi-`<script>` inline-JS validator (loops ALL blocks per [[feedback-html-js-syntax-check-method]] caveat, not just the first)
+
+**The four gates (all run against STAGED content, not working tree)**:
+1. `node --check` on every staged `.js` (skips node_modules/_legacy/.min.js)
+2. inline `<script>` parse on every staged `.html` (handles the `node --check` can't-read-.html problem)
+3. **deleted-file reference guard** — for any staged-deleted `.js`, `git grep --cached` the staged tree for the basename as a whole token. Catches literal require/import AND dynamic invocation (hardcoded SUITES arrays + path.join/spawnSync) — the exact Stage-2 verify-purge regression class per [[orphan-detection-dynamic-invocation]]. Word-boundary regex rejects longer-identifier decoys; `_legacy/` post-filtered.
+4. `runtime:verify` 12-suite matrix — only when commit touches code (`.js` or `backend/`); docs-only commits skip it. ~1.4s, 12/12 PASS.
+
+Escape hatch: `git commit --no-verify` (git-native).
+
+**Design choice**: tracked hook + `core.hooksPath` (NOT loose `.git/hooks/`) so it's version-controlled and survives a fresh clone / Phase #38 relocation.
+
+**Verification (sandbox, pre-deliver)**: isolated throwaway git repo run through 8 scenarios — good commit passes, bad JS blocks, bad HTML (error in 2nd block) blocks, delete-still-referenced blocks, delete+remove-ref-same-commit passes, runtime:verify-fail blocks, --no-verify bypasses, docs-only skips gate4. 8/8 correct. **Caught my own gate-3 bug mid-test**: exclude-only git pathspecs (`:!_legacy/*`) abort with `fatal: Unimplemented pathspec magic` → git grep returned rc=128 → gate silently passed. Fixed to positive pathspec `.` + post-filter. Re-ran: gate 3 now blocks correctly.
+
+**Verification (operator machine, post-ship)**: `.scratch/last.txt` shows `hooksPath = scripts/hooks`, `pre-commit executable = yes`, `HEAD = d947713`, `uncommitted = 0`. The install commit itself passed through the hook (self-test). Both files tracked mode 100755.
+
+**Gotcha logged**: my read-only `git status` probe in the sandbox left a stale empty `.git/index.lock` the mount wouldn't let me delete — install fence led with `rm -f .git/index.lock` to clear it. Sandbox cannot unlink inside `.git/`; any future sandbox git probe that touches the index has the same risk → prefer non-index-touching reads or warn operator.
+
+**Wave 1 remaining**: A3 (Schema Golden Files for top-5 JSON shapes) next. A2 (mlScorer retrain-or-disable) is operator's call after seeing A1 staleness card on /status.
+
