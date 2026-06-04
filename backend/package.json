@@ -5,11 +5,6 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "brain:bootstrap": "node scripts/brain/loadBrainContext.js",
-    "brain:status": "node scripts/brain/brainSyncSummary.js",
-    "brain:verify": "node scripts/brain/verifyBrainFreshness.js",
-    "brain:continuity": "node scripts/brain/assessContinuity.js",
-    "brain:checkpoint": "node scripts/brain/enforceBrainCheckpoint.js",
     "persistence:status": "node scripts/persistenceStatus.js",
     "persistence:probe": "node scripts/runPersistenceProbes.js",
     "persistence:import": "node storage/importHistoricalData.js",
@@ -33,15 +28,7 @@
     "ledger:backfill": "node scripts/backfillLedgerFromTracked.js",
     "lineage:status": "node scripts/lineageStatus.js",
     "market:status": "node scripts/marketStatus.js",
-    "settlement:run": "node scripts/settlementRun.js",
-    "_comment_ops_layer": "── Continuity-OS-1C (2026-05-17) + Operational-Parity-1A (2026-05-17) — canonical ops:* layer. Single source of truth for operational rituals. Wrappers MUST preserve full historical orchestration depth — verifyOperationalParity.js enforces. See docs/OPERATIONAL_RECONCILIATION_AUDIT.md + docs/OPERATIONAL_PARITY_AUDIT.md.",
-    "ops:term1": "node scripts/ops/showTerm1Status.js",
-    "ops:term2": "node scripts/ops/runTerm2Workflow.js",
-    "ops:continuity": "npm run --silent brain:continuity",
-    "ops:verify": "node scripts/ops/runAllVerifiers.js",
-    "ops:checkpoint": "node scripts/ops/runCheckpointSeal.js",
-    "ops:state": "node scripts/ops/showState.js",
-    "ops:nightly": "node scripts/ops/runNightlyReview.js"
+    "settlement:run": "node scripts/settlementRun.js"
   },
   "keywords": [],
   "author": "",
