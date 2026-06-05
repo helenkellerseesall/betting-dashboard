@@ -4,13 +4,13 @@
 
 This file is the canonical source of truth for runtime values that conversational summaries lose. If a fact appears in chat but contradicts this file, the file wins. Update this file when anything changes — never re-derive from memory.
 
-Last updated: 2026-05-31
+Last updated: 2026-06-05
 
 ## Directory layout — WATCH OUT
 
-- **Repo root:** `~/Desktop/betting-dashboard` (use for `git`, `.gitignore`, top-level docs)
-- **Backend root:** `~/Desktop/betting-dashboard/backend` (use for `npm`, `node`)
-- **`package.json` IS at `backend/`, NOT at repo root.** Running `npm run slate:nba` from the repo root errors with `ENOENT: package.json` and silently does nothing in chained commands. Always `cd ~/Desktop/betting-dashboard/backend` before any `npm run`. scheduler.sh and other automation cds there explicitly.
+- **Repo root:** `~/Projects/betting-dashboard` (use for `git`, `.gitignore`, top-level docs). CORRECTED 2026-06-05: the repo lives at `~/Projects/`, NOT `~/Desktop/` — every LaunchAgent plist, `scheduler.sh`, and autopilot log under `backend/scripts/autopilots/` references the `~/Projects/betting-dashboard` path. Older docs/memory that say `~/Desktop/betting-dashboard` are STALE; this path wins.
+- **Backend root:** `~/Projects/betting-dashboard/backend` (use for `npm`, `node`)
+- **`package.json` IS at `backend/`, NOT at repo root.** Running `npm run slate:nba` from the repo root errors with `ENOENT: package.json` and silently does nothing in chained commands. Always `cd ~/Projects/betting-dashboard/backend` before any `npm run`. scheduler.sh and other automation cds there explicitly.
 - Quick rule: **`git` commands → repo root. `npm`/`node` commands → backend root.**
 
 ## Backend

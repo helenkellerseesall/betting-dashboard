@@ -140,6 +140,17 @@ function _queryCorpus() {
   // ladder downshifts to family-wide or skips entirely.
   let rows = []
   try {
+    // NOTE (Phase Settlement-PredictionSource-1A, 2026-06-04): the book-agnostic
+    // column join (run_date|sport|player|stat_family|side|line, book dropped) is
+    // BUILT and pre-validated (would yield MLB n=57 vs 0 today) but is deliberately
+    // NOT live yet. Flipping it requires a LINE dimension first: the matched MLB
+    // corpus clusters at longshot lines (hits|over ~95% line-2.5, stated 0.394 vs
+    // realized 0.068), and this query + dampenModelProb are line-agnostic, so the
+    // floor-clamped multiplier would over-suppress the majority easy-line picks.
+    // The data plumbing (freezePredictionEpoch tracked_best source + column
+    // backfills) IS shipped so the corpus is correct/joinable/growing; the live
+    // read stays on the id-join until line-aware calibration lands. See
+    // project_mlb_calibration_frozen_may17.md + OPERATOR_SESSION_LOG.md.
     rows = db.prepare(`
       SELECT
         ps.sport          AS sport,

@@ -677,7 +677,13 @@ function normalizeCandidate(raw, opts = {}) {
     id:             predictionId(date, sportStr, player, statFamily, side, line, book),
     run_date:       date,
     sport:          sportStr,
-    player:         safeStr(player),
+    // Phase Settlement-PredictionSource-1A (2026-06-04): store NORMALIZED player
+    // (BEFORE: raw "Brandon Lowe"; NOW: "brandon lowe"). The book-agnostic
+    // calibration join matches prediction↔outcome on the player column, and
+    // outcome_snapshots stores the normalized id-component — both sides must use
+    // the same form (normPlayer strips diacritics, so a raw column would miss
+    // names like "Acuña"). Raw display name remains in raw_json + tracked_best.
+    player:         normPlayer(player) || safeStr(player),
     team:           safeStr(raw.team || raw.teamCode),
     event_id:       safeStr(raw.eventId),
     matchup:        safeStr(raw.matchup),
@@ -882,6 +888,22 @@ function recordOutcome(predId, outcome, opts = {}) {
     // delta_prob: positive = model was overconfident (predicted high, missed)
     const delta   = (modelP != null && hit != null) ? modelP - hit : null
 
+    // Phase Settlement-PredictionSource-1A (2026-06-04): recover the join columns
+    // from predId, which encodes date|sport|player|stat|side|line|book (already
+    // normalized). BEFORE: columns came from `pred?.X ?? null`, so a book-
+    // divergent / pre-fix predId that misses the prediction lookup left
+    // player/stat/side/line NULL (5,366/5,794 MLB graded rows). NOW: every
+    // settled row carries its normalized player/stat/side/line, so the book-
+    // agnostic column join (calibrationDampener) can match it. The id-component
+    // is authoritative (matches prediction_snapshots after Edit A normalizes it).
+    const _idp     = String(predId).split("|")
+    const _lnRaw   = _idp[5]
+    const _lnNum   = (_lnRaw != null && _lnRaw !== "" && Number.isFinite(parseFloat(_lnRaw))) ? parseFloat(_lnRaw) : null
+    const colPlayer = _idp[2] || pred?.player || null
+    const colStat   = _idp[3] || pred?.stat_family || null
+    const colSide   = _idp[4] || pred?.side || null
+    const colLine   = _lnNum != null ? _lnNum : (pred?.line ?? null)
+
     const stmt = db.prepare(`
       INSERT OR REPLACE INTO outcome_snapshots (
         id, run_date, sport, player, stat_family, side, line,
@@ -895,10 +917,10 @@ function recordOutcome(predId, outcome, opts = {}) {
       predId,
       safeStr(opts.date) ?? pred?.run_date ?? null,
       safeStr(opts.sport) ?? pred?.sport ?? null,
-      pred?.player ?? null,
-      pred?.stat_family ?? null,
-      pred?.side ?? null,
-      pred?.line ?? null,
+      colPlayer,
+      colStat,
+      colSide,
+      colLine,
       modelP,
       safeNum(pred?.implied_prob),
       safeNum(pred?.edge),

@@ -34,6 +34,26 @@
 const { tryGetDb }                = require("../../storage/db")
 const { applyIntelligenceSchema } = require("../../storage/intelligenceSchema")
 const intel                       = require("../../storage/intelligence")
+const fs                          = require("fs")
+const path                        = require("path")
+const TRACKING_DIR                = path.join(__dirname, "..", "..", "runtime", "tracking")
+
+// Phase Settlement-PredictionSource-1A (2026-06-04) — read the canonical
+// tracked_best file for a slate as prediction candidates. WHY: tracked_best is
+// the SAME per-slate-date source the settler reads when it writes
+// outcome_snapshots (tracked_bets), so a prediction snapshotted from it shares
+// the outcome's slate-date — and therefore the same predictionId — which is what
+// the calibration dampener joins on. Returns [] when the file is missing/empty so
+// the caller can fall back to whatever was passed.
+function trackedBestCandidates(sport, slateDate) {
+	try {
+		const fp = path.join(TRACKING_DIR, `${sport}_tracked_best_${slateDate}.json`)
+		const j  = JSON.parse(fs.readFileSync(fp, "utf8"))
+		return Array.isArray(j && j.entries) ? j.entries : (Array.isArray(j) ? j : [])
+	} catch (_) {
+		return []
+	}
+}
 
 // ── Schema init (idempotent) ─────────────────────────────────────────────────
 
@@ -212,8 +232,25 @@ function freezePredictionEpoch(args = {}) {
 			return out
 		}
 
-		const predictions = Array.isArray(args.predictions) ? args.predictions : []
-		const source      = safeStr(args.source) || "workstation_state"
+		// Phase Settlement-PredictionSource-1A (2026-06-04) — DATE-STAMP LINEAGE FIX.
+		//   BEFORE: snapshotted args.predictions (live workstation_state props),
+		//     stamped with TODAY's slateDate. The workstation holds props for older
+		//     games, so the SAME bet was re-snapshotted every day under a different
+		//     date (5 dup rows for one bet) AND its run_date drifted off the game's
+		//     real date — while the OUTCOME writer (recordOutcome) stamps the
+		//     tracked_bets FILE's slate-date. prediction.id (today) != outcome.id
+		//     (file slate-date) -> NO JOIN -> MLB calibration corpus frozen since
+		//     2026-05-17.
+		//   NOW: source from {sport}_tracked_best_{slateDate}.json — the SAME
+		//     per-slate-date source the settler reads — stamped with slateDate, so
+		//     prediction.id == outcome.id and the dampener join works again.
+		//     INSERT OR IGNORE dedups the daily re-snapshots (the dup-row pollution
+		//     stops as a side effect). Falls back to args.predictions when no
+		//     tracked_best file exists, preserving prior behavior.
+		const _tbCandidates  = trackedBestCandidates(sport, slateDate)
+		const predictions    = _tbCandidates.length > 0 ? _tbCandidates : (Array.isArray(args.predictions) ? args.predictions : [])
+		out.predictionSource = _tbCandidates.length > 0 ? "tracked_best" : "workstation_state"
+		const source         = safeStr(args.source) || out.predictionSource
 
 		const epochId = computeEpochId(args.snapshotUpdatedAt, sport, slateDate)
 		out.epochId = epochId

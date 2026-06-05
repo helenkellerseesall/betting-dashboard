@@ -1114,3 +1114,45 @@ Catch-up was incomplete (06-01 only 75/662). Three findings (`.scratch/audit_set
 
 **Fix #2 (task #16) REQUIRED before A2:** the 39 joinable rows come from a real-predId path; buildPostGameReview->recordOutcomes writes orphan constructed keys. Need: curated predictions' outcomes written with their prediction_snapshots.id so the dampener can read them (operator chose curated-picks-only). Read-only trace first.
 
+
+---
+
+## 2026-06-04 — Fix #2 Option 2 BUILT + pre-validated; HELD for line-bias (bet-affecting)
+
+Operator chose **Option 2** (book-agnostic column join, leave predictionId — tier-1
+preserved — untouched). Verbatim: "go option 2 — column-join, book-agnostic, leave
+predictionId untouched… KEEP the freezePredictionEpoch + backfill work… pre-validate
+the SAME way… show me the count BEFORE you commit. if it doesnt produce >39 MLB
+matches, hold the ship and tell me what broke."
+
+**ROOT CAUSE (confirmed):** the join id embeds `|book`. Curated picks = best line @
+one book; settled outcomes = many books → MLB ids never matched (book + line
+divergence). NBA survived (~26% coincidence). Book is irrelevant to whether a prop hit.
+
+**Built (uncommitted, working tree), all tagged Phase Settlement-PredictionSource-1A:**
+- freezePredictionEpoch.js — sources tracked_best, stamps FILE slate-date (was: live
+  workstation_state stamped "today"). + scripts/backfillPredictionSnapshots.js.
+- intelligence.js — normalizeCandidate stores NORMALIZED player col; recordOutcome
+  recovers player/stat/side/line from predId (was null on lookup-miss, 5366/5794 MLB).
+- scripts/backfillSnapshotColumns.js — re-derive join cols from id, both tables.
+- calibrationDampener.js _queryCorpus — book-agnostic join on
+  run_date|sport|player|stat_family|side|line, both sides deduped to one row/prop+line.
+
+**Pre-validation (read-only, no writes):** exact-SQL temp-DB sim → **MLB join n=57**
+(hits|over 44 >30 threshold, rbis 7, totalbases 6), NBA 585. **>39 bar cleared.**
+Join correctness: source hit values 100% consistent (1253/1253), matches same-bet.
+node --check all PASS; runtime:verify 12/12 PASS.
+
+**WHY HELD (bet-affecting — flagged, did NOT flip live):** matched MLB hits|over shows
+model **stated 0.394 vs realized 0.068** (severe overconfidence) BUT matched subset is
+~95% line-2.5 (longshot). Dampener API is line-agnostic (dampenModelProb(mp,sport,
+family,side) — no line). The floor-clamped 0.20 multiplier from over-2.5 longshots
+would apply to ALL hits picks — but curated hits|over picks are mostly over-1.5 (616)
+not 2.5 (417) → would over-suppress the majority easy-line picks. calibrationFeedback.js
+shares the same id-join (parallel consumer, also frozen).
+
+**FORK to operator (dampener NOT flipped live until decided):** (A RECOMMENDED) ship
+data-plumbing only now — corpus correct+joinable+growing, zero live pick-math change;
+design line-aware calibration next. (B) make dampener line-aware now (add line to
+grouping + thread through public API + call sites). (C) ship line-agnostic live (not
+recommended). Memory: project_mlb_calibration_frozen_may17.md updated.
