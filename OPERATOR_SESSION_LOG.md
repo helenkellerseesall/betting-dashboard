@@ -1426,3 +1426,37 @@ UNBLOCKED: Calibration-LineAware-1A (the MLB dampener un-freeze) is now the next
 has real per-pick variation (walks~bbRate, outs~IP/GS, runs~OBP, NBA turnovers~toRate, TB~park) instead of the
 constants we started with — so over ~7 days of grading the family-overconfidence YELLOW alerts on /status
 should begin moving as the calibration corpus picks up the new variation. Design-first before any code (#91).
+
+---
+
+## 2026-06-06 — Calibration-LineAware-1A · DESIGN approved + step 5.1 shipped
+
+Operator approved the design doc (docs/audits/2026-06-06-signal-inputs/calibration_lineaware_1a_design.md) with
+all three decisions baked: (1) lineMode defaults — exact for MLB hits/HR/RBI/TB/batterKs/pitcher_Ks, range:2 for
+NBA points/rebounds/assists/pra/threes, agnostic for moneyline/runline/spread/firstHR/specials; (2) thresholds —
+MIN_SAMPLE_LINE=25, MULTIPLIER_FLOOR raised 0.20→0.40 (per-line buckets are thinner; softer floor protects real
+picks from thin-bucket noise; documented tunable); (3) calibrationFeedback stays line-AGNOSTIC in 1A, switch its
+join to book-agnostic (separate bisectable commit after 5.2), line-awareness deferred to post-data-watch.
+
+### Step 5.1 — PARALLEL line-aware corpus (additive; NOT consumed)
+calibrationDampener.js: added _queryCorpusLineAware (book-agnostic column join — dedupe both sides to one row per
+run_date|sport|player|stat_family|side|line BEFORE joining, null-safe IS on player/side/line — + line in the
+GROUP BY), _LINE_MODE config + _lineModeFor/_lineBucketKey helpers, MIN_SAMPLE_LINE/MULTIPLIER_FLOOR_LINEAWARE/
+RANGE_BUCKET_WIDTH/DEFAULT_LINE_MODE consts, a separate _cacheLineAware, and getLineAwareSnapshot(). The live
+dampening path (getCalibrationForFamily / dampenModelProb / _load / _queryCorpus) is TEXTUALLY UNCHANGED, so
+dampening output is identical until 5.2 wires the line dimension in. Trap 1 (num(null)=0): _lineBucketKey guards
+`line == null` BEFORE Number() so a line-less marker maps to "_noline", never line 0.
+
+CORRECTION (honesty): the code NOTE + prior memory said the MLB id-join was "frozen at 0". That predates Step-1
+fix #2 (40121d7) — the consumed id-join MLB is now 430 rows, NOT 0. So this phase is NOT an un-freeze-from-zero;
+the book-agnostic join's gain is modest (446 vs 430 = +16 book-mismatch rows recovered + dedups multi-book
+duplicates into distinct events). The REAL payoff is per-line bucketing that prevents the longshot over-suppression.
+
+Verified (sandbox, real 797MB DB, read-only + real exported fns): probe .scratch/probe_calib_corpus.txt PASS —
+book-agnostic corpus 799 rows (mlb 446 / nba 353), 123 distinct (sport,fam,side,lineBucket) buckets, 6 qualify at
+n>=25 (mlb totalbases|under|1.5 n=116 mult .928, runs|under|0.5 n=82 .854, hits|under|0.5 n=80 .909, hits|under|
+1.5 n=29 .618, nba threes|over|0-2 n=29 floor .400, mlb outs|over|15.5 n=25 .637). MLB hits|over per-line: 0.5
+n=7 (28.6% real) / 2.5 n=12 (8.3% real) — both thin → no-dampen in 5.2 (safe). Consumed-path-unchanged: c1 no
+.lines leak / c2 dampenModelProb uses id-join mult / c3 line arg inert — all PASS. runtime:verify 13/13 PASS
+(incl. verifyCalibrationHonesty). NEXT: operator reviews 5.1 bucket snapshot before 5.2 (wire line into
+getCalibrationForFamily/dampenModelProb + the fallback ladder + applyCalibrationDampener passes pick.line).

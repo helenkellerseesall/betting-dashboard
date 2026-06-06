@@ -76,9 +76,25 @@ const MULTIPLIER_CEILING  = 1.10
 const MIN_BADGE_GAP_PP    = 5
 const CACHE_TTL_MS        = 5 * 60 * 1000  // 5 min — corpus only grows after grading runs
 
+// ── Phase Calibration-LineAware-1A (2026-06-06) — line-aware corpus tunables ──
+// These feed the PARALLEL line-aware corpus (_queryCorpusLineAware) ONLY. Step 5.1
+// builds + surfaces that corpus but does NOT consume it — the live dampening path
+// (getCalibrationForFamily / dampenModelProb) still reads the id-join corpus, so
+// dampening output is byte-identical until step 5.2 wires the line dimension in.
+const MIN_SAMPLE_LINE            = 25    // per-(sport,family,side,lineBucket) min n to qualify (operator-approved)
+const MULTIPLIER_FLOOR_LINEAWARE = 0.40  // raised from 0.20 (operator-approved): per-line buckets are thinner, a
+                                         // softer floor protects real picks from thin-bucket noise. TUNABLE.
+const RANGE_BUCKET_WIDTH         = 2     // NBA continuous families bucket lines into windows of this width
+const DEFAULT_LINE_MODE          = "exact"  // unknown families → exact (never pool → never re-introduce line-bias)
+
 let _cache       = null     // { sports: { nba: {...}, mlb: {...} } }
 let _loadedAt    = 0
 let _lastError   = null
+
+// Phase Calibration-LineAware-1A — PARALLEL line-aware cache (separate from _cache;
+// not consumed by dampening until step 5.2).
+let _cacheLineAware    = null
+let _loadedAtLineAware = 0
 
 // ── Family aliases ──────────────────────────────────────────────────────────
 // tracked_bets and tracked_best disagree on a few labels. Resolve through this
@@ -106,6 +122,43 @@ const _ALIASES = {
 }
 
 function _norm(s) { return String(s || "").toLowerCase().trim() }
+
+// ── Line-mode per family (Phase Calibration-LineAware-1A) ────────────────────
+// How the line dimension is bucketed in the PARALLEL line-aware corpus.
+// Operator-approved 2026-06-06:
+//   exact     — each prop line is a distinct difficulty; never pool (MLB rungs).
+//   range     — nearby lines behave alike; bucket into RANGE_BUCKET_WIDTH windows (NBA continuous).
+//   agnostic  — no meaningful numeric line (moneyline / runline / spread / firstHR / yes-no specials).
+// Families not listed default to DEFAULT_LINE_MODE ("exact"), the conservative
+// choice: exact never pools, so it can never re-introduce the longshot line-bias
+// that froze MLB. Only families that DIFFER from the default must be listed; the
+// exact MLB rungs are listed anyway for documentation.
+const _LINE_MODE = {
+  // NBA continuous — range buckets (width 2)
+  points:                  "range",
+  rebounds:                "range",
+  assists:                 "range",
+  pra:                     "range",
+  points_rebounds_assists: "range",
+  pointsreboundsassists:   "range",
+  threes:                  "range",
+  threepointers:           "range",
+  // line-agnostic markers — no numeric line dimension
+  moneyline:               "agnostic",
+  runline:                 "agnostic",
+  spread:                  "agnostic",
+  firsthr:                 "agnostic",
+  firsthomerun:            "agnostic",
+  // MLB rungs — exact (covered by the default; listed for documentation)
+  hits:                    "exact",
+  hr:                      "exact",
+  home_runs:               "exact",
+  rbis:                    "exact",
+  totalbases:              "exact",
+  total_bases:             "exact",
+  batter_strikeouts:       "exact",
+  strikeouts:              "exact",
+}
 
 function _clampMultiplier(m) {
   if (!Number.isFinite(m)) return 1
@@ -239,7 +292,172 @@ function _load() {
   return _cache
 }
 
-function reload() { _cache = null; _loadedAt = 0 }
+// ── Phase Calibration-LineAware-1A — PARALLEL line-aware corpus (NOT consumed) ──
+// Book-agnostic COLUMN join (the held work from Phase Settlement-PredictionSource-1A)
+// PLUS a line dimension in the GROUP BY. Built + surfaced by step 5.1 (getLineAware-
+// Snapshot) for inspection; WIRED INTO dampening in step 5.2. Until then the live
+// path (getCalibrationForFamily / dampenModelProb / _load) is unchanged, so dampening
+// output is identical. predictionId untouched — this joins raw columns, not the id.
+
+function _clampMultiplierLineAware(m) {
+  if (!Number.isFinite(m)) return 1
+  return Math.max(MULTIPLIER_FLOOR_LINEAWARE, Math.min(MULTIPLIER_CEILING, m))
+}
+
+function _multiplierFromBucketLineAware(b) {
+  if (!b || !Number.isFinite(b.stated) || !Number.isFinite(b.realized) || b.stated <= 0) return 1
+  return _clampMultiplierLineAware(b.realized / b.stated)
+}
+
+function _lineModeFor(fam) {
+  const n = _norm(fam)
+  if (_LINE_MODE[n]) return _LINE_MODE[n]
+  for (const a of _famNames(fam)) {        // alias-resolve (e.g. total_bases → totalbases)
+    if (_LINE_MODE[a]) return _LINE_MODE[a]
+  }
+  return DEFAULT_LINE_MODE
+}
+
+// Map a raw corpus line value to its bucket key under the family's line mode.
+// Trap 1 (num(null)=0, project-pick-origin-architecture): Number(null) === 0 and
+// Number.isFinite(0) === true, so a null/absent line MUST be caught by an explicit
+// `== null` check BEFORE Number(), or a line-less marker would mis-bucket as line 0.
+function _lineBucketKey(mode, line) {
+  if (line == null) return "_noline"
+  const L = Number(line)
+  if (!Number.isFinite(L)) return "_noline"
+  if (mode === "agnostic") return "_noline"
+  if (mode === "range") {
+    const idx = Math.floor(L / RANGE_BUCKET_WIDTH)
+    const lo  = idx * RANGE_BUCKET_WIDTH
+    return `${lo}-${lo + RANGE_BUCKET_WIDTH}`
+  }
+  return String(L)   // exact
+}
+
+function _queryCorpusLineAware() {
+  const { tryGetDb } = require(path.join(__dirname, "..", "..", "storage", "db"))
+  const db = tryGetDb()
+  if (!db) {
+    return { sports: {}, generatedAt: new Date().toISOString(), totalRows: 0, joinedRows: 0, error: "sqlite-unavailable" }
+  }
+
+  let rows = []
+  try {
+    // Book-agnostic column join: dedupe BOTH sides to one row per
+    // (run_date, sport, player, stat_family, side, line) BEFORE joining, so
+    // multiple per-book rows don't fan out. Null-safe `IS` on the nullable
+    // columns (player / side / line) so line-less markers (line NULL) still join.
+    rows = db.prepare(`
+      WITH preds AS (
+        SELECT run_date, sport, player, stat_family, side, line,
+               AVG(model_prob) AS model_prob
+        FROM prediction_snapshots
+        WHERE sport IS NOT NULL AND stat_family IS NOT NULL
+        GROUP BY run_date, sport, player, stat_family, side, line
+      ),
+      outs AS (
+        SELECT run_date, sport, player, stat_family, side, line,
+               MAX(hit) AS hit
+        FROM outcome_snapshots
+        WHERE hit IS NOT NULL
+        GROUP BY run_date, sport, player, stat_family, side, line
+      )
+      SELECT p.sport AS sport, p.stat_family AS stat_family, p.side AS side, p.line AS line,
+             COUNT(*) AS n, AVG(p.model_prob) AS stated, AVG(o.hit) AS realized
+      FROM outs o
+      JOIN preds p
+        ON  p.run_date    =  o.run_date
+        AND p.sport       =  o.sport
+        AND p.stat_family =  o.stat_family
+        AND p.player      IS o.player
+        AND p.side        IS o.side
+        AND p.line        IS o.line
+      GROUP BY p.sport, p.stat_family, p.side, p.line
+    `).all()
+  } catch (e) {
+    return { sports: {}, generatedAt: new Date().toISOString(), totalRows: 0, joinedRows: 0, error: `query-failed: ${e.message}` }
+  }
+
+  // Bucketize: sports[sport][family][side] = { lineMode, lines: { <key>: bucket }, _allLines }
+  // A range mode can map several raw corpus lines into one key → weighted-merge.
+  const sports = {}
+  let totalRows = 0
+  for (const r of rows) {
+    const sport = _norm(r.sport)
+    const fam   = _norm(r.stat_family)
+    const side  = _norm(r.side) || "unknown"
+    if (!sport || !fam) continue
+    const mode     = _lineModeFor(fam)
+    const lineKey  = _lineBucketKey(mode, r.line)
+    const n        = Number(r.n) || 0
+    const stated   = Number.isFinite(Number(r.stated))   ? Number(r.stated)   : 0
+    const realized = Number.isFinite(Number(r.realized)) ? Number(r.realized) : 0
+    if (!sports[sport]) sports[sport] = {}
+    if (!sports[sport][fam]) sports[sport][fam] = {}
+    if (!sports[sport][fam][side]) sports[sport][fam][side] = { lineMode: mode, lines: {} }
+    const lines = sports[sport][fam][side].lines
+    const prev  = lines[lineKey]
+    if (!prev) {
+      lines[lineKey] = { lineKey, n, stated, realized }
+    } else {
+      const tot = prev.n + n
+      prev.stated   = tot > 0 ? (prev.stated   * prev.n + stated   * n) / tot : 0
+      prev.realized = tot > 0 ? (prev.realized * prev.n + realized * n) / tot : 0
+      prev.n        = tot
+    }
+    totalRows += n
+  }
+
+  // Finalize per-bucket multipliers + synthesize the per-(family,side) _allLines
+  // aggregate (used by the line-HOMOGENEOUS fallback in step 5.2; surfaced now).
+  for (const sport of Object.keys(sports)) {
+    for (const fam of Object.keys(sports[sport])) {
+      for (const side of Object.keys(sports[sport][fam])) {
+        const famSide = sports[sport][fam][side]
+        let an = 0, as = 0, ar = 0
+        for (const lk of Object.keys(famSide.lines)) {
+          const b = famSide.lines[lk]
+          b.multiplier = _multiplierFromBucketLineAware(b)
+          b.gapPp      = _gapPpFromBucket(b)
+          b.qualifies  = b.n >= MIN_SAMPLE_LINE
+          an += b.n; as += b.stated * b.n; ar += b.realized * b.n
+        }
+        const all = { n: an, stated: an > 0 ? as / an : 0, realized: an > 0 ? ar / an : 0 }
+        all.multiplier = _multiplierFromBucketLineAware(all)
+        all.gapPp      = _gapPpFromBucket(all)
+        famSide._allLines = all
+      }
+    }
+  }
+
+  return {
+    sports,
+    generatedAt: new Date().toISOString(),
+    totalRows,
+    joinedRows: totalRows,
+    minSampleLine:            MIN_SAMPLE_LINE,
+    multiplierFloorLineAware: MULTIPLIER_FLOOR_LINEAWARE,
+    multiplierCeiling:        MULTIPLIER_CEILING,
+    rangeBucketWidth:         RANGE_BUCKET_WIDTH,
+    error: null,
+  }
+}
+
+function _loadLineAware() {
+  const now = Date.now()
+  if (_cacheLineAware && (now - _loadedAtLineAware) < CACHE_TTL_MS) return _cacheLineAware
+  _cacheLineAware = _queryCorpusLineAware()
+  _loadedAtLineAware = now
+  return _cacheLineAware
+}
+
+function getLineAwareSnapshot() { return _loadLineAware() }
+
+function reload() {
+  _cache = null; _loadedAt = 0
+  _cacheLineAware = null; _loadedAtLineAware = 0
+}
 
 function _famNames(fam) {
   const n = _norm(fam)
@@ -344,11 +562,14 @@ module.exports = {
   getCalibrationForFamily,
   shouldShowCalibrationBadge,
   getCalibrationSnapshot,
+  getLineAwareSnapshot,   // Phase Calibration-LineAware-1A (parallel corpus; not consumed until 5.2)
   getLastError,
   applyCalibrationDampener,
   reload,
   // exported for tests/diagnostics
   _famNames,
+  _lineModeFor,
+  _lineBucketKey,
   _constants: {
     MIN_SAMPLE_SIDE,
     MIN_SAMPLE_FAMILY,
@@ -356,6 +577,10 @@ module.exports = {
     MULTIPLIER_CEILING,
     MIN_BADGE_GAP_PP,
     CACHE_TTL_MS,
+    MIN_SAMPLE_LINE,
+    MULTIPLIER_FLOOR_LINEAWARE,
+    RANGE_BUCKET_WIDTH,
+    DEFAULT_LINE_MODE,
   },
 }
 
