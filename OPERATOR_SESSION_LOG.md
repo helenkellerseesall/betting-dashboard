@@ -1374,3 +1374,25 @@ in the fence so a real sibling drift auto-stops before committing. runtime:verif
 
 NEXT: FIX 7a (park kFactor -> MLB Ks), 7b (park doublesFactor -> MLB TB), 7c (pitcher rest -> outs/Ks) —
 all ungated, already-cached park-factor/restDays data. Brings the wave to 6 of 7 effective 1A fixes.
+
+---
+
+## 2026-06-06 — Signal-Fill-1A FIX 7b (park doublesFactor → MLB TB) SHIPPED · commit 4bf124f
+
+MLB total-bases extra-base rungs now scale by the home park's doubles factor. Files:
+buildMlbHitsProbabilityEngine.js (obj-write: obj.doublesFactor from parkFactors[homeTeam.toLowerCase()],
+set-guard finite>0) + buildMlbPlayerDataset.js (TB combiner: tb2/tb3 *= clamp(0.90,1.10,doublesFactor),
+read-guard Number.isFinite && >0; tb4 left unscaled = HR-driven). Coverage 100% (108/108 curated batter
+picks resolve a park; mlbParkFactors has all 30 parks with finite doublesFactor).
+Verified (held hit profile, real park values):
+  tb2 baseline 0.252000 -> Braves(1.05) 0.264600 (+5%), Coors(1.2 clamp 1.10) 0.277200 (+10%),
+  Petco(0.94) 0.236880 (-6%); neutral df=1.0 AND uncached both 0.252000 (Trap 1 guard ok).
+  Sibling-neutrality: hits/rbis/runs IDENTICAL with vs without doublesFactor (TB-scoped, no leak).
+runtime:verify 13/13; consumers load OK. Regression gate ran PRE-commit in the fence.
+Bettor-visible: tonight's 108 curated TB picks shift per park — hitter parks (Coors/Fenway) up to +10%
+on the 2+/3+ TB rungs, pitcher parks (Petco) down ~6%, neutral unchanged.
+
+COUNT: 5 of 6 effective 1A fixes SHIPPED (walks, outs, runs OBP, turnovers, TB doublesFactor). NEXT and
+LAST: FIX 7a (park kFactor → MLB Ks) — engine correctness, 100% coverage, 0 curated Ks picks tonight so
+no bettor-visible delta tonight. After 7a: Signal-Fill-1A COMPLETE → Calibration-LineAware-1A (#91/#91)
+unblocks. (Deferred to 1B/#94: batterKs, HR/9, FIX 7c pitcher restDays — all populator/cache prereqs.)
