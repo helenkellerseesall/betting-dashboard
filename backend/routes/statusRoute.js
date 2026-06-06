@@ -38,6 +38,7 @@ const fs = require("fs")
 const path = require("path")
 const { execSync, spawnSync } = require("child_process")
 const { currentSlateDateEt, slateDateForTimestamp, calendarDateEt, calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
+const slateEvidence = require("../pipeline/shared/slateGamesEvidence")  // Phase Status-CLV-Display-Honesty-1A
 
 const router = express.Router()
 
@@ -382,11 +383,14 @@ function sectionClvCaptureToday() {
       : []
     for (const sport of sports) {
       const file = path.join(TRACKING_DIR, `${sport}_tracked_bets_${dateKey}.json`)
-      if (!fs.existsSync(file)) {
-        results[sport] = { tipped: 0, stamped: 0, rate: null, hasFile: false, gamesToday: 0, nextGameAt: null, nextGameLabel: null }
-        continue
-      }
-      const j = safeReadJson(file)
+      // Phase Status-CLV-Display-Honesty-1A (2026-06-05) — do NOT early-return on a
+      // missing/empty tracked_bets file. tracked_bets is written late and Layer-1-
+      // filtered to empty as games age, so its absence is a BROKEN "no games" signal
+      // (it produced a fake "no games today" on 2026-06-05 — a full slate). Always
+      // fall through to the durable ledger loop + the curation-independent snapshot,
+      // then classify the slate state (off_day / curation_gap / normal).
+      const hasFile = fs.existsSync(file)
+      const j = hasFile ? safeReadJson(file) : null
       const arr = Array.isArray(j) ? j : (j?.entries || j?.bets || [])
       const now = Date.now()
       // "tipped" = gameTime <= now (already in progress or finished)
@@ -472,11 +476,18 @@ function sectionClvCaptureToday() {
       // played and aged out) → INCLUDE (assume slate-date past game).
       let gamesPlayedToday = 0
       let gamesCloseStamped = 0
+      // Phase Status-CLV-Display-Honesty-1A (2026-06-05) — gamesFinal = games
+      // GRADED (ledger result != "pending"), slate-scoped. Distinct from
+      // gamesCloseStamped, which is the closing LINE captured at tipoff (CLV
+      // input, pre-final). The card previously showed capture as if it were
+      // completion ("8/9 close-stamped" when only 3/9 had finished).
+      let gamesFinal = 0
       let captureRate = null
       let gamesFutureExcluded = 0
       if (ledgerEntries.length > 0) {
         const events = new Set()
         const eventsCloseStamped = new Set()
+        const eventsFinal = new Set()
         const futureExcluded = new Set()
         for (const e of ledgerEntries) {
           if (String(e.sport || "").toLowerCase() !== sport) continue
@@ -492,20 +503,47 @@ function sectionClvCaptureToday() {
           if (e.clvSnapshot && e.clvSnapshot.close && e.clvSnapshot.close.odds != null) {
             eventsCloseStamped.add(e.eventId)
           }
+          // Phase Status-CLV-Display-Honesty-1A — graded/final signal, scoped by
+          // the same `e.date === dateKey` filter above (= today's slate only).
+          // result domain is pending|win|loss (allow push/void). settledAt is
+          // UNRELIABLE (mostly null even when graded) so we key on result only.
+          const res = String(e.result || "").toLowerCase()
+          if (res && res !== "pending") eventsFinal.add(e.eventId)
         }
         gamesPlayedToday = events.size
         gamesCloseStamped = eventsCloseStamped.size
+        gamesFinal = eventsFinal.size
         gamesFutureExcluded = futureExcluded.size
         captureRate = events.size > 0
           ? Math.round((eventsCloseStamped.size / events.size) * 1000) / 10
           : null
       }
 
+      // Phase Status-CLV-Display-Honesty-1A — three-state classification from a UNION
+      // of evidence. gamesScheduledLive is the curation-INDEPENDENT snapshot signal
+      // (rolls forward, so 0 for a past/rolled slate — that is why the ledger union
+      // matters). trackedBestEntries is the durable curated-picks signal. state ∈
+      // { off_day, curation_gap, normal } via the shared classifier (same one the
+      // verifySlateGamesControl gate tests every commit).
+      const _snap = slateEvidence.countSnapshotEventsForSlate(sport, dateKey)
+      const gamesScheduledLive   = _snap.total
+      const gamesScheduledTipped = _snap.tipped
+      const trackedBestEntries = slateEvidence.countTrackedBestEntries(sport, dateKey)
+      const state = slateEvidence.classifySlateState({
+        snapshotEvents:     gamesScheduledLive,
+        ledgerEvents:       gamesPlayedToday,
+        trackedBestEntries,
+      })
+
       results[sport] = {
         tipped: tipped.length,
         stamped: stamped.length,
         rate,
-        hasFile: true,
+        hasFile,
+        state,                               // off_day | curation_gap | normal
+        gamesScheduledLive,                  // curation-independent snapshot count for slate-date
+        gamesScheduledTipped,                // subset already tipped (gates the curation-gap alert)
+        trackedBestEntries,                  // durable curated-picks count
         gamesToday,
         nextGameAt: nextGameAt ? new Date(nextGameAt).toISOString() : null,
         nextGameLabel,
@@ -516,7 +554,9 @@ function sectionClvCaptureToday() {
         // their gameTime is on a different ET calendar day than slate-date
         // (e.g. Wed games pre-picked under Tue's slate). Surface for transparency.
         gamesPlayedToday,
+        gamesOnSlate: gamesPlayedToday,   // honest denominator label for the FE (games picked on slate)
         gamesCloseStamped,
+        gamesFinal,                        // graded count (result != pending), slate-scoped
         captureRate,
         gamesFutureExcluded,
         // Phase Status-Overhaul-1C-fix4 (2026-06-03) — CALENDAR-DAY view fields
@@ -1024,7 +1064,21 @@ function sectionOpenIssues() {
     if (clv && clv.ok) {
       for (const sport of ["nba", "mlb"]) {
         const s = clv.perSport?.[sport]
-        if (!s || !s.hasFile) continue
+        if (!s) continue
+        // Phase Status-CLV-Display-Honesty-1A — curation gap = games scheduled (the
+        // curation-independent snapshot shows games) but no curated picks captured.
+        // YELLOW (warning): the bettor should know picks are missing, but it is not an
+        // outage — a total capture/curation failure stays RED on the autopilot-fires +
+        // LaunchAgent surfaces. Fires regardless of hasFile (tracked_bets may be absent).
+        if (s.state === "curation_gap" && (s.gamesScheduledTipped || 0) > 0) {
+          yellow.push({
+            source: "clv_capture",
+            category: "infra",
+            title: `${sport.toUpperCase()} curation gap — ${s.gamesScheduledLive} games scheduled, no curated picks captured`,
+            detail: `The odds snapshot shows ${s.gamesScheduledLive} ${sport.toUpperCase()} game(s) on this slate (${s.gamesScheduledTipped} already tipped) but tracked_best + ledger are both empty. Curation likely did not produce picks — check the slate:${sport} autopilot. Warning class, not an outage.`,
+          })
+        }
+        if (!s.hasFile) continue
         // No-games-aware: skip if no games today OR no picks tipped yet
         if (s.gamesToday === 0) continue
         if (s.tipped === 0) continue
@@ -1034,15 +1088,15 @@ function sectionOpenIssues() {
           red.push({
             source: "clv_capture",
             category: "infra",
-            title: `${sport.toUpperCase()} CLV capture broken — only ${rate}% of tipped picks stamped`,
-            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have closeOdds stamped (threshold 30%). Capture loop may be missing snapshot matches or backend was down through tipoff windows.`,
+            title: `${sport.toUpperCase()} CLV capture broken — only ${rate}% of tipped picks have a closing line captured`,
+            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have a closing line captured (threshold 30%). This is CLV-capture health, not game grading. Capture loop may be missing snapshot matches or backend was down through tipoff windows.`,
           })
         } else if (rate < 70) {
           yellow.push({
             source: "clv_capture",
             category: "infra",
-            title: `${sport.toUpperCase()} CLV capture degraded — ${rate}% capture rate`,
-            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have closeOdds stamped (healthy ≥70%). Could indicate market-key drift between open and close, or snapshot stale at close window.`,
+            title: `${sport.toUpperCase()} CLV capture degraded — ${rate}% closing-line capture rate`,
+            detail: `${s.stamped} of ${s.tipped} tipped ${sport.toUpperCase()} picks have a closing line captured (healthy ≥70%). This is CLV-capture health, not game grading. Could indicate market-key drift between open and close, or snapshot stale at close window.`,
           })
         }
       }

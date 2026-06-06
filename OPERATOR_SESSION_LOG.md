@@ -1156,3 +1156,86 @@ data-plumbing only now — corpus correct+joinable+growing, zero live pick-math 
 design line-aware calibration next. (B) make dampener line-aware now (add line to
 grouping + thread through public API + call sites). (C) ship line-agnostic live (not
 recommended). Memory: project_mlb_calibration_frozen_may17.md updated.
+
+---
+
+## 2026-06-05 — Option A plumbing SHIPPED + verified (commit 40121d7)
+
+Operator chose "Ship plumbing, design line-aware next." Fence ran clean. Verified:
+- Column backfill WROTE: prediction_snapshots 3443 rows (player raw->normalized),
+  outcome_snapshots 4561 rows updated. Outcome join-columns now FULLY populated:
+  mlb player-null 4064->0, nba ->0. The orphan-null bug is fixed.
+- ZERO live change confirmed: live id-join MLB still n=428 newest=2026-05-17
+  (frozen, unchanged); dampener loads 7 MLB families, lastError=null,
+  dampenModelProb(0.5,mlb,hits,over)=0.409 (produces value, no throw).
+- No downstream break: runtime:verify 12/12 PASS; calibrationStatus exit 0;
+  calibrationFeedback loads OK. Git tree clean.
+- Plumbing sound: controlled book-agnostic sim (tracked_best vs NOW-populated
+  outcomes) still = MLB 57 / NBA 855. So once the deferred predictions:backfill
+  runs (line-aware step), the book-agnostic join delivers the un-freeze.
+- Live readiness probe section 2 (mlb 429) barely exceeds section 3 (428) — EXPECTED:
+  predictions:backfill was deferred, so correct-date curated predictions aren't in
+  yet; the uplift to 57 needs them (confirmed by the controlled sim). Not a bug.
+- RUNTIME_FACTS path corrected Desktop->Projects (live plists confirm Projects).
+
+Task #16 (joinability plumbing) DONE. Task #17 = line-aware calibration (the real
+live un-freeze) is next: thread `line` through dampener grouping + dampenModelProb
++ call sites; then flip _queryCorpus book-agnostic + run predictions:backfill; fix
+calibrationFeedback.js (same join); decide curated-only vs all corpus.
+
+---
+
+## 2026-06-05 — Phase Status-CLV-Display-Honesty-1A built + verified (pre-commit)
+
+CLV card said "8/9 close-stamped" when only 3/9 finished. ROOT CAUSE (confirmed):
+card showed closing-LINE-capture (closeOdds set at tipoff, 3h-pre to 30min-post,
+pre-final) as if it were completion; no final/graded field was read anywhere.
+Real graded signal EXISTS unused: ledger `result != "pending"` (settledAt is
+unreliable — mostly null even when graded).
+
+Operator decision: two honest numbers (final + closing-lines-captured). Two
+clarifications baked in: (1) gamesFinal slate-scoped via the existing
+`e.date===dateKey` loop; (2) no-games-today path preserved for BOTH numbers.
+
+Built: statusRoute.js (gamesFinal + gamesOnSlate alias + health-gate reword),
+status/index.html (headline big=final fraction neutral, sub + per-sport + summary
+show "X/Y final · A/B closing lines captured"; no-games ladders intact).
+Verified pre-commit: REAL function on current (no-games) slate -> "no games this
+slate"; loop replicated on 2026-06-03 -> MLB 6 final vs 15 captured (the bug, now
+distinct); FE formatter populated -> "3/9 final · 8/9 closing lines captured";
+new Function() syntax VALID; runtime:verify 12/12. Findings + verification in
+.scratch/audit_status_clv_display_honesty.md. Display-only; zero bet/grading logic
+touched. Next after ship: Phase Calibration-LineAware-1A (design first).
+
+---
+
+## 2026-06-05 — CLV no-games MISCLASSIFICATION caught + three-state rebuild (pre-commit)
+
+Operator HALTED the two-state ship: I claimed 6/5 was a no-games slate. WRONG — 6/5
+had NBA Finals G2 + ~15 MLB games. Root cause: sectionClvCaptureToday EARLY-RETURNED
+"no games" when the tracked_bets file was absent, skipping the durable ledger; and
+tracked_bets is a broken signal (written late + Layer-1-aged to "[]"). My probe hit the
+timing window. Curation did NOT fail (tracked_best/picks/ledger all present 6/5) — so
+no separate curation phase; logged Autopilot-Logging-Visibility-1A separately (task #19).
+
+Rebuilt as THREE-STATE (Option A, union-of-evidence, no new infra):
+- NEW pipeline/shared/slateGamesEvidence.js — single source of truth: countSnapshot
+  EventsForSlate (curation-independent, {total,tipped}), countTrackedBestEntries,
+  classifySlateState (off_day | curation_gap | normal), assertCardHonest (the guard).
+- statusRoute.js — killed the early-return (always consult ledger + snapshot), added
+  state/gamesScheduledLive/gamesScheduledTipped/trackedBestEntries; curation_gap YELLOW
+  alert gated on tipped>0 (so 4AM-9AM pre-curation does NOT false-alarm; real failure does).
+- FE — three-state render in all 3 surfaces (headline, per-sport, summary). Never infers
+  "no games" from a file.
+- NEW scripts/verifySlateGamesControl.js wired into runtime:verify SUITES (13 now) —
+  permanent gate. Self-test proves the guard FIRES on a synthetic lie (anti-fake-green);
+  --demo-fail injects a real lie → exit 1.
+
+Snapshot paths CONFIRMED on disk: NBA=snapshot.json (NOT snapshot-nba.json), MLB=snapshot-mlb.json.
+
+Verified pre-commit: node --check all; runtime:verify 13/13; control --demo-fail EXIT 1
+catching the exact 6/5 lie ("card=off_day but sources show games ledger=1 trackedBest=295");
+live card now = NORMAL on 6/5 (NBA 0/1 final·1/1 captured, MLB 0/15·15/15); all three
+states render on REAL data (6/6 MLB=curation_gap 15 scheduled/0 picks/tipped=0→no alert;
+6/6 NBA=off_day; 6/5=normal); FE new Function() syntax VALID. Findings:
+.scratch/audit_clv_nogames_misclassification.md.

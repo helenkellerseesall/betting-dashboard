@@ -50,6 +50,7 @@ const SUITES = [
   "verifyOrphanAuthorityHardening",
   "verifyResponseAuthority",
   "verifySnapshotFreshness",
+  "verifySlateGamesControl",   // Phase Status-CLV-Display-Honesty-1A — /status never lies "no games" while games happened
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
