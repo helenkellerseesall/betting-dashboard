@@ -1293,3 +1293,34 @@ buildMlbPitcherCandidates is a display/side path reading mlbSnapshot.rows (not t
 entry), so an ENTRY-ONLY ipExpected add is safe + zero blast radius. FIX 2 refined to a 1-FILE
 change (projectPitcherStats:241 already reads pitcherObj.ipExpected; just add it to the Ks entry).
 Awaiting operator approval of the FIX 2 build plan.
+
+---
+
+## 2026-06-06 — Signal-Fill-1A FIX 2 (outs) SHIPPED + FIX 3 (batterKs) BUMPED to 1B
+
+FIX 2 (outs) shipped — commit 302acf9. Files:
+buildMlbPitcherKsProbabilityEngine.js (ipExpected = clamp[2,7.5] of IP/GS on the topPitchers entry) +
+buildMlbPlayerDataset.js (outsMedian guard `ipExpected > 0`, else 17). Verified probe spread 10.8:
+  BEFORE: outs = 17 for every pitcher.
+  AFTER:  Imai 3.9 IP/start=11.7, Montero 5.5=16.5, Ben Brown (9.5 raw clamped 7.5)=22.5, uncached=17.
+Two pre-ship catches (now in [[project-pick-origin-architecture]] Common traps): num(null)=0 collapse
+(needed the >0 guard), and IP/GS swingman overstatement (relief IP / starts → clamp[2,7.5]).
+FUTURE-REFINEMENT (Signal-Fill-1B+ candidate): the 7.5 IP/start clamp is a pragmatic short-term cap.
+Proper fix = starter-only innings if statsapi exposes IP-from-starts separately. Not done; logged so
+future-us knows we're not finished on outs precision.
+
+FIX 3 (batterKs) — BUMPED TO 1B. Coverage probe (.scratch/probe_fix3_batterKs_coverage.txt): slate-wide
+17.4%, curated picks 7.9% — below the 30% bar. Bottleneck is NOT opposing-pitcher resolution (88%
+resolved) — it's the PITCHER-STATS CACHE: mlbPitcherStats.json holds only ~29 pitchers (the ones with Ks
+props), but tonight's batters face ~96 distinct opposing starters, so 77 aren't cached → no kRate.
+1B PREREQUISITE = expand mlbPitcherStats.json to cover ALL slate starters (not just Ks-prop pitchers).
+FIELD CORRECTION for the 1B build: FIX 3 must read row.pitcherEnvironmentContext.kRate (the opposing
+pitcher's kRate on a batter row, set by deriveMlbPitcherEnvironmentContext from row.opposingPitcher) —
+NOT row.pitcherStats.kRate, which applyMlbContextualLayers sets ONLY for pitcher-market rows (own stats).
+FORMULA validated + ready (.scratch/probe_fix3_batterKs_formula.txt): old (oppKper9/9)*4.2 clamps to 2.0
+for every realistic K/9 (degenerate); new 4.1*kRate gives 0.74-1.23 over kRate 0.18-0.30; clamp [0.3,1.8]
+is an outside-the-realistic-band safety net.
+
+NEXT (operator-directed): skip to FIX 5 (runs OBP — ungated own batter stat batterStats.obp). PREP NOTE:
+given the 29-pitcher cache surprise, run a batterStats.obp coverage probe BEFORE FIX 5 too (mlbBatterStats
+cache may also be incomplete).
