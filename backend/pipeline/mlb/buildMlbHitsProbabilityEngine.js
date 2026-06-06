@@ -380,6 +380,17 @@ function buildMlbHitsToday(input = {}) {
     const obpHit = toNum(primary?.batterStats?.obp)
     if (Number.isFinite(obpHit) && obpHit > 0) obj.obp = obj.obp ?? obpHit
 
+    // Phase Signal-Fill-1A FIX 7b (park doublesFactor, 2026-06-06) — attach the home park's doubles
+    // factor so projectHitterStats can fold it into the TB ladder (tb2/tb3 = extra-base rungs). Same
+    // park lookup the hits factor uses (homeTeam.toLowerCase(), L257). SET-GUARD (Trap 1): only attach
+    // finite > 0; an uncached/unknown park leaves obj.doublesFactor unset -> TB multiplier defaults 1.
+    try {
+      const _pf = require("../../data/mlbParkFactors.json")
+      const _dpd = _pf[String(primary?.homeTeam || "").trim().toLowerCase()]
+      const _df = _dpd ? Number(_dpd.doublesFactor) : null
+      if (Number.isFinite(_df) && _df > 0) obj.doublesFactor = obj.doublesFactor ?? _df
+    } catch (_) {}
+
     if (playerMap) playerMap.set(key, obj)
     topPlayers.push(obj)
     byPlayer[key] = obj

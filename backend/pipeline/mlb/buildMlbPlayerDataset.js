@@ -160,8 +160,14 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const hitsLadder = { 0.5: h1, 1.5: h2, 2.5: h3 }
 
   // Total bases.
-  const tb2 = clamp01(h2 * 0.62 + hrProb * 0.25 + h1 * 0.13 + powerNorm * 0.05)
-  const tb3 = clamp01(h2 * 0.45 + hrProb * 0.35 + h3 * 0.2 + powerNorm * 0.06)
+  // Phase Signal-Fill-1A FIX 7b (park doublesFactor, 2026-06-06): the home park's doubles factor scales
+  // the extra-base rungs (tb2 = 2+ TB, tb3 = 3+ TB), capped ±10% like the hits factor. Trap 1 guard:
+  // num(null)=0, so apply only when doublesFactor is finite AND > 0 (uncached/unknown park -> dfMul=1,
+  // baseline). tb4 (4+ TB) is HR-driven, left unscaled. doublesFactor set on the obj by the hits engine.
+  const dfRaw = num(playerObj?.doublesFactor)
+  const dfMul = (Number.isFinite(dfRaw) && dfRaw > 0) ? clamp(0.90, 1.10, dfRaw) : 1
+  const tb2 = clamp01((h2 * 0.62 + hrProb * 0.25 + h1 * 0.13 + powerNorm * 0.05) * dfMul)
+  const tb3 = clamp01((h2 * 0.45 + hrProb * 0.35 + h3 * 0.2 + powerNorm * 0.06) * dfMul)
   const tb4 = clamp01(hrProb * 0.58 + h2 * 0.22 + h3 * 0.1 + powerNorm * 0.1)
   const eTB = h1 + tb2 + tb3 + tb4
   const tbMedian = round1(clamp(0, 8, eTB))
