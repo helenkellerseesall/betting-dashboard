@@ -191,7 +191,14 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const teamRunsImplied = num(playerObj?.teamImpliedTotal) ?? 4.4
   const lineupBoost =
     lineupTop <= 2 ? 0.07 : lineupTop <= 4 ? 0.04 : lineupTop <= 6 ? 0.0 : -0.04
-  const p1run = clamp(0.15, 0.55, 0.3 + (teamRunsImplied - 4.4) * 0.04 + lineupBoost)
+  // Phase Signal-Fill-1A FIX 5 (runs OBP, 2026-06-06): fold the batter's OWN on-base rate into
+  // P(>=1 run), centered at league-avg .320, weight 0.5. GUARD (Trap 1: num(null)=0): apply only when
+  // obp is finite AND > 0 — an uncached batter (obp null → num=0) gets NO term, NOT a -0.16 penalty.
+  // The existing clamp(0.15,0.55) bounds extremes; no extra clamp needed. (OBP mildly correlates with
+  // lineupBoost — leadoff hitters run high OBP — but they're distinct signals; dampener tunes.)
+  const obp = num(playerObj?.obp)
+  const obpTerm = (Number.isFinite(obp) && obp > 0) ? (obp - 0.32) * 0.5 : 0
+  const p1run = clamp(0.15, 0.55, 0.3 + (teamRunsImplied - 4.4) * 0.04 + lineupBoost + obpTerm)
   const eRuns = p1run + p1run * p1run * 0.4
   const runsMedian = round1(eRuns)
   const runsFloor = 0

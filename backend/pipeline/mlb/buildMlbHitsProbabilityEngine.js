@@ -373,6 +373,13 @@ function buildMlbHitsToday(input = {}) {
     const gtHit = toNum(primary?.gameTotal)
     if (Number.isFinite(gtHit)) obj.gameTotal = obj.gameTotal ?? gtHit
 
+    // Phase Signal-Fill-1A FIX 5 (runs OBP, 2026-06-06) — propagate the batter's OWN on-base rate
+    // (applyMlbContextualLayers sets primary.batterStats.obp from mlbBatterStats.json) so
+    // projectHitterStats can fold OBP into the P(>=1 run) prior. Own batter stat (ungated, ~87%
+    // coverage). SET-GUARD (Trap 1): only attach a finite > 0 obp; uncached → obj.obp stays unset.
+    const obpHit = toNum(primary?.batterStats?.obp)
+    if (Number.isFinite(obpHit) && obpHit > 0) obj.obp = obj.obp ?? obpHit
+
     if (playerMap) playerMap.set(key, obj)
     topPlayers.push(obj)
     byPlayer[key] = obj
