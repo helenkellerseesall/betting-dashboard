@@ -4,6 +4,8 @@
 
 **Why this file exists in the repo (not just memory):** memory loading is reliable but not infallible. A repo-root file is the most durable surface — `git clone` reproduces it. If memory doesn't load, this file is the recovery anchor.
 
+**This file is SELF-MAINTAINING by design.** It does not bake in commit hashes, phase names, or fix counts — those go stale every ship. Instead it points at surfaces that ARE always current. The procedure steps are stable; the data they read is live.
+
 ---
 
 ## Step 1 — read memory first if available
@@ -11,14 +13,15 @@
 Memory entries that orient you (canonical state):
 
 - `MEMORY.md` — index of all memory entries
-- `market-coverage-map.md` — what the engine generates today + strategic gaps
-- `project-pick-origin-architecture.md` — HOW picks actually get scored (band-scorer architecture)
+- `market-coverage-map.md` — **CURRENT WAVE STATE** (per-family ship status with commit hashes, last-updated stamp, what's shipped vs queued vs bumped vs skipped). This is the canonical "where are we" answer.
+- `project-pick-origin-architecture.md` — HOW picks actually get scored (band-scorer architecture) + 5 binding traps (incl. Trap 5: market-anchored vs model-anchored double-count detector)
 - `project-signal-unlocks-backlog.md` — ranked data unlocks Tier 1-5
 - `feedback-conversation-continuity-log.md` — the binding rule to read OPERATOR_SESSION_LOG.md first
 - `feedback-audit-before-patches.md` — the binding rule for discovery-before-edit discipline
+- `feedback-commit-durable-artifacts-same-turn.md` — any new file under `docs/`, `docs/audits/`, OPERATOR_SESSION_LOG, RECOVERY_PROCEDURE, or memory-bridge files gets committed in the SAME turn it's written
 - `operator-status-dashboard.md` + `status-clv-three-state-and-snapshot-paths.md` — /status surface details
 
-If memory loaded, skip to Step 2.
+If memory loaded, the `Last-updated:` field of `market-coverage-map.md` tells you the current wave state without reading anything else. Skip to Step 2.
 
 If memory did NOT load (cold start, fresh install, fresh Claude with no auto-memory): read this whole file, then Step 3.
 
@@ -34,18 +37,18 @@ Latest entries tell you:
 - Operator's most recent decisions
 - Any drift-recovery notes
 
+This log auto-updates every ship per discipline rule 12 + the same-turn-commit binding rule, so the tail is always current.
+
 ## Step 3 — read the active audit + design docs
 
-The current active operational work is captured at:
+The current active operational work is captured under `docs/audits/`. Don't assume which directory — list and read what's there:
 
 ```
-ls -la docs/audits/2026-06-06-signal-inputs/
+ls -la docs/audits/
+ls -la docs/audits/$(ls docs/audits/ | sort | tail -1)/
 ```
 
-Read each:
-- `synthesis.md` — per-family signal gap map + recommendation (signal-fill-first)
-- `signal_fill_1a_design.md` — active wave plan with per-fix worked numbers
-- `audit_signal_nba_factual.md` + `audit_signal_mlb_factual.md` — raw forensic maps
+The newest dated subdirectory holds the active wave. Read its `synthesis.md` and any `*_design.md` files there to see the current scope.
 
 ## Step 4 — check what shipped vs what's in design
 
@@ -53,22 +56,13 @@ Read each:
 git --no-pager log --oneline -20
 ```
 
-Recent commit shas tell you what's actually in production vs what's only in a design doc.
-
-Key recent ships as of 2026-06-06:
-- `7351e81` — Signal-Fill-1A FIX 1 (walks bbRate wire) — shipped + verified
-- `46eea74` — Signal-Fill-1A design doc (read-only)
-- `415567d` — Status-CLV-Display-Honesty-1A (three-state CLV card + control gate)
-- `40121d7` — Settlement-PredictionSource-1A (corpus plumbing safe half)
+Recent commit shas tell you what's actually in production vs what's only in a design doc. Cross-reference against the `Last-updated:` field of `[[market-coverage-map]]` — if the memory's most recent commit hash matches the git head, you're current. If not, read OPERATOR_SESSION_LOG tail for the gap.
 
 ## Step 5 — check active task state
 
-If task tools are available, run TaskList to see what's `in_progress` vs `pending`.
+If task tools are available, run TaskList and look for `in_progress` tasks. That tells you the active phase tag. Pending tasks tell you the queue order. Completed tasks tell you the history.
 
-Current strategic state as of 2026-06-06:
-- **Phase Signal-Fill-1A** (task #93) — IN PROGRESS. FIX 1 shipped. FIX 2 next (outs, downstream probe required first).
-- **Phase Calibration-LineAware-1A** (task #91) — BLOCKED behind Signal-Fill-1A completion.
-- **Wave 1 A2 mlScorer** (task #86) — UNBLOCKS after Calibration-LineAware-1A.
+If task tools aren't available, the `[[market-coverage-map]]` Last-updated field + OPERATOR_SESSION_LOG tail are the substitute.
 
 ## Step 6 — check runtime health
 
@@ -112,15 +106,17 @@ These rules apply to every operation. They're in memory but persisted here as th
 12. **Update OPERATOR_SESSION_LOG after every fix** ships. Fresh post-compaction anchor.
 13. **Never tell the operator to sleep / rest / take a break.** They work daily; answer "what now" with the next phase.
 14. **Never fabricate** props, enrichment, OCR, runtime state, verifier passes, bettor-visible deltas, operational continuity.
+15. **Same-turn commit for durable artifacts.** Any new file under `docs/`, `docs/audits/`, OPERATOR_SESSION_LOG, RECOVERY_PROCEDURE, or memory-bridge files gets a commit+push fence in the SAME turn it's written. `.scratch/` probes and memory files outside the repo are exempt (not repo-tracked). Untracked durable artifacts = durability hole. Caught when 3 audit files needed backfill commit 11c27d9.
+16. **Market-anchored vs model-anchored check (Trap 5).** Before wiring any environment factor (park, weather, hand-vs-hand) into a per-family projection, identify whether the source projection is market-anchored (`marketLambda` Poisson fit) or model-anchored (bottom-up skill + context). Adding env factors to market-anchored projections double-counts what the book already prices in → manufactures false edges. Caught FIX 7a (park kFactor on Ks SKIPPED).
 
 ## Pointers to canonical authority
 
 - `PLAYBOOK.md` — runtime commands, three-speed cycles, CLV health check
-- `RUNTIME_FACTS.md` — canonical runtime values (backend port 4000, LaunchAgent names, tunnel hostname)
+- `RUNTIME_FACTS.md` — canonical runtime values (backend port 4000, LaunchAgent names, tunnel hostname, kill-switch env flags like `CALIB_LINEAWARE` when Calibration-LineAware-1A step 5.3 ships)
 - `PRESERVED.md` — tier-1 cognition modules
 - `SLATE_DATE_DOCTRINE.md` — slate-date semantics (ET, 4 AM boundary)
-- `OPERATOR_SESSION_LOG.md` — running session continuity log
+- `OPERATOR_SESSION_LOG.md` — running session continuity log (auto-updated per ship via rule 12 + rule 15)
 
 ---
 
-**Update this file when:** the active audit phase changes (Signal-Fill-1A → Calibration-LineAware-1A → next phase). The "Key recent ships" + "Current strategic state" sections need refresh. The discipline rules section is stable.
+**Update this file when:** the PROCEDURE itself changes (new step added, new discipline rule, new canonical surface). The procedure does NOT need updating per ship — the data sources it points at (memory `market-coverage-map.md`, OPERATOR_SESSION_LOG, git log, task list) are the auto-updating layer. If you find yourself updating this file because a fix shipped, you're probably duplicating state that lives elsewhere; check first.
