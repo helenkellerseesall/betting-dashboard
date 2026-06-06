@@ -1396,3 +1396,33 @@ COUNT: 5 of 6 effective 1A fixes SHIPPED (walks, outs, runs OBP, turnovers, TB d
 LAST: FIX 7a (park kFactor → MLB Ks) — engine correctness, 100% coverage, 0 curated Ks picks tonight so
 no bettor-visible delta tonight. After 7a: Signal-Fill-1A COMPLETE → Calibration-LineAware-1A (#91/#91)
 unblocks. (Deferred to 1B/#94: batterKs, HR/9, FIX 7c pitcher restDays — all populator/cache prereqs.)
+
+---
+
+## 2026-06-06 — FIX 7a SKIPPED-FOR-CAUSE · Phase Signal-Fill-1A COMPLETE
+
+FIX 7a (park kFactor → MLB Ks) NOT shipped — would DOUBLE-COUNT park. The Ks projection is market-anchored
+(buildMlbPitcherKsProbabilityEngine.js:187 `expectedKs = marketLambda + skill_adjustments`; marketLambda L136 =
+Poisson fit to the book's implied prob). The market Ks line already prices the park, so kFactor × expectedKs
+re-applies it → false edges (Coors line 5.5 already park-lowered → ×0.93 → model 7% under an already-park-aware
+line → false "under"). Caught by reading the engine BEFORE editing; no code changed. Finding:
+.scratch/probe_fix7a_kfactor.txt. SKIP-FOR-CAUSE (wrong signal), distinct from DEFER-FOR-DATA bumps.
+
+TRAP (generalize — bake into project_pick_origin_architecture): park/environment factors DOUBLE-COUNT on
+MARKET-ANCHORED projections (Ks marketLambda). Legit only on MODEL-ANCHORED bottom-up projections (hits skill
+lambda, TB combiner). Re-check anchoring before adding any env/park signal — matters again in 1B (MLB Ks
+opp-K-rate has the same anchoring question).
+
+### Signal-Fill-1A COMPLETE — 5 of 6 effective fixes shipped + 1 skipped-for-cause
+  - FIX 1 walks  (bbRate)            — 7351e81
+  - FIX 2 outs   (IP/GS, clamp 7.5)  — 302acf9
+  - FIX 5 runs   (batter OBP)        — e98c75b
+  - FIX 6 NBA turnovers (own toRate) — 6078b29
+  - FIX 7b TB    (park doublesFactor)— 4bf124f
+  - FIX 7a Ks park kFactor           — SKIPPED (double-count)
+Deferred to Signal-Fill-1B (populator/cache prereqs, NOT counted): FIX 3 batterKs, HR/9, FIX 7c restDays.
+
+UNBLOCKED: Calibration-LineAware-1A (the MLB dampener un-freeze) is now the next major phase. The corpus now
+has real per-pick variation (walks~bbRate, outs~IP/GS, runs~OBP, NBA turnovers~toRate, TB~park) instead of the
+constants we started with — so over ~7 days of grading the family-overconfidence YELLOW alerts on /status
+should begin moving as the calibration corpus picks up the new variation. Design-first before any code (#91).
