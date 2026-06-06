@@ -237,9 +237,13 @@ function projectPitcherStats({ pitcherObj, salt }) {
   const ksFloor = round1(clamp(0, 12, ksMedian - 2.4))
   const ksCeiling = round1(clamp(3, 14, ksMedian + 3.0))
 
-  // Outs — assume starter projects ~5-6 IP = 15-18 outs.
+  // Outs — Phase Signal-Fill-1A FIX 2 (2026-06-06): use real expected innings/start (set on the
+  // topPitchers entry as ipExpected = clamped IP/GS) → outs = ipExpected*3, instead of the flat 17.
+  // GUARD `> 0`: num(null)=0 (Number(null)=0) and `0 ?? x` does NOT fall back, so an uncached pitcher
+  // (ipExpected null on the entry) would otherwise yield 0*3=0 outs. `> 0` keeps the honest 17 fallback
+  // for uncached/0 while using real IP/GS for cached pitchers.
   const ipExpected = num(pitcherObj?.ipExpected) ?? num(pitcherObj?.expectedInnings) ?? null
-  const outsMedian = Number.isFinite(ipExpected) ? round1(ipExpected * 3) : 17
+  const outsMedian = (Number.isFinite(ipExpected) && ipExpected > 0) ? round1(ipExpected * 3) : 17
   const outsFloor = round1(clamp(0, 27, outsMedian - 5))
   const outsCeiling = round1(clamp(6, 27, outsMedian + 4))
 

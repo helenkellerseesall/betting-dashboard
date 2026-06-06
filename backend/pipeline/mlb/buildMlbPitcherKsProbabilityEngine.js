@@ -242,6 +242,15 @@ function buildPitcherRowFromPropRow(r, context = {}) {
     // mlbPitcherStats.json (own pitcher for a Ks prop — always present, ungated).
     bbRate: toNum(r?.pitcherStats?.bbRate),
     battersFaced: toNum(r?.pitcherStats?.battersFaced),
+    // Phase Signal-Fill-1A FIX 2 (outs, 2026-06-06): expected innings/start = IP / GS, so
+    // projectPitcherStats yields outs = ipExpected*3 instead of the flat 17 constant. CLAMP to a
+    // realistic starter range [2, 7.5]: `inningsPitched` is TOTAL innings (incl. relief) while
+    // `gamesStarted` counts only starts, so IP/GS overstates for swingmen (e.g. 57IP/6GS=9.5 → would
+    // give an impossible 28.5 outs). The clamp caps that at 22.5. GUARD: only when GS>0 AND IP finite,
+    // else null → 17 fallback. Entry-only: snapshot row untouched, so buildMlbPitcherCandidates unaffected.
+    ipExpected: (Number.isFinite(toNum(r?.pitcherStats?.inningsPitched)) && toNum(r?.pitcherStats?.gamesStarted) > 0)
+      ? Math.min(7.5, Math.max(2, toNum(r.pitcherStats.inningsPitched) / toNum(r.pitcherStats.gamesStarted)))
+      : null,
   }
 
   if (context?.debugLadder) {
