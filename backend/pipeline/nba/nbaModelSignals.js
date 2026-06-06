@@ -498,6 +498,15 @@ function nbaIndependentBaseModelProbability(row) {
   const { usage, shots, astRate, rebRate, minutes, role } = roleSignals(row, family, line, anchor)
   const { pace, total, spread, blowoutRisk, oppDef } = contextSignals(row)
   const recent = recentFormSignal(row, line, anchor)
+  // Phase Signal-Fill-1A FIX 6 (2026-06-06) — turnovers OWN-rate. row.toRate is set by
+  // nbaPlayerSeasonStatsCache but was never read as the rate signal (rateZ had no turnovers branch),
+  // so the turnovers projection ignored the player's own turnover rate. Trap 1 guard: in THIS file
+  // toNum(null)=0 (Number(null)=0), so require finite AND > 0 — a null/0 toRate stays null → rateZ
+  // null for turnovers = prior behavior (no phantom -2.4 z). CENTER/SCALE derived from tonight's
+  // toRate distribution (mean 0.125, stddev 0.056). Adds ONLY the turnovers rate signal; rebounds/
+  // assists/pra rateZ branches are untouched (regression-gated byte-identical before commit).
+  const toRate = toNum(row?.toRate)
+  const toZ = (Number.isFinite(toRate) && toRate > 0) ? (toRate - 0.125) / 0.056 : null
 
   // Session AN — Step 2: each Z-score is null when its source signal is null.
   // No synthetic priors. No hash-derived fallbacks.
@@ -526,9 +535,10 @@ function nbaIndependentBaseModelProbability(row) {
   const w = familyScoreWeights(family)
   // rateZ chooses the family-relevant rate; null when its source is null.
   const rateZ =
-    family === "rebounds" ? rebZ :
-    family === "assists"  ? astZ :
-    family === "pra"      ? (Number.isFinite(astZ) && Number.isFinite(rebZ) ? (astZ + rebZ) / 2
+    family === "rebounds"  ? rebZ :
+    family === "assists"   ? astZ :
+    family === "turnovers" ? toZ :
+    family === "pra"       ? (Number.isFinite(astZ) && Number.isFinite(rebZ) ? (astZ + rebZ) / 2
                               : Number.isFinite(astZ) ? astZ
                               : Number.isFinite(rebZ) ? rebZ
                               : null)
