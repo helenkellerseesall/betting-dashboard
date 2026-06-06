@@ -1324,3 +1324,23 @@ is an outside-the-realistic-band safety net.
 NEXT (operator-directed): skip to FIX 5 (runs OBP — ungated own batter stat batterStats.obp). PREP NOTE:
 given the 29-pitcher cache surprise, run a batterStats.obp coverage probe BEFORE FIX 5 too (mlbBatterStats
 cache may also be incomplete).
+
+---
+
+## 2026-06-06 — Signal-Fill-1A FIX 5 (runs OBP) SHIPPED · commit e98c75b
+
+Runs P(>=1) prior now folds the batter's OWN on-base rate. Files: buildMlbHitsProbabilityEngine.js
+(obj.obp set from primary.batterStats.obp, set-guard finite>0) + buildMlbPlayerDataset.js:194
+(obpTerm = (obp-0.32)*0.5, read-guard `Number.isFinite(obp) && obp>0`, inside existing clamp(0.15,0.55)).
+Coverage 87.1% curated / 81.5% slate (mlbBatterStats.json 390 entries, 385 w/ obp). Verified, spread 0.04:
+  BEFORE: runs = lineup-spot + team-total only (two same-spot/same-total batters identical).
+  AFTER:  .380 OBP -> p1run 0.40 (+0.03 vs 0.37 baseline); .300 OBP -> 0.36 (-0.01); uncached -> 0.37
+          (GUARD works, Trap 1); real Greene .404 -> 0.412, Springer .290 -> 0.355.
+runtime:verify 13/13. /status post-ship clean (0 red / 3 yellow unchanged, 7/7 LaunchAgents, schema 7/7).
+Bettor-visible: batter runs-scored picks reflect on-base skill (high-OBP over-heavy, low-OBP under-heavy).
+FUTURE CALIBRATION CONCERN: OBP mildly double-counts with lineupBoost (leadoff hitters run high OBP) —
+additive is right for now + clamp bounds it, but the dampener should be allowed to tune this once
+line-aware calibration lands; flag if runs calibration looks over-corrected.
+
+NEXT: FIX 6 (NBA turnovers own-rate) — core-file (nbaModelSignals.js load-bearing); regression baseline
+captured before any edit.
