@@ -1344,3 +1344,33 @@ line-aware calibration lands; flag if runs calibration looks over-corrected.
 
 NEXT: FIX 6 (NBA turnovers own-rate) — core-file (nbaModelSignals.js load-bearing); regression baseline
 captured before any edit.
+
+---
+
+## 2026-06-06 — Signal-Fill-1A FIX 6 (NBA turnovers own-rate) SHIPPED · commit 6078b29
+
+NBA turnovers projection now folds the player's OWN turnover rate into rateZ. File: nbaModelSignals.js
+(inside nbaRowIndependentModelProbability): extract `toRate = toNum(row.toRate)`, compute
+`toZ = (Number.isFinite(toRate) && toRate>0) ? (toRate-0.125)/0.056 : null`, add
+`family === "turnovers" ? toZ :` to the rateZ chain. CENTER/SCALE derived from tonight's toRate
+distribution (empirical mean 0.1252, stddev 0.0559 → used 0.125 / 0.056). w.rate for turnovers = 0.16
+(default branch), so toZ contributes. predictionId untouched.
+
+PARTIAL-SIGNAL CORRECTION (important): toRate is added ON TOP of the existing turnovers signals
+(usage/shots/form/oppDef/pace) — it does NOT replace them. Pre-fix turnovers was already scored, just
+blind to the player's own TO rate. So this MOVES the projection toward reality, not 0→nonzero.
+
+Post-edit (full scorer path, with toRate vs without):
+  Julian Champagnie (toRate 0.041, low) turnovers 0.552 -> 0.489 (DOWN — was inflated)
+  De'Aaron Fox (toRate 0.127, ~center) 0.395 -> 0.402 (slight up)
+  Luke Kornet (toRate 0.229, high) 0.223 -> 0.285 (UP — was too low)
+Siblings (rebounds/assists/pra) BYTE-IDENTICAL with vs without toRate = provably edit-neutral.
+
+REGRESSION METHOD UPGRADE: the stale-pre-edit-baseline byte-compare FALSE-POSITIVED (autoticker refreshed
+Champagnie's data between baseline capture and ship, a +0.0007 phantom drift). Replaced with a
+toRate-SENSITIVITY test (with vs without toRate in ONE process run) — refresh-immune AND a stronger proof
+(siblings provably don't read toRate). Probe: .scratch/probeFix6Ship.js. Regression gate runs PRE-commit
+in the fence so a real sibling drift auto-stops before committing. runtime:verify 13/13; consumers load OK.
+
+NEXT: FIX 7a (park kFactor -> MLB Ks), 7b (park doublesFactor -> MLB TB), 7c (pitcher rest -> outs/Ks) —
+all ungated, already-cached park-factor/restDays data. Brings the wave to 6 of 7 effective 1A fixes.
