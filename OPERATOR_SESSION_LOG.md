@@ -1239,3 +1239,57 @@ live card now = NORMAL on 6/5 (NBA 0/1 final·1/1 captured, MLB 0/15·15/15); al
 states render on REAL data (6/6 MLB=curation_gap 15 scheduled/0 picks/tipped=0→no alert;
 6/6 NBA=off_day; 6/5=normal); FE new Function() syntax VALID. Findings:
 .scratch/audit_clv_nogames_misclassification.md.
+
+---
+
+## 2026-06-06 ~03:30 ET — Phase Signal-Inputs-Audit-1A COMPLETE (drift-hardened to git)
+
+Calibration-LineAware-1A (#91 / task #17) is HELD pending this audit.
+
+Scope: read-only forensic audit of which signal inputs the engine uses per prop family vs which SHOULD matter
+per sportsbook reality (canonical cognition list in product_vision_iphone_pwa.md). Cross-referenced against
+project-signal-unlocks-backlog memory + git log.
+
+STATE: audit is DONE. Two sub-agents already returned; their factual maps + my judgment synthesis are committed
+to git (compaction-safe), NOT just .scratch (which is gitignored):
+  - docs/audits/2026-06-06-signal-inputs/audit_signal_nba_factual.md  (USED + WIRED-NOT-CONSUMED per family, file:line)
+  - docs/audits/2026-06-06-signal-inputs/audit_signal_mlb_factual.md  (same; HR + pitcher Ks called out)
+  - docs/audits/2026-06-06-signal-inputs/synthesis.md  (gaps/sources/effort/top-10/backlog-reconciliation/recommendation)
+
+KEY FINDINGS: tracked picks are scored by a projection-BAND scorer (NBA buildNbaBestBetsBoard, MLB
+buildMlbBestBetsBoard) that reads NO row context — so wired signal only reaches a pick if the per-stat ENGINE
+folded it into the band. Several families run on CONSTANTS: MLB outs=17 (ipExpected never set), batterKs=8.5
+(reads a never-populated field while the real opp-pitcher kRate sits on the row unused), walks=name-hash jitter,
+HR pitcher-HR/9 + fly-ball=hardcoded 1.2/0.35. Operator flags resolved: HR DOES read pitcher hand+park+weather
+(the real HR gap is pitcher HR-vulnerability constant); NBA points has NO opponent matchup/pace on the tracked
+band (PvD + pace confirmed missing). Backlog mostly SHIPPED at the data layer; gap is CONSUMPTION (bullpen, park
+kFactor/doublesFactor, pitcher rest all on-row, read by nobody).
+
+RECOMMENDATION (in synthesis): signal-fill FIRST, then line-aware. Calibrating a constant is meaningless and you
+pay twice if you calibrate noise then fix signal. The cheapest fixes (batterKs ~15min, walks ~15min, HR/9 ~1-2h,
+outs ~half-day) use data ALREADY cached — ~1-2 days, no new feeds. Operator to decide signal-fill-first vs line-aware-first.
+
+POST-COMPACTION RECOVERY: read this entry → read docs/audits/2026-06-06-signal-inputs/*.md (committed) → the
+audit is complete; resume at "operator decision on sequencing". Do NOT re-launch sub-agents (already done).
+
+---
+
+## 2026-06-06 — Signal-Fill-1A FIX 1 (walks) SHIPPED · commit 7351e81
+
+Walks projection now bbRate-driven, not name-hash. Files: buildMlbPitcherKsProbabilityEngine.js
+(bbRate+battersFaced pass-through to topPitchers entry, ~L238) + buildMlbPlayerDataset.js:257
+(walksMedian = bbRate * 24 BF; falls back to old 1.8 when bbRate uncached). Verified post-ship,
+probe spread 2.60:
+  BEFORE: every pitcher ~1.8 walks (name-hash, skill-blind).
+  AFTER:  Bryce Miller (bbRate .051)=1.2, Nolan McLean (.087)=2.1, Tatsuya Imai (.159)=3.8; uncached=1.8.
+runtime:verify 13/13. Bettor-visible: pitcher-walks picks now reflect control (low-bb under-heavy,
+wild over-heavy). Probe: .scratch/probeWalksWire.js (gitignored).
+
+DISCIPLINE UPDATE (operator, 2026-06-06): the autoticker rewrites .scratch/last.txt every 5 min, so
+NEVER write a ship probe there — use a STABLE filename .scratch/probe_<phase>_<fix>.txt.
+
+NEXT: FIX 2 (outs). Downstream safety probe DONE (.scratch/probe_fix2_outs_downstream.txt):
+buildMlbPitcherCandidates is a display/side path reading mlbSnapshot.rows (not the topPitchers
+entry), so an ENTRY-ONLY ipExpected add is safe + zero blast radius. FIX 2 refined to a 1-FILE
+change (projectPitcherStats:241 already reads pitcherObj.ipExpected; just add it to the Ks entry).
+Awaiting operator approval of the FIX 2 build plan.
