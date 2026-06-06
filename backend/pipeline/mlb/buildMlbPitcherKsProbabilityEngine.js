@@ -236,6 +236,12 @@ function buildPitcherRowFromPropRow(r, context = {}) {
       "8+": Number(k8.toFixed(4)),
     },
     gameTotal: toNum(r?.gameTotal),
+    // Phase Signal-Fill-1A (2026-06-06) — pass the pitcher's OWN control stats through to the
+    // projection layer so projectPitcherStats can replace the name-hash walks formula with a
+    // bbRate-driven projection. Source: applyMlbContextualLayers sets r.pitcherStats from
+    // mlbPitcherStats.json (own pitcher for a Ks prop — always present, ungated).
+    bbRate: toNum(r?.pitcherStats?.bbRate),
+    battersFaced: toNum(r?.pitcherStats?.battersFaced),
   }
 
   if (context?.debugLadder) {

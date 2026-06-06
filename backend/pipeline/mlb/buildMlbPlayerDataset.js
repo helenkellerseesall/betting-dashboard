@@ -253,8 +253,16 @@ function projectPitcherStats({ pitcherObj, salt }) {
   const erFloor = 0
   const erCeiling = round1(clamp(1, 7, erMedian + 2.5))
 
-  // Walks — relatively stable, small band.
-  const walksMedian = round1(clamp(0.5, 4, 1.8 + (salt - 0.5) * 1.0))
+  // Walks — Phase Signal-Fill-1A (2026-06-06): bbRate-driven instead of name-hash.
+  // BEFORE: walksMedian = 1.8 + (salt-0.5)*1.0 → ~1.8 for every pitcher regardless of control
+  // (name-hash jitter only). NOW: pitcher's own walk rate × expected batters faced. EXPECTED_BF
+  // is a ~24 BF/start constant until FIX 2 (outs) lands real ipExpected (then derive BF from it).
+  // bbRate comes from the topPitchers entry pass-through (buildMlbPitcherKsProbabilityEngine).
+  const EXPECTED_BF = 24
+  const bbRate = num(pitcherObj?.bbRate)
+  const walksMedian = Number.isFinite(bbRate)
+    ? round1(clamp(0.5, 4, bbRate * EXPECTED_BF))
+    : round1(clamp(0.5, 4, 1.8 + (salt - 0.5) * 1.0))   // fallback when bbRate not cached
   const walksFloor = 0
   const walksCeiling = round1(clamp(1, 6, walksMedian + 2.0))
 
