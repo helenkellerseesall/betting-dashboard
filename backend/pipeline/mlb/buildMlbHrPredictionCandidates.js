@@ -5,6 +5,21 @@ const parkFactors = require("../../data/mlbParkFactors.json")
 const normalizeName = require("../../utils/normalizeName")
 const config = require("../../config/modelConfig")
 const { computeRobustStats, computeProbabilityFromScore } = require("../utils/probabilityScaling")
+
+// Signal-Fill-1B FIX 4 (2026-06-06) — opposing-pitcher HR/9 derivation from the season cache.
+// Normalized index (normalizeName on both sides, matching the canonical lookupPitcherStatsByName);
+// built once at module load (same freshness model as the parkFactors/statcastPower requires above).
+const mlbPitcherStatsCache = require("../../data/mlbPitcherStats.json")
+const _hrPitcherStatsByNorm = {}
+for (const [k, v] of Object.entries(mlbPitcherStatsCache)) { const nk = normalizeName(k); if (nk) _hrPitcherStatsByNorm[nk] = v }
+function deriveOpposingPitcherHrPer9(opposingPitcher) {
+  const st = opposingPitcher ? _hrPitcherStatsByNorm[normalizeName(opposingPitcher)] : null
+  const ip = st ? Number(st.inningsPitched) : null
+  const hra = st ? Number(st.homeRunsAllowed) : null
+  // Trap 1 set-guard: IP>0 AND HRA>=0 finite → HR/9; else 1.2 (uncached/unresolved, never 0/NaN).
+  return (Number.isFinite(ip) && ip > 0 && Number.isFinite(hra) && hra >= 0) ? (hra / ip) * 9 : 1.2
+}
+
 let statcastPower = {}
 try {
   statcastPower = require("../../data/mlbStatcastPower.json")
@@ -335,7 +350,10 @@ function buildMlbHrPredictionCandidates(input = {}) {
     }
 
     // defaults (safety)
-    row.pitcherHrPer9 ??= 1.2
+    // Signal-Fill-1B FIX 4: when unset (a path that did NOT go through the mlbIsolatedRoutes enrichment —
+    // inspection board / nightly snapshot / future routes), derive the opposing pitcher's HR/9 from the
+    // cache; else keep what the route already set. deriveOpposingPitcherHrPer9 returns 1.2 for uncached (Trap 1).
+    if (row.pitcherHrPer9 == null) row.pitcherHrPer9 = deriveOpposingPitcherHrPer9(row.opposingPitcher)
     row.pitcherFlyBallRate ??= 0.35
     row.pitcherHand ??= "R"
     const team = norm(row?.team) || null
@@ -835,4 +853,4 @@ function buildMlbHrPredictionCandidates(input = {}) {
   }
 }
 
-module.exports = { buildMlbHrPredictionCandidates }
+module.exports = { buildMlbHrPredictionCandidates, deriveOpposingPitcherHrPer9 }

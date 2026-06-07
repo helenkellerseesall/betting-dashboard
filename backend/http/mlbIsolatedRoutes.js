@@ -23,6 +23,20 @@ const { buildMlbInsightBoard } = require("../pipeline/mlb/buildMlbInsightBoard")
 const { buildMlbOpportunityBoard } = require("../pipeline/mlb/buildMlbOpportunityBoard")
 const { fetchProbablePitchers } = require("../pipeline/mlb/enrichPitcherData")
 const normalizeName = require("../utils/normalizeName")
+
+// Signal-Fill-1B FIX 4 (2026-06-06) — opposing-pitcher HR/9 derivation for the bettor path
+// (/api/best-available). Replaces the TEMP flat 1.2 hard-set below. Normalized index (normalizeName
+// on both sides, matching the canonical lookupPitcherStatsByName); built once at module load.
+const mlbPitcherStatsCache = require("../data/mlbPitcherStats.json")
+const _hrPitcherStatsByNorm = {}
+for (const [k, v] of Object.entries(mlbPitcherStatsCache)) { const nk = normalizeName(k); if (nk) _hrPitcherStatsByNorm[nk] = v }
+function deriveOpposingPitcherHrPer9(opposingPitcher) {
+  const st = opposingPitcher ? _hrPitcherStatsByNorm[normalizeName(opposingPitcher)] : null
+  const ip = st ? Number(st.inningsPitched) : null
+  const hra = st ? Number(st.homeRunsAllowed) : null
+  // Trap 1 set-guard: IP>0 AND HRA>=0 finite → HR/9; else 1.2 (uncached/unresolved row, never 0/NaN).
+  return (Number.isFinite(ip) && ip > 0 && Number.isFinite(hra) && hra >= 0) ? (hra / ip) * 9 : 1.2
+}
 // Execution-authority probe — additive observability for duplicate ownership.
 // See pipeline/shared/executionAuthority.js.
 const { createExecutionAuthorityProbe } = require("../pipeline/shared/executionAuthority")
@@ -377,8 +391,12 @@ async function handleMlbBestAvailableGet(req, res, deps) {
           row.opposingPitcher = game.homePitcher
         }
 
-        // TEMP SIGNAL: ensure matchup inputs are non-zero
-        row.pitcherHrPer9 = 1.2
+        // Signal-Fill-1B FIX 4 (2026-06-06): derive the opposing pitcher's HR/9 from the season cache
+        // instead of the TEMP flat 1.2. opposingPitcher resolved just above. This is the BETTOR path
+        // (/api/best-available) — it previously clobbered the HR engine's value with the constant, so the
+        // engine's derive never reached a bettor-visible pick. Trap-1 set-guard inside the helper → 1.2
+        // for an uncached/unresolved pitcher (never 0/NaN). (flyBall/hand stay TEMP — flyBall is probe-3/1C.)
+        row.pitcherHrPer9 = deriveOpposingPitcherHrPer9(row.opposingPitcher)
         row.pitcherFlyBallRate = 0.35
         row.pitcherHand = "R"
       })
@@ -746,4 +764,5 @@ module.exports = {
   handleMlbBestAvailableGet,
   handleMlbRefreshSnapshotGet,
   handleMlbGradeHrTestGet,
+  deriveOpposingPitcherHrPer9,   // Signal-Fill-1B FIX 4 — exported for diagnostics/probes
 }
