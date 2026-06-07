@@ -683,6 +683,7 @@
            tail-or-bail verdict from the engine.
            Legacy MLB/NBA/PARLAY tabs remain hidden, available via dev console. -->
       <button class="tab active" data-sport="top">TOP PICKS <span class="tab-count" id="topCount">—</span></button>
+      <button class="tab" data-sport="slips">SLIPS <span class="tab-count" id="slipsCount">—</span></button>
       <button class="tab" data-sport="mybets">MY BETS <span class="tab-count" id="myBetsCount">0</span></button>
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
       <button class="tab" data-sport="analyze">ANALYZE <span class="tab-count" id="analyzeCount">📸</span></button>
@@ -1438,6 +1439,13 @@
       // ── 2026-05-30 FE v2 tab routing ──────────────────────────────────
       if (sport === "top") {
         renderTopPicks(main);
+        return;
+      }
+      // P1 (FE-Trust-Surface-1A) — engine-built slips surface. Reads aiSlips
+      // already in state.data.{mlb,nba}; renders narrative + per-leg reasoning +
+      // Phase 1b liveStateSummary protection + line-shop. Display-only CTA.
+      if (sport === "slips") {
+        renderSlips(main);
         return;
       }
       if (sport === "mybets") {
@@ -3061,6 +3069,161 @@
       } catch (e) {
         main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading My Bets: ${escapeHtml(String(e?.message || e))}</div>`;
       }
+    }
+
+    // ── SLIPS renderer (P1, FE-Trust-Surface-1A) ───────────────────────
+    // Surfaces the engine's AI-built parlays (aiSlips) — narrative reasoning,
+    // per-leg legReasonings, the Phase 1b live-state protection (liveStateSummary
+    // / leg.liveState), line-shopping, and calibrated combined prob/EV. Reads
+    // straight from state.data.{mlb,nba}.aiSlips (already fetched on boot — no
+    // new endpoint). Display-only: the CTA OPENS the book (never pre-fills /
+    // never places the bet) + copies the legs for fast manual entry.
+    //
+    // Honest book links (open app-if-installed / website — NOT pre-filled betslip;
+    // true prefill needs a paid partner per the P1 design feasibility finding).
+    const SLIP_BOOK_URLS = {
+      fanduel:            "https://sportsbook.fanduel.com/",
+      draftkings:         "https://sportsbook.draftkings.com/",
+      fanatics:           "https://sportsbook.fanatics.com/",
+      fanaticssportsbook: "https://sportsbook.fanatics.com/",
+      betmgm:             "https://sports.betmgm.com/",
+      caesars:            "https://sportsbook.caesars.com/",
+      hardrockbet:        "https://app.hardrock.bet/",
+      hardrock:           "https://app.hardrock.bet/",
+      betrivers:          "https://www.betrivers.com/",
+      bet365:             "https://www.bet365.com/",
+    };
+    function _slipBookKey(name) { return String(name || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+    let _slipsCache = [];
+    // Clipboard copy of a slip's legs (honest manual-entry helper — never auto-places).
+    window.copySlipLegs = function (idx) {
+      const s = _slipsCache[idx]; if (!s) return;
+      const lines = (s.legs || []).map((l) =>
+        `${l.player || ""} — ${_famNice(l.statFamily || l.propType)} ${_sideNice(l.side)} ${l.line == null ? "" : l.line} (${_oddsNice(l.odds)})`.trim());
+      const header = `${String(s._tier || s.tier || "").toUpperCase()} PARLAY · ${_oddsNice(s.combinedAmericanOdds)} · ${s.book || ""}`.trim();
+      const text = [header, ...lines].join("\n");
+      const done = () => { const b = document.getElementById("copybtn-" + idx); if (b) { const o = b.textContent; b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = o; }, 1500); } };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => alert("Copy failed — select the legs manually.\n\n" + text));
+      } else { alert(text); }
+    };
+
+    function renderSlips(main) {
+      const tiersOrder = ["safe", "balanced", "aggressive", "lotto"];
+      const tierLabel = { safe: "SAFE", balanced: "BALANCED", aggressive: "AGGRESSIVE", lotto: "LOTTO" };
+      const tierColor = { safe: "#34D399", balanced: "#60A5FA", aggressive: "#FBBF24", lotto: "#A78BFA" };
+      const all = [];
+      for (const sp of ["mlb", "nba"]) {
+        const d = state.data[sp];
+        if (!d || d._error || !d.aiSlips) continue;
+        for (const t of tiersOrder) for (const s of (d.aiSlips[t] || [])) all.push(Object.assign({}, s, { _sport: sp, _tier: t }));
+      }
+      _slipsCache = all;
+      const cnt = document.getElementById("slipsCount"); if (cnt) cnt.textContent = all.length;
+      if (!all.length) {
+        main.innerHTML = `<div style="padding:24px;color:#9CA3AF;text-align:center;">
+          <div style="font-size:28px;margin-bottom:10px;">🎟️</div>
+          No engine slips for tonight's slate yet.<br>
+          <span style="font-size:12px;color:#6B7280;">Slips build from tonight's edges once the slate populates.</span>
+        </div>`;
+        return;
+      }
+      let html = `<div style="padding:8px 12px;">
+        <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">${all.length} engine-built slip${all.length === 1 ? "" : "s"} · live-state protected · display-only</div>`;
+      for (const t of tiersOrder) {
+        const slips = all.filter((s) => s._tier === t);
+        if (!slips.length) continue;
+        html += `<div style="margin-top:14px;font-size:11px;color:${tierColor[t]};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${tierLabel[t]} · ${slips.length}</div>`;
+        for (const s of slips) html += renderSlipCard(s, all.indexOf(s));
+      }
+      html += `</div>`;
+      main.innerHTML = html;
+    }
+
+    function renderSlipCard(slip, idx) {
+      const _num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };   // Trap-1 guard
+      const ls = slip.liveStateSummary || { worst: "ok", softCount: 0, deadCount: 0, reasons: [] };
+      const soft = _num(ls.softCount) || 0;
+      // Phase 1b protection badge. (Dead legs are excluded UPSTREAM before the slip
+      // is assembled, so a slip never contains a dead leg — the protection here is
+      // ok/soft. Surfacing "N legs removed (scratched)" needs a small backend add;
+      // flagged as P1.1, not faked here.)
+      const badgeColor = soft > 0 ? "#FBBF24" : "#34D399";
+      const badgeText  = soft > 0 ? `⚠ ${soft} leg${soft === 1 ? "" : "s"} flagged` : "✓ lineups clear";
+
+      const narrLines = String(slip.narrative || "").split(",").map((x) => x.trim()).filter(Boolean);
+      const narrHtml = narrLines.map((l) => `<div style="font-size:12px;color:#D1D5DB;line-height:1.5;">• ${escapeHtml(l)}</div>`).join("");
+
+      const combOdds = _oddsNice(slip.combinedAmericanOdds);
+      const calProb = _num(slip.calibratedCombinedModelProb);
+      const calProbTxt = calProb != null ? `${(calProb * 100).toFixed(0)}% model` : "";
+      const evN = _num(slip.ev);
+      const evTxt = evN != null ? `EV ${evN >= 0 ? "+" : ""}${(evN * 100).toFixed(0)}%` : "";
+
+      const bookName = slip.book || (slip.legs && slip.legs[0] && slip.legs[0].book) || "";
+      const bookUrl = SLIP_BOOK_URLS[_slipBookKey(bookName)] || null;
+
+      const reasonByPlayer = {};
+      for (const lr of (slip.legReasonings || [])) { if (lr && lr.player) reasonByPlayer[String(lr.player).toLowerCase()] = lr.reason; }
+
+      const legsHtml = (slip.legs || []).map((l) => {
+        const st = (l.liveState && l.liveState.status) || "ok";
+        const icon = st === "soft"
+          ? `<span style="color:#FBBF24;" title="${escapeHtml((l.liveState && l.liveState.reason) || "")}">⚠</span>`
+          : `<span style="color:#34D399;">✓</span>`;
+        const reasonLine = (st === "soft" && l.liveState && l.liveState.reason)
+          ? `<div style="font-size:10px;color:#FBBF24;padding:0 0 4px 0;">${escapeHtml(l.liveState.reason)}</div>` : "";
+        return `<div style="font-size:12px;color:#D1D5DB;padding:5px 0;border-top:1px solid #1F2937;display:flex;justify-content:space-between;gap:8px;">
+            <span><span style="color:#9CA3AF;">${escapeHtml(l.player || "")}</span> · ${_famNice(l.statFamily || l.propType)} ${_sideNice(l.side)} ${l.line == null ? "" : l.line}</span>
+            <span style="white-space:nowrap;">${_oddsNice(l.odds)} ${icon}</span>
+          </div>${reasonLine}`;
+      }).join("");
+
+      const expId = `slip-exp-${idx}`;
+      const lrHtml = (slip.legs || []).map((l) => {
+        const r = reasonByPlayer[String(l.player || "").toLowerCase()];
+        return r ? `<div style="font-size:11px;color:#9CA3AF;padding:2px 0;"><span style="color:#D1D5DB;">${escapeHtml(l.player || "")}:</span> ${escapeHtml(r)}</div>` : "";
+      }).join("");
+      const f = slip.factors || {};
+      const factorHtml = ["projection", "clv", "timing", "book", "archetype", "ladder", "diversification"]
+        .filter((k) => _num(f[k]) != null)
+        .map((k) => `<span style="font-size:10px;color:#6B7280;margin-right:8px;">${k} ${(f[k] * 100).toFixed(0)}</span>`).join("");
+      const altBooks = (slip.alternativeBooks || []).filter((b) => isPreferredBook(b));
+      const altHtml = altBooks.length ? `<div style="font-size:11px;color:#6B7280;margin-top:6px;">also at: ${altBooks.map(escapeHtml).join(", ")}</div>` : "";
+      const corr = _num(slip.correlationScore);
+
+      return `
+        <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${badgeColor};">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+            <span style="font-size:11px;background:#1F2937;color:#9CA3AF;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${escapeHtml((slip._sport || "").toUpperCase())} · ${(slip.legs || []).length} legs · ${escapeHtml(bookName || "?")}</span>
+            <span style="font-size:11px;font-weight:700;color:${badgeColor};">${badgeText}</span>
+          </div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-size:16px;font-weight:700;color:#F9FAFB;font-family:ui-monospace,monospace;">${combOdds}</span>
+            <span style="font-size:11px;color:#9CA3AF;">${calProbTxt}${evTxt ? ` · ${evTxt}` : ""}</span>
+          </div>
+          <div data-slot="archetype-tags"></div>
+          ${narrHtml ? `<div style="margin-top:8px;">${narrHtml}</div>` : ""}
+          <div style="margin-top:8px;">${legsHtml}</div>
+          <div data-slot="ladder-rungs"></div>
+          <div style="margin-top:10px;display:flex;gap:8px;">
+            ${bookUrl
+              ? `<a href="${bookUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;font-size:12px;color:#0A0E1A;background:#FBBF24;padding:8px;border-radius:6px;text-decoration:none;font-weight:600;">Open ${escapeHtml(bookName)} ↗</a>`
+              : `<span style="flex:1;text-align:center;font-size:12px;color:#6B7280;padding:8px;">${escapeHtml(bookName || "")}</span>`}
+            <button id="copybtn-${idx}" onclick="copySlipLegs(${idx})" style="flex:1;font-size:12px;color:#D1D5DB;background:#1F2937;padding:8px;border-radius:6px;border:none;cursor:pointer;">Copy legs</button>
+          </div>
+          <div style="margin-top:8px;text-align:center;">
+            <span onclick="document.getElementById('${expId}').classList.toggle('open');this.querySelector('.schev').textContent=document.getElementById('${expId}').classList.contains('open')?'▾ less':'▸ why';" style="font-size:11px;color:#60A5FA;cursor:pointer;"><span class="schev">▸ why</span></span>
+          </div>
+          <div id="${expId}" class="v2-card-exp" style="display:none;margin-top:8px;border-top:1px solid #1F2937;padding-top:8px;">
+            ${lrHtml ? `<div style="font-size:11px;color:#6B7280;margin-bottom:4px;">PER-LEG REASONING</div>${lrHtml}` : ""}
+            ${factorHtml ? `<div style="margin-top:8px;font-size:11px;color:#6B7280;margin-bottom:4px;">FACTORS</div><div>${factorHtml}</div>` : ""}
+            ${corr != null ? `<div style="font-size:11px;color:#6B7280;margin-top:8px;">correlation ${(corr * 100).toFixed(0)}</div>` : ""}
+            ${altHtml}
+            <div style="font-size:10px;color:#4B5563;margin-top:8px;font-style:italic;">Display-only — opens the book, does not place the bet.</div>
+          </div>
+        </div>`;
     }
 
     // ── GAMES drill-down renderer ──────────────────────────────────────
