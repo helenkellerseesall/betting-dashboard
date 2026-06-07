@@ -1573,4 +1573,44 @@ in [0.1,2.0]. Effect is real where book-duplication existed: nba threes·over de
 correctly neutral). Shape-compat: factor is a number, unknown-family + no-args still default 1.0, dumpCalibration-
 Table keeps its keys (35 rows). runtime:verify 13/13 PASS (incl. verifyCalibrationHonesty). Backend reload picks up
 the new corpus. NEXT (this turn after verify): Calibration-LineAware-1A PHASE-COMPLETION entry + #91 COMPLETE + #94
+
+5.4 shipped: code 53a49d4, docs f20b1a2 (verified clean by operator — runtime:verify 13/13, probe PASS on deployed
+code; backend healthy after reload).
+
+---
+
+## 2026-06-06 — ✅ Calibration-LineAware-1A COMPLETE
+
+All steps shipped + verified clean (each its own bisectable commit, regression-gate-first, runtime:verify 13/13):
+  - 5.1 parallel line-aware corpus (book-agnostic + per-line, not consumed)  code 8c685aa · design-doc f2e4ef7
+  - 5.2 line dimension LIVE (per-line dampening + easy-line protection)       code bfa7a00 · docs 28a9430
+  - 5.3 CALIB_LINEAWARE kill-switch (default ON; emergency id-join revert)    code 9852137 · docs 3c24489
+  - /status LINEAWARE surface (live flag field, gray ON / red OFF)            code 516e5b6 · docs a08e479
+  - 5.4 calibrationFeedback book-agnostic join (line-agnostic)               code 53a49d4 · docs f20b1a2
+
+WHAT THIS FIXED: the dampener pooled all lines of a family together, so longshot lines (MLB hits|over ~95% at
+line-2.5, realized 0.068) crushed the common easy lines via the floor-clamped multiplier. Now each MLB rung
+calibrates on its OWN line (exact mode); NBA continuous families bucket by line-range (width 2); line-agnostic
+markers (moneyline/runline/firstHR) keep the family-side path. Thin per-line buckets → no dampening (1.0), the
+safe direction. Floor raised 0.20→0.40 (per-line buckets thinner; protects real picks from thin-bucket noise).
+calibrationFeedback (the 2nd, smaller in-scoring layer) also moved to the book-agnostic corpus, kept line-agnostic.
+
+HONEST CORRECTION (carried through the phase): the code NOTE + memory said the MLB id-join was "frozen at 0". That
+predated Step-1 fix #2 (40121d7) — the id-join MLB was actually 430 rows. So this phase was NOT an un-freeze-from-
+zero; the book-agnostic join's row gain is modest (446 vs 430 + dedup of book-duplicates). The real win is the
+per-line bucketing that stops the over-suppression.
+
+BETTOR-VISIBLE over the next ~7 days as the corpus accumulates against line-aware calibration:
+  - NBA threes-over reads HIGHER than the old pattern (was floor-crushed to ~0.12; now ~0.24 line-aware)
+  - MLB easy-line hits-over at FULL model confidence (was pooled-crushed to ~0.50; now protected at model value)
+  - MLB hits-under @1.5 reads LOWER (now calibrated on its own line: ~0.41 vs old ~0.55)
+  - net direction is LESS over-suppression — the old pooled aggregates were too aggressive
+  - coverage GROWS: only 6 line-buckets qualify (n≥25) today; more dampen as grading accumulates
+
+OPERATOR CONTROLS: kill-switch CALIB_LINEAWARE (RUNTIME_FACTS.md — flip to "0" + reload = pre-5.2 id-join revert,
+no code change). Live state visible on the /status dampener card (gray ON / red OFF) + [CALIB-BOOT] backend log.
+DESIGN: docs/audits/2026-06-06-signal-inputs/calibration_lineaware_1a_design.md.
+
+STATUS: task #91 (Calibration-LineAware-1A) → COMPLETE. task #94 (Signal-Fill-1B: pitcher-stats cache expansion +
+batterKs + HR/9 + restDays + tier-2 opp feeds) → UNBLOCKED, now the next major phase.
 unblocks.
