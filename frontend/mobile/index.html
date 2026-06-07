@@ -2273,25 +2273,38 @@
         const d = await r.json();
         const el = document.getElementById(targetDivId); if (!el) return;
         const renderSport = (sport, w) => {
-          const stampPct = w.clvStampRate == null ? "—" : `${(w.clvStampRate * 100).toFixed(0)}%`;
-          const beatPct = w.beatMarketRate == null ? "—" : `${(w.beatMarketRate * 100).toFixed(0)}%`;
-          const hit = w.hitRate == null ? "—" : `${(w.hitRate * 100).toFixed(0)}%`;
-          const avgClv = w.avgClvCents == null ? "—" : `${w.avgClvCents > 0 ? "+" : ""}${w.avgClvCents.toFixed(1)}¢`;
-          const okClv = w.clvStampRate != null && w.clvStampRate > 0;
-          const okStatus = okClv ? "#34D399" : "#F87171";
+          // P2a fix 1+3 — lead with the HONEST edge metric (beat-market), not the
+          // scary raw HIT%. Trap-1: num() guards every metric read.
+          const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+          const beat = num(w.beatMarketRate);
+          const hitN = num(w.hitRate);
+          const clvSum = num(w.clvSumCents);
+          const settled = num(w.settled);
+          const stampedCount = num(w.clvStamped) || 0;
+          const measured = beat != null && stampedCount > 0;   // CLV actually captured for this sport
+          const beatPct = beat != null ? `${(beat * 100).toFixed(0)}%` : "—";
+          const hit = hitN != null ? `${(hitN * 100).toFixed(0)}%` : "—";
+          const clvSumTxt = clvSum != null ? `${clvSum > 0 ? "+" : ""}${clvSum.toFixed(1)}¢ total CLV` : "";
+          // grey (not red) when not measured — "capture pending" is NOT "measured bad" (fix 3, NBA CLV gap).
+          const okStatus = measured ? "#34D399" : "#6B7280";
+          const hero = measured
+            ? `<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px;">
+                 <div><div style="font-size:9px;color:#6B7280;letter-spacing:1px;">BEATING THE MARKET</div>
+                      <div style="font-size:22px;font-weight:700;color:#34D399;font-family:ui-monospace,monospace;">${beatPct}</div></div>
+                 <div style="text-align:right;font-size:10px;color:#9CA3AF;">${clvSumTxt}${clvSumTxt ? "<br>" : ""}${stampedCount} CLV-stamped</div>
+               </div>`
+            : `<div style="margin-top:8px;font-size:12px;color:#9CA3AF;">CLV capture pending — <span style="color:#6B7280;">not yet measured (pipeline gap, being repaired)</span></div>`;
+          // HIT% demoted + contextualized — honest: raw W/L on a longshot-heavy book reads low by design.
+          const hitLine = `<div style="margin-top:8px;font-size:11px;color:#9CA3AF;">HIT <span style="color:#D1D5DB;">${hit}</span> <span style="color:#6B7280;">· raw W/L on a longshot-heavy slate — expected low; the edge is in beating the close (by-tier breakdown soon)</span></div>`;
           return `
             <div style="background:#0F1422;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid ${okStatus};">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
                 <span style="font-size:13px;font-weight:600;color:#F9FAFB;">${sport === "nba" ? "🏀 NBA" : "⚾ MLB"}</span>
                 <span style="font-size:10px;color:#6B7280;">${w.total} picks · ${w.days.length}d</span>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:8px;font-family:ui-monospace,monospace;">
-                <div><div style="font-size:9px;color:#6B7280;">CLV STAMPED</div><div style="font-size:14px;color:${okClv ? '#34D399' : '#F87171'};">${stampPct}</div></div>
-                <div><div style="font-size:9px;color:#6B7280;">AVG CLV</div><div style="font-size:14px;color:${w.avgClvCents > 0 ? '#34D399' : '#F87171'};">${avgClv}</div></div>
-                <div><div style="font-size:9px;color:#6B7280;">BEAT MKT</div><div style="font-size:14px;color:#D1D5DB;">${beatPct}</div></div>
-                <div><div style="font-size:9px;color:#6B7280;">HIT</div><div style="font-size:14px;color:#D1D5DB;">${hit}</div></div>
-              </div>
-              <div style="font-size:9px;color:#6B7280;margin-top:6px;">${w.wins}W ${w.losses}L${w.pushes ? ' ' + w.pushes + 'P' : ''} ${w.pending ? ' · ' + w.pending + ' pending' : ''} · ${w.clvStamped} CLV-stamped</div>
+              ${hero}
+              ${hitLine}
+              <div style="font-size:9px;color:#6B7280;margin-top:6px;">${w.wins}W ${w.losses}L${w.pushes ? ' ' + w.pushes + 'P' : ''}${settled != null ? ' · ' + settled + ' settled' : ''}${w.pending ? ' · ' + w.pending + ' pending' : ''}</div>
             </div>
           `;
         };
@@ -3032,8 +3045,16 @@
             </div>
             <div style="font-size:11px;color:#9CA3AF;margin-top:10px;">
               ${pb.count} bet${pb.count === 1 ? "" : "s"} · ${pb.pending} pending · ${pb.wins}W ${pb.losses}L${pb.pushes ? ' ' + pb.pushes + 'P' : ''}
-              ${pb.hitRate != null ? ` · hit ${(pb.hitRate*100).toFixed(0)}%` : ''}
-              ${pb.roi != null ? ` · roi ${(pb.roi*100).toFixed(1)}%` : ''}
+              ${(() => {
+                // P2a fix 2 — small-sample guard. A −100% ROI on n=2 reads as "system broken."
+                // Below SMALL_SAMPLE_MIN graded bets, suppress hit%/ROI for an honest "not yet meaningful"
+                // note. Threshold operator-tunable (start 10). Trap-1: num() guards.
+                const SMALL_SAMPLE_MIN = 10;
+                const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+                const settled = num(pb.settled) != null ? num(pb.settled) : ((num(pb.wins) || 0) + (num(pb.losses) || 0));
+                if (settled < SMALL_SAMPLE_MIN) return ` · <span style="color:#6B7280;">small sample (n=${settled}) — hit%/ROI not yet meaningful</span>`;
+                return `${pb.hitRate != null ? ` · hit ${(pb.hitRate*100).toFixed(0)}%` : ''}${pb.roi != null ? ` · roi ${(pb.roi*100).toFixed(1)}%` : ''}`;
+              })()}
             </div>
           </div>
         `;
@@ -3180,7 +3201,12 @@
       const calProb = _num(slip.calibratedCombinedModelProb);
       const calProbTxt = calProb != null ? `${(calProb * 100).toFixed(0)}% model` : "";
       const evN = _num(slip.ev);
-      const evTxt = evN != null ? `EV ${evN >= 0 ? "+" : ""}${(evN * 100).toFixed(0)}%` : "";
+      // P2a fix 5 — variance honesty: a four-figure EV% next to a 2% prob reads as "free money."
+      // On lotto-tier slips above a big-EV threshold, tag it as a moonshot (operator-tunable).
+      const moonshot = (slip._tier === "lotto" && evN != null && evN > 2.0);
+      const evTxt = evN != null
+        ? `EV ${evN >= 0 ? "+" : ""}${(evN * 100).toFixed(0)}%${moonshot ? " · ⚡ moonshot, small stake" : ""}`
+        : (moonshot ? "⚡ moonshot, small stake" : "");
 
       const bookName = slip.book || (slip.legs && slip.legs[0] && slip.legs[0].book) || "";
       const bookUrl = SLIP_BOOK_URLS[_slipBookKey(bookName)] || null;
