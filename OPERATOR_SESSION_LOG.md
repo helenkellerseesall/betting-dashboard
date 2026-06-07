@@ -1916,6 +1916,26 @@ is always 0 at slip level; surfacing "N legs removed (scratched)" needs a small 
 (2) Lotto EV renders large (engine's real `ev`, verbatim) — needs framing → P2 metric-framing.
 NEXT: operator loads /m on phone/browser, taps SLIPS, verifies. Then P2 (metric-framing) per synthesis ranking.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · FE-Trust-Surface-1A · P1.1 BUILT + VERIFIED — dead-leg removal now visible (slate-level)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Closes the visibility loop Phase 1b opened. Render probe: .scratch/probe_p11_deadleg_render.txt + _deadleg.txt.
+ARCHITECTURE FLAG (operator approved): dead legs are excluded POOL-WIDE before slips assemble → a dead leg never
+belongs to a specific slip (slip.deadCount always 0). Per-slip would need degrading the pre-filter to a worse
+post-assembly drop (contradicts Phase 1b decision iii). Operator chose the honest SLATE-LEVEL banner.
+SHIPPED (3 files): buildSlipAi.js — pre-filter captures deadRemoved=[{player,reason,source}] (dedup by player),
+returned on result; workstationRoutes.js — payload carries aiSlipsDeadRemoved; index.html renderSlips — slate-level
+banner "🛡 Removed from tonight's slips — kept N player(s) out: <operator-friendly reasons>" (subtle gray-amber).
+VERIFIED: backend probe on real 171-pool — baseline deadRemoved=[] (no spurious), after synthetic scratch →
+[{Sal Frelick, "scratched from the lineup", mlb.lineup.scratched}] + victim excluded (5/5 PASS). FE render at /m —
+injected aiSlipsDeadRemoved=[Marcell Ozuna] → banner rendered "Marcell Ozuna scratched from the lineup"; no banner
+when empty (no "0 removed" spurious); slips stay "✓ lineups clear" (slate-level, not per-card). node --check both
+.js + index.html parse; runtime:verify 13/13. COMMIT: <fill after push>.
+GOTCHA (probe-only, not a product bug): forcing the test required re-triggering refresh after boot completed
+(state.fetching guard made the first click a no-op). Real path is unaffected — once the backend is reloaded, the
+boot fetch carries aiSlipsDeadRemoved natively, no race.
+BACKEND RELOAD required (buildSlipAi change). NEXT: operator verifies on /m, then P2 (metric-framing).
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
