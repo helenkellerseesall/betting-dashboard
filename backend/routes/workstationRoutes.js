@@ -2670,10 +2670,15 @@ router.get("/games-browser", (req, res) => {
       byTier[t].sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
     }
     const limit = 50
+    // P2b (FE-Trust-Surface-1A) — gate the ⭐ on edge > 0 so it never marks a pick the
+    // engine wouldn't back (e.g. a tier-ranked prop that went negative-edge after the
+    // calibration dampener). Applied WITHIN each tier, before the slice, so tier ordering
+    // (already sorted by edge×modelProb desc above) is preserved. Trap-1: null edge → 0 → excluded.
+    const posEdge = (p) => (Number(p.edge) || 0) > 0
     const topKeys = new Set([
-      ...byTier.ELITE.slice(0, Math.max(3, Math.floor(limit * 0.25))),
-      ...byTier.STRONG.slice(0, Math.max(5, Math.floor(limit * 0.50))),
-      ...byTier.PLAYABLE.slice(0, limit - Math.max(3, Math.floor(limit * 0.25)) - Math.max(5, Math.floor(limit * 0.50))),
+      ...byTier.ELITE.filter(posEdge).slice(0, Math.max(3, Math.floor(limit * 0.25))),
+      ...byTier.STRONG.filter(posEdge).slice(0, Math.max(5, Math.floor(limit * 0.50))),
+      ...byTier.PLAYABLE.filter(posEdge).slice(0, limit - Math.max(3, Math.floor(limit * 0.25)) - Math.max(5, Math.floor(limit * 0.50))),
     ].map((p) => `${p.sport}|${(p.player||'').toLowerCase()}|${p.statFamily}|${p.side}|${p.line}`))
 
     const gamesArr = []
