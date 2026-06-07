@@ -2114,6 +2114,24 @@ phase — tier classifier/dampener/⭐ selection); (R3) tier card revisited only
 story, or reframed as an operator-facing calibration panel on /status (red rows diagnostic there, trust-toxic on GRADES).
 NO EDITS. Overall HIT% aggregate untouched. Operator decides the regroup direction.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · R1 RECENCY SLICE (T1 #2 regroup) — read-only · verdict: POST-CALIB TOO SMALL TO READ, directionally NOT improving
+────────────────────────────────────────────────────────────────────────────────────────────────
+Probe: .scratch/probe_hit_recency_pre_post.txt. Cutoff slate 2026-06-06 (Calibration-LineAware 53a49d4).
+(a) post-calib better? NO — mixed/net-worse on readables: CURATED mid-dog improved +2.9pp, but mid-fav -18.7pp
+(was -5.4) and pickem -23.1pp (was -6.4). Nothing supports "calibration fixed realized hit rate."
+(b) anti-selection closing? UNREADABLE — post-calib uncurated mid-bucket pool is EMPTY (n=0; only heavy-longshots
+log uncurated now). Pre-calib anti-selection signal stands unrefuted. The silent uncurated mid-stream is itself a
+finding for R2 to explain.
+(c) n-sufficiency: post-calib ≈ ONE slate-day settled (n=382 curated; longshot n=25 + heavy-longshot n=40
+insufficient; even n≥50 buckets are slate-correlated → weak). The -18.7/-23.1 could be one bad day OR signal —
+cannot separate at 1 day.
+(+) most robust corpus fact: heavy-longshot ≈ -3.8/-3.9pp in EVERY slice (n up to 9k) — vig-sized. The bleed
+beyond vig is specifically the MID buckets.
+DECISION-TREE CELL: "post-calib n too small to read" dominates, with a wrong-direction warning. RECOMMENDED:
+re-probe in 3-5 days; ELEVATE R2 (curation-anti-selection audit — include the dampener's selection effects + the
+silent uncurated mid-stream in scope). NO EDITS.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
