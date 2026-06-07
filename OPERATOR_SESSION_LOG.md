@@ -1936,6 +1936,29 @@ GOTCHA (probe-only, not a product bug): forcing the test required re-triggering 
 boot fetch carries aiSlipsDeadRemoved natively, no race.
 BACKEND RELOAD required (buildSlipAi change). NEXT: operator verifies on /m, then P2 (metric-framing).
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · FE-Trust-Surface-1A · P2 AUDIT + P2a BUILT + VERIFIED — metric-framing (the daily-trust killers)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Audit: docs/audits/2026-06-07-fe-trust-surface/p2_design.md. Probes: .scratch/probe_p2_01/_02/_p2a_render.txt.
+AUDIT HEADLINE: every P2 item is an HONEST number FRAMED to look broken; most fixes are cheap render reframes
+because the corrective data is already in the payload. Operator approved P2a packaging (items 1+2+3+5, one FE
+render commit, no reload); #4 (⭐ edge-gate) is a small backend follow; 2 data gaps get their own sub-phases.
+P2a SHIPPED (1 file, render-only, frontend/mobile/index.html):
+  fix 1 HIT% reframe — GRADES leads with hero "BEATING THE MARKET <beatMarketRate>" (already in payload) + total
+    CLV + settled denominator; HIT% demoted to grey secondary with "raw W/L · longshot-heavy · edge is in beating
+    the close (by-tier breakdown soon)".
+  fix 2 ROI small-sample — MY BETS shows "small sample (n=2) — hit%/ROI not yet meaningful" below n<10 (tunable).
+  fix 3 NBA CLV honest label — "CLV capture pending — not yet measured (pipeline gap, being repaired)" in GREY,
+    not red 0%; distinguishes not-measured from measured-bad.
+  fix 5 lotto EV moonshot — lotto-tier + ev>2.0 appends "⚡ moonshot, small stake" to the EV line.
+VERIFIED at /m: GRADES leads "BEATING THE MARKET 17% · +24.7¢"; NBA "capture pending"; MY BETS "small sample
+  (n=2)"; 8 lotto slips tagged moonshot, aggressive (EV +423%) correctly NOT tagged. node --check PASS; Trap-1
+  guards. Regression clean. COMMIT: <fill after push>. NO backend reload (static FE).
+DATA-GAP SUB-PHASES still open (flagged, not faked): NBA-CLV-Capture-Repair (captureClosingLines runs NBA but
+  never lands — suspect NBA snapshot.json/rawProps source or eventTime eligibility); HIT%-by-odds-tier + vs-implied
+  (needs backend bucketing of settled picks by odds + implied). NEXT: P2b ⭐ edge-gate (workstationRoutes topKeys
+  filter, ~2 lines + reload), then the sub-phases.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
