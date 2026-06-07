@@ -1998,6 +1998,27 @@ grades-health NBA clvStamped>0 → /m GRADES NBA flips "capture pending" → rea
 join misses (snapshot lacks alt markets). NOTE: only FUTURE NBA slates stamp going forward; past games' close odds are
 unrecoverable live (backfill would need historical odds we may not have).
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · NBA-CLV-Capture-Repair · BUILT + VERIFIED — window-scan (one file: captureClosingLines.js)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Probe: .scratch/probe_nbaclv_repair.txt. FIX: runOnceForSport now loads NBA bets from a WINDOW (today..today-5,
+resolveActiveDateWindow) and unions them (dedup by id), instead of the single today/yesterday file. captureEligibility
+(gameTime in_window) stays the real filter. Per-file arrays kept so each source file is written back (bet objects are
+shared refs). MLB UNCHANGED (else-branch = original single-file resolveActiveDate). Trap-1: missing/empty window files
+skipped.
+SHARPER ROOT CAUSE (found at verify): resolveActiveDate uses fs.existsSync — it returns the FIRST EXISTING file among
+[today, yesterday] even if that file is EMPTY (0 bets). The NBA slate builder creates an empty today-file while the
+actual bets sit in the build-date file 1-2 days back, so existsSync returns the empty today/yesterday file and NEVER
+reaches the build-date file → 0 capture. The window UNION bypasses existsSync-first entirely. (Audit said "wrong file
+by date"; the precise mechanism is "empty today-file shadows the build-date file via existsSync".)
+VERIFIED (probe drives REAL captureEligibility at a simulated tipoff): PRE single-file in-window=351, POST window
+in-window=1238 — recovers 887 bets the single-file path misses. MLB single-file loads 2544 unchanged. node --check +
+runtime:verify 13/13. COMMIT: <fill after push>. BACKEND RELOAD required.
+HONEST CAVEAT: the file-selection defect is fixed + verified. The DEFINITIVE proof is the next live NBA tipoff —
+NBA closeOdds should stamp → grades-health NBA clvStamped>0 → /m GRADES NBA flips "capture pending" → real BEAT MKT %.
+If it still stamps 0, the remaining factor is runtime (loop firing / snapshot coverage at tipoff), a separate chase.
+Past NBA closing odds remain unrecoverable (forward-only). Secondary 5% alt-line join misses still open (minor).
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
