@@ -1761,3 +1761,36 @@ engine per FIX 7a, + calibration). Synthesis probe 7c amended.
 
 BETTOR-VISIBLE net from 1B: batter-K projections vary by opposing pitcher kRate (was flat 2.0); HR picks vary by
 opposing pitcher HR/9 on the /api/best-available path (was flat 1.2). Both live next slate fire.
+
+---
+
+## 2026-06-07 — Live-Game-State-Integration-1A AUDIT COMPLETE (read-only synthesis)
+
+Synthesis: docs/audits/2026-06-06-live-state-integration/synthesis.md. Probes: .scratch/probe_livestate_*.txt.
+
+HEADLINE — THE PARLAY-SURFACE GAP: the bettor's highest-stakes surface (multi-leg parlays / AI slips) is the LEAST
+protected from live-state staleness on BOTH sports. One dead leg kills the whole ticket.
+  - MLB: buildMlbAutoTickets has ZERO availability/scratched/mlbLiveState refs → fully blind on every surface; the
+    board itself doesn't gate (Class-3 dead wire: applyMlbLiveStateLayers RUNS + enabled, attaches rich
+    row.mlbLiveState — lineup.scratched, starter.changeType, lineMovement.steamFlag — but the ONLY consumers are
+    freezeMlbLiveStateEpoch (DB) + responseAuthority.hasMlbLiveState (observability boolean). No gate, no FE.
+  - NBA: PARTIAL gate. Single curated picks HARD-STOP OUT (buildDecisionLayer forceSit + buildSurfaceRow
+    isTrueCuratedHardStop). But the parlay path (buildNbaAiPicks → buildNbaAiSlips) has NO hard-stop — only the soft
+    nbaAvailabilityCache shift (OUT max −0.020). The one surface NBA gates right is the lower-stakes one.
+
+KEY MATRIX (single pick / parlay): MLB = no-gate / blind; NBA = hard-stop / soft-only.
+
+ARCHITECTURE REC: UNIFIED-GATE-PRIMITIVE (option b) — sport-agnostic liveStateGate(leg) → {ok|soft|dead, reason,
+graduatedConfidence}, applied at the board serializer AND parlay/slip assembly. Graduated (dead=remove/kill ticket,
+soft=flag+haircut) not binary — serves lotto-parlay logic + the per-pick reasoning requirement. WIRE-ONLY (detection
+already exists both sports). Trap-5: live-state gate is a CORRECTNESS check (don't surface a dead leg), NOT an edge
+signal → no double-count even though books partially price scratches (different clocks; apply gate post-edge).
+
+BUILD PHASING (parlay-surface priority): Phase 1 parlay-surface gate primitive (highest, WIRE-ONLY) → Phase 2 MLB
+single-pick board gate (WIRE-ONLY) → Phase 3 NBA AI-picks gate + 2-injury-source precedence (WIRE-ONLY). DEFERRED
+(need-feed, own phases): NBA in-game injury polling, sharp-money tracking, beat-reporter news (screenshot ingestion
+is today's substitute). Sources confirmed ABSENT: sharp/public money feed, beat-reporter news, distinct NBA in-game poll.
+
+RESIDUALS for build-phase: two NBA injury sources (ESPN soft vs official hard) may disagree → pick one authority;
+forceSit labels "sit" (not delete) so non-checking surfaces still show it; MLB lineup adapter coverage (apiSports
+scaffold). Operator reviews synthesis before any per-phase build plan.
