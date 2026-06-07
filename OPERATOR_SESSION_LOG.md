@@ -1833,3 +1833,42 @@ end-to-end drive deferred (heavy harness); gate-must-act proven via gateParlayLe
 BETTOR-VISIBLE next slate: MLB auto-tickets exclude scratched batters / non-starting pitchers before assembly; NBA
 slips exclude OUT players; questionable/doubtful surfaced with reason strings; tickets carry liveStateSummary for the
 FE. NEXT: operator verifies; then Phase 2 (MLB single-pick board gate — wire row.mlbLiveState into the board/serializer).
+
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · Phase Live-Game-State-Integration-1b — gate the REAL bettor parlay surface (Phase 1 redo)
+────────────────────────────────────────────────────────────────────────────────────────────────
+WHY: FE-Trust-Surface audit (path-audit) found Phase 1 gated the WRONG assemblers — buildMlbAutoTickets feeds
+/api/best-available (the /m FE never fetches it) and buildNbaAiSlips is dead. The bettor /m surface is
+/m → /api/ws/state → workstationRoutes /state → buildSlipAi.buildAiSlips, which was UNGATED. Operator approved
+the redo, verbatim: "Option A — wire gateParlayLegs into buildSlipAi.buildAiSlips (canonical bettor assembler,
+hits both /api/ws/state and nbaIsolatedRoutes)" and set a BINDING rule: "consumer-sweep MUST end at the browser
+network call, gate-must-act probe MUST verify at the bettor-fetch endpoint, not function output."
+
+BUILD-STEP-0 caught a SECOND dead-wire one level deeper: the bettor candidate pool (tracked_best-derived) carries
+NO live-state envelope (verified on /api/ws/state: 0/22 MLB candidates had mlbLiveState; 0/25 NBA had playerStatus).
+Gating buildSlipAi ALONE would have Trap-1'd to OK for every leg = a THIRD no-op. The detection exists on a
+different source loaded in the same route: snapshot rows (MLB mlbLiveState, 12758/12758 populated) + the NBA
+availability cache. So the approved scope EXPANDED from 1 file to a JOIN + the gate — flagged to operator before
+any edit; operator approved "Yes — join + gate" + "join in workstationRoutes, attach to candidates."
+
+SHIPPED (2 files): (1) backend/routes/workstationRoutes.js — JOIN live-state onto gateReadyCandidates before
+buildAiSlips: MLB maps snapshotRows player→mlbLiveState and attaches by canonical normPlayer (diacritic-safe) +
+derives isPitcherMarket via canonical isMlbPitcherMarketKey(marketKey); NBA runs enrichNbaRowWithAvailability.
+(2) backend/pipeline/shared/buildSlipAi.js — normalizeCandidate preserves mlbLiveState/isPitcherMarket/
+playerStatus/availabilityContext; DEAD legs pre-filtered before assembly; per-slip liveStateSummary +
+liveStateStatus attached + soft legs tagged near return. All 4 Phase-1 decisions preserved (dead pre-filter +
+drop-<2 satisfied upstream; official-authority mechanism intact via opts; soft = flag-only; steam scoped out).
+Featured plays deliberately left on the un-joined pool (parlay-surface scope).
+
+VERIFIED (sandbox, .scratch/probe_p1b_gate_acts.txt): REAL buildAiSlips on the REAL tracked_best pool — MLB 171
+entries → 8 slips all carry liveStateSummary; "sal frelick" present baseline, EXCLUDED after synthetic scratch,
+slips still build. NBA 295 → 16 slips; "victor wembanyama" EXCLUDED after OUT. JOIN: 162/171 real candidates
+resolve to a snapshot mlbLiveState ("Sandy León"→"sandy leon" joined). Trap-1: 0 false exclusions on clean pool.
+runtime:verify 13/13. node --check both files. COMMIT: <fill after push>.
+
+HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
+field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
+(shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
+confirmed post-reload by hitting /api/ws/state in the browser (slips[].liveStateSummary present; was absent pre-edit).
+NEW BINDING RULE (logged): a gate-wire is not "done" until verified at the bettor fetch (the rendered slip on
+/api/ws/state), never at the assembler's function output — the dead-wire pattern Phase 1 missed twice.
