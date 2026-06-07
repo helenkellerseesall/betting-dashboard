@@ -94,6 +94,20 @@ const MULTIPLIER_FLOOR_LINEAWARE = 0.40  // raised from 0.20 (operator-approved)
 const RANGE_BUCKET_WIDTH         = 2     // NBA continuous families bucket lines into windows of this width
 const DEFAULT_LINE_MODE          = "exact"  // unknown families → exact (never pool → never re-introduce line-bias)
 
+// Phase Calibration-LineAware-1A step 5.3 — KILL-SWITCH. Read ONCE at module load
+// (set via the backend plist EnvironmentVariables; flipping it requires a backend
+// reload — that's the point: an emergency revert, not a mid-flight toggle).
+//   CALIB_LINEAWARE unset or "1" → line-aware path live (5.2 default)
+//   CALIB_LINEAWARE = "0"        → force the pre-5.2 id-join path (line ignored)
+// Only the exact string "0" disables. See RUNTIME_FACTS.md.
+const LINEAWARE_ENABLED = process.env.CALIB_LINEAWARE !== "0"
+
+// Boot-time announcement (matches the [DB-BOOT] convention) so the LIVE flag state is
+// observable in the backend log after a CALIB_LINEAWARE plist flip + reload. This is the
+// reliable confirmation — the /status familyCalibration section reads family_calibration.json,
+// NOT this module, so it does NOT reflect the flag.
+console.log(`[CALIB-BOOT] line-aware dampener: ${LINEAWARE_ENABLED ? "ON (default)" : "OFF — CALIB_LINEAWARE=0, id-join path"}`)
+
 let _cache       = null     // { sports: { nba: {...}, mlb: {...} } }
 let _loadedAt    = 0
 let _lastError   = null
@@ -543,9 +557,10 @@ function _getCalibrationLineAware(sport, statFamily, side, mode, line) {
  */
 function getCalibrationForFamily(sport, statFamily, side, line = null) {
   const mode = _lineModeFor(statFamily)
+  // 5.3 kill-switch (LINEAWARE_ENABLED): when disabled, ignore line → pre-5.2 id-join.
   // Trap 1 (num(null)=0): test `line == null`, NOT `!line` — `!line` would also treat
   // a (hypothetical) line 0 as absent. `== null` catches only null/undefined.
-  if (line == null || mode === "agnostic") {
+  if (!LINEAWARE_ENABLED || line == null || mode === "agnostic") {
     return _getCalibrationIdJoin(sport, statFamily, side)
   }
   return _getCalibrationLineAware(sport, statFamily, side, mode, line)
@@ -642,6 +657,7 @@ module.exports = {
     MULTIPLIER_FLOOR_LINEAWARE,
     RANGE_BUCKET_WIDTH,
     DEFAULT_LINE_MODE,
+    LINEAWARE_ENABLED,   // Phase Calibration-LineAware-1A 5.3 kill-switch (read at module load)
   },
 }
 
