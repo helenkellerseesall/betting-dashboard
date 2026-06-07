@@ -1032,6 +1032,10 @@ router.get("/state", async (req, res) => {
         timing: compactTiming(timingResult, 60),
         portfolio: compactPortfolio(portfolio),
         aiSlips: aiSlips.slips || { safe: [], balanced: [], aggressive: [], lotto: [] },
+        // P1.1 — pool-wide dead legs the live-state gate removed before slip
+        // assembly (slate-level; a dead leg never belongs to a specific slip).
+        // FE surfaces this as a "removed from tonight's slips" note on the SLIPS tab.
+        aiSlipsDeadRemoved: aiSlips.deadRemoved || [],
         // Phase BNSB-1A: expand aiSlipsSummary to carry the advisory metrics
         // already computed by buildAiSlips (bettorRealismScore from BC-8;
         // oe11SlipStats from OE-11; mlbCovStats from MLB-COV-1A). These fields

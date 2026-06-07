@@ -3121,15 +3121,36 @@
       }
       _slipsCache = all;
       const cnt = document.getElementById("slipsCount"); if (cnt) cnt.textContent = all.length;
+
+      // P1.1 — slate-level "removed from tonight's slips" set. The live-state gate
+      // excludes dead (scratched/OUT) players pool-wide BEFORE slips assemble, so
+      // this is slate-level, not per-card. Dedup by player across both sports.
+      const deadRemoved = [];
+      const _deadSeen = new Set();
+      for (const sp of ["mlb", "nba"]) {
+        const d = state.data[sp];
+        for (const dr of ((d && d.aiSlipsDeadRemoved) || [])) {
+          const k = String(dr && dr.player || "").toLowerCase();
+          if (k && !_deadSeen.has(k)) { _deadSeen.add(k); deadRemoved.push(dr); }
+        }
+      }
+      const deadBanner = deadRemoved.length
+        ? `<div style="font-size:11px;color:#9CA3AF;background:#1A160C;border-left:3px solid #B45309;padding:8px 10px;border-radius:6px;margin-bottom:8px;">
+             <span style="color:#FBBF24;">🛡 Removed from tonight's slips</span> — the live-state gate kept ${deadRemoved.length} player${deadRemoved.length === 1 ? "" : "s"} out:<br>
+             ${deadRemoved.map((d) => escapeHtml(d.reason || ((d.player || "A player") + " scratched / OUT"))).join("<br>")}
+           </div>`
+        : "";
+
       if (!all.length) {
-        main.innerHTML = `<div style="padding:24px;color:#9CA3AF;text-align:center;">
+        main.innerHTML = `<div style="padding:8px 12px;">${deadBanner}<div style="padding:24px;color:#9CA3AF;text-align:center;">
           <div style="font-size:28px;margin-bottom:10px;">🎟️</div>
           No engine slips for tonight's slate yet.<br>
           <span style="font-size:12px;color:#6B7280;">Slips build from tonight's edges once the slate populates.</span>
-        </div>`;
+        </div></div>`;
         return;
       }
       let html = `<div style="padding:8px 12px;">
+        ${deadBanner}
         <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">${all.length} engine-built slip${all.length === 1 ? "" : "s"} · live-state protected · display-only</div>`;
       for (const t of tiersOrder) {
         const slips = all.filter((s) => s._tier === t);

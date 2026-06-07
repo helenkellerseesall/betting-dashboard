@@ -1341,10 +1341,25 @@ function buildAiSlips(opts = {}) {
   // fabricate an exclusion. Pre-filtering here (rather than post-assembly removal)
   // means no viable slip is silently emptied, which satisfies the Phase-1
   // "drop-below-2-legs" decision more strongly than a post-hoc drop.
-  const normalized = __normalizedRaw.filter((leg) => liveStateGate(leg).status !== "dead")
+  // P1.1 — capture the pool-wide removed-dead set (player + reason + source) so the
+  // FE can surface a SLATE-LEVEL "removed from tonight's slips" note. The exclusion
+  // is global/pre-assembly, so this is slate-level, NOT per-slip (a dead leg never
+  // belongs to a specific slip). Dedup by player (a player may have multiple dead props).
+  const __deadRemoved = []
+  const __deadSeen = new Set()
+  const normalized = __normalizedRaw.filter((leg) => {
+    const g = liveStateGate(leg)
+    if (g.status === "dead") {
+      const key = String(leg.player || "").toLowerCase()
+      if (key && !__deadSeen.has(key)) { __deadSeen.add(key); __deadRemoved.push({ player: leg.player, reason: g.reason, source: g.source }) }
+      return false
+    }
+    return true
+  })
   const __deadExcluded = __normalizedRaw.length - normalized.length
   if (__deadExcluded > 0) {
-    console.log("[SLIP-LIVESTATE] excluded %d DEAD leg(s) before assembly (scratched/OUT)", __deadExcluded)
+    console.log("[SLIP-LIVESTATE] excluded %d DEAD leg(s) before assembly (scratched/OUT): %s",
+      __deadExcluded, __deadRemoved.map((d) => d.player).join(", "))
   }
 
   console.log("[SLIP-PROBE] buildAiSlips: candidates=%d normalized=%d (deadExcluded=%d) sport=%s", candidates.length, normalized.length, __deadExcluded, sport)
@@ -1355,6 +1370,7 @@ function buildAiSlips(opts = {}) {
       summary: __normalizedRaw.length ? "No live candidates (all excluded by live-state gate)" : "No eligible candidates",
       warnings: [__normalizedRaw.length ? "All candidates excluded by live-state gate (scratched/OUT)" : "No candidates supplied"],
       candidateCount: 0,
+      deadRemoved: __deadRemoved,
     }
   }
 
@@ -1549,7 +1565,7 @@ function buildAiSlips(opts = {}) {
     console.log("[SLIP-LIVESTATE] %d slip(s) carry SOFT live-state warnings (surfaced to bettor)", __slipsWithSoft)
   }
 
-  return { slips, summary, warnings, candidateCount: normalized.length, mlbCovStats: covStats, bettorRealismScore, oe11SlipStats }
+  return { slips, summary, warnings, candidateCount: normalized.length, deadRemoved: __deadRemoved, mlbCovStats: covStats, bettorRealismScore, oe11SlipStats }
 }
 
 // ── PRESENTATION HELPER ───────────────────────────────────────────────────────
