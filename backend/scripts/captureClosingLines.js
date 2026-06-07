@@ -78,6 +78,21 @@ function resolveActiveDate(sport = "nba") {
   return candidates[0]  // honest "today" even if no file yet
 }
 
+// NBA-CLV-Capture-Repair (2026-06-07) — NBA bets are filed under a build date 1-2 days
+// BEFORE the game's ET slate date (Finals lean-bet: surfaced days ahead), so the single
+// today/yesterday file resolveActiveDate returns won't hold the tipping game's bets. Return
+// a WINDOW of recent slate dates [today .. today-(days-1)] so the caller can union the files
+// and let captureEligibility (gameTime in_window) pick the bets actually tipping now. Mirrors
+// resolveActiveDate's yesterday math. MLB does NOT use this (it's same-day-aligned).
+function resolveActiveDateWindow(days = 6) {
+  const out = []
+  for (let i = 0; i < days; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    out.push(slateDateForTimestamp(d.getTime()))
+  }
+  return out   // [today, today-1, ..., today-(days-1)]
+}
+
 function readJsonSafe(p, fb) {
   try { if (!fs.existsSync(p)) return fb; return JSON.parse(fs.readFileSync(p, "utf8")) } catch { return fb }
 }
@@ -249,9 +264,35 @@ async function runOnce({ date } = {}) {
 }
 
 async function runOnceForSport(sport, { date } = {}) {
-  const resolvedDate = date || resolveActiveDate(sport)
-  const betsPath = path.join(TRACKING_DIR, `${sport}_tracked_bets_${resolvedDate}.json`)
-  const bets = readJsonSafe(betsPath, null)
+  // NBA-CLV-Capture-Repair — load bets from a WINDOW of recent files for NBA (its bets are
+  // filed 1-2 days before the game slate date), and from the single today/yesterday file for
+  // MLB (same-day-aligned — UNCHANGED). fileBets keeps each source array so we can write each
+  // back after stamping (bet objects are shared refs, so in-place mutation flows to fileBets).
+  // captureEligibility (gameTime in_window) is the real filter, so a wider file set adds no
+  // false captures. Trap-1: any missing/empty file in the window is skipped, never nuking the loop.
+  const fileBets = []   // [{ path, date, arr }]
+  if (sport === "nba" && !date) {
+    for (const d of resolveActiveDateWindow(6)) {
+      const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${d}.json`)
+      const arr = readJsonSafe(p, null)
+      if (Array.isArray(arr) && arr.length) fileBets.push({ path: p, date: d, arr })
+    }
+  } else {
+    const rd = date || resolveActiveDate(sport)
+    const p = path.join(TRACKING_DIR, `${sport}_tracked_bets_${rd}.json`)
+    const arr = readJsonSafe(p, null)
+    if (Array.isArray(arr) && arr.length) fileBets.push({ path: p, date: rd, arr })
+  }
+  // Union the files, dedup by bet id (each bet lives in exactly one build-date file).
+  // `bets` holds shared refs into fileBets[].arr — stamping a bet mutates its source file's array.
+  const byId = new Set()
+  const bets = []
+  for (const fb of fileBets) for (const b of fb.arr) {
+    const id = b && b.id
+    if (id != null) { if (byId.has(id)) continue; byId.add(id) }
+    bets.push(b)
+  }
+  const resolvedDate = fileBets.length ? fileBets.map((f) => f.date).join(",") : (date || resolveActiveDate(sport))
   if (!Array.isArray(bets) || bets.length === 0) {
     console.log(`[captureClosingLines:${sport}]`, { date: resolvedDate, bets: 0, action: "skip_no_file" })
     return { captured: 0, scanned: 0, sport }
@@ -335,7 +376,9 @@ async function runOnceForSport(sport, { date } = {}) {
   }
 
   if (captured > 0) {
-    writeJsonAtomic(betsPath, bets)
+    // Write back each source file in the window (bet objects are shared refs, so each file's
+    // array already carries this run's stamps). Atomic per file. MLB writes its single file as before.
+    for (const fb of fileBets) writeJsonAtomic(fb.path, fb.arr)
     console.log(`[captureClosingLines:${sport}] WROTE`, { date: resolvedDate, captured, unmatched })
     for (const m of matchedKeys) console.log("  ", m)
     if (_personalLedger && typeof _personalLedger.batchSetClosingLinesByFields === "function") {
