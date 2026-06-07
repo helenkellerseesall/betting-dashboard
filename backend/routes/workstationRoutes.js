@@ -2701,6 +2701,11 @@ router.get("/games-browser", (req, res) => {
           // 2026-05-31 (c) — calibration dampener applied at games-browser too
           prop.sport = g.sport
           applyCalibrationDampener(prop)
+          // P2b (completing fix) — the dampener can flip a tier-ranked pick to negative edge AFTER
+          // topKeys was computed (isTopPick set at L2693 from the PRE-dampener edge). Re-gate the ⭐ on
+          // the POST-dampener edge the bettor actually sees, so a star never marks a pick the engine
+          // wouldn't back. Trap-1: null edge → 0 → cleared.
+          if (prop.isTopPick && !((Number(prop.edge) || 0) > 0)) prop.isTopPick = false
           attachArchetypeHistory(prop)  // Phase Archetype-Surfacing-1A
           // Hydrate reasoning (no propType in join key — alias map handles family naming)
           const best = findReasoningEntry(reasoningIdx[g.sport], { ...prop, sport: g.sport })
