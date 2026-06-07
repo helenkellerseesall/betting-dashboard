@@ -1675,3 +1675,40 @@ A2/mlScorer (#86) or a future weight-tuning phase, after the outcome corpus accu
 
 1B status: FIX 3 SHIPPED · ship #2 pace BUMPED · remaining = FIX 4 HR/9, assists multiplier, restDays (each
 pending empirical pre-check). NEXT: ship #3 HR/9 deep-dive with the empirical pre-check.
+
+---
+
+## 2026-06-06 — Signal-Fill-1B ship #3 — FIX 4 MLB HR/9 derive (2-FILE, consumer-sweep caught the real site)
+
+THE BUG (empirically confirmed dead wire): getPitcherHrRate (buildMlbHrPredictionCandidates.js:159-166) reads only
+the *HrPer9 fields, never homeRunsAllowed. row.pitcherHrPer9 was a flat 1.2 for every pitcher → flat +2 in the HR
+score. Real HR/9 (cache homeRunsAllowed/IP*9) never reached the engine.
+
+CONSUMER-SWEEP CATCH (why this was 2 files, not 1): the approved one-file plan would have shipped a NON-FIX. The
+sweep found mlbIsolatedRoutes.js:381 — the /api/best-available BETTOR path — HARD-sets row.pitcherHrPer9 = 1.2
+("TEMP SIGNAL") right where it resolves opposingPitcher (L374-377), THEN calls buildMlbHrPredictionCandidates on
+those rows (L449). So the engine always received 1.2 on the bettor path; fixing only the engine would never reach
+a bettor-visible pick. mlbIsolatedRoutes is NOT in PRESERVED.md (safe to edit; it is a serving route → care).
+
+THE FIX (2 files, model-anchored, Trap-5 clean):
+  - mlbIsolatedRoutes.js:381 (PRIMARY, bettor path): replace the TEMP `= 1.2` with deriveOpposingPitcherHrPer9(
+    row.opposingPitcher) — cache lookup via a normalizeName index, HR/9 = homeRunsAllowed/IP*9. (L382 flyBall /
+    L383 hand left TEMP — flyBall is probe-3 / 1C.)
+  - buildMlbHrPredictionCandidates.js:338 (SECONDARY, engine self-sufficiency): `??= 1.2` → derive when unset
+    (non-route paths: inspection board / nightly snapshot), else keep route value.
+  Both helpers identical; both Trap-1 set-guarded (IP>0 AND HRA>=0 finite → HR/9; else 1.2, never 0/NaN).
+  IP NOTE: HR/9 uses LITERAL inningsPitched (e.g. 78.2 as decimal), consistent with the cache's own k9 (verified:
+  stored k9 == K*9/IP_literal across samples). Not baseball-notation-converted — matches existing convention.
+
+Verified (sandbox, real exported helpers from BOTH files, cache read live since it churns hourly) probe
+.scratch/probe_1b_fix4_hr9.txt PASS: route===engine for all samples, values match cache HRA/IP*9. Cavalli HR/9
+0.42 → HR score term +2→-2 (Δ-4, low-HR arm de-rated); McGreevy 1.09 → +2→0; Taillon 2.72 → +2→+4 (high-HR arm
+up-rated). Spread 0.00→2.30. Trap-1: null/undefined/uncached → 1.2 on both sites. Both modules load clean.
+runtime:verify 13/13 PASS. 3rd consumer buildMlbInsightBoard.js:110 (display) now shows the derived value
+(improvement). Backend reloaded.
+
+BETTOR-VISIBLE: HR picks vs contact arms (low HR/9, e.g. Cavalli 0.42) read LOWER HR probability; vs homer-prone
+arms (high HR/9, e.g. Taillon 2.72) read HIGHER — the engine was HR/9-blind, mis-scoring both tails.
+
+1B status: FIX 3 SHIPPED · pace BUMPED · FIX 4 HR/9 SHIPPED (2-file) · remaining = assists multiplier, restDays
+(each pending empirical pre-check). NEXT: ship #4 NBA assists opp-allowed multiplier deep-dive.
