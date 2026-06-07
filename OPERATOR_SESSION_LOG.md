@@ -1549,3 +1549,28 @@ Verified (sandbox) probe .scratch/probe_calib_status_surface.txt PASS: 3 flag st
 unset→"ON (default)", "1"→"ON (explicit)", "0"→"OFF (emergency revert)"; section keeps its shape (ok + sports +
 lineAware); FE inline JS parses clean (new Function, node --check broken on .html); #calibLineAware element + render
 hook present. runtime:verify 13/13 PASS. Behavior-neutral display surface.
+
+/status surface shipped: code 516e5b6, docs a08e479 (verified clean by operator — lineAware field serving across
+all 3 flag states, backend at a08e479 healthy).
+
+---
+
+## 2026-06-06 — Calibration-LineAware-1A · step 5.4 — calibrationFeedback book-agnostic join
+
+calibrationFeedback.js: switched BOTH joins (getCalibrationFactor + dumpCalibrationTable) from the id-join
+(ps.id = os.id) to the book-agnostic column join — dedup each side to one row per run_date|sport|player|stat_family|
+side|line BEFORE joining (book dropped, null-safe IS on player/side/line), so multi-book rows count as ONE event
+and book-mismatch rows are recovered. KEPT LINE-AGNOSTIC per design decision #3: `line` is in the dedup key (so
+distinct line-events aren't merged) but the final aggregate pools across lines → one family-side rate. getCalibration-
+Factor signature + return UNCHANGED (still a number in [0.1,2.0]); the 2 callers (buildNbaBestBetsBoard:274,
+buildMlbPropClusters:8) untouched. Pre-edit deep-dive confirmed verifyCalibrationHonesty does NOT touch this module
+or assume a corpus shape (it tests probabilityHonesty + pitcher-Ks null handling + server.js synth-0.5 removal).
+
+Verified (sandbox, real DB, real exported fn) probe .scratch/probe_calib_feedback_5_4.txt PASS: OLD id-join vs NEW
+book-agnostic for 5 trios — live getCalibrationFactor matches the new-corpus computation exactly; all factors stay
+in [0.1,2.0]. Effect is real where book-duplication existed: nba threes·over deduped 67→45 distinct events (factor
+0.309→0.400), points·over 27→23 (0.702→0.755); MLB unders unchanged (no book-dupes in the 30-day window → join
+correctly neutral). Shape-compat: factor is a number, unknown-family + no-args still default 1.0, dumpCalibration-
+Table keeps its keys (35 rows). runtime:verify 13/13 PASS (incl. verifyCalibrationHonesty). Backend reload picks up
+the new corpus. NEXT (this turn after verify): Calibration-LineAware-1A PHASE-COMPLETION entry + #91 COMPLETE + #94
+unblocks.
