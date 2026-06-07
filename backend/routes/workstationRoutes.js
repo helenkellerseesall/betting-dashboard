@@ -2226,6 +2226,63 @@ function _familyMatches(a, b) {
 }
 
 /** Resolve the best-matching tracked_best entry for a pick. */
+// #100 MLB-Reasoning-Snapshot-Hydration-1A — pseudo-bestEntry fallback from snapshot-mlb.
+// The buildReasoning MLB branch is gated on bestEntry (tracked_best-shaped), but tracked_best
+// is a different pick population (Over-only batter ladders) so most MLB picks miss the join
+// (#99/#100 audits: 0/11 live top-picks joined). This factory returns a per-request lookup:
+//   pick → bestEntry-SHAPED object mapped from the pick's snapshot row (normPlayer join), or
+//   null (NBA pick / join miss / no real context) → honest-empty downstream.
+// LAZY: snapshot-mlb.json is parsed only on the FIRST MLB join miss in the request — requests
+// where every pick joins tracked_best pay nothing. Trap-1: every field guard-clamped; indoor
+// venue → omit weather (wind + temp); nulls omitted, never zeroed; needs ≥1 real context field
+// or returns null (no empty pseudo). contextualTags intentionally absent (not derivable from
+// the snapshot without new compute — drivers are thinner than true tracked_best joins, honestly).
+function makeMlbSnapshotPseudoIndex() {
+  let idx = null   // lazy — built on first use
+  const load = () => {
+    idx = new Map()
+    try {
+      const wrap = readJsonSafe(path.join(__dirname, "..", "snapshot-mlb.json"), null)
+      const rows = (wrap && ((wrap.data && wrap.data.rows) || wrap.rows)) || []
+      for (const r of rows) {
+        if (!r || !r.player) continue
+        const k = normPlayer(r.player)
+        if (!k) continue
+        // keep the most context-rich row per player (weather + park + implied total)
+        const score = (r.weatherContext ? 1 : 0) + (r.parkContext ? 1 : 0) + (r.impliedTeamTotal != null ? 1 : 0)
+        const prev = idx.get(k)
+        const prevScore = prev ? (prev.weatherContext ? 1 : 0) + (prev.parkContext ? 1 : 0) + (prev.impliedTeamTotal != null ? 1 : 0) : -1
+        if (score > prevScore) idx.set(k, r)
+      }
+    } catch (_) { idx = new Map() }
+  }
+  return (pick) => {
+    if (String(pick?.sport || "").toLowerCase() !== "mlb") return null
+    if (idx === null) load()
+    const row = idx.get(normPlayer(pick.player))
+    if (!row) return null
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
+    const wc = (row.weatherContext && typeof row.weatherContext === "object") ? row.weatherContext : {}
+    const pc = (row.parkContext && typeof row.parkContext === "object") ? row.parkContext : {}
+    const out = {}
+    const itt = num(row.impliedTeamTotal); if (itt != null) out.impliedTeamTotal = itt
+    const gt = num(row.gameTotal); if (gt != null) out.gameTotal = gt
+    if (wc.isIndoor !== true) {   // indoor venue → no weather (Trap 1: dome ≠ 0 wind / outdoor temp)
+      const tf = num(wc.temperatureF); if (tf != null) out.temperatureF = tf
+      if (wc.windDirectionTag) out.windDirectionTag = String(wc.windDirectionTag)
+    }
+    const hrf = num(pc.hrFactor); if (hrf != null) out.hrFactor = hrf
+    if (pc.hrEnvironmentTag) out.hrEnvironmentTag = String(pc.hrEnvironmentTag)
+    const ls = num(row.lineupPosition != null ? row.lineupPosition : row.battingOrderIndex)
+    if (ls != null && ls > 0) out.lineupSpot = ls
+    if (row.opponentTeam) out.opponent = String(row.opponentTeam)
+    // require at least one REAL context field beyond opponent — otherwise honest null
+    if (Object.keys(out).filter((k) => k !== "opponent").length === 0) return null
+    out._source = "snapshot_pseudo"   // provenance (observability only; buildReasoning ignores it)
+    return out
+  }
+}
+
 function findReasoningEntry(reasoningIdx, pick) {
   const sport = pick.sport
   const key = `${sport}|${(pick.player||'').toLowerCase()}|${String(pick.side||'').toLowerCase()}|${pick.line}`
@@ -2544,9 +2601,13 @@ router.get("/top-picks", (req, res) => {
       ...byTier.PLAYABLE.slice(0, playableN),
     ]
 
-    // Hydrate reasoning on each pick (uses findReasoningEntry — no propType in join key)
+    // Hydrate reasoning on each pick (uses findReasoningEntry — no propType in join key).
+    // #100 — MLB picks that miss the tracked_best join fall back to a snapshot-derived
+    // pseudo-bestEntry (bestEntry-shaped; lazy snapshot load; honest null on miss). NBA
+    // path untouched (the pseudo returns null for non-MLB picks).
+    const mlbPseudoBest = makeMlbSnapshotPseudoIndex()
     for (const pick of picks) {
-      const best = findReasoningEntry(reasoningIdx[pick.sport], pick)
+      const best = findReasoningEntry(reasoningIdx[pick.sport], pick) || mlbPseudoBest(pick)
       pick.reasoning = buildReasoning(pick, best)
     }
 
@@ -2619,6 +2680,8 @@ router.get("/games-browser", (req, res) => {
     }
     const reasoningIdx = {}
     for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
+    // #100 — per-request pseudo-bestEntry fallback (lazy snapshot load; null for NBA/misses).
+    const mlbPseudoBest = makeMlbSnapshotPseudoIndex()
     const games = new Map()
     const allPicks = []
     for (const sport of sports) {
@@ -2707,8 +2770,10 @@ router.get("/games-browser", (req, res) => {
           // wouldn't back. Trap-1: null edge → 0 → cleared.
           if (prop.isTopPick && !((Number(prop.edge) || 0) > 0)) prop.isTopPick = false
           attachArchetypeHistory(prop)  // Phase Archetype-Surfacing-1A
-          // Hydrate reasoning (no propType in join key — alias map handles family naming)
-          const best = findReasoningEntry(reasoningIdx[g.sport], { ...prop, sport: g.sport })
+          // Hydrate reasoning (no propType in join key — alias map handles family naming).
+          // #100 — same snapshot pseudo-bestEntry fallback as /top-picks (no drift between surfaces).
+          const pickShaped = { ...prop, sport: g.sport }
+          const best = findReasoningEntry(reasoningIdx[g.sport], pickShaped) || mlbPseudoBest(pickShaped)
           prop.reasoning = buildReasoning(prop, best)
           propsArr.push(prop)
         }
