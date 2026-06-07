@@ -391,6 +391,16 @@ function buildMlbHitsToday(input = {}) {
       if (Number.isFinite(_df) && _df > 0) obj.doublesFactor = obj.doublesFactor ?? _df
     } catch (_) {}
 
+    // Phase Signal-Fill-1B FIX 3 (batterKs opposing-pitcher K-rate, 2026-06-06) — propagate the
+    // OPPOSING pitcher's per-PA K-rate (applyMlbContextualLayers resolves it onto
+    // primary.pitcherEnvironmentContext.kRate, the same field the hits engine reads at L209) so
+    // projectHitterStats can scale batterKs by the real pitcher instead of the flat 8.5 constant
+    // (which clamped every batter to 2.0). SET-GUARD (Trap 1): only attach a finite > 0 kRate; an
+    // uncached/unresolved opposing pitcher leaves obj.opposingPitcherKRate unset → projectHitterStats
+    // falls back to the OLD formula (~2.0), never 0. Model-anchored (kRate × ~4.2 PA), Trap 5 clean.
+    const oppKr = toNum(primary?.pitcherEnvironmentContext?.kRate)
+    if (Number.isFinite(oppKr) && oppKr > 0) obj.opposingPitcherKRate = obj.opposingPitcherKRate ?? oppKr
+
     if (playerMap) playerMap.set(key, obj)
     topPlayers.push(obj)
     byPlayer[key] = obj

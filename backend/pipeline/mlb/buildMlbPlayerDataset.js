@@ -212,8 +212,17 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const runsLadder = { 0.5: p1run, 1.5: Math.max(0.04, p1run * p1run * 0.6) }
 
   // Batter Ks — opposing pitcher K rate scaled by typical 4.2 PA.
-  const oppKper9 = num(playerObj?.opposingPitcherKper9) ?? num(playerObj?.opposingKsPer9) ?? 8.5
-  const eBatterKs = clamp(0.4, 2.0, (oppKper9 / 9) * 4.2)
+  // Phase Signal-Fill-1B FIX 3 (2026-06-06): prefer the OPPOSING pitcher's REAL per-PA kRate
+  // (set on playerObj.opposingPitcherKRate by buildMlbHitsProbabilityEngine from
+  // pitcherEnvironmentContext.kRate). eKs = kRate × ~4.2 PA — dimensionally correct (per-PA × PA),
+  // NOT the prior k9-detour. (The earlier ×9 idea was a unit error: kRate is per-PA, not per-9.)
+  // Trap 1: num(absent)→null and the `> 0` check route an uncached batter to the OLD formula below
+  // (flat ~2.0), never 0. The OLD k9/8.5-constant path is preserved as the fallback so behavior is
+  // unchanged when the opposing pitcher isn't resolved. Model-anchored → Trap 5 clean.
+  const oppKRate = num(playerObj?.opposingPitcherKRate)
+  const eBatterKs = (Number.isFinite(oppKRate) && oppKRate > 0)
+    ? clamp(0.4, 2.0, oppKRate * 4.2)
+    : clamp(0.4, 2.0, ((num(playerObj?.opposingPitcherKper9) ?? num(playerObj?.opposingKsPer9) ?? 8.5) / 9) * 4.2)
   const saltedBatterKs = eBatterKs * (1 + (salt - 0.5) * 0.18)
   const batterKsMedian = round1(saltedBatterKs)
   const batterKsFloor = 0
