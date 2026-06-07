@@ -1646,3 +1646,32 @@ variation). POST < PRE for all. Siblings (hits/TB/RBI/runs) byte-identical PRE v
 
 BETTOR-VISIBLE: next slate fire, batter-K projections vary by the opposing pitcher's real K-rate (high-K pitcher →
 ~1.0+ K, contact pitcher → ~0.7 K) instead of a flat 2.0. NEXT (1B ship #2): NBA pace → points band.
+
+FIX 3 shipped: code 102c091, docs fa3fc22 (verified clean by operator — probe matched kRate×4.2, spread 0.10→0.30,
+siblings byte-identical, Trap 1 fallback, /status healthy).
+
+---
+
+## 2026-06-06 — Signal-Fill-1B ship #2 (NBA pace → points) BUMPED-FOR-CAUSE (already wired)
+
+Deep-dive pre-build empirical check overturned the synthesis. Pace is ALREADY folded into the continuous points
+score: pace → paceZ (nbaModelSignals.js:522) → ctxBundle [paceZ, 0.45] → ctxZ → primaryBundle [ctxZ, w.ctx=0.18
+for points]. Drove the REAL nbaRowIndependentModelProbability on an else-identical points row: pace 95→0.5277,
+100→0.5373, 105→0.5468 (monotonic, correct direction, ~+2pp across the ~95-105 NBA range). Pace is live.
+
+The synthesis (probe 4B) was wrong on two read-depth errors: (a) misread the nbaModelSignals.js:439 "pace 0%
+reaching base" comment — it describes a FIXED 2026-05-24 enrichment-bypass bug (`_ensureEnriched` on L442), not
+current behavior; (b) stopped reading at ~L514, before the ctxBundle at L548 where pace is consumed. Synthesis doc
+amended (probe 4B → CORRECTED → BUMP). Probe: .scratch/probe_1b_fix2_pace_points.txt. This is the FIX 7a
+SKIP-FOR-CAUSE pattern applied to a "fix": audit own work pre-build, find it's a non-fix, BUMP not rationalize.
+
+NEW DISCIPLINE (binding): a claim that a wire is DEAD must be empirically verified by DRIVING THE REAL ENGINE
+(vary the input, watch the output move) BEFORE building the fix. FIX 3 batterKs was a real dead wire (flat 2.0);
+pace was already live. Each remaining 1B item (HR/9, assists, restDays) gets this empirical pre-check in its
+deep-dive — confirm the wire is dead before building.
+
+Pace weight-tuning (w.ctx=0.18 may under/over-weight pace) is a calibration-driven decision, NOT 1B — deferred to
+A2/mlScorer (#86) or a future weight-tuning phase, after the outcome corpus accumulates.
+
+1B status: FIX 3 SHIPPED · ship #2 pace BUMPED · remaining = FIX 4 HR/9, assists multiplier, restDays (each
+pending empirical pre-check). NEXT: ship #3 HR/9 deep-dive with the empirical pre-check.
