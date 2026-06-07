@@ -817,19 +817,40 @@ function sectionSchemaGolden() {
   }
 }
 
+// Phase Calibration-LineAware-1A (5.3 surface) — live kill-switch state for /status.
+// ON/OFF is read from the dampener module's exported LINEAWARE_ENABLED — the SINGLE
+// authority (same boolean the running dampener uses; no parallel re-derivation of the
+// flag logic, per Law 1). The raw env only labels default-vs-explicit. NOTE: the
+// familyCalibration table itself comes from family_calibration.json (a sysAudit source),
+// so this field is the ONLY thing on /status that reflects CALIB_LINEAWARE.
+function readLineAwareState() {
+  try {
+    const { _constants } = require(path.join(REPO_ROOT, "backend", "pipeline", "shared", "calibrationDampener"))
+    const enabled = _constants.LINEAWARE_ENABLED === true
+    const raw = process.env.CALIB_LINEAWARE
+    const state = !enabled ? "OFF (emergency revert)"
+                : (raw == null ? "ON (default)" : "ON (explicit)")
+    return { enabled, state, flag: (raw == null ? null : String(raw)) }
+  } catch (e) {
+    return { enabled: null, state: "unknown", error: String(e?.message || e) }
+  }
+}
+
 function sectionFamilyCalibration() {
+  const lineAware = readLineAwareState()
   try {
     const j = safeReadJson(FAMILY_CALIB)
-    if (!j) return { ok: false, error: "family_calibration.json not found or unreadable" }
+    if (!j) return { ok: false, error: "family_calibration.json not found or unreadable", lineAware }
     return {
       ok: true,
       generatedAt: j.generatedAt,
       windowDays: j.windowDays,
       minSample: j.minSample,
       sports: j.sports,
+      lineAware,
     }
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
+    return { ok: false, error: String(e?.message || e), lineAware }
   }
 }
 
@@ -1473,3 +1494,7 @@ router.get("/stream", (req, res) => {
 })
 
 module.exports = router
+// Phase Calibration-LineAware-1A (5.3 surface) — attached for diagnostics/probes (router
+// stays the default export; attaching properties does not change app.use behavior).
+module.exports.sectionFamilyCalibration = sectionFamilyCalibration
+module.exports._readLineAwareState = readLineAwareState

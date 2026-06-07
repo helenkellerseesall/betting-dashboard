@@ -236,6 +236,7 @@
       <strong>mul</strong> = correction multiplier the engine now applies (closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened).
     </div>
     <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
+    <div id="calibLineAware" class="big-sub" style="margin-bottom:8px">—</div>
     <table class="calib">
       <thead><tr><th>family</th><th>n</th><th>stated</th><th>realized</th><th>gap</th><th>mul</th></tr></thead>
       <tbody id="calibBody"></tbody>
@@ -905,6 +906,26 @@ function renderSchemaGolden(data) {
 
 function renderCalibration(data) {
   const c = data.familyCalibration;
+  // Phase Calibration-LineAware-1A (5.3 surface) — render the kill-switch state FIRST,
+  // independent of the corpus JSON, so it shows even if family_calibration.json is missing.
+  // Gray when ON (default/explicit), RED when OFF (emergency revert) — operator visual cue.
+  const laEl = document.getElementById("calibLineAware");
+  if (laEl) {
+    const la = c && c.lineAware;
+    if (la && la.enabled === false) {
+      laEl.textContent = "line-aware calibration: " + (la.state || "OFF (emergency revert)");
+      laEl.style.color = "var(--red)";
+      laEl.style.fontWeight = "600";
+    } else if (la && la.enabled === true) {
+      laEl.textContent = "line-aware calibration: " + (la.state || "ON");
+      laEl.style.color = "var(--text-dim)";
+      laEl.style.fontWeight = "400";
+    } else {
+      laEl.textContent = "line-aware calibration: unknown";
+      laEl.style.color = "var(--text-dim)";
+      laEl.style.fontWeight = "400";
+    }
+  }
   const body = document.getElementById("calibBody");
   body.innerHTML = "";
   if (!c?.ok || !c.sports) {
