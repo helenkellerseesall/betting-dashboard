@@ -2019,6 +2019,24 @@ NBA closeOdds should stamp → grades-health NBA clvStamped>0 → /m GRADES NBA 
 If it still stamps 0, the remaining factor is runtime (loop firing / snapshot coverage at tipoff), a separate chase.
 Past NBA closing odds remain unrecoverable (forward-only). Secondary 5% alt-line join misses still open (minor).
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · TIER-1 #1 · BUILT + VERIFIED — per-pick "why" on TOP PICKS card (pure FE, fork a)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Probes: .scratch/probe_toppicks_why_pre.txt / _post.txt. ONE file: frontend/mobile/index.html.
+FORK = (a): pick.reasoning is ALREADY in /api/ws/top-picks (buildReasoning, workstationRoutes:2550 — SAME source the
+GAMES tap-modal uses at :2712). Card just never rendered it inline. EDIT: _reasoningOneLine() condenses the blob
+(drivers + opp + l5; EXCLUDES propSpec + any "Model: … conf … edge" driver = restates the card's own conf/edge;
+de-dups L5; 80-char ellipsis); renderV2Card renders it on the compact card gated on opts.showWhy; renderTopPicks
+passes showWhy:true. GAMES standard card + modal untouched (showWhy scoped to TOP PICKS).
+VERIFIED at rendered FE: 26 cards · 7 NBA show the why (e.g. Brunson "L5 9.8 below season baseline 10.5 · STARTER ·
+36+ min · MINS ↓ · v STRONG D (SA…"); MLB shows NOTHING (blob is only "Model:…" → filtered → Trap-1 empty).
+Modal regression INTACT + same source (tap shows full reasoning rows incl the "Model:" driver the card omits).
+node --check + markers PASS. COMMIT: <fill after push>. NO backend reload (static FE).
+HONEST FLAG: delivers the inline why for NBA only. MLB reasoning blob restates model stats; rich MLB context
+(contextualTags/park/lineup) is NOT in buildReasoning, so MLB cards stay blank. Surfacing MLB why consistently =
+follow-up (fold MLB context into buildReasoning so card+modal stay consistent — engine change, beyond pure-FE T1 #1).
+NEXT (per operator_daily_trust_ranked_path): T1 #2 HIT%-by-tier, T1 #3 NBA-CLV live-verify; then T2 (ladder MVP, joint, archetype).
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
