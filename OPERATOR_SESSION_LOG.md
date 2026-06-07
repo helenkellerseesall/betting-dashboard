@@ -1737,3 +1737,27 @@ calibration-backed; not a dead-wire fill; would also duplicate the live team-lev
 1B status: FIX 3 SHIPPED · pace BUMPED · FIX 4 HR/9 SHIPPED (2-file) · assists BUMPED · remaining = FIX 7c restDays
 (the ONLY genuine data-gap item — needs gamelog populator expansion). Empirical pre-check has flipped 2 of 5
 synthesis "builds" to already-wired. NEXT: ship #5 restDays deep-dive (empirical pre-check + consumer-sweep first).
+
+---
+
+## 2026-06-06 — ✅ Signal-Fill-1B COMPLETE
+
+Ship #5 (FIX 7c restDays) BUMPED/DEFERRED: restDays IS null (real data gap) but the consumer-sweep found NO scoring
+consumer. Chain: restDays → fatigueFlag (deriveMlbPitcherEnvironmentContext:107, also gated on null
+recentWorkloadPitches) → PITCHER_FATIGUED **display tag only**; the scored pitcherEnvShift is kEnvironmentShift
+alone (composeMlbContextualSignal:75), fatigueFlag is NOT in it. So even fully populated, restDays moves no
+probability — a cosmetic non-fix that would have been real populator infra for zero scoring impact (worse than the
+typical bump). Probe: .scratch/probe_1b_restdays.txt. The real rest signal is a 3-part future phase → task #96
+MLB-Rest-Signal-1A (populator expansion + NEW model-anchored term on the OUTS engine, NOT the market-anchored Ks
+engine per FIX 7a, + calibration). Synthesis probe 7c amended.
+
+### FINAL SCORECARD
+- 2 SHIPPED (real-fix builds): FIX 3 batterKs `102c091` · FIX 4 HR/9 `dc9dc4c` (2-file via consumer-sweep catch).
+- 3 BUMPED-FOR-CAUSE (synthesis corrected): pace (already wired) · assists (already wired) · restDays (no scoring consumer).
+- 3 PERMANENTLY OUT-OF-SCOPE (original triage): opp-team K-rate (Trap-5 market double-count) · FB% (needs Savant feed) · PvD (no public source).
+- DISCIPLINE OUTCOME: empirical-pre-check + consumer-sweep flipped 3 of 5 "build" candidates + caught 1 scope expansion (HR/9 → 2-file bettor path). ZERO wasted commits, zero non-fixes shipped. This wave is the case study for "drive the real engine before claiming a wire is dead."
+- NEW BACKLOG: task #95 NBA-DvP-Multiplier-Cleanup-1A (dead per-role multipliers) · task #96 MLB-Rest-Signal-1A (real restDays).
+- task #94 (Signal-Fill-1B) → COMPLETE. Wave 1 A2 / mlScorer (#86) unblocks ~7 days as the Calibration-LineAware-1A corpus accumulates.
+
+BETTOR-VISIBLE net from 1B: batter-K projections vary by opposing pitcher kRate (was flat 2.0); HR picks vary by
+opposing pitcher HR/9 on the /api/best-available path (was flat 1.2). Both live next slate fire.
