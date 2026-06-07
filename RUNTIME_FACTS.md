@@ -4,7 +4,7 @@
 
 This file is the canonical source of truth for runtime values that conversational summaries lose. If a fact appears in chat but contradicts this file, the file wins. Update this file when anything changes — never re-derive from memory.
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Directory layout — WATCH OUT
 
@@ -45,6 +45,24 @@ Last updated: 2026-06-05
 
 - **LaunchAgent:** `com.motel666.caffeinate`
 - **Purpose:** keep Mac awake during slate windows so backend doesn't suspend
+
+## Calibration kill-switch — CALIB_LINEAWARE (Phase Calibration-LineAware-1A, 2026-06-06)
+
+- **Flag:** `CALIB_LINEAWARE` — backend env var, read ONCE at module load in `backend/pipeline/shared/calibrationDampener.js`.
+- **Default:** unset → ON. `"1"` is also ON. ONLY the exact string `"0"` turns it OFF.
+- **ON (default):** dampener uses the line-aware path — per-line buckets, book-agnostic corpus, floor 0.40 (5.2 live behavior).
+- **OFF (`"0"`):** dampener ignores the prop line, uses the pre-5.2 id-join family-side path, floor 0.20. Emergency revert — NO code change, NO redeploy.
+- **Flip OFF (emergency revert):**
+  1. Edit `~/Library/LaunchAgents/com.motel666.backend.plist`, add under the `EnvironmentVariables` `<dict>`:
+     `<key>CALIB_LINEAWARE</key><string>0</string>`
+  2. `launchctl unload ~/Library/LaunchAgents/com.motel666.backend.plist; launchctl load ~/Library/LaunchAgents/com.motel666.backend.plist`
+  3. Backend restarts on the id-join path.
+- **Flip back ON:** remove that env entry from the plist, unload + load again.
+- **Why a reload is required:** the flag is read at module load, so a running backend won't pick up a plist change until restarted. Intentional — the revert is a deliberate operator action, not a mid-flight toggle.
+- **VERIFY which path is live (DO NOT use /status):** `/status` familyCalibration reads `backend/runtime/calibration/family_calibration.json` (a sysAudit JSON), NOT this module — it does NOT reflect the flag. Reliable checks:
+  1. **Backend log** — after reload, grep the backend stdout log for `[CALIB-BOOT]`: prints `ON (default)` or `OFF — CALIB_LINEAWARE=0, id-join path`.
+  2. **Probe** (code-level, with its own env): `node .scratch/probe_calib_killswitch.js` — shows id-join↔line-aware multipliers per flag state.
+  3. **Numeric tell** — `mlb·hits·under·1.5` dampens model 0.6698 → 0.55 OFF (id-join mult ~0.82) vs 0.41 ON (line-aware mult 0.618); `nba·threes·over` → 0.118 OFF (floor 0.20) vs 0.237 ON (floor 0.40).
 
 ## Other runtime ports / paths I keep getting wrong
 

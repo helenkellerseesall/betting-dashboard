@@ -1490,3 +1490,40 @@ Verified (sandbox, real DB, real exported fns) probe .scratch/probe_calib_lineaw
   runtime:verify 13/13 PASS (incl. verifyCalibrationHonesty). Backend reloaded so the line dimension is live.
 Bettor-visible: when the next slate fires, threes-over + easy-line overs read HIGHER than today (less suppressed);
 hits·under·1.5 reads lower. NEXT: operator reviews before 5.3 (CALIB_LINEAWARE kill-switch + RUNTIME_FACTS).
+
+5.2 shipped: code bfa7a00, docs 28a9430 (verified clean by operator — backend healthy at 28a9430, host probe
+re-confirmed hits·over·1.5 protection 0.5043→0.6200, 14-bucket backwards-compat identical, agnostic PASS).
+
+---
+
+## 2026-06-06 — Calibration-LineAware-1A · step 5.3 — CALIB_LINEAWARE kill-switch
+
+calibrationDampener.js: `const LINEAWARE_ENABLED = process.env.CALIB_LINEAWARE !== "0"` read ONCE at module
+load; getCalibrationForFamily dispatch now `if (!LINEAWARE_ENABLED || line == null || mode === "agnostic") →
+id-join`. Only exact "0" disables (unset/"1" = ON). Added a `[CALIB-BOOT]` boot log (console.log, [DB-BOOT]
+convention) announcing the live flag state. Exported LINEAWARE_ENABLED in _constants for diagnostics.
+
+FINDING (pushed back on the planned verification): /status familyCalibration reads
+backend/runtime/calibration/family_calibration.json (a sysAudit JSON), NOT the live dampener module — so it does
+NOT reflect CALIB_LINEAWARE. The operator's draft step-3 (curl /api/ws/status → see the multiplier flip) would
+not have worked. Reliable verification is the [CALIB-BOOT] backend log line + the killswitch probe instead.
+
+Verified (sandbox, real DB, 3 module instances via cache-clear + re-require) probe
+.scratch/probe_calib_killswitch.txt PASS: flag read unset→ON / "1"→ON / "0"→OFF; all 6 qualifying buckets
+toggle id-join↔line-aware; OFF == id-join (line ignored); unset == "1"; load-bearing hits·over·1.5 = 0.62 ON vs
+0.5043 OFF (emergency revert proven); default == 5.2 exactly (behavior-neutral ship). runtime:verify 13/13 PASS.
+Ship is behavior-neutral — /status looks identical after the fence; only a deliberate flag flip + reload changes
+live behavior.
+
+### KILL-SWITCH REVERT TEST (run later to validate the emergency path)
+  1. Edit ~/Library/LaunchAgents/com.motel666.backend.plist → add under EnvironmentVariables:
+     <key>CALIB_LINEAWARE</key><string>0</string>
+  2. launchctl unload ~/Library/LaunchAgents/com.motel666.backend.plist; launchctl load <same>
+  3. Confirm OFF: grep the backend stdout log for `[CALIB-BOOT]` → "OFF — CALIB_LINEAWARE=0, id-join path".
+     (NOT /status — it reads family_calibration.json, not the module.) Optional code-level: node
+     .scratch/probe_calib_killswitch.js. Numeric tell: mlb·hits·under·1.5 mult ~0.82 (OFF) vs 0.618 (ON).
+  4. Remove the env entry from the plist; launchctl unload + load.
+  5. Confirm ON: `[CALIB-BOOT]` → "ON (default)".
+
+NEXT (5.4, queued): calibrationFeedback.js → book-agnostic join (kept line-AGNOSTIC per design), separate
+bisectable commit. Calibration-LineAware-1A COMPLETE after 5.4.
