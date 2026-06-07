@@ -1869,6 +1869,31 @@ POST-RELOAD HTTP CONFIRM (browser, /api/ws/state): MLB 14/14 slips carry liveSta
 leg.liveState; NBA 8/8 slips + 20 legs. All status "ok" (clean overnight slate — 0 soft/0 dead, honest, no
 fabricated flags). Pre-edit the same payload had hasLiveStateSummary:FALSE. The gate now reaches the bettor fetch.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · Phase FE-Trust-Surface-1A — AUDIT COMPLETE (read-only Chrome walk, all 5 chunks)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Synthesis: docs/audits/2026-06-07-fe-trust-surface/synthesis.md. Per-chunk evidence: .scratch/probe_fe_trust_*.txt.
+HEADLINE: the trust problem is a RENDER problem, not a data problem. The backend computes nearly every trust
+signal (model prob, edge, calibrated "won X% of N", CLV, grades, per-leg reasoning, plain-English slip narrative,
+factor breakdown, and now liveStateSummary) — the FE renders a fraction, buries the strongest surface (GAMES),
+and leaves the engine's richest output completely unrendered.
+BIGGEST FINDING: grep of frontend/mobile/index.html = ZERO `aiSlips`, ZERO `liveStateSummary`. The engine's
+AI-built slips (narrative + per-leg legReasonings + factors + calibrated combined prob + correlation + EV +
+line-shop + Phase 1b liveStateSummary) are serialized into /api/ws/state.aiSlips and shown NOWHERE — no parlay
+tab in the visible nav. So Phase 1b's protection is real on the wire but invisible (FE-render is its missing half),
+AND the lotto-parlay vision is already built backend, just unsurfaced.
+CHUNK CORRECTIONS to chunk 1: MY BETS is NOT empty (2 restored placed parlays; no in-app log-a-bet path, CLI only);
+TOP PICKS perma-load is a COLD-START gate (boot awaits Promise.all of both ~835KB /api/ws/state before render()
+routes to renderTopPicks, which uses a separate lightweight /api/ws/top-picks it doesn't need) — not permanent.
+GAMES is the strongest surface (battlefield→drill→prop detail w/ model/edge/history/line-shop/partial reasoning).
+ANALYZE is an INBOUND slip analyzer + screenshot OCR + taste profile (observability-only), NOT engine self-reasoning.
+METRIC-FRAMING (active distrust): bare HIT% on longshot denominator, −100% ROI on n=2, NBA CLV 0% stamped, ⭐ on a
+−20.8%-edge pick. MLB/NBA reasoning ASYMMETRY: NBA has rich displayBundle (rendered), MLB has only contextualTags.
+RANKED PHASING (max trust impact): P1 render engine slips + liveStateSummary (one surface, two wins — unlocks
+reasoning AND makes Phase 1b visible) → P2 metric-framing fixes → P3 cold-start landing fix → P4 MLB reasoning
+bundle → P5 IA restructure → P6 (vision) ladders + archetype tags + four-question per leg. AUDIT ONLY — no code.
+Each rec becomes its own show-before-edit build phase; operator prioritizes.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
