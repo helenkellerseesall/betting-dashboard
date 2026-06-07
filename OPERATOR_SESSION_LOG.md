@@ -1980,6 +1980,24 @@ Caught ONLY because verify ran at the rendered FE, not on the commit. Needs a 2n
 P2 WAVE COMPLETE after the completing fix ships. Deferred sub-phases (own deep-dives, not P2): NBA-CLV-Capture-Repair;
 HIT%-by-odds-tier/vs-implied.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · NBA-CLV-Capture-Repair · AUDIT COMPLETE (read-only) — root cause isolated
+────────────────────────────────────────────────────────────────────────────────────────────────
+Synthesis: docs/audits/2026-06-07-nba-clv-capture-repair/synthesis.md. Trace: .scratch/probe_nbaclv_trace.txt.
+ROOT CAUSE: date/file-key mismatch in captureClosingLines.resolveActiveDate (L67-80) + runOnceForSport (L251) —
+the close loop reads ONLY today/yesterday <sport>_tracked_bets_<date>.json, but NBA bets are filed 1-2 days BEFORE
+the game's ET slate date (Finals lean-bet: surfaced days ahead, written under build date). At an NBA tipoff the loop
+reads an absent/empty file → skip_no_file → 0 capture. MLB works because its files are same-day-aligned (file 06-07 →
+games 06-07, closeStamped 955). Per-step trace proved snapshot HEALTHY (5481 rawProps), open-capture HEALTHY (887/887
+openOdds), JOIN HEALTHY (845/887 = 95%; 42 misses are alt-lines), close 0% across every NBA file. Loop RUNS (MLB stamps;
+server.js:19939 startBackgroundLoop) — only NBA FILE SELECTION is broken. Class: wrong-key/wrong-filter.
+FIX DESIGN (build phase, operator approves first): make file selection GAME-DATE-driven not today/yesterday — load a
+WINDOW of recent <sport>_tracked_bets files (today..today-5, dedup by id) and let captureEligibility(in_window by
+gameTime) pick the tipping bets. ~10-30 lines, one file, low risk; MLB unchanged. Verify: NBA closeOdds stamps →
+grades-health NBA clvStamped>0 → /m GRADES NBA flips "capture pending" → real BEAT MKT %. Secondary (minor): 5% alt-line
+join misses (snapshot lacks alt markets). NOTE: only FUTURE NBA slates stamp going forward; past games' close odds are
+unrecoverable live (backfill would need historical odds we may not have).
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
