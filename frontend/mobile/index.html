@@ -2777,6 +2777,29 @@
       return html;
     }
 
+    // T1 #1 — condense the SAME reasoning blob the modal uses (pick.reasoning) into ONE inline
+    // card line, so the TOP PICKS card and the GAMES/modal stay consistent (same source).
+    // Excludes propSpec + any "Model: … conf … edge" driver (those restate the card's own
+    // conf/edge, not a reason). De-dups repeated L5 mentions. Trap-1: null / '' / undefined /
+    // empty-blob → "" so the caller renders NOTHING (never "no reason available").
+    function _reasoningOneLine(reasoning) {
+      if (!reasoning) return "";
+      const parts = []; let seenL5 = false;
+      const push = (s) => {
+        if (!s) return; s = String(s).trim(); if (!s) return;
+        if (/^model:/i.test(s)) return;                       // restates the card's own conf/edge — not a reason
+        if (/\bl5\b/i.test(s)) { if (seenL5) return; seenL5 = true; }
+        if (!parts.includes(s)) parts.push(s);
+      };
+      for (const dr of (reasoning.drivers || [])) push(dr);
+      if (reasoning.opp && reasoning.opp.value && !/pending sync/i.test(reasoning.opp.value)) push(`${reasoning.opp.label} ${reasoning.opp.value}`);
+      if (reasoning.l5 && reasoning.l5.value != null) push(`${reasoning.l5.label} ${reasoning.l5.value}`);
+      if (!parts.length) return "";
+      let line = parts.join(" · ");
+      if (line.length > 80) line = line.slice(0, 79).trimEnd() + "…";
+      return line;
+    }
+
     // Render book options list (when a prop has multiple book/odds pairs).
     // Dedup by book, keep best odds per book.
     function _renderBookOptions(opts) {
@@ -2901,6 +2924,13 @@
         archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 won <b>${hitPct}%</b> of ${ah.n} similar picks</div>`;
       }
 
+      // T1 #1 — inline "why" line, TOP PICKS only (opts.showWhy). Same source as the tap-modal
+      // (_reasoningOneLine reads pick.reasoning). Renders NOTHING when empty (Trap-1).
+      const whyLine = opts.showWhy ? _reasoningOneLine(pick.reasoning) : "";
+      const whyHtml = whyLine
+        ? `<div style="font-size:9px;color:#9CA3AF;margin-top:4px;line-height:1.35;">${escapeHtml(whyLine)}</div>`
+        : "";
+
       // Stash the full pick JSON for modal hydration (avoids long inline strings)
       const _stashId = `v2-pick-${cardId}`;
       if (!window._v2PickStash) window._v2PickStash = {};
@@ -2919,6 +2949,7 @@
             <div style="font-size:11px;color:#D1D5DB;margin-top:4px;line-height:1.3;">${_famNice(pick.statFamily)}</div>
             <div style="font-size:14px;font-weight:700;color:#F9FAFB;margin-top:2px;line-height:1.2;">${_sideNice(pick.side)} ${pick.line}</div>
             ${archetypeChip}
+            ${whyHtml}
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;font-family:ui-monospace,monospace;">
               <span style="font-size:16px;color:${tierC};font-weight:800;">${conf}</span>
               <span style="font-size:10px;color:#D1D5DB;">${edge}</span>
@@ -3001,7 +3032,7 @@
           // 2026-06-01 Phase Truth-Fix-1E — use _tierNice for bettor-readable section header
           html += `<div style="margin-top:14px;font-size:11px;color:${c};letter-spacing:1px;font-weight:600;margin-bottom:6px;">${_tierNice(tier).toUpperCase()} · ${byTier[tier].length}</div>`;
           html += `<div class="v2-grid">`;
-          for (const p of byTier[tier]) html += renderV2Card(p, { compact: true });
+          for (const p of byTier[tier]) html += renderV2Card(p, { compact: true, showWhy: true });
           html += `</div>`;
         }
         html += `</div>`;
