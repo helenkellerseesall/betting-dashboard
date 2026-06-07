@@ -19,7 +19,7 @@ Date: 2026-06-06. Five batched coverage probes, no code touched. Audit-before-pa
 | 3a | **FIX 3 batterKs ← opposing pitcher k9** | model | **SHIP CLEAN** | `buildMlbPlayerDataset.js:215` defaults to the `8.5` constant; the real opp k9 already exists on the row via `pitcherEnvironmentContext` — just thread it in. Model-anchored → legit. |
 | 3b | **FIX 4 HR/9** | model | **SHIP CLEAN** | `homeRunsAllowed` + `inningsPitched` already cached → derive `HR/9`; wire into the model-anchored HR candidate score. No new data. |
 | 4B | **NBA pace → points band** | model | **~~SHIP CLEAN~~ → CORRECTED 2026-06-06 → BUMP (already wired)** | Pre-build empirical check overturned this. Pace IS folded into the continuous points score: `pace → paceZ (nbaModelSignals.js:522) → ctxBundle [paceZ, 0.45] → ctxZ → primaryBundle [ctxZ, w.ctx=0.18 for points]`. Drove the real `nbaRowIndependentModelProbability` (else-identical points row): pace 95→0.5277, 100→0.5373, 105→0.5468 (monotonic, ~+2pp across the NBA range). Two read-depth errors in the original probe: (a) misread the L439 "pace 0% reaching base" comment — it describes a *fixed* 2026-05-24 enrichment-bypass bug (`_ensureEnriched` on L442), not current behavior; (b) stopped reading at ~L514, before the `ctxBundle` at L548 where pace is used. NO dead wire → nothing to build. Only lever is weight-tuning (calibration-driven, deferred — NOT 1B). |
-| 5 | **NBA assists opp-allowed multiplier** | model | **SHIP CLEAN** | Established pattern (3PA/reb/steals/blocks already derived); per-role assists-allowed is already in `nbaDvP.json`. Add the multiplier + consume it. Model-anchored. |
+| 5 | **NBA assists opp-allowed multiplier** | model | **~~SHIP CLEAN~~ → CORRECTED 2026-06-06 → BUMP (already wired)** | Pre-build empirical check overturned this. Assists already responds to opponent assists-allowed: `familySpecificOppZ` (nbaModelSignals.js:**305-309**) reads `opponentStats.assistsAllowed`, set by nbaTeamStatsCache:244 from `assistsAllowedPerGame` (deriveNbaTeamDefensive:177), populated for the 8 active playoff teams. Drove the real `nbaRowIndependentModelProbability` (assists): assistsAllowed 20→0.45 / 25→0.53 / 30→0.61. The bettor prob path (`nbaRowModelProbability`) uses this scorer. Synthesis read-depth error: missed the assists branch in `familySpecificOppZ`. Also: the per-role pattern it cited is mostly dead — only `opponentThreePAMultiplier` is consumed (buildNbaPlayerOutcomePredictions:1169); reb/steals/blocks per-role are read only by legacy probes (→ task #95 hygiene). No dead wire. Per-role enhancement deferred (new signal, calibration-backed). |
 | 7c | **MLB pitcher restDays** | model | **SHIP w/ CAVEAT** | Real gap: `restDays` null (season endpoint omits it); gamelog cache holds only 4 pitchers. Needs the gamelog populator expanded to all starters + restDays **computed** from last-game date (~half-day). Do before claiming live. |
 | 2 | **MLB opp-team K-rate (pitcher Ks)** | **market** | **BUMP** | Pitcher Ks engine is market-anchored (`marketLambda` = Poisson fit to the book line). Books already price lineup K-tendency into the Ks line → adding it double-counts. Same failure mode as FIX 7a. No team K% cache exists either. |
 | 3c | **MLB pitcher FB% (HR)** | model | **NEEDS NEW FEED** | Engine already wired to consume it; no FB% source anywhere. Requires a new Baseball Savant batted-ball populator. Group with other Savant needs or defer to 1C. |
@@ -27,21 +27,21 @@ Date: 2026-06-06. Five batched coverage probes, no code touched. Audit-before-pa
 
 ## Suggested ship order (operator decides)
 
-**1B core = 3 build items + 1 caveated populator item** (was 4+1; 4B pace BUMPED after empirical pre-check).
-Order by confidence × cheapness:
+**1B core after empirical pre-checks = 2 SHIPPED + 2 BUMPED + 1 remaining** (was "4 build + 1"):
 
-1. **FIX 3 batterKs** — SHIPPED 2026-06-06 (commit 102c091). Threaded `pitcherEnvironmentContext.kRate` → `obj.opposingPitcherKRate`; `eKs = kRate × 4.2`. (Plan said k9×9 — unit error corrected to kRate×4.2.)
-2. ~~**4B NBA pace → points band**~~ — **BUMPED** (already wired; see table). Nothing to build.
-3. **FIX 4 HR/9** — derive from existing fields + wire into HR candidate. (NEXT — empirical pre-check first.)
-4. **NBA assists opp multiplier** — mirror the existing opp-allowed pattern. (empirical pre-check first.)
-5. **FIX 7c restDays** — last; needs the gamelog populator expansion first (the only data work in the core).
+1. **FIX 3 batterKs** — SHIPPED 2026-06-06 (code 102c091). `pitcherEnvironmentContext.kRate` → `obj.opposingPitcherKRate`; `eKs = kRate × 4.2`. (Plan said k9×9 — unit error corrected.)
+2. ~~**4B NBA pace → points**~~ — **BUMPED** (already wired via ctxBundle paceZ).
+3. **FIX 4 HR/9** — SHIPPED 2026-06-06 (code dc9dc4c, 2-file). Consumer-sweep caught the bettor-path site mlbIsolatedRoutes:381 (TEMP 1.2 hard-set) — the 1-file scope would have been a non-fix.
+4. ~~**NBA assists opp multiplier**~~ — **BUMPED** (already wired via familySpecificOppZ:305 team-level assists-allowed).
+5. **FIX 7c restDays** — REMAINING; the only genuine data-gap item (needs the gamelog populator expanded). NEXT, empirical pre-check first.
 
 **Out of 1B:** probe 2 (BUMP — double-count), probe 3c (NEW FEED — 1C/Savant), probe 4A (BUMP — own phase),
-4B pace (BUMP — already wired).
+4B pace (BUMP — already wired), probe 5 assists (BUMP — already wired). Hygiene → task #95 (dead per-role multipliers).
 
-**NEW DISCIPLINE (binding, from the 4B miss):** a claim that a wire is DEAD must be empirically verified by driving
-the REAL engine (vary the input, watch the output move) BEFORE building the fix. FIX 3 was a real dead wire; pace
-was already live. Each remaining item (HR/9, assists, restDays) gets this empirical pre-check in its deep-dive.
+**NEW DISCIPLINE (binding, from the 4B + probe-5 misses):** a claim that a wire is DEAD must be empirically verified
+by driving the REAL engine (vary the input, watch the output move) BEFORE building the fix. Scorecard: FIX 3 real
+dead wire (shipped); FIX 4 real dead wire on the bettor path (shipped, 2-file via consumer-sweep); pace + assists
+both already live (bumped). 2 of 5 synthesis "builds" were already wired — the pre-check earned its keep twice.
 
 Each build item ships as its own bisectable commit, regression-gate-first, runtime:verify 13/13, per the 1A rhythm.
 Each is model-anchored (Trap-5 clean); the market-anchored candidate (probe 2) is correctly bumped.

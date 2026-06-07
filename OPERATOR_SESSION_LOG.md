@@ -1712,3 +1712,28 @@ arms (high HR/9, e.g. Taillon 2.72) read HIGHER — the engine was HR/9-blind, m
 
 1B status: FIX 3 SHIPPED · pace BUMPED · FIX 4 HR/9 SHIPPED (2-file) · remaining = assists multiplier, restDays
 (each pending empirical pre-check). NEXT: ship #4 NBA assists opp-allowed multiplier deep-dive.
+
+FIX 4 shipped: code dc9dc4c, docs cc5a73c (verified clean — both paths move, spread 0→2.30, Trap-1 fallback, 13/13).
+
+---
+
+## 2026-06-06 — Signal-Fill-1B ship #4 (NBA assists opp multiplier) BUMPED-FOR-CAUSE (already wired)
+
+Deep-dive empirical pre-check overturned the synthesis (2nd BUMP of the wave, after pace). Assists ALREADY responds
+to opponent assists-allowed: familySpecificOppZ (nbaModelSignals.js:305-309) reads opponentStats.assistsAllowed,
+set by nbaTeamStatsCache:244 from assistsAllowedPerGame (deriveNbaTeamDefensive:177), populated for the 8 active
+playoff teams (the ones playing in June). Drove the REAL nbaRowIndependentModelProbability (assists, else-identical
+row): assistsAllowed 20→0.4504 / 25→0.5331 / 30→0.6132 (monotonic). The bettor prob path (buildNbaBestBetsBoard →
+nbaRowModelProbability) uses this scorer, so the bettor-visible assists prob already reflects opp assists-allowed.
+Synthesis (probe 5) read-depth error: missed the assists branch in familySpecificOppZ. Probe:
+.scratch/probe_1b_assists_opp.txt. Synthesis doc amended (probe 5 → CORRECTED → BUMP).
+
+CONSUMER-SWEEP bonus finding: the per-role pattern the synthesis cited is mostly DEAD — only opponentThreePAMultiplier
+is consumed (buildNbaPlayerOutcomePredictions:1169); opponentReboundsAllowedForRole/StealsAllowedForRole/
+BlocksAllowedForRole are read ONLY by _legacy/probes (set-but-unused). → backlog task #95 (NBA-DvP-Multiplier-
+Cleanup-1A: revive-or-delete each, after 1B). Per-role opp-assists enhancement DEFERRED (new signal + new consumption,
+calibration-backed; not a dead-wire fill; would also duplicate the live team-level signal).
+
+1B status: FIX 3 SHIPPED · pace BUMPED · FIX 4 HR/9 SHIPPED (2-file) · assists BUMPED · remaining = FIX 7c restDays
+(the ONLY genuine data-gap item — needs gamelog populator expansion). Empirical pre-check has flipped 2 of 5
+synthesis "builds" to already-wired. NEXT: ship #5 restDays deep-dive (empirical pre-check + consumer-sweep first).
