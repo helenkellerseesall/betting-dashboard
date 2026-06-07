@@ -2057,6 +2057,25 @@ leanBet — durable single-source, future picks only, PRESERVED-adjacent care) ;
 (changes the best-board semantics). RECOMMENDATION: B for durability + A as the immediate bridge.
 NO EDITS. NBA whys (T1 #1) unaffected. Operator scopes the upstream phase before any build.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · MLB-Reasoning-Snapshot-Hydration-1A (#100) · PHASE 0 AUDIT → FORK (b) + 2 premise breaks — STOPPED
+────────────────────────────────────────────────────────────────────────────────────────────────
+Inventory: .scratch/probe_snapshot_mlb_inventory.txt. No edits (per fork-b STOP instruction).
+PREMISE BREAK 1: buildReasoning's MLB branch is gated on bestEntry (`else if (sport==="mlb" && bestEntry)`) and reads
+bestEntry.* — hydrating the PICK's fields (the #100 field map) populates fields buildReasoning NEVER reads; the
+branch still wouldn't fire. The spec as written = another dead-wire no-op (caught pre-build).
+PREMISE BREAK 2: shape mismatch — the branch reads flat tracked_best fields (temperatureF/windDirectionTag/hrFactor/
+hrEnvironmentTag/lineupSpot/contextualTags); the snapshot nests them (weatherContext.*, parkContext.*, lineupPosition).
+Mapping IS possible (confirmed: weatherContext carries temperatureF+windDirectionTag; parkContext carries hrFactor+
+hrEnvironmentTag; impliedTeamTotal/gameTotal flat ✓). contextualTags NOT derivable without new compute → thinner drivers, honest.
+FORK (b): TWO buildReasoning feed sites (/top-picks ~2550 + /games-browser ~2712) — hydrating one drifts the other.
+TIMING CAVEAT: snapshot rolls forward (now: 1 game / 23 players vs full-slate 355 in the morning) → the ≥90% gate is
+only meaningful join-conditionally now, or absolutely on a morning full-slate run.
+CORRECTED DESIGN (awaiting approval): shared `pseudoBestEntryFromSnapshot(pick, snapIdx)` (normPlayer join → bestEntry-
+SHAPED object w/ Trap-1 per-field guards, isIndoor→no wind) used as FALLBACK at BOTH call sites
+(`findReasoningEntry(…) || pseudoBestEntryFromSnapshot(…)`); buildReasoning + NBA untouched; honest-empty on join miss.
+Verification: join-conditional ≥90% now + full-slate absolute check next morning; NBA byte-identical; runtime:verify.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
