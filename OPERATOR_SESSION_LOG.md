@@ -1460,3 +1460,33 @@ n=7 (28.6% real) / 2.5 n=12 (8.3% real) — both thin → no-dampen in 5.2 (safe
 .lines leak / c2 dampenModelProb uses id-join mult / c3 line arg inert — all PASS. runtime:verify 13/13 PASS
 (incl. verifyCalibrationHonesty). NEXT: operator reviews 5.1 bucket snapshot before 5.2 (wire line into
 getCalibrationForFamily/dampenModelProb + the fallback ladder + applyCalibrationDampener passes pick.line).
+
+5.1 shipped commit 8c685aa (verified clean by operator; design-doc durability backfill committed alongside).
+
+---
+
+## 2026-06-06 — Calibration-LineAware-1A · step 5.2 — line dimension LIVE (bet-affecting)
+
+calibrationDampener.js: getCalibrationForFamily/dampenModelProb/shouldShowCalibrationBadge gained an OPTIONAL
+trailing `line` (backwards-compat: omit it → today's behavior). Split the resolver into _getCalibrationIdJoin
+(the pre-5.2 family-side ladder, preserved verbatim) + _getCalibrationLineAware (book-agnostic per-line corpus
+ladder: line bucket n>=25 → line-HOMOGENEOUS family-side _allLines n>=20 → line-HETEROGENEOUS NULL). Dispatcher:
+`line == null OR agnostic family → id-join; else → line-aware`. applyCalibrationDampener now extracts pick.line
+(Trap 1: `pick.line == null` guarded before Number() so a line-less marker stays null, never line 0) and threads
+it through. workstationRoutes UNCHANGED (only consumer; calls applyCalibrationDampener(pick) as before, 2 sites
+2442/2635). Header API doc updated. Consumer audit pre-edit: applyCalibrationDampener is the only externally
+imported fn; the other three are internal-only → optional param is safe.
+
+NET EFFECT IS MOSTLY LESS DAMPENING, not new cuts — the old pooled aggregates were over-suppressing (the bug).
+Verified (sandbox, real DB, real exported fns) probe .scratch/probe_calib_lineaware.txt PASS:
+  (1) backwards-compat: 14 id-join buckets, dampen w/o line == id-join formula exactly.
+  (2) 6 qualifying buckets move (OLD id-join → NEW line-aware): hits·under·1.5 0.549→0.414 (the one that gets
+      MORE dampening), runs·under·0.5 0.551→0.537, totalbases·under·1.5 0.601→0.629, outs·over·15.5 0.332→0.360,
+      hits·under·0.5 0.451→0.500, nba threes·over·0-2 0.118→0.237 (LESS cut — the 0.40 floor vs old 0.20 floor).
+  (2b) operator-expected: threes-over 0.59→0.236, hits·under·1.5 0.67→0.414, outs·over·15.5 0.56→0.357 — all PASS.
+  (3) LOAD-BEARING FIX ACTIVE (not latent): hits·over @1.5 model 0.62 — OLD id-join pooled CRUSHED it to 0.504,
+      NEW line-aware = 0.62 (heterogeneous-thin → no-dampen). Longshot hits·over @2.5 stays isolated (n=12 thin).
+  (4) line-agnostic markers (moneyline/firstHR) ignore the line arg → id-join family-side (identical w/ and w/o).
+  runtime:verify 13/13 PASS (incl. verifyCalibrationHonesty). Backend reloaded so the line dimension is live.
+Bettor-visible: when the next slate fires, threes-over + easy-line overs read HIGHER than today (less suppressed);
+hits·under·1.5 reads lower. NEXT: operator reviews before 5.3 (CALIB_LINEAWARE kill-switch + RUNTIME_FACTS).
