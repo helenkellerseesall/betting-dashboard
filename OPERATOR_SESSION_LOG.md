@@ -1894,6 +1894,28 @@ reasoning AND makes Phase 1b visible) → P2 metric-framing fixes → P3 cold-st
 bundle → P5 IA restructure → P6 (vision) ladders + archetype tags + four-question per leg. AUDIT ONLY — no code.
 Each rec becomes its own show-before-edit build phase; operator prioritizes.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · FE-Trust-Surface-1A · P1 BUILT + VERIFIED — engine slips + liveStateSummary now visible
+────────────────────────────────────────────────────────────────────────────────────────────────
+Design: docs/audits/2026-06-07-fe-trust-surface/p1_design.md (approved). Render probe: .scratch/probe_p1_render.txt.
+ONE file: frontend/mobile/index.html — added SLIPS tab (6th) + route + renderSlips/renderSlipCard reading aiSlips
+straight from state.data.{mlb,nba} (no new endpoint, no backend reload). Approved decisions: new SLIPS tab,
+state.data source, keep Safe/Balanced/Aggressive/Lotto tiers, honest open-book + copy-legs CTA.
+WHY THIS MATTERS: every backend phase this session (calibration line-aware, signal-fill, Phase 1b live-state)
+landed on the engine slip object the bettor could not see. P1 makes it visible — and completes Phase 1b (the gate
+ran on the wire but rendered nowhere).
+VERIFIED at the rendered FE (gate-must-act-at-render binding rule): SLIPS renders 22 slips (14 MLB DraftKings +
+8 NBA FanDuel) grouped by tier; narrative VISIBLE (dom_showsNarrative FALSE→TRUE); liveStateSummary badge BOTH
+states confirmed — green "✓ lineups clear" (ok, live) AND amber "⚠ 1 leg flagged" + per-leg ⚠ + reason (soft,
+forced via fetch-injection then restored); expand shows per-leg reasoning + factors + line-shop; CTA "Open [Book] ↗"
++ "Copy legs" (never implies placement). Regression: GAMES/GRADES/others render unchanged; 6-tab nav scrolls
+horizontally, no reflow break. JS syntax PASS (new Function extract); runtime:verify 13/13 (FE-only, backend
+untouched). COMMIT: <fill after push>.
+HONEST FLAGS: (1) DEAD-leg removal not shown per-slip — Phase 1b excludes dead UPSTREAM so liveStateSummary.deadCount
+is always 0 at slip level; surfacing "N legs removed (scratched)" needs a small buildSlipAi add → P1.1 (not faked).
+(2) Lotto EV renders large (engine's real `ev`, verbatim) — needs framing → P2 metric-framing.
+NEXT: operator loads /m on phone/browser, taps SLIPS, verifies. Then P2 (metric-framing) per synthesis ranking.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
