@@ -2076,6 +2076,26 @@ SHAPED object w/ Trap-1 per-field guards, isIndoor→no wind) used as FALLBACK a
 (`findReasoningEntry(…) || pseudoBestEntryFromSnapshot(…)`); buildReasoning + NBA untouched; honest-empty on join miss.
 Verification: join-conditional ≥90% now + full-slate absolute check next morning; NBA byte-identical; runtime:verify.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · #100 MLB-Reasoning-Snapshot-Hydration · CORRECTED DESIGN BUILT + pre-ship verified
+────────────────────────────────────────────────────────────────────────────────────────────────
+Probes: .scratch/probe_mlb_hydration_pre.txt (+ post after reload). ONE file: backend/routes/workstationRoutes.js.
+SHIPPED: makeMlbSnapshotPseudoIndex() — per-request LAZY factory (snapshot-mlb parsed only on the first MLB
+tracked_best join miss); normPlayer join → bestEntry-SHAPED object mapped from the snapshot row
+(impliedTeamTotal, gameTotal, weatherContext→temperatureF/windDirectionTag [isIndoor→omit BOTH], parkContext→
+hrFactor/hrEnvironmentTag, lineupPosition→lineupSpot, opponentTeam→opponent; ≥1 real field required else null;
+_source:"snapshot_pseudo" provenance). Wired as FALLBACK at BOTH reasoning sites — /top-picks hydration loop AND
+/games-browser prop hydration — `findReasoningEntry(…) || mlbPseudoBest(…)`. buildReasoning UNTOUCHED; NBA
+untouched (pseudo returns null for non-MLB); contextualTags honestly absent (thinner drivers than true joins).
+PRE (live, old code): 22 picks · MLB 4/8 whys (slate rolled since audit — partial real joins now) · NBA 9/14 ·
+3 NBA reasoning blobs byte-captured for the regression gate.
+PRE-SHIP VERIFY: logic probe on the REAL snapshot — 23/23 players (100% join-conditional, gate ≥90%) produce rich
+pseudos (impliedTeamTotal 23, weather/park 20, lineupSpot 18); Trap-1 units PASS (indoor→no temp/wind; all-null→
+null; opponent-only→null); node --check; runtime:verify 13/13. COMMIT: <fill after push>. BACKEND RELOAD required.
+POST-RELOAD gates: MLB whys ≥ PRE 4/8 + join-conditional ≥90%; NBA byte-identical to captured blobs; GAMES modal
+MLB picks show real reasoning. ABSOLUTE full-slate ≥90% deferred to TOMORROW MORNING's snapshot (operator handshake
+next session). After clean morning verify → T1 #1 FULLY complete.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
