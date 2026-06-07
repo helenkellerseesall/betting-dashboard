@@ -41,19 +41,26 @@
  *   was burying that signal.
  *
  * API:
- *   dampenModelProb(modelProb, sport, statFamily, side?)
- *     Returns calibrated probability. Lookup ladder:
+ *   dampenModelProb(modelProb, sport, statFamily, side?, line?)
+ *     Returns calibrated probability. With `line` omitted/null (backwards-compat) or
+ *     a line-agnostic family (moneyline/runline/...) → id-join family-side ladder:
  *       1. (sport, statFamily, side) bucket if n ≥ MIN_SAMPLE_SIDE (20)
  *       2. (sport, statFamily) all-sides bucket if n ≥ MIN_SAMPLE_FAMILY (30)
  *       3. No-op (return modelProb unchanged)
+ *     With `line` passed (Phase Calibration-LineAware-1A, 5.2) → book-agnostic
+ *     per-line corpus ladder:
+ *       1. (sport, statFamily, side, lineBucket) if n ≥ MIN_SAMPLE_LINE (25)
+ *       2. line-HOMOGENEOUS (NBA continuous): family-side _allLines if n ≥ MIN_SAMPLE_SIDE
+ *       3. line-HETEROGENEOUS (MLB rungs): null — no pooled fallback (the bug fix)
  *     Multiplier = realized_hit_rate / avg_stated_model_prob, clamped to
- *     [MULTIPLIER_FLOOR, MULTIPLIER_CEILING] = [0.20, 1.10].
+ *     [MULTIPLIER_FLOOR, CEILING]=[0.20,1.10] (id-join) or
+ *     [MULTIPLIER_FLOOR_LINEAWARE, CEILING]=[0.40,1.10] (line-aware).
  *
- *   getCalibrationForFamily(sport, statFamily, side?)
+ *   getCalibrationForFamily(sport, statFamily, side?, line?)
  *     Returns the persisted entry { n, stated, realized, gapPp, multiplier,
- *     bucket } or null. `bucket` is "side" or "family" so FE can explain.
+ *     bucket } or null. `bucket` is "side"/"family"/"line"/"family-lineaware".
  *
- *   shouldShowCalibrationBadge(sport, statFamily, side?)
+ *   shouldShowCalibrationBadge(sport, statFamily, side?, line?)
  *     true when realized vs stated gap is ≥ MIN_BADGE_GAP_PP (5pp).
  *
  *   reload()  — clear the cache, force a fresh SQLite read on next call.
@@ -477,15 +484,14 @@ function _findFamilyEntry(sport, fam) {
   return null
 }
 
-/**
- * Resolve a single calibration bucket. Lookup ladder:
- *   1) (sport, family, side) if n ≥ MIN_SAMPLE_SIDE
- *   2) (sport, family) all-sides if n ≥ MIN_SAMPLE_FAMILY
- *   3) null (no calibration data)
- *
- * Returns { n, stated, realized, gapPp, multiplier, bucket: "side"|"family" }
- */
-function getCalibrationForFamily(sport, statFamily, side) {
+// ── id-join family-side ladder (today's behavior) ────────────────────────────
+// PRESERVED VERBATIM from the pre-5.2 getCalibrationForFamily body. Used for
+//   • line == null callers (backwards-compat), and
+//   • line-agnostic markers (moneyline/runline/spread/firstHR — no line dimension).
+//   1) (sport, family, side) if n ≥ MIN_SAMPLE_SIDE
+//   2) (sport, family) all-sides if n ≥ MIN_SAMPLE_FAMILY
+//   3) null
+function _getCalibrationIdJoin(sport, statFamily, side) {
   const famEntry = _findFamilyEntry(sport, statFamily)
   if (!famEntry) return null
   const sideKey = _norm(side)
@@ -498,17 +504,64 @@ function getCalibrationForFamily(sport, statFamily, side) {
   return null
 }
 
-function dampenModelProb(modelProb, sport, statFamily, side) {
+// ── line-aware ladder (Phase Calibration-LineAware-1A, step 5.2) ─────────────
+// Reads the book-agnostic per-line corpus (_loadLineAware). Ladder:
+//   1) (sport, family, side, lineBucket) if n ≥ MIN_SAMPLE_LINE → use it
+//   2) line-HOMOGENEOUS (range): (sport, family, side) _allLines if n ≥ MIN_SAMPLE_SIDE
+//   3) line-HETEROGENEOUS (exact): NULL — never fall back to the pooled family-side.
+//      That pooled aggregate is the longshot-biased number that over-suppressed the
+//      easy lines; refusing it is THE load-bearing bug fix.
+function _getCalibrationLineAware(sport, statFamily, side, mode, line) {
+  const data = _loadLineAware()
+  const sp = data?.sports?.[_norm(sport)]
+  if (!sp) return null
+  let famEntry = null
+  for (const name of _famNames(statFamily)) {     // alias-resolve (total_bases → totalbases)
+    if (sp[name]) { famEntry = sp[name]; break }
+  }
+  if (!famEntry) return null
+  const sideKey = _norm(side) || "unknown"
+  const famSide = famEntry[sideKey]
+  if (!famSide) return null
+  const lineKey = _lineBucketKey(mode, line)
+  const b = famSide.lines ? famSide.lines[lineKey] : null
+  if (b && b.n >= MIN_SAMPLE_LINE) {
+    return { ...b, bucket: "line", side: sideKey, lineBucket: lineKey, lineMode: mode }
+  }
+  if (mode === "range" && famSide._allLines && famSide._allLines.n >= MIN_SAMPLE_SIDE) {
+    return { ...famSide._allLines, bucket: "family-lineaware", side: sideKey, lineMode: mode }
+  }
+  return null   // heterogeneous-thin (or no data) → no dampening (multiplier 1.0)
+}
+
+/**
+ * Resolve a single calibration bucket.
+ *   line == null OR line-agnostic family → id-join family-side ladder (today's behavior).
+ *   otherwise                            → line-aware ladder against the per-line corpus.
+ * Backwards-compat: `line` is optional; any caller omitting it gets the id-join ladder.
+ * Returns { n, stated, realized, gapPp, multiplier, bucket, side, ... } or null.
+ */
+function getCalibrationForFamily(sport, statFamily, side, line = null) {
+  const mode = _lineModeFor(statFamily)
+  // Trap 1 (num(null)=0): test `line == null`, NOT `!line` — `!line` would also treat
+  // a (hypothetical) line 0 as absent. `== null` catches only null/undefined.
+  if (line == null || mode === "agnostic") {
+    return _getCalibrationIdJoin(sport, statFamily, side)
+  }
+  return _getCalibrationLineAware(sport, statFamily, side, mode, line)
+}
+
+function dampenModelProb(modelProb, sport, statFamily, side, line = null) {
   const mp = Number(modelProb)
   if (!Number.isFinite(mp) || mp <= 0) return mp
-  const cal = getCalibrationForFamily(sport, statFamily, side)
+  const cal = getCalibrationForFamily(sport, statFamily, side, line)
   if (!cal || !Number.isFinite(cal.multiplier)) return mp
   const d = mp * cal.multiplier
   return Math.max(0, Math.min(1, d))
 }
 
-function shouldShowCalibrationBadge(sport, statFamily, side) {
-  const cal = getCalibrationForFamily(sport, statFamily, side)
+function shouldShowCalibrationBadge(sport, statFamily, side, line = null) {
+  const cal = getCalibrationForFamily(sport, statFamily, side, line)
   if (!cal) return false
   return Math.abs(cal.gapPp) >= MIN_BADGE_GAP_PP
 }
@@ -541,8 +594,16 @@ function applyCalibrationDampener(pick) {
   const sport = pick.sport
   const fam = pick.statFamily || pick.propType
   const side = pick.side  // per-side asymmetry: UNDER 48.7% / OVER 25.5% on n=666 corpus
+  // Phase Calibration-LineAware-1A step 5.2: thread the prop line into the dampener.
+  // Trap 1 (num(null)=0): guard `pick.line == null` BEFORE Number() so a line-less
+  // marker stays null (→ id-join family-side path) instead of collapsing to line 0.
+  let line = null
+  if (pick.line != null) {
+    const L = Number(pick.line)
+    if (Number.isFinite(L)) line = L
+  }
   const raw = Number(pick.modelProb)
-  const dampened = dampenModelProb(raw, sport, fam, side)
+  const dampened = dampenModelProb(raw, sport, fam, side, line)
   if (dampened === raw) return pick
   pick.modelProbRaw = raw
   pick.modelProb = Math.round(dampened * 10000) / 10000
@@ -551,8 +612,8 @@ function applyCalibrationDampener(pick) {
     pick.edgeRaw = pick.edge
     pick.edge = Math.round((dampened - impliedP) * 10000) / 10000
   }
-  if (shouldShowCalibrationBadge(sport, fam, side)) {
-    pick.calibration = getCalibrationForFamily(sport, fam, side)
+  if (shouldShowCalibrationBadge(sport, fam, side, line)) {
+    pick.calibration = getCalibrationForFamily(sport, fam, side, line)
   }
   return pick
 }
