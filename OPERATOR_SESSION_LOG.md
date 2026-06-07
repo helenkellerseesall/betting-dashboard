@@ -2095,6 +2095,24 @@ null; opponent-only→null); node --check; runtime:verify 13/13. COMMIT: <fill a
 POST-RELOAD gates: MLB whys ≥ PRE 4/8 + join-conditional ≥90%; NBA byte-identical to captured blobs; GAMES modal
 MLB picks show real reasoning. ABSOLUTE full-slate ≥90% deferred to TOMORROW MORNING's snapshot (operator handshake
 next session). After clean morning verify → T1 #1 FULLY complete.
+(#100 POST-RELOAD verified clean: ff98779/a2265d3, MLB whys 8/8, NBA byte-identical TRUE, games-browser 43/43 rich.)
+
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · T1 #2 HIT%-by-odds-tier · PHASE 0 → PREMISE CHECK FAILED — STOPPED per operator's own gate (no edits)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Inventory: .scratch/probe_hit_tier_inventory.txt. Mechanics were fine (fork b: oddsBucket precedent at
+phase4Tracking:404, dense corpus 12,707 settled / 0 missing odds, simple endpoint+card). THE PREMISE FAILED:
+operator's gate was "does the tier breakdown ACTUALLY show longshot beats? if not — regroup, not push a misleading
+tier card." ANSWER: NO — every meaningful bucket is NEGATIVE vs market-implied, curated set worst:
+CURATED (ELITE+STRONG+PLAYABLE, n=2,138): mid-fav -7.8pp · pickem -8.7pp · mid-dog -6.3pp · longshot -10.2pp ·
+heavy-longshot -3.9pp. ELITE-only (n=149) sharply negative (pickem -32pp, mid-dog -33pp, small n). ⚠ UNCURATED pool
+BEATS curated in 2 buckets (mid-fav +6.7pp, mid-dog +0.8pp) — possible curation ANTI-selection, flagged as maybe the
+highest-value finding here. Caveats logged honestly: implied includes vig (≈-2..-5pp baseline); 30d window mixes
+pre/post-calibration-fix engine; NOT a contradiction of P2a's CLV-based "BEATING THE MARKET 14.7%" (different claims).
+REGROUP RECS: (R1) recency re-slice post-calibration-fix; (R2) curation-anti-selection investigation (separate
+phase — tier classifier/dampener/⭐ selection); (R3) tier card revisited only after the corpus supports a defensible
+story, or reframed as an operator-facing calibration panel on /status (red rows diagnostic there, trust-toxic on GRADES).
+NO EDITS. Overall HIT% aggregate untouched. Operator decides the regroup direction.
 
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
