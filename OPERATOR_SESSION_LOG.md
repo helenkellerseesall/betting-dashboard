@@ -1864,7 +1864,10 @@ VERIFIED (sandbox, .scratch/probe_p1b_gate_acts.txt): REAL buildAiSlips on the R
 entries → 8 slips all carry liveStateSummary; "sal frelick" present baseline, EXCLUDED after synthetic scratch,
 slips still build. NBA 295 → 16 slips; "victor wembanyama" EXCLUDED after OUT. JOIN: 162/171 real candidates
 resolve to a snapshot mlbLiveState ("Sandy León"→"sandy leon" joined). Trap-1: 0 false exclusions on clean pool.
-runtime:verify 13/13. node --check both files. COMMIT: <fill after push>.
+runtime:verify 13/13. node --check both files. COMMIT: ec1a48c (code) + 984374b (docs).
+POST-RELOAD HTTP CONFIRM (browser, /api/ws/state): MLB 14/14 slips carry liveStateSummary + 35 legs carry
+leg.liveState; NBA 8/8 slips + 20 legs. All status "ok" (clean overnight slate — 0 soft/0 dead, honest, no
+fabricated flags). Pre-edit the same payload had hasLiveStateSummary:FALSE. The gate now reaches the bettor fetch.
 
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
