@@ -2138,3 +2138,68 @@ field (NOT byte-identical), but its picks are unchanged absent a real scratch (T
 confirmed post-reload by hitting /api/ws/state in the browser (slips[].liveStateSummary present; was absent pre-edit).
 NEW BINDING RULE (logged): a gate-wire is not "done" until verified at the bettor fetch (the rendered slip on
 /api/ws/state), never at the assembler's function output — the dead-wire pattern Phase 1 missed twice.
+
+## 2026-06-07 19:45 ET — Claude-A (Cowork)
+
+ACTION: built CLAUDE_BRIDGE_PROTOCOL.md (new repo-root file) + drafted R2 audit handoff via new bridge schema. First official bridge-protocol turn — both sides now read CLAUDE_BRIDGE_PROTOCOL.md at start of every meaningful turn.
+
+DRIFT_WARNING_TO_PEER:
+None. R1 was clean execution. Pre-bridge: Claude-A previously violated `feedback_no_fabricated_numbers_in_scope_memos` (T1 #2 orientation invented "longshots 12% vs 14%"); rule now in memory + indexed. Going forward both sides MUST cite every number to probe/canonical file/git commit.
+
+DRAFT_HANDOFF:
+```
+R2 audit approved (task #102, Phase Curation-AntiSelection-Audit-2A). Read CLAUDE_BRIDGE_PROTOCOL.md FIRST, then append your `## ... Claude-B (4.8)` turn block to OPERATOR_SESSION_LOG.md per schema.
+
+context: T1 #2 R1 result (commit-pending docs) showed pre-calib uncurated FADE/untiered beats curated ELITE/STRONG/PLAYABLE in mid-fav by +6.7pp + mid-dog by +0.8pp (.scratch/probe_hit_recency_pre_post.txt). Post-calib mid-bucket uncurated logging is empty (n=0 across all mid buckets after 2026-06-06 / commit 53a49d4). Both findings demand a deep-dive audit before any T1 #2 revisit.
+
+scope (READ-ONLY 3-strand audit, no edits):
+
+  STRAND 1 — tier classifier selection effects:
+    - locate the actual code path that assigns ELITE/STRONG/PLAYABLE/FADE/untiered tiers. Likely in classification/scoring layer (mlbClassification.js, nbaClassification.js, or buildSlipAi). Find the selection function + threshold logic.
+    - audit why uncurated outperforms curated in mid-fav (+6.7pp source: R1 probe). Is the tier classifier inverting some signal? Picking high-conf-but-low-edge? Mis-ranking by confidence rather than edge?
+    - compare 3-5 sample mid-fav picks where curated lost vs uncurated won. What distinguishing features did the classifier weight that backfired?
+    - write to .scratch/audit_r2_strand1_classifier.txt
+
+  STRAND 2 — dampener selection effects post-calibration:
+    - did Calibration-LineAware-1A (commit 53a49d4, 2026-06-06) change WHICH picks survive curation, not just HOW dampened?
+    - compute per-bucket survival rate (% of generated picks that became curated) PRE-calib vs POST-calib. If post-calib survival shifted, identify which feature changed (floor 0.20→0.40? per-line bucket thinness gating?).
+    - cross-check with [[project-mlb-calibration-frozen-may17]] kill-switch CALIB_LINEAWARE expectations — is the post-calib selection drift expected or a surprise?
+    - write to .scratch/audit_r2_strand2_dampener_selection.txt
+
+  STRAND 3 — empty post-calib uncurated mid-stream:
+    - find the writer that emits FADE/untiered tracked_bets/personal_ledger entries. Why did it stop emitting mid-bucket entries after 2026-06-06?
+    - candidates: (a) calibration-ship changed FADE threshold, (b) logging path changed, (c) calibration filter early-excludes mid-bucket FADE picks before they get logged.
+    - sample 5 mid-bucket picks from 2026-06-05 (pre-cutoff) that would have been FADE — trace whether 2026-06-07 equivalents are still being generated but not logged, vs not being generated at all.
+    - write to .scratch/audit_r2_strand3_silent_stream.txt
+
+  SYNTHESIS — rank fixes:
+    - 3-strand findings synthesized into 1-3 ranked candidate fixes per strand
+    - each fix: scope, risk class, bettor-visible delta, dependency on other strands
+    - synthesis to docs/audits/2026-06-07-curation-anti-selection/synthesis.md
+    - same-turn docs commit
+
+discipline:
+   - READ-ONLY. NO code edits, NO config changes, NO dampener tweaks. Audit only.
+   - every claim in synthesis cites a probe/canonical-file/git-commit per feedback_no_fabricated_numbers_in_scope_memos.
+   - separate docs commit for synthesis.md; SAME-TURN per feedback_commit_durable_artifacts_same_turn.
+   - plain triple-backtick fences, no bang chars, specific files in git add, no --no-verify.
+   - common traps per project_pick_origin_architecture:
+     * Trap 1: num(null)=0 when joining tier classification + outcomes (null tier is not "untiered" is not 0)
+     * Trap 3: probe at REAL curation/selection pipeline, not engine internal scoring output
+     * Trap 5: don't auto-classify "uncurated wins" as "curation is broken" — could be variance, slate-correlation, or selection bias. Audit must distinguish.
+
+bridge protocol:
+   - read CLAUDE_BRIDGE_PROTOCOL.md before starting
+   - append `## YYYY-MM-DD HH:MM ET — Claude-B (4.8)` block to OPERATOR_SESSION_LOG.md per schema
+   - include in your block: ACTION + AUDIT_OUTCOME (3-strand summary) + DRIFT_WARNING_TO_PEER if my framing missed anything + NEXT_EXPECTED_FROM_PEER + PROBE_REFS
+
+bettor-visible delta: NONE this phase (audit only). Findings feed future phase scoping.
+
+go.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 reads CLAUDE_BRIDGE_PROTOCOL.md + this block, executes R2 3-strand audit read-only, appends Claude-B turn block with AUDIT_OUTCOME, commits synthesis.md to docs/audits/2026-06-07-curation-anti-selection/. Operator gates execution of any follow-up build phase.
+
+PROBE_REFS:
+.scratch/probe_hit_recency_pre_post.txt (R1 source), .scratch/probe_hit_tier_inventory.txt (T1 #2 PHASE 0 source).
