@@ -1527,3 +1527,25 @@ live behavior.
 
 NEXT (5.4, queued): calibrationFeedback.js → book-agnostic join (kept line-AGNOSTIC per design), separate
 bisectable commit. Calibration-LineAware-1A COMPLETE after 5.4.
+
+5.3 shipped: code 9852137, docs 3c24489 (verified clean by operator — /status shows backend at 3c24489 healthy).
+
+---
+
+## 2026-06-06 — Calibration-LineAware-1A · /status LINEAWARE surface (operator-requested, pre-5.4)
+
+Operator asked to make the kill-switch visible on /status (without it, post-compaction / stressed operator can't
+visually confirm whether line-aware is engaged). statusRoute.js: added readLineAwareState() — reads ON/OFF from the
+dampener's exported _constants.LINEAWARE_ENABLED (SINGLE authority, no parallel re-derivation; Law 1) + the raw env
+only for the default-vs-explicit label. sectionFamilyCalibration() now always attaches `lineAware:{enabled,state,
+flag}` (even when family_calibration.json is missing). Exported sectionFamilyCalibration + _readLineAwareState for
+probes. FE frontend/status/index.html: new #calibLineAware line in the dampener card, rendered BEFORE the corpus
+early-return so it always shows; gray when ON, RED when OFF (var(--red)). Pure display — NO dampening behavior change.
+
+WHY this field matters: /status familyCalibration TABLE comes from family_calibration.json (sysAudit), which does
+NOT reflect CALIB_LINEAWARE. This new field is the ONLY /status element that mirrors the live flag.
+
+Verified (sandbox) probe .scratch/probe_calib_status_surface.txt PASS: 3 flag states via cache-clear re-require —
+unset→"ON (default)", "1"→"ON (explicit)", "0"→"OFF (emergency revert)"; section keeps its shape (ok + sports +
+lineAware); FE inline JS parses clean (new Function, node --check broken on .html); #calibLineAware element + render
+hook present. runtime:verify 13/13 PASS. Behavior-neutral display surface.
