@@ -88,20 +88,42 @@ function getCalibrationFactor({ sport, statFamily, side, daysBack = DAYS_BACK_DE
   }
 
   try {
-    const sportFilter = sportKey ? `AND LOWER(ps.sport) = ?` : ``
+    // Phase Calibration-LineAware-1A step 5.4 — book-agnostic column join. Dedup each
+    // side to one row per run_date|sport|player|stat_family|side|line BEFORE joining
+    // (book dropped, null-safe IS on player/side/line) so multi-book rows count as ONE
+    // event and book-mismatch rows are recovered. KEPT LINE-AGNOSTIC per design: `line`
+    // is in the dedup key (distinct line-events aren't merged) but the final aggregate
+    // pools across lines → one family-side rate, the exact contract the 2 callers expect.
+    const dayWindow = Number(daysBack) || 30
+    const sportFilterPreds = sportKey ? `AND LOWER(sport) = ?` : ``
     const params = sportKey
-      ? [famKey, sideKey, sportKey]
-      : [famKey, sideKey]
+      ? [famKey, sideKey, sportKey, famKey, sideKey]   // preds (fam,side,sport) + outs (fam,side)
+      : [famKey, sideKey, famKey, sideKey]
 
     const row = db.prepare(`
-      SELECT COUNT(*) AS n, AVG(os.hit) AS hit_rate
-      FROM outcome_snapshots os
-      JOIN prediction_snapshots ps ON ps.id = os.id
-      WHERE os.hit IS NOT NULL
-        AND LOWER(ps.stat_family) = ?
-        AND LOWER(ps.side) = ?
-        ${sportFilter}
-        AND ps.run_date >= date('now', '-${Number(daysBack) || 30} days')
+      WITH preds AS (
+        SELECT run_date, sport, player, stat_family, side, line, AVG(model_prob) AS model_prob
+        FROM prediction_snapshots
+        WHERE LOWER(stat_family) = ? AND LOWER(side) = ? ${sportFilterPreds}
+          AND run_date >= date('now', '-${dayWindow} days')
+        GROUP BY run_date, sport, player, stat_family, side, line
+      ),
+      outs AS (
+        SELECT run_date, sport, player, stat_family, side, line, MAX(hit) AS hit
+        FROM outcome_snapshots
+        WHERE hit IS NOT NULL AND LOWER(stat_family) = ? AND LOWER(side) = ?
+          AND run_date >= date('now', '-${dayWindow} days')
+        GROUP BY run_date, sport, player, stat_family, side, line
+      )
+      SELECT COUNT(*) AS n, AVG(o.hit) AS hit_rate
+      FROM preds p
+      JOIN outs o
+        ON  p.run_date    =  o.run_date
+        AND p.sport       =  o.sport
+        AND p.stat_family =  o.stat_family
+        AND p.player      IS o.player
+        AND p.side        IS o.side
+        AND p.line        IS o.line
     `).get(...params)
 
     if (!row || !row.n || row.n < MIN_SAMPLE_FOR_USE) {
@@ -136,19 +158,39 @@ function dumpCalibrationTable({ daysBack = DAYS_BACK_DEFAULT } = {}) {
   const db = _tryGetDb()
   if (!db) return []
   try {
+    // Phase Calibration-LineAware-1A step 5.4 — book-agnostic dedup join (same shape as
+    // getCalibrationFactor; line in the dedup key, line-agnostic family-side aggregate).
+    // Output columns unchanged so calibration:status / consumers stay compatible.
+    const dayWindow = Number(daysBack) || 30
     return db.prepare(`
+      WITH preds AS (
+        SELECT run_date, sport, player, stat_family, side, line, AVG(model_prob) AS model_prob
+        FROM prediction_snapshots
+        WHERE run_date >= date('now', '-${dayWindow} days')
+        GROUP BY run_date, sport, player, stat_family, side, line
+      ),
+      outs AS (
+        SELECT run_date, sport, player, stat_family, side, line, MAX(hit) AS hit
+        FROM outcome_snapshots
+        WHERE hit IS NOT NULL AND run_date >= date('now', '-${dayWindow} days')
+        GROUP BY run_date, sport, player, stat_family, side, line
+      )
       SELECT
-        LOWER(ps.sport)       AS sport,
-        LOWER(ps.stat_family) AS stat_family,
-        LOWER(ps.side)        AS side,
-        COUNT(*)              AS n,
-        AVG(os.hit)           AS hit_rate,
-        AVG(ps.model_prob)    AS model_avg
-      FROM outcome_snapshots os
-      JOIN prediction_snapshots ps ON ps.id = os.id
-      WHERE os.hit IS NOT NULL
-        AND ps.run_date >= date('now', '-${Number(daysBack) || 30} days')
-      GROUP BY ps.sport, ps.stat_family, ps.side
+        LOWER(p.sport)       AS sport,
+        LOWER(p.stat_family) AS stat_family,
+        LOWER(p.side)        AS side,
+        COUNT(*)             AS n,
+        AVG(o.hit)           AS hit_rate,
+        AVG(p.model_prob)    AS model_avg
+      FROM preds p
+      JOIN outs o
+        ON  p.run_date    =  o.run_date
+        AND p.sport       =  o.sport
+        AND p.stat_family =  o.stat_family
+        AND p.player      IS o.player
+        AND p.side        IS o.side
+        AND p.line        IS o.line
+      GROUP BY p.sport, p.stat_family, p.side
       ORDER BY COUNT(*) DESC
     `).all().map((r) => {
       const adjustedRate = r.n >= MIN_SAMPLE_FOR_USE
