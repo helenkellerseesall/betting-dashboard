@@ -75,6 +75,16 @@ const { buildSlateMarketContext, enrichRowWithMarketContext: enrichNbaRowWithMar
 // Sets row.playerStatus + row.availabilityContext + row.availabilityShift.
 // Honest no-op when player not in cache (NEVER fabricates "active by default").
 const { enrichRowWithAvailability: enrichNbaRowWithAvailability } = require("../pipeline/nba/nbaAvailabilityCache")
+// Phase Live-Game-State-Integration-1b — canonical player normalizer (NFD +
+// diacritic-strip + lowercase + trim) used as the join key when attaching MLB
+// mlbLiveState from snapshot rows onto the bettor candidate pool. intelligence.js
+// is the canonical identity/join authority (PRESERVED).
+const { normPlayer } = require("../storage/intelligence")
+// Phase Live-Game-State-Integration-1b — canonical pitcher-market classifier.
+// tracked_best entries carry marketKey but NOT isPitcherMarket; the slip gate's
+// pitcher-scratch branch needs it, so we derive it from the canonical classifier
+// during the MLB join (pure function; mlbClassification not modified).
+const { isMlbPitcherMarketKey } = require("../pipeline/markets/mlbClassification")
 // Session AZ — Frozen Prediction + Grading Architecture V1. Captures an
 // immutable observational snapshot of every cache-miss prediction cycle
 // (predictions + their full contextual reasoning state). NEVER duplicates
@@ -867,10 +877,59 @@ router.get("/state", async (req, res) => {
           })()
       const aiCandidates = diversifyCandidates(aiCandidatesRaw, { maxPerPlayer: 3, maxPerGame: nbaPerGame })
       console.log("[WS-PROBE] aiCandidatesRaw=%d → aiCandidates=%d", aiCandidatesRaw.length, aiCandidates.length)
+
+      // ── Phase Live-Game-State-Integration-1b — JOIN live-state detection onto
+      // the bettor candidate pool BEFORE slip assembly. aiCandidates are
+      // tracked_best-derived and carry NO live-state envelope; the detection
+      // lives on a different source loaded in this same route:
+      //   MLB → snapshotRows[].mlbLiveState (applyMlbLiveStateLayers); join by
+      //         normPlayer (one game per player per slate → player key is
+      //         unambiguous and immune to eventId-format drift).
+      //   NBA → nbaAvailabilityCache.enrichRowWithAvailability (sets playerStatus
+      //         + availabilityContext from the ESPN cache).
+      // Without this join, buildSlipAi's gate reads leg.mlbLiveState /
+      // leg.playerStatus = undefined for every leg → Trap-1 → "ok" for all → a
+      // verified NO-OP (this is the dead-wire Phase 1 missed). Anti-fabrication:
+      // attach ONLY on a real match; no match → field stays undefined → gate OK.
+      // Featured plays deliberately keeps the un-joined aiCandidates (the gate is
+      // a parlay-surface protection per the audit; single-pick surfaces are
+      // out of Phase-1 scope).
+      let gateReadyCandidates = aiCandidates
+      if (sport === "mlb" && snapshotRows.length) {
+        const liveByPlayer = new Map()
+        for (const r of snapshotRows) {
+          if (!r || !r.mlbLiveState) continue
+          const k = normPlayer(r.player)
+          if (k && !liveByPlayer.has(k)) liveByPlayer.set(k, r.mlbLiveState)
+        }
+        let __matched = 0
+        gateReadyCandidates = aiCandidates.map((c) => {
+          if (!c) return c
+          const isPitcherMarket = isMlbPitcherMarketKey(c.marketKey) === true
+          const ls = liveByPlayer.get(normPlayer(c.player))
+          if (!ls) return isPitcherMarket ? { ...c, isPitcherMarket } : c
+          __matched++
+          return { ...c, mlbLiveState: ls, isPitcherMarket }
+        })
+        console.log("[WS-LIVESTATE] MLB join: candidates=%d snapshotPlayers=%d matched=%d",
+          aiCandidates.length, liveByPlayer.size, __matched)
+      } else if (sport === "nba") {
+        let __withStatus = 0
+        gateReadyCandidates = aiCandidates.map((c) => {
+          if (!c) return c
+          const clone = { ...c }
+          try { enrichNbaRowWithAvailability(clone) } catch (_) {}
+          if (clone.playerStatus) __withStatus++
+          return clone
+        })
+        console.log("[WS-LIVESTATE] NBA availability join: candidates=%d withStatus=%d",
+          aiCandidates.length, __withStatus)
+      }
+
       let ledgerState = null
       try { ledgerState = mods.ledger.loadLedger ? mods.ledger.loadLedger() : null } catch (_) {}
       const aiSlips = mods.slipAi.buildAiSlips({
-        candidates: aiCandidates,
+        candidates: gateReadyCandidates,
         timingResult,
         bookState,
         ledgerState,

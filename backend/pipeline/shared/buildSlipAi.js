@@ -51,6 +51,13 @@ const { canonicalBookName: __canonicalBookName } = require("./sportsbookAllowlis
 // fair fields stay null when oppOdds is absent — never substitute default.
 const { stripVigTwoWay: __stripVigTwoWay } = require("./vigStripping")
 
+// Phase Live-Game-State-Integration-1b — the canonical parlay-surface live-state
+// gate. Reads leg.mlbLiveState (MLB) / leg.playerStatus (NBA) — detection that
+// workstationRoutes /state now joins onto the bettor candidate pool before this
+// assembler runs. liveStateGate excludes DEAD legs; gateParlayLegs rolls up the
+// per-slip summary + tags SOFT legs. Trap 1: a leg with no envelope returns OK.
+const { liveStateGate, gateParlayLegs } = require("./liveStateGate")
+
 // ── FIX 3: SLIP FAMILY EXCLUSION LIST ────────────────────────────────────────
 // Families excluded from ALL slip assembly (SAFE, BALANCED, AGGRESSIVE, LOTTO).
 // Exclusion is based on 5-date grading evidence (Session AF Slip Ecosystem Audit V1):
@@ -358,6 +365,16 @@ function normalizeCandidate(raw) {
     bullpenShift:          raw.bullpenShift,
     reliefFatigueScore:    raw.reliefFatigueScore,
     bullpenDataAvailable:  raw.bullpenDataAvailable,
+    // Phase Live-Game-State-Integration-1b — preserve live-state detection so
+    // the slip gate sees it on the normalized leg. MLB: mlbLiveState envelope
+    // (joined onto the candidate in workstationRoutes from the snapshot rows).
+    // NBA: playerStatus + availabilityContext (joined via nbaAvailabilityCache).
+    // Anti-fabrication: verbatim propagation; undefined when upstream absent →
+    // gate returns OK (Trap 1), never a fabricated exclusion.
+    mlbLiveState:        raw.mlbLiveState,
+    isPitcherMarket:     raw.isPitcherMarket === true,  // gate needs this for the pitcher-scratch branch
+    playerStatus:        raw.playerStatus,
+    availabilityContext: raw.availabilityContext,
     raw,
   }
 }
@@ -1312,17 +1329,31 @@ function buildAiSlips(opts = {}) {
   resetOe11SlipStats()
 
   // Normalize candidates
-  const normalized = candidates
+  const __normalizedRaw = candidates
     .map(normalizeCandidate)
     .filter(Boolean)
 
-  console.log("[SLIP-PROBE] buildAiSlips: candidates=%d normalized=%d sport=%s", candidates.length, normalized.length, sport)
+  // Phase Live-Game-State-Integration-1b — exclude DEAD legs (scratched batter /
+  // scratched-pitcher prop / NBA confirmed-OUT) BEFORE slip assembly, so a dead
+  // player can never ride a bettor parlay on /api/ws/state. SOFT/OK legs flow
+  // through; SOFT is tagged + summarized per-slip near the return. Trap 1: a leg
+  // with no live-state envelope returns "ok" and is KEPT — a feed gap must never
+  // fabricate an exclusion. Pre-filtering here (rather than post-assembly removal)
+  // means no viable slip is silently emptied, which satisfies the Phase-1
+  // "drop-below-2-legs" decision more strongly than a post-hoc drop.
+  const normalized = __normalizedRaw.filter((leg) => liveStateGate(leg).status !== "dead")
+  const __deadExcluded = __normalizedRaw.length - normalized.length
+  if (__deadExcluded > 0) {
+    console.log("[SLIP-LIVESTATE] excluded %d DEAD leg(s) before assembly (scratched/OUT)", __deadExcluded)
+  }
+
+  console.log("[SLIP-PROBE] buildAiSlips: candidates=%d normalized=%d (deadExcluded=%d) sport=%s", candidates.length, normalized.length, __deadExcluded, sport)
   if (!normalized.length) {
     console.log("[SLIP-PROBE] early return — no normalized candidates")
     return {
       slips: { safe: [], balanced: [], aggressive: [], lotto: [] },
-      summary: "No eligible candidates",
-      warnings: ["No candidates supplied"],
+      summary: __normalizedRaw.length ? "No live candidates (all excluded by live-state gate)" : "No eligible candidates",
+      warnings: [__normalizedRaw.length ? "All candidates excluded by live-state gate (scratched/OUT)" : "No candidates supplied"],
       candidateCount: 0,
     }
   }
@@ -1491,6 +1522,31 @@ function buildAiSlips(opts = {}) {
     console.warn(
       `[OE-1B] slip reinforcement: ${oe11SlipStats.reinforcedSlips} slip(s) earned a same-team-hitter-OVER pair reinforcement (total boost magnitude ${oe11SlipStats.totalReinforcementBoosts.toFixed(4)}; per-slip cap ${OE11_TOTAL_BOOST_CAP_SLIP})`,
     )
+  }
+
+  // Phase Live-Game-State-Integration-1b — attach a per-slip live-state summary
+  // and tag SOFT legs (questionable / opposing-starter change / lineup-spot
+  // change). DEAD legs were already excluded pre-assembly, so this pass is
+  // summary + soft-tag only; it is what makes the gate output REACH the bettor
+  // fetch: each slip now carries liveStateSummary + liveStateStatus, and every
+  // surviving leg gains leg.liveState. gateParlayLegs is idempotent on a
+  // dead-free pool. officialStatusByPlayer is intentionally NOT supplied here
+  // (no official injury feed is plumbed to the slip path yet — the gate already
+  // honors it the moment that map is passed, preserving Phase-1 decision 2).
+  let __slipsWithSoft = 0
+  for (const __tier of Object.keys(slips)) {
+    if (!Array.isArray(slips[__tier])) continue
+    for (const __slip of slips[__tier]) {
+      if (!__slip || !Array.isArray(__slip.legs)) continue
+      const __g = gateParlayLegs(__slip.legs)
+      __slip.legs = __g.gatedLegs
+      __slip.liveStateSummary = __g.summary
+      __slip.liveStateStatus  = __g.summary.worst
+      if (__g.summary.softCount > 0) __slipsWithSoft++
+    }
+  }
+  if (__slipsWithSoft > 0) {
+    console.log("[SLIP-LIVESTATE] %d slip(s) carry SOFT live-state warnings (surfaced to bettor)", __slipsWithSoft)
   }
 
   return { slips, summary, warnings, candidateCount: normalized.length, mlbCovStats: covStats, bettorRealismScore, oe11SlipStats }
