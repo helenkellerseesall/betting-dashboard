@@ -2037,6 +2037,26 @@ HONEST FLAG: delivers the inline why for NBA only. MLB reasoning blob restates m
 follow-up (fold MLB context into buildReasoning so card+modal stay consistent — engine change, beyond pure-FE T1 #1).
 NEXT (per operator_daily_trust_ranked_path): T1 #2 HIT%-by-tier, T1 #3 NBA-CLV live-verify; then T2 (ladder MVP, joint, archetype).
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · MLB-Reasoning-Context-1A (#99) · PHASE 0 AUDIT → FORK (c) — STOPPED, no edits (per spec)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Inventory: .scratch/probe_mlb_context_inventory.txt. The spec's premise is INVERTED by the audit:
+(1) buildReasoning's MLB branch is ALREADY RICH (implied total, vs-opp, HR/Game/Spot environment from park+weather+
+handedness, contextualTags→drivers) — it just never RUNS because bestEntry is null for MLB top-picks.
+(2) The hydrated MLB top-picks carry ZERO context fields (0/14 on all 21 candidates — tracked_BETS-shaped, no
+context). Fork-c criterion met exactly (0 fields ≥40% on the pick).
+(3) The context EXISTS fully populated on mlb_tracked_best (124 entries, ~100% on impliedTeamTotal/hrEnvironmentTag/
+contextualTags/wind/temp) — but the bestEntry join for the ACTUAL live top-picks is 0/11: tracked_best is a
+DIFFERENT pick population (Over-only batter ladders TB/HR/Hits/RBIs; no pitcher props, no unders, different lines).
+NBA joins because its tracked_best covers the same picks as tracked_bets.
+ROOT-CAUSE CLASS: upstream source-coverage (the reasoning source doesn't contain the picks), NOT a buildReasoning gap.
+FIX OPTIONS for the separate phase: (A) snapshot-hydration join at reasoning time (snapshot-mlb rows carry
+opposingPitcher/batterHand/impliedTeamTotal/weatherContext/parkContext; join by normPlayer — the proven Phase-1b
+pattern; immediate, covers all pick shapes) ; (B) stamp context onto mlb tracked_bets at creation (phase4Tracking
+leanBet — durable single-source, future picks only, PRESERVED-adjacent care) ; (C) widen tracked_best — REJECTED
+(changes the best-board semantics). RECOMMENDATION: B for durability + A as the immediate bridge.
+NO EDITS. NBA whys (T1 #1) unaffected. Operator scopes the upstream phase before any build.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
