@@ -1794,3 +1794,42 @@ is today's substitute). Sources confirmed ABSENT: sharp/public money feed, beat-
 RESIDUALS for build-phase: two NBA injury sources (ESPN soft vs official hard) may disagree → pick one authority;
 forceSit labels "sit" (not delete) so non-checking surfaces still show it; MLB lineup adapter coverage (apiSports
 scaffold). Operator reviews synthesis before any per-phase build plan.
+
+Design approved (4 decisions): (i)+(flag)+(drop<2) dead-leg policy / official forceSit wins / SOFT flag-only Phase 1
+/ steam scoped OUT. Design doc docs/audits/2026-06-06-live-state-integration/phase1_design.md committed.
+
+---
+
+## 2026-06-07 — Live-Game-State Phase 1 — parlay-surface liveStateGate (BUILT, both sports)
+
+NEW: backend/pipeline/shared/liveStateGate.js — unified sport-agnostic gate. liveStateGate(leg,opts)→{status:
+ok|soft|dead, reason, source, capturedAt}; gateParlayLegs(legs,opts)→{gatedLegs (dead excluded, soft tagged),
+summary{worst,deadCount,softCount,reasons}}. MLB reads row.mlbLiveState (lineup.scratched / starter.changeType+
+pitcherChanged). NBA reads row.playerStatus (+ optional opts.officialStatusByPlayer — decision 2 official-wins,
+ESPN fallback). SAFETY RAIL (Trap 1): missing envelope → OK never DEAD (feed outage must not nuke parlays). Steam
+(lineMovement.steamFlag) deliberately NOT consulted (decision 4 scoped out).
+
+WIRED (WIRE-ONLY, 3 files):
+  - MLB buildMlbAutoTickets.js: pickLegsFromPool pre-filters DEAD legs (never selected); buildTicket runs
+    gateParlayLegs → attaches per-leg liveState + ticket liveStateSummary + degenerate flag; output drops degenerate
+    tickets (<2 legs after exclusion, decision iii) + surfaces liveStateStatus/liveStateSummary.
+  - NBA buildNbaAiSlips.js: single choke before formatSlipsBlock — gates every slip's FINAL legs (after lotto
+    re-diversify), excludes DEAD, empties+marks dead if <2 (reuses the EXPL-4 anti-stale doctrine the slip path
+    previously skipped).
+
+Verified (sandbox) probe .scratch/probe_p1_livestate_gate.txt PASS: unit status mapping all sports (scratch/pitcher-
+scratch/opp-change/steam-OK/null-OK/out/questionable/active/official-override) ; gateParlayLegs excludes dead +
+tags soft ; reason strings operator-friendly ("Marcell Ozuna scratched from the lineup", "Victor Wembanyama is OUT
+per injury report (left knee)"). GATE-MUST-ACT (binding trap) proven END-TO-END on REAL buildMlbAutoTickets + REAL
+snapshot rows (FIX-6 with/without): "trea turner" appeared in a baseline ticket, EXCLUDED after scratch injected,
+tickets still built (Trap-1 holds). runtime:verify 13/13. Backend reload → live next slate.
+
+SCOPING FLAG (honest): Phase 1 NBA gate is ESPN-effective on the slip path; the gate is BUILT to prefer official
+(opts.officialStatusByPlayer) but the official feed isn't confirmed live/plumbed to the slip assembly — fast-follow
+to plumb it (decision 2 fully). Gating on ESPN "out" is the safe direction (catches dead legs). NBA full-assembler
+end-to-end drive deferred (heavy harness); gate-must-act proven via gateParlayLegs (the exact fn the NBA choke calls)
++ MLB end-to-end. Placed-ticket post-bet flagging explicitly OUT of Phase 1 (tracked-bets surface, later phase).
+
+BETTOR-VISIBLE next slate: MLB auto-tickets exclude scratched batters / non-starting pitchers before assembly; NBA
+slips exclude OUT players; questionable/doubtful surfaced with reason strings; tickets carry liveStateSummary for the
+FE. NEXT: operator verifies; then Phase 2 (MLB single-pick board gate — wire row.mlbLiveState into the board/serializer).
