@@ -1959,6 +1959,19 @@ DATA-GAP SUB-PHASES still open (flagged, not faked): NBA-CLV-Capture-Repair (cap
   (needs backend bucketing of settled picks by odds + implied). NEXT: P2b ⭐ edge-gate (workstationRoutes topKeys
   filter, ~2 lines + reload), then the sub-phases.
 
+────────────────────────────────────────────────────────────────────────────────────────────────
+2026-06-07 · FE-Trust-Surface-1A · P2b BUILT — ⭐ edge-gate (P2 wave complete)
+────────────────────────────────────────────────────────────────────────────────────────────────
+Probe: .scratch/probe_p2b_edge_gate.txt. ONE file: backend/routes/workstationRoutes.js (topKeys, ~line 2672).
+FIX: the GAMES ⭐ (topKeys) was tier-only and never checked edge sign → a tier-ranked pick that went negative-edge
+after dampening still got starred. Added posEdge = (p) => (Number(p.edge)||0) > 0 + .filter(posEdge) within each
+tier before the slice (tier ordering preserved; Trap-1 null→0→excluded). byTier is consumed only by topKeys.
+PRE (live old code, /api/ws/games-browser): 50 starred, 1 non-positive-edge → "William Contreras hits UNDER 1.5
+edge -16.15%" starred (the contradiction). Logic probe: posEdge excludes <=0 and null. node --check + runtime:verify
+13/13. COMMIT: <fill after push>. BACKEND RELOAD required. POST-reload expect: starredWithNonPositiveEdge → 0,
+that pick unstarred, totalStarred ~50 (slice backfills next positive-edge pick). 
+P2 WAVE COMPLETE. Deferred sub-phases (own deep-dives, not P2): NBA-CLV-Capture-Repair; HIT%-by-odds-tier/vs-implied.
+
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
 (shared assembler) — beneficial (best-available also protected). The "reaches the bettor fetch via HTTP" half is
