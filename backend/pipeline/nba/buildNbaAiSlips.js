@@ -4,6 +4,8 @@ const { dedupeCandidates } = require("./nbaOpportunityCandidates")
 const { isNbaStatLadderRow } = require("./nbaStatLadder")
 const { resolveLegFromAiRange, resolveLottoLegAboveCeiling } = require("./nbaAiOutcomeRange")
 const { canAppendLegToSlip } = require("./nbaSlipLegConstraints")
+// Phase Live-Game-State-Integration-1A · Phase 1 — parlay-surface live-state gate (WIRE-ONLY).
+const { gateParlayLegs } = require("../shared/liveStateGate")
 
 function toNum(v) {
   const n = Number(v)
@@ -552,6 +554,25 @@ function buildNbaAiSlips(input) {
   if ((!lotto.legs || !lotto.legs.length) && aggressive.legs && aggressive.legs.length) {
     lotto.legs = aggressive.legs.map((L) => ({ ...L, slipLottoStructuralFallback: true }))
     lotto.note = (lotto.note ? `${lotto.note}; ` : "") + "lotto_mirrors_aggressive_pool_thin"
+  }
+
+  // Phase 1 live-state gate — single choke point, applied to EVERY slip's FINAL legs (after the lotto
+  // re-diversification above), BEFORE formatSlipsBlock so the formatted text reflects gated legs. Excludes DEAD
+  // legs (OUT players — reuses the EXPL-4 anti-stale doctrine the slip path previously skipped), attaches per-leg
+  // liveState + a slip summary; a slip that collapses below 2 legs is emptied + marked dead (no degenerate parlay).
+  // Trap 1: missing availability → "ok", never dead — a feed outage must not nuke every slip.
+  for (const s of [safe, balanced, aggressive, lotto]) {
+    if (!s || !Array.isArray(s.legs)) continue
+    const { gatedLegs, summary } = gateParlayLegs(s.legs)
+    s.liveStateSummary = summary
+    if (gatedLegs.length < 2) {
+      s.legs = []
+      s.liveStateStatus = "dead"
+      if (summary.deadCount > 0) s.note = (s.note ? s.note + "; " : "") + "dropped_dead_leg"
+    } else {
+      s.legs = gatedLegs
+      s.liveStateStatus = summary.softCount > 0 ? "soft" : "ok"
+    }
   }
 
   return {

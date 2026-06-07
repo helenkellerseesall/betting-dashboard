@@ -4,6 +4,8 @@
 // filter with the canonical helper so all MLB filtering paths share one
 // boundary semantic (strict `> now + grace`).
 const { filterFutureOnlyRows } = require("../shared/mlbFutureOnly")
+// Phase Live-Game-State-Integration-1A · Phase 1 — parlay-surface live-state gate (WIRE-ONLY).
+const { liveStateGate, gateParlayLegs } = require("../shared/liveStateGate")
 
 function norm(v) {
   return String(v == null ? "" : v).trim()
@@ -418,12 +420,19 @@ function formatLeg(row) {
 
 function buildTicket({ type, legs }) {
   const safeLegs = Array.isArray(legs) ? legs.filter(Boolean) : []
+  // Phase 1 live-state gate (decision iii): exclude DEAD legs, attach per-leg liveState + a ticket-level summary;
+  // a ticket that collapses below 2 legs after exclusion is marked dead (degenerate) so the caller drops it.
+  const { gatedLegs, summary } = gateParlayLegs(safeLegs)
+  const degenerate = gatedLegs.length < 2
   return {
     type,
-    legs: safeLegs,
-    formattedLegs: safeLegs.map(formatLeg),
-    estimatedAmericanOdds: estimateSlipAmericanOdds(safeLegs),
-    why: buildWhy(safeLegs, { ticketType: type })
+    legs: gatedLegs,
+    formattedLegs: gatedLegs.map(formatLeg),
+    estimatedAmericanOdds: estimateSlipAmericanOdds(gatedLegs),
+    why: buildWhy(gatedLegs, { ticketType: type }),
+    liveStateSummary: summary,
+    liveStateStatus: degenerate ? "dead" : (summary.softCount > 0 ? "soft" : "ok"),
+    degenerate,
   }
 }
 
@@ -446,6 +455,10 @@ function pickLegsFromPool(pool, count, constraints) {
     if (!row) continue
     const player = norm(row?.player)
     if (!player) continue
+
+    // Phase 1 live-state gate: never SELECT a DEAD leg (scratched batter / non-starting pitcher) into a fresh
+    // ticket. Missing envelope → "ok" (Trap 1), so this never over-filters when live-state is unavailable.
+    if (liveStateGate(row).status === "dead") continue
 
     if (usedPlayersTicket.has(player)) continue
     if (localAvoidPlayers.has(player)) continue
@@ -768,12 +781,16 @@ function buildMlbAutoTickets(input, options = {}) {
       hr: buckets.hrProps.length,
       alt: buckets.altProps.length
     },
-    tickets: tickets.slice(0, maxTickets).map((t) => ({
-      type: t.type,
-      formattedLegs: t.formattedLegs,
-      estimatedAmericanOdds: t.estimatedAmericanOdds,
-      why: t.why
-    }))
+    tickets: tickets
+      .filter((t) => t && t.degenerate !== true)   // Phase 1 (decision iii): drop tickets that collapsed below 2 legs after dead-leg exclusion
+      .slice(0, maxTickets).map((t) => ({
+        type: t.type,
+        formattedLegs: t.formattedLegs,
+        estimatedAmericanOdds: t.estimatedAmericanOdds,
+        why: t.why,
+        liveStateStatus: t.liveStateStatus,        // Phase 1: "ok" | "soft" (dead/degenerate already dropped)
+        liveStateSummary: t.liveStateSummary       // {worst, deadCount, softCount, reasons} — FE surface + per-pick reasoning
+      }))
   }
 }
 
