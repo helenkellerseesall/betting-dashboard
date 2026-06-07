@@ -1970,7 +1970,15 @@ PRE (live old code, /api/ws/games-browser): 50 starred, 1 non-positive-edge → 
 edge -16.15%" starred (the contradiction). Logic probe: posEdge excludes <=0 and null. node --check + runtime:verify
 13/13. COMMIT: <fill after push>. BACKEND RELOAD required. POST-reload expect: starredWithNonPositiveEdge → 0,
 that pick unstarred, totalStarred ~50 (slice backfills next positive-edge pick). 
-P2 WAVE COMPLETE. Deferred sub-phases (own deep-dives, not P2): NBA-CLV-Capture-Repair; HIT%-by-odds-tier/vs-implied.
+P2b COMPLETING FIX (first commit 6af80e7 was insufficient — caught at post-reload verify): isTopPick is set from
+topKeys at L2693 from the PRE-dampener edge, then applyCalibrationDampener (L2703) recomputes prop.edge to the
+post-dampener value — so the byTier filter gated the wrong edge and a dampener-flipped pick (William Contreras hits
+UNDER 1.5, post-dampener -16%) stayed starred. Completing fix at ~L2704 (AFTER the dampener): re-gate the ⭐ on the
+post-dampener edge — `if (prop.isTopPick && !((Number(prop.edge)||0) > 0)) prop.isTopPick = false`. byTier filter
+kept (defense in depth). node --check + runtime:verify 13/13; applyCalibrationDampener confirmed to set pick.edge.
+Caught ONLY because verify ran at the rendered FE, not on the commit. Needs a 2nd commit + reload + re-probe.
+P2 WAVE COMPLETE after the completing fix ships. Deferred sub-phases (own deep-dives, not P2): NBA-CLV-Capture-Repair;
+HIT%-by-odds-tier/vs-implied.
 
 HONEST DELTA: /api/best-available also calls the shared buildAiSlips → it gains the same ADDITIVE liveStateSummary
 field (NOT byte-identical), but its picks are unchanged absent a real scratch (Trap-1). Consequence of Option A
