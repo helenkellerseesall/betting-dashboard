@@ -1614,3 +1614,35 @@ DESIGN: docs/audits/2026-06-06-signal-inputs/calibration_lineaware_1a_design.md.
 STATUS: task #91 (Calibration-LineAware-1A) → COMPLETE. task #94 (Signal-Fill-1B: pitcher-stats cache expansion +
 batterKs + HR/9 + restDays + tier-2 opp feeds) → UNBLOCKED, now the next major phase.
 unblocks.
+
+---
+
+## 2026-06-06 — Signal-Fill-1B FIX 3 (batterKs ← opposing pitcher kRate) [1B ship #1 of 5]
+
+THE BUG: buildMlbPlayerDataset.js batterKs read playerObj.opposingPitcherKper9 ?? 8.5 (constant). (8.5/9)*4.2 =
+3.97 → clamped to the 2.0 ceiling → EVERY batter projected exactly ~2.0 K regardless of opposing pitcher. The
+field was never set, so the wire was fully dead.
+
+THE FIX (2 files, model-anchored, Trap-5 clean):
+  - buildMlbHitsProbabilityEngine.js (obj-write block, beside FIX 5 obp / FIX 7b doublesFactor): set
+    obj.opposingPitcherKRate from primary.pitcherEnvironmentContext.kRate (the SAME opposing-pitcher per-PA kRate
+    the hits engine already reads at L209). SET-GUARD (Trap 1): only attach finite > 0; uncached opp → unset.
+  - buildMlbPlayerDataset.js: eKs = clamp(0.4,2.0, oppKRate * 4.2) when opposingPitcherKRate is finite > 0, else
+    the OLD k9/8.5-constant formula (Trap 1 fallback → ~2.0, never 0).
+
+UNIT CORRECTION (honest): the task plan said "kRate × 9". That was a unit error I caught in deep-dive — kRate is
+per-PA (0..1), NOT per-9; the context doesn't even surface k9. Correct model is kRate × ~4.2 PA (per-PA × the
+batter's ~4.2 plate appearances), dimensionally exact. Operator agreed; shipped with ×4.2.
+
+COVERAGE CAVEAT (accepted, matches FIX 5/7b): the obj-write rides the hits-engine loop, so only batters who also
+have a hits prop get the real kRate; a batterKs-only batter falls to the old ~2.0 constant. Covers the large
+majority (hits is the most common batter market).
+
+Verified (sandbox, real fn buildMlbPlayerOutcomePredictions, salt replicated + self-validated via PRE) probe
+.scratch/probe_1b_fix3.txt PASS: PRE flat ~1.9–2.0 → POST varies — Yamamoto kRate .256→1.00, Canning .225→0.90,
+Kochanowicz .160→0.70 (each = salt-adjusted kRate×4.2, within 0.05). Spread 0.10 (salt-only) → 0.30 (real pitcher
+variation). POST < PRE for all. Siblings (hits/TB/RBI/runs) byte-identical PRE vs POST (no leak). Trap 1: uncached
+→ ~2.0, not 0. runtime:verify 13/13 PASS. Backend reloaded.
+
+BETTOR-VISIBLE: next slate fire, batter-K projections vary by the opposing pitcher's real K-rate (high-K pitcher →
+~1.0+ K, contact pitcher → ~0.7 K) instead of a flat 2.0. NEXT (1B ship #2): NBA pace → points band.
