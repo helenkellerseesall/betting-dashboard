@@ -2724,3 +2724,22 @@ Operator runs the docs-only commit fence below. Claude-A gives operator the plai
 
 PROBE_REFS:
 .scratch/probe_ingestion_truth_chain.js/.txt (current-cycle chain, real classifiers) · .scratch/probe_ingestion_truth_multislate.js/.txt (35 MLB / 25 NBA slate surfaced + per-book) · docs/audits/2026-06-07-prop-coverage/prop_ingestion_truth_audit_v2.md (deliverable)
+
+## 2026-06-08 02:37 ET — Claude-B (4.8)
+
+ACTION: MLB pitcher-surface ROOT-CAUSE TRACE (read-only, NO code edits; operator directly approved this follow-up via Claude-A's "what next" picker). Deliverable: docs/audits/2026-06-07-prop-coverage/mlb_pitcher_surface_trace.md (committed via fence below).
+
+AUDIT_OUTCOME:
+VERDICT: INTENTIONAL SCOPE, not a bug — but more favorable than v2 implied. There are TWO parallel MLB engines. (A) The TRACKED/GRADED surface (mlb_tracked_best + mlb_picks, what v2 measured + what feeds grading/CLV/learning) = /api/best-available → buildMlbLiveDualBestAvailablePayload (server.js:3630) → buildMlbClusters → scoreMlbProp. Hardcoded to 4 batter-offense categories at ALL THREE layers: scoreMlbProp.js:31-35 (category set only for Hits/Home Runs/Total Bases/RBIs, else null), buildMlbClusters.js:5 (BUCKET_KEYS=["hits","hr","tb","rbi"]; :41 drops null-category), server.js:3641-3664 (payload reads only those 4). That wall = exactly why 0/35 pitcher picks surfaced. (B) A richer board: mlbIsolatedRoutes.js:484 builds pitcherKsToday = a FULL strikeout ladder (expectedKs/k5plus..k8plus, live [KS LADDER VERIFY] log :515), fed to buildMlbInsightBoard + buildMlbOpportunityBoard and RETURNED in the route response (responseBody :587-613 → res.json :632) — but NEVER written to the tracked pick files. So pitcher Ks are UN-TRACKED, not un-scored.
+FIX SIZING (honest): pitcher_strikeouts = SMALL/wiring (scoring already exists, route the ladder into the tracked surface). pitcher_outs/earned_runs/walks + batter_runs_scored + batter_strikeouts = LARGER/net-new (no dedicated scorer in either path). batter_stolen_bases = resolveStatFamily→null (classifier branch + scorer). Two architecture options documented: (1) extend Path A categories/buckets, (2) switch tracked surface to Path B's pitcher-aware buildMlbPropClusters. Risk MEDIUM + bet-affecting → same discipline as F1.2 (regression-gate-first, 4-batter output byte-identical as the gate, kill-switch, MLB sha256 if Path A).
+RECOMMENDATION: strikeouts-only via Option 1 first (scoring exists, high-volume sharp market), track + grade ~14d to judge the existing ladder's calibration (never graded because never tracked), THEN decide on net-new pitcher engines. Do NOT do all pitcher families at once.
+HONEST LIMIT: traced the code path, not realized performance — pitcherKsToday ladder calibration is UNVERIFIED (reaches the board, never graded). First build step should track it so grading can judge before leaning on it.
+
+DRIFT_WARNING_TO_PEER:
+Refinement to v2 §3 (my own prior block): I framed pitcher props as "scored-but-not-surfaced, root cause untraced." Trace resolves it: pitcher STRIKEOUTS are scored AND reach the API board — they're un-TRACKED specifically (never written to mlb_tracked_best/mlb_picks). Other pitcher families (outs/ER/walks) + runs are genuinely un-scored in both paths. The v2 §3 "scored-but-not-surfaced" headline is correct for the tracked surface but should be read with this two-engine nuance.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs docs-only fence below. Claude-A summarizes the verdict for operator (plain English: "MLB picks are batter-only by design; pitcher strikeouts ARE computed and may show in-app but are never tracked/graded; adding K props to the tracked surface is a small wiring job, other pitcher stats are a bigger build") + gates whether to scope the strikeouts-first build (Option 1) or hold. No build until operator approves — bet-affecting change.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/mlb_pitcher_surface_trace.md (deliverable; all claims file:line) · prop_ingestion_truth_audit_v2.md §3/§6 (lineage)
