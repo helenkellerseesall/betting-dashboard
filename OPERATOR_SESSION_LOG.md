@@ -2827,3 +2827,39 @@ Claude-A translates the trust table to plain English for operator: (1) only PLAY
 
 PROBE_REFS:
 .scratch/probe_step1_trust.js/.txt (this read) · docs/audits/2026-06-07-prop-coverage/step1_trust_proof.md (verdict) · mlb_ks_board_surface_scope.md (PARKED) · backend/pipeline/shared/vigStripping.js (PRESERVED)
+
+## 2026-06-08 03:54 ET — Claude-A (Cowork)
+
+ACTION: Read 4.8's Step-1 trust proof (3:35) + INDEPENDENTLY RE-DERIVED the headline cells (my own probe, raw-implied edge on the same dedup grain): PLAYABLE hits +1.1pp n=139, PLAYABLE total_bases positive n=77, ks PLAYABLE −8.9pp n=42, anchor tiers thin (hits STRONG n=8, rbis zero anchor), longshot bulk all negative. CONFIRMS 4.8's verdict cell-by-cell (direction + magnitude). Relayed plain-English to operator. Operator decisions: (1) MAIN EFFORT = Step 2 per-pick stat backing (visible L5 / defense-vs-position math per pick — since tier badges aren't yet provable, on-pick math carries trust); (2) SHIP all 3 defects next. Drafting the defects batch now; Step-2 PHASE-0 audit is the immediate follow-up handoff.
+
+DRAFT_HANDOFF:
+```
+DEFECT-BATCH (3 ships, operator-approved 2026-06-08). Each is a SEPARATE regression-gated ship with its own operator fence — do NOT bundle. Read CLAUDE_BRIDGE_PROTOCOL.md, append your Claude-B block per schema. All findings trace to YOUR prop_ingestion_truth_audit_v2.md (file:line there). Order = safest first.
+
+SHIP 1 — dead sportConfig.nba (LOW risk, cleanup/safety):
+  v2 PHASE-0 found NBA request authority = 3 hardcoded arrays in fetchNbaOddsSnapshot.js; sportConfig.nba is DEAD (no live NBA path reads it — grep getSportConfig in pipeline/nba/ empty; Claude-A re-confirmed: no sportConfig reader in pipeline/nba). RISK = a future edit there silently no-ops (drift trap).
+  PHASE 0: confirm zero runtime readers of sportConfig.nba (grep all of backend, not just pipeline/nba — include http/, routes/, scripts/). If truly zero → remove the nba block OR leave it with a loud inline comment "DEAD — NBA markets live in fetchNbaOddsSnapshot.js arrays; editing here does nothing." Operator's call which (recommend remove if zero readers, comment-guard if any ambiguous reader).
+  REGRESSION GATE: NBA odds snapshot request (markets + books) BYTE-IDENTICAL pre/post — since nothing reads it, removal must change nothing. That byte-identical snapshot IS the proof. runtime:verify 13/13.
+
+SHIP 2 — enable batter_stolen_bases (MEDIUM, bet-affecting — adds a surfaced family):
+  v2: batter_stolen_bases returns ~115 rows/slate but resolveStatFamily→null → dropped, never scored/surfaced. Enable: map it to a family in the classifier + ensure it gets a projection band (or a defensible minimal scorer). 
+  TRUST DISCIPLINE (ties to Step-1 proof): a newly-enabled family has ZERO graded history → it CANNOT show as a trustworthy top pick yet. Enable it CAPPED-tier (never ELITE/STRONG until it has graded volume — same discipline as the parked pitcher-Ks) + kill-switch. The point of enabling now is to START the grading clock so it's provable in ~14d, not to surface it as a confident pick today.
+  REGRESSION GATE: every EXISTING family's tier/scoring BYTE-IDENTICAL pre/post (new family must not perturb hits/TB/RBI/HR); MLB preserved-file sha256 if touched; new family appears only at capped tier; kill-switch OFF ⇒ byte-identical to today. runtime:verify 13/13.
+
+SHIP 3 — nrfi/yrfi correct vendor key (INVESTIGATE-FIRST, NOT auto-ship):
+  v2: the config's nrfi/yrfi keys are vendor-REJECTED (wrong names, part of the 12 stripped markets). Claude-A note: The Odds API has NO nrfi/yrfi player key; the real first-inning market is likely totals_1st_1_innings (1st-inning over/under) + h2h_1st_1_innings per the vendor catalog (docs/audits/2026-06-07-prop-coverage/prop_coverage_truth_map.md vendor list).
+  PHASE 0 (read-only): confirm the correct vendor key(s) for first-inning props, and whether they actually RETURN data on a live MLB slate (fire ONE probe event OR check a persisted snapshot — do NOT spend quota broadly). Report: correct key, fill per book, whether worth wiring. 
+  THEN STOP for operator decision — first-inning props are a NEW market class (NRFI/YRFI = a popular bet); operator decides whether to wire it. Do not ship the new market without operator approval.
+
+discipline (all ships): show-before-edit (name file + why) + diff-after; SEPARATE code + docs commits per ship; plain backticks, no bang chars, specific files in git add, no --no-verify; backend reload after any engine-layer edit; same-turn OPERATOR_SESSION_LOG append; every number traces to a probe; no shadow authority; PRESERVED.md files untouched without flagging.
+
+bettor-visible delta: SHIP 1 = zero (dead code). SHIP 2 = new capped-tier family appears (low, labeled). SHIP 3 = zero until operator approves wiring.
+
+go. SHIP 1 first (safest). Report each ship's regression gate before its fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 ships the 3 defects in order (sportConfig.nba cleanup → batter_stolen_bases capped-enable → nrfi/yrfi investigate-then-gate), each its own regression-gated fence + Claude-B block. SHIP 3 pauses for operator decision. After the batch, Claude-A drafts the Step-2 PHASE-0 audit (the operator's main effort): map what per-pick stat-backing data actually reaches a pick today (L5 ✓ exists, position-defense granularity unconfirmed, live news absent) so the Step-2 build is spec'd against real feeds, never fabricating a stat on a card.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/prop_ingestion_truth_audit_v2.md (defect source, file:line) · prop_coverage_truth_map.md (vendor first-inning keys) · operator-trust-definition-stat-attribution memory (Step-2 spec basis)
