@@ -2544,3 +2544,32 @@ Fresh 4.8 chat reads CLAUDE_BRIDGE_PROTOCOL.md + this Claude-A block + .scratch/
 
 PROBE_REFS:
 .scratch/audit_f12a_phase0.txt (PHASE 0 complete — fork (i) + scope correction inline), .scratch/probe_f11_deduped_vig_aware.txt (F1.1 lineage).
+
+## 2026-06-07 22:39 ET — Claude-B (4.8)
+
+ACTION: F1.2a PHASE 1 BUILD complete per adapted design (fresh chat continuation after API-error chat loss). One classifier edit + 5 production call sites threaded. Edits verified in sandbox; ship fence handed to operator (commits + backend reload + runtime:verify run on operator host).
+
+SHIP:
+(pending operator fence — code commit: nbaTierClassifier.js + fetchNbaOddsSnapshot.js + buildNbaSnapshotCandidates.js + nbaIsolatedRoutes.js + workstationRoutes.js + buildNbaBestBetsBoard.js; docs commit: OPERATOR_SESSION_LOG.md. Hashes to be appended by operator fence output / next turn.)
+
+AUDIT_OUTCOME:
+BUILD: bucketForOdds(oddsAmerican) EXPORTED pure helper added to nbaTierClassifier.js (boundaries per .scratch/audit_f12a_phase0.txt ≤-semantics; Trap-1 null/NaN/non-numeric/0 → "unknown"). classifyNbaTier gained optional oddsAmerican param; `const _bucket = bucketForOdds(oddsAmerican)` computed internally, NOTHING reads it yet (F1.2b consumes). String return UNCHANGED. 5 production call sites thread odds (fetchNbaOddsSnapshot:158-area, buildNbaSnapshotCandidates:265-area, nbaIsolatedRoutes:1143-area, workstationRoutes:476-area with Number.isFinite guard, buildNbaBestBetsBoard tierForPlay 10th positional param + odds at call). 2 diagnostic scripts untouched per audit.
+REGRESSION GATE (.scratch/probe_f12a_pre.txt / probe_f12a_post.txt, fixture = frozen copy of nba_tracked_bets_2026-06-07.json, 1028 rows, 2 call-site shape variants + 10 synthetic branch probes = 2,066 records):
+  - PAIRED GATE: pristine classifier copy vs edited module, same inputs, driven with AND without oddsAmerican — 0/2,066 mismatches (100% byte-identical tiers).
+  - PRE-file line diff: 0 differing lines.
+  - TRAP-1 + BOUNDARY battery: 23/23 pass (null/undefined/"abc"/NaN/0 → unknown; exact -200/-110/+110/+250/+500 land on the documented ≤ side; string odds "+150"/"-150" parse correctly).
+  - Bucket distribution (today's fixture): heavy-fav 2 · mid-fav 54 · pickem 87 · mid-dog 185 · longshot 183 · heavy-longshot 517 · unknown 0 (sums 1028).
+  - MLB GATE: buildMlbPropClusters.js sha256 IDENTICAL pre/post (414d58bd…) — byte-identical, never touched.
+  - Stray-edit check: git status shows exactly the 6 intended files modified, nothing else.
+  - Downstream consumers: all tier reads are string comparisons (fetchNbaOddsSnapshot:201/207 ELITE||STRONG, buildNbaBestBetsBoard:538 FADE filter + :632 core gate) — identical strings ⇒ identical behavior.
+  - node --check: 6/6 SYNTAX OK.
+  - runtime:verify + backend reload: in operator fence (sandbox cannot run launchctl or reach host :4000).
+
+DRIFT_WARNING_TO_PEER:
+None. Adapted design (string return + exported helper) held up at build time — no further scope corrections needed. One method note: PRE/POST drove a FROZEN fixture copy (scheduler rewrites tracking files every 30 min in slate window; freezing removes input drift from the gate). Paired same-process comparison (pristine copy vs edited module) is the rigorous gate; the pre/post txt files are the documented artifacts.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the ship fence (probe gate → code commit → docs commit → push → backend reload → runtime:verify 13/13). On clean fence: Claude-A summarizes for operator and drafts F1.2b handoff (P1-A ELITE→STRONG demotion in pickem/mid-dog + P2 magnitude-gate exemption trace at mid-fav, per F1.2 PHASE 0 design recs). bettor-visible delta of F1.2a: ZERO.
+
+PROBE_REFS:
+.scratch/probe_f12a_pre.txt · .scratch/probe_f12a_post.txt · .scratch/probe_f12a_drive.js (method) · .scratch/f12a_pre_hashes.txt · .scratch/f12a_verify_summary.txt · .scratch/audit_f12a_phase0.txt (lineage)
