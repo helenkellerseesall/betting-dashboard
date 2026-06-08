@@ -2629,3 +2629,25 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/audit_f12_phase0.txt (design basis) · .scratch/probe_f11_deduped_vig_aware.txt (original signal) · .scratch/f12a_verify_summary.txt (F1.2a independent verify) · commit 4e6b6a2 (plumbing F1.2b consumes)
+
+## 2026-06-07 23:36 ET — Claude-B (4.8)
+
+ACTION: F1.2b PHASE 0 trace (read-only) → FORK (i) → PHASE 1 BUILD complete. One file edited (nbaTierClassifier.js): P1-A + P2-C + NBA_BUCKET_TIER_POLICY kill-switch. Delta-set gate PASS in sandbox; ship fence handed to operator.
+
+AUDIT_OUTCOME (PHASE 0, .scratch/audit_f12b_phase0.txt + probe_f12b_trace.txt):
+TRACE HEADLINE — the firing branch is the FORM-CONTRADICTION UNDER gate, NOT the Lane-D.5 alt-line magnitude gate: of 45 deduped midfav FADEs (31 winners, 69% — exactly reproducing the F1.1 ladder cell), reproducible-FADE attribution = form-contra-under 15W/2L (dominant, 88% of reproducible winners) · form-contra-over 1W/1L · conviction-floor 1W/0L · D5-*/D6 ZERO. 25 keys (14W/11L) unreproducible from persisted fields (projection not persisted in tracked rows; stamp-time enrichment) — untouchable by any corpus-reconstructable classifier edit, excluded from design basis.
+WHY it misfires: midfav unders cluster on small-baseline role players (Kornet points u2.5 vs L5 3.0 = overshoot 0.20 from a 0.5-pt gap) where relative overshoot is noise but the model backs the under 59-71%.
+P2 SIMULATION: P2-C (conv≥0.10 + agrees + UNDER, midfav) rescues 15: 13W/2L (87%) — shipped exactly as operator-approved; narrowest, best rescue-hit. P2-B fallback not needed.
+BUILD (single file): P2-C exemption inside the form-contra-under return (midfav + model agrees + conviction≥0.10; missing modelProb ⇒ NOT exempt; exempted picks fall through to remaining gates/ladder, never auto-promoted) · P1-A demotion at the ELITE return (pickem/mid-dog → STRONG) · kill-switch NBA_BUCKET_TIER_POLICY read once at module load (CALIB_LINEAWARE precedent; unset/"1"=ON, exact "0"=OFF ⇒ byte-identical to F1.2a) with [TIER-POLICY-BOOT] log line.
+DELTA-SET GATE (.scratch/probe_f12b_gate.txt, 3,400 records = today-fixture 1028×2 + settled corpus 1,327 + 17 synthetics): 114 deltas, 0 out-of-approved-set. Transitions: pickem ELITE→STRONG 31 · mid-dog ELITE→STRONG 37 · mid-fav FADE→{STRONG 25, PLAYABLE 19, ELITE 2}. Unknown/heavy-fav/longshot/heavy-longshot byte-identical. KILL-SWITCH OFF child run: 0 deltas (boot log confirms OFF path). Corpus validation: settled un-FADEs = 15, 13 were WINS — matches trace simulation 13W/2L exactly.
+TODAY'S SLATE (fixture, per pick): 10 ELITE→STRONG demotions (stake 2.0-3.0u → 1.0-1.5u per buildNbaBankrollPlan tierUnitsRange) + 15 un-FADE'd midfav model-backed unders become visible (sample: Kornet pts u1.5 @+120 ELITE→STRONG; Keldon Johnson pa u6.5 @-125 FADE→STRONG; Alvarado stl u0.5 @-182 FADE→PLAYABLE — full operator-language list in probe output).
+DOWNSTREAM: demoted picks keep snapshot/board acceptance (ELITE||STRONG string gates) · un-FADE'd STRONG enters snapshot pass-1, PLAYABLE pass-2 · MLB buildMlbPropClusters.js sha256 IDENTICAL pre/post (414d58bd…) · git status: exactly 1 modified file · node --check clean.
+
+DRIFT_WARNING_TO_PEER:
+Two premise corrections, neither blocking: (1) N2's branch attribution ("Lane-D.5 magnitude gate L53-70+") was imprecise — the trace resolves it to the form-contradiction gate; the handoff's own fork language anticipated this, and the exemption landed on the traced branch only (D.5/D.6 stay fully active at midfav). (2) N1's "59 winners at 64%" did not reproduce under the F1.1 corpus method (my trace: 45/31/69%, matching the F1.1 ladder cell exactly); design decisions used the traced numbers only.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs ship fence (gate re-runs on host → code commit → docs commit → push → backend reload → runtime:verify, which also closes the F1.2a verify-output gap). Post-fence: [TIER-POLICY-BOOT] ON visible in backend log; tonight/tomorrow's NBA slate is first under the new policy. HONEST LIMITS: rescue basis n=15 concentrated on the SAS@NYK series (slate-correlation risk); ELITE pickem/middog n=34 — structural shift shipped today, realized proof at the 14d re-probe (calendar it). Kill-switch revert: NBA_BUCKET_TIER_POLICY=0 in backend plist + reload.
+
+PROBE_REFS:
+.scratch/probe_f12b_trace.js/.txt (PHASE 0) · .scratch/audit_f12b_phase0.txt (fork verdict) · .scratch/probe_f12b_gate.js/.txt (delta-set gate) · .scratch/f12b_pre_hashes.txt · .scratch/fixture_f12b_classifier_f12a.js (pristine baseline)
