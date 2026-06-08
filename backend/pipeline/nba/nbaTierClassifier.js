@@ -40,10 +40,10 @@
  * 2026-06-07 — F1.2a bucket-detection plumbing. bucketForOdds maps American
  * odds → the SAME six odds buckets the F1.1 anti-selection probe used
  * (.scratch/probe_f11_deduped_vig_aware.txt). F1.1 located two per-bucket
- * pathologies (ELITE toxic in pickem/mid-dog; FADE wins 69% at mid-fav) that
- * F1.2b will fix with per-bucket overrides. F1.2a only makes the bucket
- * AVAILABLE — classifyNbaTier computes `_bucket` internally but the tier
- * logic does NOT read it yet. Tier outputs are byte-identical to pre-F1.2a.
+ * pathologies (ELITE toxic in pickem/mid-dog; FADE wins 69% at mid-fav).
+ * 2026-06-07 — F1.2b makes the bucket consequential: P1-A (ELITE→STRONG
+ * demotion in pickem/mid-dog) + P2-C (model-backed-under exemption from the
+ * form-contradiction FADE at mid-fav). Both behind NBA_BUCKET_TIER_POLICY.
  *
  * Boundary tie-breaking (committed in .scratch/audit_f12a_phase0.txt — the
  * boundary value belongs to the more-favorite/lower bucket, ≤ semantics,
@@ -72,6 +72,17 @@ function bucketForOdds(oddsAmerican) {
   return "heavy-longshot"
 }
 
+// 2026-06-07 — F1.2b kill-switch (precedent: CALIB_LINEAWARE in
+// calibrationDampener.js). Read ONCE at module load. unset/"1" → ON; ONLY the
+// exact string "0" → OFF. OFF disables BOTH per-bucket overrides (P1-A ELITE
+// demotion, P2-C form-gate exemption) ⇒ tier outputs byte-identical to F1.2a
+// (commit 4e6b6a2) behavior. Flip requires a backend reload (launchctl unload
+// + load) — deliberate operator action, not a mid-flight toggle.
+const BUCKET_TIER_POLICY_ON = String(process.env.NBA_BUCKET_TIER_POLICY ?? "1") !== "0"
+try {
+  console.log(`[TIER-POLICY-BOOT] NBA bucket tier policy ${BUCKET_TIER_POLICY_ON ? "ON (default)" : "OFF — NBA_BUCKET_TIER_POLICY=0, F1.2a-identical"}`)
+} catch (_) { /* no-op */ }
+
 /**
  * @param {object} opts
  * @param {number} opts.edge         model edge vs market (modelProb - impliedProb)
@@ -83,18 +94,19 @@ function bucketForOdds(oddsAmerican) {
  * @param {number} [opts.line]       prop line — required for form-contradiction check
  * @param {number} [opts.l5Avg]      player's last-5 average (or last-10) — required for form check
  * @param {number} [opts.projMostLikely]  projection.mostLikely value (NEW 2026-05-25 — catches picks where L5 is close to line but projection is far)
- * @param {number} [opts.oddsAmerican]  American odds (NEW 2026-06-07 F1.2a — bucket
- *                  detection only; tier logic does NOT read it yet. Default undefined →
- *                  bucket "unknown" → output identical to pre-F1.2a at any non-updated
- *                  call site.)
+ * @param {number} [opts.oddsAmerican]  American odds (2026-06-07 F1.2a wiring; consumed
+ *                  by F1.2b per-bucket overrides same date. Default undefined → bucket
+ *                  "unknown" → NO overrides apply → pre-F1.2a behavior at any
+ *                  non-updated call site.)
  * @returns {"ELITE"|"STRONG"|"PLAYABLE"|"LONGSHOT"|"FADE"}
  */
 function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely, statFamily, oddsAmerican } = {}) {
-  // 2026-06-07 — F1.2a: odds bucket computed as available context. F1.2b
-  // (per-bucket ELITE/FADE overrides) consumes this; until then NOTHING below
-  // reads it — that is the byte-identical regression guarantee of this phase.
+  // 2026-06-07 — F1.2a: odds bucket computed as available context.
+  // 2026-06-07 — F1.2b: consumed at two sites below (P2-C form-gate exemption,
+  // P1-A ELITE demotion). "unknown" bucket (missing/invalid odds) matches NO
+  // override predicate → behavior identical to F1.2a — Trap-1: missing odds
+  // never unlocks an override.
   const _bucket = bucketForOdds(oddsAmerican)
-  void _bucket
 
   // 2026-05-27 — Lane D.5 ALT-LINE MAGNITUDE GATE. Runs FIRST so it fires
   // BEFORE the LONGSHOT bypass. Previously placed below LONGSHOT — Wemby over
@@ -158,7 +170,26 @@ function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5
   if (Number.isFinite(l5Avg) && Number.isFinite(line) && line > 0 && side) {
     const sideStr = String(side).toLowerCase()
     const overshoot = (l5Avg - line) / line  // positive when L5 > line
-    if ((sideStr === "under" || sideStr === "no") && overshoot > 0.07) return "FADE"
+    if ((sideStr === "under" || sideStr === "no") && overshoot > 0.07) {
+      // 2026-06-07 — F1.2b P2-C (traced: .scratch/probe_f12b_trace.txt). At
+      // MID-FAV only, model-backed unders are exempt from this FADE. The trace
+      // found 15 of 17 reproducible midfav FADE-winners died on THIS return —
+      // small-baseline role players (e.g. points under 2.5 vs L5 3.0) where a
+      // sub-point gap inflates relative overshoot while the model, which sees
+      // minutes/role/matchup, backs the under at 59-71%. Rescue simulation:
+      // 13W/2L (87%). Predicate (narrowest, operator-approved): mid-fav bucket
+      // AND model agrees with the under (modelProb > 0.5) AND real conviction
+      // (|modelProb − 0.5| ≥ 0.10). Missing/non-finite modelProb ⇒ NOT exempt.
+      // Exempted picks FALL THROUGH to the remaining gates + magnitude ladder —
+      // they surface at whatever tier edge/conviction earn, never auto-promoted.
+      const modelBackedUnderAtMidfav =
+        BUCKET_TIER_POLICY_ON &&
+        _bucket === "mid-fav" &&
+        Number.isFinite(modelProb) &&
+        modelProb > 0.5 &&
+        Math.abs(modelProb - 0.5) >= 0.10
+      if (modelBackedUnderAtMidfav === false) return "FADE"
+    }
     if ((sideStr === "over"  || sideStr === "yes") && overshoot < -0.07) return "FADE"
   }
 
@@ -197,7 +228,18 @@ function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5
   // Magnitude tiers
   const goodEv  = !Number.isFinite(ev) || ev >= 0.015
   const goodConf = !Number.isFinite(conf) || conf >= 0.45
-  if (edge >= 0.12 && goodEv && goodConf && modelProbVerified) return "ELITE"
+  if (edge >= 0.12 && goodEv && goodConf && modelProbVerified) {
+    // 2026-06-07 — F1.2b P1-A. ELITE is inverse-predictive in pickem/mid-dog:
+    // realized 5% (n=19) / 15% (n=13) on the engine's HIGHEST-claimed-edge
+    // picks (.scratch/probe_f11_deduped_vig_aware.txt; design audit
+    // .scratch/audit_f12_phase0.txt P1-A — raise-threshold P1-B was REJECTED
+    // because claimed edge is inverse-predictive there). Demote to STRONG:
+    // keeps snapshot/board acceptance (ELITE||STRONG gates), cuts single-bet
+    // stake from 2.0-3.0u to 1.0-1.5u (buildNbaBankrollPlan tierUnitsRange).
+    // All other buckets — and "unknown" — keep ELITE.
+    if (BUCKET_TIER_POLICY_ON && (_bucket === "pickem" || _bucket === "mid-dog")) return "STRONG"
+    return "ELITE"
+  }
   if (edge >= 0.07 && goodEv)                                  return "STRONG"
   if (edge >= 0.04)                                            return "PLAYABLE"
   return "LONGSHOT"
