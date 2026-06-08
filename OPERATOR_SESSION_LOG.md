@@ -2766,3 +2766,45 @@ Operator runs docs-only fence below (3 files: scope + 2 corrections). Operator/C
 
 PROBE_REFS:
 mlb_ks_board_surface_scope.md (scope) · prop_ingestion_truth_audit_v2.md §3 CORRECTION · mlb_pitcher_surface_trace.md CORRECTION · mlb_tracked_bets_*.json (789 graded K picks — the file I missed)
+
+## 2026-06-08 03:27 ET — Claude-A (Cowork)
+
+ACTION: Read all three Claude-B blocks (02:16/02:37/02:53). INDEPENDENTLY VERIFIED the corrected headline: counted backend/runtime/tracking/mlb_tracked_bets_*.json myself = 789 pitcher-K picks (492 graded) across 10 slate-days, 11,223 total ledger rows, families {totalbases 3549, hits 3436, rbis 1752, runs 1062, ks 789, hr 459, outs 158, walks 17}. 4.8's self-retraction (Ks ARE tracked+graded) CONFIRMED. Relayed ONLY corrected framing to operator (not the retracted "un-tracked" version). Operator decisions: (1) pitcher-Ks → VIG-AWARE READ FIRST before any surfacing; (2) defects → fix all three (dead sportConfig.nba, MLB stolen-base classification drop, nrfi/yrfi investigate); (3) main focus → FINISH STEP-1 PROOF.
+
+NEW VERIFIED FINDING (tier distribution, my probe): surfaced MLB ledger is overwhelmingly LONGSHOT-tier — hits 3053 LONGSHOT vs 16 STRONG/1 ELITE; totalbases 3306 LONGSHOT vs 50 STRONG/29 ELITE; rbis 1573 LONGSHOT/0 STRONG; hr 187 LONGSHOT/151 STRONG/17 ELITE; ks 399 LONGSHOT/138 STRONG/76 ELITE. The trust read MUST slice by tier — the ELITE/STRONG cells (the real "top picks") are small-n and must not be blended with the longshot milestone rungs.
+
+DRAFT_HANDOFF:
+```
+STEP-1-TRUST-PROOF (read-only, no code edits, zero bettor delta) — operator's #1 + #3: prove whether the picks ALREADY on the board are trustworthy (vig-aware realized hit rate by family × tier), AND run the same read on the 789 graded pitcher-K picks to GATE whether they get surfaced. Read CLAUDE_BRIDGE_PROTOCOL.md, append your Claude-B block per schema. NO shadow authority — extend docs/audits/2026-06-07-prop-coverage/.
+
+WHY this is the right "finish Step-1 proof": operator's Step-1 = "believe every top pick is bettable." The only honest proof is realized-hit-rate-vs-vig-stripped-fair, sliced by tier, on the families ACTUALLY surfaced. This also produces the pitcher-K verdict the operator gated on.
+
+method — REUSE the canonical F1.1 read (.scratch/probe_f11_deduped_vig.js): dedup key = player|family|side|line (book excluded); vig recovery when both sides in corpus, fallback raw-implied; via PRESERVED vigStripping.js (do not reimplement). Corpus = backend/runtime/tracking/mlb_tracked_bets_*.json (11,223 rows, 10 slate-days — Claude-A verified counts).
+
+scope:
+  PHASE A — SURFACED-BOARD TRUST (the heart of Step-1):
+    For the 4 surfaced batter families (hits, total_bases, rbis, hr): realized hit% vs vig-stripped fair-implied%, edge in pp, BY TIER (ELITE/STRONG/PLAYABLE/LONGSHOT), graded-only.
+    HONESTY GATES (operator burned by fabricated cell numbers before — feedback_no_fabricated_numbers): print n(graded) per cell; mark any cell n<30 as INSUFFICIENT-N (not a verdict); never blend tiers. Claude-A's tier counts (hits STRONG n=16/ELITE n=1; tb STRONG n=50/ELITE n=29; rbis 0 STRONG/ELITE; hr STRONG n=151/ELITE n=17) say MOST anchor-tier cells will be small — that's the finding, report it honestly, don't paper over it.
+    DELIVERABLE: the per-family-per-tier table = the literal answer to "can I trust my top picks." If ELITE/STRONG cells are too thin to prove, SAY SO — that itself tells the operator the board's trust rests mostly on longshot rungs today.
+
+  PHASE B — PITCHER-K VERDICT (gates the surfacing decision operator deferred):
+    Same read on ks (789 picks, 492 graded; tiers ks ELITE 76/STRONG 138/PLAYABLE 176/LONGSHOT 399 per Claude-A). Vig-aware hit% vs fair, by tier. Compare against the batter families on the same ledger.
+    VERDICT FORK: (a) Ks calibrate ≥ surfaced batter families at a tier → recommend surfacing at that tier cap; (b) Ks underperform → recommend HOLD (don't surface unproven market — honors operator's "every top pick believable"); (c) insufficient graded-n at the tiers that matter → recommend track-more-first.
+    Tie to mlb_ks_board_surface_scope.md (Option B is ready IF the verdict says surface).
+
+  PHASE C — note (do NOT build this turn): operator approved 3 defects as the NEXT batch AFTER this read — (1) dead sportConfig.nba (drift trap; editing it no-ops — confirm + propose remove-or-guard), (2) batter_stolen_bases classification drop (resolveStatFamily→null; enable family), (3) nrfi/yrfi wrong vendor key (investigate correct first-inning market key). Each is a SEPARATE regression-gated ship later, not part of this read-only proof. List them in your NEXT_EXPECTED so we don't lose them.
+
+discipline: read-only (zero code edits, zero vendor calls); every number traces to a probe file; stable filename .scratch/probe_step1_trust.js/.txt; plain backticks, no bang chars; reuse F1.1 method exactly (consistency = trust); extend existing audit doc, commit same-turn.
+
+honest limits to state: NBA Finals ending shrinks NBA sample; raw vs vig-aware will diverge most on longshot rungs; small anchor-tier n is expected — report it, don't hide it. This proves CALIBRATION (does stated≈realized), not future edge.
+
+bettor-visible delta: ZERO (read-only). Output = the trust verdict operator needs before betting + the pitcher-K go/no-go.
+
+go.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs the vig-aware Step-1 trust read (F1.1 method) on the MLB graded ledger: PHASE A surfaced-board trust by family×tier, PHASE B pitcher-K verdict by tier, PHASE C names the 3 approved defects as the next ship batch. Read-only, extends the audit doc, commits same-turn, appends Claude-B block. Then Claude-A translates the trust table to plain English for operator + we gate the K decision and the defect batch.
+
+PROBE_REFS:
+.scratch/probe_f11_deduped_vig.js (canonical vig-aware method to reuse) · backend/runtime/tracking/mlb_tracked_bets_*.json (corpus, Claude-A verified) · docs/audits/2026-06-07-prop-coverage/ (audit home) · backend/pipeline/shared/vigStripping.js (PRESERVED vig authority)
