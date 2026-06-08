@@ -15,14 +15,28 @@
 "use strict"
 
 const SPORT_CONFIG = {
+  // ┌──────────────────────────────────────────────────────────────────────┐
+  // │ ⚠️  DEAD CONFIG — DO NOT EDIT TO CHANGE WHAT NBA REQUESTS.            │
+  // │ No live NBA code path reads this `nba` block (verified 2026-06-08:    │
+  // │ the only `getSportConfig()` callers are MLB-only — buildMlbBootstrap  │
+  // │ Snapshot.js + fetchMlbExternalSnapshot.js, both literal "mlb").       │
+  // │ The ACTUAL NBA request authority is the hardcoded arrays +           │
+  // │ NBA_BOOKMAKERS_CSV in backend/pipeline/nba/fetchNbaOddsSnapshot.js.   │
+  // │ Editing activeBooks / baseMarkets / extraMarkets HERE does NOTHING —  │
+  // │ change fetchNbaOddsSnapshot.js instead. Kept (not deleted) as the     │
+  // │ forward-scaffold for the planned Phase-1 sportConfig-driven NBA wire; │
+  // │ until that wire lands, this is documentation only. (Prop-Ingestion    │
+  // │ Truth Audit v2 §1, SHIP 1.)                                           │
+  // └──────────────────────────────────────────────────────────────────────┘
   nba: {
     sportKey: "basketball_nba",
     label: "NBA",
-    // Operator's 7-book vision (audit 2026-05-22). Odds-API keys (lowercase).
-    // Whether each book returns data depends on the operator's API tier;
-    // empty returns are silent and don't error. Quota cost is per-call, not
-    // per-book, so adding books doesn't multiply API spend.
+    // DEAD (see block banner above) — Operator's 7-book vision (audit 2026-05-22).
+    // Odds-API keys (lowercase). NOT the live NBA book list; that is
+    // NBA_BOOKMAKERS_CSV in fetchNbaOddsSnapshot.js.
     activeBooks: ["draftkings", "fanduel", "fanatics", "caesars", "betmgm", "betrivers", "hardrockbet", "bet365"],
+    // DEAD (see block banner) — live NBA markets are NBA_BASE_MARKETS /
+    // NBA_DK_EXTRA_MARKETS / NBA_DEFENSIVE_MARKETS in fetchNbaOddsSnapshot.js.
     baseMarkets: [
       "player_points",
       "player_rebounds",
