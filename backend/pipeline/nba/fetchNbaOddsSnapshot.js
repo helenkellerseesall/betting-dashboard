@@ -160,6 +160,7 @@ function buildNbaBestProps(rawRows) {
                      side: r?.side, line: r?.line,
                      statFamily: family,  // 2026-05-27 Lane D.6: absolute-cap fallback
                      l5Avg: enriched?.recentForm?.last5_avg ?? enriched?.recentForm?.last10_avg ?? enriched?.last5Avg,
+                     oddsAmerican: odds,  // 2026-06-07 F1.2a: bucket context only — tier logic unchanged until F1.2b
                    }),
       snapshotSourced: true,
     })

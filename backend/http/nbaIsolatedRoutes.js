@@ -1149,6 +1149,7 @@ function buildNbaBestAvailableWsCandidates(corePropsBoard) {
                                    ?? Number(r?.projection?.mostLikely)
                                    ?? Number(r?.projectionMostLikely)
                                    ?? null,
+                      oddsAmerican: odds,  // 2026-06-07 F1.2a: bucket context only — tier logic unchanged until F1.2b
                     }),
       volatility:   family === "pra" ? "lotto"
                   : (family === "threes" || family === "first_basket") ? "aggressive"

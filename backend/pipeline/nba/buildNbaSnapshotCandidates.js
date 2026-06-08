@@ -272,6 +272,7 @@ function buildNbaSnapshotCandidates(snapshotRows) {
                                      ?? Number(enriched?.projection?.mostLikely)
                                      ?? Number(enriched?.projectionMostLikely)
                                      ?? null,
+                        oddsAmerican: odds,  // 2026-06-07 F1.2a: bucket context only — tier logic unchanged until F1.2b
                       }),
       // FIX Q4: PRA → lotto, threes/first_basket → aggressive, others → balanced.
       // NBA-3: Alt-lines always aggressive or lotto — never balanced or safe.

@@ -473,6 +473,10 @@ function enrichBestEntry(e, betsById) {
         out?.projection?.mostLikely ??
         out?.projectionMostLikely
       )
+      // 2026-06-07 F1.2a: thread American odds for bucket context. Tracked
+      // entries carry oddsAmerican; older shapes may only have odds. Non-finite
+      // → null → bucketForOdds returns "unknown" (Trap-1 guard, never "pickem").
+      const __oddsAm    = Number(out.oddsAmerican ?? out.odds)
       const __reTier = classifyNbaTier({
         edge:           Number.isFinite(__edge) ? __edge : null,
         modelProb:      Number.isFinite(__modelProb) ? __modelProb : null,
@@ -481,6 +485,7 @@ function enrichBestEntry(e, betsById) {
         statFamily:     out.statFamily,  // 2026-05-27 Lane D.6: absolute-cap fallback
         l5Avg:          Number.isFinite(__l5) ? __l5 : null,
         projMostLikely: Number.isFinite(__projML) ? __projML : null,
+        oddsAmerican:   Number.isFinite(__oddsAm) ? __oddsAm : null,  // F1.2a bucket context only
       })
       if (__reTier && __reTier !== out.tier) {
         console.log("[TIER-RECLASSIFY]", out.player, out.propType, out.side, out.line,

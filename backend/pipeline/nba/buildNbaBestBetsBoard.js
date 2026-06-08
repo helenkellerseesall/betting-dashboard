@@ -275,10 +275,12 @@ const { getCalibrationFactor: _getNbaCalFactor } = require("../grading/calibrati
 // 2026-05-25 — extended to pass projMostLikely so the new projection-contradiction
 // gate inside the classifier can fire. Catches picks where L5 is close to line
 // but projection.mostLikely is materially opposite (Harden UNDER pra 24.5 case).
-function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null, projMostLikely = null, statFamily = null) {
+// 2026-06-07 — F1.2a: extended to thread oddsAmerican so the classifier can
+// compute the odds bucket (context only — tier logic reads it starting F1.2b).
+function tierForPlay(edge, ev, conf, modelProb, side = null, line = null, l5Avg = null, projMostLikely = null, statFamily = null, oddsAmerican = null) {
   // 2026-05-27 Lane D.6: statFamily needed for absurd-line absolute-cap fallback
   // when L5/projection baselines are absent for this player.
-  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, statFamily })
+  return _classifyNbaTier({ edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, statFamily, oddsAmerican })
 }
 
 // 2026-05-24 — buildPlayDisplayBundle is the canonical FE display payload.
@@ -532,7 +534,7 @@ function buildNbaBestBetsBoard(input = {}) {
     // projection-contradiction gate can FADE picks where the model projects
     // the opposite direction from the line (Harden UNDER pra 24.5, projection 32.6).
     const projMostLikely = Number.isFinite(Number(stat?.mostLikely)) ? Number(stat.mostLikely) : null
-    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, family)
+    const tier = tierForPlay(edge, ev, conf, modelProb, side, line, l5Avg, projMostLikely, family, odds)  // 2026-06-07 F1.2a: odds → bucket context
     if (!isLongshot && !isAlternate && tier === "FADE") {
       dropped += 1
       continue

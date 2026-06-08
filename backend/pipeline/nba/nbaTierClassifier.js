@@ -37,6 +37,42 @@
  */
 
 /**
+ * 2026-06-07 — F1.2a bucket-detection plumbing. bucketForOdds maps American
+ * odds → the SAME six odds buckets the F1.1 anti-selection probe used
+ * (.scratch/probe_f11_deduped_vig_aware.txt). F1.1 located two per-bucket
+ * pathologies (ELITE toxic in pickem/mid-dog; FADE wins 69% at mid-fav) that
+ * F1.2b will fix with per-bucket overrides. F1.2a only makes the bucket
+ * AVAILABLE — classifyNbaTier computes `_bucket` internally but the tier
+ * logic does NOT read it yet. Tier outputs are byte-identical to pre-F1.2a.
+ *
+ * Boundary tie-breaking (committed in .scratch/audit_f12a_phase0.txt — the
+ * boundary value belongs to the more-favorite/lower bucket, ≤ semantics,
+ * matching the F1.1 probe arithmetic exactly):
+ *   o ≤ −200            → "heavy-fav"
+ *   −200 < o ≤ −110     → "mid-fav"
+ *   −110 < o ≤ +110     → "pickem"
+ *   +110 < o ≤ +250     → "mid-dog"
+ *   +250 < o ≤ +500     → "longshot"
+ *   o > +500            → "heavy-longshot"
+ * Trap-1 guard: null / undefined / NaN / non-numeric / 0 → "unknown" —
+ * NEVER defaults to "pickem" or any real bucket (missing odds must fall back
+ * to today's global classifier behavior, not a fabricated bucket).
+ *
+ * @param {number|string|null|undefined} oddsAmerican  American odds (e.g. -150, +370)
+ * @returns {"heavy-fav"|"mid-fav"|"pickem"|"mid-dog"|"longshot"|"heavy-longshot"|"unknown"}
+ */
+function bucketForOdds(oddsAmerican) {
+  const o = Number(oddsAmerican)
+  if (Number.isFinite(o) === false || o === 0) return "unknown"
+  if (o <= -200) return "heavy-fav"
+  if (o <= -110) return "mid-fav"
+  if (o <= 110)  return "pickem"
+  if (o <= 250)  return "mid-dog"
+  if (o <= 500)  return "longshot"
+  return "heavy-longshot"
+}
+
+/**
  * @param {object} opts
  * @param {number} opts.edge         model edge vs market (modelProb - impliedProb)
  * @param {number} [opts.ev]         expected value (modelProb*(decOdds-1) - (1-modelProb))
@@ -47,9 +83,19 @@
  * @param {number} [opts.line]       prop line — required for form-contradiction check
  * @param {number} [opts.l5Avg]      player's last-5 average (or last-10) — required for form check
  * @param {number} [opts.projMostLikely]  projection.mostLikely value (NEW 2026-05-25 — catches picks where L5 is close to line but projection is far)
+ * @param {number} [opts.oddsAmerican]  American odds (NEW 2026-06-07 F1.2a — bucket
+ *                  detection only; tier logic does NOT read it yet. Default undefined →
+ *                  bucket "unknown" → output identical to pre-F1.2a at any non-updated
+ *                  call site.)
  * @returns {"ELITE"|"STRONG"|"PLAYABLE"|"LONGSHOT"|"FADE"}
  */
-function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely, statFamily } = {}) {
+function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5Avg, projMostLikely, statFamily, oddsAmerican } = {}) {
+  // 2026-06-07 — F1.2a: odds bucket computed as available context. F1.2b
+  // (per-bucket ELITE/FADE overrides) consumes this; until then NOTHING below
+  // reads it — that is the byte-identical regression guarantee of this phase.
+  const _bucket = bucketForOdds(oddsAmerican)
+  void _bucket
+
   // 2026-05-27 — Lane D.5 ALT-LINE MAGNITUDE GATE. Runs FIRST so it fires
   // BEFORE the LONGSHOT bypass. Previously placed below LONGSHOT — Wemby over
   // 39.5 points @+1100 was stamped LONGSHOT (implied 8.3% < 10% threshold)
@@ -157,4 +203,4 @@ function classifyNbaTier({ edge, ev, conf, modelProb, isLongshot, side, line, l5
   return "LONGSHOT"
 }
 
-module.exports = { classifyNbaTier }
+module.exports = { classifyNbaTier, bucketForOdds }
