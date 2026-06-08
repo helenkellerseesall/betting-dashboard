@@ -70,13 +70,22 @@ Either side may flag any of the above. The other side reads them on its next tur
 ## Operator workflow
 
 1. Claude-A appends `## ... Claude-A` block to `OPERATOR_SESSION_LOG.md` (draft handoff + drift signals)
-2. Operator reviews chat response (or `cat OPERATOR_SESSION_LOG.md`)
-3. Operator pastes short pointer to 4.8 chat: `"read CLAUDE_BRIDGE_PROTOCOL.md + latest Claude-A block in OPERATOR_SESSION_LOG.md, execute per DRAFT_HANDOFF"`
-4. 4.8 reads, executes per its own discipline (regression-gate-first, audit-first, etc.), appends `## ... Claude-B` block (ship + audit + drift signals)
-5. Operator pastes short pointer back to Claude-A: `"read latest Claude-B block in OPERATOR_SESSION_LOG.md"`
-6. Claude-A reads block, evaluates, drafts next turn
+2. Claude-A gives operator a **plain-English summary** in chat of what the block says (NOT the full block — laymen's terms only)
+3. Operator approves the summary
+4. Operator pastes short pointer to 4.8 chat: `"read CLAUDE_BRIDGE_PROTOCOL.md + latest Claude-A block in OPERATOR_SESSION_LOG.md, execute per DRAFT_HANDOFF"`
+5. 4.8 reads, executes per its own discipline (regression-gate-first, audit-first, etc.), appends `## ... Claude-B` block (ship + audit + drift signals)
+6. Operator pastes short pointer back to Claude-A: `"read latest Claude-B block in OPERATOR_SESSION_LOG.md"`
+7. Claude-A reads block, gives operator a **plain-English summary** in chat of what 4.8 did/found (NOT a re-dump — laymen's terms only)
+8. Operator approves before Claude-A drafts next turn or proposes any action
+9. Loop back to step 1
 
-Operator remains the execution gate. No fence runs, no code commits, no edits ship without operator approval.
+**Operator remains the execution gate.** No fence runs, no code commits, no edits ship, no next handoff drafts without operator approval. The bridge frees context budget; it does NOT remove the operator from the loop.
+
+**Plain-English summary discipline (binding):**
+- Translate technical findings into bettor-mission language ("the curation layer might be picking worse than random in middle odds — audit will tell us why")
+- Numbers cited only if they trace to a probe/canonical file/git commit per `feedback_no_fabricated_numbers_in_scope_memos`
+- Flag any drift signals from peer in plain terms ("4.8 noticed my framing missed X")
+- Recommend a next step + the reasoning, but WAIT for operator approval
 
 ## Compaction-survival rule
 
