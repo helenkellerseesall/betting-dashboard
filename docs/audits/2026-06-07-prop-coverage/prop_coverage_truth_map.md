@@ -17,6 +17,8 @@
 - The repo does **not** talk to DraftKings / FanDuel / Fanatics / BetMGM directly. It pulls them through **one vendor aggregator, The Odds API.** So "what props each book offers" for THIS repo = what that vendor exposes per book. Direct-from-book scraping is login/geo-gated and unreliable — anything claimed that way would be guesswork.
 - This v1 is **grep-level + vendor-doc level**, not probe-level. "Requested" is proven from source. "Scored/ingested/surfaced" status is carried from the existing `market-coverage-map` memory (itself grep/trace-level), NOT re-proven with a live probe here. Items needing a live probe to *prove* ingestion are tagged **[PROBE-TO-CONFIRM]**.
 
+> **⚠️ PROBE-LEVEL CORRECTION (see §7).** After writing the grep-level tables below, I read the actual last-fetch snapshot files. The live data **corrects §3/§5**: MLB alternate-line markets DO land (the grep missed where they're requested). Read §7 as authoritative over the grep-level "NOT requested" rows where they conflict. The grep tables are preserved to show the grep-vs-probe gap.
+
 **Verification-state legend** (a prop can be at any of these depths):
 1. `REQUESTED` — in the odds-snapshot market list sent to the vendor (proven file:line).
 2. `CLASSIFIED` — has an entry in the classifier table (`mlbClassification.js` / NBA equivalent).
@@ -146,3 +148,35 @@ Vendor MLB player markets (20 base + 16 alternate) cross-referenced.
 This v1 proves **requested vs vendor-available**. It does **not** prove, with a live probe, that requested markets actually *arrive and get scored on tonight's slate* per book. To get to the operator's "proof of what's true I can trust," the next layer is a **probe-level ingestion audit**: drive one live slate per sport and record, per market per book, {requested → returned-by-vendor → classified → scored → surfaced}. That's the artifact that turns this map from "what we ask for" into "what actually lands." Recommend running it as a structured 4.8 deep-audit with stable `.scratch/` probes, since it touches live snapshot fetches.
 
 **Canonical-authority note:** this doc is a read-only audit artifact under `docs/audits/`. It is NOT a new authority and does not duplicate `market-coverage-map` (memory) or `SPORTSBOOK_CONTRACTS.md` (brain) — it cross-references them. No shadow canonical created.
+
+---
+
+## 7. PROBE-LEVEL FINDINGS — live snapshot (authoritative over §3/§5 where they conflict)
+
+**Source:** the actual last-fetch persisted snapshots — `backend/snapshot.json` (NBA) + `backend/snapshot-mlb.json` (MLB), read read-only 2026-06-07. **This is real ingested data**, counted per `marketKey` × `book` from `rawProps[]`. **One-cycle caveat:** this is the most recent fire only (NBA = SAS@NYK single Finals game; MLB = that night's slate). Markets/books vary by slate — multi-slate confirmation is the rigorous next layer.
+
+### Books actually returning (vs 8 requested)
+- **NBA:** 6 of 8 — FanDuel 2075, DraftKings 1096, Hard Rock 751, BetMGM 665, Fanatics 563, BetRivers 339. **bet365 + Caesars returned nothing** this slate.
+- **MLB:** 6 of 8 — Fanatics 2063, FanDuel 1738, DraftKings 1106, Hard Rock 844, BetRivers 32, BetMGM 28 (last two very thin). **bet365 + Caesars absent.**
+- Reality check on "line-shop across 8 books": on this slate it's effectively **4 deep books + 2 thin**, not 8. Per-book depth is market-dependent.
+
+### NBA — what actually landed (rows, #books)
+Core all present: points 202/6, rebounds 156/6, assists 148/6, threes 136/6, PRA 188/5, PR 112/4, PA 98/4, RA 108/4, blocks 90/4, steals 84/3, first_basket 60/6, first_team_basket 40/4, double_double 63/5, triple_double 20/4.
+**Alternates landing heavily:** points_alt 939/6, rebounds_alt 656/6, PR_alt 572/4, PRA_alt 447/4, PA_alt 433/4, assists_alt 418/6, threes_alt 326/5, RA_alt 193/3.
+**ABSENT this slate:** `player_turnovers` (0 — known: vendor not offering for 2026 Conference Finals, see `project-nba-turnovers-api-unavailable`); `player_blocks_alternate` / `player_steals_alternate` (0 — **confirms §5 #2 ladder gap for blocks/steals**); `player_method_of_first_basket` (0 — confirms not requested).
+
+### MLB — what actually landed (rows, #books) — **CORRECTS §3/§5**
+**Alternate (ladder) markets ARE ingested** — the v1 grep "zero MLB alternates" was WRONG:
+- batter_total_bases_alternate 1646/4 · batter_hits_alternate 1311/4 · batter_rbis_alternate 796/3 · batter_runs_scored_alternate 497/2 · pitcher_strikeouts_alternate 377/4.
+Base markets present: batter_hits 328/3, batter_total_bases 176/3, pitcher_strikeouts 90/4, pitcher_outs 50/3, batter_first_home_run 123/1, batter_stolen_bases 115/1, batter_home_runs 84/1, batter_rbis 16/1, pitcher_earned_runs 14/1. Game: h2h 94/6, spreads 94/6.
+**ABSENT this slate:** `batter_strikeouts` (0 — **confirms §3 [PROBE-TO-CONFIRM]: classified but not landing**); `pitcher_walks` (0 — was assumed requested+scored; absent here, may be slate-dependent — flag for multi-slate check); `pitcher_hits_allowed` (0 — confirms derived-not-ingested); no `batter_home_runs_alternate` / `batter_singles/doubles/triples` / `batter_walks` / `batter_hits_runs_rbis` / `pitcher_record_a_win`.
+
+### The reframed headline (what changed)
+**MLB ladder DATA largely EXISTS** — total bases, hits, RBIs, runs, pitcher Ks all arrive with alternate rungs. The real MLB ladder gap is **not ingestion, it's the SCORING layer**: per `market-coverage-map`, ladder *construction* is scaffolded only for NBA blocks/steals. So the alt-line rungs are landing in the snapshot but aren't being turned into per-rung probability ladders yet. That's a much cheaper problem than "ingest a whole new market class," and it's good news for the ladder endgame.
+
+**Corrected §5 ranked gaps:**
+1. ~~MLB alternate-line ingestion~~ → **MLB ladder SCORING**: alt-line data lands; build the ladder-construction layer that turns it into per-rung probabilities (NBA-blocks/steals scaffold is the template).
+2. NBA blocks/steals alternate rungs — confirmed absent in feed (would need request-list addition).
+3. `player_method_of_first_basket` — confirmed not requested.
+4. Thin per-book depth on HR/RBIs (1 book) + bet365/Caesars absent — line-shopping is shallower than "8 books" implies.
+5. `batter_strikeouts` / `pitcher_walks` absent this slate — confirm across multiple slates.

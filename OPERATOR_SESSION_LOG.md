@@ -2651,3 +2651,52 @@ Operator runs ship fence (gate re-runs on host → code commit → docs commit �
 
 PROBE_REFS:
 .scratch/probe_f12b_trace.js/.txt (PHASE 0) · .scratch/audit_f12b_phase0.txt (fork verdict) · .scratch/probe_f12b_gate.js/.txt (delta-set gate) · .scratch/f12b_pre_hashes.txt · .scratch/fixture_f12b_classifier_f12a.js (pristine baseline)
+
+## 2026-06-08 01:56 ET — Claude-A (Cowork)
+
+ACTION: Operator worry-dump (relayed from 4.8 chat) triggered a trust/prop-coverage thread. Built prop-coverage truth map (read-only audit, docs/audits/2026-06-07-prop-coverage/prop_coverage_truth_map.md) cross-referencing The Odds API vendor catalog vs repo-requested markets, THEN ran a read-only probe of the live persisted snapshots which CORRECTED a grep-level error in my own v1 (see DRIFT_WARNING_TO_SELF). Drafting handoff for 4.8 to run the rigorous MULTI-SLATE probe-level ingestion audit (operator chose this = finish proving "Step 1: believe every top pick is bettable").
+
+KEY VERIFIED FINDINGS (probe §7, live snapshots backend/snapshot.json + snapshot-mlb.json, one cycle):
+- Books: 8 requested both sports; only ~6 return per slate (bet365 + Caesars absent; MLB BetMGM/BetRivers thin) → effectively 4 deep books.
+- MLB alt-line (ladder) markets DO land: batter_total_bases_alt 1646/4books, batter_hits_alt 1311/4, batter_rbis_alt 796/3, batter_runs_scored_alt 497/2, pitcher_strikeouts_alt 377/4. → MLB ladder gap is SCORING not ingestion (ladder construction scaffolded only for NBA blocks/steals per market-coverage-map).
+- Confirmed absent this slate: NBA player_turnovers (known vendor gap), NBA blocks/steals alternates, player_method_of_first_basket (operator wanted), MLB batter_strikeouts (classified-not-landing), MLB pitcher_walks (flag — slate-dependent?).
+
+DRIFT_WARNING_TO_SELF (logged for honesty): v1 grep-level doc claimed "MLB has ZERO alternate markets requested" — the live snapshot DISPROVED it. Corrected in §7 + memory same turn. Lesson reinforced: grep-level ≠ ingestion-truth; probe the persisted feed.
+
+DRAFT_HANDOFF:
+```
+PROP-INGESTION-TRUTH-AUDIT (multi-slate, read-only): prove the full chain {requested → returned-by-vendor → classified → scored → surfaced} per market per book, across MULTIPLE slates, for MLB + NBA. Goal = operator Step-1 trust ("believe every top pick is bettable — proof of what's true, what I can't trust"). Read CLAUDE_BRIDGE_PROTOCOL.md, then append your Claude-B block per schema. This is READ-ONLY — no code edits, no shadow authority (cross-reference market-coverage-map memory + SPORTSBOOK_CONTRACTS.md, don't duplicate).
+
+context: Claude-A built docs/audits/2026-06-07-prop-coverage/prop_coverage_truth_map.md (v1 grep + §7 single-snapshot probe). §7 already proved per-market/per-book counts on ONE cycle and corrected a grep error (MLB alternates DO land). Your job = the rigorous version that v1 explicitly defers.
+
+scope:
+  PHASE 0 — close the grep gap (read-only): find WHERE in code the MLB alternate markets get requested (my grep of buildMlbBootstrapSnapshot.js missed it — they land in snapshot-mlb.json so they're requested somewhere; locate the actual market-list source for both base + alternate, MLB + NBA). Document the request-list authority per sport in the audit doc. DECISION: if a single canonical market-list source per sport → note it; if scattered/dynamic → flag (operator wants to know the true request surface).
+
+  PHASE 1 — multi-slate ingestion capture (read-only, NO new vendor calls): the snapshots roll forward each cycle. Either (a) read the current persisted snapshot.json + snapshot-mlb.json AND any retained historical snapshots/epoch freezes, OR (b) sample the live snapshots across several cycles over the next day(s) via a stable probe that appends counts. Per market per book per slate, record: rows returned, #books, present/absent. Build the {requested→returned→classified→scored→surfaced} matrix:
+    - requested: from PHASE 0 market-list source
+    - returned: rawProps[] counts (the §7 method — stable probe, e.g. .scratch/probe_ingestion_truth.js → .txt)
+    - classified: does resolveStatFamily / NBA classifier map it to a family (not null)?
+    - scored: does a projection engine emit a band for it (cross-ref market-coverage-map; spot-check the persisted predictions)?
+    - surfaced: does it reach a bettor pick/board/slip (trace to /api/ws/state or best-bets board)?
+  Flag every market where the chain BREAKS (e.g. returned-but-not-classified, classified-but-not-scored = the "classified but dropped" families, scored-but-not-surfaced).
+
+  PHASE 2 — slate-dependence honesty: confirm which absences are STRUCTURAL (vendor never offers, e.g. player_turnovers per project-nba-turnovers-api-unavailable) vs SLATE-DEPENDENT (batter_strikeouts, pitcher_walks absent on the 06-07 cycle — appear on other slates?). Multi-slate sampling answers this; do NOT call a market "missing" off one snapshot.
+
+  PHASE 3 — per-book fill reliability: per book, across slates, what fraction of requested markets it actually returns. Operator's line-shopping + the FE-4 (FD/DK/Fanatics/BetMGM) depend on this. Quantify "effectively N deep books per market class."
+
+deliverable: extend the EXISTING audit doc (docs/audits/2026-06-07-prop-coverage/) with a PROBE-LEVEL-AUDIT-v2 section or sibling file — the full chain matrix + the broken-chain flags + the structural-vs-slate-dependent absence list + per-book reliability. Commit same-turn. Update market-coverage-map memory if the chain matrix reveals anything its grep-level state got wrong (same correction discipline I just applied).
+
+discipline: read-only (zero code edits); every number traces to a probe file (feedback_no_fabricated_numbers); stable probe filenames in .scratch/; do NOT spend vendor quota firing fresh /events odds unless a slate genuinely has no persisted snapshot AND operator approves the quota cost; plain backticks, no bang chars; cross-reference canonical (market-coverage-map, SPORTSBOOK_CONTRACTS) — no shadow authority.
+
+honest limits to state in your block: one host, persisted snapshots may only cover recent cycles; NBA Finals end ~mid-June so NBA slate variety is shrinking; "surfaced" tracing may hit the same dead-wire classes the live-state audit found. Flag what you could and couldn't prove.
+
+bettor-visible delta: ZERO (read-only audit). Output is operator trust, not a code change.
+
+go. PHASE 0 first (close the grep gap on the request-list source) — that alone resolves "what does the repo actually ask for."
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (locate canonical market-list request source per sport — closes my grep gap), then multi-slate ingestion capture → full {requested→returned→classified→scored→surfaced} chain matrix + broken-chain flags + structural-vs-slate absence list + per-book reliability. Extends the existing audit doc, commits same-turn, appends Claude-B block. Read-only, zero bettor delta.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/prop_coverage_truth_map.md (v1 + §7 single-snapshot probe) · backend/snapshot.json + backend/snapshot-mlb.json (live ingestion source) · market-coverage-map memory (scored-state cross-ref) · SPORTSBOOK_CONTRACTS.md (vendor contract)
