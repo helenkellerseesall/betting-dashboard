@@ -2455,3 +2455,76 @@ all MLB byte-identical as the gate).
 
 PROBE_REFS:
 .scratch/audit_f12_phase0.txt (full PHASE 0) · .scratch/probe_f11_deduped_vig_aware.txt (lineage)
+
+## 2026-06-07 21:35 ET — Claude-A (Cowork)
+
+ACTION: operator approved fork (b) — F1.2a + F1.2b sequence. Drafting F1.2a handoff (bucket-detection plumbing, byte-identical tier outputs as the regression gate). F1.2b held until F1.2a verifies clean.
+
+DRIFT_WARNING_TO_PEER:
+None. Acknowledging your P2 magnitude-gate correction in F1.2 PHASE 0 — that lives in F1.2b scoping when we get there. F1.2a is pure plumbing.
+
+DRAFT_HANDOFF:
+```
+F1.2a approved (task #102 follow-up build, fork (b) sub-phase 1 of 2): wire odds-bucket detection into nbaTierClassifier — byte-identical tier outputs as the regression gate. NO policy change yet. Read CLAUDE_BRIDGE_PROTOCOL.md if not already, then append your `## ... Claude-B (4.8)` turn block per schema.
+
+context: F1.2 PHASE 0 (.scratch/audit_f12_phase0.txt) found classifier bucket-BLIND (classifyNbaTier has no odds param; tierForPlay(edge,ev,conf,family) at nbaTierClassifier.js:52). F1.2a wires bucket detection AS AVAILABLE CONTEXT only — F1.2b consumes it in next ship. Hard regression rule: every NBA pick's tier label must be BYTE-IDENTICAL pre/post F1.2a. Any tier change = F1.2a broke its scope. MLB classifier (buildMlbPropClusters.js tierForPlay) entirely UNTOUCHED — MLB byte-identical is also a regression gate.
+
+scope (audit-first → wire bucket detection, NO policy change):
+
+  PHASE 0 — AUDIT (read-only, before any edit):
+    - locate every call site of classifyNbaTier (nbaTierClassifier.js:52 and any callers in scoring/build paths)
+    - identify what data is available at each call site that would let bucket detection run (oddsAmerican field on the pick? snapshot row? must be there OR we need a separate lookup)
+    - decide insertion point: (a) inside classifyNbaTier before tierForPlay call (receives oddsAmerican as new param), (b) at all call sites that compute bucket and pass it in. (a) is single-source-of-truth, prefer.
+    - write inventory to .scratch/audit_f12a_phase0.txt
+    - DECISION FORK:
+      (i) oddsAmerican available at every call site, single insertion point clean → ship
+      (ii) oddsAmerican unavailable at any call site → STOP, report which call sites + propose data threading (separate sub-phase to thread odds through pipeline first)
+      (iii) odds is available but in inconsistent formats (decimal vs American vs string) across call sites → STOP, report formatting gap + propose normalization helper
+
+  PHASE 1 — BUILD (only if PHASE 0 reports fork (i)):
+    - add bucket helper (small pure function): oddsAmerican → "heavy-fav" | "mid-fav" | "pickem" | "mid-dog" | "longshot" | "heavy-longshot" | "unknown"
+    - boundaries identical to F1.1 probe: heavy-fav <-200, mid-fav -200 to -110 (inclusive), pickem -110 to +110, mid-dog +110 to +250, longshot +250 to +500, heavy-longshot +500+
+    - Trap-1 guard: if oddsAmerican is null/undefined/NaN/non-numeric → return "unknown"
+    - boundary tie-breaking explicit: which side is -110, +110, +250 etc. on (commit a decision, document it inline)
+    - extend classifyNbaTier signature to accept oddsAmerican (default null for backwards-compat at any non-updated call site → bucket="unknown" → tier output identical to today)
+    - compute bucket INTERNALLY in classifyNbaTier BEFORE the tierForPlay call
+    - DO NOT pass bucket into tierForPlay yet — store on a debug field on the return value only (so F1.2b can read it)
+    - return value shape: `{ tier, edge, ev, conf, _bucket: "..." }` — _bucket is new metadata, tier unchanged
+    - MLB tierForPlay (buildMlbPropClusters.js) ENTIRELY UNTOUCHED
+
+verification (regression-gate-first):
+   - PRE-edit probe: drive classifyNbaTier across today's NBA picks (live /api/ws/top-picks or NBA buildSlipAi), record (player, family, side, line, oddsAmerican, tier) for every pick. Write to .scratch/probe_f12a_pre.txt.
+   - POST-edit probe: same drive, record same shape PLUS _bucket field. Assertions:
+     * EVERY NBA pick's tier label is BYTE-IDENTICAL to PRE (100% match required; even 1 mismatch = F1.2a broke its scope, halt and revert)
+     * _bucket field populated correctly per F1.1 boundaries (visual spot-check 5 samples + bucket-distribution summary)
+     * synthetic Trap-1 probes: null odds → _bucket="unknown" → tier matches PRE; non-numeric odds → "unknown"; boundary cases (-200, -110, +110, +250, +500 exactly) → bucket matches documented tie-breaking
+   - MLB regression: drive a sample of today's MLB picks through tierForPlay, confirm tier outputs byte-identical (MLB classifier wasn't touched, this is the regression gate that proves it)
+   - downstream consumer probe: fetchNbaOddsSnapshot ELITE||STRONG acceptance, bankroll units, best-bets board gate, top-picks FADE filter, buildSlipAi leg-tier factor — drive each on today's slate, confirm no behavioral change
+   - runtime:verify 13/13.
+
+discipline:
+   - regression-gate-first single fence (probe before commit, exit 1 kills chain).
+   - SEPARATE code + docs commits per bisectability.
+   - plain triple-backtick fences, no bang chars, specific files in git add (NEVER -A), no --no-verify.
+   - backend reload after code commit (engine layer touched: launchctl unload + load backend plist).
+   - same-turn OPERATOR_SESSION_LOG.md append per feedback_commit_durable_artifacts_same_turn.
+   - every claim cites probe/canonical/git per feedback_no_fabricated_numbers_in_scope_memos.
+   - common traps per project_pick_origin_architecture:
+     * Trap 1: null/NaN/non-numeric odds → "unknown" bucket → global fallback path; NEVER default to "pickem" or 0
+     * Trap 3: probe at REAL classifier output reaching downstream consumers, not engine intermediate scoring
+     * Trap 5: ANY tier label change in NBA today = F1.2a broke its scope. There is no acceptable tier delta in this phase. Halt + revert if even 1 pick's tier changed.
+
+bridge protocol:
+   - include in your Claude-B block: ACTION + PHASE 0 fork outcome (i/ii/iii) + boundary tie-breaking decisions + AUDIT_OUTCOME (PRE/POST tier byte-identical, _bucket distribution summary, Trap-1 unit results) + DRIFT_WARNING_TO_PEER if my F1.2a scoping missed anything + NEXT_EXPECTED_FROM_PEER + PROBE_REFS
+   - if fork (ii) or (iii): STOP after PHASE 0, append Claude-B block with details, await operator gate via Claude-A
+
+bettor-visible delta: ZERO. F1.2a is invisible to bettor — plumbing only. _bucket field is internal metadata for F1.2b to consume on the next ship.
+
+go. report PHASE 0 fork outcome BEFORE any edit. if (ii) or (iii), pause for operator gate.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 executes PHASE 0 audit, reports fork (i/ii/iii). If (i), proceeds to PHASE 1 build with byte-identical regression gate. If (ii) or (iii), STOPS for operator approval on the upstream data-threading sub-phase. Either way appends Claude-B block + commits code/docs/probe artifacts.
+
+PROBE_REFS:
+.scratch/audit_f12_phase0.txt (F1.2 PHASE 0 source — classifier bucket-blind finding), .scratch/probe_f11_deduped_vig_aware.txt (F1.1 source — bucket boundaries match).
