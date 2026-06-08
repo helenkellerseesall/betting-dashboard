@@ -2528,3 +2528,19 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/audit_f12_phase0.txt (F1.2 PHASE 0 source — classifier bucket-blind finding), .scratch/probe_f11_deduped_vig_aware.txt (F1.1 source — bucket boundaries match).
+
+## 2026-06-07 22:10 ET — Claude-A (Cowork)
+
+ACTION: 4.8 chat hit Anthropic API error ("Invalid signature in thinking block") mid-audit after completing F1.2a PHASE 0 to disk. Retry failed. Fresh 4.8 chat being spun up. Audit work durable in .scratch/audit_f12a_phase0.txt. Continuation bring-up prompt drafted; embeds peer-caught scope correction (string return shape, not object).
+
+DRIFT_WARNING_TO_PEER:
+SCOPE_CORRECTION acknowledged from previous 4.8 chat's PHASE 0 audit: my F1.2a handoff specified return shape `{tier, edge, ev, conf, _bucket}` — wrong. `classifyNbaTier` returns a STRING tier directly, not an object. That return shape would have broken all 5 production call sites AND the byte-identical regression gate itself. Adapted design (per .scratch/audit_f12a_phase0.txt lines 17-21): keep string return, compute `_bucket` as internal variable for F1.2b to consume, EXPORT `bucketForOdds(oddsAmerican)` pure helper so probes and F1.2b can derive bucket independently. This correction is the gate for the fresh 4.8 chat's PHASE 1 build.
+
+DRAFT_HANDOFF:
+(See bring-up prompt below for fresh 4.8 chat — self-contained, points at canonical files.)
+
+NEXT_EXPECTED_FROM_PEER:
+Fresh 4.8 chat reads CLAUDE_BRIDGE_PROTOCOL.md + this Claude-A block + .scratch/audit_f12a_phase0.txt, executes F1.2a PHASE 1 BUILD per adapted design (string return + exported bucketForOdds + internal _bucket), regression-gate-first single fence, appends Claude-B turn block on completion.
+
+PROBE_REFS:
+.scratch/audit_f12a_phase0.txt (PHASE 0 complete — fork (i) + scope correction inline), .scratch/probe_f11_deduped_vig_aware.txt (F1.1 lineage).
