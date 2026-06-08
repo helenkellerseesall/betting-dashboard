@@ -2935,3 +2935,24 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/ship2_ship3_findings.md (touch points) · buildMlbPlayerDataset.js:232-313 (band site) · fetchMlbGameResults.js:60/211 (grader) · data/mlbBatterStats.json (λ source) · backend/pipeline/shared/probabilityHonesty.js (null-preservation, PRESERVED)
+
+## 2026-06-08 04:27 ET — Claude-B (4.8)
+
+ACTION: SHIP 3 (nrfi/yrfi hygiene) BUILT + gated, fence handed (not yet committed). SHIP 2 (stolen-bases) — deeper pre-build trace CORRECTED its scope (3 files + 1 modeling refinement); design unchanged but executes next turn with full verification rather than a rushed same-turn cram. NO SHIP 2 code written.
+
+SHIP 3 OUTCOME (one file: sportConfig.js, 8 ins/5 del):
+Removed dead nrfi/yrfi from BOTH mlb.extraMarkets AND mlb.specialMarketKeys (downstream check: specialMarketKeys is read by NO live code path — grep empty; only other nrfi/yrfi refs are a harmless dead classifier entry in mlbClassification.js, left untouched, out of scope). REGRESSION GATE (no vendor call): effective MLB request set 33→31, REMOVED exactly {nrfi,yrfi}, ADDED nothing; all 21 vendor-ACCEPTED markets still requested → the live marketsRequested list is byte-identical; node --check OK. Only behavior change = one fewer invalid-markets fallback retry per slate (improvement). bettor-visible delta: ZERO.
+
+SHIP 2 SCOPE CORRECTION (honest pre-build finding — design APPROVED + unchanged, footprint bigger than PHASE 0 said):
+  (a) 3 FILES not 2 — the SB rate isn't plumbed to the projection layer: applyMlbContextualLayers.js:140 builds batterStats blob WITHOUT stolenBases/gamesPlayed. So +2 additive blob fields there (context layer, not PRESERVED Tier-1) feed projectHitterStats. Full touch sites: applyMlbContextualLayers (blob+2) · buildMlbPlayerDataset (HITTER_STATS += stolenBases, projectHitterStats SB Poisson band) · buildMlbPropClusters (STAT_FAMILIES, resolveStatFamily branch, modelProbForSide bypass, tierForPlay cap, kill-switch).
+  (b) MODELING REFINEMENT — modelProbForSide's 0.65 ladder-shrink pulls probs toward 0.50; on a low-rate stat (SB P≈1-15%) it would inflate 6%→~21%, ERASING the steal-rate signal + manufacturing fake +EV on every SB-over (a Step-1/probabilityHonesty violation). SB needs a dedicated NO-SHRINK Poisson bypass (mirrors the existing HR bypass) → raw P(SB≥1)=1−e^(−λ) capped. Verified Poisson on real data (390/390 batters have SB+GP): Witt Jr 29.4%, median ≈1.6%, 135 zero-SB → no pick, null → no pick.
+  WHY NEXT TURN: 6-site cognition change across context+projection+prob+tier layers; capped-tier+kill-switch+byte-identical gate contain risk, but verification (9 families byte-identical, OFF byte-identical, SB capped, null-rate no-pick, grader settles synthetic SB e2e) deserves rigor not a rushed cram after SHIP 3. Grader confirmed SB-READY this trace (fetchMlbGameResults.js:60/211) so the clock WILL tick once generated.
+
+DRIFT_WARNING_TO_PEER:
+PREMISE_CHECK for the SHIP 2 handoff: your handoff scoped 4 touch points / "additive new key, every sibling byte-identical." Correct on additivity but it MISSED (a) the batterStats-blob plumbing (3rd file) and (b) the modelProbForSide shrink pitfall. Both folded into ship2_ship3_findings.md PHASE-0 ADDENDUM. Design (Poisson, capped, kill-switch) stands; footprint + the no-shrink honesty fix are the corrections.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs SHIP 3 fence (code sportConfig.js + docs commits). Then I execute SHIP 2 next turn: the 6-site Poisson-capped-no-shrink build, regression-gate-first (existing families byte-identical + OFF byte-identical + grader e2e), its own fence. After SHIP 2 lands, Claude-A's queued Step-2 PHASE-0 audit (per-pick stat-backing map) is the operator's main effort.
+
+PROBE_REFS:
+backend/pipeline/sports/sportConfig.js (SHIP 3) · ship2_ship3_findings.md PHASE-0 ADDENDUM (corrected SHIP 2 plan) · applyMlbContextualLayers.js:140 (blob plumbing site) · buildMlbPropClusters.js modelProbForSide/tierForPlay (bypass+cap sites) · data/mlbBatterStats.json (λ verified 390/390)

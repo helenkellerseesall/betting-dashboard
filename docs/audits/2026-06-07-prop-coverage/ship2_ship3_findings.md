@@ -24,6 +24,18 @@
 
 **Regression gate when built:** every existing family's band + tier BYTE-IDENTICAL pre/post (additive key only); SB appears only at capped tier; `MLB_ENABLE_STOLEN_BASES=0` ⇒ fully byte-identical; SB picks actually generate AND are gradeable (drive one slate); `runtime:verify` 13/13. Files: `buildMlbPlayerDataset.js` + `buildMlbPropClusters.js` (+ kill-switch). MLB preserved-file shas unchanged except these two (neither is on PRESERVED Tier-1).
 
+### PHASE 0 ADDENDUM (deeper trace, 2026-06-08 — corrects the scope above to 3 files + 1 modeling refinement)
+
+A deeper pre-build trace found the enablement is bigger than "2 files / additive key," and surfaced a modeling pitfall. Both are within the approved "Poisson capped SB family" design — but they're real implementation facts the operator should see:
+
+1. **3 files, not 2 — the SB rate isn't plumbed to the projection layer yet.** `projectHitterStats` reads `playerObj.batterStats`, but the blob built in `applyMlbContextualLayers.js:140-154` carries avg/obp/slg/… and **NOT** `stolenBases`/`gamesPlayed`. So a third file (`applyMlbContextualLayers.js`, the context layer — not PRESERVED Tier-1) needs two additive fields so the rate is available. Touch sites: `applyMlbContextualLayers.js` (blob +2 fields) · `buildMlbPlayerDataset.js` (HITTER_STATS += stolenBases; projectHitterStats SB band) · `buildMlbPropClusters.js` (STAT_FAMILIES; resolveStatFamily branch; **modelProbForSide bypass**; tierForPlay cap; kill-switch).
+
+2. **Modeling refinement — SB needs a no-shrink prob bypass (or it manufactures fake edge).** `modelProbForSide` applies a 0.65 ladder-shrink that pulls every probability toward 0.50. For a low-rate stat like SB (most batters P(SB≥1) ≈ 1–15%), the shrink would inflate a real 6% to ~21% — erasing the steal-rate signal and creating uniform fake positive edge on every SB-over. SB must use a dedicated **no-shrink Poisson bypass** (mirroring the existing HR bypass), returning the raw `P(SB≥1)=1−e^(−λ)` capped, so edge reflects the real rate vs the line. Without this, SB picks would be dishonestly +EV-looking — a Step-1/trust violation.
+
+**Poisson math verified on real data** (`data/mlbBatterStats.json`, 390/390 batters have SB+GP): Bobby Witt Jr λ=0.348 → P(SB≥1)=29.4% (competitive vs a typical +250 SB-over); median base-stealer ≈1.6%; 135 zero-SB batters → P=0 → no edge → no pick; null rate → no pick (probabilityHonesty). So the model is well-grounded and honest at the tails.
+
+**Why this gets its own focused build turn:** it's a 6-site cognition change across the context + projection + prob-model + tier layers. The capped-tier + kill-switch + "existing-families byte-identical" gate fully contain the risk, but the verification (9 existing families byte-identical pre/post, OFF byte-identical, SB capped, null-rate no-pick, grader settles a synthetic SB pick end-to-end) deserves rigor, not a rushed same-turn cram after SHIP 3. Design unchanged; only the implementation footprint + the no-shrink honesty fix are new. Build executes next turn.
+
 ---
 
 ## SHIP 3 — `nrfi`/`yrfi` correct vendor key: INVESTIGATED → STOP for operator decision
