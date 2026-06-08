@@ -2984,3 +2984,37 @@ Operator runs SHIP 2 fence (regression probe re-runs as the gate → rm temps �
 
 PROBE_REFS:
 .scratch/probe_sb_regression.txt (7 gates) · buildMlbPlayerDataset.js projectHitterStats (SB band) · buildMlbPropClusters.js resolveStatFamily/modelProbForSide/tierForPlay (classify/bypass/cap) · applyMlbContextualLayers.js (blob) · fetchMlbGameResults.js/gradeTrackedBets.js (grader e2e)
+
+## 2026-06-08 19:47 ET — Claude-A (Cowork)
+
+ACTION: INDEPENDENTLY VERIFIED SHIP 2 (72912cb): no-shrink bypass in code + proven by gate G5 (SB band 0.0155 → modelProbForSide 0.0155, NOT shrunk to 0.1851 — fake-edge trap closed); tier cap `if (family==="stolenBases") return "PLAYABLE"` present; kill-switch default unset="1"=ON; Trap-1 honesty fix uses nullish (missing⇒no band); 3 files, none PRESERVED; 7/7 gates PASS in .scratch/probe_sb_regression.txt; tree clean. DEFECT BATCH COMPLETE (SHIP 1 guard + SHIP 2 SB + SHIP 3 hygiene). Operator approved Step-2 main effort: MLB-FIRST + map-gaps-build-with-what's-real. Drafting Step-2 PHASE-0 audit handoff.
+
+DRAFT_HANDOFF:
+```
+STEP-2-STATBACKING-AUDIT (MLB-first, read-only, no code edits, zero bettor delta) — operator's main effort. Goal: map EXACTLY what per-pick stat-backing data can honestly appear on an MLB pick card so the Step-2 build shows only real numbers (operator: "I want to SEE the math — L5 line, matchup, why this is a top pick — and believe it"). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Extend docs/audits/ (new file step2_statbacking_map_mlb.md) — NO shadow authority; cross-ref market-coverage-map + the FE-Trust-Surface synthesis (it already found MLB picks carry contextualTags but NO displayBundle — asymmetry vs NBA).
+
+operator's wishlist for an MLB batter pick (the spec — from operator-trust-definition-stat-attribution memory, translated to MLB): for e.g. "Judge total_bases over 1.5" he wants to SEE on the card — L5/L15 batting line, opposing pitcher + that pitcher's vulnerability to this stat, platoon/handedness edge, park factor, recent trend, lineup spot, weather, plus live news/world context. Map each to reality.
+
+scope (per surfaced MLB family — hits, total_bases, rbis, hr, + new capped stolenBases):
+  PHASE A — what the projection engine ALREADY CONSUMES (from code, file:line): coverage-map says hits uses batterStats, opp-pitcher kRate (gated), platoon, batterL5/L15, park hitsFactor, gameTotal — verify + enumerate per family what stat-backing fields are computed (applyMlbContextualLayers / composeMlbContextualSignal / buildMlbPlayerDataset / projectHitterStats).
+  PHASE B — what actually REACHES the bettor-facing pick (the serialization truth): trace the MLB pick payload (mlbIsolatedRoutes /api/best-available serializer + /api/ws/state + the mlb_tracked_best/mlb_picks files + phase4Tracking). For each stat-backing field classify:
+     (a) ON-PICK — already serialized onto the pick the bettor sees,
+     (b) COMPUTED-NOT-SERIALIZED — engine has it, but it never reaches the pick payload (cheap wiring to surface),
+     (c) NOT-INGESTED — no feed exists (e.g. live news; confirm).
+  PHASE C — wishlist coverage table: each operator wishlist item × {a/b/c} × file:line evidence × effort-to-surface (serialize vs ingest). Flag the contextualTags-vs-displayBundle gap explicitly (what's in tags today, what a display bundle would need).
+  DELIVERABLE: the MLB stat-backing availability map = the literal spec for the Step-2 card. It tells us what the card can show TODAY from real data (a), what's a cheap serialize-it wire (b), and what needs a new feed (c). Per operator: build with what's real, label (c) gaps as "not wired yet", NEVER fabricate a stat on a card (probabilityHonesty / betting-dashboard-invariants).
+
+honest expectations to confirm (not assume): live news/world data = almost certainly (c) no feed — confirm + flag as the one real ingestion lift, separate from cheap serialization. L5/L15 + platoon + park + opp-pitcher likely (a) or (b). The FE-trust audit already said the backend generates rich reasoning "rendered nowhere" — so expect a lot of (b) computed-not-displayed, which is the cheap-win pile.
+
+discipline: read-only (zero code, zero vendor calls); every claim file:line; stable probe filename .scratch/probe_step2_statbacking_mlb.*; plain backticks, no bang chars; extend audit docs, commit same-turn; cross-ref canonical, no shadow authority. NBA deferred (Finals ending — operator chose MLB-first; note NBA as a follow-up phase).
+
+bettor-visible delta: ZERO (read-only). Output = the build spec for the believable-pick card.
+
+go. PHASE A→B→C. The (a)/(b)/(c) table per wishlist item is THE deliverable.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs the MLB stat-backing audit: PHASE A engine-consumes, PHASE B serialization-truth (a/b/c per field), PHASE C wishlist coverage table + effort-to-surface. Read-only, new audit doc, commits same-turn, Claude-B block. Then Claude-A translates the availability map to plain English + we scope the Step-2 card build from what's real (a) + cheap wires (b), with (c) gaps labeled honestly.
+
+PROBE_REFS:
+operator-trust-definition-stat-attribution memory (wishlist spec) · market-coverage-map memory (MLB family signal state) · docs/audits/2026-06-07-fe-trust-surface/synthesis.md (contextualTags-no-displayBundle finding) · backend/pipeline/mlb/context/composeMlbContextualSignal.js + applyMlbContextualLayers.js + buildMlbPlayerDataset.js + http/mlbIsolatedRoutes.js (trace targets)
