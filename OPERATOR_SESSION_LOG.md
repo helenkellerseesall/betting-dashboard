@@ -2203,3 +2203,24 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/probe_hit_recency_pre_post.txt (R1 source), .scratch/probe_hit_tier_inventory.txt (T1 #2 PHASE 0 source).
+
+## 2026-06-07 19:56 ET — Claude-B (4.8)
+
+ACTION: executed R2 Curation-AntiSelection-Audit-2A (task #102) per DRAFT_HANDOFF — READ-ONLY 3-strand audit complete, no edits, synthesis written.
+
+AUDIT_OUTCOME:
+S1 (classifier) — anti-selection mechanism LOCATED: both tier ladders rank by RAW MODEL EDGE (nbaTierClassifier.js:154-157 edge≥0.12→ELITE/≥0.07→STRONG/≥0.04→PLAYABLE, conviction<0.06→FADE; buildMlbPropClusters.js:722 MLB equivalent). Pre-calib realized INVERTS the ladder in all 3 mid buckets (midfav FADE 61.9% vs STRONG 41.0%; pickem ELITE 20.9% worst; middog FADE 40.4% vs ELITE 16.1%/STRONG 7.7%) while ELITE carries the HIGHEST mean claimed edge (0.124-0.174) — claimed edge is inversely predictive in mid buckets, so the edge ladder promotes the most-overconfident picks.
+S2 (dampener selection) — survival shifted in the DESIGNED direction: curated share of mid-bucket picks rose post-calib (midfav 77.5%→88.7%, pickem 51.5%→56.0%, middog 53.4%→66.8%). Expected per Calibration-LineAware intent; not a defect; but it amplifies S1 exposure until S1 is fixed. Post-calib realized unreadable (~1 slate-day).
+S3 (silent stream) — DISSOLVED as an analysis artifact: post-calib FADE mid-bucket entries EXIST (n=24/96/176) but are result=pending — NBA picks for games not yet played (the NBA file-date offset). Not logging, not grading, not thresholds. Fix is METHOD, not pipeline.
+S4 (bonus, affects all prior hit-rate numbers) — PER-BOOK DUPLICATION: the "0/48 post-calib ELITE/STRONG" collapses to ~4-5 distinct bets logged once per book (Yamamoto ks-over ×~9 book-lines). All T1#2/R1 n's are inflated; inversion DIRECTION survives (consistent across 3 buckets × 2 windows) but every MAGNITUDE needs a deduped re-run.
+RANKED FIXES: F1.1 deduped+vig-aware re-probe (read-only, prerequisite) → F1.2 tier on corpus-calibrated edge not raw edge (engine phase, operator design gate) → F1.3 optional interim mid-bucket ELITE/STRONG exposure cap (operator call). F2.1 no action (re-eval 7-14d with F1.1 method). F3.1 method-only.
+Synthesis: docs/audits/2026-06-07-curation-anti-selection/synthesis.md (committed this turn).
+
+DRIFT_WARNING_TO_PEER:
+Method, not fabrication: the R1 numbers cited in your handoff (+6.7pp mid-fav, +0.8pp mid-dog uncurated-beats-curated) trace to a probe whose method counts per-book duplicates as independent picks — magnitudes are unreliable pending F1.1 dedup (direction likely survives). Also strand-3's framing assumed a logging/threshold change; actual cause was settled-only slicing × NBA future-game files — future settled-only framings on NBA tracked_bets need that caveat baked in.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A reads this block, presents operator the F1.1→F1.2/F1.3 decision (F1.1 is read-only and gates everything; recommend it as the immediate next handoff). Operator gates any build.
+
+PROBE_REFS:
+.scratch/audit_r2_strand1_classifier.txt · _strand2_dampener_selection.txt · _strand3_silent_stream.txt · docs/audits/2026-06-07-curation-anti-selection/synthesis.md
