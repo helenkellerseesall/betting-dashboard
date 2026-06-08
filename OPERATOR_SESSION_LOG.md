@@ -2330,3 +2330,91 @@ wait-for-7-14d-post-calib decision. No build until operator gates.
 
 PROBE_REFS:
 .scratch/probe_f11_deduped_vig_aware.txt (full table) · .scratch/probe_f11_deduped_vig.js (method)
+
+## 2026-06-07 21:20 ET — Claude-A (Cowork)
+
+ACTION: operator approved F1.2 RESCOPED (surgical fix on two located pathologies, NOT whole-ladder rewrite). Drafting handoff with audit-first PHASE 0 (PRESERVED-list check + bucket-awareness inventory) before any code touch.
+
+DRIFT_WARNING_TO_PEER:
+None outstanding. Acknowledging your F1.1 vig caveat — 0.5% both-sides recoverability means edges shown vs raw implied (vig included), true fair-line ≈1-3pp less negative. F1.2 must NOT use vig-adjusted edges as targets; the F1.1 directional findings (ELITE pickem 5%/middog 15%; FADE midfav 69%; midfav anti-selection gap 21.4pp deduped) are the structural targets.
+
+DRAFT_HANDOFF:
+```
+F1.2 RESCOPED approved (task #102 follow-up build): surgical fix on the two F1.1-located pathologies. NOT a whole-ladder rewrite. Read CLAUDE_BRIDGE_PROTOCOL.md if not already, then append your `## ... Claude-B (4.8)` turn block per schema.
+
+context: F1.1 (.scratch/probe_f11_deduped_vig_aware.txt) narrowed the R2 finding from "whole tier system broken" to TWO surgical pathologies:
+  P1 — ELITE in pickem + middog odds buckets is toxic: pickem ELITE 5%(n=19), middog ELITE 15%(n=13). Engine's HIGHEST-claimed-edge picks realize catastrophically in those buckets.
+  P2 — FADE at midfav wins 69%(n=45). System actively rejects winners in midfav. Anti-selection gap deduped = 21.4pp (curated -7.7pp vs uncurated +13.7pp).
+Confirmed via F1.1 dedup (5,162 picks, 2.4x inflation removed). PLAYABLE/STRONG ≈ market-minus-vig and are NOT in scope. Heavy-fav, longshot, heavy-longshot are NOT in scope (regression gate: byte-identical pre/post).
+
+scope (audit-first → surgical engine edit at tier-assignment site):
+
+  PHASE 0 — DEEP-DIVE AUDIT (read-only, no edits):
+    HARD GATE 1 — PRESERVED.md check:
+      - read PRESERVED.md (repo root)
+      - identify if nbaTierClassifier.js, buildMlbPropClusters.js, OR any tier-assignment site is on PRESERVED Tier 1
+      - if YES on any: STOP, report which files + their Tier; operator gates the touch explicitly before any edit
+      - if NO: proceed
+    bucket-awareness inventory:
+      - does the tier classifier currently KNOW the odds bucket of the pick it's classifying? (heavy-fav/midfav/pickem/middog/longshot/heavy-longshot — same boundaries as F1.1)
+      - if YES bucket-aware: the override can plug directly into the existing branch
+      - if NO bucket-aware: the classifier needs bucket detection wired in first — that's a sub-phase
+    downstream consumer trace:
+      - what reads tier label? dampener (calibrationDampener.js)? buildSlipAi? FE star-render? CLV capture? Each MUST be checked for assumption that "ELITE = engine's best confidence" since we're changing what ELITE means in 2 buckets.
+      - write inventory to .scratch/audit_f12_phase0.txt
+    DECISION FORK:
+      (a) NOT PRESERVED + classifier already bucket-aware → simple per-bucket override at tier-assignment site, ship
+      (b) NOT PRESERVED + classifier bucket-blind → decompose into F1.2a (wire bucket detection) + F1.2b (apply overrides). Ship 1.2a first, verify, then 1.2b.
+      (c) PRESERVED Tier 1 involved → STOP, escalate to operator with file list before any touch
+    report fork outcome BEFORE any edit.
+
+  PHASE 1 — BUILD (only after PHASE 0 reports fork a, OR after operator approves a Tier 1 touch):
+    P1 fix (ELITE toxicity in pickem + middog):
+      - add bucket-aware ELITE gate: when odds bucket is pickem (-110 to +110) OR middog (+110 to +250), require STRICTER ELITE criteria (e.g., raise edge threshold from 0.12 to higher, OR require additional signal confirmation, OR demote to STRONG entirely)
+      - design call within PHASE 0: which strictness option matches the F1.1 evidence cleanest? Report 2-3 options + recommend one.
+    P2 fix (FADE at midfav rejects winners):
+      - bucket-aware FADE softening at midfav (-200 to -110): EITHER raise conviction floor for FADE designation in this bucket (so fewer picks get FADE'd), OR invert the conviction logic where 4.8's audit located the inversion
+      - design call within PHASE 0: which approach matches F1.1's "FADE 69% wins" signal cleanest?
+    constraint: NO change to heavy-fav, longshot, heavy-longshot tier logic (regression gate)
+    constraint: NO change to PLAYABLE / STRONG thresholds globally (only the new bucket-aware ELITE/FADE overrides)
+    constraint: per project_pick_origin_architecture Trap 1, bucket-detection MUST handle missing odds (some picks may have null line/odds → assign to "unknown" bucket → fall back to current global classifier, never collapse to "pickem" by default)
+
+verification (regression-gate-first):
+   - PRE-edit probe: today's picks by (sport × bucket × tier) counts. Write to .scratch/probe_f12_tier_distribution_pre.txt.
+   - POST-edit probe: same distribution table. Assertions:
+     * ELITE pickem count DROPPED (P1 fix working at structural level)
+     * ELITE middog count DROPPED (P1 fix working)
+     * FADE midfav count DROPPED (P2 fix working — some previously-FADE'd picks now PLAYABLE or STRONG)
+     * Heavy-fav, longshot, heavy-longshot BYTE-IDENTICAL counts pre/post (regression gate)
+     * PLAYABLE / STRONG counts in untouched buckets BYTE-IDENTICAL pre/post (regression gate)
+   - downstream check: dampener / CLV / FE star-render still consume tier label correctly (no crashes, no fabrications)
+   - browser walk at mobile width: open /m TOP PICKS, confirm previously-ELITE pickem/middog picks no longer have ELITE badge (now STRONG or PLAYABLE), confirm new PLAYABLE/STRONG picks at midfav previously hidden as FADE now visible
+   - HONEST LIMIT: real HIT% verification is 7-14 days away — F1.2 ships on structural shift, not realized-rate proof. Re-run F1.1 probe shape on accumulated post-F1.2 corpus at 14d mark.
+   - runtime:verify 13/13.
+
+discipline:
+   - regression-gate-first single fence (probe before commit, exit 1 kills chain).
+   - SEPARATE code + docs commits per bisectability.
+   - plain triple-backtick fences, no bang chars, specific files in git add (NEVER -A), no --no-verify.
+   - backend reload after code commit (engine layer touched: launchctl unload + load backend plist).
+   - same-turn OPERATOR_SESSION_LOG.md append per feedback_commit_durable_artifacts_same_turn.
+   - every claim cites probe/canonical/git per feedback_no_fabricated_numbers_in_scope_memos.
+   - common traps per project_pick_origin_architecture:
+     * Trap 1: bucket-detection null handling (missing line/odds → "unknown" bucket → fallback path, NEVER default to pickem)
+     * Trap 3: probe at REAL tier-assignment output reaching FE, not engine intermediate scoring
+     * Trap 5: don't auto-classify "tier distribution shifted as intended" = "pathology fixed" — STRUCTURAL shift today, REALIZED proof in 14d
+
+bridge protocol:
+   - include in your Claude-B block: ACTION + PHASE 0 fork outcome + design choice (which strictness option for P1, which softening approach for P2) + AUDIT_OUTCOME (post-build distribution shift table) + DRIFT_WARNING_TO_PEER if my F1.2 scoping missed anything + NEXT_EXPECTED_FROM_PEER + PROBE_REFS
+   - if fork (c) (PRESERVED Tier 1 involved): STOP after PHASE 0, append Claude-B block with file list + Tier classification, await operator gate via Claude-A
+
+bettor-visible delta: previously-ELITE pickem/middog picks (the toxic ones) no longer carry ELITE badge — fewer fake-confidence promotions in those buckets. Previously-hidden midfav PLAYABLE/STRONG winners (the ones FADE'd out) now visible on TOP PICKS. NBA tipoff tonight is the first slate that will use the new classifier.
+
+go. report PHASE 0 fork outcome BEFORE any edit. if fork (b) or (c), pause for operator gate.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 executes PHASE 0 audit, reports fork (a/b/c) + design options for P1/P2. If (a), proceeds to PHASE 1 build with operator-visible plan. If (b) or (c), STOPS for operator approval. Either way, appends Claude-B block + commits any audit/code/docs artifacts.
+
+PROBE_REFS:
+.scratch/probe_f11_deduped_vig_aware.txt (F1.1 source — the structural targets), docs/audits/2026-06-07-curation-anti-selection/synthesis.md (R2 lineage), PRESERVED.md (Tier 1 gate).
