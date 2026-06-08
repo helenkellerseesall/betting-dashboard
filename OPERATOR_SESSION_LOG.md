@@ -2700,3 +2700,27 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/prop_coverage_truth_map.md (v1 + §7 single-snapshot probe) · backend/snapshot.json + backend/snapshot-mlb.json (live ingestion source) · market-coverage-map memory (scored-state cross-ref) · SPORTSBOOK_CONTRACTS.md (vendor contract)
+
+## 2026-06-08 02:16 ET — Claude-B (4.8)
+
+ACTION: PROP-INGESTION-TRUTH-AUDIT complete (read-only, zero vendor calls, zero code edits). PHASE 0 grep gap closed; chain matrix built on current cycle + surfaced/per-book proven multi-slate. Deliverable: docs/audits/2026-06-07-prop-coverage/prop_ingestion_truth_audit_v2.md (committed via operator fence below).
+
+AUDIT_OUTCOME:
+PHASE 0 (request authority) — the two sports use DIFFERENT authorities: NBA = 3 hardcoded arrays in fetchNbaOddsSnapshot.js (26 markets), NOT config; MLB = sportConfig.js mlb.baseMarkets+extraMarkets (33) via buildMarketRequestList → buildMlbBootstrapSnapshot (this is the grep gap Claude-A hit — list is in sportConfig.js). TWO new structural findings: (1) sportConfig.nba is DEAD — no live NBA path reads it (grep getSportConfig in pipeline/nba/ = empty); editing NBA markets there changes nothing = drift trap. (2) 12 of 33 MLB config markets are vendor-stripped EVERY slate (identical across all 8 events) via the 422 "invalid markets" fallback — player_* variant keys (harmless dupes of batter_*/pitcher_*) + nrfi/yrfi (rejected as named; wrong vendor key if operator wants first-inning props).
+PHASE 1 (chain, current cycle) — NBA 26 req → 22 returned → 5,306 classified-kept; breaks: h2h/spreads/totals + player_turnovers not returned (turnovers=known vendor gap), DD/TD/first_basket returned+classified but dropped by band path's over/under+line gate (handled by dedicated binary engines, not a true gap). MLB 21 vendor-accepted → 16 returned → 5,508 classified-kept; batter_stolen_bases returns 115 but resolveStatFamily→null (real classification drop).
+HEADLINE (scored-but-not-surfaced) — across 35 MLB slate-days, BOTH surfaced pick files (mlb_picks + mlb_tracked_best) contain ONLY batter offense (hits/total bases/RBI/HR + alternates). Pitcher props (strikeouts/outs/earned runs/walks), batter_runs_scored, batter_strikeouts: returned+classified+kept this cycle (ks 467, outs 50, ER 14, runs 497 rows) but 0/35 surfaced ever. Root cause NOT traced (proved the gap, not the why) — buildMlbAutoTickets.js is architecturally hitter/power-focused (pitcher = opponent modifier, never a pick subject); buildMlbBestBetsBoard STAT_FAMILIES DOES include ks/outs — so curation-scope vs wiring-gap is a scoped follow-up.
+PHASE 3 (per-book, multi-slate surfaced) — NBA: FanDuel+DraftKings 100% of slates, BetMGM/BetRivers 64%, Hard Rock 60%, Fanatics 52% (thin 67 picks), bet365+Caesars never. MLB: DraftKings+FanDuel 100%, BetRivers 80%, Caesars 77%, BetOnline.ag 66%, Fanatics 37%, Hard Rock 34%, BetMGM 29%, bet365 never. CAVEAT: surfaced book history spans 7wk of config/vendor drift (BetOnline.ag isn't in current activeBooks; Caesars 77% historical but absent this cycle) — answers "fed picks historically," not "live tonight." Reality: 2 always-on books carry ~75% of every slate, not 8.
+
+MARKET-COVERAGE-MAP MEMORY — corrections for Claude-A to fold in (memory is your layer per CLAUDE_BRIDGE_PROTOCOL §18.2; I did not write to it):
+  (a) MLB ladder gap is SURFACING not ingestion+not just scoring — alt rungs land AND classify; the wall is the surfaced-pick path being batter-offense-only.
+  (b) NEW: pitcher props (ks/outs/ER/walks) ingested+classified but 0/35 surfaced — likely buildMlbAutoTickets hitter-only scope.
+  (c) NEW: sportConfig.nba is dead config (drift trap); NBA request authority is fetchNbaOddsSnapshot.js arrays.
+
+DRIFT_WARNING_TO_PEER:
+None on your v1 — your §7 correction (MLB alternates DO land) is confirmed exactly. One refinement to your §7 framing: you reframed the MLB gap as "SCORING not ingestion"; the multi-slate surfaced probe narrows it further to "SURFACING" — alt data lands, classifies, and is kept by the production classifier, but no pitcher/runs pick ever reaches a board. The scoring layer may be fine; the surfacing path is the wall. Folded into v2 §3.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the docs-only commit fence below. Claude-A gives operator the plain-English summary (Step-1 trust verdict: MLB top picks are all batter-offense; pitcher props un-surfaced; 2 deep books not 8) + decides whether the §6 follow-ups (raw-snapshot retention for multi-slate returned-proof; MLB pitcher-surface root-cause trace) get scoped. Zero bettor delta this turn.
+
+PROBE_REFS:
+.scratch/probe_ingestion_truth_chain.js/.txt (current-cycle chain, real classifiers) · .scratch/probe_ingestion_truth_multislate.js/.txt (35 MLB / 25 NBA slate surfaced + per-book) · docs/audits/2026-06-07-prop-coverage/prop_ingestion_truth_audit_v2.md (deliverable)
