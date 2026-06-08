@@ -4,6 +4,8 @@
 **Follows:** `prop_ingestion_truth_audit_v2.md` §3 (headline: MLB surfaces batter offense only) + §6 follow-up #2.
 **Question:** why do pitcher props (and runs scored) get ingested + classified but never reach a surfaced pick — intentional scope, or wiring bug?
 
+> **⚠️ CORRECTION 2026-06-08 (supersedes the "un-tracked" framing).** This trace claimed pitcher Ks reach the API board but are "never written to the tracked pick files → never graded." **Wrong** — it traced only the display board path (`buildMlbClusters`/`buildMlbLiveDualBestAvailablePayload` → `mlb_tracked_best`). There is a SEPARATE path: MLB `makePlay` → `leanBet` (`phase4Tracking.js:741`) writes the GRADED ledger `mlb_tracked_bets`, which carries `statFamily` and IS settled by `gradeTrackedBets.js` (reads `bet.statFamily`, `fetchMlbGameResults.js:175` resolves `ks → pitching.strikeOuts`). Probe this turn: `mlb_tracked_bets` holds **789 K picks across 10/10 slates**, graded. So pitcher Ks are scored + tracked + graded; the real gap is that they're absent from the **curated best-available board** only. The two-engine analysis below is still correct about the BOARD path; the "un-tracked/un-graded" conclusion is retracted. Corrected build path: `mlb_ks_board_surface_scope.md`.
+
 All claims trace to file:line below; no probe needed (this is a code-path trace).
 
 ---

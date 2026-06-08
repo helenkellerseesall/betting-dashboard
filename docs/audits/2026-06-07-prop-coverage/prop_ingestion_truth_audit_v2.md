@@ -76,6 +76,8 @@ The `player_*` variants are **harmless duplicates** — the canonical `batter_*`
 
 ## 3. THE HEADLINE — MLB surfaces batter offense ONLY (scored-but-not-surfaced)
 
+> **⚠️ CORRECTION 2026-06-08 (supersedes the interpretation below).** This section measured only `mlb_tracked_best` + `mlb_picks` (the display BOARD) and concluded pitcher props are "scored but not surfaced / not in any pick file." That is **WRONG**. The GRADED bet ledger `mlb_tracked_bets` — which I did not probe for this section — contains **789 pitcher-strikeout picks across 10/10 slate-days**, plus outs (158), runs (1062), walks, earned runs, all settled and in the CLV/grading/learning loop. So pitcher Ks ARE scored, tracked, AND graded. The TRUE gap is narrower: pitcher props don't appear on the **curated best-available board** (the batter-only display surface), not that they're untracked. Root cause + the corrected build path are in `mlb_ks_board_surface_scope.md`. The batter-only claim about the BOARD files still holds; the "never reaches a bettor pipeline" implication does not.
+
 This is the finding most relevant to "can I trust every top pick."
 
 **Across 35 MLB slate-days, in BOTH surfaced pick files, the ONLY markets that ever reach a bettor-visible pick are batter offense:**

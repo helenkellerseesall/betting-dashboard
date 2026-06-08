@@ -2743,3 +2743,26 @@ Operator runs docs-only fence below. Claude-A summarizes the verdict for operato
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/mlb_pitcher_surface_trace.md (deliverable; all claims file:line) · prop_ingestion_truth_audit_v2.md §3/§6 (lineage)
+
+## 2026-06-08 02:53 ET — Claude-B (4.8)
+
+ACTION: Scoped the strikeouts-first build (operator approved) — but the scoping deep-dive FALSIFIED my own prior premise. Self-correcting the record + delivering a corrected scope. NO code written. Deliverable: docs/audits/2026-06-07-prop-coverage/mlb_ks_board_surface_scope.md + CORRECTION banners on v2 §3 and the pitcher-surface trace.
+
+RULE_VIOLATION_FLAG (self): my v2 §3 + pitcher-surface trace claimed pitcher Ks are "scored but NOT tracked/graded." WRONG — I measured only mlb_tracked_best + mlb_picks (display board) and never probed the GRADED ledger mlb_tracked_bets. Probe this turn: mlb_tracked_bets holds 789 K picks across 10/10 slate-days, settled + in CLV/grading/learning (also outs 158, runs 1062, walks, earnedRuns). Same class as [[betting-dashboard-invariants]] no-fabricate / [[feedback_deep_dive_and_verify_downstream]] verify-downstream — I asserted a downstream absence without checking the downstream file. Caught during the build deep-dive (audit-before-patches working as designed) BEFORE any code shipped. Corrections committed this turn.
+
+AUDIT_OUTCOME (corrected reality):
+- Pitcher Ks ARE scored (buildMlbPitcherKsToday ladder), tracked + graded (makePlay→leanBet phase4Tracking.js:741 → mlb_tracked_bets; gradeTrackedBets reads bet.statFamily; fetchMlbGameResults.js:175 resolves ks→pitching.strikeOuts). 789 graded K picks.
+- The REAL gap is narrower + is CURATION: pitcher Ks are absent from the curated best-available BOARD (buildMlbLiveDualBestAvailablePayload→buildMlbClusters, 4 batter buckets via scoreMlbProp categories). The board files (tracked_best/picks) are batter-only; the graded ledger is not.
+- Calibration peek (raw, NOT vig-adjusted): graded K-over 12.7% (18W/124L) — longshot-alternate-dominated, in line with batter hits 10.7% / total bases 9.2% on the same ledger → NOT a verdict; vig-aware F1.1-method read still owed before treating Ks as proven.
+
+SCOPE (operator chose "scope the board-curation build" after I presented the correction + the unknown-+EV caution):
+Option B (reuse K engine, append-only). One file: server.js buildMlbLiveDualBestAvailablePayload @ the best assignment (server.js:4011) — import buildMlbPitcherKsToday, map resolved entries → board rows (modelProbability→predictedProbability, edge→edgeProbability, side="over", propType="Strikeouts"), append behind kill-switch. NO change to scoreMlbProp/buildMlbClusters/buildMlbPropClusters (sha256 gate). Safeguards: MLB_KS_BOARD_SURFACE kill-switch (OFF=byte-identical); resolved-only (predictionResolved, probabilityHonesty); CAPPED TIER (Ks can't show as ELITE until graded-proof — honors no-fake-confidence); volume cap N≈8; dedupeMlbLegs. Regression-gate-first: batter subset of best BYTE-IDENTICAL pre/post, OFF fully byte-identical, untouched-file sha256, runtime:verify.
+
+DRIFT_WARNING_TO_PEER:
+Claude-A: do NOT relay the prior "pitcher props are invisible/un-tracked" framing to the operator — it's retracted. Correct framing: "pitcher Ks are already bet-tracked + graded; they're just not on the curated top-picks board; operator chose to surface them there now, capped-tier + kill-switch, with a vig-aware read still owed before we trust them." Both prior audit docs now carry CORRECTION banners.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs docs-only fence below (3 files: scope + 2 corrections). Operator/Claude-A gate the scope. On approval → I build Option B regression-gate-first. STRONGLY recommend the vig-aware read on the 789 graded K picks runs before/alongside, to set the tier-uncap decision.
+
+PROBE_REFS:
+mlb_ks_board_surface_scope.md (scope) · prop_ingestion_truth_audit_v2.md §3 CORRECTION · mlb_pitcher_surface_trace.md CORRECTION · mlb_tracked_bets_*.json (789 graded K picks — the file I missed)
