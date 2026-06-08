@@ -2956,3 +2956,31 @@ Operator runs SHIP 3 fence (code sportConfig.js + docs commits). Then I execute 
 
 PROBE_REFS:
 backend/pipeline/sports/sportConfig.js (SHIP 3) · ship2_ship3_findings.md PHASE-0 ADDENDUM (corrected SHIP 2 plan) · applyMlbContextualLayers.js:140 (blob plumbing site) · buildMlbPropClusters.js modelProbForSide/tierForPlay (bypass+cap sites) · data/mlbBatterStats.json (λ verified 390/390)
+
+## 2026-06-08 19:41 ET — Claude-B (4.8)
+
+ACTION: SHIP 2 BUILT — capped Poisson stolen-bases family + kill-switch. 3 files (+81/−2), regression-gate-first, ALL 7 gates green in-sandbox. Fence handed to operator (not yet committed). None of the 3 files on PRESERVED Tier-1 (confirmed).
+
+SHIP 2 OUTCOME (3 files):
+  · applyMlbContextualLayers.js — batterStats blob +stolenBases +gamesPlayed (additive plumbing).
+  · buildMlbPlayerDataset.js — SB_ENABLED kill-switch; HITTER_STATS += stolenBases (ON only); projectHitterStats emits a Poisson SB band {ladder 0.5:P(SB≥1)=1−e^−λ, 1.5:P(SB≥2)} with λ=seasonSB/gamesPlayed; Trap-1 honesty FIX (caught by gate 6): use raw value not num() — num(null)=0 would fabricate a "0-steals" band for MISSING data; now missing⇒no band, real-zero⇒λ=0 band.
+  · buildMlbPropClusters.js — SB_ENABLED mirror; STAT_FAMILIES += stolenBases (ON only); resolveStatFamily SB branch (gated, OFF⇒null⇒pre-SHIP-2 drop); modelProbForSide NO-SHRINK bypass (raw Poisson, not 0.65-shrunk-to-0.5); tierForPlay CAP (stolenBases⇒max PLAYABLE, never ELITE/STRONG).
+REGRESSION GATES (.scratch/probe_sb_regression.txt; pristine pre-edit copies vs edited, deterministic 6-playerObj battery):
+  G1 existing 6 hitter families byte-identical (ON) 6/6 PASS.
+  G2 kill-switch OFF: existing==pristine + no SB key + STAT_FAMILIES lacks stolenBases + resolveStatFamily(SB)=null — fully byte-identical to today.
+  G3 SB tier cap: strong inputs→PLAYABLE (not ELITE), low-edge→FADE; control hits strong→ELITE unchanged.
+  G4 classify ON: resolveStatFamily(batter_stolen_bases)→stolenBases.
+  G5 no-shrink ACTIVE: SB ladder 0.0155 → modelProbForSide 0.0155 (NOT shrunk 0.1851) — signal preserved, no fake edge.
+  G6 honesty: null-rate⇒no band, null-GP⇒no band, zero-SB⇒P=0⇒no edge.
+  G7 grader e2e: getStatValue resolves stolenBases/sb→_batting.stolenBases; settleFromActual over0.5 actual1→WIN, actual0→LOSS, under0.5 actual0→WIN. Grading clock WILL tick.
+Poisson sanity (real data, 390/390 batters have SB+GP): Witt λ.35→29%, mid→6%, low→1.6%, zero→no edge.
+bettor-visible delta: a new CAPPED-PLAYABLE stolenBases family begins surfacing + grading (~14d clock). Never a confident pick by design. Kill-switch MLB_ENABLE_STOLEN_BASES=0 ⇒ byte-identical to today.
+
+DRIFT_WARNING_TO_PEER:
+None outstanding. Self-flag: gate 6 caught a Trap-1 honesty bug in my OWN first draft (num(null)=0 fabricating a 0-steals band for missing data) — fixed before fence, no bad code shipped. Additive test-only exports (projectHitterStats / resolveStatFamily / tierForPlay / modelProbForSide) added to the 2 modules for the probe — harmless, no behavior change.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs SHIP 2 fence (regression probe re-runs as the gate → rm temps → code commit 3 files → docs commit → push → backend reload → runtime:verify 13/13). After it lands + [no boot log needed — gated by classifier], tonight/tomorrow's MLB slate is the first to generate capped SB picks; re-run Step-1 trust read on SB at +14 graded days before any tier-uncap. Then Claude-A's Step-2 PHASE-0 audit (per-pick stat-backing map) is the operator's main effort.
+
+PROBE_REFS:
+.scratch/probe_sb_regression.txt (7 gates) · buildMlbPlayerDataset.js projectHitterStats (SB band) · buildMlbPropClusters.js resolveStatFamily/modelProbForSide/tierForPlay (classify/bypass/cap) · applyMlbContextualLayers.js (blob) · fetchMlbGameResults.js/gradeTrackedBets.js (grader e2e)
