@@ -2882,3 +2882,20 @@ Operator runs SHIP 1 fence (code commit sportConfig.js + docs commit OPERATOR_SE
 
 PROBE_REFS:
 backend/pipeline/sports/sportConfig.js (the guard) · backend/pipeline/nba/fetchNbaOddsSnapshot.js (real NBA authority, sha256-unchanged) · prop_ingestion_truth_audit_v2.md §1 (lineage)
+
+## 2026-06-08 04:11 ET — Claude-B (4.8)
+
+ACTION: SHIP 1 confirmed committed (d445c79 + docs 1275482). SHIP 2 PHASE 0 (read-only) + SHIP 3 investigation (read-only) complete — BOTH paused for operator/Claude-A decision (SHIP 2 = a cognition change wanting a modeling nod; SHIP 3 = a new market class). NO SHIP 2/3 code written. Deliverable: docs/audits/2026-06-07-prop-coverage/ship2_ship3_findings.md.
+
+SHIP 2 PHASE 0 (batter_stolen_bases) — VERDICT: tractable ADDITIVE build, not a toggle. Four touch points traced: (1) resolveStatFamily add SB branch [trivial]; (2) STAT_FAMILIES += stolenBases [trivial]; (3) projection band — the per-family map is a clean object literal at buildMlbPlayerDataset.js:232-313, so adding stolenBases:{floor,mostLikely,ceiling} is a NEW KEY, every other family byte-identical [additive, moderate] + a deriveSigma/zScale case; (4) capped tier + MLB_ENABLE_STOLEN_BASES kill-switch [small]. GRADER ALREADY SB-READY (fetchMlbGameResults.js:60 extracts stolenBases, :211 resolves sb→_batting.stolenBases — half-finished enablement from 2026-05-23). DATA EXISTS (data/mlbBatterStats.json stolenBases). THE ONE DECISION (cognition, wants operator nod): SB projection formula — RECOMMEND Poisson mirroring the K engine (λ=seasonSB/gamesPlayed; P(SB≥1)=1−e^−λ for the 0.5 line; null rate → no pick, never fabricated). Tier stays CAPPED regardless (zero graded SB history; honors Step-1). Enabling just starts the 14d grading clock. Held for design confirm per audit-before-patches (new projected stat = cognition).
+
+SHIP 3 (nrfi/yrfi) — INVESTIGATED, STOP for operator decision. Confirmed nrfi/yrfi are INVALID Odds API keys (stripped every slate; marketsRequested excludes both across all 8 events). Correct first-inning markets are GAME-PERIOD markets not player props: totals_1st_1_innings (under 0.5 ≈ NRFI), h2h_1st_1_innings, spreads_1st_1_innings (per Odds API documented <market>_<period> convention; exact strings need the betting-markets ref page or ONE probe — page timed out, not worth quota to brute-force). ARCHITECTURAL FLAG: game-period markets are a NEW MARKET CLASS — the repo requests h2h/spreads/totals for CONTEXT only and never scores them as picks, so NRFI is not a key-fix, it's a new-market-class build. REC: cheap hygiene = remove dead nrfi/yrfi from sportConfig.mlb.extraMarkets (zero behavior change, ~SHIP-1 class); the actual NRFI bet = its own scoped build if operator wants it. No quota spent.
+
+DRIFT_WARNING_TO_PEER:
+None. Note for operator handback: SHIP 2 needs a one-line modeling approval (Poisson SB band — recommended) before I build; SHIP 3 splits into a trivial config-hygiene cleanup (remove dead keys) + an optional new-market-class build (NRFI scoring) that should NOT be bundled into this batch.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the docs-only fence below (findings doc). Operator → Claude-A: (1) approve SHIP 2 Poisson SB projection + capped-tier + kill-switch → I build it regression-gated; (2) decide SHIP 3 — nrfi/yrfi config-hygiene removal now vs defer; NRFI-as-a-bet is a separate new-market-class scope. After the batch, Claude-A's queued Step-2 PHASE-0 audit (per-pick stat-backing data map) is the operator's main effort.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/ship2_ship3_findings.md (deliverable) · buildMlbPlayerDataset.js:232-313 (additive band site) · fetchMlbGameResults.js:60/211 (grader SB-ready) · data/mlbBatterStats.json (SB rate source) · snapshot-mlb.json rawOddsEvents.marketsRequested (nrfi/yrfi stripped proof)
