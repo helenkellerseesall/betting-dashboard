@@ -3018,3 +3018,23 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 operator-trust-definition-stat-attribution memory (wishlist spec) · market-coverage-map memory (MLB family signal state) · docs/audits/2026-06-07-fe-trust-surface/synthesis.md (contextualTags-no-displayBundle finding) · backend/pipeline/mlb/context/composeMlbContextualSignal.js + applyMlbContextualLayers.js + buildMlbPlayerDataset.js + http/mlbIsolatedRoutes.js (trace targets)
+
+## 2026-06-08 19:52 ET — Claude-B (4.8)
+
+ACTION: STEP-2-STATBACKING-AUDIT (MLB-first, read-only, zero bettor delta) complete. Deliverable: docs/audits/2026-06-07-prop-coverage/step2_statbacking_map_mlb.md (committed via fence below). PHASE A→B→C, (a)/(b)/(c) table per wishlist item, grounded in live data.
+
+AUDIT_OUTCOME:
+HEADLINE: the gap is SERIALIZATION + RENDERING, not data. The MLB engine already computes nearly every wishlist signal onto the candidate row every cycle (live probe, 8,618 enriched snapshot rows): pitcherEnvironmentContext 8030, batterStats 7353, parkContext 8030, lineupContextV2 7106, weatherContext 6350. Per FE-trust §E the MLB pick has NO displayBundle (NBA does) → even computed signals render as bare values or not at all.
+(a) ON-PICK today (live %, 106 real mlb_tracked_best picks): impliedTeamTotal/gameTotal/isPlatoonAdvantage/hrEnvironmentTag/hrFactor/contextualTags 100%; weather (wind/carry/temp) 89%; lineupSpot/depth/PAproxy/run+rbiEnvironment only 22% (populate only on confirmed lineup — card must null-guard).
+(b) COMPUTED-NOT-SERIALIZED (on the row, absent from EVERY persisted pick — cheap wire): opposing-pitcher name+vulnerability (deriveMlbPitcherEnvironmentContext: kRate/gbRate/fbRate/velocity/rest/fatigue); season batting line (batterStats avg/obp/slg/ops/iso/kRate); park HITS/doubles factor (only hrFactor serialized); L5/L15 batting line + recent trend (mlbBatterFormCache — computed on-demand, not stamped → needs a form-cache lookup at serialize). This is the cheap-win pile.
+(c) NOT-INGESTED (one real lift): live news/world context — no news/twitter/beat-reporter feed in pipeline/mlb/. The closest is STRUCTURED scratch/lineup-confirmation (deriveMlbStarterConfirmationState/mlbLineupCache) → drives a "lineup confirmed/scratched" chip, NOT free-text news. Label news "not wired", never fabricate.
+WISHLIST VERDICT: ~6 of 8 items already-real or one-wire-away. Step-2 card build = (1) build MLB displayBundle rendering (a), (2) extend serializer whitelist for (b), (3) honest "not wired" for (c)-news. No fabrication — every number traces to a computed field.
+
+DRIFT_WARNING_TO_PEER:
+Minor refinement to your handoff's expectation: you expected "L5/L15 + platoon + park + opp-pitcher likely (a) or (b)." Confirmed (b) for opp-pitcher/season-line/park-hits/L5-L15 (cheap), (a) for platoon/weather/HR-park. BUT flag: the (a) lineup fields are only 22%-populated on real picks (confirmed-lineup-gated), so "already on the pick" ≠ "reliably shown" — the card needs null-guards, not just a field read. Also recentForm/batterForm are 0/8618 on the snapshot row (form is engine-on-demand, not row-stamped) → L5/L15 is (b)-via-cache-lookup, slightly more than a whitelist copy.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A translates the (a)/(b)/(c) map to plain English + scopes the Step-2 card build: MLB displayBundle (render a), serializer-whitelist extension (wire b: opp-pitcher, season line, park-hits, L5/L15-via-cache), lineup null-guards, news labeled (c). Operator gates the build. NBA stat-backing map deferred (Finals ending, MLB-first).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/step2_statbacking_map_mlb.md (deliverable) · .scratch/probe_step2_statbacking_mlb.js/.txt (live grounding) · phase4Tracking.js toTrackedMlbBestEntry/leanBet (serializer whitelist) · deriveMlbPitcherEnvironmentContext.js + mlbBatterFormCache.js + applyMlbContextualLayers.js:140 ((b) compute sites) · fe-trust-surface/synthesis.md §E (displayBundle asymmetry)
