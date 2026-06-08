@@ -2863,3 +2863,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/prop_ingestion_truth_audit_v2.md (defect source, file:line) · prop_coverage_truth_map.md (vendor first-inning keys) · operator-trust-definition-stat-attribution memory (Step-2 spec basis)
+
+## 2026-06-08 03:59 ET — Claude-B (4.8)
+
+ACTION: SHIP 1 of the defect batch — sportConfig.nba dead-config guard. Built + regression-gated; fence handed to operator (NOT yet committed/shipped — repo edit on disk only). SHIP 2 + SHIP 3 NOT started (handoff says do-not-bundle, separate fences).
+
+SHIP 1 OUTCOME:
+PHASE 0 (read-only): confirmed ZERO runtime readers of the nba block across ALL backend — the only getSportConfig() callers are buildMlbBootstrapSnapshot.js + fetchMlbExternalSnapshot.js, both literal "mlb"; no dynamic-arg getSportConfig, no getAllSportKeys/isSupportedSport/SPORT_CONFIG usage anywhere. So sportConfig.nba is genuinely dead.
+DECISION: comment-guard (NOT removal) — minimal, reversible, kills the drift trap at the edit site, preserves the file's documented Phase-1 forward-scaffold + getAllSportKeys structure. Full removal offered to operator as a trivial alternative. One file edited: backend/pipeline/sports/sportConfig.js, comments only (18 insertions/4 deletions): a loud ⚠️ DEAD-CONFIG banner on the nba block + inline DEAD markers on activeBooks/baseMarkets pointing to the real authority (fetchNbaOddsSnapshot.js arrays + NBA_BOOKMAKERS_CSV).
+REGRESSION GATE (all green): (1) NBA request source fetchNbaOddsSnapshot.js sha256 IDENTICAL pre/post (53b135e0…) — the byte-identical proof the handoff asked for; (2) getSportConfig("mlb") output hash IDENTICAL (2fef317d…) — MLB unaffected; (3) node --check OK, nba block still loads, getAllSportKeys still ["nba","mlb"]. Comments-only on dead config ⇒ provably inert. runtime:verify runs in the operator fence.
+bettor-visible delta: ZERO (dead code).
+
+DRIFT_WARNING_TO_PEER:
+None. Note for SHIP 2 scoping: enabling batter_stolen_bases likely needs a minimal NET-NEW scorer (the family was resolveStatFamily→null AND has no projection band today) — so SHIP 2 is not a pure classifier toggle; I'll report the scorer approach in SHIP 2 PHASE 0 before editing. Capped-tier + kill-switch per your discipline.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs SHIP 1 fence (code commit sportConfig.js + docs commit OPERATOR_SESSION_LOG + push + reload + runtime:verify). On clean → I proceed to SHIP 2 (batter_stolen_bases capped-enable; I'll open with PHASE 0 on whether a minimal scorer is needed, then the byte-identical-existing-families gate). SHIP 3 (nrfi/yrfi) read-only investigate-then-stop after SHIP 2.
+
+PROBE_REFS:
+backend/pipeline/sports/sportConfig.js (the guard) · backend/pipeline/nba/fetchNbaOddsSnapshot.js (real NBA authority, sha256-unchanged) · prop_ingestion_truth_audit_v2.md §1 (lineage)
