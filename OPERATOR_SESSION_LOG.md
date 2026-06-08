@@ -2289,3 +2289,44 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/probe_hit_recency_pre_post.txt (R1 source — magnitudes flagged inflated), docs/audits/2026-06-07-curation-anti-selection/synthesis.md (R2 synthesis, F1.1 lineage).
+
+## 2026-06-07 20:56 ET — Claude-B (4.8)
+
+ACTION: executed F1.1 (deduped + vig-aware re-probe) per DRAFT_HANDOFF — READ-ONLY, no edits. Dedup key player|family|side|line|slateDate (book excluded).
+
+AUDIT_OUTCOME:
+DEDUP: 12,577 raw settled rows → 5,162 deduped picks (≈2.4x inflation). Outcome collisions: 0. Tier disagreement
+across books: 78 keys (best tier kept). MissingOdds: 0.
+VIG CAVEAT (premise): both-sides odds recoverable for only 28/5,162 (0.5%) — same-line opposite-side rarely logged
+same slate. So edges below are vs RAW implied (vig included) → true fair-line edges ≈1-3pp LESS negative than shown.
+PER-CELL vs R1 (PRE-calib, edge vs raw implied):
+  midfav CUR  n=188  -7.7pp (R1 -5.4)  HOLDS · midfav UNC  n=45  +13.7pp (R1 +6.7)  HOLDS, magnitude DOUBLED →
+    midfav anti-selection gap deduped = 21.4pp (REAL, biggest finding; UNC n modest)
+  pickem CUR  n=140  -2.5pp (R1 -6.4)  HOLDS-but-collapsed · pickem UNC  n=137  -8.7pp (R1 -8.5)  HOLDS →
+    NO anti-selection at pickem (curated better)
+  middog CUR  n=238  -4.5pp (R1 -6.9)  HOLDS · middog UNC  n=237  -4.2pp (R1 +0.8)  INVERTED →
+    middog anti-selection DISSOLVES (R1's +0.8 was book-duplication noise; CUR≈UNC)
+TIER LADDER deduped (PRE, n≥5): midfav FADE 69%(45) > ELITE 54%(24) ≈ STRONG 49%(65) ≈ PLAYABLE 48%(99) ·
+  pickem ELITE 5%(19) vs STRONG 53%/PLAYABLE 53%/FADE 39% · middog PLAYABLE 39%(220) > FADE 36%(237) > ELITE 15%(13).
+  REFINED STORY: the gross "whole ladder inverted" softens to TWO located pathologies — (P1) ELITE in pickem+middog
+  is toxic (5%/15% realized on the engine's HIGHEST-claimed-edge picks; n=19/13 small but extreme), (P2) FADE at
+  midfav wins 69% (the system fades winners there). PLAYABLE/STRONG ≈ market-minus-vig.
+POST-CALIB deduped (tiny n, unreadable): midfav CUR -2.4 (22) · pickem -10.5 (18) · middog +7.5 (32) · heavylong
+  +0.3 (29) — mixed, note middog green shoot; re-eval at 7-14d.
+4-CELL VERDICT: MIXED — primarily (A) for the HEADLINE midfav anti-selection (direction holds, magnitude grew),
+  with (C) on middog-UNC (R1 inflation misled that cell). Not (B), not (D) (midfav gap 21.4pp far exceeds vig).
+RECOMMENDATION: F1.2 remains real but should be RESCOPED from "redesign the ladder" to the two located pathologies
+  (ELITE criteria in pickem/middog; FADE conviction logic at midfav). F1.3 interim cap is cheap + narrow if wanted
+  (ELITE pickem/middog is ~32 picks/28d — low exposure). Operator gates.
+
+DRIFT_WARNING_TO_PEER:
+PREMISE_CHECK_NEEDED (minor, for future scoping): the F1.1 vig method assumed both-sides odds are recoverable from
+the corpus — reality 0.5%. Future vig-aware probes need a snapshot-based opposite-side join (or accept raw-implied
+with the ≈1-3pp caveat). Not a violation; the fallback you specified was used and is labeled.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A summarizes for operator + presents the F1.2-rescoped (two pathologies) vs F1.3 (narrow interim cap) vs
+wait-for-7-14d-post-calib decision. No build until operator gates.
+
+PROBE_REFS:
+.scratch/probe_f11_deduped_vig_aware.txt (full table) · .scratch/probe_f11_deduped_vig.js (method)
