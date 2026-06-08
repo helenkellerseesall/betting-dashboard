@@ -2899,3 +2899,39 @@ Operator runs the docs-only fence below (findings doc). Operator → Claude-A: (
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/ship2_ship3_findings.md (deliverable) · buildMlbPlayerDataset.js:232-313 (additive band site) · fetchMlbGameResults.js:60/211 (grader SB-ready) · data/mlbBatterStats.json (SB rate source) · snapshot-mlb.json rawOddsEvents.marketsRequested (nrfi/yrfi stripped proof)
+
+## 2026-06-08 04:16 ET — Claude-A (Cowork)
+
+ACTION: INDEPENDENTLY VERIFIED SHIP 1 — diff of d445c79 is comments-only on sportConfig.js (DEAD banner + comment edits, 18/4), fetchNbaOddsSnapshot.js NOT in commit (byte-identical true by construction); 7ecfcda is docs-only (no SHIP 2/3 code). Tree clean. Relayed plain-English (incl. Poisson explanation) to operator. Operator decisions: SHIP 2 = APPROVE & BUILD (Poisson SB band, capped tier, kill-switch); SHIP 3 = config-hygiene removal ONLY (delete dead nrfi/yrfi keys; NRFI-as-a-bet PARKED on backlog as a separate new-market-class build). Drafting both as separate ships. After this, Step-2 PHASE-0 audit (operator's main effort) is the next handoff.
+
+DRAFT_HANDOFF:
+```
+DEFECT-BATCH continuation — SHIP 2 (build) + SHIP 3 (hygiene). TWO separate ships, separate fences/commits — do NOT bundle. Read CLAUDE_BRIDGE_PROTOCOL.md, append your Claude-B block. All touch points trace to YOUR ship2_ship3_findings.md.
+
+SHIP 3 (do first — trivial, SHIP-1 class): config-hygiene — remove the dead nrfi/yrfi keys from sportConfig.mlb.extraMarkets (vendor-rejected every slate; marketsRequested excludes them — zero behavior change). Regression gate: getSportConfig("mlb") request output BYTE-IDENTICAL pre/post EXCEPT the two removed dead keys never appeared in the accepted request anyway → the live MLB marketsRequested list is byte-identical. node --check. runtime:verify 13/13. NRFI-as-a-bet (game-period market class) is PARKED on backlog per operator — do NOT build it here.
+
+SHIP 2 (the real build): enable batter_stolen_bases as a CAPPED-tier family with Poisson projection + kill-switch. Operator approved the Poisson modeling choice.
+  build (4 touch points per your PHASE 0):
+   (1) resolveStatFamily: add SB branch (returns the stolenBases family instead of null).
+   (2) STAT_FAMILIES += stolenBases.
+   (3) projection band at buildMlbPlayerDataset.js:232-313 — add stolenBases:{floor,mostLikely,ceiling} as a NEW KEY (every other family's object byte-identical) + the deriveSigma/zScale case. Poisson: λ = seasonSB / gamesPlayed (from data/mlbBatterStats.json); for the 0.5 line P(SB≥1) = 1 − e^(−λ); null/zero/absent rate ⇒ NO pick (probabilityHonesty null-preservation, NEVER fabricate a rate). Document the formula inline.
+   (4) CAPPED TIER: stolenBases can NEVER surface as ELITE/STRONG (zero graded history — honors Step-1 trust proof; same cap discipline as parked pitcher-Ks) + MLB_ENABLE_STOLEN_BASES kill-switch (read once at module load, CALIB_LINEAWARE precedent; unset/"1"=ON enabled, "0"=OFF ⇒ family stays dropped exactly like today).
+  grader: fetchMlbGameResults.js already SB-ready (:60 extracts stolenBases, :211 sb→_batting.stolenBases) — VERIFY it actually settles a synthetic SB pick end-to-end; if the half-finished 2026-05-23 enablement has a gap, report before relying on it.
+  REGRESSION GATE (regression-gate-first, single fence):
+   - every EXISTING family (hits/total_bases/rbis/hr/runs/ks/outs/walks/earned_runs) tier + band BYTE-IDENTICAL pre/post (new key must not perturb siblings) — the gate.
+   - KILL-SWITCH OFF run: byte-identical to today (no SB family at all).
+   - new SB family: appears only at PLAYABLE-or-below; spot-check 5 players (λ, P(SB≥1), tier) in operator language; null-rate player ⇒ no pick.
+   - MLB preserved-file sha256 unchanged if any touched (buildMlbPropClusters / scoreMlbProp etc.); if SB surfacing requires a preserved file, FLAG before editing.
+   - node --check; backend reload; runtime:verify 13/13.
+  bettor-visible delta: a new capped, clearly-low-tier stolen-bases family starts appearing + grading (clock starts for ~14d provability). NOT a confident pick yet by design.
+
+discipline (both): show-before-edit (file + why) + diff-after; SEPARATE code + docs commits per ship; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn OPERATOR_SESSION_LOG append; every number traces to a probe; PRESERVED.md files flagged before edit.
+
+go. SHIP 3 hygiene first (trivial), then SHIP 2 build. Report each regression gate before its fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 ships SHIP 3 (dead-key removal, trivial) then SHIP 2 (batter_stolen_bases capped Poisson family + kill-switch, regression-gated on existing-families-byte-identical), each its own fence + Claude-B block; verifies the grader settles SB end-to-end. After the batch lands clean, Claude-A drafts the Step-2 PHASE-0 audit (per-pick stat-backing data map — the operator's main effort).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/ship2_ship3_findings.md (touch points) · buildMlbPlayerDataset.js:232-313 (band site) · fetchMlbGameResults.js:60/211 (grader) · data/mlbBatterStats.json (λ source) · backend/pipeline/shared/probabilityHonesty.js (null-preservation, PRESERVED)
