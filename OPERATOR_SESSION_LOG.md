@@ -2808,3 +2808,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/probe_f11_deduped_vig.js (canonical vig-aware method to reuse) · backend/runtime/tracking/mlb_tracked_bets_*.json (corpus, Claude-A verified) · docs/audits/2026-06-07-prop-coverage/ (audit home) · backend/pipeline/shared/vigStripping.js (PRESERVED vig authority)
+
+## 2026-06-08 03:35 ET — Claude-B (4.8)
+
+ACTION: STEP-1-TRUST-PROOF executed (read-only, zero bettor delta) — vig-aware realized hit% by family×tier on the MLB graded ledger, F1.1 method via PRESERVED vigStripping.js. PHASE A board trust + PHASE B pitcher-K verdict + PHASE C defect batch. Deliverable docs/audits/2026-06-07-prop-coverage/step1_trust_proof.md (committed via fence below).
+
+AUDIT_OUTCOME:
+CORPUS: 10 mlb_tracked_bets files (05-28→06-07), 8,870 settled → 3,835 deduped graded (key player|family|side|line|slateDate; book excluded — slateDate KEPT to match F1.1 exactly; the handoff shorthand dropped it, which would undercount across 10 days). Vig recovery 0.4% (16/3835) → raw-implied fallback; CAVEAT DIRECTION (corrected): edges shown are PESSIMISTIC, true vig-stripped ≈1-3pp LESS negative (raw-implied>fair). I initially mislabeled this "optimistic" in-probe and fixed it before running — flagging for honesty.
+PHASE A (board top-picks): NOT YET PROVABLE. The ELITE/STRONG anchor tiers — the labels that mean "top pick" — are almost all n<30 (hits ELITE n=1/STRONG n=8; tb ELITE n=16/STRONG n=26; hr ELITE n=13; rbis has ZERO anchor-tier picks). Only hr STRONG clears n≥30 among anchors and it's −4.6pp (mildly losing). The only sufficient-n POSITIVE cells: PLAYABLE hits +0.5pp (n=138) and PLAYABLE total_bases +2.2pp (n=74) — the trustworthy core. 71% of board volume is LONGSHOT milestone rungs, all negative −1.9 to −5.3pp (≈ pay the vig). rbis weak (PLAYABLE −12.3pp). Honest Step-1 answer: the board cannot today certify its top picks beat vig; trust currently rests on PLAYABLE hits+TB; high-tier badges need more graded volume.
+PHASE B (pitcher-K verdict): FORK (b) — HOLD, do NOT surface. ks PLAYABLE −9.0pp (n=37) vs batter PLAYABLE +0.5/+2.2; every ks cell negative; anchors ks ELITE n=8 (−39.7) / STRONG n=18 (−15.1) both INSUFFICIENT-N + deeply negative. Even after +1-3pp caveat ks PLAYABLE ~−6 to −8pp, clearly worse than batters. mlb_ks_board_surface_scope.md stays PARKED (kill-switch-ready, NOT shipped). Re-run after ~14 more graded days. The vig-aware read overturned the surface-Ks instinct — exactly why it was run first.
+PHASE C (defect batch, named not built): (1) dead sportConfig.nba remove-or-guard; (2) batter_stolen_bases resolveStatFamily→null enable family; (3) nrfi/yrfi correct vendor first-inning key (investigate).
+
+DRIFT_WARNING_TO_PEER:
+Two honesty flags on my own work this turn: (a) corrected an in-probe caveat that had the vig direction backwards (now: shown edges PESSIMISTIC, true ~1-3pp less negative) before running — no fabricated number reached the doc. (b) Your tier-count preview (hits STRONG n=16) vs my dedup (hits STRONG n=8) differ because I dedup player|family|side|line|slateDate (collapses per-book duplicates within a slate) — your raw count was pre-dedup; both correct at their grain, mine is the F1.1-consistent graded-pick grain. Neither changes the verdict.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A translates the trust table to plain English for operator: (1) only PLAYABLE hits+total_bases are provably +EV today; ELITE/STRONG badges unproven (thin n); longshot bulk pays vig; (2) pitcher-Ks = HOLD (measurably worse than batters); (3) gate the 3-defect batch (sportConfig.nba / batter_stolen_bases / nrfi-yrfi) as next ships. Operator gates. Recommend re-running this exact probe at +14 graded days to re-judge anchor tiers + Ks.
+
+PROBE_REFS:
+.scratch/probe_step1_trust.js/.txt (this read) · docs/audits/2026-06-07-prop-coverage/step1_trust_proof.md (verdict) · mlb_ks_board_surface_scope.md (PARKED) · backend/pipeline/shared/vigStripping.js (PRESERVED)
