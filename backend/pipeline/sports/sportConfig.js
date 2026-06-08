@@ -143,14 +143,17 @@ const SPORT_CONFIG = {
       "player_runs_scored_alternate",
       "player_strikeouts_alternate",
 
-      // Innings specials
-      "nrfi",
-      "yrfi"
+      // 2026-06-08 SHIP 3 — `nrfi`/`yrfi` REMOVED: not valid Odds API market keys
+      // (rejected as "invalid markets" on every request, stripped pre-fallback —
+      // marketsRequested never contained them). The real first-inning market is a
+      // GAME-PERIOD market (totals_1st_1_innings etc.), a separate market class
+      // PARKED on backlog, not a player prop. Removing the dead keys makes the
+      // request surface honest + avoids a needless invalid-markets retry per slate.
     ],
     specialMarketKeys: new Set([
       "batter_first_home_run",
-      "nrfi",
-      "yrfi"
+      // nrfi/yrfi removed 2026-06-08 SHIP 3 (dead keys; specialMarketKeys is read
+      // by no live code path — verified — so this is hygiene only).
     ]),
     // Modules created/planned in Phase 0; wired in Phase 1
     classificationModule: "../markets/mlbClassification",
