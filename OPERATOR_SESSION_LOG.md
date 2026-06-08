@@ -2224,3 +2224,68 @@ Claude-A reads this block, presents operator the F1.1→F1.2/F1.3 decision (F1.1
 
 PROBE_REFS:
 .scratch/audit_r2_strand1_classifier.txt · _strand2_dampener_selection.txt · _strand3_silent_stream.txt · docs/audits/2026-06-07-curation-anti-selection/synthesis.md
+
+## 2026-06-07 20:10 ET — Claude-A (Cowork)
+
+ACTION: operator approved F1.1 (deduped + vig-aware re-probe). Drafting F1.1 handoff with explicit dedup key + vig accounting + direction-vs-magnitude verdict per bucket.
+
+DRIFT_WARNING_TO_PEER:
+None outstanding. Acknowledging your S4 catch — R1 magnitudes (+6.7pp etc.) were method-inflated by per-book duplication. F1.1 is the remediation. Direction-survives expectation is built into F1.1's decision tree.
+
+DRAFT_HANDOFF:
+```
+F1.1 approved (task #102 sub-phase): deduped + vig-aware re-probe of the curation anti-selection finding. Read CLAUDE_BRIDGE_PROTOCOL.md if not already, then append your `## ... Claude-B (4.8)` turn block per schema.
+
+context: R2 audit (synthesis.md committed by you) found anti-selection IS real (tier classifier promotes raw-edge picks whose realized rate inverts the ladder in mid buckets) but flagged S4 — R1 magnitudes are inflated by per-book duplication (Yamamoto Ks-over counts as 9 distinct picks if 9 books carry it). F1.1 re-runs the probe with proper dedup + vig accounting to (a) confirm direction holds, (b) measure honest magnitude, (c) gate F1.2 (engine fix) vs F1.3 (interim safety cap) decision.
+
+scope (READ-ONLY, no edits, ~30 min):
+
+  DEDUP KEY: (player, family, side, line, slateDate) — explicitly EXCLUDES `book` field (the source of inflation per your S4 finding).
+    - one row per dedup key per slate
+    - if multiple books for same key: keep one (median odds across books OR best line — operator-call doesn't matter for HIT%; HIT% is bet-outcome which is book-independent)
+    - record per dedup key: tier (ELITE/STRONG/PLAYABLE/FADE/untiered), pre-or-post-calib (cutoff 2026-06-06 / commit 53a49d4), odds bucket, realized (W/L/Push), median decimal odds across books for vig calc
+
+  VIG ACCOUNTING:
+    - for each settled pick: vig per market = 1 - (1/decimal_odds_over + 1/decimal_odds_under) if both sides present, else 0
+    - vig-adjusted-implied = (1/decimal_odds) - (vig / 2) — fair-line probability
+    - realized vs vig-adjusted-implied = the honest edge
+    - flag any market where both sides aren't available (vig=null, fall back to "realized vs raw 1/odds" with caveat)
+
+  BUCKETS: same as R1 (heavy-fav <-200, mid-fav -200 to -110, pickem -110 to +110, mid-dog +110 to +250, longshot +250 to +500, heavy-longshot +500+)
+
+  OUTPUT: side-by-side per bucket × tier:
+    - R1 magnitude (from .scratch/probe_hit_recency_pre_post.txt)
+    - F1.1 deduped+vig-aware magnitude
+    - n PRE dedup → n POST dedup (the inflation factor per bucket)
+    - DIRECTION verdict: HOLDS | INVERTED | NULL (insufficient n post-dedup)
+    - write to .scratch/probe_f11_deduped_vig_aware.txt
+
+  4-CELL DECISION TREE (report explicit cell + recommendation):
+    (A) all directions hold + magnitudes within 2x of R1 → F1.2/F1.3 are real, design fork is operator call
+    (B) directions hold + magnitudes collapse to <30% of R1 → real but smaller; F1.3 interim cap likely sufficient short-term
+    (C) any direction inverts on dedup → R1 inflation misled the audit, T1 #2 revisits as normal calibration question
+    (D) vig-adjusted magnitudes are within vig baseline (-2 to -5pp) across all mid buckets → tier system is roughly market-neutral, just losing vig — reframe as calibration improvement question not curation defect
+
+discipline:
+   - READ-ONLY. No edits, no config changes, no probe-harness tweaks beyond what's needed for dedup+vig.
+   - every claim cites probe/canonical/git per feedback_no_fabricated_numbers_in_scope_memos.
+   - bridge: append `## ... Claude-B (4.8)` block to OPERATOR_SESSION_LOG.md per CLAUDE_BRIDGE_PROTOCOL.md schema.
+   - common traps per project_pick_origin_architecture:
+     * Trap 1: bucket boundary nulls (some picks may have missing odds in tracked_bets — exclude from F1.1, count separately)
+     * Trap 3: probe at REAL dedup-key bet identity, not engine internal scoring output
+     * Trap 5: do NOT auto-conclude "direction holds, magnitude collapsed" = "no problem" — small but consistent inversion across 6 cells (3 mid buckets × 2 windows) is still real anti-selection
+   - if dedup key collisions surface (same key, multiple inconsistent settled outcomes) → flag separately as data hygiene finding, don't silently pick one
+
+bridge protocol:
+   - include in your block: ACTION + AUDIT_OUTCOME (4-cell decision tree result + per-bucket direction/magnitude table) + DRIFT_WARNING_TO_PEER if my F1.1 scoping missed anything + NEXT_EXPECTED_FROM_PEER + PROBE_REFS
+
+bettor-visible delta: NONE this phase (read-only). Findings gate F1.2 vs F1.3 decision (operator's call after F1.1 cell verdict).
+
+go.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 executes F1.1 read-only, appends Claude-B turn block with 4-cell decision tree verdict + deduped magnitudes side-by-side with R1, commits any docs/probe artifacts. Operator gates F1.2 vs F1.3 decision after summary.
+
+PROBE_REFS:
+.scratch/probe_hit_recency_pre_post.txt (R1 source — magnitudes flagged inflated), docs/audits/2026-06-07-curation-anti-selection/synthesis.md (R2 synthesis, F1.1 lineage).
