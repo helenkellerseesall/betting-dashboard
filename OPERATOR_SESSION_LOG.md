@@ -2573,3 +2573,59 @@ Operator runs the ship fence (probe gate → code commit → docs commit → pus
 
 PROBE_REFS:
 .scratch/probe_f12a_pre.txt · .scratch/probe_f12a_post.txt · .scratch/probe_f12a_drive.js (method) · .scratch/f12a_pre_hashes.txt · .scratch/f12a_verify_summary.txt · .scratch/audit_f12a_phase0.txt (lineage)
+
+## 2026-06-07 23:23 ET — Claude-A (Cowork)
+
+ACTION: fresh Cowork chat (prior ended on context length). Independently verified F1.2a on the board: commits 4e6b6a2 (code, exactly the 6 intended files) + 1e5c5da (docs) at HEAD, tree clean (git ls-files -m empty), paired gate 0/2066 + traps 23/23 + MLB sha256 identical per .scratch/f12a_verify_summary.txt. Operator approved F1.2b draft (task #103). Handoff below. Numbers reconciled to .scratch/audit_f12_phase0.txt as the design basis — my orientation notes had blended F1.1-ladder cells (69% n=45) with the phase-0 NBA-only cut (64% n=59); both trace to real files, handoff cites each per-file.
+
+VERIFICATION GAP (flag, not blocker): runtime:verify 13/13 from the F1.2a fence is no longer visible in .scratch/last.txt (overwritten by a later /status probe). The status payload in last.txt was served post-ship and lists both F1.2a commits in recentCommits — backend alive on new HEAD. 4.8: re-run runtime:verify inside the F1.2b fence as usual; that closes the gap.
+
+DRAFT_HANDOFF:
+```
+F1.2b approved (task #103, fork (b) sub-phase 2 of 2): make _bucket consequential in nbaTierClassifier — P1-A (ELITE→STRONG demotion in pickem/mid-dog) + P2-C-then-A (narrowest magnitude-gate exemption at mid-fav), per operator-approved design in .scratch/audit_f12_phase0.txt. Read CLAUDE_BRIDGE_PROTOCOL.md if not already, then append your Claude-B turn block per schema.
+
+context: F1.2a (commit 4e6b6a2) wired bucket detection — classifyNbaTier computes `const _bucket = bucketForOdds(oddsAmerican)` internally, nothing reads it yet; 5 production call sites thread oddsAmerican. F1.2b is the consumer. Evidence base (cite-per-file):
+  - .scratch/audit_f12_phase0.txt N1: ELITE pickem NBA 21 picks (14% realized) · ELITE middog NBA 13 (15%) · FADE@midfav NBA 59 winners at 64% — deduped PRE-calib, NBA-only pathology (MLB cells 0/2/0).
+  - .scratch/audit_f12_phase0.txt N2 (P2 path correction): 57/59 FADE@midfav winners carry conviction ≥0.06 (mean ≈0.15); 54/59 are UNDERs; FADE'd by the Lane-D.5 FORM-CONTRADICTION / ALT-LINE MAGNITUDE GATE branch (nbaTierClassifier.js:53-70+), NOT the conviction floor. A conviction-floor fix would no-op for 97% of located winners.
+  - .scratch/probe_f11_deduped_vig_aware.txt tier ladder (original F1.1 signal): pickem ELITE 5% (n=19) · middog ELITE 15% (n=13) · midfav FADE 69% (n=45). Counts differ slightly from the phase-0 NBA-only cut — phase-0 file is the design basis.
+
+scope (audit-first → then build):
+
+PHASE 0 — AUDIT (read-only, before any edit) → .scratch/audit_f12b_phase0.txt:
+  - TRACE THE EXACT GATE: re-drive the deduped corpus (or frozen-fixture method per F1.2a) with branch logging — identify WHICH condition inside the Lane-D.5 magnitude gate (nbaTierClassifier.js:53-70+) fires on the mid-fav UNDER winners (form-contradiction ratio branch vs alt-line absolute branch vs other). Counts per branch.
+  - confirm exemption-predicate data readable INSIDE classifyNbaTier at the gate branch: conviction value + model-side agreement + side + _bucket.
+  - confirm P1-A insertion point: post-tierForPlay demotion step reads _bucket + tier cleanly.
+  - kill-switch feasibility: env var (suggest NBA_BUCKET_TIER_POLICY, precedent CALIB_LINEAWARE) gating BOTH overrides — off ⇒ byte-identical to F1.2a behavior.
+  - DECISION FORK:
+    (i) dominant gate branch isolated + predicate data available → proceed to PHASE 1
+    (ii) the 54 unders scatter across heterogeneous branches (no dominant condition) → STOP, report distribution, operator gate
+    (iii) predicate data unavailable at insertion point → STOP, propose threading sub-phase
+
+PHASE 1 — BUILD (only on fork i):
+  - P1-A: in buckets pickem|mid-dog, ELITE demotes to STRONG (post-tierForPlay, documented inline). All other buckets untouched. unknown bucket = NO overrides (Trap-1: missing odds → today's behavior exactly).
+  - P2: narrowest exemption at mid-fav ONLY, on the EXACT traced condition — phase-0 design rec: model-backed UNDERs (conviction ≥0.10 agreeing with pick side) exempt from the magnitude FADE; final predicate MUST come from your PHASE 0 trace, not assumed. If the trace says a clean exemption is messy, fallback P2-B (midfav magnitude-gate hits demote to PLAYABLE instead of FADE) — flag which you shipped.
+  - both overrides behind the kill-switch; string return shape preserved; MLB buildMlbPropClusters.js ENTIRELY untouched (sha256 gate again).
+
+verification (regression-gate-first, frozen-fixture method per F1.2a):
+  - PRE/POST drive. Assertions:
+    * EVERY tier delta ∈ approved set: (ELITE→STRONG in pickem/mid-dog) OR (FADE→{PLAYABLE|computed} at mid-fav matching traced predicate). Even 1 delta outside the set = halt + revert.
+    * delta counts per bucket; unknown-bucket rows byte-identical; all non-targeted buckets byte-identical.
+    * kill-switch OFF run: byte-identical to PRE (0 mismatches).
+  - downstream consumer probe (today's slate): snapshot ELITE||STRONG acceptance unchanged for demoted picks; bankroll stake units reduced on demoted picks (quantify); best-bets board entry kept; workstation top-picks — un-FADE'd midfav picks become VISIBLE (count them); buildSlipAi composition delta noted.
+  - MLB sha256 identical · node --check all touched files · backend reload · runtime:verify 13/13 (also closes the F1.2a verify-output gap noted in my block).
+  - operator-language spot-check 5 picks (player plays for X, faces Y tonight, old tier → new tier, why in plain English).
+
+discipline: regression-gate-first single fence (probe before commit, exit 1 kills chain) · SEPARATE code + docs commits · plain triple-backtick fences, no bang chars, specific files in git add (NEVER -A), no --no-verify · same-turn OPERATOR_SESSION_LOG.md append · every number cites probe/canonical/git.
+
+honest limits (state in your block): FADE@midfav 64% is n=59 deduped; ELITE pickem+middog 14-15% is n=34 combined — small but extreme vs ~45-50% implied (audit_f12_phase0.txt HONEST LIMITS). Structural shift verifiable at ship; realized-rate proof requires the 14d re-probe.
+
+bettor-visible delta: NONZERO this time. Fewer ELITE badges in pickem/mid-dog (those become STRONG → lower stake sizing), and some previously-hidden mid-fav UNDERs surface as visible picks. Quantify both in AUDIT_OUTCOME.
+
+go. report PHASE 0 fork outcome BEFORE any edit. if (ii) or (iii), pause for operator gate.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 trace (read-only), reports fork (i/ii/iii). On (i): builds P1-A + P2 with delta-set regression gate + kill-switch, ships via operator fence, appends Claude-B block. On (ii)/(iii): stops after PHASE 0 for operator gate via Claude-A.
+
+PROBE_REFS:
+.scratch/audit_f12_phase0.txt (design basis) · .scratch/probe_f11_deduped_vig_aware.txt (original signal) · .scratch/f12a_verify_summary.txt (F1.2a independent verify) · commit 4e6b6a2 (plumbing F1.2b consumes)
