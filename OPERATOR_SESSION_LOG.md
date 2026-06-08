@@ -2418,3 +2418,40 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 .scratch/probe_f11_deduped_vig_aware.txt (F1.1 source — the structural targets), docs/audits/2026-06-07-curation-anti-selection/synthesis.md (R2 lineage), PRESERVED.md (Tier 1 gate).
+
+## 2026-06-07 21:25 ET — Claude-B (4.8)
+
+ACTION: executed F1.2-rescoped PHASE 0 audit (read-only, no edits) — FORK (b), PAUSED for operator gate per handoff.
+
+AUDIT_OUTCOME (PHASE 0 fork + design):
+HARD GATE: PRESERVED.md Tier 1 does NOT include nbaTierClassifier.js or buildMlbPropClusters.js → not fork (c).
+BUCKET-AWARENESS: both classifiers bucket-BLIND (classifyNbaTier has no odds param, nbaTierClassifier.js:52;
+tierForPlay(edge,ev,conf,family), buildMlbPropClusters.js:716) → FORK (b): F1.2a (wire oddsAmerican→bucket into the
+classifier; Trap-1 missing-odds→"unknown"→global fallback) then F1.2b (per-bucket overrides).
+SCOPE NARROWING (deduped probes this turn): BOTH pathologies are NBA-ONLY → only nbaTierClassifier.js + call sites
+touched; MLB tierForPlay OUT of scope (ELITE pickem NBA 21/MLB 0; ELITE middog NBA 13/MLB 2; FADE@midfav NBA 59/MLB 0).
+P2 PATH CORRECTION (design-critical): FADE@midfav winners are NOT no-opinion FADEs — 57/59 carry conviction ≥0.06
+(mean ≈0.15), 54/59 are UNDERS → they come from the Lane-D.5 form-contradiction/alt-line MAGNITUDE GATE, not the
+conviction floor. A conviction-floor fix would no-op 97% of the located winners.
+DOWNSTREAM CONSUMERS: fetchNbaOddsSnapshot ELITE||STRONG acceptance (demotion keeps it) · bankroll units (demotion
+cuts stake on toxic class — desirable) · best-bets board gate (kept) · top-picks FADE filter (un-FADE'd midfav
+becomes visible PLAYABLE) · buildSlipAi leg-tier factor (modest) · dampener/CLV: no tier reads.
+DESIGN RECOMMENDATION: P1-A — bucket-aware cap, ELITE→STRONG in pickem/middog (P1-B raise-threshold REJECTED on
+evidence: claimed edge is inverse-predictive there; P1-C calibration-confirmation as future upgrade). P2-C-then-A —
+F1.2b first traces the exact magnitude-gate condition on the 54 sample unders, then narrowest bucket-aware
+exemption (model-backed midfav unders exempt from magnitude FADE); P2-B (demote-to-PLAYABLE) as fallback.
+HONEST LIMITS: FADE@midfav 64% = n=59 deduped; ELITE pickem/middog 14-15% = n=34 combined — small-but-extreme;
+structural shift verifiable at ship, realized proof at 14d re-probe (handoff Trap 5 acknowledged).
+
+DRIFT_WARNING_TO_PEER:
+PREMISE_CHECK correction to the handoff's P2 framing: "raise conviction floor / invert conviction logic" targets
+the WRONG branch — the located winners come from the magnitude gate (57/59 conviction-carrying). F1.2b design must
+target the magnitude-gate UNDER branch at midfav, as scoped above.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A summarizes fork (b) + design recs for operator; operator gates F1.2a (bucket wiring) + F1.2b (P1-A +
+P2-C-then-A). On approval, next handoff = F1.2a build (regression-gate-first; heavy-fav/longshot/heavy-longshot +
+all MLB byte-identical as the gate).
+
+PROBE_REFS:
+.scratch/audit_f12_phase0.txt (full PHASE 0) · .scratch/probe_f11_deduped_vig_aware.txt (lineage)
