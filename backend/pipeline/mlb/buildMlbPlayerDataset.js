@@ -2,6 +2,13 @@
 
 const normalizeName = require("../../utils/normalizeName")
 
+// 2026-06-08 SHIP 2 — stolen-bases kill-switch. Read ONCE at module load
+// (CALIB_LINEAWARE / NBA_BUCKET_TIER_POLICY precedent). unset/"1" → ON; ONLY the
+// exact string "0" → OFF. OFF ⇒ projectHitterStats emits NO stolenBases band
+// (predictions object byte-identical to pre-SHIP-2 for every existing family).
+// Mirrored by the same flag in buildMlbPropClusters.js (classifier/tier gates).
+const SB_ENABLED = String(process.env.MLB_ENABLE_STOLEN_BASES ?? "1") !== "0"
+
 function norm(v) {
   return String(v == null ? "" : v).trim()
 }
@@ -101,7 +108,11 @@ function buildMlbPlayerDataset(input = {}) {
 
 // ---- Player outcome bands (floor / median / ceiling) — unified with dataset module ----
 // ---- Stat families (consumed by buildMlbBestBetsBoard) ----
-const HITTER_STATS = ["hits", "totalBases", "hr", "rbis", "runs", "batterKs"]
+// 2026-06-08 SHIP 2 — "stolenBases" appended only when the kill-switch is ON, so
+// OFF leaves this list (and every downstream family iteration) byte-identical.
+const HITTER_STATS = SB_ENABLED
+  ? ["hits", "totalBases", "hr", "rbis", "runs", "batterKs", "stolenBases"]
+  : ["hits", "totalBases", "hr", "rbis", "runs", "batterKs"]
 const PITCHER_STATS = ["ks", "outs", "hitsAllowed", "earnedRuns", "walks"]
 
 function num(x) {
@@ -228,6 +239,35 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const batterKsFloor = 0
   const batterKsCeiling = round1(clamp(1, 4, batterKsMedian + 1.0))
 
+  // 2026-06-08 SHIP 2 — stolenBases Poisson band (gated). λ = seasonSB / gamesPlayed
+  // from the season stats cache (plumbed onto batterStats by applyMlbContextualLayers).
+  // P(SB≥k) is Poisson — k=1 for the standard 0.5 line. Honesty (probabilityHonesty
+  // spirit): missing/non-finite rate OR gamesPlayed ⇒ NO band emitted (key omitted) ⇒
+  // modelProbOver returns null ⇒ no pick — never a fabricated rate. Zero-SB batter ⇒
+  // λ=0 ⇒ P=0 ⇒ no edge ⇒ FADE. The ladder carries the real probability; modelProbForSide
+  // has a dedicated NO-SHRINK bypass for this family so the rate signal isn't flattened.
+  let stolenBasesBand = null
+  if (SB_ENABLED) {
+    // Trap-1 guard: read the RAW value (NOT num(), which coerces null→0). A MISSING
+    // rate (null/undefined) must give NO band — never a fabricated "0 steals". A real
+    // 0-SB batter DOES get a band (λ=0 → P≈0 → no edge → FADE), which is honest.
+    // Number.isFinite(null/undefined)===false; Number.isFinite(0)===true.
+    const sbSeason = playerObj?.batterStats?.stolenBases ?? playerObj?.stolenBases
+    const gp = playerObj?.batterStats?.gamesPlayed ?? playerObj?.gamesPlayed
+    if (Number.isFinite(sbSeason) && sbSeason >= 0 && Number.isFinite(gp) && gp > 0) {
+      const lambda = sbSeason / gp
+      const pSb1 = 1 - Math.exp(-lambda)                  // P(SB ≥ 1) per game
+      const pSb2 = clamp01(1 - Math.exp(-lambda) * (1 + lambda)) // P(SB ≥ 2)
+      stolenBasesBand = {
+        floor: 0,
+        mostLikely: round1(lambda),
+        ceiling: pSb1 >= 0.5 ? 2 : (pSb1 >= 0.12 ? 1 : 0),
+        lambda: round1(lambda),
+        ladder: { 0.5: clamp01(pSb1), 1.5: pSb2 },
+      }
+    }
+  }
+
   return {
     hits: { floor: hitsFloor, mostLikely: hitsMedian, ceiling: hitsCeiling, ladder: hitsLadder },
     totalBases: { floor: tbFloor, mostLikely: tbMedian, ceiling: tbCeiling, ladder: tbLadder },
@@ -235,6 +275,7 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
     rbis: { floor: rbiFloor, mostLikely: rbiMedian, ceiling: rbiCeiling, ladder: rbiLadder },
     runs: { floor: runsFloor, mostLikely: runsMedian, ceiling: runsCeiling, ladder: runsLadder },
     batterKs: { floor: batterKsFloor, mostLikely: batterKsMedian, ceiling: batterKsCeiling },
+    ...(stolenBasesBand ? { stolenBases: stolenBasesBand } : {}),
   }
 }
 
@@ -509,4 +550,5 @@ module.exports = {
   mergeHrSourceIndex,
   HITTER_STATS,
   PITCHER_STATS,
+  projectHitterStats, // 2026-06-08 SHIP 2 — exported for the regression probe (pure fn; no behavior change)
 }

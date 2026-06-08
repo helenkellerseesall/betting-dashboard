@@ -7,6 +7,12 @@
 // samples. Safe default 1.0 when DB unavailable or sample too small.
 const { getCalibrationFactor: _getCalFactor } = require("../grading/calibrationFeedback")
 
+// 2026-06-08 SHIP 2 — stolen-bases kill-switch (mirror of buildMlbPlayerDataset.js).
+// Read ONCE at module load. unset/"1" → ON; ONLY exact "0" → OFF. OFF ⇒ resolveStatFamily
+// never returns "stolenBases" (rows drop exactly like today) ⇒ classifier/tier/board
+// byte-identical to pre-SHIP-2. ON ⇒ SB is a CAPPED-tier family (never ELITE/STRONG).
+const SB_ENABLED = String(process.env.MLB_ENABLE_STOLEN_BASES ?? "1") !== "0"
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -411,6 +417,8 @@ function buildMlbPropClusters(rows, opts = {}) {
 
 
 // ---- Best bets board (edge / EV / tiers) — unified with prop clusters ----
+// 2026-06-08 SHIP 2 — "stolenBases" appended only when the kill-switch is ON, so OFF
+// leaves the family registry (and every family iteration downstream) byte-identical.
 const STAT_FAMILIES = [
   "hits",
   "totalBases",
@@ -423,6 +431,7 @@ const STAT_FAMILIES = [
   "hitsAllowed",
   "earnedRuns",
   "walks",
+  ...(SB_ENABLED ? ["stolenBases"] : []),
 ]
 
 function americanOddsToImpliedProb(odds) {
@@ -605,6 +614,15 @@ function modelProbForSide(family, stat, line, side, confidence = null) {
     return Math.max(0.0001, Math.min(maxP, pSideRaw))
   }
 
+  // 2026-06-08 SHIP 2 — stolenBases NO-SHRINK bypass. The generic ladder-shrink
+  // (0.65 toward 0.50) would inflate a real low SB probability (e.g. 6% → ~21%),
+  // erasing the steal-rate signal and manufacturing fake +EV on every SB-over — a
+  // probabilityHonesty/Step-1 violation. SB returns the raw Poisson P(side) straight
+  // from the ladder, capped, NO shrink — same rationale as the HR bypass above.
+  if (family === "stolenBases") {
+    return Math.max(0.0001, Math.min(maxP, pSideRaw))
+  }
+
   if (probInfo.source === "ladder") {
     const shrink = 0.65
     const pSideShrunk = 0.5 + (pSideRaw - 0.5) * shrink
@@ -717,6 +735,12 @@ function tierForPlay(edge, ev, conf, family) {
   if (!Number.isFinite(edge) || !Number.isFinite(ev)) return "FADE"
   if (ev <= 0) return "FADE"
   if (edge < 0.04) return "FADE"
+  // 2026-06-08 SHIP 2 — stolenBases TIER CAP. Zero graded SB history (Step-1 trust
+  // proof: never trust an unproven family at a confident tier). A qualifying SB pick
+  // surfaces at PLAYABLE at most — never ELITE/STRONG — until ~14d of grading earns it.
+  // Returns BEFORE the ELITE/STRONG ladder, so SB can only be FADE (gates above) or
+  // PLAYABLE. No effect on any other family.
+  if (family === "stolenBases") return "PLAYABLE"
   const isHr = family === "hr"
   // Uses volatility-calibrated conf: ~0.56+ ≈ strong separation; 0.65+ becomes rare.
   if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.56) return "ELITE"
@@ -746,6 +770,7 @@ function resolveStatFamily(marketProp) {
     if (direct === "batterks") return "batterKs"
     if (direct === "hitsallowed") return "hitsAllowed"
     if (direct === "earnedruns") return "earnedRuns"
+    if (direct === "stolenbases") return "stolenBases" // 2026-06-08 SHIP 2 (only in STAT_FAMILIES when ON)
     return direct
   }
   const s = `${marketProp?.propType || ""} ${marketProp?.marketKey || ""} ${marketProp?.marketName || ""}`.toLowerCase()
@@ -760,6 +785,10 @@ function resolveStatFamily(marketProp) {
   if (s.includes("walks") && (isPitcherMarket || s.includes("pitcher"))) return "walks"
 
   // Hitter markets.
+  // 2026-06-08 SHIP 2 — stolen bases (gated). Placed first among hitter markets;
+  // "stolen bases" matches no existing branch, so OFF (returns null here) is the
+  // exact pre-SHIP-2 drop behavior. marketKey batter_stolen_bases / propType "Stolen Bases".
+  if (SB_ENABLED && (s.includes("stolen base") || s.includes("stolen_base") || s.includes("stolenbases"))) return "stolenBases"
   if (s.includes("home run") || /\bhr\b/.test(s) || s.includes("home_run")) return "hr"
   if (s.includes("total bases") || s.includes("total_bases")) return "totalBases"
   if (s.includes("rbi")) return "rbis"
@@ -1191,5 +1220,7 @@ function marketPropsFromMlbRows(rows) {
   return out
 }
 
-module.exports = { buildMlbPropClusters, buildMlbBestBetsBoard, marketPropsFromMlbRows, americanOddsToImpliedProb, americanToDecimal, modelProbOver, STAT_FAMILIES }
+module.exports = { buildMlbPropClusters, buildMlbBestBetsBoard, marketPropsFromMlbRows, americanOddsToImpliedProb, americanToDecimal, modelProbOver, STAT_FAMILIES,
+  // 2026-06-08 SHIP 2 — exported for the regression probe (pure fns; no behavior change)
+  resolveStatFamily, tierForPlay, modelProbForSide }
 

@@ -151,6 +151,12 @@ function attachIdentityAndStats(row, { batterByNormName, pitcherByNormName }) {
 				atBats: bEntry.atBats,
 				plateAppearances: bEntry.plateAppearances,
 				homeRuns: bEntry.homeRuns,
+				// 2026-06-08 SHIP 2 — stolen-base rate plumbing (additive). The
+				// stolenBases Poisson projection (projectHitterStats) needs
+				// lambda = stolenBases / gamesPlayed; both from the season cache.
+				// Additive — every existing reader is unaffected.
+				stolenBases: bEntry.stolenBases,
+				gamesPlayed: bEntry.gamesPlayed,
 			}
 		}
 	}
