@@ -3793,3 +3793,24 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-09-prop-stat-backing/prop_predictors_data_map.md (rebuild spec) · workstationRoutes.js:2356+ buildReasoning (rewrite) + :2287 mlbPseudoBest (assembly point) · buildMlbDisplayBundle.js (add pitcher variant) · mlbPitcherGameLogs.json (29 pitchers — pitcher L5 Ks) · buildMlbPitcherCandidates.js:15 (opponentKPercent — populate) · mlbBatterFormCache (batter L5/L15)
+
+## 2026-06-09 18:40 ET — Claude-B (4.8)
+
+ACTION: SHOW-BEFORE-EDIT for the all-in-one prop-stat-backing rebuild (the handoff's required step 1). Produced the per-prop card LAYOUT + a REAL sample card per type from live caches + the assembly mechanism + ONE coverage caveat. Doc: docs/audits/2026-06-09-prop-stat-backing/prop_card_layout_show_before_edit.md. Holding for operator layout-confirm before the rewrite (trust surface + a real coverage decision). NO production code yet — probe-only.
+
+REAL SAMPLES (live, probe-backed — proof it's prop-specific):
+  PITCHER Ks · Paul Skenes: "Recent Ks L2 avg 8.5/start (7,10) · Season 29% K (82K/278BF), 10.5 K/9, 0.90 WHIP · 5.4 IP/start". Opp-lineup-K% omitted tonight (Dodgers not in batter cache — omit-not-fabricate).
+  BATTER HITS · Victor Robles: "Facing Trevor Rogers (17% K) · Season .276 AVG/.345 SLG/21% K · L5 0.2 H/G,0.2 TB/G · L15 0.5 H/G,.313 AVG · Platoon advantage (R vs L)".
+  HR · Jose Altuve: "Power L15 1 HR,.250 ISO · Season 2.9% HR rate,.143 ISO · Park HR 1.00x neutral · Weather wind out_to_cf 35.6mph,77.7°F".
+
+ASSEMBLY MECHANISM (no new external feed): per pick at serve time, resolve snapshot row by canonical normPlayer (full slate, not the 92-row board). Batter row already carries pitcherEnvironmentContext(opp pitcher kRate/gb/fb)+parkContext+weatherContext+platoon; add season line from mlbBatterStats[normPlayer] + L5/L15 from getBatterForm → buildMlbDisplayBundle → statBacking. Pitcher = NEW pitcher-shaped assembly (L5/L15 Ks from mlbPitcherGameLogs.players, K%/K9/WHIP/IP-per-start derived from mlbPitcherStats, opp-lineup-K% derived). buildReasoning renders prop-specific rows from statBacking, omit-not-fabricate. Pick selection/edge/tier/odds untouched (display-only). #101 fixed: "Facing" = opp pitcher + a real rate, not the team name twice.
+
+OPP-TEAM-K% (the one "ingest"): DERIVED, no new feed — average the opposing lineup's batter kRates already in mlbBatterStats (league avg 23% for the helps/hurts read). buildMlbPitcherCandidates.js:15 reads row.opponentKPercent (never set) → populate from this derive.
+
+PREMISE_CHECK_NEEDED (coverage caveat — operator should weigh): mlbBatterStats covers only 16/30 teams tonight (208 batters), so the Season row + opp-lineup-K% OMIT for batters/teams not cached (honest, never faked). Rec: ship now with omit-when-absent + treat "expand the batter-stats populator to the full 30-team slate" as a SEPARATE follow-up coverage task (widens coverage, doesn't change this rebuild). Alternative = block the rebuild on a full batter cache (slower).
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: summarize the 3 sample cards + the coverage caveat to the operator in plain English; get a thumbs-up on (a) the layout reads right and (b) ship-now-with-omit-when-absent (vs block on full batter cache). On confirm, 4.8 builds all-in-one (serve-time assembly + pitcher bundle + opp-K% derive + prop-aware buildReasoning + #101), byte-identical pick gate, separate commits; Claude-A screenshot-verifies all 3 prop types on /m Top Picks. Also flag the 30-team batter-cache expansion as a queued coverage follow-up.
+
+PROBE_REFS:
+docs/audits/2026-06-09-prop-stat-backing/prop_card_layout_show_before_edit.md · buildMlbDisplayBundle.js (statBacking assembly + getBatterForm standalone) · mlbBatterStats.json (208 batters/16 teams, has kRate+teamName) · mlbPitcherStats.json (Skenes 82K/278BF/70IP) · mlbPitcherGameLogs.json .players (Skenes starts 7,10) · snapshot-mlb.json (batter rows carry pitcherEnvironmentContext+park+weather+platoon)
