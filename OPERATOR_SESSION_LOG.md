@@ -3370,3 +3370,40 @@ Claude-A relays to operator + gates: (1) marker SCOPE — hybrid [recommend] vs 
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/sharpplays_marker_phase0.md (predicate+copy+counts) · .scratch/probe_sharpplays_marker.txt (V1-V5 counts + per-family) · calibrationDampener.js (line-aware alt-line no-op, surface-wide) · step1_trust_proof.md (RBIs −11.9pp) · workstationRoutes.js /api/ws/state candidate assembly (flag-compute site)
+
+## 2026-06-09 02:45 ET — Claude-A (Cowork)
+
+ACTION: Acknowledged 4.8's premise correction (my handoff said "Sharp Plays skipped a step"; truth = the line-aware dampener no-ops on ALL alt-line longshots surface-wide, not SP-unique — fair, folded in). Operator nodded: (1) marker scope = HYBRID as worded; (2) deeper alt-line→id-join calibration fix = QUEUE SEPARATELY (do NOT build now). TIER ANCHOR: T1 (trust daily picks) · Sharp Plays honesty marker · build phase.
+
+DRAFT_HANDOFF:
+```
+SHARP-PLAYS HONESTY MARKER — PHASE 1 BUILD (operator nodded scope + copy). Build the HYBRID marker exactly as worded. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Bettor-visible TRUST-SURFACE change → verify at rendered surface (Claude-A does the screenshot — you can't see pixels).
+
+build (per your sharpplays_marker_phase0.md hybrid):
+  BACKEND — at /api/ws/state candidate assembly (workstationRoutes), stamp an additive `calibrationStatus` on each candidate from the REAL dampener condition: "uncalibrated" (no family calibration — RBIs/HR) | "calibrated_shown_raw" (calibration exists but line-aware no-ops on this alt-line — hits/TB) | "calibrated" (standard-line, dampener applied). NEVER fabricate "calibrated" on a raw row. Additive field only.
+  FE (frontend/mobile/index.html, Sharp Plays render) — two renders, both off a backend flag (never FE-invented):
+   (1) TAB-LEVEL disclaimer at the top of the Sharp Plays list — EXACT copy: "Raw model edges — not calibration-adjusted. Less reliable than Top Picks."
+   (2) PER-ROW ⚠ badge ONLY on Step-1-vig-negative families — EXACT copy: "family historically below break-even." Predicate = family ∈ the Step-1-proven-net-negative set (today = RBIs, 38 rows per V5; define as a small traceable list keyed to step1_trust_proof.md, NOT a bare "rbis" magic string, so it's honest + extensible). Confirm the tagged set = the RBI rows before render.
+  the ⚠ claim is a TRUST assertion — it must trace to step1_trust_proof.md (RBIs PLAYABLE −11.9pp vig-aware). If the Step-1 basis for a family is thin-n, flag it (operator approved this copy, but the claim must be defensible).
+
+NOT in scope (operator QUEUED separately — do NOT build): the deeper alt-line → id-join family-calibration fallback (the ~75 hits/TB rows whose existing −4-8pp calibration is ignored on alt-lines). That touches PRESERVED calibrationDampener → its own audit + operator sign-off later. Log it as queued; don't touch the dampener engine here.
+
+REGRESSION GATE (regression-gate-first, single fence):
+  - existing Sharp Plays rows BYTE-IDENTICAL except the added marker/badge on qualifying rows.
+  - TAB disclaimer shows on Sharp Plays ONLY; TOP PICKS + GAMES NOT marked (they're the calibrated-where-possible surfaces; do NOT add the disclaimer there).
+  - per-row ⚠ ONLY on the Step-1-negative family rows (RBIs); spot-check the tagged set = 38 RBI rows, 0 false-positives on other families.
+  - backend `calibrationStatus` traces to the real dampener condition (no fabricated "calibrated").
+  - FE JS new Function() syntax check (node --check broken on .html); node --check backend; backend reload.
+
+discipline: show-before-edit + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; the marker is a trust-surface claim → traces to real calibration + Step-1, never invented; no PRESERVED edit (the dampener stays untouched — that's the QUEUED deeper fix).
+
+bettor-visible delta: Sharp Plays gains a one-line "raw edges, less reliable" disclaimer + a "below break-even" ⚠ on RBI rows. Honesty-positive.
+
+go. build per the approved copy; report regression gate before the fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds the hybrid marker (backend calibrationStatus flag + FE tab-disclaimer + per-row ⚠ on RBI/Step-1-negative rows), regression-gated, separate commits. Claude-A does the rendered-surface screenshot verify (disclaimer on Sharp Plays, ⚠ on RBI rows, both ABSENT on TOP PICKS). QUEUED (operator-approved, separate): (1) deeper alt-line→id-join calibration fallback [touches PRESERVED dampener — own audit], (2) SB board-surfacing, (3) Step-2 render on-screen re-check at next fresh slate.
+
+PROBE_REFS:
+sharpplays_marker_phase0.md (approved hybrid + copy + counts) · step1_trust_proof.md (RBIs −11.9pp — the ⚠ basis) · workstationRoutes.js /api/ws/state (calibrationStatus compute) · frontend/mobile/index.html Sharp Plays render (disclaimer + ⚠) · calibrationDampener.js (PRESERVED — untouched; the queued deeper fix)
