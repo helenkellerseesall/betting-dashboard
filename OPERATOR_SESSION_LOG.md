@@ -3629,3 +3629,35 @@ Operator nods #1 (land on Top Picks + retire sub-tabs — easy/recommended) and 
 
 PROBE_REFS:
 docs/audits/2026-06-09-fe-consolidation/fe_surface_consolidation_phase0.md · index.html (activeSport:778 · landing/mode-toggle:1496-1505 · renderModeToggle:1786 · renderGamesView:1832 · renderGamesBrowser:3379 · renderTopPicks:3067 · nav:685-691) · workstationRoutes.js (/games:1263 · /games-browser:2693 · /top-picks:2515 · readSnapshotRows:255) · backend/snapshot.json + snapshot-mlb.json (live upcoming-date probe)
+
+## 2026-06-09 05:07 ET — Claude-A (Cowork)
+
+ACTION: Acknowledged 4.8's PREMISE_CHECK (my handoff's "small date-widen" for upcoming was WRONG — tracked_bets has no future files; upcoming lives only in snapshot; fair correction). Operator decided: #1 GREENLIT (land on Top Picks + retire sub-tabs — the 1-line activeSport bug that misled the whole session) + #2 = FORK B (re-source GAMES to the snapshot/Tonight's-Games feed → shows upcoming incl. the Wed playoff game). TIER ANCHOR: T1 · FE consolidation · build.
+
+DRAFT_HANDOFF:
+```
+FE CONSOLIDATION PHASE 1 — operator nodded both decisions. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Bettor trust surface → Claude-A screenshot-verifies the whole nav after.
+
+DECISION #1 (land on Top Picks + retire sub-tabs):
+  - fix the landing desync: state.activeSport "mlb" → "top" (index.html:778) so /m renders renderTopPicks on load (the curated view), matching the .active nav highlight. This is the bug that made the whole session verify the wrong screen.
+  - retire the TONIGHT'S GAMES / SHARP PLAYS mode toggle from the bettor nav (legacy mlb/nba sport-tab mode UI, renderModeToggle:1786 + the sharp-mode candidates block ~1556-1763). Leave the legacy code DORMANT (do not delete — minimize blast radius), just unreachable from the bettor nav. A.5 dead-end is structurally gone once mlb/nba tabs aren't in the nav.
+
+DECISION #2 = FORK B (GAMES tab = the snapshot/Tonight's-Games feed, gains upcoming):
+  - re-source the GAMES tab so it shows ALL games incl. UPCOMING (snapshot rows — the Wed NBA playoff game + tomorrow's MLB), grouped by sport (NBA-first), with the games→players→props drill-down + per-prop calibrated info (the "CALIBRATED 350"-style model context renderGamesView already shows). Mechanism your call: promote renderGamesView to all-sports + point the GAMES tab at it, OR re-source renderGamesBrowser/api/ws/games-browser to the snapshot — pick the lower-blast-radius path, report which.
+  - HONESTY for future-dated games: they have BOOK LINES but NO model picks yet → label them honestly (e.g. "lines only — picks generate closer to game time"); never fabricate a pick/edge on a future game. Today's games keep their model context.
+  - retire renderGamesBrowser only if fully superseded; else leave dormant.
+
+REGRESSION/VERIFY: every nav tab (TOP/SLIPS/MY BETS/GAMES/ANALYZE/GRADES) reachable + renders; NO dead-end (no way to get stuck); /m lands on TOP PICKS; GAMES shows upcoming (the Wed game present, labeled lines-only); no Tonight's-Games/Sharp-Plays sub-tabs in nav; Top Picks + GRADES (the new by-tier card) intact. FE JS new Function() check; backend node --check if a route touched + reload. Claude-A screenshot-verifies the full nav.
+
+discipline: show-before-edit (the landing + GAMES re-source) + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; leave legacy code dormant not deleted (minimize blast radius); future-game labels trace to "no picks built yet", never fabricate.
+
+bettor-visible delta: /m opens on the REAL Top Picks (curated). GAMES becomes the full slate incl. upcoming. The two redundant sub-tabs are gone. Cleaner, and the screen you see matches the tab you're on.
+
+go. show-before-edit the landing change + the GAMES re-source mechanism, then build.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds #1 (land on Top Picks + retire sub-tabs) + #2 fork B (GAMES = snapshot feed, upcoming-inclusive, future games labeled lines-only), regression-gated, separate commits. Claude-A then does a FULL nav screenshot-verify (lands on Top Picks · GAMES shows the Wed game · no sub-tabs · all tabs reachable) AND finally verifies the T1 #2 GRADES by-tier card on-screen (owed since e94c1ac — couldn't reach it before due to the landing bug). QUEUED: MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration · pitcher-Ks/SB re-scope (Ks already on Top Picks).
+
+PROBE_REFS:
+fe_surface_consolidation_phase0.md (the surface map + fork) · index.html (activeSport:778 landing · renderGamesView:1832 · renderModeToggle:1786 · renderTopPicks:3067) · workstationRoutes.js (/games snapshot path) · snapshot.json/snapshot-mlb.json (upcoming source)
