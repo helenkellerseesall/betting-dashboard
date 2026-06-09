@@ -3038,3 +3038,56 @@ Claude-A translates the (a)/(b)/(c) map to plain English + scopes the Step-2 car
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/step2_statbacking_map_mlb.md (deliverable) · .scratch/probe_step2_statbacking_mlb.js/.txt (live grounding) · phase4Tracking.js toTrackedMlbBestEntry/leanBet (serializer whitelist) · deriveMlbPitcherEnvironmentContext.js + mlbBatterFormCache.js + applyMlbContextualLayers.js:140 ((b) compute sites) · fe-trust-surface/synthesis.md §E (displayBundle asymmetry)
+
+## 2026-06-08 20:03 ET — Claude-A (Cowork)
+
+ACTION: INDEPENDENTLY VERIFIED the Step-2 headline against live data — snapshot-mlb rows carry the signals (pitcherEnvCtx 8645, batterStats 7353, parkCtx 8645, lineupCtxV2 7106, weatherCtx 6836 of 9233; recentForm 0 = on-demand not stamped, confirms 4.8's L5-via-cache flag); the 106-pick mlb_tracked_best file carries (a) gameTotal/platoon/hr-env/lineupSpot/contextualTags but NOT (b) pitcherEnvironmentContext/batterStats/recentForm — confirming "gap is serialization, not data." Operator decisions: build BACKEND BUNDLE FIRST (additive, no FE, no FE-overhaul collision); card v1 = ALL 4 stat groups PLUS "anything needed to cross-ref WHY this pick is in TOP PICKS" (so bundle carries the selection rationale too, not just stat-backing). Drafting the displayBundle build handoff.
+
+DRAFT_HANDOFF:
+```
+STEP-2 BUILD (backend only, no FE) — MLB pick displayBundle. Assemble a structured stat-backing + why-this-pick bundle onto the MLB pick payload so a future FE render shows ONLY real computed numbers. Operator approved backend-bundle-first (no FE-overhaul collision). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Build spec = step2_statbacking_map_mlb.md.
+
+PHASE 0 (audit-first, REPORT before building):
+  - confirm the canonical MLB pick serializer authority (phase4Tracking.js toTrackedMlbBestEntry/leanBet for tracked_best + mlbIsolatedRoutes /api/best-available + /api/ws/state) — where does the bundle attach so it reaches the bettor pick on ALL surfaces? Extend the canonical, do not spawn parallel.
+  - PRESERVED check: mlbIsolatedRoutes is the MLB sibling of the PRESERVED nbaIsolatedRoutes — FLAG before editing; prefer attaching the bundle in a non-PRESERVED assembler if one carries all surfaces. Report which files the bundle touches + PRESERVED status of each.
+  - confirm mlbBatterFormCache L5/L15 lookup is callable at serialize time (perf ok, no new network); confirm field paths for each bundle item below exist on the candidate row.
+  - design + REPORT the bundle schema (operator eyeballs it) before PHASE 1.
+
+PHASE 1 (build, only after PHASE 0 reported): attach `displayBundle` (additive new key) to each MLB pick. Contents, ALL null-guarded (missing ⇒ omit/null, NEVER fabricate — probabilityHonesty):
+  STAT-BACKING (the matchup math):
+   - opposingPitcher: name + vulnerability (kRate, gbRate, fbRate, velocity, rest/fatigue) from pitcherEnvironmentContext / deriveMlbPitcherEnvironmentContext
+   - seasonLine: avg, obp, slg, ops, iso, kRate from batterStats
+   - recentForm: L5 + L15 line via mlbBatterFormCache lookup
+   - park: hitsFactor, hrFactor, doublesFactor from parkContext
+   - platoon: isPlatoonAdvantage + batter/pitcher handedness
+   - weather: wind/carry/temp from weatherContext
+   - lineup: lineupSpot/depth — NULL-GUARD (only ~22% populated until lineup confirmed → "pending", never blank-as-zero)
+  WHY-THIS-PICK (operator's cross-ref ask — why it's a TOP PICK):
+   - edge (edgeProbability), tier, bucket
+   - modelProb (predictedProbability) vs impliedProb (+ the canonical-corpus calibrated probability per probabilityHonesty — show the calibrated number, never a fake confidence %)
+   - contextualTags, archetype/volatility, mlbPhase3Score (the score that surfaced it)
+  NOT-WIRED (honest markers, never faked):
+   - liveNews: explicit "not_wired" flag (no feed exists — operator-approved label)
+   - lineupConfirmation: structured chip from deriveMlbStarterConfirmationState/mlbLineupCache (confirmed/pending/scratched) — the real structured substitute for news
+
+  kill-switch MLB_DISPLAY_BUNDLE (read once, unset/"1"=ON, "0"=OFF ⇒ no bundle key ⇒ byte-identical to today).
+
+REGRESSION GATE (regression-gate-first, single fence):
+   - EVERY existing pick field BYTE-IDENTICAL pre/post (bundle is additive, must not mutate existing keys/values) — the gate.
+   - KILL-SWITCH OFF: no displayBundle key, byte-identical to today.
+   - bundle correctness: spot-check 5 real picks — each bundle field traces to a real computed source; null-rate/absent ⇒ omitted not faked; lineup-pending shows "pending"; calibrated prob present + honest.
+   - MLB PRESERVED-file sha256 unchanged (if the bundle MUST attach in a PRESERVED file, FLAG + get operator nod first).
+   - node --check; backend reload; runtime:verify 13/13.
+
+discipline: show-before-edit + diff-after; PHASE 0 report before PHASE 1; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; every bundle field traces to a real source; no shadow authority. NBA bundle deferred (Finals ending).
+
+bettor-visible delta: ZERO until a FE renders the bundle (backend-only foundation). The bundle just makes the real stat-backing + why-this-pick available on the pick payload.
+
+go. PHASE 0 report (serializer authority + PRESERVED touches + bundle schema) BEFORE building.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (serializer authority + PRESERVED check + bundle schema design) and REPORTS before building. On operator nod to the schema → PHASE 1 additive displayBundle build, regression-gated (existing fields byte-identical + OFF byte-identical), kill-switch. Then Claude-A summarizes + we decide FE rendering (now vs FE-overhaul day).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/step2_statbacking_map_mlb.md (build spec) · phase4Tracking.js + http/mlbIsolatedRoutes.js (serializer authority — PRESERVED check) · deriveMlbPitcherEnvironmentContext.js + mlbBatterFormCache.js + applyMlbContextualLayers.js (bundle sources) · probabilityHonesty.js (PRESERVED null-preservation)
