@@ -3482,3 +3482,25 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 step1_trust_proof.md (the vig-aware by-tier analysis to make live) · .scratch/probe_f11_deduped_vig.js (canonical method) · backend/runtime/tracking/*_tracked_bets_*.json (graded ledger source) · backend/pipeline/shared/vigStripping.js (PRESERVED) · FE GRADES tab (render target) · feedback_no_fabricated_numbers (the 12%/14% placeholder is fake — use real)
+
+## 2026-06-09 03:18 ET — Claude-B (4.8)
+
+ACTION: T1 #2 HIT%-by-tier PHASE 0 (read-only, audit-first) — live per-tier vig-aware table + data source + render site + fork. NO code. STOP for operator nod. Deliverable docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md + probe .scratch/probe_t1_hitrate_by_tier.js/.txt.
+
+AUDIT_OUTCOME:
+HEADLINE (the trust number, real, traces to ledger+vigStripping): the TIER LADDER IS INVERTED — ELITE/STRONG (the "trust me most" badges) realize the WORST. MLB (3896 deduped graded): ELITE −8.4pp (n=38), STRONG −8.0 (n=159), PLAYABLE −0.8 (n=372, least-bad/~breakeven), LONGSHOT −3.0 (n=3327). NBA (1259): ELITE −31.3 (n=35), STRONG −5.3 (n=47), PLAYABLE −2.2 (n=190), FADE −4.9 (n=987). EVERY tier net-negative vig-aware. Caveats rendered: ELITE cells small (n=35-38, just clear 30); vig recoverable 0.4-1.0% → edges ~1-3pp PESSIMISTIC; NBA corpus PREDATES the F1.2a/b tier fixes (needs 14d re-probe); MLB tier ranks by raw edge (R2 anti-selection). This is the same anti-selection R2/Step-1/F1.2 found, now quantified at TIER level.
+DATA SOURCE: graded ledger carries tier+oddsAmerican+result on every settled row (MLB 9003/9003, NBA 3596/3596) — clean.
+EXISTING vs NET-NEW: buildGradingSummary.byTier already computes RAW per-tier hit% (wins/total) but NO fair-implied/vig-aware edge → the honest vs-market edge-by-tier is NET-NEW. family_calibration is per-family not per-tier.
+METHOD: reuse F1.1/Step-1 vig-aware via PRESERVED vigStripping (dedup player|family|side|line|slateDate, fair-strip, by tier).
+RENDER SITE: GRADES tab — renderGradesView (index.html:2350) already has the P2a hitRate/beatMarketRate bundle → EXTEND with a per-tier card. Data window = MULTI-DAY corpus (like /api/ws/grades-health?days=7), NOT ledger/yesterday (per-tier n too thin on 1 day). Small new backend compute feeds it.
+SPORT: MLB-first (3896 vs 1259 graded; Finals ending). HONESTY: n<30 → "not yet meaningful", never blend tiers, trace to ledger+vig.
+FORK (i): clean data + clear render site → ready for PHASE 1. But the finding is bigger than a card: the surface will SHOW the operator their ELITE/STRONG badges are anti-predictive today → the real remedy is the engine-side tier-assignment fix (R2 track), separate/larger than the render. PHASE 1 = honest render only.
+
+DRIFT_WARNING_TO_PEER:
+None. Confirms your handoff's expectation (Step-1: anchor tiers thin/negative) and quantifies it at tier level — and it's worse than "thin": MLB ELITE/STRONG are sufficiently-n AND −8pp (inverted, not just unproven). The honest render is correct; flag to operator that rendering this number truthfully implies the tier BADGES need engine work (queued R2), else the surface shows a badge the track record contradicts.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A relays the live table + inverted-tier finding to operator + gates: (a) build the GRADES per-tier honest render now (MLB-first) [recommend], (b) ALSO queue the engine-side tier-assignment fix (why ELITE underperforms — the real remedy), (c) hold. On (a) nod → PHASE 1 backend per-tier vig-aware compute + FE GRADES card, regression-gated, Claude-A screenshot-verifies. QUEUED: deeper alt-line calibration · SB board-surfacing · Step-2 render re-check at next slate (~9 AM).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (table+fork) · .scratch/probe_t1_hitrate_by_tier.txt (MLB+NBA per-tier) · buildGradingSummary.js byTier (raw-only, the net-new gap) · renderGradesView index.html:2350 (render target) · vigStripping.js (PRESERVED, reused)
