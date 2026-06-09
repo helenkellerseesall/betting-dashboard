@@ -3679,3 +3679,27 @@ Claude-A: after operator runs the commit fence + hard-reloads /m, FULL-NAV scree
 
 PROBE_REFS:
 docs/audits/2026-06-09-fe-consolidation/fe_surface_consolidation_phase1.md · index.html (activeSport:778 · renderGamesAllSports ~1881 · renderGameCard opts ~1863 · GAMES route ~1479) · workstationRoutes.js (/api/ws/games:1263 readSnapshotRows:255 modelProbLookup:1339) · snapshot.json + snapshot-mlb.json (live grouping probe) · server.js:145 (express.static /m — no reload)
+
+## 2026-06-09 14:35 ET — Claude-A (Cowork) — ON-SCREEN VERIFY (consolidation + GRADES card)
+
+ACTION: FULL-NAV screenshot-verify post-fence (baacfe2 code + cba6b19 docs, tree clean). TIER ANCHOR: T1 (trust daily picks) · FE consolidation + GRADES by-tier card · BOTH VERIFIED ON-SCREEN = SHIPPED.
+
+FE CONSOLIDATION — VERIFIED ✅ (edge.motel666.com/m hard-reload):
+- /m LANDS ON TOP PICKS (curated, 50 picks · 12 top-tier · 25 strong · 13 worth-a-look · cross-sport) — NOT the legacy sub-tab view. The activeSport "top" landing-bug fix WORKS. NO Tonight's-Games/Sharp-Plays sub-tabs anywhere.
+- GAMES tab = single all-sports view, badge 16: NBA 1 game "SAN ANTONIO SPURS @ NEW YORK KNICKS · UPCOMING · LINES ONLY · Wed 8:40 PM · picks generate closer to game time" (the operator's Wed playoff game, honestly labeled, no fabricated picks) + MLB 15 games tonight. Fork B works exactly as intended.
+- All 6 tabs reachable + render: TOP PICKS · SLIPS · MY BETS · GAMES · ANALYZE · GRADES. No dead-end.
+
+GRADES "TRACK RECORD BY TIER" CARD (T1 #2) — VERIFIED ✅:
+- renders the inverted ladder honestly. Framing line on-screen: "Higher tiers aren't beating the market yet — judge picks by the stats, not the badge. Tier ranking is under review."
+- MLB (12 graded days): ELITE n=46 26% −15.4pp · STRONG n=184 21% −7.3pp · PLAYABLE n=459 39% −3.5pp · LONGSHOT n=3918 5% −2.7pp. NBA (labeled "pre-F1.2 fix corpus · re-checks ~14d"): ELITE n=43 19% −28.4pp · STRONG n=65 46% −5.6pp · PLAYABLE n=266 40% −2.3pp · LONGSHOT n=1 "not yet meaningful" · FADE n=1450 19% −5.3pp.
+- HONEST NOTE: live card MLB ELITE −15.4pp (n=46) runs WORSE than the 03:18 audit snapshot (−8.4pp n=38) — consistent with more ELITE picks grading overnight (38→46) and hitting poorly, NOT a calc drift (4.8 proved route==probe parity). Inversion CONFIRMED + ELITE got worse with more data. Watch that future deltas stay corpus-growth not method-drift.
+
+NEW POSITIVE (System Health, same screen): NBA "BEATING THE MARKET 58%" (+1084.5¢ CLV, 1826 CLV-stamped) — the NBA-CLV-Capture-Repair is LIVE/working (T1 #3 effectively confirmed; MLB beat-mkt 23%, 1142 stamped). MY BETS still 0 (no real bets — T4 gate).
+
+FLAG (real UX issue, queue): cold-start hang is now the FIRST thing seen — Top Picks landing took ~45s to render ("Loading tonight's edges…") because it's the heaviest fetch and now the landing. Worse first-impression than before. Candidate fix: lightweight /api/ws/top-picks-first paint, or skeleton. Queue as FE follow-up.
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 action pending on these (both shipped+verified). QUEUE: MLB-TIER-ASSIGNMENT-FIX (R2, the inverted-ladder cure) · deeper alt-line calibration · cold-start-landing fix (NEW) · Step-2 stat-rows on-screen re-check (was pending fresh slate — re-check on Top Picks cards now that landing is fixed) · pitcher-Ks/SB re-scope (Ks already on Top Picks).
+
+PROBE_REFS:
+live FE edge.motel666.com/m (lands Top Picks · GAMES upcoming Spurs@Knicks · GRADES by-tier card inverted-ladder honest) · baacfe2 (consolidation) · e94c1ac (GRADES card) · t1_hitrate_by_tier_phase1.md
