@@ -4024,3 +4024,21 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 lineupSpot_rootcause_phase0.md · mergeMlbExternalContext.js (id/name join) · tracked_best build stage (re-join + playerIdExternal preserve) · refreshMlbBatterStats.js 35fab13 (pattern for the 4 siblings) · my probe: 0/106 playerIdExternal
+
+## 2026-06-09 21:35 ET — Claude-B (4.8)
+
+ACTION: BUILT PART A (lineupSpot wiring fix). Build stage = tracked_best serializer (phase4Tracking) back-fill against the fresh lineup cache. 3 code files, no PRESERVED edit, no FE change. Per-confirmed-game gate PASSED (1→9). PART B (sibling hardening) is the NEXT build — taken separately for focused execution per the data-integrity trust bar. Commit+reload fence handed (with the backend==HEAD check). Doc: docs/audits/2026-06-09-lock-down-data/lineupSpot_fix_phase1.md.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: backfillMlbLineupSpot.js (NEW; makeLineupBackfiller loads current-slate cache once + resolves lineupPosition per row, REUSING the canonical resolve from mergeMlbExternalContext — no duplicated join; omit-not-fabricate) + mergeMlbExternalContext.js (export buildExternalLineupIndexForEvent/resolveLineupPositionFromExternal/lineupPositionFromExternalPlayer — additive) + phase4Tracking.js (both record loops call backfillRowLineup before serialize: sets only NULL lineupPosition + re-derives lineupContextV2 → lineupSpot/depth/PA/run-rbi env back-fill; both serializers preserve playerIdExternal)
+  - docs: docs/audits/2026-06-09-lock-down-data/lineupSpot_fix_phase1.md + this block
+
+AUDIT_OUTCOME (verification this side, RAN):
+  BUILD STAGE: tracked_best serializer (phase4Tracking) — runs every hourly slate build (cache persists+grows), POST-SCORING so today's edges byte-identical. PER-CONFIRMED-GAME GATE (the right gate, NOT slate-wide %), against tonight's real rows + fresh cache (6 confirmed games): CONFIRMED-game picks 26 → lineupSpot resolved 9 (was 1); the other 17 are unconfirmed SIDES of half-confirmed games → null. UNCONFIRMED-game picks 80 → resolved 0 (omit-not-fabricate holds — zero fabrication). node --check clean all 3. BYTE-IDENTICAL: back-fill sets only previously-null fields + serializers gain playerIdExternal; no scoring field touched.
+  HONEST SCOPE: today = display + survivability-input back-fill on output rows; SCORING benefit accrues NEXT slate (handoff flagged). playerIdExternal currently 0/106 on rows → today's resolution via NAME-fallback (9/~10 confirmed-side). Preserving playerIdExternal is the durable fix; if name-coverage proves thin over more slates, follow-up = carry playerIdExternal snapshot→scoring→phase4Tracking.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the fence (commit→push→reload→backend==HEAD check) and the NEXT slate:mlb build fires, verify lineupSpot lands on the confirmed-side hitters in the 6 confirmed games (≈9, was 1) + unconfirmed stay null (per-confirmed-game gate, NOT slate-%). Then PART B = sibling-populator hardening (refreshMlbBatterGameLogs/PitcherGameLogs/BullpenWorkload/PitcherStats — proven batter-stats retry+merge pattern × 4, merge-gate each) as the next 4.8 build. QUEUED: cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+docs/audits/2026-06-09-lock-down-data/lineupSpot_fix_phase1.md · backfillMlbLineupSpot.js (makeLineupBackfiller) · phase4Tracking.js (backfillRowLineup @ both loops · playerIdExternal preserve) · mergeMlbExternalContext.js (resolve exports) · mlbLineupCache.loadCacheForCurrentSlate · live gate: 26 confirmed → 9 resolved, 80 unconfirmed → 0
