@@ -3189,3 +3189,42 @@ Operator runs the fence (regression probe re-runs as gate → rm temps → code 
 
 PROBE_REFS:
 backend/pipeline/mlb/buildMlbDisplayBundle.js (assembler) · server.js buildMlbLiveDualBestAvailablePayload (attach+killswitch) · phase4Tracking.js toTrackedMlbBestEntry/toTrackedMlbPick (carries) · .scratch/probe_db_regression.txt (3 gates) · workstationRoutes.js:419 (/api/ws/state rides along)
+
+## 2026-06-09 00:40 ET — Claude-A (Cowork)
+
+ACTION: Operator confirmed displayBundle LIVE (local probe `curl /api/best-available | grep displayBundle | wc -l` = 1683 — verified live-served, gap closed). Operator chose LIGHT FE RENDER next (see the stat-backing now, not a full redesign). RECON FINDING (frontend/mobile/index.html): the FE ALREADY renders a canonical `displayBundle.signalsTable` for NBA (generic row-render ~L1295-1329, gated `sport==="nba"` at L1273; tags at L1021-1034). The new MLB bundle is nested objects (statBacking/whyThisPick/notWired) with NO signalsTable → current FE won't render it. So the cleanest light render = give the MLB bundle a signalsTable + open the existing render path to MLB (extend canonical, no parallel render).
+
+DRAFT_HANDOFF:
+```
+STEP-2 LIGHT FE RENDER — make the MLB displayBundle stat-backing VISIBLE in the Show Signals panel. Operator wants to SEE opposing pitcher + vulnerability, season line, L5/L15 on MLB picks now. Reuse the EXISTING NBA render path, don't spawn a parallel one. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+KEY RECON (Claude-A, frontend/mobile/index.html): the FE already renders `displayBundle.signalsTable` generically for NBA cards (~L1295-1329 iterate signalsTable rows; gate `sport==="nba"` ~L1273; tags L1021-1034). MLB's new bundle (buildMlbDisplayBundle.js) is statBacking/whyThisPick/notWired with NO signalsTable. So MLB won't render under the current gate.
+
+PHASE 0 (read-only, REPORT approach before editing):
+  - confirm the exact FE render path + the NBA `sport==="nba"` gate(s) that exclude MLB.
+  - DECIDE the cleanest mechanism + report it:
+    (likely) A — add a `signalsTable` array to buildMlbDisplayBundle.js (flat {label,value} rows derived from statBacking+whyThisPick), mirroring NBA's shape, THEN extend the FE render gate from nba-only to nba+mlb. Mostly backend; tiny FE gate change; reuses canonical render.
+    (alt) B — MLB-specific render block in the FE for the nested shape. More FE code, parallel path — AVOID unless A doesn't fit.
+  - confirm the FE pick object carries `displayBundle` from /api/ws/state (it rides along per workstationRoutes:419) so the FE actually has the data to render.
+
+PHASE 1 (build, after PHASE 0 report): implement the chosen path. signalsTable rows (operator language, null-guarded — omit absent):
+   - "Facing" → opposingPitcher.name + vulnerability (e.g. "Trevor Rogers · 17% K · 1.2 HR/9")
+   - "Season" → seasonLine slash (avg/obp/slg)
+   - "Last 5 / Last 15" → recentForm.l5 / l15 line
+   - keep whyThisPick (edge/tier/model vs implied) + existing env signals; don't duplicate rows already shown.
+  null-guard everything (missing field ⇒ row omitted, never "undefined"/0). MLB_DISPLAY_BUNDLE OFF ⇒ no bundle ⇒ FE shows today's panel unchanged.
+
+VERIFY AT THE RENDERED BROWSER SURFACE (binding — consumer-sweep ends at the browser, not the code): open /m in Chrome, expand an MLB pick's Show Signals, SCREENSHOT showing the new rows with REAL data (pitcher+vulnerability, season, L5/L15); confirm a pick with missing data omits rows gracefully (no "undefined"); confirm NBA cards unchanged. FE JS syntax check via the new Function() extraction method (NOT node --check on .html). Confirm whether backend serves frontend/mobile/index.html from disk (no reload) or needs a reload.
+
+discipline: show-before-edit + diff-after; bettor-visible change → verify at rendered surface; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; frontend/mobile/index.html is the bettor trust surface (not PRESERVED but high-care); no shadow render path.
+
+bettor-visible delta: MLB Show Signals panel gains pitcher-matchup + season + recent-form rows. This is the first time the Step-2 stat-backing is VISIBLE — the believable-pick payoff.
+
+go. PHASE 0 report (mechanism A vs B + FE gate location) BEFORE editing.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (confirm FE render path + pick mechanism A[signalsTable+gate] vs B[parallel]), REPORTS, then PHASE 1 builds + VERIFIES at the rendered browser surface (screenshot of MLB Show Signals with real pitcher/season/L5-L15 rows + graceful null-omit + NBA unchanged). Then Claude-A verifies live. QUEUED behind: SHARP-PLAYS-calibration premise-check + SB-board-surfacing.
+
+PROBE_REFS:
+frontend/mobile/index.html (~L1273 nba gate, ~L1295-1329 signalsTable render) · buildMlbDisplayBundle.js (add signalsTable) · workstationRoutes.js:419 (FE payload carry) · buildPlayDisplayBundle.js (NBA signalsTable precedent)
