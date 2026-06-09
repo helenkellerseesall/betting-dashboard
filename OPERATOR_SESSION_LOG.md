@@ -3534,3 +3534,25 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 t1_hitrate_by_tier_phase0.md (4.8 table) · .scratch/probe_t1_hitrate_by_tier.txt + Claude-A re-derivation (both confirm inversion) · buildGradingSummary.js byTier (extend) · renderGradesView index.html:2350 (render) · vigStripping.js (PRESERVED) · step1_trust_proof.md (family×tier basis)
+
+## 2026-06-09 03:33 ET — Claude-A (Cowork) — COMPACTION-PREP
+
+ACTION: Operator flagged imminent compaction (both chats). Verified continuity layer. TIER ANCHOR: T1 (trust daily picks) · compaction-proofing · verify.
+
+CLAUDE-A SIDE — DONE: memory now holds the session's durable facts: NEW [[project-inverted-tier-ladder]] (THE finding, both-Claude-verified), [[operator-daily-trust-ranked-path]] updated with "2026-06-09 SESSION STATUS" (ship state + active queue), [[feedback-state-tier-and-phase]] (binding anchor), [[operator-trust-definition-stat-attribution]] + [[operator-ss-uploader-og-intent]] (earlier). MEMORY.md index updated.
+
+CONTINUITY BACKBONE — VERIFIED PRESENT + CURRENT (all committed; tree clean at d160150):
+- git log = every ship this session (F1.2a/b, defect batch incl. stolen bases, Step-2 displayBundle + FE render, Sharp Plays marker, all audit docs).
+- OPERATOR_SESSION_LOG.md = full turn-by-turn (this is the cross-Claude continuity surface).
+- docs/audits/2026-06-07-prop-coverage/ = prop_coverage_truth_map, prop_ingestion_truth_audit_v2, step1_trust_proof, step2_*, sharpplays_*, t1_hitrate_by_tier_phase0 — all findings durable.
+- CLAUDE_BRIDGE_PROTOCOL.md + RECOVERY_PROCEDURE.md (06-06) + RUNTIME_FACTS + PLAYBOOK + PRESERVED present.
+
+GAP FLAGGED FOR CLAUDE-B (4.8): brain docs STALE — MASTER_BRAIN.md (06-01) + MODEL_EVOLUTION_LOG.md (06-02) NOT updated this session. The committed session log + audit docs DO cover the session, so reconstruction is intact, BUT 4.8 should refresh MASTER_BRAIN "current phase + priorities" before compacting (current phase = T1 #2 HIT%-by-tier card build + inverted-tier finding; queue = R2 MLB-tier-fix, alt-line calib, SB board-surface). 4.8 also has in-flight uncommitted GRADES-card edits at compaction — must commit + append its Claude-B block before context loss, else those edits sit on disk un-logged.
+
+POST-COMPACTION RECONSTRUCTION PATH (both Claudes): (1) read this OPERATOR_SESSION_LOG tail + [[operator-daily-trust-ranked-path]] §2026-06-09 STATUS + [[project-inverted-tier-ladder]]; (2) git --no-pager log --oneline -25; (3) RECOVERY_PROCEDURE.md; (4) 4.8 also reads MASTER_BRAIN. Current spot: T1 ~90%, 4.8 mid-build on the honest by-tier GRADES card.
+
+NEXT_EXPECTED_FROM_PEER:
+4.8: before compaction — commit the in-flight GRADES-card build + append your Claude-B block + refresh MASTER_BRAIN current-phase. On fresh chat: reconstruct per the path above.
+
+PROBE_REFS:
+memory/ (project-inverted-tier-ladder, operator-daily-trust-ranked-path §STATUS) · OPERATOR_SESSION_LOG.md (this) · docs/audits/2026-06-07-prop-coverage/ (committed findings) · RECOVERY_PROCEDURE.md · backend/runtime/brain/MASTER_BRAIN.md (STALE — 4.8 to refresh)
