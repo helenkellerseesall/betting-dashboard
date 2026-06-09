@@ -3977,3 +3977,23 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 deriveMlbLineupContext.js:107 (lineupSpot writer) · mlbLineupCache.js · deriveMlbConfirmedLineupState.js · refreshMlbBatterGameLogs/PitcherGameLogs/BullpenWorkload/PitcherStats.js (harden) · refreshMlbBatterStats.js 35fab13 (the proven pattern to reuse) · lineupSpot probe 4/106
+
+## 2026-06-09 20:55 ET — Claude-B (4.8)
+
+ACTION: PART A — lineupSpot root-cause TRACE (read-only, NO code). Root cause = a JOIN/WIRING gap inside confirmed-lineup games, NOT cache-empty and only partly timing. Fix is non-trivial wiring → STOPPING for operator/Claude-A nod per the audit-first mandate. PART B (sibling hardening) teed up as the next build. Doc: docs/audits/2026-06-09-lock-down-data/lineupSpot_rootcause_phase0.md.
+
+AUDIT_OUTCOME (live probe, tonight):
+  Flow: external adapters → mlbLineupCache.json → mergeMlbExternalContext.resolveLineupPositionFromExternal sets row.lineupPosition → deriveMlbLineupContext (rejects spot<1|>9). The 100/200→1/2 conversion IS handled (mergeMlbExternalContext.js:155) — not the bug.
+  DATA: cache NOT empty — 63 players across 6 of 15 games (written 15:00 ET; its writtenAt 19:00:38Z = 15:00 ET, the earlier "19:00" was a TZ artifact). EventId format MATCHES tracked_best (6/6 overlap). tracked_best built 19:00 ET (AFTER the cache → cache was available). Of 106 picks only 4 have lineupPosition: 80 are in the 9 UNPOSTED-lineup games (correctly null — omit-not-fabricate working, do NOT touch); 26 are in the 6 CONFIRMED games but only 1 got lineupPosition. Within the 26: 0 carry playerIdExternal (reliable id-join key GONE), 10 have a name matching the cache lineup for their event yet only 1 joined → ~9 confirmed-game join FAILURES.
+  ROOT CAUSE = (b) JOIN/WIRING gap: cache has the data + eventIds match + names present, but the lineup resolution isn't landing on the tracked_best rows (no playerIdExternal → id-join can't fire; name-fallback isn't reaching them / isNameMatch stricter than eventId+normName). The headline "4%" is mostly the legit 80 unconfirmed nulls; the real bug is the 1/10 join rate inside confirmed games.
+  FIX DIRECTION (needs operator nod — non-trivial): (1) re-join lineup at the tracked_best build against the fresh cache (back-fills as lineups post; slate rebuilds hourly + cache persists); (2) preserve playerIdExternal onto rows so the reliable id-join fires (name-fallback is lossy); (3) keep null when lineups truly unposted. Decision needed: WHICH build stage owns the re-join + the id-preservation — so STOP not blind-edit.
+  VERIFIER NOTE: judge lineupSpot reach PER CONFIRMED GAME, not slate-wide (slate-% always low early when most lineups aren't out).
+
+PREMISE_CHECK_NEEDED:
+Claude-A — the symptom framing "lineupSpot 0%/4%, degrades pick quality" is real but the headline % conflates two things: ~75% is legitimate unconfirmed-game nulls (correct), the actual defect is ~9 picks in CONFIRMED games failing to join. Fixing it = wiring the re-join + id-preservation, NOT forcing a number up. Don't chase slate-wide %; the gate is per-confirmed-game.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator/Claude-A: nod the fix direction (which build stage owns the lineup re-join + playerIdExternal preservation) → then 4.8 builds PART A fix (regression-gated, byte-identical pick selection — display/projection-input only, with the per-confirmed-game verify). Then PART B sibling-populator hardening (the proven batter-stats retry+merge pattern × 4, merge-gate per sibling) as its own build. Claude-A: verify backend==HEAD after any ship (the new stale-code discipline).
+
+PROBE_REFS:
+docs/audits/2026-06-09-lock-down-data/lineupSpot_rootcause_phase0.md · mergeMlbExternalContext.js:150-209 (lineupPositionFromExternalPlayer convert + resolveLineupPositionFromExternal id/name join) · deriveMlbLineupContext.js:77 (reads row.lineupPosition) · mlbLineupCache.json (63 players/6 of 15 games) · probe: 26 confirmed-game picks → 1 lineupPos, 0 playerIdExternal, 10 name-in-cache
