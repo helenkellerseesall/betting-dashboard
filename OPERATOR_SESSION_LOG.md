@@ -3814,3 +3814,32 @@ Claude-A: summarize the 3 sample cards + the coverage caveat to the operator in 
 
 PROBE_REFS:
 docs/audits/2026-06-09-prop-stat-backing/prop_card_layout_show_before_edit.md · buildMlbDisplayBundle.js (statBacking assembly + getBatterForm standalone) · mlbBatterStats.json (208 batters/16 teams, has kRate+teamName) · mlbPitcherStats.json (Skenes 82K/278BF/70IP) · mlbPitcherGameLogs.json .players (Skenes starts 7,10) · snapshot-mlb.json (batter rows carry pitcherEnvironmentContext+park+weather+platoon)
+
+## 2026-06-09 18:07 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED 4.8's show-before-edit samples are REAL (Skenes season 29% K/10.54 K9/0.90 WHIP/278 BF matches mlbPitcherStats EXACTLY; batter cache 16 teams confirmed). Operator APPROVED: layout reads right + SHIP-NOW with omit-when-absent. 30-team batter-cache expansion = queued follow-up (not a blocker). TIER ANCHOR: T1 · prop-specific stat-backing rebuild · build (GO).
+
+DRAFT_HANDOFF:
+```
+GO — build the all-in-one prop-specific stat-backing rebuild. Operator approved the 3 sample-card layouts (Skenes Ks / Robles hits / Altuve HR — verified real by Claude-A) + SHIP-NOW with omit-when-absent (do NOT block on full batter cache). Build per your prop_card_layout_show_before_edit.md + the 17:33 handoff. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+build (all-in-one, as scoped + sample-approved):
+  - SERVE-TIME per-pick statBacking assembly (resolve snapshot row by normPlayer, full slate — not the 92-row board join). Batter: opp pitcher+park+weather+platoon already on row + season line (mlbBatterStats) + L5/L15 (getBatterForm). Pitcher: NEW pitcher-shaped assembly (L5/L15 Ks from mlbPitcherGameLogs.players, K%/K9/WHIP/IP-per-start from mlbPitcherStats, opp-lineup-K% DERIVED from opposing lineup batter kRates — no new feed).
+  - PROP-AWARE buildReasoning renders the approved per-prop rows from statBacking. OMIT-NOT-FABRICATE is binding: uncached batters/teams omit the season-line + opp-K% rows (never faked); NEVER show team-implied-total/generic-environment AS the reason.
+  - #101 dup fixed: "Facing <pitcher> (<rate>)", not team name twice.
+  - opponentKPercent populated from the lineup-kRate derive (buildMlbPitcherCandidates.js:15).
+
+REGRESSION/VERIFY: pick selection/edge/tier/odds BYTE-IDENTICAL pre/post (display-only); the 3 approved sample players render their approved rows on real cards; uncached teams omit gracefully (no "undefined"/no fake); opponentKPercent traces to the real derive; #101 dup gone; node --check + FE new Function() if labels touched; backend reload. Claude-A screenshot-verifies all 3 prop types on /m Top Picks.
+
+discipline: omit-not-fabricate binding (trust surface that just failed operator); every stat file:line-traceable; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED untouched. Stage internally if needed, deliver coherent.
+
+QUEUED FOLLOW-UP (not this build): expand mlbBatterStats populator 16→30 teams so every batter card is complete (operator approved as separate task).
+
+go. build + report the regression gate before the fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds the all-in-one rebuild (serve-time assembly + pitcher bundle + opp-K% derive + prop-aware buildReasoning + #101), pick-byte-identical gate, separate commits. Claude-A screenshot-verifies all 3 prop types render prop-specific real stats on /m Top Picks. QUEUED: 30-team batter-cache expansion · cold-start fast-first-paint · MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration.
+
+PROBE_REFS:
+prop_card_layout_show_before_edit.md (approved layout) · buildMlbDisplayBundle.js (+pitcher variant) · workstationRoutes.js:2356+ buildReasoning (rewrite) + :2287 assembly point · mlbPitcherGameLogs.json/mlbPitcherStats.json (pitcher) · mlbBatterStats.json (16 teams — omit beyond) · buildMlbPitcherCandidates.js:15 (opponentKPercent)
