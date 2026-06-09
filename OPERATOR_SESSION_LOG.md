@@ -3426,3 +3426,59 @@ Operator runs the fence (FE+backend syntax gate → rm temps → code commit 2 f
 
 PROBE_REFS:
 backend/routes/workstationRoutes.js (stampSharpPlaysCalibration + /state call) · frontend/mobile/index.html (disclaimer + buildNotes ⚠) · sharpplays_marker_phase0.md (counts match: 88/75/0 + 38 RBI) · step1_trust_proof.md (⚠ basis) · calibrationDampener.js (PRESERVED, untouched)
+
+## 2026-06-09 03:06 ET — Claude-A (Cowork)
+
+ACTION: BINDING rendered-surface verify (live Chrome, post-fence: code 9f6e3f8 + docs 463c44e, tree clean, reloaded). TIER ANCHOR: T1 (trust daily picks) · Sharp Plays honesty marker · verified-on-screen = SHIPPED.
+
+MARKER VERIFIED ON SCREEN ✅ (edge.motel666.com/m, candidates "updated 2m ago" = fresh post-reload):
+- TAB disclaimer renders on SHARP PLAYS, exact copy: "Raw model edges — not calibration-adjusted. Less reliable than Top Picks." ✅
+- PER-ROW ⚠ "FAMILY HISTORICALLY BELOW BREAK-EVEN" on Jase Bowen OVER RBIs 1.5 — and ONLY there; the 6 Hits cards + 2 Total Bases cards have NO ⚠. ✅ (1 RBI row in this 8-play set; matches predicate)
+- TONIGHT'S GAMES (Top Picks) shows NO disclaimer. ✅
+Marker is DONE — verified, not just code-claimed.
+
+STEP-2 RENDER — STILL NOT VISIBLE (honest; refines 4.8's "stale, refreshes next slate" TRACE-2):
+- Expanded Jase Bowen SHOW SIGNALS: STILL only the legacy env panel (MATCHUP/MODEL PROB/EDGE PROB/HR ENV/WIND/.../CONTEXTUAL TAGS/GENERATED) — NO Facing/Season/Last 5/Last 15/Park signalsTable rows.
+- EVIDENCE it's stale-bundle not render-gap: the card shows "GENERATED 10:00" — the displayBundle on this candidate predates the Step-2 ship (23:31 last night), so it has no signalsTable. The MARKER shows because it's stamped fresh per-request at /state; the BUNDLE is carried stale from the 10:00 board. MLB scheduler stopped 11 PM → next board write ~9 AM → bundle (and signalsTable) refreshes then.
+- NOT calling Step-2 render done. I will RE-VERIFY on-screen after the next MLB slate write (~9 AM). If signalsTable STILL absent on a FRESH-GENERATED candidate bundle → real carry gap, hand back to 4.8 (candidate displayBundle may carry an older bundle than the live /api/best-available).
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 action on the marker (done). Step-2 render: Claude-A re-verifies at next fresh slate (~9 AM); only escalates to 4.8 if a freshly-generated bundle still lacks signalsTable. QUEUED (operator-approved): deeper alt-line→id-join calibration fallback (PRESERVED dampener, own audit) · SB board-surfacing.
+
+PROBE_REFS:
+live FE edge.motel666.com/m SHARP PLAYS (disclaimer + ⚠ on RBI verified; SHOW SIGNALS GENERATED 10:00 = stale bundle, no signalsTable) · 9f6e3f8 (marker code) · buildMlbDisplayBundle.js signalsTable (pending fresh board write)
+
+## 2026-06-09 03:12 ET — Claude-A (Cowork)
+
+ACTION: Operator chose next build = T1 #2 HIT%-by-tier trust surface (the last meaty T1 build; closes "can I trust this pick's tier"). Drafting audit-first handoff. TIER ANCHOR: T1 (trust daily picks) · HIT%-by-tier surface · audit→build.
+
+DRAFT_HANDOFF:
+```
+T1 #2 — HIT%-BY-TIER TRUST SURFACE. Render the operator's REAL vig-aware realized hit rate by tier on the app, so a pick's ELITE/STRONG/PLAYABLE/LONGSHOT badge is backed by visible track record (or honestly marked "not enough history yet"). The Step-1 math already exists (step1_trust_proof.md) — this makes it LIVE + on-screen. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. AUDIT-FIRST: PHASE 0 report before building.
+
+context: ranked-path T1 #2. ⚠ the ranked-path doc's "longshots 12% vs 14%" is a KNOWN-FABRICATED placeholder (feedback_no_fabricated_numbers) — IGNORE it; compute REAL numbers. Step-1 proof found: only PLAYABLE hits (+1pp) + total_bases (+~2pp) provably positive; ELITE/STRONG anchor cells mostly n<30; longshot bulk net-negative. The surface must show THIS honestly.
+
+PHASE 0 (read-only, REPORT before building):
+  - DATA SOURCE: confirm the graded ledger (backend/runtime/tracking/{mlb,nba}_tracked_bets_*.json) carries tier + oddsAmerican + result on settled rows (Claude-A confirmed MLB: statFamily/tier/oddsAmerican/result all present). Is there an existing per-tier compute, or is this net-new? (family_calibration.json is per-FAMILY not per-tier — likely net-new tier slice.)
+  - COMPUTE METHOD: reuse the canonical F1.1/Step-1 vig-aware read (.scratch/probe_f11_deduped_vig.js via PRESERVED vigStripping.js) — dedup key player|family|side|line|slateDate, vig-strip implied, realized hit% vs fair, BY TIER (optionally ×family). Do NOT reimplement vig.
+  - RENDER SITE: where does it belong on /m? (FE-trust audit put W/L/CLV/HIT% on the GRADES tab; P2a already render-bundled HIT%/BEAT-MARKET there — extend that, don't spawn a parallel surface.) Report the exact render target.
+  - SPORT SCOPE: recommend MLB-first (most graded history; NBA Finals ending) — report per-sport graded-n so operator decides.
+  - HONESTY RAILS: every cell n<30 → "not yet meaningful" (NOT a rate); never blend tiers; the displayed number traces to the ledger + vig method, never fabricated. Report the live per-tier table (n + realized% + implied% + edge) so operator eyeballs it pre-build.
+  - DECISION FORK: (i) clean data + clear render site → PHASE 1; (ii) data gap (e.g. NBA odds-on-graded thin) → report, MLB-only; (iii) render site ambiguous → propose options, operator picks.
+
+PHASE 1 (build, after PHASE 0 report + operator nod): backend compute (vig-aware hit%-by-tier from graded ledger, refreshes as slates grade) + FE render on the GRADES tab. Honest thin-n labels. additive — existing grades display byte-identical; kill-switch if it touches a hot path.
+
+REGRESSION/VERIFY: existing GRADES tab byte-identical except the new card; numbers match a fresh Step-1-method probe (parity check); thin-n cells labeled; FE JS new Function() check; backend node --check + reload. Claude-A does the rendered-surface screenshot verify (the by-tier card shows real numbers + honest n-flags).
+
+discipline: PHASE 0 report before build; every number traces to ledger+vigStripping (no fabrication — this is THE trust number); reuse canonical vig method; extend the GRADES surface, no shadow; show-before-edit + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED vigStripping untouched (reuse, don't edit).
+
+bettor-visible delta: GRADES gains an honest "hit rate by tier (vs market)" card — the operator can finally SEE if a tier is earned. This is the T1 trust number.
+
+go. PHASE 0 (data source + compute + render site + live per-tier table) BEFORE building.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (data source + vig-aware compute plan + render site + per-sport graded-n + live per-tier table for operator eyeball), reports fork, STOPS for nod. On approval → PHASE 1 build (backend hit%-by-tier + FE GRADES card), regression-gated; Claude-A screenshot-verifies. Time-gated T1 items (Step-2 render re-check, morning why-coverage) run in parallel ~9 AM. QUEUED: deeper alt-line calibration · SB board-surfacing.
+
+PROBE_REFS:
+step1_trust_proof.md (the vig-aware by-tier analysis to make live) · .scratch/probe_f11_deduped_vig.js (canonical method) · backend/runtime/tracking/*_tracked_bets_*.json (graded ledger source) · backend/pipeline/shared/vigStripping.js (PRESERVED) · FE GRADES tab (render target) · feedback_no_fabricated_numbers (the 12%/14% placeholder is fake — use real)
