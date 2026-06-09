@@ -27,6 +27,36 @@ const express = require("express")
 const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
+
+// 2026-06-09 Sharp Plays honesty marker — stamps an additive `calibrationStatus`
+// + Step-1 net-negative flag on the candidate pools the FE Sharp Plays surface
+// renders. Computed from the REAL line-aware dampener condition — NEVER fabricates
+// "calibrated" on a raw row. Spec: docs/audits/2026-06-07-prop-coverage/sharpplays_marker_phase0.md.
+const { dampenModelProb: _spmDampen } = require("../pipeline/shared/calibrationDampener")
+// Families the Step-1 trust proof (step1_trust_proof.md) showed realized NET-NEGATIVE
+// vig-aware. Traceable list (NOT a magic string) — each entry cites the proof + realized pp.
+// Extend (or prune) as Step-1 re-probes at +14 graded days.
+const SPM_STEP1_NET_NEGATIVE = {
+  mlb: { rbis: { realizedEdgePp: -11.9, source: "step1_trust_proof.md (PLAYABLE rbis, vig-aware)" } },
+}
+function stampSharpPlaysCalibration(c, sport) {
+  if (!c || typeof c !== "object") return
+  const fam = String(c.statFamily || c.propType || "").toLowerCase().replace(/\s+/g, "")
+  const side = String(c.side || "").toLowerCase()
+  const mp = Number(c.predictedProbability ?? c.modelProb)
+  const line = (c.line != null && Number.isFinite(Number(c.line))) ? Number(c.line) : null
+  if (Number.isFinite(mp) && fam) {
+    // calibrated = line-aware dampener moves it; calibrated_shown_raw = only id-join
+    // (family-level) moves it (alt-line bucket empty → surface shows raw); uncalibrated
+    // = no calibration exists at all. Each traces to a real dampener no-op/move.
+    let lineMoves = false, idMoves = false
+    try { lineMoves = _spmDampen(mp, sport, fam, side, line) !== mp } catch (_) {}
+    try { idMoves = _spmDampen(mp, sport, fam, side, null) !== mp } catch (_) {}
+    c.calibrationStatus = lineMoves ? "calibrated" : (idMoves ? "calibrated_shown_raw" : "uncalibrated")
+  }
+  const neg = SPM_STEP1_NET_NEGATIVE[sport] && SPM_STEP1_NET_NEGATIVE[sport][fam]
+  if (neg) c.historicallyBelowBreakeven = { realizedEdgePp: neg.realizedEdgePp, source: neg.source }
+}
 const { isAllowedBook, canonicalBookName } = require("../pipeline/shared/sportsbookAllowlist")
 // Phase Sport-Identity-Integrity-1A (2026-05-17): canonical sport-identity
 // resolver. ONE authoritative alias map. Every sport input (mlb /
@@ -1021,6 +1051,13 @@ router.get("/state", async (req, res) => {
         console.warn("[FROZEN-EPOCH] capture skipped (non-fatal):", freezeErr?.message || freezeErr)
       }
       // ─────────────────────────────────────────────────────────────────────────
+
+      // 2026-06-09 Sharp Plays honesty marker — stamp calibrationStatus + Step-1
+      // net-negative flag on the candidate pools the FE Sharp Plays surface renders.
+      // Additive: only NEW keys; existing fields untouched (the regression gate).
+      for (const arr of [candidates, discoveryCandidates, featured]) {
+        if (Array.isArray(arr)) for (const c of arr) stampSharpPlaysCalibration(c, sport)
+      }
 
       return {
         sport,

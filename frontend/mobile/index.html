@@ -1076,6 +1076,13 @@
     // defect — the language reflects that.
     function buildNotes(c, sport) {
       const notes = [];
+      // 2026-06-09 Sharp Plays honesty marker — per-row ⚠ on families the Step-1 trust
+      // proof showed realized net-negative vig-aware. Off the backend-computed
+      // `historicallyBelowBreakeven` flag (traces to step1_trust_proof.md) — FE never
+      // invents this; if the backend didn't stamp it, no badge.
+      if (c && c.historicallyBelowBreakeven) {
+        notes.push({ type: "warn", text: "⚠ family historically below break-even" });
+      }
       if (sport === "mlb") {
         if (c.lineupSpot == null && c.plateAppearancesProxy == null && /hitter|over/i.test(c.side || "")) {
           notes.push({ type: "pending", text: "lineups pending" });
@@ -1616,6 +1623,15 @@
       // to freshHtml so it sits above the freshness banner.
       if (sport === "mlb" || sport === "nba") {
         freshHtml = renderModeToggle(sport) + freshHtml;
+      }
+
+      // 2026-06-09 Sharp Plays honesty marker — TAB-LEVEL disclaimer. Shows ONLY on the
+      // candidates (Sharp Plays) source: the raw, not-calibration-adjusted surface (the
+      // line-aware dampener no-ops on its alt-line longshots; backend stamps each row's
+      // calibrationStatus). Plain + honest; appended to freshHtml so it sits above the grid
+      // in both render branches. TOP PICKS/GAMES use a different source → never shown there.
+      if (sourceUsed === "candidates") {
+        freshHtml += `<div style="margin:8px 12px;padding:7px 11px;font-size:12px;line-height:1.35;color:#a06; background:rgba(170,0,100,.07);border:1px solid rgba(170,0,100,.22);border-radius:6px;">Raw model edges — not calibration-adjusted. Less reliable than Top Picks.</div>`;
       }
 
       // v0.2.8b: search input is ALWAYS rendered above candidates. The
