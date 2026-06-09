@@ -28,6 +28,11 @@ const fs = require("fs")
 const path = require("path")
 const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDiversity")
 
+// 2026-06-09 T1 #2 — per-tier vig-aware realized hit% over the full graded ledger,
+// the compute behind the GRADES "TRACK RECORD BY TIER" card. Reporting-only (never a
+// calibration input). Reuses PRESERVED vigStripping via buildHitRateByTier.
+const { computeHitRateByTier } = require("../pipeline/tracking/buildHitRateByTier")
+
 // 2026-06-09 Sharp Plays honesty marker — stamps an additive `calibrationStatus`
 // + Step-1 net-negative flag on the candidate pools the FE Sharp Plays surface
 // renders. Computed from the REAL line-aware dampener condition — NEVER fabricates
@@ -2922,6 +2927,18 @@ router.get("/grades-health", (req, res) => {
       window.avgClvCents = window.clvStamped > 0 ? Math.round((window.clvSumCents / window.clvStamped) * 10) / 10 : null
       window.beatMarketRate = window.clvStamped > 0 ? Math.round((window.clvBeatMarket / window.clvStamped) * 10000) / 10000 : null
       out.sports[sport] = window
+    }
+    // T1 #2 — per-tier vig-aware realized hit% over the FULL graded corpus (NOT the
+    // `days` CLV window above; per-tier n is far too thin on a 7-day slice). Additive
+    // + fail-safe: a compute error here must never break the CLV health payload.
+    out.hitRateByTier = {}
+    for (const sport of sports) {
+      try {
+        const t = computeHitRateByTier(sport, { trackingDir: TRACKING_DIR })
+        if (t) out.hitRateByTier[sport] = t
+      } catch (e) {
+        out.hitRateByTier[sport] = { error: String(e?.message || e) }
+      }
     }
     res.json(out)
   } catch (err) {

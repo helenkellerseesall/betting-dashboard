@@ -2323,7 +2323,7 @@
                </div>`
             : `<div style="margin-top:8px;font-size:12px;color:#9CA3AF;">CLV capture pending — <span style="color:#6B7280;">not yet measured (pipeline gap, being repaired)</span></div>`;
           // HIT% demoted + contextualized — honest: raw W/L on a longshot-heavy book reads low by design.
-          const hitLine = `<div style="margin-top:8px;font-size:11px;color:#9CA3AF;">HIT <span style="color:#D1D5DB;">${hit}</span> <span style="color:#6B7280;">· raw W/L on a longshot-heavy slate — expected low; the edge is in beating the close (by-tier breakdown soon)</span></div>`;
+          const hitLine = `<div style="margin-top:8px;font-size:11px;color:#9CA3AF;">HIT <span style="color:#D1D5DB;">${hit}</span> <span style="color:#6B7280;">· raw W/L on a longshot-heavy slate — expected low; the edge is in beating the close (see by-tier track record below)</span></div>`;
           return `
             <div style="background:#0F1422;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid ${okStatus};">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
@@ -2340,6 +2340,48 @@
         for (const sport of ["nba", "mlb"]) {
           if (d.sports?.[sport]) html += renderSport(sport, d.sports[sport]);
         }
+
+        // T1 #2 — TRACK RECORD BY TIER. Realized hit% vs the vig-stripped fair price
+        // the book charged, per confidence tier, over the full graded ledger. Shows the
+        // inverted ladder HONESTLY: every number is backend-computed from the graded
+        // ledger + PRESERVED vigStripping; n<30 cells render "not yet meaningful" (no
+        // fabricated rate); NBA flagged pre-F1.2 corpus. FE only renders what backend sent.
+        const renderTierBlock = (sport, t) => {
+          if (!t || !Array.isArray(t.tiers) || t.tiers.length === 0) return "";
+          const label = sport === "nba" ? "🏀 NBA" : "⚾ MLB";
+          const sub = sport === "nba" ? "pre-F1.2 fix corpus · re-checks ~14d" : (t.windowLabel || "all graded days");
+          const rows = t.tiers.map(r => {
+            const edge = Number(r.edgePp);
+            const meaningful = (r.insufficient !== true) && Number.isFinite(edge);
+            const edgeColor = meaningful ? (edge >= 0 ? "#34D399" : "#FBBF24") : "#6B7280";
+            const edgeTxt = meaningful ? `${edge >= 0 ? "+" : ""}${edge.toFixed(1)}pp vs mkt` : "not yet meaningful";
+            const hitTxt = (meaningful && Number.isFinite(Number(r.hitPct))) ? `${Number(r.hitPct).toFixed(0)}% hit` : "";
+            return `<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;padding:4px 0;border-top:1px solid #1B2030;">
+                <span style="color:#D1D5DB;font-weight:600;flex:0 0 78px;">${escapeHtml(String(r.tier))}</span>
+                <span style="color:#6B7280;flex:0 0 auto;">n=${r.n}</span>
+                <span style="color:#9CA3AF;flex:1;text-align:right;padding-right:8px;">${hitTxt}</span>
+                <span style="color:${edgeColor};font-family:ui-monospace,monospace;flex:0 0 96px;text-align:right;">${edgeTxt}</span>
+              </div>`;
+          }).join("");
+          return `<div style="background:#0F1422;border-radius:8px;padding:10px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+                <span style="font-size:12px;font-weight:600;color:#F9FAFB;">${label}</span>
+                <span style="font-size:9px;color:#6B7280;">${escapeHtml(String(sub))}</span>
+              </div>
+              ${rows}
+            </div>`;
+        };
+        const hrt = d.hitRateByTier || {};
+        const hasTier = (hrt.mlb && Array.isArray(hrt.mlb.tiers) && hrt.mlb.tiers.length) ||
+                        (hrt.nba && Array.isArray(hrt.nba.tiers) && hrt.nba.tiers.length);
+        if (hasTier) {
+          html += `<div style="font-size:11px;color:#9CA3AF;letter-spacing:1px;margin:16px 0 6px 0;">📊 TRACK RECORD BY TIER · realized hit% vs market's fair price</div>`;
+          html += `<div style="font-size:10px;color:#FBBF24;margin-bottom:8px;line-height:1.45;">Higher tiers aren't beating the market yet — judge picks by the stats, not the badge. Tier ranking is under review.</div>`;
+          // MLB first (larger, more reliable corpus), then NBA.
+          if (hrt.mlb) html += renderTierBlock("mlb", hrt.mlb);
+          if (hrt.nba) html += renderTierBlock("nba", hrt.nba);
+        }
+
         el.innerHTML = html;
       } catch (e) {
         const el = document.getElementById(targetDivId); if (!el) return;
