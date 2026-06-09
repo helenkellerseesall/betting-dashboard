@@ -3572,3 +3572,40 @@ Claude-A: after operator runs the commit+reload fence, screenshot-verify the TRA
 
 PROBE_REFS:
 backend/pipeline/tracking/buildHitRateByTier.js · .scratch/probe_t1_hitrate_by_tier.js/.txt (parity baseline) · docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase1.md (+ _phase0.md) · vigStripping.js (PRESERVED, reused) · workstationRoutes.js /api/ws/grades-health · index.html:2298 _fetchGradesHealth
+
+## 2026-06-09 04:35 ET — Claude-A (Cowork)
+
+ACTION: Operator surfaced a FE-model correction (with screenshots). RE-BASELINE — Claude-A had been verifying on the TONIGHT'S-GAMES / SHARP-PLAYS sub-tabs all session, NEVER navigated to the real curated TOP PICKS view (renderTopPicks). Corrections: (1) TOP PICKS (sport=top, renderTopPicks index.html:3067) = curated/dampened 33-pick view w/ "won X% of N similar" track-record + TOP TIER/STRONG/worth-a-look — pitcher Ks ARE surfaced here as TOP TIER (Harrison/Skenes/Burns); the earlier "pitcher Ks not on board" was about /api/best-available (buildMlbClusters 4-bucket), a DIFFERENT path than /top-picks. (2) SHARP PLAYS = "sharp" MODE of legacy mlb/nba sport tabs (raw candidates), NOT Top Picks. (3) TONIGHT'S GAMES (renderGamesView) ≈ GAMES tab (renderGamesBrowser /api/ws/games-browser) — redundant. The TOP PICKS view ALREADY shows the inverted ladder live ("TOP TIER ... won 21% of 419 similar"). Operator: consolidate. TIER ANCHOR: T1 · FE surface consolidation · build.
+
+DRAFT_HANDOFF:
+```
+FE SURFACE CONSOLIDATION (operator-directed, with screenshots). Collapse the redundant landing surfaces so /m is clean. AUDIT-FIRST — the landing/mode-toggle logic is delicate (index.html:1496-1505 has an "A.5 fix — operator hit a dead-end stuck in Sharp mode" comment; don't recreate that). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+operator intent (verbatim-ish): TONIGHT'S GAMES + SHARP PLAYS are just the landing sub-tabs of the legacy mlb/nba sport tabs and are redundant. GAMES tab should be the single games surface AND show UPCOMING games (e.g. a Wed NBA playoff game, not just tonight). SHARP PLAYS (raw candidates) is redundant with the curated TOP PICKS → drop it. /m should LAND ON TOP PICKS (operator chose).
+
+PHASE 0 (read-only, REPORT before changing structure):
+  - map the 4 render paths + endpoints: renderTopPicks (sport=top, curated, index.html:3067) · renderGamesView (sport=mlb/nba mode=games, "tonight's games") · renderGamesBrowser (sport=games tab, /api/ws/games-browser:3379) · the "sharp" mode (candidates render ~1556-1763). Confirm which feed which nav element.
+  - UPCOMING-GAMES question (operator point 1): does /api/ws/games-browser (GAMES tab) include FUTURE-dated games (Wed NBA playoff), or only tonight's slate? Does renderGamesView's endpoint? Report — whichever includes upcoming is the model for the consolidated GAMES tab; if NEITHER does, that's a small backend filter widen (today..+N days).
+  - LANDING-DEFAULT + MODE-TOGGLE: trace why /m opens on the TONIGHT'S-GAMES/SHARP sub-tab view (the legacy sport-tab mode toggle) instead of TOP PICKS, and the A.5 dead-end the toggle was protecting against. Report how to land on TOP PICKS WITHOUT recreating the dead-end.
+  - report the consolidation plan + any risk.
+
+PHASE 1 (build, after PHASE 0 report):
+  - /m LANDS ON TOP PICKS (renderTopPicks) by default.
+  - GAMES tab = the single games surface; ensure it shows UPCOMING games (widen the window if PHASE 0 found it's tonight-only). Keep the games→players→props drill-down (the strongest surface per FE-trust audit).
+  - REMOVE the TONIGHT'S GAMES / SHARP PLAYS sub-tab toggle from the bettor nav (the legacy mlb/nba sport-tab mode UI). Sharp Plays raw candidates surface drops out of the nav. Preserve any backend the candidates feed if other code needs it; just remove the bettor-facing sub-tab.
+  - DO NOT break: GRADES / SLIPS / MY BETS / ANALYZE / GAMES; no dead-ends (operator must always reach every surface); Top Picks curated view intact; the Sharp Plays honesty marker code can be removed WITH the surface or left dormant (flag which).
+
+REGRESSION/VERIFY: every nav tab still reachable + renders; no mode-toggle dead-end; GAMES shows upcoming games; /m lands on Top Picks; FE JS new Function() check; backend node --check if any route touched + reload. Claude-A screenshot-verifies the full nav (lands on Top Picks · GAMES shows upcoming · no Tonight's-Games/Sharp-Plays sub-tabs · all tabs reachable).
+
+discipline: PHASE 0 report before structural edit; show-before-edit (propose the nav/landing change) + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; this is the bettor trust surface → verify at the rendered browser (Claude-A).
+
+RELATED RE-BASELINE (factor in, don't lose): pitcher Ks ARE on TOP PICKS (TOP TIER) → the QUEUED "SB board-surfacing / pitcher Ks not surfaced" item was about /api/best-available, NOT the operator-facing /top-picks; re-scope it. "won X% of N similar" track-record ALREADY renders on Top Picks (was thought deferred). Note in your block if these change the queue.
+
+go. PHASE 0 (4-surface map + upcoming-games answer + landing/dead-end trace) BEFORE editing.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (4-surface map + does GAMES show upcoming + landing/mode-toggle dead-end trace), reports, then PHASE 1 (land on Top Picks · GAMES = single upcoming-inclusive games surface · remove Tonight's-Games/Sharp-Plays sub-tabs), regression-gated; Claude-A screenshot-verifies the whole nav. QUEUED (re-scoped): pitcher-Ks/SB surfacing (re-baseline — Ks already on Top Picks) · MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration · GRADES hit%-by-tier card on-screen verify.
+
+PROBE_REFS:
+frontend/mobile/index.html (renderTopPicks:3067 · renderGamesView:1832 · renderGamesBrowser:3379 · sharp/candidates:1556-1763 · landing/mode toggle:1496-1505) · /api/ws/games-browser (GAMES data — upcoming?) · screenshots (operator-provided: real Top Picks 33-pick view)
