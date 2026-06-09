@@ -55,6 +55,7 @@ const DRIFT_ALERTS    = path.join(AUDITS_DIR, "drift_alerts.log")
 const FAMILY_CALIB    = path.join(CALIBRATION_DIR, "family_calibration.json")
 const SQLITE_PATH     = path.join(REPO_ROOT, "backend", "storage", "betting.db")
 const ML_MODEL_JSON   = path.join(REPO_ROOT, "backend", "ml", "model.json")
+const BATTER_STATS_META = path.join(REPO_ROOT, "backend", "data", "mlbBatterStats.meta.json")
 // Phase Status-Overhaul-1C (2026-06-03) — ledger path for CLV completed-games view.
 // personal_ledger is append-only, retains the day's full pick history even after
 // tracked_bets Layer-1-filters tipped games out. Used by sectionClvCaptureToday
@@ -756,6 +757,43 @@ function sectionMlScorer() {
   }
 }
 
+// 2026-06-09 — batter-stats cache coverage. Reads the sidecar meta the hardened
+// refreshMlbBatterStats writes (teamsCaptured / teamsOnSlate / missingTeams). Makes a
+// PARTIAL populate VISIBLE instead of silent. Anti-fabrication: a missing/corrupt meta
+// is its own finding ("no populate recorded"), never defaulted to healthy.
+function sectionBatterCacheCoverage() {
+  try {
+    if (!fs.existsSync(BATTER_STATS_META)) {
+      return { ok: true, hasMeta: false, note: "no batter-stats populate recorded yet" }
+    }
+    const stat = fs.statSync(BATTER_STATS_META)
+    const ageDays = Math.round((Date.now() - stat.mtime.getTime()) / (24 * 60 * 60 * 1000))
+    let meta = {}
+    try { meta = JSON.parse(fs.readFileSync(BATTER_STATS_META, "utf8")) } catch (_) {
+      return { ok: false, hasMeta: true, error: "meta file unreadable/corrupt" }
+    }
+    const teamsOnSlate = Number(meta.teamsOnSlate)
+    const teamsCaptured = Number(meta.teamsCaptured)
+    const missingTeams = Array.isArray(meta.missingTeams) ? meta.missingTeams : []
+    const complete = (meta.coverageComplete === true) || (missingTeams.length === 0 && teamsCaptured > 0)
+    return {
+      ok: true,
+      hasMeta: true,
+      slateDate: meta.slateDate || null,
+      teamsOnSlate: Number.isFinite(teamsOnSlate) ? teamsOnSlate : null,
+      teamsCaptured: Number.isFinite(teamsCaptured) ? teamsCaptured : null,
+      coverage: (Number.isFinite(teamsCaptured) && Number.isFinite(teamsOnSlate)) ? `${teamsCaptured}/${teamsOnSlate}` : null,
+      missingTeams,
+      totalBatters: Number.isFinite(Number(meta.totalBatters)) ? Number(meta.totalBatters) : null,
+      complete,
+      lastPopulateISO: stat.mtime.toISOString(),
+      ageDays,
+    }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 // Phase Wave-1-A3b (2026-06-04) — surface schema-golden drift for the 5 core
 // JSON shapes (personal_ledger, tracked_bets, tracked_best, family_calibration,
 // lessons). WARN-ONLY mirror: reports drift, NEVER blocks anything. Cached by a
@@ -1128,6 +1166,21 @@ function sectionOpenIssues() {
     yellow.push({ source: "clv_capture", category: "infra", title: "CLV capture read error", detail: String(e?.message || e) })
   }
 
+  // ── Source 6b: batter-stats cache coverage — partial populate = thinner cards ──
+  try {
+    const bc = sectionBatterCacheCoverage()
+    if (bc && bc.ok && bc.hasMeta && bc.complete === false && Array.isArray(bc.missingTeams) && bc.missingTeams.length > 0) {
+      yellow.push({
+        source: "batter_cache",
+        category: "infra",
+        title: `Batter stat cache partial — ${bc.coverage || "?"} slate teams covered`,
+        detail: `${bc.missingTeams.length} team(s) missing from mlbBatterStats (${bc.missingTeams.join(", ")}). Their batters' Top-Picks cards omit the Season/L5 rows until the next successful populate. Re-run: node backend/scripts/populateMlbBatterStats.js (merge-not-overwrite — safe, fills the gaps).`,
+      })
+    }
+  } catch (e) {
+    yellow.push({ source: "batter_cache", category: "infra", title: "Batter cache coverage read error", detail: String(e?.message || e) })
+  }
+
   // ── Source 7: autopilotFiresToday — nightly autopilots missed schedule ──
   try {
     const auto = sectionAutopilotFiresToday()
@@ -1341,6 +1394,7 @@ router.get("/", (req, res) => {
   out.autopilotFiresToday = sectionAutopilotFiresToday()
   out.familyCalibration = sectionFamilyCalibration()
   out.mlScorer          = sectionMlScorer()
+  out.batterCacheCoverage = sectionBatterCacheCoverage()
   out.schemaGolden      = sectionSchemaGolden()
   out.trackedBestToday  = sectionTrackedBestToday()
   out.recentCommits     = sectionRecentCommits(5)

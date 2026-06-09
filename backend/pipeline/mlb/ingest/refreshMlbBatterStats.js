@@ -83,6 +83,29 @@ function toNum(v) {
 	return Number.isFinite(n) ? n : null
 }
 
+// 2026-06-09 hardening — bounded retry so a transient statsapi timeout/5xx does
+// NOT silently drop a team for the whole night. Small linear backoff; throws the
+// last error only after all attempts fail (caller still degrades gracefully).
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function withRetry(fn, { attempts = 3, backoffMs = 400, label = "fetch" } = {}) {
+	let lastErr = null
+	for (let i = 0; i < attempts; i++) {
+		try { return await fn() }
+		catch (e) {
+			lastErr = e
+			if (i < attempts - 1) await sleep(backoffMs * (i + 1))
+		}
+	}
+	const err = new Error(`${label} failed after ${attempts} attempts: ${lastErr?.message || lastErr}`)
+	err.cause = lastErr
+	throw err
+}
+
+// Minimum cached batters for a team to count as "covered" on the slate.
+const MIN_BATTERS_PER_TEAM = 5
+const BATTER_STATS_FILE = path.join(__dirname, "..", "..", "..", "data", "mlbBatterStats.json")
+const BATTER_STATS_META_FILE = path.join(__dirname, "..", "..", "..", "data", "mlbBatterStats.meta.json")
+
 function deriveSlateDate(date) {
 	if (date) return String(date).slice(0, 10)
 	// Phase Date-Doctrine-1B — canonical ET slate date (4 AM boundary)
@@ -90,10 +113,10 @@ function deriveSlateDate(date) {
 }
 
 async function fetchTeamsPlayingOnDate(date) {
-	const res = await axios.get(SCHEDULE_URL, {
+	const res = await withRetry(() => axios.get(SCHEDULE_URL, {
 		params: { sportId: 1, date },
 		timeout: 15000,
-	})
+	}), { label: "schedule" })
 	const games = res?.data?.dates?.[0]?.games || []
 	const teams = []
 	const seenTeamIds = new Set()
@@ -111,10 +134,10 @@ async function fetchTeamsPlayingOnDate(date) {
 
 async function fetchTeamRoster(teamId) {
 	const url = `${ROSTER_URL_BASE}/${teamId}/roster`
-	const res = await axios.get(url, {
+	const res = await withRetry(() => axios.get(url, {
 		params: { rosterType: "active" },
 		timeout: 15000,
-	})
+	}), { label: `roster ${teamId}` })
 	return res?.data?.roster || []
 }
 
@@ -246,13 +269,13 @@ function extractSeasonHittingAndBio(person, season) {
 async function fetchBatchSeasonStats(batters, season) {
 	if (!batters.length) return []
 	const personIds = batters.map(b => b.playerId).join(",")
-	const res = await axios.get(PEOPLE_URL, {
+	const res = await withRetry(() => axios.get(PEOPLE_URL, {
 		params: {
 			personIds,
 			hydrate: `stats(type=season,group=hitting,season=${season})`,
 		},
 		timeout: 15000,
-	})
+	}), { label: "people_batch" })
 	const people = res?.data?.people || []
 	const byId = new Map()
 	for (const p of people) byId.set(Number(p.id), p)
@@ -276,10 +299,31 @@ async function fetchBatchSeasonStats(batters, season) {
 
 function persistMap(map) {
 	try {
-		const dir = path.join(__dirname, "..", "..", "..", "data")
+		const dir = path.dirname(BATTER_STATS_FILE)
 		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-		const file = path.join(dir, "mlbBatterStats.json")
-		fs.writeFileSync(file, JSON.stringify(map, null, 2))
+		fs.writeFileSync(BATTER_STATS_FILE, JSON.stringify(map, null, 2))
+		return true
+	} catch (_) {
+		return false
+	}
+}
+
+// Load the EXISTING batter map so a partial run can merge into it (never overwrite
+// with less coverage). Missing/corrupt prior file ⇒ empty object (honest start).
+function loadPriorMap() {
+	try {
+		const raw = fs.readFileSync(BATTER_STATS_FILE, "utf8")
+		const j = JSON.parse(raw)
+		return (j && typeof j === "object" && !Array.isArray(j)) ? j : {}
+	} catch (_) {
+		return {}
+	}
+}
+
+// Sidecar metadata so /status can show batter-cache coverage without a network call.
+function writeMeta(meta) {
+	try {
+		fs.writeFileSync(BATTER_STATS_META_FILE, JSON.stringify(meta, null, 2))
 		return true
 	} catch (_) {
 		return false
@@ -335,47 +379,112 @@ async function refreshMlbBatterStats({ slateDate, season } = {}) {
 	}
 	diagnostics.battersFound = batters.length
 
-	const batterStatsByName = {}
-	for (let i = 0; i < batters.length; i += BATCH_SIZE) {
-		const chunk = batters.slice(i, i + BATCH_SIZE)
-		diagnostics.batches += 1
-		let results = []
-		try {
-			results = await fetchBatchSeasonStats(chunk, seasonResolved)
-		} catch (e) {
-			diagnostics.failed += chunk.length
-			if (diagnostics.errors.length < 5) {
-				diagnostics.errors.push({ stage: "people_batch", batchIndex: i / BATCH_SIZE, reason: e?.message || String(e) })
-			}
-			continue
-		}
-		for (const r of results) {
-			if (r.__error === "no_person") {
-				diagnostics.failed += 1
+	// Fetch season stats for a batter list INTO `mapOut` (keyed by normalized name).
+	// Reused for the main pass AND the targeted re-fetch of any missing slate teams.
+	const fetchInto = async (batterList, mapOut) => {
+		for (let i = 0; i < batterList.length; i += BATCH_SIZE) {
+			const chunk = batterList.slice(i, i + BATCH_SIZE)
+			diagnostics.batches += 1
+			let results = []
+			try {
+				results = await fetchBatchSeasonStats(chunk, seasonResolved)
+			} catch (e) {
+				diagnostics.failed += chunk.length
+				if (diagnostics.errors.length < 5) {
+					diagnostics.errors.push({ stage: "people_batch", batchIndex: i / BATCH_SIZE, reason: e?.message || String(e) })
+				}
 				continue
 			}
-			if (r.__error === "no_pa") {
-				diagnostics.skippedNoPA += 1
-				continue
+			for (const r of results) {
+				if (r.__error === "no_person") { diagnostics.failed += 1; continue }
+				if (r.__error === "no_pa") { diagnostics.skippedNoPA += 1; continue }
+				const key = normalizeName(r.batter?.fullName)
+				if (!key) continue
+				mapOut[key] = {
+					playerId: r.batter.playerId,
+					fullName: r.batter.fullName,
+					teamId: r.batter.teamId,
+					teamName: r.batter.teamName,
+					positionCode: r.batter.positionCode,
+					...r.stats,
+					source: "mlb_statsapi_season",
+					ingestedAt: new Date().toISOString(),
+				}
+				diagnostics.statsFetched += 1
 			}
-			const key = normalizeName(r.batter?.fullName)
-			if (!key) continue
-			batterStatsByName[key] = {
-				playerId: r.batter.playerId,
-				fullName: r.batter.fullName,
-				teamId: r.batter.teamId,
-				teamName: r.batter.teamName,
-				positionCode: r.batter.positionCode,
-				...r.stats,
-				source: "mlb_statsapi_season",
-				ingestedAt: new Date().toISOString(),
-			}
-			diagnostics.statsFetched += 1
 		}
 	}
 
-	diagnostics.persistedToDisk = persistMap(batterStatsByName)
+	// Count cached batters per team name (used for the coverage gate).
+	const teamCounts = (map) => {
+		const c = {}
+		for (const k of Object.keys(map)) { const t = map[k] && map[k].teamName; if (t) c[t] = (c[t] || 0) + 1 }
+		return c
+	}
+	const slateTeamNames = teams.map((t) => t.teamName).filter(Boolean)
+	const missingTeamsIn = (map) => {
+		const c = teamCounts(map)
+		return teams.filter((t) => t.teamName && (c[t.teamName] || 0) < MIN_BATTERS_PER_TEAM)
+	}
+
+	// ── main pass ──
+	const thisRun = {}
+	await fetchInto(batters, thisRun)
+
+	// ── coverage check + ONE targeted re-fetch of any missing slate teams ──
+	let missing = missingTeamsIn(thisRun)
+	if (missing.length) {
+		diagnostics.targetedRefetchTeams = missing.map((t) => t.teamName)
+		let missingBatters = []
+		try { missingBatters = await collectBatters(missing) } catch (e) {
+			diagnostics.errors.push({ stage: "refetch_rosters", message: e?.message || String(e) })
+		}
+		if (missingBatters.length) await fetchInto(missingBatters, thisRun)
+		missing = missingTeamsIn(thisRun)
+	}
+
+	// ── MERGE-NOT-OVERWRITE — never write a map with LESS coverage than exists.
+	// Prior entries for players not fetched this run are KEPT (season stats are
+	// day-stable; stale-but-present beats dropped). Fresh entries overwrite.
+	const prior = loadPriorMap()
+	const priorCount = Object.keys(prior).length
+	const merged = { ...prior, ...thisRun }
+	const mergedCount = Object.keys(merged).length
+	const overlap = Object.keys(thisRun).filter((k) => prior[k]).length
+	diagnostics.priorBatters = priorCount
+	diagnostics.thisRunBatters = Object.keys(thisRun).length
+	diagnostics.mergedBatters = mergedCount
+	diagnostics.priorEntriesRetained = priorCount - overlap   // prior players not re-fetched this run (kept)
+	if (mergedCount < priorCount) {
+		// Defensive: spread can't shrink, but never persist a regression if it ever did.
+		diagnostics.errors.push({ stage: "merge", message: `merged ${mergedCount} < prior ${priorCount} — refusing to shrink coverage` })
+		diagnostics.persistedToDisk = false
+	} else {
+		diagnostics.persistedToDisk = persistMap(merged)
+	}
+
+	// ── coverage diagnostics + meta sidecar (for /status visibility) ──
+	const finalCounts = teamCounts(merged)
+	const coveredTeams = slateTeamNames.filter((t) => (finalCounts[t] || 0) >= MIN_BATTERS_PER_TEAM)
+	const missingTeams = slateTeamNames.filter((t) => (finalCounts[t] || 0) < MIN_BATTERS_PER_TEAM)
+	diagnostics.teamsOnSlate = slateTeamNames.length
+	diagnostics.teamsCaptured = coveredTeams.length
+	diagnostics.missingTeams = missingTeams
+	diagnostics.coverageComplete = missingTeams.length === 0
 	diagnostics.finishedAt = new Date().toISOString()
+	writeMeta({
+		slateDate: date,
+		season: seasonResolved,
+		teamsOnSlate: slateTeamNames.length,
+		teamsCaptured: coveredTeams.length,
+		missingTeams,
+		totalBatters: mergedCount,
+		thisRunBatters: diagnostics.thisRunBatters,
+		coverageComplete: diagnostics.coverageComplete,
+		finishedAt: diagnostics.finishedAt,
+	})
+
+	const batterStatsByName = merged
 
 	console.log("[MLB-INGEST-BATTERS]", {
 		slateDate: date,
@@ -385,6 +494,10 @@ async function refreshMlbBatterStats({ slateDate, season } = {}) {
 		skippedNoPA: diagnostics.skippedNoPA,
 		failed: diagnostics.failed,
 		batches: diagnostics.batches,
+		teamsCaptured: `${diagnostics.teamsCaptured}/${diagnostics.teamsOnSlate}`,
+		missingTeams: diagnostics.missingTeams,
+		mergedBatters: diagnostics.mergedBatters,
+		coverageComplete: diagnostics.coverageComplete,
 		persistedToDisk: diagnostics.persistedToDisk,
 	})
 
