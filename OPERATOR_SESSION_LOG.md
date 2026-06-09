@@ -3703,3 +3703,38 @@ No 4.8 action pending on these (both shipped+verified). QUEUE: MLB-TIER-ASSIGNME
 
 PROBE_REFS:
 live FE edge.motel666.com/m (lands Top Picks · GAMES upcoming Spurs@Knicks · GRADES by-tier card inverted-ladder honest) · baacfe2 (consolidation) · e94c1ac (GRADES card) · t1_hitrate_by_tier_phase1.md
+
+## 2026-06-09 17:10 ET — Claude-A (Cowork)
+
+ACTION: OPERATOR ESCALATION (justified) — the Top Picks cards show a GENERIC, prop-AGNOSTIC reasoning blob, NOT prop-specific stat backing. This was operator's FIRST requirement and the session missed it. ROOT CAUSE confirmed in code: buildReasoning (workstationRoutes.js:2356+) fills out.l5 = {label:"Team implied total"} (the slot NAMED l5 is team-implied-total, not the player's L5) + out.propSpec = generic "Game/HR environment" — SAME blob for Skenes Ks + Muncy TB. The Step-2 displayBundle (batter-shaped, never prop-aware for pitcher Ks) does NOT reach these cards. Cold-start = /api/ws/state auto-refresh re-pulls live snapshot when stale (operator's guess correct). Operator chose: AUDIT DATA FIRST → rebuild; priority prop types = pitcher Ks, batter hits/TB, HR (MLB; NBA deferred). TIER ANCHOR: T1 · prop-specific stat backing · audit→rebuild.
+
+DRAFT_HANDOFF:
+```
+PROP-SPECIFIC STAT-BACKING AUDIT (read-only, audit-first — NO code). The Top Picks cards show a generic prop-agnostic blob; the operator's #1 requirement (stat backing SPECIFIC to the prop + player) was never delivered. Map, per prop type, the IDEAL predictors vs what we actually ingest, honestly, so the rebuild is grounded. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Deliverable: docs/audits/2026-06-09-prop-stat-backing/prop_predictors_data_map.md.
+
+CONTEXT (the failure, confirmed): renderTopPicks cards render buildReasoning (workstationRoutes.js:2356+) — out.l5 is literally "Team implied total" (NOT the player's L5), out.propSpec is generic park/weather/total. Identical for a pitcher-K pick and a batter-TB pick. The Step-2 displayBundle (Facing/Season/L5/L15) is batter-shaped AND doesn't reach these cards. Operator's Skenes Ks example: card shows "team implied total 4.42 · vs Dodgers (dup) · spot 8.5 · 85°F" — none predict strikeouts. This audit defines what SHOULD be there.
+
+FOR EACH PROP TYPE (priority order: 1. pitcher_strikeouts · 2. batter_hits + total_bases · 3. home_runs), report a table:
+  (A) IDEAL PREDICTORS — the stats that actually predict THIS prop. Examples to ground it:
+      - pitcher Ks: pitcher's L5/L15 Ks + season K% / K9 · OPPONENT TEAM strikeout rate (lineup K%) · opp K% vs pitcher hand · expected innings/outs · (park/weather minor).
+      - batter hits/TB: batter L5/L15 line · the OPPOSING PITCHER + his vulnerability (kRate/gbRate/fbRate/contact) · platoon/handedness · park hits/doubles factor · (batter-vs-this-pitcher history).
+      - home runs: batter power form (recent HR, ISO/barrel) · pitcher HR-vulnerability (HR/9) · park HR factor + weather/carry · platoon.
+  (B) INGESTED + REACHES A PICK (a) — already available on the row/pick (file:line + the field).
+  (C) COMPUTED, NOT SURFACED (b) — exists in pipeline but not on the card (cheap wire).
+  (D) NOT INGESTED (c) — no feed; NAME the source needed (e.g. pitcher game logs for L5 Ks → statsapi; opponent team K% → ?; barrel/ISO → Baseball Savant). Honest: per memory, mlbPitcherGameLogs ≈ 4 pitchers (pitcher L5 Ks largely MISSING); confirm.
+  VERDICT per prop type: what the card CAN show truthfully today vs what needs ingestion.
+
+ALSO: confirm the #101 "vs <team> <team>" duplication source (buildReasoning opp.label+opp.value both = team) — flag for the rebuild fix.
+
+DELIVERABLE = the rebuild spec: per prop type, the prop-specific card layout from REAL fields (a)+(b), the (c) ingest list prioritized, and an explicit "do NOT show team-implied-total / generic environment AS the reason" rule. NEVER fabricate; if a stat isn't ingested, the card omits it, never substitutes a generic one.
+
+discipline: read-only (zero code); every claim file:line; honest about gaps (the operator wants the TRUTH about what we can't show, not a generic blur); extend audit docs; no shadow. STOP after the map — operator + Claude-A scope the rebuild + ingest from it.
+
+go. pitcher_strikeouts FIRST (it's the current TOP TIER + the worst-covered).
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs the read-only prop-predictor data map (per prop type: ideal vs ingested vs gap + the #101 dup source), STOPS for operator/Claude-A review. Then we scope the rebuild (prop-aware card from real data) + the ingest work (pitcher game logs / opp K% / power metrics) from the honest map. QUEUED behind/with: cold-start fast-first-paint · MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration.
+
+PROBE_REFS:
+workstationRoutes.js:2356+ buildReasoning (out.l5="Team implied total" — the prop-agnostic blob) · mlbBatterFormCache (batter L5/L15, exists) · deriveMlbPitcherEnvironmentContext (opp pitcher kRate, exists) · mlbPitcherGameLogs.json (~4 pitchers — pitcher L5 Ks GAP) · operator-trust-definition-stat-attribution memory (the spec basis) · operator screenshots (Skenes Ks / Muncy TB generic cards)
