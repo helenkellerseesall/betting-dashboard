@@ -3948,3 +3948,32 @@ No 4.8 action pending on batter (verified live). QUEUE: lineupSpot wiring fix ·
 
 PROBE_REFS:
 mlbBatterStats.json (30 teams/387) + .meta.json (coverageComplete) · /api/ws/version b3b2f62==HEAD bootAt 22:50 · sysAudit.js:119-122 (stale-code RED vs doc-only WARN) · feedback_act_on_status_alerts memory
+
+## 2026-06-09 19:02 ET — Claude-A (Cowork)
+
+ACTION: TIME-LABEL CORRECTION — prior block's "22:55 ET" was UTC; actual ET ~19:02 (backend bootAt 22:50:47Z = 18:50 ET). Operator chose "LOCK DOWN THE DATA" = lineupSpot wiring + sibling-populator hardening. lineupSpot probe: only 4/106 tonight picks populated (writer exists deriveMlbLineupContext.js:107) — at 19:02 ET early games just starting so SOME late lineups legitimately unconfirmed, but 4% is too low for confirmed-lineup early games → real reach gap. TIER ANCHOR: T1 · lock-down-the-data batch · audit (lineupSpot) + build (sibling hardening).
+
+DRAFT_HANDOFF:
+```
+LOCK-DOWN-THE-DATA batch (operator-approved). PART A audit-first (lineupSpot root cause), PART B apply the proven batter-stats hardening to the sibling populators. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. After the fence: VERIFY backend /api/ws/version commit == HEAD (the new stale-code discipline — don't assume reload took).
+
+PART A — lineupSpot wiring gap (AUDIT-FIRST, report before fixing):
+  symptom: lineupSpot 0% flagged hourly (sysAudit 09:02-14:01); Claude-A probe 4/106 tonight picks at 19:02 ET. Writer = deriveMlbLineupContext.js:107 (lineupSpot: spot); cache = mlbLineupCache.js; confirmed-state = deriveMlbConfirmedLineupState.js.
+  TRACE (read-only): WHY does lineupSpot reach only ~4%? Distinguish: (a) lineup CACHE empty/stale (the lineup populator not fetching confirmed lineups — same class as the batter-stats gap), (b) deriveMlbLineupContext runs but its output isn't JOINED onto the pick rows (wiring), (c) lineups genuinely unconfirmed at pick-generation time + never back-filled when they post (live-state should update). ACCOUNT for timing: confirmed-lineup early games SHOULD have lineupSpot; only truly-unconfirmed late games should be null. Report the real cause + the fix (wire the join / run the lineup fetch / back-fill on confirm) — do NOT fabricate lineupSpot when lineups truly aren't out (omit, like the batter omit-not-fabricate). STOP after the trace for operator/Claude-A if the fix is non-trivial.
+
+PART B — sibling-populator hardening (apply the PROVEN batter-stats pattern, 35fab13):
+  the 4 siblings share the same overwrite/fail-open fragility: refreshMlbBatterGameLogs · refreshMlbPitcherGameLogs · refreshMlbBullpenWorkload · refreshMlbPitcherStats. Apply the same hardening each: withRetry on the fetch calls + MERGE-not-overwrite (loadPriorMap, no-shrink guard, keep prior on this-run failure) + coverage check (captured vs expected) + meta sidecar + diagnostics. Reuse/extract the batter-stats helpers (withRetry, loadPriorMap/merge) into a shared util if clean. 
+  REGRESSION (per sibling): merge-gate — simulate a partial run, prior data RETAINED, never shrinks (the core gate, like the batter proof); node --check; run each populator once to confirm it still fills correctly. /status: extend the batter-cache coverage card pattern to surface the siblings' coverage (or note as fast follow-up).
+
+discipline: PART A audit-first + report; omit-not-fabricate (lineupSpot null when truly unconfirmed); merge must never reduce coverage; SEPARATE code+docs commits per piece; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED untouched. After fence: confirm /api/ws/version == HEAD.
+
+bettor-visible delta: PART A — lineupSpot populates on confirmed-lineup games → better projections (leadoff vs 8-hole PAs). PART B — no future slate silently loses a cache.
+
+go. PART A trace first (report root cause), then PART B hardening.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 traces lineupSpot root cause (cache-empty vs join-gap vs back-fill), reports, fixes; + hardens the 4 sibling populators (retry+merge+coverage, merge-gate per sibling). Separate commits. After fence: backend==HEAD check + Claude-A verifies lineupSpot populates on confirmed games. QUEUED: cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+deriveMlbLineupContext.js:107 (lineupSpot writer) · mlbLineupCache.js · deriveMlbConfirmedLineupState.js · refreshMlbBatterGameLogs/PitcherGameLogs/BullpenWorkload/PitcherStats.js (harden) · refreshMlbBatterStats.js 35fab13 (the proven pattern to reuse) · lineupSpot probe 4/106
