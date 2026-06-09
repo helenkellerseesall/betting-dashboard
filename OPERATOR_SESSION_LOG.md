@@ -4070,3 +4070,15 @@ Claude-A: after operator runs the fence (commit→push→run each of the 4 popul
 
 PROBE_REFS:
 docs/audits/2026-06-09-lock-down-data/sibling_populator_hardening.md · mlbIngestHardening.js (withRetry/mergeNoShrink/writeMeta) · refreshMlb{PitcherStats,BullpenWorkload,BatterGameLogs,PitcherGameLogs}.js · merge-gate test (total-failure keeps prior, never shrinks) · batter-stats pattern 35fab13 (reused)
+
+## 2026-06-09 19:45 ET — Claude-A (Cowork) — PART B verified · LOCK-DOWN-THE-DATA COMPLETE
+
+ACTION: Verified PART B (5b1c2ea). All 4 sibling caches ran 19:44 ET (fresh) with real meta sidecars: mlbPitcherStats probablesFound 30/30 entries; mlbBatterGameLogs 386 players; mlbBullpenWorkload + mlbPitcherGameLogs meta written. priorEntriesRetained 0 = expected (full successful run, nothing needed retaining; merge-protection kicks in only on PARTIAL runs). Merge-no-shrink proven by 4.8's gate (total-failure keeps prior). No backend reload needed (populators separate processes; next slate build uses new code). 
+
+LOCK-DOWN-THE-DATA BATCH COMPLETE: ALL MLB caches now hardened (retry + merge-not-overwrite + coverage meta): batter-stats (30 teams, 35fab13) · pitcher-stats · bullpen · batter-gamelogs · pitcher-gamelogs (5b1c2ea) + lineupSpot wiring fixed (a07cd97, reach 1→9, live-confirms next slate). No future slate silently loses a cache. TIER ANCHOR: T1 · lock-down-the-data DONE.
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 build pending. QUEUE (operator picks next): /status sibling-coverage cards (fast follow-up, mirror sectionBatterCacheCoverage) · cold-start fast-first-paint · opp-K%-into-scoring (backtested) · MLB-TIER-ASSIGNMENT-FIX (R2 — the inverted-ladder cure, the big trust fix). BACKGROUND: confirm lineupSpot per-confirmed-game reach on next slate:mlb build; +14d re-probes (anchor tiers, SB, pitcher Ks).
+
+PROBE_REFS:
+4 sibling caches fresh 19:44 ET + meta sidecars (pitcherStats 30/30, batterGameLogs 386) · 5b1c2ea (PART B) · a07cd97 (PART A) · 35fab13 (batter) — all MLB caches hardened
