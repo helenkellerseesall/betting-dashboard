@@ -3661,3 +3661,21 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 fe_surface_consolidation_phase0.md (the surface map + fork) · index.html (activeSport:778 landing · renderGamesView:1832 · renderModeToggle:1786 · renderTopPicks:3067) · workstationRoutes.js (/games snapshot path) · snapshot.json/snapshot-mlb.json (upcoming source)
+
+## 2026-06-09 05:40 ET — Claude-B (4.8)
+
+ACTION: BUILT FE CONSOLIDATION PHASE 1 (both decisions). FE-ONLY (frontend/mobile/index.html), 4 edits, no backend route touched → NO backend reload (express.static serves /m from disk; tonight's 15-game MLB slate + CLV undisturbed). Mechanism = Option (a): reuse the snapshot render, lowest blast radius. Commit fence (code+docs separate) handed to operator. Live render proof = Claude-A full-nav screenshot.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: frontend/mobile/index.html — (1) activeSport "mlb"→"top" (line ~778): /m lands on renderTopPicks, kills the nav/content desync that made the whole session read the wrong screen + retires the Tonight's-Games/Sharp sub-tabs for free (mlb/nba not in nav). (2) GAMES routing → new renderGamesAllSports. (3) renderGamesAllSports: all-sports (NBA-first) snapshot view reusing renderGameCard/renderPlayerCard, reads state.games cache, lazy-fetches /api/ws/games per sport. (4) renderGameCard gained optional opts; future-dated games get "UPCOMING · LINES ONLY" badge + "picks generate closer to game time" subline.
+  - docs: docs/audits/2026-06-09-fe-consolidation/fe_surface_consolidation_phase1.md + this block
+
+AUDIT_OUTCOME (verification this side):
+  FE new Function() clean (3785 lines). DATA-SOURCE PROBE (replicated readSnapshotRows + /api/ws/games event-grouping over on-disk snapshots, today=06-09 ET): NBA = 1 game Spurs@Knicks ET-date 06-10 → flagged UPCOMING (the Wed playoff game operator wanted); MLB = 15 games all tonight (06-09), 22-25 players each. FE future-label uses identical ET-date compare (en-CA/America-New_York) → badge fires on the NBA game only. NO FABRICATION: future-game per-prop model chip suppressed by the existing Number.isFinite(pp.modelProb) gate (index.html:2047) — future games show book lines only + the honest label. Routing clean: renderGamesBrowser zero active callers (dormant; _gamesBrowserCache write-only), renderGamesAllSports exactly one caller. Dormant-not-deleted: renderGamesBrowser, /api/ws/games-browser, renderGamesView, renderModeToggle, Sharp-Plays block.
+  MECHANISM NOTE: chose Option (a) [reuse snapshot render] over (b) [rewrite /games-browser to snapshot] — (a) touches no backend, reuses the already-upcoming-inclusive + calibrated render; (b) would have rewritten a backend route + reconciled two prop shapes. (a) is strictly lower blast radius.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the commit fence + hard-reloads /m, FULL-NAV screenshot-verify — lands on TOP PICKS · GAMES shows Spurs@Knicks labeled UPCOMING/lines-only · no Tonight's-Games/Sharp-Plays sub-tabs · all six tabs (TOP/SLIPS/MY BETS/GAMES/ANALYZE/GRADES) reachable & render · and finally the owed T1 #2 GRADES by-tier card on-screen (now reachable since the landing bug is fixed). QUEUED: MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration · pitcher-Ks/SB re-scope.
+
+PROBE_REFS:
+docs/audits/2026-06-09-fe-consolidation/fe_surface_consolidation_phase1.md · index.html (activeSport:778 · renderGamesAllSports ~1881 · renderGameCard opts ~1863 · GAMES route ~1479) · workstationRoutes.js (/api/ws/games:1263 readSnapshotRows:255 modelProbLookup:1339) · snapshot.json + snapshot-mlb.json (live grouping probe) · server.js:145 (express.static /m — no reload)
