@@ -42,6 +42,8 @@
 const fs = require("fs")
 const path = require("path")
 const axios = require("axios")
+// 2026-06-09 sibling hardening — shared retry + merge-not-overwrite + meta.
+const { withRetry, loadJsonSafe, mergeNoShrink, writeMeta } = require("./mlbIngestHardening")
 
 const SCHEDULE_URL_BASE = "https://statsapi.mlb.com/api/v1/teams"
 const BOXSCORE_URL_BASE = "https://statsapi.mlb.com/api/v1/game"
@@ -89,10 +91,10 @@ async function fetchTeamScheduleWindow({ teamId, startDate, endDate, season }) {
 	// 2026-05-30 — the per-team URL `/api/v1/teams/{id}/schedule` returns 404.
 	// Canonical pattern is `/api/v1/schedule?sportId=1&teamId=X&startDate=...&endDate=...`.
 	const url = "https://statsapi.mlb.com/api/v1/schedule"
-	const res = await axios.get(url, {
+	const res = await withRetry(() => axios.get(url, {
 		params: { sportId: 1, teamId, startDate, endDate },
 		timeout: 15000,
-	})
+	}), { label: `bullpen-schedule ${teamId}` })
 	const dates = res?.data?.dates || []
 	const games = []
 	for (const d of dates) {
@@ -107,7 +109,7 @@ async function fetchTeamScheduleWindow({ teamId, startDate, endDate, season }) {
 
 async function fetchBoxscore(gamePk) {
 	const url = `${BOXSCORE_URL_BASE}/${gamePk}/boxscore`
-	const res = await axios.get(url, { timeout: 15000 })
+	const res = await withRetry(() => axios.get(url, { timeout: 15000 }), { label: `boxscore ${gamePk}` })
 	return res?.data || null
 }
 
@@ -186,10 +188,10 @@ let _teamIdMap = null
 async function loadTeamIdMap() {
 	if (_teamIdMap) return _teamIdMap
 	try {
-		const res = await axios.get("https://statsapi.mlb.com/api/v1/teams", {
+		const res = await withRetry(() => axios.get("https://statsapi.mlb.com/api/v1/teams", {
 			params: { sportId: 1 },
 			timeout: 15000,
-		})
+		}), { label: "teams" })
 		const teams = res?.data?.teams || []
 		const map = new Map()
 		for (const t of teams) {
@@ -331,8 +333,26 @@ async function refreshMlbBullpenWorkload({ events, windowDays = DEFAULT_WINDOW_D
 		diagnostics.teamsWithData += 1
 	}
 
-	diagnostics.persistedToDisk = persistMap(bullpenByTeam)
+	// 2026-06-09 hardening — MERGE-not-overwrite: a partial run keeps prior teams.
+	const _file = path.join(__dirname, "..", "..", "..", "data", "mlbBullpenWorkload.json")
+	const _prior = loadJsonSafe(_file) || {}
+	const _m = mergeNoShrink(_prior, bullpenByTeam)
+	diagnostics.priorTeams = _m.priorCount
+	diagnostics.thisRunTeams = _m.thisRunCount
+	diagnostics.mergedTeams = _m.mergedCount
+	diagnostics.priorTeamsRetained = _m.retained
+	if (_m.shrank) {
+		diagnostics.errors = diagnostics.errors || []
+		diagnostics.errors.push({ stage: "merge", message: `merged ${_m.mergedCount} < prior ${_m.priorCount} — refusing to shrink` })
+		diagnostics.persistedToDisk = false
+	} else {
+		diagnostics.persistedToDisk = persistMap(_m.merged)
+	}
 	diagnostics.finishedAt = new Date().toISOString()
+	writeMeta(path.join(__dirname, "..", "..", "..", "data", "mlbBullpenWorkload.meta.json"), {
+		windowDays, teamsRequested: diagnostics.teamsRequested, teamsWithData: diagnostics.teamsWithData,
+		totalTeams: _m.mergedCount, priorTeamsRetained: _m.retained, finishedAt: diagnostics.finishedAt,
+	})
 
 	console.log("[MLB-INGEST-BULLPEN]", {
 		windowDays,
@@ -340,10 +360,12 @@ async function refreshMlbBullpenWorkload({ events, windowDays = DEFAULT_WINDOW_D
 		teamsResolved: diagnostics.teamsResolved,
 		teamsWithData: diagnostics.teamsWithData,
 		gamesScanned: diagnostics.gamesScanned,
+		mergedTeams: _m.mergedCount,
+		priorRetained: _m.retained,
 		persistedToDisk: diagnostics.persistedToDisk,
 	})
 
-	return { bullpenByTeam, diagnostics }
+	return { bullpenByTeam: _m.merged, diagnostics }
 }
 
 module.exports = { refreshMlbBullpenWorkload }

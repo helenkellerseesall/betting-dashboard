@@ -50,6 +50,8 @@
 const fs = require("fs")
 const path = require("path")
 const axios = require("axios")
+// 2026-06-09 sibling hardening — shared retry + merge-not-overwrite + meta.
+const { withRetry, loadJsonSafe, mergeNoShrink, writeMeta } = require("./mlbIngestHardening")
 
 const SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 const PERSON_URL_BASE = "https://statsapi.mlb.com/api/v1/people"
@@ -93,10 +95,10 @@ async function chunkedPromiseAll(items, fn, concurrency = DEFAULT_CONCURRENCY) {
 }
 
 async function fetchProbablePitchersForDate(date) {
-	const res = await axios.get(SCHEDULE_URL, {
+	const res = await withRetry(() => axios.get(SCHEDULE_URL, {
 		params: { sportId: 1, date, hydrate: "probablePitcher,team" },
 		timeout: 15000,
-	})
+	}), { label: "pitcher-schedule" })
 	const games = res?.data?.dates?.[0]?.games || []
 	const out = []
 	for (const g of games) {
@@ -202,10 +204,10 @@ function extractSeasonPitchingStats(personJson, season) {
 
 async function fetchSeasonStatsForPitcher({ playerId, season }) {
 	const url = `${PERSON_URL_BASE}/${playerId}`
-	const res = await axios.get(url, {
+	const res = await withRetry(() => axios.get(url, {
 		params: { hydrate: `stats(type=season,season=${season})` },
 		timeout: 15000,
-	})
+	}), { label: `pitcher-stats ${playerId}` })
 	return extractSeasonPitchingStats(res?.data, season)
 }
 
@@ -304,8 +306,26 @@ async function refreshMlbPitcherStats({ slateDate, season, concurrency = DEFAULT
 		diagnostics.statsFetched += 1
 	}
 
-	diagnostics.persistedToDisk = persistMap(pitcherStatsByName)
+	// 2026-06-09 hardening — MERGE-not-overwrite: a partial run keeps prior pitchers.
+	const _file = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherStats.json")
+	const _prior = loadJsonSafe(_file) || {}
+	const _m = mergeNoShrink(_prior, pitcherStatsByName)
+	diagnostics.priorEntries = _m.priorCount
+	diagnostics.thisRunEntries = _m.thisRunCount
+	diagnostics.mergedEntries = _m.mergedCount
+	diagnostics.priorEntriesRetained = _m.retained
+	if (_m.shrank) {
+		diagnostics.errors.push({ stage: "merge", message: `merged ${_m.mergedCount} < prior ${_m.priorCount} — refusing to shrink` })
+		diagnostics.persistedToDisk = false
+	} else {
+		diagnostics.persistedToDisk = persistMap(_m.merged)
+	}
 	diagnostics.finishedAt = new Date().toISOString()
+	writeMeta(path.join(__dirname, "..", "..", "..", "data", "mlbPitcherStats.meta.json"), {
+		slateDate: date, season: seasonResolved,
+		probablesFound: diagnostics.probablesFound, thisRunEntries: _m.thisRunCount,
+		totalEntries: _m.mergedCount, priorEntriesRetained: _m.retained, finishedAt: diagnostics.finishedAt,
+	})
 
 	console.log("[MLB-INGEST-PITCHERS]", {
 		slateDate: date,
@@ -313,10 +333,12 @@ async function refreshMlbPitcherStats({ slateDate, season, concurrency = DEFAULT
 		probables: diagnostics.probablesFound,
 		fetched: diagnostics.statsFetched,
 		failed: diagnostics.failed,
+		mergedEntries: _m.mergedCount,
+		priorRetained: _m.retained,
 		persistedToDisk: diagnostics.persistedToDisk,
 	})
 
-	return { pitcherStatsByName, diagnostics }
+	return { pitcherStatsByName: _m.merged, diagnostics }
 }
 
 module.exports = { refreshMlbPitcherStats, normalizePitcherKey }

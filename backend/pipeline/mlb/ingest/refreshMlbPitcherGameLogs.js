@@ -35,12 +35,15 @@ const path = require("path")
 const axios = require("axios")
 const normalizeName = require("../../../utils/normalizeName")
 const { currentSlateDateEt } = require("../../shared/slateDate")
+// 2026-06-09 sibling hardening — shared retry + merge-not-overwrite + meta.
+const { withRetry, loadJsonSafe, mergeNoShrink, writeMeta } = require("./mlbIngestHardening")
 
 const PEOPLE_URL = "https://statsapi.mlb.com/api/v1/people"
 const BATCH_SIZE = 30
 const WINDOW_DAYS = 14
 const PITCHER_CACHE = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherStats.json")
 const OUT_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherGameLogs.json")
+const OUT_META_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherGameLogs.meta.json")
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
 
@@ -104,13 +107,13 @@ function extractStartLogs(person, season, slateDate, windowDays) {
 async function fetchBatchGameLogs(pitchers, season) {
 	if (!pitchers.length) return []
 	const personIds = pitchers.map((p) => p.playerId).join(",")
-	const res = await axios.get(PEOPLE_URL, {
+	const res = await withRetry(() => axios.get(PEOPLE_URL, {
 		params: {
 			personIds,
 			hydrate: `stats(type=gameLog,group=pitching,season=${season})`,
 		},
 		timeout: 15000,
-	})
+	}), { label: "pitcher-gamelogs-batch" })
 	const people = res?.data?.people || []
 	const byId = new Map()
 	for (const p of people) byId.set(Number(p.id), p)
@@ -213,14 +216,31 @@ async function refreshMlbPitcherGameLogs({ slateDate, season, windowDays = WINDO
 		}
 	}
 
+	// 2026-06-09 hardening — MERGE-not-overwrite the inner players map: a partial run
+	// keeps prior pitchers (game logs are day-stable). Never shrink coverage.
+	const _prior = loadJsonSafe(OUT_PATH) || {}
+	const _priorPlayers = (_prior && typeof _prior.players === "object" && _prior.players) || {}
+	const _m = mergeNoShrink(_priorPlayers, playersByName)
+	diagnostics.priorPlayers = _m.priorCount
+	diagnostics.thisRunPlayers = _m.thisRunCount
+	diagnostics.mergedPlayers = _m.mergedCount
+	diagnostics.priorPlayersRetained = _m.retained
 	const payload = {
 		generatedAt: new Date().toISOString(),
 		source: "mlb_statsapi_gamelog_pitching",
 		windowDays,
-		players: playersByName,
+		players: _m.shrank ? _priorPlayers : _m.merged,
+	}
+	if (_m.shrank) {
+		diagnostics.errors.push({ stage: "merge", message: `merged ${_m.mergedCount} < prior ${_m.priorCount} — kept prior` })
 	}
 	diagnostics.persistedToDisk = persistMap(payload)
 	diagnostics.finishedAt = new Date().toISOString()
+	writeMeta(OUT_META_PATH, {
+		slateDate: date, windowDays, pitchersFromCache: diagnostics.pitchersFromCache,
+		thisRunPlayers: _m.thisRunCount, totalPlayers: Object.keys(payload.players).length,
+		priorPlayersRetained: _m.retained, finishedAt: diagnostics.finishedAt,
+	})
 
 	console.log("[MLB-INGEST-PITCHER-GAMELOGS]", {
 		slateDate: date,
