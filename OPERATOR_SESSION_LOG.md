@@ -3862,3 +3862,23 @@ Claude-A: after operator runs the commit+reload fence + hard-reloads /m, screens
 
 PROBE_REFS:
 docs/audits/2026-06-09-prop-stat-backing/prop_stat_backing_rebuild_phase1.md · backend/pipeline/mlb/assembleMlbPickStatBacking.js (assembleMlbPickDisplayBundle) · workstationRoutes.js (buildReasoning MLB rewrite ~2469 · assembly wire ~2656 · require ~38 · test seam) · live probe: 5-case buildReasoning spot-check (3 props + opp-cached + fabrication-guard)
+
+## 2026-06-09 18:28 ET — Claude-A (Cowork) — ON-SCREEN VERIFY (prop-specific stat backing)
+
+ACTION: FULL on-screen verify of the prop-stat-backing rebuild (c24cb4c code + 16efd59 docs, tree clean). TIER ANCHOR: T1 (trust daily picks) · prop-specific stat backing · VERIFIED ON-SCREEN = SHIPPED. The operator's #1 requirement, finally delivered.
+
+VERIFIED LIVE (edge.motel666.com/m Top Picks) — prop-specific, real, per-pick:
+- SKENES popover (the exact card the operator screenshotted as the generic blur) NOW: "Recent Ks (L2) 8.5/start · Season 29% K · 10.5 K/9 · 0.90 WHIP". The old "team implied total 4.42 · vs Dodgers Dodgers · spot 8.5 · 85°F" is GONE.
+- PITCHER Ks across the slate: "Recent Ks (L2) X/start" + (opp-cached) "Opp lineup K% X% · whiff-prone, helps / contact lineup, hurts" (Wheeler 19% contact-hurts · Gilbert 26% whiff-helps · Burns/Cease/Tolle etc). Prop-specific ✓.
+- BATTER hits/TB: "Facing <pitcher> · X% K · Last 5 X H/G · X TB/G · X HR · X-gm streak" (Rooker/Kurtz/Langeliers/Yelich/Chourio etc). #101 dup GONE ("Facing Paul Skenes", not team×2) ✓.
+- OMIT-NOT-FABRICATE holds: uncached batters (Crow-Armstrong, Happ, Swanson, Carson Kelly) show ONLY the track-record line, NO fake Facing/L5 ✓.
+- "won X% of N similar" track-record renders on every card ✓. NBA cards rich (threes: "NYK allows 11.2 3PM/g · L5 2.6 · 3PA 5.4"; blocks/steals minutes+defense) — unchanged, already good.
+- Picks byte-identical (4.8 gate) — display-only, selection/edge/tier untouched ✓.
+
+HONEST CAVEATS (relay): (1) ~half the batter cards (14/30 uncached teams) OMIT the Facing/Season/L5 rows tonight → 30-team batter-cache expansion (queued) fills them. (2) opp-lineup-K% SHOWS on the card but is NOT fed into the K MODEL (display-only; feeding it into scoring is a separate backtested change, deferred — 4.8 flagged). (3) cold-start ~45s on landing still unfixed (queued).
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 action pending — shipped+verified. QUEUE (priority order TBD w/ operator): 30-team batter-cache expansion (completes ~half the cards) · cold-start fast-first-paint · opp-K%-into-scoring (backtested) · MLB-TIER-ASSIGNMENT-FIX (R2, the inverted-ladder cure) · deeper alt-line calibration · same prop-aware backing on NBA (already rich) / GAMES surface.
+
+PROBE_REFS:
+live FE edge.motel666.com/m Top Picks (Skenes popover Recent Ks+Season; slate-wide prop-specific rows; omit-not-fabricate on uncached) · c24cb4c (rebuild) · assembleMlbPickStatBacking.js · prop_stat_backing_rebuild_phase1.md
