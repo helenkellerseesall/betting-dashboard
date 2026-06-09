@@ -4082,3 +4082,36 @@ No 4.8 build pending. QUEUE (operator picks next): /status sibling-coverage card
 
 PROBE_REFS:
 4 sibling caches fresh 19:44 ET + meta sidecars (pitcherStats 30/30, batterGameLogs 386) · 5b1c2ea (PART B) · a07cd97 (PART A) · 35fab13 (batter) — all MLB caches hardened
+
+## 2026-06-09 19:50 ET — Claude-A (Cowork)
+
+ACTION: Operator chose COLD-START FIX next. Recon: renderTopPicks fetches the LIGHTWEIGHT /api/ws/top-picks (index.html:3139, reads tracked_best), BUT the app init gates the first render() on the HEAVY /api/ws/state (both sports ~835KB each + the /state auto-refresh that re-pulls the live odds API when stale, workstationRoutes /state:635) → the "Loading tonight's edges…" landing blocks ~45s on data Top Picks doesn't need. TIER ANCHOR: T1 · cold-start fast-first-paint · audit→build.
+
+DRAFT_HANDOFF:
+```
+COLD-START FIX — the ~45s "Loading tonight's edges…" on the Top Picks landing (operator feels it every open; worse now that Top Picks is the landing). Goal: instant first paint. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. After fence: confirm /api/ws/version == HEAD.
+
+cause (Claude-A recon): renderTopPicks uses the FAST /api/ws/top-picks (index.html:3139), but the app INIT awaits the HEAVY /api/ws/state (both sports, ~835KB ea + the snapshot auto-refresh re-pull of the live odds API when stale) BEFORE the first render() → landing blocks on data Top Picks doesn't need. (FE-trust audit already flagged this as the cold-start gate.)
+
+PHASE 0 (brief, REPORT): pin the EXACT init call that gates the first render() (where /api/ws/state is awaited on load) + confirm /api/ws/top-picks is independent + fast. Report the cleanest decouple point.
+
+PHASE 1 (fix):
+  - LANDING PAINTS FROM /api/ws/top-picks IMMEDIATELY (it's fast — tracked_best) → Top Picks renders in ~1s, no waiting on /api/ws/state.
+  - load /api/ws/state in the BACKGROUND (lazy/async) for the tabs that actually need it (SLIPS, GAMES modal drill-down, etc.) — those show their own light loading until state arrives; do NOT block the landing on it.
+  - OPTIONAL backend (if the /state re-pull is the long pole): /api/ws/state serves the CACHED snapshot immediately + fires the refresh ASYNC (don't block the response on /refresh-snapshot's live odds pull). Serve-stale-fast + refresh-in-background.
+  - keep the version-poll + auto-refresh banner intact.
+
+VERIFY: cold-start to first Top Picks paint drops from ~45s to ~instant; SLIPS/GAMES/MY BETS/ANALYZE/GRADES all still load (background/on-demand state, no breakage); no double-fetch storm; FE new Function() check; backend node --check if /state touched + reload. Claude-A screenshot-verifies: open /m cold → Top Picks paints fast; every tab still works. After fence: backend==HEAD.
+
+discipline: PHASE 0 report the decouple point first; show-before-edit; don't break tabs that need /state; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED untouched.
+
+bettor-visible delta: app opens instantly on Top Picks instead of a 45s spinner — the daily-felt friction gone.
+
+go. PHASE 0 (pin the blocking init fetch + decouple point), then build.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 audits the exact init-blocking fetch, reports decouple point, then makes the landing paint from /api/ws/top-picks immediately + backgrounds /api/ws/state (+ optional backend serve-stale-async). Claude-A screenshot-verifies fast cold-start + all tabs work + backend==HEAD. QUEUED: /status sibling-coverage cards · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+frontend/mobile/index.html (renderTopPicks:3139 fast /top-picks · render():1431 · init/version-poll:740 · "Loading tonight's edges":696) · workstationRoutes.js /state:635 (heavy + snapshot auto-refresh re-pull) · /api/ws/top-picks:2557 (fast, tracked_best)
