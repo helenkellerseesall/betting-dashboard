@@ -33,6 +33,11 @@ const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDivers
 // calibration input). Reuses PRESERVED vigStripping via buildHitRateByTier.
 const { computeHitRateByTier } = require("../pipeline/tracking/buildHitRateByTier")
 
+// 2026-06-09 prop-specific stat-backing rebuild — assembles a PROP-SPECIFIC displayBundle
+// for EVERY MLB pick at serve time (reaches 100% of picks, not the ~3.6% that line-match
+// the board). Display-only: never touches pick selection/edge/tier/odds. Omit-not-fabricate.
+const { assembleMlbPickDisplayBundle } = require("../pipeline/mlb/assembleMlbPickStatBacking")
+
 // 2026-06-09 Sharp Plays honesty marker — stamps an additive `calibrationStatus`
 // + Step-1 net-negative flag on the candidate pools the FE Sharp Plays surface
 // renders. Computed from the REAL line-aware dampener condition — NEVER fabricates
@@ -2461,31 +2466,73 @@ function buildReasoning(pick, bestEntry) {
     } else if (runtimeGameCtx?.isElimination) {
       out.drivers.push(`Elimination spot — projected minutes adjusted for stakes`)
     }
-  } else if (sport === "mlb" && bestEntry) {
-    // MLB tracked_best doesn't carry L5 today — surface implied team total as proxy "form gauge".
-    if (bestEntry.impliedTeamTotal != null) {
-      out.l5 = { label: "Team implied total", value: `${_round(bestEntry.impliedTeamTotal, 2)} runs`, source: "vegas-derived" }
+  } else if (sport === "mlb") {
+    // 2026-06-09 prop-specific stat-backing rebuild — the 3 reasoning blurbs are now
+    // sourced from the PROP-SPECIFIC statBacking assembled per pick at serve time
+    // (assembleMlbPickStatBacking → pick.displayBundle.statBacking), NOT the old
+    // generic team-implied-total / park-weather blob. OMIT-NOT-FABRICATE: a blurb
+    // renders only when its real stat exists; absent ⇒ omitted (never team-total,
+    // never a faked number). #101 dup fixed: out.opp.value is a real RATE, never the
+    // opponent team name repeated. statBacking absent (non-top-picks surfaces that
+    // don't assemble) ⇒ blurbs omitted entirely (no generic blob anywhere).
+    const sb = pick?.displayBundle?.statBacking || bestEntry?.displayBundle?.statBacking || null
+    const fmt3 = (x) => (x != null && isFinite(x)) ? String(Number(x).toFixed(3)).replace(/^0/, "") : null
+    const P = sb && sb.pitcher ? sb.pitcher : null
+    if (P) {
+      // PITCHER STRIKEOUTS
+      if (P.recentKs && P.recentKs.l5 != null) {
+        const n = Math.min(5, P.recentKs.starts || 5)
+        out.l5 = { label: `Recent Ks (L${n})`, value: `${Number(P.recentKs.l5).toFixed(1)}/start`, source: "game logs" }
+      }
+      if (P.oppLineupKPct != null) {
+        const la = P.leagueAvgKPct
+        const read = (la != null) ? (P.oppLineupKPct >= la + 0.02 ? " · whiff-prone, helps" : (P.oppLineupKPct <= la - 0.02 ? " · contact lineup, hurts" : "")) : ""
+        out.opp = { label: "Opp lineup K%", value: `${Math.round(P.oppLineupKPct * 100)}%${read}`, source: "opposing lineup" }
+      }
+      if (P.season) {
+        const bits = []
+        if (P.season.kPct != null) bits.push(`${Math.round(P.season.kPct * 100)}% K`)
+        if (P.season.k9 != null) bits.push(`${Number(P.season.k9).toFixed(1)} K/9`)
+        if (P.season.whip != null) bits.push(`${Number(P.season.whip).toFixed(2)} WHIP`)
+        if (bits.length) out.propSpec = { label: "Season", value: bits.join(" · "), source: "season stats" }
+      }
+    } else if (sb) {
+      // BATTER (hits / TB / HR / RBI / runs)
+      const rf = sb.recentForm || null
+      const f = (rf && rf.l5) || (rf && rf.l15) || null
+      const fWin = (rf && rf.l5) ? "Last 5" : "Last 15"
+      if (f) {
+        const bits = []
+        if (f.hitsPerGame != null) bits.push(`${Number(f.hitsPerGame).toFixed(1)} H/G`)
+        if (f.totalBasesPerGame != null) bits.push(`${Number(f.totalBasesPerGame).toFixed(1)} TB/G`)
+        if (f.hrInWindow != null && f.hrInWindow > 0) bits.push(`${f.hrInWindow} HR`)
+        if (f.hitStreak != null && f.hitStreak > 0) bits.push(`${f.hitStreak}-gm streak`)
+        if (bits.length) out.l5 = { label: fWin, value: bits.join(" · "), source: "game logs" }
+      }
+      const op = sb.opposingPitcher || null
+      if (op && op.name) {
+        // #101 FIX — value is the opposing pitcher + a REAL rate, not the team twice.
+        const bits = []
+        if (op.kRate != null) bits.push(`${Math.round(op.kRate * 100)}% K`)
+        if (op.fbRate != null) bits.push(`${Math.round(op.fbRate * 100)}% FB`)
+        out.opp = { label: "Facing", value: `${op.name}${bits.length ? " · " + bits.join(", ") : ""}`, source: "matchup" }
+      }
+      const s = sb.seasonLine || null
+      const isHrFam = (fam === "home_runs" || fam === "hr" || /home.run/.test(fam))
+      if (isHrFam && s && (s.iso != null || s.hrRate != null)) {
+        const bits = []
+        if (s.hrRate != null) bits.push(`${(s.hrRate * 100).toFixed(1)}% HR`)
+        if (s.iso != null) bits.push(`${fmt3(s.iso)} ISO`)
+        out.propSpec = { label: "Power", value: bits.join(" · "), source: "season stats" }
+      } else if (s && (s.avg != null || s.slg != null)) {
+        const bits = []
+        if (s.avg != null) bits.push(`${fmt3(s.avg)} AVG`)
+        if (s.slg != null) bits.push(`${fmt3(s.slg)} SLG`)
+        out.propSpec = { label: "Season", value: bits.join(" · "), source: "season stats" }
+      }
     }
-    out.opp = { label: `vs ${opp}`, value: opp, source: "matchup" }
-    if (fam === "home_runs" || fam === "hr" || /home.run/.test(fam)) {
-      const parts = []
-      if (bestEntry.hrFactor != null) parts.push(`park HR factor ${_round(bestEntry.hrFactor, 2)}`)
-      if (bestEntry.windDirectionTag) parts.push(`wind ${bestEntry.windDirectionTag}`)
-      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
-      out.propSpec = { label: "HR environment", value: parts.join(" · ") || (bestEntry.hrEnvironmentTag || "neutral"), source: "park + weather + handedness" }
-    } else if (fam.includes("pitch") || fam.includes("strikeout")) {
-      const parts = []
-      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
-      if (bestEntry.gameTotal != null) parts.push(`O/U ${_round(bestEntry.gameTotal, 1)}`)
-      out.propSpec = { label: "Game environment", value: parts.join(" · ") || "—", source: "weather + total" }
-    } else {
-      const parts = []
-      if (bestEntry.gameTotal != null) parts.push(`O/U ${_round(bestEntry.gameTotal, 1)}`)
-      if (bestEntry.lineupSpot != null) parts.push(`bats ${bestEntry.lineupSpot}`)
-      if (bestEntry.temperatureF != null) parts.push(`${_round(bestEntry.temperatureF, 0)}°F`)
-      out.propSpec = { label: "Spot + environment", value: parts.join(" · ") || "—", source: "lineup + weather" }
-    }
-    const tags = Array.isArray(bestEntry.contextualTags) ? bestEntry.contextualTags : []
+    // Driver bullets: real contextual tags only (never team-total / generic env).
+    const tags = Array.isArray(bestEntry?.contextualTags) ? bestEntry.contextualTags : []
     for (const tag of tags) {
       if (typeof tag === "string") out.drivers.push(tag)
     }
@@ -2655,12 +2702,16 @@ router.get("/top-picks", (req, res) => {
     const mlbPseudoBest = makeMlbSnapshotPseudoIndex()
     for (const pick of picks) {
       const best = findReasoningEntry(reasoningIdx[pick.sport], pick) || mlbPseudoBest(pick)
+      // 2026-06-09 prop-specific stat-backing rebuild — assemble a PROP-SPECIFIC
+      // displayBundle for EVERY MLB pick at serve time (reaches 100% of picks, not the
+      // ~3.6% that line-match the 92-row board). Falls back to the board-join bundle
+      // when assembly finds nothing real. NBA: assembly returns null ⇒ board-join path
+      // unchanged (byte-identical). Display-only — does NOT mutate selection/edge/tier.
+      let assembled = null
+      try { assembled = assembleMlbPickDisplayBundle(pick) } catch (_) { assembled = null }
+      if (assembled) pick.displayBundle = assembled
+      else if (best?.displayBundle) pick.displayBundle = best.displayBundle
       pick.reasoning = buildReasoning(pick, best)
-      // 2026-06-08 Step-2 light-render — carry the board pick's displayBundle onto the
-      // top-picks pick so renderCard's c.displayBundle.signalsTable renders on the
-      // LANDING tab too (the GAMES/state cards already carry it via the entry mapper).
-      // Gated by presence: kill-switch OFF / no bundle ⇒ key never added ⇒ byte-identical.
-      if (best?.displayBundle) pick.displayBundle = best.displayBundle
     }
 
     res.json({
@@ -2947,3 +2998,7 @@ router.get("/grades-health", (req, res) => {
 })
 
 module.exports = router
+// Test seam (2026-06-09) — expose the pure display helper for regression probes.
+// Harmless: attaches a function ref to the exported router object; Express ignores
+// extra properties on the router. Lets probes verify reasoning without booting express.
+module.exports.buildReasoning = buildReasoning
