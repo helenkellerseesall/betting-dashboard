@@ -3757,3 +3757,39 @@ Operator/Claude-A: review the map + 3 decisions (§5) — confirm scope = assemb
 
 PROBE_REFS:
 docs/audits/2026-06-09-prop-stat-backing/prop_predictors_data_map.md · workstationRoutes.js (buildReasoning:2365 · loadReasoningIndex:2242 reads tracked_best · findReasoningEntry:2333 key player|side|line · top-picks reads tracked_bets:2584 · carry displayBundle:2663 · mlbPseudoBest:2287) · buildMlbDisplayBundle.js (statBacking, batter-only) · mlbPitcherGameLogs.json (.players=29) · mlbPitcherStats.json (kRate/k9/whip) · buildMlbPitcherKsProbabilityEngine.js (expectedKs/ipExpected) · mlbParkFactors.json (doublesFactor/hitsFactor) · mlbStatcastPower.json (orphan) · live probe: batter 51/1400 join · pitcher-K 0/288
+
+## 2026-06-09 17:33 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED 4.8's reframe + corrected my stale fact: mlbPitcherGameLogs.json = 29 pitchers/57 starts (NOT ~4); displayBundle.statBacking PRESENT on 92/92 tracked_best rows (Altuve HR row carries real recentForm.l5 + opposingPitcher.kRate 0.2202). Memory [[operator-trust-definition-stat-attribution]] corrected. The failure = REACH (statBacking reaches 3.6% batter / 0% pitcher picks), not missing data. Operator chose ALL-IN-ONE build. TIER ANCHOR: T1 · prop-specific stat-backing rebuild · build (the core trust feature, do it RIGHT).
+
+DRAFT_HANDOFF:
+```
+PROP-SPECIFIC STAT-BACKING REBUILD (operator's #1 requirement — the session missed it; deliver it now). Operator chose ALL-IN-ONE. The data EXISTS; the problem is reach + buildReasoning rendering a generic blob. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Build per your prop_predictors_data_map.md rebuild spec.
+
+SHOW-BEFORE-EDIT (do FIRST, in your block): propose the per-prop card reasoning LAYOUT — for each of pitcher_strikeouts · batter_hits/TB · home_runs, the exact rows (which stats, order, labels) + ONE real sample card per type from live data — so operator sees it's prop-specific + real before/with the build.
+
+BUILD (all-in-one):
+  1. SERVE-TIME PER-PICK statBacking ASSEMBLY — assemble statBacking for EVERY pick at serve time (per-player cache lookup: mlbBatterFormCache for batters, the pitcher logs for pitchers), NOT the 3.6% tracked_best board join. This is the change that makes the backing actually reach all picks (currently 51/1400 batter, 0/288 pitcher).
+  2. PROP-AWARE buildReasoning (workstationRoutes.js:2356+) — REPLACE the generic blob; render PROP-TYPE-SPECIFIC rows sourced from statBacking, omit-not-fabricate:
+     - batter hits/TB: batter L5/L15 line (avg/hits-or-TB per game, streak) · the OPPOSING PITCHER + vulnerability (kRate, and gb/fb/contact if (b)-wired) · platoon/hand · park (doubles/hits factor).
+     - home runs: batter power form (recent HR / ISO) · pitcher HR/9 + fbRate · park hrFactor + weather/carry · platoon.
+     - pitcher Ks: pitcher L5/L15 Ks + season K% / K9 · OPPONENT TEAM K% (the new ingest) · expected innings/outs · (park/weather minor).
+     RULE (binding): NEVER show team-implied-total or generic "environment" AS the reason for a prop. If a stat is absent for a pick, OMIT the row — never substitute a generic stat. Label every stat plainly (e.g. "L5 Ks: 7.2/start", "Dodgers lineup K%: 24%", "Park HR factor: 1.08 (hitter-friendly)") with a hurts/helps read where it's not obvious.
+  3. PITCHER-SHAPED statBacking — buildMlbDisplayBundle is batter-only; add a pitcher variant (or branch) pulling L5/L15 Ks from mlbPitcherGameLogs (29 pitchers/57 starts), season K%/K9/whip from mlbPitcherStats, expectedKs/ipExpected from buildMlbPitcherKsProbabilityEngine. So Skenes Ks shows pitcher stats, not a batter blob.
+  4. OPPONENT TEAM K% INGEST (the one true gap) — populate row.opponentKPercent (buildMlbPitcherCandidates.js:15 reads it, never set). FIND the source: prefer DERIVING team K% by aggregating the opposing lineup's batter kRates (data already cached) over a new external pull; if a new feed is needed, FLAG it + cost before pulling. Trace to real data, never invent.
+  5. FIX #101 DUP — buildReasoning out.opp {label:"vs <team>", value:<same team>} → value = a STAT (e.g. the opponent's relevant rate), not the team name repeated.
+
+REGRESSION/VERIFY: pick SELECTION/edge/tier/odds BYTE-IDENTICAL pre/post (ONLY the reasoning display changes — this is a display rebuild, not a pick change); spot-check the 3 prop types on REAL cards: Skenes-type Ks shows pitcher L5 Ks + K% + opp-lineup K% (no team-implied-total); a batter hits/TB shows L5 line + opp pitcher + platoon; an HR shows power form + pitcher HR/9 + park; NO "vs team team" dup; absent stats OMITTED not faked; opponentKPercent traces to real aggregation. node --check + FE new Function() if FE labels touched; backend reload. Claude-A screenshot-verifies all 3 prop types on /m Top Picks.
+
+discipline: SHOW the per-prop layout + real sample first; omit-not-fabricate is binding (this is the trust surface that just failed the operator); every stat traces to real data file:line; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED files untouched (reuse, don't edit). Big build — you may stage internally (assembly → prop-aware reason → pitcher bundle → opp-K% → dup) but deliver coherent.
+
+bettor-visible delta: Top Picks cards finally show PROP-SPECIFIC, real stat backing per pick — the believable-pick card the operator asked for on day one.
+
+go. SHOW the per-prop layout + a real sample card per type, then build.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 shows the per-prop card layout + real sample per type (show-before-edit), builds all-in-one (serve-time assembly + prop-aware reasoning + pitcher bundle + opp-team-K% derive + #101 fix), regression-gated (picks byte-identical, only reasoning changes), separate commits. Claude-A screenshot-verifies all 3 prop types render prop-specific real stats. QUEUED behind: cold-start fast-first-paint · MLB-TIER-ASSIGNMENT-FIX (R2) · deeper alt-line calibration · NBA prop backing.
+
+PROBE_REFS:
+docs/audits/2026-06-09-prop-stat-backing/prop_predictors_data_map.md (rebuild spec) · workstationRoutes.js:2356+ buildReasoning (rewrite) + :2287 mlbPseudoBest (assembly point) · buildMlbDisplayBundle.js (add pitcher variant) · mlbPitcherGameLogs.json (29 pitchers — pitcher L5 Ks) · buildMlbPitcherCandidates.js:15 (opponentKPercent — populate) · mlbBatterFormCache (batter L5/L15)
