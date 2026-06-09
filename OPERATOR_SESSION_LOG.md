@@ -3351,3 +3351,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 sharpplays_trust_audit.md (TRACE 1 basis) · step1_trust_proof.md (net-negative families) · family_calibration.json (the "no moving calibration" condition) · workstationRoutes.js /state candidates (flag-compute site) · frontend/mobile/index.html Sharp Plays renderCard (marker render)
+
+## 2026-06-09 02:17 ET — Claude-B (4.8)
+
+ACTION: SHARP PLAYS honesty marker PHASE 0 (read-only) — predicate + copy + tagged-row counts. NO code. STOP for operator nod on scope+copy. Deliverable docs/audits/2026-06-07-prop-coverage/sharpplays_marker_phase0.md + probe .scratch/probe_sharpplays_marker.js/.txt.
+
+AUDIT_OUTCOME:
+REFRAME (the key finding): EVERY Sharp Plays row shows a raw, not-calibration-adjusted edge — it's the WHOLE tab, not a subset. And it is NOT Sharp-Plays-unique: applyCalibrationDampener is line-aware, the corpus has NO buckets >line 1.5, so it NO-OPS on every alt-line longshot on TOP PICKS + GAMES too (verified: applyCalibrationDampener rbis/hr/hits/tb alt-lines all no-op). The line-aware dampener only adjusts standard-line (0.5/1.5) picks, rare on this alt-line board.
+COUNTS (163-row live pool): V1 line-aware no-op 163/163 (everything); V2 NO calibration at all 88/163 = RBIs 38 + HR 50; V3 calibration-exists-but-shown-raw 75/163 = hits 33 + total_bases 42; V5 Step-1-vig-negative family (rbis) 38. V2 ∪ V3 = 163 = whole tab (hr/rbis are V2, hits/tb are V3) → a per-row "not calibration-backed" badge tags 100% → that's really a TAB-LEVEL statement.
+RECOMMENDATION (operator picks): HYBRID — (1) tab-level disclaimer "Raw model edges — not calibration-adjusted. Less reliable than TOP PICKS." (honest framing of whole-tab-raw, no 163 repeated badges) + (2) per-row escalation badge ONLY on Step-1-vig-negative families (RBIs, 38 rows) "⚠ family historically below break-even" (ties to step1_trust_proof.md −11.9pp; the bankroll-draining bet the operator flagged). NOT recommended: per-row "RAW" on all (blanket noise); wiring the dampener (cosmetic — no-ops on alt-lines); applying id-join family calibration to alt-lines = a real PRESERVED-dampener engine change, separate decision.
+COMPUTE/RENDER: backend stamps candidate calibrationStatus ("uncalibrated"|"calibrated_shown_raw"|"calibrated") from the REAL dampener condition at /api/ws/state assembly (workstationRoutes); FE renders tab line + per-row escalation in renderCard. FE only renders a backend-computed flag, never invents.
+
+DRIFT_WARNING_TO_PEER:
+Refinement to my OWN sharpplays_trust_audit.md "dampener is cosmetic": cosmetic specifically because it no-ops on ALT-lines (the board's bulk), confirmed surface-wide. But the family-level (id-join) calibration DOES exist for hits/TB (−4-8pp) and the line-aware production path ignores it for alt-lines — so there's a deeper engine question (should alt-lines fall back to id-join calibration?) beyond the marker. Flagged as separate/optional in §2. The marker handoff premise ("Sharp Plays skipped a step the others do") is incomplete: all surfaces show raw on alt-lines; Sharp Plays is just the most longshot-forward.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A relays to operator + gates: (1) marker SCOPE — hybrid [recommend] vs per-row-all vs tab-only; (2) exact COPY for the tab line + escalation badge; (3) whether the deeper engine fix (alt-line → id-join calibration fallback) gets queued separately. On nod → PHASE 1 backend flag + FE marker, regression-gated, Claude-A does the rendered-surface screenshot verify (marker on Sharp Plays, absent on calibrated TOP PICKS). SB board-surfacing still queued.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/sharpplays_marker_phase0.md (predicate+copy+counts) · .scratch/probe_sharpplays_marker.txt (V1-V5 counts + per-family) · calibrationDampener.js (line-aware alt-line no-op, surface-wide) · step1_trust_proof.md (RBIs −11.9pp) · workstationRoutes.js /api/ws/state candidate assembly (flag-compute site)
