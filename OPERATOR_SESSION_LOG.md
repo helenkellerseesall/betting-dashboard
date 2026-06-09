@@ -3132,3 +3132,39 @@ Claude-A relays the schema (§3) + 2 design notes to operator for a NOD. On appr
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/step2_displaybundle_phase0.md (report+schema) · server.js buildMlbLiveDualBestAvailablePayload + buildMlbClusters.js:43 (attach site) · phase4Tracking.js toTrackedMlbBestEntry/toTrackedMlbPick (carry) · buildPlayDisplayBundle.js (NBA precedent) · getBatterForm/deriveMlbStarterConfirmationState (callable sources)
+
+## 2026-06-08 23:05 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED 4.8's PHASE-0 attach topology independently (buildMlbClusters.js:43 best rows ARE {...row} enriched spreads; buildMlbLiveDualBestAvailablePayload exists server.js:3630; NBA precedent buildPlayDisplayBundle.js exists) — single attach reaches all surfaces, no PRESERVED edit, confirmed real. Acknowledged 4.8's PREMISE correction (my handoff named leanBet/ledger as a serializer home — WRONG, ledger is field-stripped; board surface is correct home — no contest, 4.8 is right). Operator NODDED the schema: APPROVE v1 as designed.
+
+DRAFT_HANDOFF:
+```
+STEP-2 displayBundle PHASE 1 — APPROVED, build it. Operator nodded the §3 schema. v1 as designed; DEFER "won X% of N similar picks" to v2 (operator agreed — per Step-1 the realized samples are thin-n today, would mostly read "not yet meaningful"; revisit at +14 graded days). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+build per your PHASE-0 plan:
+  - NEW buildMlbDisplayBundle.js (non-PRESERVED, mirrors NBA buildPlayDisplayBundle.js).
+  - additive attach `row.displayBundle = buildMlbDisplayBundle(row)` at the buildMlbClusters best-row spread / buildMlbLiveDualBestAvailablePayload site (server.js additive-only — OG monolith, attach a field).
+  - +2 phase4Tracking whitelist lines (toTrackedMlbBestEntry + toTrackedMlbPick) so tracked_best/mlb_picks carry the bundle.
+  - kill-switch MLB_DISPLAY_BUNDLE (read once, unset/"1"=ON, "0"=OFF ⇒ no bundle key ⇒ byte-identical to today).
+  - bundle contents = your §3 schema: statBacking{opposingPitcher, seasonLine, recentForm L5/L15 via getBatterForm, park, platoon, weather, lineup} · whyThisPick{edge, tier, bucket, modelProb, impliedProb, mlbPhase3Score, contextualTags, volatility} · notWired{liveNews:"not_wired", lineupConfirmation via deriveMlbStarterConfirmationState}. ALL null-guarded — missing⇒omit, NEVER fabricate (probabilityHonesty).
+  - CONFIRM the open item you flagged: /api/ws/state?sport=mlb (workstationRoutes) carries the bundle (likely rides along) — add +1 carry if not.
+
+REGRESSION GATE (regression-gate-first, single fence):
+  - EVERY existing pick field BYTE-IDENTICAL pre/post (bundle is a NEW additive key, must not mutate any existing field) — the gate.
+  - KILL-SWITCH OFF: no displayBundle key, byte-identical to today.
+  - 5-pick bundle spot-check (operator language): each field traces to a real computed source; null-rate/absent⇒omitted not faked; lineup shows pending when unconfirmed; modelProb is the calibration-dampened number (not raw, not fake %).
+  - confirm bundle reaches ALL surfaces: /api/best-available (rides along, mlbIsolatedRoutes UNTOUCHED), tracked_best, mlb_picks, /api/ws/state.
+  - node --check; backend reload; runtime:verify 13/13.
+
+discipline: show-before-edit + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; no PRESERVED Tier-1 edit (flag if forced); no shadow authority.
+
+bettor-visible delta: ZERO until a FE renders displayBundle (backend foundation only). After this lands, FE-render is the next decision (current app vs FE-overhaul day).
+
+go.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds PHASE 1 (new buildMlbDisplayBundle.js + additive server.js attach + 2 phase4Tracking whitelist lines + MLB_DISPLAY_BUNDLE kill-switch), regression-gated (existing fields byte-identical + OFF byte-identical + 5-pick spot-check + all-surfaces carry incl /api/ws/state), separate commits, Claude-B block. Then Claude-A verifies + we decide FE rendering. QUEUED behind this: SHARP-PLAYS-calibration premise-check + SB-board-surfacing (from 20:29 block).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/step2_displaybundle_phase0.md (approved schema) · buildMlbClusters.js:43 + server.js:3630 (attach, verified) · buildPlayDisplayBundle.js (NBA precedent) · phase4Tracking.js (whitelist carry) · probabilityHonesty.js (PRESERVED null-preservation)
