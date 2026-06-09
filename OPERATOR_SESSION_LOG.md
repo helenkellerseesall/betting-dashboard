@@ -3407,3 +3407,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 sharpplays_marker_phase0.md (approved hybrid + copy + counts) · step1_trust_proof.md (RBIs −11.9pp — the ⚠ basis) · workstationRoutes.js /api/ws/state (calibrationStatus compute) · frontend/mobile/index.html Sharp Plays render (disclaimer + ⚠) · calibrationDampener.js (PRESERVED — untouched; the queued deeper fix)
+
+## 2026-06-09 02:54 ET — Claude-B (4.8)
+
+ACTION: SHARP PLAYS honesty marker PHASE 1 BUILT — hybrid (tab disclaimer + per-row break-even ⚠), exact approved copy. 2 files (+53 additive, 0 del). Code + logic verified in sandbox; the BINDING rendered-surface screenshot is Claude-A's step (live browser, post-reload). Fence + verify steps handed. PRESERVED calibrationDampener UNTOUCHED (the deeper alt-line fix stays queued).
+
+BUILD (2 files):
+  · workstationRoutes.js (+37) — module-level stampSharpPlaysCalibration helper: stamps additive `calibrationStatus` ("calibrated" line-aware moves / "calibrated_shown_raw" id-join moves only / "uncalibrated" neither) from the REAL dampenModelProb condition — NEVER fabricates "calibrated"; + `historicallyBelowBreakeven` from a TRACEABLE SPM_STEP1_NET_NEGATIVE map (mlb.rbis → step1_trust_proof.md −11.9pp, NOT a magic string). Called once at /api/ws/state candidate assembly over [candidates, discoveryCandidates, featured]. NOT called in /top-picks or /games-browser (those surfaces stay unmarked — the gate).
+  · frontend/mobile/index.html (+16) — (1) TAB disclaimer appended to freshHtml ONLY when sourceUsed==="candidates" (Sharp Plays raw surface): EXACT "Raw model edges — not calibration-adjusted. Less reliable than Top Picks."; (2) per-row ⚠ in buildNotes off the backend `historicallyBelowBreakeven` flag (FE never invents): EXACT "⚠ family historically below break-even".
+REGRESSION GATE: backend stamp is ADDITIVE — writes only 2 NEW keys (calibrationStatus, historicallyBelowBreakeven), existing fields untouched (inspection + drive). Distribution matches PHASE 0 EXACTLY: uncalibrated 88 / calibrated_shown_raw 75 / calibrated 0 (no fabricated calibrated) / historicallyBelowBreakeven = 38 RBI rows (= V5). stamp call-site = /state ONLY (top-picks/games-browser unmarked, confirmed). FE-logic sim: disclaimer shows on candidates, hidden on featured/top-picks; ⚠ fires only on backend-flagged RBI candidate, 0 on hits. FE JS new Function() 1/1 PASS; backend node --check OK. No-bang fence (grepped).
+HONEST LIMIT: did NOT see rendered pixels — the binding screenshot verify (disclaimer on Sharp Plays + ⚠ on RBI rows + BOTH absent on TOP PICKS, NBA cards unchanged) needs backend reload (post-fence) + live browser = Claude-A's step.
+
+DRIFT_WARNING_TO_PEER:
+None. Note: the tab disclaimer is keyed to the candidates SOURCE (sourceUsed==="candidates"), not sport — so NBA Sharp Plays also shows it (honest: NBA candidates are also raw). The ⚠ is MLB-only (only mlb.rbis in the Step-1 map). NBA candidates get calibrationStatus stamped (additive, harmless) but no ⚠. If operator wants the disclaimer MLB-only, that's a 1-line gate change — flag for the screenshot review.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the fence (FE+backend syntax gate → rm temps → code commit 2 files → docs commit → push → backend reload; FE disk-served). THEN Claude-A's BINDING screenshot verify: Sharp Plays shows the disclaimer line + ⚠ on RBI rows; TOP PICKS + GAMES show NEITHER; NBA cards unchanged. QUEUED (operator-approved, separate): (1) deeper alt-line→id-join calibration fallback [PRESERVED dampener — own audit], (2) SB board-surfacing, (3) Step-2 render on-screen re-check at next fresh slate.
+
+PROBE_REFS:
+backend/routes/workstationRoutes.js (stampSharpPlaysCalibration + /state call) · frontend/mobile/index.html (disclaimer + buildNotes ⚠) · sharpplays_marker_phase0.md (counts match: 88/75/0 + 38 RBI) · step1_trust_proof.md (⚠ basis) · calibrationDampener.js (PRESERVED, untouched)
