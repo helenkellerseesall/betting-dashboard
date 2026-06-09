@@ -3504,3 +3504,33 @@ Claude-A relays the live table + inverted-tier finding to operator + gates: (a) 
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (table+fork) · .scratch/probe_t1_hitrate_by_tier.txt (MLB+NBA per-tier) · buildGradingSummary.js byTier (raw-only, the net-new gap) · renderGradesView index.html:2350 (render target) · vigStripping.js (PRESERVED, reused)
+
+## 2026-06-09 03:26 ET — Claude-A (Cowork)
+
+ACTION: INDEPENDENTLY RE-DERIVED the inverted-tier headline (my own probe, raw-implied floor, deduped graded): MLB ELITE −5.8 (n=36) · STRONG −7.5 (n=153) · PLAYABLE −0.8 (n=378) · LONGSHOT −2.8 (n=3329); NBA ELITE −25.9 (n=23) · STRONG −11.8 (n=52) · PLAYABLE −4.6 (n=193) · FADE −5.2 (n=990). CONFIRMS 4.8 direction+magnitude: tier ladder INVERTED, PLAYABLE least-bad, ELITE/STRONG worst, all net-negative. Operator chose: SHOW TRUTH NOW (build GRADES per-tier card) + QUEUE the MLB tier-assignment fix. TIER ANCHOR: T1 (trust daily picks) · HIT%-by-tier honest card · build.
+
+DRAFT_HANDOFF:
+```
+T1 #2 PHASE 1 — HIT%-BY-TIER HONEST CARD (operator nodded build, MLB-first). Render the real vig-aware realized-hit%-by-tier on GRADES so the operator SEES the (inverted) truth. The number is verified twice (4.8 + Claude-A). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+build per your PHASE 0:
+  BACKEND — net-new per-tier vig-aware compute (realized hit% vs FAIR-implied, edge pp, BY TIER) over the MULTI-DAY graded corpus (like grades-health days=7+, NOT ledger/yesterday — per-tier n too thin on 1 day). Reuse F1.1/Step-1 method via PRESERVED vigStripping (dedup player|family|side|line|slateDate, fair-strip). buildGradingSummary.byTier has RAW hit% only → add the vs-market/vig-aware edge (net-new). MLB-first.
+  FE — extend renderGradesView (index.html:2350, the P2a hitRate/beatMarketRate bundle) with a per-tier card: each tier row = tier · n · realized% · vs-market edge(pp). Show the inversion HONESTLY (don't hide that ELITE/STRONG are worst — that's the truth the operator chose to see).
+  HONESTY (binding — this IS the trust number): every cell n<30 → "not yet meaningful" not a rate; never blend tiers; every number traces to ledger+vigStripping, NEVER fabricated. NBA tiers (if shown) labeled "pre-F1.2 corpus — re-checks ~14d" (NBA graded predates the F1.2a/b tier fix). Propose the exact card copy/layout (show-before-edit) — keep it honest-neutral, not alarmist; a one-line "judge picks by the stats, tiers under review" framing is OK if it traces to truth.
+
+REGRESSION/VERIFY: existing GRADES tab byte-identical except the new card; the rendered per-tier numbers MATCH a fresh F1.1-method probe (parity check — print both); thin-n cells labeled; FE JS new Function() check; backend node --check + reload. Claude-A screenshot-verifies on /m GRADES (card shows real per-tier numbers + honest n-flags + the inversion visible).
+
+discipline: show-before-edit (propose card layout/copy) + diff-after; every number traces to ledger+vig (no fabrication — operator burned before); reuse canonical vig (PRESERVED vigStripping UNTOUCHED); extend GRADES, no shadow; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append.
+
+bettor-visible delta: GRADES gains an honest "hit rate by tier vs market" card — operator finally SEES the tier track record (currently inverted). The T1 trust number, on screen.
+
+go. propose the card layout + the live per-tier numbers it'll show BEFORE building.
+```
+
+QUEUED (NEW — operator-approved separate engine track): MLB-TIER-ASSIGNMENT-FIX (R2) — why ELITE/STRONG are anti-predictive on MLB (the inverted ladder's real cure). Analogous to F1.2 but MLB (F1.2 was NBA-only; MLB tierForPlay/scoreMlbProp never got the anti-selection fix). Own audit-first track + operator sign-off; ~14d to verify like F1.2. The GRADES card shows the symptom; this fixes the cause.
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 proposes the GRADES per-tier card layout + live numbers (show-before-edit), then PHASE 1 build (backend vig-aware per-tier compute + FE card), regression-gated w/ parity check; Claude-A screenshot-verifies. QUEUED: (1) MLB-TIER-ASSIGNMENT-FIX [this block, the real cure] · (2) deeper alt-line calibration · (3) SB board-surfacing · (4) Step-2 render re-check at next slate (~9 AM).
+
+PROBE_REFS:
+t1_hitrate_by_tier_phase0.md (4.8 table) · .scratch/probe_t1_hitrate_by_tier.txt + Claude-A re-derivation (both confirm inversion) · buildGradingSummary.js byTier (extend) · renderGradesView index.html:2350 (render) · vigStripping.js (PRESERVED) · step1_trust_proof.md (family×tier basis)
