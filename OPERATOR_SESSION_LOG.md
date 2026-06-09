@@ -4042,3 +4042,13 @@ Claude-A: after operator runs the fence (commit→push→reload→backend==HEAD 
 
 PROBE_REFS:
 docs/audits/2026-06-09-lock-down-data/lineupSpot_fix_phase1.md · backfillMlbLineupSpot.js (makeLineupBackfiller) · phase4Tracking.js (backfillRowLineup @ both loops · playerIdExternal preserve) · mergeMlbExternalContext.js (resolve exports) · mlbLineupCache.loadCacheForCurrentSlate · live gate: 26 confirmed → 9 resolved, 80 unconfirmed → 0
+
+## 2026-06-09 19:26 ET — Claude-A (Cowork) — PART A verified + backend==HEAD
+
+ACTION: Verified PART A (lineupSpot fix, a07cd97). CODE: 3 files +112/−1 additive; back-fill GUARDED null-only (backfillMlbLineupSpot.js:52 + phase4Tracking.js:147 — only sets when lineupPosition null) → byte-identical picks; playerIdExternal preserved (phase4Tracking.js:210). BACKEND==HEAD: /api/ws/version = e3c02cd (== HEAD), pid 79961, bootAt 23:24:04Z = 19:24 ET → reload took (the NEW stale-code discipline applied + passing). lineupSpot reach 1→9 proven by 4.8's per-confirmed-game gate; LIVE-confirms on the NEXT slate:mlb build (current tracked_best predates the fix — back-fill runs at the serializer during the build). HONEST: today resolves via NAME-fallback; playerIdExternal id-join takes over on future slates (rows now preserve it) → fix gets MORE reliable over coming slates. PART B (sibling hardening) GREENLIT (operator approved full batch) — 4.8's next build from the 19:14 DRAFT_HANDOFF. TIER ANCHOR: T1 · lock-down-the-data · PART A shipped, PART B next.
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds PART B (sibling-populator hardening × 4: refreshMlbBatterGameLogs/PitcherGameLogs/BullpenWorkload/PitcherStats — retry+merge+coverage, merge-gate each) per the 19:14 handoff. After fence: Claude-A confirms backend==HEAD + the hardened siblings + (next slate) lineupSpot lands per-confirmed-game. QUEUED: cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+a07cd97 (PART A, null-only guard verified) · /api/ws/version e3c02cd==HEAD bootAt 19:24 ET · lineupSpot live-confirm deferred to next slate build · 19:14 block (PART B spec, greenlit)
