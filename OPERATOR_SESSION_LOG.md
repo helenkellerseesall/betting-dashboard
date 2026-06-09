@@ -3318,3 +3318,36 @@ Claude-A summarizes for operator + gates: TRACE 1 — does operator want (a) par
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/sharpplays_trust_audit.md (both traces) · .scratch/probe_sharpplays_calib.txt (magnitude + Bowen + carry) · workstationRoutes.js:2567/:2776 (dampener call sites) + :419 (candidate displayBundle carry) · calibrationDampener.js (line-aware no-op on alt-lines) · step1_trust_proof.md (RBIs −11.9pp)
+
+## 2026-06-09 02:12 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED 4.8's TRACE-1 structural claim (applyCalibrationDampener only at workstationRoutes:2567 inside /top-picks + :2776 inside /games-browser; /state route @635 — Sharp Plays source — never calls it). TRACE 2 (carry exists @:419, was stale) accepted, no action. Operator gated TRACE-1 fix = HONESTY MARKER on Sharp Plays longshot rows (NOT the cosmetic dampener wire). TIER ANCHOR: T1 (trust daily picks) · Sharp Plays honesty marker · design→build.
+
+DRAFT_HANDOFF:
+```
+SHARP-PLAYS HONESTY MARKER — operator-approved fix for TRACE 1. Mark Sharp Plays raw/uncalibrated longshot rows so a bare "+29%" never reads as a trustworthy edge. This is a BETTOR-VISIBLE TRUST-SURFACE change → PHASE 0 propose copy + predicate for operator nod BEFORE building. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+context (your own sharpplays_trust_audit.md): /api/ws/state (Sharp Plays "candidates" source) never calls applyCalibrationDampener → edges shown RAW. For the longshot alt-line families Sharp Plays features (RBIs/HR over, alt-lines), the dampener no-ops anyway (line-aware has no >line-1.5 bucket; RBIs/HR have no moving calibration) → wiring the dampener = cosmetic. The honest fix = a per-row "raw · uncalibrated · less reliable" marker. Step-1 (step1_trust_proof.md) showed these families net-negative vig-aware — the marker protects the operator from the bankroll-draining bets.
+
+PHASE 0 (read-only, REPORT for operator nod before building):
+  - define the EXACT predicate for "uncalibrated / less reliable" per row — must be HONEST + precise, not blanket. Candidates: (i) family/line has NO moving calibration entry (family_calibration.json — the RBIs/HR/alt-line case your probe found), AND/OR (ii) longshot bucket/tier, AND/OR (iii) edge is un-dampened on this surface. Pick the predicate that genuinely identifies "this number isn't calibration-backed." Report which rows it tags on tonight's live Sharp Plays set (counts).
+  - propose the MARKER COPY (operator eyeballs the exact words) — e.g. a small "RAW EDGE · UNCALIBRATED" or "not yet calibrated — less reliable" badge on the row, distinct from the calibration-backed TOP PICKS. Keep it plain, honest, non-alarming.
+  - decide where the flag is computed (backend, where the candidate/edge is built — so the FE just renders a real flag, never invents one) + where it renders (the Sharp Plays renderCard row).
+  - REPORT predicate + copy + tagged-row counts. STOP for operator nod.
+
+PHASE 1 (build, after nod): backend flag (additive, computed from the real calibration condition — NEVER fabricate "calibrated" on something that isn't) + FE marker render on Sharp Plays rows. null/false flag ⇒ no marker ⇒ existing row unchanged.
+
+REGRESSION GATE: existing Sharp Plays rows BYTE-IDENTICAL except the added marker on qualifying rows; non-qualifying rows unchanged; calibration-backed surfaces (TOP PICKS/games) NOT marked (they ARE dampened); FE JS new Function() syntax check; node --check backend; backend reload. VERIFY AT RENDERED SURFACE (binding): Claude-A re-checks on-screen that the marker shows on Sharp Plays longshots + NOT on calibrated TOP PICKS (4.8 can't see pixels → Claude-A does the screenshot verify).
+
+discipline: PHASE 0 report before build; honest predicate (only tag genuinely-uncalibrated rows); show-before-edit + diff-after; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; no shadow authority; the marker is a TRUST-SURFACE claim — it must trace to a real calibration condition.
+
+bettor-visible delta: Sharp Plays longshot rows gain a "raw/uncalibrated · less reliable" marker. Honesty-positive, protects the bankroll-draining bets.
+
+go. PHASE 0 (predicate + copy + tagged-row counts) BEFORE building.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs PHASE 0 (define honest "uncalibrated" predicate + propose marker copy + report tagged-row counts on live Sharp Plays), STOPS for operator nod. On approval → PHASE 1 build (backend flag + FE marker), regression-gated; Claude-A does the rendered-surface screenshot verify (marker on Sharp Plays longshots, absent on calibrated TOP PICKS). SB board-surfacing still queued after.
+
+PROBE_REFS:
+sharpplays_trust_audit.md (TRACE 1 basis) · step1_trust_proof.md (net-negative families) · family_calibration.json (the "no moving calibration" condition) · workstationRoutes.js /state candidates (flag-compute site) · frontend/mobile/index.html Sharp Plays renderCard (marker render)
