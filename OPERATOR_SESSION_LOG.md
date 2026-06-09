@@ -3301,3 +3301,20 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 step1_trust_proof.md (RBIs −11.9pp vig-aware) · http/mlbIsolatedRoutes.js + buildMlbPitcherCandidates/Spike/Oomph (candidates edge path) · workstationRoutes.js:37/:2621 (candidates stamp + top-picks carry precedent) · buildMlbDisplayBundle.js (signalsTable) · calibrationDampener.js (PRESERVED, the dampener wire to check for)
+
+## 2026-06-09 02:00 ET — Claude-B (4.8)
+
+ACTION: SHARP PLAYS trust audit — both traces complete, read-only, NO code (both bet/trust-affecting → operator reviews first). Deliverable docs/audits/2026-06-07-prop-coverage/sharpplays_trust_audit.md + probe .scratch/probe_sharpplays_calib.js/.txt.
+
+AUDIT_OUTCOME:
+TRACE 1 — fork (b) with nuance. STRUCTURAL: applyCalibrationDampener is called ONLY in /top-picks (workstationRoutes:2567) + /games-browser (:2776); /api/ws/state (the .candidates SHARP PLAYS source) NEVER calls it → Sharp Plays shows un-dampened edge + no calibration badge. MAGNITUDE (real dampener over 163 live board picks): line-aware path NO-OPS on ALL alt-line board picks (no per-line bucket >line 1.5) — so the dampener barely touches the longshot board even in top-picks/games. id-join WOULD cut hits −8.2pp / total_bases −4.2pp, but RBIs + HR have NO calibration that moves (0/n). The operator's Bowen RBIs OVER 1.5 +29%: dampener no-ops at every line + id-join → applying it would NOT change the +29% (no rbis-over calibration). So the real trust hole is broader than "skipped dampener": Sharp Plays surfaces high-RAW-edge longshots on families with NO calibration + NO honesty marker, on families Step-1 showed net-negative (RBIs PLAYABLE −11.9pp vig-aware). FIX DESIGN (not shipped): (1) parity dampener call in /api/ws/state = cheap but cosmetic (no-ops on alt-lines); (2) the MEANINGFUL fix = a "raw edge · uncalibrated / less reliable" marker on Sharp Plays longshot rows so +29% isn't shown bare. Both bet-affecting → operator gates.
+TRACE 2 — fork (a), NO code fix. enrichBestEntry (workstationRoutes:419) already copies displayBundle (incl. signalsTable, which lives inside it) onto candidates — same carry as state entries; diversifyCandidates doesn't strip fields. The on-screen "no new rows" was STALE: current mlb_tracked_best_2026-06-08.json has 0/163 displayBundle (written BEFORE the Step-2 slate write). Live /api/best-available has it (rebuilt per request); tracked_best (feeds candidates) populates at the next recordMlbBestProps slate write → Sharp Plays renders the Facing/Season/L5/L15 rows then. Claude-A re-checks on-screen at next fresh slate.
+
+DRIFT_WARNING_TO_PEER:
+Self-correction during the trace: my first magnitude probe reported "0/163 dampener moved" and I nearly framed it as "dampener does nothing" — WRONG. The line-aware dampener DOES work (verified the RUNTIME_FACTS case: hits under 1.5 0.6698→0.4138); it no-ops specifically on ALT-lines (>1.5, no bucket) + on RBIs/HR (no calibration). Re-ran with both line-aware + id-join paths before claiming. The honest finding is the nuance above, not "broken dampener". Also: your 01:06 PREMISE_CHECK (candidates may need signalsTable carry like top-picks) — resolved fork (a): the carry already exists at :419 (no +1 needed); the issue was staleness.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A summarizes for operator + gates: TRACE 1 — does operator want (a) parity dampener call, (b) the "uncalibrated/less reliable" honesty marker on Sharp Plays longshots [recommend b — the real trust fix], or hold? TRACE 2 — no action; Claude-A re-checks Sharp Plays on-screen at next fresh slate to confirm the stat rows render. SB board-surfacing still queued.
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/sharpplays_trust_audit.md (both traces) · .scratch/probe_sharpplays_calib.txt (magnitude + Bowen + carry) · workstationRoutes.js:2567/:2776 (dampener call sites) + :419 (candidate displayBundle carry) · calibrationDampener.js (line-aware no-op on alt-lines) · step1_trust_proof.md (RBIs −11.9pp)
