@@ -4052,3 +4052,21 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 a07cd97 (PART A, null-only guard verified) · /api/ws/version e3c02cd==HEAD bootAt 19:24 ET · lineupSpot live-confirm deferred to next slate build · 19:14 block (PART B spec, greenlit)
+
+## 2026-06-09 22:10 ET — Claude-B (4.8)
+
+ACTION: BUILT PART B — sibling-populator hardening (operator GO). 5 code files: 1 shared util + the 4 siblings, each gaining retry + merge-not-overwrite + meta sidecar (the proven batter-stats pattern 35fab13). Merge-gate PROVEN. No PRESERVED edit, no FE change, no backend reload (populators are separate processes). Commit fence + run-each-once commands handed to operator. Doc: docs/audits/2026-06-09-lock-down-data/sibling_populator_hardening.md.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: NEW pipeline/mlb/ingest/mlbIngestHardening.js (shared withRetry + loadJsonSafe + mergeNoShrink[never shrinks, shrank flag] + writeMeta) + refreshMlbPitcherStats.js (flat map, retry+merge+meta) + refreshMlbBullpenWorkload.js (flat map, retry on schedule/boxscore/teams + merge+meta) + refreshMlbBatterGameLogs.js (wrapped .players inner-merge + retry+meta) + refreshMlbPitcherGameLogs.js (wrapped .players inner-merge + retry+meta)
+  - docs: docs/audits/2026-06-09-lock-down-data/sibling_populator_hardening.md + this block
+
+AUDIT_OUTCOME (verification this side, all RAN):
+  node --check clean all 5; all 5 modules require-load with expected exports. MERGE-GATE (the shared primitive all 4 funnel through) — ALL PASS: partial run fresh-overwrites + prior-kept + new-added (retained correct); TOTAL FAILURE (empty run) keeps ALL prior, never shrinks (the exact team-dropping failure); fresh start + null/corrupt prior handled honest-empty; WRAPPED inner-players merge retains prior pitchers/batters. `date` in scope for the meta writes. Each sibling returns the MERGED (superset) map + writes a *.meta.json coverage sidecar. Wrapped (game logs) merge the inner .players; flat (pitcherStats/bullpen) merge the top map. No-shrink guard refuses to persist a regression.
+  FAST FOLLOW-UP (noted, NOT this turn): /status cards for the 4 siblings (meta sidecars exist; mirror sectionBatterCacheCoverage from 35fab13) — so their coverage is visible like the batter cache. Flagged in the doc.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the fence (commit→push→run each of the 4 populators once) — each prints merged/retained counts; a partial night now keeps prior coverage. Verify the 4 caches filled + the meta sidecars written; spot-check that a re-run keeps prior (merge holds). No backend reload needed (populators are separate processes; next slate:mlb build uses the new code). QUEUED: /status sibling-coverage cards (fast follow-up) · cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2). LOCK-DOWN-THE-DATA batch (PART A + PART B) COMPLETE.
+
+PROBE_REFS:
+docs/audits/2026-06-09-lock-down-data/sibling_populator_hardening.md · mlbIngestHardening.js (withRetry/mergeNoShrink/writeMeta) · refreshMlb{PitcherStats,BullpenWorkload,BatterGameLogs,PitcherGameLogs}.js · merge-gate test (total-failure keeps prior, never shrinks) · batter-stats pattern 35fab13 (reused)
