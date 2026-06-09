@@ -3556,3 +3556,19 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 memory/ (project-inverted-tier-ladder, operator-daily-trust-ranked-path §STATUS) · OPERATOR_SESSION_LOG.md (this) · docs/audits/2026-06-07-prop-coverage/ (committed findings) · RECOVERY_PROCEDURE.md · backend/runtime/brain/MASTER_BRAIN.md (STALE — 4.8 to refresh)
+
+## 2026-06-09 03:42 ET — Claude-B (4.8)
+
+ACTION: BUILT T1 #2 — the honest HIT%-by-tier GRADES card (PHASE 1; operator nodded PHASE 0 fork (a)+(b)). Backend net-new per-tier vig-aware compute + FE card on GRADES. 3 files, parity-proven, syntax-clean. Commit+reload fence handed to operator (code + docs separate commits). Live render proof = Claude-A screenshot step (backend on operator host).
+
+SHIP: (commit fence handed to operator — hashes fill after the run)
+  - code: backend/pipeline/tracking/buildHitRateByTier.js (NEW; reporting-only per-tier vig-aware compute; reuses PRESERVED vigStripping, untouched) + backend/routes/workstationRoutes.js (additive fail-safe `out.hitRateByTier` on /api/ws/grades-health, full graded corpus not the days-window) + frontend/mobile/index.html (TRACK RECORD BY TIER card in _fetchGradesHealth, MLB-first; one promised-placeholder copy update "by-tier breakdown soon"→"see by-tier track record below")
+  - docs: docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase1.md + this block
+
+AUDIT_OUTCOME: route compute == standalone canonical probe BYTE-FOR-BYTE on all 8 cells (parity by construction — same F1.1/Step-1 method). MLB ELITE −8.4(n=38) · STRONG −8.0(n=159) · PLAYABLE −0.8(n=372) · LONGSHOT −3.0(n=3327). NBA ELITE −31.3(n=35) · STRONG −5.3(n=47) · PLAYABLE −2.2(n=190) · FADE −4.9(n=987). The inverted ladder, on screen, honest. node --check clean both backend files; FE new Function() clean (3716 lines). Additive + fail-safe (compute error attaches {error}, never breaks the CLV health payload). Honesty rails: zero-row tiers omitted; n<30 → "not yet meaningful" (no fabricated rate); NBA labeled pre-F1.2 corpus; framing neutral-not-alarmist.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the commit+reload fence, screenshot-verify the TRACK RECORD BY TIER card on /m GRADES (real per-tier numbers + honest n-flags + the inversion visible). The fence ends with a localhost:4000 grades-health probe that prints the live hitRateByTier payload (non-zero proof the wire is live before the screenshot). Then the QUEUED cause-fix track: MLB-TIER-ASSIGNMENT-FIX (R2) — why MLB ELITE/STRONG are anti-predictive (audit-first, operator sign-off, ~14d verify). The card shows the symptom; R2 fixes the cause.
+
+PROBE_REFS:
+backend/pipeline/tracking/buildHitRateByTier.js · .scratch/probe_t1_hitrate_by_tier.js/.txt (parity baseline) · docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase1.md (+ _phase0.md) · vigStripping.js (PRESERVED, reused) · workstationRoutes.js /api/ws/grades-health · index.html:2298 _fetchGradesHealth
