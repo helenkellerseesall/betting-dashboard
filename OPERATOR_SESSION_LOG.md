@@ -3997,3 +3997,30 @@ Operator/Claude-A: nod the fix direction (which build stage owns the lineup re-j
 
 PROBE_REFS:
 docs/audits/2026-06-09-lock-down-data/lineupSpot_rootcause_phase0.md · mergeMlbExternalContext.js:150-209 (lineupPositionFromExternalPlayer convert + resolveLineupPositionFromExternal id/name join) · deriveMlbLineupContext.js:77 (reads row.lineupPosition) · mlbLineupCache.json (63 players/6 of 15 games) · probe: 26 confirmed-game picks → 1 lineupPos, 0 playerIdExternal, 10 name-in-cache
+
+## 2026-06-09 19:14 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED 4.8's lineupSpot root cause (my probe: tracked_best 0/106 playerIdExternal, 0/106 lineupPosition, only lineupSpot 4/106 — id-join key stripped from rows, confirmed). Acknowledged 4.8's premise-check (the "4%" headline conflated legit unconfirmed-game nulls ~75% with the real ~9 confirmed-game join failures — fix is WIRING not chasing a %; fair). Operator NODDED the fix direction + GO on PART A + PART B. TIER ANCHOR: T1 · lock-down-the-data · build.
+
+DRAFT_HANDOFF:
+```
+GO — build PART A (lineupSpot fix) + PART B (sibling hardening). Operator nodded the fix direction. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. After fence: confirm /api/ws/version commit == HEAD.
+
+PART A — lineupSpot wiring fix (per your lineupSpot_rootcause_phase0.md):
+  - PRESERVE playerIdExternal onto the tracked_best pick rows so the reliable id-join fires (name-fallback is lossy — only 1/10 confirmed joins). 
+  - RE-JOIN lineup at the tracked_best build against the FRESH mlbLineupCache (back-fills as lineups post; slate rebuilds hourly + cache persists). YOU pick the cleanest build stage that owns the join + id-preservation — report which.
+  - OMIT-NOT-FABRICATE: keep lineupSpot null when lineups truly unposted (the ~75% legit nulls — do NOT touch those).
+  REGRESSION/VERIFY: pick SELECTION/edge/tier BYTE-IDENTICAL (lineupSpot is a projection-input/display field, not a selector — confirm it doesn't shift selection; if it feeds projections, flag that newly-joined lineups change NEXT-slate projections, not today's picks). GATE = PER-CONFIRMED-GAME reach (NOT slate-wide %): on the 6 confirmed games tonight, lineupSpot should land on ~all rostered hitters (was 1/26); unconfirmed games stay null. node --check; backend reload.
+
+PART B — sibling-populator hardening (apply the proven batter-stats pattern 35fab13 × 4): refreshMlbBatterGameLogs · refreshMlbPitcherGameLogs · refreshMlbBullpenWorkload · refreshMlbPitcherStats. Each: withRetry + MERGE-not-overwrite (no-shrink guard, keep prior on failure) + coverage check + meta sidecar. Reuse/extract the batter-stats helpers into a shared util if clean. Per-sibling merge-gate (simulate partial run → prior retained, never shrinks); run each once to confirm fill; node --check.
+
+discipline: PART A = wiring not %-chasing; omit-not-fabricate null when unposted; PART B merge never reduces coverage; SEPARATE code+docs commits per piece; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED untouched. After fence: /api/ws/version == HEAD.
+
+go. report PART A build stage + the per-confirmed-game lineupSpot reach, then PART B.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds PART A (preserve playerIdExternal + re-join lineup at the chosen build stage, per-confirmed-game gate) + PART B (4 siblings hardened, merge-gate each), separate commits. After fence: Claude-A confirms backend==HEAD + lineupSpot lands per-confirmed-game + the hardened siblings hold. QUEUED: cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+lineupSpot_rootcause_phase0.md · mergeMlbExternalContext.js (id/name join) · tracked_best build stage (re-join + playerIdExternal preserve) · refreshMlbBatterStats.js 35fab13 (pattern for the 4 siblings) · my probe: 0/106 playerIdExternal
