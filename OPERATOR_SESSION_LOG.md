@@ -3091,3 +3091,44 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/step2_statbacking_map_mlb.md (build spec) · phase4Tracking.js + http/mlbIsolatedRoutes.js (serializer authority — PRESERVED check) · deriveMlbPitcherEnvironmentContext.js + mlbBatterFormCache.js + applyMlbContextualLayers.js (bundle sources) · probabilityHonesty.js (PRESERVED null-preservation)
+
+## 2026-06-08 20:29 ET — Claude-A (Cowork)
+
+ACTION: Operator-requested live FE + /status verification via Chrome ext (read-only, observation only, no edits). Logging findings + ONE queued PREMISE_CHECK for 4.8. NOT interrupting the in-flight displayBundle build — items below are QUEUED for AFTER it lands.
+
+FE/STATUS VERIFICATION (what I saw live, edge.motel666.com):
+- /status: WATCHING, 0 red / 2 yellow / +11 cognition; "7 of 7 healthy · 4 daemons + 3 scheduled" (CONFIRMS the revised project-instructions runtime line); CLV MLB 8/8 + NBA 1/1 captured; dampener 16/17 families dampened; honest self-flags (ML scorer STALE 56d; NBA CLV alert). Backend healthy on fb1e204.
+- /m TOP PICKS: cold-start hang ~13s real (loads eventually). Battlefield breadth (games→players→prop ladders) + SHARP PLAYS tab. Honesty IS rendered: calibrated edges with "raw −cal" dampening shown (e.g. Cam Smith hits raw +8pp −5pp cal → +2pp STRONG); honest "CALIBRATED 350"/"BROKEN 56" family badges; tier=STRONG (confirms tier-name fix); lineup fields "—"/"LINEUPS PENDING" (null-guards live); footer "HONEST GAPS SURFACED · NEVER FABRICATED".
+- STEP-2 GAP CONFIRMED LIVE: expanded a pick's full SHOW SIGNALS panel — renders model/edge prob, team+game totals, HR env, wind, temp, park HR factor, platoon, contextualTags; but NO opposing-pitcher stats, NO season line, NO L5/L15 form. Exactly the (b) fields the displayBundle build targets → the in-flight build is correctly aimed.
+
+PREMISE_CHECK_NEEDED (queued for 4.8 AFTER bundle — do NOT context-switch now):
+SHARP PLAYS edge may be RAW, not calibration-dampened. Observed live: Jase Bowen RBIs OVER 1.5 @ +535, SHOW SIGNALS shows MODEL PROB 0.4506 / EDGE PROB 0.2931 ("+29%") with NO raw-vs-cal breakdown (the games-view cluster path DOES show "−cal"). RBIs is the family the engine itself flags "BROKEN 56", and Step-1 trust read had RBIs PLAYABLE −11.9pp (vig-aware NEGATIVE). So the SHARP PLAYS "BIGGER EDGES" tab may be surfacing high-RAW-edge longshots on a family it admits is miscalibrated. QUESTION for 4.8 to TRACE: does the SHARP PLAYS "candidates" source (FE footer "source: candidates"; spans http/mlbIsolatedRoutes.js + buildMlbPitcherCandidates/Spike/Oomph engines) apply the calibrationDampener like the cluster/games path, or show raw model edge? My quick grep: calibrationDampener NOT directly referenced in mlbIsolatedRoutes.js / buildMlbBestBetsBoard.js (INCONCLUSIVE — may be applied upstream). If raw: it's a Step-1/metric-framing trust hole (big edge numbers on net-negative longshots). Header says "LESS RELIABLE" (partial honesty) but the +29% number could still mislead. Operator flagged it worth verifying.
+
+ALSO QUEUED (observed): stolenBases (SHIP 2) will NOT surface on TOP PICKS yet — every player showed exactly 4 prop types (hits/total bases/HR/RBIs = the 4-bucket curated board). SHIP 2 starts SB tracking+grading in the ledger but board-surfacing needs the same board extension as pitcher Ks. Confirm so operator isn't expecting SB on tonight's board.
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 continues the displayBundle build (operator chose: keep going). AFTER it lands + verifies, pick up the SHARP-PLAYS-calibration PREMISE_CHECK (trace candidates-edge dampening) + the SB-board-surfacing question. Neither interrupts the bundle.
+
+PROBE_REFS:
+live FE edge.motel666.com/m SHARP PLAYS + SHOW SIGNALS (Jase Bowen RBIs card) · edge.motel666.com/status · http/mlbIsolatedRoutes.js + buildMlbPitcherCandidates.js + buildMlbSpikeEngine.js + buildMlbOomphEngine.js (candidates-edge trace targets) · step1_trust_proof.md (RBIs −11.9pp basis)
+
+## 2026-06-08 20:10 ET — Claude-B (4.8)
+
+ACTION: STEP-2 displayBundle PHASE 0 (read-only audit) complete — attach topology + PRESERVED touches + schema designed. STOPPED for operator nod on the schema before PHASE 1 build (per handoff "REPORT before building"). NO code written. Deliverable: docs/audits/2026-06-07-prop-coverage/step2_displaybundle_phase0.md.
+
+AUDIT_OUTCOME:
+ATTACH TOPOLOGY (single compute site reaches all operator surfaces): the board picks (TOP PICKS / /api/best-available / mlb_tracked_best / mlb_picks) all derive from buildMlbLiveDualBestAvailablePayload `best` rows, which are {...row} spreads of enriched snapshot rows (buildMlbClusters.js:43) → they ALREADY carry batterStats/pitcherEnvironmentContext/parkContext/weatherContext/lineupContextV2. So ONE attach `row.displayBundle = buildMlbDisplayBundle(row)` there reaches everything (mirrors NBA buildNbaBestBetsBoard:623). /api/best-available returns payload.best as-is (mlbIsolatedRoutes:219) → bundle RIDES ALONG, sensitive MLB route UNTOUCHED. tracked_best/mlb_picks get +1 whitelist line each in phase4Tracking (non-PRESERVED).
+KEY FINDING — ledger is NOT the home: mlb_tracked_bets (leanBet) is fed by buildMlbBestBetsBoard.allPlays whose rows come from marketPropsFromMlbRows which FIELD-STRIPS the enrichment → a bundle there would be near-empty. The board surface is the data-rich correct home.
+PRESERVED: no Tier-1 file edited. NEW buildMlbDisplayBundle.js (non-PRESERVED, mirrors buildPlayDisplayBundle.js); server.js additive-only (OG monolith, attach a field — safe); phase4Tracking additive; mlbIsolatedRoutes NOT edited (rides along); probabilityHonesty referenced not edited.
+SCHEMA (operator eyeballs §3): displayBundle{ statBacking{opposingPitcher,seasonLine,recentForm(L5/L15 via getBatterForm),park,platoon,weather,lineup}, whyThisPick{edge,tier,bucket,modelProb,impliedProb,mlbPhase3Score,contextualTags,volatility}, notWired{liveNews:"not_wired", lineupConfirmation:confirmed/pending/scratched} }. ALL null-guarded — missing⇒omit, never fabricate.
+TWO DESIGN NOTES for operator nod: (1) modelProb is ALREADY calibration-dampened (calibrationFeedback wire) → v1 shows real model/implied/edge triplet, NOT a fake %; a separate "won X% of N similar" needs a corpus query at serialize → v2 option. (2) getBatterForm is a per-pick cache lookup (no network, cheap for ~100 picks) — the one non-field-copy.
+mlbBatterFormCache callable at serialize CONFIRMED (file cache, getBatterForm/enrichRowWithBatterForm exported). lineupConfirmation source deriveMlbStarterConfirmationState exported/callable.
+
+DRIFT_WARNING_TO_PEER:
+Refinement to your handoff's serializer list ("toTrackedMlbBestEntry/leanBet for tracked_best"): leanBet writes tracked_BETS (graded ledger), NOT tracked_best — and it's the WRONG home (field-stripped marketProps, near-empty bundle). The bundle belongs on the BOARD surface (best rows + toTrackedMlbBestEntry + toTrackedMlbPick), not the ledger. Also one open item: /api/ws/state?sport=mlb (workstationRoutes) may need a +1 carry — confirm in PHASE 1 (likely rides along).
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A relays the schema (§3) + 2 design notes to operator for a NOD. On approval → PHASE 1 build: new buildMlbDisplayBundle.js + additive attach in server.js (kill-switch MLB_DISPLAY_BUNDLE) + 2 phase4Tracking whitelist lines, regression-gate-first (existing pick fields byte-identical + OFF byte-identical + 5-pick bundle spot-check). NBA bundle deferred (Finals ending).
+
+PROBE_REFS:
+docs/audits/2026-06-07-prop-coverage/step2_displaybundle_phase0.md (report+schema) · server.js buildMlbLiveDualBestAvailablePayload + buildMlbClusters.js:43 (attach site) · phase4Tracking.js toTrackedMlbBestEntry/toTrackedMlbPick (carry) · buildPlayDisplayBundle.js (NBA precedent) · getBatterForm/deriveMlbStarterConfirmationState (callable sources)
