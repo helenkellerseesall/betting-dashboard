@@ -3843,3 +3843,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 prop_card_layout_show_before_edit.md (approved layout) · buildMlbDisplayBundle.js (+pitcher variant) · workstationRoutes.js:2356+ buildReasoning (rewrite) + :2287 assembly point · mlbPitcherGameLogs.json/mlbPitcherStats.json (pitcher) · mlbBatterStats.json (16 teams — omit beyond) · buildMlbPitcherCandidates.js:15 (opponentKPercent)
+
+## 2026-06-09 19:30 ET — Claude-B (4.8)
+
+ACTION: BUILT the all-in-one prop-specific stat-backing rebuild (operator GO). 2 code files, no FE change, no PRESERVED edit. Regression-gated (picks byte-identical, 3 prop types + fabrication-guard verified through the REAL buildReasoning). Commit+reload fence handed to operator. Live render proof = Claude-A screenshot.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: backend/pipeline/mlb/assembleMlbPickStatBacking.js (NEW; serve-time per-pick assembly — reaches 100% of picks, not the 3.6% board join; batter reuses PRESERVED buildMlbDisplayBundle + mlbBatterStats season line + getBatterForm L5/L15; pitcher = NEW bundle from mlbPitcherGameLogs recent Ks + mlbPitcherStats K%/K9/WHIP/IP-per-start + DERIVED opp-lineup-K%; omit-not-fabricate) + backend/routes/workstationRoutes.js (require + assemble pick.displayBundle per pick before buildReasoning + prop-aware buildReasoning MLB-branch rewrite + #101 fix + test seam exporting buildReasoning)
+  - docs: docs/audits/2026-06-09-prop-stat-backing/prop_stat_backing_rebuild_phase1.md + this block
+
+AUDIT_OUTCOME (verification this side, all RAN):
+  node --check clean both; route loads. BYTE-IDENTICAL pick gate: assembly returns a new object + buildReasoning writes nothing to the pick → JSON.stringify(pick) identical pre/post; selection/edge/tier/odds untouched (display-only). 3-PROP SPOT-CHECK through the REAL buildReasoning: Skenes Ks "Recent Ks(L2) 8.5/start · [opp omitted, Dodgers uncached] · Season 29% K·10.5 K/9·0.90 WHIP"; Gilbert Ks "Opp lineup K% 26% · whiff-prone, helps" (opp-cached path); Robles hits "Facing Trevor Rogers · 17% K [#101 FIXED] · Season .276 AVG·.345 SLG · Last 5 0.2 H/G·0.2 TB/G"; Altuve HR "Power 2.9% HR·.143 ISO · Last 5 ...·1 HR"; NO-CACHE batter = ALL blurbs OMITTED, only model line (fabrication guard holds). NBA branch UNCHANGED (only MLB block edited) → NBA byte-identical. NO FE change (FE already renders pick.reasoning via _renderReasoning/_reasoningOneLine, shape preserved, empty→nothing; + displayBundle.signalsTable via renderCard).
+
+SCOPE BOUNDARY (byte-identical preserved — flag): opp-lineup-K% is DERIVED for DISPLAY ONLY. NOT wired into the K SCORING engine (buildMlbPitcherCandidates.js:15) — doing so would change expectedKs→modelProb→edge→selection and break the byte-identical gate. Feeding opp-K% into the K model is a separate SCORING change (needs backtest + sign-off) — deferred, NOT done here.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the commit+reload fence + hard-reloads /m, screenshot-verify all 3 prop types on Top Picks — pitcher Ks show pitcher L5 Ks + K%/K9/WHIP (+opp-lineup-K% where the opp team is cached), batter hits/TB show Facing+Season+L5/L15, HR shows power form; NO "vs team team"; uncached batters/teams omit gracefully (no fake, no "undefined"). QUEUED: 30-team batter-cache expansion (widens coverage) · opp-K%-into-scoring (separate, backtested) · same assembly on GAMES/state · cold-start fast-first-paint · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+docs/audits/2026-06-09-prop-stat-backing/prop_stat_backing_rebuild_phase1.md · backend/pipeline/mlb/assembleMlbPickStatBacking.js (assembleMlbPickDisplayBundle) · workstationRoutes.js (buildReasoning MLB rewrite ~2469 · assembly wire ~2656 · require ~38 · test seam) · live probe: 5-case buildReasoning spot-check (3 props + opp-cached + fabrication-guard)
