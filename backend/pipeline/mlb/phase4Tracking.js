@@ -191,6 +191,11 @@ function toTrackedMlbPick(row, { slateDate, timestamp }) {
     carryShift:       wc?.carryShift       ?? row?.carryShift       ?? null,
     temperatureF:     wc?.temperatureF     ?? row?.temperatureF     ?? null,
     contextualTags:   Array.isArray(row?.mlbContextualTags) ? row.mlbContextualTags : null,
+    // 2026-06-08 Step-2 — carry the board pick's displayBundle. Gated by presence:
+    // when the bundle is absent (kill-switch OFF, or non-board row) the spread adds
+    // NOTHING ⇒ every existing field byte-identical to pre-Step-2. Built in the
+    // server.js best-row attach (buildMlbLiveDualBestAvailablePayload).
+    ...(row?.displayBundle ? { displayBundle: row.displayBundle } : {}),
   }
 }
 
@@ -276,6 +281,11 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     carryShift:       wc?.carryShift       ?? row?.carryShift       ?? null,
     temperatureF:     wc?.temperatureF     ?? row?.temperatureF     ?? null,
     contextualTags:   Array.isArray(row?.mlbContextualTags) ? row.mlbContextualTags : null,
+    // 2026-06-08 Step-2 — carry the board pick's displayBundle. Gated by presence:
+    // when the bundle is absent (kill-switch OFF, or non-board row) the spread adds
+    // NOTHING ⇒ every existing field byte-identical to pre-Step-2. Built in the
+    // server.js best-row attach (buildMlbLiveDualBestAvailablePayload).
+    ...(row?.displayBundle ? { displayBundle: row.displayBundle } : {}),
   }
 }
 
@@ -1336,6 +1346,7 @@ function pruneOldTrackingFilesAsync({ keepDays = DEFAULT_PRUNE_KEEP_DAYS } = {})
   })
 }
 module.exports = {
+  toTrackedMlbBestEntry, toTrackedMlbPick, // 2026-06-08 Step-2 test export (pure fns; no behavior change)
   readMlbTrackedBestSnapshot,
   recordMlbBestProps,
   evaluateMlbPerformance,

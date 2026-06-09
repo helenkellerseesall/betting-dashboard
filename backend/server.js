@@ -3627,6 +3627,14 @@ function __mlbApplyLearningToFinalBoardRows(rowArrays, learningPack, primaryReso
   )
 }
 
+// 2026-06-08 Step-2 — MLB pick displayBundle (stat-backing + why-this-pick).
+// Additive foundation: attaches a NEW `displayBundle` key onto each board pick.
+// Kill-switch MLB_DISPLAY_BUNDLE read ONCE at module load (CALIB_LINEAWARE
+// precedent): unset/"1" → ON; ONLY exact "0" → OFF ⇒ no displayBundle key
+// anywhere ⇒ byte-identical to pre-Step-2.
+const { buildMlbDisplayBundle: _buildMlbDisplayBundle } = require("./pipeline/mlb/buildMlbDisplayBundle")
+const MLB_DISPLAY_BUNDLE_ON = String(process.env.MLB_DISPLAY_BUNDLE ?? "1") !== "0"
+
 function buildMlbLiveDualBestAvailablePayload() {
   const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
   console.log("[MLB PIPELINE TRACE]", { stage: "rawProps", count: rows.length })
@@ -4014,6 +4022,18 @@ function buildMlbLiveDualBestAvailablePayload() {
   console.log("[MLB BEST TRACE] afterBestAssign", {
     best: Array.isArray(best) ? best.length : -1
   })
+
+  // 2026-06-08 Step-2 — attach displayBundle to each board pick (additive: a NEW
+  // key only; no existing field touched). Rides to /api/best-available
+  // (payload.best, mlbIsolatedRoutes untouched) + tracked_best/mlb_picks
+  // (phase4Tracking carry). OFF ⇒ loop skipped ⇒ no key ⇒ byte-identical.
+  if (MLB_DISPLAY_BUNDLE_ON && Array.isArray(best)) {
+    for (const r of best) {
+      if (r && typeof r === "object") {
+        try { r.displayBundle = _buildMlbDisplayBundle(r) } catch (_) { r.displayBundle = null }
+      }
+    }
+  }
 
   const safeBest = Array.isArray(best) ? best : []
 
