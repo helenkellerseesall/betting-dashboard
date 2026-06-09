@@ -3932,3 +3932,19 @@ Claude-A: after operator runs the fence (rm test artifacts → commit → push �
 
 PROBE_REFS:
 docs/audits/2026-06-09-prop-stat-backing/batter_stats_populator_hardening.md · refreshMlbBatterStats.js (withRetry · loadPriorMap/merge · coverage+targeted re-fetch · writeMeta) · statusRoute.js (sectionBatterCacheCoverage + openIssues source 6b) · offline merge-gate test (209>=208, 208/208 retained)
+
+## 2026-06-09 22:55 ET — Claude-A (Cowork) — batter fix VERIFIED + /status-alert process gap
+
+ACTION: Operator showed /status RED alerts (STALE-CODE hourly 15:01-18:01 + lineupSpot 0% hourly 09:02-14:01) + "don't see batter fix on /status". TIER ANCHOR: T1 · batter-stats hardening verify + /status-alert triage.
+
+BATTER FIX VERIFIED (data + backend): mlbBatterStats.json now 30 teams/387 batters (was 16/208), mtime 22:50; meta sidecar coverageComplete:true, teamsCaptured 30/30, missingTeams []. Backend /api/ws/version = b3b2f62 (== HEAD), pid 78047, bootAt 22:50:47 → the fence's reload DID take; backend is CURRENT. So the batter fix is LIVE; the "not on /status" = operator viewing the historical alert log (pre-22:50). Refresh /status → STALE-CODE clears (backend==HEAD) + new batterCacheCoverage card shows 30/30.
+
+ROOT CAUSE of the STALE-CODE alerts (own it): backend was stale 15:01-18:01 (serving ca57031 while HEAD advanced) — reloads lagged behind backend-code ships. sysAudit.js:119 correctly REDs genuine route/pipeline drift (vs :120 doc-only WARN). LESSON (new BINDING memory [[feedback-act-on-status-alerts]]): after EVERY backend-code ship, fetch /api/ws/version + confirm commit==HEAD; on-screen verifies during a stale window can be OLD behavior. (My key verifies this session — prop-stat-backing 18:28, batter now — backend was current, confirmed.)
+
+QUEUED (real, was ignored): lineupSpot 0%-populated wiring gap (sysAudit fired hourly 09:02-14:01) — batting-order-position never written, degrades pick quality. Find the populator that should write lineupSpot + wire it (same class as batter-stats coverage). NOT a deviation — a flagged cognition data-hole.
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 action pending on batter (verified live). QUEUE: lineupSpot wiring fix · sibling-populator hardening (gamelogs/pitcher/bullpen) · cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2). Process: verify backend==HEAD after each ship.
+
+PROBE_REFS:
+mlbBatterStats.json (30 teams/387) + .meta.json (coverageComplete) · /api/ws/version b3b2f62==HEAD bootAt 22:50 · sysAudit.js:119-122 (stale-code RED vs doc-only WARN) · feedback_act_on_status_alerts memory
