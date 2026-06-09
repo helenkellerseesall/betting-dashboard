@@ -775,7 +775,12 @@
     const REFRESH_MIN_INTERVAL_MS = 5000;
 
     let state = {
-      activeSport: "mlb",
+      // 2026-06-09 FE consolidation — land on the curated TOP PICKS view by
+      // default (matches the .active nav highlight on the TOP PICKS button).
+      // Was "mlb", which routed /m to the legacy MLB sport-tab in "games" mode
+      // (Tonight's Games + Sharp toggle) while the nav highlighted TOP PICKS —
+      // the desync that made the whole surface read as the wrong screen.
+      activeSport: "top",
       data: { mlb: null, nba: null },
       lastFetchAt: null,
       fetching: false,
@@ -1472,7 +1477,11 @@
         return;
       }
       if (sport === "games") {
-        renderGamesBrowser(main);
+        // 2026-06-09 FE consolidation (fork B) — GAMES is now the snapshot feed
+        // (all sports, incl. UPCOMING games), reusing the rich game→player→prop
+        // drill-down. The legacy tracked_bets browser (renderGamesBrowser /
+        // /api/ws/games-browser) is left DORMANT (today-only, no upcoming).
+        renderGamesAllSports(main);
         return;
       }
       // ── Legacy tab routes (still available; hidden from default UI) ───
@@ -1860,10 +1869,70 @@
         </div>`;
     }
 
-    function renderGameCard(g, sport) {
+    // 2026-06-09 FE consolidation (fork B) — THE GAMES TAB. All-sports view over
+    // the odds SNAPSHOT, so it includes UPCOMING games (not just tonight), reusing
+    // the snapshot game→player→prop drill-down (renderGameCard/renderPlayerCard).
+    // Reads the per-sport snapshot already cached in state.games[sport] (populated
+    // by fetchGames → /api/ws/games); triggers a lazy fetch for any sport not yet
+    // loaded, then re-renders. No backend change — same endpoint Tonight's Games used.
+    // Honesty: future games have book lines but no model picks → renderGameCard
+    // labels them "UPCOMING · LINES ONLY" and the per-prop model chip stays hidden
+    // (it only renders when a real modelProb exists). Never fabricates an edge.
+    function renderGamesAllSports(main) {
+      const sports = ["nba", "mlb"]; // operator preference: NBA-first
+      state._gamesInflight = state._gamesInflight || {};
+      let pending = false;
+      for (const s of sports) {
+        if (!state.games[s] && !state._gamesInflight[s]) {
+          state._gamesInflight[s] = true;
+          fetchGames(s).finally(() => { state._gamesInflight[s] = false; });
+        }
+        if (!state.games[s]) pending = true;
+      }
+      if (pending) {
+        main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading games…</div>`;
+        return;
+      }
+      const todaySlate = currentSlateDateEt();
+      const titleOf = { nba: "🏀 NBA", mlb: "⚾ MLB" };
+      let html = `<div style="padding:8px 12px;">`;
+      let gamesShown = 0;
+      for (const sport of sports) {
+        const data = state.games[sport];
+        if (!data || data._error || !Array.isArray(data.games) || data.games.length === 0) continue;
+        html += `<div class="v2-sport-header" style="font-size:12px;font-weight:700;letter-spacing:0.5px;color:#9CA3AF;margin:10px 0 8px 0;">${titleOf[sport] || sport.toUpperCase()} · ${data.games.length} game${data.games.length === 1 ? "" : "s"}</div>`;
+        for (const g of data.games) {
+          gamesShown++;
+          html += renderGameCard(g, sport, { todaySlate });
+        }
+      }
+      if (gamesShown === 0) {
+        main.innerHTML = `<div class="empty" style="padding:20px;color:#9CA3AF;">No games on the slate right now.<br><span style="font-size:11px;color:#6B7280;">Try refreshing the slate (↻) if you expected games.</span></div>`;
+        const gc0 = document.getElementById("gamesCount"); if (gc0) gc0.textContent = "0";
+        return;
+      }
+      html += `</div>`;
+      main.innerHTML = html;
+      const gc = document.getElementById("gamesCount"); if (gc) gc.textContent = String(gamesShown);
+    }
+
+    function renderGameCard(g, sport, opts = {}) {
       const players = Array.isArray(g.players) ? g.players : [];
       const matchupTxt = g.matchup || `${g.awayTeam || ""} @ ${g.homeTeam || ""}` || "Game";
       const gameTimeTxt = g.gameTime ? new Date(g.gameTime).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
+
+      // 2026-06-09 FE consolidation — a future-dated game has book LINES but no
+      // model picks yet (picks generate on the day's slate). Label it honestly so
+      // the operator knows why there are no model chips; never fabricate an edge.
+      // opts.todaySlate is only passed by the GAMES tab (renderGamesAllSports);
+      // the dormant Tonight's-Games path calls renderGameCard(g, sport) with no
+      // opts, so this is a no-op there.
+      let _etDate = null;
+      try { _etDate = g.gameTime ? new Date(g.gameTime).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) : null; } catch (_) {}
+      const isUpcoming = !!(opts.todaySlate && _etDate && _etDate > opts.todaySlate);
+      const upcomingBadge = isUpcoming
+        ? `<span data-upcoming="1" style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;background:rgba(96,165,250,0.15);color:#93C5FD;letter-spacing:0.3px;white-space:nowrap;">UPCOMING · LINES ONLY</span>`
+        : "";
 
       const primaryFamilies = sport === "nba"
         ? ["Points", "Rebounds", "Assists", "Threes", "PRA"]
@@ -1888,11 +1957,11 @@
                       display: flex; align-items: center; gap: 10px;">
             <span style="color: #6B7280; font-size: 14px; min-width: 14px;">${caret}</span>
             <div style="flex: 1;">
-              <div style="font-size: 13px; font-weight: 700; color: #F9FAFB; text-transform: uppercase; letter-spacing: 0.4px;">
-                ${escapeHtml(matchupTxt)}
+              <div style="font-size: 13px; font-weight: 700; color: #F9FAFB; text-transform: uppercase; letter-spacing: 0.4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                ${escapeHtml(matchupTxt)} ${upcomingBadge}
               </div>
               <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">
-                ${escapeHtml(gameTimeTxt)} · ${players.length} player${players.length === 1 ? "" : "s"} with props
+                ${escapeHtml(gameTimeTxt)} · ${players.length} player${players.length === 1 ? "" : "s"} with props${isUpcoming ? ` · <span style="color:#93C5FD;">picks generate closer to game time</span>` : ""}
               </div>
             </div>
           </div>
