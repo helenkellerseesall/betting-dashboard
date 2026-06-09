@@ -3168,3 +3168,24 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 docs/audits/2026-06-07-prop-coverage/step2_displaybundle_phase0.md (approved schema) · buildMlbClusters.js:43 + server.js:3630 (attach, verified) · buildPlayDisplayBundle.js (NBA precedent) · phase4Tracking.js (whitelist carry) · probabilityHonesty.js (PRESERVED null-preservation)
+
+## 2026-06-08 23:31 ET — Claude-B (4.8)
+
+ACTION: STEP-2 displayBundle PHASE 1 BUILT — MLB pick stat-backing + why-this-pick bundle. 3 files (1 new + 2 additive, +31 lines in the 2 edited), regression-gate-first, ALL gates green in-sandbox. Fence handed to operator (not yet committed). No PRESERVED Tier-1 edited; bettor-visible delta ZERO until a FE renders it.
+
+BUILD (3 files):
+  · NEW pipeline/mlb/buildMlbDisplayBundle.js — pure assembler (mirrors NBA buildPlayDisplayBundle). statBacking{opposingPitcher(pitcherEnvironmentContext), seasonLine(batterStats), recentForm L5/L15(getBatterForm cache), park(parkContext — hrFactor/doublesFactor/triplesFactor; NO hitsFactor, that field doesn't exist), platoon, weather(weatherContext), lineup(null-guard→pending)} · whyThisPick{edge, tier, bucket, volatility, modelProb=predictedProbability[calibration-dampened], impliedProb, mlbPhase3Score, contextualTags} · notWired{liveNews:"not_wired", lineupConfirmation:confirmed/pending}. ALL pruneNull — absent⇒omitted.
+  · server.js — require + MLB_DISPLAY_BUNDLE kill-switch const + additive attach loop on the `best` rows in buildMlbLiveDualBestAvailablePayload (OG monolith, additive-only). OFF ⇒ loop skipped ⇒ no key.
+  · phase4Tracking.js — +2 gated carries (toTrackedMlbBestEntry + toTrackedMlbPick): `...(row?.displayBundle ? {displayBundle} : {})`. leanBet (ledger) deliberately NOT carried (field-stripped, wrong home).
+HONESTY FIX (self-caught at G3): first draft's num() coerced null→0 (Number(null)===0) → bundle showed gbRate:0/velocity:0/restDays:0 for pitchers with NO data — fabrication. Fixed: num() treats null/undefined→null (omitted). Same Trap-1 class as SHIP 2; caught before fence.
+ALL-SURFACES CARRY confirmed: /api/best-available rides along on payload.best (mlbIsolatedRoutes UNTOUCHED) · tracked_best + mlb_picks via the 2 carries · /api/ws/state via EXISTING workstationRoutes:419 `displayBundle: e.displayBundle || null` (NBA's carry already generic — MLB rides along, NO workstation edit).
+REGRESSION (.scratch/probe_db_regression.txt, pristine-vs-edited serializers, 60-row battery): G1 no-bundle existing fields byte-identical 120/120 (additive + OFF proof) · G2 with-bundle existing fields == pristine 120/120 + displayBundle present 120/120 · G3 5 real picks full stat-backing (oppP+K-rate, season line, L5/L15, park, weather), lineup "pending" guard, modelProb=calibration-dampened, ZERO 0-fabrication. node --check 3/3. PRESERVED Tier-1 (buildMlbPropClusters/probabilityHonesty/mlbIsolatedRoutes/nbaIsolatedRoutes) untouched.
+
+DRIFT_WARNING_TO_PEER:
+None. Two schema realities found at build (both in the assembler, honest): (1) parkContext has NO hitsFactor field — the step2 map said "park hits/doubles factor" but only hr/doubles/triples exist; bundle uses the real fields, no fabricated hitsFactor. (2) deriveMlbStarterConfirmationState needs slate lineup-maps not available at the board-serialize site → lineupConfirmation derived from lineup PRESENCE (confirmed/pending) for v1; scratched-detection deferred to v2 (Phase-1b live-state already guards scratches separately). Both noted in step2_displaybundle_phase0.md spirit.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the fence (regression probe re-runs as gate → rm temps → code commit 3 files → docs commit → push → reload → runtime:verify). On clean: Claude-A verifies the bundle lands on a live pick + decides FE render timing (current app vs FE-overhaul day). QUEUED behind this (from the 20:29 block): SHARP-PLAYS-calibration premise-check (does the candidates-edge path dampen like clusters?) + SB-board-surfacing question. I'll pick those up next.
+
+PROBE_REFS:
+backend/pipeline/mlb/buildMlbDisplayBundle.js (assembler) · server.js buildMlbLiveDualBestAvailablePayload (attach+killswitch) · phase4Tracking.js toTrackedMlbBestEntry/toTrackedMlbPick (carries) · .scratch/probe_db_regression.txt (3 gates) · workstationRoutes.js:419 (/api/ws/state rides along)
