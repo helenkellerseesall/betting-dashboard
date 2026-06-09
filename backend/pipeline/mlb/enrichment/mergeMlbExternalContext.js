@@ -342,5 +342,11 @@ function enrichMlbRowsWithExternalContext({ rows, externalSnapshot }) {
 
 module.exports = {
   enrichMlbRowsWithExternalContext,
-  buildMlbEnrichmentDiagnostics
+  buildMlbEnrichmentDiagnostics,
+  // 2026-06-09 — exported for the tracked_best lineup BACK-FILL (single source of
+  // truth for the id/name join + the battingOrder→1-9 normalization). Reused by
+  // backfillMlbLineupSpot so the serializer doesn't re-implement the join logic.
+  buildExternalLineupIndexForEvent,
+  resolveLineupPositionFromExternal,
+  lineupPositionFromExternalPlayer,
 }

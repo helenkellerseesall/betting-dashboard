@@ -19,6 +19,11 @@ const LEGACY_TRACKED_PREFIX = "tracked_props_"
 // on the operator's mac and was UTC in sandbox/CI. The doctrine: every
 // slate writer uses currentSlateDateEt() / slateDateForTimestamp(ts).
 const { slateDateForTimestamp } = require("../shared/slateDate")
+// 2026-06-09 lineupSpot wiring fix — back-fill lineupPosition onto tracked rows from
+// the FRESH lineup cache at serialization time (confirmed-game picks were 1/26).
+// Post-scoring + null-only ⇒ edge/tier/selection byte-identical. Omit when unposted.
+const { makeLineupBackfiller } = require("./backfillMlbLineupSpot")
+const { deriveMlbLineupContext } = require("./context/deriveMlbLineupContext")
 
 function dateKeyFromNow(now = Date.now()) {
   return slateDateForTimestamp(now)
@@ -132,6 +137,22 @@ function legKey(row) {
   ].join("|")
 }
 
+// 2026-06-09 — back-fill a row's lineup spot from the fresh cache BEFORE serialize.
+// Sets only null fields (lineupPosition + re-derived lineupContextV2) so the serializer
+// picks up lineupSpot + depth + PA proxy + run/rbi env. Mutates the row in place but
+// touches NO scoring field (edge/tier/predictedProbability untouched). Omit-not-fabricate:
+// no-ops when the resolver returns null (game unposted / player unmatched).
+function backfillRowLineup(row, backfiller) {
+  if (!row || !backfiller || typeof backfiller.resolve !== "function") return
+  if (row.lineupPosition != null || row.battingOrderIndex != null) return
+  const lp = backfiller.resolve(row)
+  if (lp == null) return
+  row.lineupPosition = lp
+  if (!row.lineupContextV2) {
+    try { row.lineupContextV2 = deriveMlbLineupContext(row) } catch (_) { /* keep lineupPosition only */ }
+  }
+}
+
 function toTrackedMlbPick(row, { slateDate, timestamp }) {
   // Phase Item 0002 Slice 1 — mirror lift on the parallel picks persistence
   // path (recordMlbDailyPicks). Same field categories as toTrackedMlbBestEntry;
@@ -185,6 +206,8 @@ function toTrackedMlbPick(row, { slateDate, timestamp }) {
     plateAppearancesProxy: lc?.plateAppearancesProxy ?? null,
     runEnvironment:        lc?.runEnvironment        ?? null,
     rbiEnvironment:        lc?.rbiEnvironment        ?? null,
+    // 2026-06-09 — preserve external id for reliable future lineup id-joins (lossy name-fallback otherwise).
+    playerIdExternal:      row?.playerIdExternal ?? (row?.__src && row.__src.playerIdExternal) ?? null,
 
     hrFactor:         pc?.hrFactor         ?? row?.hrFactor         ?? null,
     windDirectionTag: wc?.windDirectionTag ?? row?.windDirectionTag ?? null,
@@ -274,6 +297,9 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     plateAppearancesProxy: lc?.plateAppearancesProxy ?? null,
     runEnvironment:        lc?.runEnvironment        ?? null,
     rbiEnvironment:        lc?.rbiEnvironment        ?? null,
+    // 2026-06-09 — preserve the external id so the reliable id-join fires on future
+    // lineup back-fills (the name-fallback is lossy). Null when upstream didn't carry it.
+    playerIdExternal:      row?.playerIdExternal ?? (row?.__src && row.__src.playerIdExternal) ?? null,
 
     // (d) environmental tuners (lifted from nested parkContext / weatherContext)
     hrFactor:         pc?.hrFactor         ?? row?.hrFactor         ?? null,
@@ -331,11 +357,14 @@ function recordMlbBestProps(bestProps, options = {}) {
   const seen = new Set(entries.map((e) => legKey(e)))
   let added = 0
 
+  // 2026-06-09 — back-fill lineupSpot from the fresh cache (one cache load per run).
+  const _lineupBackfill = makeLineupBackfiller()
   for (const row of incoming) {
     const key = legKey(row)
     if (!key || key === "|||||") continue
     if (seen.has(key)) continue
     seen.add(key)
+    backfillRowLineup(row, _lineupBackfill)
     payload.entries.push(toTrackedMlbBestEntry(row, { slateDate, timestamp }))
     added += 1
   }
@@ -539,11 +568,14 @@ function recordMlbDailyPicks(bestRows, options = {}) {
   // Avoid duplicates within a single run only.
   const runSeen = new Set()
   let added = 0
+  // 2026-06-09 — back-fill lineupSpot from the fresh cache (one cache load per run).
+  const _lineupBackfill = makeLineupBackfiller()
   for (const row of incoming) {
     const key = legKey(row)
     if (!key || key === "|||||") continue
     if (runSeen.has(key)) continue
     runSeen.add(key)
+    backfillRowLineup(row, _lineupBackfill)
     payload.picks.push(toTrackedMlbPick(row, { slateDate, timestamp }))
     added += 1
   }
