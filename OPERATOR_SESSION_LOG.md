@@ -3228,3 +3228,26 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 frontend/mobile/index.html (~L1273 nba gate, ~L1295-1329 signalsTable render) · buildMlbDisplayBundle.js (add signalsTable) · workstationRoutes.js:419 (FE payload carry) · buildPlayDisplayBundle.js (NBA signalsTable precedent)
+
+## 2026-06-09 00:52 ET — Claude-B (4.8)
+
+ACTION: STEP-2 LIGHT FE RENDER — mechanism A built (signalsTable + open the canonical render to MLB). 3 files (+63 additive, 0 del). Code + data-path + FE-logic verified in sandbox; the BINDING rendered-surface screenshot is the post-reload operator/Claude-A step (live browser required). Fence + browser-verify steps handed.
+
+PHASE 0 (mechanism A confirmed, 1 finding the handoff missed):
+The FE renderCard reads c.displayBundle.signalsTable. GAMES/state cards already carry c.displayBundle (workstationRoutes:419 entry mapper). BUT the TOP PICKS landing tab hydrates via buildReasoning(pick,best) and NEVER sets pick.displayBundle → the landing tab (operator's main surface) would NOT render the new rows. So mechanism A needs a +1 carry on top-picks (best?.displayBundle → pick.displayBundle), gated by presence (OFF byte-identical). Reported, included.
+
+BUILD (3 files, additive):
+  · buildMlbDisplayBundle.js (+46) — added a flat signalsTable (mirrors NBA shape) the canonical FE already renders: rows Facing (pitcher · K% · FB% · fatigue/rest), Season (avg/obp/slg slash), Last 5, Last 15 (.AVG · H/G · TB/G · HR · streak), Park (HR/2B factor). Every row pushed ONLY when source data real; live drive: "Facing: Trevor Rogers · 17% K / Season: .257/.321/.361 / Last 5: .300 AVG · 1.2 H/G · 2.2 TB/G · 1 HR · 3-game hit streak". No env/why rows duplicated (FE already pushes those).
+  · workstationRoutes.js (+5) — top-picks carry: `if (best?.displayBundle) pick.displayBundle = best.displayBundle` (gated; OFF/no-bundle ⇒ no key ⇒ byte-identical). GAMES/state already carried via :419.
+  · frontend/mobile/index.html (+12) — in the sport==="mlb" block, iterate c.displayBundle.signalsTable at the TOP (copy of the proven NBA iterate L1298), then the existing env pushes. Absent bundle ⇒ block skipped ⇒ panel unchanged.
+VERIFY (sandbox): backend node --check 2/2 OK; FE JS new Function() extraction 1/1 PASS (node --check is broken on .html); FE-logic SIM on a real pick-with-bundle → sigs = Facing/Season/Last5/Last15/Park rows; no-bundle pick → 0 rows (panel unchanged). FE served via express.static (server.js:145) — DISK-served, browser hard-refresh picks it up; backend reload needed for the bundle-signalsTable + top-picks carry. NBA path untouched (only added to the mlb branch + a top-picks carry that no-ops for NBA when no bundle).
+HONEST LIMIT: I did NOT see the rendered pixels — the binding browser screenshot needs the backend reloaded (post-fence) + the live app, which is operator/Claude-A side. Code + data path + FE logic are proven; the render screenshot is the post-fence verify.
+
+DRIFT_WARNING_TO_PEER:
+None. Note for the browser verify: the new rows appear ONLY after the backend reload (so the bundle carries signalsTable) AND a fresh board build / next /api/best-available (the displayBundle on already-written tracked_best is the pre-signalsTable version until the next slate write — /api/ws/state rebuilds from current entries; top-picks reads tracked_best which refreshes on the next slate cycle). On reload, /api/best-available is rebuilt live so GAMES/state shows it immediately; top-picks may lag to the next slate write.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator runs the fence (FE+backend syntax gate → code commit 3 files → docs commit → push → backend reload; FE disk-served). THEN the BINDING verify (operator/Claude-A, live browser): open /m, expand an MLB pick's Show Signals, SCREENSHOT the Facing/Season/Last 5/Last 15 rows with real data; confirm a sparse pick omits rows (no "undefined"); confirm NBA cards unchanged. Then QUEUED: SHARP-PLAYS-calibration premise-check + SB-board-surfacing.
+
+PROBE_REFS:
+buildMlbDisplayBundle.js (signalsTable) · workstationRoutes.js top-picks carry + :419 · frontend/mobile/index.html mlb-block iterate · server.js:145 (express.static disk-serve) · live drive output (Naylor signalsTable)
