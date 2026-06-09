@@ -3914,3 +3914,21 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 backend/pipeline/mlb/ingest/refreshMlbBatterStats.js (fetchTeamsPlayingOnDate:92 all-slate-teams · collectBatters fail-open · persistMap:277 OVERWRITE) · populateMlbBatterStats.js (thin runner, no retry) · scheduler.sh:271-282 (nightly populator chain) · mlbBatterStats.json (16/30 teams, all 07:05) · statsapi.mlb.com (free source — NOT API-Sports)
+
+## 2026-06-09 20:25 ET — Claude-B (4.8)
+
+ACTION: BUILT the batter-stats populator hardening (operator GO, full hardening). 3 code files, no PRESERVED edit. Merge gate proven offline (mock-axios partial-run → prior retained, never shrinks). Commit fence + the real populate-run command handed to operator (the statsapi fetch + file write run on the operator host). Doc: docs/audits/2026-06-09-prop-stat-backing/batter_stats_populator_hardening.md.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: refreshMlbBatterStats.js (withRetry on schedule/roster/people-batch · MERGE-not-overwrite via loadPriorMap {...prior,...thisRun} + no-shrink guard · coverage check + ONE targeted re-fetch of missing slate teams · diagnostics teamsOnSlate/teamsCaptured/missingTeams/coverageComplete/priorEntriesRetained · meta sidecar mlbBatterStats.meta.json) + populateMlbBatterStats.js (coverage summary print) + statusRoute.js (sectionBatterCacheCoverage reads sidecar → out.batterCacheCoverage + yellow Open Issue when a slate team is missing)
+  - docs: docs/audits/2026-06-09-prop-stat-backing/batter_stats_populator_hardening.md + this block
+
+AUDIT_OUTCOME (offline merge-gate regression, mock axios, real file backed-up+restored):
+  Simulated a PARTIAL run (4 slate teams, 1 team's roster fails after retries) vs the real 208-entry prior. GATES HELD: merged 209 >= prior 208 (never shrinks); ALL 208 prior players retained after the partial run (core gate — partial fetch does NOT wipe prior); failed team reported in missingTeams + targeted re-fetch attempted; meta sidecar written; no-shrink guard not tripped; persisted true. Real mlbBatterStats.json confirmed intact (208) after restore. (1 assertion failed = synthetic fixture names collapse under normalizeName — test artifact, not a code bug; real names are distinct.) node --check clean all 3; statusRoute + route load. NOT display-only (flag): newly-covered teams get real season stats NEXT slate vs defaults — desirable; today's picks unchanged.
+  CLEANUP NOTE: sandbox could not unlink 3 host test artifacts (EPERM) — backend/_merge_gate_test.js, backend/_merge_gate_test.backup.json, backend/data/mlbBatterStats.meta.json (contains TEST coverage data). Operator fence leads with `rm -f` of these THEN runs the real populate (writes the real meta). They are NOT git-added (specific paths).
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the fence (rm test artifacts → commit → push → run populate → reload), screenshot-verify (1) a previously-omitted batter card (e.g. a Dodgers/Diamondbacks hitter) now shows Season/L5 stat backing on Top Picks, and (2) /status batter-cache coverage shows the full slate (or the honest missing list). QUEUED: same retry+merge hardening for the SIBLING populators (refreshMlbBatterGameLogs/PitcherGameLogs/BullpenWorkload/PitcherStats — same overwrite/fail-open pattern) · cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+docs/audits/2026-06-09-prop-stat-backing/batter_stats_populator_hardening.md · refreshMlbBatterStats.js (withRetry · loadPriorMap/merge · coverage+targeted re-fetch · writeMeta) · statusRoute.js (sectionBatterCacheCoverage + openIssues source 6b) · offline merge-gate test (209>=208, 208/208 retained)
