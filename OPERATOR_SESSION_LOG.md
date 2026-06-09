@@ -3882,3 +3882,35 @@ No 4.8 action pending — shipped+verified. QUEUE (priority order TBD w/ operato
 
 PROBE_REFS:
 live FE edge.motel666.com/m Top Picks (Skenes popover Recent Ks+Season; slate-wide prop-specific rows; omit-not-fabricate on uncached) · c24cb4c (rebuild) · assembleMlbPickStatBacking.js · prop_stat_backing_rebuild_phase1.md
+
+## 2026-06-09 18:37 ET — Claude-A (Cowork)
+
+ACTION: ROOT-CAUSED the 16/30 batter coverage (operator escalation). refreshMlbBatterStats.js: source = FREE statsapi.mlb.com (NOT the dropped API-Sports key); fetches ALL slate teams BUT (1) single run no retry, (2) fail-open silently drops failed batches, (3) OVERWRITES file (no merge) → partial run = partial coverage with NO fallback. File rebuilt today 07:05 (all 208 batters stamped), got 16/30 → ~14 teams' calls failed this morning. RECURRING risk by design (any flaky-API night). Operator chose FULL HARDENING. TIER ANCHOR: T1 · batter-stats populator hardening · build.
+
+DRAFT_HANDOFF:
+```
+HARDEN refreshMlbBatterStats (the 16/30-teams root cause). Source confirmed FREE statsapi.mlb.com (not API-Sports). The populator drops teams on flaky-API nights + overwrites with no fallback → recurring partial coverage. Operator approved FULL hardening. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. (refreshMlbBatterStats.js NOT PRESERVED — safe to edit; confirm.)
+
+build (backend/pipeline/mlb/ingest/refreshMlbBatterStats.js + populateMlbBatterStats.js):
+  1. RETRY — failed fetchTeamRoster + fetchBatchSeasonStats calls retry (e.g. 2-3 attempts, small backoff) before giving up. A transient timeout must not silently drop a team.
+  2. MERGE-NOT-OVERWRITE — load existing mlbBatterStats.json; merge this run's results IN; for any player/team NOT fetched this run, KEEP the prior entry (season stats are day-stable → prior data is fine, far better than dropping). NEVER write a map smaller-coverage than what existed. (Optional: stamp per-entry ingestedAt so staleness is visible.)
+  3. POST-RUN COVERAGE CHECK — after the run, compare teams-captured vs teams-playing-on-slate (teamsFound). If teams missing, do a TARGETED re-fetch of just the missing teams (one more pass); if still missing, record it in diagnostics (don't silently pass).
+  4. DIAGNOSTICS — surface teamsCaptured/teamsOnSlate + missing-team list in the return diagnostics (so /status + auditNightly can see partial coverage).
+  5. RUN IT — after the fix, run populateMlbBatterStats.js to fill tonight's 30 teams (merge fills the missing 14; the 16 existing stay).
+
+ALSO (small, same turn): add a /status batter-cache COVERAGE signal (teams cached / teams on slate) so a partial populate is VISIBLE not silent (statusRoute — mirror the existing populator-health cards). FLAG: the SIBLING populators (refreshMlbBatterGameLogs, refreshMlbPitcherGameLogs, refreshMlbBullpenWorkload, refreshMlbPitcherStats) share the same overwrite-fail-open pattern — note as a queued follow-up to apply the same hardening; do NOT do all of them this turn.
+
+REGRESSION/VERIFY: after fix+run, mlbBatterStats.json covers all (or retry-max) 30 slate teams; the 16 previously-cached teams' entries UNCHANGED (merge preserved); simulate a partial-fetch → prior data RETAINED not wiped (the core gate); diagnostics report teamsCaptured/onSlate; /status shows coverage; node --check; the cards for previously-uncached teams (Dodgers/Diamondbacks/etc.) now show stat backing. NOTE: this CHANGES projections for newly-covered teams' batters on the NEXT slate (real stats vs defaults) — that's desirable; today's already-generated picks unchanged. Claude-A screenshot-verifies a previously-omitted batter card now shows stats.
+
+discipline: NOT display-only (affects next-slate scoring for new teams — fine, flag it); merge must never reduce coverage; retries bounded; SEPARATE code+docs commits; plain backticks, no bang chars, specific files in git add, no --no-verify; same-turn log append; PRESERVED untouched.
+
+bettor-visible delta: ~half the batter cards that were partial now show full stat backing; future slates won't silently lose teams.
+
+go. show the merge + retry + coverage-check design, then build + run.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 hardens refreshMlbBatterStats (retry + merge-not-overwrite + coverage check + diagnostics) + /status coverage signal, runs it to fill tonight's 30 teams, separate commits. Claude-A screenshot-verifies a previously-omitted batter card now shows stat backing + the cache covers 30 teams. QUEUED: same hardening for sibling populators · cold-start fast-first-paint · opp-K%-into-scoring · MLB-TIER-ASSIGNMENT-FIX (R2).
+
+PROBE_REFS:
+backend/pipeline/mlb/ingest/refreshMlbBatterStats.js (fetchTeamsPlayingOnDate:92 all-slate-teams · collectBatters fail-open · persistMap:277 OVERWRITE) · populateMlbBatterStats.js (thin runner, no retry) · scheduler.sh:271-282 (nightly populator chain) · mlbBatterStats.json (16/30 teams, all 07:05) · statsapi.mlb.com (free source — NOT API-Sports)
