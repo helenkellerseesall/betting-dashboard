@@ -3270,3 +3270,34 @@ QUEUED for 4.8 (after operator direction): (1) MLB candidates signalsTable carry
 
 PROBE_REFS:
 live FE edge.motel666.com/m SHARP PLAYS Show Signals (Jase Bowen, no new rows, 29m-stale) · workstationRoutes.js:37 (candidates displayBundle stamp precedent) · buildMlbDisplayBundle.js signalsTable · frontend/mobile/index.html mlb iterate
+
+## 2026-06-09 01:46 ET — Claude-A (Cowork)
+
+ACTION: Operator approved the T1 Sharp Plays trust check (highest-value next move). Drafting ONE read-only audit handoff covering both same-surface questions. NO code changes until findings reviewed (both are bet-affecting / trust-surface). TIER ANCHOR: T1 (trust daily picks) · Sharp Plays surface · audit phase.
+
+DRAFT_HANDOFF:
+```
+SHARP-PLAYS TRUST AUDIT (read-only, NO code edits, zero bettor delta) — two traces on the SAME surface (SHARP PLAYS = "candidates" source). Operator's Sharp Plays tab is a surface he'd bet from, so its honesty is T1. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. Report BOTH findings; do NOT ship a fix this turn (calibration + render carry are both bet/trust-affecting → operator reviews findings first).
+
+TRACE 1 — SHARP PLAYS edge: calibrated or RAW? (the trust hole)
+  observed live (Claude-A, edge.motel666.com/m): Jase Bowen RBIs OVER 1.5 @ +535, Show Signals = MODEL PROB 0.4506 / EDGE PROB 0.2931 ("+29%"), NO raw-vs-cal breakdown. The TONIGHT'S-GAMES cluster path DOES show "raw +8pp −5pp cal". RBIs is the family the engine flags "BROKEN 56"; Step-1 trust proof (step1_trust_proof.md) had RBIs PLAYABLE −11.9pp vig-aware NEGATIVE. So Sharp Plays may be surfacing high-RAW-edge longshots on a family it admits is miscalibrated.
+  TRACE: does the SHARP PLAYS "candidates" edge (FE footer "source: candidates"; path = http/mlbIsolatedRoutes.js + buildMlbPitcherCandidates.js / buildMlbSpikeEngine.js / buildMlbOomphEngine.js + workstationRoutes snapSupplement/diversifyCandidates) apply the calibrationDampener (line-aware, the same wire the cluster/games path uses), or show the RAW model edge? Claude-A grep: calibrationDampener NOT directly referenced in mlbIsolatedRoutes.js / buildMlbBestBetsBoard.js (INCONCLUSIVE).
+  REPORT FORK: (a) candidates ARE dampened → the +29% is calibrated, no hole, done; (b) candidates are RAW → confirm the gap (raw vs dampened delta on the live Sharp Plays set), and DESIGN (don't ship) the dampener wire + the honest "less reliable" framing fix. Tie magnitude to Step-1 (these longshot families net-negative vig-aware).
+
+TRACE 2 — does SHARP PLAYS render the new Step-2 signalsTable? (the render loose end)
+  context: Step-2 light render (3dde7d7) added displayBundle.signalsTable + FE iterate, verified on best/state/top-picks. On-screen the SHARP PLAYS Show Signals showed NO new Facing/Season/L5/L15 rows — but data was 29m-stale (pre-reload), so stale-vs-not-carried is unresolved. workstationRoutes:37 says displayBundle IS stamped on snapSupplement candidates (NBA precedent) — but does the MLB candidate stamp include the NEW signalsTable, or a thinner/older bundle?
+  TRACE: follow the MLB candidates displayBundle stamp — does it carry buildMlbDisplayBundle's signalsTable (so Sharp Plays renderCard shows Facing/Season/L5/L15), or a different/thinner bundle? 
+  REPORT FORK: (a) carries it → it was just stale; will render next refresh (Claude-A re-checks on-screen); (b) does NOT carry signalsTable → DESIGN (don't ship) a +1 carry mirroring the top-picks carry (workstationRoutes:2621) so the candidates bundle includes signalsTable.
+
+discipline: read-only (zero code, zero vendor calls); every claim file:line; stable probes .scratch/probe_sharpplays_calib.* + .scratch/probe_candidates_signalstable.*; plain backticks, no bang chars; cross-ref step1_trust_proof.md + buildMlbDisplayBundle.js; no shadow authority. STOP after both traces + report — operator reviews before any fix ships.
+
+bettor-visible delta: ZERO (read-only). Output = (1) is the Sharp Plays edge honest, (2) why the stat rows don't show there + the fix path.
+
+go. report both forks. No code this turn.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 runs both read-only traces (Sharp Plays edge calibrated-vs-raw + candidates signalsTable carry), reports fork outcomes with file:line + probe numbers, STOPS for operator review before any fix. Then Claude-A summarizes + operator gates the fixes (dampener wire if raw; candidates carry if missing). SB board-surfacing still queued after.
+
+PROBE_REFS:
+step1_trust_proof.md (RBIs −11.9pp vig-aware) · http/mlbIsolatedRoutes.js + buildMlbPitcherCandidates/Spike/Oomph (candidates edge path) · workstationRoutes.js:37/:2621 (candidates stamp + top-picks carry precedent) · buildMlbDisplayBundle.js (signalsTable) · calibrationDampener.js (PRESERVED, the dampener wire to check for)
