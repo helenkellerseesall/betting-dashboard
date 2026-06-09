@@ -134,10 +134,56 @@ function buildMlbDisplayBundle(row) {
     lineupConfirmation: lineupConfirmed ? "confirmed" : "pending",
   }
 
+  // 2026-06-08 Step-2 light-render — flat {label,value} signalsTable mirroring the
+  // NBA displayBundle shape, so the EXISTING canonical FE renderCard path
+  // (frontend/mobile/index.html ~L1298) renders MLB stat-backing with no parallel
+  // render code. Carries ONLY the NEW matchup-math rows (Facing / Season / Last 5 /
+  // Last 15) — the env/why rows the FE already pushes are NOT duplicated here.
+  // Every row null-guarded: a row is pushed ONLY when its source data is real.
+  const signalsTable = []
+  const sb = statBacking || {}
+  const op = sb.opposingPitcher
+  if (op && op.name) {
+    const bits = [op.name]
+    if (op.kRate != null) bits.push(`${Math.round(op.kRate * 100)}% K`)
+    if (op.fbRate != null) bits.push(`${Math.round(op.fbRate * 100)}% FB`)
+    if (op.fatigueFlag === true) bits.push("fatigued")
+    if (op.restDays != null) bits.push(`${op.restDays}d rest`)
+    signalsTable.push({ label: "Facing", value: bits.join(" · ") })
+  }
+  if (sb.seasonLine) {
+    const s = sb.seasonLine
+    const slash = [s.avg, s.obp, s.slg].map((x) => (x != null ? Number(x).toFixed(3).replace(/^0/, "") : null))
+    if (slash.every((x) => x != null)) signalsTable.push({ label: "Season", value: slash.join(" / ") })
+  }
+  const formRow = (f) => {
+    if (!f) return null
+    const bits = []
+    if (f.avg != null) bits.push(`.${String(Number(f.avg).toFixed(3)).split(".")[1]} AVG`)
+    if (f.hitsPerGame != null) bits.push(`${Number(f.hitsPerGame).toFixed(1)} H/G`)
+    if (f.totalBasesPerGame != null) bits.push(`${Number(f.totalBasesPerGame).toFixed(1)} TB/G`)
+    if (f.hrInWindow != null) bits.push(`${f.hrInWindow} HR`)
+    if (f.hitStreak != null && f.hitStreak > 0) bits.push(`${f.hitStreak}-game hit streak`)
+    return bits.length ? bits.join(" · ") : null
+  }
+  if (sb.recentForm) {
+    const l5 = formRow(sb.recentForm.l5)
+    const l15 = formRow(sb.recentForm.l15)
+    if (l5) signalsTable.push({ label: "Last 5", value: l5 })
+    if (l15) signalsTable.push({ label: "Last 15", value: l15 })
+  }
+  if (sb.park && (sb.park.hrFactor != null || sb.park.doublesFactor != null)) {
+    const bits = []
+    if (sb.park.hrFactor != null) bits.push(`HR ${Number(sb.park.hrFactor).toFixed(2)}x`)
+    if (sb.park.doublesFactor != null) bits.push(`2B ${Number(sb.park.doublesFactor).toFixed(2)}x`)
+    signalsTable.push({ label: "Park", value: bits.join(" · ") })
+  }
+
   return {
     _version: "mlb-v1",
     ...(statBacking ? { statBacking } : {}),
     ...(whyThisPick ? { whyThisPick } : {}),
+    ...(signalsTable.length ? { signalsTable } : {}),
     notWired,
   }
 }

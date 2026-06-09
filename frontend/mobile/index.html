@@ -1277,6 +1277,18 @@
         push("edge prob", typeof c.edgeProbability === "number" ? c.edgeProbability.toFixed(4) : c.edgeProbability);
       }
       if (sport === "mlb") {
+        // 2026-06-08 Step-2 — render the canonical displayBundle.signalsTable
+        // (Facing pitcher · Season · Last 5 · Last 15 · Park) at the TOP of the
+        // panel, mirroring the NBA path. Backend null-guards every row (omits when
+        // no data). When the bundle is absent (kill-switch OFF / non-board pick)
+        // this block is skipped and the panel renders exactly as before.
+        if (Array.isArray(c?.displayBundle?.signalsTable) && c.displayBundle.signalsTable.length) {
+          for (const row of c.displayBundle.signalsTable) {
+            if (!row || row.label == null) continue;
+            const v = row.value;
+            sigs.push({ k: String(row.label), v: v == null ? null : String(v), isNull: v == null || v === "" });
+          }
+        }
         push("implied team total", c.impliedTeamTotal);
         push("game total", c.gameTotal);
         push("HR environment", c.hrEnvironmentTag);

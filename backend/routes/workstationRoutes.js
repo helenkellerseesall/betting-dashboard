@@ -2614,6 +2614,11 @@ router.get("/top-picks", (req, res) => {
     for (const pick of picks) {
       const best = findReasoningEntry(reasoningIdx[pick.sport], pick) || mlbPseudoBest(pick)
       pick.reasoning = buildReasoning(pick, best)
+      // 2026-06-08 Step-2 light-render — carry the board pick's displayBundle onto the
+      // top-picks pick so renderCard's c.displayBundle.signalsTable renders on the
+      // LANDING tab too (the GAMES/state cards already carry it via the entry mapper).
+      // Gated by presence: kill-switch OFF / no bundle ⇒ key never added ⇒ byte-identical.
+      if (best?.displayBundle) pick.displayBundle = best.displayBundle
     }
 
     res.json({
