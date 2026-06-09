@@ -3251,3 +3251,22 @@ Operator runs the fence (FE+backend syntax gate → code commit 3 files → docs
 
 PROBE_REFS:
 buildMlbDisplayBundle.js (signalsTable) · workstationRoutes.js top-picks carry + :419 · frontend/mobile/index.html mlb-block iterate · server.js:145 (express.static disk-serve) · live drive output (Naylor signalsTable)
+
+## 2026-06-09 01:06 ET — Claude-A (Cowork)
+
+ACTION: BINDING rendered-surface verify (live Chrome, post-reload). Code re-verified clean (3dde7d7: 3 files +63 additive 0-del; FE mlb-block iterates displayBundle.signalsTable null-guarded ~L1285; workstationRoutes:2621 top-picks carry gated). RENDER NOT YET VISIBLY CONFIRMED — honest.
+
+ON-SCREEN FINDING (edge.motel666.com/m, hard-reload ?v=step2):
+- SHARP PLAYS "Show Signals" panel (Jase Bowen RBIs) shows the SAME pre-existing fields (MATCHUP/MODEL PROB/EDGE PROB/HR ENV/WIND/TEMP/PARK HR FACTOR/lineup "—"/CONTEXTUAL TAGS/GENERATED) — NO new Facing/Season/Last 5/Last 15 rows.
+- Likely STALE not broken: panel reads "updated 29m ago" = PRE-reload (reload ~00:52, data ~00:25). SHARP PLAYS source = "candidates"; workstationRoutes:37 comment confirms displayBundle IS stamped on snapSupplement candidates (NBA precedent 2026-05-26) → MLB should ride once candidates refresh. Cold-start hang also notably worse post-reload (~28s).
+- Could NOT distinguish stale-data vs MLB-candidates-not-carrying-signalsTable in-browser (heavy endpoints time out; next MLB candidates refresh ~9 AM).
+
+PREMISE_CHECK_NEEDED (queued for 4.8): confirm the MLB SHARP PLAYS/snapSupplement-candidates path carries the NEW signalsTable (not just the NBA-era tags/displayBundle). The render code is correct + lands on best/state/top-picks; the question is whether the operator's MOST-VISIBLE signals panel (SHARP PLAYS = candidates) actually carries it. This is the verify-at-the-bettor-surface lesson again — render reached renderCard, but the candidates feeding renderCard may need the bundle. 4.8: trace whether MLB candidates get the signalsTable-bearing displayBundle; if not, +1 carry like top-picks.
+
+OPERATOR PROBE (data-side confirm now, fast/local): `curl -s http://127.0.0.1:4000/api/best-available | grep -o '"signalsTable"' | wc -l` — >0 ⇒ signalsTable IS live in the best payload (data side done; SHARP PLAYS lag is stale-or-carry). On-screen confirm = recheck after next slate refresh OR the candidates-carry fix.
+
+NEXT_EXPECTED_FROM_PEER:
+QUEUED for 4.8 (after operator direction): (1) MLB candidates signalsTable carry premise-check [this block], (2) SHARP-PLAYS-calibration premise-check [20:29 block], (3) SB board-surfacing [20:29]. Claude-A to recheck render on-screen at next fresh slate.
+
+PROBE_REFS:
+live FE edge.motel666.com/m SHARP PLAYS Show Signals (Jase Bowen, no new rows, 29m-stale) · workstationRoutes.js:37 (candidates displayBundle stamp precedent) · buildMlbDisplayBundle.js signalsTable · frontend/mobile/index.html mlb iterate
