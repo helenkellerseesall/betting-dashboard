@@ -4336,3 +4336,23 @@ Claude-A: after operator runs fence (commit→push→reload→version==HEAD) + h
 
 PROBE_REFS:
 docs/audits/2026-06-10-card-redesign/card_redesign_v2_build.md · playerPropHistory.js (getPlayerPropHistory) · workstationRoutes.js (attach ~2718) · index.html (renderV2Card:3043 displayTier+decluttered face · _v2OpenModal popup displayTier+under-review+full-width+signalsTable · _renderPerPlayerLine · refreshing tick) · live: Wemby 11/16 ≠ Vassell 8/16
+
+## 2026-06-10 08:05 ET — Claude-A (Cowork) — Card v2 VERIFIED ON-SCREEN
+
+ACTION: backend==HEAD confirmed (/api/ws/version → backendCommit 9ec7b25 == git HEAD 9ec7b25, pid 1063, bootAt 07:39 ET). Hard-loaded /m and verified all 5 NEXT_EXPECTED items on the LIVE Top Picks tab + a popup. PASS on every one.
+
+AUDIT_OUTCOME (RAN, on-screen):
+  (1) PER-PLAYER ≠ shared bucket — CONFIRMED DISTINCT on the live board: Wembanyama UNDER 2.5 threes "11 of his last 16 · 69%" vs Vassell UNDER 2.5 threes "8 of his last 16 · 50%" (same prop+line, different numbers — the exact bug, fixed). Also live: Langeliers TB 15/19 79% · Rooker 12/17 71% · Robinson steals 6/10 60% · Robinson blocks 7/10 70%. Each player holds his own.
+  (2) CAP CONSISTENT EVERYWHERE — every face reads "PLAYABLE · tier under review"; header "0 top tier · 0 strong · 28 worth a look"; NO stray ELITE on pill/border/conf. Wemby popup reads "PLAYABLE · model rated ELITE — under review (not yet beating the market)" — original tier disclosed honestly, not hidden, not trusted.
+  (3) DECLUTTERED FACE + FULL-WIDTH POPUP + LABELED %s — face = sport · name+team · big prop · per-player line · "MODEL CONF 79%" / "EDGE vs MKT +13.8%" (edge green) / "PRICE -186 DraftKings". Detail stats (matchup, opp PPG, pace, L5/L10, games sampled, source, L16 min/3PM/3PA, projection floor) moved into the FULL-WIDTH popup.
+  (4) THIN-SAMPLE FALLBACK HONEST — pitchers (too few starts) show labeled type bucket NOT player: Messick/Rodon/Ohtani Ks "picks like this: 17% of 442 (same side/odds, not <player> alone)"; Champagnie P+R "31% of 148 (… not Champagnie alone)". Zero-rate players shown truthfully (Colby Thomas "0 of his last 13 · 0%", Brunson blocks "0 of 11 · 0%") — not hidden.
+  (5) "⟳ REFRESHING PRICES…" tick present top-right on cold-start.
+  BYTE-IDENTICAL held — board is the same 28 picks, same edges (display-only).
+
+FLAG (minor, pre-existing, NOT introduced by v2 — queue): the popup detail table still exposes a raw `confidence 100%` row while the headline correctly shows modelProb as "79% model confidence". A literal "100%" confidence is exactly the fake-confidence number the product frame says never to surface. Recommend hiding/relabeling that one detail row. Not a blocker; display-only; no bet effect.
+
+NEXT_EXPECTED_FROM_PEER:
+4.8: Card v2 is operator-trust-verified on-screen — close it. QUEUED (operator picks order): WAVE 3 R2 (MLB tier-assignment cure — the real inverted-ladder fix so badges return EARNED) · hide/relabel popup `confidence 100%` row · /status sibling-coverage cards · opp-K%-into-scoring (backtested) · neg-edge-in-list display check (Kornet −1.9, Keldon PRA −9.3 still listed). Awaiting operator direction before any build.
+
+PROBE_REFS:
+/api/ws/version (9ec7b25==HEAD) · live /m?v=cardv2 Top Picks + Wemby popup · Wemby 11/16 69% ≠ Vassell 8/16 50% · Messick "17% of 442 … not Messick alone" · popup "model rated ELITE — under review"
