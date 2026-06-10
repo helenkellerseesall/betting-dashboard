@@ -2999,24 +2999,40 @@
         const p = typeof pickJson === "string" ? JSON.parse(pickJson) : pickJson;
         const overlay = document.getElementById("v2-modal");
         const inner = overlay.querySelector(".inner");
-        const tier = String(p.tier || p.modelTier || "").toUpperCase();
-        const tierC = _tierColor(tier);
+        // 2026-06-10 Card v2 — popup reads the DISPLAY tier (cap-consistent with the
+        // card). When capped, show the honest transparent line instead of a bare ELITE.
+        const dispTier = String(p.displayTier || p.tier || p.modelTier || "").toUpperCase();
+        const origTier = String(p.tier || p.modelTier || "").toUpperCase();
+        const tierC = _tierColor(dispTier);
         const conf = _confPct(p.modelProb);
         const edge = _edgePct(p.edge);
         const odds = _oddsNice(p.oddsAmerican || p.odds);
         const book = escapeHtml(p.sportsbook || p.book || "?");
+        const tierBadge = p.tierCapNote
+          ? `<b style="color:${tierC};">${tierLabel(dispTier)}</b> <span style="color:#9CA3AF;font-style:italic;">· model rated ${origTier} — under review (not yet beating the market)</span>`
+          : `<b style="color:${tierC};">${tierLabel(dispTier)}</b>`;
+        const pphLine = _renderPerPlayerLine(p);
+        // Card v2 — the DETAIL stat table lives in the popup (off the face).
+        const _sig = (p.displayBundle && Array.isArray(p.displayBundle.signalsTable)) ? p.displayBundle.signalsTable : [];
+        const sigHtml = _sig.length
+          ? `<div style="border-top:1px solid #1B2030;margin-top:9px;padding-top:8px;display:flex;flex-direction:column;gap:5px;font-size:11px;">${_sig.map(r => `<div style="display:flex;justify-content:space-between;gap:10px;"><span style="color:#6B7280;flex:0 0 auto;">${escapeHtml(String(r.label))}</span><span style="color:#D1D5DB;text-align:right;">${escapeHtml(String(r.value))}</span></div>`).join("")}</div>`
+          : "";
         inner.innerHTML = `
           <button class="close" onclick="document.getElementById('v2-modal').classList.remove('open');">×</button>
-          <div class="hdr">${escapeHtml(p.player || "?")}</div>
+          <div class="hdr">${escapeHtml(p.player || "?")}${p.team ? ` <span style="font-size:12px;font-weight:500;color:#6B7280;">· ${escapeHtml(p.team)}</span>` : ""}</div>
           <div class="sub">${_famNice(p.statFamily)} <b style="color:#F9FAFB;">${_sideNice(p.side)} ${p.line}</b></div>
-          <div class="mu">${escapeHtml(p.matchup || "")} · ${odds} @ ${book} · <b style="color:${tierC};">${tier}</b> · conf ${conf} · edge ${edge}</div>
+          <div class="mu">${escapeHtml(p.matchup || "")} · ${odds} @ ${book} · ${tierBadge}</div>
+          <div class="mu" style="margin-top:4px;"><span style="color:#7DD3FC;">${conf} model confidence</span> · <span style="color:#34D399;">${edge} edge vs market</span></div>
+          ${pphLine}
+          ${sigHtml}
           ${_renderReasoning(p.reasoning)}
           ${_renderBookOptions(p.bookOptions)}
         `;
         overlay.classList.add("open");
         // Position over/near source. Compute after .open so dims are real.
         const vw = window.innerWidth, vh = window.innerHeight;
-        const innerW = Math.min(320, vw * 0.92);
+        // 2026-06-10 Card v2 — full card-width popup (was a narrow 320px box).
+        const innerW = Math.min(520, vw * 0.94);
         let left, top;
         if (srcEl && srcEl.getBoundingClientRect) {
           const r = srcEl.getBoundingClientRect();
@@ -3037,11 +3053,37 @@
       } catch (e) { console.error("modal open failed", e); }
     };
 
+    // 2026-06-10 Card v2 — the "won X%" line, PER-PLAYER first. Ladder:
+    //   1. pick.playerPropHistory (THIS player's own rate on THIS line) — "Langeliers:
+    //      under 2.5 in 14 of his last 18 (78%)". Wemby ≠ Vassell.
+    //   2. labeled TYPE bucket (pick.archetypeHistory) — explicitly "picks like this",
+    //      never dressed as the player.
+    //   3. "not enough games yet" when neither is real (omit-not-fabricate).
+    function _renderPerPlayerLine(pick) {
+      const base = `font-size:11px;color:#7DD3FC;margin-top:5px;line-height:1.3;`;
+      const pph = pick && pick.playerPropHistory;
+      if (pph && pph.n && pph.hits != null && pph.rate != null) {
+        const pct = Math.round(pph.rate * 100);
+        const verb = String(pph.side).toLowerCase() === "under" ? "under" : "over";
+        const last = escapeHtml(String(pick.player || "").trim().split(/\s+/).slice(-1)[0] || pick.player || "");
+        return `<div style="${base}">📊 ${last}: ${verb} ${pick.line} in <b>${pph.hits} of his last ${pph.n}</b> games · <b>${pct}%</b></div>`;
+      }
+      const ah = pick && pick.archetypeHistory;
+      if (ah && ah.hitRate != null && ah.n) {
+        const pct = Math.round(ah.hitRate * 100);
+        const what = (ah.broad === true || ah.bucket === "family") ? "type-wide" : "same side/odds";
+        return `<div style="${base}color:#9CA3AF;">📊 picks like this: <b>${pct}%</b> of ${ah.n} <span style="color:#6B7280;">(${what}, not ${escapeHtml(String(pick.player || "this player").trim().split(/\s+/).slice(-1)[0])} alone)</span></div>`;
+      }
+      return `<div style="${base}color:#6B7280;">📊 not enough games yet</div>`;
+    }
+
     // ── v2 compact card: tiny collapsed face, inline expand with reasoning ──
     // opts.compact = true → 3-col-grid friendly stacked layout (TOP PICKS, GAMES inside player)
     // opts.showStar = true → show ⭐ for top-pick props (used in GAMES tab)
     function renderV2Card(pick, opts = {}) {
-      const tier = String(pick.tier || pick.modelTier || "").toUpperCase();
+      // 2026-06-10 Card v2 — cap-consistent: border + conf color use the DISPLAY tier
+      // (the honest earned-or-capped tier), not the raw scoring tier.
+      const tier = String(pick.displayTier || pick.tier || pick.modelTier || "").toUpperCase();
       const tierC = _tierColor(tier);
       const conf = _confPct(pick.modelProb);
       const edge = _edgePct(pick.edge);
@@ -3060,21 +3102,9 @@
       // phrasing. Was: "📊 class hits 50.0% · n=14" (operator: "what the
       // fuck is n=124"). Now: "📊 won 50% of 14 similar picks like this".
       // Tooltip still explains the bucket for the curious.
-      let archetypeChip = "";
-      if (pick.archetypeHistory && pick.archetypeHistory.hitRate != null) {
-        const ah = pick.archetypeHistory;
-        const hitPct = (ah.hitRate * 100).toFixed(0);  // 0 decimals — bettor-readable
-        // 2026-06-09 Wave 1 — the number is now pick-specific (family+side(+odds)).
-        // When it falls back to the family-wide BROAD bucket, say so honestly so the
-        // bettor never reads a mixed-sides rate as "this exact bet".
-        const broad = ah.broad === true || ah.bucket === "family";
-        const bucketLabel = ah.bucket === "tier" ? "tier-bucket"
-                          : broad ? `${escapeHtml(String(pick.statFamily || pick.propType || "this stat"))} props (all sides)`
-                          : "picks like this (same side/odds)";
-        const suffix = broad ? ` <span style="color:#9CA3AF;">(broad — ${escapeHtml(String(pick.statFamily || pick.propType || "family"))}-wide)</span>` : " similar picks";
-        const titleAttr = `Across ${ah.n} historical ${bucketLabel} samples, ${hitPct}% won`;
-        archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 won <b>${hitPct}%</b> of ${ah.n}${suffix}</div>`;
-      }
+      // 2026-06-10 Card v2 — PER-PLAYER first (Wemby ≠ Vassell), labeled-type or
+      // "not enough games" fallback. Replaces the old shared archetype chip.
+      const archetypeChip = _renderPerPlayerLine(pick);
 
       // T1 #1 — inline "why" line, TOP PICKS only (opts.showWhy). Same source as the tap-modal
       // (_reasoningOneLine reads pick.reasoning). Renders NOTHING when empty (Trap-1).
@@ -3090,23 +3120,26 @@
       const onTap = `window._v2OpenModal(window._v2PickStash['${_stashId}'], this)`;
 
       if (opts.compact) {
-        // 3-col friendly: stacked, gaudy hierarchy. Player + line dominant.
+        // 2026-06-10 Card v2 redesign — decluttered face: identity + prop + the
+        // per-player number + displayTier badge + LABELED conf/edge. Detail stats
+        // (the why one-liner, signalsTable) live in the popup ONLY.
+        const sportColor = pick.sport === "nba" ? "#F97316" : "#34D399";
+        const edgeColor = Number(pick.edge) >= 0 ? "#34D399" : "#F87171";
+        const capChip = pick.tierCapNote ? ` <span style="font-style:italic;color:#9CA3AF;font-weight:400;">· ${escapeHtml(pick.tierCapNote)}</span>` : "";
         return `
-          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:10px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
+          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:11px 12px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
             <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span>${sportBadge}${starBadge}</span>
-              <span style="color:#6B7280;font-size:11px;">›</span>
+              <span style="font-size:10px;font-weight:600;color:${sportColor};letter-spacing:.5px;">${(pick.sport || "").toUpperCase()}</span>
+              <span style="font-size:9px;font-weight:700;color:#9CA3AF;background:#1F2937;padding:2px 7px;border-radius:9px;">${escapeHtml(tierLabel(tier))}${capChip}${starBadge}</span>
             </div>
-            <div style="font-size:13px;font-weight:700;color:#F9FAFB;margin-top:5px;line-height:1.2;">${escapeHtml(pick.player || "?")}</div>
-            <div style="font-size:11px;color:#D1D5DB;margin-top:4px;line-height:1.3;">${_famNice(pick.statFamily)}</div>
-            <div style="font-size:14px;font-weight:700;color:#F9FAFB;margin-top:2px;line-height:1.2;">${_sideNice(pick.side)} ${pick.line}</div>
+            <div style="font-size:15px;font-weight:800;color:#F9FAFB;margin-top:6px;line-height:1.15;">${escapeHtml(pick.player || "?")}${pick.team ? ` <span style="font-size:11px;font-weight:500;color:#6B7280;">· ${escapeHtml(pick.team)}</span>` : ""}</div>
+            <div style="font-size:15px;font-weight:700;color:#F9FAFB;margin-top:3px;line-height:1.2;">${_sideNice(pick.side)} ${pick.line} <span style="font-size:11px;font-weight:500;color:#9CA3AF;">${_famNice(pick.statFamily)}</span></div>
             ${archetypeChip}
-            ${whyHtml}
-            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;font-family:ui-monospace,monospace;">
-              <span style="font-size:16px;color:${tierC};font-weight:800;">${conf}</span>
-              <span style="font-size:10px;color:#D1D5DB;">${edge}</span>
+            <div style="display:flex;gap:16px;margin-top:9px;align-items:flex-end;">
+              <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">MODEL CONF</div><div style="font-size:15px;color:${tierC};font-weight:800;font-family:ui-monospace,monospace;line-height:1.1;">${conf}</div></div>
+              <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">EDGE vs MKT</div><div style="font-size:13px;color:${edgeColor};font-weight:700;font-family:ui-monospace,monospace;line-height:1.1;">${edge}</div></div>
+              <div style="margin-left:auto;text-align:right;"><div style="font-size:8px;color:#6B7280;">PRICE</div><div style="font-size:11px;color:#D1D5DB;margin-top:2px;">${odds} ${book}</div></div>
             </div>
-            <div style="font-size:10px;color:#D1D5DB;margin-top:4px;text-align:right;">${odds} ${book}</div>
           </div>
         `;
       }
@@ -4501,7 +4534,11 @@
 
     // Periodic "X seconds ago" tick for the header
     setInterval(() => {
-      if (state.lastFetchAt) {
+      // 2026-06-10 Card v2 — "refreshing prices" tick: while the background fetch
+      // runs (cold-start or manual), say so, so a just-painted stale odds is obvious.
+      if (state.fetching) {
+        document.getElementById("lastUpdate").textContent = "⟳ refreshing prices…";
+      } else if (state.lastFetchAt) {
         const secs = Math.round((Date.now() - state.lastFetchAt) / 1000);
         document.getElementById("lastUpdate").textContent =
           secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;

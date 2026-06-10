@@ -38,6 +38,10 @@ const { computeHitRateByTier, isTierFamilyEarned } = require("../pipeline/tracki
 // the board). Display-only: never touches pick selection/edge/tier/odds. Omit-not-fabricate.
 const { assembleMlbPickDisplayBundle } = require("../pipeline/mlb/assembleMlbPickStatBacking")
 
+// 2026-06-10 Card Redesign v2 — per-player "under/over the line in X of Y games" from
+// the player's own game logs (replaces the shared family bucket so Wemby ≠ Vassell).
+const { getPlayerPropHistory } = require("../pipeline/shared/playerPropHistory")
+
 // 2026-06-09 Sharp Plays honesty marker — stamps an additive `calibrationStatus`
 // + Step-1 net-negative flag on the candidate pools the FE Sharp Plays surface
 // renders. Computed from the REAL line-aware dampener condition — NEVER fabricates
@@ -2731,6 +2735,12 @@ router.get("/top-picks", (req, res) => {
           pick.displayTier = _scoreTier || null
         }
       } catch (_) { pick.displayTier = String(pick.tier || pick.modelTier || "").toUpperCase() || null }
+      // 2026-06-10 Card v2 — per-player rate on THIS prop/line (null ⇒ FE falls back to
+      // the labeled type bucket or "not enough games"). Never a type rate as the player.
+      try {
+        const pph = getPlayerPropHistory({ sport: pick.sport, player: pick.player, statFamily: pick.statFamily || pick.propType, side: pick.side, line: pick.line })
+        if (pph) pick.playerPropHistory = pph
+      } catch (_) {}
     }
 
     res.json({
