@@ -4183,3 +4183,32 @@ Operator/Claude-A nod: (1) PART B bucket ladder (recommend ✅); (2) PART A cap 
 
 PROBE_REFS:
 docs/audits/2026-06-09-honest-trust-signals/wave1_cap_and_wonpct_audit.md · archetypeHistoryLookup.js:161 (family fallback) · outcome_snapshots (totalbases 16.3%/2984 family → 58.3%/617 UNDER → 70%/83 UNDER-fav) · buildHitRateByTier.js (canonical cap basis) · tonight tracked_bets ELITE/STRONG by family (totalbases 36, ks 13, outs 7, hits 3, walks 1)
+
+## 2026-06-10 01:35 ET — Claude-A (Cowork)
+
+ACTION: VERIFIED PART B direction (my tracked_bets re-derivation: totalbases OVER 4.7% vs UNDER 27.1% / UNDER+fav 48.8% — same DIRECTION as 4.8's outcome_snapshots 5.4%/58.3%/70%, magnitudes differ by corpus → flagged robust-n need). Acknowledged 4.8's PREMISE_CHECK (cap basis MUST be canonical vig-aware buildHitRateByTier per-family, NOT raw — agreed, the raw looked rosier). Operator NODDED all 3: PART B robust-n guard · PART A STRICT bar (vig-aware edge≥0, n≥30) · demote to PLAYABLE+"under review". TIER ANCHOR: T1 · Wave 1 honest signals · build (GO).
+
+DRAFT_HANDOFF:
+```
+GO — build Wave 1 (operator nodded all 3 decisions). Display-only, picks/edges BYTE-IDENTICAL. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. After fence: confirm /api/ws/version == HEAD.
+
+PART B — pick-specific won-X% (operator: ROBUST-N guard):
+  bucket ladder family+side+oddsBucket → family+side → family(LABEL "broad") → omit. ROBUST-N FLOOR = n>=30 (NOT 10) before showing a specific bucket — Claude-A flagged our two corpora disagree on magnitude (outcome_snapshots UNDER 58% vs tracked_bets 27-49%), so a thin specific bucket could show a rosy small-sample. Rule: only show the specific number at n>=30; else fall back to the broader bucket LABELED broad, or omit. NEVER swap misleading-low for misleading-high-small-sample. Use the canonical archetype corpus consistently. Report final before/after for Langeliers UNDER 2.5 + a pitcher-K + an HR with the n shown.
+
+PART A — cap unearned ELITE/STRONG (operator: STRICT + demote-to-PLAYABLE):
+  basis = CANONICAL vig-aware per-family from buildHitRateByTier (extend it per (sport,tier,family)) — NOT the raw SQL. RULE: keep ELITE/STRONG ONLY if (sport,tier,family) n>=30 AND vig-aware edge >= 0; ELSE stamp displayTier = PLAYABLE + a "tier under review" note (mirror the SB cap copy). BACKEND serializer stamps displayTier (consistent across surfaces). Thin-n families (ks/outs/hits/walks ~24 picks) → relabel certain; totalbases (~36) → judged on its real vig-aware family number (report which way it lands). Report tonight's final relabel count + examples (Langeliers ELITE → ?).
+
+REGRESSION/VERIFY: pick SELECTION/edge/tier-used-for-scoring BYTE-IDENTICAL (displayTier is a NEW display field; the scoring tier untouched); won-X% numbers trace to the corpus + show n; cap traces to canonical vig-aware (no raw); demoted picks still render at PLAYABLE+note; node --check + FE if labels touched + reload. Claude-A screenshot-verifies: Langeliers UNDER shows its real % (not 16%) + thin-n ELITE relabeled to PLAYABLE-under-review. After fence backend==HEAD.
+
+discipline: display-only (scoring untouched); robust-n (no rosy small-sample); cap on canonical vig-aware not raw; omit-not-fabricate; SEPARATE commits; plain backticks, no bang chars, no --no-verify; same-turn log append; PRESERVED untouched.
+
+bettor-visible delta: the card's two lying numbers fixed — won-X% reflects THIS bet kind (robust-n), ELITE only where earned (else PLAYABLE+under-review). The stopgap until R2.
+
+go. build + report tonight's relabel count + the Langeliers before/after, then fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds Wave 1 (per-family vig-aware cap → displayTier stamp; robust-n side/odds bucket for won-X%), display-only byte-identical, separate commits. Claude-A screenshot-verifies (Langeliers real %, thin-n ELITE→PLAYABLE) + backend==HEAD. QUEUED: WAVE 2 card redesign (8 UI pts + "refreshing price" tick) · WAVE 3 R2 · /status sibling cards · opp-K%-into-scoring.
+
+PROBE_REFS:
+archetypeHistoryLookup.js (robust-n side/odds bucket) · buildHitRateByTier.js (per-family vig-aware → cap basis) · backend serializer (displayTier stamp) · my re-derivation totalbases OVER 4.7%/UNDER 27-49% (direction confirms PART B) · operator decisions: robust-n · strict edge≥0 n≥30 · demote PLAYABLE+under-review
