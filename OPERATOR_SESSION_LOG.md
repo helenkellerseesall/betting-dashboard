@@ -4293,3 +4293,29 @@ Operator/Claude-A: review the rendered card mock + the design doc; approve (a) c
 
 PROBE_REFS:
 docs/audits/2026-06-10-card-redesign/card_redesign_v2_phase0.md · index.html (renderV2Card:3043 tier=pick.tier · _v2OpenModal:2998 popup · pill:1241 displayTier done) · nbaPlayerGameLogs.json (Wemby 11/16 vs Vassell 8/16) · mlbBatterGameLogs.json (Langeliers 14/18) · per-player gate PASSES
+
+## 2026-06-10 03:24 ET — Claude-A (Cowork)
+
+ACTION: INDEPENDENTLY VERIFIED the per-player gate from game logs (nbaPlayerGameLogs.players keyed by name, threes in game.stats): Wembanyama threes≤2 = 11/16 (69%) · Vassell 8/16 (50%) — DIFFERENT ✓; Langeliers TB≤2 = 15/19 (~79%, vs 4.8's 14/18 — trivial window diff). Walked operator through the full card field-by-field (face decluttered + per-player number + labeled %s + consistent displayTier badge; popup full-width + under-review note + detail stats). Operator APPROVED ("yes good"). TIER ANCHOR: T1 · card redesign v2 · build (GO).
+
+DRAFT_HANDOFF:
+```
+GO — build Card Redesign v2 PHASE 1 (operator approved the full design + per-player numbers verified real by Claude-A: Wemby 11/16 ≠ Vassell 8/16). Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block. DISPLAY-ONLY — picks/edges/scoring tier BYTE-IDENTICAL. After fence: confirm /api/ws/version == HEAD.
+
+build all 3 per card_redesign_v2_phase0.md:
+  (1) CAP CONSISTENT EVERYWHERE: renderV2Card (border + conf-number color) + popup _v2OpenModal read displayTier FIRST (not pick.tier); popup shows the honest line "model rated <ORIGINAL> — under review (not yet beating the market)" when capped. A capped pick = PLAYABLE/worth-a-look on pill + border + conf-color + popup.
+  (2) PER-PLAYER WON-X%: new module — this player's rate on THIS prop+line from the game logs (nbaPlayerGameLogs / mlbBatter+pitcher gamelogs), keyed by player+family+side+line; count under/over the line ÷ games. Wording "under 2.5 in 11 of his last 16 games · 69%". FALLBACK n<10 → "not enough games yet" OR explicitly-LABELED type bucket (the Wave-1 family+side number) — NEVER type-as-player. Replace the shared archetypeHistory bucket on the card. Wemby≠Vassell is the gate.
+  (3) AESTHETICS: face = readable sport · name BIGGER + team-behind-name · prop BIGGER · the per-player number · displayTier badge · LABELED "79% model confidence" + "+13.8% edge vs market" · detail stats (STARTER/min/opp-K%/L5/park/weather) OFF the face. Popup = FULL card-width · identity + per-player + honest tier line + labeled %s + odds/book + ALL detail stats + line-shop. Cold-start "⟳ refreshing price" tick when background /state lands.
+
+REGRESSION/VERIFY: picks/edges/scoring tier BYTE-IDENTICAL (display-only); Wemby≠Vassell per-player numbers; capped pick PLAYABLE/under-review on EVERY site (pill+border+conf+popup, no stray ELITE); thin-sample player → "not enough games yet"; face decluttered + popup full-width + %s labeled; FE new Function() check; backend node --check if routes touched + reload. Claude-A screenshot-verifies the full new card + Wemby≠Vassell + capped-consistency. After fence: backend==HEAD.
+
+discipline: display-only (scoring untouched); per-player honest fallback (never type-as-player); SEPARATE commits; plain backticks, no bang chars, no --no-verify; same-turn log append; PRESERVED untouched.
+
+go. build + report the per-player module + a Wemby/Vassell/Langeliers sample, then fence.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 builds Card v2 (cap-consistent displayTier everywhere + per-player won-X% from gamelogs + 8 aesthetics), display-only byte-identical, separate commits. Claude-A screenshot-verifies the new card (Wemby≠Vassell · capped consistent · decluttered · full-width popup) + backend==HEAD. QUEUED: WAVE 3 R2 (tier cure) · /status sibling cards · opp-K%-into-scoring · neg-edge-in-list check.
+
+PROBE_REFS:
+card_redesign_v2_phase0.md (approved design) · per-player verified (Wemby 11/16 · Vassell 8/16 · Langeliers 15/19) · index.html renderV2Card:3044 + _v2OpenModal:3002 (displayTier) · nbaPlayerGameLogs/mlbBatterGameLogs/mlbPitcherGameLogs (per-player source)
