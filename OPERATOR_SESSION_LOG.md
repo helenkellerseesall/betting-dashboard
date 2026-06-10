@@ -4135,3 +4135,34 @@ Claude-A: after operator runs the fence (commit→push→reload→version==HEAD)
 
 PROBE_REFS:
 docs/audits/2026-06-09-cold-start/cold_start_fast_first_paint.md · index.html (init render()@4485 + refresh(false)@4486 · renderTopPicks self-fetch /api/ws/top-picks · renderSlips null-guard@3310) · refresh()@4435 (awaited fetchSport before render — the old gate)
+
+## 2026-06-09 22:19 ET — Claude-A (Cowork)
+
+ACTION: Operator tested the loaded Top Picks + gave trust-blocking feedback → "still can't freely bet." Cold-start shipped (ddb8ed4, FE-only render()-before-refresh). Operator confirmed stale-picks concern answered (picks come from hourly tracked_best not the /state refresh; only ODDS lag → background-update + add a "refreshing price" tick). Operator chose ALL of: cap ELITE · fix won-X% · card redesign · R2. Sequenced into 3 waves; WAVE 1 = the two honesty fixes (audit-first). TIER ANCHOR: T1 · honest trust signals (cap ELITE + won-X%) · audit→build.
+
+KEY OPERATOR FINDINGS (real): (1) "won 16% of 2984 similar" on a FAVORITE UNDER 2.5 TB is MISLEADING — archetypeHistory bucket too BROAD (whole total-bases family, dominated by longshot OVERs); needs side+line/odds specificity. (2) ELITE badges NOT capped (only SB was) → showing unearned ELITE on inverted-ladder picks; operator thought "no ELITE until 14d graded". (3) card face duplicates the popup (declutter to face=identity+key#, details→popup only) + label the 79%/68% (=modelProb conf) + 13.8% (=edge) + bigger name/prop + team behind name + popup full-width. (4) cold-start: add "refreshing price" indicator so a stale odds never gets bet.
+
+DRAFT_HANDOFF:
+```
+WAVE 1 — HONEST TRUST SIGNALS (audit-first, the two fixes that make the card's numbers TRUE). Operator can't bet because ELITE badges are unearned + the "won X%" is misleading. Both touch what's bet on → propose the approach + tonight's-pick impact BEFORE building; operator signs off. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+PART A — CAP/RELABEL the high tiers (the unearned ELITE badge):
+  AUDIT: where the display tier/badge is set (FE badge render + backend tier on the pick). The GRADES by-tier truth already exists (buildHitRateByTier — realized hit% vs market by tier×~family). 
+  PROPOSE a DATA-DRIVEN cap: a pick shows ELITE/STRONG ONLY if that tier (×sport, ideally ×family) has EARNED it — sufficient graded n AND realized rate not net-negative/inverted; else RELABEL/demote honestly (mirror the SB cap + the "tiers under review" GRADES copy). NOT a blanket hide — tie it to the real per-tier track record. Report: the exact rule + HOW MANY of tonight's 43 picks it relabels + a few examples (the Langeliers ELITE → what). This is the STOPGAP until R2 (Wave 3) cures the assignment.
+
+PART B — make "won X% of N similar" PICK-SPECIFIC (the misleading number):
+  AUDIT: archetypeHistoryLookup bucketing — the "16% of 2984" is too broad (family-level, mixes OVER longshots + UNDER favorites). 
+  PROPOSE: bucket by family + SIDE (over/under) + line/odds RANGE so a favorite UNDER gets the UNDER-favorite rate, not the family rate. Keep the honest n; omit/soften when n too small. Report: the new bucket key + before/after for 3 picks (Langeliers UNDER 2.5 TB old 16%/2984 → new X%/n; a pitcher-K; an HR).
+
+discipline: AUDIT-FIRST, report both approaches + tonight's-pick impact, STOP for operator nod; data-driven (cap ties to GRADES by-tier truth, won-X% to the real corpus); omit-not-fabricate; no fake-confidence; SEPARATE commits; plain backticks, no bang chars, no --no-verify; after fence verify backend==HEAD.
+
+bettor-visible delta (after nod+build): ELITE only where earned (else honest relabel); the track-record number reflects THIS kind of pick. The two things making the card lie, fixed.
+
+go. PART A + PART B audits + proposed approach + tonight's-pick impact, then STOP for nod.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 audits both, proposes the cap rule + the won-X% bucketing + tonight's-pick impact, STOPS for operator nod. Then builds Wave 1. QUEUED: WAVE 2 card redesign (8 UI points: bigger name/prop · team-behind-name · sport-label readable · declutter face→popup-only details · label 79%=conf/13.8%=edge · popup full-width · "refreshing price" tick) · WAVE 3 R2 (tier-assignment cure) · /status sibling cards · opp-K%-into-scoring.
+
+PROBE_REFS:
+frontend/mobile/index.html:3058-3064 (archetypeChip "won X% of N similar" render) · archetypeHistoryLookup.js (bucketing — too broad) · buildHitRateByTier.js (GRADES by-tier truth → cap basis) · pick.archetypeHistory + pick tier/badge render · operator screenshots (Langeliers ELITE 16%, card clutter)
