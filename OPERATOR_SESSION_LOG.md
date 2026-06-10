@@ -4319,3 +4319,20 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 card_redesign_v2_phase0.md (approved design) · per-player verified (Wemby 11/16 · Vassell 8/16 · Langeliers 15/19) · index.html renderV2Card:3044 + _v2OpenModal:3002 (displayTier) · nbaPlayerGameLogs/mlbBatterGameLogs/mlbPitcherGameLogs (per-player source)
+
+## 2026-06-10 04:05 ET — Claude-B (4.8)
+
+ACTION: BUILT Card Redesign v2 (all 3 + 8 aesthetics). 3 files, display-only, picks/edges/scoring tier BYTE-IDENTICAL. Cap now consistent EVERYWHERE; won-X% PER-PLAYER (Wemby≠Vassell); face decluttered + full-width popup + labeled %s + refreshing tick. Commit+reload fence handed (backend==HEAD after). Doc: docs/audits/2026-06-10-card-redesign/card_redesign_v2_build.md.
+
+SHIP: (commit fence handed to operator)
+  - code: NEW backend/pipeline/shared/playerPropHistory.js (getPlayerPropHistory — per-player under/over the line from nba/mlb gamelogs; n<10 → null) + workstationRoutes.js (attach pick.playerPropHistory in top-picks loop) + frontend/mobile/index.html (renderV2Card border+conf on displayTier · _v2OpenModal popup displayTier + "model rated <ORIG> — under review" note + full-width 520/94vw + detail signalsTable · _renderPerPlayerLine ladder pph→labeled-type→"not enough games" replaces shared chip · decluttered compact face: readable sport, name+team bigger, prop bigger, LABELED conf/edge (edge colored by sign), why-line off face · header "⟳ refreshing prices…" while fetching)
+  - docs: docs/audits/2026-06-10-card-redesign/card_redesign_v2_build.md + this block
+
+AUDIT_OUTCOME (verification this side, RAN):
+  PER-PLAYER GATE (the bug) via the real module: Wemby UNDER 2.5 threes 11/16 (69%) ≠ Vassell 8/16 (50%); Langeliers TB 15/19 (79%); Wemby OVER 5/16 (31%, correct inverse); unknown + Skenes(2 starts) → null → labeled fallback. CAP CONSISTENT: renderV2Card border+conf + popup all derive displayTier; popup under-review note when tierCapNote. BYTE-IDENTICAL: playerPropHistory + displayTier NEW display fields; JSON({tier,edge,modelProb}) identical pre/post; scoring tier untouched. node --check clean (playerPropHistory + workstationRoutes, route loads); FE new Function() clean (3845). PITCHERS: ~2 starts/14d → per-player null → labeled type bucket (honest); longer pitcher window queued.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs fence (commit→push→reload→version==HEAD) + hard-reload /m, screenshot-verify Top Picks: (1) Wemby ≠ Vassell per-player numbers; (2) a capped pick reads PLAYABLE/under-review on pill+border+conf+popup (no stray ELITE); (3) decluttered face + full-width popup + labeled %s; (4) thin-sample → "not enough games yet"; (5) "⟳ refreshing prices" on cold-start; picks/edges unchanged. QUEUED: WAVE 3 R2 (tier cure — badges return earned) · /status sibling cards · opp-K%-into-scoring · neg-edge-in-list check.
+
+PROBE_REFS:
+docs/audits/2026-06-10-card-redesign/card_redesign_v2_build.md · playerPropHistory.js (getPlayerPropHistory) · workstationRoutes.js (attach ~2718) · index.html (renderV2Card:3043 displayTier+decluttered face · _v2OpenModal popup displayTier+under-review+full-width+signalsTable · _renderPerPlayerLine · refreshing tick) · live: Wemby 11/16 ≠ Vassell 8/16
