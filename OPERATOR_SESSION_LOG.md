@@ -4212,3 +4212,22 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 archetypeHistoryLookup.js (robust-n side/odds bucket) · buildHitRateByTier.js (per-family vig-aware → cap basis) · backend serializer (displayTier stamp) · my re-derivation totalbases OVER 4.7%/UNDER 27-49% (direction confirms PART B) · operator decisions: robust-n · strict edge≥0 n≥30 · demote PLAYABLE+under-review
+
+## 2026-06-10 02:30 ET — Claude-B (4.8)
+
+ACTION: BUILT WAVE 1 (both honesty fixes). Display-only, picks/edges/scoring BYTE-IDENTICAL. 4 files. PART B won-X% pick-specific (Langeliers 16%→70%); PART A ELITE cap → all 60 high-tier relabel to PLAYABLE+under-review. Commit+reload fence handed (backend==HEAD after). Doc: docs/audits/2026-06-09-honest-trust-signals/wave1_build_record.md.
+
+SHIP: (commit fence handed to operator — hashes fill after run)
+  - code: buildHitRateByTier.js (extracted _buildGradedPicks shared load+dedup+vig; added getEarnedTierFamilySet/isTierFamilyEarned/describeTierFamily — per-(sport,tier,family) vig-aware earned: n>=30 AND edge>=0, GRADES method) + workstationRoutes.js (top-picks stamps pick.displayTier + tierCapNote when ELITE/STRONG unearned — pick.tier/edge/selection UNTOUCHED; attachArchetypeHistory passes side+oddsAmerican) + archetypeHistoryLookup.js (family+side & family+side+odds SQL buckets; robust-n>=30 ladder famSideOdds→famSide→family[BROAD-labeled]→omit) + frontend/mobile/index.html (badge from displayTier + "tier under review" marker; group byTier on displayTier; chip labels broad fallback)
+  - docs: docs/audits/2026-06-09-honest-trust-signals/wave1_build_record.md + this block
+
+AUDIT_OUTCOME (verification this side, RAN):
+  PART B before/after via the REAL getArchetypeHistoryForPick: Langeliers UNDER 2.5 TB favorite(-150) = "won 70% of 83" [family+side+odds] (WAS 16%/2984); totalbases UNDER no-odds = 58%/617 [family+side]; ks OVER -110 = 18%/381 [family+side] (odds sub-bucket thin → robust-n falls back, no rosy small sample); hr OVER +350 = 10%/388 [family+side]; side-missing = 16%/2984 [family BROAD, labeled]. Robust-n>=30 floor holds.
+  PART A relabel (canonical vig-aware, n>=30 & edge>=0): only earned bucket = PLAYABLE|hr → ALL 60 tonight ELITE/STRONG → PLAYABLE+under-review (24 ELITE + 36 STRONG). totalbases relabels too: STRONG totalbases n=32 vig-aware −11.3pp (raw +5.2 had vig+no-dedup baked in — flagged, used canonical not raw). Langeliers ELITE → PLAYABLE+under-review.
+  BYTE-IDENTICAL: cap stamps ONLY displayTier/tierCapNote; JSON({tier,edge,modelProb}) identical pre/post; top-picks allocation still slices by scoring pick.tier → SAME 50 picks served, only display tier + won-X% bucket changed. node --check clean 3 backend; FE new Function() clean (3808). GRADES parity: computeHitRateByTier still returns live tier numbers post-refactor (_buildGradedPicks extraction didn't change the compute).
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs fence (commit→push→reload→version==HEAD) + hard-reload /m, screenshot-verify on Top Picks: (1) Langeliers UNDER shows ~70% not 16%; (2) thin-n ELITE (and all ELITE/STRONG tonight) show PLAYABLE + "tier under review" badge; (3) picks/edges unchanged (display-only). QUEUED: WAVE 2 card redesign (8 UI pts + refreshing-price tick) · WAVE 3 R2 (assignment cure) · /status sibling cards · opp-K%-into-scoring.
+
+PROBE_REFS:
+docs/audits/2026-06-09-honest-trust-signals/wave1_build_record.md · buildHitRateByTier.js (_buildGradedPicks · getEarnedTierFamilySet/isTierFamilyEarned/describeTierFamily) · archetypeHistoryLookup.js (_keyFamSide/_keyFamSideOdds · robust-n ladder) · workstationRoutes.js (displayTier stamp ~2715 · attachArchetypeHistory side+odds ~2231) · index.html (badge displayTier · chip broad-label) · live: Langeliers 16%→70%, 60/60 relabel
