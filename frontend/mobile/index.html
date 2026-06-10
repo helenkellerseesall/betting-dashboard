@@ -4474,6 +4474,15 @@
     // (cheap), and the refresh button stays a manual one-tap when operator
     // wants fresh data. The header "X ago" makes staleness visible so the
     // operator knows when to tap.
+    //
+    // 2026-06-09 cold-start fix — paint the landing IMMEDIATELY. The default
+    // landing (Top Picks) self-fetches the FAST /api/ws/top-picks inside
+    // renderTopPicks, so a first render() paints in ~1s. The heavy
+    // /api/ws/state fetch (both sports ~835KB + the snapshot auto-refresh
+    // re-pull) then runs in the BACKGROUND via refresh() — it no longer gates
+    // the first paint. Tabs that need /state (SLIPS) already guard null state
+    // and fill in once the background fetch lands.
+    render();
     refresh(false);
 
     // Periodic "X seconds ago" tick for the header
