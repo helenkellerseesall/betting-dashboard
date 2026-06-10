@@ -1236,8 +1236,14 @@
       // on every render() so stale indexes don't carry across switches.
       if (state._renderedIndex) state._renderedIndex[sport + ":" + idx] = c;
 
-      const tier = tierClass(c.confidenceTier || c.tier);
-      const tierTxt = tierLabel(c.confidenceTier || c.tier);
+      // 2026-06-09 Wave 1 — render the badge from the DISPLAY tier (the honest,
+      // earned-or-capped tier from the backend), falling back to the scoring tier.
+      const tier = tierClass(c.displayTier || c.confidenceTier || c.tier);
+      const tierTxt = tierLabel(c.displayTier || c.confidenceTier || c.tier);
+      // honest "tier under review" marker when an ELITE/STRONG was capped to PLAYABLE.
+      const tierCapHtml = c.tierCapNote
+        ? `<span style="font-size:9px;color:#9CA3AF;font-style:italic;margin-left:4px;">${escapeHtml(c.tierCapNote)}</span>`
+        : "";
       const convClass = isConv ? "conviction-card" : "";
       const book = c.sportsbook || c.book || "—";
       const bookCls = bookClass(book);
@@ -1386,7 +1392,7 @@
                 ${c.matchup ? `· ${escapeHtml(c.matchup)}` : ""}
               </div>
             </div>
-            <div class="tier-pill ${tier}">${tierTxt}</div>
+            <div class="tier-pill ${tier}">${tierTxt}</div>${tierCapHtml}
           </div>
 
           <div class="prop-line">
@@ -3058,9 +3064,16 @@
       if (pick.archetypeHistory && pick.archetypeHistory.hitRate != null) {
         const ah = pick.archetypeHistory;
         const hitPct = (ah.hitRate * 100).toFixed(0);  // 0 decimals — bettor-readable
-        const bucketLabel = ah.bucket === "tier" ? "tier-bucket" : "this kind of pick";
+        // 2026-06-09 Wave 1 — the number is now pick-specific (family+side(+odds)).
+        // When it falls back to the family-wide BROAD bucket, say so honestly so the
+        // bettor never reads a mixed-sides rate as "this exact bet".
+        const broad = ah.broad === true || ah.bucket === "family";
+        const bucketLabel = ah.bucket === "tier" ? "tier-bucket"
+                          : broad ? `${escapeHtml(String(pick.statFamily || pick.propType || "this stat"))} props (all sides)`
+                          : "picks like this (same side/odds)";
+        const suffix = broad ? ` <span style="color:#9CA3AF;">(broad — ${escapeHtml(String(pick.statFamily || pick.propType || "family"))}-wide)</span>` : " similar picks";
         const titleAttr = `Across ${ah.n} historical ${bucketLabel} samples, ${hitPct}% won`;
-        archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 won <b>${hitPct}%</b> of ${ah.n} similar picks</div>`;
+        archetypeChip = `<div title="${titleAttr}" style="font-size:9px;color:#7DD3FC;margin-top:3px;line-height:1.2;">📊 won <b>${hitPct}%</b> of ${ah.n}${suffix}</div>`;
       }
 
       // T1 #1 — inline "why" line, TOP PICKS only (opts.showWhy). Same source as the tap-modal
@@ -3151,10 +3164,11 @@
           main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No top picks available for ${d.date}.</div>`;
           return;
         }
-        // Group by tier for visual separation
+        // Group by the DISPLAY tier (Wave 1 — honest earned-or-capped tier) so a
+        // capped ELITE/STRONG sits in the PLAYABLE section, matching its badge.
         const byTier = { ELITE: [], STRONG: [], PLAYABLE: [] };
         for (const p of picks) {
-          const t = String(p.tier || p.modelTier || "").toUpperCase();
+          const t = String(p.displayTier || p.tier || p.modelTier || "").toUpperCase();
           if (byTier[t]) byTier[t].push(p);
         }
         const fellBackBadge = d.fellBack ? `<div style="font-size:11px;color:#FBBF24;background:#1F1A0A;padding:6px 10px;border-radius:6px;border-left:3px solid #FBBF24;margin-bottom:8px;">📅 No slate yet for ${escapeHtml(d.todayKey || d.requestedDate || "today")} — showing last available date <b>${escapeHtml(d.date)}</b></div>` : "";

@@ -34,9 +34,29 @@
 
 const path = require("path")
 
-const MIN_SAMPLE        = 10
+const MIN_SAMPLE        = 10        // floor to show the BROAD (family) bucket
+const ROBUST_SAMPLE     = 30        // 2026-06-09 Wave 1 — floor to show a SPECIFIC
+                                    // (family+side / family+side+odds) bucket. Below
+                                    // this we fall back to the broader bucket LABELED
+                                    // broad, never a rosy small sample.
 const CACHE_TTL_MS      = 5 * 60 * 1000
 const SUPPORTED_SPORTS  = ["nba", "mlb"]
+
+// Odds bucket from a book-implied probability (vig-in). Mirrors the audit ranges.
+// null when implied is missing → the odds rung is skipped (fall back to family+side).
+function _oddsBucketFromImplied(implied) {
+  const p = Number(implied)
+  if (!Number.isFinite(p) || p <= 0 || p >= 1) return null
+  if (p >= 0.55) return "fav"
+  if (p >= 0.45) return "pickem"
+  if (p >= 0.30) return "dog"
+  return "longshot"
+}
+function _impliedFromAmerican(am) {
+  const n = Number(am)
+  if (!Number.isFinite(n) || n === 0) return null
+  return n > 0 ? 100 / (n + 100) : Math.abs(n) / (Math.abs(n) + 100)
+}
 
 let _cache    = null   // Map<"key", {...}>
 let _loadedAt = 0
@@ -54,6 +74,13 @@ function _keyTier(sport, volatility, tier) {
 }
 function _keyFam(sport, family) {
   return `F|${_norm(sport)}|${_normFam(family)}`
+}
+// 2026-06-09 Wave 1 — pick-specific buckets (the "won X%" was family-only = too broad).
+function _keyFamSide(sport, family, side) {
+  return `FS|${_norm(sport)}|${_normFam(family)}|${_norm(side)}`
+}
+function _keyFamSideOdds(sport, family, side, oddsBucket) {
+  return `FSO|${_norm(sport)}|${_normFam(family)}|${_norm(side)}|${_norm(oddsBucket)}`
 }
 
 function _load() {
@@ -131,6 +158,51 @@ function _load() {
             bucket:        "family",
           })
         }
+
+        // (2b) 2026-06-09 Wave 1 — PICK-SPECIFIC buckets so "won X%" reflects THIS
+        // kind of bet (a favorite UNDER is not the OVER-longshot family rate).
+        //   family+side, and family+side+oddsBucket (oddsBucket from implied_prob).
+        // Stored at any n; the LOOKUP applies the robust-n floor (ROBUST_SAMPLE).
+        const ODDS_CASE = `CASE
+            WHEN implied_prob >= 0.55 THEN 'fav'
+            WHEN implied_prob >= 0.45 THEN 'pickem'
+            WHEN implied_prob >= 0.30 THEN 'dog'
+            WHEN implied_prob >  0    THEN 'longshot'
+            ELSE NULL END`
+        const _aggCols = `
+            COUNT(*) AS total,
+            ROUND(1.0*SUM(CASE WHEN hit=1 THEN 1 ELSE 0 END)/NULLIF(SUM(CASE WHEN hit IS NOT NULL THEN 1 ELSE 0 END),0),4) AS hit_rate,
+            ROUND(AVG(model_prob),4) AS avg_model_prob,
+            ROUND(AVG(delta_prob),4) AS avg_delta_prob,
+            ROUND(AVG(edge),4) AS avg_edge`
+        const fsRows = db.prepare(`
+          SELECT stat_family, LOWER(side) AS side, ${_aggCols}
+          FROM outcome_snapshots
+          WHERE sport=? AND hit IS NOT NULL AND stat_family IS NOT NULL AND side IS NOT NULL
+          GROUP BY stat_family, LOWER(side)
+        `).all(sport)
+        for (const r of fsRows || []) {
+          if (!r || !r.side || !Number.isFinite(Number(r.total))) continue
+          map.set(_keyFamSide(sport, r.stat_family, r.side), {
+            n: Number(r.total) || 0, hitRate: Number(r.hit_rate) || null,
+            avgModelProb: Number(r.avg_model_prob) || null, avgDeltaProb: Number(r.avg_delta_prob) || null,
+            avgEdge: Number(r.avg_edge) || null, bucket: "family+side",
+          })
+        }
+        const fsoRows = db.prepare(`
+          SELECT stat_family, LOWER(side) AS side, ${ODDS_CASE} AS odds_bucket, ${_aggCols}
+          FROM outcome_snapshots
+          WHERE sport=? AND hit IS NOT NULL AND stat_family IS NOT NULL AND side IS NOT NULL AND implied_prob > 0
+          GROUP BY stat_family, LOWER(side), odds_bucket
+        `).all(sport)
+        for (const r of fsoRows || []) {
+          if (!r || !r.side || !r.odds_bucket || !Number.isFinite(Number(r.total))) continue
+          map.set(_keyFamSideOdds(sport, r.stat_family, r.side, r.odds_bucket), {
+            n: Number(r.total) || 0, hitRate: Number(r.hit_rate) || null,
+            avgModelProb: Number(r.avg_model_prob) || null, avgDeltaProb: Number(r.avg_delta_prob) || null,
+            avgEdge: Number(r.avg_edge) || null, bucket: "family+side+odds",
+          })
+        }
       }
     } catch (e) {
       _lastError = `family-aggregation-threw: ${e.message}`
@@ -152,17 +224,31 @@ function reload() { _cache = null; _loadedAt = 0 }
  *
  * @returns {object|null}  { n, hitRate, avgModelProb, avgDeltaProb, avgEdge, bucket }
  */
-function getArchetypeHistoryForPick(sport, volatility, tier, statFamily) {
+function getArchetypeHistoryForPick(sport, volatility, tier, statFamily, side, oddsAmerican) {
   const m = _load()
+  // (1) high-signal (volatility, tier) bucket when present + robust.
   if (volatility && tier) {
     const hit = m.get(_keyTier(sport, volatility, tier))
-    if (hit) return hit
+    if (hit && hit.n >= ROBUST_SAMPLE) return hit
   }
+  if (statFamily && side) {
+    // (2) family + side + odds-bucket — the most pick-specific; needs robust n.
+    const ob = _oddsBucketFromImplied(_impliedFromAmerican(oddsAmerican))
+    if (ob) {
+      const hit = m.get(_keyFamSideOdds(sport, statFamily, side, ob))
+      if (hit && hit.n >= ROBUST_SAMPLE) return hit
+    }
+    // (3) family + side — still pick-specific (UNDER ≠ OVER); needs robust n.
+    const hs = m.get(_keyFamSide(sport, statFamily, side))
+    if (hs && hs.n >= ROBUST_SAMPLE) return hs
+  }
+  // (4) family — the BROAD fallback. Labeled broad so the bettor knows it mixes
+  // sides/odds (never a rosy small sample swapped for the misleading-low family).
   if (statFamily) {
     const hit = m.get(_keyFam(sport, statFamily))
-    if (hit) return hit
+    if (hit && hit.n >= MIN_SAMPLE) return { ...hit, broad: true }
   }
-  return null
+  return null   // (5) omit when nothing clears the floor
 }
 
 function getLastError() { return _lastError }

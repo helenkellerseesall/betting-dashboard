@@ -64,8 +64,11 @@ function rawImplied(am) {
  *                  edgePp: number, insufficient: boolean }>
  * }}
  */
-function computeHitRateByTier(sport, opts = {}) {
-  const trackingDir = opts.trackingDir || DEFAULT_TRACKING_DIR
+// Shared graded-pick builder: load + dedup (player|family|side|line|slateDate,
+// book excluded) + fair-implied (PRESERVED vig, raw fallback). Used by BOTH the
+// per-tier GRADES compute and the per-(tier,family) ELITE cap — single method, so
+// the cap basis is exactly the GRADES truth.
+function _buildGradedPicks(sport, trackingDir) {
   let files = []
   try {
     files = fs.readdirSync(trackingDir)
@@ -76,7 +79,6 @@ function computeHitRateByTier(sport, opts = {}) {
   }
   if (!files.length) return null
 
-  // 1) dedup graded (win/loss) rows by canonical key, book excluded.
   const map = new Map()
   let rawSettled = 0
   for (const f of files) {
@@ -103,8 +105,6 @@ function computeHitRateByTier(sport, opts = {}) {
     }
   }
 
-  // 2) collapse to one pick per key. Drop keys with conflicting results
-  //    (same logical pick graded both win and loss across books = ambiguous).
   const picks = []
   let collisions = 0
   for (const [, e] of map) {
@@ -114,7 +114,6 @@ function computeHitRateByTier(sport, opts = {}) {
     picks.push({ player: e.player, fam: e.fam, side: e.side, line: e.line, date: e.date, win: e.results.has("win") ? 1 : 0, medAm: median(e.ams), tier: best })
   }
 
-  // 3) fair-implied via opposite-side recovery (PRESERVED vig), else raw-implied.
   const byKey = new Map(picks.map(p => [[p.player, p.fam, p.side, p.line, p.date].join("|"), p]))
   let vigKnown = 0
   for (const p of picks) {
@@ -132,7 +131,16 @@ function computeHitRateByTier(sport, opts = {}) {
     p.fair = (fair != null) ? fair : rawImplied(p.medAm)
   }
 
-  // 4) aggregate by tier (display order, empty tiers omitted).
+  return { picks, files: files.length, rawSettled, collisions, vigKnown }
+}
+
+function computeHitRateByTier(sport, opts = {}) {
+  const trackingDir = opts.trackingDir || DEFAULT_TRACKING_DIR
+  const built = _buildGradedPicks(sport, trackingDir)
+  if (!built) return null
+  const { picks, files, rawSettled, collisions, vigKnown } = built
+
+  // aggregate by tier (display order, empty tiers omitted).
   const tiers = []
   for (const tier of TIER_ORDER) {
     const cell = picks.filter(p => p.tier === tier)
@@ -153,15 +161,79 @@ function computeHitRateByTier(sport, opts = {}) {
 
   return {
     sport,
-    files: files.length,
+    files,
     rawSettled,
     dedupedPicks: picks.length,
     collisions,
     vigKnown,
     vigPct: picks.length ? Math.round((vigKnown / picks.length) * 1000) / 10 : 0,
-    windowLabel: `${files.length} graded days`,
+    windowLabel: `${files} graded days`,
     tiers,
   }
 }
 
-module.exports = { computeHitRateByTier, MIN_MEANINGFUL_N }
+// ── PART A ELITE cap basis — per-(tier,family) vig-aware earned check ─────────
+// Same canonical method as the GRADES per-tier truth (reuses _buildGradedPicks),
+// but aggregated by tier×family. A (tier,family) is EARNED only when it has
+// n >= minN graded picks AND a vig-aware realized edge >= minEdgePp (operator:
+// strict bar n>=30, edge>=0). Cached per (sport, minN, minEdgePp). Used to cap
+// unearned ELITE/STRONG display badges. Anti-fabrication: edge traces to the
+// graded ledger + PRESERVED vig; no raw-implied shortcut.
+const _earnedCache = new Map()
+const _EARNED_TTL_MS = 5 * 60 * 1000
+
+function getEarnedTierFamilySet(sport, opts = {}) {
+  const minN = Number.isFinite(opts.minN) ? opts.minN : 30
+  const minEdgePp = Number.isFinite(opts.minEdgePp) ? opts.minEdgePp : 0
+  const trackingDir = opts.trackingDir || DEFAULT_TRACKING_DIR
+  const cacheKey = `${sport}|${minN}|${minEdgePp}|${trackingDir}`
+  const cached = _earnedCache.get(cacheKey)
+  if (cached && (Date.now() - cached.at) < _EARNED_TTL_MS) return cached.set
+
+  const earned = new Set()
+  const detail = new Map()
+  const built = _buildGradedPicks(sport, trackingDir)
+  if (built) {
+    const groups = new Map()  // "TIER|family" → picks[]
+    for (const p of built.picks) {
+      const k = `${String(p.tier).toUpperCase()}|${p.fam}`
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k).push(p)
+    }
+    for (const [k, cell] of groups) {
+      const n = cell.length
+      const hit = cell.reduce((a, p) => a + p.win, 0) / n * 100
+      const fairAvg = cell.reduce((a, p) => a + p.fair, 0) / n * 100
+      const edgePp = Math.round((hit - fairAvg) * 10) / 10
+      detail.set(k, { n, edgePp })
+      if (n >= minN && edgePp >= minEdgePp) earned.add(k)
+    }
+  }
+  _earnedCache.set(cacheKey, { at: Date.now(), set: earned, detail })
+  return earned
+}
+
+// True when (sport, tier, family) has EARNED its high-tier badge per the canonical
+// vig-aware track record. ELITE/STRONG only — other tiers are never capped.
+function isTierFamilyEarned(sport, tier, family, opts = {}) {
+  const t = String(tier || "").toUpperCase()
+  if (t !== "ELITE" && t !== "STRONG") return true   // only cap the high tiers
+  const fam = String(family || "").toLowerCase()
+  const set = getEarnedTierFamilySet(sport, opts)
+  return set.has(`${t}|${fam}`)
+}
+
+// Per-(tier,family) detail {n, edgePp, earned} — for the cap's "why" + reports.
+function describeTierFamily(sport, tier, family, opts = {}) {
+  const minN = Number.isFinite(opts.minN) ? opts.minN : 30
+  const minEdgePp = Number.isFinite(opts.minEdgePp) ? opts.minEdgePp : 0
+  const trackingDir = opts.trackingDir || DEFAULT_TRACKING_DIR
+  getEarnedTierFamilySet(sport, { minN, minEdgePp, trackingDir })
+  const cacheKey = `${sport}|${minN}|${minEdgePp}|${trackingDir}`
+  const d = _earnedCache.get(cacheKey)?.detail
+  const k = `${String(tier).toUpperCase()}|${String(family).toLowerCase()}`
+  const hit = d?.get(k) || { n: 0, edgePp: null }
+  return { ...hit, earned: !!d && _earnedCache.get(cacheKey).set.has(k) }
+}
+
+module.exports = { computeHitRateByTier, getEarnedTierFamilySet, isTierFamilyEarned, describeTierFamily, MIN_MEANINGFUL_N }

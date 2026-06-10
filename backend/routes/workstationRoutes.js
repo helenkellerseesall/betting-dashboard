@@ -31,7 +31,7 @@ const { diversifyCandidates } = require("../pipeline/shared/buildCandidateDivers
 // 2026-06-09 T1 #2 — per-tier vig-aware realized hit% over the full graded ledger,
 // the compute behind the GRADES "TRACK RECORD BY TIER" card. Reporting-only (never a
 // calibration input). Reuses PRESERVED vigStripping via buildHitRateByTier.
-const { computeHitRateByTier } = require("../pipeline/tracking/buildHitRateByTier")
+const { computeHitRateByTier, isTierFamilyEarned } = require("../pipeline/tracking/buildHitRateByTier")
 
 // 2026-06-09 prop-specific stat-backing rebuild — assembles a PROP-SPECIFIC displayBundle
 // for EVERY MLB pick at serve time (reaches 100% of picks, not the ~3.6% that line-match
@@ -2228,7 +2228,11 @@ function attachArchetypeHistory(pick) {
   // Phase Archetype-Surfacing-1A.1 — tracked_best response payloads lack
   // volatility/tier (queued #71 wiring gap); family fallback fires on bulk.
   const fam = pick.statFamily || pick.propType
-  const h = getArchetypeHistoryForPick(pick.sport, pick.volatility, pick.tier || pick.modelTier, fam)
+  // 2026-06-09 Wave 1 — pass SIDE + ODDS so "won X%" is pick-specific (a favorite
+  // UNDER gets the UNDER-favorite rate, not the OVER-longshot-dominated family rate).
+  const side = pick.side
+  const oddsAmerican = pick.oddsAmerican ?? pick.odds
+  const h = getArchetypeHistoryForPick(pick.sport, pick.volatility, pick.tier || pick.modelTier, fam, side, oddsAmerican)
   if (h) pick.archetypeHistory = h
 }
 
@@ -2712,6 +2716,21 @@ router.get("/top-picks", (req, res) => {
       if (assembled) pick.displayBundle = assembled
       else if (best?.displayBundle) pick.displayBundle = best.displayBundle
       pick.reasoning = buildReasoning(pick, best)
+      // 2026-06-09 Wave 1 — DISPLAY-ONLY ELITE/STRONG cap. The scoring tier (pick.tier)
+      // is UNTOUCHED; we add a NEW displayTier the FE renders. A pick keeps ELITE/STRONG
+      // ONLY if (sport, tier, family) has EARNED it on the canonical vig-aware track
+      // record (n>=30 AND edge>=0, the GRADES method); else displayTier=PLAYABLE + an
+      // honest "tier under review" note. Stopgap until R2 cures the assignment.
+      try {
+        const _scoreTier = String(pick.tier || pick.modelTier || "").toUpperCase()
+        const _fam = String(pick.statFamily || pick.propType || "").toLowerCase()
+        if ((_scoreTier === "ELITE" || _scoreTier === "STRONG") && !isTierFamilyEarned(pick.sport, _scoreTier, _fam)) {
+          pick.displayTier = "PLAYABLE"
+          pick.tierCapNote = "tier under review"
+        } else {
+          pick.displayTier = _scoreTier || null
+        }
+      } catch (_) { pick.displayTier = String(pick.tier || pick.modelTier || "").toUpperCase() || null }
     }
 
     res.json({
