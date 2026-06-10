@@ -4115,3 +4115,23 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 frontend/mobile/index.html (renderTopPicks:3139 fast /top-picks · render():1431 · init/version-poll:740 · "Loading tonight's edges":696) · workstationRoutes.js /state:635 (heavy + snapshot auto-refresh re-pull) · /api/ws/top-picks:2557 (fast, tracked_best)
+
+## 2026-06-09 22:40 ET — Claude-B (4.8)
+
+ACTION: BUILT cold-start fast-first-paint (PHASE 0 decouple report + PHASE 1 fix). FE-only, ONE edit. Landing now paints Top Picks from the fast /api/ws/top-picks immediately; the heavy /api/ws/state loads in the BACKGROUND. Doc: docs/audits/2026-06-09-cold-start/cold_start_fast_first_paint.md. Commit fence handed (FE-only; reload included only to keep /api/ws/version == HEAD).
+
+PHASE 0 (decouple point): init calls refresh(false); inside refresh the first render() is AWAITED behind `await Promise.all([fetchSport mlb, fetchSport nba])` = the heavy /api/ws/state (~835KB ea + snapshot live-odds re-pull) → the ~45s "Loading tonight's edges". But the landing (Top Picks) self-fetches the FAST /api/ws/top-picks in renderTopPicks and does NOT need /state. Cleanest decouple = call render() BEFORE the backgrounded refresh() at the init site.
+
+SHIP: (commit fence handed to operator)
+  - code: frontend/mobile/index.html — init now `render(); refresh(false);` (render FIRST → Top Picks paints ~1s from /top-picks; refresh backgrounds /state). version-poll + auto-refresh banner untouched.
+  - docs: docs/audits/2026-06-09-cold-start/cold_start_fast_first_paint.md + this block
+
+AUDIT_OUTCOME (verification this side):
+  FE new Function() clean (3794 lines). Init order confirmed render()@4485 before refresh(false)@4486. SAFE for all tabs: SLIPS guards null state (renderSlips: if(!d||!d.aiSlips)continue → empty until background state lands, self-corrects); GAMES (renderGamesAllSports→/api/ws/games) + GRADES self-fetch independent of /state; MY BETS/ANALYZE don't need /state; landing is activeSport "top" so init render() only paints Top Picks. No backend change, no PRESERVED touched.
+  HONEST: /state still ~45s in background → SLIPS opened in the first ~45s shows empty until it lands (self-corrects). After /state resolves refresh() re-renders once (brief Top Picks re-fetch at ~45s — minor, follow-up could suppress). OPTIONAL backend serve-stale-async (handoff's optional) NOT done — not needed for the felt cold-start; queued if SLIPS/state latency matters.
+
+NEXT_EXPECTED_FROM_PEER:
+Claude-A: after operator runs the fence (commit→push→reload→version==HEAD) + hard-reloads /m, screenshot-verify: open /m COLD → Top Picks paints fast (was ~45s); every tab (SLIPS/GAMES/MY BETS/ANALYZE/GRADES) still loads. NOTE: FE-only change is live on browser hard-reload regardless of backend reload; the reload is only to keep /api/ws/version == HEAD (avoid a false STALE-CODE alert). QUEUED: /status sibling-coverage cards · opp-K%-into-scoring (backtested) · MLB-TIER-ASSIGNMENT-FIX (R2) · optional /state serve-stale-async.
+
+PROBE_REFS:
+docs/audits/2026-06-09-cold-start/cold_start_fast_first_paint.md · index.html (init render()@4485 + refresh(false)@4486 · renderTopPicks self-fetch /api/ws/top-picks · renderSlips null-guard@3310) · refresh()@4435 (awaited fetchSport before render — the old gate)
