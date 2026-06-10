@@ -4277,3 +4277,19 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 index.html (tierClass/pill:1189-1242 displayTier · POPUP modal still original tier · card face declutter · popup width) · archetypeHistoryLookup.js (_keyFamSide no playerId → per-player rewrite from gamelogs) · nbaPlayerGameLogs.json + mlb batter/pitcher gamelogs (per-player source) · operator screenshots (Wemby/Vassell 100%/45 identical · popup "ELITE" · clutter)
+
+## 2026-06-10 03:15 ET — Claude-B (4.8)
+
+ACTION: CARD REDESIGN v2 PHASE 0 (audit + DESIGN, read-only, NO build). Cap-consistency render-site map + per-player won-X% feasibility (real Wemby≠Vassell numbers) + the 8-aesthetic card design. Rendered a visual dark-card mock in chat for the operator. STOP for design approval. Doc: docs/audits/2026-06-10-card-redesign/card_redesign_v2_phase0.md.
+
+AUDIT_OUTCOME:
+  (1) CAP HALF-APPLIED — confirmed render sites: pill (renderCard:1241) + grouping (3161) use displayTier ✓; but renderV2Card (index.html:3044, the ACTUAL Top Picks card) sets tier=pick.tier → border-left color (3095/3116) + conf-number color (3106) still ORIGINAL; popup _v2OpenModal (3002) tier=p.tier → "ELITE · conf 79%", no under-review note. FIX (design): renderV2Card + popup read displayTier first; popup shows "model rated ELITE — under review (not yet beating the market)".
+  (2) PER-PLAYER WON-X% — current family+side bucket has NO playerId (Wemby=Vassell=100%/45). PER-PLAYER FEASIBLE + GATE PASSES (real, from gamelogs): Wembanyama threes≤2 in 11/16 (69%) vs Vassell 8/16 (50%) — DIFFERENT; Langeliers TB≤2 in 14/18 (78%); Rooker 13/17 (76%). Sources: nbaPlayerGameLogs.json (125 players ~16g) · mlbBatterGameLogs.json (386, 21d, carries totalBases) · mlbPitcherGameLogs (Ks). Wording "Langeliers: under 2.5 TB in 14 of his last 18 games". FALLBACK n<10 → "not enough games yet" OR labeled type bucket (the Wave-1 family+side number), NEVER type-as-player.
+  (3) 8 AESTHETICS — face = identity (name BIGGER + team behind name + readable sport) + prop BIGGER + per-player number + displayTier badge + LABELED 79%(model conf)/13.8%(edge); detail stats (STARTER/min/opp-K%/L5/park/weather) → POPUP only; popup FULL-WIDTH (was ~320px narrow); cold-start "⟳ refreshing price" tick when background /state lands.
+  DISPLAY-ONLY when built (picks/edges/scoring tier byte-identical).
+
+NEXT_EXPECTED_FROM_PEER:
+Operator/Claude-A: review the rendered card mock + the design doc; approve (a) cap-consistency everywhere, (b) per-player won-X% + "X of Y games" wording + n<10 fallback, (c) decluttered face + full-width popup + labeled %s + refreshing-price tick. On nod → 4.8 builds PHASE 1 (display-only): renderV2Card+popup on displayTier + under-review note; new per-player won-X% module from gamelogs (keyed by player+family+side+line) replacing the shared bucket; the 8 face/popup changes. Claude-A screenshot-verifies Wemby≠Vassell + capped pick consistent + decluttered + backend==HEAD. QUEUED: WAVE 3 R2 · /status sibling cards · opp-K%-into-scoring · neg-edge-in-list check.
+
+PROBE_REFS:
+docs/audits/2026-06-10-card-redesign/card_redesign_v2_phase0.md · index.html (renderV2Card:3043 tier=pick.tier · _v2OpenModal:2998 popup · pill:1241 displayTier done) · nbaPlayerGameLogs.json (Wemby 11/16 vs Vassell 8/16) · mlbBatterGameLogs.json (Langeliers 14/18) · per-player gate PASSES
