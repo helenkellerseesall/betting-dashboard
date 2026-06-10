@@ -4166,3 +4166,20 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 frontend/mobile/index.html:3058-3064 (archetypeChip "won X% of N similar" render) · archetypeHistoryLookup.js (bucketing — too broad) · buildHitRateByTier.js (GRADES by-tier truth → cap basis) · pick.archetypeHistory + pick tier/badge render · operator screenshots (Langeliers ELITE 16%, card clutter)
+
+## 2026-06-09 23:05 ET — Claude-B (4.8)
+
+ACTION: WAVE 1 AUDIT (both honesty fixes) — read-only, NO code. Proposed approach + tonight's-pick impact for PART A (cap unearned ELITE) + PART B (pick-specific won-X%). STOP for operator nod. Doc: docs/audits/2026-06-09-honest-trust-signals/wave1_cap_and_wonpct_audit.md.
+
+AUDIT_OUTCOME:
+  PART B (won-X% — the clearest): archetypeHistoryLookup falls to the FAMILY bucket (line 161, no side/line/odds) because tracked_best picks lack volatility/tier. PROOF (outcome_snapshots, same source): totalbases FAMILY n=2984 hit 16.3% (the card's number) BUT +side UNDER = 617 / 58.3%, UNDER+favorite(implied>=.55) = 83 / ~70%; OVER side = 2367 / 5.4% (the longshots dragging the family down). So Langeliers UNDER 2.5 TB shows the OPPOSITE-bet-kind rate. FIX = bucket ladder: family+side+oddsBucket (n>=10) → family+side → family(label broad/omit) → omit. Before/after: Langeliers 16.3%/2984 → 58.3%/617 → ~70%/83; ks OVER family 20.8%/419 → 17.8%/381 (odds sub-bucket n=0 → fall back, no fabricated rate); hr OVER 10.1%/388 → family+side (implied sparse → fall back). Clean data-driven win.
+  PART A (ELITE cap): badge from c.confidenceTier||c.tier via FE tierClass(index.html:1189)+.tier-pill(516-518); tier stamped by classifier → /api/ws/top-picks. Cleanest cap = BACKEND serializer (stamp capped displayTier, consistent across surfaces, mirrors SB cap). BASIS must be CANONICAL vig-aware (buildHitRateByTier: MLB ELITE −8.4pp/STRONG −8.0pp net-negative) NOT a raw cut — flagged: a raw tier×family cut hints totalbases ELITE/STRONG near-breakeven (raw +2.5/+5.2pp ≈ vig-aware ~0 after ~4-5pp vig), reconciles the aggregate −8.4pp (dragged by OTHER ELITE families). RULE: show ELITE/STRONG only if (sport,tier,family) n>=30 AND canonical vig-aware edge>=0; else demote PLAYABLE + "tier under review". TONIGHT'S IMPACT (60 ELITE/STRONG, preferred books, by family): totalbases ELITE16/STRONG20=36 (sufficient n → judged on real number, borderline); ks 13 + outs 7 + hits 3 + walks 1 = 24 THIN-n → relabel for sure (flying ELITE/STRONG with no graded evidence). So ~24/60 relabel certain; totalbases 36 depends on the build's vig-aware family number. NOT blanket — totalbases gets a fair hearing.
+
+PREMISE_CHECK_NEEDED:
+Claude-A — flag for the operator: the cap basis must be the CANONICAL vig-aware GRADES method (buildHitRateByTier per-family), NOT the raw per-family SQL (which looks ~2-5pp rosier because implied_prob still has vig). I did NOT cap on the raw number. The build computes the per-family vig-aware figure; the bar (edge>=0 or >=−2pp tolerance) + demote-target (PLAYABLE vs no-badge) are the two operator decisions.
+
+NEXT_EXPECTED_FROM_PEER:
+Operator/Claude-A nod: (1) PART B bucket ladder (recommend ✅); (2) PART A cap rule + the bar (edge>=0 vs >=−2pp) + demote target (PLAYABLE vs strip-badge). Then 4.8 builds Wave 1 (extend buildHitRateByTier per-family for the cap + backend displayTier stamp; new bucket ladder in archetypeHistoryLookup + the per-pick side/odds passed in), regression-gated (picks/edges byte-identical — display-only), Claude-A screenshot-verifies. QUEUED: WAVE 2 card redesign (8 UI pts) · WAVE 3 R2 (the assignment cure) · /status sibling cards · opp-K%-into-scoring.
+
+PROBE_REFS:
+docs/audits/2026-06-09-honest-trust-signals/wave1_cap_and_wonpct_audit.md · archetypeHistoryLookup.js:161 (family fallback) · outcome_snapshots (totalbases 16.3%/2984 family → 58.3%/617 UNDER → 70%/83 UNDER-fav) · buildHitRateByTier.js (canonical cap basis) · tonight tracked_bets ELITE/STRONG by family (totalbases 36, ks 13, outs 7, hits 3, walks 1)
