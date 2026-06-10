@@ -4248,3 +4248,32 @@ No 4.8 action pending (Wave 1 shipped+verified). QUEUE: WAVE 2 card redesign (8 
 
 PROBE_REFS:
 live FE Top Picks (Langeliers 70%/83 · 0 top tier/0 strong/28 worth-a-look · side-specific won-X%) · 4db578d (Wave 1) · /api/ws/version 354d8d9==HEAD
+
+## 2026-06-10 02:46 ET — Claude-A (Cowork)
+
+ACTION: Operator post-Wave-1 feedback (2 real bugs + aesthetics). CONFIRMED IN CODE: (1) CAP HALF-APPLIED — card pill+grouping use displayTier (index.html:1241) but POPUP modal + BORDER still show original tier → Wemby popup "ELITE · conf 79%" while header says 0 ELITE; popup has no under-review note. (2) WON-X% IS A SHARED BUCKET not per-player — archetypeHistoryLookup keys _keyFamSide/_keyFamSideOdds (NO playerId) → Wemby & Vassell both NBA-threes-under = identical 100%/45 (reads like each player's own rate, isn't). (3) aesthetics untouched (Wave 2). Per-player feasibility GOOD both sports (nbaPlayerGameLogs.json + mlb batter/pitcher gamelogs exist). Operator chose ONE COMPLETE card-redesign pass, show-before-edit. TIER ANCHOR: T1 · card redesign v2 · design→build.
+
+DRAFT_HANDOFF:
+```
+CARD REDESIGN v2 — ONE complete pass fixing all 3 (operator approved, SHOW-BEFORE-EDIT mandatory). Wave 1 made the numbers honest but left the cap inconsistent + the won-X% generic. Read CLAUDE_BRIDGE_PROTOCOL.md, append Claude-B block.
+
+PHASE 0 (audit + DESIGN, REPORT before any build — operator approves the card first):
+  (1) CAP CONSISTENCY: find ALL tier render sites — border/tierClass, the pill (index.html:1241 already displayTier), AND the POPUP modal (still shows original "ELITE · conf 79%"). Make EVERY site use displayTier. Popup: show the HONEST transparent note "model rated ELITE — under review (not yet beating the market)" instead of a bare ELITE. So a capped pick reads PLAYABLE/under-review EVERYWHERE (pill, border color, popup).
+  (2) PER-PLAYER WON-X%: replace the shared family+side bucket with THIS PLAYER's own rate on THIS line, from his game log (nbaPlayerGameLogs.json / mlb batter+pitcher gamelogs — e.g. Wemby: # games ≤2 threes / N; Langeliers: # games ≤2 TB / N). Reframe the wording to be clearly per-player (e.g. "Wemby: under 2.5 in 18 of 22 games"). HONEST FALLBACK (omit-not-fabricate): thin player sample (n<~10) → say "not enough games yet" OR a CLEARLY-LABELED type bucket ("picks like this: X%"), NEVER show a type rate as if it's the player. The gate: Wemby and Vassell must show DIFFERENT numbers.
+  (3) AESTHETIC REDESIGN (the 8 pts): sport label readable · name BIGGER · team behind name (SAS/NYK) · prop BIGGER · LABEL the 79% (= model confidence) + the 13.8% (= edge vs market) so they're not bare numbers · DECLUTTER the card face — the detail stats (STARTER/33+min/opp-lineup/L5 line) move to the POPUP ONLY, face shows identity + prop + the per-player number + tier + the two labeled %s · POPUP full-width (= card width, not narrower) · cold-start "refreshing price" tick when the background /state lands.
+  SHOW: the proposed new card mock + a REAL sample set — Wemby vs Vassell now DIFFERENT per-player numbers, a capped pick reading PLAYABLE/under-review consistently, the decluttered face + full-width popup. STOP for operator approval.
+
+PHASE 1 (build, after operator approves the design): implement all 3. DISPLAY-ONLY — picks/edges/scoring tier BYTE-IDENTICAL (displayTier + per-player number + layout only). 
+
+REGRESSION/VERIFY: Wemby≠Vassell per-player numbers; capped pick = PLAYABLE/under-review on pill+border+popup (no stray "ELITE"); face decluttered + popup full-width + %s labeled; picks/edges unchanged; FE new Function(); backend node --check if routes touched + reload; Claude-A screenshot-verifies the full new card. After fence: backend==HEAD.
+
+discipline: SHOW-BEFORE-EDIT the design + real samples FIRST (operator gates); per-player honest fallback (thin → "not enough games", never a type-rate-as-player); display-only; SEPARATE commits; plain backticks, no bang chars, no --no-verify; same-turn log append; PRESERVED untouched.
+
+go. PHASE 0: the card design + real Wemby-vs-Vassell sample + cap-consistency + per-player feasibility, then STOP for nod.
+```
+
+NEXT_EXPECTED_FROM_PEER:
+4.8 designs the full new card (cap-consistent + per-player won-X% + the 8 aesthetics) + shows it with real samples (Wemby≠Vassell), STOPS for operator nod. Then builds, display-only. Claude-A screenshot-verifies + backend==HEAD. QUEUED after: WAVE 3 R2 (tier cure) · /status sibling cards · opp-K%-into-scoring · neg-edge-in-list display check.
+
+PROBE_REFS:
+index.html (tierClass/pill:1189-1242 displayTier · POPUP modal still original tier · card face declutter · popup width) · archetypeHistoryLookup.js (_keyFamSide no playerId → per-player rewrite from gamelogs) · nbaPlayerGameLogs.json + mlb batter/pitcher gamelogs (per-player source) · operator screenshots (Wemby/Vassell 100%/45 identical · popup "ELITE" · clutter)
