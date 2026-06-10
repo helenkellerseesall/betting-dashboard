@@ -4231,3 +4231,20 @@ Claude-A: after operator runs fence (commit→push→reload→version==HEAD) + h
 
 PROBE_REFS:
 docs/audits/2026-06-09-honest-trust-signals/wave1_build_record.md · buildHitRateByTier.js (_buildGradedPicks · getEarnedTierFamilySet/isTierFamilyEarned/describeTierFamily) · archetypeHistoryLookup.js (_keyFamSide/_keyFamSideOdds · robust-n ladder) · workstationRoutes.js (displayTier stamp ~2715 · attachArchetypeHistory side+odds ~2231) · index.html (badge displayTier · chip broad-label) · live: Langeliers 16%→70%, 60/60 relabel
+
+## 2026-06-10 02:35 ET — Claude-A (Cowork) — WAVE 1 VERIFIED ON-SCREEN
+
+ACTION: On-screen verify of Wave 1 (4db578d + 354d8d9). Backend /api/ws/version = 354d8d9 (==HEAD) bootAt 06:03:58Z = 02:03 ET → current (discipline check PASS). TIER ANCHOR: T1 · honest signals · VERIFIED = SHIPPED.
+
+VERIFIED LIVE (edge.motel666.com/m Top Picks):
+- WON-X% PICK-SPECIFIC ✅: Shea Langeliers UNDER 2.5 TB "won 70% of 83 similar" (WAS 16%/2984). Side/odds-honest across slate: UNDER-favorites 46-70% (Rooker 46%, Frelick 70%, Contreras RBI 59%), OVER longshots 6-18% (Hamilton hits 6%/2346, Messick Ks 18%/381). Robust-n fallback working (thin odds-bucket → family+side, no rosy small-sample). NBA unchanged (Wemby 100%/45).
+- ELITE CAP ✅: header "28 picks · 0 top tier · 0 strong · 28 worth a look". ALL 60 ELITE/STRONG → PLAYABLE (worth-a-look) — by strict vig-aware (n≥30, edge≥0) NOTHING currently earns a top badge (inverted ladder, all tiers net-negative). HONEST consequence of operator's strict choice.
+- Picks BYTE-IDENTICAL (display-only): same picks/edges/odds, only displayTier + won-X% changed.
+
+OPERATOR-FACING NUANCE (flag): the strict bar removed ALL tiering tonight (every pick "worth a look") — honest but the badge no longer differentiates. Differentiation now = the real won-X% + edge + stats, NOT a lying badge. Badges return as R2 (Wave 3) + grading EARN them. Operator can loosen the bar (−2pp tolerance) if they want some tiering back, but strict = the honest floor.
+
+NEXT_EXPECTED_FROM_PEER:
+No 4.8 action pending (Wave 1 shipped+verified). QUEUE: WAVE 2 card redesign (8 UI pts + refreshing-price tick) · WAVE 3 R2 (tier-assignment cure — lets badges return earned) · /status sibling cards · opp-K%-into-scoring. Minor obs (not Wave 1): a few picks show slightly-negative post-dampener edge in the list (Kornet −1.9, Keldon Pra −9.3) yet 54 removed for neg-edge — possible display threshold inconsistency, queue to check.
+
+PROBE_REFS:
+live FE Top Picks (Langeliers 70%/83 · 0 top tier/0 strong/28 worth-a-look · side-specific won-X%) · 4db578d (Wave 1) · /api/ws/version 354d8d9==HEAD
