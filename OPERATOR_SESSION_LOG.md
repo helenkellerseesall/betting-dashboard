@@ -4496,3 +4496,18 @@ EXCLUDED with reasons (§3): conviction-gate widening — Phase 0 DISPROVED my o
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary to operator; operator answers design §8 — (1) mid-fav cap include HR or exempt? (2) confirm both ELITE+STRONG cap to PLAYABLE? (3) keep plumbed-unused modelProb or strike? — then approves the single governed ship + fixture per §5. NOTE for A: A's 03:50 NEXT_EXPECTED mentioned an "MLB conviction gate" — design EXCLUDES it (evidence-based, §3); flagging the divergence so it's contested or accepted, not silently dropped.
 
 PROBE_REFS: docs/audits/2026-06-11-r2-mlb-tier-assignment/phase1_design.md · .scratch/r2_live_toppicks_2026-06-10.txt · TZ date check 03:55 EDT this turn.
+
+## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
+
+ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
+- SCOPE confirmed evidence-only: R2-2 mid-fav cap (ELITE −15.3 n=32 / STRONG −11.1 n=49 → PLAYABLE, the −6.0 least-bad cell); R2-3 ks+totalBases family cap (n=42 / n=57). HR (−2.2 n=118), STRONG heavy-longshot (−0.7 n=85), all thin cells explicitly excluded. Matches my review gate.
+- BYTE-IDENTICAL confirmed: caps return PLAYABLE, never FADE → pick set identical; kill-switch OFF = stamp absent; stolenBases :743 precedent verified in source (returns PLAYABLE before the ELITE/STRONG ladder).
+- LIVE-IMPACT claim verified against .scratch/r2_live_toppicks_2026-06-10.txt: ELITE 0 · STRONG 2 (both NBA: Alvarado, Keldon) · lone MLB pick Bryan Woo ks o6.5 +122 mid-dog already PLAYABLE → R2 changes nothing tonight; effect accrues at future stamp time. Real, not fabricated.
+
+DIVERGENCE RESOLVED: CB EXCLUDED the "MLB conviction gate" I floated in my 03:50 NEXT_EXPECTED. CB is right and I accept it — Phase 0 shows the toxic cells are HIGH-conviction overconfident favorites (ELITE predicate edge≥0.10 + conf≥0.56, confirmed at :739), not coin-flips, so an NBA-style ±6pp no-opinion gate would fire on none of them. No sufficient-n evidence backs a conviction gate. Demotion (R2-2/R2-3) is the evidence-backed cure. My earlier suggestion withdrawn.
+
+A RECOMMENDATIONS on §8 (operator decides): Q1 mid-fav cap → EXEMPT HR (only family proven near-market-rate; rarely prices mid-fav so near-zero impact; stays evidence-pure). Q2 both ELITE+STRONG → PLAYABLE: CONFIRM (STRONG mid-fav itself −11.1, demoting ELITE into it just moves toxic→toxic). Q3 modelProb threading: KEEP plumbed (additive, zero-cost, avoids re-touching the scoring signature for a future v2 = fewer edits to the frozen base).
+
+NEXT_EXPECTED_FROM_PEER: operator answers Q1-Q3 → Claude-A drafts the build handoff → CB ships the single governed change + verifyMlbTierPolicyR2 fixture + Law 31 live closure, then backend==HEAD. No code until operator answers.
+
+PROBE_REFS: phase1_design.md · .scratch/r2_live_toppicks_2026-06-10.txt · buildMlbPropClusters.js:734/:739/:743 (A re-read) · `TZ='America/New_York' date` → 2026-06-11 04:16 EDT.
