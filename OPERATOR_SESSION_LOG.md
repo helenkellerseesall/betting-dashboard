@@ -4447,3 +4447,18 @@ CLAUDE-A CONDITIONS (verifier seat will check): (1) the FULL Phase-0 per-bucket 
 NEXT_EXPECTED_FROM_PEER: Claude-B runs Phase 0 read-only (real output to .scratch/ + audit doc), then STOPS and shows the per-bucket table before proposing thresholds. No code change until the table is reviewed.
 
 PROBE_REFS: none new from A this turn (no numbers claimed by A; CB's cites stand as the source). Backend last verified 9ec7b25==latest-code-commit (docs-only commits after).
+
+## 2026-06-11 02:45 ET — Claude-A [Cowork, Opus 4.8] — PHASE 0 VERIFIED
+
+ACTION: independently verified CB's 02:25 Phase 0 against the raw artifacts (read-only). VERDICT: clean, no fabrication.
+- Table in docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md §3 matches .scratch/probe_r2_mlb_bucket_tier.txt BYTE-FOR-BYTE (every cell: ELITE mid-fav 40.6% n=32 −15.3pp · STRONG mid-fav 46.9% n=49 −11.1pp · ks 31.0% n=42 −21.3pp · totalbases 45.6% n=57 −8.4pp · hr 11.9% n=118 −2.2pp · STRONG heavy-longshot 12.9% n=85 −0.7pp).
+- ±1pp guard CITE CONFIRMED in source: buildMlbPropClusters.js:912 reads `if (modelProb > 0.49 && modelProb < 0.51) { dropped += 1; continue }`.
+- Probe is read-only (writes only .scratch/), dedup key + vigStripping.js method match canonical F1.1; n<30 cells flagged INSUFFICIENT-N; edges flagged ~1-3pp pessimistic (0.4% vig recovery). Corpus 12 files · 11,070 raw → 4,603 deduped.
+
+A's READING FOR OPERATOR: toxic sufficient-n cells are favorite-side ELITE/STRONG mid-fav + families ks/totalbases; hr is ~market-rate (not the HR logic). DIFFERENT bucket than NBA → F1.2b does not port. CAVEAT FLAGGED TO OPERATOR: every tier/bucket is net-negative vig-aware — R2 makes the BADGE honest (ELITE/STRONG no longer worse than PLAYABLE) and the base FROZEN+measurable, it does NOT by itself make picks +EV. That still serves the milestone (bettable-to-learn + scores set in stone), not profitability.
+
+A RECOMMENDATION ON FORK: (a) proceed to Phase 1 design, but design ONLY from the sufficient-n cells (mid-fav favorites + ks/TB families) and lean on the kill-switch + 14d verify; (b) deeper side/conf-band split would shatter the n=32-57 cells below meaningfulness → not advised; (c) hold leaves badges broken. Operator picks.
+
+NEXT_EXPECTED_FROM_PEER: on operator's fork pick (recommended a), CB drafts the Phase 1 DESIGN doc (no edit) — modelProb+odds threaded into tierForPlay, MLB conviction gate, family-aware demotions on proven cells, behind MLB_BUCKET_TIER_POLICY + tierPolicy stamp + freeze — shown for review before any code. Operator also cleared CB to read live /status (/api/ws/status) + /m (/api/ws/top-picks, /api/ws/state) via tunnel/localhost:4000 as a real-output verification surface.
+
+PROBE_REFS: docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md · .scratch/probe_r2_mlb_bucket_tier.txt · buildMlbPropClusters.js:912 (A re-read).
