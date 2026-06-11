@@ -49,9 +49,11 @@ Live read 2026-06-11 ~02:4x ET, `GET edge.motel666.com/api/ws/top-picks?sport=ml
 
 1. NEW fixture `backend/scripts/verifyMlbTierPolicyR2.js`: (a) OFF ⇒ byte-identical tier outputs across a golden matrix (families × buckets × edge/ev/conf grids, incl. stolenBases + HR paths); (b) ON ⇒ caps fire ONLY on mid-fav or ks/totalBases; (c) unknown-bucket no-op (Trap-1); (d) stamp present iff ON; (e) caps never emit FADE (no admission change).
 2. `npm run runtime:verify` full regression matrix green; `node --check` on touched files.
-3. Live closure per Law 31: production server regenerates today's `mlb_tracked_best_<date>.json` through the mutated write path with `tierPolicy` populated — non-zero probe output, no probe-only closure.
-4. backend==HEAD via `/api/ws/version` after ship.
-5. ~14d later: re-run `.scratch/probe_r2_mlb_bucket_tier.js` filtered to `tierPolicy === "mlb-r2-v1"` rows — clean post-R2 read, no legacy pollution.
+3. Live closure per Law 31: production server regenerates today's **`mlb_tracked_bets_<date>.json`** through the mutated write path with `tierPolicy` populated — non-zero probe output, no probe-only closure.
+   **[CORRECTED 2026-06-11 post-ship, operator-confirmed]** — this section originally named `mlb_tracked_best_<date>.json` as the closure target. WRONG FILE: tracked_best is a display subset fed by the phase3 lane (`buildMlbBestProps` → best-available serializer) which never carries `tier` (measured 0/113 non-null on 06-11, 0/195 on 06-10 — pre-existing #71-MLB dead wire, filed separately). The stamp's working path is `buildMlbBestBetsBoard → tierForPlay/makePlay → leanBet → mlb_tracked_bets` (the graded ledger — which is also the file the 14d verify reads, so the verification loop is self-consistent). Closure achieved 2026-06-11: backend 78dfd27 live 16:36:52 ET; tracked_bets fully stamped (1,652/1,652 at 16:37 ET probe; operator's later probe 1,733/1,733), 0 cap violations, operator-observed live example: Ohtani totalBases → PLAYABLE.
+4. backend==HEAD via `/api/ws/version` after ship (use a cache-buster query param — the bare URL can serve a stale cached doc through the tunnel).
+5. ~14d later: re-run `.scratch/probe_r2_mlb_bucket_tier.js` filtered to `tierPolicy === "mlb-r2-v1"` **AND `openObservedAt >= "2026-06-11T20:36:52Z"`** (ship boot moment).
+   **[AMENDED 2026-06-11 post-ship, operator-directed]** — the first post-ship regen re-stamped the entire rolling CLV window (historical re-observed picks included), so the stamp alone does not isolate post-ship picks. The timestamp conjunct gives the clean forward-only read. The re-stamped historical window is usable separately as an immediate re-tiered backtest (bonus read, label it as such — never blend it into the forward verify).
 
 ## 6. Scoring freeze (operator milestone)
 

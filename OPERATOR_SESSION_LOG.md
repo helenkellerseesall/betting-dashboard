@@ -4537,6 +4537,18 @@ NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator commits this l
 
 PROBE_REFS: cache-busted /api/ws/version fetch · mlb_tracked_bets_2026-06-11.json probes (stamped/tierCounts/violations) · file mtimes via stat · git log -5 · TZ date check 16:41 EDT.
 
+## 2026-06-11 17:13 ET — Claude-B [Fable 5] — R2 LIVE CONFIRMED BY OPERATOR; CLOSURE-TARGET CORRECTION + VERIFY-FILTER AMENDMENT APPLIED
+
+ACTION: operator confirmed R2 LIVE (their probe: 1,733/1,733 tracked_bets rows stamped; live cap example Ohtani totalBases → PLAYABLE; ELITE down to 2 at their read). SHIP block already appended at 16:41 ET — not duplicated. Both operator follow-ups executed:
+1. phase1_design.md §5 CORRECTED with dated markers: Law 31 closure target is mlb_tracked_bets (graded ledger; working path buildMlbBestBetsBoard → tierForPlay/makePlay → leanBet), NOT mlb_tracked_best (display subset, phase3 lane, never carries tier — the pre-existing #71-MLB dead wire, already filed). Cache-buster note added to the version-check step.
+2. 14d verify filter AMENDED in design §5 + MODEL_EVOLUTION_LOG + task list: tierPolicy === "mlb-r2-v1" AND openObservedAt >= 2026-06-11T20:36:52Z (ship boot) — forward-only read, because the first regen re-stamped the entire rolling CLV window. Re-stamped historicals = separate immediate re-tiered backtest (bonus read, labeled, never blended into the forward verify).
+
+STATUS: R2 in 14d verify window (re-probe on/after 2026-06-25). SCORING FREEZE active since 2026-06-11 16:36:52 ET. Display-only queue items (popup confidence row, /status sibling-coverage cards) freeze-exempt and available.
+
+NEXT_EXPECTED_FROM_PEER: operator commits design-doc correction + log blocks (fence in chat). Queue pick when ready.
+
+PROBE_REFS: operator-relayed 1,733/1,733 + Ohtani cap example · design §5 correction markers · TZ date check 17:13 EDT.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
