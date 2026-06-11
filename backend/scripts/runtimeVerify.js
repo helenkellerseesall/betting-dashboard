@@ -51,6 +51,7 @@ const SUITES = [
   "verifyResponseAuthority",
   "verifySnapshotFreshness",
   "verifySlateGamesControl",   // Phase Status-CLV-Display-Honesty-1A — /status never lies "no games" while games happened
+  "verifyMlbTierPolicyR2",     // R2 mlb-r2-v1 (2026-06-11) — badge caps + kill-switch byte-identity + tierPolicy stamp
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
