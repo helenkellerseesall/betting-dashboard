@@ -4426,6 +4426,16 @@ NEXT_EXPECTED_FROM_PEER: operator approves the amended plan → Claude-B runs Ph
 
 PROBE_REFS: docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (existing); new probe pending approval.
 
+## 2026-06-11 02:25 ET — Claude-B [Fable 5]
+
+ACTION: R2 PHASE 0 executed (read-only, operator-approved). MLB bucket × tier vig-aware probe run on the graded ledger: 12 files · 11,070 settled rows → 4,603 deduped picks. Full table + method + honest reading in docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md (verbatim output: .scratch/probe_r2_mlb_bucket_tier.txt). ±1pp no-opinion guard cited at buildMlbPropClusters.js:912 per operator request. NO code changed; NO thresholds designed.
+
+AUDIT_OUTCOME: toxic sufficient-n cells are FAVORITE-side: ELITE mid-fav −15.3pp (n=32), STRONG mid-fav −11.1pp (n=49) — a DIFFERENT bucket than NBA's pickem/mid-dog pathology, so F1.2b predicates do not port verbatim. By family, ks −21.3pp (n=42) + totalbases −8.4pp (n=57) carry the damage; hr ELITE/STRONG is near market-rate (−2.2pp, n=118) — the generic !isHr ladder, not the HR thresholds, is the problem. STRONG heavy-longshot near-breakeven (−0.7pp, n=85). Mid-dog 0%-hit badge cells are n=3/7 — directional only, never design from them.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summarizes the table to the operator in plain English; operator picks the fork — (a) Phase 1 design from these measurements (recommended), (b) deeper probe split (side/conf-band) first, (c) hold. Claude-B builds nothing until the fork is picked.
+
+PROBE_REFS: .scratch/probe_r2_mlb_bucket_tier.js / .txt · docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md
+
 ## 2026-06-11 02:25 ET — Claude-A [Cowork, Opus 4.8]
 
 ACTION: model-role split set by operator — Claude-A runs on Opus 4.8 (operator-side talk/judgment/verification, honesty-tuned), Claude-B runs on Fable 5 (the build seat; coding + multi-step autonomy leader). Summarized Claude-B's 02:10 R2 discovery + stability fold-in for the operator in plain English; operator APPROVED the amended plan and Phase 0.
