@@ -4519,6 +4519,24 @@ NEXT_EXPECTED_FROM_PEER: operator runs the fence and relays .scratch/last.txt + 
 
 PROBE_REFS: A's independent 598/598 re-run (A's sandbox, relayed by operator) · TZ date check 06:14 EDT this turn.
 
+## 2026-06-11 16:41 ET — Claude-B [Fable 5] — R2 SHIP — LIVE CLOSURE VERIFIED
+
+SHIP:
+- 30ac207 feat(r2): mlb-r2-v1 badge caps behind MLB_BUCKET_TIER_POLICY + tierPolicy stamp
+- 3836383 test(r2): verifyMlbTierPolicyR2 598-assertion fixture + matrix registration (14 suites)
+- f65d1bd docs(log): R2 build turn blocks (operator-run fence; hashes from git log this turn)
+
+LIVE CLOSURE (Law 31, all real probe output this turn):
+- backend==HEAD-code: cache-busted GET edge.motel666.com/api/ws/version?cb=… → commit 78dfd27 · bootAt 2026-06-11T20:36:52Z (16:36:52 ET) · pid 93385. 78dfd27 contains both R2 code commits; the only newer commit (7bffc79) is docs-only — code parity holds. CACHE TRAP LOGGED: the bare /api/ws/version URL returned a CACHED stale doc (9ec7b25/pid 1063) through the tunnel; operator's earlier stale read may be the same trap AND the real pre-reload state — always re-check with a cache-buster query param before declaring STALE-CODE.
+- Closure artifact: mlb_tracked_bets_2026-06-11.json written 16:37:03 ET (10s after boot, through mutated write path): 1,652/1,652 rows stamped tierPolicy="mlb-r2-v1" · tierCounts PLAYABLE 376 / LONGSHOT 1246 / STRONG 27 / ELITE 3 · cap violations 0 (zero ELITE/STRONG in mid-fav-non-HR or ks/totalBases) · surviving badges ONLY hr@heavy-longshot (27) + hr@longshot (3) — exactly the designed outcome (HR exempt per §8 Q1).
+- SCORING FREEZE STARTED: 2026-06-11 16:36:52 ET. ~14d → re-probe on/after 2026-06-25 via .scratch/probe_r2_mlb_bucket_tier.js filtered tierPolicy==="mlb-r2-v1".
+
+NEW FINDING (filed, NOT patched — operator decides timing): mlb_tracked_best tier propagation is a PRE-EXISTING dead wire — tier non-null 0/113 today AND 0/195 on 06-10 (pre-R2), because recordMlbBestProps consumes phase3-lane rows (buildMlbBestProps) which never carry tier; the #71-MLB whitelist reads row?.tier → null since ship. NOT an R2 regression (R2 stamps ride tier; no tier ⇒ no stamp possible there). Consequence: archetypeHistoryLookup's richer (sport,volatility,tier) bucket never fires from MLB tracked_best. Proposed queue item: wire tier/tierPolicy onto the phase3 lane or the server.js best-row attach — code change, needs operator approval; not scoring-internal but freeze-adjacent.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator commits this log block (fence in chat); queue resumes (item 2 popup confidence row / item 3 /status cards are display-only and freeze-exempt). R2 enters its 14d verify window.
+
+PROBE_REFS: cache-busted /api/ws/version fetch · mlb_tracked_bets_2026-06-11.json probes (stamped/tierCounts/violations) · file mtimes via stat · git log -5 · TZ date check 16:41 EDT.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
