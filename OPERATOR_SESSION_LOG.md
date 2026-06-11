@@ -4597,3 +4597,16 @@ ACTION: operator ran the diagnostic + `launchctl kickstart -k` fence; A read .sc
 NEXT_EXPECTED_FROM_PEER: operator re-runs slate:mlb → expect stamps>0 on the local file (true Law 31 closure); then A checks whether the tunnel DATA surfaces (/m, /status) are also cache-stale for the operator's viewing. R2 is live locally; scoring freeze begins once a fresh regen confirms stamps>0.
 
 PROBE_REFS: .scratch/last.txt (kickstart diag) · local 06fd53f pid 93992 · tunnel 9ec7b25 pid 1063 (cached, dead) · stamps 0/113 · HEAD 06fd53f · `TZ='America/New_York' date` → 2026-06-11 16:49 EDT.
+
+## 2026-06-11 16:59 ET — Claude-A [Cowork, Opus 4.8] — R2 LIVE + VERIFIED (wrong-file confusion resolved)
+
+ACTION: traced the 0-stamps. ROOT CAUSE was a VERIFICATION-TARGET error (mine + the design doc's), NOT a broken ship. R2 IS live and working.
+- WRONG FILE: I (and phase1_design §5) checked `mlb_tracked_BEST_<date>.json` (the DISPLAY subset). Those rows come from the /api/best-available serializer (mlbIsolatedRoutes.js:100 bestAvailablePayload.best) and carry mlbPhase3Score, NO tier field — so they structurally can't carry tierPolicy. Always reads 0. Red herring.
+- RIGHT FILE: `mlb_tracked_BETS_<date>.json` (the GRADED ledger — what Phase 0 read + what the 14d verify reads). Today: 1733/1733 rows carry tierPolicy "mlb-r2-v1"; tierDist PLAYABLE 385 / LONGSHOT 1317 / STRONG 29 / ELITE 2; CAPS APPLIED (e.g. Ohtani totalBases → PLAYABLE). Regenerated 16:54 ET, AFTER the 16:48 backend restart. Path confirmed: buildMlbBestBetsBoard (:879) calls tierForPlay (:1000) + makePlay (:1031, stamp :1163) → leanBet → tracked_bets. R2 cap+stamp ARE on the tracked-pick origin.
+- BACKEND: local 127.0.0.1:4000 = 06fd53f (R2). Stamp presence on 1733 rows independently confirms R2 code ran (data signal > tunnel version, which is Cloudflare-cached stale).
+
+VERDICT: R2 SHIPPED + LIVE + VERIFIED. Scoring freeze (~14d, MLB pick/edge/tier code) BEGINS NOW (2026-06-11 ~17:00 ET).
+
+FLAGS FOR CB (non-blocking): (1) phase1_design §5 named `mlb_tracked_best` as the Law 31 closure target — wrong file; the stamp lands on `mlb_tracked_bets`. Correct the doc. (2) The regen re-stamped the ENTIRE rolling CLV window (1733 rows incl. historical), so tierPolicy alone ≠ "assigned after ship"; the 14d verify should add a ship-date/timestamp filter for a clean forward-only read (or treat it as an immediate re-tiered backtest, which is a bonus). (3) Optional: carry tier/tierPolicy through the best-available serializer if we ever want the stamp visible on the display file too — cosmetic.
+
+PROBE_REFS: mlb_tracked_bets_2026-06-11.json 1733/1733 stamped (Object.values parse) · buildMlbPropClusters.js:879/:1000/:1031/:1163 · mlbIsolatedRoutes.js:100 · local backend 06fd53f · `TZ='America/New_York' date` → 2026-06-11 16:59 EDT.
