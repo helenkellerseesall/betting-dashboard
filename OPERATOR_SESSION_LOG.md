@@ -4497,6 +4497,18 @@ NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary to operator; operator an
 
 PROBE_REFS: docs/audits/2026-06-11-r2-mlb-tier-assignment/phase1_design.md · .scratch/r2_live_toppicks_2026-06-10.txt · TZ date check 03:55 EDT this turn.
 
+## 2026-06-11 04:31 ET — Claude-B [Fable 5] — R2 BUILT, AWAITING OPERATOR SHIP FENCE + LIVE CLOSURE
+
+ACTION: R2 mlb-r2-v1 built per approved phase1_design.md + operator §8 answers (Q1 HR exempt from mid-fav cap · Q2 both badges → PLAYABLE · Q3 modelProb plumbed-unused). Edits: buildMlbPropClusters.js (kill-switch MLB_BUCKET_TIER_POLICY read-once + boot probe [TIER-POLICY-BOOT]; canonical bucketForOdds imported from nbaTierClassifier per Law 1; tierForPlay extended to (edge,ev,conf,family,oddsAmerican,modelProb); R2-2 mid-fav-non-HR + R2-3 ks/totalBases caps → PLAYABLE, never FADE; tierPolicy "mlb-r2-v1" conditional-spread stamp in makePlay; makePlay exported for fixture) · phase4Tracking.js (stamp propagation ×2 tier-persisting sites: toTrackedMlbBestEntry + leanBet) · runtimeVerify.js (fixture registered → matrix now 14 suites) · NEW backend/scripts/verifyMlbTierPolicyR2.js. Brain docs updated per Law 12 (MODEL_EVOLUTION_LOG 2026-06-11 entry · MASTER_BRAIN current-phase + freeze notice · PIPELINE_AUTHORITY_MAP tier authorities) — gitignored, edits only.
+
+SCOPE DEVIATIONS FLAGGED (2): (a) operator scope said phase4Tracking "×3 sites" — toTrackedMlbPick persists NO tier field, so stamping it would be a version tag on tier-less rows; left untouched, 2 real sites stamped. (b) scope said stamp "additive (?? null)" — literal ?? null would write tierPolicy:null when OFF, breaking byte-identity; implemented omit-when-absent conditional spread (displayBundle precedent) honoring the stronger OFF=byte-identical requirement. Operator may overrule either.
+
+VERIFICATION (sandbox, real output): node --check clean ×4 · verifyMlbTierPolicyR2 598/598 PASS (OFF hand-coded golden matrix byte-identity incl. HR + stolenBases; ON caps ONLY mid-fav-non-HR + ks/totalBases; Trap-1 unknown-bucket no-op incl. 4-arg legacy callers; never-FADE; stamp IFF ON via spawned ON/OFF children; source assertions ×7) · npm run runtime:verify 14/14 PASS (2018ms). NOT yet done: operator ship fence (3 separate commits + push), backend kickstart, /api/ws/version==HEAD, Law 31 live closure (today's mlb_tracked_best regenerated with tierPolicy stamped — non-zero probe). SCORING FREEZE starts when the ship fence lands.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the ship fence (handed in chat); pastes/relays .scratch/last.txt closure output; Claude-A may independently verify backend==HEAD + stamp presence on-screen. If stamped=0 because no new MLB rows wrote in the window, re-run the regen probe during the next slate hour — 0-with-no-new-rows is not failure (no-games-aware doctrine).
+
+PROBE_REFS: backend/scripts/verifyMlbTierPolicyR2.js (598/598) · runtime:verify 14/14 · git diff --stat 4 files +74/−5 · TZ date check 04:31 EDT this turn.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
@@ -4511,3 +4523,13 @@ A RECOMMENDATIONS on §8 (operator decides): Q1 mid-fav cap → EXEMPT HR (only 
 NEXT_EXPECTED_FROM_PEER: operator answers Q1-Q3 → Claude-A drafts the build handoff → CB ships the single governed change + verifyMlbTierPolicyR2 fixture + Law 31 live closure, then backend==HEAD. No code until operator answers.
 
 PROBE_REFS: phase1_design.md · .scratch/r2_live_toppicks_2026-06-10.txt · buildMlbPropClusters.js:734/:739/:743 (A re-read) · `TZ='America/New_York' date` → 2026-06-11 04:16 EDT.
+
+## 2026-06-11 04:21 ET — Claude-A [Cowork, Opus 4.8]
+
+ACTION: operator answered §8 — approved all three A recommendations. R2 Phase 1 cleared to BUILD; build handoff drafted for CB.
+
+OPERATOR_DECISION: Q1 EXEMPT HR from the mid-fav cap. Q2 CONFIRM both ELITE+STRONG → PLAYABLE. Q3 KEEP modelProb plumbed (unused in v1). Single governed ship per phase1_design.md.
+
+NEXT_EXPECTED_FROM_PEER: CB ships ONE change — R2-1 plumbing · R2-2 mid-fav cap ELITE+STRONG→PLAYABLE EXCEPT family hr · R2-3 ks+totalBases→PLAYABLE all buckets · R2-4 tierPolicy "mlb-r2-v1" stamp · MLB_BUCKET_TIER_POLICY OFF=byte-identical · modelProb plumbed-unused — plus verifyMlbTierPolicyR2 fixture + runtime:verify + Law 31 live closure (regen today's mlb_tracked_best through the mutated write path, tierPolicy populated, non-zero probe) + brain docs (Law 12) + backend==HEAD. CB hands the diff + probe output to A for verify before "done". Scoring freeze starts at ship.
+
+PROBE_REFS: `TZ='America/New_York' date` → 2026-06-11 04:21 EDT.
