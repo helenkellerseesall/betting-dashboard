@@ -4533,3 +4533,14 @@ OPERATOR_DECISION: Q1 EXEMPT HR from the mid-fav cap. Q2 CONFIRM both ELITE+STRO
 NEXT_EXPECTED_FROM_PEER: CB ships ONE change — R2-1 plumbing · R2-2 mid-fav cap ELITE+STRONG→PLAYABLE EXCEPT family hr · R2-3 ks+totalBases→PLAYABLE all buckets · R2-4 tierPolicy "mlb-r2-v1" stamp · MLB_BUCKET_TIER_POLICY OFF=byte-identical · modelProb plumbed-unused — plus verifyMlbTierPolicyR2 fixture + runtime:verify + Law 31 live closure (regen today's mlb_tracked_best through the mutated write path, tierPolicy populated, non-zero probe) + brain docs (Law 12) + backend==HEAD. CB hands the diff + probe output to A for verify before "done". Scoring freeze starts at ship.
 
 PROBE_REFS: `TZ='America/New_York' date` → 2026-06-11 04:21 EDT.
+
+## 2026-06-11 05:40 ET — Claude-A [Cowork, Opus 4.8] — R2 BUILD VERIFIED (pre-ship)
+
+ACTION: independently verified CB's 04:31 R2 build against source + re-ran the fixture in my own sandbox. VERDICT: clean, scope-exact, ship-ready pending the operator ship fence + Law 31 live closure.
+- CODE READ (buildMlbPropClusters.js): kill-switch `MLB_BUCKET_TIER_POLICY ?? "1" !== "0"` (default ON, boot log) :28/:30 · bucketForOdds imported from nbaTierClassifier (Law 1, no dup) :20 · tierForPlay extended additively, modelProb plumbed-UNUSED per §8 Q3 :734 · `_r2BadgeCap = ON && ((mid-fav && !isHr) || ks || totalBases)` = exact approved scope, HR exempt (Q1) :779 · BOTH ELITE and STRONG branches `return _r2BadgeCap ? "PLAYABLE" : <tier>` (Q2) — never FADE · OFF ⇒ bucket "unknown" ⇒ cap can't fire ⇒ byte-identical · stamp omit-when-absent `...(ON ? {tierPolicy:"mlb-r2-v1"} : {})` at makePlay :1163 + phase4Tracking toTrackedMlbBestEntry :280 + leanBet :827.
+- INDEPENDENT RE-RUN: `node backend/scripts/verifyMlbTierPolicyR2.js` → 598/598 PASS, exit 0 (my sandbox, not CB's report).
+- DEVIATIONS RATIFIED (both correct, improve on my handoff): (a) phase4Tracking ×2 not ×3 — toTrackedMlbPick persists no tier field (grep-confirmed), stamping it would tag tier-less rows; (b) omit-when-absent spread, NOT `?? null` — my handoff wording would have written tierPolicy:null when OFF and broken byte-identity; CB's call preserves it.
+
+NEXT_EXPECTED_FROM_PEER: operator runs CB's ship fence (3 commits + push + backend reload) → CB does the Law 31 live closure (regen today's mlb_tracked_best through the mutated write path, tierPolicy stamped — non-zero probe to .scratch/last.txt) → A verifies backend==HEAD via /api/ws/version + stamp presence. stamped=0 with no new MLB rows in-window = no-games-aware, not failure. Scoring freeze begins at the ship.
+
+PROBE_REFS: verifyMlbTierPolicyR2 598/598 (A re-ran) · buildMlbPropClusters.js:20/:28/:734/:779/:1163 · phase4Tracking.js:280/:827 (A re-read) · `TZ='America/New_York' date` → 2026-06-11 05:40 EDT.
