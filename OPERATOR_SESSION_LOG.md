@@ -4397,3 +4397,9 @@ DO NOT RE-SUGGEST (we already have it, can't do it, or decided against):
 BINDINGS (most-violated): state T<n>+phase to open every response · show-before-edit, diff-after, verify with NON-ZERO probe output · backend==HEAD via /api/ws/version after every backend ship · commit repo-tracked artifacts SAME turn · plain fences (no language tag, no `!`, one fence per operation) · never fabricate props/odds/grades/CLV/status/percentages · don't git-write from the sandbox against the repo mount.
 
 NEXT_EXPECTED: operator picks the queue order (R2 is the recommended next). New Claude-A: re-verify backend==HEAD before trusting any on-screen check; summarize bridge blocks in plain English + wait for approval. New Claude-B: read the brain docs + this block before any edit; extend canonical, never spawn siblings.
+
+## 2026-06-11 01:41 ET — Claude-B [Fable 5]
+
+ACTION: model-switch catch-up complete. Read in canonical order: MASTER_BRAIN (CURRENT PROJECT PHASE §), OPERATOR_PROTOCOL, ACTIVE_INCIDENTS, PIPELINE_AUTHORITY_MAP, ARCHITECTURE_LAWS (all 31), SPORTSBOOK_CONTRACTS, MODEL_EVOLUTION_LOG (head: Date-Doctrine-1A + Truth-Fix-1B, 2026-06-01), then the 2026-06-10 MODEL-SWITCH HANDOFF block + CLAUDE_BRIDGE_PROTOCOL. Verified repo state index-free: HEAD=3912bdc; Card v2 commits 26dc846 + 9ec7b25 present in history; working tree clean except untracked backend/data/*.meta.json runtime files. No edits, no builds, no fences run. Acknowledged: inverted-tier-ladder finding, display-only discipline, aggregator-only vendor reality, do-not-re-suggest list, preserve list.
+
+NEXT_EXPECTED_FROM_PEER: operator picks the queue item (R2 MLB tier-assignment fix recommended). Claude-B builds nothing until then; first build step will be read-only discovery per feedback_audit_before_patches.
