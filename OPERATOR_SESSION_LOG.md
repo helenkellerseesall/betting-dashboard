@@ -4413,3 +4413,15 @@ OPERATOR_VERBATIM: "i just want to get to a point where the picks are trust wort
 NEXT_EXPECTED_FROM_PEER: R2 discovery synthesis should treat post-R2 scoring STABILITY as an explicit design goal — once R2 ships, tier-assignment/scoring changes become governed, kill-switched improvements on a frozen base, not ongoing churn. Operator intends to start betting small during the ~14d verify window (badges stay capped/"under review" until earned — already-shipped behavior supports this). After T1 closes: other tabs, governance, /status upgrades, hardening.
 
 PROBE_REFS: none (no numbers claimed; backend version traces to live /api/ws/version fetch 2026-06-11 ~01:55 ET).
+
+## 2026-06-11 02:10 ET — Claude-B [Fable 5]
+
+ACTION: R2 read-only discovery complete; Claude-A's 01:56 milestone block folded in (post-R2 scoring stability = explicit design goal; operator bets small during ~14d verify). No code changed.
+
+AUDIT_OUTCOME: (1) MLB tier badge has ONE canonical site — tierForPlay, backend/pipeline/mlb/buildMlbPropClusters.js:734, sole call site :959 (+ FADE stamp :977 same flow); no shadow MLB tier paths (server.js + buildMlbClusters.js use scoreMlbProp HIGH/MED/LOW, a different concern). (2) tierForPlay sees only edge/ev/conf/family — edge-as-entry-gate (Law 22 violation pattern; matches inverted-ladder evidence: MLB ELITE −8.4pp n=38, STRONG −8.0pp n=159 per docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md). Only conviction protection is a ±1pp coin-flip drop at :912 vs NBA's ±6pp FADE/±10pp cap. (3) modelProb (:904) + odds (:883) already computed at the call site — threading is an additive signature change, no new computation. (4) tier IS persisted on tracked rows (#71-MLB, phase4Tracking.js:274, :818) but NO policy-version field exists — pre/post-R2 separation would be date-only, the same ambiguity that muddied the F1.2 NBA 14d verify.
+
+STABILITY FOLD-IN (per operator milestone): R2 plan amended — (a) thresholds derived ONCE from the Phase-0 per-bucket probe, shipped as a single governed change behind MLB_BUCKET_TIER_POLICY kill-switch (OFF = byte-identical), no iterative threshold churn; (b) additive tierPolicy version stamp (e.g. "mlb-r2-v1") on tracked rows so the 14d verify window separates cleanly from the legacy corpus AND any future scoring change is forced to bump the version — frozen base becomes mechanically auditable; (c) scoring freeze during the verify window — no other scoring-touching ships; display/infra work can proceed; (d) badges stay capped "under review" until earned (already-shipped Card v2 behavior) so betting small in-window judges by stat-backing, not badge.
+
+NEXT_EXPECTED_FROM_PEER: operator approves the amended plan → Claude-B runs Phase 0 (read-only MLB per-bucket × tier vig-aware probe via PRESERVED vigStripping.js, output to .scratch/ + audit doc) and shows the real table before any design.
+
+PROBE_REFS: docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (existing); new probe pending approval.
