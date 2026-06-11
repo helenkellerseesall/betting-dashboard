@@ -273,6 +273,11 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     // Anti-fabrication: `?? null` — never invented.
     tier:       row?.tier       ?? null,
     volatility: row?.volatility ?? null,
+    // 2026-06-11 R2-4 — tierPolicy stamp propagation, present IFF upstream
+    // stamped it (MLB_BUCKET_TIER_POLICY ON in buildMlbPropClusters.makePlay).
+    // Conditional spread (displayBundle precedent below) keeps OFF artifacts
+    // byte-identical — field ABSENT when policy OFF, never null, never "off".
+    ...(row?.tierPolicy != null ? { tierPolicy: row.tierPolicy } : {}),
 
     // ── Phase Item 0002 Slice 1 — canonical hydration lift ──────────────
     // (a) game-identity (FE Discover indexing)
@@ -816,6 +821,10 @@ function leanBet(play, date) {
     edge: play.edge,
     confidence: play.confidence,
     tier: play.tier,
+    // 2026-06-11 R2-4 — tierPolicy stamp propagation onto tracked_bets rows
+    // (the graded-corpus surface the 14d re-probe filters on). Present IFF
+    // upstream stamped it; ABSENT when MLB_BUCKET_TIER_POLICY=0 (byte-identical).
+    ...(play?.tierPolicy != null ? { tierPolicy: play.tierPolicy } : {}),
     result: "pending",
     settledAt: null,
     // 2026-05-28 — Lane B Phase 3 v0.1.4 — marketKey identity preservation.

@@ -13,6 +13,23 @@ const { getCalibrationFactor: _getCalFactor } = require("../grading/calibrationF
 // byte-identical to pre-SHIP-2. ON ⇒ SB is a CAPPED-tier family (never ELITE/STRONG).
 const SB_ENABLED = String(process.env.MLB_ENABLE_STOLEN_BASES ?? "1") !== "0"
 
+// 2026-06-11 R2 (MLB-Tier-Assignment-Fix v1) — canonical odds-bucket arithmetic
+// imported from the NBA tier classifier (Law 1: ONE bucketForOdds owner; the
+// function is sport-agnostic odds math — importing extends the canonical,
+// duplicating it would spawn a sibling).
+const { bucketForOdds } = require("../nba/nbaTierClassifier")
+
+// 2026-06-11 R2 — kill-switch (precedent: NBA_BUCKET_TIER_POLICY in
+// nbaTierClassifier.js:81, CALIB_LINEAWARE, SB_ENABLED above). Read ONCE at
+// module load. unset/"1" → ON; ONLY the exact string "0" → OFF. OFF ⇒ tier
+// outputs AND tracked artifacts byte-identical to pre-R2 (the tierPolicy stamp
+// is ABSENT when OFF — never null, never "off"). Flip requires a backend
+// reload — deliberate operator action, not a mid-flight toggle.
+const MLB_TIER_POLICY_ON = String(process.env.MLB_BUCKET_TIER_POLICY ?? "1") !== "0"
+try {
+  console.log(`[TIER-POLICY-BOOT] MLB bucket tier policy ${MLB_TIER_POLICY_ON ? "ON (default) — mlb-r2-v1" : "OFF — MLB_BUCKET_TIER_POLICY=0, pre-R2-identical"}`)
+} catch (_) { /* no-op */ }
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -731,7 +748,14 @@ function scorePlay({ edge, ev, conf, vol, side, family }) {
   return (e * 100 * 1.0 + v * 60 + c * 12 + sideBoost * 8) * familyWeight
 }
 
-function tierForPlay(edge, ev, conf, family) {
+function tierForPlay(edge, ev, conf, family, oddsAmerican, modelProb) {
+  // 2026-06-11 R2 (mlb-r2-v1) — oddsAmerican + modelProb threaded ADDITIVELY
+  // (both already local at the sole call site below; legacy 4-arg callers get
+  // undefined → bucket "unknown" → the mid-fav cap can never fire — Trap-1,
+  // F1.2a precedent). modelProb is PLUMBED-UNUSED in v1 (operator §8 Q3:
+  // kept ready for a governed v2; NO v1 predicate reads it).
+  // Evidence base: docs/audits/2026-06-11-r2-mlb-tier-assignment/
+  // phase0_bucket_tier_probe.md (12 files · 4,603 deduped graded picks).
   if (!Number.isFinite(edge) || !Number.isFinite(ev)) return "FADE"
   if (ev <= 0) return "FADE"
   if (edge < 0.04) return "FADE"
@@ -742,8 +766,22 @@ function tierForPlay(edge, ev, conf, family) {
   // PLAYABLE. No effect on any other family.
   if (family === "stolenBases") return "PLAYABLE"
   const isHr = family === "hr"
+  // 2026-06-11 R2-2 + R2-3 — badge caps derived ONLY from sufficient-n probe cells:
+  //   R2-2 mid-fav cap — ELITE @ mid-fav realized −15.3pp (n=32), STRONG −11.1pp
+  //        (n=49). HR EXEMPT (operator §8 Q1; HR badges ≈ market-rate, −2.2pp
+  //        n=118). Demotion target PLAYABLE (§8 Q2) because STRONG @ mid-fav is
+  //        itself toxic — ELITE→STRONG would move picks bad-cell → bad-cell.
+  //   R2-3 family cap — ks (−21.3pp n=42) + totalBases (−8.4pp n=57) capped in
+  //        ALL buckets; stolenBases cap above is the in-file precedent.
+  // Caps return PLAYABLE — NEVER FADE — so the pick set is unchanged; only the
+  // badge (and tier-derived stake suggestions) change. Policy OFF ⇒ _r2BadgeCap
+  // is false ⇒ ladder byte-identical to pre-R2.
+  const _r2Bucket = MLB_TIER_POLICY_ON ? bucketForOdds(oddsAmerican) : "unknown"
+  const _r2BadgeCap =
+    MLB_TIER_POLICY_ON &&
+    ((_r2Bucket === "mid-fav" && !isHr) || family === "ks" || family === "totalBases")
   // Uses volatility-calibrated conf: ~0.56+ ≈ strong separation; 0.65+ becomes rare.
-  if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.56) return "ELITE"
+  if (!isHr && edge >= 0.1 && ev >= 0.05 && conf >= 0.56) return _r2BadgeCap ? "PLAYABLE" : "ELITE"
   // ECOLOGY FIX T2: HR-specific tier conf thresholds. HR calibrated conf is
   // structurally ~0.26–0.30 due to high variance (binary outcome, low ladder
   // separation). The old thresholds (ELITE: conf>=0.45, STRONG: conf>=0.42)
@@ -755,7 +793,9 @@ function tierForPlay(edge, ev, conf, family) {
   // and valid EV; only the conf gate is HR-adjusted.
   if (isHr && edge >= 0.125 && ev >= 0.085 && conf >= 0.30) return "ELITE"
   if (isHr && edge >= 0.075 && ev >= 0.032 && conf >= 0.22) return "STRONG"
-  if (!isHr && edge >= 0.075 && ev >= 0.032 && conf >= 0.42) return "STRONG"
+  // 2026-06-11 R2 — HR returns above are deliberately uncapped: R2-2 exempts hr
+  // (§8 Q1) and the R2-3 families (ks / totalBases) can never reach them.
+  if (!isHr && edge >= 0.075 && ev >= 0.032 && conf >= 0.42) return _r2BadgeCap ? "PLAYABLE" : "STRONG"
   return "PLAYABLE"
 }
 
@@ -956,7 +996,8 @@ function buildMlbBestBetsBoard(input = {}) {
       }
     }
 
-    const tier = tierForPlay(edge, ev, conf, family)
+    // 2026-06-11 R2 — odds + modelProb threaded (both computed above; zero new computation).
+    const tier = tierForPlay(edge, ev, conf, family, odds, modelProb)
     if (!isLongshot && !isAlternate && tier === "FADE") {
       // Track explicit fades (e.g. -EV / negative edge) for "FADE" board section.
       const fadePlay = makePlay({
@@ -1114,6 +1155,12 @@ function makePlay(args) {
     confidenceRaw: round3(confRaw),
     volatility: round3(vol),
     tier,
+    // 2026-06-11 R2-4 — tierPolicy version stamp, present IFF the policy is ON
+    // (conditional spread = the displayBundle omit-when-absent precedent in
+    // phase4Tracking.js). OFF ⇒ key ABSENT ⇒ artifacts byte-identical to pre-R2.
+    // The 14d verify filters on tierPolicy === "mlb-r2-v1"; ANY future scoring
+    // change MUST bump this version in a governed phase (frozen-base doctrine).
+    ...(MLB_TIER_POLICY_ON ? { tierPolicy: "mlb-r2-v1" } : {}),
     isLongshot,
     isAlternate,
     inCoreOddsBand,
@@ -1222,5 +1269,7 @@ function marketPropsFromMlbRows(rows) {
 
 module.exports = { buildMlbPropClusters, buildMlbBestBetsBoard, marketPropsFromMlbRows, americanOddsToImpliedProb, americanToDecimal, modelProbOver, STAT_FAMILIES,
   // 2026-06-08 SHIP 2 — exported for the regression probe (pure fns; no behavior change)
-  resolveStatFamily, tierForPlay, modelProbForSide }
+  resolveStatFamily, tierForPlay, modelProbForSide,
+  // 2026-06-11 R2 — exported for verifyMlbTierPolicyR2.js (pure fn; stamp assertion)
+  makePlay }
 
