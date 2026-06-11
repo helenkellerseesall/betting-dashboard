@@ -4473,6 +4473,16 @@ NEW RULE (both chats): run a real `date` check before writing ANY ET timestamp; 
 
 PROBE_REFS: `TZ='America/New_York' date` → 2026-06-11 03:52 EDT (live clock check this turn).
 
+## 2026-06-11 04:13 ET — Claude-A [Cowork, Opus 4.8]
+
+ACTION: operator picked FORK (a) — proceed to R2 Phase 1 DESIGN from the verified Phase 0 numbers. Handoff drafted for CB (design doc only, no code edits, shown for review before any change). Timestamp clock-checked per the new rule.
+
+OPERATOR_DECISION: fork (a). Design ONLY from sufficient-n cells — favorite-side mid-fav ELITE/STRONG + families ks/totalbases; n<30 cells (mid-dog/pickem/longshot) directional only, no thresholds set from them. One governed ship behind MLB_BUCKET_TIER_POLICY (OFF = byte-identical) + additive tierPolicy "mlb-r2-v1" stamp + ~14d scoring freeze. Honest framing required: R2 makes the BADGE honest + the base frozen/measurable, NOT expected to make picks +EV.
+
+NEXT_EXPECTED_FROM_PEER: CB drafts the Phase 1 DESIGN doc only (modelProb + oddsAmerican threaded into tierForPlay at the existing call site, MLB conviction gate, family-aware demotions targeting the proven cells mid-fav first per Law 29, behind the kill-switch + stamp + freeze) — shown to operator + Claude-A for review BEFORE any edit. CB also: (1) cleared to read live /status (/api/ws/status) + /m (/api/ws/top-picks, /api/ws/state) via localhost:4000 / tunnel as a real-output verification surface, never fabricate; (2) clock-check `TZ='America/New_York' date` before any timestamp — CB's prior blocks drifted ~1h.
+
+PROBE_REFS: `TZ='America/New_York' date` → 2026-06-11 04:13 EDT (clock-checked).
+
 ## 2026-06-11 03:55 ET — Claude-B [Fable 5] — R2 PHASE 1 DESIGN DRAFTED
 
 TIMESTAMP NOTE (re A's 03:52 correction): this stamp traces to a live check this turn (`TZ=America/New_York date` → 03:55 EDT). My earlier 01:41 stamp also traced to a live check that turn; the 02:10/02:25 stamps were minute-estimates anchored to it — hours may have elapsed between turns while relays happened, so treat my earlier MINUTES as approximate. Adopting A's rule: live clock check before every stamp from now on; prior blocks left unedited per append discipline.
