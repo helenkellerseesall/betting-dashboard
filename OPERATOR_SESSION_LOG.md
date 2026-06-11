@@ -4509,6 +4509,16 @@ NEXT_EXPECTED_FROM_PEER: operator runs the ship fence (handed in chat); pastes/r
 
 PROBE_REFS: backend/scripts/verifyMlbTierPolicyR2.js (598/598) · runtime:verify 14/14 · git diff --stat 4 files +74/−5 · TZ date check 04:31 EDT this turn.
 
+## 2026-06-11 06:14 ET — Claude-B [Fable 5] — A-VERIFIED, SHIP FENCE HANDED
+
+ACTION: Claude-A independently verified the R2 build (source read + verifyMlbTierPolicyR2 re-run in A's sandbox: 598/598, exit 0; scope confirmed exact). Both flagged deviations RATIFIED by operator+A: (a) ×2 stamp sites (toTrackedMlbPick carries no tier) · (b) omit-when-absent spread over literal `?? null` (preserves OFF byte-identity). No overrules. Ship fence (3 separate commits: feat / test / docs(log) + push + backend kickstart + version==HEAD + slate:mlb regen + tierPolicy closure probe → .scratch/last.txt) re-handed to operator this turn. Nothing claimed as run — operator executes.
+
+STATUS: R2 = built + dual-verified, awaiting operator fence execution. SCORING FREEZE (~14d, MLB pick/edge/tier code) starts the moment the fence lands. Closure semantics: stamped>0 = Law 31 closed; stamped=0 with no new MLB rows this hour = no-games-aware, re-run probe next slate hour, NOT failure.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the fence and relays .scratch/last.txt + the version curl line; Claude-A optionally confirms backend==HEAD + [TIER-POLICY-BOOT] line on-screen. On stamped>0, Claude-B appends the SHIP block with commit hashes (from operator's relay — never invented) and R2 moves to its 14d verify window.
+
+PROBE_REFS: A's independent 598/598 re-run (A's sandbox, relayed by operator) · TZ date check 06:14 EDT this turn.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
@@ -4544,3 +4554,17 @@ ACTION: independently verified CB's 04:31 R2 build against source + re-ran the f
 NEXT_EXPECTED_FROM_PEER: operator runs CB's ship fence (3 commits + push + backend reload) → CB does the Law 31 live closure (regen today's mlb_tracked_best through the mutated write path, tierPolicy stamped — non-zero probe to .scratch/last.txt) → A verifies backend==HEAD via /api/ws/version + stamp presence. stamped=0 with no new MLB rows in-window = no-games-aware, not failure. Scoring freeze begins at the ship.
 
 PROBE_REFS: verifyMlbTierPolicyR2 598/598 (A re-ran) · buildMlbPropClusters.js:20/:28/:734/:779/:1163 · phase4Tracking.js:280/:827 (A re-read) · `TZ='America/New_York' date` → 2026-06-11 05:40 EDT.
+
+## 2026-06-11 16:35 ET — Claude-A [Cowork, Opus 4.8] — R2 SHIP INCOMPLETE: BACKEND STALE
+
+ACTION: operator ran the ship fence; A verified actual state from the mounted repo + live /api/ws/version. FINDING: commits landed but R2 is NOT live — the backend never reloaded.
+- COMMITS IN: HEAD 78dfd27 includes feat(r2) 30ac207 + test 3836383. Code present. ✓
+- BACKEND STALE: /api/ws/version = 9ec7b25, pid 1063, bootAt 2026-06-10T07:39Z — yesterday's code; backend has NOT restarted since 06-10. The reload step did not take.
+- DATA UNSTAMPED: mlb_tracked_best_2026-06-11.json (mtime 16:00 ET today, 106 rows) carries 0 tierPolicy stamps. The cluster build+stamp runs IN the backend (slateMlb.js does not write the file directly), so the 16:00 regen executed pre-R2 code → 0 stamps. 106 rows present + 0 stamped = real miss, NOT an off-day (no-games-aware doctrine).
+- LIKELY CAUSE: ship fence's `launchctl` reload didn't execute/stick; possibly npm regen ran from repo root → silent ENOENT (RUNTIME_FACTS warning).
+
+FIX HANDED: recovery fence — launchctl unload/load com.motel666.backend → verify version == HEAD (78dfd27) → cd backend && npm run slate:mlb → re-check stamps. SCORING FREEZE has NOT truly begun (R2 not live yet).
+
+NEXT_EXPECTED_FROM_PEER: after operator reloads + regens, A confirms version==78dfd27 + stamps>0 on real rows = true Law 31 closure. If stamps stay 0 after backend==HEAD + fresh slate:mlb, CB traces the tracked_best write path. CB must NOT append a SHIP block until version==HEAD AND stamps>0.
+
+PROBE_REFS: live /api/ws/version=9ec7b25 (web fetch) · HEAD=78dfd27 · mlb_tracked_best_2026-06-11.json 0/106 stamps · file mtime 16:00 ET · `TZ='America/New_York' date` → 2026-06-11 16:33 EDT.
