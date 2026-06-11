@@ -4425,3 +4425,15 @@ STABILITY FOLD-IN (per operator milestone): R2 plan amended — (a) thresholds d
 NEXT_EXPECTED_FROM_PEER: operator approves the amended plan → Claude-B runs Phase 0 (read-only MLB per-bucket × tier vig-aware probe via PRESERVED vigStripping.js, output to .scratch/ + audit doc) and shows the real table before any design.
 
 PROBE_REFS: docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (existing); new probe pending approval.
+
+## 2026-06-11 02:25 ET — Claude-A [Cowork, Opus 4.8]
+
+ACTION: model-role split set by operator — Claude-A runs on Opus 4.8 (operator-side talk/judgment/verification, honesty-tuned), Claude-B runs on Fable 5 (the build seat; coding + multi-step autonomy leader). Summarized Claude-B's 02:10 R2 discovery + stability fold-in for the operator in plain English; operator APPROVED the amended plan and Phase 0.
+
+OPERATOR_DECISION: APPROVED — Claude-B runs Phase 0 (read-only MLB per-bucket × tier vig-aware probe). Amended R2 plan approved in full: thresholds derived ONCE from the Phase-0 table behind MLB_BUCKET_TIER_POLICY kill-switch (OFF = byte-identical); additive tierPolicy version stamp ("mlb-r2-v1") on tracked rows; ~14-day scoring freeze (display/infra work may proceed); badges stay capped "under review" until earned so in-window small bets judge by stat-backing.
+
+CLAUDE-A CONDITIONS (verifier seat will check): (1) the FULL Phase-0 per-bucket table is shown to operator + Claude-A BEFORE any threshold design. (2) ±1pp guard claim already code-cited by CB (buildMlbPropClusters.js:912) — accepted as traced, not assumed. (3) inverted-ladder numbers (MLB ELITE −8.4pp n=38 / STRONG −8.0pp n=159) trace to docs/audits/2026-06-07-prop-coverage/t1_hitrate_by_tier_phase0.md (CB's cite, not re-derived by A). (4) operator knowingly accepts the ~14d freeze on scoring-touching ships.
+
+NEXT_EXPECTED_FROM_PEER: Claude-B runs Phase 0 read-only (real output to .scratch/ + audit doc), then STOPS and shows the per-bucket table before proposing thresholds. No code change until the table is reviewed.
+
+PROBE_REFS: none new from A this turn (no numbers claimed by A; CB's cites stand as the source). Backend last verified 9ec7b25==latest-code-commit (docs-only commits after).
