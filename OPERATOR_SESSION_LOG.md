@@ -4436,7 +4436,7 @@ NEXT_EXPECTED_FROM_PEER: Claude-A summarizes the table to the operator in plain 
 
 PROBE_REFS: .scratch/probe_r2_mlb_bucket_tier.js / .txt · docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md
 
-## 2026-06-11 02:25 ET — Claude-A [Cowork, Opus 4.8]
+## 2026-06-11 03:25 ET — Claude-A [Cowork, Opus 4.8]  [ts corrected — see 03:52 note]
 
 ACTION: model-role split set by operator — Claude-A runs on Opus 4.8 (operator-side talk/judgment/verification, honesty-tuned), Claude-B runs on Fable 5 (the build seat; coding + multi-step autonomy leader). Summarized Claude-B's 02:10 R2 discovery + stability fold-in for the operator in plain English; operator APPROVED the amended plan and Phase 0.
 
@@ -4448,7 +4448,7 @@ NEXT_EXPECTED_FROM_PEER: Claude-B runs Phase 0 read-only (real output to .scratc
 
 PROBE_REFS: none new from A this turn (no numbers claimed by A; CB's cites stand as the source). Backend last verified 9ec7b25==latest-code-commit (docs-only commits after).
 
-## 2026-06-11 02:45 ET — Claude-A [Cowork, Opus 4.8] — PHASE 0 VERIFIED
+## 2026-06-11 03:50 ET — Claude-A [Cowork, Opus 4.8] — PHASE 0 VERIFIED  [ts corrected — see 03:52 note]
 
 ACTION: independently verified CB's 02:25 Phase 0 against the raw artifacts (read-only). VERDICT: clean, no fabrication.
 - Table in docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md §3 matches .scratch/probe_r2_mlb_bucket_tier.txt BYTE-FOR-BYTE (every cell: ELITE mid-fav 40.6% n=32 −15.3pp · STRONG mid-fav 46.9% n=49 −11.1pp · ks 31.0% n=42 −21.3pp · totalbases 45.6% n=57 −8.4pp · hr 11.9% n=118 −2.2pp · STRONG heavy-longshot 12.9% n=85 −0.7pp).
@@ -4462,3 +4462,27 @@ A RECOMMENDATION ON FORK: (a) proceed to Phase 1 design, but design ONLY from th
 NEXT_EXPECTED_FROM_PEER: on operator's fork pick (recommended a), CB drafts the Phase 1 DESIGN doc (no edit) — modelProb+odds threaded into tierForPlay, MLB conviction gate, family-aware demotions on proven cells, behind MLB_BUCKET_TIER_POLICY + tierPolicy stamp + freeze — shown for review before any code. Operator also cleared CB to read live /status (/api/ws/status) + /m (/api/ws/top-picks, /api/ws/state) via tunnel/localhost:4000 as a real-output verification surface.
 
 PROBE_REFS: docs/audits/2026-06-11-r2-mlb-tier-assignment/phase0_bucket_tier_probe.md · .scratch/probe_r2_mlb_bucket_tier.txt · buildMlbPropClusters.js:912 (A re-read).
+
+## 2026-06-11 03:52 ET — Claude-A [Cowork, Opus 4.8] — TIMESTAMP CORRECTION
+
+ACTION: operator caught my log timestamps as wrong — I wrote 02:25 / 02:45 ET; real time was ~03:25+. Root cause: I pattern-matched the timestamps already in the log instead of checking the actual clock. Confirmed real time via `TZ='America/New_York' date` = 2026-06-11 03:52 EDT (sandbox clock is UTC 07:52 — that was the trap). Corrected my two A-block headers above (02:25→03:25, 02:45→03:50; minutes approximate, hour now real).
+
+NOTE: CB's 02:10 / 02:25 blocks are likely off by the same ~1h — left as CB wrote them (not mine to rewrite), flagged so CB clock-checks going forward.
+
+NEW RULE (both chats): run a real `date` check before writing ANY ET timestamp; never copy/guess from existing entries. A timestamp is a number that must trace to a real source, same standard as every other figure in this log.
+
+PROBE_REFS: `TZ='America/New_York' date` → 2026-06-11 03:52 EDT (live clock check this turn).
+
+## 2026-06-11 03:55 ET — Claude-B [Fable 5] — R2 PHASE 1 DESIGN DRAFTED
+
+TIMESTAMP NOTE (re A's 03:52 correction): this stamp traces to a live check this turn (`TZ=America/New_York date` → 03:55 EDT). My earlier 01:41 stamp also traced to a live check that turn; the 02:10/02:25 stamps were minute-estimates anchored to it — hours may have elapsed between turns while relays happened, so treat my earlier MINUTES as approximate. Adopting A's rule: live clock check before every stamp from now on; prior blocks left unedited per append discipline.
+
+ACTION: R2 PHASE 1 DESIGN drafted (fork a) — docs/audits/2026-06-11-r2-mlb-tier-assignment/phase1_design.md. NO code edited. Design derives ONLY from sufficient-n cells per operator constraint. Live surface read (operator-sanctioned) via edge.motel666.com/api/ws/top-picks grounded the impact preview — verbatim capture .scratch/r2_live_toppicks_2026-06-10.txt: ELITE 0 / STRONG 2 (both NBA) / lone MLB pick (Bryan Woo ks o6.5 +122, mid-dog) already PLAYABLE → R2-v1 changes nothing on tonight's board; effect accrues on future slates at stamp time.
+
+DESIGN SUMMARY: one kill-switch MLB_BUCKET_TIER_POLICY (OFF = byte-identical, stamp absent when OFF). R2-1 plumbing (thread oddsAmerican+modelProb into tierForPlay :734 / call site :959; canonical bucketForOdds imported from nbaTierClassifier per Law 1; Trap-1 unknown-bucket no-op). R2-2 mid-fav badge cap → PLAYABLE (ELITE −15.3 n=32, STRONG −11.1 n=49; target cell PLAYABLE mid-fav −6.0 n=119 = least-bad; ELITE→STRONG rejected because STRONG mid-fav is itself toxic). R2-3 family cap ks+totalBases → PLAYABLE all buckets (−21.3 n=42 / −8.4 n=57; stolenBases :743 in-file precedent). R2-4 tierPolicy "mlb-r2-v1" additive stamp in phase4Tracking ×3 sites, present iff ON. Caps never emit FADE → pick set identical; labels + tier-derived stakes only.
+
+EXCLUDED with reasons (§3): conviction-gate widening — Phase 0 DISPROVED my own earlier hypothesis (toxic cells carry HIGH claimed conviction; an NBA-style ±6pp gate would fire on none of them; :912 guard untouched) · raised edge/conf thresholds (F1.2 P1-B logic: inverse-predictive claimed edge — raising selects worse) · thin-cell rules (mid-dog/pickem/hits = watch-cells for the 14d re-probe) · HR changes (−2.2 n=118 ≈ market-rate). HONEST FRAMING LOCKED: badge honesty + frozen measurable base; NOT +EV; demotion-target cells are themselves net-negative.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary to operator; operator answers design §8 — (1) mid-fav cap include HR or exempt? (2) confirm both ELITE+STRONG cap to PLAYABLE? (3) keep plumbed-unused modelProb or strike? — then approves the single governed ship + fixture per §5. NOTE for A: A's 03:50 NEXT_EXPECTED mentioned an "MLB conviction gate" — design EXCLUDES it (evidence-based, §3); flagging the divergence so it's contested or accepted, not silently dropped.
+
+PROBE_REFS: docs/audits/2026-06-11-r2-mlb-tier-assignment/phase1_design.md · .scratch/r2_live_toppicks_2026-06-10.txt · TZ date check 03:55 EDT this turn.
