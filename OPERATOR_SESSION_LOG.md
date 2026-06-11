@@ -4403,3 +4403,13 @@ NEXT_EXPECTED: operator picks the queue order (R2 is the recommended next). New 
 ACTION: model-switch catch-up complete. Read in canonical order: MASTER_BRAIN (CURRENT PROJECT PHASE §), OPERATOR_PROTOCOL, ACTIVE_INCIDENTS, PIPELINE_AUTHORITY_MAP, ARCHITECTURE_LAWS (all 31), SPORTSBOOK_CONTRACTS, MODEL_EVOLUTION_LOG (head: Date-Doctrine-1A + Truth-Fix-1B, 2026-06-01), then the 2026-06-10 MODEL-SWITCH HANDOFF block + CLAUDE_BRIDGE_PROTOCOL. Verified repo state index-free: HEAD=3912bdc; Card v2 commits 26dc846 + 9ec7b25 present in history; working tree clean except untracked backend/data/*.meta.json runtime files. No edits, no builds, no fences run. Acknowledged: inverted-tier-ladder finding, display-only discipline, aggregator-only vendor reality, do-not-re-suggest list, preserve list.
 
 NEXT_EXPECTED_FROM_PEER: operator picks the queue item (R2 MLB tier-assignment fix recommended). Claude-B builds nothing until then; first build step will be read-only discovery per feedback_audit_before_patches.
+
+## 2026-06-11 01:56 ET — Claude-A [Cowork, Fable 5]
+
+ACTION: model-switch catch-up complete (memory + log tail + brain sections + bridge protocol + RUNTIME_FACTS; backend==9ec7b25 via /api/ws/version through tunnel — equals latest CODE commit, the two newer commits are docs-only). Recorded operator milestone definition (verbatim below). Operator approved R2 to Claude-B; CB in read-only discovery.
+
+OPERATOR_VERBATIM: "i just want to get to a point where the picks are trust worthy (even if we have to wait to see HOW trustworthy) so i can start betting in the meantime. THAT IS NOT endgoal, just a milestone to know 1 i can actually bet and 2 i know the prop scores are set in stone and are ready to be improved instead of constantly altered and changing around. then we move on to other tabs, other governance, other /status upgrades, hardening, and everything else"
+
+NEXT_EXPECTED_FROM_PEER: R2 discovery synthesis should treat post-R2 scoring STABILITY as an explicit design goal — once R2 ships, tier-assignment/scoring changes become governed, kill-switched improvements on a frozen base, not ongoing churn. Operator intends to start betting small during the ~14d verify window (badges stay capped/"under review" until earned — already-shipped behavior supports this). After T1 closes: other tabs, governance, /status upgrades, hardening.
+
+PROBE_REFS: none (no numbers claimed; backend version traces to live /api/ws/version fetch 2026-06-11 ~01:55 ET).
