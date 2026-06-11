@@ -4356,3 +4356,44 @@ NEXT_EXPECTED_FROM_PEER:
 
 PROBE_REFS:
 /api/ws/version (9ec7b25==HEAD) · live /m?v=cardv2 Top Picks + Wemby popup · Wemby 11/16 69% ≠ Vassell 8/16 50% · Messick "17% of 442 … not Messick alone" · popup "model rated ELITE — under review"
+
+## 2026-06-10 08:30 ET — MODEL-SWITCH HANDOFF (read first; both chats restarting on a new model)
+
+Operator is restarting BOTH chats onto a new model. Claude-A (Cowork, operator-side) and Claude-B (repo-side build) keep their roles. This block is the catch-up surface so neither chat rediscovers shipped work or proposes things we already have. After reading this, read CLAUDE_BRIDGE_PROTOCOL.md, the ranked-path memory §"2026-06-10 SESSION STATUS", and the brain docs in canonical order.
+
+ROLE SPLIT (unchanged):
+- Claude-A (Cowork) = analysis, drafting handoffs, plain-English summaries for the operator, ON-SCREEN verification via the Chrome extension, memory + this log. Has file tools + a sandbox; does NOT run the operator's git/launchctl — writes fences for the operator.
+- Claude-B (repo-side) = builds, edits code, runs the 14-suite regression gate, hands ship fences. Operator relays bridge blocks between the two via this log.
+
+WHERE WE ARE: **T1 — make the daily TOP PICKS trustworthy enough to bet (~92%).** 5-tier path: T1 trust picks · T2 ladders/parlays · T3 trust dashboard (#98) · T4 place real bets · T5 time-gated. Operator's standing words: "I still don't feel like I can open up /m and freely bet." The last T1 blocker is R2 (tier badges aren't trustworthy until the tier-assignment is fixed).
+
+SHIPPED + VERIFIED — DO NOT REBUILD:
+- Card Redesign v2 (commits `26dc846` + `9ec7b25`, backend==HEAD): per-player won-X% (playerPropHistory.js; Wemby 11/16 ≠ Vassell 8/16), cap consistent everywhere (displayTier on face+border+conf+popup; honest "model rated <ORIG> — under review"), decluttered face + full-width popup + labeled %s + refreshing tick, honest thin-sample fallback. DISPLAY-ONLY — picks/edges/scoring tier byte-identical.
+- Per-pick "why" on TOP PICKS (NBA + MLB), serve-time stat-backing assembly + prop-aware reasoning.
+- HIT%-by-tier honest GRADES card (vig-aware) — this is what surfaced the inverted-ladder finding.
+- NBA tier-classifier per-bucket overrides (F1.2a/b, NBA-only, kill-switch NBA_BUCKET_TIER_POLICY).
+- MLB batter stats cache 16→30 teams (withRetry + merge-no-shrink + coverage meta); lineupSpot back-fill; cold-start decouple (render before refresh); MLB calibration line-aware (kill-switch CALIB_LINEAWARE); stolen bases enabled; Sharp Plays honesty marker.
+
+ACTIVE QUEUE — the real next work (operator-approved, NONE started; operator picks order):
+1. **R2 — MLB tier-assignment fix**: the real inverted-ladder cure so ELITE/STRONG come back EARNED. F1.2-for-MLB. ~14d to verify. THE next big one.
+2. Hide/relabel the popup `confidence 100%` detail row (fake-confidence number; minor, display-only).
+3. /status sibling-coverage cards (#98 cluster).
+4. opp-K%-into-scoring (backtested; buildMlbPitcherCandidates reads opponentKPercent, never populated).
+5. neg-edge-in-list display check (Kornet −1.9, Keldon PRA −9.3 still shown despite dampener).
+6. Longer pitcher window so per-player Ks aren't always the type-bucket fallback.
+
+KEY FINDINGS THAT REFRAME NAIVE SUGGESTIONS:
+- INVERTED TIER LADDER (verified twice): ELITE/STRONG realize WORST vig-aware; all tiers net-negative. The BADGE alone is NOT trustworthy — judge by stat-backing. This is WHY the strict cap shows everything as "worth a look" and WHY T1 isn't closed.
+- DISPLAY-ONLY discipline: displayTier (capped display) ≠ pick.tier (scoring, untouched). Card changes never alter picks/edges.
+- Stat-backing is a REACH problem, not an ingest problem (displayBundle.statBacking exists; pitcher gamelogs are real, 29p/57 starts).
+- VENDOR REALITY: all books come through ONE aggregator (The Odds API). Direct DK/FD/etc. scraping is NOT reliably doable. 8 book-keys requested, only ~4-6 return per slate.
+
+DO NOT RE-SUGGEST (we already have it, can't do it, or decided against):
+- "Add per-pick reasoning / per-player hit rates / cap unearned ELITE / a HIT%-by-tier card / a /status page / harden the batter cache" → ALL SHIPPED.
+- "Scrape sportsbooks directly" → NOT doable (aggregator only); flagged honestly, never faked.
+- "Build a new memory/continuity/supervisor system" → DON'T (Law 1, no parallel authorities; brain docs + repo + memory + this log IS the stack).
+- "Show a confidence %" as a headline number → NEVER fabricate confidence; probability must trace to the corpus.
+
+BINDINGS (most-violated): state T<n>+phase to open every response · show-before-edit, diff-after, verify with NON-ZERO probe output · backend==HEAD via /api/ws/version after every backend ship · commit repo-tracked artifacts SAME turn · plain fences (no language tag, no `!`, one fence per operation) · never fabricate props/odds/grades/CLV/status/percentages · don't git-write from the sandbox against the repo mount.
+
+NEXT_EXPECTED: operator picks the queue order (R2 is the recommended next). New Claude-A: re-verify backend==HEAD before trusting any on-screen check; summarize bridge blocks in plain English + wait for approval. New Claude-B: read the brain docs + this block before any edit; extend canonical, never spawn siblings.
