@@ -4586,3 +4586,14 @@ FIX HANDED: recovery fence — launchctl unload/load com.motel666.backend → ve
 NEXT_EXPECTED_FROM_PEER: after operator reloads + regens, A confirms version==78dfd27 + stamps>0 on real rows = true Law 31 closure. If stamps stay 0 after backend==HEAD + fresh slate:mlb, CB traces the tracked_best write path. CB must NOT append a SHIP block until version==HEAD AND stamps>0.
 
 PROBE_REFS: live /api/ws/version=9ec7b25 (web fetch) · HEAD=78dfd27 · mlb_tracked_best_2026-06-11.json 0/106 stamps · file mtime 16:00 ET · `TZ='America/New_York' date` → 2026-06-11 16:33 EDT.
+
+## 2026-06-11 16:50 ET — Claude-A [Cowork, Opus 4.8] — KICKSTART FIXED LOCAL BACKEND; TUNNEL CACHE-STALE
+
+ACTION: operator ran the diagnostic + `launchctl kickstart -k` fence; A read .scratch/last.txt + re-checked live.
+- LOCAL BACKEND FIXED: `127.0.0.1:4000/api/ws/version` = 06fd53f (== HEAD), bootAt 2026-06-11T20:48Z, pid 93992. Old stale pid 1063 is DEAD (ps empty). com.motel666.backend.plist exists; the earlier `unload/load` no-op'd, `kickstart -k gui/<uid>/com.motel666.backend` cycled it cleanly.
+- TUNNEL CACHE-STALE: edge.motel666.com/api/ws/version STILL returns 9ec7b25 / pid 1063 (a DEAD process) → Cloudflare edge caches the version JSON. LESSON ([[feedback-verify-backend-version-local-not-tunnel]]): verify backend commit via LOCAL 127.0.0.1:4000, NOT the tunnel. The 0-stamps signal was the reliable one; the tunnel version was not.
+- DATA STILL UNSTAMPED: mlb_tracked_best 0/113, mtime 16:37 (BEFORE the 16:48 restart) — built by the old backend. Needs a FRESH slate:mlb now that the backend runs R2.
+
+NEXT_EXPECTED_FROM_PEER: operator re-runs slate:mlb → expect stamps>0 on the local file (true Law 31 closure); then A checks whether the tunnel DATA surfaces (/m, /status) are also cache-stale for the operator's viewing. R2 is live locally; scoring freeze begins once a fresh regen confirms stamps>0.
+
+PROBE_REFS: .scratch/last.txt (kickstart diag) · local 06fd53f pid 93992 · tunnel 9ec7b25 pid 1063 (cached, dead) · stamps 0/113 · HEAD 06fd53f · `TZ='America/New_York' date` → 2026-06-11 16:49 EDT.
