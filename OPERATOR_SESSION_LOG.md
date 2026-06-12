@@ -4659,3 +4659,14 @@ T2 BUILD ORDER (validated): 1) real per-player NegBinom ladders (P(X≥k) surviv
 NEXT_EXPECTED_FROM_PEER: CB runs an AUDIT-FIRST (read-only, no code) discovery for STEP 1 — what `pred.stats[family].ladder` is today, what data exists to fit a per-player count distribution, which sport/family to prototype first, where a fitted NegBinom survival fn plugs in (PRESERVED-safe?), + a Phase-1 plan & kill-switch — returns audit doc + plan + (no fence yet, audit is read-only) in ONE reply. NodeJS impl (no scipy; NegBinom PMF/survival in JS). Then operator approves → CB builds → A verifies vs repo.
 
 PROBE_REFS: docs/research/2026-06-11-parlay-ladder-playbook.md · [[project-parlay-engine-research]] · `TZ='America/New_York' date` → 2026-06-12 04:05 EDT.
+
+## 2026-06-12 05:49 ET — Claude-A [Cowork, Opus 4.8] — T2-L1 AUDIT + BUILD VERIFIED (ready to deploy)
+
+ACTION: verified CB's T2 Step-1 (NB shadow ladder) audit AND build against real files + re-ran everything in my sandbox. VERDICT: clean, freeze-safe, math-correct.
+- AUDIT (re-confirmed): overdispersion REAL on mlbBatterGameLogs (397 batters, median 16 games, 317 n≥10, ~89% var>mean, var/mean ~1.9) → NegBinom justified. Ladder today = heuristic blend (buildMlbPlayerDataset.js:180-187) that feeds scoring via modelProbForSide (buildMlbPropClusters.js:603) → shadow-field design is the correct freeze-safe call. (A's var/mean 1.9 vs CB's 2.14 = totalBases extraction diff; same conclusion.)
+- BUILD (re-ran in A sandbox): verifyNbLadderStep1 37/37 PASS; full runtime:verify 15/15 PASS (R2 fixture still green — nothing broke). FREEZE GUARD confirmed by grep: ladderNB/nbProbOver/nbFit referenced ONLY in makePlay (buildMlbPropClusters.js:1167-1170); modelProbOver/modelProbForSide/tierForPlay have ZERO refs → scoring byte-identical, R2 freeze intact. NB MATH reproduces: Rutschman n=16 mean 1.75 → P(TB≥1)=0.577 P(TB≥2)=0.372 (hand-checked). Validation probe honest: 0 forward rows (accrues post-deploy), 317/397 fittable (292 negbinom/25 poisson).
+- STATE: commits landed (HEAD 25d34c8 = feat eabd1d5 + test cbd2d6a + docs). NOT yet live — module-load kill-switch (MLB_NB_LADDER, default ON) needs a backend restart to emit ladderNB/nbProbOver.
+
+NEXT_EXPECTED_FROM_PEER: operator deploys (kickstart -k + slate:mlb regen — deploy lessons: NOT unload/load; verify LOCAL 127.0.0.1:4000 not tunnel) → A confirms local version==25d34c8 + nbProbOver lands on mlb_tracked_bets totalBases rows. Forward-validation accrues from the first post-deploy slate; NB-vs-heuristic gate (calibration+Brier) before any governed scoring-swap. No scoring change happens at this deploy (shadow only).
+
+PROBE_REFS: verifyNbLadderStep1 37/37 + runtime:verify 15/15 (A re-ran) · buildMlbPropClusters.js:1167-1170 freeze-guard grep · mlbBatterGameLogs overdispersion ~89%/~1.9 (A re-probe) · rutschman P(TB≥1)=0.577 (hand-checked) · `TZ='America/New_York' date` → 2026-06-12 05:49 EDT.
