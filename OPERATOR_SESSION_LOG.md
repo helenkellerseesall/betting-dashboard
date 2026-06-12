@@ -4549,6 +4549,21 @@ NEXT_EXPECTED_FROM_PEER: operator commits design-doc correction + log blocks (fe
 
 PROBE_REFS: operator-relayed 1,733/1,733 + Ohtani cap example · design §5 correction markers · TZ date check 17:13 EDT.
 
+## 2026-06-12 04:11 ET — Claude-B [Fable 5] — T2 STEP 1 AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
+
+ACTION: T2 Step 1 (real per-player ladders) audit per operator brief — full deliverable in docs/audits/2026-06-12-t2-ladders/step1_audit_plan.md. NO edits, NO fence beyond the doc+log commit.
+
+AUDIT_OUTCOME (all numbers from real probes this turn):
+1. ladder today = HEURISTIC, not fitted: writer projectHitterStats buildMlbPlayerDataset.js:155-279; totalBases rungs are linear blends (:180-187, e.g. tb2 = h2·0.62 + hrProb·0.25 + h1·0.13 + powerNorm·0.05); hr = naive powers (:193-197); ONLY stolenBases is a true fitted Poisson (:257-267, SHIP-2 precedent). Consumer = modelProbForSide buildMlbPropClusters.js:603 → modelProb → edge/tier ⇒ ladder changes are SCORING changes.
+2. Data: mlbBatterGameLogs 397 batters, 21d window, median 16 games/player, totalBases directly per game. OVERDISPERSION CONFIRMED ON OUR DATA: 317 batters n≥10, avg var/mean 2.14, 92% individually var>mean ⇒ NegBinom over Poisson justified empirically. Pitchers median 3 starts (NOT fittable); NBA median 6 games (NOT fittable until next season). n floor = 10 (playerPropHistory MIN_GAMES precedent); below ⇒ no field. HONEST LIMIT: 21d rolling caches ⇒ no as-of refit ⇒ validation forward-only.
+3. Prototype: MLB totalBases (data decides; only fittable population, TB direct in logs, most-heuristic current ladder, playbook §5 + operator MLB-first doctrine).
+4. Plug-in: SHADOW FIELD stats.totalBases.ladderNB + fit meta, additive, NOT consumed by scoring in v1 ⇒ FREEZE-COMPATIBLE (R2 freeze active since 06-11 16:36:52 ET; replacing ladder outright would violate it). PRESERVED check CLEAN (buildMlbPlayerDataset + buildMlbPropClusters not on PRESERVED.md) — no stop.
+5. Phase-1 plan: NEW pure negBinomLadder.js (MoM fit r=mean²/(var−mean), p=mean/var; PMF recurrence P(k+1)=P(k)·(r+k)/(k+1)·(1−p), no scipy; Poisson-limit when var≤mean; inline self-tests) · kill-switch MLB_NB_LADDER (MLB_BUCKET_TIER_POLICY pattern, OFF=byte-identical) · ladderNB rung-prob rides plays→tracked_bets additively (tierPolicy conditional-spread pattern) · forward validation probe (NB vs heuristic vs realized, calibration+Brier) · fixture verifyNbLadderStep1 incl. NEGATIVE assertion modelProbOver/modelProbForSide never read ladderNB (verifier-enforced freeze guard) → matrix 15 suites · scoring swap ONLY post-freeze post-validation as a governed version-bumped phase. NOT in scope: parlay math, correlation, NBA, pitchers, FE.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves Phase-1 build (or amends the plan). No code until approval.
+
+PROBE_REFS: docs/audits/2026-06-12-t2-ladders/step1_audit_plan.md · gamelog depth + overdispersion probes (this turn, inline) · TZ date check 04:11 EDT.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
