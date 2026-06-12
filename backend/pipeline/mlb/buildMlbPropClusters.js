@@ -1161,6 +1161,14 @@ function makePlay(args) {
     // The 14d verify filters on tierPolicy === "mlb-r2-v1"; ANY future scoring
     // change MUST bump this version in a governed phase (frozen-base doctrine).
     ...(MLB_TIER_POLICY_ON ? { tierPolicy: "mlb-r2-v1" } : {}),
+    // 2026-06-12 T2-L1 (mlb-nb-ladder-v1) — NB SHADOW rung for THIS play's line,
+    // validation ride-along ONLY (never read by scoring — verifier-enforced).
+    // Present IFF the shadow ladder exists on the stat AND has this exact rung.
+    // nbProbOver = fitted P(X ≥ ceil(line)) — the OVER-side probability; the
+    // validation probe derives the under side as 1 − nbProbOver.
+    ...(family === "totalBases" && stat?.ladderNB && stat.ladderNB[String(line)] != null
+      ? { nbProbOver: stat.ladderNB[String(line)], nbFit: { n: stat.ladderNBMeta?.n ?? null, method: stat.ladderNBMeta?.method ?? null } }
+      : {}),
     isLongshot,
     isAlternate,
     inCoreOddsBand,

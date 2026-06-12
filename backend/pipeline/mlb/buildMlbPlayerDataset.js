@@ -2,6 +2,44 @@
 
 const normalizeName = require("../../utils/normalizeName")
 
+// 2026-06-12 T2-L1 (mlb-nb-ladder-v1) — NegBinom SHADOW ladder kill-switch.
+// Read ONCE at module load (MLB_BUCKET_TIER_POLICY pattern). unset/"1" → ON;
+// ONLY the exact string "0" → OFF. OFF ⇒ projectHitterStats emits NO ladderNB
+// key ⇒ predictions byte-identical to pre-T2-L1. SHADOW FIELD doctrine: ladderNB
+// is consumed by NOTHING in scoring (verifier-enforced in verifyNbLadderStep1) —
+// it exists to be VALIDATED against realized outcomes during the R2 scoring
+// freeze before any governed swap. Evidence + plan:
+// docs/audits/2026-06-12-t2-ladders/step1_audit_plan.md
+const NB_LADDER_ON = String(process.env.MLB_NB_LADDER ?? "1") !== "0"
+try {
+  console.log(`[NB-LADDER-BOOT] MLB NegBinom shadow ladder ${NB_LADDER_ON ? "ON (default) — mlb-nb-ladder-v1, shadow-only" : "OFF — MLB_NB_LADDER=0, pre-T2-L1-identical"}`)
+} catch (_) { /* no-op */ }
+const { ladderFromLogs: _nbLadderFromLogs } = require("./negBinomLadder")
+
+// T2-L1 — lazy batter-gamelog cache for the NB fit (mirrors
+// pipeline/shared/playerPropHistory.js: same file, same normPlayer keying,
+// same 5-min TTL). Lookup miss / thin sample ⇒ null ⇒ NO field (honesty).
+let _nbLogCache = null
+let _nbLogCacheAt = 0
+let _nbNormPlayer
+try { _nbNormPlayer = require("../../storage/intelligence").normPlayer }
+catch (_) { _nbNormPlayer = (s) => String(s || "").toLowerCase().trim() }
+function _nbBatterGames(player) {
+  const name = _nbNormPlayer(player)
+  if (!name) return null
+  const now = Date.now()
+  if (!_nbLogCache || now - _nbLogCacheAt > 5 * 60 * 1000) {
+    try {
+      const raw = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "..", "data", "mlbBatterGameLogs.json"), "utf8"))
+      _nbLogCache = (raw && raw.players) || raw || {}
+    } catch (_) { _nbLogCache = {} }
+    _nbLogCacheAt = now
+  }
+  const entry = _nbLogCache[name]
+  if (!entry) return null
+  return Array.isArray(entry.games) ? entry.games : (Array.isArray(entry) ? entry : null)
+}
+
 // 2026-06-08 SHIP 2 — stolen-bases kill-switch. Read ONCE at module load
 // (CALIB_LINEAWARE / NBA_BUCKET_TIER_POLICY precedent). unset/"1" → ON; ONLY the
 // exact string "0" → OFF. OFF ⇒ projectHitterStats emits NO stolenBases band
@@ -268,9 +306,26 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
     }
   }
 
+  // 2026-06-12 T2-L1 (mlb-nb-ladder-v1) — fitted NegBinom SHADOW ladder for
+  // totalBases, from the batter's REAL game log (21d window, n≥10 floor per
+  // playerPropHistory MIN_GAMES). The heuristic `ladder` above is UNTOUCHED and
+  // remains the only scoring input (R2 freeze). `__nbGamesOverride` lets the
+  // fixture inject deterministic logs without fs. Thin/missing ⇒ no key.
+  let _tbNB = null
+  if (NB_LADDER_ON) {
+    try {
+      const games = playerObj?.__nbGamesOverride || _nbBatterGames(playerObj?.player)
+      if (games) _tbNB = _nbLadderFromLogs(games, "totalBases")
+    } catch (_) { _tbNB = null }
+  }
+
   return {
     hits: { floor: hitsFloor, mostLikely: hitsMedian, ceiling: hitsCeiling, ladder: hitsLadder },
-    totalBases: { floor: tbFloor, mostLikely: tbMedian, ceiling: tbCeiling, ladder: tbLadder },
+    totalBases: {
+      floor: tbFloor, mostLikely: tbMedian, ceiling: tbCeiling, ladder: tbLadder,
+      // T2-L1 shadow field — present IFF switch ON and fit succeeded (n≥10).
+      ...(_tbNB ? { ladderNB: _tbNB.ladder, ladderNBMeta: _tbNB.meta } : {}),
+    },
     hr: { floor: hrFloor, mostLikely: hrMedian, ceiling: hrCeiling, hrProb, ladder: hrLadder },
     rbis: { floor: rbiFloor, mostLikely: rbiMedian, ceiling: rbiCeiling, ladder: rbiLadder },
     runs: { floor: runsFloor, mostLikely: runsMedian, ceiling: runsCeiling, ladder: runsLadder },

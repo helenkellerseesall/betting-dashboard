@@ -825,6 +825,10 @@ function leanBet(play, date) {
     // (the graded-corpus surface the 14d re-probe filters on). Present IFF
     // upstream stamped it; ABSENT when MLB_BUCKET_TIER_POLICY=0 (byte-identical).
     ...(play?.tierPolicy != null ? { tierPolicy: play.tierPolicy } : {}),
+    // 2026-06-12 T2-L1 — NB shadow-rung ride-along (validation only; never read
+    // by scoring). Present IFF upstream attached it; ABSENT when MLB_NB_LADDER=0
+    // or no fitted ladder for this batter/line (byte-identical OFF).
+    ...(play?.nbProbOver != null ? { nbProbOver: play.nbProbOver, nbFit: play.nbFit ?? null } : {}),
     result: "pending",
     settledAt: null,
     // 2026-05-28 — Lane B Phase 3 v0.1.4 — marketKey identity preservation.
