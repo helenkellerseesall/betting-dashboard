@@ -4622,3 +4622,13 @@ VERDICT: R2 SHIPPED + LIVE + VERIFIED. Scoring freeze (~14d, MLB pick/edge/tier 
 FLAGS FOR CB (non-blocking): (1) phase1_design §5 named `mlb_tracked_best` as the Law 31 closure target — wrong file; the stamp lands on `mlb_tracked_bets`. Correct the doc. (2) The regen re-stamped the ENTIRE rolling CLV window (1733 rows incl. historical), so tierPolicy alone ≠ "assigned after ship"; the 14d verify should add a ship-date/timestamp filter for a clean forward-only read (or treat it as an immediate re-tiered backtest, which is a bonus). (3) Optional: carry tier/tierPolicy through the best-available serializer if we ever want the stamp visible on the display file too — cosmetic.
 
 PROBE_REFS: mlb_tracked_bets_2026-06-11.json 1733/1733 stamped (Object.values parse) · buildMlbPropClusters.js:879/:1000/:1031/:1163 · mlbIsolatedRoutes.js:100 · local backend 06fd53f · `TZ='America/New_York' date` → 2026-06-11 16:59 EDT.
+
+## 2026-06-12 04:05 ET — Claude-A [Cowork, Opus 4.8] — PIVOT TO T2 (parlay/ladder engine), STEP 1 GO
+
+ACTION: R2 closed (T1 milestone — honest single-prop tier on the graded ledger + 14d freeze running). Operator directed a deep research pass on the multi-leg/lotto plays (his day-1 goal); deliverable = repo `docs/research/2026-06-11-parlay-ladder-playbook.md` + memory [[project-parlay-engine-research]]. Operator approved + said GO. Memory ironclad'd for compaction (MEMORY.md START-HERE + Product index; ranked-path §2026-06-12). Workflow tightened to 3-relays-per-feature; A verifies against the real repo before handing any probe.
+
+T2 BUILD ORDER (validated): 1) real per-player NegBinom ladders (P(X≥k) survival fn) ← STARTING · 2) correlation engine (copula→sim, sign-enforced) · 3) parlay constructor + EV gate · 4) fractional-Kelly staking · 5) +EV leg models (barrel/xHR HR, platoon TB, first-basket, threes w/ regression) · 6) execution reality (retail limits → sharper books).
+
+NEXT_EXPECTED_FROM_PEER: CB runs an AUDIT-FIRST (read-only, no code) discovery for STEP 1 — what `pred.stats[family].ladder` is today, what data exists to fit a per-player count distribution, which sport/family to prototype first, where a fitted NegBinom survival fn plugs in (PRESERVED-safe?), + a Phase-1 plan & kill-switch — returns audit doc + plan + (no fence yet, audit is read-only) in ONE reply. NodeJS impl (no scipy; NegBinom PMF/survival in JS). Then operator approves → CB builds → A verifies vs repo.
+
+PROBE_REFS: docs/research/2026-06-11-parlay-ladder-playbook.md · [[project-parlay-engine-research]] · `TZ='America/New_York' date` → 2026-06-12 04:05 EDT.
