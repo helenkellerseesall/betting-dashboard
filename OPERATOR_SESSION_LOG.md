@@ -4564,6 +4564,18 @@ NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves Phase
 
 PROBE_REFS: docs/audits/2026-06-12-t2-ladders/step1_audit_plan.md · gamelog depth + overdispersion probes (this turn, inline) · TZ date check 04:11 EDT.
 
+## 2026-06-12 05:28 ET — Claude-B [Fable 5] — T2-L1 BUILT (shadow-only), AWAITING A-VERIFY + OPERATOR SHIP FENCE
+
+ACTION: T2 Step 1 Phase-1 built per approved plan. NEW pure backend/pipeline/mlb/negBinomLadder.js (MoM fit r=mean²/(var−mean) p=mean/var, Poisson-limit when var≤mean, PMF recurrence — no scipy; inline self-tests 19/19). buildMlbPlayerDataset.js: MLB_NB_LADDER kill-switch (read-once, [NB-LADDER-BOOT]) + lazy gamelog cache (playerPropHistory pattern: same file, normPlayer keys, 5-min TTL) + projectHitterStats emits totalBases.ladderNB+ladderNBMeta IFF ON and n≥10 (__nbGamesOverride fixture hook). buildMlbPropClusters.makePlay: nbProbOver (fitted P(X≥ceil(line)) at the play's line) + nbFit{n,method} conditional ride-along, totalBases-gated. phase4Tracking.leanBet: persists both to mlb_tracked_bets (omit-when-absent). NEW verifyNbLadderStep1.js 37/37 incl. FREEZE GUARD negative assertions (modelProbOver/modelProbForSide/projectionConfidence/calibrateMlbConfidence/tierForPlay contain NO ladderNB/nbProbOver reference — function-slice scoped; makePlay is the only allowed site). Matrix registered → runtime:verify 15/15 PASS. node --check clean ×5. Brain docs updated per Law 12 (gitignored, edits only). Diff: 4 files +69/−1 plus 2 new files; full hunks in chat.
+
+REAL-OUTPUT EVIDENCE (this turn): self-tests 19/19 · fixture 37/37 · matrix 15/15 · real-batter smoke through the real fs path: rutschman n=16 → P(TB≥1)=0.577 P(TB≥2)=0.372 (negbinom, mean 1.75 var 6.33) · ohtani n=18 → P(TB≥2)=0.696 · judge honestly absent (not in 21d cache). Validation probe .scratch/probe_t2_nbladder_validation.js run: forward rows 0 (honest — accrues post-ship), now-mode coverage 317/397 fittable (80%), 292 negbinom / 25 poisson.
+
+FREEZE STATEMENT: R2 scoring freeze INTACT — ladderNB/nbProbOver consumed by nothing in scoring (verifier-enforced); picks/edges/tiers byte-identical; OFF switch removes every new key.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A verifies (re-run fixture + probe in A's sandbox; check freeze-guard slices); operator runs the ship fence (in chat: 3 commits feat/test/docs + push + kickstart + cache-busted version==HEAD + slate:mlb regen + nbProbOver presence probe → .scratch/last.txt). Backend restart required: YES (module-load kill-switch). Validation gate: ≥14d forward graded TB picks AND NB beats heuristic (calibration+Brier) before any governed scoring-swap phase.
+
+PROBE_REFS: backend/scripts/verifyNbLadderStep1.js (37/37) · runtime:verify 15/15 · .scratch/probe_t2_nbladder_validation.txt · real-batter smoke (inline this turn) · TZ date check 05:28 EDT.
+
 ## 2026-06-11 04:16 ET — Claude-A [Cowork, Opus 4.8] — PHASE 1 DESIGN VERIFIED
 
 ACTION: reviewed CB's Phase 1 design against the actual artifacts (read-only). VERDICT: clean, scoped to proven cells, safe to build pending operator's §8 answers.
