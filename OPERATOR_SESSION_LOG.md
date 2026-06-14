@@ -4817,6 +4817,20 @@ NEXT_EXPECTED_FROM_PEER: CB audit-first (read-only) on shadow marginal calibrati
 
 PROBE_REFS: ranked-path §FREEZE-WINDOW PLAN · calibrationDampener.js (PRESERVED) · R2 phase0_bucket_tier_probe.md · probeCorrelationValidation (Brier baseline) · `TZ='America/New_York' date` → 2026-06-14 17:04 EDT.
 
+## 2026-06-14 17:17 ET — Claude-A [Cowork, Opus 4.8] — TRACK 1 CALIBRATION AUDIT VERIFIED (major finding: dampener is DORMANT)
+
+ACTION: verified CB's 17:12 calibration audit vs real code + re-ran the reliability probe. VERDICT: accurate, major finding confirmed, method sound — recommend approve.
+- DORMANT-DAMPENER CONFIRMED IN CODE: dampenModelProb's only consumers are serve-time/display (workstationRoutes.js:49→:60-72 sets c.calibrationStatus label by checking whether dampening WOULD move the value — NEVER replaces modelProb; :2220 also route-time) + sysAudit (persists corpus) + statusRoute (display). buildMlbPropClusters.js (the SCORING path, modelProbForSide :603) does NOT import/use the dampener. ⇒ scoring/persisted modelProb is RAW. The PRESERVED dampener computes a correction and DISCARDS it (label only). Big, real, pre-existing finding.
+- OVERCONFIDENCE REPRODUCED EXACTLY (.scratch/probe_marginal_reliability.js, A re-ran): OVERALL stated 0.281 vs realized 0.121 = +16.1pp. NONLINEAR (0.0-0.1 −4.5pp → 0.3-0.4 +24.5 → 0.6-0.7 +20.9) ⇒ linear multiplier can't fix, isotonic needed. Family: ks +25.0, outs +29.8, runs +16.4, rbis +16.1, hits +16.0, totalBases +14.9, hr +3.7 (~calibrated — matches R2 HR-market-rate). Bucket: mod_fav +22.8, mod_dog +16.7, longshot +15.6, heavy_fav +8.9 (mod_fav worst — matches R2 mid-fav toxic). UNIFIES all 3 prior proofs (all measured RAW modelProb).
+- METHOD sound: isotonic PAVA per family (monotone, nonparametric, pure JS) + fallback ladder + shrink-thin + Platt fallback. Shadow remaps RAW modelProb; eventual live = EXTEND the PRESERVED dampener (replace linear w/ isotonic + wire onto cluster path), post-freeze + approval (Law-1 clean).
+- HONEST FRAME for operator: this is GOOD (a real, large, uncorrected error → calibration has genuine room) AND a reality check (correcting overconfidence SHRINKS apparent edges — a "28%" pick that's really 12% was a bad bet; calibration turns on HONESTY, not profit; then we see where real edge survives).
+
+A REC: APPROVE the Phase-1 SHADOW build. Validation must include the through-line cross-check: copula-with-calibrated-marginals vs naive.
+
+NEXT_EXPECTED_FROM_PEER: operator approves → A drafts build handoff → CB builds (isotonicCalibration.js + mlbMarginalCalibration.js + config + validation + fixture, matrix 17→18, shadow-only) → A verifies → operator verifies. Live wiring is post-freeze (~06-25) + approval.
+
+PROBE_REFS: grep dampenModelProb (consumers = workstationRoutes/sysAudit/statusRoute, NOT buildMlbPropClusters) · workstationRoutes.js:60-72 (label-only) · probe_marginal_reliability +16.1pp (A re-ran) · `TZ='America/New_York' date` → 2026-06-14 17:17 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
@@ -4861,3 +4875,25 @@ DEPLOY: NO live reload needed — engine is standalone, wired into nothing live 
 NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyCorrelation + runtime:verify + the validation probe in A's sandbox + reads the freeze guard; operator runs the ship fence (3 commits feat/test/docs + push). No scoring change ships.
 
 PROBE_REFS: gaussianCopula self-test 10/10 · verifyCorrelation 26/26 · runtime:verify 17/17 · .scratch/last.txt (sign 12/12; held-out dependence 0.007196<0.007236) · backend/config/mlbCorrelationPriors.json · `TZ='America/New_York' date` → 2026-06-14 16:31 EDT.
+
+## 2026-06-14 17:12 ET — Claude-B [Cowork, Opus 4.8] — TRACK 1 (SHADOW MARGINAL CALIBRATION) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
+
+ACTION: Track-1 marginal-calibration audit — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-marginal-calibration/audit_plan.md. One discovery probe (.scratch/probe_marginal_reliability.js). NO production code touched. Freeze-safe (shadow; PRESERVED dampener untouched).
+
+HEADLINE (sharper than the brief's premise): the calibration dampener is DORMANT on every value path. dampenModelProb (calibrationDampener.js:569) is imported in exactly ONE place — workstationRoutes.js:67-68 — and there it only sets a DISPLAY label c.calibrationStatus ("calibrated"/"calibrated_shown_raw"/"uncalibrated") by checking whether it WOULD move the value; it NEVER replaces modelProb. So the scoring modelProb (modelProbForSide buildMlbPropClusters.js:603 → :944/:1151 → phase4Tracking:819 persist → prediction_snapshots model_prob intelligence.js:671/694) is RAW (only a fixed 0.65 shrink). The dampener measures overconfidence (its corpus stated=raw avg) but discards the result.
+
+WHY RESIDUAL (3): (1) NOT WIRED onto scoring/persistence/corpus modelProb; (2) LINEAR-ONLY — dampenModelProb = mp×multiplier, multiplier clamped [0.40,1.10] line-aware / [0.20,1.10] id-join — cannot remap a nonlinear curve; (3) FLOOR clamp + thin-bucket no-ops under-correct the worst buckets.
+
+QUANTIFIED (.scratch/probe_marginal_reliability.js, 14d, 13,351 settled): OVERALL stated 0.281 vs realized 0.121 = +16.1pp overconfident. NONLINEAR per decile (−4.5pp @0.0-0.1 → +24.5 @0.3-0.4 → +20.9 @0.6-0.7) ⇒ linear multiplier can't fix. Per family: outs +29.8, ks +25.0, runs +16.4, rbis +16.1, hits +16.0, totalBases +14.9, hr +3.7 (~calibrated). Per bucket: mod_fav +22.8, mod_dog +16.7, longshot +15.6, heavy_fav +8.9. Unifies all 3 proofs (R2 anti-predictive, inverted ladder, correlation Brier) — all measured RAW modelProb.
+
+METHOD: isotonic (PAVA) per family — nonparametric, monotone (preserves ranking), pure JS no scipy; fallback ladder (family×bucket → family → global) + shrink-to-identity on thin bins. Platt = thin-data fallback. Composition: dampener not on path → shadow remaps RAW modelProb directly; EVENTUAL live change EXTENDS the canonical dampener (replace clamped-linear w/ isotonic + wire onto cluster path) — post-freeze + approval (Law 1; don't leave a permanent parallel calibrator).
+
+PLUG-IN (shadow): NEW shared/isotonicCalibration.js (PAVA) + config/mlbMarginalCalibration.json (per-family maps, derived) + mlb/mlbMarginalCalibration.js (calibrateModelProb + kill-switch MLB_MARGINAL_CALIB). modelProbCalibrated computed alongside; feeds NOTHING live. PRESERVED dampener NOT touched.
+
+VALIDATION: (a) calibrated beats raw on held-out Brier + reliability gap; (b) THE THROUGH-LINE — re-run probeCorrelationValidation with CALIBRATED marginals: does the copula now beat naive product? (with raw modelProb it lost purely due to overconfident marginals). That is the proof calibration unlocks the parlay layer.
+
+SCOPE v1: MLB modelProb shadow calibration + validation only. OUT: live dampener change/scoring wire (post-freeze+approval), NBA, parlay constructor. Fixture verifyMarginalCalibration (matrix 17→18): monotonicity + calibrated gap<raw + fallback + kill-switch + FREEZE GUARD.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves the Phase-1 shadow build (or amends). No code until approval. Key callout for operator: the real fix (wiring calibrated modelProb onto edge/tier + folding into the dampener) is a SCORING change — gated by the R2 freeze (~06-25); v1 only proves it in shadow.
+
+PROBE_REFS: docs/audits/2026-06-15-t2-marginal-calibration/audit_plan.md · .scratch/probe_marginal_reliability.js (16.1pp overall, per-family/bucket) · calibrationDampener.js:103/204/241/569 · workstationRoutes.js:67-68 (status-label only) · buildMlbPropClusters.js:603/944/1151 · phase4Tracking.js:819 · intelligence.js:671/694 · `TZ='America/New_York' date` → 2026-06-14 17:12 EDT.
