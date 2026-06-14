@@ -53,6 +53,7 @@ const SUITES = [
   "verifySlateGamesControl",   // Phase Status-CLV-Display-Honesty-1A — /status never lies "no games" while games happened
   "verifyMlbTierPolicyR2",     // R2 mlb-r2-v1 (2026-06-11) — badge caps + kill-switch byte-identity + tierPolicy stamp
   "verifyNbLadderStep1",       // T2-L1 mlb-nb-ladder-v1 (2026-06-12) — NB shadow ladder math + freeze guard (scoring never reads ladderNB)
+  "verifySeasonGate",          // Season-Switch-1A (2026-06-14) — per-sport ON/OFF gate: fresh-read, fail-open, slate-gate-before-call, scheduler 6NBA/3MLB gated + grading/settlement/audit ungated
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
