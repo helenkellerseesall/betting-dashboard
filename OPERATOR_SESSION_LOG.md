@@ -4713,6 +4713,35 @@ NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator runs `launchct
 
 PROBE_REFS: docs/audits/2026-06-14-season-switch/audit_plan.md · scheduler.sh:126-429 · package.json:17-18 · statusRoute.js:71-79/121/1379 · runtimeVerify.js:40-55 (15 suites) · .scratch/scheduler-launchd.log (line-103 unbound, real) · nba/mlb_tracked_bets_2026-06-13.json present · `TZ='America/New_York' date` → 2026-06-14 03:33 EDT.
 
+## 2026-06-14 04:08 ET — Claude-B [Cowork, Opus 4.8] — SEASON-SWITCH-1A BUILT (awaiting operator ship fence + A-verify)
+
+ACTION: Phase Season-Switch-1A built per operator-approved plan (decisions: tracked config; toggle prints commit fence; grading/settlement/audit/autoticker UNGATED). NO scoring touched. Sandbox-verified with real output; operator runs the ship fence (handed in chat) — nothing claimed as run.
+
+BUILD (12 files):
+- NEW backend/config/seasonsActive.json — tracked source of truth {mlb:true, nba:false, nfl:false, nhl:false}.
+- NEW backend/pipeline/shared/seasonGate.js — isSportEnabled() canonical authority; fresh-read (no require-cache), fail-OPEN + [SEASON-GATE] warn; snapshot() for /status.
+- backend/scripts/slateMlb.js + slateNba.js — gate at main() entry (before any network step), covers scheduler + autopilot + manual.
+- backend/scripts/scheduler.sh — sport_on() helper (defers to node module via exit code); wrapped 6 NBA + 3 MLB populator/injury blocks. grading/settlement/audit/sysAudit/autoticker left ungated.
+- backend/scripts/sysAudit.js — 3 sport loops skip OFF sports (INFO not WARN).
+- backend/routes/statusRoute.js — sectionSportsActive() registered in router.get("/") + /snapshot.
+- frontend/status/index.html — cardSportsActive + renderSportsActive (GREEN on-firing / RED on-not-firing / GREY off / DIM no-pipeline).
+- NEW backend/scripts/sportToggle.js + package.json sport:on/sport:off — writes config + prints commit fence.
+- NEW backend/scripts/verifySeasonGate.js + runtimeVerify.js — matrix 15→16.
+
+REAL-OUTPUT EVIDENCE (sandbox this turn):
+- seasonGate self-test: mlb ON, nba/nfl/nhl OFF; bash exit codes 0(mlb)/1(nba); unknown sport → fail-open true.
+- Behavioral: `node slateNba.js` → "slate:nba SKIPPED … No calls made", exit 0, NO network attempt. `node slateMlb.js` → passes gate, reaches Step 1 (ECONNREFUSED expected, no backend in sandbox) = gate let it through.
+- Toggle round-trip on→off; ended at ship default nba OFF; prints commit fence.
+- sysAudit: "NBA: season OFF — … (audit skipped)" in sections 2/5/6; MLB audits normally (2602 tracked_bets 06-13).
+- verifySeasonGate 29/29. runtime:verify 16/16 (verifyMlbTierPolicyR2 + verifyNbLadderStep1 green = R2/T2-L1 FREEZE INTACT). FE JS parses (new Function). bash -n scheduler.sh OK. node --check all clean.
+- git: 8 modified + 4 new (mine). Stray backend/data/*.meta.json are live-populator artifacts — NOT in my fence (explicit add, never -A).
+
+FREEZE STATEMENT: seasonGate is outside the scoring path (gates at slate entry, before the engine). buildMlbPropClusters/tierForPlay/makePlay/ladderNB untouched. PRESERVED.md untouched.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A re-runs runtime:verify + verifySeasonGate in A's sandbox + reads the diff/freeze; operator runs the ship fence (3 commits feat/test/docs + push + scheduler kickstart [also clears the live line-103 crash] + backend kickstart [~04:00 ET = outside tipoff windows] + cache-busted LOCAL version==HEAD + sports-active card probe → .scratch/last.txt). Closure: scheduler pgrep new pid + line-103 line gone + /status sportsActive shows nba off_paused (grey), mlb on. INC-018 marked RESOLVED after reload confirms.
+
+PROBE_REFS: runtime:verify 16/16 · verifySeasonGate 29/29 · slateNba SKIP exit 0 (no call) · slateMlb gate-pass ECONNREFUSED · sysAudit OFF-skip lines · git diff --stat 8 files +154/−10 + 4 new · `TZ='America/New_York' date` → 2026-06-14 04:08 EDT.
+
 ## 2026-06-14 03:43 ET — Claude-A [Cowork, Opus 4.8] — SEASON-SWITCH AUDIT VERIFIED (fresh CB on Opus 4.8 — Fable suspended)
 
 ACTION: new Claude-B (Opus 4.8, replacing the Fable chat the gov directive killed) caught up from the log + did the season-switch audit. A verified every cited line/file vs the real repo. VERDICT: accurate, sound, safe — recommend approve.

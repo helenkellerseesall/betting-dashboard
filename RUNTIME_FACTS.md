@@ -41,6 +41,16 @@ Last updated: 2026-06-06
 - **Script:** `backend/scripts/scheduler.sh`
 - **Cadence:** `slate:mlb` hourly 9 AM – 11 PM ET, `slate:nba` every 30 min 4 PM – 11:30 PM ET
 
+## Season switch (Phase Season-Switch-1A, 2026-06-14)
+
+- **Source of truth:** `backend/config/seasonsActive.json` (tracked). `{ sports: { mlb, nba, nfl, nhl } }` booleans. Defaults: **mlb ON, nba/nfl/nhl OFF.**
+- **Authority (Law 1):** `backend/pipeline/shared/seasonGate.js` — `isSportEnabled(sport)`. Reads the JSON FRESH every call (no require-cache); **fail-OPEN** (missing/garbled config or unknown sport → treated ON + `[SEASON-GATE]` warn).
+- **Toggle (no redeploy):** `cd backend && npm run sport:off <sport>` or `npm run sport:on <sport>` (writes the file + prints a commit fence). Or edit the JSON directly. Effect is live within ≤30s — scheduler reads per-tick, slate scripts per-invocation, `/status` per-request.
+- **Where it gates:** slate scripts at `main()` entry (covers scheduler + autopilots + manual); scheduler.sh wraps the 6 NBA + 3 MLB populator/injury blocks via the `sport_on()` helper. **NOT gated** (sport-agnostic): grading / settlement / audit:nightly / sysAudit / status-autoticker / caffeinate — an OFF sport's existing bets keep grading.
+- **Kill-safety:** OFF stops NEW calls/writes only; deletes nothing; reversible.
+- **Deploy requirement:** editing `scheduler.sh` needs a LaunchAgent reload (running copy is otherwise stale): `launchctl kickstart -k gui/$(id -u)/com.motel666.scheduler`. The `/status` "sports active" card needs one backend reload to ship: `launchctl kickstart -k gui/$(id -u)/com.motel666.backend` — do it OUTSIDE PM-ET tipoff windows (daytime restarts hurt MLB CLV capture). Toggling thereafter needs NO restart.
+- **/status:** the "sports active" card (sectionSportsActive) shows GREEN on+firing / RED on+not-firing / GREY off-paused / DIM no-pipeline (NFL/NHL).
+
 ## Caffeinate
 
 - **LaunchAgent:** `com.motel666.caffeinate`
