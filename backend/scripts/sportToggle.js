@@ -19,8 +19,7 @@
  * statusRoute code ships, not for toggles.)
  */
 
-const fs = require("fs")
-const { CONFIG_PATH, KNOWN_SPORTS } = require("../pipeline/shared/seasonGate")
+const { CONFIG_PATH, KNOWN_SPORTS, setSportEnabled, snapshot } = require("../pipeline/shared/seasonGate")
 
 function die(msg) {
   console.error(`[sport-toggle] ERROR: ${msg}`)
@@ -35,26 +34,18 @@ const sport = String(process.argv[3] || "").trim().toLowerCase()
 if (action !== "on" && action !== "off") die(`first arg must be "on" or "off" (got "${process.argv[2] || ""}")`)
 if (!KNOWN_SPORTS.has(sport)) die(`unknown sport "${process.argv[3] || ""}" — must be one of: ${[...KNOWN_SPORTS].join(", ")}`)
 
-let cfg
-try {
-  cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"))
-} catch (e) {
-  die(`cannot read/parse ${CONFIG_PATH}: ${e && e.message ? e.message : e}`)
-}
-if (!cfg || typeof cfg.sports !== "object" || cfg.sports == null) {
-  die(`${CONFIG_PATH} has no valid "sports" object`)
-}
-
 const want = action === "on"
-const before = cfg.sports[sport]
-cfg.sports[sport] = want
-cfg.updatedAt = new Date().toISOString()
-
-fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", "utf8")
-
 const fmt = (v) => (v === true ? "ON" : v === false ? "OFF" : "(unset)")
+let before, snap
+try {
+  before = snapshot().sports[sport]
+  snap = setSportEnabled(sport, want)   // ONE canonical write (Law 1) — same fn the /status route calls
+} catch (e) {
+  die(e && e.message ? e.message : String(e))
+}
+
 console.log(`[sport-toggle] ${sport.toUpperCase()}: ${fmt(before)} -> ${fmt(want)}`)
-console.log(`[sport-toggle] all sports now: ${Object.entries(cfg.sports).map(([s, v]) => `${s}=${fmt(v)}`).join("  ")}`)
+console.log(`[sport-toggle] all sports now: ${Object.entries(snap.sports).map(([s, v]) => `${s}=${fmt(v)}`).join("  ")}`)
 console.log(`[sport-toggle] wrote ${CONFIG_PATH}`)
 console.log("")
 console.log("Commit fence (keeps the tree clean):")

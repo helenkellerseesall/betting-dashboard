@@ -104,7 +104,28 @@ function snapshot() {
   }
 }
 
-module.exports = { isSportEnabled, snapshot, CONFIG_PATH, KNOWN_SPORTS }
+/**
+ * setSportEnabled(sport, enabled) → { ok, sports, ... } | throws
+ * Phase Season-Switch-2A — the ONE canonical write (Law 1). Used by the CLI
+ * (sportToggle.js) AND the /status route — neither duplicates the file-write.
+ * Validates sport ∈ KNOWN_SPORTS and enabled is a real boolean; flips one flag,
+ * stamps updatedAt, writes seasonsActive.json; returns the fresh snapshot().
+ * Throws on bad input or unreadable/garbled config (caller decides the response).
+ */
+function setSportEnabled(sport, enabled) {
+  const key = String(sport == null ? "" : sport).trim().toLowerCase()
+  if (!KNOWN_SPORTS.has(key)) throw new Error(`unknown sport "${sport}" — must be one of: ${[...KNOWN_SPORTS].join(", ")}`)
+  if (typeof enabled !== "boolean") throw new Error(`enabled must be a boolean (got ${typeof enabled})`)
+  let cfg
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) } catch (e) { throw new Error(`cannot read/parse ${CONFIG_PATH}: ${e && e.message ? e.message : e}`) }
+  if (!cfg || typeof cfg.sports !== "object" || cfg.sports == null) throw new Error(`${CONFIG_PATH} has no valid "sports" object`)
+  cfg.sports[key] = enabled
+  cfg.updatedAt = new Date().toISOString()
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + "\n", "utf8")
+  return snapshot()
+}
+
+module.exports = { isSportEnabled, snapshot, setSportEnabled, CONFIG_PATH, KNOWN_SPORTS }
 
 // Inline self-test: `node backend/pipeline/shared/seasonGate.js`
 if (require.main === module) {
