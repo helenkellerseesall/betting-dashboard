@@ -1,0 +1,108 @@
+{
+  "_doc": "MLB same-game 2-leg correlation priors (Phase T2-Correlation-1A). rhoZ = latent Gaussian-copula correlation per STRUCTURAL leg-type pair, fit so copulaJoint(px,py,rhoZ)=pBoth on the graded ledger. CAVEAT: n counts co-occurring pairs (within-game clustered); effective independent sample ~= games below. rhoZ are PRIORS — sign is robust, magnitude is coarse — refine by re-running deriveMlbCorrelationPriors.js as graded days accrue. Consumed by backend/pipeline/mlb/mlbCorrelationEngine.js (SHADOW only; feeds nothing in scoring).",
+  "generatedAt": "2026-06-14T20:24:44.352Z",
+  "source": {
+    "ledgerFiles": 14,
+    "settledLegs": 13351,
+    "settledGames": 114,
+    "minN": 150
+  },
+  "types": {
+    "SAMEteam_2hitters_over_x_over": {
+      "rhoZ": 0.1232,
+      "n": 50000,
+      "px": 0.0603,
+      "py": 0.0835,
+      "pBoth": 0.0076,
+      "phi": 0.039
+    },
+    "pitcherK_over__x__OPP_hitter_over": {
+      "rhoZ": -0.2096,
+      "n": 6166,
+      "px": 0.152,
+      "py": 0.0714,
+      "pBoth": 0.0052,
+      "phi": -0.0612
+    },
+    "SAMEhitter_over__hits+totalBases": {
+      "rhoZ": 0.8091,
+      "n": 1238,
+      "px": 0.063,
+      "py": 0.0654,
+      "pBoth": 0.0339,
+      "phi": 0.496
+    },
+    "SAMEhitter_over__rbis+totalBases": {
+      "rhoZ": 0.6542,
+      "n": 818,
+      "px": 0.0465,
+      "py": 0.0709,
+      "pBoth": 0.0208,
+      "phi": 0.3237
+    },
+    "SAMEhitter_over__runs+totalBases": {
+      "rhoZ": 0.5638,
+      "n": 643,
+      "px": 0.0373,
+      "py": 0.0451,
+      "pBoth": 0.0109,
+      "phi": 0.2339
+    },
+    "SAMEhitter_over__hits+rbis": {
+      "rhoZ": 0.4549,
+      "n": 593,
+      "px": 0.0725,
+      "py": 0.0911,
+      "pBoth": 0.0219,
+      "phi": 0.2053
+    },
+    "SAMEhitter_over__hr+totalBases": {
+      "rhoZ": 0.8658,
+      "n": 399,
+      "px": 0.0627,
+      "py": 0.1153,
+      "pBoth": 0.0501,
+      "phi": 0.5543
+    },
+    "SAMEhitter_over__hits+runs": {
+      "rhoZ": 0.3374,
+      "n": 384,
+      "px": 0.0495,
+      "py": 0.0495,
+      "pBoth": 0.0078,
+      "phi": 0.1141
+    },
+    "SAMEhitter_over__hits+hr": {
+      "rhoZ": 0.5531,
+      "n": 288,
+      "px": 0.0729,
+      "py": 0.1146,
+      "pBoth": 0.0313,
+      "phi": 0.2765
+    },
+    "SAMEhitter_over__hr+rbis": {
+      "rhoZ": 0.6998,
+      "n": 221,
+      "px": 0.0905,
+      "py": 0.1448,
+      "pBoth": 0.0543,
+      "phi": 0.408
+    },
+    "SAMEhitter_over__rbis+runs": {
+      "rhoZ": 0.4204,
+      "n": 215,
+      "px": 0.0837,
+      "py": 0.0698,
+      "pBoth": 0.0186,
+      "phi": 0.1809
+    },
+    "SAMEhitter_over__hr+runs": {
+      "rhoZ": 0.5348,
+      "n": 209,
+      "px": 0.0574,
+      "py": 0.1053,
+      "pBoth": 0.0239,
+      "phi": 0.2504
+    }
+  }
+}
