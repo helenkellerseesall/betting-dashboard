@@ -4670,3 +4670,17 @@ ACTION: verified CB's T2 Step-1 (NB shadow ladder) audit AND build against real 
 NEXT_EXPECTED_FROM_PEER: operator deploys (kickstart -k + slate:mlb regen — deploy lessons: NOT unload/load; verify LOCAL 127.0.0.1:4000 not tunnel) → A confirms local version==25d34c8 + nbProbOver lands on mlb_tracked_bets totalBases rows. Forward-validation accrues from the first post-deploy slate; NB-vs-heuristic gate (calibration+Brier) before any governed scoring-swap. No scoring change happens at this deploy (shadow only).
 
 PROBE_REFS: verifyNbLadderStep1 37/37 + runtime:verify 15/15 (A re-ran) · buildMlbPropClusters.js:1167-1170 freeze-guard grep · mlbBatterGameLogs overdispersion ~89%/~1.9 (A re-probe) · rutschman P(TB≥1)=0.577 (hand-checked) · `TZ='America/New_York' date` → 2026-06-12 05:49 EDT.
+
+## 2026-06-14 02:41 ET — Claude-A [Cowork, Opus 4.8] — HEALTH CHECK (operator back after ~2 days)
+
+ACTION: full health probe from the mounted repo + sysAudit output (audit_23.txt). VERDICT: healthy, nothing silently broken; 2 cleanups worth doing. (Caught + corrected my own probe error: CLV field is `closeOdds`, not `closingOdds` — CLV is NOT broken.)
+- RUNNING: snapshots fresh (snapshot-mlb.json + snapshot.json 23:30 ET 06-13); scheduler firing slate:mlb OK + sysAudit every :00 through 23:00 ET 06-13; populators OK (23:45 ET). Overnight slate gap is by-design (last 11 PM ET, next 9 AM ET). Backend served those = up.
+- GRADING WORKS: 06-12 settled 1642/1947; 06-11 settled 1292/1450. 06-13 all-pending = pre-4 AM nightly grading.
+- CLV WORKS: sysAudit 7d — NBA 95.1% stamped, beat-mkt 53.3% (healthy); MLB 20.4% stamped, beat-mkt 24.9%; today closeStamped(tipped) 40.5%. sysAudit itself flags "MLB CLV degraded — tipoff windows missed, likely backend bounce" = our R2/T2 DAYTIME restarts. Degraded+explained, not broken → minimize daytime restarts (do them outside PM-ET tipoff windows).
+- T2-L1 LIVE: nbProbOver on 482 of 06-13 rows.
+- /status = YELLOW (warnings, no RED): MLB Statcast power cache 308h stale (refresh rec; possibly orphan per [[project-mlb-data-files]]); gameContext 0/312 (#71 known wiring gap); backend stdout log not redirecting (cosmetic); NBA dampener large gaps (off-season small samples).
+- NBA OFF: 06-13 last game (operator: Knicks won 4-1, series done); NBA 06-13 picks=0. Scheduler STILL fires slate:nba (every 30m 4-11:30 PM ET) + NBA populator/injury (expired API-Sports NBA key) → will fail/no-op off-season → log + /status noise. REC: pause NBA scheduler blocks (reversible) until ~Oct next-season prep. Operator correct: no reason to renew NBA key now.
+
+NEXT_EXPECTED_FROM_PEER: clear to start T2 step 2 (correlation engine, audit-first). Side task queued: pause NBA scheduler jobs (slate:nba + NBA populator + NBA injury), reversible, until next-season prep.
+
+PROBE_REFS: .scratch/audit_23.txt (sysAudit) · mlb_tracked_bets 06-12 1642 settled / 06-13 707 closeOdds · .scratch/scheduler.log slate:mlb OK 23:00 ET · `TZ='America/New_York' date` → 2026-06-14 02:41 EDT.
