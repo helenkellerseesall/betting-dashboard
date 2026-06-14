@@ -4807,6 +4807,16 @@ NEXT_EXPECTED_FROM_PEER: operator-verifies the probe; then strategy call — hig
 
 PROBE_REFS: verifyCorrelation 26/26 + runtime:verify 17/17 (A re-ran) · probeCorrelationValidation sign 12/12 + Brier copula>naive (A re-ran) · grep freeze-guard empty · mlbCorrelationPriors.json (pitcherK×opp ρ_Z −0.21) · `TZ='America/New_York' date` → 2026-06-14 16:36 EDT.
 
+## 2026-06-14 17:04 ET — Claude-A [Cowork, Opus 4.8] — FREEZE-WINDOW PLAN SET + TRACK 1 (SHADOW CALIBRATION) KICKOFF
+
+ACTION: operator chose to maximize the freeze (build shadow, flip live at freeze-end ~06-25). Plan iron-clad'd in ranked-path §"FREEZE-WINDOW PLAN". HONEST goal locked: calibration makes modelProb honest (NOT a money guarantee — apparent edge may shrink); 11-day deliverable = validated shadow stack + honest answer "does the model beat the close, and where." Sent CB the audit-first brief for TRACK 1: shadow marginal calibration.
+
+CRITICAL for the calibration audit: existing `calibrationDampener.js` (PRESERVED, Phase Calibration-Dampener-1B) + CALIB_LINEAWARE ALREADY dampen modelProb — yet it's STILL overconfident (R2 bucket data + correlation Brier both prove it). So NOT greenfield: audit the dampener FIRST (why residual overconfidence?), fix by extending the canonical, NOT a parallel calibrator. PRESERVED change = post-freeze + explicit operator approval; v1 = SHADOW recalibration validated alongside. KEY cross-check: re-run correlation Brier with calibrated marginals → copula should start beating naive (the through-line payoff).
+
+NEXT_EXPECTED_FROM_PEER: CB audit-first (read-only) on shadow marginal calibration — read calibrationDampener.js + CALIB_LINEAWARE, quantify residual per-family/bucket overconfidence from the graded ledger (reliability curves), recommend method (isotonic/Platt/reliability-curve correction) + shadow plug-in + kill-switch + validation (calibrated beats raw on held-out Brier AND copula-with-calibrated-marginal beats naive) — returns audit + plan in ONE reply. Reference docs/research playbook + R2 phase0 bucket data.
+
+PROBE_REFS: ranked-path §FREEZE-WINDOW PLAN · calibrationDampener.js (PRESERVED) · R2 phase0_bucket_tier_probe.md · probeCorrelationValidation (Brier baseline) · `TZ='America/New_York' date` → 2026-06-14 17:04 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
