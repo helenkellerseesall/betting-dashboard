@@ -1577,6 +1577,32 @@ function _installSseWatchersOnce() {
   }, 30000)
 }
 
+// Phase Season-Switch-2A (2026-06-14) — interactive sport toggle from the /status
+// "Sports Active" card. /status is served over the PUBLIC tunnel, so this mutation
+// is TOKEN-GUARDED and FAIL-CLOSED: an unset OR mismatched STATUS_WRITE_TOKEN ⇒ 403
+// (never default-open, never accept when the env is unset). Token read per-request
+// (not module-load) so the operator sets it via the backend plist + reload. The
+// write goes through the ONE canonical authority seasonGate.setSportEnabled (Law 1).
+// FREEZE-SAFE: flips a config flag only; touches no scoring.
+router.post("/season", express.json(), (req, res) => {
+  const expected = process.env.STATUS_WRITE_TOKEN
+  const provided = req.headers["x-status-token"]
+  if (!expected || provided !== expected) {
+    return res.status(403).json({ ok: false, error: "forbidden — set STATUS_WRITE_TOKEN in the backend env and send a matching x-status-token header" })
+  }
+  const body = req.body || {}
+  if (typeof body.enabled !== "boolean") {
+    return res.status(400).json({ ok: false, error: "enabled must be a boolean" })
+  }
+  try {
+    const { setSportEnabled } = require("../pipeline/shared/seasonGate")
+    const snap = setSportEnabled(body.sport, body.enabled)
+    return res.json({ ok: true, sports: snap.sports, updatedAt: snap.updatedAt })
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: String(e && e.message ? e.message : e) })
+  }
+})
+
 router.get("/stream", (req, res) => {
   res.set({
     "Content-Type": "text/event-stream",

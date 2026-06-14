@@ -51,6 +51,16 @@
   .dot.red { background: var(--red); box-shadow: 0 0 0 3px rgba(248,113,113,0.15); }
   .dot.gray { background: var(--text-faint); }
   .dot.blue { background: var(--blue); box-shadow: 0 0 0 3px rgba(96,165,250,0.15); }
+  /* Phase Season-Switch-2A — iOS-style toggle in the Sports Active card */
+  .sportRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg-card-deep); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .sportRow.dim { opacity: 0.5; }
+  .sportMeta .sportName { font-size: 13px; font-weight: 600; color: var(--text); }
+  .sportMeta .sportState { font-size: 11px; color: var(--text-dim); }
+  .iosw { position: relative; width: 46px; height: 28px; flex: 0 0 auto; background: var(--text-faint); border: none; border-radius: 999px; padding: 0; cursor: pointer; transition: background .2s ease; }
+  .iosw.on { background: var(--green); }
+  .iosw:disabled { cursor: not-allowed; }
+  .iosw .ioswKnob { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transition: transform .2s ease; }
+  .iosw.on .ioswKnob { transform: translateX(18px); }
   .big { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
   .big.green { color: var(--green); }
   .big.yellow { color: var(--yellow); }
@@ -389,9 +399,10 @@ function _setSummary(id, text) {
   if (el) el.textContent = text || "—";
 }
 
-// Phase Season-Switch-1A — sports active card. Renders verbatim from
-// data.sportsActive (classified server-side in statusRoute.sectionSportsActive);
-// FE never re-derives the state, never invents a flag.
+// Phase Season-Switch-2A — sports active card with interactive iOS toggles.
+// State is classified server-side (sectionSportsActive); MLB/NBA are interactive,
+// NFL/NHL (no pipeline) render dim + disabled. Click → token-guarded POST →
+// optimistic flip → reconciled by the 30s loadStatus. FE never invents state.
 function renderSportsActive(data) {
   const grid = document.getElementById("sportsActiveGrid");
   if (!grid) return;
@@ -402,27 +413,68 @@ function renderSportsActive(data) {
     _setSummary("sumSportsActive", "unavailable");
     return;
   }
-  const dotFor = (st) => (st === "on_firing" || st === "on_idle") ? "green" : (st === "on_not_firing") ? "red" : "gray";
   const labelFor = (st) => ({
     on_firing: "ON · firing",
     on_idle: "ON · pre-window",
     on_not_firing: "ON · NOT firing",
     off_paused: "OFF · paused",
-    no_scripts: "not wired",
+    no_scripts: "no pipeline yet",
   }[st] || st);
   const entries = Object.entries(s.sports);
   const onCount = entries.filter(([, v]) => v.enabled).length;
-  _setSummary("sumSportsActive", onCount + " of " + entries.length + " ON" + (s.configReadable ? "" : " · CONFIG UNREADABLE (fail-open)"));
+  _setSummary("sumSportsActive", onCount + " of " + entries.length + " ON" + (s.configReadable ? "" : " · CONFIG UNREADABLE"));
   for (const [sport, v] of entries) {
-    const div = document.createElement("div");
-    div.className = "agent";
-    const dim = v.state === "no_scripts" ? ' style="opacity:0.5"' : '';
-    div.innerHTML =
-      '<div class="top"><span class="dot ' + dotFor(v.state) + '"></span><span class="name">' + sport.toUpperCase() + '</span></div>' +
-      '<div class="pid"' + dim + '>' + labelFor(v.state) + '</div>' +
-      '<div class="pid" style="color:var(--text-faint)">' + (v.note || '') + '</div>';
-    grid.appendChild(div);
+    const wired = v.state !== "no_scripts";
+    const row = document.createElement("div");
+    row.className = "sportRow" + (wired ? "" : " dim");
+    const meta = document.createElement("div");
+    meta.className = "sportMeta";
+    meta.innerHTML = '<div class="sportName">' + sport.toUpperCase() + '</div><div class="sportState">' + labelFor(v.state) + '</div>';
+    const sw = document.createElement("button");
+    sw.type = "button";
+    sw.className = "iosw" + (v.enabled ? " on" : "");
+    sw.setAttribute("role", "switch");
+    sw.setAttribute("aria-checked", String(!!v.enabled));
+    sw.title = wired ? ("tap to turn " + sport.toUpperCase() + (v.enabled ? " OFF" : " ON")) : (sport.toUpperCase() + " has no pipeline yet");
+    sw.innerHTML = '<span class="ioswKnob"></span>';
+    if (wired) sw.addEventListener("click", () => postSeasonToggle(sport, !v.enabled, sw));
+    else sw.disabled = true;
+    row.appendChild(meta);
+    row.appendChild(sw);
+    grid.appendChild(row);
   }
+}
+
+// Phase Season-Switch-2A — token-guarded toggle POST with optimistic UI.
+// Token entered once per browser session (sessionStorage). A 403 clears the
+// stored token so the next tap re-prompts. Reconciles via loadStatus on success.
+function postSeasonToggle(sport, enabled, swEl) {
+  let token = sessionStorage.getItem("statusWriteToken");
+  if (!token) {
+    token = (window.prompt("Enter the /status write token (STATUS_WRITE_TOKEN):") || "").trim();
+    if (!token) return;
+    sessionStorage.setItem("statusWriteToken", token);
+  }
+  const prev = swEl.classList.contains("on");
+  swEl.classList.toggle("on", enabled);
+  swEl.setAttribute("aria-checked", String(enabled));
+  swEl.disabled = true;
+  fetch("/api/ws/status/season", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-status-token": token },
+    body: JSON.stringify({ sport: sport, enabled: enabled }),
+  }).then(async (r) => {
+    if (r.status === 403) { sessionStorage.removeItem("statusWriteToken"); throw new Error("token rejected — re-enter on next tap"); }
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
+    swEl.disabled = false;
+    _setSummary("sumSportsActive", sport.toUpperCase() + " → " + (enabled ? "ON" : "OFF") + " · saved");
+    loadStatus();
+  }).catch((e) => {
+    swEl.classList.toggle("on", prev);
+    swEl.setAttribute("aria-checked", String(prev));
+    swEl.disabled = false;
+    _setSummary("sumSportsActive", "toggle failed: " + (e.message || e));
+  });
 }
 
 function renderAgents(data) {
