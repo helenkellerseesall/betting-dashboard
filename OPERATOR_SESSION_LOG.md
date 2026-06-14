@@ -4767,3 +4767,11 @@ ACTION: re-verified CB's 04:08 Season-Switch-1A build in A's sandbox. VERDICT: c
 NEXT_EXPECTED_FROM_PEER: operator runs deploy (scheduler kickstart [clears live line-103 stale crash] + backend kickstart) → A confirms LOCAL version==HEAD + new scheduler pid + seasonsActive nba=off. Then RETURN TO T2 STEP 2 (correlation engine — the main line).
 
 PROBE_REFS: verifySeasonGate 29/29 + runtime:verify 16/16 (A re-ran) · seasonGate.js:18/46/55 · slateMlb.js:78 / slateNba.js:83 · `TZ='America/New_York' date` → 2026-06-14 04:12 EDT.
+
+## 2026-06-14 15:46 ET — Claude-A [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) KICKOFF — audit brief sent
+
+ACTION: Season-Switch-1A CLOSED (operator flip-tested term on/off, confirmed — operator-verified). Interactive /status sport toggle = QUEUED on the docket (ranked-path). Operator chose: GO step 2. Sent CB an audit-first brief for the correlation engine. FREEZE-SAFE required (additive/shadow, no MLB scoring; freeze active → ~2026-06-25). v1 scope = MLB same-game 2-leg correlation, SIGN-ENFORCED.
+
+NEXT_EXPECTED_FROM_PEER: CB audit-first (read-only) — leg-prob inputs (modelProb / nbProbOver / playerPropHistory), correlation data from mlb_tracked_bets (structural leg-type pairs vs thin named pairs), method (Gaussian copula vs empirical vs MC sim, pure JS), shadow plug-in + kill-switch, validation (joint-prob vs realized, beats naive product; sign-correctness), v1 scope guard (no parlay constructor/EV/Kelly/NBA/3+legs) — returns audit + plan in ONE reply. Reference docs/research/2026-06-11-parlay-ladder-playbook.md §1.
+
+PROBE_REFS: docs/research/2026-06-11-parlay-ladder-playbook.md · [[project-parlay-engine-research]] · `TZ='America/New_York' date` → 2026-06-14 15:46 EDT.
