@@ -56,6 +56,17 @@ log() {
   echo "[$(TZ='America/New_York' date '+%Y-%m-%d %H:%M:%S ET')] $*" >> "$LOG"
 }
 
+# Phase Season-Switch-1A (2026-06-14) — per-sport season gate. Defers to the ONE
+# node authority (backend/pipeline/shared/seasonGate.js) via its exit code, so
+# bash and node share a single logic implementation (Law 1). cwd is the backend
+# dir (cd above), so the relative require resolves. Returns 0 = ON, 1 = OFF.
+# Used in the populator/injury block conditions below; the slate scripts gate
+# themselves at main() entry. NOT applied to sysAudit/settlement/grading/audit
+# (sport-agnostic — operator-confirmed they stay ungated).
+sport_on() {
+  node -e "process.exit(require('./pipeline/shared/seasonGate').isSportEnabled(process.argv[1])?0:1)" "$1" 2>>"$LOG"
+}
+
 log "==================================================="
 log "scheduler.sh STARTED (pid $$)"
 log "MLB cadence: hourly at :00 from 9 AM to 11 PM ET"
@@ -148,7 +159,7 @@ while true; do
   # deepAudit flagging NBA injuries 16h stale (max 6h). Slate-wide ESPN
   # endpoint, ~2s runtime, refreshes nbaInjuryReport.json. Fires at :15 so
   # it doesn't collide with slate runs at :00/:30 or sysAudit at :00.
-  if [ "$MIN" -eq 15 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ] && sport_on nba; then
     log "populateNbaInjuryReport starting..."
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaInjuryReport.js >> "$LOG" 2>&1; then
       log "populateNbaInjuryReport OK"
@@ -166,7 +177,7 @@ while true; do
   # staleness mode #84 fixed for injuries. Idempotent (re-run on same date
   # does NOT duplicate). Fires at :45 — clean slot (no collisions with slate
   # :00/:30, injury :15, sysAudit :00, grading 4:00 AM).
-  if [ "$MIN" -eq 45 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ]; then
+  if [ "$MIN" -eq 45 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ] && sport_on nba; then
     log "populateNbaGameLogs starting..."
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaGameLogs.js >> "$LOG" 2>&1; then
       log "populateNbaGameLogs OK"
@@ -277,7 +288,7 @@ while true; do
   # Sequenced 3:05-3:25 AM ET — overnight, finishes BEFORE grading:backfill-all
   # at 4 AM so grading review has fresh signals. Sequential firing (5 min apart)
   # avoids rate limits on MLB Stats API + ESPN.
-  if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 3 ] && sport_on mlb; then
     log "populateMlbBatterStats starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbBatterStats.js >> "$LOG" 2>&1; then
       log "populateMlbBatterStats OK"
@@ -287,7 +298,7 @@ while true; do
     fired=true
   fi
 
-  if [ "$MIN" -eq 10 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 10 ] && [ "$HOUR" -eq 3 ] && sport_on mlb; then
     log "populateMlbBatterGameLogs starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbBatterGameLogs.js >> "$LOG" 2>&1; then
       log "populateMlbBatterGameLogs OK"
@@ -297,7 +308,7 @@ while true; do
     fired=true
   fi
 
-  if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 3 ] && sport_on mlb; then
     log "populateMlbPitcherGameLogs starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateMlbPitcherGameLogs.js >> "$LOG" 2>&1; then
       log "populateMlbPitcherGameLogs OK"
@@ -307,7 +318,7 @@ while true; do
     fired=true
   fi
 
-  if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 3 ] && sport_on nba; then
     log "deriveNbaDvP starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deriveNbaDvP.js >> "$LOG" 2>&1; then
       log "deriveNbaDvP OK"
@@ -317,7 +328,7 @@ while true; do
     fired=true
   fi
 
-  if [ "$MIN" -eq 25 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 25 ] && [ "$HOUR" -eq 3 ] && sport_on nba; then
     log "populateNbaTeamStats starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaTeamStats.js >> "$LOG" 2>&1; then
       log "populateNbaTeamStats OK"
@@ -334,7 +345,7 @@ while true; do
   # preserved); auto-derived file fills the gap for everything else.
   # Fires at 3:30 ET — after the other populators in this chain so we don't
   # compete with them for the same ESPN rate-limit window.
-  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 3 ] && sport_on nba; then
     log "populateNbaSeriesState starting (nightly autopilot — Phase NBA-Series-State-Auto-1A)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/populateNbaSeriesState.js >> "$LOG" 2>&1; then
       log "populateNbaSeriesState OK"
@@ -355,7 +366,7 @@ while true; do
   # after populateNbaTeamStats at 3:25 (which seeds the offensive fields)
   # and populateNbaSeriesState at 3:30. Pure file-derivation, no network
   # calls.
-  if [ "$MIN" -eq 35 ] && [ "$HOUR" -eq 3 ]; then
+  if [ "$MIN" -eq 35 ] && [ "$HOUR" -eq 3 ] && sport_on nba; then
     log "deriveNbaTeamDefensive starting (nightly autopilot — Phase Truth-Fix-1B)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deriveNbaTeamDefensive.js >> "$LOG" 2>&1; then
       log "deriveNbaTeamDefensive OK"

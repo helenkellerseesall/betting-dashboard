@@ -150,6 +150,15 @@
      tonights picks → dampener → ml scorer → data integrity → recent alerts → recent commits. All collapsible.
      See memory rule [[operator-status-layout]] for the binding order. -->
 
+<!-- Phase Season-Switch-1A — sports active this season (additive; placed above backend, movable) -->
+<details class="card" id="cardSportsActive">
+  <summary><h2>sports active</h2><span class="summaryLine" id="sumSportsActive">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">green = season ON &amp; firing · red = ON but not firing (check scheduler) · gray = season OFF (paused — existing bets still grade) · dim = no pipeline yet. Toggle: <span class="mono">npm run sport:on|off &lt;sport&gt;</span></div>
+    <div class="grid2" id="sportsActiveGrid"></div>
+  </div>
+</details>
+
 <!-- 1. backend -->
 <details class="card" id="cardBackend">
   <summary><h2>backend</h2><span class="summaryLine" id="sumBackend">…</span></summary>
@@ -378,6 +387,42 @@ function timeOnly(line) {
 function _setSummary(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text || "—";
+}
+
+// Phase Season-Switch-1A — sports active card. Renders verbatim from
+// data.sportsActive (classified server-side in statusRoute.sectionSportsActive);
+// FE never re-derives the state, never invents a flag.
+function renderSportsActive(data) {
+  const grid = document.getElementById("sportsActiveGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  const s = data?.sportsActive;
+  if (!s?.ok) {
+    grid.innerHTML = '<div class="err">' + (s?.error || "sports-active unavailable") + '</div>';
+    _setSummary("sumSportsActive", "unavailable");
+    return;
+  }
+  const dotFor = (st) => (st === "on_firing" || st === "on_idle") ? "green" : (st === "on_not_firing") ? "red" : "gray";
+  const labelFor = (st) => ({
+    on_firing: "ON · firing",
+    on_idle: "ON · pre-window",
+    on_not_firing: "ON · NOT firing",
+    off_paused: "OFF · paused",
+    no_scripts: "not wired",
+  }[st] || st);
+  const entries = Object.entries(s.sports);
+  const onCount = entries.filter(([, v]) => v.enabled).length;
+  _setSummary("sumSportsActive", onCount + " of " + entries.length + " ON" + (s.configReadable ? "" : " · CONFIG UNREADABLE (fail-open)"));
+  for (const [sport, v] of entries) {
+    const div = document.createElement("div");
+    div.className = "agent";
+    const dim = v.state === "no_scripts" ? ' style="opacity:0.5"' : '';
+    div.innerHTML =
+      '<div class="top"><span class="dot ' + dotFor(v.state) + '"></span><span class="name">' + sport.toUpperCase() + '</span></div>' +
+      '<div class="pid"' + dim + '>' + labelFor(v.state) + '</div>' +
+      '<div class="pid" style="color:var(--text-faint)">' + (v.note || '') + '</div>';
+    grid.appendChild(div);
+  }
 }
 
 function renderAgents(data) {
@@ -1092,6 +1137,7 @@ async function loadStatus() {
     _lastStatusData = data;
     document.getElementById("etTime").textContent = (data.meta?.et || "—") + " · " + (data.meta?.elapsedMs ?? "—") + "ms";
     renderAgents(data.launchAgents);
+    renderSportsActive(data);
     renderSysHeadline(data);
     renderOpenIssues(data);
     renderSchedule(data);

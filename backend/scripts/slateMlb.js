@@ -27,6 +27,8 @@ const {
   resolveFeaturedCount,
   resolveAiSlipCount,
 } = require("../pipeline/shared/responseShapeResolvers")
+// Phase Season-Switch-1A — canonical season gate (backend/config/seasonsActive.json).
+const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 
 function request(method, pathname, timeoutMs = 180_000) {
   return new Promise((resolve, reject) => {
@@ -69,6 +71,14 @@ async function step(label, method, pathname) {
 async function main() {
   const t0 = Date.now()
   console.log("=== slate:mlb — Phase Operator-Operations-1 ===")
+
+  // Phase Season-Switch-1A — authoritative entry gate. Covers every fire path
+  // (scheduler.sh, autopilot wrappers, manual `npm run slate:mlb`). OFF → make
+  // no API calls and no file writes; exit clean (0). Existing data untouched.
+  if (!isSportEnabled("mlb")) {
+    console.log("slate:mlb SKIPPED — MLB season OFF (backend/config/seasonsActive.json). No calls made, no files written.")
+    return
+  }
 
   // 1. MLB refresh
   const r1 = await step("Step 1: MLB snapshot refresh", "GET", "/refresh-snapshot?sport=baseball_mlb")

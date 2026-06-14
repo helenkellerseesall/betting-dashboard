@@ -30,6 +30,8 @@ const path = require("path")
 const http = require("http")
 const { execSync, spawnSync } = require("child_process")
 const { currentSlateDateEt, slateDateForTimestamp } = require("../pipeline/shared/slateDate")
+// Phase Season-Switch-1A — season gate so OFF sports don't fire false WARNs.
+const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 
 const REPO = path.join(__dirname, "..", "..")
 const TRACKING = path.join(REPO, "backend", "runtime", "tracking")
@@ -129,6 +131,8 @@ async function main() {
   // 2. SLATE FILES
   H("2. SLATE FILES")
   for (const sport of ["nba", "mlb"]) {
+    // Phase Season-Switch-1A — OFF sport = intentionally paused, not a failure.
+    if (!isSportEnabled(sport)) { I(`${sport.toUpperCase()}: season OFF — slate intentionally paused (audit skipped)`); continue }
     for (const dk of [TK, YK]) {
       const betsFile = path.join(TRACKING, `${sport}_tracked_bets_${dk}.json`)
       const bestFile = path.join(TRACKING, `${sport}_tracked_best_${dk}.json`)
@@ -216,6 +220,8 @@ async function main() {
   // 5. ENRICHMENT COVERAGE (today's tracked_best per sport)
   H("5. ENRICHMENT FIELD COVERAGE (today's tracked_best)")
   for (const sport of ["nba", "mlb"]) {
+    // Phase Season-Switch-1A — skip OFF sports (no enrichment expected).
+    if (!isSportEnabled(sport)) { I(`${sport.toUpperCase()}: season OFF — enrichment audit skipped`); continue }
     const f = readJsonSafe(path.join(TRACKING, `${sport}_tracked_best_${TK}.json`))
     const entries = f?.entries || []
     if (!entries.length) {
@@ -281,6 +287,8 @@ async function main() {
   // 6. FAMILY COVERAGE (today's tracked_bets — what prop types surfaced)
   H("6. FAMILY COVERAGE (latest tracked_bets per sport)")
   for (const sport of ["nba", "mlb"]) {
+    // Phase Season-Switch-1A — skip OFF sports (no new families expected).
+    if (!isSportEnabled(sport)) { I(`${sport.toUpperCase()}: season OFF — family-coverage audit skipped`); continue }
     // Use latest date with bets — REJECT future-dated sentinel files (e.g.
     // 9999-12-31), match the production findLatestDateWithData guard.
     const files = fs.readdirSync(TRACKING).filter((f) => new RegExp(`^${sport}_tracked_bets_\\d{4}-\\d{2}-\\d{2}\\.json$`).test(f))

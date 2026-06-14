@@ -1372,6 +1372,58 @@ function sectionRecentCommits(n = 5) {
   }
 }
 
+// Phase Season-Switch-1A (2026-06-14) — per-sport season enablement + firing
+// health. Reads the canonical seasonGate (backend/config/seasonsActive.json) —
+// the SAME authority the scheduler + slate scripts consult (Law 1, no re-derive).
+// State per sport:
+//   on_firing      — enabled AND slate:<sport> OK logged today        → GREEN
+//   on_idle        — enabled, before today's first fire window        → GREEN (neutral)
+//   on_not_firing  — enabled, past the window, no OK today            → RED (real failure)
+//   off_paused     — season OFF, intentionally paused                 → GREY
+//   no_scripts     — NFL/NHL, no pipeline wired yet                   → DIM
+// Anti-fabrication: healthy traces to a real scheduler.log fire line; OFF never
+// reds; "not firing" only after the known window start (no false pre-window RED).
+function sectionSportsActive() {
+  try {
+    const seasonGate = require("../pipeline/shared/seasonGate")
+    const snap = seasonGate.snapshot()
+    const PIPELINE_SPORTS = new Set(["mlb", "nba"])   // sports with an actual slate pipeline
+    const WINDOW_START_HOUR = { mlb: 9, nba: 16 }     // first expected ET fire hour
+    const etHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }).format(new Date()))
+    const dateKey = calendarDateKey()
+    const txt = safeReadText(SCHEDULER_LOG)
+    const logLines = txt ? txt.split("\n").filter(l => l.includes(dateKey)) : []
+    const firedOkToday = (sport) => logLines.some(l => l.includes(`slate:${sport} OK`))
+
+    const sports = {}
+    for (const sport of Object.keys(snap.sports)) {
+      const enabled = snap.sports[sport]
+      let state, healthy, note
+      if (!PIPELINE_SPORTS.has(sport)) {
+        state = "no_scripts"; healthy = null
+        note = "No pipeline wired yet (forward-compat placeholder)."
+      } else if (!enabled) {
+        state = "off_paused"; healthy = true
+        note = "Season OFF — slate intentionally paused. Existing bets still grade/settle."
+      } else if (firedOkToday(sport)) {
+        state = "on_firing"; healthy = true
+        note = "Season ON — slate fired OK today."
+      } else if (etHour >= (WINDOW_START_HOUR[sport] ?? 0)) {
+        state = "on_not_firing"; healthy = false
+        note = `Season ON but no slate:${sport} OK logged today (past ${WINDOW_START_HOUR[sport]}:00 ET window start) — check scheduler.`
+      } else {
+        state = "on_idle"; healthy = true
+        note = `Season ON — before today's first window (${WINDOW_START_HOUR[sport]}:00 ET).`
+      }
+      sports[sport] = { enabled, state, healthy, note }
+    }
+    const allHealthy = Object.values(sports).every(s => s.healthy !== false)
+    return { ok: true, allHealthy, configReadable: snap.configReadable, updatedAt: snap.updatedAt, sports }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route handler — aggregate every section, all wrapped
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1380,6 +1432,8 @@ router.get("/", (req, res) => {
   const t0 = Date.now()
   const out = {}
   out.meta              = sectionMeta()
+  // Phase Season-Switch-1A — per-sport season enablement card.
+  out.sportsActive      = sectionSportsActive()
   // Phase Status-Trust-Mirror-1A — openIssues surfaced near the top so
   // operator-visible "what's wrong right now" hits the eye first.
   out.openIssues        = sectionOpenIssues()
@@ -1411,6 +1465,8 @@ router.post("/snapshot", (req, res) => {
     const t0 = Date.now()
     const out = {}
     out.meta              = sectionMeta()
+    // Phase Season-Switch-1A — per-sport season enablement card.
+    out.sportsActive      = sectionSportsActive()
     // Phase Status-Trust-Mirror-1A — openIssues surfaced near the top so
     // export-to-scratch captures it where operator (+ Claude reading scratch)
     // sees it first.

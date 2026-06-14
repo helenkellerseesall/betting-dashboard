@@ -31,7 +31,9 @@
     "ledger:backfill": "node scripts/backfillLedgerFromTracked.js",
     "lineage:status": "node scripts/lineageStatus.js",
     "market:status": "node scripts/marketStatus.js",
-    "settlement:run": "node scripts/settlementRun.js"
+    "settlement:run": "node scripts/settlementRun.js",
+    "sport:on": "node scripts/sportToggle.js on",
+    "sport:off": "node scripts/sportToggle.js off"
   },
   "keywords": [],
   "author": "",
