@@ -55,6 +55,7 @@ const SUITES = [
   "verifyNbLadderStep1",       // T2-L1 mlb-nb-ladder-v1 (2026-06-12) — NB shadow ladder math + freeze guard (scoring never reads ladderNB)
   "verifySeasonGate",          // Season-Switch-1A (2026-06-14) — per-sport ON/OFF gate: fresh-read, fail-open, slate-gate-before-call, scheduler 6NBA/3MLB gated + grading/settlement/audit ungated
   "verifyCorrelation",         // T2-Correlation-1A (2026-06-14) — Gaussian copula joint prob: sign BOTH ways, Φ₂ closed-form anchors, kill-switch, freeze guard (scoring never references correlation)
+  "verifyMarginalCalibration", // T2-MarginalCalib-1A (2026-06-14) — isotonic modelProb calibration (shadow): monotone, gap<raw, fallback ladder, kill-switch, freeze guard (scoring/PRESERVED untouched)
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
