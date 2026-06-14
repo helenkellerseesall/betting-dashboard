@@ -4831,6 +4831,23 @@ NEXT_EXPECTED_FROM_PEER: operator approves → A drafts build handoff → CB bui
 
 PROBE_REFS: grep dampenModelProb (consumers = workstationRoutes/sysAudit/statusRoute, NOT buildMlbPropClusters) · workstationRoutes.js:60-72 (label-only) · probe_marginal_reliability +16.1pp (A re-ran) · `TZ='America/New_York' date` → 2026-06-14 17:17 EDT.
 
+## 2026-06-14 18:11 ET — Claude-A [Cowork, Opus 4.8] — TRACK 1 CALIBRATION BUILD VERIFIED (keystone works; parlay → parity, honest)
+
+ACTION: re-ran CB's T2-MarginalCalib-1A build in A's sandbox. VERDICT: verified, freeze-safe, honest result holds.
+- RE-RAN: verifyMarginalCalibration 12/12; full runtime:verify 18/18 (R2 + T2-L1 + correlation fixtures GREEN ⇒ freeze intact). Freeze-guard grep empty (buildMlbPropClusters/calibrationDampener/phase4Tracking reference NOTHING from the shadow calibrator) ⇒ scoring untouched, pure shadow.
+- VALIDATION REPRODUCED EXACTLY (held-out train 9d/test 5d, maps refit on TRAIN):
+  (a) calibrated DECISIVELY beats raw — Brier 0.11094→0.08833; reliability gap 0.1582 (stated 0.291 vs realized 0.133) → 0.0026 (stated 0.135 vs realized 0.133). The model can now be made HONEST. KEYSTONE WORKS.
+  (b) THROUGH-LINE: copula vs naive — RAW: naive 0.009353 vs copula 0.010516 (copula 12% worse); CALIBRATED: naive 0.007249 vs copula 0.007268 (DEAD HEAT, copula +0.3%); both Briers −22%. Calibration removes the marginal poison → parlay layer to PARITY, but copula does NOT yet beat naive in aggregate (weak-corr pairs dominate; copula's edge concentrated in strong-corr pairs washes out in the mean; thin window; in-sample ρ_Z).
+- HONEST STRATEGIC READ: calibration = verified keystone (makes probabilities honest). It reveals TRUTH, not profit — honest probs will SHRINK apparent edges (fake edges were overconfidence). Aggregate signal so far = parity, not a clear edge. The "is there profitable edge anywhere" question now has a TOOL (calibrated prob + CLV) → POST-FREEZE EDGE-MAP analysis = where does the calibrated model beat the close? That's the empirical answer, not a promise.
+- CB integrity: did NOT claim calibration unlocked profit; reported keystone-works + parlay-parity-not-win honestly.
+
+LAW 1: isotonicCalibration = method authority; mlbMarginalCalibration = MLB shadow; LIVE integration EXTENDS calibrationDampener (PRESERVED) post-freeze + approval. PRESERVED untouched in v1.
+
+DEPLOY: none (shadow). Commits in (HEAD 0814dbf = feat f13d5aa + test da927a5 + docs). Operator-verify = run probeMarginalCalibrationValidation.js (see 15.8pp→0.26pp + the parity).
+POST-FREEZE QUEUE (~06-25, scoring + approval): wire calibrated modelProb live by EXTENDING the dampener (isotonic remap) → honest picks; then the EDGE-MAP (where calibrated model beats close); re-fit ρ_Z forward; reassess parlay value on strong-corr subset.
+
+PROBE_REFS: verifyMarginalCalibration 12/12 + runtime:verify 18/18 (A re-ran) · probeMarginalCalibrationValidation (a) 0.111→0.088 gap 15.8→0.26pp, (b) copula parity w/ calibrated (A re-ran) · freeze-guard grep empty · `TZ='America/New_York' date` → 2026-06-14 18:11 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
