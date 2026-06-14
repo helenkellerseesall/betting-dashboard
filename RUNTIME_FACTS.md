@@ -51,6 +51,13 @@ Last updated: 2026-06-06
 - **Deploy requirement:** editing `scheduler.sh` needs a LaunchAgent reload (running copy is otherwise stale): `launchctl kickstart -k gui/$(id -u)/com.motel666.scheduler`. The `/status` "sports active" card needs one backend reload to ship: `launchctl kickstart -k gui/$(id -u)/com.motel666.backend` — do it OUTSIDE PM-ET tipoff windows (daytime restarts hurt MLB CLV capture). Toggling thereafter needs NO restart.
 - **/status:** the "sports active" card (sectionSportsActive) shows GREEN on+firing / RED on+not-firing / GREY off-paused / DIM no-pipeline (NFL/NHL).
 
+## Correlation engine (Phase T2-Correlation-1A, 2026-06-14)
+
+- **Kill-switch:** `MLB_CORRELATION` — backend env, read ONCE at module load in `backend/pipeline/mlb/mlbCorrelationEngine.js`. Default ON; exact string `"0"` = OFF (`jointForPair` returns null). Boot probe `[MLB-CORRELATION-BOOT]`.
+- **Method authority:** `backend/pipeline/shared/gaussianCopula.js` (Gaussian copula math). MLB engine: `backend/pipeline/mlb/mlbCorrelationEngine.js`. Priors: `backend/config/mlbCorrelationPriors.json` — regenerate via `node backend/scripts/deriveMlbCorrelationPriors.js` as graded days accrue (ρ_Z are priors; effective n ≈ games).
+- **SHADOW-only:** feeds nothing in scoring; no tracked_bets ride-along. Validate via `node backend/scripts/probeCorrelationValidation.js` → `.scratch/last.txt`.
+- **Status:** correctly-SIGNED (12/12 structural types) + held-out dependence beats independence; NOT a Brier win on `modelProb` marginals yet (modelProb overconfident). Do not wire into EV/scoring until marginals are calibrated + forward data confirms.
+
 ## Caffeinate
 
 - **LaunchAgent:** `com.motel666.caffeinate`

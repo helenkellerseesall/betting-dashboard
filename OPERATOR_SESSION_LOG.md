@@ -4808,3 +4808,30 @@ AUDIT_OUTCOME (all numbers from real probe this turn, .scratch/probe_t2_correlat
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator answers 2 decisions — (a) placement: shared-primitive + MLB-sibling (CB recommends) vs single shared engine; (b) confirm v1 = pure module + probe, no tracked_bets ride-along yet. Then CB builds → A verifies. No code until approval.
 
 PROBE_REFS: docs/audits/2026-06-15-t2-correlation/audit_plan.md · .scratch/probe_t2_correlation_discovery.js (14d/13,351 legs/114 games) · nbaCorrelationEngine.js:184/197 (heuristic positive-only) · buildMlbPropClusters.js:585/603/1169 · playerPropHistory.js:86 · negBinomLadder.js:87 · `TZ='America/New_York' date` → 2026-06-14 15:53 EDT.
+
+## 2026-06-14 16:31 ET — Claude-B [Cowork, Opus 4.8] — T2-CORRELATION-1A BUILT (shadow-only; awaiting operator ship fence + A-verify)
+
+ACTION: T2 Step 2 built per operator-approved plan (split placement; pure module + probe, no ride-along). Sandbox-verified with real output; operator runs the ship fence (handed in chat) — nothing claimed as run. NO scoring touched; R2 + T2-L1 freeze intact.
+
+BUILD:
+- NEW backend/pipeline/shared/gaussianCopula.js — pure Φ⁻¹ (Acklam) / Φ₂ (Plackett integral) / copulaJoint / fitRhoZ; self-test 10/10 incl. Φ₂(0,0;ρ)=¼+asin(ρ)/2π.
+- NEW backend/pipeline/mlb/mlbCorrelationEngine.js — classifyPair + jointForPair (marginal-agnostic, never recomputes modelProb); kill-switch MLB_CORRELATION ([MLB-CORRELATION-BOOT]); shadow-only, feeds nothing.
+- NEW backend/config/mlbCorrelationPriors.json — 12 structural types, ρ_Z fit from the ledger (pitcherK×opp −0.21 the trap; same-hitter HR+TB +0.87; same-team +0.12).
+- NEW backend/scripts/deriveMlbCorrelationPriors.js — regenerates the priors from the graded ledger (traces to real data; re-run to refine).
+- NEW backend/scripts/verifyCorrelation.js — 26/26; sign BOTH ways + Φ₂ anchors + kill-switch child + priors sign + FREEZE GUARD (buildMlbPropClusters/buildSlipAi reference nothing in the engine; nbaCorrelationEngine not rewired). Registered → runtime:verify 16→17.
+- NEW backend/scripts/probeCorrelationValidation.js — validation → .scratch/last.txt.
+
+REAL-OUTPUT EVIDENCE (this turn):
+- gaussianCopula self-test 10/10; engine smoke: same-hitter HR+TB joint 0.119 vs product 0.054 (sign +1); same-team joint 0.222 vs 0.2025 (+1); pitcherK×opp joint 0.192 vs 0.225 (sign −1); cross-game fallback joint==product; MLB_CORRELATION=0 → null.
+- verifyCorrelation 26/26. runtime:verify 17/17 (verifyMlbTierPolicyR2 + verifyNbLadderStep1 green = R2/T2-L1 FREEZE INTACT).
+- Validation (14d / 119 settled games): SIGN 12/12 structural types correct. Brier with modelProb marginals does NOT beat naive (in-sample 0.01228 vs 0.01110; held-out 0.01055 vs 0.00936) — HONEST: modelProb overconfident → copula amplifies marginal error (marginal problem, not dependence). Held-out TYPE-LEVEL isolation (same marginals both sides): DEPENDENCE BETTER 0.007196 vs 0.007236.
+
+HONEST CONCLUSION: correctly-signed + dependence-calibrated 2-leg joint; NOT yet a Brier win on the production marginal because modelProb is overconfident → stays SHADOW-only (no EV/scoring wire) until marginals calibrated + forward data. ρ_Z are priors (effective n≈119 games) — re-run deriveMlbCorrelationPriors.js to refine.
+
+LAW 1: nbaCorrelationEngine.js (NBA heuristic positive-only sibling) UNCHANGED; new gaussianCopula is the shared method authority it can graduate onto later. buildPortfolioOptimizer "correlation" = exposure alarms (distinct). PRESERVED untouched.
+
+DEPLOY: NO live reload needed — engine is standalone, wired into nothing live (shadow). Verify = runtime:verify 17/17 + probeCorrelationValidation real output. (If ever wired into a route, MLB_CORRELATION is module-load → backend kickstart then.)
+
+NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyCorrelation + runtime:verify + the validation probe in A's sandbox + reads the freeze guard; operator runs the ship fence (3 commits feat/test/docs + push). No scoring change ships.
+
+PROBE_REFS: gaussianCopula self-test 10/10 · verifyCorrelation 26/26 · runtime:verify 17/17 · .scratch/last.txt (sign 12/12; held-out dependence 0.007196<0.007236) · backend/config/mlbCorrelationPriors.json · `TZ='America/New_York' date` → 2026-06-14 16:31 EDT.
