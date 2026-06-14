@@ -58,6 +58,14 @@ Last updated: 2026-06-06
 - **SHADOW-only:** feeds nothing in scoring; no tracked_bets ride-along. Validate via `node backend/scripts/probeCorrelationValidation.js` → `.scratch/last.txt`.
 - **Status:** correctly-SIGNED (12/12 structural types) + held-out dependence beats independence; NOT a Brier win on `modelProb` marginals yet (modelProb overconfident). Do not wire into EV/scoring until marginals are calibrated + forward data confirms.
 
+## Marginal calibration (Phase T2-MarginalCalib-1A, 2026-06-14)
+
+- **Kill-switch:** `MLB_MARGINAL_CALIB` — backend env, read ONCE at module load in `backend/pipeline/mlb/mlbMarginalCalibration.js`. Default ON; exact `"0"` = OFF (`calibrateModelProb` returns null). Boot probe `[MLB-MARGINAL-CALIB-BOOT]`.
+- **Method authority:** `backend/pipeline/shared/isotonicCalibration.js` (PAVA + Platt). MLB engine: `backend/pipeline/mlb/mlbMarginalCalibration.js`. Maps: `backend/config/mlbMarginalCalibration.json` — regen via `node backend/scripts/deriveMlbMarginalCalibration.js`.
+- **ROOT CAUSE found:** the PRESERVED `calibrationDampener.js` is DORMANT on the value path (dampenModelProb only sets a display label in workstationRoutes.js:67-68; scoring modelProb is RAW, ~+16pp overconfident).
+- **SHADOW-only:** computes modelProbCalibrated alongside; feeds nothing in scoring. Validate via `node backend/scripts/probeMarginalCalibrationValidation.js` → `.scratch/last.txt`.
+- **Status:** calibration decisively beats raw out-of-sample (Brier 0.111→0.088; gap 15.8pp→0.26pp). LIVE fix = extend the dampener (isotonic remap) + wire onto the cluster modelProb = a SCORING change, gated by the R2 freeze + separate operator approval. Do NOT wire live until then.
+
 ## Caffeinate
 
 - **LaunchAgent:** `com.motel666.caffeinate`

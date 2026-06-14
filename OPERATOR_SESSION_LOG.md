@@ -4897,3 +4897,30 @@ SCOPE v1: MLB modelProb shadow calibration + validation only. OUT: live dampener
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves the Phase-1 shadow build (or amends). No code until approval. Key callout for operator: the real fix (wiring calibrated modelProb onto edge/tier + folding into the dampener) is a SCORING change — gated by the R2 freeze (~06-25); v1 only proves it in shadow.
 
 PROBE_REFS: docs/audits/2026-06-15-t2-marginal-calibration/audit_plan.md · .scratch/probe_marginal_reliability.js (16.1pp overall, per-family/bucket) · calibrationDampener.js:103/204/241/569 · workstationRoutes.js:67-68 (status-label only) · buildMlbPropClusters.js:603/944/1151 · phase4Tracking.js:819 · intelligence.js:671/694 · `TZ='America/New_York' date` → 2026-06-14 17:12 EDT.
+
+## 2026-06-14 17:36 ET — Claude-B [Cowork, Opus 4.8] — T2-MARGINALCALIB-1A BUILT (shadow-only; awaiting operator ship fence + A-verify)
+
+ACTION: Track-1 shadow calibration built per operator-approved plan. Sandbox-verified with real output; operator runs the ship fence (handed in chat) — nothing claimed as run. NO scoring touched; PRESERVED dampener untouched; R2 + T2-L1 + correlation freeze intact.
+
+BUILD:
+- NEW backend/pipeline/shared/isotonicCalibration.js — pure PAVA isotonic (monotone, preserves ranking) + Platt fallback; self-test 8/8.
+- NEW backend/pipeline/mlb/mlbMarginalCalibration.js — calibrateModelProb; ladder family×bucket→family→global→identity + shrink-to-identity on low n; kill-switch MLB_MARGINAL_CALIB ([MLB-MARGINAL-CALIB-BOOT]); shadow, feeds nothing.
+- NEW backend/config/mlbMarginalCalibration.json — global + 7 families + bucket sub-maps, isotonic knots from the graded ledger (deriveMlbMarginalCalibration.js).
+- NEW backend/scripts/deriveMlbMarginalCalibration.js — regenerates the maps from the ledger (re-run to refine).
+- NEW backend/scripts/verifyMarginalCalibration.js — 12/12; monotonicity + gap<raw + fallback ladder + kill-switch child + FREEZE GUARD (buildMlbPropClusters/phase4Tracking/calibrationDampener reference nothing in the shadow). Registered → runtime:verify 17→18.
+- NEW backend/scripts/probeMarginalCalibrationValidation.js — held-out (a)+(b) → .scratch/last.txt.
+
+REAL-OUTPUT EVIDENCE (this turn):
+- isotonicCalibration self-test 8/8; engine smoke: totalBases 0.45→0.286, hits 0.28→0.080, hr 0.144→0.097 (overconfident pulled toward realized); MLB_MARGINAL_CALIB=0 → null.
+- verifyMarginalCalibration 12/12. runtime:verify 18/18 (verifyMlbTierPolicyR2 + verifyNbLadderStep1 + verifyCorrelation green = FREEZE INTACT).
+- VALIDATION (held-out train 9d/test 5d, maps refit on TRAIN): (a) calibrated decisively beats raw — Brier 0.111→0.088; reliability gap 15.8pp (stated 0.291 vs realized 0.133) → 0.26pp (stated 0.135 vs realized 0.133). (b) through-line — correlation copula vs naive: RAW marginals copula 0.010516 vs naive 0.009353 (copula +12% worse); CALIBRATED marginals copula 0.007268 vs naive 0.007249 (+0.3%, dead heat), both Briers −22%.
+
+HONEST CONCLUSION: marginal calibration is the keystone + works decisively on its own (a); it brings the parlay layer to PARITY (b) but does NOT by itself make the copula beat naive yet (weak-corr pairs dominate + thin window + in-sample ρ_Z). Stays SHADOW-only. The live fix (extend the canonical dampener with the isotonic remap + wire calibrated modelProb onto the cluster path) is a SCORING change — gated by the R2 freeze (~06-25) + separate operator approval. NOT done here.
+
+LAW 1: isotonicCalibration = calibration method authority; mlbMarginalCalibration = MLB shadow; the LIVE integration EXTENDS calibrationDampener (PRESERVED) — do not leave a permanent parallel calibrator. PRESERVED untouched in v1.
+
+DEPLOY: NO live reload — shadow, wired into nothing live. Verify = runtime:verify 18/18 + probeMarginalCalibrationValidation real output.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyMarginalCalibration + runtime:verify + both validation reads in A's sandbox + checks the freeze guard; operator runs the ship fence (3 commits feat/test/docs + push). No scoring change ships. POST-FREEZE decision queued: the live calibration wiring (the change that actually fixes edge/tier).
+
+PROBE_REFS: isotonicCalibration self-test 8/8 · verifyMarginalCalibration 12/12 · runtime:verify 18/18 · .scratch/last.txt (a: Brier 0.111→0.088, gap 15.8pp→0.26pp; b: copula +12%→+0.3% vs naive) · backend/config/mlbMarginalCalibration.json · `TZ='America/New_York' date` → 2026-06-14 17:36 EDT.
