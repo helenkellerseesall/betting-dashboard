@@ -4754,3 +4754,16 @@ A RECS on the 2 open decisions: (a) TRACKED seasonsActive.json with committed de
 NEXT_EXPECTED_FROM_PEER: operator answers (a)+(b) → A drafts build handoff → CB builds (seasonGate.js + slate-entrypoint gates + scheduler.sh block guards + seasonsActive.json + /status card + sysAudit season-aware + verifySeasonGate fixture 15→16) → A verifies → deploy incl. scheduler kickstart. Then RETURN TO T2 STEP 2 (correlation engine, the main line).
 
 PROBE_REFS: scheduler.sh:126/137/376/398/88/112 · statusRoute.js:71-79 · sysAudit.js:131/218/283 · package.json:17-18 · autopilots/*.plist (5) · earlier launchctl list (16:50) · `TZ='America/New_York' date` → 2026-06-14 03:43 EDT.
+
+## 2026-06-14 04:12 ET — Claude-A [Cowork, Opus 4.8] — SEASON-SWITCH-1A BUILD VERIFIED (ready to deploy)
+
+ACTION: re-verified CB's 04:08 Season-Switch-1A build in A's sandbox. VERDICT: clean, freeze-safe, ready to deploy.
+- RE-RAN: verifySeasonGate 29/29 PASS (incl. fail-open paths: garbled JSON → all-ON+warn, missing bool → ON+warn); full runtime:verify 16/16 PASS — verifyMlbTierPolicyR2 + verifyNbLadderStep1 GREEN inside it ⇒ R2 + T2-L1 freeze intact, nothing regressed.
+- GATES REAL: seasonGate.js fresh-read (fs.readFileSync, no require-cache) + fail-OPEN + [SEASON-GATE] warn (verified :18/:23/:46/:55); slateMlb.js:78 / slateNba.js:83 gate at main() before any network step.
+- BEHAVIORAL (CB sandbox, consistent with code): node slateNba.js → "SKIPPED, no calls made" exit 0 (NBA gated off, zero network); node slateMlb.js → passes gate, hits network (ECONNREFUSED, no backend in sandbox) = gate let it through. seasonsActive.json = {mlb:true, nba:false, nfl:false, nhl:false}.
+- FREEZE: seasonGate gates at slate ENTRY, before the engine; buildMlbPropClusters/tierForPlay/makePlay/ladderNB untouched; PRESERVED untouched.
+- STATE: commits landed (HEAD 7797e47 = feat b227568 + test d43cc47 + docs). NOT yet live — scheduler + backend need restart (scheduler is on stale code; backend needs the new /status card + seasonGate). 04:xx ET = outside PM tipoff = safe restart window.
+
+NEXT_EXPECTED_FROM_PEER: operator runs deploy (scheduler kickstart [clears live line-103 stale crash] + backend kickstart) → A confirms LOCAL version==HEAD + new scheduler pid + seasonsActive nba=off. Then RETURN TO T2 STEP 2 (correlation engine — the main line).
+
+PROBE_REFS: verifySeasonGate 29/29 + runtime:verify 16/16 (A re-ran) · seasonGate.js:18/46/55 · slateMlb.js:78 / slateNba.js:83 · `TZ='America/New_York' date` → 2026-06-14 04:12 EDT.
