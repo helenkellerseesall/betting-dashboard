@@ -4965,3 +4965,25 @@ AUDIT:
 NEXT_EXPECTED_FROM_PEER: operator answers 2 decisions — (a) security A(token)/B(accept)/; (b) NFL/NHL disabled vs interactive — then CB builds → A verifies. No code until approval + the security call.
 
 PROBE_REFS: docs/audits/2026-06-15-status-sport-toggle/audit_plan.md · sportToggle.js:39-52 · seasonGate.js:107 · statusRoute.js:1431/1463/1580 · server.js:19952 (binds all ifaces) · grep: no auth guard in routes/server · `TZ='America/New_York' date` → 2026-06-14 18:43 EDT.
+
+## 2026-06-14 19:15 ET — Claude-B [Cowork, Opus 4.8] — SEASON-SWITCH-2A BUILT (interactive /status toggle; awaiting operator ship fence + token setup + A-verify)
+
+ACTION: interactive /status sport toggle built per operator-approved plan (security A = shared token fail-closed; NFL/NHL dim+disabled). Sandbox-verified with real output; operator runs the ship fence + sets the token — nothing claimed as run. Freeze-safe (FE + 1 route + config write; NO scoring).
+
+BUILD (6 files):
+- seasonGate.js — NEW setSportEnabled(sport,enabled): validates sport∈KNOWN_SPORTS + boolean, writes seasonsActive.json, returns snapshot(). Exported. The ONE canonical write (Law 1).
+- sportToggle.js — refactored to call setSportEnabled (deleted its inline read/write + the now-unused fs require). CLI behavior unchanged (still prints commit fence).
+- statusRoute.js — NEW router.post("/season", express.json(), …): FIRST checks header x-status-token === process.env.STATUS_WRITE_TOKEN; unset OR mismatch ⇒ 403 FAIL-CLOSED (token read per-request, not module-load). Then validates {sport, enabled:boolean} → setSportEnabled → {ok, sports, updatedAt}.
+- frontend/status/index.html — iOS switch CSS (.iosw pill + .ioswKnob slide, green/grey) + renderSportsActive rewritten to interactive switches (MLB/NBA tappable, NFL/NHL dim+disabled) + postSeasonToggle() (token via prompt→sessionStorage; optimistic flip; 403 clears token + reverts; success → loadStatus reconcile).
+- verifySeasonGate.js — extended 29→37: setSportEnabled round-trip (on/off) + reject unknown-sport + reject non-boolean + route 403 on unset token + route 403 on mismatched token (mutation-free; config byte-identical after). Matrix STAYS 18 (extended existing suite).
+- RUNTIME_FACTS.md — interactive toggle + STATUS_WRITE_TOKEN setup documented.
+
+SECURITY (the flagged risk, resolved): /status is on the PUBLIC tunnel; a localhost/req.ip check is INEFFECTIVE (cloudflared proxies to 127.0.0.1 → all tunnel traffic looks local). Guard = shared token, FAIL-CLOSED (unset env ⇒ 403, cannot ship open). Operator generates their own token (openssl rand -hex 16) → backend plist EnvironmentVariables STATUS_WRITE_TOKEN → reload. Token value NOT invented by CB.
+
+REAL-OUTPUT EVIDENCE: node --check ×4 clean; FE JS parses; verifySeasonGate 37/37 (incl. both route-403 paths); runtime:verify 18/18 (R2 + T2-L1 + correlation + marginal-calib green = all freezes intact); config left intact (mlb ON, nba/nfl/nhl OFF).
+
+DEPLOY: ONE backend kickstart to load the route (outside PM-ET tipoff windows). Toggle is pure data after. Operator verification: set token in plist + reload → open /status on phone → tap a switch → flips + persists; curl /api/ws/status/season without token ⇒ 403.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifySeasonGate + runtime:verify in A's sandbox + reads the route token-guard; operator runs ship fence (3 commits feat/test/docs + push), sets STATUS_WRITE_TOKEN in the plist, kickstarts backend, and flip-tests from the phone. No scoring change ships.
+
+PROBE_REFS: verifySeasonGate 37/37 · runtime:verify 18/18 · git diff --stat 6 files +159/−32 · seasonGate.setSportEnabled · statusRoute POST /season (fail-closed 403) · `TZ='America/New_York' date` → 2026-06-14 19:15 EDT.

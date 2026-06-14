@@ -50,6 +50,7 @@ Last updated: 2026-06-06
 - **Kill-safety:** OFF stops NEW calls/writes only; deletes nothing; reversible.
 - **Deploy requirement:** editing `scheduler.sh` needs a LaunchAgent reload (running copy is otherwise stale): `launchctl kickstart -k gui/$(id -u)/com.motel666.scheduler`. The `/status` "sports active" card needs one backend reload to ship: `launchctl kickstart -k gui/$(id -u)/com.motel666.backend` — do it OUTSIDE PM-ET tipoff windows (daytime restarts hurt MLB CLV capture). Toggling thereafter needs NO restart.
 - **/status:** the "sports active" card (sectionSportsActive) shows GREEN on+firing / RED on+not-firing / GREY off-paused / DIM no-pipeline (NFL/NHL).
+- **Interactive toggle (Season-Switch-2A):** tap the iOS switch on the /status card to flip a sport (MLB/NBA; NFL/NHL disabled). Route `POST /api/ws/status/season` → `seasonGate.setSportEnabled` (same canonical write as the CLI). TOKEN-GUARDED, fail-closed: requires header `x-status-token === STATUS_WRITE_TOKEN`; **unset env ⇒ 403** (endpoint cannot ship open). Set it: `openssl rand -hex 16` → add `<key>STATUS_WRITE_TOKEN</key><string>…</string>` under the backend plist `EnvironmentVariables` → `launchctl kickstart -k gui/$(id -u)/com.motel666.backend`. FE asks for the token once per browser session (sessionStorage). No-restart to toggle thereafter (config read fresh; flip live within the 30s tick).
 
 ## Correlation engine (Phase T2-Correlation-1A, 2026-06-14)
 

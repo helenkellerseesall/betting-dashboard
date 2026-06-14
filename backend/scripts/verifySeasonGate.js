@@ -68,11 +68,47 @@ try {
   writeCfg({ sports: { mlb: true } }) // nba key absent
   check("missing sport key → fail-open true", gate.isSportEnabled("nba") === true)
   check("present key still honored alongside missing", gate.isSportEnabled("mlb") === true)
+
+  // Season-Switch-2A — setSportEnabled canonical write round-trip + reject-invalid.
+  writeCfg({ sports: { mlb: true, nba: false, nfl: false, nhl: false } })
+  const w1 = gate.setSportEnabled("nba", true)
+  check("setSportEnabled flips nba ON (round-trip)", w1.sports.nba === true && gate.isSportEnabled("nba") === true)
+  const w2 = gate.setSportEnabled("nba", false)
+  check("setSportEnabled flips nba OFF (round-trip)", w2.sports.nba === false && gate.isSportEnabled("nba") === false)
+  check("setSportEnabled rejects unknown sport", (() => { try { gate.setSportEnabled("cricket", true); return false } catch (_) { return true } })())
+  check("setSportEnabled rejects non-boolean enabled", (() => { try { gate.setSportEnabled("nba", "yes"); return false } catch (_) { return true } })())
 } finally {
   // ALWAYS restore the operator's real config, exactly.
   fs.writeFileSync(CONFIG, ORIG, "utf8")
 }
 check("config restored byte-identical", fs.readFileSync(CONFIG, "utf8") === ORIG)
+
+// Season-Switch-2A — /status POST /season token guard is FAIL-CLOSED. Test the
+// 403 paths only (they return BEFORE any write — never mutates the real config).
+const statusRouter = require(path.join(ROOT, "routes", "statusRoute.js"))
+function findHandler(method, p) {
+  for (const l of (statusRouter.stack || [])) {
+    if (l.route && l.route.path === p && l.route.methods && l.route.methods[method]) {
+      const st = l.route.stack || []
+      return st.length ? st[st.length - 1].handle : null
+    }
+  }
+  return null
+}
+const seasonHandler = findHandler("post", "/season")
+check("POST /season route registered", typeof seasonHandler === "function")
+if (typeof seasonHandler === "function") {
+  const mockRes = () => { const r = { statusCode: 200, body: null }; r.status = (c) => { r.statusCode = c; return r }; r.json = (b) => { r.body = b; return r }; r.send = (b) => { r.body = b; return r }; return r }
+  const savedEnv = process.env.STATUS_WRITE_TOKEN
+  delete process.env.STATUS_WRITE_TOKEN
+  const rNo = mockRes(); seasonHandler({ headers: {}, body: { sport: "nba", enabled: true } }, rNo, () => {})
+  check("403 when STATUS_WRITE_TOKEN unset (fail-closed)", rNo.statusCode === 403)
+  process.env.STATUS_WRITE_TOKEN = "fixture-secret"
+  const rBad = mockRes(); seasonHandler({ headers: { "x-status-token": "wrong" }, body: { sport: "nba", enabled: true } }, rBad, () => {})
+  check("403 when token mismatched", rBad.statusCode === 403)
+  if (savedEnv === undefined) delete process.env.STATUS_WRITE_TOKEN; else process.env.STATUS_WRITE_TOKEN = savedEnv
+}
+check("config still byte-identical after route 403 tests", fs.readFileSync(CONFIG, "utf8") === ORIG)
 
 // snapshot shape (against the restored real config)
 const snap = gate.snapshot()
