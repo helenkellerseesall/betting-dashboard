@@ -4684,3 +4684,11 @@ ACTION: full health probe from the mounted repo + sysAudit output (audit_23.txt)
 NEXT_EXPECTED_FROM_PEER: clear to start T2 step 2 (correlation engine, audit-first). Side task queued: pause NBA scheduler jobs (slate:nba + NBA populator + NBA injury), reversible, until next-season prep.
 
 PROBE_REFS: .scratch/audit_23.txt (sysAudit) · mlb_tracked_bets 06-12 1642 settled / 06-13 707 closeOdds · .scratch/scheduler.log slate:mlb OK 23:00 ET · `TZ='America/New_York' date` → 2026-06-14 02:41 EDT.
+
+## 2026-06-14 02:48 ET — Claude-A [Cowork, Opus 4.8] — SPORT-SWITCH BRIEF SENT (NBA-off first use)
+
+ACTION: operator refined the NBA-pause into a GENERAL per-sport season on/off switch for all 4 sports (MLB/NBA/NFL/NHL), toggleable via term command and/or /status. Sent CB an audit-first brief. This is config/scheduler infra — does NOT touch scoring or the R2 freeze. First use: NBA OFF (season over, key expired); MLB ON.
+
+NEXT_EXPECTED_FROM_PEER: CB audit-first (read-only) — map per-sport invocation points (scheduler.sh slate:<sport>/populators/injury, package.json, backend routes), recommend single source-of-truth for enabled state (live-toggleable), gate chokepoints, /status surface, toggle mechanism, current per-sport season defaults — returns audit + plan in ONE reply. Then operator approves → CB builds → A verifies. Scheduler LaunchAgent reload needed after (it currently runs possibly-stale scheduler.sh — line-103 unbound-var errors in launchd.log despite the in-file fix).
+
+PROBE_REFS: `TZ='America/New_York' date` → 2026-06-14 02:48 EDT.
