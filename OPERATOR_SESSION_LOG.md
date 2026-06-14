@@ -4848,6 +4848,16 @@ POST-FREEZE QUEUE (~06-25, scoring + approval): wire calibrated modelProb live b
 
 PROBE_REFS: verifyMarginalCalibration 12/12 + runtime:verify 18/18 (A re-ran) · probeMarginalCalibrationValidation (a) 0.111→0.088 gap 15.8→0.26pp, (b) copula parity w/ calibrated (A re-ran) · freeze-guard grep empty · `TZ='America/New_York' date` → 2026-06-14 18:11 EDT.
 
+## 2026-06-14 18:41 ET — Claude-A [Cowork, Opus 4.8] — TRACK 3 (INTERACTIVE /status SPORT TOGGLE) KICKOFF — audit brief sent
+
+ACTION: operator picked the quick win — interactive /status sport toggle (v2 of Season-Switch-1A). Freeze-safe (FE + config-write route, no scoring). Operator vision docked: eventually /status looks/feels like a native iOS app; this toggle = step 1 (iOS-style switch). Sent CB a tight audit-first brief.
+
+KEY callout in the brief: /status is on the PUBLIC tunnel → a write endpoint (flip sports from the page) is publicly reachable → CB must flag the security posture + propose a sane guard before building an unguarded public mutation. Reuse sportToggle/seasonGate write (extend, not duplicate).
+
+NEXT_EXPECTED_FROM_PEER: CB tight audit-first — existing write path (sportToggle.js → seasonsActive.json) + Sports Active card (statusRoute sectionSportsActive) + cleanest write endpoint reusing canonical logic + SECURITY posture (public tunnel) + iOS-style FE toggle render — returns audit + plan in one reply. Then operator approves → build → A verify → operator verify (click it on /status).
+
+PROBE_REFS: ranked-path §QUEUED (toggle + iOS-app vision) · seasonsActive.json · statusRoute.js sectionSportsActive · sportToggle.js · `TZ='America/New_York' date` → 2026-06-14 18:41 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
