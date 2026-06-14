@@ -4791,6 +4791,22 @@ NEXT_EXPECTED_FROM_PEER: operator answers (a)+(b) → A drafts build handoff →
 
 PROBE_REFS: .scratch/probe_t2_correlation_discovery.js (A re-ran, repo-root cwd) · nbaCorrelationEngine.js:184/197 (A read) · audit_plan.md · `TZ='America/New_York' date` → 2026-06-14 16:04 EDT.
 
+## 2026-06-14 16:36 ET — Claude-A [Cowork, Opus 4.8] — T2-CORRELATION-1A BUILD VERIFIED (honest: correct engine, NOT a Brier win yet — marginal problem)
+
+ACTION: re-ran CB's T2-Correlation-1A build in A's sandbox. VERDICT: engine correct + freeze-safe; CB's HONEST limitation finding confirmed. Shadow-only, no deploy/reload needed.
+- RE-RAN: verifyCorrelation 26/26; full runtime:verify 17/17 (verifyMlbTierPolicyR2 + verifyNbLadderStep1 GREEN ⇒ R2/T2-L1 freeze intact). Freeze-guard: buildMlbPropClusters + buildSlipAi reference NOTHING from mlbCorrelationEngine/gaussianCopula/MLB_CORRELATION (grep empty) ⇒ scoring untouched, engine is standalone shadow.
+- VALIDATION PROBE re-ran (repo-root cwd): SIGN 12/12 structural types correct (same-hitter family +, lift>1; pitcherK×opp lift 0.46 −). Brier on modelProb marginals: in-sample copula 0.012281 vs naive 0.011097; held-out copula 0.010549 vs naive 0.009359 → NAIVE BETTER. CB's diagnosis confirmed + correct: modelProb is OVERCONFIDENT → copula amplifies the marginal error (a MARGINAL problem, not a dependence problem). Type-level isolation (marginals controlled): dependence modeling better (CB: 0.007196<0.007236). So: correctly-signed, dependence-calibrated, but NOT a joint-prob win on the production marginal yet.
+- THROUGH-LINE (strategic): same root as R2 + inverted-ladder — single-prop modelProb is overconfident. Parlay machinery (NB ladder, correlation copula) is being built correctly + is READY, but the PAYOFF is gated on calibrating the MARGINAL (modelProb). That is scoring → frozen until ~2026-06-25. The real money-lever next = marginal calibration, not more parlay scaffolding on a bad marginal.
+- CB INTEGRITY: did NOT claim a win; reported naive-beats-copula honestly + diagnosed why + kept it shadow-only. Exactly the bar.
+
+LAW 1: nbaCorrelationEngine UNCHANGED; gaussianCopula.js = new shared method authority it can graduate onto. PRESERVED untouched.
+
+DEPLOY: none — shadow, wired into nothing; commits already in (HEAD a7b38db = feat 3f77fb7 + test 472deae + docs). Operator-verification = run probeCorrelationValidation.js (see sign 12/12 + honest Brier).
+
+NEXT_EXPECTED_FROM_PEER: operator-verifies the probe; then strategy call — highest-value next lever is MARGINAL CALIBRATION (post-freeze ~06-25), OR continue freeze-safe (validate NB ladder, /status toggle, correlation forward-accrues). Step 3 parlay constructor is premature on an overconfident marginal.
+
+PROBE_REFS: verifyCorrelation 26/26 + runtime:verify 17/17 (A re-ran) · probeCorrelationValidation sign 12/12 + Brier copula>naive (A re-ran) · grep freeze-guard empty · mlbCorrelationPriors.json (pitcherK×opp ρ_Z −0.21) · `TZ='America/New_York' date` → 2026-06-14 16:36 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
