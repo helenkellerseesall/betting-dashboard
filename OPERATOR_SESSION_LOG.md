@@ -4951,3 +4951,17 @@ DEPLOY: NO live reload — shadow, wired into nothing live. Verify = runtime:ver
 NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyMarginalCalibration + runtime:verify + both validation reads in A's sandbox + checks the freeze guard; operator runs the ship fence (3 commits feat/test/docs + push). No scoring change ships. POST-FREEZE decision queued: the live calibration wiring (the change that actually fixes edge/tier).
 
 PROBE_REFS: isotonicCalibration self-test 8/8 · verifyMarginalCalibration 12/12 · runtime:verify 18/18 · .scratch/last.txt (a: Brier 0.111→0.088, gap 15.8pp→0.26pp; b: copula +12%→+0.3% vs naive) · backend/config/mlbMarginalCalibration.json · `TZ='America/New_York' date` → 2026-06-14 17:36 EDT.
+
+## 2026-06-14 18:43 ET — Claude-B [Cowork, Opus 4.8] — /STATUS INTERACTIVE SPORT TOGGLE (Season-Switch v2) AUDIT + PLAN (read-only, no code)
+
+ACTION: tight audit for clickable iOS-style on/off switches on the /status Sports Active card. Deliverable docs/audits/2026-06-15-status-sport-toggle/audit_plan.md. NO code. Freeze-safe (FE + 1 route + config write; no scoring).
+
+AUDIT:
+1. WRITE path: add setSportEnabled(sport,enabled) to seasonGate.js (canonical, non-PRESERVED; exports at :107) — validates + writes seasonsActive.json + returns snapshot(). Refactor sportToggle.js:39-52 to call it (dedupe inline write); new route calls the SAME fn. One write authority (Law 1).
+2. SECURITY (flagged, must decide before build): server.js:19952 app.listen(PORT) binds all interfaces; cloudflared proxies edge.motel666.com → localhost:4000; NO existing auth guard anywhere (grep clean). A write route is PUBLICLY reachable. CRITICAL: a localhost/req.ip check is INEFFECTIVE — every tunnel request arrives as 127.0.0.1, so it can't tell operator from public. Precedent: router.post("/snapshot"):1463 is already an unguarded public POST (low risk). Options: (A) shared token env STATUS_WRITE_TOKEN, header x-status-token, unset⇒403 fail-closed, FE sessionStorage — RECOMMENDED; (B) accept-as-personal (obscure host + reversible low-blast-radius); (C) localhost check — RULED OUT (doesn't work behind tunnel). Operator decides.
+3. FE: extend cardSportsActive/renderSportsActive (Season-Switch-1A) with a real iOS switch (pill+knob CSS, green/grey); MLB/NBA interactive, NFL/NHL dim+disabled (no pipeline). Click → POST /api/ws/status/season → optimistic flip; 30s loadStatus reflects server truth. Pure CSS/JS. Step 1 of operator's native-iOS-look vision.
+4. PLAN: seasonGate.setSportEnabled → sportToggle refactor → statusRoute router.post("/season") (validate + token guard per A + setSportEnabled) → FE switch + postSeasonToggle. No-restart: file read fresh → flip live within 30s tick (CLI parity); ONE backend kickstart to load the route, then pure data. Freeze-guard: extend verifySeasonGate with setSportEnabled round-trip + reject-invalid (matrix stays 18). PRESERVED untouched.
+
+NEXT_EXPECTED_FROM_PEER: operator answers 2 decisions — (a) security A(token)/B(accept)/; (b) NFL/NHL disabled vs interactive — then CB builds → A verifies. No code until approval + the security call.
+
+PROBE_REFS: docs/audits/2026-06-15-status-sport-toggle/audit_plan.md · sportToggle.js:39-52 · seasonGate.js:107 · statusRoute.js:1431/1463/1580 · server.js:19952 (binds all ifaces) · grep: no auth guard in routes/server · `TZ='America/New_York' date` → 2026-06-14 18:43 EDT.
