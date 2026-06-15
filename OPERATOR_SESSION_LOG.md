@@ -4902,6 +4902,18 @@ NEXT_EXPECTED_FROM_PEER: operator digests the bottom-line. Decision point — (a
 
 PROBE_REFS: verifyParlayConstructor 24/24 + runtime:verify 19/19 (A re-ran) · probeParlayConstructorValidation singles −17.0% / parlays −42.1% (A re-ran) · freeze-guard grep empty · `TZ='America/New_York' date` → 2026-06-14 23:09 EDT.
 
+## 2026-06-15 00:05 ET — Claude-A [Cowork, Opus 4.8] — EDGE-MAP (operator chose) — no CONFIRMED edge; in-sample leads, flat CLV
+
+ACTION: ran the edge-map (A sandbox, read-only, 12,789 settled MLB bets, calibrated marginals; +EV-gated ROI + CLV sliced by family/book/bucket/side). HONEST result:
+- POSITIVE in-sample pockets: UNDER side +17.2% (n=484, hit 58.9%) · mid_fav bucket +19.2% (n=158, hit 68.4%) · hits family +7.8% (n=793) · runs +4.2% (n=201). BOOK split: BetMGM +21.3% (n=280) / Hard Rock +7.9% (n=467) / BetRivers +6.5% POSITIVE vs DraftKings −16.7% / FanDuel −30.0% / Fanatics −23.5% NEGATIVE.
+- BUT TWO BINDING CAVEATS: (1) IN-SAMPLE — calibration maps were fit on this same ledger → positive pockets are likely OVERFITTING; CB's clean HELD-OUT test was −17%/−42%. (2) CLV (beat-the-close, the real edge signal) is FLAT-to-NEGATIVE EVERYWHERE incl. these pockets (avgCLV ~0, beat% 0-16%). Real edge → positive CLV; we don't have it. So these are LEADS, probably noise — NOT confirmed edge. Do not bet them.
+- MOST PLAUSIBLY-REAL lead = the BOOK split (BetMGM/Hard Rock softer than DK/FD) — a line-shopping / soft-book signal, MODEL-INDEPENDENT, and partly actionable (system already pulls 7 books → take the best/softest line). Still needs forward CLV to confirm it's edge not just less-bad price.
+- VERDICT: market looks efficient; held-out evidence says no edge; in-sample pockets are overfit-suspect. DISCRIMINATOR = FORWARD, out-of-sample validation of the specific pockets (under-side + soft-book) — which the freeze window provides.
+
+NEXT_EXPECTED_FROM_PEER: operator decides — (a) set up a FORWARD tracker for the leads (under-side / mid-fav / BetMGM+HardRock) to test out-of-sample over the freeze window (the honest discriminator); (b) lean into best-line/soft-book selection (model-independent); (c) promo path; (d) accept efficiency. No edge to bet on yet.
+
+PROBE_REFS: edge-map probe (A, 12789 settled, calibrated) — under +17.2%/n=484, mid_fav +19.2%/n=158, BetMGM +21.3%/n=280, hits +7.8%/n=793; CLV flat everywhere · CB held-out −17%/−42% (the honest baseline) · `TZ='America/New_York' date` → 2026-06-15 00:05 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
