@@ -72,6 +72,12 @@ Last updated: 2026-06-06
 - **SHADOW-only:** computes modelProbCalibrated alongside; feeds nothing in scoring. Validate via `node backend/scripts/probeMarginalCalibrationValidation.js` → `.scratch/last.txt`.
 - **Status:** calibration decisively beats raw out-of-sample (Brier 0.111→0.088; gap 15.8pp→0.26pp). LIVE fix = extend the dampener (isotonic remap) + wire onto the cluster modelProb = a SCORING change, gated by the R2 freeze + separate operator approval. Do NOT wire live until then.
 
+## Parlay constructor (Phase T2-Parlay-1A, 2026-06-15)
+
+- **Kill-switch:** `MLB_PARLAY` — backend env, read once at module load in `backend/pipeline/mlb/mlbParlayConstructor.js`. Default ON; `"0"` = OFF (`buildParlays` returns null). Boot probe `[MLB-PARLAY-BOOT]`.
+- **What:** `buildParlays(legs)` — calibrated marginals (not raw) + copula joint (same-game) / product (cross-game); EV cross-game only (NO book SGP price → same-game evParlay=null); never-auto-bundle (default singles). SHADOW — feeds nothing live; `upside/builders.js` (heuristic v0) untouched. Validate: `node backend/scripts/probeParlayConstructorValidation.js`.
+- **Status (honest, in-sample):** machine verified; but +EV-gated legs realize NEGATIVE (singles −17%, parlays −42%) — the gate selects the model's overconfident tail; calibration isn't honest at the +EV selection margin yet. Do NOT treat any EV output as real until post-freeze LIVE calibration is forward-validated at the margin.
+
 ## Caffeinate
 
 - **LaunchAgent:** `com.motel666.caffeinate`

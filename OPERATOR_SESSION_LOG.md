@@ -5048,3 +5048,21 @@ SCOPE v1: MLB 2-leg shadow framework+validation; cross-game EV-gated, same-game 
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves the Phase-1 shadow build (or amends). No code until approval. Honest framing to hold: this is the machine that finds a +EV parlay IF one exists post-calibration-live; it does not produce winners on its own.
 
 PROBE_REFS: docs/audits/2026-06-15-t2-parlay-constructor/audit_plan.md · fetchNbaOddsSnapshot.js:762-763 (parlays null) · upside/builders.js:57 parlayDecimalFromLegs + server.js:26 · mlbMarginalCalibration.js:81 · vigStripping.js:48/:89 · mlbCorrelationEngine.js:88 · `TZ='America/New_York' date` → 2026-06-14 22:22 EDT.
+
+## 2026-06-14 23:00 ET — Claude-B [Cowork, Opus 4.8] — T2-PARLAY-1A BUILT (shadow; awaiting operator ship fence + A-verify)
+
+ACTION: T2 step 3 parlay constructor built per approved plan. Sandbox-verified; operator runs the ship fence — nothing claimed as run. NO scoring; upside/builders + PRESERVED untouched; all freezes intact.
+
+BUILD: NEW backend/pipeline/mlb/mlbParlayConstructor.js buildParlays(legs)+americanToDecimal — calibrated marginals (mlbMarginalCalibration, NOT raw) + de-vig (vigStripping where two-way) + evSingle; 2-leg enumerate; joint copula[same-game]/product[cross-game]; EV cross-game only, same-game evParlay=null+note; never-auto-bundle (default singles; surface iff cross-game evParlay>0 AND both legs +EV single; evIfBetAsSingles always shown); kill-switch MLB_PARLAY; shadow. NEW verifyParlayConstructor.js (24/24, matrix 18→19). NEW probeParlayConstructorValidation.js.
+
+REAL-OUTPUT EVIDENCE: verifyParlayConstructor 24/24; runtime:verify 19/19 (R2+T2-L1+correlation+marginal-calib green = freezes intact). Smoke: americanToDecimal +100→2.0/-110→1.909; anti-fake-EV confirmed (hr 0.40@+300 raw EV +0.60 → calibrated 0.178 EV −0.287 → rejected); same-game evParlay=null+copula joint; OFF→null.
+
+VALIDATION (HONEST, in-sample 12 dates, .scratch/last.txt): machine CORRECT but +EV-gated legs realize NEGATIVE — +EV singles −17.0% (772), +EV cross-game parlays −42.1% (26,867). The +EV gate (calibrated>offered-implied) selects the model's overconfident tail; family/bucket calibration fixes the aggregate, NOT the per-leg selection margin (winner's-curse). Parlays bleed more than singles (playbook discipline reproduced). ⇒ does NOT produce winners on current data; proves no edge yet AND the marginal isn't trustworthy where the gate bites. (Caveats: in-sample; dedup keeps arbitrary book odds not best-line; offered-odds EV not the stricter no-vig de-vig — ledger lacks two-way.) Probe-bug caught+fixed mid-build: singles ROI initially −100% because prepLeg doesn't carry win → fixed to winById lookup → −17%.
+
+IMPLICATION FOR ROADMAP: the post-freeze LIVE calibration must be honest AT THE +EV SELECTION MARGIN (finer granularity / per-leg shrinkage), forward-validated, before any EV output is trustworthy. The constructor is the correct surface; it currently, correctly, reports no edge.
+
+LAW 1: upside/builders.js buildMoneyMakerPortfolio = heuristic v0 sibling (server.js:26) — untouched; principled EV-gated constructor reconciles with it post-freeze.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyParlayConstructor + runtime:verify + the validation probe in A's sandbox + reads the freeze guard; operator runs ship fence (3 commits feat/test/docs + push). No scoring ships. ROADMAP NOTE: T2 steps 1-3 + Track-1 calibration all BUILT (shadow); the gating next move is the post-freeze (~06-25) LIVE calibration wiring honest at the +EV margin — the prerequisite that makes everything downstream real. (Step 4 = fractional Kelly, only meaningful once a real +EV set exists.)
+
+PROBE_REFS: verifyParlayConstructor 24/24 · runtime:verify 19/19 · .scratch/last.txt (singles −17.0% / parlays −42.1% / synthetic EV 0.1256 + anti-fake-EV) · mlbParlayConstructor.js · `TZ='America/New_York' date` → 2026-06-14 23:00 EDT.
