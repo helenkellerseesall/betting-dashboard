@@ -4987,3 +4987,15 @@ DEPLOY: ONE backend kickstart to load the route (outside PM-ET tipoff windows). 
 NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifySeasonGate + runtime:verify in A's sandbox + reads the route token-guard; operator runs ship fence (3 commits feat/test/docs + push), sets STATUS_WRITE_TOKEN in the plist, kickstarts backend, and flip-tests from the phone. No scoring change ships.
 
 PROBE_REFS: verifySeasonGate 37/37 · runtime:verify 18/18 · git diff --stat 6 files +159/−32 · seasonGate.setSportEnabled · statusRoute POST /season (fail-closed 403) · `TZ='America/New_York' date` → 2026-06-14 19:15 EDT.
+
+## 2026-06-14 20:45 ET — Claude-B [Cowork, Opus 4.8] — SEASON-SWITCH-2A DEPLOY GREEN + env-reload lesson + localStorage UX fix
+
+DEPLOY CLOSURE (operator-run, real output relayed): backend on 483bc1f (bootAt 23:25Z), POST /api/ws/status/season no-token→403, with-token→200; seasonsActive.json updatedAt freshly stamped (…23:31:53Z) = the route's setSportEnabled write landed. Toggle is LIVE.
+
+DEPLOY GOTCHA FOUND + FIXED (durable lesson): the FIRST attempt showed version 483bc1f + no-token 403 but with-token ALSO 403 → backend's process.env.STATUS_WRITE_TOKEN was undefined. ROOT CAUSE: `launchctl kickstart -k` re-execs the process (picks up new CODE from disk) but does NOT re-parse the plist's EnvironmentVariables → a new env var never enters the running job. FIX: full job reload `launchctl bootout gui/$(id -u)/com.motel666.backend; launchctl bootstrap gui/$(id -u) <plist>` → env loaded → with-token 200. Recorded in RUNTIME_FACTS "LaunchAgent reload — CODE vs ENV": code change → kickstart -k; plist/env change → bootout/bootstrap. Also corrected the Season-Switch-2A RUNTIME_FACTS line (had said kickstart for the token — wrong) + token-set via PlistBuddy (not hand-edited XML — the `<key>…` pasted at the zsh prompt caused a parse error earlier).
+
+FE UX FIX (operator request): frontend/status/index.html toggle token storage sessionStorage → localStorage (×3: get/set/removeItem) so the token persists per device across sessions (no re-prompt each session); 403-clears-token behavior preserved (rotated/wrong token re-prompts). FE-only, freeze-safe; new Function() parse OK. Operator hard-refreshes /status to pick up the new HTML (static-served; no backend restart).
+
+NEXT_EXPECTED_FROM_PEER: operator commits (FE fix + this log + RUNTIME_FACTS lesson), hard-refreshes /status, taps a switch (enters token once, now sticky). Season-Switch v2 DONE. Open thread unchanged: post-freeze (~06-25) live marginal-calibration wiring (the scoring change that actually fixes edge/tier).
+
+PROBE_REFS: operator term output (483bc1f · bootAt 23:25Z · 403/200) · seasonsActive.json updatedAt 23:31:53Z (route write landed) · frontend/status/index.html localStorage ×3 · RUNTIME_FACTS CODE-vs-ENV reload note · `TZ='America/New_York' date` → 2026-06-14 20:45 EDT.
