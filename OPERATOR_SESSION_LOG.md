@@ -5028,3 +5028,23 @@ FE UX FIX (operator request): frontend/status/index.html toggle token storage se
 NEXT_EXPECTED_FROM_PEER: operator commits (FE fix + this log + RUNTIME_FACTS lesson), hard-refreshes /status, taps a switch (enters token once, now sticky). Season-Switch v2 DONE. Open thread unchanged: post-freeze (~06-25) live marginal-calibration wiring (the scoring change that actually fixes edge/tier).
 
 PROBE_REFS: operator term output (483bc1f · bootAt 23:25Z · 403/200) · seasonsActive.json updatedAt 23:31:53Z (route write landed) · frontend/status/index.html localStorage ×3 · RUNTIME_FACTS CODE-vs-ENV reload note · `TZ='America/New_York' date` → 2026-06-14 20:45 EDT.
+
+## 2026-06-14 22:22 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 3 (PARLAY CONSTRUCTOR + EV GATE) AUDIT + DESIGN (read-only, no code)
+
+ACTION: T2 Step 3 audit + Phase-1 design — AUDIT-FIRST, read-only. Deliverable docs/audits/2026-06-15-t2-parlay-constructor/audit_plan.md. NO code. Freeze-safe (shadow/design only; EV trustworthy only once calibration LIVE post-freeze ~06-25).
+
+HEADLINE: inputs all exist + callable; the binding limit is BOOK PARLAY PRICES — we have NONE (Odds API parlays:null/dualParlays:null, fetchNbaOddsSnapshot.js:762-763). ⇒ CROSS-GAME parlays ARE EV-computable (standard payout = product of single-leg decimals); SAME-GAME are NOT (proprietary SGP price absent) → constructor computes the true correlated joint for insight but cannot EV-gate it (says so, never fakes). Realistic v1 +EV path = cross-game compounds of calibrated +EV singles; outputs +EV only if calibration live AND +EV legs exist, else honestly "none."
+
+INPUTS (cited): calibrated prob mlbMarginalCalibration.js:81 calibrateModelProb (MUST use, not raw — raw +16pp overconfident → fake +EV); de-vig vigStripping.js:48/:89 (PRESERVED, two-way — needs both sides, ledger row has one → live reads board, validation approximates); joint mlbCorrelationEngine.js:88 jointForPair (copula on CALIBRATED p1/p2); payout = leg oddsAmerican→decimal. EV identity: cross-game +EV iff ∏(calᵢ·decᵢ)>1 = compounding +EV singles.
+
+LAW 1: existing live heuristic parlay surface = upside/builders.js buildMoneyMakerPortfolio (server.js:26) — parlayDecimalFromLegs + roughTrueProbability (0.55/0.65 regression + same-game penalty); NO calibration/copula/de-vig/EV-gate. New EV-gated constructor is the principled layer (same heuristic-v0 relationship as nbaCorrelationEngine→copula, dampener→isotonic). v1 = SEPARATE shadow module mlbParlayConstructor.js (not a live parallel authority); live reconciliation post-freeze + Law-1 decision (flagged).
+
+DESIGN: NEW backend/pipeline/mlb/mlbParlayConstructor.js buildParlays(legs,opts) — per-leg cal+dec+evSingle+beatsFair; enumerate 2-leg; joint copula[same-game]/product[cross-game]; EV cross-game only (same-game evParlay=null+note); NEVER-AUTO-BUNDLE: default=singles, surface a parlay only if evParlay>0 AND both legs +EVsingle, ALWAYS show evIfBetAsSingles (the 7×-singles tradeoff); rank by evParlay; contingent{calibrationLive}. Kill-switch MLB_PARLAY. Shadow — no FE/betting surface/live wire.
+
+VALIDATION: ledger +EV-gated cross-game set realized ROI (expect few/zero on 14 efficient days = correct honest result) + 7×-singles discipline check + machine-correctness sanity (hand-derived EV; −EV rejected; raw-overconfident leg that's +EV-raw-but−EV-calibrated REJECTED = anti-fake-EV). Fixture verifyParlayConstructor matrix 18→19 incl. that anti-fake-EV guard + freeze guard.
+
+SCOPE v1: MLB 2-leg shadow framework+validation; cross-game EV-gated, same-game correlation-insight-only. OUT: Kelly, NBA, FE/betting surface/live wire, 3+legs, same-game EV, scoring, upside/builders + PRESERVED.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves the Phase-1 shadow build (or amends). No code until approval. Honest framing to hold: this is the machine that finds a +EV parlay IF one exists post-calibration-live; it does not produce winners on its own.
+
+PROBE_REFS: docs/audits/2026-06-15-t2-parlay-constructor/audit_plan.md · fetchNbaOddsSnapshot.js:762-763 (parlays null) · upside/builders.js:57 parlayDecimalFromLegs + server.js:26 · mlbMarginalCalibration.js:81 · vigStripping.js:48/:89 · mlbCorrelationEngine.js:88 · `TZ='America/New_York' date` → 2026-06-14 22:22 EDT.
