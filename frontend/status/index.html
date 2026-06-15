@@ -446,14 +446,14 @@ function renderSportsActive(data) {
 }
 
 // Phase Season-Switch-2A — token-guarded toggle POST with optimistic UI.
-// Token entered once per browser session (sessionStorage). A 403 clears the
+// Token entered once per device (localStorage, persists across sessions). A 403 clears the
 // stored token so the next tap re-prompts. Reconciles via loadStatus on success.
 function postSeasonToggle(sport, enabled, swEl) {
-  let token = sessionStorage.getItem("statusWriteToken");
+  let token = localStorage.getItem("statusWriteToken");
   if (!token) {
     token = (window.prompt("Enter the /status write token (STATUS_WRITE_TOKEN):") || "").trim();
     if (!token) return;
-    sessionStorage.setItem("statusWriteToken", token);
+    localStorage.setItem("statusWriteToken", token);
   }
   const prev = swEl.classList.contains("on");
   swEl.classList.toggle("on", enabled);
@@ -464,7 +464,7 @@ function postSeasonToggle(sport, enabled, swEl) {
     headers: { "Content-Type": "application/json", "x-status-token": token },
     body: JSON.stringify({ sport: sport, enabled: enabled }),
   }).then(async (r) => {
-    if (r.status === 403) { sessionStorage.removeItem("statusWriteToken"); throw new Error("token rejected — re-enter on next tap"); }
+    if (r.status === 403) { localStorage.removeItem("statusWriteToken"); throw new Error("token rejected — re-enter on next tap"); }
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ("HTTP " + r.status)); }
     swEl.disabled = false;
     _setSummary("sumSportsActive", sport.toUpperCase() + " → " + (enabled ? "ON" : "OFF") + " · saved");
