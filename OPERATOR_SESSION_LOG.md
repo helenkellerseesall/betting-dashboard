@@ -4869,6 +4869,16 @@ NEXT_EXPECTED_FROM_PEER: operator flips a sport on /status (operator-verificatio
 
 PROBE_REFS: .scratch/last.txt (token_test 200, plist token removed) · PlistBuddy Delete + unload/load · [[env-var-plist-vs-dotenv-precedence]] · `TZ='America/New_York' date` → 2026-06-14 21:10 EDT.
 
+## 2026-06-14 22:10 ET — Claude-A [Cowork, Opus 4.8] — /status TOGGLE FULLY VERIFIED END-TO-END (operator-verified)
+
+ACTION: operator ran the live round-trip 3× (off→on→off) through the real endpoint. RESULT (.scratch/last.txt): FLIP ON http=200 → file "nba":true + gate true; FLIP OFF http=200 → file "nba":false + gate false. File AND gate move together, both directions, lands correct (mlb on, nba/nfl/nhl off). Auth (token) + write (seasonsActive.json) + gate (isSportEnabled) all confirmed live. NO half-working. Operator-verified.
+
+STATUS: Season-Switch v2 (interactive iOS-style /status toggle) = SHIPPED + LIVE + OPERATOR-VERIFIED. Token-secured (STATUS_WRITE_TOKEN in .env, single source, fail-closed). Whole-surface auth still docked for sellable. Step 1 of the iOS-app /status look = done.
+
+NEXT_EXPECTED_FROM_PEER: back to the FREEZE-WINDOW PLAN. Passive (free, accruing): NB ladder + correlation + calibration shadow validations. The big lever at ~06-25 freeze-end: wire calibration live (extend the PRESERVED dampener) + edge-map. Optional freeze-safe now: Step-3 parlay constructor DESIGN (audit-first, build on honest marginals post-freeze).
+
+PROBE_REFS: .scratch/last.txt (round-trip 200/200, file+gate both directions) · seasonsActive.json (mlb on) · `TZ='America/New_York' date` → 2026-06-14 22:10 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
