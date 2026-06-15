@@ -4887,6 +4887,21 @@ NEXT_EXPECTED_FROM_PEER: CB audit-first — inputs map (mlbMarginalCalibration s
 
 PROBE_REFS: docs/research/2026-06-11-parlay-ladder-playbook.md §1/§2 · [[project-parlay-engine-research]] · mlbMarginalCalibration / mlbCorrelationEngine (shadow) · `TZ='America/New_York' date` → 2026-06-14 22:11 EDT.
 
+## 2026-06-14 23:09 ET — Claude-A [Cowork, Opus 4.8] — STEP 3 BUILD VERIFIED + THE BOTTOM-LINE FINDING (no demonstrable edge yet)
+
+ACTION: re-ran CB's T2-Parlay-1A build. Verified + reproduced the validation. VERDICT: machine correct, freezes intact, AND the honest project bottom-line is now measured.
+- BUILD VERIFIED: verifyParlayConstructor 24/24; runtime:verify 19/19 (R2+T2-L1+correlation+marginal-calib green = all freezes intact); freeze-guard grep empty (buildMlbPropClusters/upside builders.js/calibrationDampener reference NOTHING from the constructor — pure shadow). Anti-fake-EV guard works (hr 0.40@+300 raw EV +0.60 → calibrated −0.287 → REJECTED).
+- VALIDATION REPRODUCED (A re-ran, 12 dates): +EV-gated CROSS-GAME parlays realize **−42.1%** ROI (26,867); +EV single legs **−17.0%** (772); same-game 155,810 (correlation insight only, evParlay=null — no book SGP price). Synthetic machine-correctness passes.
+- THE FINDING (honest, pivotal): the FULL stack is built (ladders→correlation→calibration→parlay constructor+EV gate), it's mathematically correct, and pointed at "are there +EV bets here?" the answer is **NO** on the current model. Calibration fixes AGGREGATE honesty but NOT the +EV SELECTION MARGIN — the gate bets exactly where the model disagrees with the (sharp) book, and those disagreements are mostly the model's own residual overconfidence (winner's curse), so the selected bets LOSE. Parlays bleed worse (−42 vs −17, playbook reproduced). The market is efficient enough that wherever this model claims edge, it's mostly model error.
+- VALUE: the machine correctly reports NO edge instead of manufacturing fake +EV plays (what the overconfident model / lotto crowd do). We are not fooling ourselves. Knowing this prevents −EV betting.
+- GATING NEXT (post-freeze ~06-25): the ONLY lever that matters is whether the MODEL can beat the market AT THE SELECTION MARGIN — finer-grained / per-leg-shrinkage calibration + better SIGNALS, FORWARD-validated (out-of-sample). More machinery (step 4 Kelly) is pointless w/o a real +EV set. Honest caveat: no guarantee model work yields edge; efficient markets + winner-limiting mean it may not exist for this approach. Parallel +EV path that needs NO model edge: promo/boost/bonus conversion (playbook §2e).
+
+LAW 1: upside/builders.js buildMoneyMakerPortfolio = heuristic v0 sibling, untouched; reconcile post-freeze.
+
+NEXT_EXPECTED_FROM_PEER: operator digests the bottom-line. Decision point — (a) post-freeze model work at the selection margin (the real edge question, may or may not succeed), (b) the promo/boost +EV path (model-edge-independent), (c) reconsider the product if the market is efficient. No more shadow machinery until there's a reason.
+
+PROBE_REFS: verifyParlayConstructor 24/24 + runtime:verify 19/19 (A re-ran) · probeParlayConstructorValidation singles −17.0% / parlays −42.1% (A re-ran) · freeze-guard grep empty · `TZ='America/New_York' date` → 2026-06-14 23:09 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
