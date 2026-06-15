@@ -5105,3 +5105,17 @@ BUILD SHORTLIST (freeze-safe; R2 scoring frozen ~through 06-25 → scoring-adjac
 NEXT_EXPECTED_FROM_PEER: operator picks the first build — #1 (quick safe visible win) vs #2 (start the human/quant blend on the live sport); both independent + freeze-safe. Operator runs the commit fence (doc + this log block). No code until the pick.
 
 PROBE_REFS: docs/research/2026-06-15-prop-parlay-craft-playbook.md · memory prop_parlay_craft_research_findings.md · `TZ='America/New_York' date` → 2026-06-15 03:22 EDT.
+
+## 2026-06-15 17:41 ET — Claude-A [Cowork, Opus 4.8] — DEEP-RESEARCH WAVE 2 (menu / scenarios / integrity)
+
+CONTEXT: prior turn's AskUserQuestion tool call HUNG (permission stream closed) → turn appeared stuck for hours; operator re-sent the directive frustrated that wave-1 was too math-rigid and never answered "are sports rigged." Dropped AskUserQuestion entirely; ran a second, wider research wave (3 parallel agents) + answered the integrity question with evidence.
+
+DELIVERED: NEW repo doc docs/research/2026-06-15-parlay-edge-menu-and-integrity.md (Part1 integrity reality + design rules · Part2 fan-edge→trackable-feature map · Part3 scenario archetype library · Part4 full ranked signal menu incl. overlooked edges · Part5 named follows/tools · Part6 honest $5-20/5-15-leg reality · "what to build" mapping). Memory: NEW betting_integrity_manipulation_reality.md + appended menu-doc pointer to prop_parlay_craft_research_findings.md + 2 MEMORY.md index lines. No code touched.
+
+INTEGRITY VERDICT (evidence, 2023-26): GAMES not fixed (no proven fixed outcome). Proven = isolated single-actor manip of LOW-LIMIT micro-props (Porter own-unders PROVEN; Rozier own-unders ALLEGED; Clase/Ortiz pitch-level ALLEGED → MLB $200 pitch cap + SGP exclusion). IBIA: of ~360k basketball matches 2017-23, NONE of suspicious activity tied to player-prop markets. → DESIGN RULES: exclude single-actor micro-markets · block low-limit two-way/10-day legs · favor role-floored STAR props · anomalous line move = RED FLAG (suppress, never recommend).
+
+NEW GENERATIVE MATERIAL: usage-redistribution lag (still #1 codifiable edge); overlooked trackable edges — NBA ref-crew foul/pace + B2B/3-in-4 fatigue + on/off redistribution; MLB home-plate-umpire zone (decaying under ABS) + wind/park + bullpen-fatigue(3-day pitch count) + batting-order slot; NFL PROE/pace + route/target share + ref penalty crews; cross-sport CLV + soft-book line-shop + steam/RLM. Scenario archetypes (star-out cascade, pace-up shootout, blowout fade, K-pitcher spot, wind-out hitting, underdog passing script, favorite ground game). Honest reality: heavy-leg parlay = structured lottery (10-leg ~37% hold); winners differ by fewer/correlated/line-shopped legs + tiny stakes.
+
+NEXT_EXPECTED_FROM_PEER: operator reads the menu doc + picks a first build (recommend MLB matchup-intel enrichment shadow on the live sport, or the zero-risk cash-out/hedge helper). Operator runs the commit fence (2 docs + this log block). No code until the pick. NOTE: AskUserQuestion tool is unreliable in this session — ask via plain prose, not the tool.
+
+PROBE_REFS: docs/research/2026-06-15-parlay-edge-menu-and-integrity.md · memory betting_integrity_manipulation_reality.md · `TZ='America/New_York' date` → 2026-06-15 17:41 EDT.
