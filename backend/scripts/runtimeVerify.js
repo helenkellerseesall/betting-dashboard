@@ -56,6 +56,7 @@ const SUITES = [
   "verifySeasonGate",          // Season-Switch-1A (2026-06-14) — per-sport ON/OFF gate: fresh-read, fail-open, slate-gate-before-call, scheduler 6NBA/3MLB gated + grading/settlement/audit ungated
   "verifyCorrelation",         // T2-Correlation-1A (2026-06-14) — Gaussian copula joint prob: sign BOTH ways, Φ₂ closed-form anchors, kill-switch, freeze guard (scoring never references correlation)
   "verifyMarginalCalibration", // T2-MarginalCalib-1A (2026-06-14) — isotonic modelProb calibration (shadow): monotone, gap<raw, fallback ladder, kill-switch, freeze guard (scoring/PRESERVED untouched)
+  "verifyParlayConstructor",   // T2-Parlay-1A (2026-06-14) — parlay EV gate (shadow): cross-game EV hand-derived, same-game EV=null, never-auto-bundle, ANTI-FAKE-EV (calibrated not raw), kill-switch, freeze guard
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
