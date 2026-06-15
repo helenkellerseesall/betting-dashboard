@@ -5093,3 +5093,15 @@ LAW 1: upside/builders.js buildMoneyMakerPortfolio = heuristic v0 sibling (serve
 NEXT_EXPECTED_FROM_PEER: Claude-A re-runs verifyParlayConstructor + runtime:verify + the validation probe in A's sandbox + reads the freeze guard; operator runs ship fence (3 commits feat/test/docs + push). No scoring ships. ROADMAP NOTE: T2 steps 1-3 + Track-1 calibration all BUILT (shadow); the gating next move is the post-freeze (~06-25) LIVE calibration wiring honest at the +EV margin — the prerequisite that makes everything downstream real. (Step 4 = fractional Kelly, only meaningful once a real +EV set exists.)
 
 PROBE_REFS: verifyParlayConstructor 24/24 · runtime:verify 19/19 · .scratch/last.txt (singles −17.0% / parlays −42.1% / synthetic EV 0.1256 + anti-fake-EV) · mlbParlayConstructor.js · `TZ='America/New_York' date` → 2026-06-14 23:00 EDT.
+
+## 2026-06-15 03:22 ET — Claude-A [Cowork, Opus 4.8] — DEEP-RESEARCH: prop-parlay craft playbook delivered
+
+ACTION: ran the operator's commissioned web deep-dive (5 parallel research agents) on how knowledgeable bettors build SMART multi-leg prop parlays (the parlay-craft vision). Synthesized → NEW repo doc docs/research/2026-06-15-prop-parlay-craft-playbook.md (cited). Memory: NEW prop_parlay_craft_research_findings.md + MEMORY.md index line. No code touched.
+
+FINDINGS (honest): craft makes the play smarter/better-managed, NOT mathematically +EV (consistent with the −17%/−42% edge-map). 5 real edges: interpretation-not-speed · soft-book line-shop · fade-overreaction · promos · variance-mgmt. #1 codifiable edge = usage-redistribution lag (star scratched → secondary players' props stale 30-90 min while headline moves instantly). Free data backbone: nba_api · pybaseball+Baseball Savant+MLB Stats API · nflverse · Odds API (have) · Open-Meteo. Craft essentials: obtainable=opportunity-FLOORED stats over ceiling (3PM/HR) · ≤4 legs research-sensitive ceiling · 15-25% SGP correlation tax (3 singles > 1 SGP) · form weight 80-90% baseline · cash-out haircut 70-90% double-vig · CLV (beat close 65-70%+ over 200+) = the process scoreboard.
+
+BUILD SHORTLIST (freeze-safe; R2 scoring frozen ~through 06-25 → scoring-adjacent = shadow + kill-switch): 1 cash-out/hedge helper (zero scoring touch) · 2 MLB matchup-intel enrichment shadow (MLB_MATCHUP_INTEL: platoon+park+weather+K-arsenal → obtainability tag) · 3 usage-redistribution / lineup-change watcher · 4 obtainability classifier (extend archetype tags) · 5 correlation constructor upgrade + cross-book SGP line-shop across 7 books · 6 CLV scoreboard on /status.
+
+NEXT_EXPECTED_FROM_PEER: operator picks the first build — #1 (quick safe visible win) vs #2 (start the human/quant blend on the live sport); both independent + freeze-safe. Operator runs the commit fence (doc + this log block). No code until the pick.
+
+PROBE_REFS: docs/research/2026-06-15-prop-parlay-craft-playbook.md · memory prop_parlay_craft_research_findings.md · `TZ='America/New_York' date` → 2026-06-15 03:22 EDT.
