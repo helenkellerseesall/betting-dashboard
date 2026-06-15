@@ -4858,6 +4858,17 @@ NEXT_EXPECTED_FROM_PEER: CB tight audit-first — existing write path (sportTogg
 
 PROBE_REFS: ranked-path §QUEUED (toggle + iOS-app vision) · seasonsActive.json · statusRoute.js sectionSportsActive · sportToggle.js · `TZ='America/New_York' date` → 2026-06-14 18:41 EDT.
 
+## 2026-06-14 21:10 ET — Claude-A [Cowork, Opus 4.8] — /status TOKEN FIXED (plist-vs-.env precedence)
+
+ACTION: resolved the STATUS_WRITE_TOKEN 403 saga. ROOT CAUSE: token set in BOTH the LaunchAgent plist (32-char hex, from CB's original "add to plist" instruction) AND backend/.env (25-char passphrase). launchd injects the plist value; dotenv v17 does NOT override an already-set process.env var → backend used the 32-char plist token; operator typed the 25-char .env value → 403. The .env was correct the whole time.
+- VERIFIED PROOF CHAIN: sandbox dotenv load of .env = 25-char, byte-identical to what curl sent → if backend loaded .env it'd be 200, but 403 → something overriding. Diagnostic: plist_file_has_token=1, process_token_len=32 vs file=25, mismatch. FIX: PlistBuddy Delete :EnvironmentVariables:STATUS_WRITE_TOKEN + unload/load → token_test=200. (ps eww process_len=0 was a red herring — ps can't see dotenv's runtime injection; the 200 is authoritative.)
+- LESSON memorialized: [[env-var-plist-vs-dotenv-precedence]] — each env var in ONE place; secrets→.env, kill-switches→plist, never both; verify with a real request not ps eww.
+- STATUS: /status sport toggle is now FUNCTIONAL with the .env passphrase. Operator-verify pending = enter passphrase once on /status + flip a sport. CB's localStorage UX fix (enter-once-per-device) shipped (HEAD 904d6a2-era); hard-refresh /status to load it.
+
+NEXT_EXPECTED_FROM_PEER: operator flips a sport on /status (operator-verification). Then back to the freeze-window plan (Track 2 validations accruing; Track 4 step-3 design; the big one = wire calibration live + edge-map at freeze-end ~06-25).
+
+PROBE_REFS: .scratch/last.txt (token_test 200, plist token removed) · PlistBuddy Delete + unload/load · [[env-var-plist-vs-dotenv-precedence]] · `TZ='America/New_York' date` → 2026-06-14 21:10 EDT.
+
 ## 2026-06-14 15:53 ET — Claude-B [Cowork, Opus 4.8] — T2 STEP 2 (CORRELATION ENGINE) AUDIT COMPLETE + PHASE-1 PLAN (read-only, no code)
 
 ACTION: T2 Step 2 audit per A's kickoff brief — AUDIT-FIRST, read-only. Full deliverable docs/audits/2026-06-15-t2-correlation/audit_plan.md. One discovery probe written to .scratch (informational). NO production code touched. Freeze-safe by design (additive/shadow; modelProb/edge/tier untouched).
