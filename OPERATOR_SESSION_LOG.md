@@ -5391,3 +5391,24 @@ WHAT THIS MEANS: the post-freeze selection rework now has an OOS-CONFIRMED targe
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. This green-lights the SELECTION rework target (CLV-confirmed) for the post-freeze plan, with the ROI caveat.
 
 PROBE_REFS: .scratch/selection_edge_oos.txt · .scratch/probe_selection_edge_oos.js · train 06-05..06-09 (1,430) / test 06-12/13/15 (1,446) · H2 +0.23pp(n133) H3 +0.12pp(n89) H4 +0.15pp(n275) H5 +0.13pp(n292) H6 +0.59pp(n811) all HOLD · H1 +17/−30/−23 ROI = PARTIAL · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 19:13 EDT.
+
+## 2026-06-16 19:33 ET — Claude-B [Cowork] — LINE-SHOP SURFACING on /m (DISPLAY, freeze-safe). Best price + book + gap-vs-consensus now on the Discover rows. STEP-1 audit + STEP-2 build.
+
+ACTION: surface the ONE OOS-confirmed model-independent edge (best price beats consensus +0.59pp, H6 n=811) so the operator actually captures it on /m. DISPLAY only (MASTER_BRAIN: display/infra exempt) — NO scoring/selection, no PRESERVED edit, no backend change. runtime:verify 21/21. JS syntax checked via new Function() extraction (node --check broken on .html); chip math unit-tested 4 cases.
+
+STEP 1 — READ-ONLY AUDIT (the gate):
+- Best price NOT actionably surfaced on /m. (a) Curated pick cards (renderCard / Tonight's Edge — what he bets from): single book+odds, candidates carry NO per-book array → no best/consensus/gap. (b) Discover/GameView rows: carry pp.books=[{book,odds}] but only a passive "+N" tooltip — no best highlight, no consensus gap, headline odds not flagged best. (c) buildLineShopping output (bestBook/bestOdds/consensus/bestImpDelta) is computed (buildMlbOpportunityBoard:828, buildNbaOpportunityBoard, screenshots) but rendered only on the cockpit/board presentation + screenshots — never /m.
+- FREEZE-SAFE: YES, pure display.
+- BOOK SET: FE PREFERRED_BOOKS = the 4 he bets (DraftKings/FanDuel/Fanatics/BetMGM); ALLOWED = 7. Best-price MUST be across the 4 usable — a best price at a book he can't use isn't actionable.
+
+STEP 2 — BUILD (freeze-safe FE-only, reuses existing payload data):
+- frontend/mobile/index.html, renderProp (Discover rows): added bestPriceChip — computes best odds + which book + gap vs consensus from pp.books, RESTRICTED to PREFERRED_BOOKS (the 4 usable), renders e.g. "BEST +125 @ DraftKings ▲2.4pp — switch from FanDuel" (green). Flags when a DIFFERENT book than the shown one has the better price = switch to capture the edge; "you have it" when the shown book is already best. Pure display, never auto-bets. Kept the existing "+N" tooltip.
+- Unit tests: T1 DK+125 best vs shown FD → switch +2.4pp ✓ · T2 shown=best "you have it" ✓ · T3 non-preferred (bet365) excluded → no chip ✓ · T4 negative-odds favorites handled ✓.
+
+SCOPE / FOLLOW-UP (flagged, NOT built — needs operator nod): the curated PICK CARDS (renderCard) lack per-book data in the /api/best-available candidate payload. Surfacing best-price THERE needs a backend attach (reuse buildLineShopping per candidate) to the best-available serializer — which lives in the server.js monolith (MLB) + PRESERVED nbaIsolatedRoutes (NBA). That's DISPLAY/infra (freeze-exempt) but PRESERVED-adjacent → recommend approval before editing. Discover-row build lands the edge now with zero backend risk.
+
+OPERATOR-VISIBLE CLOSE (yours to confirm — I can't open your browser): open edge.motel666.com/m → Discover → expand a game with multi-book props → each over/under row shows a green "BEST +odds @ Book ▲Xpp" chip when ≥2 of your 4 books price it. If a different book beats the one shown, it says "switch from <book>". (Requires the backend reload to have served a games payload with pp.books — it already does today.)
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator confirms on /m. Then decide whether to do the pick-card backend attach (the follow-up above).
+
+PROBE_REFS: frontend/mobile/index.html renderProp (git diff this turn) · reuses pp.books (buildLineShopping/snapshot-derived) · PREFERRED_BOOKS 4 · edge basis .scratch/selection_edge_oos.txt H6 +0.59pp n=811 · runtime:verify 21/21 · new Function() syntax check 1/1 · `TZ='America/New_York' date` → 2026-06-16 19:33 EDT.

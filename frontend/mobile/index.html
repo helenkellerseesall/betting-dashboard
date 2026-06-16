@@ -2134,6 +2134,35 @@
                           letter-spacing: 0.3px;">+${otherBooks.length}</span>`
           : "";
 
+        // Line-shop best-price indicator (2026-06-16, CB) — surfaces the ONE
+        // OOS-confirmed model-independent edge: best available price beats
+        // consensus by ~+0.59pp (.scratch/selection_edge_oos.txt, H6, n=811).
+        // Pure DISPLAY — reuses pp.books; never auto-bets. Restricted to the
+        // operator's USABLE books (PREFERRED_BOOKS, the 4 he bets) — a best
+        // price at a book he can't use isn't actionable. Shows best odds + which
+        // book + the gap vs consensus, and flags when a DIFFERENT book than the
+        // shown one has the better price (= switch to capture the edge).
+        let bestPriceChip = "";
+        {
+          const impliedOf = (o) => (o == null || o === 0) ? null
+            : (o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100));
+          const usable = (Array.isArray(pp.books) ? pp.books : [])
+            .filter(b => isPreferredBook(b.book) && Number.isFinite(Number(b.odds)))
+            .map(b => ({ book: b.book, odds: Number(b.odds), imp: impliedOf(Number(b.odds)) }));
+          if (usable.length >= 2) {
+            const best = usable.reduce((a, b) => b.odds > a.odds ? b : a);
+            const consensus = usable.reduce((s, b) => s + b.imp, 0) / usable.length;
+            const gapPP = (consensus - best.imp) * 100; // + = best price cheaper than consensus
+            const isSwitch = normalizeBookName(best.book) !== normalizeBookName(pp.book);
+            const switchTxt = isSwitch ? ` — switch from ${pp.book || "—"}` : " — you have it";
+            const gapTxt = gapPP > 0.01 ? ` ▲${gapPP.toFixed(1)}pp` : "";
+            bestPriceChip = `<span title="Best price across your ${usable.length} usable books: ${escapeHtml(best.book)} ${best.odds > 0 ? "+" : ""}${best.odds}. Consensus implied ${(consensus * 100).toFixed(1)}%; best is ${gapPP >= 0 ? "+" : ""}${gapPP.toFixed(2)}pp vs consensus${switchTxt}."
+                                   style="font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+                                          background: rgba(52, 211, 153, 0.15); color: #34D399; letter-spacing: 0.2px;">
+                               BEST ${best.odds > 0 ? "+" : ""}${best.odds} @ ${escapeHtml(best.book)}${gapTxt}</span>`;
+          }
+        }
+
         // Per-row model signal — surfaces what the cognition thinks about
         // THIS line (modelProb + edge). Backend joins from tracked_bets.
         // Calibration discount (2026-05-23): when the lane is known
@@ -2220,6 +2249,7 @@
             <span style="font-size: 9px; padding: 1px 5px; border-radius: 3px;
                          background: rgba(75, 85, 99, 0.3); color: #9CA3AF; letter-spacing: 0.3px;">${escapeHtml(pp.book || "—")}</span>
             ${bookChip}
+            ${bestPriceChip}
             ${modelChip}
             ${contradictionTag}
             <button onclick="addLegFromGameView('${escapeHtml(stashKey).replace(/'/g, "\\'")}', '${sport}'); event.stopPropagation();"
