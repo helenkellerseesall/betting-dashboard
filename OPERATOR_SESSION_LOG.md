@@ -5201,3 +5201,20 @@ DEPLOY: route is module-load → backend kickstart -k to register /api/ws/cashou
 NEXT_EXPECTED_FROM_PEER: Claude-A summary; operator runs the fence, kickstarts backend (good window), opens /m PARLAY, builds a parlay, confirms the card renders. Honest: prob defaults to market-implied (incl vig) since stored legs carry one side only — enter opposite-side odds for a true de-vig, or override hit% manually; same-game 2-leg uses the correlation copula.
 
 PROBE_REFS: workstationRoutes POST /api/ws/cashout (route smoke fair $122.50 / hedge-lock $184.89 / copula SAMEteam) · frontend/mobile/index.html PARLAY un-hid + renderParlay cash-out card · runtime:verify 21/21 · FE JS parse OK · RUNTIME_FACTS + MASTER_BRAIN FE-canonical correction · `TZ='America/New_York' date` → 2026-06-15 22:55 EDT.
+
+## 2026-06-16 02:20 ET — Claude-B [Cowork, Opus 4.8] — CASH-OUT MOVED TO ENGINE SLIPS (auto-fed; zero odds typing) — FE-only
+
+ACTION: per operator correction — moved the cash-out surface off the manual PARLAY tab onto the ENGINE-BUILT SLIPS ("tell me what to play"). Auto-fed from each slip's own legs+odds+modelProb. FE-only; REUSES the existing POST /api/ws/cashout route (no new route, no math reimpl). Freeze-safe. Verified.
+
+BUILD (frontend/mobile/index.html, +75 lines, 1 file):
+- renderSlipCard: NEW collapsible "💸 Cash-out / Hedge" section on EVERY rendered slip (any tier — safe/balanced render now since aggressive/lotto frozen). Auto-feeds from slip.legs (serializeLeg carries odds/modelProb/matchup/team/side/statFamily — confirmed buildSlipAi.js:1244). Operator interaction = tap which legs HIT (status→won) + optional one hedge-odds field + stake (default $10). ZERO odds/leg typing.
+- slipCashout(idx): reads _slipsCache[idx]; maps legs → {oddsAmerican:l.odds, matchup, side, statFamily, team, player, status, prob:(pending? l.modelProb : —)}; POSTs /api/ws/cashout. PRE-GAME HONESTY: 0 legs hit → shows combined odds + potential payout + "cash-out available once legs start hitting" (NO fake mid-game cash-out, no route call). ≥1 hit → fair cash-out + 70-90% band + per-leg prob (source "manual"→displayed "model"; legs w/o modelProb show route's "market-implied (incl vig)") + hedge stake/locked-profit + notes. UX honesty note: grading is nightly → tap legs as they hit; live in-game settlement poller = future build (would make it hands-off).
+- Old manual PARLAY-tab card LEFT in place as a power-user scratchpad (operator OK'd).
+
+VERIFY (real output): FE JS parses (1 block, new Function); _slipsCache declared (let, :3358) reused by slipCashout (same idx pattern as existing copySlipLegs); runtime:verify 21/21 (FE-only, no backend touch — route unchanged from prior turn). Route behavior already smoke-verified last turn (fair/band/hedge/copula).
+
+DEPLOY: FE-only → live on /m page reload, NO restart. (Route /api/ws/cashout shipped last turn; needs the backend running that commit — if the prior backend kickstart wasn't done, do it once so the route responds.) OPERATOR-VISIBLE CLOSE: open /m → SLIPS → expand "💸 Cash-out / Hedge" on a slip → see combined odds + potential payout pre-game → tap a leg as HIT → watch it switch to fair cash-out + band (+ hedge if odds entered).
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary; operator reloads /m SLIPS, expands the section on a slip, taps a leg hit, confirms live update. Honest: pending prob = the slip's own modelProb (labeled "model"); pre-game shows no cash-out number by design.
+
+PROBE_REFS: frontend/mobile/index.html renderSlipCard cash-out section + slipCashout/renderSlipCashoutResult (:3529/:3565) · serializeLeg buildSlipAi.js:1244 (modelProb/odds/matchup) · reuse POST /api/ws/cashout (no backend change) · runtime:verify 21/21 · FE JS parse OK · `TZ='America/New_York' date` → 2026-06-16 02:20 EDT.

@@ -3499,6 +3499,16 @@
               : `<span style="flex:1;text-align:center;font-size:12px;color:#6B7280;padding:8px;">${escapeHtml(bookName || "")}</span>`}
             <button id="copybtn-${idx}" onclick="copySlipLegs(${idx})" style="flex:1;font-size:12px;color:#D1D5DB;background:#1F2937;padding:8px;border-radius:6px;border:none;cursor:pointer;">Copy legs</button>
           </div>
+          <div style="margin-top:10px;border-top:1px solid #1F2937;padding-top:8px;">
+            <div onclick="(function(b){var o=b.nextElementSibling;var open=o.style.display==='none';o.style.display=open?'block':'none';b.querySelector('.scchev').textContent=open?'▾':'▸';if(open)slipCashout(${idx});})(this)" style="font-size:12px;color:#A78BFA;cursor:pointer;font-weight:600;">💸 Cash-out / Hedge <span class="scchev">▸</span></div>
+            <div style="display:none;margin-top:8px;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:11px;color:#9CA3AF;">Stake $</span><input type="number" min="1" value="10" data-sc-stake="${idx}" oninput="slipCashout(${idx})" style="width:70px;background:#0A0E1A;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:4px;">tap a leg the moment it HITS:</div>
+              ${(slip.legs || []).map((l, li) => `<label style="display:flex;align-items:center;gap:7px;font-size:11px;color:#C7CCD6;padding:3px 0;"><input type="checkbox" data-sc-leg="${idx}" data-sc-li="${li}" onchange="slipCashout(${idx})"><span>${escapeHtml(l.player || "?")} ${_famNice(l.statFamily || l.propType)} ${_sideNice(l.side)} ${l.line == null ? "" : l.line} <span style="color:#6B7280;">${_oddsNice(l.odds)}</span></span></label>`).join("")}
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="font-size:11px;color:#9CA3AF;">Hedge final-leg odds <span style="color:#6B7280;">(optional)</span></span><input data-sc-hedge="${idx}" placeholder="-120" oninput="slipCashout(${idx})" style="width:80px;background:#0A0E1A;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
+              <div id="sc-result-${idx}" style="margin-top:8px;"></div>
+            </div>
+          </div>
           <div style="margin-top:8px;text-align:center;">
             <span onclick="document.getElementById('${expId}').classList.toggle('open');this.querySelector('.schev').textContent=document.getElementById('${expId}').classList.contains('open')?'▾ less':'▸ why';" style="font-size:11px;color:#60A5FA;cursor:pointer;"><span class="schev">▸ why</span></span>
           </div>
@@ -3510,6 +3520,71 @@
             <div style="font-size:10px;color:#4B5563;margin-top:8px;font-style:italic;">Display-only — opens the book, does not place the bet.</div>
           </div>
         </div>`;
+    }
+
+    // Phase Cashout-Surface-1B (2026-06-16) — AUTO-FED cash-out/hedge on engine
+    // slips. Reads the slip's own legs + odds + per-leg modelProb; operator only
+    // taps which legs HIT (+ optional hedge odds). Reuses POST /api/ws/cashout.
+    // Pre-game (0 legs hit) shows honest odds+payout, never a fake mid-game value.
+    window.slipCashout = async function (idx) {
+      const slip = (_slipsCache || [])[idx]; if (!slip) return;
+      const out = document.getElementById(`sc-result-${idx}`); if (!out) return;
+      const a2d = (o) => { const n = Number(o); if (!Number.isFinite(n) || n === 0) return null; return n > 0 ? 1 + n / 100 : 1 + 100 / Math.abs(n); };
+      const $ = (x) => x == null ? "—" : "$" + (Math.round(x * 100) / 100).toFixed(2);
+      const stakeEl = document.querySelector(`[data-sc-stake="${idx}"]`);
+      const stake = Number(stakeEl && stakeEl.value) || 10;
+      const legs = (slip.legs || []).map((l, li) => {
+        const won = !!(document.querySelector(`[data-sc-leg="${idx}"][data-sc-li="${li}"]`) || {}).checked;
+        const base = { oddsAmerican: l.odds, matchup: l.matchup || null, side: l.side || null, statFamily: l.statFamily || null, team: l.team || null, player: l.player || null, status: won ? "won" : "pending" };
+        if (!won && l.modelProb != null) base.prob = l.modelProb;   // pass model prob (route labels source)
+        return base;
+      });
+      const hitCount = legs.filter((l) => l.status === "won").length;
+      // Pre-game honesty: no leg hit yet → show odds + potential payout only; no fake cash-out.
+      if (hitCount === 0) {
+        let dec = 1, okAll = true;
+        for (const l of legs) { const d = a2d(l.oddsAmerican); if (d == null) { okAll = false; break; } dec *= d; }
+        const payout = okAll ? stake * dec : null;
+        out.innerHTML = `<div style="font-size:12px;color:#D1D5DB;">Combined odds <b>${_oddsNice(slip.combinedAmericanOdds)}</b> · potential payout <b style="color:#34D399;">${$(payout)}</b> on ${$(stake)}</div>
+          <div style="font-size:10px;color:#6B7280;margin-top:4px;">Cash-out available once legs start hitting — tap each leg as it lands. Grading is nightly for now; a live in-game settlement poller is a future build.</div>`;
+        return;
+      }
+      const hedgeEl = document.querySelector(`[data-sc-hedge="${idx}"]`);
+      const hedgeRaw = (hedgeEl && hedgeEl.value || "").trim();
+      const body = { stake, legs };
+      if (hedgeRaw) body.hedgeOdds = Number(hedgeRaw);
+      out.innerHTML = `<div style="font-size:11px;color:#6B7280;">Calculating…</div>`;
+      try {
+        const r = await fetch(`${API}/api/ws/cashout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const j = await r.json();
+        if (!j.ok) { out.innerHTML = `<div style="font-size:11px;color:#F87171;">${escapeHtml(j.error || "error")}</div>`; return; }
+        out.innerHTML = renderSlipCashoutResult(j);
+      } catch (e) { out.innerHTML = `<div style="font-size:11px;color:#F87171;">${escapeHtml(String((e && e.message) || e))}</div>`; }
+    };
+
+    function renderSlipCashoutResult(j) {
+      const $ = (x) => x == null ? "—" : "$" + (Math.round(x * 100) / 100).toFixed(2);
+      const pct = (x) => x == null ? "—" : (x * 100).toFixed(0) + "%";
+      const c = j.cashout || {};
+      let h = "";
+      if (c.fairCashout != null) {
+        h += `<div style="font-size:18px;font-weight:800;color:#34D399;">${$(c.fairCashout)} <span style="font-size:11px;font-weight:500;color:#9CA3AF;">fair cash-out</span></div>`;
+        h += `<div style="font-size:10px;color:#6B7280;">potential ${$(c.potentialReturn)} × ${pct(j.jointPending)} remaining (${escapeHtml(j.jointMethod || "")})</div>`;
+        if (c.offerBand) h += `<div style="font-size:11px;color:#D1D5DB;margin-top:3px;">book likely offers <b>${$(c.offerBand.low)}–${$(c.offerBand.high)}</b></div>`;
+      } else {
+        h += `<div style="font-size:11px;color:#9CA3AF;">${escapeHtml(c.note || "tap hit legs to compute")}</div>`;
+        if (c.potentialReturn != null) h += `<div style="font-size:11px;color:#D1D5DB;">potential payout ${$(c.potentialReturn)}</div>`;
+      }
+      const pend = (j.perLeg || []).filter((l) => l.status === "pending");
+      if (pend.length) h += `<div style="font-size:10px;color:#6B7280;margin-top:4px;">pending: ${pend.map((l) => `${escapeHtml(l.player || "?")} ${pct(l.prob)} (${escapeHtml(l.source === "manual" ? "model" : (l.source || "?"))})`).join(" · ")}</div>`;
+      if (j.hedge && !j.hedge.error) {
+        h += `<div style="font-size:11px;color:#D1D5DB;margin-top:6px;">hedge ${$(j.hedge.hedgeStake)} on the opposite side → <b style="color:#34D399;">locks ${$(j.hedge.lockedProfit)}</b> either way${j.hedge.lockedProfit < 0 ? " (caps a loss)" : ""}</div>`;
+      } else if (j.hedge && j.hedge.error) {
+        h += `<div style="font-size:10px;color:#F87171;">${escapeHtml(j.hedge.error)}</div>`;
+      }
+      (j.notes || []).forEach((n) => h += `<div style="font-size:10px;color:#FBBF24;margin-top:3px;">⚠ ${escapeHtml(n)}</div>`);
+      h += `<div style="font-size:10px;color:#4B5563;margin-top:5px;">display-only · grading nightly · live poller = future build</div>`;
+      return h;
     }
 
     // ── GAMES drill-down renderer ──────────────────────────────────────
