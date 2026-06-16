@@ -300,6 +300,27 @@
     .ps-buildable.ok { background: rgba(52, 211, 153, 0.12); color: #34D399; }
     .ps-buildable.warn { background: rgba(251, 191, 36, 0.12); color: #FBBF24; }
     .ps-buildable.bad { background: rgba(248, 113, 113, 0.12); color: #F87171; }
+    /* ── Cash-out / Hedge card (Phase Cashout-Surface-1A, 2026-06-15) ── */
+    .cashout-card { background: #11162A; border: 1px solid #2A2F45; border-radius: 12px; padding: 14px; margin-top: 14px; }
+    .cashout-card .co-title { font-size: 14px; font-weight: 700; color: #A78BFA; margin-bottom: 4px; }
+    .cashout-card .co-sub { font-size: 11px; color: #9CA3AF; line-height: 1.45; margin-bottom: 10px; }
+    .cashout-card .co-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+    .cashout-card .co-row > label { font-size: 12px; color: #C7CCD6; }
+    .cashout-card input { background: #0A0E1A; border: 1px solid #2A2F45; border-radius: 8px; color: #E5E7EB; padding: 7px 9px; font-size: 13px; width: 130px; text-align: right; font-family: inherit; }
+    .cashout-card .co-legs { margin: 8px 0; }
+    .cashout-card .co-leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #C7CCD6; padding: 5px 0; border-bottom: 1px solid #1A1F33; }
+    .cashout-card .co-leg input { width: auto; }
+    .cashout-card .co-leg em { margin-left: auto; color: #6B7280; font-style: normal; font-size: 11px; }
+    .cashout-card .co-btn { width: 100%; margin-top: 10px; background: #A78BFA; color: #0A0E1A; border: none; border-radius: 8px; padding: 11px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .cashout-card .co-btn:active { opacity: 0.85; }
+    .co-result { margin-top: 12px; }
+    .co-result .co-big { font-size: 22px; font-weight: 800; color: #34D399; }
+    .co-result .co-line { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #1A1F33; }
+    .co-result .co-line .lbl { color: #9CA3AF; }
+    .co-result .co-src { font-size: 10px; color: #6B7280; margin-top: 6px; line-height: 1.4; }
+    .co-result .co-lock { color: #34D399; font-weight: 700; }
+    .co-result .co-note { font-size: 10px; color: #FBBF24; margin-top: 6px; }
+    .co-err { color: #F87171; font-size: 12px; }
 
     .parlay-leg {
       background: #141828; border: 1px solid #1F2937;
@@ -688,7 +709,8 @@
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
       <button class="tab" data-sport="analyze">ANALYZE <span class="tab-count" id="analyzeCount">📸</span></button>
       <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
-      <!-- legacy MLB/NBA/PARLAY tabs hidden — accessible via dev console: data-sport=mlb|nba|parlay -->
+      <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
+      <!-- legacy MLB/NBA tabs hidden — accessible via dev console: data-sport=mlb|nba. PARLAY un-hidden 2026-06-15 (cash-out/hedge surface). -->
     </div>
   </header>
 
@@ -3631,7 +3653,75 @@
         `;
       }).join("");
 
-      main.innerHTML = summaryHtml + legsHtml + `<div class="diag-footer">parlay v0.2.0 · persisted in browser · single-book discipline enforced</div>`;
+      // Phase Cashout-Surface-1A (2026-06-15) — cash-out / hedge card.
+      const cashoutCardHtml = `
+        <div class="cashout-card">
+          <div class="co-title">💸 Cash-out / Hedge</div>
+          <div class="co-sub">For an in-progress ticket: tick the legs that already HIT, set your stake, and (optionally) the current odds of the opposite side of your last pending leg. You'll get the fair cash-out value, the book's likely 70–90% offer band, and the hedge that locks the same profit either way. Read-only — enter odds from your book; never auto-bets.</div>
+          <div class="co-row"><label>Stake ($)</label><input id="coStake" type="number" min="1" step="1" value="10"></div>
+          <div class="co-legs">${state.parlay.map((l, i) => {
+            const oddsT = l.oddsAmerican == null ? "—" : (l.oddsAmerican > 0 ? `+${l.oddsAmerican}` : `${l.oddsAmerican}`);
+            return `<label class="co-leg"><input type="checkbox" data-coleg="${i}"><span>${escapeHtml(l.player || "?")} ${escapeHtml(String(l.side || "").toUpperCase())} ${escapeHtml(String(l.propType || ""))} ${l.line ?? ""} (${oddsT})</span><em>hit?</em></label>`;
+          }).join("")}</div>
+          <div class="co-row"><label>Hedge side odds (last leg)</label><input id="coHedge" placeholder="-120 or 2.2"></div>
+          <div class="co-row"><label>Override pending hit% (optional)</label><input id="coJoint" placeholder="e.g. 30"></div>
+          <button class="co-btn" onclick="cashoutCalc()">Calculate cash-out / hedge</button>
+          <div id="coResult" class="co-result"></div>
+        </div>
+      `;
+      main.innerHTML = summaryHtml + legsHtml + cashoutCardHtml + `<div class="diag-footer">parlay v0.2.0 · persisted in browser · single-book discipline enforced</div>`;
+    }
+
+    // Phase Cashout-Surface-1A — POST the built parlay to /api/ws/cashout (reuses
+    // backend cashoutHedge + vigStripping + correlation). Pure display; no auto-bet.
+    window.cashoutCalc = async function () {
+      const out = document.getElementById("coResult");
+      const stake = Number(document.getElementById("coStake").value) || 0;
+      if (stake <= 0) { out.innerHTML = `<div class="co-err">Enter a stake greater than 0.</div>`; return; }
+      const hedgeRaw = (document.getElementById("coHedge").value || "").trim();
+      const jointRaw = (document.getElementById("coJoint").value || "").trim();
+      const legs = state.parlay.map((l, i) => ({
+        oddsAmerican: l.oddsAmerican ?? l.odds, matchup: l.matchup || null,
+        side: l.side || null, statFamily: l.statFamily || null, team: l.team || null, player: l.player || null,
+        status: (document.querySelector(`[data-coleg="${i}"]`) || {}).checked ? "won" : "pending",
+      }));
+      const body = { stake, legs };
+      if (hedgeRaw) body.hedgeOdds = Number(hedgeRaw);
+      if (jointRaw) { const jn = Number(jointRaw); if (Number.isFinite(jn)) body.jointPendingProb = jn > 1 ? jn / 100 : jn; }
+      out.innerHTML = "Calculating…";
+      try {
+        const r = await fetch(`${API}/api/ws/cashout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const j = await r.json();
+        if (!j.ok) { out.innerHTML = `<div class="co-err">${escapeHtml(j.error || "error")}</div>`; return; }
+        out.innerHTML = renderCashoutResult(j);
+      } catch (e) { out.innerHTML = `<div class="co-err">${escapeHtml(String((e && e.message) || e))}</div>`; }
+    };
+
+    function renderCashoutResult(j) {
+      const $ = (x) => x == null ? "—" : "$" + (Math.round(x * 100) / 100).toFixed(2);
+      const pct = (x) => x == null ? "—" : (x * 100).toFixed(1) + "%";
+      const c = j.cashout || {};
+      let html = "";
+      if (c.fairCashout != null) {
+        html += `<div class="co-big">${$(c.fairCashout)}</div>`;
+        html += `<div class="co-src">fair cash-out value · potential return ${$(c.potentialReturn)} × ${pct(j.jointPending)} (${escapeHtml(j.jointMethod || "")})</div>`;
+        if (c.offerBand) html += `<div class="co-line"><span class="lbl">book will likely offer (70–90%)</span><span>${$(c.offerBand.low)} – ${$(c.offerBand.high)}</span></div>`;
+      } else {
+        html += `<div class="co-src">${escapeHtml(c.note || "fair value unavailable — enter pending hit% or per-leg odds")}</div>`;
+        if (c.potentialReturn != null) html += `<div class="co-line"><span class="lbl">potential return if all hit</span><span>${$(c.potentialReturn)}</span></div>`;
+      }
+      const pend = (j.perLeg || []).filter(l => l.status === "pending");
+      if (pend.length) html += `<div class="co-src">pending: ` + pend.map(l => `${escapeHtml(l.player || "?")} ${pct(l.prob)} (${escapeHtml(l.source || "?")})`).join(" · ") + `</div>`;
+      if (j.hedge && !j.hedge.error) {
+        html += `<div class="co-line" style="margin-top:8px"><span class="lbl">hedge stake (opposite side)</span><span>${$(j.hedge.hedgeStake)}</span></div>`;
+        html += `<div class="co-line"><span class="lbl co-lock">locks either way</span><span class="co-lock">${$(j.hedge.lockedProfit)}</span></div>`;
+        html += `<div class="co-src">if parlay hits: ${$(j.hedge.ifParlayWins)} · if it misses: ${$(j.hedge.ifParlayLoses)}${j.hedge.lockedProfit < 0 ? " — caps a loss, not a profit" : ""}</div>`;
+      } else if (j.hedge && j.hedge.error) {
+        html += `<div class="co-err">${escapeHtml(j.hedge.error)}</div>`;
+      }
+      (j.notes || []).forEach(n => html += `<div class="co-note">⚠ ${escapeHtml(n)}</div>`);
+      html += `<div class="co-src" style="margin-top:6px">read-only calculator · never auto-bets</div>`;
+      return html;
     }
 
     // ─────────────────────────────────────────────────────────────

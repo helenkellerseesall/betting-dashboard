@@ -2123,6 +2123,84 @@ router.post("/ledger/grade", express.json(), (req, res) => {
   }
 })
 
+// Phase Cashout-Surface-1A (2026-06-15) — read-only cash-out / hedge calc for the
+// /m PARLAY view. REUSES backend/pipeline/shared/cashoutHedge.js (cashoutValue +
+// hedgeFinalLeg), vigStripping (de-vig a pending leg's market prob when both sides
+// supplied), and mlbCorrelationEngine (same-game 2-leg joint). NO math is
+// reimplemented here (Law 1). Freeze-safe: no scoring, no persistence, read-only.
+router.post("/cashout", express.json(), (req, res) => {
+  try {
+    const { cashoutValue, hedgeFinalLeg, americanToDecimal } = require("../pipeline/shared/cashoutHedge")
+    const vig = require("../pipeline/shared/vigStripping")
+    const body = req.body && typeof req.body === "object" ? req.body : {}
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
+    const stake = num(body.stake)
+    const legsIn = Array.isArray(body.legs) ? body.legs : []
+    if (stake == null || stake <= 0) return res.status(400).json({ ok: false, error: "stake must be > 0" })
+    if (!legsIn.length) return res.status(400).json({ ok: false, error: "legs[] required" })
+
+    const notes = []
+    // resolve each pending leg's prob + label its source (anti-fabrication: unknown stays null)
+    const perLeg = legsIn.map((l, i) => {
+      const status = String(l.status || "pending").toLowerCase()
+      const dec = num(l.decimal) != null ? num(l.decimal) : americanToDecimal(l.oddsAmerican)
+      let prob = null, source = null
+      if (status === "pending") {
+        if (num(l.prob) != null) { prob = Math.max(0, Math.min(1, num(l.prob))); source = "manual" }
+        else if (num(l.oddsAmerican) != null && num(l.oppositeOdds) != null) {
+          const f = vig.stripVigTwoWay(l.oddsAmerican, l.oppositeOdds)
+          if (f) { prob = f.overFair; source = "de-vigged market" }
+        }
+        if (prob == null && dec != null && dec > 1) { prob = 1 / dec; source = "market-implied (incl vig)" }
+        if (prob == null) { source = "unknown — enter manually"; notes.push(`leg ${i + 1} (${l.player || "?"}): no resolvable prob — enter hit% manually`) }
+      }
+      return { i, player: l.player || null, team: l.team || null, status, decimal: dec, matchup: l.matchup || null, side: l.side || null, statFamily: l.statFamily || null, prob, source }
+    })
+
+    const pending = perLeg.filter(l => l.status === "pending")
+    const anyUnknown = pending.some(l => l.prob == null)
+
+    // joint prob the pending legs ALL hit (same-game 2-leg → correlation copula; else product)
+    let jointPending = null, jointMethod = "product"
+    if (num(body.jointPendingProb) != null) { jointPending = Math.max(0, Math.min(1, num(body.jointPendingProb))); jointMethod = "manual-override" }
+    else if (pending.length === 0) { jointPending = 1; jointMethod = "all legs already hit" }
+    else if (!anyUnknown) {
+      if (pending.length === 2 && pending[0].matchup && pending[0].matchup === pending[1].matchup) {
+        try {
+          const { jointForPair } = require("../pipeline/mlb/mlbCorrelationEngine")
+          const mk = (l) => ({ eventId: l.matchup, side: l.side, statFamily: l.statFamily, team: l.team, player: l.player })
+          const jp = jointForPair(mk(pending[0]), mk(pending[1]), { p1: pending[0].prob, p2: pending[1].prob })
+          if (jp && Number.isFinite(jp.joint)) { jointPending = jp.joint; jointMethod = `copula-samegame (${jp.structuralType || "corr"})` }
+        } catch (_) { /* fall through to product */ }
+        if (jointPending == null) { jointPending = pending[0].prob * pending[1].prob; jointMethod = "product (correlation unavailable)" }
+      } else {
+        jointPending = pending.reduce((a, l) => a * l.prob, 1)
+        const sameGameGroups = new Set(pending.map(l => l.matchup).filter(Boolean))
+        if (sameGameGroups.size < pending.filter(l => l.matchup).length) notes.push("same-game legs among 3+ pending: correlation not modeled (v1 uses product) — joint may be optimistic")
+      }
+    }
+
+    // fair value + band via cashoutHedge (pass our jointPending). jointPendingProb=1
+    // when unknown just extracts fullDecimal/potentialReturn; we then null the fair value.
+    const cvLegs = legsIn.map(l => ({ oddsAmerican: l.oddsAmerican, decimal: l.decimal, status: String(l.status || "pending").toLowerCase() }))
+    const cvBase = cashoutValue({ stake, legs: cvLegs, jointPendingProb: (jointPending != null ? jointPending : 1) })
+    let cashout
+    if (cvBase.error) cashout = cvBase
+    else if (jointPending == null) cashout = Object.assign({}, cvBase, { jointPending: null, fairCashout: null, offerBand: null, note: "enter pending hit% (or per-leg opposite odds) to compute fair value" })
+    else cashout = cvBase
+
+    // hedge is odds-based (does NOT need prob) — compute whenever hedgeOdds given.
+    let hedge = null
+    if (num(body.hedgeOdds) != null && cvBase && Number.isFinite(cvBase.potentialReturn)) {
+      hedge = hedgeFinalLeg({ stake, potentialReturn: cvBase.potentialReturn, hedgeOdds: body.hedgeOdds })
+    }
+
+    res.json({ ok: true, stake, perLeg, pendingCount: pending.length, jointPending, jointMethod, cashout, hedge, notes })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
 /** First basket (NBA-only, gracefully empty otherwise). */
 router.get("/first-basket", (req, res) => {
   try {

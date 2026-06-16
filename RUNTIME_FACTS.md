@@ -13,6 +13,13 @@ Last updated: 2026-06-06
 - **`package.json` IS at `backend/`, NOT at repo root.** Running `npm run slate:nba` from the repo root errors with `ENOENT: package.json` and silently does nothing in chained commands. Always `cd ~/Projects/betting-dashboard/backend` before any `npm run`. scheduler.sh and other automation cds there explicitly.
 - Quick rule: **`git` commands → repo root. `npm`/`node` commands → backend root.**
 
+## Front-end (CANONICAL — no React in this repo)
+
+- **Mobile PWA:** `frontend/mobile/index.html` — single-file vanilla-JS, served at **`/m`** (`server.js:145`). Edit the inline HTML/JS directly; there is NO build step and NO `frontend/src/*.tsx`.
+- **Status dashboard:** `frontend/status/index.html` — served at **`/status`**.
+- Historical brain-doc references to `frontend/src/workstation/*.tsx` / `FeaturedCard.tsx` are STALE — do not chase a phantom React repo. To surface a feature: edit `frontend/mobile/index.html` + add a `/api/ws/*` route in `workstationRoutes.js`.
+- **Cash-out/hedge surface (2026-06-15):** PARLAY tab (un-hidden) → cash-out card in `renderParlay` → `POST /api/ws/cashout` (reuses `cashoutHedge.js` + `vigStripping` + `mlbCorrelationEngine`; read-only, no scoring).
+
 ## Backend
 
 - **Port:** `4000`  (overridable via `PORT` env var; default in `backend/server.js`)
