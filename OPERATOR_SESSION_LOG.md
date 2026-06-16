@@ -5242,3 +5242,19 @@ IMPLICATION FOR G1 (calibration keystone): (1) the snapshot tables are NOT the c
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; this is measurement only (no ship). Feeds POST_FREEZE_GRADUATION_PLAN G1 (per-family isotonic from the ledger, validated forward at the bettable band).
 
 PROBE_REFS: .scratch/floored_calibration.txt · .scratch/probe_floored_calibration.js · betting.db prediction_snapshots(2881 mlb)/outcome_snapshots(14514 resolved, 435 w/ model_prob) · id-join 439 (15.2%) · ledger mlb_tracked_bets 12,659 settled w/ modelProb · `TZ='America/New_York' date` → 2026-06-16 03:15 EDT.
+
+## 2026-06-16 03:30 ET — Claude-B [Cowork, Opus 4.8] — BY-LINE CALIBRATION RE-CUT (read-only). HEADLINE: overconfidence is PERVASIVE across line tiers — not a high-line artifact. ONE salvageable rung.
+
+ACTION: extended the floored-family probe to re-cut BY LINE (ledger, 12,659 settled w/ modelProb, OVER side; modelProb RAW; in-sample 13d). Q: is the ~3× overconfidence an artifact of high-line ceiling overs, or pervasive on the obtainable rungs too? Table → .scratch/floored_calibration_byline.txt (stable). Probe: .scratch/probe_floored_calibration_byline.js. NO code/scoring change.
+
+FINDING 1 — the model CHASES HIGH LINES, barely surfaces obtainable lows (line distribution, over side): hits n=3007 → over2.5=2806 / over1.5=152 / over0.5=29. totalbases n=3629 → 4.5=2167 / 5.5=1151 / over0.5-1.5 only 75. rbis n=2102 → over2.5=1313 / over0.5=215. runs n=971 → over1.5=819 / over0.5=5. ks n=837 → mostly 6.5+. ⇒ engine surfaces high-line ceiling overs, NOT the obtainable low-line rungs (a build gap, separate from calibration).
+
+FINDING 2 — overconfidence PERVASIVE across line tiers (not a ceiling-mix artifact). Obtainable lows overconfident too (claimed→realized=gap, over): hits over0.5(≥1) n=29 65.9→31.0 +34.8(thin) · over1.5 n=152 47.4→28.9 +18.5 · over2.5+ n=2826 24.2→6.5 +17.7. totalbases over0.5/1.5 n=75 52.8→30.7 +22.1 · over3.5+ n=3554 18.9→4.5 +14.4. rbis over0.5 n=215 44.3→29.3 +15.0 · over1.5+ n=1887 22.8→5.8 +17.0. runs over1.5+ n=966 21.3→5.5 +15.8. ks ≤4.5 n=90 +18.6 · 5.5 n=143 +38.8 · 6.5+ n=604 +24.6. ⇒ obtainable rungs are NOT salvageable as-is; +15-35pp at EVERY line tier; high-line mix is NOT the cause.
+
+FINDING 3 — SALVAGEABLE CELLS (n≥30, |gap|<5pp): exactly ONE. ✓ rbis over0.5, modelProb 0.4-0.5: n=132, claimed 44.4% vs realized 43.9%, gap +0.4pp — a real calibrated obtainable rung ("records ≥1 RBI" where the model says 40-50%). The candidate FOUNDATION. Caveat: adjacent rbis over0.5 0.5-0.6 (n=39) is 53.0→0.0 = broken → narrow honest window, validate cautiously. Near-misses all thin.
+
+IMPLICATION FOR G1: (1) overconfidence pervasive → per-family calibration mandatory, ~line-tier-stable within a family (per-family dominant axis, per-line-tier minor). (2) the lone calibrated cell (rbis ≥1 @ mp0.4-0.5) = the anchor to validate G1's isotonic output against. (3) build gap (separate): surface the obtainable low-line rungs, not high-line ceiling overs. CAVEATS: in-sample 13d, RAW modelProb (= what G1 fixes), thin cells flagged, runs/over0.5 n=5 noise.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary; measurement only (no ship). Feeds G1 + flags the obtainable-rung surfacing gap.
+
+PROBE_REFS: .scratch/floored_calibration_byline.txt · .scratch/probe_floored_calibration_byline.js · ledger 12,659 settled (13 files) · salvageable rbis over0.5 mp0.4-0.5 n=132 gap +0.4pp · `TZ='America/New_York' date` → 2026-06-16 03:30 EDT.
