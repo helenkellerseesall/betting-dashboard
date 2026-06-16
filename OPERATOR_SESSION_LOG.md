@@ -5369,3 +5369,25 @@ VERDICT (make-or-break): YES — a real but THIN edge exists and it is SELECTION
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. This is the post-G4 strategic input: the roadmap stays on SELECTION, now with a CLV-backed target list (not a guess).
 
 PROBE_REFS: .scratch/selection_edge_hunt.txt · .scratch/probe_selection_edge_hunt.js · ledger 14,091 settled / 2,876 with close (20.4%) · acid test +38%/−8%/−34% ROI · rbis-LOW +0.29pp / hits-LOW +0.19pp CLV · line-shop +0.54pp vs consensus (n=2,592) · 79% LONGSHOT tier · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 19:02 EDT.
+
+## 2026-06-16 19:13 ET — Claude-B [Cowork] — SELECTION EDGE forward-confirmation (pre-registered OOS; read-only). HEADLINE: selection target CONFIRMED OOS at the CLV level (5/5 slices hold); the ROI magnitude does NOT replicate (variance). Not an in-sample mirage.
+
+ACTION: pre-registered leave-future-out test of the edge-hunt findings (commit 8b56ec8) — tested ONLY the 6 registered hypotheses, no new-slice fishing (fishing = p-hacking). Slice defs copied VERBATIM from the in-sample probe (no goalpost-moving). READ-ONLY, freeze-safe, no scoring change. runtime:verify 21/21. Probe: .scratch/probe_selection_edge_oos.js → stable .scratch/selection_edge_oos.txt. Numbers computed, not asserted.
+
+SPLIT (led with n): closing-line subset = 2,876 rows over 7 dates. cutoff 06-09 → TRAIN 06-05/06/08/09 (n=1,430), TEST/held-out 06-12/13/15 (n=1,446). One date split; not cross-validated.
+
+VERDICT TABLE (in-sample → OOS):
+- H1 CLV→ROI monotonicity: PARTIAL. OOS +CLV +17% (n=109) / neutral −30% (n=1,240) / −CLV −23% (n=97). +CLV still clearly best, but the clean monotone ladder + the in-sample +38% do NOT replicate — ROI is variance-dominated at these n. Do NOT bank the +38%.
+- H2 rbis LOW/obtainable: HOLDS. +0.34pp → +0.23pp (OOS n=133, ±0.13 → ~1.8 se).
+- H3 hits LOW/obtainable: HOLDS. +0.24pp → +0.12pp (OOS n=89, ±0.06 → ~2 se).
+- H4 mod-dog odds (+100..199): HOLDS. +0.24pp → +0.15pp (OOS n=275, ±0.08).
+- H5 low model-confidence (<0.2): HOLDS. +0.25pp → +0.13pp (OOS n=292, ±0.07).
+- H6 line-shop best-vs-consensus: HOLDS rock-solid. +0.61pp → +0.59pp (OOS n=811) — the most stable, as expected.
+
+BOTTOM LINE: SELECTION TARGET CONFIRMED OOS (CLV level). 5/5 of H2–H6 hold on held-out days. Magnitudes SHRINK in-sample→OOS (~halved) but keep the right sign at ~2 se — a genuine OOS-surviving CLV signal, NOT an in-sample mirage like the ≥1-RBI anchor (which flipped from 43.9% to 0% OOS in the G1 work). The ROI translation (H1) is only PARTIAL: beating the close still associates with better ROI at the top, but the magnitude/ladder is noise at current sample sizes.
+
+WHAT THIS MEANS: the post-freeze selection rework now has an OOS-CONFIRMED target — re-point selection (computeMlbHrPathProxyScore / inspection-board alt-line gates / tierForPlay) from longshot ceilings toward the obtainable LOW rungs (rbis/hits ≥1), mod-dog-priced legs, and low-confidence legs, all of which independently beat the close OOS; plus bake in line-shop (the rock-stable +0.59pp price edge). HONEST GUARDRAIL: confirmed at the CLV (leading-indicator) level only; ROI magnitude unconfirmed and cells are still small on one split — accrue more closing-line days during the freeze and re-run before scaling stakes. Select for the signal; don't promise the dollar figure yet.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. This green-lights the SELECTION rework target (CLV-confirmed) for the post-freeze plan, with the ROI caveat.
+
+PROBE_REFS: .scratch/selection_edge_oos.txt · .scratch/probe_selection_edge_oos.js · train 06-05..06-09 (1,430) / test 06-12/13/15 (1,446) · H2 +0.23pp(n133) H3 +0.12pp(n89) H4 +0.15pp(n275) H5 +0.13pp(n292) H6 +0.59pp(n811) all HOLD · H1 +17/−30/−23 ROI = PARTIAL · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 19:13 EDT.
