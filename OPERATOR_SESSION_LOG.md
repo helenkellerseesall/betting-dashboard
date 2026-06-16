@@ -5328,3 +5328,25 @@ GUARD LIST: GRADUATE copula-on-CALIBRATED-marginals for the NEGATIVE trap (pitch
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. Feeds POST_FREEZE_GRADUATION_PLAN G3 (narrow: negative-trap only; G1-dependency) and constrains G4.
 
 PROBE_REFS: .scratch/correlation_forward.txt · .scratch/probe_correlation_forward.js · ledger 12,573 settled OVER legs / 121 games / 67,561 pairs (cutoff 06-12) · rhoZ_cal +0.84/+0.06/-0.16 vs rhoZ_raw -0.17/-0.65/-0.89 · local-vs-prod copula |diff| 4e-10 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 18:25 EDT.
+
+## 2026-06-16 18:42 ET — Claude-B [Cowork] — G4 parlay-constructor forward-validation (CAPSTONE; SHADOW, read-only). HEADLINE: machine is correct, ROI still negative — the gap is SELECTION/EDGE, not the parlay math or calibration.
+
+ACTION: brutal OOS capstone — re-ran the parlay constructor on the PROVEN stack and asked honestly whether calibrated numbers + the correlation guard fix the old −17%/−42%, or whether the remaining gap is frozen selection (longshots). SHADOW only — no scoring wire, no PRESERVED edit, MLB_* off-live. runtime:verify 21/21 (touched only .scratch). Probe: .scratch/probe_parlay_forward.js → stable .scratch/parlay_forward.txt. Numbers computed, not asserted. PROVEN stack = G1 side-aware calibrated marginals + G2 NB ladder for totalBases low/mid rungs + G3 negative guard (suppress pitcherK-over × opp-hitter); never raw.
+
+SAMPLE: ledger 5,794 settled legs / 13 slate dates; cutoff 06-12 (calibration fit ≤cutoff, ROI measured on OOS 06-13/14/15). Pairs clustered — parlay counts relative, not independent.
+
+REPORTED TWO THINGS SEPARATELY:
+
+(A) MACHINE-CORRECTNESS = YES. Calibration kills 338,487 / 349,477 (97%) of the cross-game parlays RAW would surface — exactly the overconfident-tail fake +EV the old −42% run bet. Synthetic fake-EV leg (hr over0.5 @+300, raw p=0.40) flips to calibrated p=0.217 = −13% EV → correctly dropped. Negative guard suppresses all 1,407 pitcherK×opp-hitter same-game traps. The engine refuses to manufacture edge.
+
+(B) REALIZED RESULT = STILL DEEPLY NEGATIVE, and tighter selection loses HARDER. RAW: parlays −68.0% / singles −44.4% (directionally matches the old −42%/−17%; magnitude differs — different window, offered-odds gate, full pairing). PROVEN: parlays −83.4% / singles −54.3%. Calibration did NOT zero out surfacing (12,893 parlays still flagged +EV) and did NOT turn ROI positive — it made the set SMALLER and MORE adversely-selected, so it loses MORE per bet.
+
+WHY (the smoking-gun diagnostic — model vs market vs reality on the +EV singles, OOS): RAW: model 27.0% / market-implied 14.0% / REALITY 10.1%. PROVEN: model 31.9% / market-implied 26.3% / REALITY 20.7%. On the calibrated +EV survivors, reality (20.7%) < market-implied (26.3%) < model (31.9%) — the market, even WITH vig, is closer to truth than our model, so every surviving +EV flag is model error. Per-family-AVERAGE calibration removes the gross +16pp bias but cannot fix per-LEG adverse selection; only genuine edge (beating the closing line) can.
+
+LOCALIZED GAP = SELECTION / EDGE, NOT the parlay engine or calibration. The constructor math is correct, calibration is necessary, the guard works — but the engine is offered FROZEN-SELECTION longshots it has no real edge on. Parlays (−83%) lose worse than singles (−54%) because a parlay multiplies the adverse selection — vindicating the constructor's built-in SINGLES / never-auto-bundle default. The edge must come from SELECTION surfacing genuinely-mispriced (CLV-positive) plays post-freeze; only then does forward-validation of positive parlay ROI become possible.
+
+GUARD LIST / GRADUATION READ (closes G4): the four shadow engines are MACHINE-VALIDATED and graduation-safe AS COGNITION — G1 calibration (graduate), G2 NB ladder (low/mid rungs only), G3 copula (negative trap only), G4 constructor (correct, singles-default). But NONE produces a realized edge on the current bet population, because the dominant bottleneck is upstream SELECTION (the engine bets the longshot ceiling the market prices sharply). Recommendation: after the freeze, graduate the four as the honest-pricing spine, but the next REAL build is SELECTION — surface obtainable, CLV-positive legs — or the calibrated engine just loses more slowly. "No edge yet, and here is exactly why."
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. CLOSES POST_FREEZE_GRADUATION_PLAN G4; G1–G4 all forward-validated. The cross-cutting finding of all four: the cognition stack is sound; the gap is SELECTION.
+
+PROBE_REFS: .scratch/parlay_forward.txt · .scratch/probe_parlay_forward.js · ledger 5,794 settled legs / 13 dates (cutoff 06-12) · RAW −68.0%/−44.4% vs PROVEN −83.4%/−54.3% · diagnostic model 31.9% / implied 26.3% / reality 20.7% · 97% fake +EV killed · 1,407 traps suppressed · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 18:42 EDT.
