@@ -14,7 +14,9 @@
  * (the live integration — extend the dampener + wire onto the cluster path — is a
  * SCORING change, gated by the R2 freeze + separate operator approval).
  *
- * Lookup ladder: families[fam].buckets[bucket] → families[fam] → global → identity.
+ * Lookup ladder (SIDE-AWARE, T2-MarginalCalib-1B): families[fam][side] →
+ * families[fam].all → global → identity. Over/under calibrate differently, so the
+ * side map is preferred; callers that omit side fall back to the family-all map.
  * Shrink-to-identity on low-n maps so thin cells don't overcorrect.
  *
  * Kill-switch: MLB_MARGINAL_CALIB env, read once at load (MLB_NB_LADDER pattern).
@@ -47,26 +49,30 @@ function bucketOf(oddsAmerican) {
   return "longshot"
 }
 
-// Pick the most-specific available map for (family, bucket).
-function pickMap(family, bucket) {
+// Pick the most-specific available map for (family, side).
+// SIDE-AWARE ladder: families[fam][side] → families[fam].all → global → identity.
+// (Legacy family-level {knots} shape is still tolerated for back-compat.)
+function pickMap(family, side) {
   const fam = MAPS.families ? MAPS.families[family] : null
-  if (fam && bucket && fam.buckets && fam.buckets[bucket]) return { map: fam.buckets[bucket], source: "family_bucket" }
-  if (fam && Array.isArray(fam.knots)) return { map: fam, source: "family" }
+  const sd = side ? String(side).toLowerCase() : null
+  if (fam && sd && fam[sd] && Array.isArray(fam[sd].knots)) return { map: fam[sd], source: "family_" + sd }
+  if (fam && fam.all && Array.isArray(fam.all.knots)) return { map: fam.all, source: "family" }
+  if (fam && Array.isArray(fam.knots)) return { map: fam, source: "family" }   // legacy shape
   if (MAPS.global && Array.isArray(MAPS.global.knots)) return { map: MAPS.global, source: "global" }
   return { map: null, source: "identity" }
 }
 
 /**
- * calibrateDetail(modelProb, family, { bucket, oddsAmerican }) →
+ * calibrateDetail(modelProb, family, { side, oddsAmerican? }) →
  *   { calibrated, raw, source, n, weight } | null (OFF / invalid input)
- * Marginal-agnostic: takes the raw modelProb, never recomputes it.
+ * Marginal-agnostic: takes the raw modelProb, never recomputes it. SIDE-aware
+ * (over/under differ); side omitted → family-all fallback.
  */
 function calibrateDetail(modelProb, family, opts = {}) {
   if (!ENABLED) return null
   const raw = num(modelProb)
   if (raw == null) return null
-  const bucket = opts.bucket || bucketOf(opts.oddsAmerican)
-  const { map, source } = pickMap(family, bucket)
+  const { map, source } = pickMap(family, opts.side)
   if (!map) return { calibrated: raw, raw, source: "identity", n: 0, weight: 0 }
   const iso = predictIsotonic(map, raw)
   const n = Number(map.n) || 0

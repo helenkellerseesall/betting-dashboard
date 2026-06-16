@@ -1,12 +1,13 @@
 "use strict"
-// verifyMarginalCalibration — T2 Track-1 (T2-MarginalCalib-1A) regression fixture.
+// verifyMarginalCalibration — T2 Track-1 (T2-MarginalCalib-1B, side-aware) fixture.
 //
 // Proves:
 //   1. isotonic (PAVA) is monotone + recovers a known overconfident curve;
 //      calibrated reliability-gap < raw gap.
-//   2. mlbMarginalCalibration pulls overconfident families down + is monotone
+//   2. mlbMarginalCalibration pulls overconfident over-families down + is monotone
 //      (preserves ranking), via the committed maps.
-//   3. fallback ladder: unknown family → global; family w/o bucket map → family.
+//   3. SIDE-AWARE fallback ladder: families[fam][side] → families[fam].all →
+//      global → identity (unknown family → global; side w/o map → family.all).
 //   4. kill-switch MLB_MARGINAL_CALIB=0 → calibrateModelProb null (child proc).
 //   5. FREEZE GUARD: scoring/PRESERVED files reference NOTHING in the new module.
 const fs = require("fs")
@@ -17,7 +18,7 @@ const iso = require("../pipeline/shared/isotonicCalibration")
 const cal = require("../pipeline/mlb/mlbMarginalCalibration")
 
 if (process.argv.includes("--off-child")) {
-  process.stdout.write(JSON.stringify(cal.calibrateModelProb(0.45, "totalBases", { oddsAmerican: 150 })))
+  process.stdout.write(JSON.stringify(cal.calibrateModelProb(0.45, "totalBases", { side: "over" })))
   process.exit(0)
 }
 
@@ -32,19 +33,26 @@ const gapRaw = Math.abs(0.5 - 0.33), gapCal = Math.abs(iso.predictIsotonic(fit, 
 check("calibrated gap < raw gap (overconf fixed)", gapCal < gapRaw)
 check("predict monotone 0.2≤0.5≤0.65", iso.predictIsotonic(fit, 0.2) <= iso.predictIsotonic(fit, 0.5) + 1e-9 && iso.predictIsotonic(fit, 0.5) <= iso.predictIsotonic(fit, 0.65) + 1e-9)
 
-// 2. engine on committed maps — overconfident families pulled DOWN, monotone
-const tb = cal.calibrateModelProb(0.45, "totalBases", { oddsAmerican: 150 })
-const hits = cal.calibrateModelProb(0.28, "hits", { oddsAmerican: 250 })
-check("totalBases 0.45 calibrated down", tb != null && tb < 0.45)
-check("hits 0.28 calibrated down", hits != null && hits < 0.28)
-const sweep = [0.12, 0.2, 0.3, 0.45, 0.6].map(p => cal.calibrateModelProb(p, "totalBases", { oddsAmerican: 150 }))
+// 2. engine on committed maps — overconfident OVER families pulled DOWN, monotone
+const tb = cal.calibrateModelProb(0.45, "totalBases", { side: "over" })
+const hits = cal.calibrateModelProb(0.28, "hits", { side: "over" })
+check("totalBases over 0.45 calibrated down", tb != null && tb < 0.45)
+check("hits over 0.28 calibrated down", hits != null && hits < 0.28)
+const sweep = [0.12, 0.2, 0.3, 0.45, 0.6].map(p => cal.calibrateModelProb(p, "totalBases", { side: "over" }))
 check("engine calibration monotone (preserves ranking)", sweep.every((v, i) => i === 0 || v >= sweep[i - 1] - 1e-9))
 
-// 3. fallback ladder
-const unk = cal.calibrateDetail(0.3, "totally_unknown_family_zzz", {})
+// 3. SIDE-AWARE fallback ladder: families[fam][side] → families[fam].all → global → identity
+const unk = cal.calibrateDetail(0.3, "totally_unknown_family_zzz", { side: "over" })
 check("unknown family → global fallback", unk && unk.source === "global")
-const noBucket = cal.calibrateDetail(0.3, "hr", { bucket: "heavy_fav" })  // hr has no heavy_fav bucket map
-check("family w/o bucket map → family fallback", noBucket && (noBucket.source === "family" || noBucket.source === "family_bucket"))
+const over = cal.calibrateDetail(0.45, "totalBases", { side: "over" })
+const under = cal.calibrateDetail(0.45, "totalBases", { side: "under" })
+check("totalBases side=over → family_over map", over && over.source === "family_over")
+check("totalBases side=under → family_under map", under && under.source === "family_under")
+check("over vs under calibrate differently (side matters)", over && under && Math.abs(over.calibrated - under.calibrated) > 1e-6)
+const noSide = cal.calibrateDetail(0.45, "totalBases", {})            // side omitted → family.all
+check("side omitted → family.all fallback", noSide && noSide.source === "family")
+const noUnder = cal.calibrateDetail(0.45, "rbis", { side: "under" })  // rbis has no under map → family.all
+check("side w/o map → family.all fallback", noUnder && noUnder.source === "family")
 
 // 4. kill-switch OFF (child)
 const child = spawnSync(process.execPath, [__filename, "--off-child"], { encoding: "utf8", env: Object.assign({}, process.env, { MLB_MARGINAL_CALIB: "0" }) })
