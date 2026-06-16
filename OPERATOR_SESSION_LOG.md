@@ -5218,3 +5218,27 @@ DEPLOY: FE-only → live on /m page reload, NO restart. (Route /api/ws/cashout s
 NEXT_EXPECTED_FROM_PEER: Claude-A summary; operator reloads /m SLIPS, expands the section on a slip, taps a leg hit, confirms live update. Honest: pending prob = the slip's own modelProb (labeled "model"); pre-game shows no cash-out number by design.
 
 PROBE_REFS: frontend/mobile/index.html renderSlipCard cash-out section + slipCashout/renderSlipCashoutResult (:3529/:3565) · serializeLeg buildSlipAi.js:1244 (modelProb/odds/matchup) · reuse POST /api/ws/cashout (no backend change) · runtime:verify 21/21 · FE JS parse OK · `TZ='America/New_York' date` → 2026-06-16 02:20 EDT.
+
+## 2026-06-16 03:15 ET — Claude-B [Cowork, Opus 4.8] — FLOORED-FAMILY CALIBRATION MEASUREMENT (read-only; G1 input). HEADLINE: floored MLB rungs are OVERCONFIDENT.
+
+ACTION: read-only calibration measurement — do floored/obtainable MLB families hit at the claimed model_prob rate? betting.db readOnly (Law 5 tryGetDb). NO code/scoring change. Full table → .scratch/floored_calibration.txt (+ last.txt; note last.txt gets clobbered by the /status autoticker — the stable copy is floored_calibration.txt). Probe: .scratch/probe_floored_calibration.js.
+
+DATA-QUALITY TRUTH (verified, the first finding): the snapshot tables CANNOT answer this at scale. id-join p.id=o.id matched only 439/2,881 MLB predictions (15.2% — the lineage gap); outcome_snapshots.model_prob populated on only 435/14,514 resolved rows (3.0%). hit reliable (notes win/loss/unresolved, NO push; unresolved excluded); synthetic ('no home run') negligible. ⇒ the claimed-vs-realized corpus in the DB tables is ~435 rows — too thin per cell. The real corpus = the LEDGER (mlb_tracked_bets, 12,659 settled rows WITH modelProb).
+
+PART B (DB id-join, 435 rows): directionally overconfident on floored overs (hits over <0.5 claimed 39.3% vs realized 15.4%, +23.9pp) but cells n<15 — not trustworthy; HR had 0 matched rows. Confirms the snapshot corpus is inadequate for G1.
+
+PART C — LEDGER (12,659 rows, the answer). FLOORED over-side rollups (claimed% → realized% = gap):
+- ks over: 41.7 → 15.3 = +26.4pp (n=837)
+- hits over: 25.8 → 7.9 = +17.9pp (n=3,007)
+- rbis over: 25.0 → 8.2 = +16.8pp (n=2,102)
+- runs over: 21.4 → 6.0 = +15.4pp (n=971)
+- totalbases over: 19.6 → 5.0 = +14.6pp (n=3,629)
+CEILING contrast: hr over: 14.0 → 10.8 = +3.2pp (n=530) — NEARLY CALIBRATED.
+
+HEADLINE: NO — floored/obtainable rungs do NOT hit at the claimed rate; the over side is ~3× overconfident (claims ~20-25%, realizes ~5-8%). The COUNTERINTUITIVE part: the ceiling stat (HR) is the MOST honest (+3.2pp) while the "obtainable" floored families are the LEAST — because HR is already priced as a longshot so the model can't over-claim, but it badly over-claims the floored rungs. WORST exactly in the bettable band: hits over 0.6-0.7 +38.7pp · ks over 0.6-0.7 +37.9pp · totalbases over 0.5-0.6 +27.6pp · rbis over 0.5-0.6 +53pp(n39). The model rarely claims ≥0.5 on a floored over (most sit <0.5, still +14-18pp off); where it does claim a bettable 0.5-0.7, it's catastrophically wrong. Under side better in spots (hits under 0.5-0.6 +0.6pp; hits under 0.6-0.7 −17.5pp underconfident).
+
+IMPLICATION FOR G1 (calibration keystone): (1) the snapshot tables are NOT the calibration corpus — model_prob lineage gap (3%); G1 must derive from the LEDGER (which mlbMarginalCalibration.json already does). This probe CONFIRMS + quantifies the gap. (2) Calibration MUST be per-family — ks/hits/rbis/runs/totalbases need +15-26pp correction; HR only +3 → a global shift would BREAK HR. (3) Overconfidence is bucket-nonlinear (worst at 0.5-0.7) → isotonic, not a linear multiplier (confirms the dampener-extension plan). (4) This is the empirical proof that "floored rungs hit at claimed rate" is currently FALSE — ladders→parlays compound a ~3× overstatement until G1 fixes it per-family at the bettable band. Consistent with the parlay −17%/−42% finding + the marginal-calibration audit (+16pp overall). CAVEAT: ledger modelProb is RAW (dampener dormant — confirmed prior turn) = exactly what G1 fixes; in-sample (13 days); bucketed by model_prob not line, so line-filtered "obtainable low-line" re-cut is a useful follow-on.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; this is measurement only (no ship). Feeds POST_FREEZE_GRADUATION_PLAN G1 (per-family isotonic from the ledger, validated forward at the bettable band).
+
+PROBE_REFS: .scratch/floored_calibration.txt · .scratch/probe_floored_calibration.js · betting.db prediction_snapshots(2881 mlb)/outcome_snapshots(14514 resolved, 435 w/ model_prob) · id-join 439 (15.2%) · ledger mlb_tracked_bets 12,659 settled w/ modelProb · `TZ='America/New_York' date` → 2026-06-16 03:15 EDT.
