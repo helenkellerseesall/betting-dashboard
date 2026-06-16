@@ -5308,3 +5308,23 @@ GUARD LIST (graduate only what's proven OOS): GRADUATE NB for low/mid rungs ≥1
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. Feeds POST_FREEZE_GRADUATION_PLAN G2 (narrow graduation + the "surface low rungs" selection dependency).
 
 PROBE_REFS: .scratch/nb_ladder_forward.txt · .scratch/probe_nb_ladder_forward.js · ledger totalBases over+nbProbOver 772 rows (06-12..06-15) · game logs 420 players/21d · fidelity |diff| 0.0073 (n=222) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 17:48 EDT.
+
+## 2026-06-16 18:25 ET — Claude-B [Cowork] — G3 correlation forward-validation (SHADOW, read-only). HEADLINE: calibrated marginals FIX the correlation sign (raw inverts it); copula cleanly beats independence OOS only on the NEGATIVE trap.
+
+ACTION: brutal OOS re-test of the Gaussian-copula joint vs naive independence at predicting same-game both-hit, NOW with G1-calibrated marginals (was parity on raw). SHADOW only — no scoring wire, no PRESERVED edit, MLB_CORRELATION off-live. runtime:verify 21/21 (touched only .scratch). Probe: .scratch/probe_correlation_forward.js → stable .scratch/correlation_forward.txt. Local copula matches production to 4e-10. Numbers computed, not asserted.
+
+SAMPLE (led with it): corpus = co-occurring SETTLED same-game OVER pairs in the ledger (real both-hit) — 12,573 settled OVER legs / 121 games / 67,561 in-scope pairs (CLUSTERED — effective independent n ≈ games ~121, NOT the pair count). cutoff 06-12: train 49,650 pairs, test 17,911 (06-13/14/15). Per-type test n: pitcherK 1,407 · SAMEteam 14,975 · SAMEhitter 1,529 (pair counts; effective n much smaller). Both-hit base rates TINY (0.3–1.3%) because the engine bets rarely-hitting high-line legs (same G1/G2 "chases high lines" gap). No game-log reconstruction needed — ledger co-occurrence sufficed.
+
+1) CALIBRATION IS THE PREREQUISITE AND FIXES THE SIGN. With RAW marginals the fitted rhoZ is INVERTED garbage — same-hitter -0.17, same-team -0.65 (both negative, WRONG) — because the +16pp marginal overconfidence forces rho negative just to drag the inflated product down to realized. With CALIBRATED marginals the signs come out RIGHT: same-hitter +0.84, same-team +0.06, pitcherK-trap -0.16. That is the answer to "re-test with calibrated marginals": calibration is what makes the copula signal real. → G3 depends on G1.
+
+2) NEGATIVE TRAP (pitcherK over × OPP hitter over) — copula+cal GRADUATES. realized 0.28%; product_cal 0.79% (gap +0.50) overstates; copula_cal 0.48% (gap +0.19) pulls DOWN toward realized. Correct sign + closer mean = the high-value parlay-SAFETY case (don't stack a pitcher-K over with the opposing hitters' overs).
+
+3) POSITIVE TYPES — dependence is REAL but magnitude NOT reliably estimable OOS. same-hitter: product_cal 0.62% UNDER-predicts realized 1.31% (independence genuinely misses the positive dependence) but copula_cal 3.66% OVER-shoots (rhoZ +0.84 too hot OOS / thin effective n). same-team: ~neutral (rho +0.06; product 0.57 vs copula 0.68 vs realized 0.44). Directionally right, magnitude unstable → do NOT graduate yet.
+
+4) BRIER CAN'T ADJUDICATE here: at 0.3–1.3% base rates nearly all pairs are "both miss" (both estimators predict ~0, both right), so the dependence lift barely moves aggregate Brier (ties to 4 dp). GAP/sign is the usable signal. That metric-insensitivity + only ~121 independent games IS the data-limitation finding (like G1's snapshot-table gap).
+
+GUARD LIST: GRADUATE copula-on-CALIBRATED-marginals for the NEGATIVE trap (pitcherK × opp-hitter) only. DO NOT graduate same-hitter / same-team yet (directionally right, magnitude unstable, Brier can't confirm). NEVER feed RAW marginals to the copula — it inverts the sign. DIRECT INPUT TO G4 (parlay constructor consumes this): must use calibrated marginals, and apply correlation primarily as a NEGATIVE-dependence guard (suppress anti-correlated stacks) rather than a positive-lift amplifier on thin same-hitter data.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. Feeds POST_FREEZE_GRADUATION_PLAN G3 (narrow: negative-trap only; G1-dependency) and constrains G4.
+
+PROBE_REFS: .scratch/correlation_forward.txt · .scratch/probe_correlation_forward.js · ledger 12,573 settled OVER legs / 121 games / 67,561 pairs (cutoff 06-12) · rhoZ_cal +0.84/+0.06/-0.16 vs rhoZ_raw -0.17/-0.65/-0.89 · local-vs-prod copula |diff| 4e-10 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 18:25 EDT.
