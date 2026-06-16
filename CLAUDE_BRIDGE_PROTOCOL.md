@@ -1,6 +1,6 @@
 # CLAUDE BRIDGE PROTOCOL
 
-Cross-Claude communication discipline for this repo. Both **Claude-A (Cowork, operator-side)** and **Claude-B (4.8, repo-side)** read this file at the start of every meaningful turn.
+Cross-Claude communication discipline for this repo. **Both chats run in Cowork — they are distinguished by ROLE, not by app or model.** **Claude-A = the coordinator** (the operator's main chat: scopes work, verifies CB's output by reading the repo/log, writes plain-English summaries + CB handoff prompts; **NEVER commits to the repo**). **Claude-B / CB = the builder** (reads + edits code, runs probes, commits, ships, appends CB turn blocks). **Tie-breaker — if this chat has committed to the repo this session, it is CB; if it only scopes/verifies/summarizes and never commits, it is A.** Do not re-litigate identity with the operator — resolve it by behavior. Both chats read this file at the start of every meaningful turn.
 
 ## What this file IS
 
@@ -31,7 +31,7 @@ Conversation context is volatile. This protocol is volatile-resistance disciplin
 Both Claudes append a structured block to `OPERATOR_SESSION_LOG.md` after each meaningful turn. Schema:
 
 ```
-## YYYY-MM-DD HH:MM ET — Claude-[A|B] [Cowork | 4.8]
+## YYYY-MM-DD HH:MM ET — Claude-[A|B]   (both run in Cowork; the A/B suffix is the ROLE)
 
 ACTION: [one-line summary — drafted/built/audited/shipped/evaluated]
 
@@ -72,10 +72,10 @@ Either side may flag any of the above. The other side reads them on its next tur
 1. Claude-A appends `## ... Claude-A` block to `OPERATOR_SESSION_LOG.md` (draft handoff + drift signals)
 2. Claude-A gives operator a **plain-English summary** in chat of what the block says (NOT the full block — laymen's terms only)
 3. Operator approves the summary
-4. Operator pastes short pointer to 4.8 chat: `"read CLAUDE_BRIDGE_PROTOCOL.md + latest Claude-A block in OPERATOR_SESSION_LOG.md, execute per DRAFT_HANDOFF"`
-5. 4.8 reads, executes per its own discipline (regression-gate-first, audit-first, etc.), appends `## ... Claude-B` block (ship + audit + drift signals)
+4. Operator pastes short pointer to the CB (builder) chat: `"read CLAUDE_BRIDGE_PROTOCOL.md + latest Claude-A block in OPERATOR_SESSION_LOG.md, execute per DRAFT_HANDOFF"`
+5. CB reads, executes per its own discipline (regression-gate-first, audit-first, etc.), appends `## ... Claude-B` block (ship + audit + drift signals)
 6. Operator pastes short pointer back to Claude-A: `"read latest Claude-B block in OPERATOR_SESSION_LOG.md"`
-7. Claude-A reads block, gives operator a **plain-English summary** in chat of what 4.8 did/found (NOT a re-dump — laymen's terms only)
+7. Claude-A reads block, gives operator a **plain-English summary** in chat of what CB did/found (NOT a re-dump — laymen's terms only)
 8. Operator approves before Claude-A drafts next turn or proposes any action
 9. Loop back to step 1
 

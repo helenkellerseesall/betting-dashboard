@@ -5276,3 +5276,17 @@ CHANGED (all shadow/additive): deriveMlbMarginalCalibration.js (rewritten side-a
 NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Shadow prep only — no ship, no scoring wire. Feeds POST_FREEZE_GRADUATION_PLAN G1 (now with: side-aware map regen'd, OOS harness live, the over-only/exclude-outs+unders guard list, and the obtainable-rung surfacing gap localized to frozen selection).
 
 PROBE_REFS: .scratch/g1_shadow_prep_findings.md · .scratch/calibration_shadow_validate.txt · .scratch/calibration_forward_retro.txt · .scratch/calibration_forward_live.txt · deriveMlbMarginalCalibration.js (trainThrough 2026-06-15, 14,091 rows) · verifyMarginalCalibration 16/16 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 04:00 EDT.
+
+## 2026-06-16 17:18 ET — Claude-B [Cowork] — DOC FIX: kill stale "A=Cowork / B=4.8" identity framing in CLAUDE_BRIDGE_PROTOCOL.md (freeze-safe; no code).
+
+ACTION: operator-directed doc-only fix so post-compaction identity stops getting re-litigated. Root cause: CLAUDE_BRIDGE_PROTOCOL.md line 3 framed identity as "Claude-A (Cowork) / Claude-B (4.8, repo-side)" — STALE now that CB also runs in Cowork, so "Cowork" no longer disambiguates. On the 2026-06-16 compaction this made the CB chat doubt it should build. NO code, NO scoring, NO PRESERVED touch; R2 freeze intact.
+
+CHANGED (CLAUDE_BRIDGE_PROTOCOL.md only): (1) line 3 reframed — BOTH chats run in Cowork; identity is by ROLE: Claude-A = coordinator (scopes/verifies/summarizes, NEVER commits), Claude-B/CB = builder (edits/commits/probes/ships). Added the tie-breaker verbatim-spirit: "if this chat has committed to the repo this session, it is CB; if it only scopes/verifies/summarizes and never commits, it is A — resolve by behavior, don't re-litigate with the operator." (2) turn-block header schema: dropped the stale `[Cowork | 4.8]` suffix → `Claude-[A|B]` (both Cowork; suffix = ROLE). (3) workflow steps 4/5/7: "4.8 chat"/"4.8" → "CB"/"the CB (builder) chat". Brain docs checked — none repeat the framing (only this file + immutable session-log/audit history, which I left untouched). Memory updated: [[cb-is-the-cowork-builder-chat]] (behavior-based resolver) + MEMORY.md START HERE item 0a.
+
+IDENTITY: SETTLED — this chat is CB (proof: it made commit ee0e806 this session; coordinator never commits). Will not re-raise.
+
+STATE: G1 freeze-safe prep DONE + verified (ee0e806; shadow-only; runtime:verify 21/21; R2 freeze intact). Per operator: nothing else ships until ~06-25. The ONLY task until then is PASSIVE — re-run `node backend/scripts/probeCalibrationForward.js` as graded days accrue (it auto-detects new OOS days past trainThrough 2026-06-15). No new scoring/shadow work.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator direction. CB standing by.
+
+PROBE_REFS: CLAUDE_BRIDGE_PROTOCOL.md (git diff this turn) · commit ee0e806 (prior turn) · `TZ='America/New_York' date` → 2026-06-16 17:18 EDT.
