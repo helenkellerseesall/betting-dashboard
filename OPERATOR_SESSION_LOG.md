@@ -5290,3 +5290,21 @@ STATE: G1 freeze-safe prep DONE + verified (ee0e806; shadow-only; runtime:verify
 NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator direction. CB standing by.
 
 PROBE_REFS: CLAUDE_BRIDGE_PROTOCOL.md (git diff this turn) · commit ee0e806 (prior turn) · `TZ='America/New_York' date` → 2026-06-16 17:18 EDT.
+
+## 2026-06-16 17:48 ET — Claude-B [Cowork] — G2 NegBinom-ladder forward-validation (SHADOW, read-only). HEADLINE: NB is a clean LOW/MID-rung marginal but does NOT beat the heuristic at the ceiling rung the engine actually bets — graduate NARROW.
+
+ACTION: brutal OOS validation of negBinomLadder.js as a G2 marginal, same method as G1. SHADOW only — no scoring wire, no PRESERVED edit, MLB_NB_LADDER stays off-live. runtime:verify 21/21 (touched only .scratch). Probe: .scratch/probe_nb_ladder_forward.js → stable .scratch/nb_ladder_forward.txt. Numbers all computed, not asserted.
+
+1) SCOPE: the live NB ride-along (nbProbOver) is wired for totalBases ONLY (buildMlbPropClusters.js gates family==="totalBases"; ledger has nbProbOver on 2,396 totalBases rows, ZERO on hits/rbis/runs/ks). So totalBases is the only family with a live OOS trail. Validated that family two ways.
+
+2) PART A — LIVE OOS at bet lines (stored ride-along; cutoff 06-13, test 06-14/15, n=229). PROBLEM: the engine bets ~only rung 4.5 (P≥5) — 224 of 229 test rows; low rungs n=1-2 (unmeasurable in the live trail, same "chases high lines" gap as G1). At rung 4.5 (realized 13.4%): heuristic RAW 19.6% Brier 0.120 BEATS NB raw 5.2% Brier 0.127. NB UNDER-predicts; NB+G1-calib makes it WORSE (Brier 0.130-0.134) because calib pulls DOWN an already-under-confident NB. → NB does NOT graduate at the ceiling rung; do NOT blanket-apply G1 calibration to NB.
+
+3) PART B — LADDER SHAPE (game-log leave-future-out refit; 2,028 player-games, 315 players; every player-game scores every rung → real n at the LOW rungs). NB nails the shape vs realized: gap ≥1 +2.5pp, ≥2 +0.9pp, ≥3 -0.3pp, ≥4 -3.6pp, ≥5 -0.0pp. NB beats Poisson at EVERY rung (overdispersion premise CONFIRMED — Poisson is +14pp hot at ≥1 and -7pp cold at ≥4) and edges empirical-survival on Brier at every rung. FIDELITY: my refit P≥5 vs stored nbProbOver, matched 222 player-dates, mean |diff| 0.0073 → the refit faithfully reproduces the live NB, so Part B is a valid proxy.
+
+4) WHY NB loses at the ceiling but wins the shape: NB is a PURE game-log marginal — it nails the POPULATION ladder shape (incl obtainable ≥1/≥2) but misses the contextual power/park/matchup skew the heuristic encodes, which matters most at the tail. On the selected over-4.5 bets, realized ≥5 ran hot (13.4%) vs population (7.1%); NB (population-shaped) under-rated them, heuristic (context-aware) did better.
+
+GUARD LIST (graduate only what's proven OOS): GRADUATE NB for low/mid rungs ≥1/≥2/≥3 (well-calibrated, beats Poisson + empirical-Brier). DO NOT graduate NB for the ceiling rung ≥5 (heuristic wins). DO NOT blanket-apply G1 calibration to NB (worsens it where NB is under-confident; any NB calib must be re-fit per-rung and only where NB is over-confident). And the real unlock is UPSTREAM + FROZEN: selection only surfaces rung 4.5 — NB's strength (low rungs) is never bet. G2 marginal is ready for low/mid rungs; the value is gated by post-freeze selection work, not the ladder math.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary + operator decision. Measurement/shadow only — nothing ships. Feeds POST_FREEZE_GRADUATION_PLAN G2 (narrow graduation + the "surface low rungs" selection dependency).
+
+PROBE_REFS: .scratch/nb_ladder_forward.txt · .scratch/probe_nb_ladder_forward.js · ledger totalBases over+nbProbOver 772 rows (06-12..06-15) · game logs 420 players/21d · fidelity |diff| 0.0073 (n=222) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-16 17:48 EDT.
