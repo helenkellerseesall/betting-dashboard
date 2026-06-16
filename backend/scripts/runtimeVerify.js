@@ -57,6 +57,7 @@ const SUITES = [
   "verifyCorrelation",         // T2-Correlation-1A (2026-06-14) — Gaussian copula joint prob: sign BOTH ways, Φ₂ closed-form anchors, kill-switch, freeze guard (scoring never references correlation)
   "verifyMarginalCalibration", // T2-MarginalCalib-1A (2026-06-14) — isotonic modelProb calibration (shadow): monotone, gap<raw, fallback ladder, kill-switch, freeze guard (scoring/PRESERVED untouched)
   "verifyParlayConstructor",   // T2-Parlay-1A (2026-06-14) — parlay EV gate (shadow): cross-game EV hand-derived, same-game EV=null, never-auto-bundle, ANTI-FAKE-EV (calibrated not raw), kill-switch, freeze guard
+  "verifyShadowStackIntact",   // Shadow-Stack-Guard-1A (2026-06-15) — deletion guard: the 6 sanctioned-shadow files + 2 derived configs exist + export + are listed in PRESERVED.md (build-ahead engines feed nothing live, so deletion must fail LOUD)
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

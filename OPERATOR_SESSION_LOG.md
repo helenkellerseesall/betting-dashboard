@@ -5119,3 +5119,68 @@ NEW GENERATIVE MATERIAL: usage-redistribution lag (still #1 codifiable edge); ov
 NEXT_EXPECTED_FROM_PEER: operator reads the menu doc + picks a first build (recommend MLB matchup-intel enrichment shadow on the live sport, or the zero-risk cash-out/hedge helper). Operator runs the commit fence (2 docs + this log block). No code until the pick. NOTE: AskUserQuestion tool is unreliable in this session — ask via plain prose, not the tool.
 
 PROBE_REFS: docs/research/2026-06-15-parlay-edge-menu-and-integrity.md · memory betting_integrity_manipulation_reality.md · `TZ='America/New_York' date` → 2026-06-15 17:41 EDT.
+
+## 2026-06-15 17:55 ET — Claude-B [Cowork, Opus 4.8] — MLB MATCHUP-INTEL ENRICHMENT AUDIT + BUILD PLAN (read-only, NO code — STOP for operator approval)
+
+ACTION: audit-first per operator brief. Deliverable docs/audits/2026-06-15-mlb-matchup-intel/audit_plan.md. NO code. STOPPING for operator approval before any build. Freeze-safe shadow design.
+
+HEADLINE: 3 of 4 requested signals ALREADY EXIST. Canonical enrichment owner = backend/pipeline/mlb/context/applyMlbContextualLayers.js (additive coordinator; header: "no probability override … does NOT feed scoring"). Existing derivers: bullpen (deriveMlbBullpenContext), weather+wind (deriveMlbWeatherContext), park (deriveMlbParkContext), platoon (deriveMlbHandednessContext), order-slot (deriveMlbLineupContext). UMPIRE is the ONLY net-new signal. ⇒ Law 1: REUSE the existing derivers' outputs, do NOT duplicate.
+
+KEY AUDIT FINDINGS:
+- buildMlbWeather.js is @orphan (its header: "script-only legacy; superseded" by ingest/refreshMlbWeatherForSlate + the context deriver). Do NOT touch; do NOT add weather code. (Operator's "check buildMlbWeather first" → answered: orphan, reuse deriveMlbWeatherContext.)
+- Per-player enrichment ATTACHES via applyMlbContextualLayers (wired in mlbIsolatedRoutes.js) and PERSISTS to the CURATED board rows (mlb_tracked_best / /api/best-available) as flat fields (phase4Tracking.js:202-216: hrFactor/windDirectionTag/temperatureF/hrEnvironmentTag/runEnvironment/rbiEnvironment/isPlatoonAdvantage/lineupSpot/plateAppearancesProxy/contextualTags). Coverage real on 06-13/14 tracked_best: hrFactor/isPlatoon/contextualTags ~100%, windDirectionTag ~65%, lineupSpot ~30%. Graded ledger mlb_tracked_bets carries odds/movement (openOdds/closeOdds) NOT context → context input = the board, anomalous-move guard = odds.
+- Identity join: intelligence.js:178 normPlayer (exp :1393) + utils/normalizeName + eventId.
+- PRESERVED check: applyMlbContextualLayers / context/ / mlbIsolatedRoutes NOT on PRESERVED.md → extendable; but freeze still bars SCORING changes (context layer is additive + non-scoring, so additive extension is freeze-safe).
+- UMPIRE honesty: no clean free API (UmpScorecards not programmatic). MLB StatsAPI gives ump NAME (boxscore officials, free). v1 = capture name + join a maintained umpireZoneTendency.json (kLean/bbLean); null = honest absence when unknown. Playbook flags umpire HIGH but DECAYING under ABS — re-weight down over time.
+
+PROPOSED BUILD (shadow, freeze-safe): NEW backend/pipeline/mlb/mlbMatchupIntel.js (sibling pattern, kill-switch MLB_MATCHUP_INTEL) enrichMatchupIntel(row) → reads existing per-row context (REUSE) + computes umpire (net-new) + composes obtainability tag (role floor: top-of-order+floored-stat=obtainable / deep+ceiling=longshot) + matchupFavorable tag (context aligned to bet side) + INTEGRITY GUARDRAILS (exclude single-actor micro-markets; down-weight low-limit/deep-lineup; anomalous unexplained open→close move ⇒ suppress:true, never an edge) + rollup tag. Feeds NOTHING live. NEW backend/config/umpireZoneTendency.json (seed + caveat). Fixture verifyMatchupIntel (matrix 19→20): reuse-not-rederive, obtainability logic, integrity guardrails, umpire-null-no-fabrication, kill-switch, FREEZE GUARD. NON-ZERO probe over recent tracked_best (real tags). LAW-1 reconciliation flagged: umpire's eventual canonical home = context/deriveMlbUmpireContext.js wired into applyMlbContextualLayers POST-FREEZE; v1 keeps it shadow to avoid touching the live coordinator during freeze.
+
+HONEST SCOPE: surfaces the human/quant blend as a visible obtainability/matchup TAG + integrity guardrails; changes NO pick/edge/score (frozen); not +EV by itself; ready to wire into the curated surface post-freeze with approval.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator approves the shadow build (or amends — esp. the umpire data path: seed-table vs defer umpire to a follow-on). NO code until approval.
+
+PROBE_REFS: docs/audits/2026-06-15-mlb-matchup-intel/audit_plan.md · context/applyMlbContextualLayers.js:1-40 + derivers · buildMlbWeather.js (@orphan header) · phase4Tracking.js:202-216 · intelligence.js:178/1393 · tracked_best 06-13/14 context coverage · playbook #2 + edge-menu Part 1/Part 4 MLB · `TZ='America/New_York' date` → 2026-06-15 17:55 EDT.
+
+## 2026-06-15 18:13 ET — Claude-B [Cowork, Opus 4.8] — FULL-REPO CAPABILITY SWEEP + VISION GAP MAP (operator pushed back on the narrow matchup-intel audit; read-only, no code)
+
+ACTION: operator (rightly) rejected the narrow matchup-intel audit ("no way that's all you found") + demanded a full re-survey + reassessment of the vision + check CB's reply. Ran 5 parallel read-only agents over the whole repo + verified the two decision-critical claims myself. Deliverable: docs/audits/2026-06-15-full-repo-capability-map/capability_map.md.
+
+CORRECTION: my matchup-intel audit under-surveyed (named context/ and stopped). Real picture: the human/quant blend is built FAR more than that — but mostly SHADOW or invisible because the workstation FE is not in this repo.
+
+VERIFIED FINDINGS:
+1. CASH-OUT/HEDGE (operator's #1 ask) GENUINELY ABSENT — whole-repo grep: only nbaCorrelationEngine.orderLegsWithCashoutFirst (REORDERS legs so fast ones lead; NOT value/haircut/hedge math). No cash-out value, no haircut band, no equalizing-hedge stake. Pure math, freeze-safe = highest-leverage missing piece.
+2. React workstation FE NOT in this repo — frontend/ has only status/ + mobile/ HTML; no frontend/src, no .tsx (not gitignored — absent here). Brain docs reference frontend/src/workstation/*.tsx → PWA is a SEPARATE repo or uncommitted. ⇒ all backend intelligence served via /api/ws/*; the UI consuming it is invisible to me. NEED operator to confirm FE location — changes what "build" means.
+3. Missed a whole Phase-2 LIVE-STATE layer: backend/pipeline/mlb/live/ (deriveMlbConfirmedLineupState [scratch/late-swap], deriveMlbStarterConfirmationState, deriveMlbLineMovementState [steam], deriveMlbLiveWeatherDelta, refreshMlbLiveBullpenState, applyMlbLiveStateLayers). Fan-knowledge live signals substantially built.
+
+WHAT ALREADY EXISTS (LIVE): weather/park/platoon/lineup/pitcher-K/form(L5-L15 hot-cold)/bullpen context; live scratch+line-movement+steam; injury/availability ingest; CLV + 7-book line-shopping + market-timing(steam/RLM/bet-now); archetypeWeighting + fragility + volatility + survivability + PCE; parlay/slip tier builders + NBA Kelly staking; SCREENSHOT/TWITTER ingestion ~90% wired (paste JSON OR OCR screenshot → 7-class archetype + 10-dim score + 12-field verdict + taste-profile learning + nightly outcome grading); self-grading loop (process classifier 10 archetypes + nightly orchestrator + calibration metrics). SHADOW: my T2 stack (NB ladder/correlation/marginal-calib/parlay) + context composition + survivability.
+
+REAL GAPS vs vision: (1) cash-out/hedge; (2) an assembled heavy-leg obtainable-parlay-craft surface (pieces exist, not assembled / maybe not surfaced here); (3) first-class obtainability tag; (4) usage-redistribution BENEFICIARY NAMING (computes ±3pp, doesn't name who benefits); (5) anomalous-move SUPPRESS gate (detection exists, not wired as suppressor); (6) umpire; (7) cross-sport parity of the shadow math.
+
+REASSESSMENT: the "rigid math O/U" feeling is a SURFACING problem more than a brains problem — richness is shadow + the FE is invisible to me. The explicitly-fan asks (cash-out, heavy-leg craft, obtainability) aren't assembled — they should LEAD the roadmap ahead of more shadow math.
+
+CB ADDENDUM (folded in, binding): shadow features do NOT close on code-diff+fixtures+runtime:verify alone — close is an OPERATOR-VISIBLE check (a /status diagnostic line OR a probe dump the operator runs/reads) stating plainly it will NOT appear on /m until promoted past the freeze.
+
+RE-PRIORITIZED SHORTLIST: 1) cash-out/hedge helper (freeze-safe, #1 ask, build first, surface via /status+probe); 2) confirm FE location + wire one operator-visible surface; 3) obtainability tag + matchup-intel(umpire) shadow (originally-approved, now reuse-not-duplicate + operator-visible close); 4) usage-redistribution beneficiary naming; 5) anomalous-move suppress gate.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A plain-English summary; operator decides (a) where the FE lives (this repo additions / separate repo / Postman-only), (b) which gap to attack first — cash-out/hedge (rec) vs FE surfacing vs the matchup-intel shadow as planned. No code until operator picks.
+
+PROBE_REFS: docs/audits/2026-06-15-full-repo-capability-map/capability_map.md · 5-agent sweep · cash-out grep (only orderLegsWithCashoutFirst) · frontend/ = status+mobile HTML only (no src/.tsx) · mlb/live/ layer · screenshotRoutes + buildSlipAnalysis (12-field verdict) · `TZ='America/New_York' date` → 2026-06-15 18:13 EDT.
+
+## 2026-06-15 22:22 ET — Claude-B [Cowork, Opus 4.8] — SHADOW-STACK HARDENING + CASH-OUT/HEDGE HELPER (two separate commits; verified)
+
+ACTION: per operator — hardened the repo against drift/compaction (doc + test-guard) THEN built the cash-out/hedge helper, as TWO separate commits. Sandbox-verified; operator runs the two fences (handed in chat). NO scoring; PRESERVED engines untouched; freeze intact.
+
+HARDENING (commit 1):
+- PRESERVED.md EXTENDED (canonical, not a new doc) with §"SANCTIONED SHADOW STACK — DO NOT DELETE": prohibited-shadow (parallel copy, Law-1 violation) vs sanctioned-shadow (additive kill-switched build-ahead, feeds nothing live by design); table of the 6 files + kill-switch + graduation target; "removing one is a REGRESSION, recover from git."
+- NEW backend/scripts/verifyShadowStackIntact.js — explicit NAMED deletion guard: the 6 shadow files + 2 derived configs exist + export key fns + are listed in PRESERVED.md. Registered → runtime:verify 19→20. Coverage CONFIRMED: each shadow file already required by its per-feature fixture (negBinomLadder via NBL path-constant in verifyNbLadderStep1; gaussianCopula+mlbCorrelationEngine in verifyCorrelation; isotonic+marginalCalib in verifyMarginalCalibration; parlay in verifyParlayConstructor) — the new fixture is the loud named backstop. NEGATIVE TEST proven: hid negBinomLadder → guard exits 1 with "EXISTS: …negBinomLadder.js (recover from git, do NOT delete)"; restored; 20/20.
+- NEW docs/POST_FREEZE_GRADUATION_PLAN.md (tracked, portable) + anchored in MASTER_BRAIN read-order + memory [[sanctioned-shadow-stack-and-graduation]] (survive compaction): ordered shadow→live graduation after the R2 freeze (~06-25) — G1 marginal calibration (keystone — EXTEND calibrationDampener + wire calibrated modelProb onto cluster scoring) → G2 NB ladder → G3 correlation → G4 parlay; each behind a FORWARD-validation gate + operator approval; never during freeze / on in-sample / by deleting a kill-switch. Calibration first because parlay validation proved +EV-gated set realizes −17%/−42% until the marginal is honest at the +EV selection margin.
+
+CASH-OUT/HEDGE (commit 2 — operator's #1 want, was GENUINELY ABSENT):
+- NEW backend/pipeline/shared/cashoutHedge.js — pure calculator (no kill-switch; operator-invoked; feeds nothing live; freeze-safe). cashoutValue({stake,legs}) → fair value = potentialReturn×P(pending all hit) + book haircut band (70–90%) + dead-ticket/all-won handling; hedgeFinalLeg({stake,potentialReturn,hedgeOdds}) → equalizing hedge stake H=R/decimal + lockedProfit = R−stake−H identical both outcomes (american OR decimal odds). self-test 10/10.
+- NEW verifyCashoutHedge.js (17/17) + register → 20→21. NEW probeCashoutHedge.js (operator-visible): 3-leg HR parlay, 2 hit/1 pending → fair $128.63, book offer $90–$116, hedge LOCKS $184.89 either way → .scratch/last.txt.
+
+VERIFY (real output): hardening state runtime:verify 20/20; cash-out state 21/21 (R2 + NB-ladder + correlation + marginal-calib + parlay + shadow-guard all green = freezes intact). Commit-cleanliness: runtimeVerify suite line split so each commit is independently green (commit 1 = 20-state w/ shadow guard; commit 2 fence re-inserts the cashout suite line → 21).
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary; operator runs fence 1 (hardening) then fence 2 (cash-out), relays .scratch/last.txt. Cash-out is a calculator (shadow/operator-invoked) — will not appear on /m. Roadmap unchanged: post-freeze G1 calibration is the route off trash picks.
+
+PROBE_REFS: runtime:verify 20/20 (hardening) + 21/21 (cashout) · verifyShadowStackIntact 31/31 + negative-test exit 1 · verifyCashoutHedge 17/17 · cashoutHedge self-test 10/10 · .scratch/last.txt (fair $128.63 / hedge-lock $184.89) · PRESERVED.md §SANCTIONED SHADOW STACK · docs/POST_FREEZE_GRADUATION_PLAN.md · `TZ='America/New_York' date` → 2026-06-15 22:22 EDT.

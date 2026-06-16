@@ -109,3 +109,25 @@ Tasks #7-#8 (logging + grading) extend buildPersonalLedger + buildPostGameReview
 Task #9 (iPhone validation) is the ship gate.
 
 **Net result:** the v0.1 build is meaningfully smaller than implied at conversation start, because the cognition spine is already there.
+
+---
+
+## SANCTIONED SHADOW STACK — DO NOT DELETE (added 2026-06-15)
+
+**Two different things are both called "shadow." Keep them straight:**
+
+- **PROHIBITED shadow** = a parallel COPY of a canonical file competing for the same authority (a sibling that duplicates logic an existing owner already provides). This is a **Law 1 violation** — the GPT-era "shadow canonical" failure mode. These should be deleted/reconciled into the canonical owner.
+- **SANCTIONED shadow** = an **additive, kill-switched, build-ahead engine** that feeds **NOTHING live** until explicitly graduated past the freeze. It is NOT a duplicate authority — it is the next version of a capability, built and validated in the dark behind its own switch. **Deleting one of these is a regression, not cleanup.**
+
+**Removing any file below is a REGRESSION — recover it from git history; do NOT delete as "unused."** They feed nothing live *by design* (that is the point of a kill-switched build-ahead), so "nothing calls it in the live path" is EXPECTED and is NOT evidence it is dead. Each is guarded by a runtime:verify fixture — deleting one fails the suite before commit (`verifyShadowStackIntact` asserts presence explicitly; the per-feature fixtures require each file directly).
+
+| File | Kill-switch (default ON; `"0"`=off) | What it is | Graduation target (post-freeze) |
+|---|---|---|---|
+| `backend/pipeline/shared/gaussianCopula.js` | (pure math primitive — no switch) | Φ⁻¹ / Φ₂ / copulaJoint / fitRhoZ — the ONE Gaussian-copula method authority | Stays the method primitive; consumed by correlation + (later) NBA correlation graduation |
+| `backend/pipeline/mlb/mlbCorrelationEngine.js` | `MLB_CORRELATION` | Sign-enforced 2-leg joint prob (copula over `mlbCorrelationPriors.json`) | Feed the parlay constructor's same-game joint once calibration is live |
+| `backend/pipeline/shared/isotonicCalibration.js` | (pure math primitive — no switch) | PAVA isotonic + Platt — calibration method authority | Stays the method primitive; consumed by marginal calibration graduation |
+| `backend/pipeline/mlb/mlbMarginalCalibration.js` | `MLB_MARGINAL_CALIB` | Isotonic remap of overconfident `modelProb` → calibrated prob | EXTEND `calibrationDampener.js` (PRESERVED) + wire calibrated prob onto cluster scoring — the route off "trash picks / zero edge" |
+| `backend/pipeline/mlb/negBinomLadder.js` | `MLB_NB_LADDER` | Fitted NegBinom survival ladder `P(X≥k)` (totalBases) | Replace the heuristic ladder in projection after forward-validation beats it |
+| `backend/pipeline/mlb/mlbParlayConstructor.js` | `MLB_PARLAY` | EV-gated 2-leg constructor (calibrated marginals + copula joint; never auto-bundle) | Live parlay surface once calibration graduates + a real +EV set exists |
+
+Supporting (also sanctioned, not deletable): `backend/config/mlbCorrelationPriors.json`, `backend/config/mlbMarginalCalibration.json` (derived priors — regen via the `derive*` scripts, never hand-trim). **Graduation is governed by `docs/POST_FREEZE_GRADUATION_PLAN.md` (read-order anchored in MASTER_BRAIN).**
