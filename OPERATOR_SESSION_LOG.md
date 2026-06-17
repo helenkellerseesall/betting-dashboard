@@ -5412,3 +5412,26 @@ OPERATOR-VISIBLE CLOSE (yours to confirm — I can't open your browser): open ed
 NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator confirms on /m. Then decide whether to do the pick-card backend attach (the follow-up above).
 
 PROBE_REFS: frontend/mobile/index.html renderProp (git diff this turn) · reuses pp.books (buildLineShopping/snapshot-derived) · PREFERRED_BOOKS 4 · edge basis .scratch/selection_edge_oos.txt H6 +0.59pp n=811 · runtime:verify 21/21 · new Function() syntax check 1/1 · `TZ='America/New_York' date` → 2026-06-16 19:33 EDT.
+
+## 2026-06-17 00:48 ET — Claude-B [Cowork] — LINE-SHOP on the CURATED PICK CARDS (display/infra, freeze-safe). Backend attach + FE chip. Finishes docket #1.
+
+ACTION: get the best-price chip onto the Top Picks / Tonight's Edge cards the operator BETS from (was only on Discover rows). DISPLAY/infra only (MASTER_BRAIN exempt) — NO scoring/selection. Surgical, additive, kill-switched. Probe: .scratch/probe_pickcard_lineshop.js. runtime:verify 21/21. server.js + FE node-syntax checked.
+
+A) BACKEND ATTACH (server.js buildMlbLiveDualBestAvailablePayload — MLB live path; mirrors the displayBundle additive pattern verbatim): NEW key `lineShop` per candidate {bestBook, bestOdds, consensus, gapPP, bookCount}. REUSES the ONE engine buildLineShopping (Law 1; added require, aliased _lsBuildLineShopping). Computed over mlbSnapshot.rows RESTRICTED to the 4 PREFERRED books, deduped one-row-per-(prop,book) by best odds so bookCount = distinct books. Kill-switch MLB_LINESHOP_SURFACE (default ON; "0"⇒ loop skipped ⇒ byte-identical). Wrapped in try/catch (never breaks payload). Applied to BOTH served arrays (best + finalPlayableRows) since the route serves `finalPlayableRows || best` (server.js:336 / mlbIsolatedRoutes:602 responseBody.bestProps) — covers whichever is used; idempotent if shared refs. NBA serializer (nbaIsolatedRoutes, PRESERVED + off-season) DEFERRED — not touched (clean only when in-season; flagged).
+
+B) FE RENDER (frontend/mobile/index.html renderCard): reads c.lineShop → renders the same green "BEST +odds @ Book ▲Xpp" chip in the odds-book-row, "switch from <book>" when a different book wins, "you have it" when the shown book is best. Identical format to the Discover-row chip shipped earlier. Pure display.
+
+VERIFY (mandatory):
+1) NON-ZERO PROBE (real ledger cross-book rows, same shape as live snapshot — live in-memory snapshot unreachable from sandbox): 2026-06-16 ledger, 474 candidates → 122 attached a real best-price; count preserved 474→474; sample Drew Rasmussen ks o5.5 shown BetRivers +114 → best FanDuel +112 (bookCount 4), gapPP +0.28; mean gap across attached +0.47pp (≈ the OOS +0.59pp line-shop edge — consistency check).
+2) NO REGRESSION: additive NEW key only (existing fields intact — probe); candidate count preserved; kill-switch OFF ⇒ byte-identical; try/catch guard; node --check server.js OK; FE new Function() parse 1/1; runtime:verify 21/21.
+3) OPERATOR-VISIBLE CLOSE (yours — I can't reach your live backend, and no live MLB slate at this hour): reload backend (CODE change ⇒ kickstart -k), then curl the endpoint before/after to see lineShop appear on bestProps, then open /m → Top Picks → green BEST chip on cards. Commands below. Verify during a POPULATED slate (post ~3:05 AM populator / daytime games) — chip only renders when bestProps has multi-book props.
+4) runtime:verify 21/21 PASS.
+
+OPERATOR COMMANDS (reload = code change ⇒ kickstart -k; then before/after curl):
+  launchctl kickstart -k gui/$(id -u)/com.motel666.backend
+  curl -s "http://127.0.0.1:4000/api/best-available?sport=baseball_mlb" | python3 -c "import sys,json; d=json.load(sys.stdin); b=d.get('bestProps',[]); ls=[x for x in b if x.get('lineShop')]; print('bestProps:',len(b),'| with lineShop:',len(ls)); print('sample:', json.dumps(ls[0].get('lineShop')) if ls else 'none')"
+(Run the curl BEFORE kickstart → expect lineShop 0; AFTER → expect >0 with bestProps count unchanged = non-zero + no-regression proof on your machine.)
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator confirms on /m during a live slate. Then decide: NBA mirror (post-freeze/in-season) — deferred.
+
+PROBE_REFS: backend/server.js (require + MLB_LINESHOP_SURFACE + attach loop; git diff this turn) · frontend/mobile/index.html renderCard lineShopChip · .scratch/probe_pickcard_lineshop.js (122/474 attached, mean gap +0.47pp) · served via responseBody.bestProps = finalPlayableRows||best · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 00:48 EDT.

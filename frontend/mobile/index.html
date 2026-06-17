@@ -1279,6 +1279,25 @@
       const why = buildWhy(c, sport);
       const notes = buildNotes(c, sport);
 
+      // Line-shop best-price chip (2026-06-16, CB) — reads the backend-attached
+      // c.lineShop (best across the operator's 4 usable books, computed by the
+      // canonical buildLineShopping). Same format as the Discover-row chip. Pure
+      // display; flags when a DIFFERENT book than the shown one has the better price.
+      let lineShopChip = "";
+      if (c.lineShop && c.lineShop.bestBook && Number.isFinite(Number(c.lineShop.bestOdds))) {
+        const ls = c.lineShop;
+        const bo = Number(ls.bestOdds);
+        const gap = Number.isFinite(Number(ls.gapPP)) ? Number(ls.gapPP) : null;
+        const isSwitch = normalizeBookName(ls.bestBook) !== normalizeBookName(book);
+        const gapTxt = (gap != null && gap > 0.01) ? ` ▲${gap.toFixed(1)}pp` : "";
+        const switchTxt = isSwitch ? ` — switch from ${book}` : " — you have it";
+        lineShopChip = `<span title="Best price across your ${ls.bookCount} usable books: ${escapeHtml(ls.bestBook)} ${bo > 0 ? "+" : ""}${bo}.${gap != null ? ` ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}pp vs consensus.` : ""}${switchTxt}"
+                              style="font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 3px;
+                                     background: rgba(52, 211, 153, 0.15); color: #34D399; letter-spacing: 0.2px;
+                                     display: inline-flex; align-items: center;">
+                          BEST ${bo > 0 ? "+" : ""}${bo} @ ${escapeHtml(ls.bestBook)}${gapTxt}</span>`;
+      }
+
       // Bettor-native: "team pending" reads as slate-stage normal,
       // not as broken/missing data. Same yellow informational tone as
       // "lineups pending" on MLB.
@@ -1425,6 +1444,7 @@
           <div class="odds-book-row">
             <div class="odds ${oddsCls}">${oddsTxt}</div>
             <div class="book-pill ${bookCls}">${escapeHtml(book)}</div>
+            ${lineShopChip}
           </div>
 
           ${ep != null ? `

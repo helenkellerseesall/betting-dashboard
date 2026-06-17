@@ -47,6 +47,9 @@ const { ingestNbaOfficialInjuryReport } = require("./pipeline/edge/ingestNbaOffi
 // all `new Date().toISOString().slice(0,10)` and server-local date math
 // throughout this file. See SLATE_DATE_DOCTRINE.md.
 const { currentSlateDateEt, slateDateForTimestamp } = require("./pipeline/shared/slateDate")
+// 2026-06-16 (CB) — line-shop best-price attach for the curated pick cards.
+// Canonical authority reuse (Law 1): the ONE line-shopping engine. DISPLAY only.
+const { buildLineShopping: _lsBuildLineShopping } = require("./pipeline/shared/buildLineShoppingIntelligence")
 const { createEmptyMlbSnapshot, buildMlbBootstrapSnapshot } = require("./pipeline/mlb/buildMlbBootstrapSnapshot")
 const {
   buildMlbInspectionBoard,
@@ -3634,6 +3637,9 @@ function __mlbApplyLearningToFinalBoardRows(rowArrays, learningPack, primaryReso
 // anywhere ⇒ byte-identical to pre-Step-2.
 const { buildMlbDisplayBundle: _buildMlbDisplayBundle } = require("./pipeline/mlb/buildMlbDisplayBundle")
 const MLB_DISPLAY_BUNDLE_ON = String(process.env.MLB_DISPLAY_BUNDLE ?? "1") !== "0"
+// 2026-06-16 (CB) — line-shop best-price surface on curated pick cards. Default
+// ON; exact string "0" = OFF ⇒ attach loop skipped ⇒ payload byte-identical.
+const MLB_LINESHOP_SURFACE_ON = String(process.env.MLB_LINESHOP_SURFACE ?? "1") !== "0"
 
 function buildMlbLiveDualBestAvailablePayload() {
   const rows = Array.isArray(mlbSnapshot?.rows) ? mlbSnapshot.rows : []
@@ -4033,6 +4039,56 @@ function buildMlbLiveDualBestAvailablePayload() {
         try { r.displayBundle = _buildMlbDisplayBundle(r) } catch (_) { r.displayBundle = null }
       }
     }
+  }
+
+  // 2026-06-16 (CB) — attach per-candidate LINE-SHOP best-price (additive NEW key
+  // `lineShop` only; no existing field touched — mirrors the displayBundle attach
+  // above). Surfaces the OOS-confirmed line-shop edge (~+0.59pp vs consensus,
+  // .scratch/selection_edge_oos.txt H6) on the curated pick cards. REUSES the ONE
+  // line-shopping engine (Law 1, no new authority), restricted to the operator's
+  // 4 USABLE books (PREFERRED), deduped to one row per (prop,book) by best odds so
+  // bookCount = distinct books. DISPLAY only; never auto-bets. Kill-switch
+  // MLB_LINESHOP_SURFACE; OFF ("0") ⇒ loop skipped ⇒ payload byte-identical.
+  if (MLB_LINESHOP_SURFACE_ON && Array.isArray(best) && best.length) {
+    try {
+      const _LS_PREFERRED = new Set(["draftkings", "fanduel", "fanatics", "betmgm"])
+      const _lsNorm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "")
+      const _lsPref = (b) => _LS_PREFERRED.has(_lsNorm(b))
+      const _lsKey = (o) => [
+        String(o.eventId || ""),
+        String(o.player || "").toLowerCase().trim(),
+        String(o.propFamilyKey || o.propType || "").toLowerCase(),
+        String(o.side || "").toLowerCase(),
+        String(o.line ?? "any"),
+      ].join("|")
+      const _byPropBook = new Map()
+      for (const r of rows) {
+        if (!r || !_lsPref(r.book) || !Number.isFinite(Number(r.odds))) continue
+        const k = _lsKey(r) + "|" + _lsNorm(r.book)
+        const prev = _byPropBook.get(k)
+        if (!prev || Number(r.odds) > Number(prev.odds)) _byPropBook.set(k, r)
+      }
+      const _ls = _lsBuildLineShopping([..._byPropBook.values()], { sport: "mlb" })
+      const _byKey = new Map()
+      for (const e of (_ls?.byProp || [])) _byKey.set(_lsKey(e), e)
+      // Apply to BOTH served candidate arrays — the route board prefers
+      // finalPlayableRows, falls back to best (they may differ). Idempotent if
+      // they share references; covers both if they don't.
+      const _applyLs = (arr) => {
+        if (!Array.isArray(arr)) return
+        for (const r of arr) {
+          if (!r || typeof r !== "object") continue
+          const e = _byKey.get(_lsKey(r))
+          if (e && e.bookCount >= 2 && e.bestBook && Number.isFinite(Number(e.bestOdds))) {
+            const gapPP = (Number.isFinite(e.consensus) && Number.isFinite(e.bestImpliedProb))
+              ? Math.round((e.consensus - e.bestImpliedProb) * 10000) / 100 : null
+            r.lineShop = { bestBook: e.bestBook, bestOdds: e.bestOdds, consensus: e.consensus, gapPP, bookCount: e.bookCount }
+          }
+        }
+      }
+      _applyLs(best)
+      _applyLs(finalPlayableRows)
+    } catch (e) { console.log("[MLB-LINESHOP-SURFACE] skip:", e?.message || e) }
   }
 
   const safeBest = Array.isArray(best) ? best : []
