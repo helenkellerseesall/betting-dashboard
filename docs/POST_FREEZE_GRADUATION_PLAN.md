@@ -3,6 +3,8 @@
 **Owner:** Claude-B + operator. **Written:** 2026-06-15. **Status:** PLAN (no graduation has occurred).
 **Read-order:** anchored in `backend/runtime/brain/MASTER_BRAIN.md` (CURRENT PROJECT PHASE) + `PRESERVED.md` §"SANCTIONED SHADOW STACK". This is the route off "trash picks / zero edge" — **it must not live only in chat.**
 
+**Companion spec (the SELECTION re-point, gated behind G1):** `docs/POST_FREEZE_SELECTION_REPOINT_SPEC.md` — execution-ready, per-file (buildMlbBootstrapSnapshot signalScore proxies · buildMlbInspectionBoard eligibility gates · buildMlbPropClusters tierForPlay) plan to re-point selection from longshot ceilings to the OOS-confirmed obtainable CLV+ rungs. Depends on G1 graduating first (re-point ranks on calibrated modelProb). Execute after G1.
+
 ## Why this exists
 
 The R2 MLB scoring freeze (started 2026-06-11 ~16:36 ET, ~14 days → **lifts ~2026-06-25**) froze the picks so the base is measurable. During the freeze we built four kill-switched **shadow** engines (see PRESERVED.md): NegBinom ladders, Gaussian-copula correlation, isotonic marginal calibration, EV-gated parlay constructor. They feed nothing live. Graduation = turning them on in the live scoring path, **one at a time, each behind a forward-validation gate**, after the freeze.

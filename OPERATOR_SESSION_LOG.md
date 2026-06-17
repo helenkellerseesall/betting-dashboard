@@ -5556,3 +5556,20 @@ Verify forward: after a slate build, a fresh mlb_tracked_bets row should carry h
 NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator runs kickstart, watches forward. Backfill remains infeasible (audited) — no historical context-CLV.
 
 PROBE_REFS: backend/pipeline/mlb/buildMlbOpportunityBoard.js (git diff this turn) · .scratch/probe_ctx_persist_mechanism.js (0→9 ctx fields, scoring byte-identical, 96% fwd coverage) · join key 0 collisions/10,018 · leanBet unchanged · buildMlbPropClusters/makePlay untouched · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 04:04 EDT.
+
+## 2026-06-17 04:20 ET — Claude-B [Cowork] — DOCKET #4: post-freeze SELECTION RE-POINT SPEC written (read-only planning; NO code/scoring change). Execute-ready for ~06-25.
+
+ACTION: pre-wrote the execution-ready spec so the 25th is execute-not-design. READ-ONLY: documented the exact current biasing logic (file:line cites) for the 3 frozen selection files + the precise re-point for each, sequence, validation, guardrails. NEW tracked doc: docs/POST_FREEZE_SELECTION_REPOINT_SPEC.md, anchored under docs/POST_FREEZE_GRADUATION_PLAN.md (companion-spec line added). No scoring touched; no frozen file edited.
+
+CURRENT BIAS DOCUMENTED (cites):
+- buildMlbBootstrapSnapshot.js (NOT frozen; signalScore feeder): computeMlbHrPathProxyScore (:150-190) — payoutSignal rewards longshot +450..1200→1.0 (:160), marketShape rewards TB ≥2.5→0.9/≥1.5→0.74/<0.5→0.55 (:174-178); computeMlbOverCountingProxyScore (:192-238) — lineSignal DEMOTES obtainable lows (hits ≥2.5→0.92/over0.5→0.62/<0.5→0.45 :211-216; rbis ≥1.5→0.9/over0.5→0.72 :217-221) — the direct obtainable-vs-ceiling lever. Weighted into signalScore w0.18/w0.20 (:305/:308).
+- buildMlbInspectionBoard.js (NOT frozen; gates): computeNegativeDirectionalPropPenalty :425 penalizes batter_hits over≤0.5 by 0.20 (the CLV+ "get any hit" rung); classifyRowTier :486-491 HARD-EXCLUDES trivially-easy alt-overs (hits alt≤0.5, TB alt≤1.5, K alt≤2.5) from both tiers.
+- buildMlbPropClusters.js tierForPlay (:751-800, R2-FROZEN): gates ev<=0/edge<0.04→FADE; R2 caps ks/totalBases/mid-fav→PLAYABLE; modelProb threaded but PLUMBED-UNUSED in v1 (:755). The real lever is the INPUT — edge/ev are computed from RAW modelProb today.
+
+RE-POINT (spec, not code): invert lineSignal/marketShape toward the obtainable floor + re-band payoutSignal to favor mod-dog (+100..199) [File A]; remove the over0.5 penalty + stop hard-excluding obtainable alt-overs, gate on calibrated modelProb + CLV-slice membership instead of line-triviality [File B]; recompute edge/ev from G1-CALIBRATED modelProb so fake-edge longshots fall to ev<=0→FADE and honest floors clear — minimal tierForPlay change, version-bumped mlb-r2-v2 [File C].
+
+SEQUENCE: G1 calibration graduates FIRST (re-point ranks on calibrated modelProb; raw inverts edge per G4) → File A → File B → File C v2; one at a time, ≥1wk live each, never bundle. VALIDATION: selectionPolicy version stamp (R2 tierPolicy pattern) + per-file kill-switch (OFF=byte-identical) + forward CLV per slice (clvCaptureFunnel + edge-hunt OOS re-run) + watch ≥1wk before stakes. GUARDRAILS: HR exempt (calibration only +3pp, legit ceiling — do NOT invert HR); line-shop already baked (docket #1); integrity (exclude single-actor micro-markets, anomalous-move = suppress); calibrated-only (never rank on raw); no makePlay/scoring-math edit beyond governed tierForPlay input swap.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary; spec is execution-ready. No action until the freeze lifts + G1 graduates (per graduation plan gate). Memory updated: [[project-selection-edge-target]] points to the spec.
+
+PROBE_REFS: docs/POST_FREEZE_SELECTION_REPOINT_SPEC.md (new) · docs/POST_FREEZE_GRADUATION_PLAN.md (companion-spec anchor added) · cites: buildMlbBootstrapSnapshot.js:150-238 · buildMlbInspectionBoard.js:425/486-491 · buildMlbPropClusters.js:751-800 · `TZ='America/New_York' date` → 2026-06-17 04:20 EDT.
