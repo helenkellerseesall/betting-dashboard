@@ -5497,3 +5497,25 @@ Then confirm new code is live (next [captureClosingLines:mlb] WROTE shows totalB
 NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator runs the kickstart and watches forward capture. Residuals (outs ~26%, walks tiny) are line/book, separate + minor.
 
 PROBE_REFS: backend/scripts/captureClosingLines.js (git diff this turn) · .scratch/probe_capture_match_dryrun.js · real-code dry-run 71.0% (1,740/2,452, +1,004) · NBA-safety 13/13 PASS · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 02:28 EDT.
+
+## 2026-06-17 02:45 ET — Claude-B [Cowork] — DOCKET #3 STEP 1 AUDIT (read-only). HEADLINE: BACKFILL IS INFEASIBLE (evidence below). Context-tag persistence can only be FORWARD-only. No code changed.
+
+ACTION: audit where MLB matchup-context tags live at pick time, where they drop before settlement, and whether past settled rows can be backfilled. READ-ONLY. No scoring touched.
+
+WHERE TAGS LIVE AT PICK TIME (live snapshot-mlb.json rows, NESTED): parkContext.{hrFactor,hrEnvironmentTag} 96% · weatherContext.{temperatureF,windDirectionTag,carryShift} 79% · isPlatoonAdvantage (flat) 96% · mlbContextualTags ["PARK_HR_FRIENDLY","WIND_OUT","PLATOON_OPP","BULLPEN_FATIGUED"] 91% · bullpen/pitcherEnv/handedness/mlbContextualSignal/Shift 96% · impliedTeamTotal/gameTotal 100% · lineupContextV2/lineupPosition/battingOrderIndex only 13% (lineups often pending). The FLAT fields hrFactor/windDirectionTag/temperatureF/hrEnvironmentTag are 0% on the snapshot — they exist ONLY nested.
+
+WHERE THEY DROP: leanBet() (phase4Tracking.js, the mlb_tracked_bets writer, ~L857-870) already has the flat fields in its row SCHEMA but reads `play?.hrFactor`/`play?.windDirectionTag`/`play?.temperatureF`/`play?.hrEnvironmentTag` — which are nested-only on the source → persist null. (mlb_tracked_best flattens via pc/wc/lc but is a tiny curated subset — 2 rows on 06-16, also null lately.) Net: tracked_bets context = 0% non-null (matches the edge-hunt finding).
+
+BACKFILL FEASIBILITY — INFEASIBLE (3 sources checked, all dead):
+1. frozen_contextual_states (89,387 rows): raw_context_json is NBA-shaped (matchupContext/recentForm/roleContext/teammateContext/marketContext) — ZERO MLB park/weather/platoon/lineup tags. MLB prediction_id also uses sentinel date "9999-12-31" → date join impossible. DEAD.
+2. prediction_snapshots (3,059 MLB rows): raw_json has player/odds/model/edge/tier/reasoning but NO context fields (parkContext/weatherContext/mlbContextualTags all absent). Join to closing-line rows = 0% by date / 6% ignoring date. DEAD.
+3. live snapshot-mlb.json: has the context but is OVERWRITTEN every refresh — no dated history. DEAD for past.
+⇒ The 2,876 (now 3,012) past closing-line rows CANNOT be backfilled. The immediate historical context-CLV the docket hoped for is not recoverable.
+
+IMPLICATION / PROPOSED STEP 2 (FORWARD-ONLY): persist the context onto tracked_bets going forward by FLATTENING the snapshot's nested context at persist time — parkContext.hrFactor→hrFactor, parkContext.hrEnvironmentTag→hrEnvironmentTag, weatherContext.temperatureF→temperatureF, weatherContext.windDirectionTag→windDirectionTag, weatherContext.carryShift→carryShift, + isPlatoonAdvantage/mlbContextualTags/impliedTeamTotal/gameTotal/lineupPosition (already flat) — additive only, no scoring touched. Attach point: leanBet() in phase4Tracking.js (read the nested objects off the play/snapshot row instead of the flat nulls). VERIFY caveat: verify-#3 (re-run edge-hunt grouped by a context tag → non-empty) CANNOT be satisfied immediately — forward-only means the context-CLV slice fills in as new graded days accrue (~days–weeks); I can prove the MECHANISM now (a freshly-persisted pending row carries flattened context) but not graded context-CLV yet.
+
+DECISION NEEDED FROM OPERATOR: backfill is dead (evidence above), so the payoff is weeks-out, not immediate. Proceed with the forward-only persistence build now, or reprioritize? If proceed, I'll confirm the exact leanBet source (play carries nested parkContext/weatherContext vs join live mlbSnapshot at persist) and show the diff before editing.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator decision (proceed forward-only vs reprioritize). Audit only this turn; no code changed.
+
+PROBE_REFS: /tmp probes (read-only): snapshot-mlb.json context coverage (parkContext 96% / weatherContext 79% / mlbContextualTags 91%; flat hrFactor/wind/temp/hrEnv 0%) · frozen_contextual_states NBA-shaped + sentinel date · prediction_snapshots raw_json no-context + 6% join · leanBet L857-870 flat-read drop · `TZ='America/New_York' date` → 2026-06-17 02:45 EDT.
