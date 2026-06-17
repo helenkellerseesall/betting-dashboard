@@ -5477,3 +5477,23 @@ WHERE: edit captureClosingLines.js (a script — NOT PRESERVED, NOT scoring). Re
 NEXT_EXPECTED_FROM_PEER: operator GO to ship the canonFamily matcher fix (show-before-edit diff ready) + runtime:verify. Read-only this turn; no code changed. Then watch capture rate climb via `node backend/scripts/clvCaptureFunnel.js`.
 
 PROBE_REFS: .scratch/probe_capture_match_dryrun.js + capture_match_dryrun.txt · .scratch/backend.log (5,528 scans / in_window 3.6–4.8k / snapshotAt 09–22 ET / unmatched 2.3M vs captured 64k) · capture-by-family totalBases/runs/ks/hr=0% · fix dry-run 30%→71% (+1,004) · `TZ='America/New_York' date` → 2026-06-17 02:21 EDT.
+
+## 2026-06-17 02:28 ET — Claude-B [Cowork] — DOCKET #2 SHIPPED: closing-line matcher family-key fix (canonFamily). Dry-run 30%→71% reproduced on REAL edited code; NBA-safe; runtime:verify 21/21.
+
+ACTION: shipped the family-key fix in captureClosingLines.js (a script — NOT PRESERVED, NOT scoring; closeOdds/clv stay post-bet/analytics only). Operator GO given. show-before-edit diff shown.
+
+EDIT (3 surgical, additive): NEW local canonFamily(s) — lowercases + strips space/underscore, then maps synonyms (strikeouts/pitcher_k→ks · home runs/boom→hr · runs scored→runs · total_bases→totalbases · earned runs/pitcher_er→earnedruns · rbi→rbis · base on balls→walks). Applied to ONLY the family component on BOTH sides of the match key — buildPropIndex (snapshot) + matchKeyForBet (bet). side|line|book|marketKey LEFT EXACTLY as-is (no main/alt collision). KEPT the existing field precedence (canonicalPropType||statFamily||propType snapshot; statFamily||canonicalPropType||propType bet) so NBA's canonicalPropType-first (v0.1.3) is preserved; for MLB those fall through to propType. Kept local per operator (not promoted to shared util). normFam (PRESERVED) NOT edited — it doesn't bridge abbreviation↔display.
+
+VERIFY (real output):
+1. POST-EDIT DRY-RUN with the REAL edited functions (imported buildPropIndex/matchKeyForBet) vs the LIVE snapshot (10,018 props) + current bets (2,452): match 1,740/2,452 = 71.0% — reproduces the 30.0%→71.0% (+1,004) lift exactly. Recovered: totalBases 0→76.8% · runs 0→62.4% · ks 0→56.9% · hr 0→56.3%. NO REGRESSION: hits 79.8% · rbis 68.7% unchanged.
+2. NBA-SAFE: all 13 NBA slugs (threes/pra/points_rebounds/…) — an NBA bet still matches its snapshot row through canonFamily (canonicalPropType-first preserved). PASS.
+3. node --check OK; runtime:verify 21/21 PASS. closeOdds/clv still post-bet only (no scoring file references them — re-confirmed prior turn).
+4. FORWARD-ONLY: closing lines cannot be captured retroactively. Past coverage stays ~20%; the lift accrues GOING FORWARD as new slates capture. Operator-visible: run `node backend/scripts/clvCaptureFunnel.js` over the next days — the 0% families (totalBases/runs/ks/hr) should start showing closes and overall capture should rise from ~20% toward ~50–70%.
+
+DEPLOY (REQUIRED — code change; the capture loop is require()'d in-process so the running backend has the OLD matcher cached until restart):
+  launchctl kickstart -k gui/$(id -u)/com.motel666.backend
+Then confirm new code is live (next [captureClosingLines:mlb] WROTE shows totalBases/ks/hr/runs captures) and watch `node backend/scripts/clvCaptureFunnel.js`.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator runs the kickstart and watches forward capture. Residuals (outs ~26%, walks tiny) are line/book, separate + minor.
+
+PROBE_REFS: backend/scripts/captureClosingLines.js (git diff this turn) · .scratch/probe_capture_match_dryrun.js · real-code dry-run 71.0% (1,740/2,452, +1,004) · NBA-safety 13/13 PASS · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 02:28 EDT.

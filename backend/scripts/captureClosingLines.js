@@ -200,11 +200,38 @@ function resolveBetGameTime(bet, eventTimeMap) {
 // only match main. For legacy bets without marketKey (pre-v0.1.4), the key
 // becomes 'player|fam|side|line|book|null' which matches snapshot entries
 // that ALSO have no marketKey (rare) — legacy bets stay best-effort.
+// 2026-06-17 (CB, Docket #2) — canonical family slug for CAPTURE MATCHING ONLY
+// (local to this matcher; NOT a scoring authority, NOT promoted to a shared util).
+// Root cause of the totalBases/runs/ks/hr close-capture 0% leak: MLB snapshot rows
+// carry only `propType` (display: "Total Bases","Strikeouts","Home Runs","Runs
+// Scored") while bets carry the camelCase `statFamily` slug ("totalBases","ks","hr",
+// "runs") — so the family component never matched. This bridges the three taxonomies
+// (bet slug / display propType / propFamilyKey) to one token. Lowercases + strips
+// space/underscore, then maps known synonyms. NBA slugs ("threes","pra",
+// "points_rebounds") have NO synonyms and pass through; stripping is symmetric on
+// both sides so NBA matching (canonicalPropType-first, v0.1.3) is preserved.
+// normFam (intelligence.js, PRESERVED) only collapses whitespace/underscore — it does
+// NOT bridge abbreviation↔display (ks↔strikeouts, hr↔home runs) — so this is local.
+const _FAM_SYN = {
+  strikeouts: "ks", pitcherk: "ks", pitcherstrikeouts: "ks", playerpitcherstrikeouts: "ks",
+  homeruns: "hr", homerun: "hr", boom: "hr", batterhomeruns: "hr",
+  battertotalbases: "totalbases",
+  runsscored: "runs", batterruns: "runs",
+  earnedruns: "earnedruns", pitcherer: "earnedruns",
+  pitcherouts: "outs",
+  rbi: "rbis", batterrbis: "rbis",
+  baseonballs: "walks",
+}
+function canonFamily(s) {
+  const f = String(s == null ? "" : s).toLowerCase().replace(/[\s_]+/g, "")
+  return _FAM_SYN[f] || f
+}
+
 function buildPropIndex(rawProps) {
   const ix = new Map()
   for (const r of (Array.isArray(rawProps) ? rawProps : [])) {
     const player = String(r?.player || "").toLowerCase().trim()
-    const fam    = String(r?.canonicalPropType || r?.statFamily || r?.propType || "").toLowerCase().trim()
+    const fam    = canonFamily(r?.canonicalPropType || r?.statFamily || r?.propType || "")
     const side   = String(r?.side || "").toLowerCase().trim()
     const line   = String(r?.line ?? "")
     const book   = String(r?.book || r?.sportsbook || "").toLowerCase().trim()
@@ -222,7 +249,7 @@ function matchKeyForBet(bet) {
   const player = String(bet?.player || "").toLowerCase().trim()
   // Bets stamp canonical slug directly into statFamily ('threes', 'pra', etc),
   // but accept canonicalPropType / propType as fallback for older entries.
-  const fam    = String(bet?.statFamily || bet?.canonicalPropType || bet?.propType || "").toLowerCase().trim()
+  const fam    = canonFamily(bet?.statFamily || bet?.canonicalPropType || bet?.propType || "")
   const side   = String(bet?.side || "").toLowerCase().trim()
   const line   = String(bet?.line ?? "")
   const book   = String(bet?.sportsbook || bet?.book || "").toLowerCase().trim()
