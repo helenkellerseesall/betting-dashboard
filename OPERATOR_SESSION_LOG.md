@@ -5435,3 +5435,25 @@ OPERATOR COMMANDS (reload = code change ⇒ kickstart -k; then before/after curl
 NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator confirms on /m during a live slate. Then decide: NBA mirror (post-freeze/in-season) — deferred.
 
 PROBE_REFS: backend/server.js (require + MLB_LINESHOP_SURFACE + attach loop; git diff this turn) · frontend/mobile/index.html renderCard lineShopChip · .scratch/probe_pickcard_lineshop.js (122/474 attached, mean gap +0.47pp) · served via responseBody.bestProps = finalPlayableRows||best · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 00:48 EDT.
+
+## 2026-06-17 01:21 ET — Claude-B [Cowork] — DOCKET #2 WIDEN CLOSING-LINE CAPTURE — STEP 1 diagnosis (read-only) + shipped a forward tracker. HEADLINE: the 80% leak is RUNTIME (loop only captures ~19–22 ET), not a code bug — fix is OPS; I did NOT fake a code patch.
+
+ACTION: diagnose where ~80% of settled picks lose their closing line; fix freeze-safe. READ-ONLY diagnosis + one shipped verifiable artifact (a durable funnel/tracker). No scoring touched. runtime:verify 21/21. Probe: .scratch/probe_clv_capture_funnel.js + .scratch/clv_capture_funnel.txt; durable: backend/scripts/clvCaptureFunnel.js.
+
+SCORING-SAFETY (confirmed): closeOdds/clv/clvQuality/closeImpliedProb appear in ZERO scoring/selection files (grepped buildMlbPropClusters, scoreMlbProp, buildMlbBestProps, calibrationDampener, archetypeWeighting, survivabilityGate). CLV is POST-bet, feeds grading/analytics only — not the frozen scoring path.
+
+STEP 1 FUNNEL (13,890 settled MLB picks):
+- openOdds stamped: 100%. gameTime present: 100%. → NOT the leak.
+- closeOdds/clvQuality stamped: 2,876 = 20.7%. The ENTIRE 79.3% drop is at close-capture (open+gameTime present, no close).
+- ROOT CAUSE (the decisive signal): closeObservedAt clusters at 19:00 ET (2,194), 20:00 (362), 21:00 (164), 22:00 (156) — and ZERO before 19:00 ET. Capture rate by first-pitch hour: only the 22:00-ET bucket captures (40–41%); 12:00–21:00 ET all 0.0%. The capture loop only effectively runs/succeeds from ~19:00 ET onward, so every game whose 180-min pre-tip window falls during the operator's 6am–3pm sleep + midday + early evening is missed. This matches the documented recurring "Mac asleep / backend down → CLV gap" failure mode.
+- RECENCY (secondary, quality): captures happen at p50=177 / p90=179 min before tip (the [-30,+180] window EDGE) then lock (already_captured) — so even the captured 20% is a line ~3h pre-tip, NOT a true closing line.
+- PER-BOOK (secondary, match): among captured-window games the rate varies a lot — BetMGM 40–44%, BetRivers/HardRock/DK 26–42%, but FanDuel 13–14% / Fanatics 12–16% / Caesars 0% — a match-key/snapshot-coverage signal (line drift / book absent at close) worth a separate live-snapshot diagnosis.
+
+STEP 2 — HONEST: the BIGGEST leak (the 80%) is RUNTIME (system not capturing before ~19 ET), NOT a code defect I can fix-and-verify from here. Faking a code patch would violate "never claim a fix that didn't happen." So:
+- SHIPPED (freeze-safe, verifiable, operator-visible): backend/scripts/clvCaptureFunnel.js — re-runnable funnel + by-hour + by-book + recency tracker. Verified: runs with real output, node --check OK, runtime:verify 21/21. Run: `node backend/scripts/clvCaptureFunnel.js` (or --days=N). This is the forward tracker to CONFIRM any fix — coverage gain accrues FORWARD; past coverage stays ~20% (closing lines cannot be captured retroactively).
+- RECOMMENDED (ops — the real coverage lever, operator-side, I cannot verify from sandbox): keep the Mac awake + backend up + snapshot fresh across 9 AM–11 PM ET. caffeinate -i watchdog exists but capture still dies pre-19 ET → verify caffeinate is actually preventing system sleep (consider caffeinate -s / pmset), and that com.motel666.backend stays up midday. Confirm with the tracker forward (capture rate at 12–18 ET should rise from 0%).
+- PROPOSED (freeze-safe code, want your nod before editing live capture — show-before-edit): (1) RECENCY: re-capture the latest in-window line until tip instead of locking on the first 177-min-early observation (true closing line; better CLV quality). (2) RESILIENCE: drive captureClosingLines from scheduler.sh after each hourly slate refresh (belt-and-suspenders vs the backend in-process loop dying — the documented 2026-05-31 mode). Both are window/loop timing (your pre-authorized scope) but change live capture behavior, so I'm proposing diffs rather than shipping blind.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator decision on (a) the ops fix (the real lever) and (b) whether to ship the recency + scheduler-resilience code changes. Diagnosis + tracker only this turn; no coverage claim.
+
+PROBE_REFS: backend/scripts/clvCaptureFunnel.js · .scratch/clv_capture_funnel.txt · .scratch/probe_clv_capture_funnel.js · funnel 13,890 settled / 20.7% closed / 79.3% drop at close-capture · closeObservedAt 19–22 ET only · recency p50=177min pre-tip · per-book 12–44% · closeOdds NOT in scoring (verified) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 01:21 EDT.
