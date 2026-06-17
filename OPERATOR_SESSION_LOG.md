@@ -5573,3 +5573,27 @@ SEQUENCE: G1 calibration graduates FIRST (re-point ranks on calibrated modelProb
 NEXT_EXPECTED_FROM_PEER: Claude-A summary; spec is execution-ready. No action until the freeze lifts + G1 graduates (per graduation plan gate). Memory updated: [[project-selection-edge-target]] points to the spec.
 
 PROBE_REFS: docs/POST_FREEZE_SELECTION_REPOINT_SPEC.md (new) · docs/POST_FREEZE_GRADUATION_PLAN.md (companion-spec anchor added) · cites: buildMlbBootstrapSnapshot.js:150-238 · buildMlbInspectionBoard.js:425/486-491 · buildMlbPropClusters.js:751-800 · `TZ='America/New_York' date` → 2026-06-17 04:20 EDT.
+
+## 2026-06-17 19:39 ET — Claude-B [Cowork] — READ-ONLY GAP AUDIT: repo vs MLB-betting blueprint. HEADLINE: nothing is missing BECAUSE of the freeze — every gap is "not built," all INGEST-SAFE now. NEW doc docs/MLB_BLUEPRINT_GAP_AUDIT.md.
+
+ACTION: mapped the repo against the full blueprint (pitcher / bullpen / hitter-statcast / splits / environment / market / tooling) with file:line cites + HAVE/PARTIAL/MISSING + freeze-status. READ-ONLY, no code/scoring change. Tracked doc written.
+
+CORE ANSWER: the freeze blocks SCORING/SELECTION (signal weighting/gating), NOT ingestion. Adding stats/feeds/markets to the snapshot is FREEZE-SAFE; only WIRING them into scoring waits for ~06-25 + governance. So every gap below is "not built," not "freeze-blocked."
+
+FINDINGS (cites):
+1. PITCHER: HAVE kRate/bbRate/whip/era (refreshMlbPitcherStats.js:197-201). MISSING FIP/xFIP/SIERA/xERA/LOB%/HR9.
+2. BULLPEN: PARTIAL — fatigue/volume (refreshMlbBullpenWorkload.js:127-150 reliefIp/highLeverageUses; deriveMlbBullpenContext.js:54-79 reliefFatigueScore). MISSING relief FIP/xFIP/WHIP.
+3. HITTER STATCAST: PARTIAL — buildMlbStatcastPower.js:82-83 avgExitVelocity + powerScore=EV/2 ONLY; hardcodes hfSea=2025 (:36, stale-season risk). MISSING wOBA/wRC+/ISO/Barrel%/Hard-Hit%/Chase/O-Swing.
+4. SPLITS: PARTIAL — handedness is a FLAT heuristic (deriveMlbHandednessContext.js:62-64: opp +0.022 / switch +0.012 / same −0.020), NOT real per-player vsLHP/RHP splits; rolling = batterL5/L15 (mlbBatterFormCache.js:161-162), no 7/14/30-day; home/away thin (w0.04).
+5. ENVIRONMENT: park HAVE (parkContext.hrFactor 96%), wind HAVE (Open-Meteo refreshMlbWeatherForSlate.js:113), air-density PARTIAL (temp+humidity yes; elevation altitudeFt:null deriveMlbParkContext.js:75), UMPIRE MISSING (zero refs).
+6. MARKET: implied/CLV/vig/consensus HAVE (vigStripping.js:48-57, buildClv, consensusImpliedProbability). SHARP benchmark MISSING — sportsbookAllowlist.js:40 = 7 RETAIL + Caesars, no Pinnacle/Circa → CLV/consensus are retail-only (CLV vs our own open, not a sharp close).
+7. TOOLING: line-shop HAVE (docket#1), bet log HAVE, MLB bankroll HAVE (buildMlbOpportunityBoard.js:438 buildMlbBankrollPlan + :537 kellyUnitsForPlay — CORRECTS the "expected MISSING; NBA-only" assumption). F5 markets MISSING/parked (sportConfig.js:148-150).
+
+RANKED FREEZE-SAFE INGESTION PLAN (honest tiers):
+(a) confirmed-edge/near-done: #1 ADD A SHARP BOOK (Pinnacle via Odds API us2/eu) — turns retail-only CLV into a real beat-the-close benchmark that #1/#2/selection all lean on (HIGHEST value); + elevation→air-density (cheap). Line-shop/CLV/bankroll/selection already have/spec'd.
+(b) plausibly edge-relevant context (test via docket#3 context-CLV forward loop): UMPIRE strike-zone, REAL per-player handedness splits, bullpen relief-quality. Ingest now; prove forward; wire post-freeze.
+(c) speculative model-fuel: the big sabermetrics list + fix stale Statcast season. Freeze-safe but UNCERTAIN payoff per G4 (market already sharper than our model). Do NOT imply "ingest all = edge" — gate each behind a forward-CLV test before graduating.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator pick from the ranked plan. Recommendation: the sharp-book add (tier a) is the single highest-value freeze-safe ingestion. Read-only this turn; no code changed; runtime:verify untouched.
+
+PROBE_REFS: docs/MLB_BLUEPRINT_GAP_AUDIT.md (new) · cites: refreshMlbPitcherStats.js:197-201 · buildMlbStatcastPower.js:36,82-83 · deriveMlbHandednessContext.js:62-64 · deriveMlbParkContext.js:75 · sportsbookAllowlist.js:40 · buildMlbOpportunityBoard.js:438,537 · sportConfig.js:148-150 · `TZ='America/New_York' date` → 2026-06-17 19:39 EDT.
