@@ -5535,3 +5535,24 @@ DECISION NEEDED: GO for the corrected location (buildMlbOpportunityBoard orchest
 NEXT_EXPECTED_FROM_PEER: operator GO for the relocated edit; then I implement + verify. No code changed this turn.
 
 PROBE_REFS: makePlay return (buildMlbPropClusters.js:1123-1174, no context fields) · buildMlbOpportunityBoard.js:378-400 (marketProps/rows in scope, persistTrackedToday call) · join key 0 collisions/10,018, 96% context · sample flatten {hrFactor 1.18, hrEnvironmentTag HR_FRIENDLY, temperatureF 67.6, windDirectionTag out_to_cf, isPlatoonAdvantage true, tags [...]} · `TZ='America/New_York' date` → 2026-06-17 02:57 EDT.
+
+## 2026-06-17 04:04 ET — Claude-B [Cowork] — DOCKET #3 STEP 2 SHIPPED: forward-only context persistence (orchestrator decoration). Mechanism proven (0→9 ctx fields), scoring byte-identical, runtime:verify 21/21.
+
+ACTION: persist matchup-context onto mlb_tracked_bets going forward, at the CORRECTED location (operator GO). EDIT: buildMlbOpportunityBoard.js (NOT PRESERVED, NOT frozen), AFTER buildMlbBestBetsBoard() + BEFORE persistTrackedToday(). leanBet + the frozen buildMlbPropClusters UNTOUCHED. show-before-edit diff shown.
+
+EDIT: decorate the persisted plays (allPlays/longshotPlays/altPlays) by joining to the context-bearing snapshot `rows` on player|eventId|side|line|marketKey|sportsbook (0 collisions / 10,018 rows), flattening parkContext.hrFactor→hrFactor, parkContext.hrEnvironmentTag→hrEnvironmentTag, weatherContext.temperatureF→temperatureF, weatherContext.windDirectionTag→windDirectionTag, weatherContext.{carryShift|tempCarryShift}→carryShift, + pass-through isPlatoonAdvantage / mlbContextualTags / impliedTeamTotal / gameTotal / lineupPosition. leanBet's EXISTING flat reads then persist them (leanBet unchanged). ADDITIVE, null-safe (_setIfNull only fills nulls), try/catch-guarded, metadata-only.
+
+WHY SAFE (post-scoring, no scoring/tier change): the decoration runs AFTER buildMlbBestBetsBoard (tiers/scores/edge/modelProb already assigned on the plays), only ADDS fields, never mutates tier/edge/ev/modelProb/score, and is never read by tierForPlay/edge/modelProb. buildMlbOpportunityBoard is NOT in PRESERVED.md. NBA untouched (MLB-only file).
+
+VERIFY (real output):
+1. MECHANISM (.scratch/probe_ctx_persist_mechanism.js): faithful makePlay-shape stripped play from a REAL live snapshot row (Bo Bichette hits o1.5 @ FanDuel) → BEFORE (undecorated, leanBet's verbatim context reads) = 0 non-null context fields; AFTER (committed decoration logic applied) = 9 non-null (hrFactor 1.18, hrEnvironmentTag HR_FRIENDLY, temperatureF 67.6, windDirectionTag out_to_cf, carryShift 0.0364, isPlatoonAdvantage true, impliedTeamTotal 4.956, gameTotal 9, contextualTags [PARK_HR_FRIENDLY,WIND_OUT,PLATOON_OPP,BULLPEN_FATIGUED]). lineupSpot null (lineupPosition only ~13% — lineups often pending; expected).
+2. SCORING UNTOUCHED: tier/edge/ev/modelProb/score byte-identical before/after decoration (asserted PASS). runtime:verify 21/21. node --check OK. NBA untouched.
+3. FORWARD-ONLY (stated): past rows stay context-null (backfill infeasible, audited prior turn). 96% of live snapshot rows would carry >=1 context tag forward. The context-CLV slice (edge-hunt grouped by park/weather/platoon/bullpen) becomes computable ONLY as new graded days accrue (days→weeks), NOT today — I can prove the mechanism now, not graded context-CLV.
+
+DEPLOY (code change; backend require-cached → kickstart -k to pick up; decoration runs on the NEXT slate:mlb build, persisting context onto new tracked_bets rows):
+  launchctl kickstart -k gui/$(id -u)/com.motel666.backend
+Verify forward: after a slate build, a fresh mlb_tracked_bets row should carry hrFactor/temperatureF/windDirectionTag/mlbContextualTags; re-run the edge-hunt grouped by hrEnvironmentTag once enough graded context days accrue.
+
+NEXT_EXPECTED_FROM_PEER: Claude-A summary + operator runs kickstart, watches forward. Backfill remains infeasible (audited) — no historical context-CLV.
+
+PROBE_REFS: backend/pipeline/mlb/buildMlbOpportunityBoard.js (git diff this turn) · .scratch/probe_ctx_persist_mechanism.js (0→9 ctx fields, scoring byte-identical, 96% fwd coverage) · join key 0 collisions/10,018 · leanBet unchanged · buildMlbPropClusters/makePlay untouched · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 04:04 EDT.

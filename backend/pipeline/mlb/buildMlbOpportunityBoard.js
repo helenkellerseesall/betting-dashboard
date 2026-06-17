@@ -381,6 +381,54 @@ function buildMlbOpportunityBoard(input = {}) {
     marketProps,
   })
 
+  // 2026-06-17 (CB, Docket #3) — FORWARD-ONLY matchup-context persistence.
+  // makePlay() (in the R2-FROZEN buildMlbPropClusters.js) returns a PICKED play
+  // WITHOUT parkContext/weatherContext/etc., so leanBet → mlb_tracked_bets had
+  // every context tag = null (the edge-hunt could not compute the context-CLV
+  // slice). Here we DECORATE the persisted plays with FLAT context joined from the
+  // context-bearing snapshot `rows` (parkContext ~96% / weatherContext ~79% /
+  // isPlatoonAdvantage ~96% / mlbContextualTags ~91%); leanBet's EXISTING flat
+  // reads then persist them — leanBet unchanged. Runs AFTER buildMlbBestBetsBoard
+  // (scoring complete) → POST-SCORING, ADDITIVE, null-safe, metadata-only: NEVER
+  // read by tierForPlay/edge/modelProb (tiers/scores byte-identical). Past rows
+  // can't be backfilled (audited infeasible) → forward-only; the context-CLV slice
+  // fills in as new graded days accrue. Join key dry-run: 0 collisions / 10,018 rows.
+  try {
+    const _ctxKey = (r) => [
+      String(r?.player || "").toLowerCase().trim(),
+      String(r?.eventId || ""),
+      String(r?.side || "").toLowerCase(),
+      String(r?.line ?? ""),
+      String(r?.marketKey || "").toLowerCase(),
+      String(r?.book || r?.sportsbook || "").toLowerCase(),
+    ].join("|")
+    const _ctxByKey = new Map()
+    for (const r of (Array.isArray(rows) ? rows : [])) { const k = _ctxKey(r); if (!_ctxByKey.has(k)) _ctxByKey.set(k, r) }
+    const _setIfNull = (p, key, val) => { if (p[key] == null && val != null) p[key] = val }
+    const _decorateCtx = (plays) => {
+      if (!Array.isArray(plays)) return
+      for (const p of plays) {
+        if (!p || typeof p !== "object") continue
+        const r = _ctxByKey.get(_ctxKey(p))
+        if (!r) continue
+        const pk = r.parkContext || {}, wc = r.weatherContext || {}
+        _setIfNull(p, "hrFactor", pk.hrFactor)
+        _setIfNull(p, "hrEnvironmentTag", pk.hrEnvironmentTag)
+        _setIfNull(p, "temperatureF", wc.temperatureF)
+        _setIfNull(p, "windDirectionTag", wc.windDirectionTag)
+        _setIfNull(p, "carryShift", wc.carryShift ?? wc.tempCarryShift)
+        if (p.isPlatoonAdvantage == null && typeof r.isPlatoonAdvantage === "boolean") p.isPlatoonAdvantage = r.isPlatoonAdvantage
+        if (p.mlbContextualTags == null && Array.isArray(r.mlbContextualTags)) p.mlbContextualTags = r.mlbContextualTags
+        _setIfNull(p, "impliedTeamTotal", r.impliedTeamTotal)
+        _setIfNull(p, "gameTotal", r.gameTotal)
+        _setIfNull(p, "lineupPosition", r.lineupPosition)
+      }
+    }
+    _decorateCtx(bestBetsBoard.allPlays)
+    _decorateCtx(bestBetsBoard.longshotPlays)
+    _decorateCtx(bestBetsBoard.altPlays)
+  } catch (e) { console.log("[MLB-CONTEXT-PERSIST] decorate skip:", e?.message || e) }
+
   const slipPack = buildMlbSlipComposer({ bestBetsBoard })
   bestBetsBoard.slips = slipPack.slips
   bestBetsBoard.slipsMeta = slipPack.meta
