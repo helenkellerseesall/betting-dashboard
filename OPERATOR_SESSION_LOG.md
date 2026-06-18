@@ -5897,3 +5897,24 @@ CAVEATS for the operator: (a) this is a DIFFERENT file/scope than the literal ta
 DECISION NEEDED: GO to build the new deriveMlbStatcastQuality.js staging ingest (recommended)? Or a different target? I will not touch the orphan or the live deriver without it.
 
 PROBE_REFS: buildMlbStatcastPower.js:1-36 (@orphan + hfSea=2025) · verifyOrphanAuthorityHardening.js:161 + runtimeVerify.js:50 (orphan guard, in runtime:verify) · deriveMlbStatcastPower.js (live, iso/hrRate, avgExitVelocity:null, auditNightly.js:169) · buildMlbHrPredictionCandidates.js:25,:256-257,:330,:715,:796 (HR-scoring consumer of powerScore) · only savant URL = orphan · slateDate.js (ET-year season source) · `TZ='America/New_York' date` → 2026-06-18 01:05 ET.
+
+## 2026-06-18 01:26 ET — Claude-B [Cowork] — BUILD: deriveMlbStatcastQuality.js — NEW Baseball Savant quality-metrics STAGING ingest (barrel%/hardHit%/xwOBA). Additive, zero live consumer by design. Parser proven 16/16. runtime:verify 21/21. Orphan + live deriver UNTOUCHED.
+
+AUDIT-CONFIRMED LIVE PATH (from the 01:05 audit / 40203f6): buildMlbStatcastPower.js = test-guarded ORPHAN (verifyOrphanAuthorityHardening:161, in runtime:verify; output overwritten) — NOT touched. Live "Statcast power" = deriveMlbStatcastPower.js (iso/hrRate → powerScore, avgExitVelocity:null, feeds HR scoring) — NOT touched. Real Statcast quality metrics did NOT exist anywhere — now ingested by the new staging file.
+
+BUILD (new file only):
+- backend/scripts/deriveMlbStatcastQuality.js — pulls Savant statcast_search batter CSV for the CURRENT ET season (SEASON = currentSlateDateEt().slice(0,4) = canonical ET slate-date year, NOT hardcoded, NOT toISOString). Parses by headers.indexOf: barrelPct (barrel col, else launch_speed_angle==6), hardHitPct (launch_speed≥95), xwoba (mean estimated_woba_using_speedangle), xslg, xba. Proper quoted-CSV parse (Savant player_name = "Last, First" with embedded comma) + canonNameKey ("Last, First"→"First Last"→normalizeName, matching the HR engine's lookup). Writes backend/data/mlbStatcastQuality.json. ANTI-FABRICATION: absent column → null, never invented. ZERO live consumer BY DESIGN (wire post-freeze + forward-CLV-gated).
+
+PROVE (.scratch/last.txt):
+- SEASON resolves to 2026 from slateDate.currentSlateDateEt() (shown; before = orphan's dead hfSea=2025, irrelevant).
+- Live Savant pull is BLOCKED from the sandbox (403 "Connection blocked by network allowlist" — same as the-odds-api). So real per-player coverage is OPERATOR-RUN. Parser proven deterministically instead: 16/16 PASS on a crafted sample with real Savant column names — quoted "Last, First" → key "aaron judge"; strikeout (empty launch_speed) skipped; Judge hardHit% 0.667, barrel% 0.333 (lsa==6), xwoba 0.400, xslg 0.860, xba 0.450; Soto hardHit 0.5/barrel 0.0/xwoba 0.3; anti-fab: missing barrel/xslg/xba columns → null (not invented), hardHit/xwoba still compute.
+- ADDITIVE/INGEST-SAFE: consumers of mlbStatcastQuality = 0 (confirmed grep). Orphan + live deriver byte-identical (only the new script added). node --check OK. runtime:verify 21/21 PASS (orphan/shadow guards still green — a backend/scripts CLI with no require-caller is normal, doesn't trip the pipeline-orphan guard; no sanctioned-staging registration needed).
+- Also corrected docs/MLB_BLUEPRINT_GAP_AUDIT.md §3: was blaming the orphan + mis-stating the live path; now states the iso/hrRate live deriver, the new quality staging file, and that wOBA/wRC+/ISO/chase still need FanGraphs/pybaseball.
+
+OPERATOR-RUN (live pull + real coverage — Savant reachable on your machine, blocked here):
+  cd ~/Projects/betting-dashboard && node backend/scripts/deriveMlbStatcastQuality.js
+  → prints season 2026, CSV bytes, coverage (barrelPct/hardHitPct/xwoba X of Y players), top-8 sample; writes backend/data/mlbStatcastQuality.json. (No kickstart needed — nothing consumes it yet.)
+
+NEXT_EXPECTED_FROM_PEER: operator runs the live pull once (confirm real coverage). Optional: add it to the nightly chain (auditNightly.js) next to deriveMlbStatcastPower so the staging file refreshes daily. Wiring barrel%/hardHit%/xwOBA into HR scoring / snapshot = separate post-freeze + forward-CLV-gated task (NOT now).
+
+PROBE_REFS: backend/scripts/deriveMlbStatcastQuality.js (new) · .scratch/probe_statcast_quality.js + last.txt (16/16) · Savant 403 allowlist-blocked from sandbox · slateDate.currentSlateDateEt → 2026 · orphan buildMlbStatcastPower.js + live deriveMlbStatcastPower.js untouched · docs/MLB_BLUEPRINT_GAP_AUDIT.md §3 corrected · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 01:26 ET.

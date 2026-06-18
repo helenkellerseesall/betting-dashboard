@@ -33,13 +33,15 @@ Fatigue modeled (volume); **relief quality (FIP/WHIP) absent**. INGEST-SAFE. Sou
 ## 3. HITTER CONTACT / DISCIPLINE
 | Metric | Status | Where / note |
 |---|---|---|
-| Exit velocity (avg) | **PARTIAL** | `buildMlbStatcastPower.js:82-83` — avgExitVelocity + powerScore=EV/2 ONLY |
-| wOBA, wRC+, ISO, Hard-Hit%, Barrel%, Chase/O-Swing% | **MISSING** | none computed |
-| ⚠ staleness | — | `buildMlbStatcastPower.js:36` hardcodes `hfSea=2025` — likely stale for 2026 slates |
+| "powerScore" (the live one) | **HAVE (not Statcast)** | `deriveMlbStatcastPower.js` (nightly via `auditNightly.js`) derives powerScore from `mlbBatterStats.json` **iso + hrRate** (`36 + (iso−.140)*40 + (hrRate−.035)*150`, clamp[25,58]); sets `avgExitVelocity: null`. Consumed by HR scoring (`buildMlbHrPredictionCandidates.js`). **No Savant, no exit velocity.** |
+| Barrel% · Hard-Hit% · xwOBA (+ xSLG/xBA) | **HAVE (staging, unwired)** | NEW `deriveMlbStatcastQuality.js` (2026-06-18) → `backend/data/mlbStatcastQuality.json`. Real Savant `statcast_search` parse, current-ET-season (from `slateDate`). **Zero live consumer by design** — wire post-freeze + forward-CLV-gated. |
+| wOBA · wRC+ · ISO · Chase/O-Swing% | **MISSING** | not in Savant `statcast_search` — needs FanGraphs / pybaseball (`statcast_batter_*` for plate-discipline) — separate later task. |
+| ⚠ correction (was wrong here) | — | The old row blamed `buildMlbStatcastPower.js:36` (`hfSea=2025`). That file is a **test-guarded ORPHAN** (`verifyOrphanAuthorityHardening.js:161` asserts zero require callers; in runtime:verify) and its output is **overwritten** nightly by `deriveMlbStatcastPower.js` — so its stale season is dead/irrelevant, NOT the live path. Do not edit it. |
 
-Statcast is **exit-velo only** off a Savant CSV; the quality/discipline metrics are absent and the
-season is hardcoded. INGEST-SAFE. Source: Baseball Savant (the CSV is already pulled — extend the
-column parse to barrel%/hardHit%/xwOBA) / pybaseball (`statcast_batter_*`) / FanGraphs (wOBA/wRC+/ISO).
+Statcast **quality** (barrel%/hardHit%/xwOBA) now EXISTS as a staging ingest (current-season, real,
+anti-fabrication-guarded) but feeds nothing yet — wiring into HR scoring / the snapshot is the
+post-freeze, forward-CLV-gated step. Discipline metrics (wOBA/wRC+/ISO/chase) still need a
+FanGraphs/pybaseball source.
 
 ## 4. SPLITS
 | Split | Status | Where / note |
