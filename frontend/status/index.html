@@ -548,6 +548,7 @@ function renderOpenIssues(data) {
   }
   const reds = Array.isArray(oi.red) ? oi.red : [];
   const yells = Array.isArray(oi.yellow) ? oi.yellow : [];
+  const infos = Array.isArray(oi.info) ? oi.info : [];   // dormant-sport (season-off) findings, grey
   // Phase Status-Overhaul-1A — collapsed summary uses category split:
   // infra (actionable now) headlined; cognition (calibration) as suffix.
   const s = oi.summary || {};
@@ -559,7 +560,7 @@ function renderOpenIssues(data) {
   } else {
     _setSummary("sumOpenIssues", ir + " red · " + iy + " yellow" + cogSuffix);
   }
-  if (reds.length === 0 && yells.length === 0) {
+  if (reds.length === 0 && yells.length === 0 && infos.length === 0) {
     div.innerHTML = '<div class="empty">no open issues — every checked source clean (' + (oi.summary?.sourcesChecked || []).join(", ") + ')</div>';
     return;
   }
@@ -572,7 +573,13 @@ function renderOpenIssues(data) {
     html += '<div class="pretty"><div class="ts yellow">YELLOW · ' + (y.source || 'unknown') + '</div>'
          +  '<div class="msg"><strong>' + (y.title || '') + '</strong> — ' + (y.detail || '') + '</div></div>';
   }
-  html += '<div class="legend" style="margin-top:10px">summary: ' + (oi.summary?.redCount || 0) + ' red · ' + (oi.summary?.yellowCount || 0) + ' yellow · sources: ' + (oi.summary?.sourcesChecked || []).join(", ") + '</div>';
+  // Dormant-sport findings: grey/informational (season off — already dampener-corrected). Visible,
+  // never red/amber — so live miscalibration stays the only thing that raises severity.
+  for (const n of infos) {
+    html += '<div class="pretty"><div class="ts" style="color:var(--text-faint)">INFO · dormant · ' + (n.source || 'unknown') + '</div>'
+         +  '<div class="msg" style="color:var(--text-faint)">' + (n.title || '') + ' — ' + (n.detail || '') + '</div></div>';
+  }
+  html += '<div class="legend" style="margin-top:10px">summary: ' + (oi.summary?.redCount || 0) + ' red · ' + (oi.summary?.yellowCount || 0) + ' yellow · ' + (oi.summary?.infoCount || 0) + ' info (dormant) · sources: ' + (oi.summary?.sourcesChecked || []).join(", ") + '</div>';
   div.innerHTML = html;
 }
 

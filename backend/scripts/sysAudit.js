@@ -520,7 +520,13 @@ async function main() {
         multiplier: Math.round(multiplier * 10000) / 10000,
       }
       const fmt = `model ${(meanStated * 100).toFixed(1)}% / realized ${(realized * 100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${settled}) · mul ×${multiplier.toFixed(2)}`
-      if (gap < 10) P(`  ${fam}: ${fmt}`)
+      // Season-aware SEVERITY (2026-06-18): a calibration gap on a DORMANT sport (season OFF) is a
+      // settled-season finding the dampener already corrects (×mul) — not a live, actionable failure.
+      // Emit it as informational (I — no FAILED/WARNED++) so it does NOT RED-refire drift_alerts.log
+      // all off-season. CALIBRATION_OUT + family_calibration.json persistence above are UNCHANGED for
+      // every sport, so the dampener correction stays intact. A LIVE sport still hits the P/W/F bands.
+      if (!isSportEnabled(sport)) I(`  ${fam}: ${fmt} — DORMANT (${sport} season off): already dampener-corrected ×${multiplier.toFixed(2)}, not live-actionable`)
+      else if (gap < 10) P(`  ${fam}: ${fmt}`)
       else if (gap < 20) W(`  ${fam}: ${fmt} — meaningful gap, dampen`)
       else if (gap < 35) W(`  ${fam}: ${fmt} — LARGE gap, dampen aggressively`)
       else F(`  ${fam}: ${fmt} — SEVERELY MISCALIBRATED, model claims overstated by ${gap.toFixed(0)}pp`)

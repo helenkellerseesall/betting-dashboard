@@ -909,6 +909,11 @@ function sectionFamilyCalibration() {
 function sectionOpenIssues() {
   const red = []
   const yellow = []
+  // Season-aware severity (2026-06-18): calibration gaps on DORMANT sports (season OFF) are
+  // settled-season findings the dampener already corrects — surfaced as grey `info`, never red/
+  // yellow, so RED/amber stays reserved for live, actionable miscalibration. Additive contract.
+  const info = []
+  const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 
   // Source 1: family_calibration.json — flag families with severe gaps
   // Phase Status-Issue-Taxonomy-1A — categories:
@@ -930,7 +935,20 @@ function sectionOpenIssues() {
           const x = cal.sports[sport][fam]
           const gap = Number(x.gapPp)
           if (!Number.isFinite(gap)) continue
-          if (gap >= 35) {
+          // DORMANT sport (season OFF): downgrade ANY gap to grey info — the dampener already
+          // corrects it (×mul) and there are no live games to act on. Stays VISIBLE, not red/yellow.
+          if (!isSportEnabled(sport)) {
+            if (gap >= 15) {
+              info.push({
+                source: "family_calibration",
+                category: "cognition",
+                title: `${sport}/${fam} dormant — already dampener-corrected`,
+                detail: `${sport.toUpperCase()} season off; settled-season gap ${gap.toFixed(1)}pp (n=${x.n}) already corrected by dampener ×${x.multiplier.toFixed(2)} — not live-actionable.`,
+                gapPp: gap,
+                multiplier: x.multiplier,
+              })
+            }
+          } else if (gap >= 35) {
             red.push({
               source: "family_calibration",
               category: "cognition",
@@ -1227,6 +1245,7 @@ function sectionOpenIssues() {
   // Sort: red first, then yellow; within each, source-grouped
   red.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
   yellow.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
+  info.sort((a, b) => (b.gapPp || 0) - (a.gapPp || 0))
 
   // Phase Status-Issue-Taxonomy-1A — per-category counts.
   // INFRA  = machine state (pipeline broken, file missing, deploy hygiene, restart).
@@ -1248,11 +1267,13 @@ function sectionOpenIssues() {
       infraYellowCount,
       cognitionRedCount,
       cognitionYellowCount,
+      infoCount: info.length,
       checkedAt: new Date().toISOString(),
       sourcesChecked: ["family_calibration", "drift_alerts", "git", "backend.uptime", "slate_fires", "clv_capture", "autopilot_fires"],
     },
     red,
     yellow,
+    info,
   }
 }
 

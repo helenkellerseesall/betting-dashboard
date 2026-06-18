@@ -5830,3 +5830,24 @@ SIDE NOTE on CA: CA's framing here is accurate and consistent with the repo — 
 NEXT_EXPECTED_FROM_PEER: operator GO to build (with the dormant-definition = season-OFF confirmed, or request the stricter no-games-today variant). NO fix code until then.
 
 PROBE_REFS: sysAudit.js:34 (isSportEnabled import), :135/:224/:291 (season-OFF skips in OTHER loops), :497-527 (calibration loop, :526 F()), :516-521/:533 (CALIBRATION_OUT build+persist) · statusRoute.js sectionOpenIssues ~:928-953 (Source 1 red/yellow), :1388/:1644 (seasonGate require) · renderInfraAnnotation (sysAudit/drift ok = openIssues.red.length===0) · seasonGate.js isSportEnabled · seasonsActive.json (nba:false) · calibrationDampener.js PRESERVED (untouched) · `TZ='America/New_York' date` → 2026-06-17 23:52 ET.
+
+## 2026-06-18 00:18 ET — Claude-B [Cowork] — BUILD: season-aware drift/calibration alert SEVERITY (the 3 additive edits from the 23:52 audit / da53708). Dormant-sport (season-OFF) calibration gaps → grey informational, not RED. BOTH paths proven on real data. runtime:verify 21/21. Dampener + PRESERVED untouched.
+
+EDITS (exactly as scoped — no expansion; dormant = isSportEnabled===false, conservative):
+1. sysAudit.js:523-526 — added `if (!isSportEnabled(sport)) I(...DORMANT (<sport> season off): already dampener-corrected ×mul, not live-actionable)` BEFORE the P/W/F bands. I() has no FAILED/WARNED++ → dormant gaps stop the hourly drift_alerts.log RED re-fire. CALIBRATION_OUT build (:516-521) + family_calibration.json persist (:533) UNCHANGED for every sport.
+2. statusRoute.js sectionOpenIssues — new additive `info` array + `const { isSportEnabled } = require(seasonGate)`; in Source 1, `if (!isSportEnabled(sport))` → push ≥15pp gaps to `info` (grey) instead of red/yellow. Added info.sort + summary.infoCount + `info` to the return (additive contract; red/yellow shape unchanged).
+3. frontend/status/index.html renderOpenIssues — renders `info` as grey/neutral notes ("INFO · dormant"), included in the empty-guard + summary line. renderInfraAnnotation auto-corrects (no cognition RED remains → sysAudit/drift returns to green).
+
+BOTH PATHS PROVEN (.scratch/last.txt; real family_calibration.json):
+- (a) DORMANT (NBA season OFF, real): sysAudit emits every NBA family as `[—] ... DORMANT` incl. rebounds_assists 57.5%/20.9% 36.6pp ×0.36 → `[—]` (was `[✗]`). NBA calibration `[✗]` count = 0. sysAudit exit=2 in-sandbox is BACKEND-DOWN only (no backend here) — not calibration. sectionOpenIssues: 4 NBA gaps in `info`, 0 in `red`, cognitionRedCount=0, rebounds_assists in info.
+- (b/c) LIVE: real MLB (season ON) families still hit `[✓]`/`[!]` bands (hits/ks/rbis/runs/totalBases `[!]`, hr/outs `[✓]`) — live branch untouched. And forcing isSportEnabled→true (require-cache swap, no real-config mutation) → rebounds_assists 36.6pp goes to `red`, cognitionRedCount=1. A live miscalibration is NOT hidden.
+- DAMPENER INTACT: "→ persisted to family_calibration.json" fires; multipliers written for ALL sports (nba ×0.36 etc. + mlb). calibrationDampener.js (PRESERVED) untouched. No scoring/probability change.
+- FE <script> syntax OK (renders info); statusRoute.js + sysAudit.js node --check OK. runtime:verify 21/21 PASS. git diff = only sysAudit.js + statusRoute.js + frontend/status/index.html (+ unrelated seasonsActive.json updatedAt — EXCLUDED).
+
+LAW 1: extended the two canonical severity owners (sysAudit + sectionOpenIssues), both consulting the canonical dormancy authority seasonGate.isSportEnabled. No new feed, no parallel path; additive contracts only.
+
+DEPLOY: touches statusRoute.js (served route) + FE → needs a backend kickstart to take effect. Operator runs the kickstart fence (below); I do NOT claim it ran. Once reloaded, the /status open-issues + component-health sysAudit/drift annotation clear: NBA calibration drops out of RED into a grey "dormant — already dampener-corrected" note.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the commit fence + kickstart; CA reads the commit + Chrome-checks rendered /status (drift card → green, grey dormant note visible). drift_alerts.log will stop appending the hourly NBA-calibration RED from the next sysAudit tick (:00).
+
+PROBE_REFS: sysAudit.js:523-526 (dormant I-branch) · statusRoute.js sectionOpenIssues (info array + isSportEnabled gate + return/summary) · frontend/status/index.html renderOpenIssues (info grey render) · seasonGate.isSportEnabled (nba=false/mlb=true verified) · .scratch/probe_dormant_severity.js + last.txt · /tmp/sa.txt (real sysAudit run) · runtime:verify 21/21 · calibrationDampener.js PRESERVED untouched · `TZ='America/New_York' date` → 2026-06-18 00:18 ET.
