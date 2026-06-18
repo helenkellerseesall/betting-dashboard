@@ -57,7 +57,7 @@ Real per-player platoon splits **absent** (flat ±0.022 stand-in). INGEST-SAFE. 
 |---|---|---|
 | Park factors | **HAVE** | `deriveMlbParkContext.js` → parkContext.hrFactor / hrEnvironmentTag (96% coverage) |
 | Wind speed / vector | **HAVE** | `refreshMlbWeatherForSlate.js:113` Open-Meteo (wind_speed_10m, wind_direction_10m) → weatherContext.windDirectionTag/windSpeedMph/windDirectionDeg |
-| Air density (temp+humidity+elevation) | **PARTIAL** | temp + humidity ingested (`refreshMlbWeatherForSlate.js:113,127`); **elevation `altitudeFt: null`** (`deriveMlbParkContext.js:75`); no computed airDensity |
+| Air density (temp+humidity+elevation) | **HAVE (staging, unwired — operator-confirms coverage)** | temp + humidity already ingested (`refreshMlbWeatherForSlate.js:113,127`). NEW staging deriv `deriveMlbAirDensity.js` (2026-06-18) → `mlbAirDensity.json`: Open-Meteo station `elevation` + `surface_pressure` → moist-air density (Arden Buck/Tetens + CIPM partial-pressure formula) + density altitude; pressure falls back to ISA barometric-from-elevation. **Zero live consumer**; live weather ingest + `deriveMlbParkContext.altitudeFt` (still null) UNTOUCHED (scoring-adjacent/frozen). Wire post-freeze. Formula proven (Coors ρ≈0.99/DA≈7074ft << sea-level ρ≈1.17/DA≈1443ft); Open-Meteo 403 from sandbox → live per-park coverage operator-run. |
 | **UMPIRE strike-zone** | **MISSING** | zero umpire/strikeZone refs anywhere |
 
 Park + wind solid; air-density missing elevation + no composite; **umpire entirely absent**. All
