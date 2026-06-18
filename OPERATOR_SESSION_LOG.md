@@ -5918,3 +5918,26 @@ OPERATOR-RUN (live pull + real coverage — Savant reachable on your machine, bl
 NEXT_EXPECTED_FROM_PEER: operator runs the live pull once (confirm real coverage). Optional: add it to the nightly chain (auditNightly.js) next to deriveMlbStatcastPower so the staging file refreshes daily. Wiring barrel%/hardHit%/xwOBA into HR scoring / snapshot = separate post-freeze + forward-CLV-gated task (NOT now).
 
 PROBE_REFS: backend/scripts/deriveMlbStatcastQuality.js (new) · .scratch/probe_statcast_quality.js + last.txt (16/16) · Savant 403 allowlist-blocked from sandbox · slateDate.currentSlateDateEt → 2026 · orphan buildMlbStatcastPower.js + live deriveMlbStatcastPower.js untouched · docs/MLB_BLUEPRINT_GAP_AUDIT.md §3 corrected · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 01:26 ET.
+
+## 2026-06-18 01:38 ET — Claude-B [Cowork] — FIX: deriveMlbStatcastQuality v2 — switched from statcast_search (event search → 0 coverage) to the Savant SEASON-AGGREGATE LEADERBOARD CSVs. Parser/join/anti-fab proven 15/15. runtime:verify 21/21. REAL coverage = OPERATOR-CONFIRMED (Savant 403 from sandbox). NOT headlining "ingested" until your live pull shows the success bar.
+
+ROOT CAUSE (operator's live pull of v1): statcast_search returns raw batted-ball EVENTS (truncated, ~1-2 rows/player) → barrel 0/557, xwoba 0/557, hardHit 557/557 garbage. Wrong endpoint class.
+
+FIX (same file, new data source — Law 1, still the staging owner):
+- NEW endpoints (one row per qualified player, season aggregates):
+  • EXPECTED STATISTICS: https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&year=<ET season>&filterType=bip&min=q&csv=true → xwOBA/xBA/xSLG/wOBA.
+  • EXIT VELOCITY & BARRELS: https://baseballsavant.mlb.com/leaderboard/exit_velocity_barrels?type=batter&year=<ET season>&min=q&csv=true → barrel%/hard-hit%/avg EV.
+- Parse by headers.indexOf with CANDIDATE-NAME lists (Savant column naming drifts) — xwoba←[est_woba,xwoba,expected_woba], xba←[est_ba,…], xslg←[est_slg,…], woba←[woba]; hardHitPct←[ev95percent,hard_hit_percent,…], barrelPct←[brl_percent,barrel_batted_rate], avgExitVelocity←[avg_hit_speed,…]. ANTI-FAB: absent column → null, never invented. Name column handled both ways: combined "last_name, first_name" OR separate first_name/last_name → canonNameKey. Script PRINTS each real CSV header + the field→actual-column mapping so your run confirms/reveals the true names; if any maps to null, tell me the real header to add as an alias.
+- Units (pure ingest, no transform): hardHitPct/barrelPct in PERCENT (0–100), xwoba/xba/xslg/woba decimal, avgExitVelocity mph.
+- Unchanged: current ET season from slateDate (never hardcoded), staging file backend/data/mlbStatcastQuality.json, ZERO live consumer, orphan (buildMlbStatcastPower.js) + live deriver (deriveMlbStatcastPower.js) untouched.
+
+PROVE (.scratch/last.txt): node --check OK. Parser+join+anti-fab proof 15/15 PASS on crafted leaderboard samples (combined-name AND separate first/last → key "aaron judge"; est_woba→xwoba=.420; ev95percent→hardHit=55.2; brl_percent→barrel=18.5; join unifies both under one key; anti-fab: missing est_woba/brl_percent → null). consumers of mlbStatcastQuality = 0. runtime:verify 21/21. Doc §3 updated to the leaderboard source.
+HONEST: the parser test is necessary but NOT sufficient — REAL ≥80% coverage + sane medians (hardHit ~30-55, barrel ~3-20, xwOBA ~.250-.450) is the proof, and it's OPERATOR-RUN (Savant blocked from sandbox, 403 network allowlist). I am NOT claiming the metrics are ingested until your pull confirms.
+
+OPERATOR-RUN (live pull + success-bar check — Savant reachable on your machine):
+  cd ~/Projects/betting-dashboard && node backend/scripts/deriveMlbStatcastQuality.js
+  → prints season 2026, BOTH leaderboard headers + column mappings, union player count, coverage (barrelPct/hardHitPct/xwoba X of Y), median sanity, top-8 sample; writes backend/data/mlbStatcastQuality.json. SUCCESS = barrelPct+hardHitPct+xwoba ≥80% coverage AND sane medians. If a column mapped to null in the printed header, paste me the real header name → I add the alias (one-line fix).
+
+NEXT_EXPECTED_FROM_PEER: operator runs the live pull + reports coverage + median sanity (or any null-mapped column to alias). Only after that do we headline it ingested. Wiring into HR scoring/snapshot = separate post-freeze + forward-CLV-gated task.
+
+PROBE_REFS: backend/scripts/deriveMlbStatcastQuality.js v2 (leaderboard join) · .scratch/probe_statcast_quality.js + last.txt (15/15) · Savant 403 allowlist from sandbox · slateDate → 2026 · orphan + live deriver untouched · docs/MLB_BLUEPRINT_GAP_AUDIT.md §3 updated · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 01:38 ET.
