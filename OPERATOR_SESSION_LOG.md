@@ -5851,3 +5851,28 @@ DEPLOY: touches statusRoute.js (served route) + FE → needs a backend kickstart
 NEXT_EXPECTED_FROM_PEER: operator runs the commit fence + kickstart; CA reads the commit + Chrome-checks rendered /status (drift card → green, grey dormant note visible). drift_alerts.log will stop appending the hourly NBA-calibration RED from the next sysAudit tick (:00).
 
 PROBE_REFS: sysAudit.js:523-526 (dormant I-branch) · statusRoute.js sectionOpenIssues (info array + isSportEnabled gate + return/summary) · frontend/status/index.html renderOpenIssues (info grey render) · seasonGate.isSportEnabled (nba=false/mlb=true verified) · .scratch/probe_dormant_severity.js + last.txt · /tmp/sa.txt (real sysAudit run) · runtime:verify 21/21 · calibrationDampener.js PRESERVED untouched · `TZ='America/New_York' date` → 2026-06-18 00:18 ET.
+
+## 2026-06-18 00:36 ET — Claude-B [Cowork] — RENDER-CHECK (Chrome ext, live edge.motel666.com/status, backend on 04f05be): season-aware drift-severity fix CONFIRMED on the rendered page. All 3 checks PASS. This is CB's own FE close.
+
+CONTEXT: backend kickstarted by operator, /status header shows "BACKEND 04f05be · healthy" (my fix commit). Page polled live 2026-06-18 00:34 ET.
+
+CHECK 1 — sysAudit/drift annotation GREEN (PASS): in the COMPONENT HEALTH (TESTED-GREEN) card's infra-annotation block, rendered VERBATIM:
+  "sysAudit / drift [hourly sysAudit + drift log]   self-tested (hourly) ✓"  — in GREEN (not amber/degraded).
+  (Neighbors for context: launch agents / schema golden / family calibration = "self-tested (live) ✓" green; backend process / ML scorer / tracked-best = "state, not self-tested" grey — the honest labels from Phase 2.)
+
+CHECK 2 — NBA calibration families render as grey INFO dormant notes, VISIBLE, not red/yellow (PASS): OPEN ISSUES card body rendered VERBATIM (all under "INFO · dormant · family_calibration", grey):
+  • "nba/rebounds_assists dormant — already dampener-corrected — NBA season off; settled-season gap 36.6pp (n=43) already corrected by dampener ×0.36 — not live-actionable."
+  • "nba/rebounds dormant — … gap 24.5pp (n=235) … ×0.34 — not live-actionable."
+  • "nba/threes dormant — … gap 22.3pp (n=322) … ×0.29 — not live-actionable."
+  • "nba/assists dormant — … gap 16.3pp (n=56) … ×0.70 — not live-actionable."
+  Card summary line: "summary: 0 red · 5 yellow · 4 info (dormant)". The 4 NBA gaps are the 4 info; none in red/yellow.
+
+CHECK 3 — no NBA calibration line shows as a red alarm (PASS): header "0 red · 1 yellow · (+4 cognition flags)"; OPEN ISSUES "0 red". The "+4 cognition" are LIVE MLB (season ON) families, correctly still YELLOW: mlb/ks 19.3pp, mlb/rbis 18.0pp, mlb/runs 17.3pp, mlb/hits 16.9pp (the live P/W/F path is untouched). The 1 infra yellow = git "1 uncommitted code change". ZERO NBA calibration in red.
+
+HONEST ADJACENT OBSERVATIONS (NOT part of this fix; flagged so they're not mistaken for failure):
+- RECENT SYSTEM ALERTS still tails "23:00 ET · rebounds_assists family: engine claimed 57.5%…". That's a PRE-FIX drift_alerts.log entry (23:00, before 04f05be deployed at the ~00:31 kickstart). The log is append-only — historical entries remain in the tail. The fix stops FUTURE appends; the next sysAudit tick (:00, fixed code) will NOT append a new rebounds_assists RED. Expected, not a regression.
+- COMPONENT HEALTH shows "RUNNER STALE · 0/8 tested-green · 63m ago" → the 8 Phase-1/2 tested-green components are visually downgraded to amber because the componentHealthCheck.js runner sidecar is 63 min old. Cause: scheduler.sh reads its script once at launch; the operator kickstarted the BACKEND, not the scheduler LaunchAgent, so the Phase-2 15-min componentHealthCheck gate isn't live yet. This is a Phase-2 DEPLOY detail, separate from THIS (drift-severity) task — and it does NOT affect CHECK 1, because the sysAudit/drift annotation reads the LIVE /status payload (openIssues.red===0), not the runner sidecar. To clear it: restart the scheduler LaunchAgent (so the 15-min gate runs) or run `node backend/scripts/componentHealthCheck.js` once. (Adjacent follow-up for the operator; not blocking this close.)
+
+VERDICT: the season-aware drift-severity fix renders correctly live — dormant NBA calibration = grey info, sysAudit/drift annotation green, zero NBA red. CB FE close DONE.
+
+PROBE_REFS: live edge.motel666.com/status (Chrome ext get_page_text + screenshot + zoom) · backend 04f05be · OPEN ISSUES "0 red · 5 yellow · 4 info (dormant)" · COMPONENT HEALTH infra annotation "sysAudit / drift … self-tested (hourly) ✓" green · `TZ='America/New_York' date` → 2026-06-18 00:36 ET.
