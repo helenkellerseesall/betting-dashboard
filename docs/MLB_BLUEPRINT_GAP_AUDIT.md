@@ -26,9 +26,10 @@ Have the basic/result-based four LIVE; the fielding-independent metrics now exis
 | Metric | Status | Where / note |
 |---|---|---|
 | 3-day high-leverage / fatigue | **HAVE** | `refreshMlbBullpenWorkload.js:127-150` (reliefIp, highLeverageUses, closerLeverageRank); `deriveMlbBullpenContext.js:54-79` (recentInningsLast3Days, highLeverageUsesLast3Days, reliefFatigueScore, bullpenShift) |
-| Relief FIP / xFIP / WHIP | **MISSING** | only innings + high-leverage *count* — no quality-of-relief metric |
+| Relief FIP / xFIP / SIERA / WHIP (+ ERA/K%/BB%/HR9/LOB%/leverage) | **HAVE (staging, unwired — operator-confirms coverage)** | NEW `deriveMlbBullpenQuality.js` (2026-06-18) → `backend/data/mlbBullpenQuality.json`. FanGraphs leaders stats=rel type=8; **IP-weighted TEAM-bullpen aggregate** (~30 teams, the natural join to the team-level fatigue context) + per-reliever; anti-fab (reliever missing a rate → excluded from that rate's weight). **Zero live consumer**; live fatigue path (`deriveMlbBullpenContext`/`refreshMlbBullpenWorkload` → bullpenShift/reliefFatigueScore, scoring-consumed via buildSlipAi/buildFeaturedPlays PRESERVED) UNTOUCHED. Wire post-freeze. FanGraphs 403 from sandbox → coverage operator-run. |
 
-Fatigue modeled (volume); **relief quality (FIP/WHIP) absent**. INGEST-SAFE. Source: FanGraphs team-relief splits / pybaseball.
+Fatigue (volume) is LIVE; relief QUALITY now exists as an IP-weighted team-bullpen staging aggregate
+(parser proven, coverage operator-confirmed). Source: FanGraphs leaders stats=rel type=8 (CA-verified).
 
 ## 3. HITTER CONTACT / DISCIPLINE
 | Metric | Status | Where / note |

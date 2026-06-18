@@ -6068,3 +6068,24 @@ OPERATOR-RUN / SCHEDULE (forward clean clock — dedicated file, NOT last.txt):
 NEXT_EXPECTED_FROM_PEER: operator schedules the daily capture (so forward accrues) + reviews the directional retrospective (no wiring off it). The 25th wiring decision keys on the FORWARD section once graded days land.
 
 PROBE_REFS: backend/scripts/captureSignalSnapshot.js + signalClvBacktest.js (new) · forwardClvSliceTracker.js (sliceStats/loadLedger export) · signal_capture_2026-06-17.json (888 bets, gitignored) · .scratch/signal_clv_backtest.txt + sig_probe.txt · reuse sliceStats (Law 1) · staging files on disk (statcast 254/fip 691/air 7) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 03:43 ET.
+
+## 2026-06-18 04:12 ET — Claude-B [Cowork] — BUILD: ingestion #29 relief (bullpen) QUALITY — NEW staging deriveMlbBullpenQuality.js (FanGraphs stats=rel, CA-verified). IP-weighted TEAM-bullpen aggregate. Parser 13/13. Additive (zero consumer; live fatigue/PRESERVED UNTOUCHED). runtime:verify 21/21. Coverage = OPERATOR-RUN (FanGraphs 403 from sandbox).
+
+AUDIT (live path confirmed): the live bullpen path = team-level FATIGUE VOLUME — refreshMlbBullpenWorkload.js (reliefIp/highLeverageUses) + deriveMlbBullpenContext.js (reliefFatigueScore/bullpenShift), and bullpenShift/reliefFatigueScore are SCORING-CONSUMED via buildSlipAi.js + buildFeaturedPlays.js (both PRESERVED) → DO NOT TOUCH (untouched, confirmed in diff). Relief QUALITY (FIP/xFIP/SIERA/WHIP) exists NOWHERE (grep empty) → gap real, new fields not scoring-consumed.
+
+DESIGN DECISION (audit): TEAM-BULLPEN IP-WEIGHTED AGGREGATE as primary (the natural join — the existing fatigue context keys by opponentTeam, so team-level relief quality complements it for late-game/unders/opposing-batter modeling). Per-reliever kept too (cheap).
+
+BUILD (separate staging; same pattern as #25/#28/#30):
+- NEW backend/scripts/deriveMlbBullpenQuality.js → backend/data/mlbBullpenQuality.json = { byTeam: {ABB: {teamBullpenFip/xfip/siera/whip/era/kPct/bbPct/hr9/lobPct/leverage (all IP-weighted), totalReliefIp, nRelievers}}, byReliever: {key: {...}} }. Source = FanGraphs leaders JSON stats=rel&type=8&qual=0&pageitems=2000&season=<ET year>. Keys via candidate lists (FIP/xFIP/SIERA/WHIP/ERA/"K%"/"BB%"/"HR/9"/"LOB%"/IP|Relief-IP/gmLI|pLI/TeamNameAbb/PlayerName/playerid-from-Name-HTML). Team aggregate = IP-weighted mean of each rate over the team's relievers; ANTI-FAB: a reliever missing a rate is EXCLUDED from that rate's weight (never zero-filled), missing key → null. Browser UA (CA caveat). Season from slateDate.
+- Zero live consumer. Live fatigue context + PRESERVED files untouched. Wiring = post-freeze + forward-CLV-gated.
+
+PROVE (.scratch/bullpen_probe.txt): node --check OK. Parser 13/13 PASS on a sample — team col TeamNameAbb; IP-weighted NYY teamBullpenFip=3.0 with the anti-fab exclusion proven (reliever C's MISSING FIP excluded from the FIP weight, but C's WHIP still included → teamBullpenWhip=1.1333); xFIP/leverage IP-weighted; SFG single-reliever=3.8; per-reliever + playerid; ipWeighted([])→null. consumers of mlbBullpenQuality = 0; live bullpen + buildSlipAi/buildFeaturedPlays NOT in diff; runtime:verify 21/21 PASS. Gap-audit §2 updated.
+HONEST: parser proven; REAL ~30-team coverage + sane medians is OPERATOR-RUN (FanGraphs 403 'network allowlist' from sandbox; CA's managed fetch worked). Not claiming ingested until your run.
+
+OPERATOR-RUN (live; dedicated file, NOT last.txt):
+  cd ~/Projects/betting-dashboard && node backend/scripts/deriveMlbBullpenQuality.js 2>&1 | tee .scratch/bullpen_verify.txt
+  → prints key mapping, reliever/team counts, team coverage (FIP/xFIP/WHIP/SIERA), median sanity (team FIP ~3.0-5.0, WHIP ~1.1-1.5), best-6 bullpens by FIP; writes backend/data/mlbBullpenQuality.json. SUCCESS = ~30 teams with sane FIP/xFIP/WHIP. Any null key in the printed mapping → paste it, CB fixes.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the tee'd fence; CA reads .scratch/bullpen_verify.txt for team coverage + medians. Optional: add to nightly chain. Wiring into scoring = post-freeze + forward-CLV-gated (and it'll flow through #31's forward signal-capture once a consumer exists).
+
+PROBE_REFS: backend/scripts/deriveMlbBullpenQuality.js (new staging) · .scratch/probe_bullpen_quality.js + .scratch/bullpen_probe.txt (13/13) · FanGraphs leaders stats=rel type=8 (CA-verified keys) · live deriveMlbBullpenContext/refreshMlbBullpenWorkload + buildSlipAi/buildFeaturedPlays (PRESERVED) untouched · FanGraphs 403 from sandbox · slateDate → 2026 · docs/MLB_BLUEPRINT_GAP_AUDIT.md §2 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 04:12 ET.
