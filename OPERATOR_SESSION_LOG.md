@@ -5941,3 +5941,22 @@ OPERATOR-RUN (live pull + success-bar check — Savant reachable on your machine
 NEXT_EXPECTED_FROM_PEER: operator runs the live pull + reports coverage + median sanity (or any null-mapped column to alias). Only after that do we headline it ingested. Wiring into HR scoring/snapshot = separate post-freeze + forward-CLV-gated task.
 
 PROBE_REFS: backend/scripts/deriveMlbStatcastQuality.js v2 (leaderboard join) · .scratch/probe_statcast_quality.js + last.txt (15/15) · Savant 403 allowlist from sandbox · slateDate → 2026 · orphan + live deriver untouched · docs/MLB_BLUEPRINT_GAP_AUDIT.md §3 updated · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 01:38 ET.
+
+## 2026-06-18 01:57 ET — Claude-B [Cowork] — FIX: deriveMlbStatcastQuality v3 — barrels/exit-velo slug exit_velocity_barrels → /leaderboard/statcast (CA-verified live). Parser 17/17 vs CA's REAL header. runtime:verify 21/21. REAL coverage + full-season = OPERATOR-CONFIRMED (Savant 403 from sandbox). Not headlining "ingested" until your pull clears the bar.
+
+FIX (CA found the slug + the real columns):
+- barrels/exit-velo source: https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&year=<ET season>&min=1&csv=true (was exit_velocity_barrels → empty). expected_statistics kept exactly as-is (xwoba/xslg/xba already 254/254 sane).
+- Columns parsed by headers.indexOf vs CA's confirmed header ("last_name, first_name",player_id,attempts,...,avg_hit_speed,...,ev95percent,barrels,brl_percent,brl_pa): barrelPct←brl_percent, hardHitPct←ev95percent, avgExitVelocity←avg_hit_speed, battedBalls←attempts. ANTI-FAB: absent→null. (barrel% deliberately brl_percent, NOT brl_pa — proven in the parser test.)
+- OUTPUT now keyed on the qualified expected_statistics base (statcast joined ON by canonNameKey), so coverage = "of qualified players, how many got each metric" — the success-bar denominator. min: expected=q (qualified base), statcast=1 (include all so every qualified batter joins).
+- FULL-SEASON safeguard: full-season totals come from year=<season> (same param expected_statistics uses to return full-season PA). Added an attempts(battedBalls) max/median diagnostic — mid-season qualified should be ~120-300; tiny = window bug. CA flagged v2's /statcast exploratory fetch showed attempts ~30 (likely a default window without year=); this run pins year= so the diagnostic must confirm full-season on the operator pull.
+
+PROVE (.scratch/last.txt): node --check OK. Parser/join/anti-fab 17/17 PASS now run against CA's EXACT /leaderboard/statcast header — barrelPct=18.5 from brl_percent (not brl_pa 8.0), hardHit=55.2 from ev95percent, avgEV=95.8, battedBalls=180; combined "last_name, first_name" → key "aaron judge"; join unifies xwoba(.420)+barrel(18.5); anti-fab nulls hold. consumers of mlbStatcastQuality = 0. Only deriveMlbStatcastQuality.js + doc changed. runtime:verify 21/21.
+HONEST: parser test ≠ success. REAL ≥80% coverage (barrelPct+hardHitPct+xwoba) + sane medians (hardHit ~30-55, barrel ~3-20, xwOBA .250-.450) + FULL-SEASON attempts = OPERATOR-RUN. Not claiming ingested until your pull shows it.
+
+OPERATOR-RUN (the fence ends with tee so CA reads it from the repo — no screenshots):
+  cd ~/Projects/betting-dashboard && node backend/scripts/deriveMlbStatcastQuality.js 2>&1 | tee .scratch/last.txt
+  → check: STATCAST column mapping has NO nulls; coverage barrelPct/hardHitPct/xwoba ≥80%; medians sane; FULL-SEASON attempts max ~120-300 (NOT ~30). If attempts stay tiny → window bug, tell CB (fix year/date param). If a column mapped null → paste the real header, CB adds the alias.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the tee'd fence; CA reads .scratch/last.txt for coverage + full-season attempts. Only then headline ingested. Optional after: add to nightly chain (auditNightly.js) next to deriveMlbStatcastPower. Wiring into scoring = post-freeze + forward-CLV-gated.
+
+PROBE_REFS: backend/scripts/deriveMlbStatcastQuality.js v3 (/leaderboard/statcast, expected base join, attempts diagnostic) · .scratch/probe_statcast_quality.js + last.txt (17/17 vs real header) · CA-verified slug+columns · Savant 403 from sandbox · slateDate → 2026 · orphan + live deriver untouched · docs/MLB_BLUEPRINT_GAP_AUDIT.md §3 v3 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 01:57 ET.
