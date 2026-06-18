@@ -5692,3 +5692,24 @@ OPERATOR-VERIFY (the real close — run on your machine): commit fence → kicks
 NEXT_EXPECTED_FROM_PEER: operator commits + runs the tracker + confirms the card. Optional: schedule the tracker nightly right after the 4:00 AM grade (e.g. ~4:15 AM) so the card refreshes daily. Then watch forward CLV firm up + hit% fill as graded days accrue — that's the pre-stakes confirmation gate.
 
 PROBE_REFS: backend/scripts/forwardClvSliceTracker.js (new) · backend/routes/statusRoute.js sectionForwardClvSlices + GET/POST · frontend/status/index.html #cardForwardClv + renderForwardClv · backend/pipeline/shared/devigAnalytics.js (9276e13) · sidecar backend/runtime/tracking/forward_clv_slices.json (gitignored) · .scratch/probe_forward_clv_verify.js + last.txt · #2 fix = commit b840a22 (2026-06-17) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 21:38 ET.
+
+## 2026-06-17 22:08 ET — Claude-B [Cowork] — FIX+PROVE: Pinnacle sidecar now PERSISTS fairProb+vig; inline self-tests on devigAnalytics + pinnacleBenchmark (one-command green). Operator caught "verified" lacked runnable proof — fixed.
+
+WHY: operator flagged that prior "verified" had no persisted/runnable proof. Two fixes + explicit not-wired statement. show-before-edit honored; diff shown; index-free git.
+
+FIX 1 — SIDECAR PERSISTENCE (pinnacleBenchmark.js): the sidecar stored only raw odds; fairProb was printed, never written. Added attachFairProbs(byEvent) — decorates each market with fairProb on EVERY outcome + per-market vig + fairSumsTo (de-vig via canonical multiplicative vigStripping, Law 1). fetchPinnacleGameLines now returns the decorated byEvent, so the FILE is the benchmark. buildBenchmarkLookup reads the PERSISTED fairProb (falls back to compute on raw). capturePinnacleBenchmark.js updated to read the decorated shape (de-vig sanity now checks persisted fairSumsTo; sample prints the persisted market).
+
+FIX 2 — INLINE SELF-TESTS (require.main===module, mirrors cashoutHedge.js) on BOTH modules:
+- `node backend/pipeline/shared/devigAnalytics.js` → 11/11 PASS: -110/-110 mult & power → .500/.500; POWER -150/+130 → .584/.416; MULT -150/+130 → .5798/.4202; power lifts favorite above mult; two-way sums=1.0; FD-weighted consensus dedupes+weights (.5667); missing→null.
+- `node backend/pipeline/shared/pinnacleBenchmark.js` → 12/12 PASS: pinnacleFairProbs -110/-110 → .500/.500, -150/+130 → .5798/.4202 (MULTIPLICATIVE — not Power; the canonical vigStripping, by design), sums=1.0; sharpClv ± sign + null guard; attachFairProbs persists fairProb + per-market vig + fairSumsTo=1.0; lookup reads persisted fair.
+  HONESTY NOTE: pinnacle de-vig is MULTIPLICATIVE (vigStripping, Law 1, no parallel math); Power (.584/.416) is devigAnalytics only. Did NOT claim Power where it's multiplicative.
+
+FIX 3 — STATED EXPLICITLY (in both self-test footers + capture NOTE + code comments): neither is wired into live picks/CLV — pinnacle sidecar is standalone benchmark; devigAnalytics is a shelf library. Post-freeze wiring, by design.
+
+VERIFY (.scratch/last.txt): both self-tests pasted above (11/11 + 12/12). SIDECAR PROOF (.scratch/probe_pinnacle_sidecar_persist.js): ran attachFairProbs on known inputs through the EXACT capture write-path, wrote a real sidecar file, read it back — 3/3 markets carry persisted fairProb summing to 1.0 (h2h -150/+130 → .5798/.4202 vig .0348; totals -110/-110 → .5/.5 vig .0476; spreads +135/-155 → .4118/.5882 vig .0334). runtime:verify 21/21 PASS. LIVE Pinnacle pull = operator-run (the-odds-api unreachable from sandbox, HTTP 000) — NOT faked.
+
+OPERATOR-VERIFY (the real close — run on your machine): both self-tests in one command each (below); then the live capture + grep fairProb in the real sidecar.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the two self-tests (sees green) + the live Pinnacle capture (sees fairProb in the dated sidecar). No further code.
+
+PROBE_REFS: backend/pipeline/shared/pinnacleBenchmark.js (attachFairProbs + self-test) · backend/pipeline/shared/devigAnalytics.js (self-test) · backend/scripts/capturePinnacleBenchmark.js (reads decorated) · .scratch/probe_pinnacle_sidecar_persist.js + pinnacle_benchmark_SAMPLE.json + last.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 22:08 ET.

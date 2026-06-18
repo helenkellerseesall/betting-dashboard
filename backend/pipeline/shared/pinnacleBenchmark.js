@@ -70,7 +70,7 @@ async function fetchPinnacleGameLines({ oddsApiKey, events, sport = "baseball_ml
   }
   return {
     enabled: true,
-    byEvent,
+    byEvent: attachFairProbs(byEvent),   // PERSIST de-vigged fairProb + per-market vig so the FILE is the benchmark
     meta: { eventsTried, pinnacleEvents, euBooksSeen: [...euBooksSeen], note: "BENCHMARK ONLY — never bettable/displayed; game-line only (no props)" },
   }
 }
@@ -89,6 +89,31 @@ function pinnacleFairProbs(twoWay) {
 }
 
 /**
+ * Decorate a raw byEvent map with the de-vigged fairProb on EACH outcome + per-market vig +
+ * fairSumsTo, so the persisted sidecar IS the benchmark (not just raw odds). Pure/deterministic;
+ * idempotent (accepts raw arrays or already-decorated {outcomes}). De-vig via canonical
+ * vigStripping (multiplicative, Law 1 — NOT a parallel method). Two-way markets only get fairProb;
+ * non-two-way markets keep null fairProb (anti-fabrication, never guessed).
+ */
+function attachFairProbs(byEvent) {
+  const out = {}
+  for (const [eventId, ev] of Object.entries(byEvent || {})) {
+    const markets = {}
+    for (const [mkey, raw] of Object.entries(ev.markets || {})) {
+      const outs = Array.isArray(raw) ? raw : (raw?.outcomes || [])
+      const fair = pinnacleFairProbs(outs)   // { [name]: fair, vig } | null (two-way only)
+      const outcomes = outs.map((o) => ({ ...o, fairProb: fair ? (fair[o.name] ?? null) : null }))
+      const fairSumsTo = fair
+        ? Math.round(outcomes.reduce((s, o) => s + (Number.isFinite(o.fairProb) ? o.fairProb : 0), 0) * 1e6) / 1e6
+        : null
+      markets[mkey] = { outcomes, vig: fair ? fair.vig : null, fairSumsTo }
+    }
+    out[eventId] = Object.assign({}, ev, { markets })
+  }
+  return out
+}
+
+/**
  * Sharp CLV for a placed GAME-LINE bet vs the Pinnacle de-vigged close.
  * Mirrors buildClv sign: positive = Pinnacle's fair prob for your side > your placed implied
  * ⇒ you beat the sharp close. Returns null when inputs missing (never fabricated).
@@ -103,19 +128,26 @@ function computeSharpClv({ placedImpliedProb, pinnacleFairProb } = {}) {
 }
 
 /**
- * Build a benchmark lookup keyed by eventId|market|outcomeName|point → { fairProb, vig }.
+ * Build a benchmark lookup keyed by eventId|market|outcomeName|point → { fairProb, vig, odds }.
  * For joining a placed game-line bet to its sharp reference. SEPARATE store — never the bettable rows.
+ * Reads the PERSISTED fairProb (post-attachFairProbs); falls back to computing if given raw arrays.
  */
 function buildBenchmarkLookup(pinnacleResult) {
   const out = new Map()
   const byEvent = pinnacleResult?.byEvent || {}
   for (const [eventId, ev] of Object.entries(byEvent)) {
-    for (const [mkey, outs] of Object.entries(ev.markets || {})) {
-      const fair = pinnacleFairProbs(outs)
-      if (!fair) continue
+    for (const [mkey, raw] of Object.entries(ev.markets || {})) {
+      const outs = Array.isArray(raw) ? raw : (raw?.outcomes || [])
+      const marketVig = Array.isArray(raw) ? null : (raw?.vig ?? null)
+      // Prefer persisted fairProb; if absent (raw arrays), compute via canonical de-vig.
+      const hasPersisted = outs.some((o) => o.fairProb != null)
+      const computed = hasPersisted ? null : pinnacleFairProbs(outs)
+      if (!hasPersisted && !computed) continue
       for (const o of outs) {
+        const fp = hasPersisted ? (o.fairProb ?? null) : (computed[o.name] ?? null)
+        const vg = hasPersisted ? marketVig : computed.vig
         const k = [eventId, mkey, _norm(o.name), o.point ?? ""].join("|")
-        out.set(k, { fairProb: fair[o.name] ?? null, vig: fair.vig, odds: o.odds })
+        out.set(k, { fairProb: fp, vig: vg, odds: o.odds })
       }
     }
   }
@@ -126,5 +158,37 @@ module.exports = {
   _enabled: ENABLED,
   PINNACLE_KEY, GAME_LINE_MARKETS,
   isPinnacle, isBenchmarkOnlyBook,
-  fetchPinnacleGameLines, pinnacleFairProbs, computeSharpClv, buildBenchmarkLookup,
+  fetchPinnacleGameLines, pinnacleFairProbs, attachFairProbs, computeSharpClv, buildBenchmarkLookup,
+}
+
+// ── Inline self-test (one-command proof): `node backend/pipeline/shared/pinnacleBenchmark.js` ──
+// Mirrors cashoutHedge.js. De-vig = canonical MULTIPLICATIVE vigStripping (Law 1 — NOT Power);
+// that is why -150/+130 → .5798/.4202 here (the Power .584/.416 lives in devigAnalytics.js).
+if (require.main === module) {
+  const approx = (a, b, t = 1e-3) => Math.abs(a - b) <= t
+  const T = []; const c = (l, x) => T.push([l, x])
+  const f1 = pinnacleFairProbs([{ name: "Over", odds: -110 }, { name: "Under", odds: -110 }])
+  c("-110/-110 → .500/.500", approx(f1.Over, 0.5) && approx(f1.Under, 0.5))
+  c("-110/-110 sums = 1.0", approx(f1.Over + f1.Under, 1, 1e-9))
+  const f2 = pinnacleFairProbs([{ name: "Home", odds: -150 }, { name: "Away", odds: 130 }])
+  c("-150/+130 (multiplicative) → .5798/.4202", approx(f2.Home, 0.5798) && approx(f2.Away, 0.4202))
+  c("-150/+130 sums = 1.0", approx(f2.Home + f2.Away, 1, 1e-9))
+  c("sharpClv +: placed .55 vs sharp .58 > 0", computeSharpClv({ placedImpliedProb: 0.55, pinnacleFairProb: 0.58 }) > 0)
+  c("sharpClv −: placed .60 vs sharp .55 < 0", computeSharpClv({ placedImpliedProb: 0.60, pinnacleFairProb: 0.55 }) < 0)
+  c("sharpClv null guard (missing input → null)", computeSharpClv({ placedImpliedProb: null, pinnacleFairProb: 0.55 }) === null)
+  // PERSISTENCE: attachFairProbs writes fairProb on every outcome + per-market vig + fairSumsTo
+  const raw = { E1: { eventId: "E1", markets: {
+    h2h: [{ name: "Home", odds: -150 }, { name: "Away", odds: 130 }],
+    totals: [{ name: "Over", point: 8.5, odds: -110 }, { name: "Under", point: 8.5, odds: -110 }],
+  } } }
+  const dec = attachFairProbs(raw)
+  c("attachFairProbs persists fairProb on each h2h outcome", dec.E1.markets.h2h.outcomes.every((o) => o.fairProb != null))
+  c("h2h fairSumsTo = 1.0 (persisted)", approx(dec.E1.markets.h2h.fairSumsTo, 1, 1e-6))
+  c("totals fairSumsTo = 1.0 (persisted)", approx(dec.E1.markets.totals.fairSumsTo, 1, 1e-6))
+  c("per-market vig persisted (h2h vig > 0)", dec.E1.markets.h2h.vig > 0)
+  c("lookup reads persisted fairProb", buildBenchmarkLookup({ byEvent: dec }).get("E1|h2h|home|").fairProb != null)
+  let ok = 0; for (const [l, x] of T) { console.log((x ? "PASS" : "FAIL") + " — " + l); if (x) ok++ }
+  console.log(`pinnacleBenchmark self-test: ${ok}/${T.length}`)
+  console.log("NOTE: BENCHMARK-only sidecar — NOT wired into live picks/CLV/line-shop/allowlist (post-freeze wiring by design).")
+  process.exit(ok === T.length ? 0 : 1)
 }

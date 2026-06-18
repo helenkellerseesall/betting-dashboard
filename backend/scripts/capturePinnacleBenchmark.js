@@ -40,16 +40,15 @@ async function main() {
   const leak = Object.values(res.byEvent).some(ev => false) // output only ever contains Pinnacle by construction
   log(`benchmark-only guard: output books = Pinnacle only (non-Pinnacle eu books dropped at fetch): ${leak ? "LEAK!" : "OK"}`)
 
-  // de-vig sanity + build lookup
+  // de-vig sanity + build lookup — fair probs are now PERSISTED on each market (attachFairProbs)
   const lookup = pb.buildBenchmarkLookup(res)
   let sane = 0, checked = 0
   for (const ev of Object.values(res.byEvent)) {
-    for (const outs of Object.values(ev.markets)) {
-      const fair = pb.pinnacleFairProbs(outs)
-      if (fair) { checked++; const sum = Object.entries(fair).filter(([k]) => k !== "vig").reduce((a, [, v]) => a + Number(v), 0); if (Math.abs(sum - 1) < 1e-6) sane++ }
+    for (const m of Object.values(ev.markets)) {
+      if (m && m.fairSumsTo != null) { checked++; if (Math.abs(m.fairSumsTo - 1) < 1e-6) sane++ }
     }
   }
-  log(`de-vig sanity: ${sane}/${checked} two-way markets sum to 1.0 (fair probs)`)
+  log(`de-vig sanity: ${sane}/${checked} two-way markets with PERSISTED fair probs summing to 1.0`)
   log(`benchmark lookup entries: ${lookup.size}`)
 
   // write sidecar
@@ -59,9 +58,9 @@ async function main() {
   fs.writeFileSync(outFile, JSON.stringify(sidecar, null, 2))
   log(`WROTE sidecar: ${outFile} (${Object.keys(res.byEvent).length} events) — analytics only, never bettable`)
 
-  // sample: show one h2h fair line
+  // sample: show one persisted h2h market (outcomes carry fairProb; market carries vig + fairSumsTo)
   const sample = Object.values(res.byEvent).find(ev => ev.markets.h2h)
-  if (sample) { const f = pb.pinnacleFairProbs(sample.markets.h2h); log(`sample h2h fair: ${JSON.stringify(f)}`) }
-  log("NOTE: GAME-LINE only — prop CLV stays retail-benchmarked (Pinnacle offers no props).")
+  if (sample) log(`sample h2h (persisted fair): ${JSON.stringify(sample.markets.h2h)}`)
+  log("NOTE: GAME-LINE only — prop CLV stays retail-benchmarked (Pinnacle offers no props). BENCHMARK sidecar is NOT wired into live picks/CLV/line-shop (post-freeze wiring by design).")
 }
 main().catch(e => { console.error("[pinnacle-benchmark] fatal:", e?.message || e); process.exit(1) })

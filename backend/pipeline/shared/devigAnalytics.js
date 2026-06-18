@@ -91,3 +91,32 @@ function equalWeightConsensus(perBook) {
 }
 
 module.exports = { powerDevigTwoWay, multiplicativeDevigTwoWay, fanduelWeightedConsensus, equalWeightConsensus, _impliedFromAmerican }
+
+// ── Inline self-test (one-command proof): `node backend/pipeline/shared/devigAnalytics.js` ──
+// Mirrors cashoutHedge.js. Power corrects the favorite-longshot bias the multiplicative method
+// leaves; the two methods agree on symmetric -110/-110 and diverge as odds skew.
+if (require.main === module) {
+  const approx = (a, b, t = 1e-3) => Math.abs(a - b) <= t
+  const T = []; const c = (l, x) => T.push([l, x])
+  const m1 = multiplicativeDevigTwoWay(-110, -110)
+  c("-110/-110 mult → .500/.500", approx(m1.aFair, 0.5) && approx(m1.bFair, 0.5))
+  const p1 = powerDevigTwoWay(-110, -110)
+  c("-110/-110 power → .500/.500", approx(p1.aFair, 0.5) && approx(p1.bFair, 0.5))
+  c("-110/-110 power sums = 1.0", approx(p1.aFair + p1.bFair, 1, 1e-9))
+  const p2 = powerDevigTwoWay(-150, 130)
+  c("-150/+130 POWER → .584/.416", approx(p2.aFair, 0.584, 2e-3) && approx(p2.bFair, 0.416, 2e-3))
+  c("-150/+130 power sums = 1.0", approx(p2.aFair + p2.bFair, 1, 1e-9))
+  const m2 = multiplicativeDevigTwoWay(-150, 130)
+  c("-150/+130 mult → .5798/.4202", approx(m2.aFair, 0.5798) && approx(m2.bFair, 0.4202))
+  c("power lifts favorite above mult (.584 > .5798)", p2.aFair > m2.aFair)
+  // FanDuel-weighted consensus: dedupes per book + weights FD 2.0
+  const fd = fanduelWeightedConsensus([{ book: "fanduel", fairProb: 0.6 }, { book: "draftkings", fairProb: 0.5 }, { book: "fanduel", fairProb: 0.6 }])
+  c("FD consensus dedupes to 2 books, FD present", fd.nBooks === 2 && fd.fanduelPresent === true)
+  c("FD weight 2.0: (.6*2+.5)/3 = .5667", approx(fd.consensus, (0.6 * 2 + 0.5) / 3, 1e-6))
+  c("equal-weight mean of .6/.4 = .5", approx(equalWeightConsensus([{ book: "a", fairProb: 0.6 }, { book: "b", fairProb: 0.4 }]).consensus, 0.5))
+  c("missing input → null (no fabrication)", powerDevigTwoWay(null, -110) === null)
+  let ok = 0; for (const [l, x] of T) { console.log((x ? "PASS" : "FAIL") + " — " + l); if (x) ok++ }
+  console.log(`devigAnalytics self-test: ${ok}/${T.length}`)
+  console.log("NOTE: analytics-only shelf library — NOT wired into live picks/CLV/scoring (post-freeze wiring by design).")
+  process.exit(ok === T.length ? 0 : 1)
+}
