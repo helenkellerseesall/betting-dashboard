@@ -324,6 +324,8 @@
     <div class="legend">Each component is GREEN only if its OWN self-test/probe RAN and PASSED this cycle — never assumed. amber = stale (ran before but its freshness window blew) · red = ran and FAILED · grey = never ran. A scheduled runner refreshes this ~every 15 min; if the whole card is stale the runner stopped. <code>node backend/scripts/componentHealthCheck.js</code> to refresh.</div>
     <div id="componentHealthList">—</div>
     <div id="componentHealthNote" class="legend" style="margin-top:4px"></div>
+    <div class="legend" style="margin-top:10px;border-top:1px solid var(--text-faint);padding-top:6px">existing infra cards (annotation only — their checks/order are unchanged): <span style="color:var(--green)">self-tested</span> = a real probe runs + can fail · <span style="color:var(--text-faint)">state</span> = a status read, not a pass/fail self-test (honest label, not faked green).</div>
+    <div id="componentHealthInfra"></div>
   </div>
 </details>
 
@@ -891,6 +893,43 @@ function renderComponentHealth(data) {
     + (runnerStale ? " — RUNNER STALE (>40 min): greens downgraded until it runs again" : "")
     + " · GREEN = ran + passed this cycle.";
   _setSummary("sumComponentHealth", (runnerStale ? "RUNNER STALE · " : "") + green + "/" + total + " tested-green" + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
+
+  // Infra-card annotation (additive; existing cards untouched). kind: "probe" = a real pass/fail
+  // check (live this request / scheduled); "state" = a status read, labelled honestly, NEVER faked green.
+  renderInfraAnnotation(data);
+}
+
+// Reads the FULL /status payload (not just componentHealth) and classifies each existing infra
+// card honestly. Probe cards show their live ok/degraded; state cards say "state, not self-tested".
+function renderInfraAnnotation(data) {
+  const el = document.getElementById("componentHealthInfra");
+  if (!el) return;
+  if (!data) { el.innerHTML = ""; return; }
+  const INFRA = [
+    { label: "launch agents", kind: "probe", scope: "live", ok: () => data.launchAgents && data.launchAgents.allHealthy === true, why: "launchctl + pgrep" },
+    { label: "scheduler heartbeat", kind: "probe", scope: "live", ok: () => !!(data.scheduler && data.scheduler.ok && Number(data.scheduler.lastHourEventCount) > 0), why: "ticks in last hour" },
+    { label: "schema golden", kind: "probe", scope: "live", ok: () => data.schemaGolden && data.schemaGolden.status === "clean", why: "5 JSON shapes validate" },
+    { label: "family calibration", kind: "probe", scope: "live", ok: () => !!(data.familyCalibration && data.familyCalibration.ok), why: "gap thresholds" },
+    { label: "sysAudit / drift", kind: "probe", scope: "hourly", ok: () => !!(data.openIssues && Array.isArray(data.openIssues.red) && data.openIssues.red.length === 0), why: "hourly sysAudit + drift log" },
+    { label: "backend process", kind: "state", why: "self-reported PID / uptime" },
+    { label: "ML scorer", kind: "state", why: "model.json mtime age" },
+    { label: "tracked-best counts", kind: "state", why: "row counts" },
+  ];
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  for (const it of INFRA) {
+    let right, color;
+    if (it.kind === "state") { right = "state, not self-tested"; color = "var(--text-faint)"; }
+    else {
+      let ok = false; try { ok = it.ok(); } catch (_) { ok = false; }
+      const tag = it.scope === "hourly" ? "self-tested (hourly)" : "self-tested (live)";
+      right = tag + (ok ? " ✓" : " ⚠ degraded");
+      color = ok ? "var(--green)" : "var(--yellow)";
+    }
+    html += '<tr><td>' + it.label + ' <span style="color:var(--text-faint);font-size:11px">[' + it.why + ']</span></td>'
+      + '<td style="text-align:right;color:' + color + '">' + right + '</td></tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
 }
 
 function renderAutopilots(data) {

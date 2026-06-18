@@ -5776,3 +5776,29 @@ OPERATOR-VERIFY (the real close — run on your machine): commit fence → kicks
 NEXT_EXPECTED_FROM_PEER: operator commits + kickstarts + confirms the card. Then Phase 2 on go.
 
 PROBE_REFS: backend/scripts/componentHealthCheck.js (new) · backend/routes/statusRoute.js sectionComponentHealth + GET/POST · frontend/status/index.html #cardComponentHealth + renderComponentHealth · backend/scripts/scheduler.sh Phase Status-ComponentHealth-1A gates · sidecar backend/runtime/tracking/component_health.json (gitignored) · .scratch/probe_component_health_boot.js + last.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 22:52 ET.
+
+## 2026-06-17 23:18 ET — Claude-B [Cowork] — BUILD Phase 2: /status component-health — closing-line + context-persistence checks (no-games-aware) + honest infra-card annotation + opt-in Pinnacle pre-slate schedule. Both paths proven. runtime:verify 21/21. NO scoring/PRESERVED.
+
+ADDED TO RUNNER (componentHealthCheck.js) — now 8 components:
+- closingLineCapture (WIRED) — NO-GAMES-AWARE: 0 games tipped → idle GREEN (nothing to capture); games tipped + 0 close-stamped → FAIL (loop dead); stamped>0 → GREEN (alive, with %). Reads latest mlb ledger; reason states which.
+- contextPersistence (WIRED) — % of latest-slate rows carrying flattened context tags (hrFactor/windDirectionTag/temperatureF/carryShift/runEnvironment/rbiEnvironment/hrEnvironmentTag). 0% on a populated slate → FAIL (wiring broken); no rows → idle GREEN. (Context is stamped at PICK time, so "no games idle" = no picks, not "not tipped yet" — proven below.)
+- latestLedger() horizon guard: ignores far-future-dated ledger files (>7d) so test/garbage files can never shadow the real latest slate and fake idle-green.
+- COMPONENT_HEALTH_TRACKING_DIR env override (defaults to canonical) — lets failure-path tests run in /tmp without polluting the real ledger.
+
+INFRA-CARD ANNOTATION (#3, FE-only, additive — existing cards/checks/ORDER untouched): the new card now lists the existing infra cards with an HONEST classification read from the live payload — launch agents / scheduler heartbeat / schema golden / family calibration = "self-tested (live)" (real pass/fail probe, shows ✓ or ⚠ degraded); sysAudit/drift = "self-tested (hourly)"; backend PID / ML scorer / tracked-best = "state, not self-tested" (grey — NOT faked green). No existing card was modified.
+
+SCHEDULE (#4, scheduler.sh): Pinnacle GAME-LINE benchmark capture once at 9:05 AM ET (first MLB hour, just after the 9:00 slate:mlb builds the snapshot it reads), OPT-IN PINNACLE_BENCHMARK=1 only (extra eu credits); capture script self-gates too (belt+suspenders).
+
+VERIFY — BOTH PATHS (.scratch/last.txt):
+1. BASELINE (real data): 8/8 GREEN — incl. closingLineCapture "idle, 0 of 888 tipped" + contextPersistence "100% of 888 rows".
+2. FAILURE/EDGE (isolated /tmp, real ledger untouched): 2a tipped+0 close-stamped → closingLineCapture FAIL; 2b populated+0 context → contextPersistence FAIL; 2c EMPTY slate → BOTH idle GREEN (true no-games); 2d future picks WITH context → closing idle-green + context green. Green is earned; degrade flips it off.
+3. /status END-TO-END: booted statusRoute in-process → componentHealth served live (8 green); FE <script> syntax OK; renderComponentHealth + renderInfraAnnotation defined/dispatched/card present; statusRoute syntax OK.
+4. NO REGRESSION: git diff = only componentHealthCheck.js + scheduler.sh + frontend/status/index.html (+ unrelated seasonsActive.json updatedAt bump, EXCLUDED). NO scoring/PRESERVED. runtime:verify 21/21 PASS.
+
+CLEANUP NOTE (operator action): the sandbox can CREATE but not DELETE files in runtime/tracking, so a 2-byte test file backend/runtime/tracking/mlb_tracked_bets_2099-01-01.json was left behind. The horizon guard already makes the runner IGNORE it (harmless), but delete it for cleanliness: `rm -f backend/runtime/tracking/mlb_tracked_bets_2099-01-01.json`. (gitignored — not in the commit.)
+
+OPERATOR-VERIFY (real close): commit → kickstart backend → run the runner (or wait ≤15 min) → /status "component health (tested-green)" card shows 8 tested-green components + the infra annotation. CA will do the rendered-page Chrome check on edge.motel666.com/status.
+
+NEXT_EXPECTED_FROM_PEER: operator commits + kickstarts + deletes the stray test file + confirms the card; CA does the rendered-page check. Phase 3 (post-freeze): flip shelf→wired + add live tested-green checks as components graduate.
+
+PROBE_REFS: backend/scripts/componentHealthCheck.js (8 checks + horizon guard + env override) · backend/scripts/scheduler.sh Phase Status-ComponentHealth-2A · frontend/status/index.html renderInfraAnnotation · .scratch/last.txt + probe_component_health_boot.js · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 23:18 ET.

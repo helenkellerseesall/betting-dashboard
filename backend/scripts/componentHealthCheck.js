@@ -19,7 +19,9 @@ const fs = require("fs"), path = require("path")
 const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 const BACKEND = path.join(__dirname, "..")
-const TRACKING = path.join(BACKEND, "runtime", "tracking")
+// Tracking dir is overridable for isolated testing (failure-path verification points it at a temp
+// dir so tests never pollute the real ledger). Defaults to the canonical runtime/tracking.
+const TRACKING = process.env.COMPONENT_HEALTH_TRACKING_DIR || path.join(BACKEND, "runtime", "tracking")
 const OUT = path.join(TRACKING, "component_health.json")
 const now = Date.now()
 const nowIso = new Date(now).toISOString()
@@ -82,6 +84,50 @@ function checkForwardClv() {
 }
 checkForwardClv()
 
+// ── (3) WIRED pipeline checks (no-games-aware) ──
+// Load the latest mlb ledger day-file (rows + slate date).
+function latestLedger() {
+  let files
+  try { files = fs.readdirSync(TRACKING).filter((f) => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort() } catch (_) { return null }
+  // Ignore far-future-dated files (test/garbage). Real slates are today or a day or two ahead
+  // (late-night pre-picks); a file dated >7 days out is never real and must not shadow the latest.
+  const horizon = new Date(now + 7 * 864e5).toISOString().slice(0, 10)
+  files = files.filter((f) => f.slice("mlb_tracked_bets_".length, "mlb_tracked_bets_".length + 10) <= horizon)
+  if (!files.length) return null
+  const f = files[files.length - 1]
+  const slate = f.replace("mlb_tracked_bets_", "").replace(".json", "")
+  let rows = []
+  try { const j = JSON.parse(fs.readFileSync(path.join(TRACKING, f), "utf8")); rows = Array.isArray(j) ? j : (j.bets || j.rows || []) } catch (_) {}
+  return { slate, rows }
+}
+
+// Closing-line capture — GREEN if alive (close-stamping once games tip). NO-GAMES-AWARE (binding):
+// 0 captures + 0 games tipped = idle/HEALTHY (green); games tipped + 0 captures = loop dead (FAIL).
+function checkClosingLineCapture() {
+  const L = latestLedger()
+  if (!L || !L.rows.length) return set("closingLineCapture", "green", "idle — no ledger rows (no slate = healthy)", "wired")
+  const tipped = L.rows.filter((r) => { const gt = r.gameTime ? Date.parse(r.gameTime) : null; return gt && gt <= now })
+  if (tipped.length === 0) return set("closingLineCapture", "green", `idle — 0 of ${L.rows.length} games tipped yet on slate ${L.slate} (nothing to capture = healthy)`, "wired")
+  const stamped = tipped.filter((r) => r.closeOdds != null)
+  if (stamped.length === 0) return set("closingLineCapture", "fail", `${tipped.length} games tipped on ${L.slate} but 0 close-stamped — capture loop likely dead`, "wired")
+  const rate = Math.round((stamped.length / tipped.length) * 100)
+  set("closingLineCapture", "green", `${stamped.length}/${tipped.length} tipped picks close-stamped (${rate}%) on ${L.slate} — capture alive`, "wired")
+}
+checkClosingLineCapture()
+
+// Context persistence — GREEN if recent rows carry the flattened matchup-context tags. 0% on a
+// populated slate = wiring broken (FAIL); no rows = idle/healthy.
+const CTX_TAGS = ["hrFactor", "windDirectionTag", "temperatureF", "carryShift", "runEnvironment", "rbiEnvironment", "hrEnvironmentTag"]
+function checkContextPersistence() {
+  const L = latestLedger()
+  if (!L || !L.rows.length) return set("contextPersistence", "green", "idle — no rows on the latest slate (no games = healthy)", "wired")
+  const withCtx = L.rows.filter((r) => CTX_TAGS.some((k) => r[k] != null)).length
+  const pct = Math.round((withCtx / L.rows.length) * 100)
+  if (withCtx === 0) return set("contextPersistence", "fail", `0% of ${L.rows.length} rows on ${L.slate} carry context tags — persistence wiring broken`, "wired")
+  set("contextPersistence", "green", `${pct}% of ${L.rows.length} rows on ${L.slate} carry context tags`, "wired")
+}
+checkContextPersistence()
+
 // ── write sidecar + console ──
 const summary = { green: 0, stale: 0, fail: 0, "not-run": 0 }
 for (const c of Object.values(components)) summary[c.state] = (summary[c.state] || 0) + 1
@@ -94,7 +140,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

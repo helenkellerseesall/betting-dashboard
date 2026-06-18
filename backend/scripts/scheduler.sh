@@ -134,6 +134,20 @@ while true; do
     last_health_min="$STAMP"
   fi
 
+  # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once
+  # in the first MLB hour (9:05 AM ET, just after the 9:00 slate:mlb builds the snapshot it reads).
+  # OPT-IN ONLY: PINNACLE_BENCHMARK=1 (a second eu Odds API request = extra credits). The capture
+  # script ALSO self-gates on the same env, so this is belt+suspenders. Own dedupe var.
+  if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 9 ] && [ "${PINNACLE_BENCHMARK:-0}" = "1" ] && [ "$STAMP" != "${last_pinnacle_min:-}" ]; then
+    log "pinnacle benchmark capture starting (PINNACLE_BENCHMARK=1, pre-slate)..."
+    if PINNACLE_BENCHMARK=1 node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/capturePinnacleBenchmark.js >> "$LOG" 2>&1; then
+      log "pinnacle benchmark capture OK"
+    else
+      log "pinnacle benchmark capture FAILED (exit $?)"
+    fi
+    last_pinnacle_min="$STAMP"
+  fi
+
   # Phase Status-ComponentHealth-1A — forward-CLV tracker ~4:15 AM, right after the 4:00 AM
   # grading-nightly, then refresh component health so the morning card reflects the fresh
   # sidecar. Gated on HOUR==4 explicitly (outside the 9–23 slate window) with its own dedupe.
