@@ -46,7 +46,7 @@ FanGraphs/pybaseball source.
 ## 4. SPLITS
 | Split | Status | Where / note |
 |---|---|---|
-| Handedness vs LHP/RHP | **PARTIAL (flat heuristic)** | `deriveMlbHandednessContext.js:62-64` — opp non-switch **+0.022**, switch **+0.012**, same **−0.020**. NOT real per-player splits (no vsLHP/vsRHP wOBA). Confirmed: it's a bounded constant, not data. |
+| Handedness vs LHP/RHP | **PARTIAL (flat heuristic) — FROZEN; real splits staged (pending source)** | `deriveMlbHandednessContext.js:62-64` — opp non-switch **+0.022**, switch **+0.012**, same **−0.020**. Bounded constant, not data. **It is LIVE + SCORING-CONSUMED** (`composeMlbContextualSignal.batterPlatoonShift` + `buildMlbPropClusters.isPlatoonAdvantage`, the R2-frozen scorer + hits/rbi engines) → replacing it = a scoring change = FROZEN, untouched. Real per-player vsLHP/vsRHP splits: NEW staging scaffold `deriveMlbHandednessSplits.js` (2026-06-18) → `mlbHandednessSplits.json`, generic header.indexOf parser proven, **SOURCE pending CA-verified URL/columns** (refuses to run until set); zero consumer; wire post-freeze. |
 | Home / away | **HAVE (thin)** | `isHome` signal, weight 0.04 (`buildMlbBootstrapSnapshot.js:319-321`) |
 | Rolling form | **PARTIAL** | `mlbBatterFormCache.js:161-162` batterL5 + batterL15 (5/15-GAME); no 7/14/30-DAY calendar windows; opposingPitcherL3/L5 exist |
 
