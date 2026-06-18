@@ -48,6 +48,49 @@ The R2 MLB scoring freeze (started 2026-06-11 ~16:36 ET, ~14 days → **lifts ~2
 - **Forward gate:** the +EV-gated set realizes **≥0 ROI on forward data** (the in-sample −42% must invert), with calibration (G1) live. Until then it stays shadow and correctly reports "no edge."
 - **Close:** operator-visible parlay card with the EV + the "bet as singles" comparison (the 7×-singles discipline).
 
+## Newly-elevated post-freeze items (2026-06-17 de-vig audit — commit 9276e13)
+
+These are NOT part of the shadow-stack G1–G4 ladder; they were surfaced by the de-vig audit and
+are elevated to the post-freeze docket. Both are read-only-planned here; no code has changed.
+
+### N1 — MEAN→MEDIAN fix (confirmed scoring bias) — rank ALONGSIDE G1 + the selection re-point
+- **Finding (confirmed, de-vig audit):** `buildMlbPlayerDataset.js:205-206` computes `eHits = h1+h2+h3`
+  (= P(≥1)+P(≥2)+P(≥3) = **expected value = the MEAN**) and labels it `hitsMedian` / `mostLikely`
+  (`:323`). Same pattern for `eTB`/`eRbi`/`eRuns`. This "median" band feeds `modelProbForSide` in the
+  **R2-frozen** `buildMlbPropClusters.js`. Books price the **median**; scoring off the mean
+  **systematically over-bets the over** (the mean sits above the median for these right-skewed
+  count distributions).
+- **Why it matters:** it is a *scoring* bias, not a display issue — it biases every over/under
+  modelProb and therefore tier/edge selection. It is currently FROZEN (cannot touch during R2).
+- **Fix (post-freeze, governed):** derive the true **MEDIAN** from the NegBinom ladder survival
+  distribution (the smallest k where P(X ≤ k) ≥ 0.5), and use that as the `mostLikely`/band center
+  feeding `modelProbForSide` — instead of `round1(expected)`. Naturally composes with **G2** (NB
+  ladder graduation provides the distribution the median is read from).
+- **Rank:** alongside **G1 calibration** and the **selection re-point** (`POST_FREEZE_SELECTION_REPOINT_SPEC.md`)
+  as a top-tier post-freeze scoring correction. Forward-gate it like the others: the median-centered
+  modelProb must beat the mean-centered one on reliability gap + Brier on forward data before it ships.
+  (Note: this and G1 both touch `modelProb`/the cluster scoring path — sequence them so each change
+  is independently measurable; do not bundle.)
+
+### N2 — GRADUATE devigAnalytics (Power de-vig + FanDuel-weighted consensus) into LIVE analytics
+- **Validated library exists:** `backend/pipeline/shared/devigAnalytics.js` (commit 9276e13) —
+  `powerDevigTwoWay` (solve a^k+b^k=1, fair=p^k; keeps probs in [0,1], corrects favorite-longshot
+  bias), `fanduelWeightedConsensus` (FD weight 2.0, dedupes per book → immune to the duplicate-row
+  skew the audit found: 321 dup (prop-side,book) pairs in the live snapshot). Analytics-only; no live
+  consumer yet, so runtime is byte-identical today.
+- **Action (post-freeze, analytics-only):** wire a FanDuel-weighted Power consensus as an **ADDITIVE**
+  field on the line-shop output **beside** the canonical `consensus` — **never replacing** the
+  PRESERVED `vigStripping.js` (multiplicative, scoring-foundational) and never feeding scoring.
+- **Pre-req:** `buildLineShoppingIntelligence.js` currently groups rows **by side**, so it cannot
+  de-vig within a group; graduation requires pairing the over and under groups for the same
+  (player|family|line) before calling `powerDevigTwoWay`.
+- **Reality check (don't over-rank):** the de-vig audit's before/after on real rows showed only
+  138/867 prop groups were two-sided de-viggable and **only 6 had FanDuel on both sides** — FD
+  two-sided coverage is thin. Power-vs-multiplicative and FD-weighting each moved the over-side fair
+  prob ≤~0.005 (most of the ~0.039 shift is just removing the vig). So this is a **trust/correctness**
+  improvement (honest fair line + dedupe), not a large-edge unlock. Freeze-safe to do anytime
+  post-freeze; lower priority than N1/G1.
+
 ## What graduation is NOT
 - Not a flip of all four at once. Not during the freeze. Not on in-sample numbers. Not a deletion of the kill-switches. Not a parallel calibrator (extend the dampener).
 
