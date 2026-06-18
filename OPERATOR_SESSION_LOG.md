@@ -5618,3 +5618,26 @@ GO/NO-GO: GREEN — freeze-safe, can wire benchmark-only without touching PRESER
 NEXT_EXPECTED_FROM_PEER: operator runs the probe + reports (Pinnacle present? props covered?). On confirmation, CB builds STEP 2 (benchmark capture + de-vig + sharpClv field + verify: real pull, CLV-vs-Pinnacle differs from retail on a sample, no regression, governance unchanged, runtime:verify green). NO code this turn.
 
 PROBE_REFS: buildMlbBootstrapSnapshot.js:725-735 (regions:"us") · buildClv.js:58 computeClv · vigStripping.js fairProbFromAmericanPair · sportsbookAllowlist.js (PRESERVED, imported by betting/display only) · consensus NOT in scoring (confirmed) · ODDS_API_KEY server.js:10599 · `TZ='America/New_York' date` → 2026-06-17 20:12 EDT.
+
+## 2026-06-17 20:36 ET — Claude-B [Cowork] — SHARP-BOOK STEP 2 BUILT: Pinnacle GAME-LINE benchmark (analytics sidecar, kill-switched). Sandbox-verified; LIVE pull pending operator run (no sandbox network to the-odds-api). runtime:verify 21/21.
+
+ACTION: built the Pinnacle game-line sharp benchmark per GO (probe confirmed Pinnacle in eu plan, game-lines only). BENCHMARK-only, analytics-only, NO PRESERVED edit, freeze-safe. show-before-edit: 2 NEW files (full content shown), nothing else touched.
+
+BUILD (NEW files only — no edit to any existing/frozen/PRESERVED file):
+- backend/pipeline/shared/pinnacleBenchmark.js — fetchPinnacleGameLines (regions=eu, markets h2h/totals/spreads, PINNACLE-ONLY filter + drops every other eu book) · pinnacleFairProbs (de-vig via canonical vigStripping.stripVigTwoWay) · computeSharpClv (pinnacleFairProb − placedImplied; +=beat sharp) · buildBenchmarkLookup. Kill-switch PINNACLE_BENCHMARK, DEFAULT OFF ("1"=on) — the eu pull is a SECOND Odds API request/slate = extra credit cost, so opt-in. GAME-LINE ONLY (Pinnacle has no props → prop CLV stays retail-benchmarked, documented).
+- backend/scripts/capturePinnacleBenchmark.js — CLI: pull eu Pinnacle for the live slate's events, de-vig, write analytics SIDECAR backend/runtime/tracking/pinnacle_benchmark_<slate>.json (SEPARATE from tracked_bets; never merged into bettable rows / line-shop / allowlist).
+
+GUARDS: Pinnacle is NEVER added to sportsbookAllowlist.js (PRESERVED, untouched — confirmed); output is Pinnacle-only by construction (non-Pinnacle eu books dropped at fetch); never bettable/displayed; analytics only (not read by scoring/selection — CLV/consensus already confirmed non-scoring in STEP 1).
+
+VERIFY:
+- SANDBOX (deterministic parts → .scratch/last.txt): kill-switch default OFF ✓; Pinnacle-only guard (pinnacle=true, DK/FD/MGM/bet365/matchbook=false) ✓; DE-VIG SANITY all two-way fair probs sum to 1.000000 (h2h -150/+130 → 0.5798/0.4202; totals -110/-110 → 0.5/0.5; spreads +135/-155 → 0.4118/0.5882) ✓; sharpClv sign (+0.03 beat / −0.05 worse) ✓; ANTI-FABRICATION BUG CAUGHT+FIXED — computeSharpClv(null,...) returned 0.55 (Number(null)===0 passed Number.isFinite); added explicit null guard → now returns null ✓; lookup ✓.
+- NO-REGRESSION: git status shows ONLY the 2 new files (+ log); retail CLV/consensus/line-shop/allowlist/scoring byte-identical; node --check OK; runtime:verify 21/21 PASS.
+- LIVE PULL (verify #1 non-zero + #2 game-line-CLV-vs-retail): CANNOT run in sandbox — the-odds-api is unreachable (HTTP 000). NOT faked. Operator runs on their machine (has key in backend/.env + network):
+    cd ~/Projects/betting-dashboard && PINNACLE_BENCHMARK=1 node backend/scripts/capturePinnacleBenchmark.js > .scratch/last.txt && cat .scratch/last.txt
+  Expect: pinnacleEvents>0, de-vig sanity N/N sum to 1.0, sidecar written, sample h2h fair line. (Costs a few eu credits.)
+
+DEPLOY/USAGE: benchmark is OPT-IN (PINNACLE_BENCHMARK=1). To run nightly, the operator adds the capture command to the scheduler AFTER the MLB slate refresh (snapshot must exist first). Game-line CLV-vs-sharp then accrues forward; prop CLV unchanged (retail).
+
+NEXT_EXPECTED_FROM_PEER: operator runs the live-pull command + reports .scratch/last.txt (Pinnacle events > 0?). Then decide whether to wire it into the nightly scheduler. Prop benchmark remains impossible (Pinnacle has no props) — game-line only.
+
+PROBE_REFS: backend/pipeline/shared/pinnacleBenchmark.js + backend/scripts/capturePinnacleBenchmark.js (new) · .scratch/probe_pinnacle_benchmark.js + .scratch/last.txt (sandbox verify) · de-vig via vigStripping.stripVigTwoWay · the-odds-api unreachable from sandbox (HTTP 000) → live pull operator-run · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 20:36 EDT.
