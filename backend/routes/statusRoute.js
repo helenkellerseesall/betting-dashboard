@@ -1443,6 +1443,29 @@ function sectionForwardClvSlices() {
   }
 }
 
+// Component-health TESTED-GREEN card (status-must-be-real amendment 2026-06-18). Reads the
+// sidecar that backend/scripts/componentHealthCheck.js writes ~every 15 min — this route NEVER
+// runs the self-tests in-request (keeps /status fast). GREEN here means the component's own
+// check RAN + PASSED this cycle; the section also exposes how stale the run is so the FE can
+// downgrade a green that's gone cold. Anti-fabrication: missing sidecar = not-run, never faked.
+function sectionComponentHealth() {
+  try {
+    const p = path.join(TRACKING_DIR, "component_health.json")
+    if (!fs.existsSync(p)) {
+      return { ok: true, generated: false, note: "runner not run yet — node backend/scripts/componentHealthCheck.js (scheduler fires it ~15 min)" }
+    }
+    const j = safeReadJson(p)
+    if (!j) return { ok: false, error: "component_health.json unreadable/corrupt" }
+    const ageMin = Math.round((Date.now() - fs.statSync(p).mtimeMs) / 60000)
+    // Runner cadence is ~15 min; if the file itself is older than 40 min the runner stopped —
+    // the whole card is then "stale" regardless of the per-component states it last wrote.
+    const runnerStale = ageMin > 40
+    return Object.assign({ ok: true, generated: true, ageMin, runnerStale }, j)
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route handler — aggregate every section, all wrapped
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1471,6 +1494,7 @@ router.get("/", (req, res) => {
   out.batterCacheCoverage = sectionBatterCacheCoverage()
   out.schemaGolden      = sectionSchemaGolden()
   out.trackedBestToday  = sectionTrackedBestToday()
+  out.componentHealth   = sectionComponentHealth()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
   res.json(out)
@@ -1505,6 +1529,7 @@ router.post("/snapshot", (req, res) => {
   out.mlScorer          = sectionMlScorer()
     out.schemaGolden      = sectionSchemaGolden()
     out.trackedBestToday  = sectionTrackedBestToday()
+    out.componentHealth   = sectionComponentHealth()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0
 

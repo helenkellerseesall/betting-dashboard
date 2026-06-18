@@ -317,6 +317,16 @@
   </div>
 </details>
 
+<!-- 13. component health (tested-green) — APPENDED at end (placement provisional, FE-makeover day) -->
+<details class="card" id="cardComponentHealth">
+  <summary><h2>component health (tested-green)</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">Each component is GREEN only if its OWN self-test/probe RAN and PASSED this cycle — never assumed. amber = stale (ran before but its freshness window blew) · red = ran and FAILED · grey = never ran. A scheduled runner refreshes this ~every 15 min; if the whole card is stale the runner stopped. <code>node backend/scripts/componentHealthCheck.js</code> to refresh.</div>
+    <div id="componentHealthList">—</div>
+    <div id="componentHealthNote" class="legend" style="margin-top:4px"></div>
+  </div>
+</details>
+
 <div class="actionBar">
   <button onclick="loadStatus()">refresh now</button>
   <button onclick="exportToScratch()" id="exportBtn" title="POST /api/ws/status/snapshot — writes the full status JSON to .scratch/last.txt so Claude can read it without you screenshotting.">export to scratch</button>
@@ -846,6 +856,43 @@ function renderForwardClv(data) {
   _setSummary("sumForwardClv", holds + "/" + total + " slices holding · " + (f.forwardGradedRows || 0) + " graded");
 }
 
+// Component health (tested-green): a component is green ONLY when its own check ran + passed this
+// cycle. If the runner itself went stale (>40 min) every green is visually downgraded to stale.
+function renderComponentHealth(data) {
+  const f = data.componentHealth;
+  const list = document.getElementById("componentHealthList");
+  const note = document.getElementById("componentHealthNote");
+  if (!f || !f.ok) { list.innerHTML = '<div class="err">component health unavailable</div>'; _setSummary("sumComponentHealth", "unavailable"); if (note) note.textContent = ""; return; }
+  if (f.generated === false) { list.innerHTML = '<div class="legend">' + (f.note || "runner not run yet") + '</div>'; _setSummary("sumComponentHealth", "not run yet"); note.textContent = ""; return; }
+  const COLORS = { green: "var(--green)", stale: "var(--yellow)", fail: "var(--red)", "not-run": "var(--text-faint)" };
+  const DOT = { green: "●", stale: "●", fail: "●", "not-run": "○" };
+  const LABELS = { devigAnalytics: "devigAnalytics", cashoutHedge: "cashoutHedge", pinnacleBenchmarkSelfTest: "pinnacleBenchmark self-test", shadowStack: "shadow stack", pinnacleSidecar: "Pinnacle sidecar", forwardClvTracker: "forward-CLV tracker" };
+  const runnerStale = f.runnerStale === true;   // whole runner stopped → downgrade greens
+  const comps = f.components || {};
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  let green = 0, total = 0;
+  for (const [key, c] of Object.entries(comps)) {
+    total++;
+    let st = c.state;
+    if (runnerStale && st === "green") st = "stale";
+    if (st === "green") green++;
+    const wired = c.wired === "wired"
+      ? '<span style="color:var(--green)">wired</span>'
+      : '<span style="color:var(--text-faint)">shelf</span>';
+    html += '<tr>'
+      + '<td style="color:' + (COLORS[st] || "var(--text)") + ';width:14px;vertical-align:top">' + (DOT[st] || "●") + '</td>'
+      + '<td>' + (LABELS[key] || key) + ' <span style="font-size:11px">[' + wired + ']</span></td>'
+      + '<td style="text-align:right;color:' + (COLORS[st] || "var(--text)") + '">' + st + '</td></tr>'
+      + '<tr><td></td><td colspan="2" class="legend" style="padding-bottom:5px">' + (c.reason || "") + '</td></tr>';
+  }
+  html += '</table>';
+  list.innerHTML = html;
+  note.textContent = "last runner pass: " + (f.ageMin != null ? f.ageMin + " min ago" : "—")
+    + (runnerStale ? " — RUNNER STALE (>40 min): greens downgraded until it runs again" : "")
+    + " · GREEN = ran + passed this cycle.";
+  _setSummary("sumComponentHealth", (runnerStale ? "RUNNER STALE · " : "") + green + "/" + total + " tested-green" + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
+}
+
 function renderAutopilots(data) {
   const fires = data.autopilotFiresToday;
   const slates = data.slateFiresToday;
@@ -1258,6 +1305,7 @@ async function loadStatus() {
     renderMlScorer(data);
     renderSchemaGolden(data);
     renderCommits(data);
+    renderComponentHealth(data);
     renderDrift(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
     document.getElementById("nudge").style.color = "var(--text-faint)";

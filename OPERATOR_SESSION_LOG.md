@@ -5751,3 +5751,28 @@ OPEN QUESTIONS FOR OPERATOR (before Phase 1 code): (a) runner cadence — every 
 NEXT_EXPECTED_FROM_PEER: operator approves the plan (+ answers a/b). NO /status code until then (locked surface). On approval CB builds Phase 1.
 
 PROBE_REFS: backend/routes/statusRoute.js (20 section*()) · frontend/status/index.html (14 cards) · backend/scripts/scheduler.sh (30s loop, HOUR/MIN gates, 5-min .scratch export) · self-tests: devigAnalytics.js + cashoutHedge.js + pinnacleBenchmark.js (require.main===module) · verifyShadowStackIntact (runtime:verify, 21 suites) · forward_clv_slices.json + pinnacle_benchmark_<slate>.json sidecars · `TZ='America/New_York' date` → 2026-06-17 22:34 ET.
+
+## 2026-06-17 22:52 ET — Claude-B [Cowork] — BUILD Phase 1: /status COMPONENT-HEALTH tested-green layer (operator-approved: 15-min cadence + card APPENDED at end). Both paths proven (green earned + degrade flips it off). Freeze-safe display/infra; NO scoring/PRESERVED. runtime:verify 21/21.
+
+DOCTRINE (status-must-be-real amendment 2026-06-18): a component is GREEN only if its OWN self-test/probe RAN + PASSED this cycle; stale if its freshness window blew; not-run if it couldn't run; fail if it ran and failed. Never assumed.
+
+BUILD:
+- NEW backend/scripts/componentHealthCheck.js — runs (child_process, cwd=backend) the self-tests [devigAnalytics, cashoutHedge, pinnacleBenchmark, verifyShadowStackIntact] + freshness checks [pinnacle_benchmark_<slate>.json: every two-way fairSumsTo==1.0 AND ≤24h; forward_clv_slices.json: ledgerRows>0 AND ≤30h] → writes backend/runtime/tracking/component_health.json (gitignored sidecar): per-component { state: green|stale|fail|not-run, ranAt, reason, wired }. GREEN only if it RAN this cycle AND passed.
+- backend/routes/statusRoute.js — NEW sectionComponentHealth() READS the sidecar (missing=not-run, never faked; try/catch) + exposes ageMin + runnerStale (>40 min = runner stopped) so the FE downgrades cold greens. Wired into GET / and POST /snapshot. Route NEVER runs the tests in-request (keeps /status fast — same "section reads a file a script writes" doctrine).
+- frontend/status/index.html — NEW cardComponentHealth APPENDED at the END (locked card order untouched; placement provisional per operator, revisited FE-makeover day) + renderComponentHealth (per-component dot: green=tested-green / amber=stale / red=fail / grey=not-run; shows reason + wired/shelf badge; runner-stale banner) + dispatched in loadStatus.
+- backend/scripts/scheduler.sh — Phase Status-ComponentHealth-1A: runs componentHealthCheck.js every 15 min (active hours 9 AM–11 PM ET, background, own dedupe; mirrors the 5-min .scratch export gate) + fires forwardClvSliceTracker.js at 4:15 AM (HOUR==4, right after the 4:00 grading-nightly) then refreshes component health so the morning card reflects the fresh sidecar.
+
+VERIFY — BOTH PATHS PROVEN (.scratch/last.txt):
+1. BASELINE: runner → 6/6 GREEN from ACTUAL exit codes (devigAnalytics 11/11, cashoutHedge 10/10, pinnacleBenchmark 12/12, shadowStack pass, pinnacleSidecar 24 markets fairSumsTo==1.0 0.7h old, forwardClvTracker ledgerRows=17497 1.1h old).
+2. FAILURE PATH (green must be earned): corrupted forward-CLV input (ledgerRows→0) → forwardClvTracker FAIL (red), summary green:5 fail:1. Backdated mtime 40h → forwardClvTracker STALE (amber), summary green:5 stale:1. NOT green either way.
+3. RESTORE: re-ran forwardClvSliceTracker → 6/6 GREEN again.
+4. /status END-TO-END: booted statusRoute in-process, GET → componentHealth served live (summary 6 green, devigAnalytics=green, runnerStale=false). FE <script> syntax OK; renderComponentHealth defined+dispatched+card present. NO scoring/PRESERVED in git diff (only statusRoute.js + scheduler.sh + frontend/status/index.html + new componentHealthCheck.js; seasonsActive.json shows an unrelated updatedAt bump — EXCLUDED).
+5. runtime:verify 21/21 PASS.
+
+PHASE 2 (next, on operator go): closing-line coverage-climbing check + context-persistence tag-coverage check added to the runner; annotate existing infra cards tested-green; schedule the Pinnacle capture pre-slate. PHASE 3 (post-freeze): flip shelf→wired + add live tested-green checks as components graduate.
+
+OPERATOR-VERIFY (the real close — run on your machine): commit fence → kickstart backend (loads sectionComponentHealth) → the scheduler will run the runner within 15 min (or run it now) → open edge.motel666.com/status, see the "component health (tested-green)" card at the bottom. Commands in chat.
+
+NEXT_EXPECTED_FROM_PEER: operator commits + kickstarts + confirms the card. Then Phase 2 on go.
+
+PROBE_REFS: backend/scripts/componentHealthCheck.js (new) · backend/routes/statusRoute.js sectionComponentHealth + GET/POST · frontend/status/index.html #cardComponentHealth + renderComponentHealth · backend/scripts/scheduler.sh Phase Status-ComponentHealth-1A gates · sidecar backend/runtime/tracking/component_health.json (gitignored) · .scratch/probe_component_health_boot.js + last.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 22:52 ET.

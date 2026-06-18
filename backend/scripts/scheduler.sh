@@ -125,6 +125,29 @@ while true; do
     last_status_snapshot_min="$STAMP"
   fi
 
+  # Phase Status-ComponentHealth-1A (2026-06-18) — tested-green runner every 15 min (active
+  # hours 9 AM–11 PM ET). Runs each freeze-window component's OWN self-test/probe + freshness
+  # checks → component_health.json which /status reads (it never runs the tests in-request).
+  # Background (&) so it never blocks the loop; own dedupe var (mirrors the 5-min export gate).
+  if [ $((MIN % 15)) -eq 0 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ] && [ "$STAMP" != "${last_health_min:-}" ]; then
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/componentHealthCheck.js >> "$LOG" 2>&1 &
+    last_health_min="$STAMP"
+  fi
+
+  # Phase Status-ComponentHealth-1A — forward-CLV tracker ~4:15 AM, right after the 4:00 AM
+  # grading-nightly, then refresh component health so the morning card reflects the fresh
+  # sidecar. Gated on HOUR==4 explicitly (outside the 9–23 slate window) with its own dedupe.
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 4 ] && [ "$STAMP" != "${last_fwdclv_min:-}" ]; then
+    log "forwardClvSliceTracker starting (post-grade)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/forwardClvSliceTracker.js >> "$LOG" 2>&1; then
+      log "forwardClvSliceTracker OK"
+    else
+      log "forwardClvSliceTracker FAILED (exit $?)"
+    fi
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/componentHealthCheck.js >> "$LOG" 2>&1 &
+    last_fwdclv_min="$STAMP"
+  fi
+
   # Dedupe — don't fire twice within the same minute
   if [ "$STAMP" = "$last_ran_min" ]; then
     sleep 30
