@@ -6040,3 +6040,31 @@ RECOMMENDATION: build the FORWARD-ONLY capture now (additive, freeze-safe) so cl
 NEXT_EXPECTED_FROM_PEER: operator GO on the design (forward-only primary + caveated retrospective screen?) before any harness code or numbers. HARD: no edge numbers until approved.
 
 PROBE_REFS: ledger mlb_tracked_bets_<date>.json fields (no opposing-pitcher name; no totals bets) · mlbStatcastQuality/mlbPitcherFip(player-keyed) + mlbAirDensity(eventId, current-slate-only) · NO dated signal history (single overwritten snapshots) → forward-only for clean point-in-time · reuse forwardClvSliceTracker + probe_selection_edge_oos + devigAnalytics (Law 1) · `TZ='America/New_York' date` → 2026-06-18 03:26 ET.
+
+## 2026-06-18 03:43 ET — Claude-B [Cowork] — BUILD: #31 signal-vs-CLV backtest — forward capture (primary) + caveated retrospective screen. Capture mechanism PROVEN (stamps real as-of-bet signals); retrospective ran on real past bets (real n, all 'directional/needs-fwd'). runtime:verify 21/21. Nothing wired; no scoring/PRESERVED/frozen touch.
+
+BUILD (3 files; reuse forwardClvSliceTracker.sliceStats — Law 1, no parallel CLV analyzer):
+- NEW backend/scripts/captureSignalSnapshot.js — FORWARD-ONLY: per slate, stamps as-of-bet signal values into backend/runtime/tracking/signal_capture_<slate>.json keyed by bet id (written once/day → point-in-time, no lookahead). Batter props ← statcastQuality[player] + airDensity[eventId] + opposingPitcherFip (reconstructed: same-event pitcher-prop player on the OTHER team → mlbPitcherFip). Pitcher props ← pitcherFip[player]. Anti-fab: missing → null. ZERO live consumer; does NOT touch tracked_bet scoring fields (docket-#3 pattern).
+- NEW backend/scripts/signalClvBacktest.js — FORWARD section (join settled bets→as-of-bet signal→tertiles→meanCLV/hitRate/n) + RETROSPECTIVE SCREEN (today's slow-moving aggregates onto past bets; pitcher FIP/SIERA on pitcher props, batter xwoba/barrel/hardHit on batter props; air-density + opposing-pitcher EXCLUDED; cell floor n≥50; verdict CAPPED 'directional/needs-fwd'). Output → .scratch/signal_clv_backtest.txt.
+- backend/scripts/forwardClvSliceTracker.js — additive export of sliceStats/loadLedger + main() guarded by require.main (so the harness reuses the canonical CLV-slice owner).
+
+PROVE (.scratch/sig_probe.txt):
+(a) CAPTURE works — stamped 888 bets (804 batter, 84 pitcher); coverage statcastQuality 535/804, opposingPitcherFip 710/804, airDensity 687/804, pitcherFip 83/84. SAMPLE (Ernie Clement, hits over 1.5): statcastQuality{barrelPct 2.8, hardHitPct 25.3, xwoba 0.271, avgEV 85.4}, opposingPitcherFip{fip 3.62, siera 3.95} — real as-of-bet values. Opposing-pitcher reconstruction from same-event pitcher rows works (710/804).
+(b) FORWARD harness: capture file present (888 bets) but 0 clv-stamped — these are 06-18 future picks, not graded yet → forward cells n=0 BY DESIGN (clean clock just started; fills as daily captures + grading accrue). Honest, not a failure.
+(c) RETROSPECTIVE SCREEN (DIRECTIONAL ONLY, LOOKAHEAD-BIASED — never wire off this; today's aggregates onto past bets):
+   pitcher FIP × outs (n=56/cell): low(2.35-3.57) clv +0.0022 / mid +0.0008 / high(5.45-6.40) clv -0.0061 — directional: outs on high-FIP (worse) pitchers → worse CLV.
+   pitcher SIERA × outs: low +0.0026 / mid +0.0036 / high -0.0093 — same direction. (FIP/SIERA × ks SUPPRESSED, pool n=18.)
+   batter xwoba × hits (n≈363/cell): -0.0001 / +0.0007 / +0.0006 — flat. × rbis: +0.0019/+0.0011/+0.0016 — flat-positive.
+   batter barrelPct/hardHitPct × hits: CLV flat (~0), but hit% rises with harder contact (hits: barrel low 17%→high 29.6%; hardHit low 15.2%→high 23.7%) — directional outcome hint, CLV flat.
+   (totalBases/runs pools too small → SUPPRESSED.)
+   READ: no strong, clean CLV edge in the retrospective; the only consistent directional hint is high-FIP-pitcher 'outs' overs → negative CLV. All LOOKAHEAD-BIASED — confirm forward before trusting.
+ADDITIVE: zero consumer of the new sidecars; scoring/PRESERVED/frozen NOT in diff; only forwardClvSliceTracker.js tracked-modified (additive export). runtime:verify 21/21 PASS.
+
+OPERATOR-RUN / SCHEDULE (forward clean clock — dedicated file, NOT last.txt):
+  capture daily, post-slate (after the staging refreshes):  node backend/scripts/captureSignalSnapshot.js
+  re-run the harness anytime:  node backend/scripts/signalClvBacktest.js 2>&1 | tee .scratch/signal_clv_backtest.txt
+  → add captureSignalSnapshot to the nightly chain so signal_capture_<slate>.json accrues every day; by the 25th the FORWARD section (graded) is the trustworthy basis for which signals earn a wiring.
+
+NEXT_EXPECTED_FROM_PEER: operator schedules the daily capture (so forward accrues) + reviews the directional retrospective (no wiring off it). The 25th wiring decision keys on the FORWARD section once graded days land.
+
+PROBE_REFS: backend/scripts/captureSignalSnapshot.js + signalClvBacktest.js (new) · forwardClvSliceTracker.js (sliceStats/loadLedger export) · signal_capture_2026-06-17.json (888 bets, gitignored) · .scratch/signal_clv_backtest.txt + sig_probe.txt · reuse sliceStats (Law 1) · staging files on disk (statcast 254/fip 691/air 7) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 03:43 ET.

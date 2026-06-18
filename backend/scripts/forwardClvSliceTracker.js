@@ -202,4 +202,8 @@ function main() {
   log(`\nWROTE sidecar: ${OUT_PATH}`)
   process.stdout.write(out.join("\n") + "\n")
 }
-main()
+
+// Reusable CLV-slice helpers (Law 1 — the canonical slice→CLV/n/hit-rate owner). Imported by the
+// signal-vs-CLV backtest harness so it does NOT spawn a parallel CLV analyzer.
+module.exports = { sliceStats, loadLedger, MIN_N }
+if (require.main === module) main()
