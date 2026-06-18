@@ -5713,3 +5713,41 @@ OPERATOR-VERIFY (the real close — run on your machine): both self-tests in one
 NEXT_EXPECTED_FROM_PEER: operator runs the two self-tests (sees green) + the live Pinnacle capture (sees fairProb in the dated sidecar). No further code.
 
 PROBE_REFS: backend/pipeline/shared/pinnacleBenchmark.js (attachFairProbs + self-test) · backend/pipeline/shared/devigAnalytics.js (self-test) · backend/scripts/capturePinnacleBenchmark.js (reads decorated) · .scratch/probe_pinnacle_sidecar_persist.js + pinnacle_benchmark_SAMPLE.json + last.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 22:08 ET.
+
+## 2026-06-17 22:34 ET — Claude-B [Cowork] — AUDIT (read-only, NO code): self-verifying COMPONENT-HEALTH layer for /status. Doctrine amendment status-must-be-real (2026-06-18): a component shows GREEN only after its OWN self-test/probe RAN + PASSED this cycle (tested-green, never assumed) + has scheduled autonomy + flags drift/stale/faux with a reason. Plan below for operator approval before any /status code.
+
+WHAT /status SHOWS TODAY (20 section*() in statusRoute.js → 14 FE cards in status/index.html, assembled in GET / + POST /snapshot, 30s poll):
+- backend(cardBackend) · launchAgents+scheduler(cardAgents) · slateFires+autopilotFires(cardAutopilots) · schedule(cardSchedule) · clvCaptureToday(cardClv) · forwardClvSlices(cardForwardClv, just built) · familyCalibration+readLineAwareState(cardCalib) · mlScorer(cardMlScorer) · batterCacheCoverage(folded into openIssues, no own card) · schemaGolden(cardSchemaGolden) · trackedBestToday(cardTrackedBest) · openIssues(cardOpenIssues) · sysAuditLast+driftAlertsTail(cardDrift) · recentCommits(cardCommits) · sportsActive(cardSportsActive).
+- Established pattern (extend it): a section READS A FILE A SCRIPT WRITES; missing=not-run, never faked; each section try/catch-wrapped; FE colors a one-line summary.
+
+THE GAP: today GREEN ≈ STATE ("file exists / PID alive / git clean"), NOT "this component's own self-test ran + passed THIS cycle." devigAnalytics(11/11) + cashoutHedge self-tests exist but run ONLY when operator types `node <file>`; verifyShadowStackIntact runs ONLY in runtime:verify (manual/pre-commit); Pinnacle sidecar fairSumsTo + forward-CLV sidecar freshness aren't surfaced at all. CONSTRAINT: /status must stay <500ms / no heavy work in-request → self-tests CANNOT run in the HTTP request; a scheduled RUNNER writes component_health.json and the new section only READS it (freshness timestamp = what enforces "this cycle").
+
+PER-COMPONENT TESTED-GREEN SPEC (check that must RUN+PASS · freshness window · autonomy · wired/shelf):
+- devigAnalytics — `node devigAnalytics.js` exits 0 (11/11) · ≤ runner cadence(~15m) · health runner · SHELF (post-freeze)
+- cashoutHedge — self-test exits 0 · ≤ cadence · health runner · WIRED (cashout route + slips)
+- pinnacleBenchmark — self-test exits 0 (12/12) AND latest sidecar fairSumsTo==1.0 · self-test ≤ cadence, sidecar ≤ today's slate · self-test: runner / sidecar: capture · SHELF benchmark
+- forward-CLV tracker — sidecar present, ledgerRows>0, mtime fresh · ≤ ~24h (post-grade) · forwardClvSliceTracker @ ~4:15 AM · SHELF analytics
+- closing-line capture — coverage climbing (stamped>0 when games tipped)/loop alive · latest slate · already scheduled · WIRED (CLV)
+- context persistence — recent settled rows carry ctx tags (>0% latest slate) · latest slate · already live (board orchestrator) · WIRED (forward)
+- shadow stack — verifyShadowStackIntact exits 0 · ≤ cadence · health runner · SHELF (guarded)
+- existing infra (backend/agents/scheduler/sysAudit/calib/schemaGolden/mlScorer/trackedBest) — keep current checks; annotate tested-green where a real probe already exists · existing · existing · mixed
+- component_health.json entry shape: { state: green|stale|fail|not-run, ranAt, reason, wired }. GREEN only if ran AND passed this cycle; older than window → stale(amber)+reason; didn't run → not-run (never green).
+
+AUTONOMY / SCHEDULING:
+- NEW backend/scripts/componentHealthCheck.js — runs the 3 self-tests (child_process) + verifyShadowStackIntact + sidecar-freshness + closing-line/context coverage; writes component_health.json. Cheap (<100ms each).
+- scheduler.sh — add a gate to run it every ~15 min during active hours (mirrors the existing 5-min .scratch export).
+- forward-CLV tracker — fire ~4:15 AM hung off the grading-nightly autopilot wrapper (right after the 4:00 grade).
+- Pinnacle capture — pre-slate (first MLB hour), only if PINNACLE_BENCHMARK=1 (Phase 2).
+
+PHASED BUILD ORDER:
+- PHASE 1 (tonight) — framework + freeze-window pieces just built: componentHealthCheck.js runner + component_health.json schema + sectionComponentHealth() + ONE new FE card (cardComponentHealth) APPENDED after existing cards (locked order untouched) + dispatch. Covers devigAnalytics, cashoutHedge, pinnacleBenchmark (self-test + sidecar fairSumsTo), forward-CLV freshness, shadow stack. Wire runner into scheduler.sh (15m) + forward-CLV at 4:15. Verify: runner emits real green/stale/fail/not-run; /status serves it; a deliberately-stale file flips to amber; runtime:verify green.
+- PHASE 2 — closing-line coverage-climbing check, context-persistence tag coverage, annotate existing infra cards tested-green, schedule Pinnacle capture pre-slate.
+- PHASE 3 (post-freeze) — flip shelf→wired + add live tested-green checks as components graduate (G1–G4, devigAnalytics, mean→median).
+
+FREEZE-SAFETY: all display/infra — new read-only section + new card appended (existing order preserved) + new runner script + scheduler gate. NO scoring/selection/PRESERVED touch. Extends the locked status-must-be-real doctrine with the "tested-green this cycle" amendment.
+
+OPEN QUESTIONS FOR OPERATOR (before Phase 1 code): (a) runner cadence — every 15 min vs tie to the existing hourly sysAudit tick; (b) new card placement — append at the very end (safest) vs cluster next to the self-check cards.
+
+NEXT_EXPECTED_FROM_PEER: operator approves the plan (+ answers a/b). NO /status code until then (locked surface). On approval CB builds Phase 1.
+
+PROBE_REFS: backend/routes/statusRoute.js (20 section*()) · frontend/status/index.html (14 cards) · backend/scripts/scheduler.sh (30s loop, HOUR/MIN gates, 5-min .scratch export) · self-tests: devigAnalytics.js + cashoutHedge.js + pinnacleBenchmark.js (require.main===module) · verifyShadowStackIntact (runtime:verify, 21 suites) · forward_clv_slices.json + pinnacle_benchmark_<slate>.json sidecars · `TZ='America/New_York' date` → 2026-06-17 22:34 ET.
