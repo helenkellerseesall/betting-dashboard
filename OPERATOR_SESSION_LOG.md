@@ -5666,3 +5666,29 @@ DECISION FOR OPERATOR: the module + proof exist and touch nothing live. Two opti
 NEXT_EXPECTED_FROM_PEER: operator runs the commit fence (below) + decides A vs B. No further code until that decision.
 
 PROBE_REFS: backend/pipeline/shared/devigAnalytics.js (new) · .scratch/probe_devig_audit.js + .scratch/last.txt · vigStripping.js:9-13,48-59 (PRESERVED) · buildLineShoppingIntelligence.js:144-146 · buildMlbBootstrapSnapshot.js:1156-1163 · buildMlbPlayerDataset.js:205-206,323 (FROZEN median) · buildMlbPropClusters modelProbForSide (R2-FROZEN) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 21:08 ET.
+
+## 2026-06-17 21:38 ET — Claude-B [Cowork] — BUILD: forward-CLV-per-slice TRACKER + /status card. Analytics-only, freeze-safe, NO scoring. Real non-zero output; route serves it end-to-end; runtime:verify 21/21.
+
+ACTION: operationalized "confirm the edge before stakes" — a re-runnable tracker that watches whether the OOS-confirmed CLV+ slices HOLD + firm up as forward graded days accrue, surfaced on /status. show-before-edit honored; diffs shown. NO scoring/selection/PRESERVED touched.
+
+BUILD:
+- NEW backend/scripts/forwardClvSliceTracker.js — reads the graded ledger (13 day-files, 17,497 rows), computes PER SLICE realized mean CLV + n + hit-rate, SPLIT in-sample (slate < cutoff) vs FORWARD (slate ≥ cutoff). Cutoff default 2026-06-17 = the #2 closing-line matcher fix (commit b840a22), env-override FORWARD_CLV_CUTOFF. Writes sidecar backend/runtime/tracking/forward_clv_slices.json (gitignored — regenerated). Confirmed slices ONLY (no fishing): rbis_low (rbis over ≤0.5 = "≥1"), hits_low (hits over ≤0.5), mod_dog (+100..199), low_conf (confidence <0.20), line_shop (live snapshot). Uses devigAnalytics (powerDevigTwoWay + fanduelWeightedConsensus, from 9276e13) for the line-shop slice.
+- backend/routes/statusRoute.js — NEW sectionForwardClvSlices() (reads the sidecar; anti-fabrication: missing file = "not run yet", never faked) + wired into GET / and POST /snapshot.
+- frontend/status/index.html — NEW card #cardForwardClv + renderForwardClv(data) (per-slice table: forward CLV / n / hit% / verdict, color-coded; line-shop line; honest note) + dispatched in loadStatus.
+
+RESULTS (real, current ledger):
+- FORWARD CLV (the only confirmation): rbis_low +0.0055 n=85 HOLD · mod_dog +0.0020 n=191 HOLD · low_conf +0.0028 n=327 HOLD · hits_low +0.0147 n=22 TOO-THIN. All confirmed slices positive on forward CLV; hits_low below the n≥30 verdict floor.
+- hit% = "—" on all forward slices: 1,511 forward rows are clv-stamped but 0 graded yet (grading lags ~1 day). hit% fills after the morning grade. CLV verdicts are live now.
+- line_shop (live slate 2026-06-17): price improvement (best vs FanDuel-weighted consensus, RAW footing) = +1.3pp over 680 props (573 w/ FanDuel) — the shopping edge (matches the prior +0.54pp finding direction).
+
+METHODOLOGY FIX (caught in verify): first line-shop number compared the best VIGGED price to the de-vigged FAIR consensus = just measured the vig (−2.8pp, apples/oranges). Corrected to same-footing price improvement (raw vs raw) = +1.3pp; kept the de-vigged fair edge as a clearly-labeled informational field (−2.8pp ≈ vig; overs aren't +EV vs fair, shopping just cuts the vig).
+
+HONEST NOTES (in the output + the card): CLV is the LEADING indicator, NOT promised profit — H1 ROI was variance-dominated, do not bank magnitude. Forward coverage depends on the #2 fix being DEPLOYED (kickstart) + grading; thin until both, and the card says so.
+
+VERIFY (.scratch → last.txt): syntax OK (tracker, statusRoute, devigAnalytics, + FE <script> via new Function() since node --check is unreliable on .html); renderForwardClv defined+dispatched+card present = true; END-TO-END booted statusRoute in-process + GET /api/ws/status → forwardClvSlices.ok=true generated=true, slices.rbis_low.forward.meanClv=0.0055 served live, real non-zero forward data = YES; NO scoring/PRESERVED file in git diff (only statusRoute.js + frontend/status/index.html; seasonsActive.json shows a pre-existing updatedAt bump — EXCLUDED from the commit); runtime:verify 21/21 PASS.
+
+OPERATOR-VERIFY (the real close — run on your machine): commit fence → kickstart backend (loads the new route) → run the tracker (writes the sidecar) → curl /status to confirm the section → open edge.motel666.com/status to see the "forward edge tracker (CLV)" card. Commands handed in chat.
+
+NEXT_EXPECTED_FROM_PEER: operator commits + runs the tracker + confirms the card. Optional: schedule the tracker nightly right after the 4:00 AM grade (e.g. ~4:15 AM) so the card refreshes daily. Then watch forward CLV firm up + hit% fill as graded days accrue — that's the pre-stakes confirmation gate.
+
+PROBE_REFS: backend/scripts/forwardClvSliceTracker.js (new) · backend/routes/statusRoute.js sectionForwardClvSlices + GET/POST · frontend/status/index.html #cardForwardClv + renderForwardClv · backend/pipeline/shared/devigAnalytics.js (9276e13) · sidecar backend/runtime/tracking/forward_clv_slices.json (gitignored) · .scratch/probe_forward_clv_verify.js + last.txt · #2 fix = commit b840a22 (2026-06-17) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-17 21:38 ET.

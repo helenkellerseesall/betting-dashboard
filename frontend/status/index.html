@@ -220,6 +220,17 @@
   </div>
 </details>
 
+<!-- 5b. forward CLV edge tracker -->
+<details class="card" id="cardForwardClv">
+  <summary><h2>forward edge tracker (CLV)</h2><span class="summaryLine" id="sumForwardClv">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">Watches whether the confirmed CLV+ slices HOLD as new graded days accrue. CLV is the leading indicator, NOT promised profit — only the FORWARD column confirms the edge. hit% fills in after the morning grade. Run <code>node backend/scripts/forwardClvSliceTracker.js</code> to refresh.</div>
+    <div id="forwardClvList">—</div>
+    <div id="forwardClvLineShop" class="legend" style="margin-top:6px">—</div>
+    <div id="forwardClvNote" class="legend" style="margin-top:4px"></div>
+  </div>
+</details>
+
 <!-- 6. open issues right now -->
 <details class="card" id="cardOpenIssues">
   <summary><h2>open issues right now</h2><span class="summaryLine" id="sumOpenIssues">…</span></summary>
@@ -790,6 +801,51 @@ function renderClv(data) {
   _setSummary("sumClv", fmtSport(nba, "NBA") + " · " + fmtSport(mlb, "MLB"));
 }
 
+// Forward edge tracker (CLV) — renders the forward_clv_slices sidecar. Honest: forward column is
+// the only confirmation; hit% blank until graded; CLV ≠ promised profit.
+function renderForwardClv(data) {
+  const f = data.forwardClvSlices;
+  const list = document.getElementById("forwardClvList");
+  const ls = document.getElementById("forwardClvLineShop");
+  const note = document.getElementById("forwardClvNote");
+  if (!f || !f.ok) { list.innerHTML = '<div class="err">tracker unavailable</div>'; _setSummary("sumForwardClv", "unavailable"); return; }
+  if (f.generated === false) { list.innerHTML = '<div class="legend">' + (f.note || "not generated yet") + '</div>'; _setSummary("sumForwardClv", "not run yet"); ls.textContent = ""; note.textContent = ""; return; }
+
+  const LABELS = { rbis_low: "RBIs ≥1 (obtainable)", hits_low: "Hits ≥1 (obtainable)", mod_dog: "Moderate dog (+100..199)", low_conf: "Low model-confidence (<.20)" };
+  const VCOLOR = { hold: "var(--green)", flip: "var(--red)", "too-thin": "var(--text-faint)", flat: "var(--text-faint)" };
+  const slices = f.slices || {};
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  html += '<tr style="color:var(--text-faint)"><td>slice</td><td style="text-align:right">forward CLV</td><td style="text-align:right">n</td><td style="text-align:right">hit%</td><td style="text-align:right">verdict</td></tr>';
+  let holds = 0, total = 0;
+  for (const key of ["rbis_low", "hits_low", "mod_dog", "low_conf"]) {
+    const s = slices[key]; if (!s) continue;
+    total++;
+    const fw = s.forward || {};
+    const clv = fw.meanClv == null ? "—" : (fw.meanClv >= 0 ? "+" : "") + fw.meanClv;
+    const hit = fw.hitRatePct == null ? "—" : fw.hitRatePct + "%";
+    const v = s.verdict || "—";
+    if (v === "hold") holds++;
+    html += '<tr><td>' + (LABELS[key] || key) + '</td>'
+      + '<td style="text-align:right;color:' + (fw.meanClv > 0 ? "var(--green)" : fw.meanClv < 0 ? "var(--red)" : "var(--text)") + '">' + clv + '</td>'
+      + '<td style="text-align:right">' + (fw.n ?? "—") + '</td>'
+      + '<td style="text-align:right">' + hit + '</td>'
+      + '<td style="text-align:right;color:' + (VCOLOR[v] || "var(--text)") + '">' + v + '</td></tr>';
+  }
+  html += '</table>';
+  list.innerHTML = html;
+
+  const sh = f.lineShop;
+  if (sh && sh.available && sh.priceImprovement) {
+    const pi = sh.priceImprovement;
+    ls.innerHTML = 'line-shop (live slate ' + (sh.slateDate || "—") + '): best vs FanDuel-weighted consensus = <strong>' + (pi.meanEdgePp == null ? "—" : "+" + pi.meanEdgePp + "pp") + '</strong> over ' + pi.nProps + ' props — the price-shopping edge.';
+  } else { ls.textContent = "line-shop: live snapshot unavailable"; }
+
+  note.textContent = 'forward = slate ≥ ' + (f.cutoff || "?") + ' (the closing-line fix). '
+    + (f.forwardGradedRows || 0) + ' graded so far → hit% fills after the morning grade. CLV is the leading indicator, not promised profit.';
+
+  _setSummary("sumForwardClv", holds + "/" + total + " slices holding · " + (f.forwardGradedRows || 0) + " graded");
+}
+
 function renderAutopilots(data) {
   const fires = data.autopilotFiresToday;
   const slates = data.slateFiresToday;
@@ -1195,6 +1251,7 @@ async function loadStatus() {
     renderSchedule(data);
     renderBackend(data);
     renderClv(data);
+    renderForwardClv(data);
     renderAutopilots(data);
     renderTrackedBest(data);
     renderCalibration(data);

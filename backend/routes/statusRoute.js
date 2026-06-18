@@ -1424,6 +1424,25 @@ function sectionSportsActive() {
   }
 }
 
+// Forward-CLV-per-slice tracker card (analytics; "confirm the edge before stakes").
+// Reads the sidecar that backend/scripts/forwardClvSliceTracker.js writes — same "section reads a
+// file a script writes" doctrine as the rest of /status. NO scoring/selection touched. Anti-
+// fabrication: a missing sidecar is its own finding ("not generated yet"), never defaulted to data.
+function sectionForwardClvSlices() {
+  try {
+    const p = path.join(TRACKING_DIR, "forward_clv_slices.json")
+    if (!fs.existsSync(p)) {
+      return { ok: true, generated: false, note: "tracker not run yet — run backend/scripts/forwardClvSliceTracker.js" }
+    }
+    const j = safeReadJson(p)
+    if (!j) return { ok: false, error: "forward_clv_slices.json unreadable/corrupt" }
+    const stat = fs.statSync(p)
+    return Object.assign({ ok: true, generated: true, ageMin: Math.round((Date.now() - stat.mtime.getTime()) / 60000) }, j)
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Route handler — aggregate every section, all wrapped
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1444,6 +1463,7 @@ router.get("/", (req, res) => {
   out.sysAuditLast      = sectionSysAuditLast()
   out.driftAlertsTail   = sectionDriftAlertsTail(10)
   out.clvCaptureToday   = sectionClvCaptureToday()
+  out.forwardClvSlices  = sectionForwardClvSlices()
   out.slateFiresToday   = sectionSlateFiresToday()
   out.autopilotFiresToday = sectionAutopilotFiresToday()
   out.familyCalibration = sectionFamilyCalibration()
@@ -1478,6 +1498,7 @@ router.post("/snapshot", (req, res) => {
     out.sysAuditLast      = sectionSysAuditLast()
     out.driftAlertsTail   = sectionDriftAlertsTail(10)
     out.clvCaptureToday   = sectionClvCaptureToday()
+    out.forwardClvSlices  = sectionForwardClvSlices()
     out.slateFiresToday   = sectionSlateFiresToday()
     out.autopilotFiresToday = sectionAutopilotFiresToday()
     out.familyCalibration = sectionFamilyCalibration()
