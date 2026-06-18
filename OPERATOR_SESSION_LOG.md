@@ -5997,3 +5997,22 @@ OPERATOR-RUN (live per-park; dedicated file, NOT last.txt which the /status auto
 NEXT_EXPECTED_FROM_PEER: operator runs the tee'd fence; CA reads .scratch/airdensity_verify.txt for per-park sanity. Optional after: add to the nightly chain after the weather refresh. Wiring airDensity into scoring (or populating parkContext.altitudeFt) = post-freeze + forward-CLV-gated.
 
 PROBE_REFS: backend/scripts/deriveMlbAirDensity.js (new staging) · .scratch/probe_airdensity.js + .scratch/airdensity_probe.txt (13/13) · refreshMlbWeatherForSlate.js (live ingest, mlbGameWeather.json) + deriveMlbParkContext.js:75 (altitudeFt null, unread) untouched · Open-Meteo 403 from sandbox · slateDate → 2026 · docs/MLB_BLUEPRINT_GAP_AUDIT.md §5 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 02:36 ET.
+
+## 2026-06-18 03:05 ET — Claude-B [Cowork] — BUILD: ingestion #30 pitcher FIP/xFIP/SIERA/xERA/LOB%/HR9 — NEW staging deriveMlbPitcherFip.js (FanGraphs type=8, CA-verified). Parser 13/13. Additive (zero consumer; live pitcher-stats UNTOUCHED). runtime:verify 21/21. Live coverage = OPERATOR-RUN (FanGraphs 403 from sandbox).
+
+AUDIT (live path confirmed): refreshMlbPitcherStats.js → data/mlbPitcherStats.json (kRate/bbRate/k9/whip/era) is LIVE + SCORING-CONSUMED (buildMlbPitcherKsProbabilityEngine, buildMlbHitsProbabilityEngine, buildMlbHrPredictionCandidates, applyMlbContextualLayers) → DO NOT TOUCH (untouched, confirmed in diff). FIP/xFIP/SIERA/xERA/kwERA exist NOWHERE (grep empty) → gap real, new fields not scoring-consumed.
+
+BUILD (separate staging; same pattern as Statcast/handedness/air-density):
+- NEW backend/scripts/deriveMlbPitcherFip.js → backend/data/mlbPitcherFip.json (per pitcher: fip, xfip, siera, xera, lobPct[decimal], hr9, kwera, playerName, playerId). Source = FanGraphs leaders JSON: https://www.fangraphs.com/api/leaders/major-league/data?stats=pit&type=8&qual=0&pageitems=2000&season=<ET year>&season1=<ET year>&... Response .data array; parse EXACT CA-verified keys "FIP"/"xFIP"/"SIERA"/"xERA"/"LOB%"/"HR/9"/"kwERA"/"PlayerName"; playerId via /playerid=(\d+)/ from the "Name" HTML; join by canonNameKey(PlayerName). Browser User-Agent header (CA caveat: FanGraphs 403s bare fetch). ANTI-FAB: key absent → null. Season from slateDate.
+- Zero live consumer. refreshMlbPitcherStats.js untouched. Wiring into scoring = post-freeze + forward-CLV-gated.
+
+PROVE (.scratch/fip_probe.txt): node --check OK. Parser 13/13 PASS on a realistic .data sample — exact keys (FIP 2.85/xFIP 3.10/SIERA 3.05/xERA 2.95), LOB% decimal 0.812 passthrough, HR/9→hr9, kwERA→kwera, playerId parsed from Name HTML (24665), anti-fab (Webb missing kwERA→null; No-Stats-Guy all metrics null but playerId still parsed), canonNameKey. consumers of mlbPitcherFip = 0; refreshMlbPitcherStats NOT in diff; runtime:verify 21/21 PASS. Gap-audit §1 updated.
+HONEST: parser proven; REAL ≥80% coverage + sane medians is OPERATOR-RUN — FanGraphs 403 'network allowlist' from sandbox (browser-UA didn't help here; CA's managed fetch worked). Not claiming ingested until your run.
+
+OPERATOR-RUN (live; dedicated file, NOT last.txt — /status autoticker clobbers it):
+  cd ~/Projects/betting-dashboard && node backend/scripts/deriveMlbPitcherFip.js 2>&1 | tee .scratch/fip_verify.txt
+  → prints season 2026, key mapping, pitcher count, coverage (FIP/xFIP/SIERA/xERA/LOB%/HR9 %), median sanity (FIP/xFIP/SIERA ~3.5-4.5, LOB% ~.70-.75, HR/9 ~1.0-1.5); writes backend/data/mlbPitcherFip.json. SUCCESS = ≥80% coverage + sane medians. If a key mapped null in the printed mapping → paste it, CB fixes.
+
+NEXT_EXPECTED_FROM_PEER: operator runs the tee'd fence; CA reads .scratch/fip_verify.txt for coverage + medians. Optional after: add to nightly chain. Wiring into scoring = post-freeze + forward-CLV-gated.
+
+PROBE_REFS: backend/scripts/deriveMlbPitcherFip.js (new staging) · .scratch/probe_pitcher_fip.js + .scratch/fip_probe.txt (13/13) · FanGraphs leaders type=8 (CA-verified keys) · refreshMlbPitcherStats.js LIVE+scoring-consumed, untouched · FanGraphs 403 from sandbox · slateDate → 2026 · docs/MLB_BLUEPRINT_GAP_AUDIT.md §1 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 03:05 ET.

@@ -17,10 +17,10 @@ Legend: **HAVE** (present, file:field) · **PARTIAL** (present but weak/heuristi
 |---|---|---|
 | K% (kRate), BB% (bbRate) | **HAVE** | `refreshMlbPitcherStats.js:197-198` (strikeOuts/walks ÷ battersFaced) |
 | WHIP, ERA | **HAVE** | `refreshMlbPitcherStats.js:200-201` |
-| FIP, xFIP, SIERA, xERA, LOB%, HR/9 | **MISSING** | none in repo (sabermetric grep = substring false-positives only) |
+| FIP, xFIP, SIERA, xERA, LOB%, HR/9 (+ kwERA) | **HAVE (staging, unwired — operator-confirms coverage)** | NEW `deriveMlbPitcherFip.js` (2026-06-18) → `backend/data/mlbPitcherFip.json`. FanGraphs leaders API (stats=pit, type=8, qual=0, pageitems=2000), exact keys FIP/xFIP/SIERA/xERA/"LOB%"(decimal)/"HR/9"/kwERA/PlayerName, playerid parsed from the Name HTML; join by canonNameKey. **Zero live consumer**; live `refreshMlbPitcherStats.js` (kRate/bbRate/whip/era — scoring-consumed) UNTOUCHED. Wire post-freeze. FanGraphs 403 from sandbox → live coverage operator-run. |
 
-Have the basic/result-based four; **all fielding-independent metrics absent**. INGEST-SAFE.
-Source: FanGraphs / pybaseball (`pitching_stats`) for FIP/xFIP/SIERA/xERA/LOB%/HR9.
+Have the basic/result-based four LIVE; the fielding-independent metrics now exist as a STAGING ingest
+(parser proven, coverage operator-confirmed). Source: FanGraphs leaders API type=8 (CA-verified).
 
 ## 2. BULLPEN
 | Metric | Status | Where / note |
