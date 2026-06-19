@@ -6114,3 +6114,26 @@ OPTIONAL FOLLOW-UP (flagged, NOT built): add a "forward-capture" freshness check
 NEXT_EXPECTED_FROM_PEER: operator commits + (scheduler reads scheduler.sh fresh per loop tick, so the new block is live on next tick — NO restart needed for the loop; but confirm the scheduler LaunchAgent is the long-running process). TOMORROW ~10:30 AM ET: confirm a new signal_capture_<date>.json appears + the 4 staging files refreshed. Re-run signalClvBacktest as forward days accrue.
 
 PROBE_REFS: backend/scripts/scheduler.sh Phase Forward-Capture-Chain-1A (10:30 ET, sport_on mlb) · captureSignalSnapshot.js (graceful no-op exit 0) · deriveMlbAirDensity.js (no-clobber guard) · verifySeasonGate.js (MLB blocks 3→4) · .scratch/capture_chain_verify.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-19 02:58 ET.
+
+## 2026-06-19 03:27 ET — Claude-B [Cowork] — HARDEN: forward-capture STALENESS GUARD + /status forward-capture check. Stale signals never stamped as as-of-bet; capture health now visible on /status. Both paths proven. runtime:verify 21/21. Capture-script + display/infra only; no scoring/PRESERVED.
+
+PROBLEM FIXED: the chain continued past a failed derivation, so captureSignalSnapshot stamped DAY-OLD staging values silently (dry-run: 3 derivations 403'd yet 1,033 bets got stamped off stale staging). Now stale = skipped + flagged, never passed through.
+
+BUILD:
+1. captureSignalSnapshot.js — STALENESS GUARD: a staging file is FRESH only if its mtime resolves to TODAY's ET slate (slateDateForTimestamp(mtime)===currentSlateDateEt) — i.e. the derivation rewrote it this cycle (on a 403 it exits before writing → mtime stays old → STALE). Per signal: stamp ONLY if fresh; else null + entry._<sig>Stale=true + staleSkipped++ (never stamp stale). Writes a top-level _meta {signalFreshness, stamped, staleSkipped, anyStale, allStale, betsStamped}. If ALL signals stale → logs a clear failure + exit 1 (file still written with _meta.allStale so /status sees it). Added SIGNAL_CAPTURE_DATA_DIR / SIGNAL_CAPTURE_TRACKING_DIR test overrides.
+2. componentHealthCheck.js — NEW forwardCapture check (added to the order; same pattern as closingLineCapture): reads the newest signal_capture_<date>.json _meta. GREEN = captured today, all signals fresh · STALE(amber) = partial (some stale-skipped) OR no capture today yet but past 10:30 ET window · FAIL(red) = captured today but _meta.allStale (vendor refresh failed) OR past-window + slate + no capture file ever. NO-GAMES-AWARE: off-day (no slate) or pre-10:30-ET window = idle-GREEN. Reads only capture sidecars (+ ledger for off-day) — never re-derives staging.
+3. frontend/status/index.html — added forwardCapture (+ closingLineCapture/contextPersistence) to the renderComponentHealth LABELS map → "forward signal-capture" row (renderComponentHealth already iterates components generically).
+
+PROVE (.scratch/capture_guard_verify.txt; isolated /tmp dirs, real files untouched):
+(a) FRESH staging (mtime today) → STAMPED: b1 statcastQuality 0.42, opposingPitcherFip 2.8, airDensity stamped; p1 pitcherFip 2.8; _meta.allStale=false, staleSkipped {0,0,0}, freshness {true,true,true}. exit 0.
+(b) FORCED STALE (mtime 3 days old) → STALE-SKIPPED, NOT stamped: b1 statcastQuality=null + _statcastStale=true, oppPitcherFip=null; _meta.allStale=true, anyStale=true, staleSkipped {statcast 1, fip 2, air 1}, stamped {0,0,0}; exit 1 (clear failure). Stale values were NOT recorded as as-of-bet.
+(c) /status forwardCapture states: GREEN "captured today: 13 bets, all signals fresh"; STALE "PARTIAL — stale-skipped statcast 5"; FAIL "ALL signals STALE — vendor refresh failed". All correct.
+- node --check (capture + componentHealth) OK; FE <script> OK + forwardCapture label present. runtime:verify 21/21 PASS. scoring/PRESERVED in diff: 0.
+
+RENDER-CHECK (Chrome, live edge.motel666.com/status): component-health card renders cleanly (no breakage); backend c87238b confirms the operator committed the prior scheduler-chain task. Card currently shows 8 components — forwardCapture is uncommitted here + the runner is STALE OVERNIGHT BY DESIGN (it's 03:26 ET; the componentHealthCheck scheduler gate is active-hours 9–23 only, so component_health.json doesn't refresh overnight). The forwardCapture row will appear after the operator commits this + the runner next fires (≥9 AM ET). Operator/CA confirm post-9AM (same post-deploy pattern as the drift-severity render-check).
+
+NOTE (pre-guard capture file): the existing signal_capture_2026-06-18.json from the earlier chain dry-run has no _meta → the new /status check reports it STALE ("pre-guard file — re-run capture"). Self-heals on the next 10:30 chain run (writes _meta). Correct/honest.
+
+NEXT_EXPECTED_FROM_PEER: operator commits; after 9 AM the runner refreshes component_health.json → forwardCapture row visible; tomorrow's 10:30 chain writes a _meta capture → forwardCapture GREEN if vendors reachable, FAIL if a refresh died (no more silent stale stamping).
+
+PROBE_REFS: captureSignalSnapshot.js (staleness guard + _meta + test overrides) · componentHealthCheck.js checkForwardCapture + order · frontend/status/index.html LABELS · .scratch/capture_guard_verify.txt (a/b/c) · live /status render-check (card renders; forwardCapture post-deploy + post-9AM) · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-19 03:27 ET.

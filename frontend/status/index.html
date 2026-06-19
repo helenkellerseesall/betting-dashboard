@@ -875,7 +875,7 @@ function renderComponentHealth(data) {
   if (f.generated === false) { list.innerHTML = '<div class="legend">' + (f.note || "runner not run yet") + '</div>'; _setSummary("sumComponentHealth", "not run yet"); note.textContent = ""; return; }
   const COLORS = { green: "var(--green)", stale: "var(--yellow)", fail: "var(--red)", "not-run": "var(--text-faint)" };
   const DOT = { green: "●", stale: "●", fail: "●", "not-run": "○" };
-  const LABELS = { devigAnalytics: "devigAnalytics", cashoutHedge: "cashoutHedge", pinnacleBenchmarkSelfTest: "pinnacleBenchmark self-test", shadowStack: "shadow stack", pinnacleSidecar: "Pinnacle sidecar", forwardClvTracker: "forward-CLV tracker" };
+  const LABELS = { devigAnalytics: "devigAnalytics", cashoutHedge: "cashoutHedge", pinnacleBenchmarkSelfTest: "pinnacleBenchmark self-test", shadowStack: "shadow stack", pinnacleSidecar: "Pinnacle sidecar", forwardClvTracker: "forward-CLV tracker", closingLineCapture: "closing-line capture", contextPersistence: "context persistence", forwardCapture: "forward signal-capture" };
   const runnerStale = f.runnerStale === true;   // whole runner stopped → downgrade greens
   const comps = f.components || {};
   let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';

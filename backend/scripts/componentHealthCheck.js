@@ -128,6 +128,44 @@ function checkContextPersistence() {
 }
 checkContextPersistence()
 
+// Forward-capture freshness — newest signal_capture_<date>.json + its _meta (the authoritative
+// record captureSignalSnapshot writes of which signals were FRESH when stamped). NO-GAMES-AWARE:
+// off-day or before the ~10:30 ET chain window = idle-green (not red). GREEN = captured today, all
+// signals fresh · AMBER(stale) = partial stale-skip OR no capture today yet (past window) · RED(fail)
+// = captured today but ALL signals stale (vendor refresh failed), or past window with a slate + no
+// capture ever. Reads only the capture sidecars (+ ledger for off-day) — never re-derives staging.
+const CAPTURE_WINDOW_ET = 10 * 60 + 45   // chain fires 10:30 ET; 15-min grace
+function etMinutesNow() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(now))
+  const h = Number(parts.find((p) => p.type === "hour").value), m = Number(parts.find((p) => p.type === "minute").value)
+  return h * 60 + m
+}
+function checkForwardCapture() {
+  const today = currentSlateDateEt()
+  let files
+  try { files = fs.readdirSync(TRACKING).filter((f) => /^signal_capture_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort() } catch (_) { files = [] }
+  const newest = files[files.length - 1] || null
+  const newestDate = newest ? newest.slice("signal_capture_".length, "signal_capture_".length + 10) : null
+  const preWindow = etMinutesNow() < CAPTURE_WINDOW_ET
+  const L = latestLedger()
+  const hasSlate = !!(L && L.rows && L.rows.length)
+
+  if (newestDate === today) {
+    let j; try { j = JSON.parse(fs.readFileSync(path.join(TRACKING, newest), "utf8")) } catch (_) { j = null }
+    const m = j && j._meta
+    if (!m) return set("forwardCapture", "stale", `capture for ${today} present but no _meta (pre-guard file) — re-run capture`, "wired")
+    if (m.allStale) return set("forwardCapture", "fail", `captured ${today} (${m.betsStamped} bets) but ALL signals STALE — vendor refresh failed, nothing fresh stamped`, "wired")
+    if (m.anyStale) return set("forwardCapture", "stale", `captured ${today} (${m.betsStamped} bets) PARTIAL — stale-skipped statcast ${m.staleSkipped.statcast}/fip ${m.staleSkipped.fip}/air ${m.staleSkipped.air}`, "wired")
+    return set("forwardCapture", "green", `captured ${today}: ${m.betsStamped} bets, all signals fresh (statcast ${m.stamped.statcast}, fip ${m.stamped.fip}, air ${m.stamped.air})`, "wired")
+  }
+  // no capture for today yet
+  if (preWindow) return set("forwardCapture", "green", `idle — chain fires ~10:30 ET; last capture ${newestDate || "none"}`, "wired")
+  if (!hasSlate) return set("forwardCapture", "green", `idle — no slate today (nothing to capture); last capture ${newestDate || "none"}`, "wired")
+  if (!newestDate) return set("forwardCapture", "fail", `past 10:30 ET with a slate but NO signal_capture file ever — chain not running`, "wired")
+  return set("forwardCapture", "stale", `past 10:30 ET but no capture for ${today} — newest is ${newestDate}; chain may have missed/failed`, "wired")
+}
+checkForwardCapture()
+
 // ── write sidecar + console ──
 const summary = { green: 0, stale: 0, fail: 0, "not-run": 0 }
 for (const c of Object.values(components)) summary[c.state] = (summary[c.state] || 0) + 1
@@ -140,7 +178,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
