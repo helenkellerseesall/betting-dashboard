@@ -132,12 +132,14 @@ check("slateNba requires seasonGate", n.requires)
 check("slateNba gate present", n.gateIdx > -1)
 check("slateNba gate BEFORE first network step", n.gateIdx > -1 && n.firstStepIdx > -1 && n.gateIdx < n.firstStepIdx)
 
-// 4. scheduler.sh: exactly 6 NBA + 3 MLB gated blocks; grading/settlement/audit ungated.
+// 4. scheduler.sh: exactly 6 NBA + 4 MLB gated blocks; grading/settlement/audit ungated.
+// (4th MLB block added 2026-06-18 = Phase Forward-Capture-Chain-1A, the 10:30 AM forward signal-
+//  capture chain — MLB-season-gated like the 3 nightly populators.)
 const sched = fs.readFileSync(SCHEDULER, "utf8")
 const countOf = (s) => (sched.match(new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length
 check("sport_on() helper defined", /sport_on\(\)\s*\{/.test(sched))
 check("exactly 6 NBA blocks gated", countOf("&& sport_on nba") === 6)
-check("exactly 3 MLB blocks gated", countOf("&& sport_on mlb") === 3)
+check("exactly 4 MLB blocks gated", countOf("&& sport_on mlb") === 4)
 // negative assertions — these sport-agnostic jobs must NOT be season-gated.
 const lineWith = (needle) => sched.split("\n").find(l => l.includes(needle)) || ""
 check("grading:backfill-all NOT gated", !/sport_on/.test(lineWith('if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 4 ]')))

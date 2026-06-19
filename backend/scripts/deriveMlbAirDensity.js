@@ -129,9 +129,17 @@ async function main() {
       derivedAt: new Date().toISOString(),
     }
   }
+  const rows = Object.entries(out).filter(([, v]) => v.airDensity != null).map(([eid, v]) => ({ eid, ...v }))
+  // DON'T clobber a good prior file on total network failure (e.g. Open-Meteo unreachable / blip):
+  // if nothing computed, leave the existing staging file intact and exit non-zero (visible in the
+  // scheduler log). Only overwrite when we actually have ≥1 real airDensity. (Matches the other
+  // derivations, which exit before writing on a 403.)
+  if (rows.length === 0) {
+    console.error(`[air-density] 0/${eventIds.length} parks computed (net fails: ${netFail}) — NOT overwriting ${OUT} (preserving prior good staging). Likely Open-Meteo unreachable from this host.`)
+    process.exit(1)
+  }
   fs.writeFileSync(OUT, JSON.stringify(out, null, 2))
 
-  const rows = Object.entries(out).filter(([, v]) => v.airDensity != null).map(([eid, v]) => ({ eid, ...v }))
   console.log(`\n[air-density] computed airDensity for ${rows.length}/${eventIds.length} parks  (net fails: ${netFail})`)
   if (netFail === eventIds.length) {
     console.error("[air-density] ALL fetches failed — Open-Meteo likely allowlist-blocked from this host. Run on the operator machine.")

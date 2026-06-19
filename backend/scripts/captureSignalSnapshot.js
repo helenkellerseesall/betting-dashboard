@@ -35,8 +35,11 @@ const pick = (o, fields) => { if (!o) return null; const r = {}; let any = false
 
 function main() {
   const betsFile = path.join(TRACKING, `mlb_tracked_bets_${SLATE}.json`)
-  if (!fs.existsSync(betsFile)) { console.error(`[signal-capture] no tracked bets for slate ${SLATE}: ${betsFile}`); process.exit(1) }
+  // Graceful no-op (exit 0) when there are no tracked bets yet / empty slate (off-day or pre-slate)
+  // — nothing to capture is HEALTHY, not an error; must NOT crash the scheduler chain.
+  if (!fs.existsSync(betsFile)) { console.log(`[signal-capture] no tracked-bets file for slate ${SLATE} (empty slate / pre-slate) — no-op.`); process.exit(0) }
   const bj = readJson(betsFile); const bets = Array.isArray(bj) ? bj : (bj?.bets || bj?.rows || [])
+  if (!bets.length) { console.log(`[signal-capture] 0 tracked bets for slate ${SLATE} — no-op (nothing to capture).`); process.exit(0) }
   const statcast = readJson(path.join(DATA, "mlbStatcastQuality.json")) || {}
   const fip = readJson(path.join(DATA, "mlbPitcherFip.json")) || {}
   const air = readJson(path.join(DATA, "mlbAirDensity.json")) || {}

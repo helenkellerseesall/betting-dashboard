@@ -6089,3 +6089,28 @@ OPERATOR-RUN (live; dedicated file, NOT last.txt):
 NEXT_EXPECTED_FROM_PEER: operator runs the tee'd fence; CA reads .scratch/bullpen_verify.txt for team coverage + medians. Optional: add to nightly chain. Wiring into scoring = post-freeze + forward-CLV-gated (and it'll flow through #31's forward signal-capture once a consumer exists).
 
 PROBE_REFS: backend/scripts/deriveMlbBullpenQuality.js (new staging) · .scratch/probe_bullpen_quality.js + .scratch/bullpen_probe.txt (13/13) · FanGraphs leaders stats=rel type=8 (CA-verified keys) · live deriveMlbBullpenContext/refreshMlbBullpenWorkload + buildSlipAi/buildFeaturedPlays (PRESERVED) untouched · FanGraphs 403 from sandbox · slateDate → 2026 · docs/MLB_BLUEPRINT_GAP_AUDIT.md §2 · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-18 04:12 ET.
+
+## 2026-06-19 02:58 ET — Claude-B [Cowork] — BUILD: wired the FORWARD-CAPTURE CHAIN into scheduler.sh (the forward clock is now autonomous). Once-daily 10:30 AM ET, MLB-season-gated. Dry-run end-to-end OK (fresh signal_capture written). runtime:verify 21/21. Infra-only; no scoring/PRESERVED.
+
+PROBLEM FIXED: none of the 4 staging derivations nor captureSignalSnapshot were in scheduler.sh — only the one manual 06-17 capture existed. Now autonomous.
+
+BUILD (scheduler.sh — Phase Forward-Capture-Chain-1A, mirrors the once-daily populator blocks):
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 10 ] && sport_on mlb; then   (10:30 AM ET, AFTER the 9:00/10:00 slate:mlb built mlb_tracked_bets_<slate>.json)
+    for fc_step in deriveMlbStatcastQuality deriveMlbAirDensity deriveMlbPitcherFip deriveMlbBullpenQuality captureSignalSnapshot; do
+      node /full/path/$fc_step.js >> LOG  → log "  forward-capture: $fc_step OK" | on failure "FAILED (exit $?) — vendor/network or no-data; chain continues"
+  → refresh all 4 staging files, THEN stamp fresh values onto the day's bets (signal_capture_<slate>.json). Full node paths pinned (house style). MLB-gated via the existing sport_on exit-code guard. Each step log+continue — one failure NEVER crashes the loop. Vendor-unreachable under the LaunchAgent logs FAILED (visible), never silently skipped.
+
+AUDIT NOTE (empty-slate behavior): hardened captureSignalSnapshot.js to NO-OP gracefully (exit 0 + message) when the tracked-bets file is missing OR empty (off-day / pre-slate) — was exit 1. Proven: `captureSignalSnapshot.js 2099-01-01` → exit 0.
+
+PROVE (.scratch/capture_chain_verify.txt): bash -n scheduler.sh OK. END-TO-END dry-run of the 5-step sequence (sandbox 403s the vendors, as expected): deriveMlbStatcastQuality/PitcherFip/BullpenQuality FAILED (HTTP 403 allowlist — they exit 1 BEFORE writing, so good staging preserved), captureSignalSnapshot OK → wrote a FRESH signal_capture_2026-06-18.json (mtime before=0/absent → after=now; 1033 bets stamped). So the chain produces a fresh capture file even when refreshes can't reach vendors (capture uses the existing staging). On the operator's machine (network reachable, manual runs worked) all 5 succeed. REAL proof = operator-confirmable tomorrow: a new signal_capture_<date>.json appears automatically ~10:30 AM.
+- runtime:verify: caught + fixed a regression — verifySeasonGate asserts "exactly N MLB blocks gated"; my new gated block made it 4, so I bumped the fixture 3→4 (legit: the chain IS MLB-season-gated like the 3 populators) + comment. Now 21/21 PASS.
+
+SIDE-EFFECT (flagged, self-healing): the dry-run's deriveMlbAirDensity ran in-sandbox (Open-Meteo 403) and — because it wrote-then-reported — CLOBBERED backend/data/mlbAirDensity.json with null airDensity (12 events). HARDENED it: now if 0/N parks compute (total network failure), it exits 1 WITHOUT writing (preserves prior good staging), matching the other derivations. The currently-nulled file self-heals on the operator's next run / tomorrow's 10:30 chain (gitignored staging). statcast/fip/bullpen files intact (254/691/32 keys).
+
+HARD CONSTRAINTS MET: scheduler/infra only; the chained scripts are the existing additive zero-consumer staging + capture; nothing wired into scoring; PRESERVED untouched; runtime:verify 21/21.
+
+OPTIONAL FOLLOW-UP (flagged, NOT built): add a "forward-capture" freshness check to /status component-health (newest signal_capture_<date>.json age) so a silent capture gap shows up like the closing-line check. Later pass.
+
+NEXT_EXPECTED_FROM_PEER: operator commits + (scheduler reads scheduler.sh fresh per loop tick, so the new block is live on next tick — NO restart needed for the loop; but confirm the scheduler LaunchAgent is the long-running process). TOMORROW ~10:30 AM ET: confirm a new signal_capture_<date>.json appears + the 4 staging files refreshed. Re-run signalClvBacktest as forward days accrue.
+
+PROBE_REFS: backend/scripts/scheduler.sh Phase Forward-Capture-Chain-1A (10:30 ET, sport_on mlb) · captureSignalSnapshot.js (graceful no-op exit 0) · deriveMlbAirDensity.js (no-clobber guard) · verifySeasonGate.js (MLB blocks 3→4) · .scratch/capture_chain_verify.txt · runtime:verify 21/21 · `TZ='America/New_York' date` → 2026-06-19 02:58 ET.

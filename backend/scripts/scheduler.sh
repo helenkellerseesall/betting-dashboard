@@ -355,6 +355,27 @@ while true; do
     fired=true
   fi
 
+  # Phase Forward-Capture-Chain-1A (2026-06-18) — once-daily FORWARD signal-capture chain at 10:30 AM
+  # ET, AFTER the morning slate:mlb (9:00/10:00) has built mlb_tracked_bets_<slate>.json. Refresh the
+  # 4 additive zero-consumer staging derivations, THEN stamp their fresh values onto the day's tracked
+  # bets (signal_capture_<slate>.json) — the forward, no-lookahead clock for ingestion #31. MLB-season-
+  # gated; each step log+continue so one failure never crashes the loop. These pull FanGraphs/Savant/
+  # Open-Meteo — if the LaunchAgent context can't reach a vendor, the step logs FAILED here (visible on
+  # the log / future /status check), NEVER silently skipped. captureSignalSnapshot no-ops gracefully
+  # (exit 0) on an empty/pre-slate day. Additive/infra only — no scoring/PRESERVED touch.
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 10 ] && sport_on mlb; then
+    log "forward-capture chain starting (4 staging refreshes + signal capture)..."
+    for fc_step in deriveMlbStatcastQuality deriveMlbAirDensity deriveMlbPitcherFip deriveMlbBullpenQuality captureSignalSnapshot; do
+      if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/${fc_step}.js >> "$LOG" 2>&1; then
+        log "  forward-capture: ${fc_step} OK"
+      else
+        log "  forward-capture: ${fc_step} FAILED (exit $?) — vendor/network or no-data; chain continues"
+      fi
+    done
+    log "forward-capture chain done"
+    fired=true
+  fi
+
   if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 3 ] && sport_on nba; then
     log "deriveNbaDvP starting (nightly autopilot)"
     if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/deriveNbaDvP.js >> "$LOG" 2>&1; then
