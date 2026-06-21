@@ -1478,10 +1478,14 @@ function sectionComponentHealth() {
     const j = safeReadJson(p)
     if (!j) return { ok: false, error: "component_health.json unreadable/corrupt" }
     const ageMin = Math.round((Date.now() - fs.statSync(p).mtimeMs) / 60000)
-    // Runner cadence is ~15 min; if the file itself is older than 40 min the runner stopped —
-    // the whole card is then "stale" regardless of the per-component states it last wrote.
-    const runnerStale = ageMin > 40
-    return Object.assign({ ok: true, generated: true, ageMin, runnerStale }, j)
+    // Runner cadence is ~15 min, BUT the scheduler gate is active-hours only (9 AM–11 PM ET), so the
+    // runner is PAUSED 11 PM–9 AM BY DESIGN — an old file overnight is EXPECTED, not a failure.
+    // Distinguish: runnerStale (real, active-hours stall) vs runnerPausedOvernight (expected pause).
+    const etHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }).format(new Date())) % 24
+    const activeHours = etHour >= 9 && etHour <= 23
+    const runnerPausedOvernight = !activeHours && ageMin > 40
+    const runnerStale = activeHours && ageMin > 40
+    return Object.assign({ ok: true, generated: true, ageMin, runnerStale, runnerPausedOvernight, activeHours, etHour }, j)
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }
   }

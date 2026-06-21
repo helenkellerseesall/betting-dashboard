@@ -320,9 +320,16 @@ async function main() {
       const stamp = w.clvStampRate != null ? `${(w.clvStampRate * 100).toFixed(1)}%` : "—"
       const hit = w.hitRate != null ? `${(w.hitRate * 100).toFixed(1)}%` : "—"
       const beat = w.beatMarketRate != null ? `${(w.beatMarketRate * 100).toFixed(1)}%` : "—"
+      // Season/no-games-aware severity (2026-06-21, mirrors the 04f05be calibration fix): a DORMANT
+      // sport (season OFF) or one with 0 picks in the window has nothing to CLV-stamp — that is IDLE,
+      // not a failure → informational (I), never RED. A LIVE sport WITH picks but low/zero stamping is
+      // a real capture failure → keep the W/F bands. (Fixes the hourly "NBA: 0 picks · CLV —" RED.)
+      const dormant = !isSportEnabled(sport)
+      const noPicks = !(Number(w.total) > 0)
       const ok = w.clvStampRate >= 0.4
-      const fn = ok ? P : (w.clvStampRate > 0 ? W : F)
-      fn(`${sport.toUpperCase()}: ${w.total} picks · CLV stamped ${stamp} · hit ${hit} · beat-mkt ${beat} (${w.wins}W ${w.losses}L ${w.pending} pending)`)
+      const fn = (dormant || noPicks) ? I : (ok ? P : (w.clvStampRate > 0 ? W : F))
+      const idleTag = dormant ? ` — ${sport.toUpperCase()} season off, idle (not a failure)` : (noPicks ? ` — no picks in window, idle (not a failure)` : "")
+      fn(`${sport.toUpperCase()}: ${w.total} picks · CLV stamped ${stamp} · hit ${hit} · beat-mkt ${beat} (${w.wins}W ${w.losses}L ${w.pending} pending)${idleTag}`)
     }
   }
 
@@ -496,8 +503,13 @@ async function main() {
     }
     console.log(`  ${sport.toUpperCase()} (window ${CAL_WINDOW_DAYS}d, min sample ${CAL_MIN_SAMPLE}):`)
     const fams = Object.keys(buckets).sort()
-    if (!fams.length) { I(`  (no settled picks to calibrate against)`); continue }
+    // Always emit the per-sport section (even empty) so the family_calibration schema stays stable
+    // across seasons — a DORMANT sport (off-season, 0 settled picks in the window) legitimately has
+    // an EMPTY calibration map, not an ABSENT one. Fixes the schema-golden "missing sports.<sport>"
+    // false-positive on /status DATA INTEGRITY. Empty map = dampener no-op for that sport (correct
+    // off-season); statusRoute openIssues iterates it harmlessly. (2026-06-21, off-season hardening.)
     CALIBRATION_OUT.sports[sport] = {}
+    if (!fams.length) { I(`  (no settled picks to calibrate against — empty section emitted)`); continue }
     for (const fam of fams) {
       const b = buckets[fam]
       const settled = b.wins + b.losses + b.pushes

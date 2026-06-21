@@ -876,14 +876,15 @@ function renderComponentHealth(data) {
   const COLORS = { green: "var(--green)", stale: "var(--yellow)", fail: "var(--red)", "not-run": "var(--text-faint)" };
   const DOT = { green: "●", stale: "●", fail: "●", "not-run": "○" };
   const LABELS = { devigAnalytics: "devigAnalytics", cashoutHedge: "cashoutHedge", pinnacleBenchmarkSelfTest: "pinnacleBenchmark self-test", shadowStack: "shadow stack", pinnacleSidecar: "Pinnacle sidecar", forwardClvTracker: "forward-CLV tracker", closingLineCapture: "closing-line capture", contextPersistence: "context persistence", forwardCapture: "forward signal-capture" };
-  const runnerStale = f.runnerStale === true;   // whole runner stopped → downgrade greens
+  const runnerStale = f.runnerStale === true;            // real active-hours stall → downgrade greens
+  const pausedOvernight = f.runnerPausedOvernight === true; // expected 11 PM–9 AM pause → do NOT downgrade
   const comps = f.components || {};
   let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
   let green = 0, total = 0;
   for (const [key, c] of Object.entries(comps)) {
     total++;
     let st = c.state;
-    if (runnerStale && st === "green") st = "stale";
+    if (runnerStale && st === "green") st = "stale";   // only a real active-hours stall downgrades; overnight pause does NOT
     if (st === "green") green++;
     const wired = c.wired === "wired"
       ? '<span style="color:var(--green)">wired</span>'
@@ -897,9 +898,11 @@ function renderComponentHealth(data) {
   html += '</table>';
   list.innerHTML = html;
   note.textContent = "last runner pass: " + (f.ageMin != null ? f.ageMin + " min ago" : "—")
-    + (runnerStale ? " — RUNNER STALE (>40 min): greens downgraded until it runs again" : "")
+    + (pausedOvernight ? " — PAUSED OVERNIGHT (runner gated 9 AM–11 PM ET; resumes 9 AM). States below are last-known, NOT downgraded."
+       : runnerStale ? " — RUNNER STALE (>40 min during active hours): greens downgraded until it runs again"
+       : "")
     + " · GREEN = ran + passed this cycle.";
-  _setSummary("sumComponentHealth", (runnerStale ? "RUNNER STALE · " : "") + green + "/" + total + " tested-green" + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
+  _setSummary("sumComponentHealth", (pausedOvernight ? "paused overnight · " : runnerStale ? "RUNNER STALE · " : "") + green + "/" + total + (pausedOvernight ? " (last pass)" : " tested-green") + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
 
   // Infra-card annotation (additive; existing cards untouched). kind: "probe" = a real pass/fail
   // check (live this request / scheduled); "state" = a status read, labelled honestly, NEVER faked green.
