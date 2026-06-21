@@ -58,6 +58,17 @@ function parseArgs() {
   return out
 }
 
+// Phase Grading-Diagnostic-1A (2026-06-21): build the diagnostic tail lines for a
+// failed per-date spawn. nightlyReview writes its failure reason to STDOUT (not
+// stderr), so surface BOTH. Exported for unit testing.
+function failTailLines(res) {
+  const lines = []
+  const tail = (s) => String(s || "").split("\n").map((l) => l.trim()).filter(Boolean).slice(-3).join(" | ")
+  if (res && res.stderr) lines.push(`       stderr tail: ${tail(res.stderr)}`)
+  if (res && res.stdout) lines.push(`       stdout tail: ${tail(res.stdout)}`)
+  return lines
+}
+
 /**
  * Phase 1F (INC-014 fix — deterministic backfill restoration).
  *
@@ -266,9 +277,13 @@ function main() {
         perDate.push({ sport, date: r.date, status: "pass", ms })
       } else {
         tally.failed++
-        tally.errors.push({ sport, date: r.date, exitCode: res.status, stderr: (res.stderr || "").slice(-400) })
+        tally.errors.push({ sport, date: r.date, exitCode: res.status, stderr: (res.stderr || "").slice(-400), stdout: (res.stdout || "").slice(-400) })
         console.log(`    → FAIL  (exit=${res.status}, ${ms}ms)`)
-        if (!args.verbose && res.stderr) console.log(`       stderr tail: ${res.stderr.split("\n").slice(-3).join(" | ")}`)
+        // Phase Grading-Diagnostic-1A (2026-06-21): nightlyReview prints its failure
+        // reason (e.g. "Already running: already_running", "DEFERRED") to STDOUT via
+        // console.log, not stderr — so showing only stderr left the actual cause invisible
+        // in the nightly log. Surface BOTH tails on failure.
+        if (!args.verbose) for (const line of failTailLines(res)) console.log(line)
         perDate.push({ sport, date: r.date, status: "fail", ms, exitCode: res.status })
       }
     }
@@ -323,4 +338,9 @@ function main() {
   process.exit(tally.failed === 0 ? 0 : 1)
 }
 
-main()
+// Phase Grading-Diagnostic-1A (2026-06-21): export pure helper for unit testing.
+// main() only auto-runs when invoked directly via `node scripts/runGradingBackfillAll.js`;
+// require()ing this file (e.g. from a probe) does NOT mutate the DB.
+module.exports = { failTailLines }
+
+if (require.main === module) main()

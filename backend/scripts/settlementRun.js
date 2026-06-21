@@ -252,12 +252,21 @@ function executePair(sport, date, opts, summary) {
     pair.status = "orchestration_INCOMPLETE"
     console.log(`[settlement:run] ✗ ${sport}/${date} INCOMPLETE: tracked_bets has ${settled} settled rows but outcome_snapshots=0 — orchestration did not record outcomes`)
   } else {
-    pair.status = "partial"
-    console.log(`[settlement:run] ⚠ ${sport}/${date} partial: outcome_snapshots=${outcomeCount} < tracked_bets.settled=${settled}`)
+    // Phase Settlement-Residual-Verdict-1A (2026-06-21): outcome_snapshots.id is the
+    // predictionId (PRIMARY KEY) and a row is written only where a prediction joins, so
+    // MANY tracked bets (book × line × side) collapse onto ONE outcome row. That makes
+    // outcomeCount < settled the STRUCTURALLY NORMAL state on any multi-book slate (it
+    // only reaches equality at tiny counts). Reaching this branch means grading completed
+    // cleanly AND outcomes WERE recorded (outcomeCount > 0 — the outcomeCount===0 case is
+    // caught above as orchestration_INCOMPLETE). So this is a benign success WITH residual,
+    // NOT a failure. Counting it as a failure caused settlement to report FAIL + exit 1
+    // every single night (see docs/audits/2026-06-21-settlement-grading-failure/).
+    pair.status = "settled_with_residual"
+    console.log(`[settlement:run] ✓ ${sport}/${date} settled (residual): outcome_snapshots=${outcomeCount} < tracked_bets.settled=${settled} — many bets per outcome; grading clean`)
   }
 
   summary.push(pair)
-  return { ok: pair.status === "settled_verified" || pair.status === "grading_only_no_orchestrate" || pair.status.startsWith("verified_via_json_only") }
+  return { ok: pair.status === "settled_verified" || pair.status === "settled_with_residual" || pair.status === "grading_only_no_orchestrate" || pair.status.startsWith("verified_via_json_only") }
 }
 
 // ── Summary printer ──────────────────────────────────────────────────────────
@@ -373,6 +382,6 @@ function main() {
 // testing. The CLI entrypoint only runs when this file is invoked directly via
 // `node scripts/settlementRun.js`; when require()d from a unit-test harness
 // `main()` does NOT auto-execute (preserves replay safety + sandbox safety).
-module.exports = { buildWindowDates, todayKey }
+module.exports = { buildWindowDates, todayKey, exitVerdict }
 
 if (require.main === module) main()

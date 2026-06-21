@@ -11,5 +11,6 @@ echo "[$(ts)] AUTOPILOT grading-nightly starting" >> "$LOG"
 if npm run grading:backfill-all >> "$LOG" 2>&1; then
   echo "[$(ts)] AUTOPILOT grading-nightly OK — calibration corpus refreshed" >> "$LOG"
 else
-  echo "[$(ts)] AUTOPILOT grading-nightly FAILED (exit $?)" >> "$LOG"
+  rc=$?   # capture FIRST — the $(ts) command substitution below resets $? to 0
+  echo "[$(ts)] AUTOPILOT grading-nightly FAILED (exit $rc)" >> "$LOG"
 fi
