@@ -329,10 +329,15 @@ function sectionSysAuditLast() {
 
 function sectionDriftAlertsTail(n = 10) {
   try {
+    const today = calendarDateKey()
     const txt = safeReadText(DRIFT_ALERTS)
-    if (!txt) return { ok: true, lines: [] }
+    if (!txt) return { ok: true, lines: [], hasNewToday: false, today }
     const lines = txt.split("\n").filter(l => l.trim().length > 0)
-    return { ok: true, lines: lines.slice(-n) }
+    const tail = lines.slice(-n)
+    // drift_alerts.log is REDs-ONLY: a clean system logs NOTHING new. So "no line dated today" means
+    // no new alerts today — the tail is historical. FE uses this to avoid showing stale REDs as live.
+    const hasNewToday = tail.some(l => l.includes(today))
+    return { ok: true, lines: tail, hasNewToday, today }
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }
   }
@@ -650,18 +655,25 @@ function sectionAutopilotFiresToday() {
     const autopilotLines = autopilotTxt ? autopilotTxt.split("\n").filter(l => l.includes(dateKey)) : []
 
     // Helper that checks BOTH log sources. EITHER firing = fired/completed.
-    const findEvent = (schedStart, schedEnd, agentStart, agentEnd) => {
+    const findEvent = (schedStart, schedEnd, agentStart, agentEnd, schedFail, agentFail) => {
       const schedStartLine = schedLines.find(l => l.includes(schedStart))
       const schedEndLine   = schedLines.find(l => l.includes(schedEnd))
       const agentStartLine = autopilotLines.find(l => l.includes(agentStart))
       const agentEndLine   = autopilotLines.find(l => l.includes(agentEnd))
+      // FAILED end-markers — without these a finished-but-failed run has no end-marker and renders as
+      // perpetual "running" forever (the grading bug). Detecting them lets a finished run show done/failed.
+      const schedFailLine  = schedFail ? schedLines.find(l => l.includes(schedFail)) : null
+      const agentFailLine  = agentFail ? autopilotLines.find(l => l.includes(agentFail)) : null
       const startedLine = schedStartLine || agentStartLine || null
       const endedLine   = schedEndLine   || agentEndLine   || null
+      const failedLine  = schedFailLine  || agentFailLine  || null
       return {
         startedLine,
         endedLine,
+        failedLine,
         fired: !!startedLine,
         completed: !!endedLine,
+        failed: !!failedLine && !endedLine,   // ended in failure (a later clean OK supersedes)
         source: schedStartLine ? "scheduler.log" : (agentStartLine ? "autopilot.log (LaunchAgent)" : null),
       }
     }
@@ -669,40 +681,43 @@ function sectionAutopilotFiresToday() {
     // populator chain — scheduler.log fires 5 named populators; autopilot.log fires
     // a single "AUTOPILOT populator-chain starting/finished" pair from the wrapper.
     // EITHER signal = chain fired.
-    const popStarts = schedLines.filter(l =>
-      l.includes("populateMlbBatterStats starting") ||
-      l.includes("populateMlbBatterGameLogs starting") ||
-      l.includes("populateMlbPitcherGameLogs starting") ||
-      l.includes("deriveNbaDvP starting") ||
-      l.includes("populateNbaTeamStats starting")
-    )
-    const popOks = schedLines.filter(l =>
-      l.includes("populateMlbBatterStats OK") ||
-      l.includes("populateMlbBatterGameLogs OK") ||
-      l.includes("populateMlbPitcherGameLogs OK") ||
-      l.includes("deriveNbaDvP OK") ||
-      l.includes("populateNbaTeamStats OK")
-    )
-    const agentPopStart  = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain starting"))
-    const agentPopFinish = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain finished"))
+    // Season-aware: the REAL populators run via scheduler.sh direct-node — 3 MLB always + 2 NBA only
+    // when NBA is in season (sport_on nba gate). The LaunchAgent populator-chain.sh is the known-dead
+    // path (npm scripts don't exist; ACTIVE_INCIDENTS #58) — do NOT count its all-FAILED steps. So
+    // "N/5" wrongly reads as failures when NBA is off; report ran-vs-skipped instead.
+    const mlbPopOks = schedLines.filter(l => l.includes("populateMlbBatterStats OK") || l.includes("populateMlbBatterGameLogs OK") || l.includes("populateMlbPitcherGameLogs OK"))
+    const nbaPopOks = schedLines.filter(l => l.includes("deriveNbaDvP OK") || l.includes("populateNbaTeamStats OK"))
+    const mlbPopStarts = schedLines.filter(l => l.includes("populateMlbBatterStats starting") || l.includes("populateMlbBatterGameLogs starting") || l.includes("populateMlbPitcherGameLogs starting"))
+    const nbaPopStarts = schedLines.filter(l => l.includes("deriveNbaDvP starting") || l.includes("populateNbaTeamStats starting"))
+    let nbaOff = false; try { nbaOff = require("../pipeline/shared/seasonGate").isSportEnabled("nba") === false } catch (_) {}
+    const popStarts = [...mlbPopStarts, ...nbaPopStarts]
+    const popOks = [...mlbPopOks, ...nbaPopOks]
+    const expectedRan = 3 + (nbaOff ? 0 : 2)        // MLB always 3; NBA 2 only in season
+    const ranOk = mlbPopOks.length + (nbaOff ? 0 : nbaPopOks.length)
+    const skipped = nbaOff ? 2 : 0                    // NBA populators season-gated-skipped (NOT failures)
+    const agentPopStart = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain starting"))
     const populatorChain = {
-      startedLine: popStarts[0] || agentPopStart || null,
-      endedLine: popOks[popOks.length - 1] || agentPopFinish || null,
+      startedLine: mlbPopStarts[0] || agentPopStart || null,
+      endedLine: ranOk >= expectedRan ? (popOks[popOks.length - 1] || null) : null,
       fired: popStarts.length > 0 || !!agentPopStart,
-      completed: popOks.length >= 5 || !!agentPopFinish,
-      okCount: popOks.length,
-      source: popStarts.length > 0 ? "scheduler.log" : (agentPopStart ? "autopilot.log (LaunchAgent)" : null),
+      completed: ranOk >= expectedRan,               // all NON-skipped populators ran OK
+      okCount: popOks.length,                          // back-compat
+      ranOk, expectedRan, skipped, nbaOff,
+      mlbOk: mlbPopOks.length, nbaOk: nbaPopOks.length,
+      source: mlbPopStarts.length > 0 ? "scheduler.log" : (agentPopStart ? "autopilot.log (LaunchAgent)" : null),
     }
     return {
       ok: true,
       dateKey,
       gradingBackfillAll: findEvent(
         "grading:backfill-all starting", "grading:backfill-all OK",
-        "AUTOPILOT grading-nightly starting", "AUTOPILOT grading-nightly OK"
+        "AUTOPILOT grading-nightly starting", "AUTOPILOT grading-nightly OK",
+        "grading:backfill-all FAILED", "AUTOPILOT grading-nightly FAILED"
       ),
       auditNightly: findEvent(
         "audit:nightly starting", "audit:nightly OK",
-        "AUTOPILOT audit-nightly starting", "AUTOPILOT audit-nightly OK"
+        "AUTOPILOT audit-nightly starting", "AUTOPILOT audit-nightly OK",
+        "audit:nightly FAILED", "AUTOPILOT audit-nightly FAILED"
       ),
       populatorChain,
     }
@@ -751,6 +766,12 @@ function sectionMlScorer() {
       modelType,
       isStale,
       staleThresholdDays: STALE_THRESHOLD_DAYS,
+      // Scope (2026-06-21): model.json feeds ONLY NBA scoring + the screenshot classifier — NOT MLB
+      // (no model.json/mlScore refs in pipeline/mlb or /shared). So its staleness is DORMANT while NBA
+      // is off-season, NOT an MLB-launch risk. FE labels it accordingly (real age kept, scoped honestly).
+      scope: "nba",
+      affectsMlb: false,
+      nbaInSeason: (() => { try { return require("../pipeline/shared/seasonGate").isSportEnabled("nba") } catch (_) { return null } })(),
     }
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }

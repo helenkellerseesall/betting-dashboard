@@ -20007,6 +20007,20 @@ app.get("/mlb/board", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`)
+  // 2026-06-21 — boot-stamp: write {commit, bootAt, pid} to backend/runtime/backend_boot.json so the
+  // running version is readable FROM THE REPO (by sysAudit / CA / overnight when the drift log is
+  // gated off) — not only via a live curl. Additive, non-fatal, no behavior change.
+  try {
+    const _bootFs = require("fs"), _bootPath = require("path")
+    let _commit = null
+    try { _commit = require("child_process").execSync("git rev-parse HEAD", { cwd: _bootPath.join(__dirname), timeout: 2000 }).toString().trim() } catch (_) {}
+    const _bootFile = _bootPath.join(__dirname, "runtime", "backend_boot.json")
+    _bootFs.mkdirSync(_bootPath.dirname(_bootFile), { recursive: true })
+    _bootFs.writeFileSync(_bootFile, JSON.stringify({ commit: _commit, commitShort: _commit ? _commit.slice(0, 7) : null, bootAt: new Date().toISOString(), pid: process.pid, port: PORT }, null, 2))
+    console.log("[BOOT] wrote boot-stamp", _bootFile, _commit ? _commit.slice(0, 7) : "(no git)")
+  } catch (e) {
+    console.warn("[BOOT] boot-stamp write failed (non-fatal):", e?.message || e)
+  }
   // 2026-05-26 — Lane B: start closing-line capture loop. Runs every 5 min
   // in the background, looks for tracked bets whose games tip within the
   // next 30 min, stamps closeOdds + CLV. Non-blocking; reads snapshot.json

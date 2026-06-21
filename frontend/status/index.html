@@ -973,27 +973,28 @@ function renderAutopilots(data) {
   };
 
   if (fires?.ok) {
+    // pass the FAILED line as the `failed` arg so a finished-but-failed run shows FAILED, not perpetual "running".
     buildRow("4 AM grading:backfill-all",
       "refreshes calibration corpus from last night's outcomes",
-      fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, null,
+      fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, fires.gradingBackfillAll?.failedLine,
       "grading:backfill-all");
     buildRow("5 AM audit:nightly",
       "writes the daily proof report",
-      fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, null,
+      fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, fires.auditNightly?.failedLine,
       "audit:nightly");
   }
-  // Phase Status-Dashboard-1C feedback fix — populator chain row now reads from
-  // fires.populatorChain so OK history is surfaced instead of always showing
-  // "not fired yet today". Operator caught the regression 2026-06-01 ~15:17 ET.
+  // Populator chain — season-aware: 3 MLB populators always; 2 NBA only in season. NBA off-season =
+  // SKIPPED (gated), not failures. Show "N ran · M skipped (NBA off-season)" not a misleading "N/5".
   if (fires?.populatorChain) {
+    const pc = fires.populatorChain;
+    const ranTxt = pc.ranOk != null ? pc.ranOk + " ran" + (pc.skipped ? " · " + pc.skipped + " skipped (NBA off-season)" : "") : (pc.okCount + " OK");
     buildRow("3:05 AM populator chain",
-      "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats" +
-        (fires.populatorChain.okCount ? " (" + fires.populatorChain.okCount + "/5 OK today)" : ""),
-      fires.populatorChain.startedLine, fires.populatorChain.endedLine, null,
+      "MLB stats/logs" + (pc.nbaOff ? " (NBA DvP/team-stats season-gated off)" : " + NBA DvP/team-stats") + " — " + ranTxt + " today",
+      pc.startedLine, pc.endedLine, null,
       "populator chain");
   } else {
     buildRow("3:05 AM populator chain",
-      "5 populators 5min apart — MLB stats/logs, NBA DvP + team stats",
+      "MLB stats/logs + NBA DvP/team-stats (5min apart)",
       null, null, null, "populator chain");
   }
   if (slates?.ok) {
@@ -1105,18 +1106,24 @@ function renderMlScorer(data) {
   if (m.trainingDateISO) {
     try { when = new Date(m.trainingDateISO).toLocaleString("en-US", { timeZone: "America/New_York", hour12: false }) + " ET"; } catch (_) { when = m.trainingDateISO; }
   }
-  const ageBadge = m.isStale
-    ? '<span style="color:var(--red);font-weight:600">STALE (>' + m.staleThresholdDays + ' days)</span>'
-    : '<span style="color:var(--green)">fresh</span>';
+  // Scope-aware: model.json is NBA-only (+ screenshot classifier) and does NOT affect MLB. While NBA
+  // is off-season its staleness is DORMANT, not an MLB-launch risk — show amber/dormant, not red.
+  const nbaScoped = m.scope === "nba";
+  const dormant = nbaScoped && m.nbaInSeason === false;
+  const ageBadge = !m.isStale ? '<span style="color:var(--green)">fresh</span>'
+    : dormant ? '<span style="color:var(--yellow)">stale but DORMANT</span>'
+    : '<span style="color:var(--red);font-weight:600">STALE (>' + m.staleThresholdDays + ' days)</span>';
   body.innerHTML =
+    (nbaScoped ? '<div class="legend" style="margin-bottom:6px">NBA-only model (+ screenshot classifier) — <strong>does not affect MLB scoring</strong>' + (m.nbaInSeason === false ? '; NBA off-season → dormant' : '') + '.</div>' : '') +
+    '<div class="row"><span class="label">scope</span><span class="val">' + (nbaScoped ? "NBA scoring + screenshot classifier (not MLB)" : "—") + '</span></div>' +
     '<div class="row"><span class="label">model file</span><span class="val">' + (m.modelPath || "—") + '</span></div>' +
     '<div class="row"><span class="label">last trained</span><span class="val">' + when + '</span></div>' +
     '<div class="row"><span class="label">age</span><span class="val">' + m.ageDays + ' days · ' + ageBadge + '</span></div>' +
     '<div class="row"><span class="label">model type</span><span class="val">' + (m.modelType || "—") + '</span></div>' +
     '<div class="row"><span class="label">features</span><span class="val">' + (m.featureCount != null ? m.featureCount : "—") + '</span></div>';
-  const summary = m.isStale
-    ? ('STALE · ' + m.ageDays + ' days old · retrain or disable')
-    : ('fresh · ' + m.ageDays + ' days old');
+  const summary = !m.isStale ? ('fresh · ' + m.ageDays + ' days old')
+    : dormant ? ('NBA-only · off-season · stale (dormant, no MLB effect)')
+    : ('STALE · ' + m.ageDays + ' days old · NBA-only · retrain or disable');
   _setSummary("sumMlScorer", summary);
 }
 
@@ -1309,26 +1316,43 @@ function translateDriftLine(line) {
 function renderDrift(data) {
   const div = document.getElementById("driftTail");
   div.innerHTML = "";
-  const lines = data.driftAlertsTail?.lines || [];
+  const dt = data.driftAlertsTail || {};
+  const lines = dt.lines || [];
+  const today = dt.today;
+  const hasNewToday = dt.hasNewToday === true;
   if (lines.length === 0) {
     div.innerHTML = '<div class="empty">no alerts logged in the recent window — GREEN.</div>';
     _setSummary("sumDrift", "no recent alerts");
     return;
   }
-  // Phase Status-Overhaul-1A — collapsed summary: latest alert's timestamp + short kind
-  const latest = lines[lines.length - 1];
-  const t = translateDriftLine(latest);
-  // Strip HTML tags from the translated message for the one-liner
-  const msgPlain = String(t.msg || "").replace(/<[^>]+>/g, "").trim();
-  const short = msgPlain.length > 70 ? msgPlain.slice(0, 67) + "..." : msgPlain;
-  _setSummary("sumDrift", t.ts + " · " + short);
-  // Newest first
+  // drift_alerts.log is REDs-ONLY — a clean system logs NOTHING new. So "no line dated today" means
+  // no new alerts today; the tail is historical and must NOT read as live. Banner + aged/dimmed marks.
+  if (!hasNewToday) {
+    const banner = document.createElement("div");
+    banner.className = "pretty";
+    banner.innerHTML = '<div class="ts green">✓ no new alerts today</div><div class="msg" style="color:var(--text-faint)">REDs-only log — a clean system logs nothing new. Entries below are from earlier days (aged/historical); see OPEN ISSUES for what is still live.</div>';
+    div.appendChild(banner);
+    _setSummary("sumDrift", "✓ no new alerts today");
+  } else {
+    const latest = lines[lines.length - 1];
+    const t = translateDriftLine(latest);
+    const msgPlain = String(t.msg || "").replace(/<[^>]+>/g, "").trim();
+    const short = msgPlain.length > 70 ? msgPlain.slice(0, 67) + "..." : msgPlain;
+    _setSummary("sumDrift", t.ts + " · " + short);
+  }
+  const dayOf = (line) => { const m = String(line).match(/(\d{4}-\d{2}-\d{2})/); return m ? m[1] : null; };
+  const daysAgo = (d) => { if (!d || !today) return null; const a = new Date(d + "T12:00:00-04:00"), b = new Date(today + "T12:00:00-04:00"); return Math.round((b - a) / 86400000); };
   for (const line of [...lines].reverse()) {
     const t = translateDriftLine(line);
-    const d = document.createElement("div");
-    d.className = "pretty";
-    d.innerHTML = '<div class="ts ' + t.kind + '">' + t.ts + '</div><div class="msg">' + t.msg + '</div>';
-    div.appendChild(d);
+    const d0 = dayOf(line);
+    const aged = d0 && d0 !== today;
+    const ago = daysAgo(d0);
+    const agedTag = aged ? ' <span style="color:var(--text-faint)">· aged ' + (ago != null ? ago + "d ago" : d0) + ' (not a current alert)</span>' : '';
+    const el = document.createElement("div");
+    el.className = "pretty";
+    // aged entries render dimmed (text-faint) regardless of original RED kind, so they don't look live.
+    el.innerHTML = '<div class="ts ' + (aged ? "" : t.kind) + '"' + (aged ? ' style="color:var(--text-faint)"' : '') + '>' + t.ts + agedTag + '</div><div class="msg"' + (aged ? ' style="color:var(--text-faint)"' : '') + '>' + t.msg + '</div>';
+    div.appendChild(el);
   }
 }
 
