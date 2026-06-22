@@ -1529,6 +1529,19 @@ function sectionComponentHealth() {
 // Route handler — aggregate every section, all wrapped
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Phase G1-Readiness-Card-1A (2026-06-21) — read-only: is the G1 graduation gate's forward
+// corpus on track to be evaluable by the freeze lift (~06-25)? Reuses the shared computation
+// (Law 1) the morning CLI uses. Reads only the JSON mlb_tracked_bets files; truth-only (every
+// number traces to a real file; no fabricated greens). Wrapped so a failure never breaks /status.
+function sectionG1Readiness() {
+  try {
+    const { computeG1Readiness } = require("../pipeline/shared/g1Readiness")
+    return computeG1Readiness()
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) }
+  }
+}
+
 router.get("/", (req, res) => {
   const t0 = Date.now()
   const out = {}
@@ -1554,6 +1567,7 @@ router.get("/", (req, res) => {
   out.schemaGolden      = sectionSchemaGolden()
   out.trackedBestToday  = sectionTrackedBestToday()
   out.componentHealth   = sectionComponentHealth()
+  out.g1Readiness       = sectionG1Readiness()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
   res.json(out)
@@ -1589,6 +1603,7 @@ router.post("/snapshot", (req, res) => {
     out.schemaGolden      = sectionSchemaGolden()
     out.trackedBestToday  = sectionTrackedBestToday()
     out.componentHealth   = sectionComponentHealth()
+    out.g1Readiness       = sectionG1Readiness()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0
 

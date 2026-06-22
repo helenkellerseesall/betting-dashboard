@@ -329,6 +329,15 @@
   </div>
 </details>
 
+<!-- 14. G1 graduation readiness — is the calibration corpus on track for the 06-25 freeze lift -->
+<details class="card" id="cardG1Readiness">
+  <summary><h2>calibration corpus (06-25 readiness)</h2><span class="summaryLine" id="sumG1Readiness">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">Tracks whether enough clean nights of graded bets have piled up to turn on the next model upgrade (calibration) when the freeze lifts. Needs 14 clean nights since June 11. Updates itself every time this page loads — straight from the graded results, no guesses.</div>
+    <div id="g1ReadinessBody">—</div>
+  </div>
+</details>
+
 <div class="actionBar">
   <button onclick="loadStatus()">refresh now</button>
   <button onclick="exportToScratch()" id="exportBtn" title="POST /api/ws/status/snapshot — writes the full status JSON to .scratch/last.txt so Claude can read it without you screenshotting.">export to scratch</button>
@@ -869,6 +878,38 @@ function renderForwardClv(data) {
 
 // Component health (tested-green): a component is green ONLY when its own check ran + passed this
 // cycle. If the runner itself went stale (>40 min) every green is visually downgraded to stale.
+// G1 readiness — read-only; renders data.g1Readiness verbatim (truth from the graded files).
+function renderG1Readiness(data) {
+  const r = data.g1Readiness;
+  const body = document.getElementById("g1ReadinessBody");
+  if (!body) return;
+  if (!r || !r.ok) {
+    body.innerHTML = '<div class="err">' + ((r && r.error) || "readiness unavailable") + '</div>';
+    _setSummary("sumG1Readiness", "unavailable");
+    return;
+  }
+  const VC = { ready: "var(--green)", on_track: "var(--green)", slipped: "var(--yellow)", no_data: "var(--text-faint)" };
+  const color = VC[r.verdict] || "var(--text)";
+  const last = r.lastCompleted;
+  let lastLine;
+  if (!last) lastLine = '<div class="legend">No completed nights yet.</div>';
+  else if (last.state === "clean") lastLine = '<div style="color:var(--green)">✓ Last night clean — ' + last.day + ': ' + Number(last.gradeable).toLocaleString() + ' bets graded.</div>';
+  else if (last.state === "gap") lastLine = '<div style="color:var(--red)">⚠ Last night fell short — ' + last.day + ': ' + Number(last.total).toLocaleString() + ' bets but only ' + last.gradeable + ' graded. It did NOT count.</div>';
+  else lastLine = '<div class="legend">' + last.day + ': no MLB games (does not count, not a problem).</div>';
+  let html = '';
+  html += '<div class="big" style="color:' + color + '">' + r.cleanCount + ' / ' + r.need + '</div>';
+  html += '<div class="big-sub" style="color:' + color + '">' + r.verdictText + '</div>';
+  html += lastLine;
+  if (r.gapDays && r.gapDays.length) html += '<div class="legend" style="color:var(--yellow)">nights that fell short: ' + r.gapDays.map(d => d.day + ' (' + d.gradeable + '/' + d.total + ')').join(', ') + '</div>';
+  if (r.noSlateDays && r.noSlateDays.length) html += '<div class="legend">no-games days: ' + r.noSlateDays.join(', ') + '</div>';
+  html += '<div class="legend" style="margin-top:6px">since ' + r.freeze + ' (bets graded each night): ' + r.perDay.map(d => {
+    const c = d.state === "clean" ? "var(--green)" : d.state === "gap" ? "var(--red)" : "var(--text-faint)";
+    return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + '</span>';
+  }).join("  ") + '</div>';
+  body.innerHTML = html;
+  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track for " + r.target : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
+}
+
 function renderComponentHealth(data) {
   const f = data.componentHealth;
   const list = document.getElementById("componentHealthList");
@@ -1382,6 +1423,7 @@ async function loadStatus() {
     renderSchemaGolden(data);
     renderCommits(data);
     renderComponentHealth(data);
+    renderG1Readiness(data);
     renderDrift(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
     document.getElementById("nudge").style.color = "var(--text-faint)";
