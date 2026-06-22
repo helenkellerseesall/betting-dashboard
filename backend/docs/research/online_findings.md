@@ -1,0 +1,22 @@
+# Online Findings — Claude-C research log
+
+Append-only. Each block is one verified research pass for CA.
+
+## 2026-06-22 19:40 ET — Claude-C [research] — MLB game-date/timezone: use officialDate, never truncate UTC gameDate
+
+- QUESTION: The canonical, verified way to map an MLB game to the calendar date its result counts for — fixing our recurring "always a day ahead" bug where results get fetched for the wrong day.
+
+- SOURCES:
+  - https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=2024-10-05 — PRIMARY (live MLB Stats API). Real response shows the trap directly: Padres @ Dodgers NLDS G1 (gamePk 775323) has gameDate "2024-10-06T00:38:00Z" but officialDate "2024-10-05". The three earlier games that night (gameDate 17:08Z / 20:08Z / 22:38Z) sit on 2024-10-05 in both fields; only the late game crosses midnight UTC and diverges.
+  - https://github.com/toddrob99/MLB-StatsAPI/wiki/Function:-schedule — AUTHORITATIVE (most-used Python wrapper, ~777 stars). Verbatim field note: `game_datetime` = "date and timestamp in UTC (be careful if you truncate the time--the date may be the next day for a late game)"; `game_date` = "date of game (YYYY-MM-DD)". The wrapper exposes a separate YYYY-MM-DD date precisely so callers do not truncate the UTC stamp.
+  - https://billpetti.github.io/baseballr/reference/mlb_game_pks.html — AUTHORITATIVE (baseballr / SportsDataverse, R). Verbatim column dictionary: `gameDate` = "Game date-time (ISO 8601, UTC)"; `officialDate` = "Official game date (YYYY-MM-DD)".
+  - https://sportsdata.io/developers/api-documentation/mlb — SECONDARY (third-party mirror docs). Corroborates that a suspended game keeps its original game record on resume (no new game id), so the official date stays sticky rather than being recomputed from the resume time.
+
+- VERIFIED TAKEAWAY (cross-referenced: live API + two independent libraries agree):
+  Every MLB Stats API game carries TWO date fields. `gameDate` is a full UTC/Zulu ISO-8601 timestamp; `officialDate` is the YYYY-MM-DD calendar date the game officially counts for. The "day ahead" bug comes from deriving the date off `gameDate` (e.g. `toISOString().slice(0,10)` or any `getUTC*` truncation): for any first pitch around 8pm ET or later the UTC stamp has already rolled to tomorrow (8:38pm ET = 00:38Z), so truncation returns the next day. This hits a large share of night games every slate, not a rare edge case. Canonical fix: read the API's `officialDate` field as the result-date. It is correct for late games by construction and is the field both major community libraries standardize on. `officialDate` also beats rolling your own UTC-to-local conversion because it is MLB-assigned and stays stable across suspended/resumed games and doubleheaders, where a DIY conversion of the start timestamp would mis-date. Confidence: HIGH on the core rule (three independent sources including primary API data); MEDIUM on the suspended-game specifics (one secondary doc, consistent with primary behavior, not re-verified against a live suspended record). Venue-local vs ET: `officialDate` follows MLB's official (venue/scheduled-local) date; for virtually all games this equals the ET calendar date and it should not be recomputed.
+
+- APPLY TO REPO (hand to CB):
+  1. Make `officialDate` the single source of truth for an MLB game's result-date everywhere results are fetched, graded, or joined to predictions. Where the results/grading path derives a date from a UTC timestamp, switch the key to the upstream `officialDate` field.
+  2. Audit for the bug pattern in the MLB results/grading path: grep for `toISOString().slice`, `.slice(0,10)` on a date value, and `getUTCDate` / `getUTCFullYear` / `getUTCMonth` applied to a gameDate. The slate-date doctrine already bans `toISOString().slice` via slateDate.js — confirm the MLB grading join actually routes through that authority and is not truncating a UTC gameDate upstream of it.
+  3. Keep two date concepts distinct and documented: `officialDate` = the game's official result date (use for "did this prop/game hit on day D"); slateDate.js ET-day-with-4am-boundary = which betting slate a game is bucketed into. Do not cross-wire them.
+  4. Verification probe (non-zero output, per Law 13): on a slate with a late West-Coast game, assert that the UTC-truncated gameDate does not equal officialDate for that game, and that the graded result lands on officialDate. Ready-made fixture from the primary source above: 2024-10-05 schedule, gamePk 775323 — officialDate 2024-10-05 vs UTC-truncated 2024-10-06.
