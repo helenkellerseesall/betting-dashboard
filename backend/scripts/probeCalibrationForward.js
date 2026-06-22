@@ -129,6 +129,16 @@ if (!test.length) {
   const brierImproved = cells.filter(c => c.cb < c.rb).length
   log(`\nVERDICT (OOS): overall |gap| ${(Math.abs(o_rg.gap) * 100).toFixed(1)}pp → ${(Math.abs(o_cg.gap) * 100).toFixed(1)}pp; overall Brier ${o_rb.toFixed(3)} → ${o_cb.toFixed(3)}.`)
   log(`  cells with smaller |gap| after calibration: ${improved}/${cells.length}; cells with lower Brier: ${brierImproved}/${cells.length}.`)
+  // ── G1 GRADUATION GATE (explicit PASS/FAIL) ──────────────────────────────────
+  // Plan gate: on >=14 FORWARD graded days, calibrated beats raw on reliability gap AND Brier.
+  const fwdDays = days.filter(d => d > cutoff).length
+  const gapBeats = Math.abs(o_cg.gap) < Math.abs(o_rg.gap)
+  const brierBeats = o_cb < o_rb
+  const enoughDays = fwdDays >= 14
+  const pass = enoughDays && gapBeats && brierBeats
+  log("")
+  log(`G1 GATE: ${pass ? "PASS" : "FAIL"}  (need ALL: forward-days>=14 [${fwdDays} ${enoughDays ? "ok" : "no"}] · calibrated |gap| < raw [${gapBeats ? "ok" : "no"}] · calibrated Brier < raw [${brierBeats ? "ok" : "no"}])`)
+  if (!enoughDays) log(`  -> not yet evaluable: only ${fwdDays} forward day(s) past ${cutoff}; re-run on/after the 14th clean forward day.`)
   // anchor cell trace
   const anc = test.filter(r => r.fam === "rbis" && r.side === "over" && r.line != null && r.line <= 0.5 && r.mp >= 0.4 && r.mp < 0.5)
   if (anc.length) { const a = meanGap(anc, rawP), c = meanGap(anc, calP); log(`  ANCHOR rbis over≤0.5 @mp0.4-0.5 (OOS n=${anc.length}): realized ${pf(a.realized)} | raw ${pf(a.claimed)} | cal ${pf(c.claimed)}`) }
