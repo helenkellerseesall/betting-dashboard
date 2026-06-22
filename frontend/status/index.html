@@ -890,24 +890,25 @@ function renderG1Readiness(data) {
   }
   const VC = { ready: "var(--green)", on_track: "var(--green)", slipped: "var(--yellow)", no_data: "var(--text-faint)" };
   const color = VC[r.verdict] || "var(--text)";
-  const last = r.lastCompleted;
-  let lastLine;
-  if (!last) lastLine = '<div class="legend">No completed nights yet.</div>';
-  else if (last.state === "clean") lastLine = '<div style="color:var(--green)">✓ Last night clean — ' + last.day + ': ' + Number(last.gradeable).toLocaleString() + ' bets graded.</div>';
-  else if (last.state === "gap") lastLine = '<div style="color:var(--red)">⚠ Last night fell short — ' + last.day + ': ' + Number(last.total).toLocaleString() + ' bets but only ' + last.gradeable + ' graded. It did NOT count.</div>';
-  else lastLine = '<div class="legend">' + last.day + ': no MLB games (does not count, not a problem).</div>';
   let html = '';
   html += '<div class="big" style="color:' + color + '">' + r.cleanCount + ' / ' + r.need + '</div>';
   html += '<div class="big-sub" style="color:' + color + '">' + r.verdictText + '</div>';
-  html += lastLine;
-  if (r.gapDays && r.gapDays.length) html += '<div class="legend" style="color:var(--yellow)">nights that fell short: ' + r.gapDays.map(d => d.day + ' (' + d.gradeable + '/' + d.total + ')').join(', ') + '</div>';
+  // tonight's slate — its 4 AM grade hasn't run yet; pending, not a miss
+  if (r.pendingDay) html += '<div class="legend">• Tonight (' + r.pendingDay.day + '): pending grade — grades ~4 AM ET (' + Number(r.pendingDay.total).toLocaleString() + ' bets so far). Not a miss.</div>';
+  const last = r.lastGraded;
+  if (!last) html += '<div class="legend">No graded nights yet.</div>';
+  else if (last.state === "clean") html += '<div style="color:var(--green)">✓ Last graded night clean — ' + last.day + ': ' + Number(last.gradeable).toLocaleString() + ' bets graded.</div>';
+  else if (last.state === "fell_short") html += '<div style="color:var(--red)">⚠ Last graded night fell short — ' + last.day + ': ' + Number(last.total).toLocaleString() + ' bets but only ' + last.gradeable + ' graded. It did NOT count.</div>';
+  else html += '<div class="legend">' + last.day + ': no MLB games (does not count, not a problem).</div>';
+  if (r.fellShortDays && r.fellShortDays.length) html += '<div class="legend" style="color:var(--yellow)">nights that fell short: ' + r.fellShortDays.map(d => d.day + ' (' + d.gradeable + '/' + d.total + ')').join(', ') + '</div>';
   if (r.noSlateDays && r.noSlateDays.length) html += '<div class="legend">no-games days: ' + r.noSlateDays.join(', ') + '</div>';
   html += '<div class="legend" style="margin-top:6px">since ' + r.freeze + ' (bets graded each night): ' + r.perDay.map(d => {
-    const c = d.state === "clean" ? "var(--green)" : d.state === "gap" ? "var(--red)" : "var(--text-faint)";
-    return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + '</span>';
+    const c = d.state === "clean" ? "var(--green)" : d.state === "fell_short" ? "var(--red)" : "var(--text-faint)";
+    const tag = d.state === "pending" ? " (pending)" : "";
+    return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + tag + '</span>';
   }).join("  ") + '</div>';
   body.innerHTML = html;
-  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track for " + r.target : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
+  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights" + (r.pendingCount ? " + " + r.pendingCount + " pending tonight" : "") + " · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track for " + r.target : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
 }
 
 function renderComponentHealth(data) {

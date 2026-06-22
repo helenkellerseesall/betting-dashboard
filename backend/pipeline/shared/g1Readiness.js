@@ -7,13 +7,21 @@
  *   - backend/routes/statusRoute.js sectionG1Readiness (the /status card)
  * Law 1: one computation, two consumers — never fork this logic.
  *
- * G1 (POST_FREEZE_GRADUATION_PLAN.md) needs >=14 days of CLEAN forward graded data by
- * the freeze lift (~2026-06-25). "Truth only": every number traces to a real file; a day
- * with no real slate is reported as no_slate (benign), NOT faked as clean and NOT mislabelled
- * a grading gap. Missing/unreadable folder → ok:false, never invented numbers.
+ * NIGHT-STATE (Phase G1-Readiness-Pending-1A 2026-06-21): a slate grades at the 4 AM ET
+ * grading run on slate-day+1. So the current slate is PENDING (its grade hasn't run yet),
+ * NOT a miss — using the calendar midnight boundary made the card cry "slipped" every night
+ * between midnight and 4 AM, then un-cry after the grade. We use the CANONICAL slate boundary
+ * (slateDate.js, 04:00 ET) so:
+ *   - clean      : grading window passed, sufficient graded rows (counts toward the 14).
+ *   - pending    : grading window has NOT passed yet (slate >= current slate date) — does NOT
+ *                  count as a miss and does NOT slip the projected date.
+ *   - fell_short : grading window HAS passed AND still 0/low graded — a REAL miss (counts + slips).
+ *   - no_slate   : grading window passed but no real slate that day (benign).
+ * "Truth only": every number traces to a real file; no fabricated greens; never hide a real miss.
  */
 const fs = require("fs")
 const path = require("path")
+const { slateDateForTimestamp } = require("./slateDate")
 
 const FREEZE = "2026-06-11"   // forward boundary (freeze start)
 const TARGET = "2026-06-25"   // freeze lifts ~here
@@ -21,9 +29,6 @@ const NEED = 14               // clean forward days the gate needs
 const CLEAN_FLOOR = 100       // real MLB slates grade hundreds of rows; a failed night ~0.
                               // 100 sits far below the smallest real slate seen (619) and far above a failure.
 
-function etDateStr(d = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d)
-}
 function addDays(ymd, n) {
   const dt = new Date(ymd + "T12:00:00Z"); dt.setUTCDate(dt.getUTCDate() + n)
   return dt.toISOString().slice(0, 10)
@@ -47,17 +52,19 @@ function gradeableForFile(fp) {
 
 /**
  * @param {object} [opts]
- * @param {string} [opts.trackingDir] — folder holding mlb_tracked_bets_<date>.json (default: backend/runtime/tracking)
- * @param {Date}   [opts.now]         — clock (default: real now); ET calendar date derived from it
+ * @param {string} [opts.trackingDir] — folder with mlb_tracked_bets_<date>.json (default: backend/runtime/tracking)
+ * @param {Date}   [opts.now]         — clock (default: real now); the canonical slate date is derived from it
  * @returns {object} readiness data (ok:true) or { ok:false, error }
  */
 function computeG1Readiness(opts = {}) {
   const trackingDir = opts.trackingDir || path.join(__dirname, "..", "..", "runtime", "tracking")
-  const today = etDateStr(opts.now || new Date())
+  const nowMs = (opts.now || new Date()).getTime()
+  // canonical slate date (04:00 ET boundary). Slates strictly before this have had their 4 AM grade run.
+  const currentSlate = slateDateForTimestamp(nowMs)
 
   let files
   try { files = fs.readdirSync(trackingDir).filter(f => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort() }
-  catch (e) { return { ok: false, error: "tracking folder unreadable: " + (e && e.message), asOfEt: today } }
+  catch (e) { return { ok: false, error: "tracking folder unreadable: " + (e && e.message), currentSlate } }
 
   const perDay = []
   for (const f of files) {
@@ -68,50 +75,55 @@ function computeG1Readiness(opts = {}) {
     const gradeable = c ? c.gradeable : null
     let state
     if (c == null) state = "unreadable"
-    else if (day >= today) state = "in_progress"
+    else if (day >= currentSlate) state = "pending"        // grade hasn't run yet (4 AM ET on day+1)
     else if (gradeable >= CLEAN_FLOOR) state = "clean"
-    else if (total >= CLEAN_FLOOR) state = "gap"          // bets exist but didn't grade = real failure
-    else state = "no_slate"                                // no real slate that day (benign)
+    else if (total >= CLEAN_FLOOR) state = "fell_short"    // bets existed but didn't grade = real miss
+    else state = "no_slate"                                // grading window passed but no real slate (benign)
     perDay.push({ day, total, gradeable, state })
   }
 
-  const completed = perDay.filter(d => d.day < today)
-  const cleanDays = completed.filter(d => d.state === "clean")
-  const gapDays = completed.filter(d => d.state === "gap")
-  const noSlateDays = completed.filter(d => d.state === "no_slate" || d.state === "unreadable")
-  const cleanCount = cleanDays.length
-  const gaps = gapDays.length
-  const last = completed.length ? completed[completed.length - 1] : null
+  const cleanDays = perDay.filter(d => d.state === "clean")
+  const fellShortDays = perDay.filter(d => d.state === "fell_short")
+  const pendingDays = perDay.filter(d => d.state === "pending")
+  const noSlateDays = perDay.filter(d => d.state === "no_slate" || d.state === "unreadable")
+  const gradedWindowPassed = perDay.filter(d => d.day < currentSlate && d.state !== "unreadable")
 
-  // Each real grading gap pushes the earliest-evaluable date out by one day from the TARGET.
-  const projectedEval = addDays(TARGET, gaps)
-  const remainingToTarget = Math.max(0, daysBetween(today, TARGET))  // slates today..(TARGET-1) still to grade
+  const cleanCount = cleanDays.length
+  const gaps = fellShortDays.length                         // ONLY real post-grading misses slip the date
+  const lastGraded = gradedWindowPassed.length ? gradedWindowPassed[gradedWindowPassed.length - 1] : null
+  const pendingDay = pendingDays.length ? pendingDays[pendingDays.length - 1] : null
+
+  const projectedEval = addDays(TARGET, gaps)              // pending does NOT push this out
+  const remainingToTarget = Math.max(0, daysBetween(currentSlate, TARGET) + (pendingDay ? 1 : 0))
+  const more = Math.max(0, NEED - cleanCount)
+  const pendNote = pendingDay ? ` (${pendingDays.length} pending tonight's grade)` : ""
 
   let verdict, verdictText
   if (cleanCount >= NEED) {
     verdict = "ready"
-    verdictText = `Ready — ${cleanCount} clean forward days. G1's corpus is evaluable now.`
-  } else if (!last) {
+    verdictText = `Ready — ${cleanCount} clean nights. G1's corpus is evaluable now.`
+  } else if (!lastGraded && !pendingDay) {
     verdict = "no_data"
-    verdictText = "No completed forward slates yet."
-  } else if (gaps === 0) {
-    const more = NEED - cleanCount
-    verdict = "on_track"
-    verdictText = `On track for ${TARGET} — ${cleanCount}/${NEED} clean, no gaps. ${more} more clean night${more === 1 ? "" : "s"} → evaluable ${projectedEval}.`
-  } else {
+    verdictText = "No graded nights yet."
+  } else if (gaps > 0) {
     verdict = "slipped"
-    verdictText = `Slipped — ${gaps} grading gap${gaps === 1 ? "" : "s"}, so ${cleanCount}/${NEED} clean. Earliest evaluable ~${projectedEval} (was ${TARGET}).`
+    verdictText = `Slipped — ${gaps} night${gaps === 1 ? "" : "s"} fell short after grading, so ${cleanCount}/${NEED} clean. Earliest evaluable ~${projectedEval} (was ${TARGET}).`
+  } else {
+    verdict = "on_track"
+    verdictText = `On track for ${TARGET} — ${cleanCount}/${NEED} clean${pendNote}, no misses. ${more} more clean night${more === 1 ? "" : "s"} → evaluable ${projectedEval}.`
   }
 
   return {
     ok: true,
-    asOfEt: today,
+    currentSlate,
     freeze: FREEZE, target: TARGET, need: NEED, floor: CLEAN_FLOOR,
     cleanCount,
     gaps,
-    gapDays: gapDays.map(d => ({ day: d.day, total: d.total, gradeable: d.gradeable })),
+    pendingCount: pendingDays.length,
+    pendingDay: pendingDay ? { day: pendingDay.day, total: pendingDay.total, gradeable: pendingDay.gradeable } : null,
+    fellShortDays: fellShortDays.map(d => ({ day: d.day, total: d.total, gradeable: d.gradeable })),
     noSlateDays: noSlateDays.map(d => d.day),
-    lastCompleted: last ? { day: last.day, gradeable: last.gradeable, total: last.total, state: last.state } : null,
+    lastGraded: lastGraded ? { day: lastGraded.day, gradeable: lastGraded.gradeable, total: lastGraded.total, state: lastGraded.state } : null,
     remainingToTarget,
     projectedEval,
     verdict,
