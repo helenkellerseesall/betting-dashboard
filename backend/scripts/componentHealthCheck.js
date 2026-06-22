@@ -43,14 +43,14 @@ function runNode(relFromBackend) {
 // ── (1) self-test components: GREEN iff `node <file>` exits 0 this cycle ──
 function selfTest(key, rel, label, wired) {
   const r = runNode(rel)
-  if (!r.ran) return set(key, "not-run", `${label}: ${r.detail}`, wired)
-  if (r.passed) return set(key, "green", `${label} self-test passed${r.detail ? " " + r.detail : ""} this cycle`, wired)
-  return set(key, "fail", `${label} self-test FAILED (exit ${r.exit})${r.detail ? " " + r.detail : ""}`, wired)
+  if (!r.ran) return set(key, "not-run", `${label}: didn't run this cycle`, wired)
+  if (r.passed) return set(key, "green", `${label}: checks passed just now${r.detail ? " (" + r.detail + ")" : ""}`, wired)
+  return set(key, "fail", `${label}: checks FAILED (exit ${r.exit})${r.detail ? " " + r.detail : ""}`, wired)
 }
-selfTest("devigAnalytics", "pipeline/shared/devigAnalytics.js", "devigAnalytics", "shelf")
-selfTest("cashoutHedge", "pipeline/shared/cashoutHedge.js", "cashoutHedge", "wired")
-selfTest("pinnacleBenchmarkSelfTest", "pipeline/shared/pinnacleBenchmark.js", "pinnacleBenchmark", "shelf")
-selfTest("shadowStack", "scripts/verifyShadowStackIntact.js", "shadowStack", "shelf")
+selfTest("devigAnalytics", "pipeline/shared/devigAnalytics.js", "Fair-odds math", "shelf")
+selfTest("cashoutHedge", "pipeline/shared/cashoutHedge.js", "Cash-out math", "wired")
+selfTest("pinnacleBenchmarkSelfTest", "pipeline/shared/pinnacleBenchmark.js", "Sharp-line benchmark", "shelf")
+selfTest("shadowStack", "scripts/verifyShadowStackIntact.js", "Backup math", "shelf")
 
 // ── (2) freshness components: GREEN iff the artifact exists, is correct, AND is fresh ──
 // Pinnacle sidecar: latest pinnacle_benchmark_<slate>.json — every two-way market fairSumsTo==1.0
@@ -58,29 +58,29 @@ selfTest("shadowStack", "scripts/verifyShadowStackIntact.js", "shadowStack", "sh
 function checkPinnacleSidecar() {
   const slate = currentSlateDateEt()
   const fp = path.join(TRACKING, `pinnacle_benchmark_${slate}.json`)
-  if (!fs.existsSync(fp)) return set("pinnacleSidecar", "not-run", `no pinnacle_benchmark_${slate}.json (capture is opt-in: PINNACLE_BENCHMARK=1)`, "shelf")
-  let j; try { j = JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return set("pinnacleSidecar", "fail", "sidecar unreadable/corrupt", "shelf") }
+  if (!fs.existsSync(fp)) return set("pinnacleSidecar", "not-run", `no sharp-line snapshot for ${slate} yet (this capture is optional)`, "shelf")
+  let j; try { j = JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return set("pinnacleSidecar", "fail", "sharp-line snapshot unreadable", "shelf") }
   const ageH = (now - fs.statSync(fp).mtimeMs) / 3.6e6
   let markets = 0, sum1 = 0, hasFair = false
   for (const ev of Object.values(j.byEvent || {})) for (const m of Object.values(ev.markets || {})) {
     if (m && m.fairSumsTo != null) { hasFair = true; markets++; if (Math.abs(m.fairSumsTo - 1) < 1e-6) sum1++ }
   }
-  if (!hasFair) return set("pinnacleSidecar", "fail", "no persisted fairProb (pre-fix sidecar) — re-run capture", "shelf")
-  if (sum1 !== markets) return set("pinnacleSidecar", "fail", `${sum1}/${markets} markets fairSumsTo==1.0 (de-vig broken)`, "shelf")
-  if (ageH > 24) return set("pinnacleSidecar", "stale", `${markets} markets OK but sidecar ${ageH.toFixed(1)}h old (>24h) — re-run capture`, "shelf")
-  set("pinnacleSidecar", "green", `${markets} markets fairSumsTo==1.0, ${ageH.toFixed(1)}h old`, "shelf")
+  if (!hasFair) return set("pinnacleSidecar", "fail", "sharp-line snapshot is missing fair-odds data — re-run the capture", "shelf")
+  if (sum1 !== markets) return set("pinnacleSidecar", "fail", `fair-odds math only checks out on ${sum1} of ${markets} markets — something's off`, "shelf")
+  if (ageH > 24) return set("pinnacleSidecar", "stale", `${markets} markets look right, but the snapshot is ${ageH.toFixed(1)}h old (over 24h) — re-run the capture`, "shelf")
+  set("pinnacleSidecar", "green", `${markets} markets check out · updated ${ageH.toFixed(1)}h ago`, "shelf")
 }
 checkPinnacleSidecar()
 
 // Forward-CLV sidecar: present, ledgerRows>0, mtime ≤ 30h (runs post-grade daily).
 function checkForwardClv() {
   const fp = path.join(TRACKING, "forward_clv_slices.json")
-  if (!fs.existsSync(fp)) return set("forwardClvTracker", "not-run", "forward_clv_slices.json not generated — run forwardClvSliceTracker.js", "shelf")
-  let j; try { j = JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return set("forwardClvTracker", "fail", "sidecar unreadable/corrupt", "shelf") }
+  if (!fs.existsSync(fp)) return set("forwardClvTracker", "not-run", "edge tracker hasn't run yet today", "shelf")
+  let j; try { j = JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return set("forwardClvTracker", "fail", "edge tracker file unreadable", "shelf") }
   const ageH = (now - fs.statSync(fp).mtimeMs) / 3.6e6
-  if (!(Number(j.ledgerRows) > 0)) return set("forwardClvTracker", "fail", `ledgerRows=${j.ledgerRows} (no ledger data)`, "shelf")
-  if (ageH > 30) return set("forwardClvTracker", "stale", `ledgerRows=${j.ledgerRows} but sidecar ${ageH.toFixed(1)}h old (>30h) — tracker hasn't run since last grade`, "shelf")
-  set("forwardClvTracker", "green", `ledgerRows=${j.ledgerRows}, forwardRows=${j.forwardRows}, ${ageH.toFixed(1)}h old`, "shelf")
+  if (!(Number(j.ledgerRows) > 0)) return set("forwardClvTracker", "fail", "no bets tracked yet", "shelf")
+  if (ageH > 30) return set("forwardClvTracker", "stale", `${Number(j.forwardRows).toLocaleString()} bets tracked, but last updated ${ageH.toFixed(1)}h ago (over 30h) — hasn't run since the last grading`, "shelf")
+  set("forwardClvTracker", "green", `${Number(j.forwardRows).toLocaleString()} bets tracked · updated ${ageH.toFixed(1)}h ago`, "shelf")
 }
 checkForwardClv()
 
@@ -105,13 +105,13 @@ function latestLedger() {
 // 0 captures + 0 games tipped = idle/HEALTHY (green); games tipped + 0 captures = loop dead (FAIL).
 function checkClosingLineCapture() {
   const L = latestLedger()
-  if (!L || !L.rows.length) return set("closingLineCapture", "green", "idle — no ledger rows (no slate = healthy)", "wired")
+  if (!L || !L.rows.length) return set("closingLineCapture", "green", "idle — no games on the slate (normal)", "wired")
   const tipped = L.rows.filter((r) => { const gt = r.gameTime ? Date.parse(r.gameTime) : null; return gt && gt <= now })
-  if (tipped.length === 0) return set("closingLineCapture", "green", `idle — 0 of ${L.rows.length} games tipped yet on slate ${L.slate} (nothing to capture = healthy)`, "wired")
+  if (tipped.length === 0) return set("closingLineCapture", "green", `idle — none of ${L.rows.length} picks have started yet on ${L.slate} (normal)`, "wired")
   const stamped = tipped.filter((r) => r.closeOdds != null)
-  if (stamped.length === 0) return set("closingLineCapture", "fail", `${tipped.length} games tipped on ${L.slate} but 0 close-stamped — capture loop likely dead`, "wired")
+  if (stamped.length === 0) return set("closingLineCapture", "fail", `${tipped.length} picks started on ${L.slate} but none had closing odds captured — capture may be down`, "wired")
   const rate = Math.round((stamped.length / tipped.length) * 100)
-  set("closingLineCapture", "green", `${stamped.length}/${tipped.length} tipped picks close-stamped (${rate}%) on ${L.slate} — capture alive`, "wired")
+  set("closingLineCapture", "green", `${rate}% of started picks had closing odds captured (${stamped.length}/${tipped.length}) on ${L.slate}`, "wired")
 }
 checkClosingLineCapture()
 
@@ -120,11 +120,11 @@ checkClosingLineCapture()
 const CTX_TAGS = ["hrFactor", "windDirectionTag", "temperatureF", "carryShift", "runEnvironment", "rbiEnvironment", "hrEnvironmentTag"]
 function checkContextPersistence() {
   const L = latestLedger()
-  if (!L || !L.rows.length) return set("contextPersistence", "green", "idle — no rows on the latest slate (no games = healthy)", "wired")
+  if (!L || !L.rows.length) return set("contextPersistence", "green", "idle — no picks on the latest slate (normal)", "wired")
   const withCtx = L.rows.filter((r) => CTX_TAGS.some((k) => r[k] != null)).length
   const pct = Math.round((withCtx / L.rows.length) * 100)
-  if (withCtx === 0) return set("contextPersistence", "fail", `0% of ${L.rows.length} rows on ${L.slate} carry context tags — persistence wiring broken`, "wired")
-  set("contextPersistence", "green", `${pct}% of ${L.rows.length} rows on ${L.slate} carry context tags`, "wired")
+  if (withCtx === 0) return set("contextPersistence", "fail", `none of ${L.rows.length} picks on ${L.slate} have matchup tags — tagging may be broken`, "wired")
+  set("contextPersistence", "green", `${pct}% of ${L.rows.length} picks on ${L.slate} have matchup tags`, "wired")
 }
 checkContextPersistence()
 
@@ -153,16 +153,16 @@ function checkForwardCapture() {
   if (newestDate === today) {
     let j; try { j = JSON.parse(fs.readFileSync(path.join(TRACKING, newest), "utf8")) } catch (_) { j = null }
     const m = j && j._meta
-    if (!m) return set("forwardCapture", "stale", `capture for ${today} present but no _meta (pre-guard file) — re-run capture`, "wired")
-    if (m.allStale) return set("forwardCapture", "fail", `captured ${today} (${m.betsStamped} bets) but ALL signals STALE — vendor refresh failed, nothing fresh stamped`, "wired")
-    if (m.anyStale) return set("forwardCapture", "stale", `captured ${today} (${m.betsStamped} bets) PARTIAL — stale-skipped statcast ${m.staleSkipped.statcast}/fip ${m.staleSkipped.fip}/air ${m.staleSkipped.air}`, "wired")
-    return set("forwardCapture", "green", `captured ${today}: ${m.betsStamped} bets, all signals fresh (statcast ${m.stamped.statcast}, fip ${m.stamped.fip}, air ${m.stamped.air})`, "wired")
+    if (!m) return set("forwardCapture", "stale", `today's signal snapshot is missing its detail record — re-run it`, "wired")
+    if (m.allStale) return set("forwardCapture", "fail", `today's snapshot ran (${m.betsStamped} bets) but all data was stale — the data feeds didn't refresh`, "wired")
+    if (m.anyStale) return set("forwardCapture", "stale", `today's snapshot ran (${m.betsStamped} bets) but some feeds were stale and skipped (batted-ball ${m.staleSkipped.statcast}, pitching ${m.staleSkipped.fip}, weather ${m.staleSkipped.air})`, "wired")
+    return set("forwardCapture", "green", `today's snapshot done: ${m.betsStamped} bets, all data fresh (batted-ball ${m.stamped.statcast}, pitching ${m.stamped.fip}, weather ${m.stamped.air})`, "wired")
   }
   // no capture for today yet
-  if (preWindow) return set("forwardCapture", "green", `idle — chain fires ~10:30 ET; last capture ${newestDate || "none"}`, "wired")
-  if (!hasSlate) return set("forwardCapture", "green", `idle — no slate today (nothing to capture); last capture ${newestDate || "none"}`, "wired")
-  if (!newestDate) return set("forwardCapture", "fail", `past 10:30 ET with a slate but NO signal_capture file ever — chain not running`, "wired")
-  return set("forwardCapture", "stale", `past 10:30 ET but no capture for ${today} — newest is ${newestDate}; chain may have missed/failed`, "wired")
+  if (preWindow) return set("forwardCapture", "green", `idle — runs around 10:30 AM ET; last snapshot ${newestDate || "none"}`, "wired")
+  if (!hasSlate) return set("forwardCapture", "green", `idle — no games today; last snapshot ${newestDate || "none"}`, "wired")
+  if (!newestDate) return set("forwardCapture", "fail", `it's past 10:30 AM ET and there are games, but no snapshot was made — the job isn't running`, "wired")
+  return set("forwardCapture", "stale", `it's past 10:30 AM ET but no snapshot for today — newest is ${newestDate}; the job may have missed`, "wired")
 }
 checkForwardCapture()
 

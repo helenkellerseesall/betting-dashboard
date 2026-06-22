@@ -927,6 +927,19 @@ function sectionFamilyCalibration() {
 //     ("can't read calibration file → can't grade picks") rather than
 //     defaulting to "no issues."
 //   - Severity classification uses real thresholds, not "if exists then yellow."
+// Phase Status-Readability-1A (2026-06-21) — turn a code-style stat family key
+// (rbis, totalbases, ks…) into a plain reader-facing label. Display-only; the
+// raw family key is never shown on /status. Falls back to the key if unmapped.
+function humanFamily(fam) {
+  const MAP = {
+    rbis: "RBI", hits: "Hits", totalbases: "Total bases", ks: "Strikeouts",
+    runs: "Runs", hr: "Home runs", outs: "Outs", walks: "Walks",
+    points: "Points", rebounds: "Rebounds", assists: "Assists", threes: "3-pointers",
+    pra: "Pts+Reb+Ast", steals: "Steals", blocks: "Blocks", turnovers: "Turnovers",
+  }
+  return MAP[fam] || fam
+}
+
 function sectionOpenIssues() {
   const red = []
   const yellow = []
@@ -963,8 +976,8 @@ function sectionOpenIssues() {
               info.push({
                 source: "family_calibration",
                 category: "cognition",
-                title: `${sport}/${fam} dormant — already dampener-corrected`,
-                detail: `${sport.toUpperCase()} season off; settled-season gap ${gap.toFixed(1)}pp (n=${x.n}) already corrected by dampener ×${x.multiplier.toFixed(2)} — not live-actionable.`,
+                title: `${humanFamily(fam)} bets (${sport.toUpperCase()}): off-season, already corrected`,
+                detail: `${sport.toUpperCase()} is off-season. Last season these ran about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets); already auto-corrected to ${(x.multiplier*100).toFixed(0)}% strength. Not affecting current picks.`,
                 gapPp: gap,
                 multiplier: x.multiplier,
               })
@@ -973,8 +986,8 @@ function sectionOpenIssues() {
             red.push({
               source: "family_calibration",
               category: "cognition",
-              title: `${sport}/${fam} severely miscalibrated`,
-              detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
+              title: `${humanFamily(fam)} bets: model well off`,
+              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets). Auto-corrected down to ${(x.multiplier*100).toFixed(0)}% strength. Larger gap than the warning threshold.`,
               gapPp: gap,
               multiplier: x.multiplier,
             })
@@ -982,8 +995,8 @@ function sectionOpenIssues() {
             yellow.push({
               source: "family_calibration",
               category: "cognition",
-              title: `${sport}/${fam} overconfident`,
-              detail: `Engine claims ${(x.stated*100).toFixed(1)}% / actually wins ${(x.realized*100).toFixed(1)}% — gap ${gap.toFixed(1)}pp (n=${x.n}, dampener ×${x.multiplier.toFixed(2)})`,
+              title: `${humanFamily(fam)} bets: model a bit too confident`,
+              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets). Auto-corrected down to ${(x.multiplier*100).toFixed(0)}% strength.`,
               gapPp: gap,
               multiplier: x.multiplier,
             })
@@ -1049,10 +1062,10 @@ function sectionOpenIssues() {
           yellow.push({
             source: "drift_alerts",
             category: "infra",
-            title: `Data wiring gap: ${field}`,
+            title: `Some data isn't filling in (${field})`,
             detail: live
-              ? `[live] ${field}: ${live.populated}/${live.total} (${(live.rate*100).toFixed(0)}%) in ${live.sport.toUpperCase()} tracked_best — still below 50% threshold`
-              : line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim() + " (couldn't validate against tracked_best — surfacing log line as-is)",
+              ? `Only ${live.populated} of ${live.total} of tonight's ${live.sport.toUpperCase()} picks have the "${field}" detail filled in (${(live.rate*100).toFixed(0)}%) — below the 50% we expect.`
+              : line.replace(/^\[[\d\-:\s]+ET\]\s*RED\s*·\s*exit=\d+\s*·\s*/, "").trim() + " (couldn't double-check against tonight's picks — showing the raw alert)",
           })
         }
       }

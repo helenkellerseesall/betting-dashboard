@@ -192,7 +192,7 @@
 <details class="card" id="cardAutopilots">
   <summary><h2>autopilots today</h2><span class="summaryLine" id="sumAutopilots">…</span></summary>
   <div class="cardBody">
-    <div class="legend">green = fired & completed · yellow = started but not done · red = failed · gray = not fired yet (waiting for scheduled time).</div>
+    <div class="legend">green = done · yellow = running · red = failed · gray = not yet (waiting for its scheduled time).</div>
     <div id="autoList"></div>
   </div>
 </details>
@@ -201,7 +201,7 @@
 <details class="card" id="cardSchedule">
   <summary><h2>what's next</h2><span class="summaryLine" id="sumSchedule">…</span></summary>
   <div class="cardBody">
-    <div class="legend">scheduled autopilot fires (ET). green dot = on track, scheduler is alive and will fire these.</div>
+    <div class="legend">upcoming scheduled jobs (Eastern time). A green dot means the automation is alive and will run these on time.</div>
     <div id="schedList"></div>
   </div>
 </details>
@@ -210,7 +210,7 @@
 <details class="card" id="cardClv">
   <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
   <div class="cardBody">
-    <div class="legend">% of tipped picks where we captured the closing odds. 0/0 just means no games have tipped yet.</div>
+    <div class="legend">How many of today's games we locked the final odds for — we compare them to your bet price to see if you beat the market. Win/loss grades land overnight, so "0 final" during the day is normal.</div>
     <div id="clvBigWrap">
       <div class="big" id="clvBig">—</div>
       <div class="big-sub" id="clvSub">—</div>
@@ -242,9 +242,9 @@
 
 <!-- 7. tonight's picks (tracked_best) -->
 <details class="card" id="cardTrackedBest">
-  <summary><h2>tonight's picks (tracked_best)</h2><span class="summaryLine" id="sumTrackedBest">…</span></summary>
+  <summary><h2>tonight's picks</h2><span class="summaryLine" id="sumTrackedBest">…</span></summary>
   <div class="cardBody">
-    <div class="legend">how many picks the engine generated for tonight's slate, by prop family.</div>
+    <div class="legend">how many picks the engine generated for tonight's games, by bet type.</div>
     <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
     <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
     <!-- Phase True-Schedule-FE-Surface-1B (2026-06-03) — external schedule coverage -->
@@ -289,11 +289,11 @@
 
 <!-- 8c. schema golden / data integrity (Phase Wave-1-A3b 2026-06-04) -->
 <details class="card" id="cardSchemaGolden">
-  <summary><h2>data integrity (schema golden)</h2><span class="summaryLine" id="sumSchemaGolden">…</span></summary>
+  <summary><h2>data integrity</h2><span class="summaryLine" id="sumSchemaGolden">…</span></summary>
   <div class="cardBody">
     <div class="legend">
-      Checks the 5 core data files (<code>personal_ledger</code>, <code>tracked_bets</code>, <code>tracked_best</code>, <code>family_calibration</code>, <code>lessons</code>) against a known-good shape on every page load.
-      <strong>WARN-ONLY</strong> — it reports drift, it never blocks a write. Green = the files still carry the keys + types the engine expects. The null-as-zero / oppDef-0% class of bug would show up here as drift.
+      Checks the 5 core data files (your bet history, tracked bets, tonight's picks, accuracy history, and lessons) match their expected format on every page load.
+      <strong>Warning only</strong> — it flags problems, it never blocks anything. Green = the files still have all the right fields. A data-formatting bug would show up here.
     </div>
     <div id="schemaGoldenBody" style="margin-top:8px"></div>
   </div>
@@ -319,12 +319,12 @@
 
 <!-- 13. component health (tested-green) — APPENDED at end (placement provisional, FE-makeover day) -->
 <details class="card" id="cardComponentHealth">
-  <summary><h2>component health (tested-green)</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
+  <summary><h2>component health</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
   <div class="cardBody">
-    <div class="legend">Each component is GREEN only if its OWN self-test/probe RAN and PASSED this cycle — never assumed. amber = stale (ran before but its freshness window blew) · red = ran and FAILED · grey = never ran. A scheduled runner refreshes this ~every 15 min; if the whole card is stale the runner stopped. <code>node backend/scripts/componentHealthCheck.js</code> to refresh.</div>
+    <div class="legend">Each item shows green only if its own check ran and passed just now — never assumed. amber = checked earlier but the result is now stale · red = checked and failed · grey = never checked. These re-run automatically about every 15 minutes; if the whole card is stale, that automatic check has stopped.</div>
     <div id="componentHealthList">—</div>
     <div id="componentHealthNote" class="legend" style="margin-top:4px"></div>
-    <div class="legend" style="margin-top:10px;border-top:1px solid var(--text-faint);padding-top:6px">existing infra cards (annotation only — their checks/order are unchanged): <span style="color:var(--green)">self-tested</span> = a real probe runs + can fail · <span style="color:var(--text-faint)">state</span> = a status read, not a pass/fail self-test (honest label, not faked green).</div>
+    <div class="legend" style="margin-top:10px;border-top:1px solid var(--text-faint);padding-top:6px">the rest of the system, at a glance: <span style="color:var(--green)">checked &amp; passing</span> = a real test runs and can fail · <span style="color:var(--text-faint)">status read</span> = just reporting a value, not a pass/fail test (labelled honestly — never shown as a fake pass).</div>
     <div id="componentHealthInfra"></div>
   </div>
 </details>
@@ -445,7 +445,8 @@ function renderSportsActive(data) {
   }[st] || st);
   const entries = Object.entries(s.sports);
   const onCount = entries.filter(([, v]) => v.enabled).length;
-  _setSummary("sumSportsActive", onCount + " of " + entries.length + " ON" + (s.configReadable ? "" : " · CONFIG UNREADABLE"));
+  const onNames = entries.filter(([, v]) => v.enabled).map(([sp]) => sp.toUpperCase()).join(", ");
+  _setSummary("sumSportsActive", "In season: " + onCount + " of " + entries.length + " sports" + (onNames ? " (" + onNames + ")" : "") + (s.configReadable ? "" : " · settings unreadable"));
   for (const [sport, v] of entries) {
     const wired = v.state !== "no_scripts";
     const row = document.createElement("div");
@@ -513,7 +514,7 @@ function renderAgents(data) {
   const healthy = data.agents.filter(a => a.healthy).length;
   const daemons = data.agents.filter(a => a.kind === "daemon").length;
   const scheduled = data.agents.filter(a => a.kind === "scheduled").length;
-  _setSummary("sumAgents", healthy + " of " + total + " healthy · " + daemons + " daemons + " + scheduled + " scheduled");
+  _setSummary("sumAgents", "Background jobs: " + healthy + " of " + total + " alive · " + daemons + " always-on + " + scheduled + " scheduled");
   for (const a of data.agents) {
     const div = document.createElement("div");
     div.className = "agent";
@@ -590,26 +591,26 @@ function renderSysHeadline(data) {
   const audit = data.sysAuditLast?.lastRed;
   const allHealthy = agents?.ok && agents.allHealthy;
   if (!allHealthy) {
-    big.textContent = "DEGRADED";
+    big.textContent = "Needs attention";
     big.className = "big red";
-    sub.textContent = "one or more background processes are down — system is not running autonomously";
+    sub.textContent = "one or more background jobs are down — the system isn't running on its own right now";
     return;
   }
   if (audit && audit.includes("Backend not responding")) {
-    big.textContent = "BACKEND DOWN";
+    big.textContent = "Backend down";
     big.className = "big red";
-    sub.textContent = "the backend is not responding — auto-recovery will fire on the next hourly sysAudit";
+    sub.textContent = "the backend isn't responding — automatic recovery runs at the next hourly health check";
     return;
   }
   if (audit && audit.includes("RED")) {
-    big.textContent = "WATCHING";
+    big.textContent = "Running";
     big.className = "big yellow";
-    sub.textContent = "all processes running; one or more families flagged as overconfident — the dampener is auto-correcting. see below.";
+    sub.textContent = "all background jobs running; some bet types are reading as over-confident — the system is automatically correcting them (see below)";
     return;
   }
-  big.textContent = "GREEN";
+  big.textContent = "All good";
   big.className = "big green";
-  sub.textContent = "all systems nominal — autopilots firing, backend up, no active alerts";
+  sub.textContent = "everything's running — automated jobs firing, backend up, no alerts";
 }
 
 function renderBackend(data) {
@@ -694,7 +695,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
     const onSlate = sportData.gamesOnSlate || sportData.gamesPlayedToday || 0;
     const finalN  = sportData.gamesFinal || 0;
     const cap     = sportData.gamesCloseStamped || 0;
-    return finalN + '/' + onSlate + ' final · ' + cap + '/' + onSlate + ' closing lines captured';
+    return finalN + '/' + onSlate + ' final · ' + cap + '/' + onSlate + ' closing odds captured';
   }
   if (st === 'curation_gap') {
     return '<span class="sm" style="color:var(--yellow)">' + (sportData.gamesScheduledLive || 0) + ' ' + label + ' games scheduled · no curated picks captured</span>';
@@ -705,7 +706,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
   // Legacy fallback (state absent — backend not yet reloaded). Never assert "no games".
   if (!sportData.hasFile) return '<span class="sm">no ' + label + ' slate file yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
   const lp = sportData.gamesPlayedToday;
-  if (lp != null && lp > 0) return (sportData.gamesFinal || 0) + '/' + lp + ' final · ' + sportData.gamesCloseStamped + '/' + lp + ' closing lines captured';
+  if (lp != null && lp > 0) return (sportData.gamesFinal || 0) + '/' + lp + ' final · ' + sportData.gamesCloseStamped + '/' + lp + ' closing odds captured';
   return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
 }
 
@@ -766,7 +767,7 @@ function renderClv(data) {
     // red/green here — CLV-capture health stays in Open Issues (Source 6).
     big.textContent = totalLedgerFinal + "/" + totalLedgerPlayed;
     big.className = "big";
-    document.getElementById("clvSub").textContent = totalLedgerFinal + " of " + totalLedgerPlayed + " final · " + totalLedgerStamped + " of " + totalLedgerPlayed + " closing lines captured · " + slateLabel;
+    document.getElementById("clvSub").textContent = totalLedgerFinal + " of " + totalLedgerPlayed + " final · " + totalLedgerStamped + " of " + totalLedgerPlayed + " closing odds captured · " + slateLabel;
   } else if (anyGap) {
     // Curation gap — games scheduled (snapshot) but no curated picks. Honest, not "no games".
     big.textContent = "—";
@@ -827,14 +828,15 @@ function renderForwardClv(data) {
   const list = document.getElementById("forwardClvList");
   const ls = document.getElementById("forwardClvLineShop");
   const note = document.getElementById("forwardClvNote");
-  if (!f || !f.ok) { list.innerHTML = '<div class="err">tracker unavailable</div>'; _setSummary("sumForwardClv", "unavailable"); return; }
+  if (!f || !f.ok) { list.innerHTML = '<div class="err">edge tracker unavailable</div>'; _setSummary("sumForwardClv", "unavailable"); return; }
   if (f.generated === false) { list.innerHTML = '<div class="legend">' + (f.note || "not generated yet") + '</div>'; _setSummary("sumForwardClv", "not run yet"); ls.textContent = ""; note.textContent = ""; return; }
 
-  const LABELS = { rbis_low: "RBIs ≥1 (obtainable)", hits_low: "Hits ≥1 (obtainable)", mod_dog: "Moderate dog (+100..199)", low_conf: "Low model-confidence (<.20)" };
+  const LABELS = { rbis_low: "RBI (1 or more)", hits_low: "Hits (1 or more)", mod_dog: "Moderate underdogs (+100 to +199)", low_conf: "Low-confidence picks" };
   const VCOLOR = { hold: "var(--green)", flip: "var(--red)", "too-thin": "var(--text-faint)", flat: "var(--text-faint)" };
+  const VTEXT = { hold: "holding", flip: "flipped", "too-thin": "too few bets", flat: "flat" };
   const slices = f.slices || {};
   let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-  html += '<tr style="color:var(--text-faint)"><td>slice</td><td style="text-align:right">forward CLV</td><td style="text-align:right">n</td><td style="text-align:right">hit%</td><td style="text-align:right">verdict</td></tr>';
+  html += '<tr style="color:var(--text-faint)"><td>bet type</td><td style="text-align:right">beat the close</td><td style="text-align:right">bets</td><td style="text-align:right">win%</td><td style="text-align:right">holding?</td></tr>';
   let holds = 0, total = 0;
   for (const key of ["rbis_low", "hits_low", "mod_dog", "low_conf"]) {
     const s = slices[key]; if (!s) continue;
@@ -846,9 +848,9 @@ function renderForwardClv(data) {
     if (v === "hold") holds++;
     html += '<tr><td>' + (LABELS[key] || key) + '</td>'
       + '<td style="text-align:right;color:' + (fw.meanClv > 0 ? "var(--green)" : fw.meanClv < 0 ? "var(--red)" : "var(--text)") + '">' + clv + '</td>'
-      + '<td style="text-align:right">' + (fw.n ?? "—") + '</td>'
+      + '<td style="text-align:right">' + (fw.n == null ? "—" : Number(fw.n).toLocaleString("en-US")) + '</td>'
       + '<td style="text-align:right">' + hit + '</td>'
-      + '<td style="text-align:right;color:' + (VCOLOR[v] || "var(--text)") + '">' + v + '</td></tr>';
+      + '<td style="text-align:right;color:' + (VCOLOR[v] || "var(--text)") + '">' + (VTEXT[v] || v) + '</td></tr>';
   }
   html += '</table>';
   list.innerHTML = html;
@@ -856,13 +858,13 @@ function renderForwardClv(data) {
   const sh = f.lineShop;
   if (sh && sh.available && sh.priceImprovement) {
     const pi = sh.priceImprovement;
-    ls.innerHTML = 'line-shop (live slate ' + (sh.slateDate || "—") + '): best vs FanDuel-weighted consensus = <strong>' + (pi.meanEdgePp == null ? "—" : "+" + pi.meanEdgePp + "pp") + '</strong> over ' + pi.nProps + ' props — the price-shopping edge.';
-  } else { ls.textContent = "line-shop: live snapshot unavailable"; }
+    ls.innerHTML = 'Best-price shopping (today\'s games, ' + (sh.slateDate || "—") + '): your best available price beat the market average by <strong>' + (pi.meanEdgePp == null ? "—" : "+" + pi.meanEdgePp + " points") + '</strong> across ' + Number(pi.nProps).toLocaleString("en-US") + ' bets — the edge from shopping around.';
+  } else { ls.textContent = "Best-price shopping: today's data not available yet."; }
 
-  note.textContent = 'forward = slate ≥ ' + (f.cutoff || "?") + ' (the closing-line fix). '
-    + (f.forwardGradedRows || 0) + ' graded so far → hit% fills after the morning grade. CLV is the leading indicator, not promised profit.';
+  note.textContent = 'Only counts bets from ' + (f.cutoff || "?") + ' onward (when we started reliably capturing closing odds). '
+    + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + ' graded so far — win% fills in after the overnight grading. Beating the closing price is an early sign of a good bet, not a guarantee of profit.';
 
-  _setSummary("sumForwardClv", holds + "/" + total + " slices holding · " + (f.forwardGradedRows || 0) + " graded");
+  _setSummary("sumForwardClv", holds + " of " + total + " edge signals still holding up · " + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + " bets measured");
 }
 
 // Component health (tested-green): a component is green ONLY when its own check ran + passed this
@@ -875,7 +877,7 @@ function renderComponentHealth(data) {
   if (f.generated === false) { list.innerHTML = '<div class="legend">' + (f.note || "runner not run yet") + '</div>'; _setSummary("sumComponentHealth", "not run yet"); note.textContent = ""; return; }
   const COLORS = { green: "var(--green)", stale: "var(--yellow)", fail: "var(--red)", "not-run": "var(--text-faint)" };
   const DOT = { green: "●", stale: "●", fail: "●", "not-run": "○" };
-  const LABELS = { devigAnalytics: "devigAnalytics", cashoutHedge: "cashoutHedge", pinnacleBenchmarkSelfTest: "pinnacleBenchmark self-test", shadowStack: "shadow stack", pinnacleSidecar: "Pinnacle sidecar", forwardClvTracker: "forward-CLV tracker", closingLineCapture: "closing-line capture", contextPersistence: "context persistence", forwardCapture: "forward signal-capture" };
+  const LABELS = { devigAnalytics: "Fair-odds math", cashoutHedge: "Cash-out math", pinnacleBenchmarkSelfTest: "Sharp-line benchmark", shadowStack: "Backup math (not live yet)", pinnacleSidecar: "Sharp-line capture", forwardClvTracker: "Edge tracker", closingLineCapture: "Closing-odds capture", contextPersistence: "Matchup tags", forwardCapture: "Daily signal snapshot" };
   const runnerStale = f.runnerStale === true;            // real active-hours stall → downgrade greens
   const pausedOvernight = f.runnerPausedOvernight === true; // expected 11 PM–9 AM pause → do NOT downgrade
   const comps = f.components || {};
@@ -887,22 +889,23 @@ function renderComponentHealth(data) {
     if (runnerStale && st === "green") st = "stale";   // only a real active-hours stall downgrades; overnight pause does NOT
     if (st === "green") green++;
     const wired = c.wired === "wired"
-      ? '<span style="color:var(--green)">wired</span>'
-      : '<span style="color:var(--text-faint)">shelf</span>';
+      ? '<span style="color:var(--green)">(live in the product)</span>'
+      : '<span style="color:var(--text-faint)">(built, not used in picks yet)</span>';
+    const STTEXT = { green: "passing", stale: "stale", fail: "failing", "not-run": "not run yet" };
     html += '<tr>'
       + '<td style="color:' + (COLORS[st] || "var(--text)") + ';width:14px;vertical-align:top">' + (DOT[st] || "●") + '</td>'
-      + '<td>' + (LABELS[key] || key) + ' <span style="font-size:11px">[' + wired + ']</span></td>'
-      + '<td style="text-align:right;color:' + (COLORS[st] || "var(--text)") + '">' + st + '</td></tr>'
+      + '<td>' + (LABELS[key] || key) + ' <span style="font-size:11px">' + wired + '</span></td>'
+      + '<td style="text-align:right;color:' + (COLORS[st] || "var(--text)") + '">' + (STTEXT[st] || st) + '</td></tr>'
       + '<tr><td></td><td colspan="2" class="legend" style="padding-bottom:5px">' + (c.reason || "") + '</td></tr>';
   }
   html += '</table>';
   list.innerHTML = html;
-  note.textContent = "last runner pass: " + (f.ageMin != null ? f.ageMin + " min ago" : "—")
-    + (pausedOvernight ? " — PAUSED OVERNIGHT (runner gated 9 AM–11 PM ET; resumes 9 AM). States below are last-known, NOT downgraded."
-       : runnerStale ? " — RUNNER STALE (>40 min during active hours): greens downgraded until it runs again"
+  note.textContent = "last check: " + (f.ageMin != null ? f.ageMin + " min ago" : "—")
+    + (pausedOvernight ? " — paused overnight (these checks run 9 AM–11 PM ET; resume at 9 AM). Values below are last-known, not downgraded."
+       : runnerStale ? " — checks stalled (>40 min during the day): passing marks dimmed until they run again"
        : "")
-    + " · GREEN = ran + passed this cycle.";
-  _setSummary("sumComponentHealth", (pausedOvernight ? "paused overnight · " : runnerStale ? "RUNNER STALE · " : "") + green + "/" + total + (pausedOvernight ? " (last pass)" : " tested-green") + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
+    + " · green = checked and passing just now.";
+  _setSummary("sumComponentHealth", (pausedOvernight ? "paused overnight · " : runnerStale ? "checks stalled · " : "") + green + " of " + total + (pausedOvernight ? " (last check)" : " passing") + (f.ageMin != null ? " · " + f.ageMin + "m ago" : ""));
 
   // Infra-card annotation (additive; existing cards untouched). kind: "probe" = a real pass/fail
   // check (live this request / scheduled); "state" = a status read, labelled honestly, NEVER faked green.
@@ -916,23 +919,23 @@ function renderInfraAnnotation(data) {
   if (!el) return;
   if (!data) { el.innerHTML = ""; return; }
   const INFRA = [
-    { label: "launch agents", kind: "probe", scope: "live", ok: () => data.launchAgents && data.launchAgents.allHealthy === true, why: "launchctl + pgrep" },
-    { label: "scheduler heartbeat", kind: "probe", scope: "live", ok: () => !!(data.scheduler && data.scheduler.ok && Number(data.scheduler.lastHourEventCount) > 0), why: "ticks in last hour" },
-    { label: "schema golden", kind: "probe", scope: "live", ok: () => data.schemaGolden && data.schemaGolden.status === "clean", why: "5 JSON shapes validate" },
-    { label: "family calibration", kind: "probe", scope: "live", ok: () => !!(data.familyCalibration && data.familyCalibration.ok), why: "gap thresholds" },
-    { label: "sysAudit / drift", kind: "probe", scope: "hourly", ok: () => !!(data.openIssues && Array.isArray(data.openIssues.red) && data.openIssues.red.length === 0), why: "hourly sysAudit + drift log" },
-    { label: "backend process", kind: "state", why: "self-reported PID / uptime" },
-    { label: "ML scorer", kind: "state", why: "model.json mtime age" },
-    { label: "tracked-best counts", kind: "state", why: "row counts" },
+    { label: "Background services", kind: "probe", scope: "live", ok: () => data.launchAgents && data.launchAgents.allHealthy === true, why: "are the services alive?" },
+    { label: "Automation loop", kind: "probe", scope: "live", ok: () => !!(data.scheduler && data.scheduler.ok && Number(data.scheduler.lastHourEventCount) > 0), why: "ran within the last hour?" },
+    { label: "Data formats valid", kind: "probe", scope: "live", ok: () => data.schemaGolden && data.schemaGolden.status === "clean", why: "data files match expected format" },
+    { label: "Per-stat accuracy check", kind: "probe", scope: "live", ok: () => !!(data.familyCalibration && data.familyCalibration.ok), why: "accuracy within limits" },
+    { label: "Hourly self-audit", kind: "probe", scope: "hourly", ok: () => !!(data.openIssues && Array.isArray(data.openIssues.red) && data.openIssues.red.length === 0), why: "hourly self-check" },
+    { label: "Backend", kind: "state", why: "reported uptime" },
+    { label: "ML scorer", kind: "state", why: "model age" },
+    { label: "Tonight's picks count", kind: "state", why: "row counts" },
   ];
   let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
   for (const it of INFRA) {
     let right, color;
-    if (it.kind === "state") { right = "state, not self-tested"; color = "var(--text-faint)"; }
+    if (it.kind === "state") { right = "(status read, not a pass/fail test)"; color = "var(--text-faint)"; }
     else {
       let ok = false; try { ok = it.ok(); } catch (_) { ok = false; }
-      const tag = it.scope === "hourly" ? "self-tested (hourly)" : "self-tested (live)";
-      right = tag + (ok ? " ✓" : " ⚠ degraded");
+      const tag = it.scope === "hourly" ? "checked hourly" : "checked & passing";
+      right = ok ? (tag + " ✓") : ((it.scope === "hourly" ? "checked hourly" : "checked") + " ⚠ needs attention");
       color = ok ? "var(--green)" : "var(--yellow)";
     }
     html += '<tr><td>' + it.label + ' <span style="color:var(--text-faint);font-size:11px">[' + it.why + ']</span></td>'
@@ -952,7 +955,7 @@ function renderAutopilots(data) {
   const buildRow = (label, sub, started, completed, failed, nextLabelHint) => {
     const auto = document.createElement("div");
     auto.className = "auto";
-    let dotClass = "gray", statClass = "gray", statText = "not fired yet today";
+    let dotClass = "gray", statClass = "gray", statText = "not yet today";
     if (failed) { dotClass = "red"; statClass = "red"; statText = "FAILED at " + timeOnly(failed); }
     else if (completed && started) {
       dotClass = "green"; statClass = "green";
@@ -974,12 +977,12 @@ function renderAutopilots(data) {
 
   if (fires?.ok) {
     // pass the FAILED line as the `failed` arg so a finished-but-failed run shows FAILED, not perpetual "running".
-    buildRow("4 AM grading:backfill-all",
-      "refreshes calibration corpus from last night's outcomes",
+    buildRow("Grade last night's bets",
+      "checks how last night's bets did (4 AM)",
       fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, fires.gradingBackfillAll?.failedLine,
       "grading:backfill-all");
-    buildRow("5 AM audit:nightly",
-      "writes the daily proof report",
+    buildRow("Write the daily report",
+      "writes the daily summary report (5 AM)",
       fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, fires.auditNightly?.failedLine,
       "audit:nightly");
   }
@@ -988,27 +991,27 @@ function renderAutopilots(data) {
   if (fires?.populatorChain) {
     const pc = fires.populatorChain;
     const ranTxt = pc.ranOk != null ? pc.ranOk + " ran" + (pc.skipped ? " · " + pc.skipped + " skipped (NBA off-season)" : "") : (pc.okCount + " OK");
-    buildRow("3:05 AM populator chain",
-      "MLB stats/logs" + (pc.nbaOff ? " (NBA DvP/team-stats season-gated off)" : " + NBA DvP/team-stats") + " — " + ranTxt + " today",
+    buildRow("Refresh player data",
+      "player stats & game logs" + (pc.nbaOff ? " (NBA parts skipped — off-season)" : " (MLB + NBA)") + " — " + ranTxt + " today (3:05 AM)",
       pc.startedLine, pc.endedLine, null,
       "populator chain");
   } else {
-    buildRow("3:05 AM populator chain",
-      "MLB stats/logs + NBA DvP/team-stats (5min apart)",
+    buildRow("Refresh player data",
+      "player stats & game logs, MLB + NBA (3:05 AM)",
       null, null, null, "populator chain");
   }
   if (slates?.ok) {
-    buildRow("last slate:mlb fire",
-      "MLB slate refresh — hourly :00 from 9 AM to 11 PM",
+    buildRow("Pull today's MLB odds",
+      "refreshes MLB odds hourly on the hour, 9 AM–11 PM",
       null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed,
       "slate:mlb");
-    buildRow("last slate:nba fire",
-      "NBA slate refresh — every 30 min from 4 PM to 11:30 PM",
+    buildRow("Pull today's NBA odds",
+      "refreshes NBA odds every 30 min, 4–11:30 PM",
       null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed,
       "slate:nba");
   }
-  buildRow("hourly sysAudit",
-    "drift detection + backend health canary — fires every :00 from 9 AM to 11 PM",
+  buildRow("Hourly health check",
+    "checks the system is healthy — every hour on the hour, 9 AM–11 PM",
     null, null, null, "sysAudit");
 
   // Phase Status-Overhaul-1A — collapsed summary tallies the same rows that
