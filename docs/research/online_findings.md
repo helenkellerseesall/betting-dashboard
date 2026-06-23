@@ -88,3 +88,77 @@ Append-only. Each block is one verified research pass for CA.
   2. WIDEN scope: the static scan covers only 3 grading files. CA's #3 = "any grading/INGEST date-path." Add the ingest date-path files CB's own audit named -- saveTrackedSlateSnapshot.js, refreshMlbWeatherForSlate, refreshMlbBullpenWorkload, buildMlbWeather, fetchMlbOfficialLineupsSnapshot (+ the NBA equivalents).
   3. AVOID false positives (important, honest caveat): toLocaleDateString / new Date(str) / local getters are LEGITIMATE in pure display formatters and in pure YYYY-MM-DD calendar arithmetic. A blocklist-only regex WILL over-match. Keep the existing `date-arith-ok` allowlist tag, add a `display-ok` tag for FE/format-only lines, and prefer the guard's existing POSITIVE check (assert the result-date function calls calendarDateForTimestamp, as it already does for gameDatesForSlate) over pure blocklisting where feasible.
   4. ADD a BEHIND case to the static scan: flag `new Date(<string literal/var>)` and `Date.parse(` in date-key paths (#10-13); document it with the fixture new Date('2026-06-20').getDate() === 19 in ET (the round-trip trap), since the existing 775323 fixture only proves the AHEAD direction.
+
+## 2026-06-23 02:49 ET — Claude-C [audit] — PART 1: repo-wide read-only audit by failure class (ranked; for CA triage)
+
+READ-ONLY. No code touched. Evidence tags: [CC-VERIFIED] = CC read the file:line or reproduced the probe this session; [AGENT-SWEEP] = found by a read-only sub-agent with file:line cited, CC spot-check pending (CA: confirm before CB acts). Ranked by severity then blast radius.
+
+=== HIGH ===
+
+H1 [CC-VERIFIED] DATA-INTEGRITY -- starved id-join -> ~90% NULL model_prob; MLB calibration effectively dead.
+- intelligence.js:884-887,924 -- recordOutcome runs `SELECT * FROM prediction_snapshots WHERE id = ?`; on a miss `pred` is null -> `modelP = safeNum(pred?.model_prob)` is null -> writes NULL model_prob into outcome_snapshots.
+- Live consumer calibrationDampener.js:228-242 joins `FROM outcome_snapshots os JOIN prediction_snapshots ps ON ps.id = os.id WHERE os.hit IS NOT NULL`; comment :217-227 says the book-agnostic column-join "would yield MLB n=57 vs 0 today" is BUILT but deliberately NOT live (needs a line dimension first).
+- CC PROBE (Python sqlite3 3.37.2, read-only immutable, backend/storage/betting.db): outcome_snapshots=26,125; model_prob NOT NULL=2,524 (9.66%); prediction_snapshots=9,576; join overlap (o.id=p.id)=2,524 (== the non-null count, i.e. every populated model_prob is a joined row); by sport MLB 21,122 rows / 447 with model_prob (2.1%), NBA 5,003 / 2,077 (41.5%); last 200 MLB outcomes = 0 with model_prob.
+- CORRECTS the brief: the corpus is NOT empty and not "0.1%" -- it is a join miss -> ~90% null (MLB ~98% null). IMPACT: calibrationDampener (the documented sole runtime probability-calibration authority) runs MLB on ~447 historical rows and ~0 fresh, so MLB calibration is effectively a no-op -- any "calibrated probability" shown for MLB is barely corrected.
+- FIX (CA->CB): land the line-aware book-agnostic column join already built at calibrationDampener.js:217-227 so MLB outcomes rejoin; OR fix recordOutcome predId <-> prediction_snapshots.id matching so model_prob populates at settle. Add runtime:verify: FAIL if a graded slate's outcome rows carry <X% model_prob.
+
+H2 [CC-VERIFIED] FAKE-GREEN -- grading reports PASS / exits 0 even when a PAST slate grades zero.
+- runHistoricalGrade.js:289-293 logs "RED: games ... are PAST but 0 results fetched" but :336 `return { success: true }` unconditionally -> main `process.exit(anyFailure ? 1 : 0)` exits 0.
+- runGradingBackfillAll.js:243-256 `r.settled === 0 -> "SKIP (no settled bets)"`, :253 `continue` (not counted failed), :297 `RESULT: ${tally.failed === 0 ? "PASS" : "FAIL"}`, :338 `process.exit(tally.failed === 0 ? 0 : 1)`. This is the canonical 4 AM grading autopilot (autopilots/grading-nightly.sh). A slate that never settled (settlement:run failed / API outage) -> 0 settled -> SKIP -> PASS -> exit 0.
+- IMPACT: the operator's nightly logs / autopilots can read grading "OK" while a played slate silently failed to grade. [AGENT-SWEEP] statusRoute openIssues has a clv_capture source but NO grading-completion source (statusRoute.js:1306) -> this never reaches a /status dot.
+- FIX: a PAST-games-0-results / 0-settled-on-a-played-slate must be FAIL (exit 1): runHistoricalGrade should return success:false on the gamesPast RED branch; runGradingBackfillAll should FAIL (not SKIP) a date whose game-dates are PAST with 0 settled. Add a /status openIssues "grading_complete" source.
+
+H3 [CC-VERIFIED] FAUX -- MLB-live displayed confidenceScore defaults to 0.5 (and `||` turns a real 0 into 0.5).
+- buildMlbInspectionBoard.js:1498 `const confidenceScore = clamp(Number(top?.surfaceScore || top?.homeRunPathScore || 0.5), 0, 1)` -> feeds playerConvictionScore (:1510, weight 0.52), shown as the per-conviction confidence on the MLB inspection board the operator reads.
+- :1571 same on parlay-ticket legs: `... : Number(leg?.surfaceScore || 0.5)`.
+- IMPACT: a conviction/leg with no real surface/HR-path score is shown a synthetic 0.5 confidence (fabricated bettor-visible number), and a genuine score of exactly 0 is masked as 0.5 by `||` (violates the repo's own probabilityHonesty null-preservation doctrine).
+- FIX: when both score fields are absent, surface null/"unrated", not 0.5; use a finite check + `??` so a true 0 survives.
+
+=== MED ===
+
+M1 [CC-VERIFIED] DEAD/BROKEN-as-live + parallel authority -- populator-chain LaunchAgent runs 5 npm scripts that do not exist; nightly populators fail every run.
+- populator-chain.sh:33-40 `npm run derive:nba-dvp` / `npm run populate:nba-team-stats` / populate:mlb-batter-stats / populate:mlb-batter-game-logs / populate:mlb-pitcher-game-logs. CC grep: NONE of the 5 targets exist in backend/package.json (the only package.json) -> each step exits 1. Installed 3:05 AM via com.motel666.populator-chain.plist (install-autopilots.sh:11). The same populators run correctly via `node scripts/populate*.js` from scheduler.sh:329-351 -- so this is a broken PARALLEL owner; if the operator relies on the LaunchAgent (not the single-terminal scheduler), the caches never refresh and stale signals feed scoring.
+- FIX: point populator-chain.sh at the real `node scripts/populate*.js` (match scheduler.sh) OR retire the LaunchAgent and keep scheduler.sh as sole populator owner (Law 1).
+
+M2 [AGENT-SWEEP] FAKE-GREEN -- 5 AM audit:nightly ignores the grading exit code and sets no exit code of its own.
+- auditNightly.js:134-146 runGrading() status only printed; main() ends ~:456 with no process.exit; the anomaly grading-lag check (:402) needs total>50 AND settled/total<0.10 across a 7-day window (one 0-graded day is diluted). CA: confirm.
+
+M3 [AGENT-SWEEP] SILENT-FAILURE -- results fetchers return EMPTY on API failure, indistinguishable from "no games".
+- fetchMlbGameResults.js:141-143 `catch { console.error(...); return resultMap }` (empty Map); fetchNbaGameResults.js:117-123 `return []` on catch. Feeds H2: a transient 500/timeout looks like an off-day, bets stay pending, grading greens. CA: confirm.
+
+M4 [AGENT-SWEEP] FAUX -- archetype TIER legitimacy defaults to 0.5 -> bettor-visible tier label + stake weight.
+- archetypeWeighting.js:127-129 `const propL = propLegit ?? 0.5 ... (consensusConfidence ?? 0.5) * 0.1` -> archetype tier (superstar/proven/role-player/bench). A no-data prop lands mid-tier rather than withheld. CA: confirm intent (may be deliberate base weight).
+
+M5 [AGENT-SWEEP] FAUX (legacy/NBA path) -- estimateLegTrueProbability defaults model prob 0.5 -> trueProb/edge/EV.
+- server.js:16450 `let prob = hitRate || 0.5` (surfaced server.js:18631 trueProb, :18584 EV on /picks/today); workstationRoutes.js:2245 parlay-preview leg `... : 0.5` -> combined edge/ev/payout (server.js:2249-2251). Agent notes the live MLB mobile FE does not consume trueProb (NBA/legacy path; NBA paused) -> capped MED; PROMOTE to HIGH if /picks/today is still served to any client. CA: confirm reachability.
+
+M6 [AGENT-SWEEP] DEAD-as-live -- /api/bets + /api/bets/metrics serve a ~2-month-stale parallel JSON store; its write path is dead.
+- server.js:19773 (/api/bets) + :19782 (/api/bets/metrics) read tracker/betStorage.json; betTracker.js write fns saveBets/logBet/settleBet (:44/:68/:82) have no live caller (server.js:97 imports logBet, unused) -> betStorage.json stale since ~Apr 23. Canonical ledger = personal_ledger.json; PIPELINE_AUTHORITY_MAP.md:86 already tags betStorage a "PARALLEL ... consolidation target". CA: confirm endpoint consumers.
+
+M7 [AGENT-SWEEP] DEAD imports -- 6 board-builders required in server.js, zero call sites: buildMlbOomphEngine (server.js:68), buildMlbBetSelector (:66), buildBestSpecials (:35), buildFirstBasketBoard (:36), buildSpecialtyOutputs (:38), buildCuratedLayer2Buckets (:37). Dead weight that looks wired via require; agent checked no spawnSync/require(var) dispatch. CA: confirm before any delete (server.js is a half-extracted monolith).
+
+M8 [AGENT-SWEEP] SILENT-FAILURE -- settlement:run failure is logged but the chain continues to 4 AM grading with no /status alert.
+- scheduler.sh:447-452 `else log "settlement:run FAILED ... grading will skip them"`, loop proceeds; combined with H2 a settlement failure silently stalls the corpus. (Also: `$?` is captured after `log` ran, so it may not be settlement's real exit.) CA: confirm.
+
+=== LOW ===
+
+L1 [CC-VERIFIED] PARALLEL DRIVER + swallow -- runGradingBackfillAll.js:317-336 uses better-sqlite3 (`new Database(dbPath,{readonly:false})`) while the canonical driver is node:sqlite (db.js, Law 5). The inline outcomeLinks block swallows failure (:333-336 "do not fail the whole grading job") and the comment (:306-315) records outcome_links "stayed at 0 rows" historically. CA: confirm outcome_links is now populated; reconcile the driver.
+
+L2 [AGENT-SWEEP] sysAudit.js:382-383 -- the "CLV LOOP DEAD" canary is suppressed under 50 tipped picks and section 7 has no grading-completion (0-of-N) check, so a small or fully-failed slate raises nothing.
+
+L3 [AGENT-SWEEP] TIER-AUTHORITY overlap -- ELITE/STRONG vocabulary computed in 2+ places (buildMlbHrPredictionCandidates.js:678 tag + buildMlbPropClusters tierForPlay) vs PIPELINE_AUTHORITY_MAP.md:198 "sole MLB badge authority". Different label sets, overlapping words -> Law-1 collision risk. Reconcile or document.
+
+L4 [AGENT-SWEEP] 10 zero-reference one-shot scripts in backend/scripts/ (backfillCloseMirror.js, restoreLostPlacedBets.js, game7Ladders.js, scanGame7.js, traceCandidates.js, traceDdTdPipeline.js, traceWilliamsThrees.js, nbaPipelineHardAudit.js, nbaPipelineSelfCheck.js, + .scratch/dryrun_mean_median.js) -- dev tooling, expected-unreferenced, not presented as live; dead weight only.
+
+L5 [AGENT-SWEEP] NAMING COLLISION -- buildMlbCorrelationEngine.js (LIVE heuristic, consumed by buildSlipAi.js:119 etc.) vs the sanctioned shadow mlbCorrelationEngine.js (copula, kill-switched). Confusingly similar basenames one dir apart -> edit-the-wrong-file trap. Add a one-line authority-map entry.
+
+=== NOT-FINDINGS (brief premises corrected / sanctioned-by-design) ===
+- lineupSpot / battingOrder 0% = RESOLVED 2026-06-01 (free statsapi.mlb.com fallback wired, fetchMlbStatsApiLineups.js; merge fetchMlbApiSportsScaffold.js:742-759). Live now ~34-38% (64/189, 90/234, 49/179 on 06-22/21/20) -- partial BY DESIGN (anti-fabrication omits unconfirmed orders). Self-healing wiring check statusRoute.js:1025-1042. NOT a current hollow feed.
+- bullpen / air-density / pitcher-FIP / Statcast staging JSONs (the untracked backend/data/*.json + *.meta.json now in the working tree) = additive staging, ZERO live consumer BY DESIGN (sanctioned shadow stack, freeze-safe). grep across pipeline/ found no consumer. NOT treated as live.
+- nba_tracked_best gameContext 0% on disk = real but SELF-FLAGGED WARN (#71 wiring gap, sysAudit.js:252) -- surfaced, not silently trusted.
+- /status route itself is generally robust vs fake-greens: every section try-wraps to {ok:false,error}; componentHealthCheck GREEN only if `node <file>` exits 0 this cycle (:44-49); launch-agent health traces real PIDs/exit codes. The real gap is the MISSING grading-completion source (H2), not rendering.
+
+=== META (process integrity -- for CA) ===
+- node:sqlite in this sandbox CANNOT open the live betting.db: both readOnly and default-open, original and a fresh copy, return "file is not a database" (DB last written by SQLite 3.51.2; the magic header is valid "SQLite format 3"; Node's bundled SQLite rejects it). The H1 counts were reproduced ONLY via Python sqlite3 (3.37.2) `file:...?mode=ro&immutable=1`. An audit sub-agent had reported these same counts as a node:sqlite probe -- that path does not work here, so the numbers were treated as UNVERIFIED until CC independently reproduced them (now reproduced, HIGH). Operational rule for future CC/CB DB probes in-sandbox: use Python sqlite3 (or the app's own driver on the host), NOT bare node:sqlite; and never pass a sub-agent "probe number" to the operator without an independent reproduction.
+
+PART 2 (online bettor-edge deep dive) lands next, separate commit.
