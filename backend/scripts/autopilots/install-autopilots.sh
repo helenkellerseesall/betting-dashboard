@@ -7,8 +7,10 @@ set -e
 SRC_DIR="/Users/andrewmoore/Projects/betting-dashboard/backend/scripts/autopilots"
 DST_DIR="$HOME/Library/LaunchAgents"
 
+# M1 (2026-06-23): populator-chain RETIRED (Law 1) — its 5 npm targets never existed; the populators
+# run season-gated from scheduler.sh (sole owner). Removed from install; unload any running instance:
+#   launchctl bootout gui/$(id -u)/com.motel666.populator-chain
 PLISTS=(
-  "com.motel666.populator-chain.plist"
   "com.motel666.grading-nightly.plist"
   "com.motel666.audit-nightly.plist"
   "com.motel666.slate-mlb-hourly.plist"
@@ -52,7 +54,7 @@ launchctl list | grep com.motel666 || echo "  (none found — install failed)"
 
 echo ""
 echo "=== Done. Autopilots will fire at their scheduled times. ==="
-echo "  populator-chain: 3:05 AM daily"
+echo "  populators:      run from scheduler.sh 3:05-3:25 AM (sole owner; populator-chain RETIRED)"
 echo "  grading-nightly: 4:00 AM daily"
 echo "  audit-nightly:   5:00 AM daily"
 echo "  slate-mlb:       :00 of hours 9-23 ET (15/day)"
