@@ -45,6 +45,9 @@ const { spawnSync } = require("child_process")
 const TRACKING_DIR = path.join(__dirname, "..", "runtime", "tracking")
 const REPO_ROOT    = path.join(__dirname, "..", "..")
 const NIGHTLY_CLI  = path.join(REPO_ROOT, "scripts", "nightlyReview.js")
+// H2: one game-date authority (Law 1) — reuse settlementRun's exported helper to decide
+// whether a slate's GAMES are PAST (so 0-settled = real failure) vs today/future (expected pending).
+const { slateGameDateStatus } = require("./settlementRun")
 
 function parseArgs() {
   const out = { sport: null, dry: false, force: false, verbose: false, clearLocks: false }
@@ -240,8 +243,13 @@ function main() {
       const sqliteCount = outcomeCounts[r.date] || 0
       const needsBackfill = r.settled > sqliteCount
 
+      // H2: a slate that settled ZERO is a real FAILURE only if its GAMES are PAST (graded too late /
+      // settlement gap). Before its games play, 0 settled is expected pending — keep the benign SKIP.
+      const gs0 = r.settled === 0 ? slateGameDateStatus(sport, r.date) : null
+      const past0 = r.settled === 0 && gs0 && gs0.gamesPast === true
+
       const decision = r.settled === 0
-        ? "SKIP (no settled bets)"
+        ? (past0 ? `FAIL (0 settled · games ${gs0.maxGameDate} PAST)` : "SKIP (no settled · games not played yet)")
         : (!needsBackfill && !args.force)
           ? `SKIP (SQLite already has ${sqliteCount} ≥ JSON ${r.settled})`
           : args.dry
@@ -250,7 +258,18 @@ function main() {
 
       console.log(`  ${r.date}  total=${String(r.total).padStart(4)}  settled=${String(r.settled).padStart(4)}  sqlite=${String(sqliteCount).padStart(4)}   ${decision}`)
 
-      if (r.settled === 0 || (!needsBackfill && !args.force)) {
+      if (r.settled === 0) {
+        if (past0) {
+          tally.failed++   // H2: PAST games, 0 settled → RESULT: FAIL → exit 1 (never a silent SKIP/PASS)
+          tally.errors.push({ sport, date: r.date, exitCode: "PAST_0_SETTLED", stderr: "", stdout: `games ${gs0.maxGameDate} are PAST but 0 bets settled — settlement/grading gap` })
+          console.log(`    → FAIL  (0 settled on a PLAYED slate — not graded)`)
+          perDate.push({ sport, date: r.date, status: "fail", reason: "past_0_settled" })
+        } else {
+          tally.skipped++   // games today/future (or no gameTime) → expected pending
+        }
+        continue
+      }
+      if (!needsBackfill && !args.force) {
         tally.skipped++
         continue
       }

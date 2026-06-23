@@ -1218,6 +1218,26 @@ function sectionOpenIssues() {
     yellow.push({ source: "clv_capture", category: "infra", title: "CLV capture read error", detail: String(e?.message || e) })
   }
 
+  // ── Source 6a2: grading_complete (H2) — a PLAYED slate that graded ~0 is a real failure, not pending. ──
+  // Reuses g1Readiness (the game-date authority): fellShortDays = game-dates whose 4 AM grade window has
+  // PASSED but that still graded <floor. Future/today slates are "pending" there → never a false RED.
+  try {
+    const { computeG1Readiness } = require("../pipeline/shared/g1Readiness")
+    const g = computeG1Readiness()
+    if (g && g.ok && Array.isArray(g.fellShortDays) && g.fellShortDays.length) {
+      for (const d of g.fellShortDays) {
+        red.push({
+          source: "grading_complete",
+          category: "infra",
+          title: `MLB ${d.day} games played but only ${d.gradeable}/${d.total} graded — grading did not complete`,
+          detail: `Game-day ${d.day} is past its 4 AM grade window but only ${d.gradeable} of ${d.total} bets graded. A played slate that grades ~0 is a real settlement/grading failure (not pending). Check settlement:run + grading:backfill-all for ${d.day}.`,
+        })
+      }
+    }
+  } catch (e) {
+    yellow.push({ source: "grading_complete", category: "infra", title: "grading-complete check unavailable", detail: String(e?.message || e) })
+  }
+
   // ── Source 6b: batter-stats cache coverage — partial populate = thinner cards ──
   try {
     const bc = sectionBatterCacheCoverage()

@@ -259,6 +259,7 @@ async function gradeDate({ sport, date, fetcher, opts }) {
   // calendar day (Phase Settlement-GameDate-1A). Fetch each distinct ET
   // game-date and MERGE into one map (gradeTrackedBets matches by player name).
   let resultsMap = new Map()
+  let gameResultsFailure = false   // H2: a PAST slate that fetched 0 results = real failure → caller exits non-zero (not a green)
   if (!dryRun) {
     const gameDates = await gameDatesForSlate(sport, date)
     try {
@@ -289,6 +290,7 @@ async function gradeDate({ sport, date, fetcher, opts }) {
       if (!gamesPast) {
         console.log(`  ⏳ pending: games for slate ${date} play ${maxGameDate} (not yet played) — bets stay pending (expected, not a failure)`)
       } else {
+        gameResultsFailure = true   // H2: PAST games + 0 results → this date FAILED; caller must exit non-zero, never green
         console.warn(`  ⚠ RED: games for ${dlabel} are PAST but 0 results fetched — real data/grading failure, bets stuck pending`)
       }
     } else {
@@ -333,7 +335,7 @@ async function gradeDate({ sport, date, fetcher, opts }) {
     console.log(`  [dry-run] Would write grading_summary_${sport}_${date}.json`)
   }
 
-  return { success: true, betSummary, slipSummary, summary }
+  return { success: !gameResultsFailure, betSummary, slipSummary, summary }
 }
 
 function printSummary(sport, date, summary) {
