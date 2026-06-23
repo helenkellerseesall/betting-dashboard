@@ -29,8 +29,8 @@ const NEED = 14               // clean forward GAME-days the gate needs
 const CLEAN_FLOOR = 100       // real MLB slates grade hundreds of rows; a failed night ~0.
 
 function addDays(ymd, n) {
-  const dt = new Date(ymd + "T12:00:00Z"); dt.setUTCDate(dt.getUTCDate() + n)
-  return dt.toISOString().slice(0, 10)   // calendar arithmetic on a noon-UTC anchor (not a game-date derivation)
+  const dt = new Date(ymd + "T12:00:00Z"); dt.setUTCDate(dt.getUTCDate() + n)   // date-arith-ok: noon-UTC anchor, projection arithmetic (not a game-date derivation)
+  return dt.toISOString().slice(0, 10)   // date-arith-ok
 }
 function daysBetween(a, b) {
   return Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / 864e5)

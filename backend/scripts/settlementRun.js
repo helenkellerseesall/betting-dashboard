@@ -87,10 +87,10 @@ function buildWindowDates(todayStr, n) {
   const base = new Date(Date.UTC(y, m - 1, d))
   const out = []
   for (let i = size - 1; i >= 0; i--) {
-    const shifted = new Date(base.getTime() - i * 24 * 60 * 60 * 1000)
-    const yy = shifted.getUTCFullYear()
-    const mm = String(shifted.getUTCMonth() + 1).padStart(2, "0")
-    const dd = String(shifted.getUTCDate()).padStart(2, "0")
+    const shifted = new Date(base.getTime() - i * 24 * 60 * 60 * 1000)   // date-arith-ok: slate-window descent on a Date.UTC anchor, not a game-result-date
+    const yy = shifted.getUTCFullYear()   // date-arith-ok
+    const mm = String(shifted.getUTCMonth() + 1).padStart(2, "0")   // date-arith-ok
+    const dd = String(shifted.getUTCDate()).padStart(2, "0")   // date-arith-ok
     out.push(`${yy}-${mm}-${dd}`)
   }
   return out

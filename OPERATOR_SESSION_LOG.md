@@ -6327,3 +6327,38 @@ NOT (B): slate NOT renamed. No re-grade of 06-21 tonight (its 06-22 games are un
 PROVE: .scratch/game_date_timing_verify.txt. node --check all OK; runtime:verify 22/22.
 DEPLOY: statusRoute serves g1Readiness (module cached at boot) → backend KICKSTART for the card to use game-date logic. settlementRun/runHistoricalGrade spawned fresh each grading run → no reload.
 NEXT_EXPECTED_FROM_PEER: operator commits (this also commits CA's pending 19:50 Claude-A block) + kickstarts BACKEND, then the /status calibration card shows game-date-driven "N/14 clean · pending (games not played)" (CB/CA Chrome-confirm post-kickstart). PROBE_REFS: g1Readiness.js (game-date classify) · settlementRun.js slateGameDateStatus/executePair/exitVerdict · runHistoricalGrade.js future-aware warn · verifyGameDateDiscipline.js + runtimeVerify.js · .scratch/game_date_timing_verify.txt · runtime:verify 22/22 · `TZ='America/New_York' date` → 2026-06-22 21:30 ET.
+
+## 2026-06-22 22:05 ET — Claude-B [Cowork] — EXTEND verifyGameDateDiscipline to CC's FULL anti-pattern net (per CC 21:15 f39ec70 + operator). READ-FIRST done (git log -8; CC relocated findings to docs/research/online_findings.md). Test/ops only, no scoring. runtime:verify 22/22. verifyGameDateDiscipline now 14/14 (was 7/7).
+
+NET (was just toISOString().slice + getUTC*) now catches all of CC's set: toISOString/toJSON .slice/.substr/.substring/.split('T'); getUTC(Date|FullYear|Month); epoch /86400000 day-bucket; toLocaleDateString/toLocaleString/Intl.DateTimeFormat WITHOUT timeZone; bare local getFullYear/getMonth/getDate key; Date.parse( / new Date('<string>') re-parse; set(UTC)?Date( shifts (CC's "single most important add"). 
+
+GUARDRAILS (CC's caution — no over-match): per-line EXEMPT allowlist = `date-arith-ok` (calendar arithmetic on a noon/UTC anchor, not a game-date) + NEW `display-ok` (FE/format-only) + routes-canonical-on-line (calendarDateForTimestamp/slateDateForTimestamp/currentSlateDateEt). Tagged the legit UTC arithmetic: settlementRun.buildWindowDates :90-93 (slate-window descent) + g1Readiness.addDays (projection) → date-arith-ok. PREFER positive checks: assert gameDatesForSlate + settlementRun.slateGameDateStatus + g1Readiness.readSlate all derive via calendarDateForTimestamp.
+
+FIXTURES — both directions, host-independent (calendarDateForTimestamp is ET-explicit): AHEAD historical 2024-10-06T00:38:00Z→2024-10-05 (gamePk 775323); AHEAD current-season 2026-06-21T01:10:00Z→2026-06-20 (CC gamePk 824342); BEHIND round-trip new Date('2026-06-20')→ET 2026-06-19 (documents new Date('YYYY-MM-DD').getDate()===19-on-ET-host; the existing fixture only proved AHEAD). SELF-TEST: net proven to FIRE on all 14 anti-patterns + canonical line does not trip + EXEMPT neutralizes — guard is not vacuous.
+
+SCOPE: static scan = the 4 result-date/grading files (fetchMlbGameResults, gradeTrackedBets, runHistoricalGrade, settlementRun); g1Readiness covered by positive check. CC's #2 (widen to ingest files saveTrackedSlateSnapshot/weather/bullpen/lineups) deferred — those are CURRENT-slate ingest (currentSlateDateEt correct) + higher FP risk; do as a separate allowlist-careful pass if wanted.
+
+DEPLOY: none — verify suite + comment tags only; NO served/behavior change, NO kickstart. PROVE: verifyGameDateDiscipline 14/14 (incl. self-test net-fires-on-14) · runtime:verify 22/22 · node --check OK.
+NEXT_EXPECTED_FROM_PEER: operator commits the 4 files. Guard now blocks the whole class from regressing. Optional follow-up: widen the static scan to ingest files (CC #2) with display-ok tags. PROBE_REFS: verifyGameDateDiscipline.js (offenders net + 14 fixtures/self-tests) · settlementRun.js:90-93 date-arith-ok · g1Readiness.js addDays date-arith-ok · runtime:verify 22/22 · `TZ='America/New_York' date` → 2026-06-22 22:05 ET.
+
+## 2026-06-22 20:39 ET — Claude-C [research] — READ-FIRST pass + RECONCILE officialDate + fix findings path. No code changed.
+
+READ-FIRST (git log -8 + this log's A/B/C blocks + own findings tail), clock-checked 2026-06-22 ~20:04 ET. Caught: (1) my first findings block committed to the WRONG path backend/docs/research/ -> MOVED to repo-root docs/research/online_findings.md (operator Rule 1); (2) CB audit ed372ff + CA decision (19:50) -> my officialDate finding is the right PRINCIPLE but NOT our bug; kept as the #3-guard basis.
+
+WROTE: reconciliation block appended to docs/research/online_findings.md -- CA/CB verdict + a current-season 2026-06-20 live-API example (5 games gameDate 06-21Z vs officialDate 06-20; gamePk 823937 Orioles@Dodgers + 4 others) + the 2024-10-05 gamePk 775323 case labeled a deliberately-historical regression fixture + APPLY re-pointed to support the #3 recurrence guard (ban toISOString().slice / setDate(+1) / getUTC*-on-gameDate; route through slateDate.js). Nuance logged: our dates come from odds-API commence_time, so officialDate is the MLB-Stats-API path, not our current one.
+
+OFFER: CC can enumerate the full JS date-from-timestamp anti-pattern set for the #3 guard net on request.
+
+NEXT_EXPECTED_FROM_PEER: operator commits OPERATOR_SESSION_LOG.md (this CC block + CA's pending 19:50 block) on the next log commit; the findings file is already committed+pushed by this fence. PROBE_REFS: docs/research/online_findings.md (moved + reconcile block) · docs/audits/2026-06-22-game-date-bug-class/AUDIT.md · OPERATOR_SESSION_LOG 19:50 CA decision · live statsapi schedule 2026-06-20.
+
+## 2026-06-22 21:15 ET — Claude-C [research] — FULL date-anti-pattern net handed to CB for the #3 guard. No code changed.
+
+READ-FIRST (git log -8 + this log's newest A/B/C + online_findings.md tail), clock-checked 2026-06-22 ~20:5x ET. Caught up: CB shipped the #3 guard verifyGameDateDiscipline.js in a319e49 (uses the CC 775323 fixture) + game-date-driven timing (A); runtime:verify 22/22. So this pass = the requested COVERAGE-GAP research, not a new build.
+
+WROTE (docs/research/online_findings.md, committed+pushed this fence): the FULL JS date-from-timestamp anti-pattern net -- 15 patterns in 5 families (UTC-truncation / runtime-local / date-only-string-as-UTC / datetime-no-offset / manual day-arith), each with exact failure mode + direction (AHEAD vs BEHIND) + MDN citation, plus a precise GAP ANALYSIS vs the current guard. The current FORBIDDEN regex nets only #1+#5 (toISOString().slice(0, getUTC{Date,FullYear,Month}). It MISSES: .split('T')[0] / .substring / .substr / toJSON truncation, getTime()/86400000 bucketing, toLocaleDateString / toLocaleString / Intl-without-timeZone, bare local getters, new Date(str) / Date.parse UTC-parse traps, and setDate(+/-n) -- setDate was in CA's #3 spec but is NOT in the regex (top add). Scope also covers only 3 grading files; widen to the ingest date-path files CB's audit named.
+
+CAVEAT handed to CB: a blocklist-only regex over-matches legitimate DISPLAY code -> keep date-arith-ok + add a display-ok tag + prefer the positive "asserts calendarDateForTimestamp" check.
+
+FOR CB: extend verifyGameDateDiscipline.js per APPLY 1-4 in the findings block (regex additions incl. setDate + scope widen + false-positive guard + a BEHIND fixture new Date('2026-06-20') -> 2026-06-19).
+
+NEXT_EXPECTED_FROM_PEER: operator commits OPERATOR_SESSION_LOG.md (this CC block + any pending A/B blocks) on the next log commit; the findings file is already committed+pushed by this fence. PROBE_REFS: docs/research/online_findings.md (anti-pattern net) · backend/scripts/verifyGameDateDiscipline.js (current regex/scope) · MDN Date/parse + Date/toLocaleDateString.
