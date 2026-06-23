@@ -6382,3 +6382,40 @@ CAVEAT handed to CB: a blocklist-only regex over-matches legitimate DISPLAY code
 FOR CB: extend verifyGameDateDiscipline.js per APPLY 1-4 in the findings block (regex additions incl. setDate + scope widen + false-positive guard + a BEHIND fixture new Date('2026-06-20') -> 2026-06-19).
 
 NEXT_EXPECTED_FROM_PEER: operator commits OPERATOR_SESSION_LOG.md (this CC block + any pending A/B blocks) on the next log commit; the findings file is already committed+pushed by this fence. PROBE_REFS: docs/research/online_findings.md (anti-pattern net) · backend/scripts/verifyGameDateDiscipline.js (current regex/scope) · MDN Date/parse + Date/toLocaleDateString.
+
+## 2026-06-23 02:49 ET — Claude-C [audit] — PART 1 LANDED (ping CA): ranked read-only failure-class audit committed. No code changed.
+
+READ-FIRST done (git log -10; HEAD 818076a; CB shipped verifyGameDateDiscipline full net 7c2bf96 + G2/G3/G4 gates; CC date-guard work closed). Part 1 audit committed to docs/research/online_findings.md. Method: 4 read-only sub-agents by failure class, then CC personally verified every HIGH at file:line + reproduced the corpus probe.
+
+TOP FOR CA TRIAGE:
+- H1 (HIGH, CC-reproduced): id-join miss -> outcome_snapshots 26,125 rows but only 2,524 (9.66%) carry model_prob; MLB 21,122/447 (2.1%), last 200 MLB outcomes 100% null. intelligence.js:884-887,924 writes null on a prediction_snapshots.id miss; calibrationDampener.js:228-242 (the live sole calibration authority) joins on that id -> MLB calibration is effectively a no-op. The line-aware column join that fixes it is built but gated (calibrationDampener.js:217-227). This CORRECTS the standing "corpus EMPTY / 0.1%" note -- not empty, it's a starved join.
+- H2 (HIGH, CC-verified): grading greens on a failed slate -- runHistoricalGrade.js:336 returns success:true even on the PAST-games-0-results RED branch; runGradingBackfillAll.js:243-256/297/338 SKIPs 0-settled dates yet RESULT PASS / exit 0. /status has no grading-completion source (statusRoute.js:1306).
+- H3 (HIGH, CC-verified): buildMlbInspectionBoard.js:1498,1571 -- MLB-live confidenceScore defaults to 0.5 and `||` masks a real 0 (fabricated bettor-visible number).
+- M1 (CC-verified): populator-chain.sh:33-40 runs 5 npm scripts that do NOT exist in backend/package.json -> fails nightly; parallel to scheduler.sh.
+- Premises CORRECTED: corpus not empty (H1); lineupSpot 0% RESOLVED (now ~34-38%); the untracked backend/data staging JSONs are sanctioned zero-consumer, not hollow-live.
+- META: node:sqlite cannot open the 3.51.2-written betting.db in-sandbox ("file is not a database"); counts reproduced via python sqlite3 ro/immutable only. Future DB probes must not use bare node:sqlite here.
+
+Full ranked list (3 HIGH / 8 MED / 5 LOW + not-findings + meta) in the findings block. [AGENT-SWEEP]-tagged MED/LOW items have file:line but await CC/CA spot-check before CB acts.
+
+NEXT_EXPECTED_FROM_PEER: CA triages H1-H3 + M1 into CB tasks (all read-only-audited, none fixed). Operator commits OPERATOR_SESSION_LOG.md (this block) on the next log commit. CC is writing PART 2 (online bettor-edge deep dive) next, separate commit. PROBE_REFS: docs/research/online_findings.md (Part 1) · intelligence.js:884-924 · calibrationDampener.js:217-242 · runHistoricalGrade.js:284-336 · runGradingBackfillAll.js:243-338 · buildMlbInspectionBoard.js:1498/1571 · populator-chain.sh:33-40 vs backend/package.json · python sqlite3 probe (26125/2524/447).
+
+## 2026-06-23 02:49 ET — Claude-C [research] — PART 2 LANDED (ping CA): bettor-edge methodology gaps committed. No code changed.
+
+Part 2 committed to docs/research/online_findings.md -- 5 ranked edges we lack, each cited (>=2, AUTH vs PRAC labeled), built on (not re-deriving) the existing parlay/staking playbooks.
+- E1 (top): calibration METHOD -- isotonic overfits below ~1000 samples (sklearn [AUTH]); our MLB families (rbis n=19 etc.) are far below that, so the current MIN_SAMPLE->no-op fallback silently zeroes calibration. Use sample-size-aware method (isotonic only when large, else Platt/Beta) + hierarchical pooling + holdout Brier/ECE gate. Directly compounds Part 1 H1.
+- E2: score by CLV vs the DE-VIGGED closing line (not raw, not hit-rate) -- the most robust profit predictor; we already see CLV sort ROI monotone. Add grading_complete + clv_capture /status sources (closes H2 blind spot).
+- E3: devig discipline -- power default, Shin cross-check for high-vig props, grade on MEDIAN (our 89.4% mean>median dry-run is the codifiable win).
+- E4: evaluate by Brier/log-loss/ECE on a HOLDOUT, never hit-rate, never on train (extend the G1 forward gate).
+- E5: size by the CLV-validated edge with a calibration-uncertainty haircut, under the limit reality (CLV is the KPI, not volume).
+HONEST FRAME logged: no magic signal; these methodology fixes are higher-EV than a new feature, and most are repo-HALF-built + currently broken/thin per Part 1.
+
+NEXT_EXPECTED_FROM_PEER: CA triages Part 1 (H1-H3,M1) into CB tasks and folds Part 2 E1-E5 into the post-freeze calibration/CLV roadmap. Operator commits OPERATOR_SESSION_LOG.md (this + the Part 1 block). Both audit halves now committed to online_findings.md. PROBE_REFS: docs/research/online_findings.md (Part 1 + Part 2) · sklearn calibration [AUTH] · betherosports/datawisebets/outlier devig [PRAC] · vsin/pikkit/betstamp CLV [PRAC].
+
+## 2026-06-23 03:01 ET — Claude-A [triage] — CC repo-wide audit triaged; 3 HIGH verified; H2/H3/M1 -> CB (freeze-safe), H1 held for operator
+Read CC commits 5a91c11 (Part 1 repo-wide audit) + 009c6fc (Part 2 methodology research), both docs-only. Triaged; spot-checked the HIGH findings against the ACTUAL code (CA, sandbox, this session):
+- H1 (data-integrity, HIGH, VERIFIED): intelligence.js:887 `safeNum(pred?.model_prob)` writes NULL on a prediction-id join miss; the book-agnostic column-join that would fix MLB is built-but-NOT-live (calibrationDampener.js:217-242). CC reproduced the magnitude via Python sqlite3 (node:sqlite cannot open betting.db here — DB written by SQLite 3.51.2): outcome_snapshots 26,125; model_prob non-null 2,524 (9.66%); MLB 21,122/447 (2.1%); NBA 5,003/2,077 (41.5%); last 200 MLB outcomes = 0. NET: MLB calibration (calibrationDampener, doctrine's runtime prob-calibration authority) is effectively a NO-OP. CORRECTS the stale "corpus empty / 0.1%" premise.
+- H2 (grading fake-green, VERIFIED): runHistoricalGrade.js returns { success: true } even on the gamesPast-RED branch; runGradingBackfillAll.js SKIPs settled===0 -> RESULT PASS -> exit 0. A PLAYED slate that grades zero can read green.
+- H3 (faux confidence, VERIFIED): buildMlbInspectionBoard.js:1498 + :1571 `|| 0.5` shows a fabricated 0.5 confidence when no real score exists and masks a true 0.
+ROUTED to CB now (freeze-safe, no PRESERVED files): H2 grading exit-codes + a /status grading_complete source; H3 unrated-not-0.5; M1 populator-chain.sh broken parallel owner (5 non-existent npm targets; scheduler.sh runs the real populators).
+HELD for operator decision: H1 — fix the join before the 25th vs graduate G1 with MLB calibration thin. Touches PRESERVED (intelligence.js + calibrationDampener.js) -> explicit approval required. This TEMPERS the earlier "fully pre-staged, no build left" claim for MLB.
+MED/LOW M2-M8/L1-L5 = CC [AGENT-SWEEP], file:line cited but NOT reproduced -> need a confirm pass before any action; mostly dead/stale code. Op rule reaffirmed: never pass an unreproduced sub-agent DB-probe number to the operator; reproduce via Python sqlite3 ro/immutable in-sandbox.
