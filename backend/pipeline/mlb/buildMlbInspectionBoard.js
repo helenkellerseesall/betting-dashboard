@@ -181,6 +181,14 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
 
+// H3: bettor-visible confidence must not fabricate 0.5. Return the FIRST finite score (a genuine 0
+// survives — the old `Number(a || b || 0.5)` turned 0→0.5), clamped to [0,1]; if NONE is finite,
+// return null = "unrated" (probabilityHonesty null-preservation). Exported for the H3 probe.
+function firstFiniteScore(...vals) {
+  for (const v of vals) { const n = Number(v); if (Number.isFinite(n)) return clamp(n, 0, 1) }
+  return null
+}
+
 function normalizeMarketShapeSignal(row) {
   const marketKey = String(row?.marketKey || "").toLowerCase()
   const line = toNumberOrNull(row?.line)
@@ -1495,7 +1503,11 @@ function buildPlayerConvictions(rows, options = {}) {
     .map(([player, playerRows]) => {
       const sorted = [...playerRows].sort((a, b) => Number(b?.surfaceScore || b?.homeRunPathScore || 0) - Number(a?.surfaceScore || a?.homeRunPathScore || 0))
       const top = sorted[0] || {}
-      const confidenceScore = clamp(Number(top?.surfaceScore || top?.homeRunPathScore || 0.5), 0, 1)
+      // H3: the bettor-VISIBLE confidence stops fabricating 0.5 — surfaceScore-first (genuine 0 survives),
+      // else homeRunPathScore, else null="unrated". The internal ranking input (_convConfidence) keeps the
+      // PRE-H3 expression byte-identical so playerConvictionScore (selection-adjacent, frozen) does NOT move.
+      const confidenceScore = firstFiniteScore(top?.surfaceScore, top?.homeRunPathScore)
+      const _convConfidence = clamp(Number(top?.surfaceScore || top?.homeRunPathScore || 0.5), 0, 1)
       const oddsValues = sorted.map((r) => toNumberOrNull(r?.odds)).filter(Number.isFinite)
       const minOdds = oddsValues.length ? Math.min(...oddsValues) : 0
       const maxOdds = oddsValues.length ? Math.max(...oddsValues) : 0
@@ -1507,8 +1519,8 @@ function buildPlayerConvictions(rows, options = {}) {
       return {
         player,
         team: top?.team || null,
-        playerConvictionScore: Number(((confidenceScore * 0.52) + (ceilingScore * 0.2) + (floorScore * 0.16) + (spikeScore * 0.12)).toFixed(4)),
-        confidenceScore,
+        playerConvictionScore: Number(((_convConfidence * 0.52) + (ceilingScore * 0.2) + (floorScore * 0.16) + (spikeScore * 0.12)).toFixed(4)),   // byte-identical to pre-H3 (frozen selection untouched)
+        confidenceScore,   // H3: null = "unrated" (no fabricated 0.5) — bettor-visible field only
         ceilingScore,
         floorScore,
         spikeScore,
@@ -1568,7 +1580,8 @@ function withTicketLegFields(ticket = {}) {
       odds: leg?.odds,
       bombTier: leg?.bombTier || null,
       outcomeTier: inferOutcomeTier(leg, String(leg?.role || "ticket")),
-      confidenceScore: clamp(toNumberOrNull(leg?.homeRunPathScore) != null ? Number(leg.homeRunPathScore) : Number(leg?.surfaceScore || 0.5), 0, 1),
+      // H3: homeRunPathScore-first (genuine 0 survives), else surfaceScore, else null="unrated" — no fabricated 0.5.
+      confidenceScore: firstFiniteScore(leg?.homeRunPathScore, leg?.surfaceScore),
       matchup: leg?.matchup || null
     }))
   }
@@ -1851,6 +1864,7 @@ function buildMlbInspectionBoard({ snapshot, sampleLimit = 10, topLimit = 20 }) 
 
 module.exports = {
   buildMlbInspectionBoard,
+  firstFiniteScore,   // H3: exported for the unrated-not-0.5 probe
   compactMlbRow,
   buildMlbSurfaceBoard,
   buildPlayerTeamIndex,
