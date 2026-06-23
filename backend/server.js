@@ -32,10 +32,8 @@ const { classifyBoardRow, isTeamFirstBasketRow, isMilestoneLadderRow } = require
 const { buildExpandedMarketPools, buildFinalPlayableRows } = require("./pipeline/markets/expandedPools")
 const { scoreBestFallbackRow, buildBestPropsFallbackRows } = require("./pipeline/selection/bestProps")
 const { buildBestLadders } = require("./pipeline/boards/buildBestLadders")
-const { buildBestSpecials } = require("./pipeline/boards/buildBestSpecials")
-const { buildFirstBasketBoard } = require("./pipeline/boards/buildFirstBasketBoard")
-const { buildCuratedLayer2Buckets: buildCuratedLayer2BucketsHelper } = require("./pipeline/boards/buildCuratedLayer2Buckets")
-const { buildSpecialtyOutputs } = require("./pipeline/boards/buildSpecialtyOutputs")
+// M7 (2026-06-23): removed 4 dead board-builder requires (buildBestSpecials, buildFirstBasketBoard,
+// buildCuratedLayer2Buckets→Helper, buildSpecialtyOutputs) — 0 call sites, no dynamic invocation. Files kept.
 const { buildCeilingRoleSpikeSignals, buildLineupRoleContextSignals, buildMarketContextSignals } = require("./pipeline/signals/buildPredictiveSignals")
 const { createSurfaceRowBuilder, finalizeRuntimeExternalOverlay } = require("./pipeline/output/buildSurfaceRow")
 const { rowTeamMatchesMatchup: rowTeamMatchesMatchupResolver, getBadTeamAssignmentRows: getBadTeamAssignmentRowsResolver, buildSpecialtyPlayerTeamIndex } = require("./pipeline/resolution/playerTeamResolution")
@@ -63,9 +61,8 @@ const {
 } = require("./pipeline/resolution/mlbTeamResolution")
 const { buildPregameContext } = require("./pipeline/context/pregameContext")
 const { buildMlbDecisionBoard } = require("./pipeline/mlb/lanes/buildMlbDecisionBoard")
-const { buildMlbBetSelector } = require("./pipeline/mlb/buildMlbBetSelector")
+// M7 (2026-06-23): removed dead requires buildMlbBetSelector + buildMlbOomphEngine — 0 call sites, no dynamic invocation. Files kept.
 const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
-const { buildMlbOomphEngine } = require("./pipeline/mlb/buildMlbOomphEngine")
 const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
 const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
 const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
@@ -19769,25 +19766,11 @@ app.get("/api/best/by-prop/:propType", (req, res) => {
   })
 })
 
-// === Bet tracker (JSON storage) ===
-app.get("/api/bets", async (req, res) => {
-  try {
-    const bets = await loadBets()
-    return res.json({ ok: true, bets })
-  } catch (error) {
-    return res.status(500).json({ ok: false, error: error?.message || "Failed loading bets" })
-  }
-})
-
-app.get("/api/bets/metrics", async (req, res) => {
-  try {
-    const bets = await loadBets()
-    const metrics = computeBetMetrics(bets)
-    return res.json({ ok: true, metrics })
-  } catch (error) {
-    return res.status(500).json({ ok: false, error: error?.message || "Failed computing bet metrics" })
-  }
-})
+// === Bet tracker (JSON storage) — REMOVED 2026-06-23 (M6, Phase Persistence-1F) ===
+// /api/bets + /api/bets/metrics served tracker/betStorage.json (a parallel store, stale since
+// ~2026-04-23, no live write path, NO FE/client consumer). Canonical ledger = personal_ledger.json
+// via /api/ws/ledger. Routes retired per the long-standing 1F consolidation plan; betStorage.json
+// untouched. (betTracker loadBets/computeBetMetrics now have no route consumer — left in place.)
 
 app.get("/api/mlb/picks", (req, res) => {
   try {
