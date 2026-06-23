@@ -121,9 +121,12 @@ const inS = brier(byDay, (t) => (PRIORS.types && PRIORS.types[t] ? Number(PRIORS
 log("\n(2) IN-SAMPLE Brier (committed priors; modelProb marginals) — priors fit on same days, optimistic")
 log(`  pairs=${inS.n}  Brier_copula=${inS.brierCopula?.toFixed(6)}  Brier_naive=${inS.brierNaive?.toFixed(6)}  ${inS.brierCopula < inS.brierNaive ? "copula BETTER" : "naive better/equal"}`)
 
-// (3) HELD-OUT Brier (refit on first 70% of days)
-const cut = Math.max(1, Math.floor(byDay.length * 0.7))
-const train = byDay.slice(0, cut), test = byDay.slice(cut)
+// (3) HELD-OUT Brier — FORWARD: refit ρ_Z on days <= cutoff, validate on FORWARD days > cutoff (replaces 70/30).
+// --trainThrough=YYYY-MM-DD (or FORWARD_CUTOFF env) overrides; default = freeze start so a no-arg run is forward-only.
+const FREEZE = "2026-06-11"
+const cutoff = (process.argv.slice(2).find((a) => a.startsWith("--trainThrough=")) || "").split("=")[1] || process.env.FORWARD_CUTOFF || FREEZE
+const train = byDay.filter((d) => d.day <= cutoff)
+const test = byDay.filter((d) => d.day > cutoff)
 const trainAgg = aggregate(train)
 const trainRho = new Map()
 for (const [t, o] of trainAgg.entries()) {
@@ -164,6 +167,18 @@ log("\nHONEST NOTES:")
 log("  - pair counts are within-game clustered (effective independent sample ≈ games); forward-validation accrues post-ship.")
 log("  - (2)/(3) use modelProb as the per-leg marginal; modelProb is overconfident (the known calibration gap), so the copula amplifies that marginal error → Brier does not beat naive there. That is a MARGINAL problem, not a dependence problem.")
 log("  - (1) sign and (4) type-level isolate the DEPENDENCE itself: those are the engine's actual job. Shadow-only until marginals are calibrated + forward data confirms.")
+
+// ── G3 GATE — copula joint beats naive product on FORWARD held-out pairs. ──
+// NOTE: this probe uses RAW modelProb marginals; the FULL G3 gate requires G1-CALIBRATED marginals
+// (re-run post-G1, or read the calibrated through-line in probeMarginalCalibrationValidation section b).
+const g3_fwdDays = test.length
+const g3_haveBrier = heldOut && Number.isFinite(heldOut.brierCopula) && Number.isFinite(heldOut.brierNaive)
+const g3_copulaBeats = g3_haveBrier && heldOut.brierCopula < heldOut.brierNaive
+const g3_enoughDays = g3_fwdDays >= 14
+const g3_pass = g3_enoughDays && g3_copulaBeats
+log("")
+log(`G3 GATE: ${g3_pass ? "PASS" : "FAIL"}  (need ALL: forward-days>=14 [${g3_fwdDays} ${g3_enoughDays ? "ok" : "no"}] · copula Brier < naive on forward pairs [${g3_haveBrier ? (g3_copulaBeats ? "ok" : "no") : "n/a — no pairs"}]; raw marginals — re-run with G1 calibrated for the real gate)`)
+if (!g3_enoughDays) log(`  -> not yet evaluable: only ${g3_fwdDays} forward day(s) past ${cutoff}.`)
 
 const text = out.join("\n") + "\n"
 try { fs.writeFileSync(SCRATCH, text, "utf8") } catch (_) {}

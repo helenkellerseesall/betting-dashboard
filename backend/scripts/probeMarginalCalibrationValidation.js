@@ -79,10 +79,14 @@ function pairType(a, b) {
 
 const out = []; const log = (s) => out.push(s)
 const byDay = loadByDay()
-const cut = Math.max(1, Math.floor(byDay.length * 0.7))
-const train = byDay.slice(0, cut), test = byDay.slice(cut)
+// FORWARD gate: train on days <= cutoff, validate on FORWARD days > cutoff (replaces the old 70/30 split).
+// --trainThrough=YYYY-MM-DD (or FORWARD_CUTOFF env) overrides; default = freeze start so a no-arg run is forward-only.
+const FREEZE = "2026-06-11"
+const cutoff = (process.argv.slice(2).find((a) => a.startsWith("--trainThrough=")) || "").split("=")[1] || process.env.FORWARD_CUTOFF || FREEZE
+const train = byDay.filter((d) => d.day <= cutoff)
+const test = byDay.filter((d) => d.day > cutoff)
 const maps = fitFamilyMaps(train)
-log(`=== T2 marginal-calibration validation — train ${train.length}d / test ${test.length}d ===`)
+log(`=== T2 marginal-calibration FORWARD validation — train<=${cutoff} (${train.length}d) / FORWARD>${cutoff} (${test.length}d) ===`)
 log(`generated ${new Date().toISOString()}`)
 
 // (a) calibrated vs raw on held-out
@@ -121,6 +125,16 @@ log(`  RAW marginals:        naive=${(bNaiveRaw / n2).toFixed(6)}  copula=${(bCo
 log(`  CALIBRATED marginals: naive=${(bNaiveCal / n2).toFixed(6)}  copula=${(bCopCal / n2).toFixed(6)}  ${bCopCal < bNaiveCal ? "COPULA BEATS NAIVE" : "naive better/equal"}`)
 log(`  calibration effect on absolute Brier: naive ${(bNaiveRaw / n2).toFixed(6)} → ${(bNaiveCal / n2).toFixed(6)} ; copula ${(bCopRaw / n2).toFixed(6)} → ${(bCopCal / n2).toFixed(6)}`)
 log(`\nHONEST NOTE: thin window (~14d), within-game-clustered pairs; calibration maps refit on TRAIN only. Forward-validation accrues post-ship.`)
+
+// ── G2 GATE — honest marginal (calibrated beats raw on FORWARD days). The marginal G2's NB ladder + G1 both feed. ──
+const g2_fwdDays = test.length
+const g2_brierBeats = nR > 0 && (bCal / nR) < (bRaw / nR)
+const g2_gapBeats = nR > 0 && Math.abs(sCal / nR - sWin / nR) < Math.abs(sMp / nR - sWin / nR)
+const g2_enoughDays = g2_fwdDays >= 14
+const g2_pass = g2_enoughDays && g2_brierBeats && g2_gapBeats
+log("")
+log(`G2 GATE: ${g2_pass ? "PASS" : "FAIL"}  (need ALL: forward-days>=14 [${g2_fwdDays} ${g2_enoughDays ? "ok" : "no"}] · calibrated Brier < raw [${g2_brierBeats ? "ok" : "no"}] · calibrated |gap| < raw [${g2_gapBeats ? "ok" : "no"}] · n=${nR})`)
+if (!g2_enoughDays) log(`  -> not yet evaluable: only ${g2_fwdDays} forward day(s) past ${cutoff}; re-run on/after the 14th clean forward day.`)
 
 const text = out.join("\n") + "\n"
 try { fs.writeFileSync(SCRATCH, text, "utf8") } catch (_) {}

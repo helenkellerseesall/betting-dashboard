@@ -59,7 +59,11 @@ G1 readiness must show **>=14 clean nights** and runtime:verify must be green be
 
 ## STEP 3 — G2: NegBinom ladder → live  (totalBases marginal; after G1)
 
-- **Probe (forward gate):** extend `probeMarginalCalibrationValidation.js` (or a `probe_t2_nbladder` forward harness) to read forward-only (slate >= freeze) and compare NB survival vs the heuristic ladder for totalBases on calibration + Brier. READY EDIT: replace the hardcoded `cut = floor(byDay.length*0.7)` split with a `--trainThrough=<date>` / `FORWARD_CUTOFF` cutoff (mirror `probeCalibrationForward`) + print `G2 GATE: PASS/FAIL`.
+- **Probe (forward gate, BUILT):**
+  ```
+  node backend/scripts/probeMarginalCalibrationValidation.js > .scratch/g2_gate.txt && cat .scratch/g2_gate.txt
+  ```
+  Forward by default (train ≤ freeze, validate on days > freeze); `--trainThrough=YYYY-MM-DD` overrides. Prints `G2 GATE: PASS/FAIL`. (Dry-run 2026-06-22: calibrated Brier<raw + |gap| smaller already ok; GATE FAIL only on forward-days=11<14 — re-run once 14 forward days exist.)
 - **PASS criteria:** >=14 forward days; NB beats the heuristic ladder on calibration gap + Brier for totalBases.
 - **Apply IF PASS (new default-OFF switch `MLB_NB_LADDER_LIVE`):** wire the fitted NB survival into `modelProbForSide` for totalBases (the field `ladderNB` already emits when `MLB_NB_LADDER` is ON; the new switch consumes it in scoring). OFF ⇒ heuristic ladder (today). Module isolation already PASS (verifyNbLadderStep1, exit 0).
 - **Post-apply verify:** runtime:verify; TB reliability card; version stamp.
@@ -69,7 +73,11 @@ G1 readiness must show **>=14 clean nights** and runtime:verify must be green be
 
 ## STEP 4 — G3: correlation → parlay joint  (after G1; not a bettor surface yet)
 
-- **Probe (forward gate):** extend `probeCorrelationValidation.js` to forward-only (replace its 70/30 split with `--trainThrough`/cutoff) — held-out copula joint vs naive product on Brier for co-occurring settled pairs, with **G1-calibrated** marginals. Print `G3 GATE: PASS/FAIL`. (It was at parity on raw marginals — must re-test post-calibration.)
+- **Probe (forward gate, BUILT):**
+  ```
+  node backend/scripts/probeCorrelationValidation.js > .scratch/g3_gate.txt && cat .scratch/g3_gate.txt
+  ```
+  Forward by default; `--trainThrough` overrides. Held-out copula joint Brier vs naive on forward pairs; prints `G3 GATE: PASS/FAIL`. NOTE: this probe uses **RAW** marginals — the FULL gate needs **G1-calibrated** marginals (re-run post-G1, or read the calibrated through-line in `probeMarginalCalibrationValidation` section (b), which already computes copula-with-calibrated).
 - **PASS criteria:** >=14 forward days; copula joint beats naive product on Brier with calibrated marginals.
 - **Apply IF PASS (new default-OFF switch `MLB_CORRELATION_LIVE`):** let the parlay constructor's same-game joint consume the copula (`jointForPair`). OFF ⇒ product fallback (today; `workstationRoutes` already falls back). Re-fit `ρ_Z` consistent with calibrated marginals.
 - **Post-apply verify:** probe dump (copula vs naive Brier) the operator reads; runtime:verify (verifyCorrelation still PASS).
@@ -79,7 +87,11 @@ G1 readiness must show **>=14 clean nights** and runtime:verify must be green be
 
 ## STEP 5 — G4: parlay constructor → surface  (last; after G1 + G3)
 
-- **Probe (forward gate):** extend `probeParlayConstructorValidation.js` to forward-only (currently all-history; add cutoff filter `if (day < cutoff) continue`) — does the +EV-gated set realize **>=0 ROI** on forward data with calibration live? Print `G4 GATE: PASS/FAIL`. (In-sample was -42%; the inversion is the gate.)
+- **Probe (forward gate, BUILT):**
+  ```
+  node backend/scripts/probeParlayConstructorValidation.js > .scratch/g4_gate.txt && cat .scratch/g4_gate.txt
+  ```
+  Forward by default; `--trainThrough` overrides. +EV-gated parlay realized ROI on forward dates; prints `G4 GATE: PASS/FAIL/N-A` (N/A = 0 +EV legs surfaced = honest no-edge on an efficient window). Requires **G1 calibration LIVE first** (pre-G1 the in-sample was −42%; the inversion to ≥0 is the gate).
 - **PASS criteria:** >=14 forward days; +EV-gated parlays realize >=0 ROI; "bet as singles" comparison shown.
 - **Apply IF PASS (new default-OFF switch `MLB_PARLAY_LIVE`):** surface +EV cross-game parlays (never auto-bundle; default singles; same-game = correlation insight only, no SGP price). Wire onto the bettor surface (FE location per capability map).
 - **Post-apply verify:** operator-visible parlay card with EV + 7x-singles discipline; runtime:verify.
@@ -91,7 +103,12 @@ G1 readiness must show **>=14 clean nights** and runtime:verify must be green be
 
 Re-points selection from longshot ceilings to the OOS-confirmed obtainable CLV+ rungs, ranked on **G1-calibrated** modelProb. One file at a time, each own switch + version stamp, watch >=1 wk.
 
-- **Probe (dry-run + forward):** a re-score harness that recomputes `signalScore` with the spec's new bands on real rows and shows the line-distribution shift ceiling→floor (READY TO BUILD — `backend/scripts/dryrunRepointRescore.js`), THEN `node backend/scripts/forwardClvSliceTracker.js` (already forward, cutoff env) + the edge-hunt OOS probe grouped by line-tier/odds/confidence. Pass = board now surfaces obtainable rungs AND those rungs stay CLV+ on NEW forward days.
+- **Probe (dry-run + forward, BUILT):**
+  ```
+  node backend/scripts/dryrunRepointRescore.js > .scratch/repoint_rescore.txt && cat .scratch/repoint_rescore.txt
+  node backend/scripts/forwardClvSliceTracker.js
+  ```
+  `dryrunRepointRescore.js` (READ-ONLY, real rows) recomputes the spec's signalScore bands and confirms the floor-vs-ceiling FLIP — proven 2026-06-22: CURRENT floor 0.703 < ceiling 0.914 (the bug) → RE-POINT floor 0.900 > ceiling 0.466 (goal). Then `forwardClvSliceTracker.js` (already forward, `FORWARD_CLV_CUTOFF` env) + the edge-hunt OOS probe grouped by line-tier/odds/confidence. Pass = board now surfaces obtainable rungs AND those rungs stay CLV+ on NEW forward days.
 - **6A — File A `buildMlbBootstrapSnapshot.js` (signalScore):** behind new default-OFF `MLB_REPOINT_SIGNAL`, invert `computeMlbOverCountingProxyScore.lineSignal` toward the obtainable floor (hits/rbis/runs over0.5 → top score; ceilings demoted) + re-band `payoutSignal` to peak at mod-dog (+100..199); flip `computeMlbHrPathProxyScore.marketShape` for total_bases (o1.5 >= o2.5). **Do NOT invert HR** (HR calibration honest; §6 guardrail).
 - **6B — File B `buildMlbInspectionBoard.js` (eligibility):** behind new default-OFF `MLB_REPOINT_ELIGIBILITY` (this file has NO existing gate — add one), remove/invert the `batter_hits over<=0.5 → 0.20` penalty (`:425`); stop hard-excluding obtainable alt-overs (`:486-491`) → route to a floor tier gated by calibrated modelProb + CLV slice; widen safe/upside implied bands for the floor prices. Keep UNDER penalties + absurd-chalk/longshot excludes.
 - **6C — File C `buildMlbPropClusters.js` `tierForPlay` v2:** the lever is the INPUT — feed **calibrated** edge/ev (from G1). Minimal predicate change; bump tier stamp `mlb-r2-v1 -> mlb-r2-v2` (`:1163`). modelProb is already threaded-but-unused (`:755`) — wire it only to prefer obtainable CLV+ cells.
@@ -109,6 +126,7 @@ Wire FanDuel-weighted Power consensus as an ADDITIVE line-shop field beside the 
 Every "apply" is behind a default-OFF switch. To revert: unset the switch (or `=0`) + `launchctl kickstart -k gui/$(id -u)/com.motel666.backend`. OFF = byte-identical to pre-graduation. runtime:verify must be green after revert. Each version stamp makes the change filterable + measurable in the 14d verify.
 
 ## WHAT'S PROVEN NOW vs WHAT RUNS ON THE 25TH
-- PROVEN now (real output, 2026-06-21): G1 forward gate executes + prints PASS/FAIL (probeCalibrationForward, retro OOS: |gap| 14.4→0.9pp, Brier .118→.098); mean→median bias real (89.4% of 341 players); G1–G4 module isolation (verify* exit 0, OFF byte-identical); runtime:verify 21/21.
-- RUNS ON THE 25TH (this runbook): each forward gate on >=14 real forward days → PASS/FAIL → the gated apply.
-- STAGED NEXT CHUNK (ready edits specified above; gated behind G1): forward-cutoff + verdict on the G2/G3/G4 probes (probeMarginalCalibrationValidation / probeCorrelationValidation / probeParlayConstructorValidation), the median-center forward comparison, and `dryrunRepointRescore.js`. None are needed before G1 graduates.
+- PROVEN now (real output): G1 gate (probeCalibrationForward, retro OOS |gap| 14.4→0.9pp, Brier .118→.098); mean→median bias (89.4% of 341 players); G1–G4 module isolation (verify* exit 0, OFF byte-identical); runtime:verify 22/22.
+- ALL FORWARD GATES BUILT + RUN (2026-06-22, honest current state — every one FAILs only on forward-days<14): G2 `probeMarginalCalibrationValidation` (calibrated beats raw ok; 11 fwd days); G3 `probeCorrelationValidation` (copula vs naive, raw marginals; 11 fwd days); G4 `probeParlayConstructorValidation` (ROI on 9 fwd days; needs G1 live); re-point `dryrunRepointRescore` (FLIP confirmed: floor 0.703<0.914 → 0.900>0.466).
+- RUNS ON THE 25TH (this runbook): each forward gate on >=14 real forward days → PASS/FAIL → the gated apply (each apply behind a NEW default-OFF switch).
+- REMAINING (minor, do at N1 time): the median-CENTER forward comparison (extend `probeCalibrationForward` to compare median- vs mean-centered modelProb on reliability gap + Brier) — N1's own gate. Not needed before G1.

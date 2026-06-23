@@ -39,7 +39,12 @@ function loadByDate() {
 
 const out = []; const log = (s) => out.push(s)
 const byDate = loadByDate()
-log(`=== T2 parlay-constructor validation — ${byDate.size} slate dates ===`)
+// FORWARD gate: count only slate dates AFTER the cutoff (replaces all-history). --trainThrough=YYYY-MM-DD
+// (or FORWARD_CUTOFF env) overrides; default = freeze start so a no-arg run is forward-only.
+const FREEZE = "2026-06-11"
+const cutoff = (process.argv.slice(2).find((a) => a.startsWith("--trainThrough=")) || "").split("=")[1] || process.env.FORWARD_CUTOFF || FREEZE
+const forwardDays = [...byDate.keys()].filter((d) => d > cutoff)
+log(`=== T2 parlay-constructor FORWARD validation — ${forwardDays.length} forward slate dates (> ${cutoff}) of ${byDate.size} total ===`)
 log(`generated ${new Date().toISOString()}`)
 
 let totalSurfaced = 0, parlayStaked = 0, parlayReturn = 0
@@ -48,6 +53,7 @@ let sameGameInsightCount = 0
 const winById = new Map()
 
 for (const [day, legs] of byDate) {
+  if (day <= cutoff) continue   // FORWARD-only (post-cutoff graded slates)
   legs.forEach(l => winById.set(day + "|" + l.id, l.win))
   const r = pc.buildParlays(legs)
   if (!r) { log("MLB_PARLAY off — abort"); break }
@@ -94,6 +100,18 @@ const xy = [...synth.parlays, ...synth.rejected].find(p => p.legs.includes("x") 
 log(`\n(4) machine-correctness (synthetic): tb×tb evParlay=${xy ? xy.evParlay.toFixed(4) : "n/a"} (surfaced=${synth.parlays.some(p => p.legs.includes("x") && p.legs.includes("y"))}); fake-EV hr single plusEV=${(synth.singles.find(s => s.id === "z") || {}).plusEVsingle} (raw +EV, calibrated −EV ⇒ correctly false)`)
 
 log(`\nHONEST FRAMING: this validates the MACHINE (EV math, calibrated-not-raw, never-auto-bundle), NOT that it produces winners. +EV parlays appear only when real +EV legs exist — post-calibration-live, and only if the market leaves an edge. Forward-validation accrues then.`)
+
+// ── G4 GATE — the +EV-gated set realizes >=0 ROI on FORWARD data (the in-sample -42% must invert). Needs G1 live. ──
+const g4_fwdDays = forwardDays.length
+const g4_enoughDays = g4_fwdDays >= 14
+const g4_roi = parlayStaked > 0 ? (parlayReturn - parlayStaked) / parlayStaked : null
+let g4_status
+if (!g4_enoughDays) g4_status = "FAIL"
+else if (totalSurfaced === 0) g4_status = "N/A"      // 0 +EV legs surfaced = honest no-edge (efficient market), NOT a fail
+else g4_status = (g4_roi >= 0) ? "PASS" : "FAIL"
+log("")
+log(`G4 GATE: ${g4_status}  (need ALL: forward-days>=14 [${g4_fwdDays} ${g4_enoughDays ? "ok" : "no"}] · +EV parlay ROI>=0 [${totalSurfaced === 0 ? "N/A — 0 surfaced (honest no-edge; pre-G1)" : (g4_roi >= 0 ? "ok " : "no ") + (g4_roi * 100).toFixed(1) + "%"}]); requires G1 calibration LIVE first`)
+if (!g4_enoughDays) log(`  -> not yet evaluable: only ${g4_fwdDays} forward day(s) past ${cutoff}.`)
 
 const text = out.join("\n") + "\n"
 try { fs.writeFileSync(SCRATCH, text, "utf8") } catch (_) {}
