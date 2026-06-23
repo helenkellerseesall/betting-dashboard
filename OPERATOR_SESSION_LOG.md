@@ -6341,6 +6341,15 @@ SCOPE: static scan = the 4 result-date/grading files (fetchMlbGameResults, grade
 DEPLOY: none — verify suite + comment tags only; NO served/behavior change, NO kickstart. PROVE: verifyGameDateDiscipline 14/14 (incl. self-test net-fires-on-14) · runtime:verify 22/22 · node --check OK.
 NEXT_EXPECTED_FROM_PEER: operator commits the 4 files. Guard now blocks the whole class from regressing. Optional follow-up: widen the static scan to ingest files (CC #2) with display-ok tags. PROBE_REFS: verifyGameDateDiscipline.js (offenders net + 14 fixtures/self-tests) · settlementRun.js:90-93 date-arith-ok · g1Readiness.js addDays date-arith-ok · runtime:verify 22/22 · `TZ='America/New_York' date` → 2026-06-22 22:05 ET.
 
+## 2026-06-22 22:25 ET — Claude-B [Cowork] — DISPLAY-ONLY: CLV CAPTURE card "final" → "graded" (no logic). READ-FIRST done (HEAD 7c2bf96). "final" reads as "game over"; it actually means graded at the 4 AM run. Numbers + "final odds" (closing price) + "grades land overnight" blurb kept.
+
+CHANGED (frontend/status/index.html only): the count strings "X/Y final ·" → "X/Y graded ·" in all 5 CLV renderers (_fmtClvSportLine :707/:718, clvSub headline :779, fmtSport collapsed summary :821/:826) + the legend "0 final" → "0 graded" (:213). KEPT verbatim: "the final odds" (= closing price, a different meaning), every number/ratio, the "Win/loss grades land overnight" blurb, and the gamesFinal/finalN/totalLedgerFinal field+var names (logic). Code comments mentioning "final" left as-is (not displayed).
+
+SCOPE NOTE: the operator named "statusRoute CLV section + frontend/status", but statusRoute's sectionClvCaptureToday emits only the gamesFinal FIELD (logic) — NO display "final" string. So this is FE-ONLY → live on page reload, NO backend kickstart needed. (finalPid in sectionLaunchAgents is unrelated, untouched.)
+
+PROVE: grep — no display "final" remains except "final odds" (intended) + field/var names; "graded ·" present in all 5 renderers; FE <script> parses (new Function). No runtime:verify impact (display string only).
+NEXT_EXPECTED_FROM_PEER: operator commits frontend/status/index.html + this block; card reads "0/13 graded · …" on next /status reload (no kickstart). PROBE_REFS: frontend/status/index.html :213/:707/:718/:779/:821/:826 · `TZ='America/New_York' date` → 2026-06-22 22:25 ET.
+
 ## 2026-06-22 20:39 ET — Claude-C [research] — READ-FIRST pass + RECONCILE officialDate + fix findings path. No code changed.
 
 READ-FIRST (git log -8 + this log's A/B/C blocks + own findings tail), clock-checked 2026-06-22 ~20:04 ET. Caught: (1) my first findings block committed to the WRONG path backend/docs/research/ -> MOVED to repo-root docs/research/online_findings.md (operator Rule 1); (2) CB audit ed372ff + CA decision (19:50) -> my officialDate finding is the right PRINCIPLE but NOT our bug; kept as the #3-guard basis.

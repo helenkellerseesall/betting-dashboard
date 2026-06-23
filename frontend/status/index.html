@@ -210,7 +210,7 @@
 <details class="card" id="cardClv">
   <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
   <div class="cardBody">
-    <div class="legend">How many of today's games we locked the final odds for — we compare them to your bet price to see if you beat the market. Win/loss grades land overnight, so "0 final" during the day is normal.</div>
+    <div class="legend">How many of today's games we locked the final odds for — we compare them to your bet price to see if you beat the market. Win/loss grades land overnight, so "0 graded" during the day is normal.</div>
     <div id="clvBigWrap">
       <div class="big" id="clvBig">—</div>
       <div class="big-sub" id="clvSub">—</div>
@@ -704,7 +704,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
     const onSlate = sportData.gamesOnSlate || sportData.gamesPlayedToday || 0;
     const finalN  = sportData.gamesFinal || 0;
     const cap     = sportData.gamesCloseStamped || 0;
-    return finalN + '/' + onSlate + ' final · ' + cap + '/' + onSlate + ' closing odds captured';
+    return finalN + '/' + onSlate + ' graded · ' + cap + '/' + onSlate + ' closing odds captured';
   }
   if (st === 'curation_gap') {
     return '<span class="sm" style="color:var(--yellow)">' + (sportData.gamesScheduledLive || 0) + ' ' + label + ' games scheduled · no curated picks captured</span>';
@@ -715,7 +715,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
   // Legacy fallback (state absent — backend not yet reloaded). Never assert "no games".
   if (!sportData.hasFile) return '<span class="sm">no ' + label + ' slate file yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
   const lp = sportData.gamesPlayedToday;
-  if (lp != null && lp > 0) return (sportData.gamesFinal || 0) + '/' + lp + ' final · ' + sportData.gamesCloseStamped + '/' + lp + ' closing odds captured';
+  if (lp != null && lp > 0) return (sportData.gamesFinal || 0) + '/' + lp + ' graded · ' + sportData.gamesCloseStamped + '/' + lp + ' closing odds captured';
   return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
 }
 
@@ -776,7 +776,7 @@ function renderClv(data) {
     // red/green here — CLV-capture health stays in Open Issues (Source 6).
     big.textContent = totalLedgerFinal + "/" + totalLedgerPlayed;
     big.className = "big";
-    document.getElementById("clvSub").textContent = totalLedgerFinal + " of " + totalLedgerPlayed + " final · " + totalLedgerStamped + " of " + totalLedgerPlayed + " closing odds captured · " + slateLabel;
+    document.getElementById("clvSub").textContent = totalLedgerFinal + " of " + totalLedgerPlayed + " graded · " + totalLedgerStamped + " of " + totalLedgerPlayed + " closing odds captured · " + slateLabel;
   } else if (anyGap) {
     // Curation gap — games scheduled (snapshot) but no curated picks. Honest, not "no games".
     big.textContent = "—";
@@ -818,12 +818,12 @@ function renderClv(data) {
     // Phase Status-CLV-Display-Honesty-1A — server-classified three-state.
     if (s.state === 'normal') {
       const onSlate = s.gamesOnSlate || s.gamesPlayedToday || 0;
-      return label + ": " + (s.gamesFinal || 0) + "/" + onSlate + " final · " + s.gamesCloseStamped + "/" + onSlate + " captured";
+      return label + ": " + (s.gamesFinal || 0) + "/" + onSlate + " graded · " + s.gamesCloseStamped + "/" + onSlate + " captured";
     }
     if (s.state === 'curation_gap') return label + ": " + (s.gamesScheduledLive || 0) + " scheduled, no picks";
     if (s.state === 'off_day') return label + ": no games today";
     // legacy fallback (state absent)
-    if (s.gamesPlayedToday > 0) return label + ": " + (s.gamesFinal || 0) + "/" + s.gamesPlayedToday + " final · " + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " captured";
+    if (s.gamesPlayedToday > 0) return label + ": " + (s.gamesFinal || 0) + "/" + s.gamesPlayedToday + " graded · " + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " captured";
     return label + ": no games today";
   };
   // Phase Status-Overhaul-1C-fix5 — single-line collapsed summary
