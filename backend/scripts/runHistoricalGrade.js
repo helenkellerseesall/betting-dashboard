@@ -50,7 +50,7 @@ const { spawnSync } = require("child_process")
 const RUNTIME_DIR = path.join(__dirname, "..", "runtime", "tracking")
 // Phase Settlement-GameDate-1A (2026-06-04) — canonical ET calendar date for a
 // timestamp, used to derive a game's actual play-date from its gameTime.
-const { calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
+const { calendarDateForTimestamp, currentSlateDateEt } = require("../pipeline/shared/slateDate")
 
 // Phase Settlement-Orchestration-1A (AUTO-1): post-grading chain to the
 // canonical nightlyReview.js orchestrator. After every successful per-date
@@ -282,7 +282,15 @@ async function gradeDate({ sport, date, fetcher, opts }) {
       ? date
       : `${gameDates.join(", ")} (slate ${date})`
     if (resultsMap.size === 0) {
-      console.warn(`  ⚠ No game results fetched for game-date(s) ${dlabel} — bets will remain pending`)
+      // #4 future-aware: 0 results is EXPECTED when the slate's games haven't been played yet
+      // (its game-date(s) are today/future). It's a real failure only once the games are PAST.
+      const maxGameDate = gameDates.length ? gameDates[gameDates.length - 1] : date
+      const gamesPast = currentSlateDateEt() > maxGameDate   // 4 AM boundary: grade for game-date D runs at 4 AM D+1
+      if (!gamesPast) {
+        console.log(`  ⏳ pending: games for slate ${date} play ${maxGameDate} (not yet played) — bets stay pending (expected, not a failure)`)
+      } else {
+        console.warn(`  ⚠ RED: games for ${dlabel} are PAST but 0 results fetched — real data/grading failure, bets stuck pending`)
+      }
     } else {
       console.log(`  ✓ Fetched ${resultsMap.size} player stat lines for game-date(s) ${dlabel}`)
       if (verbose) {

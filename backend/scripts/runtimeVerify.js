@@ -59,6 +59,7 @@ const SUITES = [
   "verifyParlayConstructor",   // T2-Parlay-1A (2026-06-14) — parlay EV gate (shadow): cross-game EV hand-derived, same-game EV=null, never-auto-bundle, ANTI-FAKE-EV (calibrated not raw), kill-switch, freeze guard
   "verifyShadowStackIntact",
   "verifyCashoutHedge",   // Shadow-Stack-Guard-1A (2026-06-15) — deletion guard: the 6 sanctioned-shadow files + 2 derived configs exist + export + are listed in PRESERVED.md (build-ahead engines feed nothing live, so deletion must fail LOUD)
+  "verifyGameDateDiscipline", // Game-Date-Timing-1A (2026-06-22) — #3 recurrence guard: result-date must derive from officialDate/ET (calendarDateForTimestamp), never UTC truncation (toISOString().slice / getUTC*). CC fixture gamePk 775323 + static scan of the grading result-date files. Kills the "always a day ahead" class.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

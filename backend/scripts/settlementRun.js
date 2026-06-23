@@ -47,7 +47,7 @@
 const fs   = require("fs")
 const path = require("path")
 const { spawnSync } = require("child_process")
-const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+const { currentSlateDateEt, calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
 
 const BACKEND_DIR    = path.join(__dirname, "..")
 const REPO_ROOT      = path.join(BACKEND_DIR, "..")
@@ -161,6 +161,27 @@ function countSettledInTrackedBets(sport, date) {
   }
 }
 
+// Phase Game-Date-Timing-1A (2026-06-22) — a slate's games are PAST (gradeable) only once its
+// real game date(s) have had their post-game 4 AM grade. Slate label is named by pick-generation
+// date; games play ~slate+1 (real gameTime). Returns { maxGameDate, gamesPast } — gamesPast=false
+// means the slate's games are not yet played/graded → 0 resolved is EXPECTED (pending, not a fail).
+function slateGameDateStatus(sport, date) {
+  const f = path.join(TRACKING_DIR, `${sport}_tracked_bets_${date}.json`)
+  let arr
+  try { arr = JSON.parse(fs.readFileSync(f, "utf8")) } catch (_) { return { maxGameDate: null, gamesPast: null } }
+  if (!Array.isArray(arr)) return { maxGameDate: null, gamesPast: null }
+  let maxGameDate = null
+  for (const b of arr) {
+    const gt = b && b.gameTime; if (!gt) continue
+    const ms = new Date(gt).getTime(); if (!Number.isFinite(ms)) continue
+    const gd = calendarDateForTimestamp(ms)
+    if (maxGameDate == null || gd > maxGameDate) maxGameDate = gd
+  }
+  if (maxGameDate == null) return { maxGameDate: null, gamesPast: null }
+  // games are past (their grade should have run) iff the current slate date (4 AM boundary) > maxGameDate
+  return { maxGameDate, gamesPast: currentSlateDateEt() > maxGameDate }
+}
+
 function countOutcomeSnapshotsForDate(sport, date) {
   try {
     const { tryGetDb } = require("../storage/db")
@@ -240,6 +261,27 @@ function executePair(sport, date, opts, summary) {
   const sqliteOK = outcomesAfter.ok
   const outcomeCount = sqliteOK ? outcomesAfter.count : null
 
+  // Phase Game-Date-Timing-1A (#4 future-aware A1): a slate that settled ~nothing is a real
+  // FAILURE only if its GAMES ARE PAST. Before its games are played, 0 settled is EXPECTED
+  // (pending) — never a silent "settled_verified"/OK (the prior masking: 0>=0 → settled_verified),
+  // and never a FAIL. Uses the slate's real game date (gameTime), not the slate label.
+  const gameStatus = slateGameDateStatus(sport, date)
+  pair.maxGameDate = gameStatus.maxGameDate
+  pair.gamesPast = gameStatus.gamesPast
+  const nearZeroSettled = after.total > 0 && settled / after.total < 0.05
+  if (nearZeroSettled && gameStatus.gamesPast === false) {
+    pair.status = "pending_games_unplayed"
+    console.log(`[settlement:run] ⏳ ${sport}/${date} pending: games play ${gameStatus.maxGameDate} (not yet played) — ${settled}/${after.total} settled is EXPECTED, not a failure`)
+    summary.push(pair)
+    return { ok: true, pending: true }
+  }
+  if (nearZeroSettled && gameStatus.gamesPast === true) {
+    pair.status = "stalled_no_results"
+    console.log(`[settlement:run] ✗ RED ${sport}/${date}: games played (${gameStatus.maxGameDate} is past) but only ${settled}/${after.total} settled — real data/grading failure, NOT pending`)
+    summary.push(pair)
+    return { ok: false }
+  }
+
   if (opts.noOrchestrate) {
     pair.status = "grading_only_no_orchestrate"
   } else if (!sqliteOK) {
@@ -288,11 +330,14 @@ function printSummary(summary, totalElapsed) {
 }
 
 function exitVerdict(summary) {
+  // stalled_no_results = games PAST but ~0 settled = a REAL data/grading failure (#4 future-aware A1).
+  // pending_games_unplayed is BENIGN (games not played yet) — never counts as a failure.
   const failing = summary.filter((p) =>
-    p.status === "grading_failed" || p.status === "orchestration_INCOMPLETE" || p.status === "partial"
+    p.status === "grading_failed" || p.status === "orchestration_INCOMPLETE" || p.status === "partial" || p.status === "stalled_no_results"
   )
+  const pending = summary.filter((p) => p.status === "pending_games_unplayed")
   const verdict = failing.length === 0 ? "PASS" : "FAIL"
-  console.log(`RESULT: ${verdict}${failing.length ? `  (${failing.length} pair${failing.length === 1 ? "" : "s"} failed)` : ""}`)
+  console.log(`RESULT: ${verdict}${failing.length ? `  (${failing.length} pair${failing.length === 1 ? "" : "s"} failed)` : ""}${pending.length ? `  · ${pending.length} pending (games not played)` : ""}`)
   return failing.length === 0 ? 0 : 1
 }
 
@@ -382,6 +427,6 @@ function main() {
 // testing. The CLI entrypoint only runs when this file is invoked directly via
 // `node scripts/settlementRun.js`; when require()d from a unit-test harness
 // `main()` does NOT auto-execute (preserves replay safety + sandbox safety).
-module.exports = { buildWindowDates, todayKey, exitVerdict }
+module.exports = { buildWindowDates, todayKey, exitVerdict, slateGameDateStatus }
 
 if (require.main === module) main()
