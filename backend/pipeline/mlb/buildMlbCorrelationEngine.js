@@ -1,4 +1,14 @@
 "use strict"
+/**
+ * buildMlbCorrelationEngine.js — LIVE MLB 2-leg correlation HEURISTIC (since 2026-05-16).
+ * CONSUMED LIVE by buildSlipAi.js, buildFeaturedPlays.js, buildSlipAnalysis.js, server.js.
+ *
+ * ⚠ AUTHORITY NOTE (L5, 2026-06-23) — do NOT confuse with `mlbCorrelationEngine.js` (no "build"
+ *   prefix): that is the SANCTIONED SHADOW Gaussian-copula engine (PRESERVED.md, kill-switch
+ *   MLB_CORRELATION, feeds NOTHING live until G3 graduates per the post-freeze graduation plan).
+ *   Edit THIS file for the live heuristic; touch the shadow only via the graduation runbook.
+ *   Name-collision trap flagged so nobody edits the wrong correlation engine.
+ */
 
 function toNum(v) {
   const n = Number(v)
