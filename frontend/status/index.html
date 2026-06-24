@@ -626,12 +626,15 @@ function renderBackend(data) {
   const b = data.backend;
   const dot = document.getElementById("beDot");
   dot.className = "dot " + (b?.healthy ? "green" : "red");
-  document.getElementById("beCommit").textContent = b?.commitShort || "—";
+  // commitShort = the RUNNING commit (boot stamp), not git HEAD. Flag when running != HEAD (restart needed).
+  const stale = b?.stale === true;
+  document.getElementById("beCommit").textContent = (b?.commitShort || "—") + (stale ? " · stale" : "");
   document.getElementById("beUptime").textContent = formatUptime(b?.uptimeSec);
   document.getElementById("bePid").textContent = b?.pid || "—";
-  // Phase Status-Overhaul-1A — collapsed summary: "commit · uptime · healthy/down"
+  // Phase Status-Overhaul-1A — collapsed summary: "running-commit · uptime · healthy/down" (+ stale note)
   const state = b?.healthy ? "healthy" : "DOWN";
-  _setSummary("sumBackend", (b?.commitShort || "?") + " · " + formatUptime(b?.uptimeSec) + " · " + state);
+  const staleNote = stale ? " · behind HEAD " + (b?.headShort || "?") + " (restart to update)" : "";
+  _setSummary("sumBackend", (b?.commitShort || "?") + " · " + formatUptime(b?.uptimeSec) + " · " + state + staleNote);
 }
 
 function renderSchedule(data) {

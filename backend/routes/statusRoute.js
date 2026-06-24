@@ -73,7 +73,8 @@ const LAUNCHAGENT_LABELS = [
   { label: "com.motel666.scheduler",        kind: "daemon" },
   { label: "com.motel666.caffeinate",       kind: "daemon" },
   { label: "com.motel666.cloudflared",      kind: "daemon" },
-  { label: "com.motel666.populator-chain",  kind: "scheduled", nextFire: "3:05 AM ET" },
+  // populator-chain RETIRED 2026-06-23 (M1, Law 1) — populators run from scheduler.sh (sole owner).
+  // Removed from the expected list so its absence no longer reads as "down" → false-red headline.
   { label: "com.motel666.grading-nightly",  kind: "scheduled", nextFire: "4:00 AM ET" },
   { label: "com.motel666.audit-nightly",    kind: "scheduled", nextFire: "5:00 AM ET" },
 ]
@@ -293,17 +294,29 @@ function sectionScheduler() {
 
 function sectionBackend() {
   try {
-    let commit = "unknown", commitShort = "unknown", commitDate = null
+    // HEAD = latest committed code on disk; RUNNING = the commit the live process actually booted on.
+    let headCommit = "unknown", headShort = "unknown", commitDate = null
     try {
-      commit = execSync("git rev-parse HEAD", { cwd: REPO_ROOT, timeout: 2000 }).toString().trim()
-      commitShort = commit.slice(0, 7)
+      headCommit = execSync("git rev-parse HEAD", { cwd: REPO_ROOT, timeout: 2000 }).toString().trim()
+      headShort = headCommit.slice(0, 7)
       commitDate = execSync("git log -1 --format=%cI HEAD", { cwd: REPO_ROOT, timeout: 2000 }).toString().trim()
     } catch (_) {}
+    // The card must show the RUNNING commit (backend_boot.json, written at boot), NOT HEAD — commits
+    // made after boot are not yet running. Flag stale when running != HEAD (restart to pick up the code).
+    let runningCommit = null, runningShort = null, bootAt = null
+    try {
+      const boot = safeReadJson(path.join(__dirname, "..", "runtime", "backend_boot.json"))
+      if (boot && boot.commit) { runningCommit = boot.commit; runningShort = boot.commitShort || String(boot.commit).slice(0, 7); bootAt = boot.bootAt || null }
+    } catch (_) {}
+    const stale = !!(runningCommit && headCommit !== "unknown" && runningCommit !== headCommit)
     return {
       ok: true,
       healthy: true,
-      commit,
-      commitShort,
+      commit: runningCommit || headCommit,        // RUNNING commit (boot stamp); falls back to HEAD if no stamp
+      commitShort: runningShort || headShort,      // what the card shows = the running commit
+      headShort,                                    // latest committed (for the stale flag)
+      stale,                                        // running != HEAD → restart needed to run the newest code
+      bootAt,
       commitDate,
       pid: process.pid,
       uptimeSec: Math.floor(process.uptime()),
@@ -678,13 +691,10 @@ function sectionAutopilotFiresToday() {
       }
     }
 
-    // populator chain — scheduler.log fires 5 named populators; autopilot.log fires
-    // a single "AUTOPILOT populator-chain starting/finished" pair from the wrapper.
-    // EITHER signal = chain fired.
-    // Season-aware: the REAL populators run via scheduler.sh direct-node — 3 MLB always + 2 NBA only
-    // when NBA is in season (sport_on nba gate). The LaunchAgent populator-chain.sh is the known-dead
-    // path (npm scripts don't exist; ACTIVE_INCIDENTS #58) — do NOT count its all-FAILED steps. So
-    // "N/5" wrongly reads as failures when NBA is off; report ran-vs-skipped instead.
+    // populator chain — the REAL populators run via scheduler.sh direct-node (scheduler.log): 3 MLB
+    // always + 2 NBA only when NBA is in season (sport_on nba gate). The LaunchAgent populator-chain
+    // was RETIRED 2026-06-23 (M1, Law 1) — scheduler.log is now the SOLE source (the retired agent's
+    // autopilot.log line is no longer read). Season-aware: report ran-vs-skipped, not a misleading "N/5".
     const mlbPopOks = schedLines.filter(l => l.includes("populateMlbBatterStats OK") || l.includes("populateMlbBatterGameLogs OK") || l.includes("populateMlbPitcherGameLogs OK"))
     const nbaPopOks = schedLines.filter(l => l.includes("deriveNbaDvP OK") || l.includes("populateNbaTeamStats OK"))
     const mlbPopStarts = schedLines.filter(l => l.includes("populateMlbBatterStats starting") || l.includes("populateMlbBatterGameLogs starting") || l.includes("populateMlbPitcherGameLogs starting"))
@@ -695,16 +705,15 @@ function sectionAutopilotFiresToday() {
     const expectedRan = 3 + (nbaOff ? 0 : 2)        // MLB always 3; NBA 2 only in season
     const ranOk = mlbPopOks.length + (nbaOff ? 0 : nbaPopOks.length)
     const skipped = nbaOff ? 2 : 0                    // NBA populators season-gated-skipped (NOT failures)
-    const agentPopStart = autopilotLines.find(l => l.includes("AUTOPILOT populator-chain starting"))
     const populatorChain = {
-      startedLine: mlbPopStarts[0] || agentPopStart || null,
+      startedLine: mlbPopStarts[0] || nbaPopStarts[0] || null,
       endedLine: ranOk >= expectedRan ? (popOks[popOks.length - 1] || null) : null,
-      fired: popStarts.length > 0 || !!agentPopStart,
+      fired: popStarts.length > 0,                    // scheduler.log only (retired LaunchAgent no longer read)
       completed: ranOk >= expectedRan,               // all NON-skipped populators ran OK
       okCount: popOks.length,                          // back-compat
       ranOk, expectedRan, skipped, nbaOff,
       mlbOk: mlbPopOks.length, nbaOk: nbaPopOks.length,
-      source: mlbPopStarts.length > 0 ? "scheduler.log" : (agentPopStart ? "autopilot.log (LaunchAgent)" : null),
+      source: popStarts.length > 0 ? "scheduler.log" : null,
     }
     return {
       ok: true,
