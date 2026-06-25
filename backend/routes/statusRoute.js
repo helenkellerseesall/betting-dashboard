@@ -1051,6 +1051,27 @@ function sectionOpenIssues() {
     return best
   }
 
+  // Phase Status-Overhaul-1B — earliest FUTURE first-pitch from tonight's curated picks, read the SAME
+  // way the CLV/next-game logic reads it (tracked_best files + Date.parse(gameTime), ~:415-462). Used to
+  // make the lineupSpot wiring-gap alarm time-aware: MLB posts batting orders only ~1-3h before first
+  // pitch, so a low lineupSpot fill rate hours early is EXPECTED, not a gap. Returns ms or null.
+  function earliestFutureGameMs(nowMs = Date.now()) {
+    let earliest = null
+    for (const sport of ["mlb", "nba"]) {
+      try {
+        const files = fs.readdirSync(TRACKING_DIR).filter(f => new RegExp(`^${sport}_tracked_best_\\d{4}-\\d{2}-\\d{2}\\.json$`).test(f))
+        if (!files.length) continue
+        const j = safeReadJson(path.join(TRACKING_DIR, files.sort().reverse()[0]))
+        const entries = Array.isArray(j) ? j : (j?.entries || [])
+        for (const e of entries) {
+          const gt = e && e.gameTime ? Date.parse(e.gameTime) : NaN
+          if (Number.isFinite(gt) && gt > nowMs && (earliest == null || gt < earliest)) earliest = gt
+        }
+      } catch (_) { /* skip this sport */ }
+    }
+    return earliest
+  }
+
   try {
     const txt = safeReadText(DRIFT_ALERTS)
     if (txt) {
@@ -1067,6 +1088,29 @@ function sectionOpenIssues() {
           if (live && live.rate >= 0.5) {
             // Gap resolved since log was written — suppress stale RED
             continue
+          }
+          // Phase Status-Overhaul-1B — lineupSpot is a PRE-GAME-FILL field: MLB posts batting orders only
+          // ~1-3h before first pitch, so a low rate hours early is EXPECTED, not a wiring gap. Gate the
+          // alarm on time-to-first-game: if the earliest game is still > ~3h away, show a grey INFO note
+          // (dormant — NOT a NEEDS YOU infra yellow, so it doesn't drive the headline). Within the window
+          // (≤3h to first pitch) OR a game has already started, a thin rate IS a real gap → fall through to
+          // the yellow below. Other wiring fields are unchanged. (~3h is a tunable starting estimate.)
+          if (field === "lineupSpot") {
+            const LINEUP_WINDOW_MS = 3 * 60 * 60 * 1000
+            const earliest = earliestFutureGameMs()
+            if (earliest != null && earliest > Date.now() + LINEUP_WINDOW_MS) {
+              const firstPitch = new Date(earliest).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" })
+              info.push({
+                source: "drift_alerts",
+                category: "infra",
+                title: "lineup detail fills in closer to game time (lineupSpot)",
+                detail: live
+                  ? `${(live.rate * 100).toFixed(0)}% of tonight's ${live.sport.toUpperCase()} picks have batting-order detail so far — expected this early; MLB posts lineups ~1-3h before first pitch (first game ${firstPitch}).`
+                  : `lineups aren't posted yet — expected this early (first game ${firstPitch}).`,
+              })
+              continue   // pre-game: dormant info, not an actionable infra yellow
+            }
+            // within ~3h of first pitch (or a game has started) → a thin rate is a REAL gap; fall through.
           }
           yellow.push({
             source: "drift_alerts",
@@ -1783,3 +1827,4 @@ module.exports = router
 // stays the default export; attaching properties does not change app.use behavior).
 module.exports.sectionFamilyCalibration = sectionFamilyCalibration
 module.exports._readLineAwareState = readLineAwareState
+module.exports.sectionOpenIssues = sectionOpenIssues   // test/probe export (additive; no behavior change)
