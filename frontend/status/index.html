@@ -657,7 +657,7 @@ function renderSysHeadline(data) {
         : infraRed + " actionable red in Open Issues — see NEEDS YOU";
   } else if (infraYellow > 0) {
     state = "NEEDS ATTENTION"; color = "var(--yellow)";
-    why = infraYellow + " item" + (infraYellow === 1 ? "" : "s") + " in Open Issues (NEEDS YOU) worth a look — nothing is down";
+    why = infraYellow + " item" + (infraYellow === 1 ? "" : "s") + " in Open Issues worth a look — nothing is down";
   } else {
     state = "RUNNING"; color = "var(--green)";
     why = "everything's running — automated jobs firing, backend up, nothing needs you"
@@ -1453,6 +1453,11 @@ async function loadStatus() {
     renderG1Readiness(data);
     renderDrift(data);
     renderUnderHood(data);
+    // Phase Status-Overhaul-1B — set the top-header dot/label from the SAME fetch summary the cards
+    // just rendered from, so the header's infra-yellow count always equals the System Status + Open
+    // Issues counts (single source of truth — no more 2-vs-3 drift vs the SSE snapshot's own summary).
+    const _hdr = _computeDotFromSummary(data.openIssues && data.openIssues.summary);
+    _setLiveStatus(_hdr.dotState, _hdr.label);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
     document.getElementById("nudge").style.color = "var(--text-faint)";
   } catch (e) {
@@ -1497,6 +1502,26 @@ setInterval(_fetchTrueSchedule, TRUE_SCHED_POLL_MS);
 // instantly. EventSource auto-reconnects on disconnect.
 let _sseSource = null;
 let _seenReds = new Set();
+// Phase Status-Overhaul-1B — SINGLE SOURCE OF TRUTH for the top-header dot/label. Hoisted to module
+// scope (was trapped inside _initSse) so the FETCH path (loadStatus) and the SSE path both compute the
+// header from the SAME summary — the fetch payload's openIssues.summary (_lastStatusData). This kills
+// the 2-vs-3 drift where the SSE snapshot's own d.summary lagged the fetch the cards rendered from.
+function _computeDotFromSummary(summary) {
+  const s = summary || {};
+  const infraReds    = s.infraRedCount    ?? s.redCount    ?? 0;
+  const infraYellows = s.infraYellowCount ?? s.yellowCount ?? 0;
+  const cogReds      = s.cognitionRedCount    ?? 0;
+  const cogYellows   = s.cognitionYellowCount ?? 0;
+  const dotState = infraReds > 0 ? "degraded" : infraYellows > 0 ? "watching" : "healthy";
+  const cogTotal = cogReds + cogYellows;
+  const cogSuffix = cogTotal > 0 ? ` · (+${cogTotal} cognition flag${cogTotal === 1 ? '' : 's'})` : '';
+  const label = infraReds > 0
+    ? `INFRA DEGRADED · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
+    : infraYellows > 0
+      ? `watching · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
+      : `healthy · 0 infra issues${cogSuffix}`;
+  return { dotState, label };
+}
 function _setLiveStatus(state, label) {
   const dot = document.getElementById("liveDot");
   const lbl = document.getElementById("liveStatus");
@@ -1525,33 +1550,12 @@ function _initSse() {
   }
   _sseSource.addEventListener("open", () => _setLiveStatus("watching", "connecting…"));
   _sseSource.addEventListener("error", () => _setLiveStatus("disconnected", "SSE down · reconnecting…"));
-  // Phase Status-Issue-Taxonomy-1A — single helper for dot+label.
-  // Reads INFRA counts only for dot state; COGNITION shown as informational
-  // suffix. Falls back to legacy total counts if server hasn't redeployed yet.
-  function _computeDotFromSummary(summary) {
-    const s = summary || {};
-    const infraReds    = s.infraRedCount    ?? s.redCount    ?? 0;
-    const infraYellows = s.infraYellowCount ?? s.yellowCount ?? 0;
-    const cogReds      = s.cognitionRedCount    ?? 0;
-    const cogYellows   = s.cognitionYellowCount ?? 0;
-    const dotState = infraReds > 0 ? "degraded" : infraYellows > 0 ? "watching" : "healthy";
-    const cogTotal = cogReds + cogYellows;
-    const cogSuffix = cogTotal > 0
-      ? ` · (+${cogTotal} cognition flag${cogTotal === 1 ? '' : 's'})`
-      : '';
-    const label = infraReds > 0
-      ? `INFRA DEGRADED · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
-      : infraYellows > 0
-        ? `watching · ${infraReds} red · ${infraYellows} yellow${cogSuffix}`
-        : `healthy · 0 infra issues${cogSuffix}`;
-    return { dotState, label };
-  }
-
+  // _computeDotFromSummary hoisted to module scope (single source of truth) — see top of SSE section.
   _sseSource.addEventListener("snapshot", (ev) => {
     try {
       const d = JSON.parse(ev.data);
       _seenReds = new Set((d.allRed || []).map(r => r.title));
-      const { dotState, label } = _computeDotFromSummary(d.summary);
+      const { dotState, label } = _computeDotFromSummary(_lastStatusData && _lastStatusData.openIssues ? _lastStatusData.openIssues.summary : null);
       _setLiveStatus(dotState, label);
     } catch (_) {}
   });
@@ -1568,7 +1572,7 @@ function _initSse() {
       }
       // Update seenReds against new state (so cleared REDs can re-fire if they come back)
       _seenReds = new Set((d.allRed || []).map(r => r.title));
-      const { dotState, label } = _computeDotFromSummary(d.summary);
+      const { dotState, label } = _computeDotFromSummary(_lastStatusData && _lastStatusData.openIssues ? _lastStatusData.openIssues.summary : null);
       _setLiveStatus(dotState, label);
       // Trigger a fresh full reload so the openIssues card updates too
       loadStatus();
