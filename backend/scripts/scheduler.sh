@@ -162,6 +162,21 @@ while true; do
     last_fwdclv_min="$STAMP"
   fi
 
+  # Phase Early-CLV-Measurement-R1 (2026-06-25) — ADDITIVE early pitcher-prop opener snapshot at 6:00 AM ET
+  # (outside the 9–23 slate window + the 4 AM grade + 5 AM audit; its own dedupe). Captures the 5 lineup-
+  # independent pitcher families into a SEPARATE trueOpen store to MEASURE opener-vs-9AM CLV — does NOT
+  # touch snapshot-mlb.json / openOdds / grading / slate / settlement. The script season-gates + no-key-skips
+  # itself, so this is a safe no-op in the offseason or without a key.
+  if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 6 ] && [ "$STAMP" != "${last_trueopen_min:-}" ]; then
+    log "captureMlbTrueOpen starting (early pitcher-opener snapshot)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureMlbTrueOpen.js >> "$LOG" 2>&1; then
+      log "captureMlbTrueOpen OK"
+    else
+      log "captureMlbTrueOpen FAILED (exit $?)"
+    fi
+    last_trueopen_min="$STAMP"
+  fi
+
   # Dedupe — don't fire twice within the same minute
   if [ "$STAMP" = "$last_ran_min" ]; then
     sleep 30
