@@ -1,6 +1,6 @@
 {
   "_doc": "Per-sport season enablement (Phase Season-Switch-1A). true = pipeline fires; false = paused (no NEW slate/populator calls; existing data untouched, existing bets still grade/settle). Toggle via `npm run sport:on|off <sport>` (writes this file + prints a commit fence) or by editing this file directly. Read FRESH by scheduler.sh per tick, slate scripts per invocation, and /status per request — no restart needed to toggle. Canonical authority: backend/pipeline/shared/seasonGate.js. NFL/NHL are forward-compat placeholders (no pipeline wired yet).",
-  "updatedAt": "2026-06-14T08:00:39.086Z",
+  "updatedAt": "2026-06-15T02:06:28.072Z",
   "sports": {
     "mlb": true,
     "nba": false,
