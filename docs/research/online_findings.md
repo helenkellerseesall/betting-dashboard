@@ -198,3 +198,51 @@ E5 SIZE BY THE CLV-VALIDATED EDGE + SHRINK FOR CALIBRATION UNCERTAINTY (under th
 - APPLY TO REPO: stake = fractionalKelly( CLV-bucket ROI ) x uncertaintyHaircut(family calibration n); cap by the per-book limit reality; never size off an uncalibrated raw edge.
 
 HONEST FRAME (no magic): there is no secret signal that prints money. The realistic, durable edges are exactly these methodology wins -- trustworthy calibration, CLV measured right, correct devig, proper-scoring evaluation, and edge-validated sizing -- most of which the repo HALF-has and Part 1 showed are currently broken or thin. Fixing them is higher-EV than hunting a new feature.
+
+## 2026-06-25 04:30 ET — Claude-C [research] — EARLY-CLV-CAPTURE: opportunity, lineup split, staged design, repo feasibility (freeze-safe; build POST-26th)
+
+FRAME: the operator's insight is CORRECT and repo-confirmed. Web findings = data-to-verify ([AUTH] authoritative vs [PRAC] practitioner, >=2 each). Part B = repo-grounded (read the actual code; CA/CB must ground before any build). NO code change proposed now -- research only, build AFTER the 26th graduation.
+
+=== PART A -- ONLINE (cited) ===
+
+A1 -- CLV decays open -> close (the timing edge).
+- Lines are SOFTEST at open (books post early numbers with wider margins, before sharp action), and SHARPEN toward game time as money + information arrive. So the earliest grab on an un-sharpened market captures the most CLV; "bet early on markets the market has not sharpened yet."
+- Quantify: one practitioner estimate puts a 2-5% edge over the close at roughly a 15-25% annual ROI lift -- treat as DIRECTIONAL only (single PRAC source, not authoritative).
+- SOURCES: https://www.sharpfootballanalysis.com/sportsbook/clv-betting/ [PRAC] · https://vsin.com/how-to-bet/the-importance-of-closing-line-value/ [PRAC] · https://oddsjam.com/betting-education/closing-line-value [PRAC].
+
+A2 -- WHICH MLB markets are lineup-INDEPENDENT (priceable early).
+- Starting-pitcher props (strikeouts, outs, earned runs, walks, hits-allowed) are keyed to the ANNOUNCED STARTER, not the batting order -- the SP is the single largest variable in an MLB game. Team totals, first-5-innings (F5), and run lines are keyed to the pitching matchup + park/weather -- also lineup-independent. LINEUP-DEPENDENT = batter props (hits, total bases, HR, RBI, runs, steals): need the confirmed order AND that the hitter actually starts.
+- SOURCES: https://betstamp.com/education/mlb-betting-strategy-guide [PRAC] · https://sportsbook.draftkings.com/leagues/baseball/mlb (pitcher-props market taxonomy) [PRAC] · https://www.rotowire.com/baseball/daily-lineups.php [PRAC].
+
+A3 -- WHEN the inputs lock (what is safe to grab early).
+- Starting pitchers: announced ~1 day or more ahead (rotations set before the series). Full lineups: posted ~2-4h before first pitch (most managers 11am-1pm ET for night games). Scratches / weather: land in the final 1-2h, up to first pitch.
+- So pitcher + game-level legs are "safe early" (inputs already locked); batter legs are NOT safe until lineups post, and a late scratch can void/wrong an early batter leg.
+- SOURCES: https://www.mlb.com/starting-lineups [AUTH -- official MLB] · https://www.espn.com/chalk/story/_/id/29503813 [PRAC] · https://www.sportsbettingdime.com/mlb/lineups-starting-pitchers/ [PRAC].
+
+A4 -- STAGED capture (how sharps structure it).
+- Grab the soft early number on lineup-independent legs ASAP; then refine + ADD lineup-dependent legs after lineups post, accounting for late scratches, umpire assignment, weather/wind, and bullpen availability. Measure everything by CLV. "Update the picks every morning for late-breaking changes."
+- SOURCES: https://betstamp.com/education/mlb-betting-strategy-guide [PRAC] · https://www.thesportsgeek.com/sports-betting/mlb/strategy/ [PRAC] · https://www.actionnetwork.com/mlb/sharp-report [PRAC].
+
+=== PART B -- REPO-GROUNDED (read the code; verify before building) ===
+
+B1 SCHEDULE confirms the gap: `slate:mlb` runs hourly at :00 from 9 AM to 11 PM ET (scheduler.sh:10,72,173-179; `npm run slate:mlb`). Nothing overnight. Earliest observation/build = 9:00 AM ET -- the soft overnight opener is never seen.
+
+B2 CLV BASELINE is anchored to 9 AM (the core limitation): openOdds is stamped at slate-build / track time (phase4Tracking.js:846 `openOdds: play.oddsAmerican`); CLV = open vs close (clvMath.js:36 computeClv({openOdds, closeOdds})). captureClosingLines.js stamps only closeOdds within 180min of tip (CLOSE_WINDOW_MIN=180, :58), reading "whatever the snapshot last refreshed -- no new API calls" (:25-27). So our CLV "open" IS the 9 AM price; we structurally cannot measure overnight->9AM softness today.
+
+B3 FAMILY SPLIT (grep of backend/pipeline/mlb):
+- LINEUP-INDEPENDENT pitcher families WE ALREADY MODEL: pitcher_strikeouts (engine buildMlbPitcherKsProbabilityEngine.js), pitcher_outs, pitcher_walks, pitcher_earned_runs, pitcher_hits_allowed.
+- LINEUP-DEPENDENT batter families: batter_hits (+_alternate), batter_total_bases (+_alternate), batter_rbis, batter_runs_scored, batter_home_runs / batter_first_home_run, batter_walks, batter_strikeouts / batter_k, batter_stolen_bases.
+- Team-total / F5 / run-line markets are NOT in the MLB family list -> adding them is a SEPARATE new-market build, not a re-point of existing families.
+
+B4 FEASIBILITY (flagged feasible-now vs needs-a-build):
+- FEASIBLE-NOW-ish (capture/measurement only -- NO scoring/selection/PRESERVED change): add an EARLY MLB odds snapshot (overnight / ~6 AM) that records opener prices for the 5 pitcher families and stamps a "true-open" CLV baseline. This changes WHEN we first observe price, not the model. The lighter first step is pure MEASUREMENT (below R1).
+- NEEDS-A-BUILD (post-26th): a STAGED two-pass slate -- an early pitcher-only pass (~6 AM, after starters are confirmed) that selects + tracks pitcher-prop legs at the soft opener, then the existing 9 AM-11 PM passes add batter props after lineups post + refine. Requires a new early cadence + a pitcher-only slate path + openOdds stamped at the early time.
+- BIGGER BUILD: add team-total / F5 / run-line markets for more lineup-independent early-CLV surface.
+
+=== RANKED RECS (apply to our engine) ===
+R1 [FEASIBLE-NOW-ish, DO FIRST -- pure analytics, freeze-safe] MEASURE the opener edge before building anything: an early MLB odds snapshot of the 5 pitcher families (overnight / ~6 AM), then compute opener->close CLV vs the current 9AM->close CLV on those props for a few days. If the opener is NOT meaningfully softer on OUR books, stop here (honest null result). Touches odds-capture + CLV analytics only; does not touch PRESERVED scoring.
+R2 [BUILD, post-26th -- only if R1 confirms the edge] staged two-pass slate: early pitcher-only selection + track at the opener; the existing 9 AM-11 PM passes fill in batter props after lineups post + refine. This is the operator's staged design, realized.
+R3 [BIGGER BUILD, later] add team-total / F5 / run-line lineup-independent markets for additional early-CLV surface.
+
+=== HONEST READ -- upside vs data tradeoff ===
+The early grab helps ONLY on lineup-independent legs (the 5 pitcher families we already model, plus team/F5 if built). Batter props MUST wait for confirmed lineups (~2-4h pre-game) or a late scratch voids/wrongs the leg -- do NOT grab them early. So the CLV upside is real but BOUNDED to ~5 families today. Because our CLV is currently blind to the opener (B2), the cheapest highest-confidence move is R1: prove the overnight softness is real on our specific books BEFORE building an early cadence. Web evidence says openers are softer in general; whether they are softer on FanDuel/DraftKings MLB pitcher props by enough to matter is the thing CA/CB must measure (R1) before R2.
