@@ -6,17 +6,21 @@
 <title>motel666 — status</title>
 <style>
   :root {
-    --bg: #0c0e12;
-    --bg-card: #161a21;
-    --bg-card-deep: #11141a;
-    --border: #252b35;
-    --text: #e4e7eb;
-    --text-dim: #98a1b0;
-    --text-faint: #586273;
-    --green: #34d399;
-    --yellow: #fbbf24;
-    --red: #f87171;
-    --blue: #60a5fa;
+    /* Phase Status-Overhaul-1B (iOS theme pass, 2026-06-25) — Apple iOS dark system palette. ALWAYS-DARK
+       for now (no prefers-color-scheme / light theme yet, per operator). True black + grouped grey cards
+       + Apple accents = recognizable native iOS dark. */
+    --bg: #000000;                       /* iOS systemBackground (dark) — true black */
+    --bg-card: #1C1C1E;                  /* secondarySystemBackground — grouped card */
+    --bg-card-deep: #2C2C2E;             /* tertiarySystemBackground — nested rows */
+    --border: rgba(84,84,88,0.65);       /* iOS separator (dark) */
+    --text: #FFFFFF;                     /* label */
+    --text-dim: rgba(235,235,245,0.6);   /* secondaryLabel */
+    --text-faint: rgba(235,235,245,0.3); /* tertiaryLabel */
+    --green: #30D158;                    /* systemGreen (dark) */
+    --yellow: #FFD60A;                   /* systemYellow (dark) */
+    --red: #FF453A;                      /* systemRed (dark) */
+    --blue: #0A84FF;                     /* systemBlue (dark) — accent + collapse markers */
+    --orange: #FF9F0A;                   /* systemOrange (dark) — available if needed */
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
@@ -127,11 +131,11 @@
      dot when system was DEGRADED: "why does status show green when its
      degraded and sched down? this is what causes trust issues." */
   .liveDot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
-  .liveDot.healthy { background: #4ade80; box-shadow: 0 0 6px #4ade80; }     /* GREEN — SSE alive + system healthy */
-  .liveDot.degraded { background: #ef4444; box-shadow: 0 0 6px #ef4444; }     /* RED — system degraded regardless of SSE */
-  .liveDot.watching { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }     /* YELLOW — warnings active */
+  .liveDot.healthy { background: var(--green); box-shadow: 0 0 6px rgba(48,209,88,0.7); }     /* GREEN — SSE alive + system healthy */
+  .liveDot.degraded { background: var(--red); box-shadow: 0 0 6px rgba(255,69,58,0.7); }      /* RED — system degraded regardless of SSE */
+  .liveDot.watching { background: var(--yellow); box-shadow: 0 0 6px rgba(255,214,10,0.7); }  /* YELLOW — warnings active */
   .liveDot.disconnected { background: #6b7280; }                              /* GRAY — SSE down (rare) */
-  .liveDot.connecting { background: #fbbf24; }                                 /* YELLOW — initial connection */
+  .liveDot.connecting { background: var(--yellow); }                          /* YELLOW — initial connection */
   /* Legacy: keep .connected for back-compat but it now resolves to healthy semantic */
   .liveDot.connected { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
   #liveStatus { font-size: 11px; color: var(--text-faint); margin-left: 8px; font-variant-numeric: tabular-nums; }

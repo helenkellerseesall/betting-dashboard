@@ -1137,14 +1137,21 @@ function sectionOpenIssues() {
   // Source 3: git state — uncommitted code = deploy-risk
   try {
     const dirty = execSync("git status --porcelain", { cwd: REPO_ROOT, timeout: 2000 }).toString().trim()
-    const lines = dirty.split("\n").filter(l => l.trim() && /^\s*[MADR]/.test(l))  // only modified/added/deleted, not untracked
-    if (lines.length > 0) {
+    const changed = dirty.split("\n").filter(l => l.trim() && /^\s*[MADR]/.test(l))  // modified/added/deleted/renamed, not untracked
+    // Phase Status-Overhaul-1B — only DEPLOY-AFFECTING code should raise the "restart needed" yellow.
+    // Docs/logs (OPERATOR_SESSION_LOG.md, *.md brain docs, *.txt) and data/config (*.json) don't need a
+    // restart, so routine note-taking must NOT trip the headline. Warn only on served code: backend .js
+    // (+ .mjs/.cjs/.ts), shell scripts, or anything under frontend/ (.html/.css/.js).
+    const isDeployCode = (p) => /\.(mjs|cjs|js|jsx|ts|html|css|sh)$/i.test(p) || p.startsWith("frontend/")
+    const pathOf = (l) => { const raw = l.slice(3).trim(); return raw.includes(" -> ") ? raw.split(" -> ").pop().trim() : raw }
+    const codeLines = changed.filter(l => isDeployCode(pathOf(l)))
+    if (codeLines.length > 0) {
       yellow.push({
         source: "git",
         category: "infra",
-        title: `${lines.length} uncommitted code change(s)`,
-        detail: "Backend may be running pre-edit code; restart after commit to pick up changes.",
-        files: lines.slice(0, 8).map(l => l.trim()),
+        title: `${codeLines.length} uncommitted code change(s)`,
+        detail: "Backend/frontend may be running pre-edit code; restart after commit to pick up changes. (Docs/logs ignored.)",
+        files: codeLines.slice(0, 8).map(l => l.trim()),
       })
     }
   } catch (e) {
