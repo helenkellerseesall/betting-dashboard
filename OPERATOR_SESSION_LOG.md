@@ -6547,3 +6547,13 @@ Operator live-walkthrough refinements (full detail: .scratch/status_redesign_spe
 - Card 4 CLV: collapsed per-sport summary → its OWN line under the title; "Slate:" line → ABOVE the nba/mlb detail lines.
 - Card 5: COLLAPSED = only "12 of 14 clean" (tight one-line, no wrap); EXPANDED = keep ALL detail, tidy wording. General principle: collapsed = one tight line, page-wide.
 6-7/system-health/history NOT touched (operator reviews later). CA verifies live post-build.
+
+## 2026-06-24 23:01 ET — Claude-B [Cowork] — /status v1 REFINEMENTS (cards 1,2,4,5) DONE + verified. READ-FIRST done (HEAD 9d8e505). FE-only.
+Operator live-walkthrough tweaks; touched ONLY cards 1,2,4,5 (6-7/system-health/history untouched per instruction). frontend/status/index.html only — NO backend, NO PRESERVED, NO scoring/selection.
+1) Card 1 LAYOUT: cardSys is now a collapsed <details>; summary = one line "system status · ● · STATE", WHOLE line colored; sub-text hidden, shown on click. renderSysHeadline → 3 states off Open Issues' NEEDS YOU severity: DOWN(red)=daemon/backend down or infraRed>0 · NEEDS ATTENTION(yellow)=infraYellow>0 · RUNNING(green)=nothing actionable (cognition self-correct stays green). Removed sysBig.
+2) Card 2: title "open issues right now" → "open issues"; removed the top legend line. Kept NEEDS YOU / MODEL'S WORKING split.
+3) Card 4 CLV: (a) collapsed per-sport summary moved to its OWN line below the title (new `stackSummary` class + CSS); (b) "Slate: … rolls 4 AM ET" moved ABOVE the nba/mlb rows in the expanded body.
+4) Card 5: collapsed summary now ONE tight line "12 of 14 clean" (FE from cleanCount+need → no backend); expanded detail kept.
+General principle applied: collapsed = one tight line; detail in expand.
+VERIFY (real): no orphan sysBig refs; FE new Function() 0 syntax errors; runtime:verify 22/22. Proof: .scratch/status_v1_refinements_verify.txt (gitignored).
+DEPLOY: FE-only → LIVE ON RELOAD, no kickstart. Operator commit fence below. CA + operator verify live; then the pending Card 6-7 / System Health / History review + the deferred CLV date-arrows.

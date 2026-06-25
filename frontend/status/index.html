@@ -39,6 +39,9 @@
   details.card > summary > h2::before { content: "▸"; color: var(--text-faint); font-size: 10px; transition: transform 0.15s ease; display: inline-block; }
   details.card[open] > summary > h2::before { content: "▾"; }
   details.card > summary > .summaryLine { flex: 1 1 auto; text-align: right; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  /* Phase Status-Overhaul-1B — opt-in: stack the summary line on its OWN row below the title (Card 4 CLV). */
+  details.card.stackSummary > summary { flex-direction: column; align-items: stretch; gap: 4px; }
+  details.card.stackSummary > summary > .summaryLine { text-align: left; flex: 0 0 auto; }
   details.card > .cardBody { padding: 0 14px 14px; }                            /* card content below summary (when expanded) */
   .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--bg-card-deep); }
   .row:last-child { border-bottom: 0; }
@@ -146,14 +149,16 @@
   <div class="et" id="etTime">—</div>
 </header>
 
-<!-- Headline: sysAudit — stays at top, NOT collapsible (the big GREEN/DEGRADED banner) -->
-<div class="card" id="cardSys">
-  <h2>system status</h2>
-  <div id="sysSummary">
-    <div class="big" id="sysBig">…</div>
+<!-- Card 1 System Status — one line `system status · (dot) · STATE`, the WHOLE line in the state color;
+     the explanatory sub-text is HIDDEN by default and shown only on click (collapsed <details>). STATE =
+     the worst severity in Open Issues' NEEDS YOU group (renderSysHeadline): RUNNING (green) ·
+     NEEDS ATTENTION (yellow) · DOWN (red). Self-correction stays GREEN (it's never in NEEDS YOU). -->
+<details class="card" id="cardSys">
+  <summary><h2 id="sysHeadline">system status · <span id="sysDot">●</span> · <span id="sysState">…</span></h2></summary>
+  <div class="cardBody">
     <div class="big-sub" id="sysSub">loading…</div>
   </div>
-</div>
+</details>
 
 <!-- Phase Status-Overhaul-1B (2026-06-24) — operator-approved IMPORTANCE order:
      1 System Status (above) · 2 Open Issues · 3 Tonight's Picks · 4 CLV · 5 Calibration Readiness ·
@@ -162,9 +167,8 @@
      dispatch (getElementById per card) is unaffected by the reorder/nesting. -->
 
 <details class="card" id="cardOpenIssues">
-  <summary><h2>open issues right now</h2><span class="summaryLine" id="sumOpenIssues">…</span></summary>
+  <summary><h2>open issues</h2><span class="summaryLine" id="sumOpenIssues">…</span></summary>
   <div class="cardBody">
-    <div class="legend">RED = broken / can lose you money. YELLOW = degraded / worth knowing. Empty = nothing wrong, all checked sources clean.</div>
     <div id="openIssuesList">loading…</div>
   </div>
 </details>
@@ -181,12 +185,12 @@
   </div>
 </details>
 
-<details class="card" id="cardClv">
+<details class="card stackSummary" id="cardClv">
   <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
   <div class="cardBody">
-    <div class="row" style="margin-top:2px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
+    <div class="big-sub" id="clvSub" style="margin-bottom:8px">—</div>
+    <div class="row"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
     <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
-    <div class="big-sub" id="clvSub" style="margin-top:8px">—</div>
   </div>
 </details>
 
@@ -628,37 +632,40 @@ function renderUnderHood(data) {
   if (sh) sh.textContent = "recent system alerts + code changes";
 }
 
+// Phase Status-Overhaul-1B — one-line headline, the WHOLE line colored by state; sub-text hidden until
+// click. STATE = worst severity in Open Issues' NEEDS YOU group (the actionable, category:"infra" items):
+//   DOWN (red)            — a background job / the backend is down, OR a real infra red.
+//   NEEDS ATTENTION (yel) — an actionable infra YELLOW, but nothing down.
+//   RUNNING (green)       — nothing in NEEDS YOU. Self-correction (cognition) stays GREEN — it's FYI, not NEEDS YOU.
 function renderSysHeadline(data) {
-  const big = document.getElementById("sysBig");
+  const headline = document.getElementById("sysHeadline");
+  const stateEl = document.getElementById("sysState");
   const sub = document.getElementById("sysSub");
   const agents = data.launchAgents;
   const audit = data.sysAuditLast?.lastRed;
-  const allHealthy = agents?.ok && agents.allHealthy;
-  if (!allHealthy) {
-    big.textContent = "Needs attention";
-    big.className = "big red";
-    sub.textContent = "one or more background jobs are down — the system isn't running on its own right now";
-    return;
+  const oi = data.openIssues;
+  const infraRed    = (oi && oi.summary && oi.summary.infraRedCount) || 0;
+  const infraYellow = (oi && oi.summary && oi.summary.infraYellowCount) || 0;
+  const cognition   = ((oi && oi.summary && oi.summary.cognitionRedCount) || 0) + ((oi && oi.summary && oi.summary.cognitionYellowCount) || 0);
+  const daemonsOk   = !!(agents && agents.ok && agents.allHealthy);
+  const backendDown = !!(audit && audit.includes("Backend not responding"));
+  let state, color, why;
+  if (!daemonsOk || backendDown || infraRed > 0) {
+    state = "DOWN"; color = "var(--red)";
+    why = !daemonsOk ? "a background job is down — the system isn't running on its own right now"
+        : backendDown ? "the backend isn't responding — automatic recovery runs at the next hourly health check"
+        : infraRed + " actionable red in Open Issues — see NEEDS YOU";
+  } else if (infraYellow > 0) {
+    state = "NEEDS ATTENTION"; color = "var(--yellow)";
+    why = infraYellow + " item" + (infraYellow === 1 ? "" : "s") + " in Open Issues (NEEDS YOU) worth a look — nothing is down";
+  } else {
+    state = "RUNNING"; color = "var(--green)";
+    why = "everything's running — automated jobs firing, backend up, nothing needs you"
+        + (cognition > 0 ? " · the model is self-correcting some bet types (healthy — see Open Issues)" : "");
   }
-  if (audit && audit.includes("Backend not responding")) {
-    big.textContent = "Backend down";
-    big.className = "big red";
-    sub.textContent = "the backend isn't responding — automatic recovery runs at the next hourly health check";
-    return;
-  }
-  // Phase Status-Overhaul-1B — SELF-CORRECTION = GREEN. The model flagging/correcting its own
-  // over-confidence (the dampener) is healthy and permanent, NOT a warning. Amber/red are reserved
-  // for things that actually need the operator (jobs down / backend down — both handled above).
-  // Was a hardcoded amber "bet types over-confident" that fired on ANY past sysAudit RED.
-  if (audit && audit.includes("RED")) {
-    big.textContent = "All good";
-    big.className = "big green";
-    sub.textContent = "everything's running — the model is self-correcting some bet types it read as over-confident (healthy; see Dampener below)";
-    return;
-  }
-  big.textContent = "All good";
-  big.className = "big green";
-  sub.textContent = "everything's running — automated jobs firing, backend up, no alerts";
+  if (stateEl) stateEl.textContent = state;
+  if (headline) headline.style.color = color;   // colors the whole one-liner (label · dot · state)
+  if (sub) sub.textContent = why;
 }
 
 function renderBackend(data) {
@@ -924,7 +931,9 @@ function renderG1Readiness(data) {
     return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + tag + '</span>';
   }).join("  ") + '</div>';
   body.innerHTML = html;
-  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights" + (r.pendingCount ? " + " + r.pendingCount + " pending tonight" : "") + " · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track — evaluable " + r.projectedEval : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
+  // Phase Status-Overhaul-1B — collapsed summary = ONE tight line (operator: "12 of 14 clean"); all the
+  // detail (blurb, on-track sentence, per-night list) lives in the EXPAND (g1ReadinessBody, untouched).
+  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean");
 }
 
 function renderComponentHealth(data) {
