@@ -6617,3 +6617,14 @@ CB 7f0d454 deployed (operator kickstarted; boot 7f0d454==HEAD). git-uncommitted 
 
 ## 2026-06-25 03:51 ET — Claude-A [handoff] — /status final nitpicks ROUND 3 (cards 1/3/4 + System Health subs) → CB
 Operator final walkthrough (not diving deeper tonight). Detail: .scratch/status_redesign_spec.md → "LIVE REFINEMENTS ROUND 3". Handed CB (FE + one backend stale-flag tweak): Card 1 System Status NOT collapsable + ONE dot ("SYSTEM STATUS ● RUNNING"); Card 3 drop "how many picks" blurb; Card 4 CLV "closing odds captured" before "graded" + "(4am)"; System Health subs — BACKEND behind-HEAD stale flag ignores docs-only commits (reuse isDeployCode; kickstart), BACKGROUND PROCESSES drop "Background jobs:" prefix, AUTOPILOTS remove legend + chronological order (03:05 refresh before 04:00 grade) + NBA-odds "off season". Answered: Component Health 8/9 = 8 passed + 1 overnight-paused; behind-HEAD = docs-only here. Freeze-safe display/ops. CA verifies live.
+
+## 2026-06-25 04:02 ET — Claude-B [Cowork] — /status ROUND 3 final nitpicks DONE + verified. READ-FIRST done (HEAD deb52a1).
+All items. frontend/status/index.html (FE, reload) + backend/routes/statusRoute.js (kickstart). NO PRESERVED, NO scoring/selection.
+1) Card 1: cardSys is now a STATIC <div> (not <details>) — "system status ● STATE", ONE state-colored dot, whole line colored, no expandable sub-text. renderSysHeadline simplified.
+2) Card 3: removed the "how many picks…" blurb.
+3) Card 4 CLV: "X/Y closing odds captured · Z/Y graded (4am)" (captured before graded + "(4am)") — all 4 strings (collapsed + expanded, normal + legacy).
+4a) BACKEND stale flag CODE-AWARE: only "behind HEAD/restart" when running..HEAD includes deploy code (isDeployCode, hoisted to module scope, Law 1; shared with the git-uncommitted yellow). Docs/log/.md/.json-only commits ahead no longer flag.
+4b) BACKGROUND PROCESSES: dropped "Background jobs:" prefix.
+4c) AUTOPILOTS: removed legend; rows render chronologically by fire time (Refresh 03:05 → Grade 04:00 → Report 05:00 → MLB 09:00 → Health 09:00 → NBA 16:00); NBA-odds row → "off season" when NBA disabled.
+VERIFY (real): node --check statusRoute OK; FE new Function() 0 errors; runtime:verify 22/22. BACKEND stale REAL: running 7f0d454 behind head deb52a1 but stale=FALSE (intervening commits docs-only) — the exact false "behind HEAD" the operator hit, now suppressed; code-ahead still flags (isDeployCode: .md/.json=false, .js/frontend=true). Proof: .scratch/status_round3_nitpicks_verify.txt (gitignored).
+DEPLOY: FE = reload; statusRoute = backend KICKSTART. Operator commit+push+kickstart fence below. CA verifies live.

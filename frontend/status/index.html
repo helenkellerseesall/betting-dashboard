@@ -156,16 +156,13 @@
   <div class="et" id="etTime">—</div>
 </header>
 
-<!-- Card 1 System Status — one line `system status · (dot) · STATE`, the WHOLE line in the state color;
-     the explanatory sub-text is HIDDEN by default and shown only on click (collapsed <details>). STATE =
-     the worst severity in Open Issues' NEEDS YOU group (renderSysHeadline): RUNNING (green) ·
-     NEEDS ATTENTION (yellow) · DOWN (red). Self-correction stays GREEN (it's never in NEEDS YOU). -->
-<details class="card" id="cardSys">
-  <summary><h2 id="sysHeadline">system status · <span id="sysDot">●</span> · <span id="sysState">…</span></h2></summary>
-  <div class="cardBody">
-    <div class="big-sub" id="sysSub">loading…</div>
-  </div>
-</details>
+<!-- Card 1 System Status — STATIC one-liner (NOT collapsible): "system status ● STATE", a single
+     state-colored dot between label and state, the WHOLE line colored by state (renderSysHeadline).
+     STATE = worst severity in Open Issues' NEEDS YOU group: RUNNING (green) · NEEDS ATTENTION (yellow) ·
+     DOWN (red). Self-correction stays GREEN (never in NEEDS YOU). No expandable inner text. -->
+<div class="card" id="cardSys">
+  <h2 id="sysHeadline">system status <span id="sysDot">●</span> <span id="sysState">…</span></h2>
+</div>
 
 <!-- Phase Status-Overhaul-1B (2026-06-24) — operator-approved IMPORTANCE order:
      1 System Status (above) · 2 Open Issues · 3 Tonight's Picks · 4 CLV · 5 Calibration Readiness ·
@@ -183,7 +180,6 @@
 <details class="card" id="cardTrackedBest">
   <summary><h2>tonight's picks</h2><span class="summaryLine" id="sumTrackedBest">…</span></summary>
   <div class="cardBody">
-    <div class="legend">how many picks the engine generated for tonight's games, by bet type.</div>
     <div class="row"><span class="label">nba entries</span><span class="val" id="tbNbaTotal">—</span></div>
     <div class="row"><span class="label">mlb entries</span><span class="val" id="tbMlbTotal">—</span></div>
     <!-- Phase True-Schedule-FE-Surface-1B (2026-06-03) — external schedule coverage -->
@@ -267,7 +263,6 @@
   <details class="card" id="cardAutopilots">
     <summary><h2>autopilots today</h2><span class="summaryLine" id="sumAutopilots">…</span></summary>
     <div class="cardBody">
-      <div class="legend">green = done · yellow = running · red = failed · gray = not yet (waiting for its scheduled time).</div>
       <div id="autoList"></div>
     </div>
   </details>
@@ -520,7 +515,7 @@ function renderAgents(data) {
   const healthy = data.agents.filter(a => a.healthy).length;
   const daemons = data.agents.filter(a => a.kind === "daemon").length;
   const scheduled = data.agents.filter(a => a.kind === "scheduled").length;
-  _setSummary("sumAgents", "Background jobs: " + healthy + " of " + total + " alive · " + daemons + " always-on + " + scheduled + " scheduled");
+  _setSummary("sumAgents", healthy + " of " + total + " alive · " + daemons + " always-on + " + scheduled + " scheduled");
   for (const a of data.agents) {
     const div = document.createElement("div");
     div.className = "agent";
@@ -642,32 +637,20 @@ function renderUnderHood(data) {
 function renderSysHeadline(data) {
   const headline = document.getElementById("sysHeadline");
   const stateEl = document.getElementById("sysState");
-  const sub = document.getElementById("sysSub");
   const agents = data.launchAgents;
   const audit = data.sysAuditLast?.lastRed;
   const oi = data.openIssues;
   const infraRed    = (oi && oi.summary && oi.summary.infraRedCount) || 0;
   const infraYellow = (oi && oi.summary && oi.summary.infraYellowCount) || 0;
-  const cognition   = ((oi && oi.summary && oi.summary.cognitionRedCount) || 0) + ((oi && oi.summary && oi.summary.cognitionYellowCount) || 0);
   const daemonsOk   = !!(agents && agents.ok && agents.allHealthy);
   const backendDown = !!(audit && audit.includes("Backend not responding"));
-  let state, color, why;
-  if (!daemonsOk || backendDown || infraRed > 0) {
-    state = "DOWN"; color = "var(--red)";
-    why = !daemonsOk ? "a background job is down — the system isn't running on its own right now"
-        : backendDown ? "the backend isn't responding — automatic recovery runs at the next hourly health check"
-        : infraRed + " actionable red in Open Issues — see NEEDS YOU";
-  } else if (infraYellow > 0) {
-    state = "NEEDS ATTENTION"; color = "var(--yellow)";
-    why = infraYellow + " item" + (infraYellow === 1 ? "" : "s") + " in Open Issues worth a look — nothing is down";
-  } else {
-    state = "RUNNING"; color = "var(--green)";
-    why = "everything's running — automated jobs firing, backend up, nothing needs you"
-        + (cognition > 0 ? " · the model is self-correcting some bet types (healthy — see Open Issues)" : "");
-  }
+  // Static one-liner (no sub-text). STATE = worst severity in Open Issues' NEEDS YOU group.
+  let state, color;
+  if (!daemonsOk || backendDown || infraRed > 0) { state = "DOWN"; color = "var(--red)"; }
+  else if (infraYellow > 0) { state = "NEEDS ATTENTION"; color = "var(--yellow)"; }
+  else { state = "RUNNING"; color = "var(--green)"; }
   if (stateEl) stateEl.textContent = state;
-  if (headline) headline.style.color = color;   // colors the whole one-liner (label · dot · state)
-  if (sub) sub.textContent = why;
+  if (headline) headline.style.color = color;   // colors the whole static one-liner (label · dot · state)
 }
 
 function renderBackend(data) {
@@ -764,7 +747,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
     const onSlate = sportData.gamesOnSlate || sportData.gamesPlayedToday || 0;
     const finalN  = sportData.gamesFinal || 0;
     const cap     = sportData.gamesCloseStamped || 0;
-    return finalN + '/' + onSlate + ' graded · ' + cap + '/' + onSlate + ' closing odds captured';
+    return cap + '/' + onSlate + ' closing odds captured · ' + finalN + '/' + onSlate + ' graded (4am)';
   }
   if (st === 'curation_gap') {
     return '<span class="sm" style="color:var(--yellow)">' + (sportData.gamesScheduledLive || 0) + ' ' + label + ' games scheduled · no curated picks captured</span>';
@@ -775,7 +758,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
   // Legacy fallback (state absent — backend not yet reloaded). Never assert "no games".
   if (!sportData.hasFile) return '<span class="sm">no ' + label + ' slate file yet · next ' + (nextSlate?.atEt || "—") + ' ET</span>';
   const lp = sportData.gamesPlayedToday;
-  if (lp != null && lp > 0) return (sportData.gamesFinal || 0) + '/' + lp + ' graded · ' + sportData.gamesCloseStamped + '/' + lp + ' closing odds captured';
+  if (lp != null && lp > 0) return sportData.gamesCloseStamped + '/' + lp + ' closing odds captured · ' + (sportData.gamesFinal || 0) + '/' + lp + ' graded (4am)';
   return '<span class="sm">no ' + label + ' games today' + nextLine + '</span>';
 }
 
@@ -843,12 +826,12 @@ function renderClv(data) {
     // Phase Status-CLV-Display-Honesty-1A — server-classified three-state.
     if (s.state === 'normal') {
       const onSlate = s.gamesOnSlate || s.gamesPlayedToday || 0;
-      return label + ": " + (s.gamesFinal || 0) + "/" + onSlate + " graded · " + s.gamesCloseStamped + "/" + onSlate + " captured";
+      return label + ": " + s.gamesCloseStamped + "/" + onSlate + " captured · " + (s.gamesFinal || 0) + "/" + onSlate + " graded (4am)";
     }
     if (s.state === 'curation_gap') return label + ": " + (s.gamesScheduledLive || 0) + " scheduled, no picks";
     if (s.state === 'off_day') return label + ": no games today";
     // legacy fallback (state absent)
-    if (s.gamesPlayedToday > 0) return label + ": " + (s.gamesFinal || 0) + "/" + s.gamesPlayedToday + " graded · " + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " captured";
+    if (s.gamesPlayedToday > 0) return label + ": " + s.gamesCloseStamped + "/" + s.gamesPlayedToday + " captured · " + (s.gamesFinal || 0) + "/" + s.gamesPlayedToday + " graded (4am)";
     return label + ": no games today";
   };
   // Phase Status-Overhaul-1C-fix5 — single-line collapsed summary
@@ -1028,12 +1011,16 @@ function renderAutopilots(data) {
   const sched = data.schedule;
   const wrap = document.getElementById("autoList");
   wrap.innerHTML = "";
-
-  const buildRow = (label, sub, started, completed, failed, nextLabelHint) => {
+  _seasonOff.nba = data?.sportsActive?.sports?.nba?.enabled === false;   // page-wide offseason rule
+  // Phase Status-Overhaul-1B (round 3) — collect rows + render them CHRONOLOGICALLY by today's fire time
+  // (sortMin = minutes past midnight ET), so the list reads in the order things actually run.
+  const rows = [];
+  const buildRow = (label, sub, started, completed, failed, nextLabelHint, sortMin, offSeason) => {
     const auto = document.createElement("div");
     auto.className = "auto";
     let dotClass = "gray", statClass = "gray", statText = "not yet today";
-    if (failed) { dotClass = "red"; statClass = "red"; statText = "FAILED at " + timeOnly(failed); }
+    if (offSeason) { dotClass = "gray"; statClass = "gray"; statText = "off season"; }
+    else if (failed) { dotClass = "red"; statClass = "red"; statText = "FAILED at " + timeOnly(failed); }
     else if (completed && started) {
       dotClass = "green"; statClass = "green";
       const dur = formatFiredDuration(started, completed);
@@ -1049,7 +1036,7 @@ function renderAutopilots(data) {
       '<span class="dot ' + dotClass + '" style="margin-top:5px"></span>' +
       '<div class="lbl">' + label + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' +
       '<div class="stat ' + statClass + '">' + statText + '</div>';
-    wrap.appendChild(auto);
+    rows.push({ sortMin: sortMin == null ? 9999 : sortMin, auto });
   };
 
   if (fires?.ok) {
@@ -1057,11 +1044,11 @@ function renderAutopilots(data) {
     buildRow("Grade last night's bets",
       "checks how last night's bets did (4 AM)",
       fires.gradingBackfillAll?.startedLine, fires.gradingBackfillAll?.endedLine, fires.gradingBackfillAll?.failedLine,
-      "grading:backfill-all");
+      "grading:backfill-all", 240);   // 04:00
     buildRow("Write the daily report",
       "writes the daily summary report (5 AM)",
       fires.auditNightly?.startedLine, fires.auditNightly?.endedLine, fires.auditNightly?.failedLine,
-      "audit:nightly");
+      "audit:nightly", 300);   // 05:00
   }
   // Populator chain — season-aware: 3 MLB populators always; 2 NBA only in season. NBA off-season =
   // SKIPPED (gated), not failures. Show "N ran · M skipped (NBA off-season)" not a misleading "N/5".
@@ -1071,25 +1058,29 @@ function renderAutopilots(data) {
     buildRow("Refresh player data",
       "player stats & game logs" + (pc.nbaOff ? " (NBA parts skipped — off-season)" : " (MLB + NBA)") + " — " + ranTxt + " today (3:05 AM)",
       pc.startedLine, pc.endedLine, null,
-      "populator chain");
+      "populator chain", 185);   // 03:05
   } else {
     buildRow("Refresh player data",
       "player stats & game logs, MLB + NBA (3:05 AM)",
-      null, null, null, "populator chain");
+      null, null, null, "populator chain", 185);   // 03:05
   }
   if (slates?.ok) {
     buildRow("Pull today's MLB odds",
       "refreshes MLB odds hourly on the hour, 9 AM–11 PM",
       null, slates.slateMlb?.lastOk, slates.slateMlb?.lastFailed,
-      "slate:mlb");
+      "slate:mlb", 540);   // 09:00 first fire
     buildRow("Pull today's NBA odds",
       "refreshes NBA odds every 30 min, 4–11:30 PM",
       null, slates.slateNba?.lastOk, slates.slateNba?.lastFailed,
-      "slate:nba");
+      "slate:nba", 960, _isSeasonOff('nba'));   // 16:00 first fire; "off season" when NBA disabled
   }
   buildRow("Hourly health check",
     "checks the system is healthy — every hour on the hour, 9 AM–11 PM",
-    null, null, null, "sysAudit");
+    null, null, null, "sysAudit", 545);   // 09:00 hourly
+
+  // Phase Status-Overhaul-1B (round 3) — render CHRONOLOGICALLY by fire time: Refresh 03:05 → Grade
+  // 04:00 → Report 05:00 → MLB odds 09:00 → Health 09:00 → NBA odds 16:00.
+  rows.sort((a, b) => a.sortMin - b.sortMin).forEach(r => wrap.appendChild(r.auto));
 
   // Phase Status-Overhaul-1A — collapsed summary tallies the same rows that
   // were just rendered. Real source: fires + slates from /status payload.

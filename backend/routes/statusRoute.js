@@ -292,6 +292,11 @@ function sectionScheduler() {
   }
 }
 
+// Phase Status-Overhaul-1B — shared "is this a deploy-affecting code file?" test (Law 1: ONE definition).
+// Used by the git-uncommitted yellow (sectionOpenIssues) AND the backend stale flag (sectionBackend) so a
+// docs/log/.md/.json-only change never raises a "restart needed" signal — only served code does.
+function isDeployCode(p) { return /\.(mjs|cjs|js|jsx|ts|html|css|sh)$/i.test(p) || p.startsWith("frontend/") }
+
 function sectionBackend() {
   try {
     // HEAD = latest committed code on disk; RUNNING = the commit the live process actually booted on.
@@ -308,7 +313,19 @@ function sectionBackend() {
       const boot = safeReadJson(path.join(__dirname, "..", "runtime", "backend_boot.json"))
       if (boot && boot.commit) { runningCommit = boot.commit; runningShort = boot.commitShort || String(boot.commit).slice(0, 7); bootAt = boot.bootAt || null }
     } catch (_) {}
-    const stale = !!(runningCommit && headCommit !== "unknown" && runningCommit !== headCommit)
+    // Phase Status-Overhaul-1B — only "restart needed" when HEAD has DEPLOY-AFFECTING CODE the running
+    // process lacks. A docs/log/.md/.json-only commit ahead (e.g. a session-log append) is NOT stale —
+    // nothing to restart for. Diff running..HEAD, keep only code files; if git diff fails, be conservative.
+    let stale = false
+    if (runningCommit && headCommit !== "unknown" && runningCommit !== headCommit) {
+      try {
+        const changed = execSync(`git diff --name-only ${runningCommit}..${headCommit}`, { cwd: REPO_ROOT, timeout: 2000 })
+          .toString().trim().split("\n").filter(Boolean)
+        stale = changed.some(isDeployCode)
+      } catch (_) {
+        stale = true   // couldn't diff — flag it rather than hide a real code gap
+      }
+    }
     return {
       ok: true,
       healthy: true,
@@ -1142,7 +1159,7 @@ function sectionOpenIssues() {
     // Docs/logs (OPERATOR_SESSION_LOG.md, *.md brain docs, *.txt) and data/config (*.json) don't need a
     // restart, so routine note-taking must NOT trip the headline. Warn only on served code: backend .js
     // (+ .mjs/.cjs/.ts), shell scripts, or anything under frontend/ (.html/.css/.js).
-    const isDeployCode = (p) => /\.(mjs|cjs|js|jsx|ts|html|css|sh)$/i.test(p) || p.startsWith("frontend/")
+    // isDeployCode hoisted to module scope (Law 1) — shared with sectionBackend's stale flag.
     const pathOf = (l) => { const raw = l.slice(3).trim(); return raw.includes(" -> ") ? raw.split(" -> ").pop().trim() : raw }
     const codeLines = changed.filter(l => isDeployCode(pathOf(l)))
     if (codeLines.length > 0) {
@@ -1835,3 +1852,5 @@ module.exports = router
 module.exports.sectionFamilyCalibration = sectionFamilyCalibration
 module.exports._readLineAwareState = readLineAwareState
 module.exports.sectionOpenIssues = sectionOpenIssues   // test/probe export (additive; no behavior change)
+module.exports.sectionBackend = sectionBackend         // test/probe export (additive; no behavior change)
+module.exports.isDeployCode = isDeployCode             // test/probe export (additive; no behavior change)
