@@ -447,7 +447,7 @@ function buildMlbOpportunityBoard(input = {}) {
   try {
     persistTrackedToday({ bestBetsBoard })
     bestBetsBoard.trackingSummary = buildMlbTrackingSummary({ windowDays: 14 })
-    pruneOldTrackingFilesAsync({ keepDays: 14 })
+    pruneOldTrackingFilesAsync({ keepDays: 45 })   // Phase G1-Prune-Margin-1A — was 14, which ate the G1 gate's clean nights; see phase4Tracking DEFAULT_PRUNE_KEEP_DAYS
   } catch (err) {
     bestBetsBoard.trackingSummary = {
       metadata: { error: String(err?.message || err), version: "mlb-tracking-v1" },

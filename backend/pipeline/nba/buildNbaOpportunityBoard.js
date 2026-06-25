@@ -439,7 +439,7 @@ function buildNbaOpportunityBoard(input = {}) {
   try {
     persistTrackedToday({ bestBetsBoard: boardPayload.bestBetsBoard })
     boardPayload.bestBetsBoard.trackingSummary = buildNbaTrackingSummary({ windowDays: 14 })
-    pruneOldTrackingFilesAsync({ keepDays: 14 })
+    pruneOldTrackingFilesAsync({ keepDays: 45 })   // Phase G1-Prune-Margin-1A — was 14 (gate-margin); see buildNbaPerformanceTracking DEFAULT_PRUNE_KEEP_DAYS
   } catch (err) {
     boardPayload.bestBetsBoard.trackingSummary = {
       metadata: { error: String(err?.message || err), version: "nba-tracking-v1" },

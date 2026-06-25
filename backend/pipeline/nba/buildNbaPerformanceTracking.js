@@ -51,7 +51,9 @@ const SUMMARY_PREFIX = "nba_tracking_summary_"
 const BEST_PREFIX = "nba_tracked_best_"
 
 const DEFAULT_WINDOW_DAYS = 14
-const DEFAULT_PRUNE_KEEP_DAYS = 14
+// Phase G1-Prune-Margin-1A (2026-06-24) — raised 14 → 45 (same gate-margin bug as MLB phase4Tracking;
+// NBA is offseason now, but fix the latent zero-margin default before NBA returns).
+const DEFAULT_PRUNE_KEEP_DAYS = 45
 
 // 2026-06-01 Phase Date-Doctrine-1A — replaced `new Date().toISOString().slice(0,10)`
 // (UTC date) with the canonical ET-with-4-AM-boundary helper. Previous code

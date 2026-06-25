@@ -680,7 +680,12 @@ const SLIPS_PREFIX = "mlb_tracked_slips_"
 const SUMMARY_PREFIX = "mlb_tracking_summary_"
 
 const DEFAULT_WINDOW_DAYS = 14
-const DEFAULT_PRUNE_KEEP_DAYS = 14
+// Phase G1-Prune-Margin-1A (2026-06-24) — was 14, which ≈ the G1 gate's 14-clean-night need counted
+// from these SAME tracking files → zero margin → the pruner ate the oldest clean night
+// (mlb_tracked_bets_2026-06-11 = game-night 06-12) as each new one arrived, stalling cleanCount ~11 so
+// the gate could never reach 14. 45 comfortably exceeds the gate need + the forward-CLV window; cutoff
+// lands ~05-11, so the whole freeze-forward window (06-11 onward) is safe. ~45×3MB ≈ 135MB, fine.
+const DEFAULT_PRUNE_KEEP_DAYS = 45
 
 function fileFor(prefix, date) {
   return path.join(runtimeTrackingDir(), `${prefix}${date}.json`)
