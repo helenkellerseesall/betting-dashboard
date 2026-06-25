@@ -6539,3 +6539,11 @@ Built the remaining v1 from the spec. Freeze-safe: frontend/status/index.html (d
 LEFT (per spec): cards 6-7 already meet the principles (collapsed, no redundant big number) → left for live refinement; CLV ◀▶ date arrows DEFERRED to a follow-up (non-trivial: statusRoute per-day-CLV add + FE paging; needs kickstart).
 VERIFY (real): FE new Function() 0 syntax errors; node --check g1Readiness OK; card-order grep = 1-7 then system-health(8 nested) then history(2 nested), each id once, details balanced; runtime:verify 22/22. Proof: .scratch/status_redesign_v1_chunk2_verify.txt (gitignored).
 DEPLOY: index.html = reload; g1Readiness verdictText = served → ONE kickstart. Operator commit+kickstart fence below. CA + operator verify live, then refine card by card.
+
+## 2026-06-24 22:56 ET — Claude-A [handoff] — /status v1 refinements (cards 1,2,4,5) → CB; 6-7/system-health/history later
+Operator live-walkthrough refinements (full detail: .scratch/status_redesign_spec.md → LIVE REFINEMENTS + CLARIFICATIONS RESOLVED). Handed CB — display-only, freeze-safe, cards 1/2/4/5 ONLY:
+- Card 1: one-line `SYSTEM STATUS · (dot) · STATE` all colored; words green RUNNING / yellow NEEDS ATTENTION / red DOWN; TRIGGER = worst of the NEEDS YOU group (down/red→DOWN, actionable yellow→NEEDS ATTENTION, only MODEL'S-WORKING/clean→RUNNING); self-correct stays GREEN; sub-text hidden→shown on click. (Renders YELLOW now given 3 NEEDS YOU yellows — operator to confirm threshold on live review.)
+- Card 2: "OPEN ISSUES" (drop "right now") + REMOVE the RED=/YELLOW= legend; keep the NEEDS YOU / MODEL'S WORKING split.
+- Card 4 CLV: collapsed per-sport summary → its OWN line under the title; "Slate:" line → ABOVE the nba/mlb detail lines.
+- Card 5: COLLAPSED = only "12 of 14 clean" (tight one-line, no wrap); EXPANDED = keep ALL detail, tidy wording. General principle: collapsed = one tight line, page-wide.
+6-7/system-health/history NOT touched (operator reviews later). CA verifies live post-build.
