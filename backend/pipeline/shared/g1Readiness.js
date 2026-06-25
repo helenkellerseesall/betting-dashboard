@@ -183,7 +183,9 @@ function computeG1Readiness(opts = {}) {
     verdictText = `Slipped — ${gaps} game-day${gaps === 1 ? "" : "s"} fell short after its games played, so ${cleanCount}/${NEED} clean. Earliest evaluable ~${projectedEval} (was ${TARGET}).`
   } else {
     verdict = "on_track"
-    verdictText = `On track for ${TARGET} — ${cleanCount}/${NEED} clean${pendNote}, no misses. ${more} more clean night${more === 1 ? "" : "s"} → evaluable ${projectedEval}.`
+    // Phase Status-Overhaul-1B — lead with the REAL evaluable date (projectedEval), not the original
+    // hardcoded TARGET. "On track for 2026-06-25" was stale/confusing (real eval is 06-26 after the prune-fix).
+    verdictText = `On track — ${cleanCount}/${NEED} clean${pendNote}, no misses. ${more} more clean night${more === 1 ? "" : "s"} → evaluable ${projectedEval}.`
   }
 
   return {

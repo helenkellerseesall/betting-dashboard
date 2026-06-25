@@ -155,83 +155,12 @@
   </div>
 </div>
 
-<!-- Phase Status-Overhaul-1A — operator's locked vertical order:
-     backend → background processes → autopilots → whats next → clv → open issues →
-     tonights picks → dampener → ml scorer → data integrity → recent alerts → recent commits. All collapsible.
-     See memory rule [[operator-status-layout]] for the binding order. -->
+<!-- Phase Status-Overhaul-1B (2026-06-24) — operator-approved IMPORTANCE order:
+     1 System Status (above) · 2 Open Issues · 3 Tonight's Picks · 4 CLV · 5 Calibration Readiness ·
+     6 Dampener · 7 Forward Edge · then 8-14 collapsed into ONE "system health" (green/collapsed unless
+     a real red, which auto-expands it) · 15-16 into ONE "history". Cards keep their IDs so the render
+     dispatch (getElementById per card) is unaffected by the reorder/nesting. -->
 
-<!-- Phase Season-Switch-1A — sports active this season (additive; placed above backend, movable) -->
-<details class="card" id="cardSportsActive">
-  <summary><h2>sports active</h2><span class="summaryLine" id="sumSportsActive">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">green = season ON &amp; firing · red = ON but not firing (check scheduler) · gray = season OFF (paused — existing bets still grade) · dim = no pipeline yet. Toggle: <span class="mono">npm run sport:on|off &lt;sport&gt;</span></div>
-    <div class="grid2" id="sportsActiveGrid"></div>
-  </div>
-</details>
-
-<!-- 1. backend -->
-<details class="card" id="cardBackend">
-  <summary><h2>backend</h2><span class="summaryLine" id="sumBackend">…</span></summary>
-  <div class="cardBody">
-    <div class="row"><span class="dot" id="beDot"></span><span class="label">commit</span><span class="val mono" id="beCommit">—</span></div>
-    <div class="row"><span class="label">uptime</span><span class="val" id="beUptime">—</span></div>
-    <div class="row"><span class="label">pid</span><span class="val mono" id="bePid">—</span></div>
-  </div>
-</details>
-
-<!-- 2. background processes -->
-<details class="card" id="cardAgents">
-  <summary><h2>background processes</h2><span class="summaryLine" id="sumAgents">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">all four daemons must be GREEN for the system to run autonomously overnight. 3 scheduled autopilots fire on cadence.</div>
-    <div class="grid2" id="agentGrid"></div>
-  </div>
-</details>
-
-<!-- 3. autopilots today -->
-<details class="card" id="cardAutopilots">
-  <summary><h2>autopilots today</h2><span class="summaryLine" id="sumAutopilots">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">green = done · yellow = running · red = failed · gray = not yet (waiting for its scheduled time).</div>
-    <div id="autoList"></div>
-  </div>
-</details>
-
-<!-- 4. whats next -->
-<details class="card" id="cardSchedule">
-  <summary><h2>what's next</h2><span class="summaryLine" id="sumSchedule">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">upcoming scheduled jobs (Eastern time). A green dot means the automation is alive and will run these on time.</div>
-    <div id="schedList"></div>
-  </div>
-</details>
-
-<!-- 5. clv capture today -->
-<details class="card" id="cardClv">
-  <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">How many of today's games we locked the final odds for — we compare them to your bet price to see if you beat the market. Win/loss grades land overnight, so "0 graded" during the day is normal.</div>
-    <div id="clvBigWrap">
-      <div class="big" id="clvBig">—</div>
-      <div class="big-sub" id="clvSub">—</div>
-    </div>
-    <div class="row" style="margin-top:6px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
-    <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
-  </div>
-</details>
-
-<!-- 5b. forward CLV edge tracker -->
-<details class="card" id="cardForwardClv">
-  <summary><h2>forward edge tracker (CLV)</h2><span class="summaryLine" id="sumForwardClv">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">Watches whether the confirmed CLV+ slices HOLD as new graded days accrue. CLV is the leading indicator, NOT promised profit — only the FORWARD column confirms the edge. hit% fills in after the morning grade. Run <code>node backend/scripts/forwardClvSliceTracker.js</code> to refresh.</div>
-    <div id="forwardClvList">—</div>
-    <div id="forwardClvLineShop" class="legend" style="margin-top:6px">—</div>
-    <div id="forwardClvNote" class="legend" style="margin-top:4px"></div>
-  </div>
-</details>
-
-<!-- 6. open issues right now -->
 <details class="card" id="cardOpenIssues">
   <summary><h2>open issues right now</h2><span class="summaryLine" id="sumOpenIssues">…</span></summary>
   <div class="cardBody">
@@ -240,7 +169,6 @@
   </div>
 </details>
 
-<!-- 7. tonight's picks (tracked_best) -->
 <details class="card" id="cardTrackedBest">
   <summary><h2>tonight's picks</h2><span class="summaryLine" id="sumTrackedBest">…</span></summary>
   <div class="cardBody">
@@ -253,7 +181,23 @@
   </div>
 </details>
 
-<!-- 8. dampener (engine self-correction) -->
+<details class="card" id="cardClv">
+  <summary><h2>CLV capture today</h2><span class="summaryLine" id="sumClv">…</span></summary>
+  <div class="cardBody">
+    <div class="row" style="margin-top:2px"><span class="label">nba</span><span class="val" id="clvNba">—</span></div>
+    <div class="row"><span class="label">mlb</span><span class="val" id="clvMlb">—</span></div>
+    <div class="big-sub" id="clvSub" style="margin-top:8px">—</div>
+  </div>
+</details>
+
+<details class="card" id="cardG1Readiness">
+  <summary><h2>calibration corpus (graduation readiness)</h2><span class="summaryLine" id="sumG1Readiness">…</span></summary>
+  <div class="cardBody">
+    <div class="legend">Tracks whether enough clean nights of graded bets have piled up to turn on the next model upgrade (calibration) when the freeze lifts. Needs 14 clean nights since June 11. Updates itself every time this page loads — straight from the graded results, no guesses.</div>
+    <div id="g1ReadinessBody">—</div>
+  </div>
+</details>
+
 <details class="card" id="cardCalib">
   <summary><h2>dampener (engine self-correction)</h2><span class="summaryLine" id="sumCalib">…</span></summary>
   <div class="cardBody">
@@ -274,67 +218,117 @@
   </div>
 </details>
 
-<!-- 8b. ml scorer staleness (Phase Wave-1-A1 2026-06-04) -->
-<details class="card" id="cardMlScorer">
-  <summary><h2>ml scorer (logistic model)</h2><span class="summaryLine" id="sumMlScorer">…</span></summary>
+<details class="card" id="cardForwardClv">
+  <summary><h2>forward edge tracker (CLV)</h2><span class="summaryLine" id="sumForwardClv">…</span></summary>
   <div class="cardBody">
-    <div class="legend">
-      The engine has a trained ML model that scores each prop's hit probability. It's loaded once at backend boot from <code>backend/ml/model.json</code> and fed into 10 cognition modules.
-      A stale model = April patterns scoring June props. The <strong>dampener</strong> above provides per-family backstop but doesn't fix ranking shape.
-      <strong>If older than 30 days, the engine is using outdated weights</strong> — retrain via <code>backend/ml/train.py</code> or disable via <code>scorer.js</code>.
+    <div class="legend">Watches whether the confirmed CLV+ slices HOLD as new graded days accrue. CLV is the leading indicator, NOT promised profit — only the FORWARD column confirms the edge. hit% fills in after the morning grade. Run <code>node backend/scripts/forwardClvSliceTracker.js</code> to refresh.</div>
+    <div id="forwardClvList">—</div>
+    <div id="forwardClvLineShop" class="legend" style="margin-top:6px">—</div>
+    <div id="forwardClvNote" class="legend" style="margin-top:4px"></div>
+  </div>
+</details>
+
+<!-- 8-14 collapsed: under-the-hood infra/ops. renderUnderHood() opens this + reddens the summary if a
+     daemon is down or there's a real (infra) red, so a problem is NEVER hidden by the collapse. -->
+<details class="card" id="cardSystemHealth">
+  <summary><h2>system health (under the hood)</h2><span class="summaryLine" id="sumSystemHealth">…</span></summary>
+  <div class="cardBody">
+  <details class="card" id="cardBackend">
+    <summary><h2>backend</h2><span class="summaryLine" id="sumBackend">…</span></summary>
+    <div class="cardBody">
+      <div class="row"><span class="dot" id="beDot"></span><span class="label">commit</span><span class="val mono" id="beCommit">—</span></div>
+      <div class="row"><span class="label">uptime</span><span class="val" id="beUptime">—</span></div>
+      <div class="row"><span class="label">pid</span><span class="val mono" id="bePid">—</span></div>
     </div>
-    <div id="mlScorerBody" style="margin-top:8px"></div>
-  </div>
-</details>
+  </details>
 
-<!-- 8c. schema golden / data integrity (Phase Wave-1-A3b 2026-06-04) -->
-<details class="card" id="cardSchemaGolden">
-  <summary><h2>data integrity</h2><span class="summaryLine" id="sumSchemaGolden">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">
-      Checks the 5 core data files (your bet history, tracked bets, tonight's picks, accuracy history, and lessons) match their expected format on every page load.
-      <strong>Warning only</strong> — it flags problems, it never blocks anything. Green = the files still have all the right fields. A data-formatting bug would show up here.
+  <details class="card" id="cardAgents">
+    <summary><h2>background processes</h2><span class="summaryLine" id="sumAgents">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">all four daemons must be GREEN for the system to run autonomously overnight. 3 scheduled autopilots fire on cadence.</div>
+      <div class="grid2" id="agentGrid"></div>
     </div>
-    <div id="schemaGoldenBody" style="margin-top:8px"></div>
+  </details>
+
+  <details class="card" id="cardComponentHealth">
+    <summary><h2>component health</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">Each item shows green only if its own check ran and passed just now — never assumed. amber = checked earlier but the result is now stale · red = checked and failed · grey = never checked. These re-run automatically about every 15 minutes; if the whole card is stale, that automatic check has stopped.</div>
+      <div id="componentHealthList">—</div>
+      <div id="componentHealthNote" class="legend" style="margin-top:4px"></div>
+      <div class="legend" style="margin-top:10px;border-top:1px solid var(--text-faint);padding-top:6px">the rest of the system, at a glance: <span style="color:var(--green)">checked &amp; passing</span> = a real test runs and can fail · <span style="color:var(--text-faint)">status read</span> = just reporting a value, not a pass/fail test (labelled honestly — never shown as a fake pass).</div>
+      <div id="componentHealthInfra"></div>
+    </div>
+  </details>
+
+  <details class="card" id="cardAutopilots">
+    <summary><h2>autopilots today</h2><span class="summaryLine" id="sumAutopilots">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">green = done · yellow = running · red = failed · gray = not yet (waiting for its scheduled time).</div>
+      <div id="autoList"></div>
+    </div>
+  </details>
+
+  <details class="card" id="cardSchedule">
+    <summary><h2>what's next</h2><span class="summaryLine" id="sumSchedule">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">upcoming scheduled jobs (Eastern time). A green dot means the automation is alive and will run these on time.</div>
+      <div id="schedList"></div>
+    </div>
+  </details>
+
+  <details class="card" id="cardSchemaGolden">
+    <summary><h2>data integrity</h2><span class="summaryLine" id="sumSchemaGolden">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">
+        Checks the 5 core data files (your bet history, tracked bets, tonight's picks, accuracy history, and lessons) match their expected format on every page load.
+        <strong>Warning only</strong> — it flags problems, it never blocks anything. Green = the files still have all the right fields. A data-formatting bug would show up here.
+      </div>
+      <div id="schemaGoldenBody" style="margin-top:8px"></div>
+    </div>
+  </details>
+
+  <details class="card" id="cardSportsActive">
+    <summary><h2>sports active</h2><span class="summaryLine" id="sumSportsActive">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">green = season ON &amp; firing · red = ON but not firing (check scheduler) · gray = season OFF (paused — existing bets still grade) · dim = no pipeline yet. Toggle: <span class="mono">npm run sport:on|off &lt;sport&gt;</span></div>
+      <div class="grid2" id="sportsActiveGrid"></div>
+    </div>
+  </details>
+
+  <details class="card" id="cardMlScorer">
+    <summary><h2>ml scorer (logistic model)</h2><span class="summaryLine" id="sumMlScorer">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">
+        The engine has a trained ML model that scores each prop's hit probability. It's loaded once at backend boot from <code>backend/ml/model.json</code> and fed into 10 cognition modules.
+        A stale model = April patterns scoring June props. The <strong>dampener</strong> above provides per-family backstop but doesn't fix ranking shape.
+        <strong>If older than 30 days, the engine is using outdated weights</strong> — retrain via <code>backend/ml/train.py</code> or disable via <code>scorer.js</code>.
+      </div>
+      <div id="mlScorerBody" style="margin-top:8px"></div>
+    </div>
+  </details>
   </div>
 </details>
 
-<!-- 9. recent system alerts -->
-<details class="card" id="cardDrift">
-  <summary><h2>recent system alerts</h2><span class="summaryLine" id="sumDrift">…</span></summary>
+<!-- 15-16 collapsed: history (alerts + code changes). -->
+<details class="card" id="cardHistory">
+  <summary><h2>history</h2><span class="summaryLine" id="sumHistory">…</span></summary>
   <div class="cardBody">
-    <div class="legend">last 10 RED events from sysAudit. translated to plain English. cognition alerts are the engine flagging its own overconfidence — those get auto-dampened above.</div>
-    <div id="driftTail"></div>
-  </div>
-</details>
+  <details class="card" id="cardDrift">
+    <summary><h2>recent system alerts</h2><span class="summaryLine" id="sumDrift">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">last 10 RED events from sysAudit. translated to plain English. cognition alerts are the engine flagging its own overconfidence — those get auto-dampened above.</div>
+      <div id="driftTail"></div>
+    </div>
+  </details>
 
-<!-- 10. recent code changes -->
-<details class="card" id="cardCommits">
-  <summary><h2>recent code changes</h2><span class="summaryLine" id="sumCommits">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">last 5 commits to the repo. proves new changes are landing on disk.</div>
-    <div id="commits"></div>
-  </div>
-</details>
-
-<!-- 13. component health (tested-green) — APPENDED at end (placement provisional, FE-makeover day) -->
-<details class="card" id="cardComponentHealth">
-  <summary><h2>component health</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">Each item shows green only if its own check ran and passed just now — never assumed. amber = checked earlier but the result is now stale · red = checked and failed · grey = never checked. These re-run automatically about every 15 minutes; if the whole card is stale, that automatic check has stopped.</div>
-    <div id="componentHealthList">—</div>
-    <div id="componentHealthNote" class="legend" style="margin-top:4px"></div>
-    <div class="legend" style="margin-top:10px;border-top:1px solid var(--text-faint);padding-top:6px">the rest of the system, at a glance: <span style="color:var(--green)">checked &amp; passing</span> = a real test runs and can fail · <span style="color:var(--text-faint)">status read</span> = just reporting a value, not a pass/fail test (labelled honestly — never shown as a fake pass).</div>
-    <div id="componentHealthInfra"></div>
-  </div>
-</details>
-
-<!-- 14. G1 graduation readiness — is the calibration corpus on track for the 06-25 freeze lift -->
-<details class="card" id="cardG1Readiness">
-  <summary><h2>calibration corpus (06-25 readiness)</h2><span class="summaryLine" id="sumG1Readiness">…</span></summary>
-  <div class="cardBody">
-    <div class="legend">Tracks whether enough clean nights of graded bets have piled up to turn on the next model upgrade (calibration) when the freeze lifts. Needs 14 clean nights since June 11. Updates itself every time this page loads — straight from the graded results, no guesses.</div>
-    <div id="g1ReadinessBody">—</div>
+  <details class="card" id="cardCommits">
+    <summary><h2>recent code changes</h2><span class="summaryLine" id="sumCommits">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">last 5 commits to the repo. proves new changes are landing on disk.</div>
+      <div id="commits"></div>
+    </div>
+  </details>
   </div>
 </details>
 
@@ -574,23 +568,64 @@ function renderOpenIssues(data) {
     div.innerHTML = '<div class="empty">no open issues — every checked source clean (' + (oi.summary?.sourcesChecked || []).join(", ") + ')</div>';
     return;
   }
+  // Phase Status-Overhaul-1B — split into "NEEDS YOU" (real, actionable infra issues) vs "MODEL'S
+  // WORKING" (the dampener self-corrections — category:"cognition" — + dormant-sport FYIs). Self-
+  // correction is healthy (see Card 1), so it must NOT sit in the problems group. category is set by
+  // statusRoute: family_calibration over-confidence findings = "cognition"; everything actionable = "infra".
+  const isCog = (x) => x && x.category === "cognition";
+  const needYouRed = reds.filter(x => !isCog(x));
+  const needYouYel = yells.filter(x => !isCog(x));
+  const workingRed = reds.filter(isCog);
+  const workingYel = yells.filter(isCog);
+  const item = (sevClass, sev, x) =>
+    '<div class="pretty"><div class="ts ' + sevClass + '">' + sev + ' · ' + (x.source || 'unknown') + '</div>'
+    + '<div class="msg"><strong>' + (x.title || '') + '</strong> — ' + (x.detail || '') + '</div></div>';
+  const fyi = (label, x) =>
+    '<div class="pretty"><div class="ts" style="color:var(--text-faint)">' + label + ' · ' + (x.source || 'unknown') + '</div>'
+    + '<div class="msg" style="color:var(--text-faint)">' + (x.title || '') + ' — ' + (x.detail || '') + '</div></div>';
+
   let html = '';
-  for (const r of reds) {
-    html += '<div class="pretty"><div class="ts red">RED · ' + (r.source || 'unknown') + '</div>'
-         +  '<div class="msg"><strong>' + (r.title || '') + '</strong> — ' + (r.detail || '') + '</div></div>';
+  // ── NEEDS YOU — anything here means ACT ──────────────────────────────────────────
+  html += '<div class="legend" style="margin:2px 0 6px;font-weight:600">NEEDS YOU</div>';
+  if (needYouRed.length === 0 && needYouYel.length === 0) {
+    html += '<div class="empty">✓ Nothing needs you right now.</div>';
+  } else {
+    for (const r of needYouRed) html += item('red', 'RED', r);
+    for (const y of needYouYel) html += item('yellow', 'YELLOW', y);
   }
-  for (const y of yells) {
-    html += '<div class="pretty"><div class="ts yellow">YELLOW · ' + (y.source || 'unknown') + '</div>'
-         +  '<div class="msg"><strong>' + (y.title || '') + '</strong> — ' + (y.detail || '') + '</div></div>';
-  }
-  // Dormant-sport findings: grey/informational (season off — already dampener-corrected). Visible,
-  // never red/amber — so live miscalibration stays the only thing that raises severity.
-  for (const n of infos) {
-    html += '<div class="pretty"><div class="ts" style="color:var(--text-faint)">INFO · dormant · ' + (n.source || 'unknown') + '</div>'
-         +  '<div class="msg" style="color:var(--text-faint)">' + (n.title || '') + ' — ' + (n.detail || '') + '</div></div>';
+  // ── MODEL'S WORKING — FYI: the model self-correcting; no action needed ────────────
+  if (workingRed.length || workingYel.length || infos.length) {
+    html += '<div class="legend" style="margin:12px 0 6px;font-weight:600;color:var(--text-faint)">MODEL\'S WORKING <span style="font-weight:400">(self-correcting — no action needed)</span></div>';
+    for (const r of workingRed) html += fyi('SELF-CORRECT', r);
+    for (const y of workingYel) html += fyi('SELF-CORRECT', y);
+    for (const n of infos)      html += fyi('INFO · dormant', n);
   }
   html += '<div class="legend" style="margin-top:10px">summary: ' + (oi.summary?.redCount || 0) + ' red · ' + (oi.summary?.yellowCount || 0) + ' yellow · ' + (oi.summary?.infoCount || 0) + ' info (dormant) · sources: ' + (oi.summary?.sourcesChecked || []).join(", ") + '</div>';
   div.innerHTML = html;
+}
+
+// Phase Status-Overhaul-1B — "system health (under the hood)" wrapper summary + a safety rule: a REAL
+// red must never hide behind the collapse. Healthy → leave collapsed (HTML default; respect the
+// operator if they opened it). Not healthy (a daemon down or a real infra red) → force the wrapper
+// OPEN and redden its summary so the problem is visible without expanding. History wrapper gets a
+// plain summary. The sub-cards inside still render normally (renderX uses getElementById).
+function renderUnderHood(data) {
+  const agents = data.launchAgents;
+  const oi = data.openIssues;
+  const infraRed = (oi && oi.summary && oi.summary.infraRedCount) || 0;
+  const daemonsOk = !!(agents && agents.ok && agents.allHealthy);
+  const healthy = daemonsOk && infraRed === 0;
+  const sum = document.getElementById("sumSystemHealth");
+  if (sum) {
+    sum.textContent = healthy
+      ? "✓ all nominal — backend, jobs, components, data integrity, ML scorer"
+      : "⚠ needs attention" + (!daemonsOk ? " — a background job is down" : "") + (infraRed ? " — " + infraRed + " red" : "");
+    sum.style.color = healthy ? "" : "var(--red)";
+  }
+  const det = document.getElementById("cardSystemHealth");
+  if (det && !healthy) det.setAttribute("open", "");   // force-show a real red; never force-close (respect operator)
+  const sh = document.getElementById("sumHistory");
+  if (sh) sh.textContent = "recent system alerts + code changes";
 }
 
 function renderSysHeadline(data) {
@@ -740,29 +775,15 @@ function renderClv(data) {
   const c = data.clvCaptureToday;
   const sched = data.schedule;
   if (!c?.ok) {
-    document.getElementById("clvBig").textContent = "—";
-    document.getElementById("clvBig").className = "big";
     document.getElementById("clvSub").textContent = c?.error || "no data";
     return;
   }
-  const big = document.getElementById("clvBig");
-  // Phase Status-Overhaul-1C — prefer ledger-backed coverage view for headline.
-  // Aggregate gamesPlayedToday + gamesCloseStamped across sports → captureRate
-  // for the day. Operator sees "100% (15/15 MLB games captured)" instead of
-  // "no games today" after Layer-1 drops everything.
+  // Phase Status-Overhaul-1B — de-clutter: the big "0/16" headline is removed (it reads 0 until the
+  // 4 AM grade then resets → noise), along with the blurb and the duplicate aggregate line. Per-sport
+  // graded/captured now shows ONCE in the rows below; this card keeps only the slate label + per-sport
+  // detail (expanded) and the per-sport summary (collapsed).
   const nba = c.perSport?.nba;
   const mlb = c.perSport?.mlb;
-  const totalLedgerPlayed  = (nba?.gamesPlayedToday  || 0) + (mlb?.gamesPlayedToday  || 0);
-  const totalLedgerStamped = (nba?.gamesCloseStamped || 0) + (mlb?.gamesCloseStamped || 0);
-  // Phase Status-CLV-Display-Honesty-1A — graded/final aggregate (result != pending).
-  const totalLedgerFinal   = (nba?.gamesFinal || 0) + (mlb?.gamesFinal || 0);
-  // Phase Status-CLV-Display-Honesty-1A — curation-gap aggregate (games scheduled per
-  // the snapshot but no curated picks). Surfaced honestly instead of "no games".
-  const anyGap         = (nba?.state === 'curation_gap') || (mlb?.state === 'curation_gap');
-  const totalScheduled = (nba?.gamesScheduledLive || 0) + (mlb?.gamesScheduledLive || 0);
-  const ledgerCoverageRate = totalLedgerPlayed > 0
-    ? Math.round(totalLedgerStamped / totalLedgerPlayed * 1000) / 10
-    : null;
   // Phase Status-Overhaul-1C-fix5 (2026-06-03) — revert to single-view per
   // operator: dual-view was cluttered. Keep slate-date semantics (4 AM ET
   // rollover) but make the subtitle explicit about which slate is showing,
@@ -785,31 +806,8 @@ function renderClv(data) {
     } catch (_) { return "tomorrow"; }
   };
   const slateLabel = "Slate: " + _prettySlate(c.slateDateKey || c.dateKey) + " · rolls " + _nextDay(c.slateDateKey || c.dateKey) + " at 4 AM ET";
-  if (totalLedgerPlayed > 0) {
-    // Phase Status-CLV-Display-Honesty-1A — headline = two honest numbers, not a
-    // single capture-% that reads as completion. Big = games FINAL (graded);
-    // sub spells out final + closing-lines-captured. NEUTRAL color on purpose: a
-    // low final rate early in the slate is HEALTHY (games not done yet), so no
-    // red/green here — CLV-capture health stays in Open Issues (Source 6).
-    big.textContent = totalLedgerFinal + "/" + totalLedgerPlayed;
-    big.className = "big";
-    document.getElementById("clvSub").textContent = totalLedgerFinal + " of " + totalLedgerPlayed + " graded · " + totalLedgerStamped + " of " + totalLedgerPlayed + " closing odds captured · " + slateLabel;
-  } else if (anyGap) {
-    // Curation gap — games scheduled (snapshot) but no curated picks. Honest, not "no games".
-    big.textContent = "—";
-    big.className = "big yellow";
-    document.getElementById("clvSub").textContent = totalScheduled + " games scheduled · no curated picks captured · " + slateLabel;
-  } else {
-    big.textContent = "—";
-    big.className = "big";
-    if ((c.totalGamesToday || 0) === 0) {
-      document.getElementById("clvSub").textContent = "no games this slate · " + slateLabel;
-    } else {
-      let nextSlate = sched?.upcoming?.find(u => u.label.includes("slate:mlb") || u.label.includes("sysAudit")) || sched?.upcoming?.find(u => u.label.includes("slate:nba"));
-      const nextTxt = nextSlate ? "next slate fires at " + nextSlate.atEt + " ET (in " + formatCountdown(nextSlate.inSec) + ")" : "";
-      document.getElementById("clvSub").textContent = c.totalGamesToday + " games loaded · ledger empty (early in slate or pre-pick) · " + slateLabel + (nextTxt ? " · " + nextTxt : "");
-    }
-  }
+  // Slate label shown ONCE beneath the per-sport rows (which carry the graded/captured detail).
+  document.getElementById("clvSub").textContent = slateLabel;
   // Phase Status-Overhaul-1C-fix1 — nba/mlb already declared at top of function
   // (used for the headline rate computation). Re-declaring here was a SyntaxError
   // that broke the entire <script> block and hung the page. Just reuse + add the
@@ -831,6 +829,7 @@ function renderClv(data) {
   // Phase 1C-fix4 — when dual-view active (slate != calendar), prefix with
   // "TUE/WED:" so operator can see both at a glance.
   const fmtSport = (s, label) => {
+    if (_isSeasonOff(label)) return label + ": off for the season";   // page-wide offseason rule
     if (!s) return label + ": —";
     // Phase Status-CLV-Display-Honesty-1A — server-classified three-state.
     if (s.state === 'normal') {
@@ -925,7 +924,7 @@ function renderG1Readiness(data) {
     return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + tag + '</span>';
   }).join("  ") + '</div>';
   body.innerHTML = html;
-  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights" + (r.pendingCount ? " + " + r.pendingCount + " pending tonight" : "") + " · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track for " + r.target : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
+  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean nights" + (r.pendingCount ? " + " + r.pendingCount + " pending tonight" : "") + " · " + (r.verdict === "ready" ? "ready now" : r.verdict === "on_track" ? "on track — evaluable " + r.projectedEval : r.verdict === "slipped" ? "slipped to ~" + r.projectedEval : "no data yet"));
 }
 
 function renderComponentHealth(data) {
@@ -1444,6 +1443,7 @@ async function loadStatus() {
     renderComponentHealth(data);
     renderG1Readiness(data);
     renderDrift(data);
+    renderUnderHood(data);
     document.getElementById("nudge").textContent = "auto-refresh every 30s · last ok " + lastSuccessAt.toLocaleTimeString();
     document.getElementById("nudge").style.color = "var(--text-faint)";
   } catch (e) {
