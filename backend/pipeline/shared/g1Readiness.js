@@ -54,6 +54,39 @@ function readSlate(fp) {
   return { total, gradeable, gameDates: dates, maxGameDate: dates.length ? dates[dates.length - 1] : null }
 }
 
+// Prune-loss recovery helpers (Phase G1-Summary-Fallback-1A) ────────────────────────────────────────
+// The retention pruner deletes mlb_tracked_bets_<slate>.json (BETS_PREFIX) but NOT
+// grading_summary_mlb_<slate>.json — different filename prefix, so the summary SURVIVES the prune.
+// settled = the night's actually-graded bet count (real, from the post-game grade). No fabrication:
+// we only ever read this real number; we never synthesize per-pick rows or a date.
+function readSummarySettled(fp) {
+  try {
+    const j = JSON.parse(fs.readFileSync(fp, "utf8"))
+    const b = j && j.bets
+    const settled = b && Number(b.settled)
+    const total = b && Number(b.total)
+    return { settled: Number.isFinite(settled) ? settled : null, total: Number.isFinite(total) ? total : null }
+  } catch (_) { return { settled: null, total: null } }
+}
+
+// Max GAME-date for a slate from a surviving pre-grade per-pick file (mlb_tracked_best_/mlb_picks_),
+// which survive the prune too. Uses the SAME gameTime→calendarDateForTimestamp logic as readSlate.
+// Returns null if no surviving file carries a usable gameTime — caller then SKIPS (never guesses a date).
+function gameDateFromSurviving(trackingDir, slateLabel) {
+  for (const name of ["mlb_tracked_best_" + slateLabel + ".json", "mlb_picks_" + slateLabel + ".json"]) {
+    let j
+    try { j = JSON.parse(fs.readFileSync(path.join(trackingDir, name), "utf8")) } catch (_) { continue }
+    const a = Array.isArray(j) ? j : (j.entries || j.picks || j.bets || [])
+    const dates = new Set()
+    for (const r of a) {
+      const gt = r && r.gameTime
+      if (gt) { const ms = new Date(gt).getTime(); if (Number.isFinite(ms)) dates.add(calendarDateForTimestamp(ms)) }
+    }
+    if (dates.size) return [...dates].sort().pop()   // maxGameDate
+  }
+  return null
+}
+
 /**
  * @param {object} [opts]
  * @param {string} [opts.trackingDir] — folder with mlb_tracked_bets_<date>.json
@@ -84,6 +117,28 @@ function computeG1Readiness(opts = {}) {
     byGameDate.set(gd, cur)
   }
 
+  // ── Prune-loss recovery (Phase G1-Summary-Fallback-1A 2026-06-24, operator-approved) ──────────────
+  // When a slate's mlb_tracked_bets_<slate>.json was pruned but its grading_summary_mlb_<slate>.json
+  // survives and shows the night really graded (settled >= CLEAN_FLOOR), count that game-night CLEAN
+  // from the REAL summary — a data-retention gap must never masquerade as a missed gate-night. The
+  // game-date comes from a surviving pre-grade per-pick file's gameTime (no date guessing). Guards:
+  // only when tracked_bets is ABSENT (no double-count) and the game-date isn't already counted; only
+  // when settled >= floor (a real fell-short night has settled ~0 → stays uncounted, never faked clean).
+  const haveBets = new Set(files.map(f => f.match(/(\d{4}-\d{2}-\d{2})/)[1]))
+  let summaries = []
+  try { summaries = fs.readdirSync(trackingDir).filter(f => /^grading_summary_mlb_\d{4}-\d{2}-\d{2}\.json$/.test(f)) }
+  catch (_) { summaries = [] }
+  for (const sf of summaries) {
+    const slateLabel = sf.match(/(\d{4}-\d{2}-\d{2})/)[1]
+    if (haveBets.has(slateLabel)) continue                              // tracked_bets present → live path counts it
+    const { settled, total } = readSummarySettled(path.join(trackingDir, sf))
+    if (!(Number.isFinite(settled) && settled >= CLEAN_FLOOR)) continue // only a genuinely-graded night
+    const gd = gameDateFromSurviving(trackingDir, slateLabel)
+    if (!gd || gd < FREEZE) continue                                    // no surviving gameTime → skip (don't guess); forward only
+    if (byGameDate.has(gd)) continue                                    // defensive: that game-date already counted
+    byGameDate.set(gd, { gradeable: settled, total: total || settled, slates: [slateLabel], recovered: true, recoveredFrom: sf })
+  }
+
   const perDay = []
   for (const gd of [...byGameDate.keys()].sort()) {
     const c = byGameDate.get(gd)
@@ -92,7 +147,7 @@ function computeG1Readiness(opts = {}) {
     else if (c.gradeable >= CLEAN_FLOOR) state = "clean"
     else if (c.total >= CLEAN_FLOOR) state = "fell_short" // games played, bets exist, didn't grade = real miss
     else state = "no_slate"
-    perDay.push({ day: gd, gradeable: c.gradeable, total: c.total, state, slates: c.slates })
+    perDay.push({ day: gd, gradeable: c.gradeable, total: c.total, state, slates: c.slates, recovered: !!c.recovered, recoveredFrom: c.recoveredFrom || null })
   }
 
   const cleanDays = perDay.filter(d => d.state === "clean")
