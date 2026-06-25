@@ -106,7 +106,13 @@ function computeG1Readiness(opts = {}) {
   const lastGraded = passed.length ? passed[passed.length - 1] : null
   const pendingDay = pendingDays.length ? pendingDays[0] : null   // the nearest unplayed game-date
 
-  const projectedEval = addDays(TARGET, gaps)
+  // Phase Status-Overhaul-1B (off-by-one fix) — evaluable = the NEED-th clean forward game-day + 1
+  // day (games play that day, then grade at 4 AM ET the next day). Was addDays(TARGET, gaps), which
+  // hardcoded 06-25 regardless of when the 14th clean game-day actually lands. firstForward = earliest
+  // forward game-day (slate FREEZE plays FREEZE+1); the NEED-th clean day is shifted by any misses (gaps).
+  const allGameDays = perDay.map(d => d.day).sort()         // YYYY-MM-DD sorts chronologically
+  const firstForward = allGameDays[0] || addDays(FREEZE, 1) // date-arith-ok
+  const projectedEval = addDays(firstForward, NEED + gaps)  // date-arith-ok
   const more = Math.max(0, NEED - cleanCount)
   const pendNote = pendingDay ? ` (${pendingDays.length} pending — games not played)` : ""
 

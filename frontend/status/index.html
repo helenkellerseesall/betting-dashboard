@@ -611,10 +611,14 @@ function renderSysHeadline(data) {
     sub.textContent = "the backend isn't responding — automatic recovery runs at the next hourly health check";
     return;
   }
+  // Phase Status-Overhaul-1B — SELF-CORRECTION = GREEN. The model flagging/correcting its own
+  // over-confidence (the dampener) is healthy and permanent, NOT a warning. Amber/red are reserved
+  // for things that actually need the operator (jobs down / backend down — both handled above).
+  // Was a hardcoded amber "bet types over-confident" that fired on ANY past sysAudit RED.
   if (audit && audit.includes("RED")) {
-    big.textContent = "Running";
-    big.className = "big yellow";
-    sub.textContent = "all background jobs running; some bet types are reading as over-confident — the system is automatically correcting them (see below)";
+    big.textContent = "All good";
+    big.className = "big green";
+    sub.textContent = "everything's running — the model is self-correcting some bet types it read as over-confident (healthy; see Dampener below)";
     return;
   }
   big.textContent = "All good";
@@ -664,7 +668,15 @@ function renderSchedule(data) {
 // Used as the second line in dual-view mode (when slate-date != calendar-date,
 // the 12:01-3:59 AM ET window). Shows what's happening with TODAY's wall-clock
 // calendar games: how many loaded, how many tipped, capture rate of tipped.
+// Phase Status-Overhaul-1B — page-wide NBA offseason wording. seasonGate (sportsActive.sports.nba.enabled
+// === false) is the single season authority (Law 1); when a sport is OFF for the season we say so plainly
+// instead of "no file · next slate". Each consumer card sets _seasonOff[sport] from the payload before use.
+let _seasonOff = {};
+function _isSeasonOff(label){ return _seasonOff[String(label).toLowerCase()] === true; }
+function _seasonOffText(label){ return String(label).toUpperCase() + ' — off for the season (back ~Oct)'; }
+
 function _fmtClvCalendarView(label, sportData) {
+  if (_isSeasonOff(label)) return _seasonOffText(label);
   if (!sportData?.hasFile) return 'no ' + label + ' slate file yet';
   const today   = sportData.gamesCalendarToday   || 0;
   const tipped  = sportData.gamesCalendarTipped  || 0;
@@ -695,6 +707,7 @@ function _fmtClvCalendarView(label, sportData) {
 // distinguish "no games today" (healthy) from "games loaded for tomorrow"
 // (healthy, just early) from "X of Y games close-stamped" (real capture rate).
 function _fmtClvSportLine(label, sportData, nextSlate) {
+  if (_isSeasonOff(label)) return '<span class="sm">' + _seasonOffText(label) + '</span>';
   if (!sportData) return '<span class="sm">no ' + label + ' data</span>';
   // Phase Status-CLV-Display-Honesty-1A — server-classified three-state, from a UNION
   // of evidence (snapshot + ledger + tracked_best). NEVER infer "no games" from a
@@ -723,6 +736,7 @@ function _fmtClvSportLine(label, sportData, nextSlate) {
 }
 
 function renderClv(data) {
+  _seasonOff.nba = data?.sportsActive?.sports?.nba?.enabled === false;   // page-wide offseason rule
   const c = data.clvCaptureToday;
   const sched = data.schedule;
   if (!c?.ok) {
@@ -1091,16 +1105,17 @@ function renderTrackedBest(data) {
     _setSummary("sumTrackedBest", "unavailable");
     return;
   }
+  _seasonOff.nba = data?.sportsActive?.sports?.nba?.enabled === false;   // page-wide offseason rule
   const nba = t.perSport?.nba;
   const mlb = t.perSport?.mlb;
   // Phase Status-Overhaul-1A — collapsed summary: "NBA: N · MLB: M"
   _setSummary("sumTrackedBest",
-    "NBA " + (nba?.hasFile ? nba.total : 0) + " · MLB " + (mlb?.hasFile ? mlb.total : 0)
+    "NBA " + (_isSeasonOff('nba') ? "off (season)" : (nba?.hasFile ? nba.total : 0)) + " · MLB " + (mlb?.hasFile ? mlb.total : 0)
   );
   const sched = data.schedule;
   const nextNba = sched?.upcoming?.find(u => u.label.startsWith("slate:nba"));
   const nextMlb = sched?.upcoming?.find(u => u.label.includes("slate:mlb"));
-  document.getElementById("tbNbaTotal").innerHTML = nba?.hasFile ? String(nba.total) : '<span class="sm">no file yet · next NBA slate ' + (nextNba?.atEt || "—") + ' ET</span>';
+  document.getElementById("tbNbaTotal").innerHTML = nba?.hasFile ? String(nba.total) : (_isSeasonOff('nba') ? '<span class="sm">' + _seasonOffText('NBA') + '</span>' : '<span class="sm">no file yet · next NBA slate ' + (nextNba?.atEt || "—") + ' ET</span>');
   document.getElementById("tbMlbTotal").innerHTML = mlb?.hasFile ? String(mlb.total) : '<span class="sm">no file yet · next MLB slate ' + (nextMlb?.atEt || "—") + ' ET</span>';
   const pillRow = document.getElementById("tbFamilies");
   pillRow.innerHTML = "";
