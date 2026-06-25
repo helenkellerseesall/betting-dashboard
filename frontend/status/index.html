@@ -27,6 +27,9 @@
   .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 12px; }
   .card h2 { font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
   .card .legend { font-size: 11px; color: var(--text-faint); margin-bottom: 10px; line-height: 1.4; }
+  /* Phase Status-Overhaul-1B (round 2) — clean bullet lists (Card 5 calibration detail). */
+  ul.bullets { margin: 4px 0 0; padding-left: 18px; }
+  ul.bullets li { margin: 2px 0; line-height: 1.4; font-size: 12px; }
   /* Phase Status-Overhaul-1A (2026-06-02) — collapsible card styling.
      Each card (except cardSys headline) is a <details class="card collapsible">.
      Collapsed by default on every page load (no localStorage persistence).
@@ -36,7 +39,7 @@
   details.card > summary::-webkit-details-marker { display: none; }             /* hide default disclosure triangle (Webkit/Blink) */
   details.card > summary::marker { display: none; }                             /* hide default disclosure triangle (Firefox) */
   details.card > summary > h2 { margin-bottom: 0; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
-  details.card > summary > h2::before { content: "▸"; color: var(--text-faint); font-size: 10px; transition: transform 0.15s ease; display: inline-block; }
+  details.card > summary > h2::before { content: "▸"; color: var(--blue); font-size: 11px; font-weight: 800; transition: transform 0.15s ease; display: inline-block; opacity: 0.95; }
   details.card[open] > summary > h2::before { content: "▾"; }
   details.card > summary > .summaryLine { flex: 1 1 auto; text-align: right; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
   /* Phase Status-Overhaul-1B — opt-in: stack the summary line on its OWN row below the title (Card 4 CLV). */
@@ -197,7 +200,6 @@
 <details class="card" id="cardG1Readiness">
   <summary><h2>calibration corpus (graduation readiness)</h2><span class="summaryLine" id="sumG1Readiness">…</span></summary>
   <div class="cardBody">
-    <div class="legend">Tracks whether enough clean nights of graded bets have piled up to turn on the next model upgrade (calibration) when the freeze lifts. Needs 14 clean nights since June 11. Updates itself every time this page loads — straight from the graded results, no guesses.</div>
     <div id="g1ReadinessBody">—</div>
   </div>
 </details>
@@ -205,14 +207,7 @@
 <details class="card" id="cardCalib">
   <summary><h2>dampener (engine self-correction)</h2><span class="summaryLine" id="sumCalib">…</span></summary>
   <div class="cardBody">
-    <div class="legend">
-      The engine grades itself nightly and auto-dampens overconfident families.
-      <strong>n</strong> = sample size (recently graded picks).
-      <strong>stated</strong> = engine's claimed win rate.
-      <strong>realized</strong> = what actually won.
-      <strong>gap</strong> = overconfidence in percentage points (higher = worse).
-      <strong>mul</strong> = correction multiplier the engine now applies (closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened).
-    </div>
+    <div class="legend"><strong>mul</strong> = correction multiplier; closer to 1.0 = engine trusts itself; below 0.6 = aggressively dampened.</div>
     <div id="calibGeneratedAt" class="big-sub" style="margin-bottom:8px">—</div>
     <div id="calibLineAware" class="big-sub" style="margin-bottom:8px">—</div>
     <table class="calib">
@@ -225,7 +220,7 @@
 <details class="card" id="cardForwardClv">
   <summary><h2>forward edge tracker (CLV)</h2><span class="summaryLine" id="sumForwardClv">…</span></summary>
   <div class="cardBody">
-    <div class="legend">Watches whether the confirmed CLV+ slices HOLD as new graded days accrue. CLV is the leading indicator, NOT promised profit — only the FORWARD column confirms the edge. hit% fills in after the morning grade. Run <code>node backend/scripts/forwardClvSliceTracker.js</code> to refresh.</div>
+    <div class="legend">Are the confirmed CLV+ slices still holding as graded days accrue? CLV = leading indicator, not profit — only the FORWARD column confirms. hit% fills after the morning grade. Refresh: <code>node backend/scripts/forwardClvSliceTracker.js</code></div>
     <div id="forwardClvList">—</div>
     <div id="forwardClvLineShop" class="legend" style="margin-top:6px">—</div>
     <div id="forwardClvNote" class="legend" style="margin-top:4px"></div>
@@ -617,17 +612,20 @@ function renderUnderHood(data) {
   const agents = data.launchAgents;
   const oi = data.openIssues;
   const infraRed = (oi && oi.summary && oi.summary.infraRedCount) || 0;
+  const infraYellow = (oi && oi.summary && oi.summary.infraYellowCount) || 0;
   const daemonsOk = !!(agents && agents.ok && agents.allHealthy);
-  const healthy = daemonsOk && infraRed === 0;
+  const down = !daemonsOk || infraRed > 0;
+  const degraded = !down && infraYellow > 0;
+  // Phase Status-Overhaul-1B (round 2) — collapsed summary = a tight, STATE-COLORED one-liner: just
+  // "✓ all nominal" (green), "⚠ degraded" (yellow), or "✕ needs attention" (red). Full breakdown is in
+  // the expand (unchanged). A real red/down still force-opens the card so nothing hides.
   const sum = document.getElementById("sumSystemHealth");
   if (sum) {
-    sum.textContent = healthy
-      ? "✓ all nominal — backend, jobs, components, data integrity, ML scorer"
-      : "⚠ needs attention" + (!daemonsOk ? " — a background job is down" : "") + (infraRed ? " — " + infraRed + " red" : "");
-    sum.style.color = healthy ? "" : "var(--red)";
+    sum.textContent = down ? "✕ needs attention" : degraded ? "⚠ degraded" : "✓ all nominal";
+    sum.style.color = down ? "var(--red)" : degraded ? "var(--yellow)" : "var(--green)";
   }
   const det = document.getElementById("cardSystemHealth");
-  if (det && !healthy) det.setAttribute("open", "");   // force-show a real red; never force-close (respect operator)
+  if (det && down) det.setAttribute("open", "");   // force-show a real red/down; never force-close (respect operator)
   const sh = document.getElementById("sumHistory");
   if (sh) sh.textContent = "recent system alerts + code changes";
 }
@@ -890,13 +888,13 @@ function renderForwardClv(data) {
   const sh = f.lineShop;
   if (sh && sh.available && sh.priceImprovement) {
     const pi = sh.priceImprovement;
-    ls.innerHTML = 'Best-price shopping (today\'s games, ' + (sh.slateDate || "—") + '): your best available price beat the market average by <strong>' + (pi.meanEdgePp == null ? "—" : "+" + pi.meanEdgePp + " points") + '</strong> across ' + Number(pi.nProps).toLocaleString("en-US") + ' bets — the edge from shopping around.';
-  } else { ls.textContent = "Best-price shopping: today's data not available yet."; }
+    ls.innerHTML = 'Line-shop edge (' + (sh.slateDate || "—") + '): best price beat market avg by <strong>' + (pi.meanEdgePp == null ? "—" : "+" + pi.meanEdgePp + " pts") + '</strong> across ' + Number(pi.nProps).toLocaleString("en-US") + ' bets.';
+  } else { ls.textContent = "Line-shop edge: no data yet today."; }
 
-  note.textContent = 'Only counts bets from ' + (f.cutoff || "?") + ' onward (when we started reliably capturing closing odds). '
-    + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + ' graded so far — win% fills in after the overnight grading. Beating the closing price is an early sign of a good bet, not a guarantee of profit.';
+  note.textContent = 'From ' + (f.cutoff || "?") + ' onward (reliable closing-odds capture). '
+    + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + ' graded · win% fills after overnight grading. Beating the close = early edge, not guaranteed profit.';
 
-  _setSummary("sumForwardClv", holds + " of " + total + " edge signals still holding up · " + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + " bets measured");
+  _setSummary("sumForwardClv", holds + "/" + total + " signals holding · " + Number(f.forwardGradedRows || 0).toLocaleString("en-US") + " bets");
 }
 
 // Component health (tested-green): a component is green ONLY when its own check ran + passed this
@@ -915,21 +913,29 @@ function renderG1Readiness(data) {
   const color = VC[r.verdict] || "var(--text)";
   let html = '';
   html += '<div class="big" style="color:' + color + '">' + r.cleanCount + ' / ' + r.need + '</div>';
-  html += '<div class="big-sub" style="color:' + color + '">' + r.verdictText + '</div>';
-  // tonight's slate — its 4 AM grade hasn't run yet; pending, not a miss
-  if (r.pendingDay) html += '<div class="legend">• Tonight (' + r.pendingDay.day + '): pending grade — grades ~4 AM ET (' + Number(r.pendingDay.total).toLocaleString() + ' bets so far). Not a miss.</div>';
+  // Phase Status-Overhaul-1B (round 2) — on-track summary as BULLETS, built from the structured data
+  // (cleanCount/need/gaps/projectedEval) — no verdictText, so this stays FE-only (no kickstart). The
+  // margin-top adds the space the operator wanted under the big number. The "Tonight … pending" line
+  // and the "(N pending)" parenthetical are intentionally dropped (operator misread them).
+  const sumB = [];
+  sumB.push(r.cleanCount + '/' + r.need + ' clean');
+  sumB.push(r.gaps > 0 ? (r.gaps + ' night' + (r.gaps === 1 ? '' : 's') + ' fell short') : 'no misses');
+  sumB.push(r.verdict === 'ready' ? 'evaluable now' : ('evaluable ' + r.projectedEval));
+  html += '<ul class="bullets" style="margin-top:12px;color:' + color + '">' + sumB.map(b => '<li>' + b + '</li>').join('') + '</ul>';
+  // last graded night (kept — single line)
   const last = r.lastGraded;
-  if (!last) html += '<div class="legend">No graded nights yet.</div>';
-  else if (last.state === "clean") html += '<div style="color:var(--green)">✓ Last graded night clean — ' + last.day + ': ' + Number(last.gradeable).toLocaleString() + ' bets graded.</div>';
-  else if (last.state === "fell_short") html += '<div style="color:var(--red)">⚠ Last graded night fell short — ' + last.day + ': ' + Number(last.total).toLocaleString() + ' bets but only ' + last.gradeable + ' graded. It did NOT count.</div>';
-  else html += '<div class="legend">' + last.day + ': no MLB games (does not count, not a problem).</div>';
-  if (r.fellShortDays && r.fellShortDays.length) html += '<div class="legend" style="color:var(--yellow)">nights that fell short: ' + r.fellShortDays.map(d => d.day + ' (' + d.gradeable + '/' + d.total + ')').join(', ') + '</div>';
-  if (r.noSlateDays && r.noSlateDays.length) html += '<div class="legend">no-games days: ' + r.noSlateDays.join(', ') + '</div>';
-  html += '<div class="legend" style="margin-top:6px">since ' + r.freeze + ' (bets graded each night): ' + r.perDay.map(d => {
-    const c = d.state === "clean" ? "var(--green)" : d.state === "fell_short" ? "var(--red)" : "var(--text-faint)";
-    const tag = d.state === "pending" ? " (pending)" : "";
-    return '<span style="color:' + c + '">' + d.day.slice(5) + '=' + (d.gradeable == null ? "?" : d.gradeable) + tag + '</span>';
-  }).join("  ") + '</div>';
+  if (last && last.state === "clean") html += '<div style="color:var(--green);margin-top:8px">✓ last graded night clean — ' + last.day + ': ' + Number(last.gradeable).toLocaleString() + ' bets graded</div>';
+  else if (last && last.state === "fell_short") html += '<div style="color:var(--red);margin-top:8px">⚠ last graded night fell short — ' + last.day + ': ' + last.gradeable + '/' + Number(last.total).toLocaleString() + ' graded (did NOT count)</div>';
+  if (r.fellShortDays && r.fellShortDays.length) html += '<div class="legend" style="color:var(--yellow);margin-top:4px">nights that fell short: ' + r.fellShortDays.map(d => d.day + ' (' + d.gradeable + '/' + d.total + ')').join(', ') + '</div>';
+  if (r.noSlateDays && r.noSlateDays.length) html += '<div class="legend" style="margin-top:4px">no-games days: ' + r.noSlateDays.join(', ') + '</div>';
+  // per-night grades — one bullet per night (was a run-on)
+  html += '<div class="legend" style="margin-top:10px">bets graded each night since ' + r.freeze + ':</div>';
+  html += '<ul class="bullets">' + r.perDay.map(d => {
+    const c = d.state === "clean" ? "var(--green)" : d.state === "fell_short" ? "var(--red)" : d.state === "pending" ? "var(--yellow)" : "var(--text-faint)";
+    const tag = d.state === "pending" ? " · pending" : d.state === "fell_short" ? " · fell short" : d.state === "no_slate" ? " · no games" : "";
+    const val = d.gradeable == null ? "?" : Number(d.gradeable).toLocaleString();
+    return '<li style="color:' + c + '">' + d.day + ' — ' + val + tag + '</li>';
+  }).join('') + '</ul>';
   body.innerHTML = html;
   // Phase Status-Overhaul-1B — collapsed summary = ONE tight line (operator: "12 of 14 clean"); all the
   // detail (blurb, on-track sentence, per-night list) lives in the EXPAND (g1ReadinessBody, untouched).
@@ -1268,7 +1274,7 @@ function renderCalibration(data) {
       if (info.multiplier != null && info.multiplier < 0.85) dampenedCount++;
     }
   }
-  _setSummary("sumCalib", famCount + " families graded · " + dampenedCount + " currently dampened");
+  _setSummary("sumCalib", dampenedCount === famCount ? (famCount + " families graded + dampened") : (famCount + " graded · " + dampenedCount + " dampened"));
   // Friendlier timestamp
   let when = "—";
   if (c.generatedAt) {
