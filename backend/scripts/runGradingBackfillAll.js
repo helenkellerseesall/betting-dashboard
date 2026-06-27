@@ -48,6 +48,10 @@ const NIGHTLY_CLI  = path.join(REPO_ROOT, "scripts", "nightlyReview.js")
 // H2: one game-date authority (Law 1) — reuse settlementRun's exported helper to decide
 // whether a slate's GAMES are PAST (so 0-settled = real failure) vs today/future (expected pending).
 const { slateGameDateStatus } = require("./settlementRun")
+// Phase Grading-Offseason-Orphan-1A (2026-06-26) — season authority (Law 1). A past-0-settled slate whose
+// SPORT is OFF-SEASON can never settle now (its sport's API/settlement is gated off) and will be pruned by
+// keepDays before the sport returns → it's an orphaned off-season slate, NOT a current operational failure.
+const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 
 function parseArgs() {
   const out = { sport: null, dry: false, force: false, verbose: false, clearLocks: false }
@@ -225,7 +229,7 @@ function main() {
     console.log(`  scanned=${lockTally.scanned}  reclaimed-dead=${lockTally.reclaimed}  reclaimed-stale=${lockTally.reclaimedStale}  alive=${lockTally.alive}  skipped=${lockTally.skipped}\n`)
   }
 
-  const tally = { considered: 0, skipped: 0, run: 0, failed: 0, errors: [] }
+  const tally = { considered: 0, skipped: 0, run: 0, failed: 0, offseasonOrphans: 0, errors: [] }
   const perDate = []
 
   for (const sport of sports) {
@@ -249,7 +253,11 @@ function main() {
       const past0 = r.settled === 0 && gs0 && gs0.gamesPast === true
 
       const decision = r.settled === 0
-        ? (past0 ? `FAIL (0 settled · games ${gs0.maxGameDate} PAST)` : "SKIP (no settled · games not played yet)")
+        ? (past0
+            ? (!isSportEnabled(sport)
+                ? `SKIP (orphaned off-season · games ${gs0.maxGameDate} PAST · ${sport.toUpperCase()} OFF)`
+                : `FAIL (0 settled · games ${gs0.maxGameDate} PAST)`)
+            : "SKIP (no settled · games not played yet)")
         : (!needsBackfill && !args.force)
           ? `SKIP (SQLite already has ${sqliteCount} ≥ JSON ${r.settled})`
           : args.dry
@@ -259,8 +267,17 @@ function main() {
       console.log(`  ${r.date}  total=${String(r.total).padStart(4)}  settled=${String(r.settled).padStart(4)}  sqlite=${String(sqliteCount).padStart(4)}   ${decision}`)
 
       if (r.settled === 0) {
-        if (past0) {
-          tally.failed++   // H2: PAST games, 0 settled → RESULT: FAIL → exit 1 (never a silent SKIP/PASS)
+        if (past0 && !isSportEnabled(sport)) {
+          // Orphaned OFF-SEASON slate: games past + 0 settled, but the sport's season is OVER → settlement
+          // is gated off, so it can NEVER settle now, and keepDays will prune it before the sport returns.
+          // Surface it honestly (visible SKIP + its own tally) but do NOT FAIL the nightly on it. H2 stays
+          // fully intact for IN-SEASON sports (MLB now; NBA again when it returns → past-0-settled FAILs).
+          tally.skipped++
+          tally.offseasonOrphans++
+          console.log(`    → SKIP  (orphaned off-season — ${sport.toUpperCase()} season OFF; can't settle, will prune)`)
+          perDate.push({ sport, date: r.date, status: "skip", reason: "orphaned_offseason" })
+        } else if (past0) {
+          tally.failed++   // H2: IN-SEASON, PAST games, 0 settled → RESULT: FAIL → exit 1 (never a silent SKIP/PASS)
           tally.errors.push({ sport, date: r.date, exitCode: "PAST_0_SETTLED", stderr: "", stdout: `games ${gs0.maxGameDate} are PAST but 0 bets settled — settlement/grading gap` })
           console.log(`    → FAIL  (0 settled on a PLAYED slate — not graded)`)
           perDate.push({ sport, date: r.date, status: "fail", reason: "past_0_settled" })
@@ -311,7 +328,7 @@ function main() {
 
   const elapsedMs = Date.now() - t0
   console.log("─".repeat(70))
-  console.log(`SUMMARY  considered=${tally.considered}  ran=${tally.run}  skipped=${tally.skipped}  failed=${tally.failed}`)
+  console.log(`SUMMARY  considered=${tally.considered}  ran=${tally.run}  skipped=${tally.skipped}  failed=${tally.failed}  offseason-orphans=${tally.offseasonOrphans}`)
   console.log(`         total elapsed=${elapsedMs}ms`)
   console.log(`RESULT: ${tally.failed === 0 ? "PASS" : "FAIL"}`)
 
