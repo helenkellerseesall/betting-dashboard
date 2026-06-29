@@ -899,15 +899,23 @@ function renderG1Readiness(data) {
   const VC = { ready: "var(--green)", on_track: "var(--green)", slipped: "var(--yellow)", no_data: "var(--text-faint)" };
   const color = VC[r.verdict] || "var(--text)";
   let html = '';
-  html += '<div class="big" style="color:' + color + '">' + r.cleanCount + ' / ' + r.need + '</div>';
+  html += '<div class="big" style="color:' + color + '">' + (r.forwardCount != null ? r.forwardCount : r.cleanCount) + ' / ' + (r.forwardNeed != null ? r.forwardNeed : r.need) + '</div>';
   // Phase Status-Overhaul-1B (round 2) — on-track summary as BULLETS, built from the structured data
   // (cleanCount/need/gaps/projectedEval) — no verdictText, so this stays FE-only (no kickstart). The
   // margin-top adds the space the operator wanted under the big number. The "Tonight … pending" line
   // and the "(N pending)" parenthetical are intentionally dropped (operator misread them).
+  // Phase G1-Forward-Gate-Card-1A — bullets show the BINDING G1 gate (calibration forward-validation past
+  // trainThrough), not just clean-since-FREEZE. The "evaluable" line keys off forwardReady so the card can't
+  // over-promise (it agrees with probeCalibrationForward). Falls back to the data count if a pre-kickstart
+  // payload lacks the forward fields.
+  const hasFwd = r.forwardCount != null && !!r.trainThrough;
+  const moreFwd = Math.max(0, (r.forwardNeed != null ? r.forwardNeed : r.need) - (r.forwardCount || 0));
   const sumB = [];
-  sumB.push(r.cleanCount + '/' + r.need + ' clean');
-  sumB.push(r.gaps > 0 ? (r.gaps + ' night' + (r.gaps === 1 ? '' : 's') + ' fell short') : 'no misses');
-  sumB.push(r.verdict === 'ready' ? 'evaluable now' : ('evaluable ' + r.projectedEval));
+  sumB.push(r.cleanCount + ' clean nights (enough graded data ✓)');
+  if (hasFwd) sumB.push(r.forwardCount + '/' + r.forwardNeed + ' forward-validation days past ' + r.trainThrough + ' (G1 gate)');
+  sumB.push(r.forwardReady ? 'G1 gate ready — evaluable now'
+                          : (hasFwd ? ('gate needs ' + moreFwd + ' more forward night' + (moreFwd === 1 ? '' : 's') + ' · passes ~' + (r.forwardProjectedEval || r.projectedEval))
+                                    : ('evaluable ' + r.projectedEval)));
   html += '<ul class="bullets" style="margin-top:12px;color:' + color + '">' + sumB.map(b => '<li>' + b + '</li>').join('') + '</ul>';
   // last graded night (kept — single line)
   const last = r.lastGraded;
@@ -926,7 +934,7 @@ function renderG1Readiness(data) {
   body.innerHTML = html;
   // Phase Status-Overhaul-1B — collapsed summary = ONE tight line (operator: "12 of 14 clean"); all the
   // detail (blurb, on-track sentence, per-night list) lives in the EXPAND (g1ReadinessBody, untouched).
-  _setSummary("sumG1Readiness", r.cleanCount + " of " + r.need + " clean");
+  _setSummary("sumG1Readiness", (r.forwardCount != null && r.trainThrough) ? (r.forwardCount + "/" + r.forwardNeed + " forward days · " + (r.forwardReady ? "gate ready" : "gate ~" + r.forwardProjectedEval)) : (r.cleanCount + " of " + r.need + " clean"));
 }
 
 function renderComponentHealth(data) {

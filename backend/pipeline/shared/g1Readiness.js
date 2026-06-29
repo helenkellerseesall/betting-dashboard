@@ -28,6 +28,16 @@ const TARGET = "2026-06-25"   // freeze lifts ~here
 const NEED = 14               // clean forward GAME-days the gate needs
 const CLEAN_FLOOR = 100       // real MLB slates grade hundreds of rows; a failed night ~0.
 
+// Phase G1-Forward-Gate-Card-1A (2026-06-27) — the BINDING G1 graduation gate is calibration
+// FORWARD-VALIDATION (probeCalibrationForward.js): clean nights with game-date AFTER the committed
+// calibration trainThrough cutoff, needs >= NEED. computeG1Readiness reads the SAME cfg the probe reads
+// (never hardcode the cutoff) so the /status card agrees with the probe instead of over-promising off the
+// looser clean-since-FREEZE count.
+const CALIB_CFG = path.join(__dirname, "..", "..", "config", "mlbMarginalCalibration.json")
+function readCalibCutoff() {
+  try { const j = JSON.parse(fs.readFileSync(CALIB_CFG, "utf8")); return (typeof j.trainThrough === "string" && j.trainThrough) ? j.trainThrough : null } catch (_) { return null }
+}
+
 function addDays(ymd, n) {
   const dt = new Date(ymd + "T12:00:00Z"); dt.setUTCDate(dt.getUTCDate() + n)   // date-arith-ok: noon-UTC anchor, projection arithmetic (not a game-date derivation)
   return dt.toISOString().slice(0, 10)   // date-arith-ok
@@ -171,21 +181,33 @@ function computeG1Readiness(opts = {}) {
   const more = Math.max(0, NEED - cleanCount)
   const pendNote = pendingDay ? ` (${pendingDays.length} pending — games not played)` : ""
 
+  // ── BINDING G1 gate: calibration FORWARD-VALIDATION days (clean nights with game-date > trainThrough) ──
+  // Mirrors probeCalibrationForward.js exactly (same cfg cutoff, same "day > cutoff" count). The card's
+  // "ready/evaluable" verdict keys off THIS, not the looser clean-since-FREEZE count, so it can't over-promise.
+  const trainThrough = readCalibCutoff()                            // e.g. "2026-06-15"; null if cfg unreadable
+  const forwardCleanDays = trainThrough ? cleanDays.filter(d => d.day > trainThrough) : []
+  const forwardCount = forwardCleanDays.length
+  const forwardGaps = trainThrough ? fellShortDays.filter(d => d.day > trainThrough).length : 0
+  const firstForwardCalib = forwardCleanDays.length ? forwardCleanDays[0].day : (trainThrough ? addDays(trainThrough, 1) : firstForward)  // date-arith-ok
+  const forwardProjectedEval = addDays(firstForwardCalib, NEED + forwardGaps)   // date-arith-ok: 14th forward night + the grade
+  const forwardReady = trainThrough != null && forwardCount >= NEED
+  const moreForward = Math.max(0, NEED - forwardCount)
+
   let verdict, verdictText
-  if (cleanCount >= NEED) {
+  if (!trainThrough) {
+    // No committed calibration cutoff to gate against → report the data signal only (clean-since-FREEZE).
+    verdict = cleanCount >= NEED ? "ready" : "on_track"
+    verdictText = `${cleanCount}/${NEED} clean nights since ${FREEZE} (no calibration trainThrough committed — gate cutoff unknown).`
+  } else if (forwardReady) {
     verdict = "ready"
-    verdictText = `Ready — ${cleanCount} clean game-days. G1's corpus is evaluable now.`
+    verdictText = `G1 calibration gate READY — ${forwardCount}/${NEED} forward-validation nights past ${trainThrough}. (Data: ${cleanCount} clean nights since ${FREEZE}.)`
   } else if (!lastGraded && !pendingDay) {
     verdict = "no_data"
     verdictText = "No graded game-days yet."
-  } else if (gaps > 0) {
-    verdict = "slipped"
-    verdictText = `Slipped — ${gaps} game-day${gaps === 1 ? "" : "s"} fell short after its games played, so ${cleanCount}/${NEED} clean. Earliest evaluable ~${projectedEval} (was ${TARGET}).`
   } else {
     verdict = "on_track"
-    // Phase Status-Overhaul-1B — lead with the REAL evaluable date (projectedEval), not the original
-    // hardcoded TARGET. "On track for 2026-06-25" was stale/confusing (real eval is 06-26 after the prune-fix).
-    verdictText = `On track — ${cleanCount}/${NEED} clean${pendNote}, no misses. ${more} more clean night${more === 1 ? "" : "s"} → evaluable ${projectedEval}.`
+    const gapNote = forwardGaps > 0 ? ` (${forwardGaps} forward night${forwardGaps === 1 ? "" : "s"} fell short)` : ""
+    verdictText = `Enough graded data ✓ (${cleanCount} clean nights) — G1 calibration gate needs ${moreForward} more forward night${moreForward === 1 ? "" : "s"} past ${trainThrough}${gapNote} (passes ~${forwardProjectedEval}).`
   }
 
   return {
@@ -198,6 +220,8 @@ function computeG1Readiness(opts = {}) {
     noSlateDays: noSlateDays.map(d => d.day),
     lastGraded: lastGraded ? { day: lastGraded.day, gradeable: lastGraded.gradeable, total: lastGraded.total, state: lastGraded.state } : null,
     projectedEval,
+    // BINDING G1 forward-validation gate (agrees with probeCalibrationForward) — the card's verdict keys off these.
+    trainThrough, forwardCount, forwardNeed: NEED, forwardGaps, forwardProjectedEval, forwardReady,
     verdict, verdictText,
     perDay,
   }
