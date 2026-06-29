@@ -6702,3 +6702,28 @@ CC 333030a (post-flip game plan) — strong + honest. KEY: realistic ROI +4-10% 
 BUILD QUEUE (still-need, ranked — the "groundwork" before scaling money): #1 H1 SQLite corpus (90% null model_prob; doesn't block flip [G1 on JSON layer] but blocks canonical/book/line-aware calibration maturing; touches PRESERVED → operator approval). #2 fractional-Kelly staking WIRED for MLB, sized on CLV-validated edge (only NBA bankroll plan exists; buildPortfolioOptimizer.js). #3 SECURITY before scaling — backend publicly exposed via cloudflared; VERIFY the /api data routes (odds/picks/best-available) require auth + rate-limiting + .env/plist secret hygiene (only x-status-token found, statusRoute.js:1806) + operator account op-sec (2FA-at-reg, early-KYC, withdrawal hygiene, separate bankroll). #4 line-shop→placement execution loop (addPlacedBet exists; finish the pick-least-taxed-book→record→feed-CLV workflow). #5 bake limits/bans discipline (round stakes, spread books, no auto-grab best price, no exact-Kelly shown). #6 realized-CLV-by-rung as the selection/stake trust signal.
 QUEUED NEXT CC DEEP-DIVE (operator 2026-06-28; launch AFTER flip + groundwork working): DAILY MAX-MONEY PLAY DISCOVERY (MLB now → other sports). FRAME (honest, important): "longshots for max money" = (a) engineering obtainable +EV legs into high-PAYOUT correlation-aware multi-leg parlays (the $5-20→hundreds parlay-craft vision) + (b) genuinely-MISPRICED single longshots the calibrated engine + CLV flags as +EV — NOT the model's over-rated single longshots (the trap the re-point/calibration fixed). Builds on CC's 3 parlay playbooks.
 Flip still HOLDING (G1 ~11-12/14 forward, ~06-30/07-01).
+
+## 2026-06-29 01:40 ET — Claude-C [research] — MLB DAILY LONGSHOT & MAX-PAYOUT DISCOVERY doc landed (ping CA). No code changed.
+
+READ-FIRST done (HEAD cffe729 = CA triage; flip holding ~06-30/07-01; my post-flip block 333030a committed). New cited doc: docs/research/2026-06-29-mlb-daily-longshot-discovery.md (139 lines). EXTENDS the 3 craft docs (obtainable-vs-longshot, sharp-vs-lottery line, MLB signal menu) into the longshot/max-payout slice; does NOT re-derive them.
+
+CORE:
+- (1) DECISION RULE: a longshot is +EV only when p_fair (calibrated TAIL prob) > de-vigged BEST price by MORE than the bucket's calibration uncertainty; favorite-longshot bias means the default prior on a random longshot is FADE; prove any residual edge via odds-bucket CLV (the FLB self-test).
+- (2) WHERE value recurs daily: HR props (wind/park/barrel/HR9/handedness), K upper-rungs (zone/framing/lineup), F5/first-inning, alt TB/hits/RBI (slot/platoon), team-total/run-line (bullpen fatigue) -- each mapped to a FREE source (Open-Meteo, Baseball Savant, UmpScorecards, MLB StatsAPI, pybaseball).
+- (3) CORRELATED obtainable parlays: STACK pitcher-Ks-over + opposing team-total-under (same dominance thesis the book prices near-independent); BLOCK negative-sign traps (Ks-over + opposing-hitter-over). <=3-4 legs, copula with negative sign enforced.
+- (4) DAILY LOOP: morning (lineup-INDEPENDENT: pitcher/park/weather, capture opener) -> midday (lineups post 2-4h pre-game: confirm order + scratch check -> lineup-DEPENDENT) -> pre-close (vet via decision rule, line-shop, stake, stamp CLV). "Few or none" is the honest output.
+- (5) TRAPS hardcoded: over-the-over (center MEDIAN, our 89.4% dry-run), public-bait (Judge HR +190 = name premium not edge), single-actor low-limit micro-markets EXCLUDE, correlation traps, "he's hot" recency.
+- (6) STAKING: small fixed "lotto" carve-out; 1/8-1/4 Kelly + lower per-ticket cap for longshots; size on CLV-validated edge with an uncertainty haircut; round-number stakes + spread (parlays flag you fastest). The slice is NOT expected to carry the operation.
+
+BUILD-NEXT (each plugs into an existing engine piece):
+1. longshot-rung EV scanner -> per-player NegBinom ladders (G2 shadow).
+2. tail-probability honesty gate -> calibration / probability-honesty (GATES everything; depends on the H1 SQLite corpus fix so the tail has real data).
+3. same-game stack proposer + negative-trap blocker -> correlation engine (G3 copula).
+4. max-payout obtainable-parlay surfacer -> parlay constructor (G4).
+5. odds-bucketed longshot CLV scoreboard -> CLV tracking (extends the live sectionForwardClvSlices /status card).
+6. day-of mispricing tagger -> matchup-context layer (additive shadow).
+SEQUENCING: #2 + the H1 corpus fix gate everything -- a scanner on uncalibrated tails just relocates the FLB tax onto us.
+
+HONEST: single-leg longshot edge is THIN/RARE; most longshots are fairly priced; a slate may legitimately have none; the slice is a small CLV-tracked carve-out, not the operation. No sharp PROP line to copy -- edge = interpretation + line-shop + fade-overreaction + obtainable rungs + CLV. Confidence labeled throughout the doc; no fabricated edges.
+
+NEXT_EXPECTED_FROM_PEER: CA folds build-next into the post-flip queue (after the H1 corpus + calibration groundwork). Operator runs this fence (commits the doc + this log block). PROBE_REFS: docs/research/2026-06-29-mlb-daily-longshot-discovery.md · the 3 extended craft docs · Baseball Savant park factors [AUTH] · thewagertheorem FLB [PRAC] · Open-Meteo / UmpScorecards / MLB StatsAPI / pybaseball free sources.
