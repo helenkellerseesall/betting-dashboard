@@ -246,3 +246,59 @@ R3 [BIGGER BUILD, later] add team-total / F5 / run-line lineup-independent marke
 
 === HONEST READ -- upside vs data tradeoff ===
 The early grab helps ONLY on lineup-independent legs (the 5 pitcher families we already model, plus team/F5 if built). Batter props MUST wait for confirmed lineups (~2-4h pre-game) or a late scratch voids/wrongs the leg -- do NOT grab them early. So the CLV upside is real but BOUNDED to ~5 families today. Because our CLV is currently blind to the opener (B2), the cheapest highest-confidence move is R1: prove the overnight softness is real on our specific books BEFORE building an early cadence. Web evidence says openers are softer in general; whether they are softer on FanDuel/DraftKings MLB pitcher props by enough to matter is the thing CA/CB must measure (R1) before R2.
+
+## 2026-06-28 22:39 ET — Claude-C [research] — POST-FLIP GAME PLAN: strive-for, realistic money cadence, security/limits/ops, ranked gap list (cited + repo-grounded)
+
+FRAME (honest, mandatory): NO magic signal prints money. Durable edges = CLV+ on OBTAINABLE rungs, line-shop across our books, correct calibration/devig, variance/bankroll discipline. Every book LIMITS/BANS winners. Realistic ROI is low-single-digit to ~10% on turnover for a strong prop bettor -- a grind, not quick riches. Flip (G1 calibration live) is HOLDING to ~06-30/07-01 (forward gate 11/14). BUILDS ON (does not re-derive) the 3 playbooks: parlay-ladder (ladders/copula/parlay/Kelly build plan + "the limiting wall"), prop-parlay-craft (CLV-as-scoreboard, cash-out), parlay-edge-menu ("what to build" list). Sources [PRAC]=practitioner-consensus (cross-corroborated; no [AUTH] academic source gives ROI bands -- these are industry numbers, labeled honestly). The CLV-predicts-profit academic backing is in the earlier Part 2 block.
+
+=== PART A -- ONLINE (cited) ===
+
+A1 THE MONEY FRAME -- realistic ROI + the timeline to KNOW it works.
+- Profitable bettors run roughly +4-10% ROI on turnover. Bands: amateur +2-6%, semi-pro +6-12%, pro +12%+ but ONLY by betting selectively at low volume on their strongest spots. Beating standard -110 needs ~55-57% win rate.
+- Sample to confirm an edge (critical, anti-fooling): 300-500+ bets MINIMUM (50 bets = luck; 100 min, 200-500 reliable; >=50/sport). Forward CLV shows up FAST (weeks); ROI confirmation takes MONTHS.
+- SGPs carry built-in extra vig + low hit rate -> a special case, NOT the ROI engine.
+- HONEST translation: on a modest bankroll at 4-8% ROI, that is tens-to-low-hundreds of dollars per month -- real but modest. The edge is the PROCESS; money compounds slowly and is capped by limits.
+- SOURCES: https://www.webopedia.com/crypto-gambling/casinos/guides/professional-betting-roi-strategy/ [PRAC] · https://pikkit.com/blog/how-to-track-sports-betting-roi [PRAC] · https://www.bettoredge.com/post/expected-roi-in-sports-betting-what-bettors-need-to-know [PRAC].
+
+A2 LIMITS/BANS REALITY -- the scaling ceiling we must design around.
+- It is BEATING THE CLOSING LINE that gets you limited, not winning per se -- the exact CLV signal we optimize IS the flag. Also flagged: systematic best-price line-shopping with no team loyalty, obscure/thin markets, and exact-Kelly stakes (e.g. $47.32 screams a model).
+- Account lifespan: WEEKS now (was 12-18 months); books share detection across the industry.
+- Mitigations: round-number stakes ($50, not $47.32); do NOT always grab the very best price the instant it appears; spread smaller volume across MANY books; expect to rotate accounts. ToS/ethics line: a book limiting you is legal and its right; multi-accounting, bonus abuse, or using others' accounts violates ToS -- stay on the right side.
+- SOURCES: https://www.boydsbets.com/why-sportsbooks-limit-winning-bettors/ [PRAC] · https://betherosports.com/blog/how-to-avoid-sportsbook-limits [PRAC] · https://punter2pro.com/prevent-betting-accounts-restricted-closed/ [PRAC].
+
+A3 SECURITY + OP-SEC -- before scaling stakes.
+- 2FA at REGISTRATION (not when the balance grows); unique strong credentials per book so one breach does not cascade.
+- Verify KYC EARLY (do not wait for the first withdrawal) -> faster payouts AND, if someone gets your login, completed KYC stops them withdrawing to their own wallet.
+- Withdrawal hygiene: consistent verified payment method; regular small withdrawals (do not let a big balance sit); keep bankroll SEPARATE from personal/operating funds.
+- SOURCES: https://punter2pro.com/security-measures-gambling-sites-protect/ [PRAC] · https://www.bookmakersreview.com/guides/sportsbook-kyc-checklist/ [PRAC] · https://www.oddstrader.com/betting/university/kyc-verification-sports-betting/ [PRAC].
+
+A4 THE OPERATIONAL STACK -- what separates a profit from a hobby.
+- Four pillars: (1) bankroll/staking discipline (fractional Kelly + hard cap), (2) a bet TRACKER with a CLV SCOREBOARD as the real KPI, (3) a line-shop EXECUTION loop (always take the least-taxed price), (4) a written discipline system (fixed unit, no chasing, log every bet). The field's tools -- Pikkit (auto tracking + ROI/CLV), Outlier (prop devig/EV), RebelBetting (value+CLV) -- are exactly the equivalent we are building in-house.
+- SOURCES: https://pikkit.com/blog/how-to-track-sports-betting-roi [PRAC] · https://outlier.bet/ [PRAC] · https://www.rebelbetting.com/faq/roi-yield-profitability-sports-betting [PRAC] · https://www.covers.com/guides/sports-betting-bank-roll-management-and-roi [PRAC].
+
+=== PART B -- REPO-GROUNDED (have vs still-need; NOT web) ===
+
+HAVE post-flip:
+- Calibrated probabilities graduating (G1 ~06-30/07-01) on the JSON tracked-bets layer. [caveat: see STILL-NEED #1]
+- CLV scoreboard ALREADY surfaced on /status: sectionClvCaptureToday (statusRoute.js:376) + sectionForwardClvSlices (:1583, "confirm the edge before stakes", reads forwardClvSliceTracker sidecar). The edge-menu's "CLV scoreboard on /status" is DONE.
+- R1 early-CLV measurement LIVE: captureMlbTrueOpen.js + probeTrueOpenClv.js + 6 AM job (28c3209) -- the opener-softness probe I scoped last pass, built freeze-safe.
+- Bet-placement/tracking SPINE: addPlacedBet.js -> buildPersonalLedger.js (personal_ledger) + backfillLedgerFromTracked.js.
+- Staking infra (PARTIAL): buildPortfolioOptimizer.js (shared) + buildNbaBankrollPlan.js (NBA) + portfolioAuditRoute.js.
+- Parlay engine staged in the gated chain (G2/G3/G4 shadow stack: NegBinom ladder, copula correlation, parlay constructor).
+- Line-shop surfacing (7-book backend), screenshot ingestion (SS uploader), nightly self-grading (season-aware H2 fixed, 50e9b7c -- my Part 1 H2 finding actioned).
+
+STILL NEED (ranked):
+1. [HIGH] SQLite canonical corpus fix (Part 1 H1, still open): outcome_snapshots ~90% NULL model_prob (MLB 2.1% / 447 rows). G1 graduates on the JSON layer so this does NOT block the flip, but the DOCTRINE's corpus (intelligence.js id-join -> calibrationDampener) stays starved, so calibration cannot mature on the canonical corpus and book-aware/line-aware calibration is blocked. Land the line-aware column join (calibrationDampener.js:217-227).
+2. [HIGH] Fractional-Kelly staking WIRED for MLB + sized on the CLV-VALIDATED edge: confirm buildPortfolioOptimizer does 1/4-1/2 Kelly + 2-3% hard cap + 1/sqrt(n) (playbook sec 4) and COVERS MLB (only an NBA bankroll plan was found). Size on CLV-bucket ROI, not raw model edge (Part 2 E5).
+3. [HIGH] Security hardening before scaling stakes: the backend is publicly exposed via cloudflared (edge.motel666.com, RUNTIME_FACTS) and only a status token was found (x-status-token, statusRoute.js:1806) -- VERIFY whether the data /api routes (odds/picks/best-available) require auth + rate-limiting, and check .env/plist secret hygiene. Flag-to-verify (CA/CB ground before scaling); pair with operator-side account op-sec (A3).
+4. [MED] Line-shop -> PLACEMENT execution loop: addPlacedBet exists, but the "pick the least-taxed book, record price+book, feed CLV" loop as a usable workflow needs finishing -- the difference between a dashboard and an operation.
+5. [MED] Bake the limits/bans discipline (A2) into staking/rotation guidance: round-number stakes, spread across books, do not auto-grab the best price the instant it appears, no exact-Kelly amounts surfaced.
+6. [MED] Backend/status maturity: confirm /status now carries a grading-completion signal (H2 fixed the FAIL path), and make realized-CLV-by-rung the trust signal that drives selection + stake (Part 2 E2), not badge/tier.
+
+=== WHAT WE STRIVE FOR (north star, honest) ===
+A CLV-positive, calibration-trustworthy, line-shopped prop operation that GRINDS a low-single-digit-to-~10% ROI on obtainable rungs, sized by fractional Kelly, tracked by a real CLV scoreboard, spread across books to survive limits -- NOT a quick-riches pick engine. The flip makes the probabilities trustworthy; the MONEY comes from CLV+ selection + line-shop + discipline, confirmed over 300-500+ bets, and is CAPPED by the limit reality.
+
+=== REALISTIC CADENCE once flipped ===
+- Week 1-2: forward-CLV scoreboard green on obtainable rungs (you can SEE +CLV fast). Stakes small + flat; no scaling.
+- Month 1-2: 100-200 bets; CLV holding + line-shop edge confirmed -> begin fractional-Kelly sizing on the CLV-validated rungs only.
+- Month 3+: 300-500+ bets; ROI signal emerges (expect low-single-digit %); rotate across books as limits arrive. Never scale stakes faster than CLV confirms. If CLV is not green, do NOT raise stakes -- the process is the protection.
