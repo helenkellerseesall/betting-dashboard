@@ -30,6 +30,29 @@ try {
   console.log(`[TIER-POLICY-BOOT] MLB bucket tier policy ${MLB_TIER_POLICY_ON ? "ON (default) — mlb-r2-v1" : "OFF — MLB_BUCKET_TIER_POLICY=0, pre-R2-identical"}`)
 } catch (_) { /* no-op */ }
 
+// 2026-07-01 G1 / POST_FREEZE STEP 1 — marginal calibration LIVE wire, behind a
+// NEW default-OFF switch (CALIB_LINEAWARE / MLB_BUCKET_TIER_POLICY pattern; read
+// ONCE at module load; flip needs a backend reload). When ON, the validated MLB
+// isotonic remap (backend/config/mlbMarginalCalibration.json — the SAME map the G1
+// forward gate probeCalibrationForward PASSED 2026-07-01) recalibrates modelProb
+// BEFORE edge → ev → tier, so live selection derives from the calibrated prob.
+// OFF ⇒ raw modelProb ⇒ scoring + tracked artifacts byte-identical to pre-G1 (the
+// calibVersion / modelProbRaw stamps are ABSENT when OFF — never null). The 14d
+// verify filters on calibVersion === "mlb-calib-live-v1". calibrateModelProb never
+// throws and returns null only if the shadow module is disabled → fall back to raw.
+// Rollback = unset MLB_CALIB_LIVE (=0) + backend kickstart ⇒ byte-identical.
+const MLB_CALIB_LIVE = String(process.env.MLB_CALIB_LIVE ?? "0") === "1"
+// Conditional require (matches calibrationDampener) so OFF loads nothing new ⇒ truly
+// byte-identical. calibrateModelProb is CALLED only inside the MLB_CALIB_LIVE branch below.
+let _calibrateModelProb = null
+if (MLB_CALIB_LIVE) {
+  try { _calibrateModelProb = require("./mlbMarginalCalibration").calibrateModelProb }
+  catch (e) { console.log(`[MLB-CALIB-LIVE-BOOT] isotonic module unavailable (${e && e.code ? e.code : e}) — scoring stays on raw modelProb`) }
+}
+try {
+  console.log(`[MLB-CALIB-LIVE-BOOT] scoring modelProb calibration ${MLB_CALIB_LIVE ? "ON — isotonic remap live (mlb-calib-live-v1)" : "OFF (default) — raw modelProb, pre-G1-identical"}`)
+} catch (_) { /* no-op */ }
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -941,10 +964,19 @@ function buildMlbBestBetsBoard(input = {}) {
     const confRaw = projectionConfidence(stat, line)
     const vol = volatilityGap(stat)
     const conf = calibrateMlbConfidence(family, line, sideNorm, vol, confRaw, mp)
-    const modelProb = modelProbForSide(family, stat, line, sideNorm, conf)
-    if (impliedProb == null || decOdds == null || modelProb == null) {
+    const rawModelProb = modelProbForSide(family, stat, line, sideNorm, conf)
+    if (impliedProb == null || decOdds == null || rawModelProb == null) {
       dropped += 1
       continue
+    }
+    // 2026-07-01 G1 STEP 1 — calibrate modelProb (isotonic remap) BEFORE edge/ev/
+    // tier when MLB_CALIB_LIVE is ON, so live selection derives from the calibrated
+    // prob. OFF ⇒ modelProb === rawModelProb (byte-identical to pre-G1). Fall back
+    // to raw if the shadow module returns null (MLB_MARGINAL_CALIB=0 / no map).
+    let modelProb = rawModelProb
+    if (MLB_CALIB_LIVE && _calibrateModelProb) {
+      const _calP = _calibrateModelProb(rawModelProb, family, { side: sideNorm, oddsAmerican: odds })
+      if (Number.isFinite(_calP)) modelProb = _calP
     }
     const edge = modelProb - impliedProb
     const ev = modelProb * (decOdds - 1) - (1 - modelProb)
@@ -1009,6 +1041,7 @@ function buildMlbBestBetsBoard(input = {}) {
         odds,
         impliedProb,
         modelProb,
+        rawModelProb,
         edge,
         ev,
         conf,
@@ -1037,6 +1070,7 @@ function buildMlbBestBetsBoard(input = {}) {
       odds,
       impliedProb,
       modelProb,
+      rawModelProb,
       edge,
       ev,
       conf,
@@ -1107,6 +1141,7 @@ function makePlay(args) {
     odds,
     impliedProb,
     modelProb,
+    rawModelProb,
     edge,
     ev,
     conf,
@@ -1149,6 +1184,12 @@ function makePlay(args) {
     ladder: mp.ladder || null,
     impliedProb: round4(impliedProb),
     modelProb: round4(modelProb),
+    // 2026-07-01 G1 STEP 1 — calibration stamps, present IFF MLB_CALIB_LIVE ON
+    // (conditional spread = the tierPolicy / ladderNB omit-when-absent precedent).
+    // OFF ⇒ keys ABSENT ⇒ tracked artifacts byte-identical to pre-G1. modelProbRaw
+    // keeps the pre-calibration prob auditable; the 14d verify filters on
+    // calibVersion === "mlb-calib-live-v1".
+    ...(MLB_CALIB_LIVE ? { modelProbRaw: round4(rawModelProb), calibVersion: "mlb-calib-live-v1" } : {}),
     edge: round4(edge),
     ev: round4(ev),
     confidence: round3(conf),

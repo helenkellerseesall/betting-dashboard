@@ -22,6 +22,29 @@ if (process.argv.includes("--off-child")) {
   process.exit(0)
 }
 
+// G1 STEP 1 board child — build a deterministic LONGSHOT fixture through the REAL
+// buildMlbBestBetsBoard scoring path and emit the picks. MLB_CALIB_LIVE is read at
+// load by buildMlbPropClusters, so OFF vs ON is exercised via separate child procs.
+// Longshot odds (implied < 0.10) bypass the edge gate → every candidate surfaces a
+// play in BOTH modes, so the pick SET is identical and only modelProb + the calib
+// stamps differ — isolating exactly what the switch changes.
+if (process.argv.includes("--board-child")) {
+  const { buildMlbBestBetsBoard } = require("../pipeline/mlb/buildMlbPropClusters")
+  const eventId = "g1fx", player = "Fixture Batter"
+  const predictions = { players: [{ player, eventId, stats: {
+    totalBases: { floor: 0, mostLikely: 2, ceiling: 5, ladder: { "2.5": 0.34 } },
+    hits:       { floor: 0, mostLikely: 1, ceiling: 3, ladder: { "1.5": 0.38 } },
+    rbis:       { floor: 0, mostLikely: 1, ceiling: 3, ladder: { "1.5": 0.36 } },
+  } }] }
+  const mkt = (statFamily, marketKey, line) => ({ player, eventId, statFamily, marketKey, propType: statFamily, side: "over", line, oddsAmerican: 1200 })
+  const board = buildMlbBestBetsBoard({ predictions, marketProps: [
+    mkt("totalBases", "batter_total_bases", 2.5), mkt("hits", "batter_hits", 1.5), mkt("rbis", "batter_rbis", 1.5),
+  ] })
+  const all = [].concat(board.allPlays || [], board.longshotPlays || [], board.altPlays || [], board.fades || [])
+  process.stdout.write(JSON.stringify(all.map(p => ({ fam: p.statFamily, side: p.side, line: p.line, modelProb: p.modelProb, modelProbRaw: p.modelProbRaw ?? null, calibVersion: p.calibVersion ?? null, tier: p.tier }))))
+  process.exit(0)
+}
+
 let pass = 0, fail = 0; const failures = []
 const check = (l, c) => { if (c) pass++; else { fail++; failures.push(l) } }
 
@@ -58,14 +81,41 @@ check("side w/o map → family.all fallback", noUnder && noUnder.source === "fam
 const child = spawnSync(process.execPath, [__filename, "--off-child"], { encoding: "utf8", env: Object.assign({}, process.env, { MLB_MARGINAL_CALIB: "0" }) })
 check("MLB_MARGINAL_CALIB=0 → null", child.status === 0 && child.stdout.trim().split("\n").pop().trim() === "null")
 
-// 5. FREEZE GUARD — scoring/PRESERVED must reference nothing in the new module
+// 5. G1 STEP 1 GATE GUARD (evolved 2026-07-01 from the pre-graduation freeze guard).
+// Marginal calibration is now WIRED into scoring + the dampener, but STRICTLY behind
+// the default-OFF MLB_CALIB_LIVE switch (docs/POST_FREEZE_25TH_RUNBOOK.md §STEP 1 +
+// docs/G1_STEP1_EXECUTION_BRIEF.md). The invariant changed from "zero references" to
+// "every reference is gated" — so OFF stays byte-identical while ON graduates. The
+// FUNCTIONAL OFF/ON board proof (section 6) is the load-bearing check.
 const rd = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), "utf8") } catch (_) { return "" } }
 const clusters = rd("pipeline/mlb/buildMlbPropClusters.js")
 const tracking = rd("pipeline/mlb/phase4Tracking.js")
 const dampener = rd("pipeline/shared/calibrationDampener.js")
-check("buildMlbPropClusters references no calibration shadow", clusters.length > 0 && !/mlbMarginalCalibration|isotonicCalibration|calibrateModelProb/.test(clusters))
-check("phase4Tracking references no calibration shadow", tracking.length > 0 && !/mlbMarginalCalibration|calibrateModelProb/.test(tracking))
-check("PRESERVED calibrationDampener untouched by shadow", dampener.length > 0 && !/mlbMarginalCalibration|isotonicCalibration/.test(dampener))
+check("buildMlbPropClusters gates calibration behind MLB_CALIB_LIVE", clusters.length > 0 && /calibrateModelProb/.test(clusters) && /MLB_CALIB_LIVE/.test(clusters))
+check("calibrationDampener gates calibration behind MLB_CALIB_LIVE", dampener.length > 0 && /mlbMarginalCalibration/.test(dampener) && /MLB_CALIB_LIVE/.test(dampener))
+check("phase4Tracking still references no calibration shadow (untouched)", tracking.length > 0 && !/mlbMarginalCalibration|calibrateModelProb/.test(tracking))
+
+// 6. FUNCTIONAL OFF/ON PROOF through the REAL scoring path (child procs).
+//    This is the load-bearing G1 check: it proves OFF is byte-identical AND that the
+//    ON wiring actually calibrates (the caveat the default-OFF proof alone can't cover).
+function runBoardChild(mode) {
+  const env = Object.assign({}, process.env)
+  if (mode === "on") env.MLB_CALIB_LIVE = "1"; else delete env.MLB_CALIB_LIVE
+  const r = spawnSync(process.execPath, [__filename, "--board-child"], { encoding: "utf8", env })
+  if (r.status !== 0) { failures.push(`board child mode=${mode} failed: ${r.stderr}`); fail++; return [] }
+  try { return JSON.parse(r.stdout.trim().split("\n").pop()) } catch (e) { failures.push(`board child mode=${mode} unparseable: ${e.message}`); fail++; return [] }
+}
+const offPicks = runBoardChild("off")
+const onPicks = runBoardChild("on")
+const keyOf = (p) => `${p.fam}|${p.side}|${p.line}`
+const offMap = new Map(offPicks.map(p => [keyOf(p), p]))
+const onMap = new Map(onPicks.map(p => [keyOf(p), p]))
+check("board OFF surfaces the fixture picks", offPicks.length >= 3)
+check("board ON pick-set identical to OFF (longshots always surface)", offPicks.length === onPicks.length && [...offMap.keys()].every(k => onMap.has(k)))
+check("OFF picks carry NO calib stamp (byte-identical to pre-G1)", offPicks.length > 0 && offPicks.every(p => p.calibVersion == null && p.modelProbRaw == null))
+check("ON picks stamped calibVersion=mlb-calib-live-v1", onPicks.length > 0 && onPicks.every(p => p.calibVersion === "mlb-calib-live-v1"))
+check("ON modelProbRaw === OFF modelProb (raw preserved; calibrate applied once)", onPicks.length > 0 && onPicks.every(p => { const o = offMap.get(keyOf(p)); return o && Math.abs(Number(p.modelProbRaw) - Number(o.modelProb)) < 1e-9 }))
+check("ON overconfident overs pulled DOWN vs raw (calibration does real work)", onPicks.length > 0 && onPicks.every(p => Number(p.modelProb) <= Number(p.modelProbRaw) + 1e-9) && onPicks.some(p => Number(p.modelProb) < Number(p.modelProbRaw) - 1e-3))
 
 console.log(`verifyMarginalCalibration: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }

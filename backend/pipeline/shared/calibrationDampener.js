@@ -108,6 +108,31 @@ const LINEAWARE_ENABLED = process.env.CALIB_LINEAWARE !== "0"
 // NOT this module, so it does NOT reflect the flag.
 console.log(`[CALIB-BOOT] line-aware dampener: ${LINEAWARE_ENABLED ? "ON (default)" : "OFF — CALIB_LINEAWARE=0, id-join path"}`)
 
+// ── Phase G1 / POST_FREEZE STEP 1 (2026-07-01) — marginal calibration LIVE ──────
+// Operator-approved G1 extension of this PRESERVED module (the ONLY sanctioned edit;
+// see docs/POST_FREEZE_25TH_RUNBOOK.md §STEP 1 + docs/G1_STEP1_EXECUTION_BRIEF.md).
+// When MLB_CALIB_LIVE is ON, the MLB dampening "multiplier" is REPLACED by the
+// validated isotonic remap (backend/config/mlbMarginalCalibration.json — the SAME
+// map the G1 forward gate probeCalibrationForward PASSED 2026-07-01). OFF ⇒ the
+// realized/stated id-join / line-aware multiplier (today's behavior) ⇒ byte-identical.
+// Read ONCE at module load (CALIB_LINEAWARE pattern; a flip needs a backend reload).
+// MLB-only — NBA/other sports keep the multiplier path unchanged.
+//
+// DOUBLE-CALIBRATION GUARD: MLB cluster picks are calibrated ONCE, at scoring
+// (buildMlbPropClusters, which stamps calibVersion). applyCalibrationDampener()
+// therefore SKIPS rows already carrying that stamp so the remap is never applied
+// twice on the serve path. See the guard in applyCalibrationDampener below.
+const MLB_CALIB_LIVE = String(process.env.MLB_CALIB_LIVE ?? "0") === "1"
+let _g1CalibrateModelProb = null
+if (MLB_CALIB_LIVE) {
+  try {
+    _g1CalibrateModelProb = require(path.join(__dirname, "..", "mlb", "mlbMarginalCalibration")).calibrateModelProb
+  } catch (e) {
+    console.log(`[CALIB-BOOT] G1 isotonic module unavailable (${e && e.code ? e.code : e}) — MLB dampener stays on the multiplier`)
+  }
+}
+console.log(`[CALIB-BOOT] G1 marginal calibration LIVE: ${MLB_CALIB_LIVE ? "ON — MLB multiplier = isotonic remap (mlb-calib-live-v1)" : "OFF (default) — realized/stated multiplier"}`)
+
 let _cache       = null     // { sports: { nba: {...}, mlb: {...} } }
 let _loadedAt    = 0
 let _lastError   = null
@@ -569,6 +594,13 @@ function getCalibrationForFamily(sport, statFamily, side, line = null) {
 function dampenModelProb(modelProb, sport, statFamily, side, line = null) {
   const mp = Number(modelProb)
   if (!Number.isFinite(mp) || mp <= 0) return mp
+  // G1 STEP 1: when MLB_CALIB_LIVE is ON, the MLB multiplier BECOMES the isotonic
+  // remap (runbook §STEP 1). OFF ⇒ this branch is skipped ⇒ the realized/stated
+  // multiplier below runs exactly as pre-G1 (byte-identical). MLB-only.
+  if (MLB_CALIB_LIVE && _g1CalibrateModelProb && _norm(sport) === "mlb") {
+    const _calP = _g1CalibrateModelProb(mp, statFamily, { side })
+    return Number.isFinite(_calP) ? Math.max(0, Math.min(1, _calP)) : mp
+  }
   const cal = getCalibrationForFamily(sport, statFamily, side, line)
   if (!cal || !Number.isFinite(cal.multiplier)) return mp
   const d = mp * cal.multiplier
@@ -606,6 +638,12 @@ function getLastError() { return _lastError }
  */
 function applyCalibrationDampener(pick) {
   if (!pick || !Number.isFinite(Number(pick.modelProb))) return pick
+  // 2026-07-01 G1 STEP 1 anti-double-calibration guard: when MLB_CALIB_LIVE is ON,
+  // MLB cluster picks are ALREADY isotonic-calibrated at scoring (buildMlbPropClusters
+  // stamps calibVersion; modelProb/edge already reflect the remap). Re-dampening here
+  // would apply the remap a SECOND time on the serve path. Skip. OFF ⇒ scoring never
+  // stamps calibVersion ⇒ this guard never fires ⇒ byte-identical to pre-G1.
+  if (MLB_CALIB_LIVE && pick.calibVersion) return pick
   const sport = pick.sport
   const fam = pick.statFamily || pick.propType
   const side = pick.side  // per-side asymmetry: UNDER 48.7% / OVER 25.5% on n=666 corpus
