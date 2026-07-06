@@ -99,3 +99,6 @@ On compaction, the first canonical authority both Claudes reconstruct from is (g
 - Numbers in any field MUST trace to a probe/canonical file/git commit per `feedback_no_fabricated_numbers_in_scope_memos`
 
 Related discipline: `feedback_no_fabricated_numbers_in_scope_memos`, `feedback_conversation_continuity_log`, `feedback_commit_durable_artifacts_same_turn`, `betting_dashboard_invariants`.
+
+## TURN-BASED HANDOFF LOOP (2026-07-06, operator-mandated, BINDING)
+Every chat turn ends in a concrete handoff artifact — a paste-ready prompt (CA), a commit + log block with a clear ASK when awaiting approval (CB/CC), or an operator fence/checkpoint. Never a dangling "go ahead" without the artifact. The loop: CB/CC act + commit + log block -> operator bounces "check cb/cc" to CA -> CA reads EVERYTHING since its last turn from the repo (git log + new A/B/C blocks + research tail, including any multi-round operator<->CB exchanges) -> CA evals -> CA hands the next artifact (approve/deny/append prompt, CC mandate, or fence). Operator = courier, approver, bettor. CA = show-runner. Approve/deny/append to CB is always a paste-ready prompt, not prose advice.

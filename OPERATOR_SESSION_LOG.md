@@ -6798,3 +6798,5 @@ SPINE AUDIT (docket 2, done pre-land; condensed — full detail went to CB via p
 G1-SERVE-1A LAND VERIFIED (CA, off mount): HEAD 6baf92d, backend rebooted 23:59:26 ET on new code, calib boot lines ON. MLB-CALIB-SERVE not yet fired = expected (no slate run post-reboot; window closed). LIVE VERIFY PLAN: after 07-06 morning runs, read mlb_tracked_bets/tracked_best for calibVersion counts + compressed predictedProbability + the MLB-CALIB-SERVE log line; first run of day = disclosed raw gap, honest.
 NOTE: prior 3 commits were not on origin (push not landing) — this fence pushes all.
 NEXT_EXPECTED_FROM_PEER: CB posts SPINE-FIX diff (already mid-build in tree) -> operator + CA review -> land -> operator first flat bets on stamped rows; CC angles (origination-weighted consensus, morning window, promo EV, exchange access) queued behind bet-ready.
+
+## 2026-07-06 00:48 ET — Claude-A [protocol] — turn-based handoff loop codified (operator mandate); CB mid-SPINE-FIX; awaiting its diff+ASK
