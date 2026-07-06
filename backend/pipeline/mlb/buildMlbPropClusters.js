@@ -53,6 +53,97 @@ try {
   console.log(`[MLB-CALIB-LIVE-BOOT] scoring modelProb calibration ${MLB_CALIB_LIVE ? "ON — isotonic remap live (mlb-calib-live-v1)" : "OFF (default) — raw modelProb, pre-G1-identical"}`)
 } catch (_) { /* no-op */ }
 
+// 2026-07-05 G1-Serve-1A — SERVED-SURFACE calibration injection (operator-approved
+// follow-up to G1 STEP 1; scope: OPERATOR_SESSION_LOG 2026-07-05 23:00 Claude-A mission).
+// WHY: G1 calibrates modelProb at BOARD scoring (above), but the SERVED best-available
+// surface (server.js buildMlbLiveDualBestAvailablePayload → safeBest → /api/best-available
+// → recordMlbBestProps → mlb_tracked_best) carries a DIFFERENT raw quantity
+// (predictedProbability, hydrated at snapshot time via impliedProb×0.6 + signal×0.4) that
+// never sees the remap — so what the operator SEES/BETS/self-grades stayed raw after the
+// 07-01 flip.
+// HOW (calibrate ONCE, Law 1): the calibrated quantity ORIGINATES here (makePlay stamps
+// calibVersion). buildMlbBestBetsBoard registers a module-scope index of its stamped plays;
+// injectMlbCalibratedServeProbs() joins that index onto best-available rows by
+// (player|family|side|line|book) and sets predictedProbability = calibrated modelProb
+// (+ modelProbRaw + calibVersion ride along). NO re-calibration at the serializer — the
+// isotonic map's input axis is BOARD rawModelProb; feeding it the serve-surface
+// predictedProbability (a different model's output) would be statistically unfounded.
+// Join-only = the same play's already-calibrated value, never recomputed (anti-double-calib).
+// GUARDS: OFF ⇒ injector returns the SAME array reference (byte-identical). Index is
+// slate-scoped (currentSlateDateEt, 4 AM ET boundary per slate-date doctrine) — an
+// empty/stale index skips injection LOUDLY. Rows with no board match stay raw + UNSTAMPED
+// (absence of calibVersion = honest "raw" marker; never fabricate). Module-scope state
+// (called out per OPERATOR_PROTOCOL "no hidden state"): process-local, rebuilt on every
+// board build; empty until the first board build after boot — that first payload serves
+// raw/unstamped, honestly logged.
+const { currentSlateDateEt: _serveSlateDate } = require("../shared/slateDate")
+let __mlbCalibratedServeIndex = { slateDate: null, builtAt: 0, byKey: new Map() }
+
+// ONE key builder for BOTH sides of the join (board play: statFamily/sportsbook;
+// serve row: resolveStatFamily(row)/book). Mirrors marketPropsFromMlbRows normalization
+// (yes→over, no→under, HR default side "over", HR missing line → 0.5) so the two
+// representations of the same prop produce identical keys.
+function _serveCalibKey(obj, family) {
+  const player = String(obj?.player || "").trim().toLowerCase()
+  if (!player || !family) return null
+  let side = String(obj?.side || "").trim().toLowerCase()
+  if (side === "yes") side = "over"
+  if (side === "no") side = "under"
+  if (!side && family === "hr") side = "over"
+  let line = Number(obj?.line)
+  if (!Number.isFinite(line)) {
+    if (family === "hr") line = 0.5
+    else return null
+  }
+  const book = String(obj?.sportsbook || obj?.book || "").toLowerCase().replace(/\s+/g, "")
+  if (!side || !book) return null
+  return `${player}|${family}|${side}|${line}|${book}`
+}
+
+function registerMlbCalibratedServeIndex(plays) {
+  if (!MLB_CALIB_LIVE) return
+  const byKey = new Map()
+  for (const p of Array.isArray(plays) ? plays : []) {
+    if (!p || p.calibVersion == null || !Number.isFinite(Number(p.modelProb))) continue
+    const k = _serveCalibKey(p, p.statFamily)
+    if (k && !byKey.has(k)) byKey.set(k, { modelProb: Number(p.modelProb), modelProbRaw: p.modelProbRaw ?? null, calibVersion: p.calibVersion })
+  }
+  __mlbCalibratedServeIndex = { slateDate: _serveSlateDate(), builtAt: Date.now(), byKey }
+}
+
+// Read-only introspection (fixtures + diagnostics). Never exposes the Map itself.
+function getMlbCalibratedServeIndex() {
+  return { slateDate: __mlbCalibratedServeIndex.slateDate, builtAt: __mlbCalibratedServeIndex.builtAt, size: __mlbCalibratedServeIndex.byKey.size }
+}
+
+function injectMlbCalibratedServeProbs(rows, opts = {}) {
+  if (!MLB_CALIB_LIVE) return rows
+  if (!Array.isArray(rows) || rows.length === 0) return rows
+  const idx = opts.__testIndex || __mlbCalibratedServeIndex
+  if (!idx || !(idx.byKey instanceof Map) || idx.byKey.size === 0) {
+    console.log("[MLB-CALIB-SERVE] skip: no calibrated board index yet (first payload after boot?) — best rows stay raw/unstamped")
+    return rows
+  }
+  const today = opts.slateDate || _serveSlateDate()
+  if (idx.slateDate !== today) {
+    console.log(`[MLB-CALIB-SERVE] skip: index slate ${idx.slateDate} != current ${today} — best rows stay raw/unstamped`)
+    return rows
+  }
+  let injected = 0
+  const out = rows.map((r) => {
+    const fam = resolveStatFamily(r)
+    const k = fam ? _serveCalibKey(r, fam) : null
+    const hit = k ? idx.byKey.get(k) : null
+    if (!hit) return r
+    injected += 1
+    // COPY, never mutate — the raw row objects are shared with intra-payload
+    // consumers (slips/clusters) whose behavior this step must not change.
+    return { ...r, predictedProbability: hit.modelProb, modelProbRaw: hit.modelProbRaw, calibVersion: hit.calibVersion }
+  })
+  console.log(`[MLB-CALIB-SERVE] injected calibrated prob onto ${injected}/${rows.length} best rows (slate ${today}, index ${idx.byKey.size} plays)`)
+  return out
+}
+
 function toNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -1109,6 +1200,12 @@ function buildMlbBestBetsBoard(input = {}) {
     .concat(longshotPlays.filter((p) => p.isHrProp))
   upsidePlays.sort((a, b) => b.score - a.score)
 
+  // 2026-07-05 G1-Serve-1A — register this board's calibrated plays for the
+  // served-surface injection (see block near MLB_CALIB_LIVE at top). Fades included:
+  // the join carries the calibrated PROB (equally real on a faded play), not the tier.
+  // No-op when MLB_CALIB_LIVE is OFF.
+  registerMlbCalibratedServeIndex([...allPlays, ...longshotPlays, ...altPlays, ...fades])
+
   return {
     corePlays,
     valuePlays,
@@ -1320,5 +1417,9 @@ module.exports = { buildMlbPropClusters, buildMlbBestBetsBoard, marketPropsFromM
   // 2026-06-08 SHIP 2 — exported for the regression probe (pure fns; no behavior change)
   resolveStatFamily, tierForPlay, modelProbForSide,
   // 2026-06-11 R2 — exported for verifyMlbTierPolicyR2.js (pure fn; stamp assertion)
-  makePlay }
+  makePlay,
+  // 2026-07-05 G1-Serve-1A — served-surface calibration injection (server.js
+  // buildMlbLiveDualBestAvailablePayload consumer) + fixture exports
+  // (verifyServedCalibrationInjection.js).
+  injectMlbCalibratedServeProbs, getMlbCalibratedServeIndex, registerMlbCalibratedServeIndex }
 

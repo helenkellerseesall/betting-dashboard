@@ -64,7 +64,8 @@ const { buildMlbDecisionBoard } = require("./pipeline/mlb/lanes/buildMlbDecision
 // M7 (2026-06-23): removed dead requires buildMlbBetSelector + buildMlbOomphEngine — 0 call sites, no dynamic invocation. Files kept.
 const { buildMlbSlipEngine } = require("./pipeline/mlb/buildMlbSlipEngine")
 const { buildMlbSpikeEngine } = require("./pipeline/mlb/buildMlbSpikeEngine")
-const { buildMlbPropClusters } = require("./pipeline/mlb/buildMlbPropClusters")
+// 2026-07-05 G1-Serve-1A — injectMlbCalibratedServeProbs added (served-surface calibration).
+const { buildMlbPropClusters, injectMlbCalibratedServeProbs } = require("./pipeline/mlb/buildMlbPropClusters")
 const { buildMlbClusters } = require("./pipeline/mlb/buildMlbClusters")
 const { buildMlbBestProps } = require("./pipeline/mlb/buildMlbBestProps")
 const { scoreMlbProp } = require("./pipeline/mlb/scoreMlbProp")
@@ -6226,14 +6227,30 @@ function buildMlbLiveDualBestAvailablePayload() {
     finalPlayableRows: Array.isArray(finalPlayableRows) ? finalPlayableRows.length : 0
   })
 
+  // 2026-07-05 G1-Serve-1A — inject the BOARD-calibrated prob onto the SERVED +
+  // TRACKED best rows (predictedProbability = calibrated modelProb; modelProbRaw +
+  // calibVersion ride along). COPIES, injected LAST: the intra-payload consumers
+  // above (slip lanes / truth-list score) already ran on the raw rows, so their
+  // composition is untouched this step — only what is served (payload.best) and
+  // persisted (mlb_tracked_best / mlb_picks) changes. OFF ⇒ the injector returns
+  // safeBest unchanged (same reference) ⇒ byte-identical. Join + guards documented
+  // in buildMlbPropClusters.js G1-Serve-1A block.
+  let safeBestServed = safeBest
+  try {
+    if (typeof injectMlbCalibratedServeProbs === "function") safeBestServed = injectMlbCalibratedServeProbs(safeBest)
+  } catch (e) {
+    console.log("[MLB-CALIB-SERVE] skip:", e?.message || e)
+    safeBestServed = safeBest
+  }
+
   // Phase 4: tracking + validation (MLB only). Additive, never breaks payload.
   try {
-    const tracking = recordMlbBestProps(safeBest)
+    const tracking = recordMlbBestProps(safeBestServed)
     console.log("[MLB TRACKING]", tracking)
     const perf = evaluateMlbPerformance()
     console.log("[MLB PERFORMANCE]", perf)
 
-    const picks = recordMlbDailyPicks(safeBest)
+    const picks = recordMlbDailyPicks(safeBestServed)
     console.log("[MLB PICKS]", picks)
     const picksEval = evaluateMlbPicks()
     console.log("[MLB PICKS EVAL]", picksEval)
@@ -6243,7 +6260,7 @@ function buildMlbLiveDualBestAvailablePayload() {
 
   return {
     availableCounts,
-    best: safeBest,
+    best: safeBestServed,
     safe,
     balanced,
     aggressive,

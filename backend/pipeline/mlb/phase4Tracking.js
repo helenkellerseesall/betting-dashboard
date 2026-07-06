@@ -173,6 +173,9 @@ function toTrackedMlbPick(row, { slateDate, timestamp }) {
 
     predictedProbability: row?.predictedProbability ?? null,
     edge: row?.edgeProbability ?? row?.edge ?? null,
+    // 2026-07-05 G1-Serve-1A — calibration stamps on the parallel picks path
+    // (see toTrackedMlbBestEntry). Present IFF upstream injection stamped the row.
+    ...(row?.calibVersion != null ? { calibVersion: row.calibVersion, modelProbRaw: row.modelProbRaw ?? null } : {}),
 
     // Result fields (initially null)
     result: null, // "win" | "loss" | null
@@ -278,6 +281,14 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
     // Conditional spread (displayBundle precedent below) keeps OFF artifacts
     // byte-identical — field ABSENT when policy OFF, never null, never "off".
     ...(row?.tierPolicy != null ? { tierPolicy: row.tierPolicy } : {}),
+    // 2026-07-05 G1-Serve-1A — calibration stamps, present IFF the serve-surface
+    // injection stamped this row (MLB_CALIB_LIVE ON + board join hit); on stamped
+    // rows predictedProbability above IS the calibrated prob and modelProbRaw
+    // preserves the board raw. Conditional spread (tierPolicy precedent): OFF /
+    // unstamped ⇒ keys ABSENT ⇒ byte-identical. Absence of calibVersion on a
+    // persisted row = raw era — that IS the version history; already-persisted
+    // rows are NEVER rewritten (recordMlbBestProps legKey dedupe is append-only).
+    ...(row?.calibVersion != null ? { calibVersion: row.calibVersion, modelProbRaw: row.modelProbRaw ?? null } : {}),
 
     // ── Phase Item 0002 Slice 1 — canonical hydration lift ──────────────
     // (a) game-identity (FE Discover indexing)
@@ -830,6 +841,13 @@ function leanBet(play, date) {
     // (the graded-corpus surface the 14d re-probe filters on). Present IFF
     // upstream stamped it; ABSENT when MLB_BUCKET_TIER_POLICY=0 (byte-identical).
     ...(play?.tierPolicy != null ? { tierPolicy: play.tierPolicy } : {}),
+    // 2026-07-05 G1-Serve-1A — carry the G1 calibration stamps from makePlay onto
+    // tracked_bets (the graded corpus the 14d verify filters on calibVersion — it
+    // was BLIND because this whitelist stripped the stamp even though modelProb
+    // above is already the calibrated value when MLB_CALIB_LIVE is ON). Present
+    // IFF makePlay stamped; OFF ⇒ absent ⇒ byte-identical. Pre-fix persisted rows
+    // are never rewritten — missing calibVersion = raw era, the version history.
+    ...(play?.calibVersion != null ? { calibVersion: play.calibVersion, modelProbRaw: play.modelProbRaw ?? null } : {}),
     // 2026-06-12 T2-L1 — NB shadow-rung ride-along (validation only; never read
     // by scoring). Present IFF upstream attached it; ABSENT when MLB_NB_LADDER=0
     // or no fitted ladder for this batter/line (byte-identical OFF).
@@ -1397,6 +1415,7 @@ function pruneOldTrackingFilesAsync({ keepDays = DEFAULT_PRUNE_KEEP_DAYS } = {})
 }
 module.exports = {
   toTrackedMlbBestEntry, toTrackedMlbPick, // 2026-06-08 Step-2 test export (pure fns; no behavior change)
+  leanBet, // 2026-07-05 G1-Serve-1A test export (pure fn; verifyServedCalibrationInjection stamp-carry assertion)
   readMlbTrackedBestSnapshot,
   recordMlbBestProps,
   evaluateMlbPerformance,
