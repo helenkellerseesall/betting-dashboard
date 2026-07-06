@@ -283,7 +283,13 @@ function stepLedgerSettle(sport, date, extraResults = {}) {
         line: t.line,
         sportsbook: t.sportsbook,
         result: t.result,
-        actualStat: t.actualStat ?? null,
+        // 2026-07-05 SPINE-FIX 2 (operator-approved edit to this PRESERVED file) —
+        // tracked rows carry `actualValue` (gradeTrackedBets writes actualValue,
+        // NOT actualStat — the exact INC-013 field-mapping class). `t.actualStat`
+        // was always undefined here, so the ledger never recorded what the player
+        // actually did. Backward-compatible read (same `actualValue ?? actualStat`
+        // pattern as the INC-013 fix in buildPostGameReview.js classifyBet).
+        actualStat: t.actualValue ?? t.actualStat ?? null,
         payout: t.payout ?? null,
       })
     }

@@ -257,6 +257,68 @@ function matchKeyForBet(bet) {
   return `${player}|${fam}|${side}|${line}|${book}|${market}`
 }
 
+// ── 2026-07-05 SPINE-FIX 4 — moved-line fallback (close-coverage lift) ────────
+// GRADING_RULES §8: null close was honest but LOSSY — when the book moves the
+// line pre-tip (Fanatics 07-04: 418 no-close vs 120 close), the exact tuple
+// vanishes from the snapshot and we recorded nothing. The fallback captures the
+// SAME market (player+family+side+book+marketKey — marketKey KEPT so the
+// alt-vs-main fake-CLV trap from v0.1.4 cannot recur) at its CURRENT line/odds:
+//   - stamped clvQuality="line_moved" + closeLine=<the moved line>;
+//   - bet.clv stays NULL — a CLV number across two different lines is not a
+//     valid CLV (null-preservation doctrine); quality-filtered aggregates
+//     ("positive"/"negative"/"neutral") automatically exclude these rows;
+//   - exact-match close ALWAYS wins: fallback fires only when no close exists,
+//     and a line_moved capture is upgraded by a later exact observation
+//     (see captureEligibility) — an exact capture is never overwritten.
+function buildLooseIndex(rawProps) {
+  const ix = new Map()
+  for (const r of (Array.isArray(rawProps) ? rawProps : [])) {
+    const player = String(r?.player || "").toLowerCase().trim()
+    const fam    = canonFamily(r?.canonicalPropType || r?.statFamily || r?.propType || "")
+    const side   = String(r?.side || "").toLowerCase().trim()
+    const book   = String(r?.book || r?.sportsbook || "").toLowerCase().trim()
+    const market = String(r?.marketKey || "").toLowerCase().trim()
+    if (!player || !fam || !side) continue
+    const key = `${player}|${fam}|${side}|${book}|${market}`
+    if (!ix.has(key)) ix.set(key, [])
+    ix.get(key).push(r)
+  }
+  return ix
+}
+
+function looseKeyForBet(bet) {
+  const player = String(bet?.player || "").toLowerCase().trim()
+  const fam    = canonFamily(bet?.statFamily || bet?.canonicalPropType || bet?.propType || "")
+  const side   = String(bet?.side || "").toLowerCase().trim()
+  const book   = String(bet?.sportsbook || bet?.book || "").toLowerCase().trim()
+  const market = String(bet?.marketKey || "").toLowerCase().trim()
+  return `${player}|${fam}|${side}|${book}|${market}`
+}
+
+// Pick the candidate row whose line is NEAREST the bet's line (ladder markets
+// carry many rungs at once — nearest rung is the honest "where did MY line
+// move to"). Requires: finite bet line, finite candidate line + odds, and the
+// candidate line must DIFFER from the bet's line — a same-line row here means
+// the exact key missed on some other component, and stamping that as
+// "line_moved" would be a lie.
+function pickNearestMovedLine(candidates, betLine) {
+  // Guard order matters: Number(null) === 0 (finite!), so a null/empty bet line
+  // must be rejected explicitly or it would "move" to the line nearest zero.
+  if (betLine == null || betLine === "" || !Array.isArray(candidates)) return null
+  const bl = Number(betLine)
+  if (!Number.isFinite(bl)) return null
+  let best = null, bestGap = Infinity
+  for (const r of candidates) {
+    const rl = Number(r?.line)
+    const ro = Number(r?.odds ?? r?.oddsAmerican)
+    if (!Number.isFinite(rl) || !Number.isFinite(ro)) continue
+    if (rl === bl) continue
+    const gap = Math.abs(rl - bl)
+    if (gap < bestGap) { best = r; bestGap = gap }
+  }
+  return best
+}
+
 /**
  * Decide whether a given bet is in the close-capture window right now.
  * Accepts optional eventTimeMap to recover gameTime when bet.gameTime is null
@@ -264,7 +326,11 @@ function matchKeyForBet(bet) {
  * Returns one of: "in_window", "too_early", "already_captured", "no_game_time", "long_past"
  */
 function captureEligibility(bet, nowMs, eventTimeMap = null) {
-  if (bet.closeOdds != null) return "already_captured"
+  // 2026-07-05 SPINE-FIX 4 — a moved-line (fallback) capture does NOT finalize
+  // the row: it stays eligible inside the window so a LATER exact-tuple
+  // observation can UPGRADE it (exact-match close always wins). An exact-era
+  // capture (clvQuality !== "line_moved") is final and never overwritten.
+  if (bet.closeOdds != null && bet.clvQuality !== "line_moved") return "already_captured"
   const gt = resolveBetGameTime(bet, eventTimeMap)
   if (!gt) return "no_game_time"
   const gtMs = new Date(gt).getTime()
@@ -284,6 +350,7 @@ async function runOnce({ date } = {}) {
   }
   return {
     captured: (sportResults.nba?.captured || 0) + (sportResults.mlb?.captured || 0),
+    capturedMoved: (sportResults.nba?.capturedMoved || 0) + (sportResults.mlb?.capturedMoved || 0),
     scanned:  (sportResults.nba?.scanned  || 0) + (sportResults.mlb?.scanned  || 0),
     nba: sportResults.nba,
     mlb: sportResults.mlb,
@@ -352,9 +419,13 @@ async function runOnceForSport(sport, { date } = {}) {
   }
 
   const ix = buildPropIndex(rawProps)
+  // 2026-07-05 SPINE-FIX 4 — loose index (no line) for the moved-line fallback.
+  const looseIx = buildLooseIndex(rawProps)
   console.log(`[captureClosingLines:${sport}] snapshot rawProps:`, rawProps.length, "indexed:", ix.size, "snapshotAt:", updatedAt)
 
   let captured = 0
+  let capturedMoved = 0
+  let upgraded = 0
   let unmatched = 0
   const matchedKeys = []
   // 2026-05-28 — Lane B Phase 3 v0.1.2 ID mismatch fix #2. stableId is misnamed:
@@ -368,45 +439,86 @@ async function runOnceForSport(sport, { date } = {}) {
     if (elig !== "in_window") continue
     const key = matchKeyForBet(b)
     const live = ix.get(key)
-    if (!live) {
-      unmatched++
+    if (live) {
+      const closeOdds = Number(live.odds ?? live.oddsAmerican)
+      if (!Number.isFinite(closeOdds)) {
+        unmatched++
+        continue
+      }
+      // 2026-07-05 SPINE-FIX 4 — exact match ALWAYS wins: if this row carried a
+      // moved-line fallback capture from an earlier cycle, upgrade it in place.
+      const wasMoved = b.clvQuality === "line_moved"
+      const closeImp = clvMath.impliedFromAmerican(closeOdds)
+      const clv      = clvMath.computeClv({ openOdds: b.openOdds, closeOdds })
+      const quality  = clvMath.clvQualityLabel(clv)
+      b.closeOdds         = closeOdds
+      b.closeObservedAt   = new Date().toISOString()
+      b.closeImpliedProb  = closeImp
+      b.clv               = clv
+      b.clvQuality        = quality
+      if (wasMoved) {
+        // Correct the fallback's closeLine to the bet's own line (exact tuple ⇒
+        // same line). Field kept (not deleted) so once-moved rows stay schema-stable.
+        b.closeLine = (b.line != null ? Number(b.line) : null)
+        upgraded++
+      }
+      captured++
+      matchedKeys.push(`${b.player} ${b.statFamily} ${b.side} ${b.line}: ${b.openOdds}→${closeOdds} clv=${clv?.toFixed(4)} (${quality})${wasMoved ? " [UPGRADED from line_moved]" : ""}`)
+      ledgerClosingEntries.push({
+        sport,
+        date:              b.date,
+        player:            b.player,
+        statFamily:        b.statFamily,
+        side:              b.side,
+        line:              b.line,
+        sportsbook:        b.sportsbook,
+        closingOdds:       closeOdds,
+        closingLine:       (live.line != null ? Number(live.line) : (b.line != null ? Number(b.line) : null)),
+        closingSportsbook: (live.book || live.sportsbook || b.sportsbook || null),
+        closedAt:          b.closeObservedAt,
+      })
       continue
     }
-    const closeOdds = Number(live.odds ?? live.oddsAmerican)
-    if (!Number.isFinite(closeOdds)) {
-      unmatched++
-      continue
+
+    // 2026-07-05 SPINE-FIX 4 — moved-line fallback. Fires ONLY when this bet has
+    // no close at all (a line_moved capture is not refreshed — it waits for an
+    // exact upgrade or keeps its first fallback observation).
+    if (b.closeOdds == null) {
+      const moved = pickNearestMovedLine(looseIx.get(looseKeyForBet(b)), b.line)
+      if (moved) {
+        const movedOdds = Number(moved.odds ?? moved.oddsAmerican)
+        b.closeOdds        = movedOdds
+        b.closeObservedAt  = new Date().toISOString()
+        b.closeImpliedProb = clvMath.impliedFromAmerican(movedOdds)
+        b.closeLine        = Number(moved.line)
+        b.clv              = null            // cross-line CLV is not a valid CLV — null, never fabricated
+        b.clvQuality       = "line_moved"
+        capturedMoved++
+        matchedKeys.push(`${b.player} ${b.statFamily} ${b.side} ${b.line}: line MOVED ${b.line}→${moved.line}, close ${movedOdds} @ moved line (clv=null, line_moved)`)
+        ledgerClosingEntries.push({
+          sport,
+          date:              b.date,
+          player:            b.player,
+          statFamily:        b.statFamily,
+          side:              b.side,
+          line:              b.line,
+          sportsbook:        b.sportsbook,
+          closingOdds:       movedOdds,
+          closingLine:       Number(moved.line),
+          closingSportsbook: (moved.book || moved.sportsbook || b.sportsbook || null),
+          closedAt:          b.closeObservedAt,
+        })
+        continue
+      }
     }
-    const closeImp = clvMath.impliedFromAmerican(closeOdds)
-    const clv      = clvMath.computeClv({ openOdds: b.openOdds, closeOdds })
-    const quality  = clvMath.clvQualityLabel(clv)
-    b.closeOdds         = closeOdds
-    b.closeObservedAt   = new Date().toISOString()
-    b.closeImpliedProb  = closeImp
-    b.clv               = clv
-    b.clvQuality        = quality
-    captured++
-    matchedKeys.push(`${b.player} ${b.statFamily} ${b.side} ${b.line}: ${b.openOdds}→${closeOdds} clv=${clv?.toFixed(4)} (${quality})`)
-    ledgerClosingEntries.push({
-      sport,
-      date:              b.date,
-      player:            b.player,
-      statFamily:        b.statFamily,
-      side:              b.side,
-      line:              b.line,
-      sportsbook:        b.sportsbook,
-      closingOdds:       closeOdds,
-      closingLine:       (live.line != null ? Number(live.line) : (b.line != null ? Number(b.line) : null)),
-      closingSportsbook: (live.book || live.sportsbook || b.sportsbook || null),
-      closedAt:          b.closeObservedAt,
-    })
+    unmatched++
   }
 
-  if (captured > 0) {
+  if (captured > 0 || capturedMoved > 0) {
     // Write back each source file in the window (bet objects are shared refs, so each file's
     // array already carries this run's stamps). Atomic per file. MLB writes its single file as before.
     for (const fb of fileBets) writeJsonAtomic(fb.path, fb.arr)
-    console.log(`[captureClosingLines:${sport}] WROTE`, { date: resolvedDate, captured, unmatched })
+    console.log(`[captureClosingLines:${sport}] WROTE`, { date: resolvedDate, captured, capturedMoved, upgraded, unmatched })
     for (const m of matchedKeys) console.log("  ", m)
     if (_personalLedger && typeof _personalLedger.batchSetClosingLinesByFields === "function") {
       try {
@@ -419,7 +531,7 @@ async function runOnceForSport(sport, { date } = {}) {
   } else {
     console.log(`[captureClosingLines:${sport}] nothing to capture`, { date: resolvedDate, unmatched })
   }
-  return { captured, scanned: bets.length, unmatched, sport }
+  return { captured, capturedMoved, upgraded, scanned: bets.length, unmatched, sport }
 }
 
 /**
@@ -462,4 +574,8 @@ module.exports = {
   matchKeyForBet,
   buildEventTimeMap,
   resolveBetGameTime,
+  // 2026-07-05 SPINE-FIX 4 — moved-line fallback units (fixture exports)
+  buildLooseIndex,
+  looseKeyForBet,
+  pickNearestMovedLine,
 }

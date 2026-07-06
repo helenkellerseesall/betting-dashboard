@@ -9,23 +9,112 @@
  *
  * Two modes:
  *
- *   SINGLE LEG:
+ *   SINGLE LEG (--sport / --book / --stat / --side / --line all REQUIRED + validated):
  *     node backend/scripts/addPlacedBet.js single \
- *       --sport=nba --player="Victor Wembanyama" --stat=rebounds \
- *       --line=12.5 --side=under --odds=-110 --book=fanduel --stake=5
+ *       --sport=mlb --player="Juan Soto" --stat=totalBases \
+ *       --line=1.5 --side=over --odds=-115 --book=fanduel --stake=5
  *
  *   PARLAY (multiple legs as a single entry):
- *     node backend/scripts/addPlacedBet.js parlay --stake=5 --odds=656 --book=fanduel \
- *       --leg="Shai Gilgeous-Alexander|rebounds|3.5|under" \
- *       --leg="Victor Wembanyama|rebounds|12.5|under" \
- *       --leg="Alex Caruso|points_rebounds_assists|17.5|under"
+ *     node backend/scripts/addPlacedBet.js parlay --sport=mlb --stake=5 --odds=656 --book=fanduel \
+ *       --leg="Juan Soto|totalBases|1.5|over" \
+ *       --leg="Aaron Judge|hits|1.5|over"
+ *
+ *   Add --dry-run to preview the exact row (incl. tuple stamps) without writing.
+ *
+ * 2026-07-05 SPINE-FIX 1 (GRADING_RULES.md §9): --sport is REQUIRED (the old
+ * silent nba default made MLB bets unsettleable); --stat validated against the
+ * canonical MLB tokens; --book validated + canonicalized to the tracked-row
+ * display string; on add, the bet's tuple is looked up in today's tracked board
+ * picks and the ledger row auto-stamped with calibVersion / modelProb /
+ * modelProbRaw / selectionPolicy when matched; a LOUD warning fires when no
+ * tuple match (bet will not auto-settle — manual settle via settlePlacedBet.js).
  *
  * Writes to backend/runtime/tracking/personal_ledger.json.
  */
 
+const fs = require("fs")
 const path = require("path")
-const { addOrUpdateBet } = require("../pipeline/shared/buildPersonalLedger")
+const { addOrUpdateBet, stableId } = require("../pipeline/shared/buildPersonalLedger")
 const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+
+// ── 2026-07-05 SPINE-FIX 1 (GRADING_RULES.md §9 — the v1 placement contract) ──
+// A placed bet auto-settles + auto-CLVs ONLY when its tuple exactly matches a
+// tracked row. Silent defaults broke that: --sport defaulted to "nba" (an MLB
+// bet recorded as nba NEVER settles), --stat/"?" and free-text --book produced
+// tuples nothing matches. All three are now validated LOUDLY at add time.
+const VALID_SPORTS = ["mlb", "nba"]
+// Canonical MLB statFamily tokens — must match tracked_bets rows byte-exactly
+// (verified against runtime/tracking/mlb_tracked_bets_2026-07-05.json).
+const MLB_STAT_TOKENS = ["runs", "hr", "hits", "ks", "rbis", "totalBases"]
+// Known books → the canonical display string tracked rows carry (sportsbook
+// field, verified same file: "FanDuel"/"DraftKings"/"Fanatics"/"Hard Rock Bet").
+const KNOWN_BOOKS = {
+	fanduel: "FanDuel",
+	draftkings: "DraftKings",
+	fanatics: "Fanatics",
+	betmgm: "BetMGM",
+	hardrock: "Hard Rock Bet",
+	hardrockbet: "Hard Rock Bet",
+	betrivers: "BetRivers",
+}
+function canonBook(input) {
+	const k = String(input || "").toLowerCase().replace(/[^a-z]/g, "")
+	return KNOWN_BOOKS[k] || null
+}
+function canonMlbStat(input) {
+	const want = String(input || "").toLowerCase()
+	return MLB_STAT_TOKENS.find((t) => t.toLowerCase() === want) || null
+}
+function reject(msg) {
+	console.error(`[addPlacedBet] REJECTED: ${msg}`)
+	process.exit(1)
+}
+
+// Tuple lookup against today's tracked board picks (mlb_tracked_bets_<slate>.json —
+// written from the calibrated board every slate run). On a hit we auto-stamp the
+// ledger row with the pick's version stamps (GRADING_RULES §7: history is
+// interpreted by its stamps). Absence of a stamp on the tracked row = raw era —
+// we stamp only what exists, never invent (anti-fabrication).
+function lookupTrackedPick({ sport, date, player, statFamily, side, line, sportsbook }) {
+	if (sport !== "mlb") return null
+	const p = path.join(__dirname, "..", "runtime", "tracking", `mlb_tracked_bets_${date}.json`)
+	let rows = []
+	try { if (fs.existsSync(p)) rows = JSON.parse(fs.readFileSync(p, "utf8")) } catch (_) { rows = [] }
+	if (!Array.isArray(rows)) return null
+	const normP = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+	const hit = rows.find((t) =>
+		t &&
+		normP(t.player) === normP(player) &&
+		String(t.statFamily) === String(statFamily) &&
+		String(t.side || "").toLowerCase() === String(side || "").toLowerCase() &&
+		Number(t.line) === Number(line) &&
+		String(t.sportsbook || "").toLowerCase() === String(sportsbook || "").toLowerCase()
+	)
+	return hit || null
+}
+
+function stampFromTracked(bet, t) {
+	if (!t) return false
+	// Stamp ONLY fields that exist on the tracked pick — never invent.
+	if (t.calibVersion != null) bet.calibVersion = t.calibVersion
+	if (Number.isFinite(Number(t.modelProb))) bet.modelProb = Number(t.modelProb)
+	if (t.modelProbRaw != null) bet.modelProbRaw = t.modelProbRaw
+	const policy = t.selectionPolicy ?? t.tierPolicy ?? null
+	if (policy != null) bet.selectionPolicy = policy
+	if (t.tier != null) bet.tier = t.tier
+	if (t.id != null) bet.matchedTrackedId = t.id
+	return true
+}
+
+function warnNoTupleMatch(bet) {
+	console.warn("")
+	console.warn("  ⚠⚠⚠ NO TUPLE MATCH in today's tracked board picks ⚠⚠⚠")
+	console.warn(`  (${bet.player} | ${bet.statFamily} | ${bet.side} | ${bet.line} | ${bet.sportsbook} | ${bet.date})`)
+	console.warn("  This bet will NOT auto-settle and will NOT get auto-CLV (GRADING_RULES.md §9).")
+	console.warn("  Check player spelling / stat / side / line / book against the board pick,")
+	console.warn("  or settle it manually later: node backend/scripts/settlePlacedBet.js --list")
+	console.warn("")
+}
 
 function parseArgs(argv) {
 	const mode = argv[2]
@@ -63,6 +152,19 @@ function americanOddsToPayoutMultiple(odds) {
 	return 100 / Math.abs(n)
 }
 
+// 2026-07-05 SPINE-FIX 1 — shared validation for both modes. Kills the silent
+// nba default (--sport now REQUIRED) and free-text books. Rejections list the
+// valid values so the operator can fix the command without a doc lookup.
+function validateCommonOrReject(o) {
+	const sport = String(o.sport || "").toLowerCase()
+	if (!sport) reject(`--sport is REQUIRED (no default — an MLB bet recorded as nba never settles). Valid: ${VALID_SPORTS.join(", ")}`)
+	if (!VALID_SPORTS.includes(sport)) reject(`--sport="${o.sport}" is not valid. Valid: ${VALID_SPORTS.join(", ")}`)
+	const book = canonBook(o.book)
+	if (!o.book) reject(`--book is REQUIRED. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)`)
+	if (!book) reject(`--book="${o.book}" is not a known book. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)`)
+	return { sport, book }
+}
+
 function makeSingleLeg(args) {
 	const o = args.opts
 	const stake = Number(o.stake)
@@ -72,19 +174,35 @@ function makeSingleLeg(args) {
 		console.error("[addPlacedBet] single requires --player, --stake, --odds")
 		process.exit(1)
 	}
+	const { sport, book } = validateCommonOrReject(o)
+	// 2026-07-05 SPINE-FIX 1 — stat/side/line validated so the tuple can match
+	// (GRADING_RULES §9). MLB stats are the closed canonical token set; NBA
+	// (off-season) passes through unvalidated.
+	let statFamily = o.stat
+	if (sport === "mlb") {
+		statFamily = canonMlbStat(o.stat)
+		if (!statFamily) reject(`--stat="${o.stat}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")} (case-insensitive)`)
+	} else if (!statFamily) {
+		reject(`--stat is REQUIRED`)
+	}
+	const side = String(o.side || "").toLowerCase()
+	if (!["over", "under", "yes", "no"].includes(side)) reject(`--side="${o.side || ""}" must be one of: over, under, yes, no`)
+	const line = Number(o.line)
+	if (!Number.isFinite(line)) reject(`--line="${o.line || ""}" must be a number`)
+
 	// Phase Date-Doctrine-1B — canonical ET slate date
 	const today = currentSlateDateEt()
 	const bet = {
 		date: today,
-		sport: o.sport || "nba",
-		sportsbook: o.book || "unknown",
+		sport,
+		sportsbook: book,
 		betType: "single",
 		player,
 		matchup: o.matchup || null,
-		statFamily: o.stat || "?",
-		prop: `${o.stat} ${o.side} ${o.line}`,
-		side: (o.side || "over").toLowerCase(),
-		line: Number(o.line),
+		statFamily,
+		prop: `${statFamily} ${side} ${line}`,
+		side,
+		line,
 		odds,
 		stake,
 		toWin: Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2)),
@@ -95,6 +213,27 @@ function makeSingleLeg(args) {
 		result: "pending",
 		settledAt: null,
 		payout: null,
+		notes: o.notes || null, // 2026-07-06 SPINE-FIX 1 — single-mode notes (parlay already had it); e2e/test rows self-identify
+	}
+	// Deterministic id up-front (same formula normalizeBet uses) so the operator
+	// sees the id they'd pass to settlePlacedBet.js — no more undefined print.
+	bet.id = stableId(bet.sport, bet.date, bet.player, bet.statFamily, bet.side, bet.line, bet.sportsbook)
+
+	// 2026-07-05 SPINE-FIX 1 — tuple auto-stamp from the served/tracked board pick
+	// (possible since G1-Serve-1A stamps landed on tracked rows).
+	const t = lookupTrackedPick(bet)
+	if (t) {
+		stampFromTracked(bet, t)
+		console.log(`[addPlacedBet] tuple MATCHED tracked pick ${t.id || "(no id)"} — stamped:`, {
+			calibVersion: bet.calibVersion ?? null,
+			modelProb: bet.modelProb ?? null,
+			modelProbRaw: bet.modelProbRaw ?? null,
+			selectionPolicy: bet.selectionPolicy ?? null,
+			tier: bet.tier ?? null,
+		})
+		if (bet.calibVersion == null) console.warn("[addPlacedBet] note: matched pick carries NO calibVersion (raw-era or pre-injection row) — stamped what exists, invented nothing.")
+	} else if (sport === "mlb") {
+		warnNoTupleMatch(bet)
 	}
 	return [bet]
 }
@@ -107,6 +246,26 @@ function makeParlay(args) {
 		console.error("[addPlacedBet] parlay requires --stake, --odds, and ≥2 --leg=player|stat|line|side")
 		process.exit(1)
 	}
+	const { sport, book } = validateCommonOrReject(o)
+	// 2026-07-05 SPINE-FIX 1 — validate + canonicalize each leg's statFamily on
+	// MLB (same closed token set); stamp each leg from its tracked pick when the
+	// tuple matches (per-leg stamps only — no combined-parlay stamp is invented).
+	const today0 = currentSlateDateEt()
+	for (const l of args.legs) {
+		if (sport === "mlb") {
+			const tok = canonMlbStat(l.statFamily)
+			if (!tok) reject(`leg "${l.player}" --stat="${l.statFamily}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")}`)
+			l.statFamily = tok
+		}
+		if (!["over", "under", "yes", "no"].includes(l.side)) reject(`leg "${l.player}" side="${l.side}" must be one of: over, under, yes, no`)
+		const t = lookupTrackedPick({ sport, date: today0, player: l.player, statFamily: l.statFamily, side: l.side, line: l.line, sportsbook: book })
+		if (t) {
+			stampFromTracked(l, t)
+			console.log(`[addPlacedBet] leg tuple MATCHED: ${l.player} ${l.statFamily} ${l.side} ${l.line} (calibVersion: ${l.calibVersion ?? "none"})`)
+		} else if (sport === "mlb") {
+			console.warn(`[addPlacedBet] ⚠ leg NO tuple match: ${l.player} ${l.statFamily} ${l.side} ${l.line} @ ${book} — leg will NOT auto-settle (GRADING_RULES §9)`)
+		}
+	}
 	// Phase Date-Doctrine-1B — canonical ET slate date
 	const today = currentSlateDateEt()
 	const toWin = Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2))
@@ -114,8 +273,8 @@ function makeParlay(args) {
 	const parlay = {
 		id: `placed_parlay_${Date.now()}`,
 		date: today,
-		sport: o.sport || "nba",
-		sportsbook: o.book || "unknown",
+		sport,           // 2026-07-05 SPINE-FIX 1 — validated, no silent nba default
+		sportsbook: book, // canonical display string (matches tracked rows)
 		betType: "parlay",
 		player: "PARLAY",
 		matchup: o.matchup || null,
@@ -150,7 +309,15 @@ async function main() {
 		process.exit(1)
 	}
 	const bets = args.mode === "single" ? makeSingleLeg(args) : makeParlay(args)
+	// 2026-07-05 SPINE-FIX 1 — --dry-run: validate + tuple-stamp + print WITHOUT
+	// writing the ledger (fixture-safe + lets the operator preview the exact row).
+	const dryRun = "dry-run" in args.opts || process.argv.includes("--dry-run")
 	for (const b of bets) {
+		if (dryRun) {
+			console.log("[addPlacedBet] DRY RUN — nothing written. Row that WOULD be added:")
+			console.log(JSON.stringify(b, null, 2))
+			continue
+		}
 		const r = addOrUpdateBet(b)
 		console.log("[addPlacedBet] added:", b.betType, b.player || b.prop)
 		console.log("  id:        ", b.id)
