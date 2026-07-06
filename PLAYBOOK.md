@@ -274,3 +274,9 @@ If memory contradicts this file, fix the contradiction immediately (binding doct
 If something doesn't work and the command in this file looks right but fails, the doctrine is: **verify against current code state first** (file exists? command in package.json? backend listening on expected port?). Don't trust this file blindly — it's a snapshot. The repo + runtime are authoritative.
 
 Then update this file to match reality. PLAYBOOK is a living artifact.
+
+## OPERATOR DAILY RHYTHM — bet era (2026-07-06, GRADING_RULES v1 LOCKED)
+Machine (automatic): hourly odds+board 9AM-11PM ET · 6AM pitcher-opener snapshot · 4AM grading · 5AM audit · CLV capture 5-min loop pre-game.
+Operator (~10 min/day): /status green check -> after ~10AM pick 1-5 CALIBRATED-STAMPED singles off /m -> $5 flat at the listed book -> record each via addPlacedBet (until the /m record button ships) -> next day glance at CLV. Singles only until G2-G4 graduate. Scratched player = void via settlePlacedBet.
+CA (each pass): read-first -> verify latest land -> keep docket moving -> operator messages in 3-part plain format.
+Weekly: CLV scoreboard review -> decide next build. Scale stakes ONLY on proven CLV (90d/~300 bets), never on streaks.

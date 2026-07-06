@@ -1,6 +1,6 @@
 # GRADING RULES — locked settlement semantics for the durable bet record
 
-**Status: DRAFT v1 (2026-07-05, CA) — becomes LOCKED on operator approval.**
+**Status: LOCKED v1 (operator approved 2026-07-06). Changes require a new versioned revision applying to future bets only.**
 Once locked, these rules only change by a new versioned revision (v2, v3...) applying to FUTURE bets. Settled rows are never regraded under new rules.
 
 Every rule below was extracted from the actual grading code (gradeTrackedBets.js `settleFromActual`, fetchMlbGameResults.js, buildPersonalLedger.js settle paths) — this documents what the system DOES, with known divergences from book behavior flagged honestly.

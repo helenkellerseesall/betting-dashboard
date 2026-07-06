@@ -6806,3 +6806,5 @@ NOTE: prior 3 commits were not on origin (push not landing) — this fence pushe
 NEXT_EXPECTED_FROM_PEER: CB posts SPINE-FIX diff (already mid-build in tree) -> operator + CA review -> land -> operator first flat bets on stamped rows; CC angles (origination-weighted consensus, morning window, promo EV, exchange access) queued behind bet-ready.
 
 ## 2026-07-06 00:48 ET — Claude-A [protocol] — turn-based handoff loop codified (operator mandate); CB mid-SPINE-FIX; awaiting its diff+ASK
+
+## 2026-07-06 04:06 ET — Claude-A [lock+orientation] — GRADING_RULES v1 LOCKED (operator approved); daily rhythm codified in PLAYBOOK; docket 3 CLOSED, docket 4 (first bets) live after CA morning stamp verification
