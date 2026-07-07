@@ -256,40 +256,72 @@ function makeSingleLeg(args) {
 	return [bet]
 }
 
-function makeParlay(args) {
-	const o = args.opts
+// 2026-07-07 DEEPLINK-2B — the parlay build/validate/stamp CORE, extracted like
+// buildValidatedSingleBet (ONE owner; CLI + /api/ws/place-bet parlay mode share
+// it). Errors return, never exit. Per-leg tuple stamps where matched. The id is
+// now DETERMINISTIC (fnv32 over sport|date|book|sorted legs) so a double-tap
+// upserts instead of duplicating — the old `placed_parlay_${Date.now()}` id
+// duplicated on every re-run (CLI included); this fixes both entry points.
+function _fnv32(s) {
+	let h = 2166136261 >>> 0
+	for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+	return (h >>> 0).toString(16)
+}
+function buildValidatedParlayBet(o = {}, legsIn = []) {
 	const stake = Number(o.stake)
 	const odds = Number(o.odds)
-	if (!args.legs.length || !stake || !odds) {
-		console.error("[addPlacedBet] parlay requires --stake, --odds, and ≥2 --leg=player|stat|line|side")
-		process.exit(1)
-	}
-	const { sport, book } = validateCommonOrReject(o)
-	// 2026-07-05 SPINE-FIX 1 — validate + canonicalize each leg's statFamily on
-	// MLB (same closed token set); stamp each leg from its tracked pick when the
-	// tuple matches (per-leg stamps only — no combined-parlay stamp is invented).
-	const today0 = currentSlateDateEt()
-	for (const l of args.legs) {
+	const legs = Array.isArray(legsIn) ? legsIn.map((l) => ({ ...l })) : []
+	if (!legs.length || !stake || !odds) return { ok: false, error: "parlay requires --stake, --odds, and ≥2 --leg=player|stat|line|side" }
+	if (legs.length < 2) return { ok: false, error: "parlay requires ≥2 legs" }
+	const sport = String(o.sport || "").toLowerCase()
+	if (!sport) return { ok: false, error: `--sport is REQUIRED (no default — an MLB bet recorded as nba never settles). Valid: ${VALID_SPORTS.join(", ")}` }
+	if (!VALID_SPORTS.includes(sport)) return { ok: false, error: `--sport="${o.sport}" is not valid. Valid: ${VALID_SPORTS.join(", ")}` }
+	const book = canonBook(o.book)
+	if (!o.book) return { ok: false, error: `--book is REQUIRED. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
+	if (!book) return { ok: false, error: `--book="${o.book}" is not a known book. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
+
+	const today = currentSlateDateEt()
+	const legNotes = []
+	for (const l of legs) {
+		l.side = String(l.side || "").toLowerCase()
 		if (sport === "mlb") {
 			const tok = canonMlbStat(l.statFamily)
-			if (!tok) reject(`leg "${l.player}" --stat="${l.statFamily}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")}`)
+			if (!tok) return { ok: false, error: `leg "${l.player}" --stat="${l.statFamily}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")}` }
 			l.statFamily = tok
 		}
-		if (!["over", "under", "yes", "no"].includes(l.side)) reject(`leg "${l.player}" side="${l.side}" must be one of: over, under, yes, no`)
-		const t = lookupTrackedPick({ sport, date: today0, player: l.player, statFamily: l.statFamily, side: l.side, line: l.line, sportsbook: book })
-		if (t) {
-			stampFromTracked(l, t)
-			console.log(`[addPlacedBet] leg tuple MATCHED: ${l.player} ${l.statFamily} ${l.side} ${l.line} (calibVersion: ${l.calibVersion ?? "none"})`)
-		} else if (sport === "mlb") {
-			console.warn(`[addPlacedBet] ⚠ leg NO tuple match: ${l.player} ${l.statFamily} ${l.side} ${l.line} @ ${book} — leg will NOT auto-settle (GRADING_RULES §9)`)
-		}
+		if (!["over", "under", "yes", "no"].includes(l.side)) return { ok: false, error: `leg "${l.player}" side="${l.side}" must be one of: over, under, yes, no` }
+		if (!Number.isFinite(Number(l.line))) return { ok: false, error: `leg "${l.player}" line="${l.line}" must be a number` }
+		const t = lookupTrackedPick({ sport, date: today, player: l.player, statFamily: l.statFamily, side: l.side, line: l.line, sportsbook: book })
+		if (t) { stampFromTracked(l, t); legNotes.push({ leg: l.player, matched: true, calibVersion: l.calibVersion ?? null }) }
+		else legNotes.push({ leg: l.player, matched: false })
 	}
+	const legKeyStr = legs.map((l) => `${String(l.player).toLowerCase()}|${l.statFamily}|${l.side}|${Number(l.line)}`).sort().join("~")
+	const id = `placed_parlay_${_fnv32(`${sport}|${today}|${book}|${legKeyStr}`)}`
+	return { ok: true, id, sport, book, today, legs, legNotes, stake, odds }
+}
+
+function makeParlay(args) {
+	const r = buildValidatedParlayBet(args.opts, args.legs)
+	if (!r.ok) {
+		if (/parlay requires/.test(r.error)) { console.error(`[addPlacedBet] ${r.error}`); process.exit(1) }
+		reject(r.error)
+	}
+	const { sport, book, legs } = r
+	const o = args.opts
+	for (const n of r.legNotes) {
+		const l = legs.find((x) => x.player === n.leg)
+		if (n.matched) console.log(`[addPlacedBet] leg tuple MATCHED: ${l.player} ${l.statFamily} ${l.side} ${l.line} (calibVersion: ${l.calibVersion ?? "none"})`)
+		else if (sport === "mlb") console.warn(`[addPlacedBet] ⚠ leg NO tuple match: ${l.player} ${l.statFamily} ${l.side} ${l.line} @ ${book} — leg will NOT auto-settle (GRADING_RULES §9)`)
+	}
+	args.legs = legs // canonicalized + stamped legs flow into the parlay object below
+	const stake = r.stake
+	const odds = r.odds
 	// Phase Date-Doctrine-1B — canonical ET slate date
 	const today = currentSlateDateEt()
 	const toWin = Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2))
 	const legSummary = args.legs.map((l) => `${l.player.split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
 	const parlay = {
-		id: `placed_parlay_${Date.now()}`,
+		id: r.id, // 2026-07-07 DEEPLINK-2B — deterministic (was Date.now(): duplicated on re-run)
 		date: today,
 		sport,           // 2026-07-05 SPINE-FIX 1 — validated, no silent nba default
 		sportsbook: book, // canonical display string (matches tracked rows)
@@ -360,6 +392,8 @@ module.exports = {
 	// 2026-07-07 EXEC-CARD — the ONE single-bet build/validate/stamp owner, shared
 	// by this CLI and workstationRoutes POST /api/ws/place-bet.
 	buildValidatedSingleBet,
+	// 2026-07-07 DEEPLINK-2B — parlay core (same doctrine, parlay mode).
+	buildValidatedParlayBet,
 	lookupTrackedPick,
 	canonBook,
 	canonMlbStat,

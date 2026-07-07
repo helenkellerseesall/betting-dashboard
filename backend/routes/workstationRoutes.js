@@ -2149,7 +2149,53 @@ router.post("/ledger/grade", express.json(), (req, res) => {
 router.post("/place-bet", express.json(), (req, res) => {
   try {
     const body = req.body && typeof req.body === "object" ? req.body : {}
-    const { buildValidatedSingleBet, canonMlbStat } = require("../scripts/addPlacedBet")
+    const { buildValidatedSingleBet, buildValidatedParlayBet, canonMlbStat } = require("../scripts/addPlacedBet")
+
+    // 2026-07-07 DEEPLINK-2B — parlay mode: reuses the EXISTING addPlacedBet
+    // parlay path (buildValidatedParlayBet — legs validated + canonicalized,
+    // per-leg tuple stamps where matched, deterministic id ⇒ duplicate-tap safe).
+    // Recording NEVER depends on linking: this works with an empty link matrix.
+    if (String(body.mode || "") === "parlay") {
+      const legsIn = (Array.isArray(body.legs) ? body.legs : []).map((l) => ({
+        player: l?.player,
+        statFamily: l?.stat || l?.statFamily || (() => {
+          try { return require("../pipeline/mlb/buildMlbPropClusters").resolveStatFamily({ propType: l?.propType || null, marketKey: l?.marketKey || null }) } catch (_) { return null }
+        })(),
+        line: l?.line,
+        side: l?.side,
+      }))
+      const pr = buildValidatedParlayBet({
+        sport: body.sport, book: body.book || body.sportsbook,
+        stake: body.stake, odds: body.odds, notes: body.notes || "placed via /m slip tray",
+      }, legsIn)
+      if (!pr.ok) return res.status(400).json({ ok: false, error: pr.error })
+      const mods0 = loadSharedModules()
+      const dup = (mods0.ledger.loadLedger().bets || []).find((b) => b && b.id === pr.id)
+      if (dup && (dup.decisionType === "placed" || dup.realMoney === true)) {
+        return res.json({ ok: false, reason: "already_recorded", bet: { id: dup.id, prop: dup.prop, stake: dup.stake, placedAt: dup.placedAt, result: dup.result } })
+      }
+      const legSummary = pr.legs.map((l) => `${String(l.player).split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
+      const toWin = Number((pr.stake * (pr.odds > 0 ? pr.odds / 100 : 100 / Math.abs(pr.odds))).toFixed(2))
+      const parlay = {
+        id: pr.id, date: pr.today, sport: pr.sport, sportsbook: pr.book, betType: "parlay",
+        player: "PARLAY", matchup: null, statFamily: "parlay", prop: legSummary, side: "parlay",
+        line: null, odds: pr.odds, stake: pr.stake, toWin,
+        impliedProb: pr.odds > 0 ? 100 / (pr.odds + 100) : Math.abs(pr.odds) / (Math.abs(pr.odds) + 100),
+        decisionType: "placed", realMoney: true, placedAt: new Date().toISOString(),
+        legs: pr.legs.map((l) => ({ ...l, result: "pending", settledAt: null })),
+        result: "pending", settledAt: null, payout: null, notes: body.notes || "placed via /m slip tray",
+      }
+      const w = mods0.ledger.addOrUpdateBet(parlay)
+      const unmatched = pr.legNotes.filter((n) => !n.matched).length
+      return res.json({
+        ok: true, isNew: !!w?.isNew,
+        bet: { id: parlay.id, date: parlay.date, sportsbook: parlay.sportsbook, prop: parlay.prop, odds: parlay.odds, stake: parlay.stake, toWin: parlay.toWin },
+        legNotes: pr.legNotes,
+        warning: unmatched > 0
+          ? `${unmatched} of ${pr.legs.length} legs had NO TUPLE MATCH — those legs will NOT auto-settle (GRADING_RULES §9); parlays settle manually via settlePlacedBet.js either way (§5).`
+          : "Parlay recorded. Parlays settle manually via settlePlacedBet.js (book settlement authoritative, GRADING_RULES §5).",
+      })
+    }
 
     // Accept stat token OR display propType ("Total Bases" → totalBases) — cards
     // carry both; resolve via the canonical family resolver (Law 1, no new map).
@@ -2211,6 +2257,24 @@ router.post("/place-bet", express.json(), (req, res) => {
     })
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
+ * 2026-07-07 DEEPLINK-2A — GET /api/ws/deeplink-matrix: serve the operator's
+ * verified link matrix (backend/config/deeplinkMatrix.json) to the /m FE.
+ * READ-ONLY; fresh read per call (operator edits the file, no restart needed).
+ * The matrix is THE gate: all books ship disabled; the FE renders NO link for a
+ * disabled book, no composed slip for anything below confirmed/verified, and
+ * never renders a link with an unfilled {state} placeholder.
+ */
+router.get("/deeplink-matrix", (req, res) => {
+  try {
+    const p = path.join(__dirname, "..", "config", "deeplinkMatrix.json")
+    const j = JSON.parse(fs.readFileSync(p, "utf8"))
+    res.json({ ok: true, books: j.books || {} })
+  } catch (err) {
+    res.json({ ok: true, books: {}, note: "matrix unreadable — links disabled (record-only)" })
   }
 })
 

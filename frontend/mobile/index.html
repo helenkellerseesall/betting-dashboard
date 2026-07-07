@@ -2726,10 +2726,17 @@
       if (!p || !p.player) return "";
       return `
         <div style="border-top:1px solid #1B2030;margin-top:10px;padding-top:10px;">
+          ${_renderOpenInBook(p)}
+          <div style="display:flex;gap:8px;">
           <button id="pb-open" onclick="window._pbOpen()"
-            style="width:100%;padding:9px 0;border-radius:8px;border:1px solid #14532D;background:rgba(52,211,153,0.10);color:#34D399;font-size:13px;font-weight:700;cursor:pointer;">
+            style="flex:1;padding:9px 0;border-radius:8px;border:1px solid #14532D;background:rgba(52,211,153,0.10);color:#34D399;font-size:13px;font-weight:700;cursor:pointer;">
             💵 I bet this
           </button>
+          <button onclick="window._slipAdd()"
+            style="flex:0 0 auto;padding:9px 14px;border-radius:8px;border:1px solid #1E3A8A;background:rgba(96,165,250,0.10);color:#60A5FA;font-size:13px;font-weight:700;cursor:pointer;">
+            ＋ Slip
+          </button>
+          </div>
           <div id="pb-form" style="display:none;margin-top:8px;">
             <div style="display:flex;gap:6px;align-items:center;">
               <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
@@ -2805,6 +2812,204 @@
       } catch (err) {
         out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(err?.message || err))}</div>`;
         btnEl.disabled = false; btnEl.textContent = "Confirm — retry";
+      }
+    };
+
+    // ── 2026-07-07 DEEPLINK-2A/2B — open-in-book links + slip tray ───────────
+    // EVERY link renders only through the operator's verified matrix
+    // (/api/ws/deeplink-matrix ← backend/config/deeplinkMatrix.json — all books
+    // ship DISABLED). Composed multi-leg links additionally require multiStatus
+    // confirmed/verified + same book + CROSS-GAME legs only (SGP is a different
+    // pricing engine — explicitly out of v1). Recording NEVER depends on links.
+    window._dlMatrix = null;
+    (async function _dlLoadMatrix() {
+      try {
+        const r = await fetch(`${API}/api/ws/deeplink-matrix`);
+        const d = await r.json();
+        window._dlMatrix = (d && d.books) || {};
+      } catch (_) { window._dlMatrix = {}; }
+    })();
+    function _dlBookKey(display) {
+      const k = String(display || "").toLowerCase().replace(/[^a-z]/g, "");
+      return k === "hardrock" ? "hardrockbet" : k;
+    }
+    function _dlBookCfg(display) {
+      const m = window._dlMatrix || {};
+      return m[_dlBookKey(display)] || null;
+    }
+    // Fill vendor placeholders. Unfilled {state} ⇒ null (never render a broken link).
+    function _dlFill(url, cfg, opts = {}) {
+      if (!url) return null;
+      let u = String(url);
+      if (/\{state\}/.test(u)) {
+        if (!cfg || !cfg.state) return null;
+        u = u.split("{state}").join(cfg.state);
+      }
+      u = u.split("{pickType}").join(opts.pickType || "single");
+      u = u.split("{wagerAmount}").join(""); // NEVER prefill stakes (survival doctrine)
+      if (/\{[a-zA-Z]+\}/.test(u)) return null; // any other unfilled placeholder ⇒ hide
+      return u;
+    }
+    function _renderOpenInBook(p) {
+      const cfg = _dlBookCfg(p.sportsbook || p.book);
+      if (!cfg || !cfg.enabled || !p.betLink) return "";
+      const url = _dlFill(p.betLink, cfg);
+      if (!url) return "";
+      return `
+        <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+           style="display:block;text-align:center;margin-bottom:8px;padding:9px 0;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.10);color:#A78BFA;font-size:13px;font-weight:700;text-decoration:none;">
+          ↗ Open in ${escapeHtml(p.sportsbook || p.book)} (adds this pick to the betslip)
+        </a>`;
+    }
+
+    // ── slip tray (cross-game multi-leg; 2B) ─────────────────────────────────
+    window._slipTray = [];
+    window._slipAdd = function () {
+      const p = window._pbCurrentPick;
+      if (!p) return;
+      const key = `${p.player}|${p.statFamily}|${p.side}|${p.line}|${p.sportsbook || p.book}`;
+      if (window._slipTray.some((x) => x._key === key)) { _slipRenderBar(); return; }
+      if (window._slipTray.length >= 6) { alert("Slip tray is full (6 legs max)"); return; }
+      window._slipTray.push({ ...p, _key: key });
+      _slipRenderBar();
+      document.getElementById("v2-modal")?.classList.remove("open");
+    };
+    window._slipRemove = function (i) {
+      window._slipTray.splice(i, 1);
+      _slipRenderBar();
+      window._slipShowPanel && document.getElementById("slip-panel") && window._slipOpenPanel();
+    };
+    function _slipEnsureBar() {
+      let bar = document.getElementById("slip-bar");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.id = "slip-bar";
+        bar.style.cssText = "position:fixed;left:10px;right:10px;bottom:64px;z-index:60;display:none;";
+        document.body.appendChild(bar);
+      }
+      return bar;
+    }
+    function _slipRenderBar() {
+      const bar = _slipEnsureBar();
+      const n = window._slipTray.length;
+      if (!n) { bar.style.display = "none"; bar.innerHTML = ""; return; }
+      bar.style.display = "block";
+      bar.innerHTML = `
+        <div onclick="window._slipOpenPanel()" style="background:#1E293B;border:1px solid #334155;border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.5);">
+          <span style="color:#F9FAFB;font-size:13px;font-weight:700;">🧾 Slip: ${n} leg${n === 1 ? "" : "s"}</span>
+          <span style="color:#60A5FA;font-size:12px;">view ▾</span>
+        </div>
+        <div id="slip-panel"></div>`;
+    }
+    function _slipAmerFromDec(dec) {
+      if (!Number.isFinite(dec) || dec <= 1) return null;
+      return dec >= 2 ? `+${Math.round((dec - 1) * 100)}` : `${Math.round(-100 / (dec - 1))}`;
+    }
+    window._slipOpenPanel = function () {
+      const panel = document.getElementById("slip-panel");
+      if (!panel) return;
+      const legs = window._slipTray;
+      const books = [...new Set(legs.map((l) => _dlBookKey(l.sportsbook || l.book)))];
+      const sameBook = books.length === 1;
+      const events = [...new Set(legs.map((l) => String(l.eventId || "")))];
+      const crossGame = events.length === legs.length && !events.includes("");
+      let dec = 1;
+      for (const l of legs) { const o = Number(l.oddsAmerican ?? l.odds); dec *= o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o); }
+      const amer = _slipAmerFromDec(dec);
+      const legRows = legs.map((l, i) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1B2030;">
+          <span style="font-size:12px;color:#F9FAFB;">${escapeHtml(l.player)} <span style="color:#9CA3AF;">${escapeHtml(String(l.side))} ${l.line} ${escapeHtml(String(l.statFamily || ""))} @ ${escapeHtml(l.sportsbook || l.book || "?")}</span></span>
+          <button onclick="window._slipRemove(${i})" style="background:none;border:0;color:#F87171;font-size:15px;cursor:pointer;">×</button>
+        </div>`).join("");
+      const composeHtml = sameBook && legs.length >= 2 ? _slipComposeAnchor(legs, crossGame) : "";
+      const mixNote = !sameBook && legs.length >= 2 ? `<div style="font-size:10px;color:#FBBF24;margin-top:6px;">Legs span multiple books — a parlay lives at one book. Remove mismatched legs to record/open as one slip.</div>` : "";
+      panel.innerHTML = `
+        <div style="background:#141828;border:1px solid #334155;border-radius:10px;margin-top:6px;padding:12px;">
+          ${legRows}
+          <div style="font-size:11px;color:#9CA3AF;margin-top:8px;">combined ≈ ${amer || "—"} (display only — the book's slip price is authoritative)</div>
+          ${composeHtml}
+          ${mixNote}
+          ${sameBook && legs.length >= 2 ? `
+          <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
+            <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
+            ${[1, 2, 5].map((v) => `<button onclick="document.getElementById('slip-stake').value=${v}" style="padding:5px 10px;border-radius:6px;border:1px solid #374151;background:#1F2937;color:#F9FAFB;font-size:11px;font-weight:700;cursor:pointer;">${v}</button>`).join("")}
+            <input id="slip-stake" type="number" inputmode="numeric" min="1" step="1" value="1" style="width:52px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:11px;text-align:center;" />
+            <input id="slip-odds" type="number" inputmode="numeric" placeholder="book odds" title="the combined odds YOUR book shows on the slip" style="width:84px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:11px;text-align:center;" />
+          </div>
+          <button onclick="window._slipRecord(this)" style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">I bet this parlay — record it</button>` : ""}
+          <div id="slip-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
+          <button onclick="window._slipTray=[];_slipRenderBar();" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
+        </div>`;
+    };
+    // Per-book multi-leg composition — CC's verified templates ONLY
+    // (docs/research/2026-07-07-multileg-betslip-links.md §2), gated by the matrix.
+    function _slipComposeAnchor(legs, crossGame) {
+      const bookDisplay = legs[0].sportsbook || legs[0].book;
+      const key = _dlBookKey(bookDisplay);
+      const cfg = _dlBookCfg(bookDisplay);
+      if (!cfg || !cfg.enabled || !["confirmed", "verified"].includes(String(cfg.multiStatus))) return "";
+      if (!crossGame) return `<div style="font-size:10px;color:#FBBF24;margin-top:6px;">Same-game legs in the tray — SGP is a different pricing engine (out of v1). Open legs individually.</div>`;
+      let url = null;
+      try {
+        if (key === "fanduel") {
+          const parts = legs.map((l) => (String(l.betLink || "").match(/marketId=([\d.]+)&selectionId=(\d+)/) || []));
+          if (parts.every((m) => m[1] && m[2])) url = "https://sportsbook.fanduel.com/addToBetslip?" + parts.map((m, i) => `marketId%5B${i}%5D=${m[1]}&selectionId%5B${i}%5D=${m[2]}`).join("&");
+        } else if (key === "draftkings") {
+          const toks = legs.map((l) => l.betSid ? encodeURIComponent(String(l.betSid)) : null);
+          if (toks.every(Boolean)) url = `https://sportsbook.draftkings.com/?outcomes=${toks.join(",")}`;
+        } else if (key === "betmgm") {
+          const trips = legs.map((l) => (String(l.betLink || "").match(/options=(\d+-\d+-\d+)/) || [])[1]);
+          if (trips.every(Boolean) && cfg.state) url = `https://sports.${cfg.state}.betmgm.com/en/sports?options=${trips.join(",")}&type=combo`;
+        } else if (key === "betrivers") {
+          const sids = legs.map((l) => l.betSid).filter(Boolean);
+          const ev = (String(legs[0].betLink || "").match(/#event\/(\d+)/) || [])[1];
+          if (sids.length === legs.length && ev && cfg.state) url = `https://${cfg.state}.betrivers.com/?page=sportsbook#event/${ev}?coupon=combination|${sids.join(",")}|`;
+        } else if (key === "hardrockbet") {
+          const sids = legs.map((l) => l.betSid).filter(Boolean);
+          if (sids.length === legs.length) url = `https://app.hardrock.bet/?deep_link_value=betslip/${sids.join(",")}`;
+        }
+      } catch (_) { url = null; }
+      if (!url) return "";
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:8px;padding:9px 0;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.10);color:#A78BFA;font-size:12px;font-weight:700;text-decoration:none;">↗ Open slip in ${escapeHtml(bookDisplay)} (${legs.length} legs)</a>`;
+    }
+    window._slipRecord = async function (btnEl) {
+      const legs = window._slipTray;
+      const out = document.getElementById("slip-result");
+      if (!legs.length || !out) return;
+      const stake = Math.max(1, Math.round(Number(document.getElementById("slip-stake")?.value) || 1));
+      const oddsIn = Number(document.getElementById("slip-odds")?.value);
+      if (!Number.isFinite(oddsIn) || oddsIn === 0) {
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">Enter the combined odds YOUR book shows on the slip (e.g. +450) — the record must match the real ticket, never our estimate.</div>`;
+        return;
+      }
+      btnEl.disabled = true; btnEl.textContent = "Recording…";
+      try {
+        const r = await fetch(`${API}/api/ws/place-bet`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "parlay",
+            sport: legs[0].sport || "mlb",
+            book: legs[0].sportsbook || legs[0].book,
+            stake,
+            odds: oddsIn,
+            legs: legs.map((l) => ({ player: l.player, stat: l.statFamily, propType: l.propType || null, marketKey: l.marketKey || null, side: l.side, line: l.line })),
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          out.innerHTML = `<div style="background:#052E16;border-left:3px solid #34D399;border-radius:6px;padding:8px 10px;color:#BBF7D0;">✓ Parlay recorded — $${d.bet.stake} to win $${d.bet.toWin}<br/>${escapeHtml(String(d.warning || ""))}</div>`;
+          btnEl.textContent = "Recorded ✓";
+        } else if (d && d.reason === "already_recorded") {
+          out.innerHTML = `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;color:#FDE68A;">Already recorded today — nothing written twice.</div>`;
+          btnEl.textContent = "Already recorded";
+        } else {
+          out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(d.error || `HTTP ${r.status}`))}</div>`;
+          btnEl.disabled = false; btnEl.textContent = "I bet this parlay — retry";
+        }
+      } catch (err) {
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(err?.message || err))}</div>`;
+        btnEl.disabled = false; btnEl.textContent = "I bet this parlay — retry";
       }
     };
 

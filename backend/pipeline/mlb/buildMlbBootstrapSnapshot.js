@@ -2,6 +2,14 @@
 
 const axios = require("axios")
 
+// 2026-07-07 DEEPLINK-2A — per-book betslip deep links + SIDs kill-switch.
+// Read ONCE at module load (house pattern). Default ON: the params cost ZERO
+// extra quota (probe-verified 07-07) and the row fields are additive data the
+// FE only renders behind the operator's verified-matrix config. Exact "0" = OFF
+// ⇒ params absent + row fields absent ⇒ byte-identical snapshots (rollback).
+const MLB_DEEPLINKS = String(process.env.MLB_DEEPLINKS ?? "1") !== "0"
+try { console.log(`[MLB-DEEPLINKS-BOOT] betslip link/SID capture ${MLB_DEEPLINKS ? "ON (default) — zero-cost vendor params" : "OFF — MLB_DEEPLINKS=0, pre-2A-identical"}`) } catch (_) { /* no-op */ }
+
 const { getSportConfig } = require("../sports/sportConfig")
 const { buildMlbSlateEvents } = require("../schedule/buildMlbSlateEvents")
 // Phase Market-Ecology-1A (OBS-3): observability-only logging wrapper around
@@ -509,6 +517,13 @@ function normalizeMlbEventRows({ event, oddsPayload, observedAtIso }) {
 
           isPitcherMarket: isMlbPitcherMarketKey(marketKey),
 
+          // 2026-07-07 DEEPLINK-2A — per-outcome betslip link + SID (vendor-supplied,
+          // never composed here). Conditional spread: MLB_DEEPLINKS=0 ⇒ keys ABSENT ⇒
+          // byte-identical rows. Rows ride to the served best surface unchanged
+          // (spread-preserving pipeline) and persist in snapshot-mlb.json — 2B slip
+          // composition reads THESE stored artifacts, never refetches.
+          ...(MLB_DEEPLINKS ? { betLink: outcome?.link ?? null, betSid: outcome?.sid != null ? String(outcome.sid) : null } : {}),
+
           // Game context (populated later per-event; attached here as placeholders so rows have stable keys)
           gameTotal: null,
           moneylineHomeOdds: null,
@@ -732,6 +747,13 @@ async function fetchMlbEventOdds({ oddsApiKey, eventId, bookmakersCsv, marketsCs
 
   if (bookmakersCsv) params.bookmakers = bookmakersCsv
   if (marketsCsv) params.markets = marketsCsv
+
+  // 2026-07-07 DEEPLINK-2A — per-book betslip deep links + outcome SIDs on the
+  // SAME call (The Odds API includeLinks/includeSids). ZERO extra quota cost —
+  // probe-verified 07-07: last-cost=3 for 3 markets, identical with the params
+  // (.scratch/deeplink_probe.txt). Kill-switch MLB_DEEPLINKS (exact "0" = off ⇒
+  // params absent + row fields absent ⇒ byte-identical snapshots).
+  if (MLB_DEEPLINKS) { params.includeLinks = "true"; params.includeSids = "true" }
 
   // Phase Market-Ecology-1A (OBS-3): wrap axios.get with logApiCallAsync.
   // Records ts/sport/endpoint/eventId/status/durationMs/httpStatus/error to

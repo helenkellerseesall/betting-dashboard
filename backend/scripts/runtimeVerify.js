@@ -64,6 +64,7 @@ const SUITES = [
   "verifySpineFixPack", // SPINE-FIX pack (2026-07-05, bet-ready week) — addPlacedBet required --sport + token/book validation + tuple auto-stamp + --dry-run; orchestrator actualValue→actualStat (INC-013 class); settlePlacedBet manual-override CLI (GRADING_RULES §5, canonical settleBet only); captureClosingLines moved-line fallback (nearest rung, clv=null, clvQuality=line_moved, exact always wins/upgrades).
   "verifyCorpusRawAxis", // H1 corpus fix (2026-07-06) — outcome_snapshots.model_prob is RAW-AXIS from the JSON ledger: recordOutcome outcome-first (PRESERVED, operator-approved), settlements via the era-rule owner (statedRawProb), backfill NULL-only + ambiguous-skip + era-excluded counts, probe coverage section; dampener read paths untouched.
   "verifyPlaceBetRoute", // EXEC-CARD (2026-07-07) — one-tap real-money recording: addPlacedBet require-safe + shared core (Law 1, CLI parity preserved), POST /api/ws/place-bet (validated, stamped, already_recorded duplicate guard, §9 warning), FE modal panel w/ round-number stakes + inline-script parse.
+  "verifyDeeplinkExecution", // DEEPLINK-2A/2B (2026-07-07) — zero-cost link/SID capture gated MLB_DEEPLINKS (OFF byte-identical); verified-matrix config ships all-disabled (THE link kill-switch); parlay core deterministic id + route parlay mode + duplicate guard; FE matrix-gated anchors, cross-game-only compose, SGP-out, never-prefill-stake, book-odds-required record.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
