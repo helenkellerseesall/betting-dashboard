@@ -2745,6 +2745,12 @@
                 oninput="window._pbStake(null)"
                 style="width:58px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
             </div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+              <span style="font-size:11px;color:#9CA3AF;">Odds I got</span>
+              <input id="pb-odds" type="number" inputmode="numeric" value="${Number(p.oddsAmerican ?? p.odds) || ""}"
+                style="width:74px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+              <span style="font-size:9px;color:#6B7280;">card price ${_oddsNice(p.oddsAmerican ?? p.odds)} — your slip is ground truth; edit if the book gave a different price</span>
+            </div>
             <button id="pb-confirm" onclick="window._pbConfirm(this)"
               style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">
               Confirm — record $<span id="pb-amt">1</span> bet
@@ -2770,6 +2776,14 @@
       const out = document.getElementById("pb-result");
       if (!p || !out) return;
       const stake = Math.max(1, Math.round(Number(document.getElementById("pb-stake")?.value) || 1));
+      // 2026-07-07 FEEDBACK-A1 — the recorded odds are the odds the operator GOT
+      // (editable field, prefilled with the card price). The book slip is ground
+      // truth; toWin recomputes server-side from these odds.
+      const oddsGot = Number(document.getElementById("pb-odds")?.value);
+      if (!Number.isFinite(oddsGot) || oddsGot === 0) {
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">Enter the odds from your slip (e.g. -110).</div>`;
+        return;
+      }
       btnEl.disabled = true; btnEl.textContent = "Recording…";
       try {
         const r = await fetch(`${API}/api/ws/place-bet`, {
@@ -2783,7 +2797,7 @@
             marketKey: p.marketKey || null,
             side:      p.side,
             line:      p.line,
-            odds:      p.oddsAmerican ?? p.odds,
+            odds:      oddsGot,
             book:      p.sportsbook || p.book,
             stake,
             matchup:   p.matchup || null,
@@ -3650,27 +3664,37 @@
           </div>
         `;
         for (const b of bets) {
-          const isWin = b.result === "win"; const isLoss = b.result === "loss";
-          const resultC = isWin ? "#34D399" : isLoss ? "#F87171" : "#FBBF24";
-          const resultTxt = isWin ? "WON" : isLoss ? "LOST" : "PENDING";
+          // 2026-07-07 FEEDBACK-B — HONEST statuses only: the voided e2e row was
+          // rendering PENDING because void/push fell through the old ternary.
+          const _ST = { win: ["WON", "#34D399"], loss: ["LOST", "#F87171"], push: ["PUSH", "#9CA3AF"], void: ["VOID", "#9CA3AF"], pending: ["PENDING", "#FBBF24"] };
+          const st = _ST[String(b.result || "pending").toLowerCase()] || _ST.pending;
+          const resultTxt = st[0], resultC = st[1];
           const legsHtml = (b.legs || []).map((l) => `
             <div style="font-size:12px;color:#D1D5DB;padding:4px 0;border-top:1px solid #1F2937;">
               <span style="color:#9CA3AF;">${escapeHtml(l.player || "")}</span> · ${_famNice(l.statFamily)} ${_sideNice(l.side)} ${l.line}
-              ${l.result ? `<span style="float:right;font-size:10px;color:${l.result === 'win' ? '#34D399' : l.result === 'loss' ? '#F87171' : '#FBBF24'};">${l.result.toUpperCase()}</span>` : ""}
+              ${l.result ? `<span style="float:right;font-size:10px;color:${(_ST[String(l.result).toLowerCase()] || _ST.pending)[1]};">${(_ST[String(l.result).toLowerCase()] || _ST.pending)[0]}</span>` : ""}
             </div>
           `).join("");
+          // 2026-07-07 FEEDBACK-B — card identity: player/prop/line for singles
+          // (parlays show legs below) + slate date; book display canonicalized.
+          const identLine = b.betType === "parlay"
+            ? `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">Parlay · ${(b.legs || []).length} legs</div>`
+            : `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">${escapeHtml(b.player || "?")} <span style="font-weight:500;color:#D1D5DB;">${_sideNice(b.side)} ${b.line ?? ""} ${_famNice(b.statFamily)}</span></div>`;
           html += `
             <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${resultC};">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
                 <div>
                   <span style="font-size:11px;background:#1F2937;color:#9CA3AF;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${b.betType || "single"} · ${escapeHtml(b.sportsbook || "?")}</span>
+                  <span style="font-size:10px;color:#6B7280;margin-left:6px;">${escapeHtml(b.date || "")}</span>
                 </div>
                 <span style="font-size:11px;font-weight:700;color:${resultC};">${resultTxt}</span>
               </div>
+              ${identLine}
               <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
                 <span style="font-size:13px;color:#F9FAFB;">$${b.stake} @ ${_oddsNice(b.odds)}</span>
                 <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>
               </div>
+              ${b.calibVersion ? `<div style="margin-top:4px;font-size:9px;color:#7DD3FC;">stamped ${escapeHtml(b.calibVersion)}${b.modelProb != null ? ` · model ${(b.modelProb * 100).toFixed(1)}%` : ""}</div>` : ""}
               ${legsHtml ? `<div style="margin-top:8px;">${legsHtml}</div>` : ""}
               ${b.notes ? `<div style="margin-top:6px;font-size:10px;color:#6B7280;font-style:italic;">${escapeHtml(b.notes)}</div>` : ""}
             </div>

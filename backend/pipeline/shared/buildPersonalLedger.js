@@ -595,6 +595,17 @@ function normalizeBet(input) {
     placedAt: input.placedAt || null,
     legs: Array.isArray(input.legs) ? input.legs : null,
     notes: typeof input.notes === "string" ? input.notes.slice(0, 500) : null,
+    // 2026-07-07 FEEDBACK-A2 (operator-approved edit to this PRESERVED file) —
+    // carry the version-history stamps. Bet #1 proved the leak: the place-bet
+    // route's tuple lookup MATCHED and stamped (modelProb rode through because
+    // it's whitelisted above) but calibVersion / modelProbRaw / selectionPolicy /
+    // matchedTrackedId were stripped RIGHT HERE — the third whitelist-strip of
+    // this exact class (leanBet, toTrackedMlbBestEntry, now normalizeBet).
+    // Conditional spread: absent input ⇒ keys absent ⇒ prior rows byte-identical.
+    ...(input.calibVersion != null ? { calibVersion: input.calibVersion } : {}),
+    ...(input.modelProbRaw != null ? { modelProbRaw: num(input.modelProbRaw) } : {}),
+    ...(input.selectionPolicy != null ? { selectionPolicy: input.selectionPolicy } : {}),
+    ...(input.matchedTrackedId != null ? { matchedTrackedId: input.matchedTrackedId } : {}),
   }
 
   return applyIntegrityGate(base, input)

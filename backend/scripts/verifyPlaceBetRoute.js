@@ -77,6 +77,16 @@ check("FE: renders the NO TUPLE MATCH warning + already_recorded state", /NO TUP
   check(`FE: inline scripts parse (new Function)${perr ? " — " + perr : ""}`, scripts.length > 0 && parses)
 }
 
+// ── 6. FEEDBACK PACK (2026-07-07, post-bet-#1) ───────────────────────────────
+const ledgerSrc = rd("pipeline/shared/buildPersonalLedger.js")
+check("A2: normalizeBet carries the version stamps (the third whitelist-strip of this class, fixed)", /input\.calibVersion != null \? \{ calibVersion: input\.calibVersion \}/.test(ledgerSrc) && /matchedTrackedId: input\.matchedTrackedId/.test(ledgerSrc) && /selectionPolicy: input\.selectionPolicy/.test(ledgerSrc))
+const wsSrc = rd("routes/workstationRoutes.js")
+check("C: top-picks orders EARNED above capped, both sort sites (board + ⭐ mirror)", (wsSrc.match(/const capA = a\.tierCapNote \? 1 : 0, capB = b\.tierCapNote \? 1 : 0/g) || []).length === 2)
+const feSrc = rd("../frontend/mobile/index.html")
+check("A1: modal has the editable 'Odds I got' field, prefilled with the card price; POST sends it", /id="pb-odds"/.test(feSrc) && /const oddsGot = Number\(document\.getElementById\("pb-odds"\)/.test(feSrc) && /odds:      oddsGot,/.test(feSrc))
+check("B: MY BETS honest status map (void→VOID, push→PUSH — never PENDING)", /push: \["PUSH", "#9CA3AF"\], void: \["VOID", "#9CA3AF"\]/.test(feSrc))
+check("B: MY BETS cards carry identity (player/prop/line) + slate date + stamp line", /identLine/.test(feSrc) && /stamped \$\{escapeHtml\(b\.calibVersion\)\}/.test(feSrc))
+
 console.log(`verifyPlaceBetRoute: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }
 process.exit(0)

@@ -2923,7 +2923,15 @@ router.get("/top-picks", (req, res) => {
       if (byTier[t]) byTier[t].push(p)
     }
     for (const t of Object.keys(byTier)) {
-      byTier[t].sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+      // 2026-07-07 FEEDBACK-C — order IS the recommendation (the operator is not
+      // a sports guy): EARNED-tier picks rank ABOVE "tier under review" (capped)
+      // picks within every group, then by calibrated edge-weight. A 74%/+20
+      // earned PLAYABLE must never sit below uniform coarse-bin capped cards.
+      byTier[t].sort((a, b) => {
+        const capA = a.tierCapNote ? 1 : 0, capB = b.tierCapNote ? 1 : 0
+        if (capA !== capB) return capA - capB
+        return (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb))
+      })
     }
     // Allocation: ELITE 25% · STRONG 50% · PLAYABLE 25%
     const eliteN = Math.max(3, Math.floor(limit * 0.25))
@@ -3095,7 +3103,13 @@ router.get("/games-browser", (req, res) => {
       if (byTier[t]) byTier[t].push(p)
     }
     for (const t of Object.keys(byTier)) {
-      byTier[t].sort((a, b) => (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb)))
+      // 2026-07-07 FEEDBACK-C — mirror of the /top-picks capped-last ordering so
+      // the ⭐ key set matches the displayed board order (drift here = wrong stars).
+      byTier[t].sort((a, b) => {
+        const capA = a.tierCapNote ? 1 : 0, capB = b.tierCapNote ? 1 : 0
+        if (capA !== capB) return capA - capB
+        return (Number(b.edge) * Number(b.modelProb)) - (Number(a.edge) * Number(a.modelProb))
+      })
     }
     const limit = 50
     // P2b (FE-Trust-Surface-1A) — gate the ⭐ on edge > 0 so it never marks a pick the
