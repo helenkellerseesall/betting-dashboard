@@ -21,6 +21,24 @@ const path = require("path")
 const { currentSlateDateEt } = require("./slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
+
+// 2026-07-06 H1 corpus fix — RAW-AXIS model prob for the settlement objects fed
+// to intel.recordOutcomes (the canonical corpus stores the raw model output,
+// never a calibration map's own output). MLB applies the era rule via its ONE
+// owner, mlbCalibTraining.statedRawProb (modelProbRaw ?? pre-flip modelProb ??
+// null); other sports were never calibrated ⇒ modelProb IS raw. Guarded require:
+// if the trainer module is unavailable, MLB yields null (exclude, never
+// contaminate) — anti-fabrication default.
+let _statedRawProbMlb = null
+try { _statedRawProbMlb = require("../mlb/mlbCalibTraining").statedRawProb } catch (_) { /* null ⇒ exclude */ }
+function _rawAxisModelProb(sport, bet, day) {
+  if (String(sport).toLowerCase() === "mlb") {
+    return _statedRawProbMlb ? _statedRawProbMlb(bet, day) : null
+  }
+  const n = Number(bet?.modelProb)
+  return Number.isFinite(n) ? n : null
+}
+
 const MAX_HISTORY_DAYS = 30
 const MAX_PLAYER_TAGS = 250
 const PLAYER_RECENT_RESULTS_CAP = 12
@@ -456,6 +474,15 @@ function runPostGameReview({ sport, date, actuals = {}, write = true } = {}) {
           // populates from gradeTrackedBets' `actualValue` (primary writer) while
           // preserving the legacy `actualStat` fallback used by mergeActualsOntoBets.
           actualValue: b.actualValue ?? b.actualStat ?? null,
+          // 2026-07-06 H1 corpus fix — pass the bet's model prob on the RAW AXIS so
+          // recordOutcome stores it outcome-first (the canonical corpus stores raw,
+          // never a map's own output — the calibration-on-calibration doctrine).
+          // MLB: era rule via its ONE owner (mlbCalibTraining.statedRawProb):
+          // modelProbRaw when preserved; plain modelProb only pre-flip (<2026-07-01);
+          // calibrated-era rows without a raw yield null → recordOutcome falls back
+          // to the prediction lookup → honest NULL when that misses too. Other
+          // sports were never calibrated ⇒ modelProb IS the raw axis.
+          modelProb:   _rawAxisModelProb(key, b, b.date || date),
           settledAt:   b.settledAt || new Date().toISOString(),
           notes:       b.result,
         }

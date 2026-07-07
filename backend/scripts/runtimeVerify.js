@@ -62,6 +62,7 @@ const SUITES = [
   "verifyGameDateDiscipline", // Game-Date-Timing-1A (2026-06-22) — #3 recurrence guard: result-date must derive from officialDate/ET (calendarDateForTimestamp), never UTC truncation (toISOString().slice / getUTC*). CC fixture gamePk 775323 + static scan of the grading result-date files. Kills the "always a day ahead" class.
   "verifyServedCalibrationInjection", // G1-Serve-1A (2026-07-05) — served/tracked best surface carries the BOARD-calibrated prob (predictedProbability = calibrated modelProb + calibVersion/modelProbRaw stamps) via slate-scoped board-index join; OFF byte-identical (same array ref, empty index, no stamp keys); whitelists carry stamps IFF present.
   "verifySpineFixPack", // SPINE-FIX pack (2026-07-05, bet-ready week) — addPlacedBet required --sport + token/book validation + tuple auto-stamp + --dry-run; orchestrator actualValue→actualStat (INC-013 class); settlePlacedBet manual-override CLI (GRADING_RULES §5, canonical settleBet only); captureClosingLines moved-line fallback (nearest rung, clv=null, clvQuality=line_moved, exact always wins/upgrades).
+  "verifyCorpusRawAxis", // H1 corpus fix (2026-07-06) — outcome_snapshots.model_prob is RAW-AXIS from the JSON ledger: recordOutcome outcome-first (PRESERVED, operator-approved), settlements via the era-rule owner (statedRawProb), backfill NULL-only + ambiguous-skip + era-excluded counts, probe coverage section; dampener read paths untouched.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

@@ -58,6 +58,18 @@ function main() {
     console.log(`   ${sp}: live id-join rows = ${r.n}`)
   }
   console.log("")
+  // 2026-07-06 H1 corpus fix — model_prob coverage (the corpus's whole purpose).
+  // Was 446/24,345 MLB (1.8%) pre-H1; forward fill (recordOutcome outcome-first,
+  // raw axis) + historical backfill (backfillSnapshotColumns phase 3) fill it
+  // from the JSON tracked_bets. Values are RAW-AXIS by the era rule — rows whose
+  // raw was unrecoverable stay honestly NULL.
+  console.log("4) model_prob coverage on settled rows (H1 — raw axis, era rule):")
+  for (const sp of ["mlb", "nba"]) {
+    const r = db.prepare("SELECT COUNT(*) t, SUM(CASE WHEN model_prob IS NOT NULL THEN 1 ELSE 0 END) mp FROM outcome_snapshots WHERE sport=? AND hit IS NOT NULL").get(sp)
+    const pct = r.t ? ((100 * r.mp) / r.t).toFixed(1) : "0.0"
+    console.log(`   ${sp}: settled=${r.t}  with-model_prob=${r.mp} (${pct}%)`)
+  }
+  console.log("")
   console.log("READ: section 2 (book-agnostic) should EXCEED section 3 (id-join) once columns")
   console.log("are backfilled — that gap is the book-divergent MLB matches the live join misses.")
   console.log("Plumbing shipped: corpus correct + joinable + growing; live pick math unchanged.")

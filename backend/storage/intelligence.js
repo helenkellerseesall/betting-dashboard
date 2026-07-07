@@ -884,7 +884,16 @@ function recordOutcome(predId, outcome, opts = {}) {
     const pred = db.prepare("SELECT * FROM prediction_snapshots WHERE id = ?").get(predId)
 
     const hit     = outcome.hit != null ? safeNum(outcome.hit) : null
-    const modelP  = safeNum(pred?.model_prob)
+    // 2026-07-06 H1 corpus fix (operator-approved PRESERVED edit) — model_prob is
+    // sourced OUTCOME-FIRST from the bet being graded (the grading caller loads it
+    // from the JSON tracked_bets, where it is 100% populated on the RAW axis via
+    // the era rule in buildPostGameReview), with the original prediction lookup as
+    // fallback. Before: pred-only — a book-divergent predId missed the lookup and
+    // left model_prob NULL on ~96% of MLB settled rows (audit 2026-06-29:
+    // prediction_snapshots holds ~1/5 of settled outcomes, so NO prediction-side
+    // join could ever fill the corpus; the real source is the JSON). Null-safe:
+    // safeNum(undefined) → null → ?? falls through. No live read path changes.
+    const modelP  = safeNum(outcome.modelProb) ?? safeNum(pred?.model_prob)
     // delta_prob: positive = model was overconfident (predicted high, missed)
     const delta   = (modelP != null && hit != null) ? modelP - hit : null
 
