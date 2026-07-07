@@ -165,30 +165,37 @@ function validateCommonOrReject(o) {
 	return { sport, book }
 }
 
-function makeSingleLeg(args) {
-	const o = args.opts
+// 2026-07-07 EXEC-CARD — the single-bet build/validate/stamp CORE, extracted so
+// the CLI (below) and the /m execution card route (workstationRoutes POST
+// /api/ws/place-bet) share ONE owner (Law 1). NEVER exits/throws on invalid
+// input — returns { ok:false, error } so the route can 400 it; the CLI wrapper
+// keeps the exact SPINE-FIX reject/exit behavior + messages.
+// Returns { ok:true, bet, tupleMatch: <tracked pick or null>, noTupleMatch: bool }.
+function buildValidatedSingleBet(o = {}) {
 	const stake = Number(o.stake)
 	const odds = Number(o.odds)
 	const player = o.player
-	if (!player || !stake || !odds) {
-		console.error("[addPlacedBet] single requires --player, --stake, --odds")
-		process.exit(1)
-	}
-	const { sport, book } = validateCommonOrReject(o)
+	if (!player || !stake || !odds) return { ok: false, error: "single requires --player, --stake, --odds" }
+	const sport = String(o.sport || "").toLowerCase()
+	if (!sport) return { ok: false, error: `--sport is REQUIRED (no default — an MLB bet recorded as nba never settles). Valid: ${VALID_SPORTS.join(", ")}` }
+	if (!VALID_SPORTS.includes(sport)) return { ok: false, error: `--sport="${o.sport}" is not valid. Valid: ${VALID_SPORTS.join(", ")}` }
+	const book = canonBook(o.book)
+	if (!o.book) return { ok: false, error: `--book is REQUIRED. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
+	if (!book) return { ok: false, error: `--book="${o.book}" is not a known book. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
 	// 2026-07-05 SPINE-FIX 1 — stat/side/line validated so the tuple can match
 	// (GRADING_RULES §9). MLB stats are the closed canonical token set; NBA
 	// (off-season) passes through unvalidated.
 	let statFamily = o.stat
 	if (sport === "mlb") {
 		statFamily = canonMlbStat(o.stat)
-		if (!statFamily) reject(`--stat="${o.stat}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")} (case-insensitive)`)
+		if (!statFamily) return { ok: false, error: `--stat="${o.stat}" is not a canonical MLB token. Valid: ${MLB_STAT_TOKENS.join(", ")} (case-insensitive)` }
 	} else if (!statFamily) {
-		reject(`--stat is REQUIRED`)
+		return { ok: false, error: `--stat is REQUIRED` }
 	}
 	const side = String(o.side || "").toLowerCase()
-	if (!["over", "under", "yes", "no"].includes(side)) reject(`--side="${o.side || ""}" must be one of: over, under, yes, no`)
+	if (!["over", "under", "yes", "no"].includes(side)) return { ok: false, error: `--side="${o.side || ""}" must be one of: over, under, yes, no` }
 	const line = Number(o.line)
-	if (!Number.isFinite(line)) reject(`--line="${o.line || ""}" must be a number`)
+	if (!Number.isFinite(line)) return { ok: false, error: `--line="${o.line || ""}" must be a number` }
 
 	// Phase Date-Doctrine-1B — canonical ET slate date
 	const today = currentSlateDateEt()
@@ -222,9 +229,20 @@ function makeSingleLeg(args) {
 	// 2026-07-05 SPINE-FIX 1 — tuple auto-stamp from the served/tracked board pick
 	// (possible since G1-Serve-1A stamps landed on tracked rows).
 	const t = lookupTrackedPick(bet)
-	if (t) {
-		stampFromTracked(bet, t)
-		console.log(`[addPlacedBet] tuple MATCHED tracked pick ${t.id || "(no id)"} — stamped:`, {
+	if (t) stampFromTracked(bet, t)
+	return { ok: true, bet, tupleMatch: t || null, noTupleMatch: sport === "mlb" && !t }
+}
+
+function makeSingleLeg(args) {
+	const r = buildValidatedSingleBet(args.opts)
+	if (!r.ok) {
+		// exact SPINE-FIX CLI behavior: print + exit(1) via reject (message unchanged)
+		if (/requires --player/.test(r.error)) { console.error(`[addPlacedBet] ${r.error}`); process.exit(1) }
+		reject(r.error)
+	}
+	const bet = r.bet
+	if (r.tupleMatch) {
+		console.log(`[addPlacedBet] tuple MATCHED tracked pick ${r.tupleMatch.id || "(no id)"} — stamped:`, {
 			calibVersion: bet.calibVersion ?? null,
 			modelProb: bet.modelProb ?? null,
 			modelProbRaw: bet.modelProbRaw ?? null,
@@ -232,7 +250,7 @@ function makeSingleLeg(args) {
 			tier: bet.tier ?? null,
 		})
 		if (bet.calibVersion == null) console.warn("[addPlacedBet] note: matched pick carries NO calibVersion (raw-era or pre-injection row) — stamped what exists, invented nothing.")
-	} else if (sport === "mlb") {
+	} else if (r.noTupleMatch) {
 		warnNoTupleMatch(bet)
 	}
 	return [bet]
@@ -332,4 +350,19 @@ async function main() {
 	}
 }
 
-main().catch((e) => { console.error("[addPlacedBet] fatal:", e?.message || e); process.exit(1) })
+// 2026-07-07 EXEC-CARD — require-main guard (captureClosingLines precedent) so the
+// /api/ws/place-bet route can require the shared core without running the CLI.
+if (require.main === module) {
+	main().catch((e) => { console.error("[addPlacedBet] fatal:", e?.message || e); process.exit(1) })
+}
+
+module.exports = {
+	// 2026-07-07 EXEC-CARD — the ONE single-bet build/validate/stamp owner, shared
+	// by this CLI and workstationRoutes POST /api/ws/place-bet.
+	buildValidatedSingleBet,
+	lookupTrackedPick,
+	canonBook,
+	canonMlbStat,
+	MLB_STAT_TOKENS,
+	KNOWN_BOOKS,
+}

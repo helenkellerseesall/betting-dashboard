@@ -2123,6 +2123,97 @@ router.post("/ledger/grade", express.json(), (req, res) => {
   }
 })
 
+/**
+ * 2026-07-07 EXEC-CARD — POST /api/ws/place-bet: one-tap REAL-MONEY bet recording
+ * from the /m execution card.
+ *
+ * REUSES THE EXACT addPlacedBet path (Law 1 — buildValidatedSingleBet is the ONE
+ * single-bet build/validate/stamp owner, shared with the CLI): required sport,
+ * canonical MLB stat tokens, known-book canonicalization, side/line validation,
+ * tuple lookup against today's tracked board picks, auto-stamp (calibVersion /
+ * modelProb / modelProbRaw / selectionPolicy), decisionType="placed",
+ * realMoney=true, deterministic stableId.
+ *
+ * DISTINCT from POST /ledger/log (the "followed" recommendation logger, fake $10
+ * stake, no validation/stamps) — both wrap the same canonical writer
+ * (buildPersonalLedger.addOrUpdateBet); this is the real-money entry point.
+ *
+ * PROTECTION: same as every /api/ws route — Cloudflare Access locks the tunnel
+ * (verified 2026-06-29) and 127.0.0.1 is operator-local. No separate public
+ * exposure; matches the existing write routes (/ledger/log, /ledger/grade).
+ *
+ * Duplicate-tap safe TWICE over: pre-write already_recorded check on the
+ * deterministic id here, and addOrUpdateBet merges (never duplicates) on id
+ * collision underneath.
+ */
+router.post("/place-bet", express.json(), (req, res) => {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {}
+    const { buildValidatedSingleBet, canonMlbStat } = require("../scripts/addPlacedBet")
+
+    // Accept stat token OR display propType ("Total Bases" → totalBases) — cards
+    // carry both; resolve via the canonical family resolver (Law 1, no new map).
+    let stat = body.stat || body.statFamily || null
+    if ((!stat || !canonMlbStat(stat)) && body.propType) {
+      try {
+        const { resolveStatFamily } = require("../pipeline/mlb/buildMlbPropClusters")
+        stat = resolveStatFamily({ propType: body.propType, marketKey: body.marketKey || null }) || stat
+      } catch (_) { /* fall through to core validation */ }
+    }
+
+    const r = buildValidatedSingleBet({
+      sport:   body.sport,
+      book:    body.book || body.sportsbook,
+      stat,
+      side:    body.side,
+      line:    body.line,
+      odds:    body.odds ?? body.oddsAmerican,
+      stake:   body.stake,
+      player:  body.player,
+      matchup: body.matchup || null,
+      notes:   body.notes || "placed via /m execution card",
+    })
+    if (!r.ok) return res.status(400).json({ ok: false, error: r.error })
+
+    const mods = loadSharedModules()
+    // Duplicate-tap guard: same pick + same slate day ⇒ same deterministic id.
+    const existing = (mods.ledger.loadLedger().bets || []).find((b) => b && b.id === r.bet.id)
+    if (existing && (existing.decisionType === "placed" || existing.realMoney === true)) {
+      return res.json({
+        ok: false,
+        reason: "already_recorded",
+        bet: { id: existing.id, player: existing.player, prop: existing.prop, stake: existing.stake, placedAt: existing.placedAt, result: existing.result },
+      })
+    }
+
+    const w = mods.ledger.addOrUpdateBet(r.bet)
+    return res.json({
+      ok: true,
+      isNew: !!w?.isNew,
+      bet: {
+        id: r.bet.id, date: r.bet.date, sport: r.bet.sport, sportsbook: r.bet.sportsbook,
+        player: r.bet.player, statFamily: r.bet.statFamily, side: r.bet.side, line: r.bet.line,
+        odds: r.bet.odds, stake: r.bet.stake, toWin: r.bet.toWin,
+        decisionType: r.bet.decisionType, realMoney: r.bet.realMoney,
+      },
+      stamped: {
+        calibVersion:    r.bet.calibVersion ?? null,
+        modelProb:       r.bet.modelProb ?? null,
+        modelProbRaw:    r.bet.modelProbRaw ?? null,
+        selectionPolicy: r.bet.selectionPolicy ?? null,
+        tier:            r.bet.tier ?? null,
+        matchedTrackedId: r.bet.matchedTrackedId ?? null,
+      },
+      noTupleMatch: !!r.noTupleMatch,
+      warning: r.noTupleMatch
+        ? "NO TUPLE MATCH in today's tracked board picks — this bet will NOT auto-settle or auto-CLV (GRADING_RULES §9). Settle manually via settlePlacedBet.js."
+        : null,
+    })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
 // Phase Cashout-Surface-1A (2026-06-15) — read-only cash-out / hedge calc for the
 // /m PARLAY view. REUSES backend/pipeline/shared/cashoutHedge.js (cashoutValue +
 // hedgeFinalLeg), vigStripping (de-vig a pending leg's market prob when both sides

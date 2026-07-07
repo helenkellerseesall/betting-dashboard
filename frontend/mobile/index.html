@@ -2713,6 +2713,101 @@
       main.innerHTML = healthShell + summaryHtml + gradeBtns + pickHtml;
     }
 
+    // ── 2026-07-07 EXEC-CARD — one-tap REAL-MONEY bet recording ──────────────
+    // Panel lives in the pick tap-modal. POSTs to /api/ws/place-bet, which reuses
+    // the EXACT addPlacedBet path (validation + tuple lookup + auto-stamp +
+    // decisionType=placed + realMoney=true). Distinct from the "L" follow-logger
+    // below (/ledger/log, decisionType=followed, not real money).
+    // Stakes are ROUND-NUMBER presets ($1/$2/$5) by design — the card never
+    // computes or displays a "suggested" stake. Duplicate-tap safe: button
+    // disables in-flight AND the backend already_recorded-guards the
+    // deterministic id.
+    function _renderPlaceBetPanel(p) {
+      if (!p || !p.player) return "";
+      return `
+        <div style="border-top:1px solid #1B2030;margin-top:10px;padding-top:10px;">
+          <button id="pb-open" onclick="window._pbOpen()"
+            style="width:100%;padding:9px 0;border-radius:8px;border:1px solid #14532D;background:rgba(52,211,153,0.10);color:#34D399;font-size:13px;font-weight:700;cursor:pointer;">
+            💵 I bet this
+          </button>
+          <div id="pb-form" style="display:none;margin-top:8px;">
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
+              ${[1, 2, 5].map((v) => `<button onclick="window._pbStake(${v})" style="padding:6px 12px;border-radius:6px;border:1px solid #374151;background:#1F2937;color:#F9FAFB;font-size:12px;font-weight:700;cursor:pointer;">${v}</button>`).join("")}
+              <input id="pb-stake" type="number" inputmode="numeric" min="1" step="1" value="1"
+                oninput="window._pbStake(null)"
+                style="width:58px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+            </div>
+            <button id="pb-confirm" onclick="window._pbConfirm(this)"
+              style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">
+              Confirm — record $<span id="pb-amt">1</span> bet
+            </button>
+            <div id="pb-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
+          </div>
+        </div>`;
+    }
+    window._pbOpen = function () {
+      const f = document.getElementById("pb-form");
+      const b = document.getElementById("pb-open");
+      if (f) f.style.display = "block";
+      if (b) b.style.display = "none";
+    };
+    window._pbStake = function (v) {
+      const inp = document.getElementById("pb-stake");
+      if (v != null && inp) inp.value = v;
+      const amt = document.getElementById("pb-amt");
+      if (amt && inp) amt.textContent = String(Math.max(1, Math.round(Number(inp.value) || 1)));
+    };
+    window._pbConfirm = async function (btnEl) {
+      const p = window._pbCurrentPick;
+      const out = document.getElementById("pb-result");
+      if (!p || !out) return;
+      const stake = Math.max(1, Math.round(Number(document.getElementById("pb-stake")?.value) || 1));
+      btnEl.disabled = true; btnEl.textContent = "Recording…";
+      try {
+        const r = await fetch(`${API}/api/ws/place-bet`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sport:     p.sport || "mlb",
+            player:    p.player,
+            stat:      p.statFamily,
+            propType:  p.propType || null,
+            marketKey: p.marketKey || null,
+            side:      p.side,
+            line:      p.line,
+            odds:      p.oddsAmerican ?? p.odds,
+            book:      p.sportsbook || p.book,
+            stake,
+            matchup:   p.matchup || null,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          const s = d.stamped || {};
+          const stampLine = s.calibVersion
+            ? `stamped <b>${escapeHtml(s.calibVersion)}</b> · model ${s.modelProb != null ? (s.modelProb * 100).toFixed(1) + "%" : "—"}`
+            : `no calibration stamp on the matched row (raw-era) — recorded what exists`;
+          out.innerHTML = `
+            <div style="background:#052E16;border-left:3px solid #34D399;border-radius:6px;padding:8px 10px;color:#BBF7D0;">
+              ✓ Recorded <b>$${d.bet.stake}</b> — ${escapeHtml(d.bet.player)} ${escapeHtml(String(d.bet.side))} ${d.bet.line} @ ${escapeHtml(d.bet.sportsbook)} (to win $${d.bet.toWin})<br/>
+              ${d.noTupleMatch ? "" : stampLine}
+            </div>
+            ${d.noTupleMatch ? `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;margin-top:6px;color:#FDE68A;">⚠ <b>NO TUPLE MATCH</b> — this bet will NOT auto-settle or auto-CLV. It needs a manual settle after the game (GRADING_RULES §9).</div>` : ""}`;
+          btnEl.textContent = "Recorded ✓";
+        } else if (d && d.reason === "already_recorded") {
+          out.innerHTML = `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;color:#FDE68A;">Already recorded today — $${d.bet?.stake} at ${escapeHtml(String(d.bet?.placedAt || ""))} (${escapeHtml(String(d.bet?.result || "pending"))}). Nothing written twice.</div>`;
+          btnEl.textContent = "Already recorded";
+        } else {
+          out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(d.error || `HTTP ${r.status}`))}</div>`;
+          btnEl.disabled = false; btnEl.textContent = "Confirm — retry";
+        }
+      } catch (err) {
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(err?.message || err))}</div>`;
+        btnEl.disabled = false; btnEl.textContent = "Confirm — retry";
+      }
+    };
+
     // POSTs to /api/ws/ledger/log which wraps buildPersonalLedger.addOrUpdateBet.
     // Idempotent on stableId — re-tapping same play won't duplicate.
     window.logPickFromGameView = async function (stashKey, sport, btnEl) {
@@ -3099,7 +3194,9 @@
           ${sigHtml}
           ${_renderReasoning(p.reasoning)}
           ${_renderBookOptions(p.bookOptions)}
+          ${_renderPlaceBetPanel(p)}
         `;
+        window._pbCurrentPick = p; // EXEC-CARD — the pick the confirm handler records
         overlay.classList.add("open");
         // Position over/near source. Compute after .open so dims are real.
         const vw = window.innerWidth, vh = window.innerHeight;
