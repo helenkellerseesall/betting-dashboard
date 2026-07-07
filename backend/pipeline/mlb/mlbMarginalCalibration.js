@@ -40,6 +40,17 @@ const N_FULL = 300       // map weight reaches full at n≥N_FULL; below → shr
 const PEPS = 1e-4
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
 
+// 2026-07-06 G1 map-hygiene v2 — config-driven version + hard output ceiling.
+// version: stamped onto every calibrated play (buildMlbPropClusters reads
+// mapsVersion) so map eras separate cleanly in the tracked record.
+// outputCap: predict-time BACKSTOP — even a future bad map can never serve a
+// ~100% probability (the v1 runs|over y=1.0 tail reached the operator's board).
+// Cap applies AFTER the identity-blend, so a raw prob above the cap is clamped
+// too. Absent on legacy (v1) configs → no cap beyond the 1-PEPS clamp.
+const MAPS_VERSION = (typeof MAPS.version === "string" && MAPS.version) || "mlb-calib-live-v1"
+const OUTPUT_CAP = num(MAPS.outputCap)
+if (OUTPUT_CAP != null) console.log(`[MLB-MARGINAL-CALIB-BOOT] maps ${MAPS_VERSION} · output cap ${OUTPUT_CAP}`)
+
 function bucketOf(oddsAmerican) {
   const o = Number(oddsAmerican)
   if (!Number.isFinite(o)) return null
@@ -80,6 +91,9 @@ function calibrateDetail(modelProb, family, opts = {}) {
   let cal = w * iso + (1 - w) * raw
   if (cal < PEPS) cal = PEPS
   if (cal > 1 - PEPS) cal = 1 - PEPS
+  // 2026-07-06 v2 — hard ceiling backstop (post-blend, so identity-shrink can't
+  // leak a raw prob above the cap either). Nothing bettable displays ~100%.
+  if (OUTPUT_CAP != null && cal > OUTPUT_CAP) cal = OUTPUT_CAP
   return { calibrated: cal, raw, source, n, weight: +w.toFixed(4) }
 }
 
@@ -89,4 +103,8 @@ function calibrateModelProb(modelProb, family, opts = {}) {
   return d ? d.calibrated : null
 }
 
-module.exports = { calibrateModelProb, calibrateDetail, bucketOf, _enabled: ENABLED, _mapsPath: MAPS_PATH }
+module.exports = {
+  calibrateModelProb, calibrateDetail, bucketOf, _enabled: ENABLED, _mapsPath: MAPS_PATH,
+  // 2026-07-06 v2 — map era + ceiling, config-driven (see boot block above)
+  mapsVersion: MAPS_VERSION, outputCap: OUTPUT_CAP,
+}

@@ -20,37 +20,29 @@
  * fallback ladder side→all→global, shrink-to-identity (N_FULL=300), PEPS clamp.
  */
 const fs = require("fs"), path = require("path")
-const { fitIsotonic, predictIsotonic } = require("../pipeline/shared/isotonicCalibration")
+const { predictIsotonic } = require("../pipeline/shared/isotonicCalibration")
+// 2026-07-06 G1 map-hygiene v2 — the probe consumes the SAME training module as
+// deriveMlbMarginalCalibration.js (Law 1: the gate and the trainer can never
+// silently drift again): raw-axis era rule (rows after the 2026-07-01 flip only
+// count when modelProbRaw was preserved — the gate must never train OR evaluate
+// on calibration-on-calibration), MIN_KNOT_N pooling + smoothing + cap.
+const T = require("../pipeline/mlb/mlbCalibTraining")
 
 const TRK = path.join(__dirname, "..", "runtime", "tracking")
 const CFG = path.join(__dirname, "..", "config", "mlbMarginalCalibration.json")
-const NBINS = 25, MIN_FAMILY = 100, MIN_SIDE = 60, N_FULL = 300, PEPS = 1e-4
+const MIN_FAMILY = 100, MIN_SIDE = 60, N_FULL = 300, PEPS = 1e-4
 const FAMS = ["ks", "hits", "rbis", "totalBases", "runs", "hr", "outs"]
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
 
 function loadRows() {
-  const files = fs.readdirSync(TRK).filter(f => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
-  const rows = []
-  for (const f of files) {
-    const day = f.match(/(\d{4}-\d{2}-\d{2})/)[1]
-    let a; try { const j = JSON.parse(fs.readFileSync(path.join(TRK, f), "utf8")); a = Array.isArray(j) ? j : Object.values(j) } catch (_) { continue }
-    for (const r of a) {
-      if (!r || !r.player || String(r.player).toLowerCase().startsWith("no ")) continue
-      if (r.result !== "win" && r.result !== "loss") continue
-      const mp = num(r.modelProb); if (mp == null) continue
-      rows.push({ day, fam: String(r.statFamily || ""), side: String(r.side || "").toLowerCase(), mp, line: num(r.line), hit: r.result === "win" ? 1 : 0 })
-    }
-  }
+  const { rows, excludedContaminated } = T.loadSettledRawRows(TRK)
+  if (excludedContaminated > 0) console.log(`[probeCalibrationForward] era rule: ${excludedContaminated} calibrated-era rows without a preserved raw EXCLUDED from train+test`)
   return rows
 }
 
 function fitMap(rs) {
-  if (rs.length < 2) return null
-  const bins = Array.from({ length: NBINS }, () => ({ sx: 0, sy: 0, n: 0 }))
-  for (const r of rs) { const b = Math.min(NBINS - 1, Math.max(0, Math.floor(r.mp * NBINS))); bins[b].sx += r.mp; bins[b].sy += r.hit; bins[b].n++ }
-  const pts = bins.filter(b => b.n > 0).map(b => ({ x: b.sx / b.n, y: b.sy / b.n, w: b.n }))
-  if (pts.length < 2) return null
-  return { fit: fitIsotonic(pts), n: rs.length }
+  const m = T.fitMapV2(rs)
+  return m ? { fit: { knots: m.knots }, n: m.n } : null
 }
 
 // Build train maps {global, families:{fam:{all,over,under}}} from train rows.
@@ -63,10 +55,11 @@ function buildMaps(train) {
     for (const side of ["over", "under"]) { const sr = fr.filter(r => r.side === side); if (sr.length >= MIN_SIDE) { const m = fitMap(sr); if (m) e[side] = m } }
     if (e.all || e.over || e.under) families[fam] = e
   }
-  return { global, families }
+  // 2026-07-06 v2 — retro fits carry the shared cap (LIVE mode reads config's).
+  return { global, families, outputCap: T.OUTPUT_CAP }
 }
 
-// Apply calibration exactly as the engine would (fallback + shrink + clamp).
+// Apply calibration exactly as the engine would (fallback + shrink + clamp + v2 cap).
 function applyCal(maps, fam, side, raw) {
   const f = maps.families[fam]
   let entry = (f && side && f[side]) || (f && f.all) || maps.global || null
@@ -75,6 +68,8 @@ function applyCal(maps, fam, side, raw) {
   const w = Math.max(0, Math.min(1, entry.n / N_FULL))
   let cal = w * iso + (1 - w) * raw
   if (cal < PEPS) cal = PEPS; if (cal > 1 - PEPS) cal = 1 - PEPS
+  // 2026-07-06 v2 — mirror the engine's post-blend hard ceiling.
+  if (maps.outputCap != null && cal > maps.outputCap) cal = maps.outputCap
   return cal
 }
 
@@ -110,7 +105,7 @@ if (!test.length) {
   log("For OOS evidence TODAY, run a retrospective split, e.g.:")
   log("  node backend/scripts/probeCalibrationForward.js --retro=" + days[days.length - 3])
 } else {
-  const maps = retro ? buildMaps(train) : (() => { const j = JSON.parse(fs.readFileSync(CFG, "utf8")); const conv = (m) => m && m.knots ? { fit: { knots: m.knots }, n: m.n } : null; const families = {}; for (const [k, v] of Object.entries(j.families || {})) { families[k] = {}; for (const s of ["all", "over", "under"]) if (v[s]) families[k][s] = conv(v[s]) } return { global: conv(j.global), families } })()
+  const maps = retro ? buildMaps(train) : (() => { const j = JSON.parse(fs.readFileSync(CFG, "utf8")); const conv = (m) => m && m.knots ? { fit: { knots: m.knots }, n: m.n } : null; const families = {}; for (const [k, v] of Object.entries(j.families || {})) { families[k] = {}; for (const s of ["all", "over", "under"]) if (v[s]) families[k][s] = conv(v[s]) } return { global: conv(j.global), families, outputCap: num(j.outputCap) } })()
   const rawP = (r) => r.mp, calP = (r) => applyCal(maps, r.fam, r.side, r.mp)
   log("\nPER family×side on OOS test rows. gap=claimed−realized (+ = overconfident). Brier lower=better.")
   log("family       side   n_test  realized | RAW claimed  gap   Brier | CAL claimed  gap   Brier | Δgap   ΔBrier")

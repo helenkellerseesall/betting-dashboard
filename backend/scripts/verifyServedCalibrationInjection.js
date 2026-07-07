@@ -78,8 +78,11 @@ function runChild(mode) {
 }
 
 // ── 1+2. ON child: index registered, injection real ─────────────────────────
+// 2026-07-06 v2 — the stamp is config-driven (map era); assert against the
+// committed config's version, never a hardcoded literal.
+const CFG_VER = (() => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, "config", "mlbMarginalCalibration.json"), "utf8")).version || "mlb-calib-live-v1" } catch (_) { return "mlb-calib-live-v1" } })()
 const on = runChild("on")
-check("ON: board plays all carry calib stamps", !!on && on.boardPlays.length >= 3 && on.boardPlays.every((p) => p.calibVersion === "mlb-calib-live-v1"))
+check("ON: board plays all carry the CONFIG map-version stamp", !!on && on.boardPlays.length >= 3 && /^mlb-calib-live-v\d+$/.test(CFG_VER) && on.boardPlays.every((p) => p.calibVersion === CFG_VER))
 check("ON: serve index registered from the board (size ≥ 3, slate-dated)", !!on && on.index && on.index.size >= 3 && /^\d{4}-\d{2}-\d{2}$/.test(String(on.index.slateDate)))
 check("ON: injection returns a NEW array (copies, not mutation)", !!on && on.sameRefLive === false)
 if (on) {
@@ -87,8 +90,8 @@ if (on) {
   const tbPlay = on.boardPlays.find((p) => p.fam === "totalBases")
   const hitsPlay = on.boardPlays.find((p) => p.fam === "hits")
   check("ON: matched row predictedProbability === calibrated board modelProb (not raw 0.42)", tbPlay && tbRow.predictedProbability === tbPlay.modelProb && tbRow.predictedProbability !== 0.42)
-  check("ON: matched row carries calibVersion + board modelProbRaw", tbPlay && tbRow.calibVersion === "mlb-calib-live-v1" && tbRow.modelProbRaw === tbPlay.modelProbRaw)
-  check("ON: join is case-insensitive on side + book", hitsPlay && hitsRow.calibVersion === "mlb-calib-live-v1" && hitsRow.predictedProbability === hitsPlay.modelProb)
+  check("ON: matched row carries calibVersion + board modelProbRaw", tbPlay && tbRow.calibVersion === CFG_VER && tbRow.modelProbRaw === tbPlay.modelProbRaw)
+  check("ON: join is case-insensitive on side + book", hitsPlay && hitsRow.calibVersion === CFG_VER && hitsRow.predictedProbability === hitsPlay.modelProb)
   check("ON: unmatched row untouched (same ref, raw prob, NO stamp — honest raw)", on.missRowSameRef === true && missRow.predictedProbability === 0.33 && missRow.calibVersion == null)
   check("ON: stale-slate index ⇒ skip (same array reference)", on.staleSameRef === true)
   check("ON: HR normalization (yes→over, null line→0.5, spaced book) joins", on.hrIndex && on.hrIndex.size === 1 && on.hrRow.calibVersion === "mlb-calib-live-v1" && on.hrRow.predictedProbability === 0.08 && on.hrRow.modelProbRaw === 0.15)

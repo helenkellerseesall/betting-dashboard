@@ -113,9 +113,49 @@ const onMap = new Map(onPicks.map(p => [keyOf(p), p]))
 check("board OFF surfaces the fixture picks", offPicks.length >= 3)
 check("board ON pick-set identical to OFF (longshots always surface)", offPicks.length === onPicks.length && [...offMap.keys()].every(k => onMap.has(k)))
 check("OFF picks carry NO calib stamp (byte-identical to pre-G1)", offPicks.length > 0 && offPicks.every(p => p.calibVersion == null && p.modelProbRaw == null))
-check("ON picks stamped calibVersion=mlb-calib-live-v1", onPicks.length > 0 && onPicks.every(p => p.calibVersion === "mlb-calib-live-v1"))
+// 2026-07-06 v2 — stamp is config-driven (map era): assert equality with the
+// committed config's version, not a hardcoded literal.
+const CFG_VER = (() => { try { return JSON.parse(rd("config/mlbMarginalCalibration.json")).version || "mlb-calib-live-v1" } catch (_) { return "mlb-calib-live-v1" } })()
+check("ON picks stamped with the CONFIG's map version (era separation)", onPicks.length > 0 && /^mlb-calib-live-v\d+$/.test(CFG_VER) && onPicks.every(p => p.calibVersion === CFG_VER))
 check("ON modelProbRaw === OFF modelProb (raw preserved; calibrate applied once)", onPicks.length > 0 && onPicks.every(p => { const o = offMap.get(keyOf(p)); return o && Math.abs(Number(p.modelProbRaw) - Number(o.modelProb)) < 1e-9 }))
 check("ON overconfident overs pulled DOWN vs raw (calibration does real work)", onPicks.length > 0 && onPicks.every(p => Number(p.modelProb) <= Number(p.modelProbRaw) + 1e-9) && onPicks.some(p => Number(p.modelProb) < Number(p.modelProbRaw) - 1e-3))
+
+// ── 7. v2 MAP HYGIENE (2026-07-06 — the runs|over y=1.0 sparse-tail fix) ──────
+// Bet-blocking bug: v1's runs|over last knot (x .3651, y 1.0, n≈25 pooled cell)
+// served ~100% MODEL CONF on the operator board. v2 = raw-axis era rule +
+// MIN_KNOT_N pooling + Agresti-Coull smoothing + hard output cap. See
+// pipeline/mlb/mlbCalibTraining.js (the ONE training-method owner — the derive
+// script AND probeCalibrationForward both consume it, so the G1 gate can never
+// silently drift from the trainer).
+const T = require("../pipeline/mlb/mlbCalibTraining")
+const cfg = (() => { try { return JSON.parse(rd("config/mlbMarginalCalibration.json")) } catch (_) { return null } })()
+check("config carries version + outputCap (era + ceiling are config-driven)", !!cfg && /^mlb-calib-live-v\d+$/.test(String(cfg.version)) && Number(cfg.outputCap) > 0.5 && Number(cfg.outputCap) <= 0.9)
+{
+  let maxY = 0, minPtN = Infinity, mapsScanned = 0
+  const scan = (m) => { if (!m || !Array.isArray(m.knots)) return; mapsScanned++
+    for (const k of m.knots) if (Number(k.y) > maxY) maxY = Number(k.y)
+    for (const p of (m.points || [])) if (Number(p.n) < minPtN) minPtN = Number(p.n) }
+  if (cfg) { scan(cfg.global); for (const v of Object.values(cfg.families || {})) for (const s of ["all", "over", "under"]) scan(v[s]) }
+  check("NO knot anywhere exceeds the output cap (the ~100% class is gone from the maps)", cfg && mapsScanned > 0 && maxY <= Number(cfg.outputCap) + 1e-9)
+  check("EVERY training point carries n ≥ MIN_KNOT_N (sparse tails structurally pooled)", cfg && Number.isFinite(minPtN) && minPtN >= T.MIN_KNOT_N)
+}
+check("engine enforces the cap at predict time (backstop, full-grid extreme input)",
+  ["ks", "hits", "rbis", "totalBases", "runs", "hr", "outs"].every((f) => ["over", "under"].every((s) => { const c = cal.calibrateModelProb(0.99, f, { side: s }); return c == null || c <= (Number(cfg && cfg.outputCap) || 0.85) + 1e-9 })))
+check("engine exposes the config's map version for the scoring stamp", (() => { try { return require("../pipeline/mlb/mlbMarginalCalibration").mapsVersion === cfg.version } catch (_) { return false } })())
+// Sparse-tail functional regression: a tiny all-wins tail must NEVER become its
+// own knot (the exact v1 failure). 200 low-prob rows @5% + 6 rows @0.95 all wins.
+{
+  const synth = []
+  for (let i = 0; i < 200; i++) synth.push({ mp: 0.18 + (i % 10) * 0.004, hit: i % 20 === 0 ? 1 : 0 })
+  for (let i = 0; i < 6; i++) synth.push({ mp: 0.95, hit: 1 })
+  const m = T.fitMapV2(synth)
+  check("sparse all-wins tail pools (no knot y > cap; every point n ≥ floor)", !!m && m.knots.every((k) => k.y <= T.OUTPUT_CAP + 1e-9) && m.points.every((p) => p.n >= T.MIN_KNOT_N))
+  check("pooled tail stays near the honest base rate (no ~100% resurrection)", !!m && Math.max(...m.knots.map((k) => k.y)) < 0.3)
+}
+// Era rule units (anti-contamination):
+check("era rule: stamped row uses modelProbRaw", T.statedRawProb({ modelProbRaw: 0.4, modelProb: 0.99 }, "2026-07-03") === 0.4)
+check("era rule: pre-flip row uses modelProb (it IS raw)", T.statedRawProb({ modelProb: 0.3 }, "2026-06-20") === 0.3)
+check("era rule: calibrated-era row without a raw is EXCLUDED (null)", T.statedRawProb({ modelProb: 0.99 }, "2026-07-03") === null)
 
 console.log(`verifyMarginalCalibration: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }

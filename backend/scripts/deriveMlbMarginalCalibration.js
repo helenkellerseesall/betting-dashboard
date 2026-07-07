@@ -18,65 +18,44 @@
  *   node backend/scripts/deriveMlbMarginalCalibration.js --dry  # print summary
  */
 const fs = require("fs"), path = require("path")
-const { fitIsotonic } = require("../pipeline/shared/isotonicCalibration")
+// 2026-07-06 G1 map-hygiene v2 — training method consolidated into
+// pipeline/mlb/mlbCalibTraining.js (ONE owner; the forward-gate probe consumes
+// the SAME module, so gate and trainer can never silently drift). v2 adds the
+// raw-axis era rule (anti-contamination), MIN_KNOT_N pooling, Agresti-Coull
+// smoothing and the output cap — full rationale in that module's header.
+const T = require("../pipeline/mlb/mlbCalibTraining")
 
 const TRACKING = path.join(__dirname, "..", "runtime", "tracking")
 const OUT = path.join(__dirname, "..", "config", "mlbMarginalCalibration.json")
-const NBINS = 25
 const MIN_FAMILY = 100   // below → no family map (engine falls back to global)
 const MIN_SIDE = 60      // below → no per-side map (engine falls back to family.all)
 
-function load() {
-  const files = fs.readdirSync(TRACKING).filter(f => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
-  const rows = []
-  let trainThrough = null
-  for (const f of files) {
-    const day = f.match(/(\d{4}-\d{2}-\d{2})/)[1]
-    let a; try { const j = JSON.parse(fs.readFileSync(path.join(TRACKING, f), "utf8")); a = Array.isArray(j) ? j : (j.entries || j.bets || Object.values(j)) } catch (_) { continue }
-    let used = false
-    for (const r of a) {
-      if (!r || !r.player || String(r.player).toLowerCase().startsWith("no ")) continue   // exclude synthetic
-      if (r.result !== "win" && r.result !== "loss") continue                              // exclude pending/unresolved/push
-      const mp = Number(r.modelProb); if (!Number.isFinite(mp)) continue
-      rows.push({ fam: String(r.statFamily || ""), side: String(r.side || "").toLowerCase(), mp, win: r.result === "win" ? 1 : 0 })
-      used = true
-    }
-    if (used) trainThrough = day
-  }
-  return { files, rows, trainThrough }
-}
-
-// Bin rows → reliability points → isotonic map. Returns {method,n,knots} or null.
-function fitMap(rows) {
-  if (rows.length < 2) return null
-  const bins = Array.from({ length: NBINS }, () => ({ sx: 0, sy: 0, n: 0 }))
-  for (const r of rows) { const b = Math.min(NBINS - 1, Math.max(0, Math.floor(r.mp * NBINS))); bins[b].sx += r.mp; bins[b].sy += r.win; bins[b].n += 1 }
-  const pts = bins.filter(b => b.n > 0).map(b => ({ x: b.sx / b.n, y: b.sy / b.n, w: b.n }))
-  if (pts.length < 2) return null
-  const fit = fitIsotonic(pts)
-  return { method: "isotonic", n: rows.length, knots: fit.knots.map(k => ({ x: +k.x.toFixed(4), y: +k.y.toFixed(4) })) }
-}
-
-const { files, rows, trainThrough } = load()
-const global = fitMap(rows)
+const { files, rows, trainThrough, excludedContaminated } = T.loadSettledRawRows(TRACKING)
+const global = T.fitMapV2(rows)
 const families = {}
 for (const fam of [...new Set(rows.map(r => r.fam))]) {
   const fr = rows.filter(r => r.fam === fam)
   if (fr.length < MIN_FAMILY) continue
   const entry = {}
-  const all = fitMap(fr); if (all) entry.all = all
+  const all = T.fitMapV2(fr); if (all) entry.all = all
   for (const side of ["over", "under"]) {
     const sr = fr.filter(r => r.side === side)
-    if (sr.length >= MIN_SIDE) { const m = fitMap(sr); if (m) entry[side] = m }
+    if (sr.length >= MIN_SIDE) { const m = T.fitMapV2(sr); if (m) entry[side] = m }
   }
   if (entry.all || entry.over || entry.under) families[fam] = entry
 }
 
 const out = {
-  _doc: "MLB modelProb calibration maps (Phase T2-MarginalCalib-1B, side-aware). Monotone isotonic (PAVA) maps raw modelProb → realized-rate, PER (family × side), fit on the graded ledger by deriveMlbMarginalCalibration.js. Lookup ladder: families[fam][side] → families[fam].all → global → identity. Line tiers handled implicitly via the modelProb axis. CAVEAT: in-sample (the trainThrough window below); engine shrinks toward identity on low-n maps. SHADOW only (MLB_MARGINAL_CALIB) — feeds NOTHING in scoring until G1 (post-freeze). Regen via this script as graded days accrue; forward-validate OOS via probeCalibrationForward.js.",
+  _doc: "MLB modelProb calibration maps — v2 hygiene (2026-07-06). Monotone isotonic (PAVA) maps RAW modelProb → realized-rate PER (family × side), fit by deriveMlbMarginalCalibration.js via the shared mlbCalibTraining.js method: raw-axis era rule (rows after the 2026-07-01 flip only count when modelProbRaw was preserved — never calibration-on-calibration), MIN_KNOT_N pooling (every training point n ≥ 50; sparse tails merge, the v1 runs|over y=1.0 knot class is structurally impossible), Agresti-Coull smoothing, knot y clamped to [0.01, outputCap]. Engine enforces outputCap again at predict time. Lookup ladder: families[fam][side] → families[fam].all → global → identity; engine shrinks toward identity on low-n maps. Regen via this script; forward-validate via probeCalibrationForward.js (same shared method).",
+  version: T.VERSION,
+  outputCap: T.OUTPUT_CAP,
   generatedAt: new Date().toISOString(),
   trainThrough,
-  source: { ledgerFiles: files.length, settledRows: rows.length, nbins: NBINS, minFamily: MIN_FAMILY, minSide: MIN_SIDE },
+  source: {
+    ledgerFiles: files.length, settledRows: rows.length,
+    excludedContaminatedRows: excludedContaminated, flipDay: T.FLIP_DAY,
+    nbins: T.NBINS, minKnotN: T.MIN_KNOT_N, minFamily: MIN_FAMILY, minSide: MIN_SIDE,
+  },
   global,
   families,
 }

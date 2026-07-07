@@ -45,8 +45,17 @@ const MLB_CALIB_LIVE = String(process.env.MLB_CALIB_LIVE ?? "0") === "1"
 // Conditional require (matches calibrationDampener) so OFF loads nothing new ⇒ truly
 // byte-identical. calibrateModelProb is CALLED only inside the MLB_CALIB_LIVE branch below.
 let _calibrateModelProb = null
+// 2026-07-06 G1 map-hygiene v2 — the calibVersion stamp now comes from the maps
+// config via the engine (mapsVersion), not a hardcoded literal, so map re-trains
+// (v2, v3…) separate eras in the tracked record automatically. Fallback literal
+// covers a legacy engine/config without the export.
+let _calibVersionStamp = "mlb-calib-live-v1"
 if (MLB_CALIB_LIVE) {
-  try { _calibrateModelProb = require("./mlbMarginalCalibration").calibrateModelProb }
+  try {
+    const _mc = require("./mlbMarginalCalibration")
+    _calibrateModelProb = _mc.calibrateModelProb
+    if (typeof _mc.mapsVersion === "string" && _mc.mapsVersion) _calibVersionStamp = _mc.mapsVersion
+  }
   catch (e) { console.log(`[MLB-CALIB-LIVE-BOOT] isotonic module unavailable (${e && e.code ? e.code : e}) — scoring stays on raw modelProb`) }
 }
 try {
@@ -1284,9 +1293,11 @@ function makePlay(args) {
     // 2026-07-01 G1 STEP 1 — calibration stamps, present IFF MLB_CALIB_LIVE ON
     // (conditional spread = the tierPolicy / ladderNB omit-when-absent precedent).
     // OFF ⇒ keys ABSENT ⇒ tracked artifacts byte-identical to pre-G1. modelProbRaw
-    // keeps the pre-calibration prob auditable; the 14d verify filters on
-    // calibVersion === "mlb-calib-live-v1".
-    ...(MLB_CALIB_LIVE ? { modelProbRaw: round4(rawModelProb), calibVersion: "mlb-calib-live-v1" } : {}),
+    // keeps the pre-calibration prob auditable; the 14d verify filters on a
+    // non-null calibVersion (the value names the map era).
+    // 2026-07-06 v2 — stamp reads the maps config version via the engine
+    // (_calibVersionStamp) so re-trained maps separate eras automatically.
+    ...(MLB_CALIB_LIVE ? { modelProbRaw: round4(rawModelProb), calibVersion: _calibVersionStamp } : {}),
     edge: round4(edge),
     ev: round4(ev),
     confidence: round3(conf),
