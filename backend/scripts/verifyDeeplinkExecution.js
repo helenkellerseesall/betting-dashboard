@@ -66,6 +66,20 @@ check("FE: slip tray add/remove/bar + record via mode:\"parlay\"", /window\._sli
   check(`FE: inline scripts parse${perr ? " — " + perr : ""}`, scripts.length > 0 && parses)
 }
 
+// ── 6. TEST-LINKS panel (2026-07-07 field-test follow-up) ────────────────────
+const dlc = require("../pipeline/shared/deeplinkCompose")
+check("server-side composer module exported (composeSingle/composeMulti/fill)", typeof dlc.composeSingle === "function" && typeof dlc.composeMulti === "function" && typeof dlc.fillPlaceholders === "function")
+check("composer: unfilled {state} ⇒ null; stake placeholder always stripped", dlc.fillPlaceholders("https://x/{state}/y", { state: null }) === null && dlc.fillPlaceholders("https://x?coupon=single|1|{wagerAmount}", {}) === "https://x?coupon=single|1|")
+check("composer: MGM combo from parsed triplets, state-gated", (() => { const legs = [{ betLink: "https://sports.{state}.betmgm.com/en/sports?options=1-2-3&type=Single" }, { betLink: "https://sports.{state}.betmgm.com/en/sports?options=4-5-6&type=Single" }]; const m = dlc.composeMulti("BetMGM", legs, { state: "nj" }); const noState = dlc.composeMulti("BetMGM", legs, { state: null }); return m && m.url === "https://sports.nj.betmgm.com/en/sports?options=1-2-3,4-5-6&type=combo" && noState === null })())
+const wsSrc2 = rd("routes/workstationRoutes.js")
+check("testlinks route: FRESH composition + pre-game only + honest empty state (field-test lesson #1)", /router\.get\("\/deeplink-testlinks"/.test(wsSrc2) && /no PRE-GAME markets with link artifacts live right now/.test(wsSrc2))
+check("verdict route: closed vocabulary + append-only JSONL (taps become data)", /router\.post\("\/deeplink-verdict"/.test(wsSrc2) && /opened_loaded \| opened_empty \| failed/.test(wsSrc2) && /appendFileSync/.test(wsSrc2))
+const feSrc2 = rd("../frontend/mobile/index.html")
+check("FE panel: dev-flagged (?dev=1), fresh-compose on open, verdict buttons wired", /\[?\?&\]dev=1/.test(feSrc2) && /deeplink-testlinks\?_t=/.test(feSrc2) && /_tlVerdict/.test(feSrc2))
+check("FE my-bets fetch is cache-busted + no-store (stale-cache 0-bets class closed)", /ledger\/yesterday\?_t=\$\{Date\.now\(\)\}`, \{ cache: "no-store" \}/.test(feSrc2))
+const docSrc = rd("../docs/research/2026-07-07-multileg-betslip-links.md")
+check("research doc records BOTH field-test lessons (stale SIDs + desktop not a test surface)", /Stale SIDs are dead links/.test(docSrc) && /Desktop web is not a test surface/.test(docSrc))
+
 console.log(`verifyDeeplinkExecution: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }
 process.exit(0)

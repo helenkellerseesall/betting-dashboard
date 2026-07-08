@@ -3027,6 +3027,58 @@
       }
     };
 
+    // ── 2026-07-07 TEST-LINKS panel (dev flag: /m?dev=1) ─────────────────────
+    // Field-test doctrine: links compose FRESH at open time from the live
+    // snapshot (stale SIDs dump to homepages) and the phone is the only honest
+    // test surface. Each link gets 3 verdict buttons that POST straight to
+    // /api/ws/deeplink-verdict — taps become recorded data, no transcription.
+    if (/[?&]dev=1/.test(location.search)) {
+      const devBtn = document.createElement("div");
+      devBtn.innerHTML = `<button onclick="window._tlOpen()" style="position:fixed;left:10px;bottom:64px;z-index:70;padding:8px 12px;border-radius:8px;border:1px solid #4C1D95;background:#1E1B4B;color:#A78BFA;font-size:12px;font-weight:700;cursor:pointer;">🧪 TEST LINKS</button><div id="tl-panel" style="position:fixed;left:10px;right:10px;bottom:110px;z-index:70;display:none;max-height:60vh;overflow-y:auto;background:#141828;border:1px solid #334155;border-radius:10px;padding:12px;"></div>`;
+      document.body.appendChild(devBtn);
+    }
+    window._tlOpen = async function () {
+      const panel = document.getElementById("tl-panel");
+      if (!panel) return;
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
+      if (panel.style.display === "none") return;
+      panel.innerHTML = `<div style="color:#9CA3AF;font-size:12px;">Composing fresh links from the live snapshot…</div>`;
+      try {
+        const r = await fetch(`${API}/api/ws/deeplink-testlinks?_t=${Date.now()}`, { cache: "no-store" });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || "failed");
+        if (!d.pregame) {
+          panel.innerHTML = `<div style="color:#FBBF24;font-size:12px;line-height:1.5;">${escapeHtml(d.note || "no pre-game markets live right now")}</div>`;
+          return;
+        }
+        const vBtns = (book, kind, url) => ["opened_loaded|✓ loaded|#34D399", "opened_empty|◐ empty|#FBBF24", "failed|✗ failed|#F87171"].map((s) => {
+          const [v, lbl, c] = s.split("|");
+          return `<button onclick="window._tlVerdict(this,'${escapeHtml(book)}','${kind}','${v}')" data-url="${escapeHtml(url)}" style="padding:4px 8px;border-radius:5px;border:1px solid #374151;background:none;color:${c};font-size:10px;cursor:pointer;">${lbl}</button>`;
+        }).join(" ");
+        panel.innerHTML = `<div style="font-size:11px;color:#6B7280;margin-bottom:8px;">fresh @ ${escapeHtml(d.generatedAt)} — tap a link, place NOTHING, come back and record the verdict</div>` +
+          d.books.map((bk) => `
+            <div style="border-top:1px solid #1B2030;padding:8px 0;">
+              <div style="font-size:12px;font-weight:700;color:#F9FAFB;">${escapeHtml(bk.book)}</div>
+              ${bk.single ? `<div style="margin-top:4px;"><a href="${escapeHtml(bk.single.url)}" target="_blank" rel="noopener noreferrer" style="color:#A78BFA;font-size:11px;">↗ single: ${escapeHtml(bk.single.label)}</a><div style="margin-top:3px;">${vBtns(bk.book, "single", bk.single.url)}</div></div>` : ""}
+              ${bk.multi ? `<div style="margin-top:6px;"><a href="${escapeHtml(bk.multi.url)}" target="_blank" rel="noopener noreferrer" style="color:#A78BFA;font-size:11px;">↗ 2-leg (${escapeHtml(bk.multi.syntax)}): ${escapeHtml(bk.multi.label)}</a><div style="margin-top:3px;">${vBtns(bk.book, "multi", bk.multi.url)}</div></div>` : ""}
+              ${bk.note ? `<div style="margin-top:4px;font-size:10px;color:#6B7280;">${escapeHtml(bk.note)}</div>` : ""}
+            </div>`).join("");
+      } catch (e) {
+        panel.innerHTML = `<div style="color:#F87171;font-size:12px;">✗ ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    };
+    window._tlVerdict = async function (btnEl, book, kind, verdict) {
+      try {
+        btnEl.disabled = true;
+        const r = await fetch(`${API}/api/ws/deeplink-verdict`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ book, kind, verdict, url: btnEl.getAttribute("data-url") || "" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        btnEl.textContent = d.ok ? "✓ recorded" : "✗";
+      } catch (_) { btnEl.textContent = "✗"; btnEl.disabled = false; }
+    };
+
     // POSTs to /api/ws/ledger/log which wraps buildPersonalLedger.addOrUpdateBet.
     // Idempotent on stableId — re-tapping same play won't duplicate.
     window.logPickFromGameView = async function (stashKey, sport, btnEl) {
@@ -3620,7 +3672,11 @@
     async function renderMyBets(main) {
       main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading placed bets…</div>`;
       try {
-        const r = await fetch(`${API}/api/ws/ledger/yesterday`);
+        // 2026-07-07 FEEDBACK follow-up — cache-busted + no-store: a plain GET
+        // here is HTTP-cacheable, and a browser replaying a stale pre-bet
+        // response renders "0 bets" while the ledger is fine (the 07-07 desktop
+        // report; backend + render path both proven clean on the real payload).
+        const r = await fetch(`${API}/api/ws/ledger/yesterday?_t=${Date.now()}`, { cache: "no-store" });
         const d = await r.json();
         const pb = d.placedBets || null;
         const bets = pb?.bets || [];

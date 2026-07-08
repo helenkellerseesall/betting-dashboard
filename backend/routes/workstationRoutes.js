@@ -2278,6 +2278,79 @@ router.get("/deeplink-matrix", (req, res) => {
   }
 })
 
+/**
+ * 2026-07-07 TEST-LINKS panel — GET /api/ws/deeplink-testlinks
+ * Composes per-book test links FRESH from the CURRENT snapshot at request time
+ * (field-test lesson #1: SIDs die when markets start/move — links printed hours
+ * ahead dump to homepages). PRE-GAME rows only (commence > now+30min); states
+ * honestly when nothing pre-game is live instead of composing dead links.
+ * Composition via the ONE server-side composer (pipeline/shared/deeplinkCompose).
+ */
+router.get("/deeplink-testlinks", (req, res) => {
+  try {
+    const { composeSingle, composeMulti, normBookKey } = require("../pipeline/shared/deeplinkCompose")
+    let matrix = {}
+    try { matrix = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "deeplinkMatrix.json"), "utf8")).books || {} } catch (_) {}
+    let rows = []
+    try {
+      const wrap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "snapshot-mlb.json"), "utf8"))
+      rows = (wrap?.data?.rows || wrap?.rows || [])
+    } catch (_) {}
+    const cutoff = Date.now() + 30 * 60000
+    const pregame = rows.filter((r) => {
+      if (!r || (!r.betLink && !r.betSid)) return false
+      const t = new Date(r.gameTime || 0).getTime()
+      return Number.isFinite(t) && t > cutoff
+    })
+    if (!pregame.length) {
+      return res.json({ ok: true, pregame: false, generatedAt: new Date().toISOString(), books: [], note: "no PRE-GAME markets with link artifacts live right now (late night / pre-slate) — dead links are worse than no links; retry when the board is up" })
+    }
+    const byBook = {}
+    for (const r of pregame) { const k = normBookKey(r.book); (byBook[k] = byBook[k] || []).push(r) }
+    const books = []
+    for (const [key, list] of Object.entries(byBook)) {
+      const cfg = matrix[key] || null
+      const a = list[0]
+      let pair = null
+      for (const x of list) { if (x.eventId && a.eventId && x.eventId !== a.eventId) { pair = [a, x]; break } }
+      const label = (r) => `${r.player} ${r.side} ${r.line} ${r.propType} (${r.odds > 0 ? "+" : ""}${r.odds})`
+      const single = composeSingle(a, cfg)
+      const multi = pair ? composeMulti(a.book, pair, cfg) : null
+      books.push({
+        book: a.book, key,
+        single: single ? { url: single, label: label(a) } : null,
+        multi: multi ? { url: multi.url, syntax: multi.syntax, label: `${label(pair[0])} + ${label(pair[1])}` } : null,
+        note: !single && !multi ? (key === "fanatics" ? "no link surface (record-only book)" : "artifacts present but placeholders unfilled (set state in the matrix) or no cross-game pair") : null,
+      })
+    }
+    res.json({ ok: true, pregame: true, generatedAt: new Date().toISOString(), books })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
+ * 2026-07-07 TEST-LINKS panel — POST /api/ws/deeplink-verdict
+ * The operator's phone taps become RECORDED DATA (no transcription): appends
+ * {ts, book, kind, url, verdict} to runtime/tracking/deeplink_verdicts.jsonl.
+ * verdict ∈ opened_loaded | opened_empty | failed. Append-only, never rewrites.
+ */
+router.post("/deeplink-verdict", express.json(), (req, res) => {
+  try {
+    const b = req.body && typeof req.body === "object" ? req.body : {}
+    const verdict = String(b.verdict || "")
+    if (!["opened_loaded", "opened_empty", "failed"].includes(verdict)) {
+      return res.status(400).json({ ok: false, error: "verdict must be opened_loaded | opened_empty | failed" })
+    }
+    const rec = { ts: new Date().toISOString(), book: String(b.book || ""), kind: String(b.kind || ""), url: String(b.url || "").slice(0, 500), verdict }
+    const p = path.join(__dirname, "..", "runtime", "tracking", "deeplink_verdicts.jsonl")
+    fs.appendFileSync(p, JSON.stringify(rec) + "\n")
+    res.json({ ok: true, recorded: rec })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
 // Phase Cashout-Surface-1A (2026-06-15) — read-only cash-out / hedge calc for the
 // /m PARLAY view. REUSES backend/pipeline/shared/cashoutHedge.js (cashoutValue +
 // hedgeFinalLeg), vigStripping (de-vig a pending leg's market prob when both sides
