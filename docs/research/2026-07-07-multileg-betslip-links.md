@@ -70,6 +70,15 @@ https://app.hardrock.bet/?deep_link_value=betslip/{sid1},{sid2}
 
 ---
 
+## 2b. FIELD-TEST FINDINGS (2026-07-07 ~21:30 ET, operator desktop session — two lessons, both now doctrine)
+
+The operator tapped the 17:18-generated test links at ~21:30 from a DESKTOP browser: **every link dumped to the book homepage.** Root-caused to two INDEPENDENT causes (CB audit):
+
+1. **Stale SIDs are dead links.** Markets from the 17:18 snapshot had started or moved by 21:30 — vendor SIDs/links die with them, and every book falls back to its homepage. DOCTRINE: test links MUST be composed FRESH from the live snapshot at tap time, never printed hours ahead. (Implemented: the /m TEST LINKS panel composes on open via /api/ws/deeplink-testlinks and refuses to compose when nothing pre-game is live.)
+2. **Desktop web is not a test surface.** The prefill links are app-oriented (addToBetslip / deep_link_value / options=): desktop web largely ignores them even when fresh. DOCTRINE: the PHONE is the only honest test surface for link-depth verdicts; desktop results are not evidence either way.
+
+Verdict recording moved from transcription to data: each panel link carries opened-loaded / opened-empty / failed buttons POSTing to /api/ws/deeplink-verdict → runtime/tracking/deeplink_verdicts.jsonl (append-only). That file, not chat, is the canonical tap record feeding the matrix flips.
+
 ## 3. ToS notes (delta from 07-06 — unchanged foundations, two additions)
 
 Foundations unchanged [PRIOR: 07-06 §4]: deep links are the books' own affiliate funnel; all ids come from our paid vendor (zero scraping); the operator always reviews the slip and taps Place Bet — no automated placement, ever.
