@@ -347,6 +347,11 @@ async function runOnce({ date } = {}) {
   const sportResults = {}
   for (const sport of ["nba", "mlb"]) {
     sportResults[sport] = await runOnceForSport(sport, { date })
+    // 2026-07-10 SETTLE-SPINE-2 — PLACED bets are FIRST-CLASS close-capture
+    // citizens (bet #1's CLV died with its destroyed model twin; a real-money
+    // bet's close must never depend on a model row surviving).
+    try { sportResults[sport].placedLedger = capturePlacedLedgerCloses(sport) }
+    catch (e) { console.warn(`[captureClosingLines:${sport}] placed-ledger pass failed (non-fatal):`, e?.message || e) }
   }
   return {
     captured: (sportResults.nba?.captured || 0) + (sportResults.mlb?.captured || 0),
@@ -355,6 +360,83 @@ async function runOnce({ date } = {}) {
     nba: sportResults.nba,
     mlb: sportResults.mlb,
   }
+}
+
+/**
+ * 2026-07-10 SETTLE-SPINE-2 — close capture for PENDING PLACED ledger bets,
+ * independent of any tracked model twin. Matches each pending placed single
+ * (result=pending, decisionType placed/realMoney, no close yet) against the
+ * CURRENT snapshot by tuple (player|family|side|line|book — market-agnostic:
+ * ledger rows carry no marketKey; the freshest NON-alternate market wins,
+ * alternate as fallback so ladder-only tuples still capture). Window check
+ * uses the MATCHED row's gameTime (ledger rows have none). Writes via the
+ * canonical batchSetClosingLinesByFields (its computeClv fills clvSnapshot).
+ */
+function capturePlacedLedgerCloses(sport) {
+  if (!_personalLedger || typeof _personalLedger.loadLedger !== "function" || typeof _personalLedger.batchSetClosingLinesByFields !== "function") {
+    return { scanned: 0, captured: 0, note: "ledger module unavailable" }
+  }
+  const ledger = _personalLedger.loadLedger()
+  const pendings = (ledger.bets || []).filter((b) =>
+    b && b.sport === sport && (b.decisionType === "placed" || b.realMoney === true) &&
+    String(b.result || "pending") === "pending" && b.betType !== "parlay" &&
+    !(b.clvSnapshot && b.clvSnapshot.close && b.clvSnapshot.close.odds != null) &&
+    b.player && Number.isFinite(Number(b.line)))
+  if (!pendings.length) return { scanned: 0, captured: 0 }
+
+  const { rawProps } = loadSnapshotRawProps(sport)
+  // market-agnostic tuple index: player|fam|side|line|book → freshest row,
+  // non-alternate markets preferred over alternates.
+  const tix = new Map()
+  for (const r of (Array.isArray(rawProps) ? rawProps : [])) {
+    const player = String(r?.player || "").toLowerCase().trim()
+    const fam    = canonFamily(r?.canonicalPropType || r?.statFamily || r?.propType || "")
+    const side   = String(r?.side || "").toLowerCase().trim()
+    const line   = String(r?.line ?? "")
+    const book   = String(r?.book || r?.sportsbook || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+    if (!player || !fam || !side || !book) continue
+    const key = `${player}|${fam}|${side}|${line}|${book}`
+    const isAlt = /alternate/i.test(String(r?.marketKey || ""))
+    const prev = tix.get(key)
+    if (!prev || (prev.isAlt && !isAlt)) tix.set(key, { row: r, isAlt })
+  }
+
+  const nowMs = Date.now()
+  const entries = []
+  let captured = 0
+  for (const b of pendings) {
+    const key = [
+      String(b.player).toLowerCase().trim(),
+      canonFamily(b.statFamily),
+      String(b.side || "").toLowerCase().trim(),
+      String(b.line ?? ""),
+      String(b.sportsbook || "").toLowerCase().replace(/[^a-z0-9]+/g, ""),
+    ].join("|")
+    const hit = tix.get(key)
+    if (!hit) continue
+    const live = hit.row
+    const gt = live.gameTime || live.commence_time || live.commenceTime || null
+    const gtMs = gt ? new Date(gt).getTime() : NaN
+    if (!Number.isFinite(gtMs)) continue
+    const minutesUntilTip = (gtMs - nowMs) / 60000
+    if (minutesUntilTip > CLOSE_WINDOW_MIN || minutesUntilTip < -POST_TIP_WINDOW_MIN) continue
+    const closeOdds = Number(live.odds ?? live.oddsAmerican)
+    if (!Number.isFinite(closeOdds)) continue
+    captured++
+    entries.push({
+      sport, date: b.date, player: b.player, statFamily: b.statFamily,
+      side: b.side, line: b.line, sportsbook: b.sportsbook,
+      closingOdds: closeOdds,
+      closingLine: live.line != null ? Number(live.line) : Number(b.line),
+      closingSportsbook: live.book || live.sportsbook || b.sportsbook || null,
+      closedAt: new Date().toISOString(),
+    })
+  }
+  if (entries.length) {
+    const r = _personalLedger.batchSetClosingLinesByFields(entries)
+    console.log(`[captureClosingLines:${sport}] PLACED-ledger pass: ${captured} close(s) captured for pending placed bets (${r?.count || 0} matched in ledger)`)
+  }
+  return { scanned: pendings.length, captured }
 }
 
 async function runOnceForSport(sport, { date } = {}) {

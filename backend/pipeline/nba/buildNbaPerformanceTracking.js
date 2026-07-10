@@ -473,7 +473,44 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
   const trackedPlays = [...allPlays, ...altQualified, ...longshotPlays]
 
   // -------- Bets --------
-  const newBets = trackedPlays.map((p) => leanBet(p, date))
+  const newBetsUnfiltered = trackedPlays.map((p) => leanBet(p, date))
+
+  // 2026-07-10 SETTLE-SPINE-1 (NBA parity of the MLB bet-#1 root-cause fix) —
+  // the two-layer stale filter below used to run on the MERGED set, deleting
+  // ungraded persisted rows for finished games before the nightly could grade
+  // them (and their close/CLV with them). It now applies to the INCOMING batch
+  // only (its original 2026-05-29 purpose); persisted rows are the day's RECORD
+  // and leave only via grading + keepDays prune. NBA off-season at land time —
+  // zero live effect until the season returns.
+  const HOUR_MS_IN = 60 * 60 * 1000
+  const nowMsIn = Date.now()
+  const knownEventIdsIn = new Set()
+  try {
+    const snapshotPathIn = path.join(__dirname, "..", "..", "snapshot.json")
+    if (fs.existsSync(snapshotPathIn)) {
+      const wrapIn = JSON.parse(fs.readFileSync(snapshotPathIn, "utf8"))
+      const snapIn = wrapIn?.data || wrapIn
+      for (const e of (Array.isArray(snapIn?.events) ? snapIn.events : [])) {
+        const id = e?.id || e?.eventId
+        if (id) knownEventIdsIn.add(String(id))
+      }
+    }
+  } catch (_) {}
+  let droppedL1In = 0, droppedL2In = 0
+  const newBets = newBetsUnfiltered.filter((b) => {
+    if (b.gameTime) {
+      const gtMs = new Date(b.gameTime).getTime()
+      if (Number.isFinite(gtMs)) {
+        if (gtMs <= nowMsIn - HOUR_MS_IN) { droppedL1In++; return false }
+        return true
+      }
+    }
+    if (b.eventId && knownEventIdsIn.size > 0 && !knownEventIdsIn.has(String(b.eventId))) { droppedL2In++; return false }
+    return true
+  })
+  if (newBets.length < newBetsUnfiltered.length) {
+    console.log(`[persistTrackedToday:nba] filtered ${newBetsUnfiltered.length - newBets.length} stale INCOMING picks (layer1=${droppedL1In} explicit-past, layer2=${droppedL2In} eventId-not-in-snapshot) — persisted rows are NEVER dropped (SETTLE-SPINE-1)`)
+  }
   const betsPath = fileFor(BETS_PREFIX, date)
   const existingBets = Array.isArray(readJsonSafe(betsPath, [])) ? readJsonSafe(betsPath, []) : []
   const mergedBetsById = new Map()
@@ -515,68 +552,12 @@ function persistTrackedToday({ bestBetsBoard, date = todayKey() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  // 2026-05-29 — stale-pick filter (TWO LAYERS).
-  //
-  // Layer 1: drop picks with explicit gameTime more than 1h in the past.
-  // Layer 2: drop picks with NULL gameTime but eventId NOT in current snapshot
-  //          (event has aged out of the API — almost certainly past).
-  //
-  // Background: Cloudflare/odds API returns events for both upcoming AND just-
-  // finished games within a few-hour overlap. Without layer 1, picks for just-
-  // played games stay in tracked_bets with explicit past gameTime. Without
-  // layer 2, the alt-line/ladder picks (which often have NULL gameTime in
-  // source data) ALSO bleed through, just without an obvious timestamp.
-  // Observed 2026-05-29 at 3:35 AM ET: 307 of 748 NBA picks were for the
-  // game played 6 hours earlier; 127 had explicit past gameTime (caught by
-  // layer 1) + 180 had null gameTime but the past event's eventId (caught
-  // by layer 2 after this change).
-  //
-  // Conservative: picks with NULL gameTime AND NULL eventId are kept (can't
-  // determine state). Picks with eventId in current snapshot are kept
-  // (event is still tradable). This file lives at backend/snapshot.json.
-  const HOUR_MS = 60 * 60 * 1000
-  const nowMs = Date.now()
-  // Build known-current eventId set from current snapshot.events
-  const knownEventIds = new Set()
-  try {
-    const snapshotPath = path.join(__dirname, "..", "..", "snapshot.json")
-    if (fs.existsSync(snapshotPath)) {
-      const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
-      const snap = wrap?.data || wrap
-      const evs = Array.isArray(snap?.events) ? snap.events : []
-      for (const e of evs) {
-        const id = e?.id || e?.eventId
-        if (id) knownEventIds.add(String(id))
-      }
-    }
-  } catch (_) {
-    // Snapshot read failure non-fatal — skip layer 2, layer 1 still applies
-  }
-  const allMerged = Array.from(mergedBetsById.values())
-  const beforeCount = allMerged.length
-  let droppedLayer1 = 0
-  let droppedLayer2 = 0
-  const fresh = allMerged.filter((b) => {
-    // Layer 1: explicit gameTime check
-    if (b.gameTime) {
-      const gtMs = new Date(b.gameTime).getTime()
-      if (Number.isFinite(gtMs)) {
-        if (gtMs <= nowMs - HOUR_MS) { droppedLayer1++; return false }
-        return true
-      }
-    }
-    // Layer 2: gameTime null/invalid — check eventId against current snapshot
-    if (b.eventId && knownEventIds.size > 0 && !knownEventIds.has(String(b.eventId))) {
-      droppedLayer2++
-      return false
-    }
-    // Else: unknown state, keep conservatively
-    return true
-  })
-  if (fresh.length < beforeCount) {
-    console.log(`[persistTrackedToday:nba] filtered ${beforeCount - fresh.length} stale picks (layer1=${droppedLayer1} explicit-past, layer2=${droppedLayer2} eventId-not-in-snapshot) — ${fresh.length} kept of ${beforeCount}`)
-  }
-  writeJsonSync(betsPath, fresh)
+  // 2026-07-10 SETTLE-SPINE-1 — the 2026-05-29 two-layer stale filter MOVED
+  // ABOVE the merge (incoming batch only; original layer semantics + the
+  // 2026-05-29 rationale preserved verbatim at the new site). The merged set
+  // writes UNFILTERED: persisted rows are the day's record and survive until
+  // grading + keepDays prune.
+  writeJsonSync(betsPath, Array.from(mergedBetsById.values()))
 
   // -------- Slips --------
   const slips = board.slips || {}

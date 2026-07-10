@@ -969,7 +969,53 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   const captureExtras = [...longshotPlays, ...hrAltPlays]
 
   // -------- Bets --------
-  const newBets = [...allPlays, ...captureExtras].map((p) => leanBet(p, date))
+  const newBetsUnfiltered = [...allPlays, ...captureExtras].map((p) => leanBet(p, date))
+
+  // 2026-07-10 SETTLE-SPINE-1 — THE BET-#1 ROOT CAUSE. The stale-pick filter
+  // below used to run on the MERGED set (existing + new), so every hourly slate
+  // run DELETED all rows whose games went final >1h earlier — including UNGRADED
+  // pending rows (measured: the 07-07 file shrank 5,887 → 1,355 overnight;
+  // McLain's tracked twin was destroyed by the ~23:00 run, hours before the 4 AM
+  // nightly could grade it → no graded twin → batchSettleByFields had nothing to
+  // match → the operator's WINNING first real bet sat pending 3 days, and its
+  // close/CLV mirror died with the row). DOCTRINE: the per-date tracked file is
+  // the day's RECORD — once persisted, rows leave ONLY via grading + the keepDays
+  // prune. The filter now applies to the INCOMING batch only (its original
+  // 2026-05-29 purpose: keep stale/rolled-over FRESH picks out).
+  const HOUR_MS = 60 * 60 * 1000
+  const nowMs = Date.now()
+  const knownEventIdsMlb = new Set()
+  try {
+    const snapshotPath = path.join(__dirname, "..", "..", "snapshot-mlb.json")
+    if (fs.existsSync(snapshotPath)) {
+      const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
+      const snap = wrap?.data || wrap
+      const evs = Array.isArray(snap?.events) ? snap.events : []
+      for (const e of evs) {
+        const id = e?.id || e?.eventId
+        if (id) knownEventIdsMlb.add(String(id))
+      }
+    }
+  } catch (_) {}
+  let droppedLayer1Mlb = 0
+  let droppedLayer2Mlb = 0
+  const newBets = newBetsUnfiltered.filter((b) => {
+    if (b.gameTime) {
+      const gtMs = new Date(b.gameTime).getTime()
+      if (Number.isFinite(gtMs)) {
+        if (gtMs <= nowMs - HOUR_MS) { droppedLayer1Mlb++; return false }
+        return true
+      }
+    }
+    if (b.eventId && knownEventIdsMlb.size > 0 && !knownEventIdsMlb.has(String(b.eventId))) {
+      droppedLayer2Mlb++
+      return false
+    }
+    return true
+  })
+  if (newBets.length < newBetsUnfiltered.length) {
+    console.log(`[persistTrackedToday:mlb] filtered ${newBetsUnfiltered.length - newBets.length} stale INCOMING picks (layer1=${droppedLayer1Mlb} explicit-past, layer2=${droppedLayer2Mlb} eventId-not-in-snapshot) — persisted rows are NEVER dropped (SETTLE-SPINE-1)`)
+  }
   const betsPath = fileFor(BETS_PREFIX, date)
   const existingBets = Array.isArray(readJsonSafe(betsPath, [])) ? readJsonSafe(betsPath, []) : []
   const mergedBetsById = new Map()
@@ -1006,46 +1052,10 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
       mergedBetsById.set(b.id, b)
     }
   }
-  // 2026-05-29 — stale-pick filter (TWO LAYERS). See full doc in NBA's
-  // buildNbaPerformanceTracking.persistTrackedToday. MLB snapshot is at
-  // backend/snapshot-mlb.json with the same {data: {events: [...]}} shape.
-  const HOUR_MS = 60 * 60 * 1000
-  const nowMs = Date.now()
-  const knownEventIdsMlb = new Set()
-  try {
-    const snapshotPath = path.join(__dirname, "..", "..", "snapshot-mlb.json")
-    if (fs.existsSync(snapshotPath)) {
-      const wrap = JSON.parse(fs.readFileSync(snapshotPath, "utf8"))
-      const snap = wrap?.data || wrap
-      const evs = Array.isArray(snap?.events) ? snap.events : []
-      for (const e of evs) {
-        const id = e?.id || e?.eventId
-        if (id) knownEventIdsMlb.add(String(id))
-      }
-    }
-  } catch (_) {}
-  const allMergedMlb = Array.from(mergedBetsById.values())
-  const beforeCountMlb = allMergedMlb.length
-  let droppedLayer1Mlb = 0
-  let droppedLayer2Mlb = 0
-  const freshMlb = allMergedMlb.filter((b) => {
-    if (b.gameTime) {
-      const gtMs = new Date(b.gameTime).getTime()
-      if (Number.isFinite(gtMs)) {
-        if (gtMs <= nowMs - HOUR_MS) { droppedLayer1Mlb++; return false }
-        return true
-      }
-    }
-    if (b.eventId && knownEventIdsMlb.size > 0 && !knownEventIdsMlb.has(String(b.eventId))) {
-      droppedLayer2Mlb++
-      return false
-    }
-    return true
-  })
-  if (freshMlb.length < beforeCountMlb) {
-    console.log(`[persistTrackedToday:mlb] filtered ${beforeCountMlb - freshMlb.length} stale picks (layer1=${droppedLayer1Mlb} explicit-past, layer2=${droppedLayer2Mlb} eventId-not-in-snapshot) — ${freshMlb.length} kept of ${beforeCountMlb}`)
-  }
-  writeJsonSync(betsPath, freshMlb)
+  // 2026-07-10 SETTLE-SPINE-1 — the two-layer stale filter MOVED ABOVE the merge
+  // (incoming batch only). The merged set writes UNFILTERED: persisted rows are
+  // the day's record and survive until grading + keepDays prune.
+  writeJsonSync(betsPath, Array.from(mergedBetsById.values()))
 
   // -------- Slips --------
   const slips = board.slips || {}

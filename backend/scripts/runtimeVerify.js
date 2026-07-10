@@ -65,6 +65,7 @@ const SUITES = [
   "verifyCorpusRawAxis", // H1 corpus fix (2026-07-06) — outcome_snapshots.model_prob is RAW-AXIS from the JSON ledger: recordOutcome outcome-first (PRESERVED, operator-approved), settlements via the era-rule owner (statedRawProb), backfill NULL-only + ambiguous-skip + era-excluded counts, probe coverage section; dampener read paths untouched.
   "verifyPlaceBetRoute", // EXEC-CARD (2026-07-07) — one-tap real-money recording: addPlacedBet require-safe + shared core (Law 1, CLI parity preserved), POST /api/ws/place-bet (validated, stamped, already_recorded duplicate guard, §9 warning), FE modal panel w/ round-number stakes + inline-script parse.
   "verifyDeeplinkExecution", // DEEPLINK-2A/2B (2026-07-07) — zero-cost link/SID capture gated MLB_DEEPLINKS (OFF byte-identical); verified-matrix config ships all-disabled (THE link kill-switch); parlay core deterministic id + route parlay mode + duplicate guard; FE matrix-gated anchors, cross-game-only compose, SGP-out, never-prefill-stake, book-odds-required record.
+  "verifySettleSpine", // SETTLE-SPINE (2026-07-10, bet-#1 root cause) — persistTrackedToday filters INCOMING batch only, both sports (persisted rows = the day's record, never dropped pre-grading); captureClosingLines placed-ledger pass (real-money closes never depend on a model twin surviving).
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
