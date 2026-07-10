@@ -66,6 +66,7 @@ const SUITES = [
   "verifyPlaceBetRoute", // EXEC-CARD (2026-07-07) — one-tap real-money recording: addPlacedBet require-safe + shared core (Law 1, CLI parity preserved), POST /api/ws/place-bet (validated, stamped, already_recorded duplicate guard, §9 warning), FE modal panel w/ round-number stakes + inline-script parse.
   "verifyDeeplinkExecution", // DEEPLINK-2A/2B (2026-07-07) — zero-cost link/SID capture gated MLB_DEEPLINKS (OFF byte-identical); verified-matrix config ships all-disabled (THE link kill-switch); parlay core deterministic id + route parlay mode + duplicate guard; FE matrix-gated anchors, cross-game-only compose, SGP-out, never-prefill-stake, book-odds-required record.
   "verifySettleSpine", // SETTLE-SPINE (2026-07-10, bet-#1 root cause) — persistTrackedToday filters INCOMING batch only, both sports (persisted rows = the day's record, never dropped pre-grading); captureClosingLines placed-ledger pass (real-money closes never depend on a model twin surviving).
+  "verifyScreenshotRecord", // E SCREENSHOT-RECORD (2026-07-10) — primary record path: existing OCR pipeline reused (convertImageToJpeg + /screenshots/ocr), EDITABLE confirm screen (never silently recorded), canonical /place-bet cores (single + parlay), MY BETS button both states.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

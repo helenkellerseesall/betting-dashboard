@@ -3027,6 +3027,149 @@
       }
     };
 
+    // ── 2026-07-10 E SCREENSHOT-RECORD — the PRIMARY record path ─────────────
+    // Slip screenshot (camera roll) → EXISTING pipeline (convertImageToJpeg
+    // handles iPhone HEIC; /api/ws/screenshots/ocr = the Claude-Vision parser
+    // the ANALYZE tab already uses — REUSED, never reimplemented) → an EDITABLE
+    // operator-confirm screen (OCR misreads are human-confirmable, NEVER
+    // silently recorded) → the SAME canonical cores via /api/ws/place-bet
+    // (single or mode=parlay, tuple stamping automatic). Button flow = fallback.
+    window._srState = null;
+    window._srOpen = function () {
+      let inp = document.getElementById("sr-file");
+      if (!inp) {
+        inp = document.createElement("input");
+        inp.type = "file"; inp.accept = "image/*"; inp.id = "sr-file"; inp.style.display = "none";
+        inp.addEventListener("change", () => { if (inp.files && inp.files[0]) window._srIngest(inp.files[0]); inp.value = ""; });
+        document.body.appendChild(inp);
+      }
+      inp.click();
+    };
+    function _srPanel() {
+      let p = document.getElementById("sr-panel");
+      if (!p) {
+        p = document.createElement("div");
+        p.id = "sr-panel";
+        p.style.cssText = "position:fixed;left:10px;right:10px;bottom:64px;top:70px;z-index:80;overflow-y:auto;background:#0F1320;border:1px solid #334155;border-radius:12px;padding:14px;display:none;";
+        document.body.appendChild(p);
+      }
+      return p;
+    }
+    window._srIngest = async function (file) {
+      const p = _srPanel();
+      p.style.display = "block";
+      p.innerHTML = `<div style="color:#9CA3AF;font-size:12px;">Reading the slip with the existing OCR pipeline…</div>`;
+      try {
+        const dataUrl = await convertImageToJpeg(file, 1600, 0.9);
+        const r = await fetch(`${API}/api/ws/screenshots/ocr`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: dataUrl, mediaType: "image/jpeg" }),
+        });
+        const json = await r.json();
+        if (!r.ok || !json.ok || !Array.isArray(json.legs) || !json.legs.length) {
+          p.innerHTML = `<div style="color:#FBBF24;font-size:12px;line-height:1.5;">Couldn't read a betting slip from this image (${escapeHtml(String(json?.error || "no legs parsed"))}). Try a tighter crop of the slip.<br/><button onclick="document.getElementById('sr-panel').style.display='none'" style="margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;cursor:pointer;">close</button></div>`;
+          return;
+        }
+        window._srState = { legs: json.legs, sportsbook: json.sportsbook || "", combinedOdds: json.combinedOdds ?? null };
+        window._srRenderConfirm();
+      } catch (e) {
+        p.innerHTML = `<div style="color:#F87171;font-size:12px;">✗ ${escapeHtml(String(e?.message || e))}</div>`;
+      }
+    };
+    window._srRenderConfirm = function () {
+      const p = _srPanel(); const s = window._srState;
+      if (!s) return;
+      const multi = s.legs.length >= 2;
+      const legRows = s.legs.map((l, i) => `
+        <div style="background:#141828;border-radius:8px;padding:10px;margin-top:8px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <input id="sr-player-${i}" value="${escapeHtml(l.player || "")}" placeholder="player" style="flex:2 1 120px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+            <input id="sr-stat-${i}" value="${escapeHtml(l.propType || "")}" placeholder="stat (hits/totalBases/…)" style="flex:2 1 110px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px;">
+            <select id="sr-side-${i}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+              ${["over", "under", "yes", "no"].map((v) => `<option value="${v}" ${String(l.side || "").toLowerCase() === v ? "selected" : ""}>${v}</option>`).join("")}
+            </select>
+            <input id="sr-line-${i}" type="number" step="0.5" value="${l.line ?? ""}" placeholder="line" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+            <input id="sr-odds-${i}" type="number" value="${l.odds ?? ""}" placeholder="odds" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+            <button onclick="window._srState.legs.splice(${i},1);window._srRenderConfirm();" style="flex:0 0 auto;background:none;border:0;color:#F87171;font-size:15px;cursor:pointer;">×</button>
+          </div>
+        </div>`).join("");
+      p.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:14px;font-weight:800;color:#F9FAFB;">Confirm before recording</span>
+          <button onclick="document.getElementById('sr-panel').style.display='none'" style="background:none;border:0;color:#9CA3AF;font-size:18px;cursor:pointer;">×</button>
+        </div>
+        <div style="font-size:10px;color:#FBBF24;margin-top:4px;">Check every field against your slip — OCR can misread. Nothing records until you confirm.</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
+          <span style="font-size:11px;color:#9CA3AF;">Book</span>
+          <input id="sr-book" value="${escapeHtml(s.sportsbook || "")}" placeholder="FanDuel / DraftKings / …" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+          <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
+          <input id="sr-stake" type="number" min="1" step="1" value="1" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+        </div>
+        ${legRows}
+        ${multi ? `
+        <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
+          <span style="font-size:11px;color:#9CA3AF;">Record as</span>
+          <select id="sr-mode" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+            <option value="parlay" selected>one parlay (${s.legs.length} legs)</option>
+            <option value="singles">separate singles</option>
+          </select>
+          <span style="font-size:11px;color:#9CA3AF;">Combined odds</span>
+          <input id="sr-combined" type="number" value="${s.combinedOdds ?? ""}" placeholder="+450" style="width:76px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+        </div>` : ""}
+        <button id="sr-confirm" onclick="window._srConfirm(this)" style="width:100%;margin-top:12px;padding:10px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">Record ${multi ? "this slip" : "this bet"} exactly as shown above</button>
+        <div id="sr-result" style="margin-top:8px;font-size:11px;line-height:1.5;"></div>`;
+    };
+    window._srConfirm = async function (btnEl) {
+      const s = window._srState; const out = document.getElementById("sr-result");
+      if (!s || !out) return;
+      const book = document.getElementById("sr-book")?.value || "";
+      const stake = Math.max(1, Math.round(Number(document.getElementById("sr-stake")?.value) || 1));
+      const legs = s.legs.map((_, i) => ({
+        player: document.getElementById(`sr-player-${i}`)?.value || "",
+        stat:   document.getElementById(`sr-stat-${i}`)?.value || "",
+        side:   document.getElementById(`sr-side-${i}`)?.value || "",
+        line:   Number(document.getElementById(`sr-line-${i}`)?.value),
+        odds:   Number(document.getElementById(`sr-odds-${i}`)?.value),
+      }));
+      const mode = legs.length >= 2 ? (document.getElementById("sr-mode")?.value || "parlay") : "single";
+      btnEl.disabled = true; btnEl.textContent = "Recording…";
+      const results = [];
+      try {
+        if (mode === "parlay") {
+          const combined = Number(document.getElementById("sr-combined")?.value);
+          if (!Number.isFinite(combined) || combined === 0) {
+            out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">Enter the combined odds from your slip.</div>`;
+            btnEl.disabled = false; btnEl.textContent = "Record this slip exactly as shown above"; return;
+          }
+          const r = await fetch(`${API}/api/ws/place-bet`, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "parlay", sport: "mlb", book, stake, odds: combined, notes: "recorded from screenshot", legs: legs.map((l) => ({ player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line })) }) });
+          results.push(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
+        } else {
+          for (const l of legs) {
+            const r = await fetch(`${API}/api/ws/place-bet`, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sport: "mlb", player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line, odds: l.odds, book, stake, notes: "recorded from screenshot" }) });
+            results.push(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
+          }
+        }
+        out.innerHTML = results.map((d) => {
+          if (d.ok) {
+            const s2 = d.stamped || {};
+            return `<div style="background:#052E16;border-left:3px solid #34D399;border-radius:6px;padding:8px 10px;margin-top:4px;color:#BBF7D0;">✓ Recorded — ${escapeHtml(String(d.bet?.player || d.bet?.prop || ""))} $${d.bet?.stake} (to win $${d.bet?.toWin})${s2.calibVersion ? `<br/>stamped ${escapeHtml(s2.calibVersion)}` : ""}${d.warning ? `<br/><span style="color:#FDE68A;">⚠ ${escapeHtml(d.warning)}</span>` : ""}</div>`;
+          }
+          if (d.reason === "already_recorded") return `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FDE68A;">Already recorded today — nothing written twice.</div>`;
+          return `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FECACA;">✗ ${escapeHtml(String(d.error || "failed"))} — fix the field above and confirm again.</div>`;
+        }).join("");
+        const anyFail = results.some((d) => !d.ok && d.reason !== "already_recorded");
+        btnEl.disabled = anyFail ? false : true;
+        btnEl.textContent = anyFail ? "Fix fields above — confirm again" : "Recorded ✓";
+      } catch (e) {
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(e?.message || e))}</div>`;
+        btnEl.disabled = false; btnEl.textContent = "Record — retry";
+      }
+    };
+
     // ── 2026-07-07 TEST-LINKS panel (dev flag: /m?dev=1) ─────────────────────
     // Field-test doctrine: links compose FRESH at open time from the live
     // snapshot (stale SIDs dump to homepages) and the phone is the only honest
@@ -3685,11 +3828,17 @@
           main.innerHTML = `<div style="padding:24px;color:#9CA3AF;text-align:center;">
             <div style="font-size:28px;margin-bottom:10px;">📝</div>
             No placed bets yet.<br>
-            <span style="font-size:12px;color:#6B7280;">Log a bet via <code style="background:#141828;padding:2px 6px;border-radius:4px;">backend/scripts/addPlacedBet.js</code> CLI.</span>
+            <button onclick="window._srOpen()" style="margin-top:12px;padding:11px 18px;border-radius:10px;border:1px solid #14532D;background:rgba(52,211,153,0.12);color:#34D399;font-size:14px;font-weight:800;cursor:pointer;">📷 Record a bet from a slip screenshot</button><br>
+            <span style="font-size:11px;color:#6B7280;margin-top:8px;display:inline-block;">or tap "I bet this" on any pick card.</span>
           </div>`;
           return;
         }
         let html = `<div style="padding:8px 12px;">`;
+        // 2026-07-10 E — screenshot recording is the PRIMARY record path.
+        html += `
+          <button onclick="window._srOpen()" style="width:100%;margin-bottom:12px;padding:11px 0;border-radius:10px;border:1px solid #14532D;background:rgba(52,211,153,0.12);color:#34D399;font-size:14px;font-weight:800;cursor:pointer;">
+            📷 Record a bet from a slip screenshot
+          </button>`;
         // Summary card
         html += `
           <div style="background:#141828;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid #34D399;">
