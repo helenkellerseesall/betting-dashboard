@@ -30,7 +30,7 @@ const OUT = path.join(__dirname, "..", "config", "mlbMarginalCalibration.json")
 const MIN_FAMILY = 100   // below → no family map (engine falls back to global)
 const MIN_SIDE = 60      // below → no per-side map (engine falls back to family.all)
 
-const { files, rows, trainThrough, excludedContaminated } = T.loadSettledRawRows(TRACKING)
+const { files, rows, trainThrough, excludedContaminated, excludedFirstHr } = T.loadSettledRawRows(TRACKING)
 const global = T.fitMapV2(rows)
 const families = {}
 for (const fam of [...new Set(rows.map(r => r.fam))]) {
@@ -54,6 +54,7 @@ const out = {
   source: {
     ledgerFiles: files.length, settledRows: rows.length,
     excludedContaminatedRows: excludedContaminated, flipDay: T.FLIP_DAY,
+    excludedFirstHrRows: excludedFirstHr, // 2026-07-11 F — mis-settled market out of training (v3)
     nbins: T.NBINS, minKnotN: T.MIN_KNOT_N, minFamily: MIN_FAMILY, minSide: MIN_SIDE,
   },
   global,

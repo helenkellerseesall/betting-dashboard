@@ -45,7 +45,11 @@ const fs = require("fs")
 const path = require("path")
 const { fitIsotonic } = require("../shared/isotonicCalibration")
 
-const VERSION = "mlb-calib-live-v2"
+// 2026-07-11 F FIRST-HR CURE — v3: batter_first_home_run EXCLUDED from training
+// (its false-win/loss-suppressed settlement polluted the hr map's mid-x cells,
+// e.g. the raw-corpus hr|over bin 0.16@0.511 measured during v2). Re-included
+// only after honest first-HR grading accrues real win/loss data.
+const VERSION = "mlb-calib-live-v3"
 // MLB_CALIB_LIVE flipped ON 2026-07-01 ~17:57 ET (OPERATOR_SESSION_LOG). The 07-01
 // file mixes pre/post-flip rows → treated as contaminated (strict <).
 const FLIP_DAY = "2026-07-01"
@@ -77,6 +81,7 @@ function loadSettledRawRows(trackingDir) {
   const files = fs.readdirSync(dir).filter((f) => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
   const rows = []
   let excludedContaminated = 0
+  let excludedFirstHr = 0
   let trainThrough = null
   for (const f of files) {
     const day = f.match(/(\d{4}-\d{2}-\d{2})/)[1]
@@ -85,6 +90,9 @@ function loadSettledRawRows(trackingDir) {
     let used = false
     for (const r of a) {
       if (!r || !r.player || String(r.player).toLowerCase().startsWith("no ")) continue // synthetic
+      // 2026-07-11 F — first-HR exclusion (v3): mis-settled market (false wins,
+      // suppressed losses) — counted out of training until grading is honest.
+      if (String(r.marketKey || "") === "batter_first_home_run") { excludedFirstHr++; continue }
       if (r.result !== "win" && r.result !== "loss") continue
       const mp = statedRawProb(r, day)
       if (mp == null) { if (Number.isFinite(Number(r?.modelProb))) excludedContaminated++; continue }
@@ -100,7 +108,7 @@ function loadSettledRawRows(trackingDir) {
     }
     if (used) trainThrough = day
   }
-  return { files, rows, trainThrough, excludedContaminated }
+  return { files, rows, trainThrough, excludedContaminated, excludedFirstHr }
 }
 
 /**

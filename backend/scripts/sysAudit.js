@@ -494,11 +494,21 @@ async function main() {
         if (r !== "win" && r !== "loss" && r !== "push" && r !== "void") continue
         const mp = Number(b.modelProb)
         if (!Number.isFinite(mp)) continue
-        if (!buckets[fam]) buckets[fam] = { stated: [], wins: 0, losses: 0, pushes: 0 }
+        if (!buckets[fam]) buckets[fam] = { stated: [], wins: 0, losses: 0, pushes: 0, markets: {} }
         buckets[fam].stated.push(mp)
         if (r === "win") buckets[fam].wins++
         else if (r === "loss") buckets[fam].losses++
         else buckets[fam].pushes++
+        // 2026-07-11 F FIRST-HR CURE — per-market sub-buckets: a market whose
+        // decided sample has ZERO losses is survivorship-poisoned (its losers
+        // aren't settling — the batter_first_home_run class) and must be
+        // EXCLUDED from the family display slice, never blended in.
+        const mk = String(b.marketKey || "(none)")
+        const m = buckets[fam].markets[mk] || (buckets[fam].markets[mk] = { stated: [], wins: 0, losses: 0, pushes: 0 })
+        m.stated.push(mp)
+        if (r === "win") m.wins++
+        else if (r === "loss") m.losses++
+        else m.pushes++
       }
     }
     console.log(`  ${sport.toUpperCase()} (window ${CAL_WINDOW_DAYS}d, min sample ${CAL_MIN_SAMPLE}):`)
@@ -512,13 +522,25 @@ async function main() {
     if (!fams.length) { I(`  (no settled picks to calibrate against — empty section emitted)`); continue }
     for (const fam of fams) {
       const b = buckets[fam]
-      const settled = b.wins + b.losses + b.pushes
-      if (settled < CAL_MIN_SAMPLE) {
-        I(`  ${fam}: n=${settled} (below min ${CAL_MIN_SAMPLE} — defer)`)
+      // 2026-07-11 F — survivorship exclusion (see bucket build note). Recompute
+      // the family aggregate from the KEPT markets only; report exclusions loudly.
+      let wins = 0, losses = 0, pushes = 0
+      const keptStated = []
+      const excludedNotes = []
+      for (const [mk, m] of Object.entries(b.markets || {})) {
+        const dec = m.wins + m.losses
+        if (dec >= 20 && m.losses === 0) { excludedNotes.push(`${mk} (${m.wins}W/0L/${m.pushes}P)`); continue }
+        wins += m.wins; losses += m.losses; pushes += m.pushes
+        keptStated.push(...m.stated)
+      }
+      if (excludedNotes.length) I(`  ${fam}: EXCLUDED survivorship-poisoned market(s) — settlement gap, not model skill: ${excludedNotes.join("; ")}`)
+      const settled = wins + losses + pushes
+      if (settled < CAL_MIN_SAMPLE || keptStated.length === 0) {
+        I(`  ${fam}: n=${settled} after exclusions (below min ${CAL_MIN_SAMPLE} — defer)`)
         continue
       }
-      const meanStated = b.stated.reduce((s, v) => s + v, 0) / b.stated.length
-      const realized = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0
+      const meanStated = keptStated.reduce((s, v) => s + v, 0) / keptStated.length
+      const realized = (wins + losses) > 0 ? wins / (wins + losses) : 0
       const gap = Math.abs(meanStated - realized) * 100  // percentage points
       // Persist multiplier for dampener — clipped to [0.20, 1.10] so we never
       // suppress to zero or amplify unreasonably. A family realized at 9.4%
@@ -537,11 +559,14 @@ async function main() {
       // Emit it as informational (I — no FAILED/WARNED++) so it does NOT RED-refire drift_alerts.log
       // all off-season. CALIBRATION_OUT + family_calibration.json persistence above are UNCHANGED for
       // every sport, so the dampener correction stays intact. A LIVE sport still hits the P/W/F bands.
+      // 2026-07-11 F — DIRECTION-AWARE copy (the hr RED read "overstated"/"too
+      // confident" while stated < realized = UNDER-stated; words now follow the sign).
+      const dirWord = meanStated > realized ? "overstated" : "UNDERSTATED"
       if (!isSportEnabled(sport)) I(`  ${fam}: ${fmt} — DORMANT (${sport} season off): already dampener-corrected ×${multiplier.toFixed(2)}, not live-actionable`)
       else if (gap < 10) P(`  ${fam}: ${fmt}`)
       else if (gap < 20) W(`  ${fam}: ${fmt} — meaningful gap, dampen`)
       else if (gap < 35) W(`  ${fam}: ${fmt} — LARGE gap, dampen aggressively`)
-      else F(`  ${fam}: ${fmt} — SEVERELY MISCALIBRATED, model claims overstated by ${gap.toFixed(0)}pp`)
+      else F(`  ${fam}: ${fmt} — SEVERELY MISCALIBRATED, model claims ${dirWord} by ${gap.toFixed(0)}pp`)
     }
   }
   // Persist calibration data for the dampener (calibrationDampener.js reads this)

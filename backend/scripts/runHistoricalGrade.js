@@ -305,6 +305,29 @@ async function gradeDate({ sport, date, fetcher, opts }) {
     console.log(`  [dry-run] Would fetch game results for slate ${date} (resolved to game-date(s))`)
   }
 
+  // 2026-07-11 F FIRST-HR CURE — build the first-HR settle context for MLB from
+  // play-by-play over the SAME game-dates (box scores carry totals, not order).
+  // Fetch failure ⇒ ctx null ⇒ first-HR rows stay pending (never guessed).
+  let firstHrCtx = null
+  if (!dryRun && sport === "mlb") {
+    try {
+      const { fetchMlbFirstHr, buildFirstHrCtx } = require("../pipeline/grading/fetchMlbFirstHr")
+      const gameDates = await gameDatesForSlate(sport, date)
+      const merged = { byTeamKey: new Map(), games: [] }
+      for (const gd of gameDates) {
+        const f = await fetchMlbFirstHr(gd)
+        for (const [k, v] of f.byTeamKey) merged.byTeamKey.set(k, v)
+        merged.games.push(...f.games)
+      }
+      firstHrCtx = buildFirstHrCtx(merged)
+      const withHr = merged.games.filter((g) => g.firstHrBatter).length
+      const noHr = merged.games.filter((g) => g.noHr).length
+      console.log(`  ✓ first-HR play-by-play: ${merged.games.length} games (${withHr} with a first HR, ${noHr} homerless, rest non-final)`)
+    } catch (e) {
+      console.warn(`  ⚠ first-HR context unavailable (${e?.message}) — first-HR bets stay pending this run`)
+    }
+  }
+
   // 2. Grade individual bets
   let betSummary = {}
   if (!dryRun) {
@@ -313,6 +336,7 @@ async function gradeDate({ sport, date, fetcher, opts }) {
       date,
       resultsMap,
       getStatValue: fetcher.getStatValue,
+      firstHrCtx,
     })
   } else {
     console.log(`  [dry-run] Would grade bets for ${sport} ${date}`)

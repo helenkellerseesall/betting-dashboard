@@ -69,7 +69,7 @@ function settleFromActual({ side, line, actualValue }) {
   return { status: "open", result: "pending" }
 }
 
-async function gradeTrackedBets({ sport, date, resultsMap, getStatValue }) {
+async function gradeTrackedBets({ sport, date, resultsMap, getStatValue, firstHrCtx = null }) {
   const betsPath = path.join(RUNTIME_DIR, `${sport}_tracked_bets_${date}.json`)
 
   let bets
@@ -90,11 +90,28 @@ async function gradeTrackedBets({ sport, date, resultsMap, getStatValue }) {
   let graded = 0, wins = 0, losses = 0, pushes = 0, unresolved = 0, alreadySettled = 0
 
   const updatedBets = bets.map((bet) => {
-    // Skip already-settled bets (win/loss/push)
+    // Skip already-settled bets (win/loss/push/void — settled rows are immutable)
     const currentResult = String(bet.result || "").toLowerCase()
-    if (currentResult === "win" || currentResult === "loss" || currentResult === "push") {
+    if (currentResult === "win" || currentResult === "loss" || currentResult === "push" || currentResult === "void") {
       alreadySettled++
       return bet
+    }
+
+    // 2026-07-11 F FIRST-HR CURE — batter_first_home_run settles by PLAY ORDER,
+    // never by the box-score HR total (line=0 + total-HR made any-HR a FALSE WIN
+    // and no-HR a push instead of a loss). Book convention:
+    //   this player hit the game's FIRST HR ⇒ win · someone else did ⇒ loss ·
+    //   game finished with NO HR ⇒ void · game not final / unjoinable ⇒ pending.
+    if (String(bet.marketKey || "") === "batter_first_home_run") {
+      if (!firstHrCtx) return { ...bet, result: "pending" } // no ctx ⇒ never guess
+      const g = firstHrCtx.findGame(bet)
+      if (!g || !g.final) return { ...bet, result: "pending" }
+      graded++
+      if (g.noHr) { pushes++; return { ...bet, result: "void", actualValue: 0, settledAt: now } }
+      const won = g.firstHrBatter && g.firstHrBatter === firstHrCtx.normPlayer(bet.player)
+      if (won) { wins++; return { ...bet, result: "win", actualValue: 1, settledAt: now } }
+      losses++
+      return { ...bet, result: "loss", actualValue: 0, settledAt: now }
     }
 
     const playerKey = normName(bet.player)

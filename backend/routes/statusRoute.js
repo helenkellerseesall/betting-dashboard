@@ -995,6 +995,11 @@ function sectionOpenIssues() {
           const x = cal.sports[sport][fam]
           const gap = Number(x.gapPp)
           if (!Number.isFinite(gap)) continue
+          // 2026-07-11 F — DIRECTION-AWARE copy (the hr RED said "too confident"
+          // while stated < realized = too PESSIMISTIC; words now follow the sign,
+          // and the correction verb follows the multiplier's direction).
+          const dirPhrase = Number(x.stated) > Number(x.realized) ? "too confident" : "too pessimistic"
+          const corrPhrase = `${Number(x.multiplier) <= 1 ? "down" : "up"} to ${(x.multiplier * 100).toFixed(0)}% strength`
           // DORMANT sport (season OFF): downgrade ANY gap to grey info — the dampener already
           // corrects it (×mul) and there are no live games to act on. Stays VISIBLE, not red/yellow.
           if (!isSportEnabled(sport)) {
@@ -1003,7 +1008,7 @@ function sectionOpenIssues() {
                 source: "family_calibration",
                 category: "cognition",
                 title: `${humanFamily(fam)} bets (${sport.toUpperCase()}): off-season, already corrected`,
-                detail: `${sport.toUpperCase()} is off-season. Last season these ran about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets); already auto-corrected to ${(x.multiplier*100).toFixed(0)}% strength. Not affecting current picks.`,
+                detail: `${sport.toUpperCase()} is off-season. Last season these ran about ${gap.toFixed(1)}% ${dirPhrase} (${x.n.toLocaleString()} bets); already auto-corrected ${corrPhrase}. Not affecting current picks.`,
                 gapPp: gap,
                 multiplier: x.multiplier,
               })
@@ -1013,7 +1018,7 @@ function sectionOpenIssues() {
               source: "family_calibration",
               category: "cognition",
               title: `${humanFamily(fam)} bets: model well off`,
-              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets). Auto-corrected down to ${(x.multiplier*100).toFixed(0)}% strength. Larger gap than the warning threshold.`,
+              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% ${dirPhrase} (${x.n.toLocaleString()} bets). Auto-corrected ${corrPhrase}. Larger gap than the warning threshold.`,
               gapPp: gap,
               multiplier: x.multiplier,
             })
@@ -1021,8 +1026,8 @@ function sectionOpenIssues() {
             yellow.push({
               source: "family_calibration",
               category: "cognition",
-              title: `${humanFamily(fam)} bets: model a bit too confident`,
-              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% too confident (${x.n.toLocaleString()} bets). Auto-corrected down to ${(x.multiplier*100).toFixed(0)}% strength.`,
+              title: `${humanFamily(fam)} bets: model a bit ${dirPhrase}`,
+              detail: `Model expects these to win ${(x.stated*100).toFixed(1)}% but they actually win ${(x.realized*100).toFixed(1)}% — about ${gap.toFixed(1)}% ${dirPhrase} (${x.n.toLocaleString()} bets). Auto-corrected ${corrPhrase}.`,
               gapPp: gap,
               multiplier: x.multiplier,
             })
