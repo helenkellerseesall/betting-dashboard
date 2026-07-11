@@ -197,8 +197,17 @@ function buildValidatedSingleBet(o = {}) {
 	const line = Number(o.line)
 	if (!Number.isFinite(line)) return { ok: false, error: `--line="${o.line || ""}" must be a number` }
 
-	// Phase Date-Doctrine-1B — canonical ET slate date
-	const today = currentSlateDateEt()
+	// 2026-07-10 E-FOLLOWUP-2 — optional explicit bet date (screenshot flow: the
+	// slip's placement timestamp is the TRUE bet date). Validated YYYY-MM-DD, never
+	// future; default = canonical ET slate date. Tuple lookup follows this date.
+	const todayEt = currentSlateDateEt()
+	let today = todayEt
+	if (o.date != null && String(o.date) !== "") {
+		const d = String(o.date)
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: `--date="${d}" must be YYYY-MM-DD` }
+		if (d > todayEt) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be` }
+		today = d
+	}
 	const bet = {
 		date: today,
 		sport,
@@ -280,7 +289,15 @@ function buildValidatedParlayBet(o = {}, legsIn = []) {
 	if (!o.book) return { ok: false, error: `--book is REQUIRED. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
 	if (!book) return { ok: false, error: `--book="${o.book}" is not a known book. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
 
-	const today = currentSlateDateEt()
+	// 2026-07-10 E-FOLLOWUP-2 — optional explicit bet date (see single core).
+	const todayEt = currentSlateDateEt()
+	let today = todayEt
+	if (o.date != null && String(o.date) !== "") {
+		const d = String(o.date)
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: `--date="${d}" must be YYYY-MM-DD` }
+		if (d > todayEt) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be` }
+		today = d
+	}
 	const legNotes = []
 	for (const l of legs) {
 		l.side = String(l.side || "").toLowerCase()
@@ -316,8 +333,8 @@ function makeParlay(args) {
 	args.legs = legs // canonicalized + stamped legs flow into the parlay object below
 	const stake = r.stake
 	const odds = r.odds
-	// Phase Date-Doctrine-1B — canonical ET slate date
-	const today = currentSlateDateEt()
+	// Phase Date-Doctrine-1B — canonical ET slate date (core's date wins — E-FOLLOWUP-2)
+	const today = r.today
 	const toWin = Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2))
 	const legSummary = args.legs.map((l) => `${l.player.split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
 	const parlay = {

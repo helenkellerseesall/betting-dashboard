@@ -2166,13 +2166,24 @@ router.post("/place-bet", express.json(), (req, res) => {
       }))
       const pr = buildValidatedParlayBet({
         sport: body.sport, book: body.book || body.sportsbook,
-        stake: body.stake, odds: body.odds, notes: body.notes || "placed via /m slip tray",
+        stake: body.stake, odds: body.odds, date: body.date || null,
+        notes: body.notes || "placed via /m slip tray",
       }, legsIn)
       if (!pr.ok) return res.status(400).json({ ok: false, error: pr.error })
       const mods0 = loadSharedModules()
-      const dup = (mods0.ledger.loadLedger().bets || []).find((b) => b && b.id === pr.id)
+      const ledger0 = mods0.ledger.loadLedger()
+      const dup = (ledger0.bets || []).find((b) => b && b.id === pr.id)
       if (dup && (dup.decisionType === "placed" || dup.realMoney === true)) {
         return res.json({ ok: false, reason: "already_recorded", bet: { id: dup.id, prop: dup.prop, stake: dup.stake, placedAt: dup.placedAt, result: dup.result } })
+      }
+      // 2026-07-10 E-FOLLOWUP-2 — cross-date lookback (~7d): same parlay signature
+      // on ANOTHER day ⇒ loud warning, overridable with force (never a silent dup).
+      const legSummary0 = pr.legs.map((l) => `${String(l.player).split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
+      if (body.force !== true) {
+        const near = (ledger0.bets || []).find((b) => b && (b.decisionType === "placed" || b.realMoney === true) &&
+          b.betType === "parlay" && b.prop === legSummary0 && b.date !== pr.today &&
+          Math.abs(new Date(b.date) - new Date(pr.today)) <= 7 * 86400000)
+        if (near) return res.json({ ok: false, reason: "possible_duplicate", existing: { id: near.id, date: near.date, prop: near.prop, stake: near.stake, result: near.result }, note: "same parlay recorded on a nearby date — confirm 'record anyway' only if this is genuinely a second ticket" })
       }
       const legSummary = pr.legs.map((l) => `${String(l.player).split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
       const toWin = Number((pr.stake * (pr.odds > 0 ? pr.odds / 100 : 100 / Math.abs(pr.odds))).toFixed(2))
@@ -2216,20 +2227,41 @@ router.post("/place-bet", express.json(), (req, res) => {
       odds:    body.odds ?? body.oddsAmerican,
       stake:   body.stake,
       player:  body.player,
+      date:    body.date || null, // 2026-07-10 E-FOLLOWUP-2 — slip timestamp = true bet date (validated in core)
       matchup: body.matchup || null,
       notes:   body.notes || "placed via /m execution card",
     })
     if (!r.ok) return res.status(400).json({ ok: false, error: r.error })
 
     const mods = loadSharedModules()
+    const ledgerAll = mods.ledger.loadLedger()
     // Duplicate-tap guard: same pick + same slate day ⇒ same deterministic id.
-    const existing = (mods.ledger.loadLedger().bets || []).find((b) => b && b.id === r.bet.id)
+    const existing = (ledgerAll.bets || []).find((b) => b && b.id === r.bet.id)
     if (existing && (existing.decisionType === "placed" || existing.realMoney === true)) {
       return res.json({
         ok: false,
         reason: "already_recorded",
         bet: { id: existing.id, player: existing.player, prop: existing.prop, stake: existing.stake, placedAt: existing.placedAt, result: existing.result },
       })
+    }
+    // 2026-07-10 E-FOLLOWUP-2 — cross-date lookback (~7d): same tuple on ANOTHER
+    // day ⇒ loud warning with the existing bet, overridable via force:true (the
+    // operator's accidental 07-10 McLain dup class — never silent either way).
+    if (body.force !== true) {
+      const normP = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+      const near = (ledgerAll.bets || []).find((b) => b && (b.decisionType === "placed" || b.realMoney === true) &&
+        b.betType !== "parlay" && b.date !== r.bet.date &&
+        normP(b.player) === normP(r.bet.player) && String(b.statFamily) === String(r.bet.statFamily) &&
+        String(b.side).toLowerCase() === String(r.bet.side).toLowerCase() && Number(b.line) === Number(r.bet.line) &&
+        normP(b.sportsbook) === normP(r.bet.sportsbook) &&
+        Math.abs(new Date(b.date) - new Date(r.bet.date)) <= 7 * 86400000)
+      if (near) {
+        return res.json({
+          ok: false, reason: "possible_duplicate",
+          existing: { id: near.id, date: near.date, player: near.player, prop: near.prop, stake: near.stake, result: near.result },
+          note: "same pick recorded on a nearby date — confirm 'record anyway' only if this is genuinely a second ticket",
+        })
+      }
     }
 
     const w = mods.ledger.addOrUpdateBet(r.bet)

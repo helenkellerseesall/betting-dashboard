@@ -87,6 +87,21 @@ check("A1: modal has the editable 'Odds I got' field, prefilled with the card pr
 check("B: MY BETS honest status map (void→VOID, push→PUSH — never PENDING)", /push: \["PUSH", "#9CA3AF"\], void: \["VOID", "#9CA3AF"\]/.test(feSrc))
 check("B: MY BETS cards carry identity (player/prop/line) + slate date + stamp line", /identLine/.test(feSrc) && /stamped \$\{escapeHtml\(b\.calibVersion\)\}/.test(feSrc))
 
+// ── E-FOLLOWUP-2 (2026-07-10): explicit bet date + cross-date duplicate guard ─
+if (apb) {
+  const dated = apb.buildValidatedSingleBet({ sport: "mlb", book: "fanduel", stat: "hits", side: "over", line: 1.5, odds: -110, stake: 1, player: "Zz Nobody", date: "2026-07-08" })
+  check("core: explicit past date flows to bet.date + tuple lookup", dated.ok && dated.bet.date === "2026-07-08")
+  const future = apb.buildValidatedSingleBet({ sport: "mlb", book: "fanduel", stat: "hits", side: "over", line: 1.5, odds: -110, stake: 1, player: "Zz Nobody", date: "2099-01-01" })
+  check("core: future date REJECTED (a bet date cannot be)", future.ok === false && /future/.test(future.error))
+  const badDate = apb.buildValidatedSingleBet({ sport: "mlb", book: "fanduel", stat: "hits", side: "over", line: 1.5, odds: -110, stake: 1, player: "Zz Nobody", date: "07/08/2026" })
+  check("core: malformed date REJECTED", badDate.ok === false && /YYYY-MM-DD/.test(badDate.error))
+  const datedParlay = apb.buildValidatedParlayBet({ sport: "mlb", book: "fanduel", stake: 1, odds: 300, date: "2026-07-08" }, [{ player: "A", statFamily: "hits", line: 1.5, side: "over" }, { player: "B", statFamily: "runs", line: 0.5, side: "over" }])
+  check("parlay core: explicit date honored (id date-scoped)", datedParlay.ok && datedParlay.today === "2026-07-08")
+}
+const wsF = rd("routes/workstationRoutes.js")
+check("route: cross-date lookback guard (~7d) with possible_duplicate + force override, BOTH modes", (wsF.match(/possible_duplicate/g) || []).length >= 2 && (wsF.match(/body\.force !== true/g) || []).length >= 2 && /7 \* 86400000/.test(wsF))
+check("route: single + parlay modes pass body.date into the cores", /date:    body\.date \|\| null/.test(wsF) && /date: body\.date \|\| null/.test(wsF))
+
 console.log(`verifyPlaceBetRoute: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }
 process.exit(0)

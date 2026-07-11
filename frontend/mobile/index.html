@@ -3070,7 +3070,19 @@
           p.innerHTML = `<div style="color:#FBBF24;font-size:12px;line-height:1.5;">Couldn't read a betting slip from this image (${escapeHtml(String(json?.error || "no legs parsed"))}). Try a tighter crop of the slip.<br/><button onclick="document.getElementById('sr-panel').style.display='none'" style="margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;cursor:pointer;">close</button></div>`;
           return;
         }
-        window._srState = { legs: json.legs, sportsbook: json.sportsbook || "", combinedOdds: json.combinedOdds ?? null };
+        window._srState = {
+          legs: json.legs,
+          // E-FOLLOWUP-2 — book prefills ONLY on a high-confidence fingerprint
+          // match; otherwise the dropdown stays empty and demands a human pick
+          // (a wrong book corrupts the record — never silently guess).
+          sportsbook: (json.sportsbookConfidence === "high" && json.sportsbook) ? json.sportsbook : "",
+          bookGuess: json.sportsbook || null,
+          bookConfidence: json.sportsbookConfidence || "low",
+          combinedOdds: json.combinedOdds ?? null,
+          stake: Number.isFinite(Number(json.stake)) ? Number(json.stake) : null,
+          placedAtDate: json.placedAtDate || null,
+          force: false,
+        };
         window._srRenderConfirm();
       } catch (e) {
         p.innerHTML = `<div style="color:#F87171;font-size:12px;">✗ ${escapeHtml(String(e?.message || e))}</div>`;
@@ -3103,9 +3115,18 @@
         <div style="font-size:10px;color:#FBBF24;margin-top:4px;">Check every field against your slip — OCR can misread. Nothing records until you confirm.</div>
         <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
           <span style="font-size:11px;color:#9CA3AF;">Book</span>
-          <input id="sr-book" value="${escapeHtml(s.sportsbook || "")}" placeholder="FanDuel / DraftKings / …" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+          <select id="sr-book" style="flex:1;padding:6px;border-radius:6px;border:1px solid ${s.sportsbook ? "#374151" : "#B45309"};background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+            <option value="">— pick the book —</option>
+            ${["FanDuel", "DraftKings", "BetMGM", "Hard Rock Bet", "BetRivers", "Fanatics"].map((b) => `<option value="${b}" ${s.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
+          </select>
           <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
-          <input id="sr-stake" type="number" min="1" step="1" value="1" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+          <input id="sr-stake" type="number" min="1" step="1" value="${s.stake ?? 1}" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+        </div>
+        ${!s.sportsbook && s.bookGuess ? `<div style="font-size:10px;color:#FBBF24;margin-top:4px;">Fingerprint guess: ${escapeHtml(s.bookGuess)} (low confidence) — pick it yourself, the record keys on the book.</div>` : ""}
+        <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
+          <span style="font-size:11px;color:#9CA3AF;">Bet date</span>
+          <input id="sr-date" type="date" value="${escapeHtml(s.placedAtDate || currentSlateDateEt())}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+          <span style="font-size:9px;color:#6B7280;">${s.placedAtDate ? "from the slip's timestamp" : "no timestamp on slip — defaulted to today"}</span>
         </div>
         ${legRows}
         ${multi ? `
@@ -3125,6 +3146,11 @@
       const s = window._srState; const out = document.getElementById("sr-result");
       if (!s || !out) return;
       const book = document.getElementById("sr-book")?.value || "";
+      if (!book) { // E-FOLLOWUP-2 — never guess the book; record integrity keys on it
+        out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">Pick the book — the slip's fingerprint wasn't a confident match and the record must key on the right book.</div>`;
+        return;
+      }
+      const betDate = document.getElementById("sr-date")?.value || "";
       const stake = Math.max(1, Math.round(Number(document.getElementById("sr-stake")?.value) || 1));
       const legs = s.legs.map((_, i) => ({
         player: document.getElementById(`sr-player-${i}`)?.value || "",
@@ -3136,6 +3162,7 @@
       const mode = legs.length >= 2 ? (document.getElementById("sr-mode")?.value || "parlay") : "single";
       btnEl.disabled = true; btnEl.textContent = "Recording…";
       const results = [];
+      const common = { book, stake, date: betDate || null, force: s.force === true, notes: "recorded from screenshot" };
       try {
         if (mode === "parlay") {
           const combined = Number(document.getElementById("sr-combined")?.value);
@@ -3144,12 +3171,12 @@
             btnEl.disabled = false; btnEl.textContent = "Record this slip exactly as shown above"; return;
           }
           const r = await fetch(`${API}/api/ws/place-bet`, { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "parlay", sport: "mlb", book, stake, odds: combined, notes: "recorded from screenshot", legs: legs.map((l) => ({ player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line })) }) });
+            body: JSON.stringify({ mode: "parlay", sport: "mlb", ...common, odds: combined, legs: legs.map((l) => ({ player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line })) }) });
           results.push(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
         } else {
           for (const l of legs) {
             const r = await fetch(`${API}/api/ws/place-bet`, { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sport: "mlb", player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line, odds: l.odds, book, stake, notes: "recorded from screenshot" }) });
+              body: JSON.stringify({ sport: "mlb", ...common, player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line, odds: l.odds }) });
             results.push(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
           }
         }
@@ -3158,12 +3185,18 @@
             const s2 = d.stamped || {};
             return `<div style="background:#052E16;border-left:3px solid #34D399;border-radius:6px;padding:8px 10px;margin-top:4px;color:#BBF7D0;">✓ Recorded — ${escapeHtml(String(d.bet?.player || d.bet?.prop || ""))} $${d.bet?.stake} (to win $${d.bet?.toWin})${s2.calibVersion ? `<br/>stamped ${escapeHtml(s2.calibVersion)}` : ""}${d.warning ? `<br/><span style="color:#FDE68A;">⚠ ${escapeHtml(d.warning)}</span>` : ""}</div>`;
           }
-          if (d.reason === "already_recorded") return `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FDE68A;">Already recorded today — nothing written twice.</div>`;
+          if (d.reason === "already_recorded") return `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FDE68A;">Already recorded that day — nothing written twice.</div>`;
+          // E-FOLLOWUP-2 — cross-date near-duplicate: loud, overridable, never silent
+          if (d.reason === "possible_duplicate") {
+            const ex = d.existing || {};
+            return `<div style="background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FDE68A;">⚠ Looks like a DUPLICATE of an existing bet: <b>${escapeHtml(String(ex.player || ex.prop || ""))}</b> on ${escapeHtml(String(ex.date || "?"))} ($${ex.stake}, ${escapeHtml(String(ex.result || "pending"))}).<br/>Only record again if this is genuinely a second ticket.<br/><button onclick="window._srState.force=true;window._srConfirm(document.getElementById('sr-confirm'));" style="margin-top:6px;padding:6px 12px;border-radius:6px;border:1px solid #B45309;background:rgba(251,191,36,0.12);color:#FBBF24;font-size:11px;font-weight:700;cursor:pointer;">Record anyway — it's a second ticket</button></div>`;
+          }
           return `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;margin-top:4px;color:#FECACA;">✗ ${escapeHtml(String(d.error || "failed"))} — fix the field above and confirm again.</div>`;
         }).join("");
-        const anyFail = results.some((d) => !d.ok && d.reason !== "already_recorded");
-        btnEl.disabled = anyFail ? false : true;
-        btnEl.textContent = anyFail ? "Fix fields above — confirm again" : "Recorded ✓";
+        const anyDup = results.some((d) => d.reason === "possible_duplicate");
+        const anyFail = results.some((d) => !d.ok && d.reason !== "already_recorded" && d.reason !== "possible_duplicate");
+        btnEl.disabled = !(anyFail || anyDup);
+        btnEl.textContent = anyFail ? "Fix fields above — confirm again" : anyDup ? "Review the duplicate warning above" : "Recorded ✓";
       } catch (e) {
         out.innerHTML = `<div style="background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:8px 10px;color:#FECACA;">✗ ${escapeHtml(String(e?.message || e))}</div>`;
         btnEl.disabled = false; btnEl.textContent = "Record — retry";
