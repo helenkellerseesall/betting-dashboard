@@ -342,6 +342,18 @@ async function gradeDate({ sport, date, fetcher, opts }) {
     console.log(`  [dry-run] Would grade bets for ${sport} ${date}`)
   }
 
+  // 2026-07-14 THE DAILY 3 — grade the day's locked card from the just-graded
+  // tracked rows (tuple join; write-once; grades only when all 3 picks decided).
+  // Zero new grading surface — reads the results this run just wrote.
+  if (!dryRun && sport === "mlb") {
+    try {
+      const { gradeDaily3 } = require("../pipeline/shared/daily3")
+      const d3 = gradeDaily3(date)
+      if (d3?.graded) console.log(`  ✓ DAILY 3 graded: net ${d3.netUnits > 0 ? "+" : ""}${d3.netUnits}u`)
+      else if (d3?.skipped && d3.skipped !== "no_card") console.log(`  · DAILY 3: ${d3.skipped}`)
+    } catch (e) { console.warn(`  ⚠ DAILY 3 grading failed (non-fatal): ${e?.message}`) }
+  }
+
   // 3. Grade slip parlays
   let slipSummary = {}
   if (!dryRun) {

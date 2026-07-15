@@ -20032,6 +20032,16 @@ app.listen(PORT, () => {
   } catch (e) {
     console.warn("[BOOT] CLV capture loop failed to start (non-fatal):", e?.message || e)
   }
+  // 2026-07-14 THE DAILY 3 — minute tick: locks the day's top-3 card at first
+  // pitch − 60min (immutable once written; no card if the pitch passes unlocked).
+  // No-ops instantly outside the lock window; never throws.
+  try {
+    const { maybeLockDaily3 } = require("./pipeline/shared/daily3")
+    setInterval(maybeLockDaily3, 60 * 1000)
+    console.log("[BOOT] THE DAILY 3 lock tick started (1min interval; lock = first pitch − 60min)")
+  } catch (e) {
+    console.warn("[BOOT] DAILY 3 tick failed to start (non-fatal):", e?.message || e)
+  }
   // Operational trust — snapshot freshness boot probe.
   // Single line per sport at startup so the operator sees stale state
   // BEFORE the first request hits the server. Read-only; never rebuilds.
