@@ -3800,6 +3800,38 @@
       try {
         const r = await fetch(`${API}/api/ws/top-picks?limit=50`);
         const d = await r.json();
+        // 2026-07-14 THE DAILY 3 — the track-record lens renders ABOVE the board.
+        let d3html = "";
+        try {
+          const r3 = await fetch(`${API}/api/ws/daily3?_t=${Date.now()}`, { cache: "no-store" });
+          const j3 = await r3.json();
+          if (j3 && j3.ok) {
+            const rec = j3.record || {};
+            const recLine = rec.decided > 0
+              ? `${rec.wins}-${rec.losses}${rec.pushes ? "-" + rec.pushes + "P" : ""} · <b style="color:${rec.netUnits >= 0 ? "#34D399" : "#F87171"};">${rec.netUnits >= 0 ? "+" : ""}${rec.netUnits}u</b> at flat $1${rec.smallSample ? ` · <span style="color:#6B7280;">${escapeHtml(rec.honesty || "small sample")}</span>` : ` · ${rec.winRate}% over ${rec.days} days`}`
+              : `record starts with the first graded card`;
+            const _stIcon = (x) => x === "win" ? "✅" : x === "loss" ? "❌" : x === "push" ? "➖" : x === "void" ? "⚪" : "⏳";
+            const cardBody = j3.today
+              ? j3.today.picks.map((p, i) => {
+                  const res = j3.today.results ? j3.today.results[i] : null;
+                  return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #1B2030;font-size:12px;">
+                    <span style="color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_sideNice(p.side)} ${p.line} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || "?")}</span></span>
+                    <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
+                  </div>`;
+                }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:5px;">locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))}Z${j3.today.lockLate ? " (late lock)" : ""} · immutable · ${j3.today.picks[0]?.calibVersion ? escapeHtml(j3.today.picks[0].calibVersion) : "unstamped era"}</div>`
+              : `<div style="font-size:12px;color:#9CA3AF;padding:6px 0;">${j3.firstPitchAt ? `Today's 3 lock 60 min before first pitch (${escapeHtml(new Date(j3.firstPitchAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }))} ET).` : "No games this slate — no card today."}</div>`;
+            const histLine = (j3.history || []).filter((c) => c.results).slice(0, 7).map((c) => `<span style="margin-right:8px;color:${(c.netUnits || 0) >= 0 ? "#34D399" : "#F87171"};">${c.slate.slice(5)}: ${c.netUnits >= 0 ? "+" : ""}${c.netUnits}u</span>`).join("");
+            d3html = `
+              <div style="background:#10182B;border:1px solid #1E3A8A;border-radius:10px;padding:12px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                  <span style="font-size:12px;font-weight:800;letter-spacing:1px;color:#60A5FA;">🎯 THE DAILY 3</span>
+                  <span style="font-size:10px;color:#9CA3AF;">${recLine}</span>
+                </div>
+                ${cardBody}
+                ${histLine ? `<div style="font-size:9px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${histLine}</div>` : ""}
+              </div>`;
+          }
+        } catch (_) { /* daily3 card is additive — its failure never blocks the board */ }
         // 2026-06-01 Phase Truth-Fix-1C (audit RED #5) — defense-in-depth
         // preferred-books filter. Backend /api/ws/top-picks now filters out
         // off-allowlist books at source, this FE filter is the second-line
@@ -3810,7 +3842,17 @@
         const picks = rawPicks.filter(p => isPreferredBook(p.sportsbook || p.book));
         document.getElementById("topCount").textContent = picks.length;
         if (!picks.length) {
-          main.innerHTML = `<div style="padding:20px;color:#9CA3AF;">No top picks available for ${d.date}.</div>`;
+          // 2026-07-14 HONEST-COMMS — the empty board says WHY (distinct states
+          // from the server's evidence classifier), never a bare "no picks".
+          const bs = d.boardState || null;
+          const stateColor = bs && bs.alert ? "#F87171" : "#FBBF24";
+          const stateIcon = bs && bs.alert ? "🔴" : bs && bs.states?.some((s) => s.state === "no_games") ? "📅" : "⚖️";
+          main.innerHTML = `<div style="padding:20px;">
+            <div style="background:#141828;border-left:3px solid ${stateColor};border-radius:10px;padding:14px;color:#D1D5DB;font-size:13px;line-height:1.6;">
+              ${stateIcon} ${bs ? bs.states.map((s) => `<div style="margin-bottom:4px;">${escapeHtml(s.reason)}</div>`).join("") : `No top picks available for ${escapeHtml(d.date)} — and the server gave no reason (that itself is a bug; check /status).`}
+              ${bs && bs.alert ? `<div style="margin-top:6px;color:#F87171;font-weight:700;">This state is alertable — the watchdog has it.</div>` : ""}
+            </div>
+          </div>`;
           return;
         }
         // Group by the DISPLAY tier (Wave 1 — honest earned-or-capped tier) so a
@@ -3823,6 +3865,7 @@
         const fellBackBadge = d.fellBack ? `<div style="font-size:11px;color:#FBBF24;background:#1F1A0A;padding:6px 10px;border-radius:6px;border-left:3px solid #FBBF24;margin-bottom:8px;">📅 No slate yet for ${escapeHtml(d.todayKey || d.requestedDate || "today")} — showing last available date <b>${escapeHtml(d.date)}</b></div>` : "";
         const dampenedBadge = (d.counts?.dampenedRejected > 0) ? `<div style="font-size:11px;color:#60A5FA;background:#0A1422;padding:6px 10px;border-radius:6px;border-left:3px solid #60A5FA;margin-bottom:8px;">⚖ Calibration dampener removed <b>${d.counts.dampenedRejected}</b> pick${d.counts.dampenedRejected===1?'':'s'} (modelProb dropped below implied odds → negative edge after dampening). See GAMES for unfiltered view.</div>` : "";
         let html = `<div style="padding:8px 10px;">
+          ${d3html}
           ${fellBackBadge}
           ${dampenedBadge}
           <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">

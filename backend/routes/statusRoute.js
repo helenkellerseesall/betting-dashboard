@@ -1225,13 +1225,31 @@ function sectionOpenIssues() {
         const failTs = parseLineTs(fires.lastFailed)
         const okTs   = parseLineTs(fires.lastOk)
         if (failTs && (!okTs || failTs > okTs)) {
-          // Current failure — most recent slate event for this sport is a FAILED
-          red.push({
-            source: "slate_fires",
-            category: "infra",
-            title: `${sport.toUpperCase()} slate fire FAILED today, not recovered`,
-            detail: fires.lastFailed.trim(),
-          })
+          // 2026-07-14 HONEST-COMMS (c) — GAMES-AWARE recovery detection: the
+          // scheduler logs NOTHING when the season/no-games gate defers, so a
+          // failed run during a break (07-10 class) could never "recover" and
+          // stayed RED. Rule: a slate-fire failure is only RED when there ARE
+          // games on this slate to build; a break-day failure is info + auto-clears.
+          let gamesTodayForSport = 0
+          try {
+            const ev2 = require("../pipeline/shared/slateGamesEvidence")
+            gamesTodayForSport = ev2.countSnapshotEventsForSlate(sport, currentSlateDateEt())
+          } catch (_) {}
+          if (gamesTodayForSport > 0) {
+            red.push({
+              source: "slate_fires",
+              category: "infra",
+              title: `${sport.toUpperCase()} slate fire FAILED today, not recovered`,
+              detail: fires.lastFailed.trim(),
+            })
+          } else {
+            info.push({
+              source: "slate_fires",
+              category: "infra",
+              title: `${sport.toUpperCase()} slate fire failed, but no games on this slate (break/off-day)`,
+              detail: `${fires.lastFailed.trim()} — nothing to build today, so this cannot self-recover (gated runs log nothing); auto-clears when games return.`,
+            })
+          }
         } else if (failTs && okTs && okTs > failTs) {
           // Recovered — show as informational yellow (operator wants to know it happened)
           const failTime = (fires.lastFailed.match(/\[([\d\-:\s]+ET)\]/) || [])[1] || "?"

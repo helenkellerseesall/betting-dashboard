@@ -1174,11 +1174,16 @@ function applyResults({ date = dateKeyFromNow(), bets = {}, legs = {} } = {}) {
  * List YYYY-MM-DD strings for the last `windowDays` days, today inclusive.
  */
 function recentDateKeys(windowDays = DEFAULT_WINDOW_DAYS) {
+  // 2026-07-14 HONEST-COMMS (d) TZ audit fix — was toISOString().slice (UTC
+  // truncation): from 8 PM ET to midnight ET it keyed TOMORROW, shifting the
+  // rolling summary window a day every evening. Files are slate-keyed ⇒ use the
+  // canonical slate-date helper (4 AM ET boundary). Summary-window only — the
+  // playable/settlement filters audited CLEAN (absolute-epoch comparisons).
+  const { slateDateForTimestamp } = require("../shared/slateDate")
   const out = []
-  const today = new Date()
+  const nowMs = Date.now()
   for (let i = 0; i < windowDays; i++) {
-    const d = new Date(today.getTime() - i * 24 * 3600 * 1000)
-    out.push(d.toISOString().slice(0, 10))
+    out.push(slateDateForTimestamp(nowMs - i * 24 * 3600 * 1000))
   }
   return out
 }

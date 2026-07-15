@@ -178,7 +178,31 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture"]
+// ── 2026-07-14 HONEST-COMMS (b) — board serve-vs-record divergence watchdog ──
+// RED condition (the All-Star-night class): the RECORD has rows for today but
+// the SERVED board is empty WITHOUT a stated reason. Queries the live local
+// endpoint (real e2e — the exact payload the phone sees); backend down ⇒ not-run.
+function checkBoardServeParity() {
+  try {
+    const slate = currentSlateDateEt()
+    let trackedRows = 0
+    try { const a = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${slate}.json`), "utf8")); trackedRows = Array.isArray(a) ? a.length : 0 } catch (_) {}
+    const r = spawnSync("curl", ["-s", "-m", "8", `http://127.0.0.1:4000/api/ws/top-picks?limit=50`], { encoding: "utf8", timeout: 12000 })
+    if (r.status !== 0 || !r.stdout) return set("boardServeParity", "not-run", "Board parity: backend unreachable this cycle", "wired")
+    let j; try { j = JSON.parse(r.stdout) } catch (_) { return set("boardServeParity", "fail", "Board parity: top-picks returned unparseable JSON", "wired") }
+    const served = Array.isArray(j.picks) ? j.picks.length : 0
+    if (served > 0) return set("boardServeParity", "green", `Board parity: ${served} picks served (record ${trackedRows} rows)`, "wired")
+    const bs = j.boardState
+    if (bs && !bs.alert) return set("boardServeParity", "green", `Board honestly empty with stated reason: ${String(bs.summary || "").slice(0, 140)}`, "wired")
+    if (trackedRows > 0) return set("boardServeParity", "fail", `RECORD has ${trackedRows} rows for ${slate} but the served board is EMPTY ${bs ? "with an ALERT state: " + String(bs.summary || "").slice(0, 100) : "with NO stated reason"} — divergence`, "wired")
+    return set("boardServeParity", bs && bs.alert ? "fail" : "green", bs ? `empty board, state: ${String(bs.summary || "").slice(0, 140)}` : "empty board and empty record with no boardState (older backend?)", "wired")
+  } catch (e) {
+    return set("boardServeParity", "not-run", `Board parity: ${String(e?.message || e)}`, "wired")
+  }
+}
+checkBoardServeParity()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

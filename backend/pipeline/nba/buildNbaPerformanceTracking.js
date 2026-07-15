@@ -681,11 +681,14 @@ function applyResults({ date = todayKey(), bets = {}, legs = {} } = {}) {
  * List YYYY-MM-DD strings for the last `windowDays` days, today inclusive.
  */
 function recentDateKeys(windowDays = DEFAULT_WINDOW_DAYS) {
+  // 2026-07-14 HONEST-COMMS (d) TZ audit fix — NBA twin of the MLB fix: was UTC
+  // truncation (evening hours keyed tomorrow); slate-keyed files ⇒ canonical
+  // slate-date helper. See phase4Tracking.recentDateKeys for the full note.
+  const { slateDateForTimestamp } = require("../shared/slateDate")
   const out = []
-  const today = new Date()
+  const nowMs = Date.now()
   for (let i = 0; i < windowDays; i++) {
-    const d = new Date(today.getTime() - i * 24 * 3600 * 1000)
-    out.push(d.toISOString().slice(0, 10))
+    out.push(slateDateForTimestamp(nowMs - i * 24 * 3600 * 1000))
   }
   return out
 }

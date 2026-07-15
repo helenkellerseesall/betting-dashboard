@@ -2293,6 +2293,22 @@ router.post("/place-bet", express.json(), (req, res) => {
 })
 
 /**
+ * 2026-07-14 THE DAILY 3 — GET /api/ws/daily3: today's locked card (or the lock
+ * time when pre-lock), scrollable history, and the honest running record
+ * (W-L-P, win rate, NET UNITS at flat $1 — win rate alone lies — with the
+ * small-sample label until n is meaningful). Read-only; the card itself is
+ * locked by the server tick and graded by the nightly, both write-once.
+ */
+router.get("/daily3", (req, res) => {
+  try {
+    const { readDaily3 } = require("../pipeline/shared/daily3")
+    res.json({ ok: true, ...readDaily3() })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
  * 2026-07-07 DEEPLINK-2A — GET /api/ws/deeplink-matrix: serve the operator's
  * verified link matrix (backend/config/deeplinkMatrix.json) to the /m FE.
  * READ-ONLY; fresh read per call (operator edits the file, no restart needed).
@@ -3102,6 +3118,45 @@ router.get("/top-picks", (req, res) => {
         droppedNonPreferredBook,
       },
       picks,
+      // 2026-07-14 HONEST-COMMS (All-Star-night incident) — an empty board must
+      // SAY WHY. Distinct states, evidence-classified via the ONE games-evidence
+      // authority (slateGamesEvidence, Law 1): off_season · no_games (break,
+      // w/ next-slate hint) · zero_edge (rows exist, lens honestly empty) ·
+      // build_missing (games exist, no board — alertable) · empty_unexplained
+      // (alertable). Populated ONLY when picks is empty; alert states feed the
+      // boardServeParity watchdog.
+      boardState: (() => {
+        if (picks.length) return null
+        try {
+          const ev = require("../pipeline/shared/slateGamesEvidence")
+          const { isSportEnabled } = require("../pipeline/shared/seasonGate")
+          const states = []
+          for (const sp of ["mlb", "nba"]) {
+            if (!isSportEnabled(sp)) { states.push({ sport: sp, state: "off_season", reason: `${sp.toUpperCase()} season toggle is OFF` }); continue }
+            const snapEvents = ev.countSnapshotEventsForSlate(sp, date)
+            let trackedRows = 0
+            try { const a = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "runtime", "tracking", `${sp}_tracked_bets_${date}.json`), "utf8")); trackedRows = Array.isArray(a) ? a.length : 0 } catch (_) {}
+            if (snapEvents === 0 && trackedRows === 0) {
+              // next-slate hint from the forward-rolling snapshot (honest null when unknown)
+              let nextSlate = null
+              try {
+                const wrap = JSON.parse(fs.readFileSync(path.join(__dirname, "..", sp === "mlb" ? "snapshot-mlb.json" : "snapshot.json"), "utf8"))
+                const evs = (wrap?.data?.events || []).map((e) => new Date(e.commence_time || e.gameTime || 0).getTime()).filter((t) => t > Date.now())
+                if (evs.length) nextSlate = require("../pipeline/shared/slateDate").slateDateForTimestamp(Math.min(...evs))
+              } catch (_) {}
+              states.push({ sport: sp, state: "no_games", reason: `No ${sp.toUpperCase()} games on this slate${nextSlate ? ` — next slate ${nextSlate}` : " — next slate date unknown until books post it"}`, nextSlate })
+            } else if (trackedRows > 0) {
+              states.push({ sport: sp, state: "zero_edge", reason: `${trackedRows} ${sp.toUpperCase()} picks exist on the record but none clear the served lens today (dampened/negative edge after calibration — an honest empty board, not a failure)`, trackedRows, dampenedRejected })
+            } else {
+              states.push({ sport: sp, state: "build_missing", reason: `${snapEvents} ${sp.toUpperCase()} games exist on this slate but NO board was built — check /status slate fires`, alert: true, snapEvents })
+            }
+          }
+          const alert = states.some((s) => s.alert)
+          return { states, alert, summary: states.map((s) => s.reason).join(" · ") || "empty for no stated reason (alert)", checkedAt: new Date().toISOString() }
+        } catch (e) {
+          return { states: [], alert: true, summary: `boardState classification failed: ${String(e?.message || e)} (alert)` }
+        }
+      })(),
     })
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) })
