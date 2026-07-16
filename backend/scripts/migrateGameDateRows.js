@@ -91,11 +91,25 @@ function migrateArrayFile(prefix, fileDate, getRows, setRows) {
 
   for (const [target, moved] of moveByDate) {
     const tgtPath = path.join(TRACKING, `${prefix}${target}.json`)
-    const moveSigs = moved.map(sigOf)
+    // 2026-07-16 PROOF-FIX (post-write lesson): the planned checksum must be
+    // computed over the rows that will actually LAND (like-for-like). For
+    // payload files (best/picks) the write dedupes by tuple key and RETAINS
+    // THE EARLIEST observation — the proof previously checksummed all raw
+    // rows (960) against deduped landed rows (524) and cried MISMATCH on a
+    // per-design write. Dedupe is now DECLARED in the DRY tally
+    // (skippedDuplicates), and the planned sigs are the post-dedupe set.
+    const dedupes = prefix === "mlb_tracked_bets_" ? moved : (() => {
+      const seen = new Set(); const kept = []
+      for (const m of moved) { const k = keyOf(m); if (!seen.has(k)) { seen.add(k); kept.push(m) } }
+      return kept
+    })()
+    const skippedDuplicates = moved.length - dedupes.length
+    const moveSigs = dedupes.map(sigOf)
     const settledCount = moved.filter(isSettled).length
     const entry = {
       file: path.basename(srcPath), to: path.basename(tgtPath),
-      rows: moved.length, settled: settledCount, integrityChecksum: checksumOf(moveSigs),
+      rows: moved.length, willLand: dedupes.length, skippedDuplicates,
+      settled: settledCount, integrityChecksum: checksumOf(moveSigs),
       sampleIds: moved.slice(0, 3).map((r) => r.id || `${r.player}|${r.propType || r.statFamily}|${r.side}|${r.line}`),
       results: moved.reduce((a, r) => { const k = r.result || "no-result-field"; a[k] = (a[k] || 0) + 1; return a }, {}),
     }
@@ -103,9 +117,9 @@ function migrateArrayFile(prefix, fileDate, getRows, setRows) {
     totalMoved += moved.length
     totalSettledMoved += settledCount
     plannedSigs.push(...moveSigs)
-    const vp = { path: tgtPath, prefix, sigsByKey: new Map(moved.map((r) => [keyOf(r), sigOf(r)])) }
+    const vp = { path: tgtPath, prefix, sigsByKey: new Map(dedupes.map((r) => [keyOf(r), sigOf(r)])) }
     verifyPlan.push(vp)
-    console.log(`${WRITE ? "MOVE" : "DRY "} ${entry.file} → ${entry.to}: ${entry.rows} rows ${JSON.stringify(entry.results)} · settled ${settledCount} · checksum ${entry.integrityChecksum}`)
+    console.log(`${WRITE ? "MOVE" : "DRY "} ${entry.file} → ${entry.to}: ${entry.rows} rows ${JSON.stringify(entry.results)} · lands ${dedupes.length}${skippedDuplicates ? ` (DEDUPE DROPS ${skippedDuplicates} duplicate observations — earliest retained)` : ""} · settled ${settledCount} · checksum ${entry.integrityChecksum}`)
 
     if (WRITE) {
       const tgtRaw = readJson(tgtPath)

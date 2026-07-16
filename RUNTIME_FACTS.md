@@ -48,6 +48,7 @@ Last updated: 2026-06-06
 - **Script:** `backend/scripts/scheduler.sh`
 - **Cadence:** `slate:mlb` hourly 9 AM – 11 PM ET, `slate:nba` every 30 min 4 PM – 11:30 PM ET
 - **trueOpen opener capture:** `captureMlbTrueOpen.js` at **6:00 AM ET** (same-day pitcher-prop baseline) + **22:00 ET `--evening`** (NIGHT-OWL-1, 2026-07-15: next-slate opener the night before; future-slate-only — never overwrites the 6 AM baseline file)
+- **Ladder capture (G2 enabler):** `captureMlbLadders.js` at **10:00 / 17:00 / 22:05 ET** (2026-07-16: 8 `_alternate` market keys → `runtime/tracking/mlb_ladders_<gameDate>.json`; quota-guarded DAILY_CAP 600 + RESERVE_FLOOR 5000, real x-requests-last costs; 22:05 rides the forward-roll = tomorrow's opening rungs)
 
 ## Season switch (Phase Season-Switch-1A, 2026-06-14)
 

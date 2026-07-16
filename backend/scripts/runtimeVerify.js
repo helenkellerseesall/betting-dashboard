@@ -71,6 +71,7 @@ const SUITES = [
   "verifyHonestComms", // BREAK-WINDOW Part 1 (2026-07-14) — empty boards SAY WHY (boardState 4-state classifier via slateGamesEvidence, FE renders reasons), boardServeParity watchdog (record-vs-served divergence = FAIL), games-aware slate-fire recovery, recentDateKeys TZ fix both sports.
   "verifyDaily3", // BREAK-WINDOW Part 3 THE DAILY 3 (2026-07-14) — public-record seed: write-once lock at firstPitch−60min from the SERVED lens (no card if pitch passes unlocked), existing-nightly write-once grading (all-3-decided gate), flat-$1 units + small-sample honesty, /api/ws/daily3 + FE card that never blocks the board.
   "verifyNightOwl", // BREAK-WINDOW Part 2 NIGHT-OWL BOARD (2026-07-15) — game-date-driven file keying in the three MLB writers (offset fix A: evening forward-rolled next-day picks become first-class citizens of TOMORROW's record, same stamps), trueOpen 22:00 --evening future-slate-only pass, /top-picks tomorrowSlate + FE separated TOMORROW section (never mixed), dry-default migration w/ delta manifest.
+  "verifyLadderCapture", // G2 ENABLER (2026-07-16, CC audit §6) — 3-pass/day alternate-market ladder capture (10:00/17:00/22:05 ET): additive isolation (no snapshot/scoring/serving), quota guard (DAILY_CAP mid-pass stop + RESERVE_FLOOR abort, real x-requests-last costs, honest skips), game-date-keyed rung store w/ pass history, componentHealthCheck line.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

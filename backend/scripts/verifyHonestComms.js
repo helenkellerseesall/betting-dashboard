@@ -27,7 +27,7 @@ const fe = rd("../frontend/mobile/index.html")
 check("(a-FE) empty board renders the server's stated reasons; missing boardState is itself called a bug", /d\.boardState \|\| null/.test(fe) && /the server gave no reason \(that itself is a bug/.test(fe))
 
 const chc = rd("scripts/componentHealthCheck.js")
-check("(b) boardServeParity watchdog: live endpoint, divergence = FAIL, honest-empty = green", /checkBoardServeParity/.test(chc) && /divergence/.test(chc) && /Board honestly empty with stated reason/.test(chc) && /"boardServeParity"\]/.test(chc))
+check("(b) boardServeParity watchdog: live endpoint, divergence = FAIL, honest-empty = green", /checkBoardServeParity/.test(chc) && /divergence/.test(chc) && /Board honestly empty with stated reason/.test(chc) && /"boardServeParity"/.test(chc)) // 2026-07-16: membership not tail-anchor — the order array grew (ladderCapture)
 
 const sr = rd("routes/statusRoute.js")
 check("(c) slate-fire recovery is games-aware (break failures = info, game-day = RED)", /gamesTodayForSport > 0/.test(sr) && /no games on this slate \(break\/off-day\)/.test(sr) && /auto-clears when games return/.test(sr))

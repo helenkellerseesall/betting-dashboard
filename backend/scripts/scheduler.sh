@@ -177,6 +177,30 @@ while true; do
     last_trueopen_min="$STAMP"
   fi
 
+  # 2026-07-16 LADDER-CAPTURE (G2 enabler, CC audit §6) — 3 passes/day, ~120 credits each (8 alternate
+  # keys × slate events, 6-book CSV = 1 region-unit): 10:00 today's rungs incl. matinee near-close ·
+  # 17:00 pre-lock firmed rungs · 22:05 tomorrow's OPENING rungs (rides the forward-roll — which is why
+  # there is no early-morning pass: last night's 22:05 already captured today's openers). The script
+  # self-guards quota (DAILY_CAP + RESERVE_FLOOR, real x-requests-last costs) and no-games skips honestly.
+  if [ "$MIN" -eq 0 ] && { [ "$HOUR" -eq 10 ] || [ "$HOUR" -eq 17 ]; } && [ "$STAMP" != "${last_ladder_min:-}" ]; then
+    log "captureMlbLadders starting (pass $HOUR:00 ET)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureMlbLadders.js >> "$LOG" 2>&1; then
+      log "captureMlbLadders OK"
+    else
+      log "captureMlbLadders FAILED (exit $?)"
+    fi
+    last_ladder_min="$STAMP"
+  fi
+  if [ "$MIN" -eq 5 ] && [ "$HOUR" -eq 22 ] && [ "$STAMP" != "${last_ladder_no_min:-}" ]; then
+    log "captureMlbLadders starting (22:05 night-owl pass — tomorrow's opening rungs)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureMlbLadders.js --pass=nightowl >> "$LOG" 2>&1; then
+      log "captureMlbLadders nightowl OK"
+    else
+      log "captureMlbLadders nightowl FAILED (exit $?)"
+    fi
+    last_ladder_no_min="$STAMP"
+  fi
+
   # 2026-07-15 NIGHT-OWL-1 — evening pass at 22:00 ET: captures TOMORROW's opener the night before
   # (script forward-rolls to the next slate once today's games have started; --evening = future-slate-only,
   # so it can NEVER overwrite the same-day 6 AM baseline). Same isolation guarantees as the 6 AM pass.

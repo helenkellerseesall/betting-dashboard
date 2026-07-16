@@ -202,7 +202,32 @@ function checkBoardServeParity() {
 }
 checkBoardServeParity()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity"]
+// 2026-07-16 LADDER-CAPTURE (G2 enabler) — did the 3-pass alternate-market
+// capture run, and how many rungs are stored? Honest states: no games on the
+// slate ⇒ green-skip with the reason; before the first pass window (10:00 ET)
+// ⇒ not-run; games + past-window + zero passes ⇒ FAIL.
+function checkLadderCapture() {
+  try {
+    const slate = currentSlateDateEt()
+    let store = null
+    try { store = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_ladders_${slate}.json`), "utf8")) } catch (_) {}
+    let trackedRows = 0
+    try { const a = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${slate}.json`), "utf8")); trackedRows = Array.isArray(a) ? a.length : 0 } catch (_) {}
+    const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }))
+    if (store && Array.isArray(store.passes) && store.passes.length) {
+      const last = store.passes[store.passes.length - 1]
+      return set("ladderCapture", "green", `Ladder capture: ${store.passes.length} pass(es), ${store.rows.length} rungs stored for ${slate} (last: ${last.pass}, ${last.rungRows} rungs, ${last.requestsSpent} credits)`, "shelf")
+    }
+    if (trackedRows === 0) return set("ladderCapture", "green", `Ladder capture: no games/board on slate ${slate} — honest skip (passes fire 10:00/17:00/22:05 ET on game days)`, "shelf")
+    if (etHour < 11) return set("ladderCapture", "not-run", `Ladder capture: first pass fires 10:00 ET (slate ${slate} has ${trackedRows} tracked rows)`, "shelf")
+    return set("ladderCapture", "fail", `Ladder capture: slate ${slate} has ${trackedRows} tracked rows but NO ladder pass ran after the 10:00 ET window — check scheduler + quota log`, "shelf")
+  } catch (e) {
+    return set("ladderCapture", "not-run", `Ladder capture: ${String(e?.message || e)}`, "shelf")
+  }
+}
+checkLadderCapture()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
