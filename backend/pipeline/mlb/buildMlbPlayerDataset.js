@@ -178,6 +178,40 @@ function playerSalt(player, eventId) {
   return (h % 1000) / 1000
 }
 
+// 2026-07-16 N1 — MEAN→MEDIAN center fix (POST_FREEZE_GRADUATION_PLAN §N1;
+// de-vig audit 9276e13). eHits = P(≥1)+P(≥2)+P(≥3) is the MEAN of the count
+// distribution, but it is labeled `hitsMedian` and used as the band CENTER
+// (mostLikely) feeding modelProbForSide's logistic — and books price the
+// MEDIAN. For these right-skewed count families the mean sits ABOVE the
+// median, so a mean center systematically inflates over-side modelProb
+// (over-bets the over). The corpus agrees on direction (family_calibration,
+// 7d window read 2026-07-16): hits stated 13.8% vs realized 10.4% · runs
+// 9.7/7.7 · rbis 6.1/4.3 — every ladder-scored batter family over-confident
+// on the over side. ON ⇒ mostLikely = the true ladder median (smallest k with
+// P(X ≤ k) ≥ 0.5, read from the survival rungs). floor/ceiling/ladder stay
+// mean-derived and BYTE-IDENTICAL either way — ONLY the center moves, so the
+// change is independently measurable (the plan's do-not-bundle rule).
+// DEFAULT OFF (kill-switch like G1); the forward gate decides ON: the
+// median-centered modelProb must beat the mean-centered one on reliability
+// gap + Brier on forward data before it ships as default.
+const N1_MEDIAN_ON = String(process.env.MLB_N1_MEDIAN ?? "0") === "1"
+console.log(`[N1-MEDIAN-BOOT] MLB band center: ${N1_MEDIAN_ON ? "MEDIAN (MLB_N1_MEDIAN=1 — ladder-survival median feeds modelProbForSide)" : "mean (default — N1 OFF, pre-N1-identical)"}`)
+
+/**
+ * Median of a count distribution from its survival rungs [P(≥1), P(≥2), …]:
+ * the count of leading rungs with p ≥ 0.5 (the walk stops at the first
+ * p < 0.5 — robust to heuristic non-monotone tails). Examples:
+ * [0.72, 0.38, 0.12] → 1 (mean would be 1.22); [0.42, …] → 0.
+ */
+function ladderMedian(survival) {
+  let m = 0
+  for (const p of Array.isArray(survival) ? survival : []) {
+    if (Number(p) >= 0.5) m += 1
+    else break
+  }
+  return m
+}
+
 /**
  * Build hitter projection bands using ladder probabilities + power profile.
  *
@@ -207,6 +241,18 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const hitsFloor = Math.max(0, Math.round((hitsMedian - 0.7) * 10) / 10)
   const hitsCeiling = round1(clamp(1, 4, hitsMedian + 0.8 + (h3 > 0.18 ? 0.7 : 0) + (h2 > 0.45 ? 0.3 : 0)))
   const hitsLadder = { 0.5: h1, 1.5: h2, 2.5: h3 }
+  // N1: ON ⇒ the band TRANSLATES RIGIDLY to the ladder-survival median —
+  // center, floor and ceiling all shift by (median − mean) so band WIDTH is
+  // preserved. This matters because the scorer derives sigma from
+  // (ceiling − center) and (center − floor): moving the center alone would
+  // inflate sigma and push sub-coin over-probs TOWARD 0.5 (measured on the
+  // 07-16 probe: rbis logistic avgP rose 0.259→0.266 — the opposite of N1's
+  // intent). Rigid translation keeps sigma identical, so the ONLY effect is
+  // the center shift itself. OFF ⇒ shift = 0 ⇒ byte-identical legacy values.
+  const hitsCenter = N1_MEDIAN_ON ? ladderMedian([h1, h2, h3]) : hitsMedian
+  const hitsShift = hitsCenter - hitsMedian
+  const hitsFloorN1 = Math.max(0, round1(hitsFloor + hitsShift))
+  const hitsCeilingN1 = round1(clamp(1, 4, hitsCeiling + hitsShift))
 
   // Total bases.
   // Phase Signal-Fill-1A FIX 7b (park doublesFactor, 2026-06-06): the home park's doubles factor scales
@@ -223,6 +269,10 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const tbFloor = Math.max(0, round1(tbMedian - 0.9))
   const tbCeiling = round1(clamp(2, 9, tbMedian + 1.4 + powerNorm * 1.0))
   const tbLadder = { 0.5: h1, 1.5: tb2, 2.5: tb3, 3.5: tb4 }
+  const tbCenter = N1_MEDIAN_ON ? ladderMedian([h1, tb2, tb3, tb4]) : tbMedian // N1 (rigid translate — see hits)
+  const tbShift = tbCenter - tbMedian
+  const tbFloorN1 = Math.max(0, round1(tbFloor + tbShift))
+  const tbCeilingN1 = round1(clamp(2, 9, tbCeiling + tbShift))
 
   // HR — direct probability is the single source of truth.
   const hrMedian = 0
@@ -240,6 +290,10 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const rbiFloor = 0
   const rbiCeiling = round1(clamp(1, 4, rbiMedian + 0.9 + (r2 > 0.20 ? 0.6 : 0)))
   const rbiLadder = { 0.5: r1, 1.5: r2 }
+  const rbiCenter = N1_MEDIAN_ON ? ladderMedian([r1, r2]) : rbiMedian // N1 (rigid translate — see hits)
+  const rbiShift = rbiCenter - rbiMedian
+  const rbiFloorN1 = Math.max(0, round1(rbiFloor + rbiShift))
+  const rbiCeilingN1 = round1(clamp(1, 4, rbiCeiling + rbiShift))
 
   // Runs — direct Bernoulli prior for P(≥1 run). MLB league average is ~0.30
   // for a regular hitter, scaled by team total + lineup spot.
@@ -259,6 +313,10 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   const runsFloor = 0
   const runsCeiling = round1(clamp(1, 3, runsMedian + 0.7))
   const runsLadder = { 0.5: p1run, 1.5: Math.max(0.04, p1run * p1run * 0.6) }
+  const runsCenter = N1_MEDIAN_ON ? ladderMedian([p1run, Math.max(0.04, p1run * p1run * 0.6)]) : runsMedian // N1 (rigid translate — see hits)
+  const runsShift = runsCenter - runsMedian
+  const runsFloorN1 = Math.max(0, round1(runsFloor + runsShift))
+  const runsCeilingN1 = round1(clamp(1, 3, runsCeiling + runsShift))
 
   // Batter Ks — opposing pitcher K rate scaled by typical 4.2 PA.
   // Phase Signal-Fill-1B FIX 3 (2026-06-06): prefer the OPPOSING pitcher's REAL per-PA kRate
@@ -320,15 +378,15 @@ function projectHitterStats({ playerObj, hrProb, salt }) {
   }
 
   return {
-    hits: { floor: hitsFloor, mostLikely: hitsMedian, ceiling: hitsCeiling, ladder: hitsLadder },
+    hits: { floor: hitsFloorN1, mostLikely: hitsCenter, ceiling: hitsCeilingN1, ladder: hitsLadder },
     totalBases: {
-      floor: tbFloor, mostLikely: tbMedian, ceiling: tbCeiling, ladder: tbLadder,
+      floor: tbFloorN1, mostLikely: tbCenter, ceiling: tbCeilingN1, ladder: tbLadder,
       // T2-L1 shadow field — present IFF switch ON and fit succeeded (n≥10).
       ...(_tbNB ? { ladderNB: _tbNB.ladder, ladderNBMeta: _tbNB.meta } : {}),
     },
     hr: { floor: hrFloor, mostLikely: hrMedian, ceiling: hrCeiling, hrProb, ladder: hrLadder },
-    rbis: { floor: rbiFloor, mostLikely: rbiMedian, ceiling: rbiCeiling, ladder: rbiLadder },
-    runs: { floor: runsFloor, mostLikely: runsMedian, ceiling: runsCeiling, ladder: runsLadder },
+    rbis: { floor: rbiFloorN1, mostLikely: rbiCenter, ceiling: rbiCeilingN1, ladder: rbiLadder },
+    runs: { floor: runsFloorN1, mostLikely: runsCenter, ceiling: runsCeilingN1, ladder: runsLadder },
     batterKs: { floor: batterKsFloor, mostLikely: batterKsMedian, ceiling: batterKsCeiling },
     ...(stolenBasesBand ? { stolenBases: stolenBasesBand } : {}),
   }
@@ -606,4 +664,6 @@ module.exports = {
   HITTER_STATS,
   PITCHER_STATS,
   projectHitterStats, // 2026-06-08 SHIP 2 — exported for the regression probe (pure fn; no behavior change)
+  ladderMedian, // 2026-07-16 N1 — exported for verifyN1MedianCenter (pure fn)
+  N1_MEDIAN_ON, // 2026-07-16 N1 — switch state, for probes/fixtures
 }
