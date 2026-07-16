@@ -54,6 +54,15 @@ const BATCH_SIZE = 50
 const WINDOW_DAYS = 21
 const BATTER_CACHE = path.join(__dirname, "..", "..", "..", "data", "mlbBatterStats.json")
 const OUT_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbBatterGameLogs.json")
+// 2026-07-16 G2-L1 — SEASON-scope sibling cache (ADDITIVE, same fetch — the
+// StatsAPI person log is already full-season and only FILTERED here, so this
+// costs zero extra API calls). The 21d OUT_PATH stays byte-identical for its
+// existing consumers (form caches, NB shadow); the G2 curve fitter + the L2
+// half-life measurement {10,20,40,none} + full-season walk-forward validation
+// read the season file. Measured need: the 21d cache holds median 13
+// games/batter — below the approved n≥15 curve floor for half the pool.
+const SEASON_WINDOW_DAYS = 200
+const SEASON_OUT_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbBatterGameLogsSeason.json")
 
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
 
@@ -194,6 +203,7 @@ async function refreshMlbBatterGameLogs({ slateDate, season, windowDays = WINDOW
 	diagnostics.battersFromCache = batters.length
 
 	const playersByName = {}
+	const playersByNameSeason = {} // G2-L1 season sibling (same fetch)
 	for (let i = 0; i < batters.length; i += BATCH_SIZE) {
 		const chunk = batters.slice(i, i + BATCH_SIZE)
 		diagnostics.batches += 1
@@ -209,9 +219,22 @@ async function refreshMlbBatterGameLogs({ slateDate, season, windowDays = WINDOW
 		for (const r of results) {
 			if (r.__error) continue
 			const games = extractGameLogs(r.person, seasonResolved, date, windowDays)
-			if (!games.length) continue
+			// G2-L1: season extraction from the SAME fetched person log (no extra call).
+			const seasonGames = extractGameLogs(r.person, seasonResolved, date, SEASON_WINDOW_DAYS)
 			const key = normalizeName(r.batter.fullName)
 			if (!key) continue
+			if (seasonGames.length) {
+				playersByNameSeason[key] = {
+					playerId: r.batter.playerId,
+					fullName: r.batter.fullName,
+					batSide: r.batter.batSide,
+					teamId: r.batter.teamId,
+					teamName: r.batter.teamName,
+					games: seasonGames,
+					lastUpdated: date,
+				}
+			}
+			if (!games.length) continue
 			playersByName[key] = {
 				playerId: r.batter.playerId,
 				fullName: r.batter.fullName,
@@ -253,6 +276,24 @@ async function refreshMlbBatterGameLogs({ slateDate, season, windowDays = WINDOW
 		thisRunPlayers: _m.thisRunCount, totalPlayers: Object.keys(payload.players).length,
 		priorPlayersRetained: _m.retained, finishedAt: diagnostics.finishedAt,
 	})
+
+	// G2-L1 — persist the SEASON sibling (additive; failure here NEVER breaks
+	// the canonical 21d write above). Same merge-no-shrink hardening.
+	try {
+		const _priorSeason = loadJsonSafe(SEASON_OUT_PATH) || {}
+		const _priorSeasonPlayers = (_priorSeason && typeof _priorSeason.players === "object" && _priorSeason.players) || {}
+		const _ms = mergeNoShrink(_priorSeasonPlayers, playersByNameSeason)
+		const seasonPayload = {
+			generatedAt: new Date().toISOString(),
+			source: "mlb_statsapi_gamelog",
+			windowDays: SEASON_WINDOW_DAYS,
+			players: _ms.shrank ? _priorSeasonPlayers : _ms.merged,
+		}
+		fs.writeFileSync(SEASON_OUT_PATH, JSON.stringify(seasonPayload, null, 2))
+		diagnostics.seasonPlayersPersisted = Object.keys(seasonPayload.players).length
+	} catch (e) {
+		diagnostics.errors.push({ stage: "season_sibling", reason: e?.message || String(e) })
+	}
 
 	console.log("[MLB-INGEST-BATTER-GAMELOGS]", {
 		slateDate: date,

@@ -19,7 +19,7 @@ const STACK = [
   ["pipeline/mlb/mlbCorrelationEngine.js", ["jointForPair", "classifyPair"]],
   ["pipeline/shared/isotonicCalibration.js", ["fitIsotonic", "predictIsotonic"]],
   ["pipeline/mlb/mlbMarginalCalibration.js", ["calibrateModelProb", "calibrateDetail"]],
-  ["pipeline/mlb/negBinomLadder.js", ["survival", "fitCountsMoM"]],
+  ["pipeline/mlb/negBinomLadder.js", ["survival", "fitCountsMoM", "fitPlayerFamilyCurve"]], // G2-L1: fitter extension tracked (2026-07-16)
   ["pipeline/mlb/mlbParlayConstructor.js", ["buildParlays", "americanToDecimal"]],
 ]
 // derived-prior configs the stack depends on (regen via derive* scripts, never hand-trim)

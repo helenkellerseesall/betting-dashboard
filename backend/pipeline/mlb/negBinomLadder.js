@@ -134,7 +134,114 @@ function round6(x) {
   return Number.isFinite(x) ? Math.round(x * 1e6) / 1e6 : x
 }
 
-module.exports = { fitCountsMoM, pmfArray, survival, ladderFromCounts, ladderFromLogs, MIN_GAMES, DEFAULT_RUNGS }
+// ============================================================================
+// G2-L1 EXTENSION (2026-07-16, scope approved in OPERATOR_SESSION_LOG) — the
+// per-player, per-family curve fitter. EXTENDS this sanctioned shadow module
+// (Law 1); everything above is untouched and byte-identical for the existing
+// mlb-nb-ladder-v1 shadow consumer.
+//
+//   - WEIGHTED MoM: exponential recency weights w_i = 0.5^(age/halfLife)
+//     (age in games back from the most recent; halfLife null ⇒ all weights 1 ⇒
+//     EXACTLY the legacy unweighted fit). Weighted mean m = Σwx/Σw; weighted
+//     variance uses the reliability-weights form v = Σw(x−m)² / (Σw − Σw²/Σw),
+//     which reduces to the legacy n−1 denominator when unweighted. Effective
+//     sample nEff = (Σw)²/Σw² carried in meta. halfLife is a PARAMETER here —
+//     the v1 constant is chosen EMPIRICALLY by the L2 validator across
+//     {10, 20, 40, none} on out-of-sample tail calibration (CA-approved) and
+//     frozen there, not assumed here.
+//   - FLOORS on RAW game count (not nEff): caller passes minN (approved:
+//     batters 15, pitchers 8). Below floor ⇒ null ⇒ NO CURVE ⇒ the player is
+//     absent from every downstream surface (probabilityHonesty: absent, never
+//     a league-average invention; no prior-blending in v1).
+//   - TAIL SUPPORT CAP (tail-honesty, longshot doc §1): rungs are emitted only
+//     to k ≤ maxObserved+1. A tail the sample never approached is not priced —
+//     an uncalibrated tail prob is entertainment, not edge.
+//   - Games are sorted by date ASCENDING internally (caches store descending);
+//     recency weighting is order-correct regardless of input order.
+// ============================================================================
+
+/** Family → game-log stats key (batter logs use `rbi`; pitcher Ks = strikeOuts). */
+const FAMILY_STAT_KEYS = { hits: "hits", totalBases: "totalBases", rbis: "rbi", runs: "runs", ks: "strikeOuts" }
+
+/**
+ * Weighted method-of-moments fit. counts must be OLDEST-FIRST when halfLife
+ * is set. halfLife null/0 ⇒ unweighted (legacy-identical estimates).
+ * @returns {null | {method, n, nEff, mean, variance, r?, p?, lambda?, halfLife}}
+ */
+function fitCountsMoMWeighted(countsRaw, { minN = MIN_GAMES, halfLife = null } = {}) {
+  const counts = (Array.isArray(countsRaw) ? countsRaw : [])
+    .map(Number)
+    .filter((x) => Number.isFinite(x) && x >= 0)
+  const n = counts.length
+  if (n < minN) return null
+  const hl = Number(halfLife)
+  const weighted = Number.isFinite(hl) && hl > 0
+  let sw = 0, swx = 0, sw2 = 0
+  const w = new Array(n)
+  for (let i = 0; i < n; i++) {
+    const age = n - 1 - i // most recent (last) has age 0
+    w[i] = weighted ? Math.pow(0.5, age / hl) : 1
+    sw += w[i]
+    sw2 += w[i] * w[i]
+    swx += w[i] * counts[i]
+  }
+  const mean = swx / sw
+  let vNum = 0
+  for (let i = 0; i < n; i++) vNum += w[i] * (counts[i] - mean) * (counts[i] - mean)
+  const vDen = sw - sw2 / sw // reduces to n−1 when all w=1
+  if (!(vDen > 0)) return null
+  const variance = vNum / vDen
+  const nEff = (sw * sw) / sw2
+  const base = { n, nEff: round6(nEff), mean, variance, halfLife: weighted ? hl : null }
+  if (variance > mean && mean > 0) {
+    const r = (mean * mean) / (variance - mean)
+    const p = mean / variance
+    return { method: "negbinom", ...base, r, p }
+  }
+  return { method: "poisson", ...base, lambda: mean }
+}
+
+/**
+ * Fit a per-player curve for one stat family from game-log entries
+ * ({date, stats:{...}} — batter `games` or pitcher `starts` rows).
+ * @returns {null | { family, ladder, supportCap, meta }}
+ */
+function fitPlayerFamilyCurve(games, family, { minN = 15, halfLife = null, maxGames = 60 } = {}) {
+  const statKey = FAMILY_STAT_KEYS[family]
+  if (!statKey) return null
+  const rows = (Array.isArray(games) ? games : [])
+    .map((g) => ({ date: String(g?.date || ""), count: Number(g?.stats ? g.stats[statKey] : undefined) }))
+    .filter((r) => Number.isFinite(r.count) && r.count >= 0 && r.date)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)) // ASC — weights are order-correct
+    .slice(-Math.max(1, maxGames))
+  const counts = rows.map((r) => r.count)
+  const fit = fitCountsMoMWeighted(counts, { minN, halfLife })
+  if (!fit) return null
+  const maxObserved = counts.reduce((a, b) => Math.max(a, b), 0)
+  const supportCap = maxObserved + 1
+  const ladder = {}
+  for (let k = 1; k <= supportCap; k++) ladder[String(k - 0.5)] = round6(survival(fit, k))
+  return {
+    family,
+    ladder, // rungs "0.5".."supportCap−0.5" ONLY — beyond the cap is never priced
+    supportCap,
+    meta: {
+      method: fit.method,
+      n: fit.n,
+      nEff: fit.nEff,
+      mean: round6(fit.mean),
+      variance: round6(fit.variance),
+      halfLife: fit.halfLife,
+      maxObserved,
+      window: { oldest: rows[0]?.date || null, newest: rows[rows.length - 1]?.date || null, maxGames },
+      ...(fit.method === "negbinom" ? { r: round6(fit.r), p: round6(fit.p) } : { lambda: round6(fit.lambda) }),
+    },
+  }
+}
+
+module.exports = { fitCountsMoM, pmfArray, survival, ladderFromCounts, ladderFromLogs, MIN_GAMES, DEFAULT_RUNGS,
+  // G2-L1 exports
+  fitCountsMoMWeighted, fitPlayerFamilyCurve, FAMILY_STAT_KEYS }
 
 // ── inline self-tests (run: node negBinomLadder.js) ─────────────────────────
 if (require.main === module) {

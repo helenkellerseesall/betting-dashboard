@@ -41,6 +41,13 @@ const { withRetry, loadJsonSafe, mergeNoShrink, writeMeta } = require("./mlbInge
 const PEOPLE_URL = "https://statsapi.mlb.com/api/v1/people"
 const BATCH_SIZE = 30
 const WINDOW_DAYS = 14
+// 2026-07-16 G2-L1 — SEASON-scope sibling cache (ADDITIVE, same fetch; the
+// person log is full-season and only filtered here — zero extra API calls).
+// The 14d OUT_PATH stays byte-identical for existing consumers. Measured need:
+// the 14d cache maxes at 6 starts/pitcher — ZERO pitchers meet the approved
+// n≥8 curve floor; pitcher Ks curves are impossible without season logs.
+const SEASON_WINDOW_DAYS = 200
+const SEASON_OUT_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherGameLogsSeason.json")
 const PITCHER_CACHE = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherStats.json")
 const OUT_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherGameLogs.json")
 const OUT_META_PATH = path.join(__dirname, "..", "..", "..", "data", "mlbPitcherGameLogs.meta.json")
@@ -184,6 +191,7 @@ async function refreshMlbPitcherGameLogs({ slateDate, season, windowDays = WINDO
 	diagnostics.pitchersFromCache = pitchers.length
 
 	const playersByName = {}
+	const playersByNameSeason = {} // G2-L1 season sibling (same fetch)
 	for (let i = 0; i < pitchers.length; i += BATCH_SIZE) {
 		const chunk = pitchers.slice(i, i + BATCH_SIZE)
 		diagnostics.batches += 1
@@ -199,9 +207,22 @@ async function refreshMlbPitcherGameLogs({ slateDate, season, windowDays = WINDO
 		for (const r of results) {
 			if (r.__error) continue
 			const starts = extractStartLogs(r.person, seasonResolved, date, windowDays)
-			if (!starts.length) continue
+			// G2-L1: season extraction from the SAME fetched person log.
+			const seasonStarts = extractStartLogs(r.person, seasonResolved, date, SEASON_WINDOW_DAYS)
 			const key = normalizeName(r.pitcher.fullName)
 			if (!key) continue
+			if (seasonStarts.length) {
+				playersByNameSeason[key] = {
+					playerId: r.pitcher.playerId,
+					fullName: r.pitcher.fullName,
+					throws: r.pitcher.throws,
+					teamId: r.pitcher.teamId,
+					teamName: r.pitcher.teamName,
+					starts: seasonStarts,
+					lastUpdated: date,
+				}
+			}
+			if (!starts.length) continue
 			playersByName[key] = {
 				playerId: r.pitcher.playerId,
 				fullName: r.pitcher.fullName,
@@ -241,6 +262,24 @@ async function refreshMlbPitcherGameLogs({ slateDate, season, windowDays = WINDO
 		thisRunPlayers: _m.thisRunCount, totalPlayers: Object.keys(payload.players).length,
 		priorPlayersRetained: _m.retained, finishedAt: diagnostics.finishedAt,
 	})
+
+	// G2-L1 — persist the SEASON sibling (additive; failure NEVER breaks the
+	// canonical 14d write above). Same merge-no-shrink hardening.
+	try {
+		const _priorSeason = loadJsonSafe(SEASON_OUT_PATH) || {}
+		const _priorSeasonPlayers = (_priorSeason && typeof _priorSeason.players === "object" && _priorSeason.players) || {}
+		const _ms = mergeNoShrink(_priorSeasonPlayers, playersByNameSeason)
+		const seasonPayload = {
+			generatedAt: new Date().toISOString(),
+			source: "mlb_statsapi_gamelog_pitching",
+			windowDays: SEASON_WINDOW_DAYS,
+			players: _ms.shrank ? _priorSeasonPlayers : _ms.merged,
+		}
+		fs.writeFileSync(SEASON_OUT_PATH, JSON.stringify(seasonPayload, null, 2))
+		diagnostics.seasonPlayersPersisted = Object.keys(seasonPayload.players).length
+	} catch (e) {
+		diagnostics.errors.push({ stage: "season_sibling", reason: e?.message || String(e) })
+	}
 
 	console.log("[MLB-INGEST-PITCHER-GAMELOGS]", {
 		slateDate: date,
