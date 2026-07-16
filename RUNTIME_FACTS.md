@@ -47,6 +47,7 @@ Last updated: 2026-06-06
 - **LaunchAgent:** `com.motel666.scheduler`
 - **Script:** `backend/scripts/scheduler.sh`
 - **Cadence:** `slate:mlb` hourly 9 AM – 11 PM ET, `slate:nba` every 30 min 4 PM – 11:30 PM ET
+- **trueOpen opener capture:** `captureMlbTrueOpen.js` at **6:00 AM ET** (same-day pitcher-prop baseline) + **22:00 ET `--evening`** (NIGHT-OWL-1, 2026-07-15: next-slate opener the night before; future-slate-only — never overwrites the 6 AM baseline file)
 
 ## Season switch (Phase Season-Switch-1A, 2026-06-14)
 

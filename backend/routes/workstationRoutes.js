@@ -3110,6 +3110,18 @@ router.get("/top-picks", (req, res) => {
       requestedDate,
       fellBack,
       todayKey: todayK,
+      // 2026-07-15 NIGHT-OWL-1 — server-authoritative next slate key so the FE
+      // never computes slate dates itself (slate-date doctrine). Pure key
+      // arithmetic on the canonical ET slate key (+1 day, UTC-noon safe —
+      // NOT wall-clock derivation).
+      tomorrowSlate: (() => {
+        try {
+          const [y, m, d] = todayK.split("-").map(Number)
+          const t = new Date(Date.UTC(y, m - 1, d, 12))
+          t.setUTCDate(t.getUTCDate() + 1)
+          return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`
+        } catch (_) { return null }
+      })(),
       sportsScanned: sports,
       counts: {
         ELITE: byTier.ELITE.length, STRONG: byTier.STRONG.length, PLAYABLE: byTier.PLAYABLE.length,

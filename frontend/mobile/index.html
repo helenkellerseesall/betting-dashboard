@@ -3832,6 +3832,44 @@
               </div>`;
           }
         } catch (_) { /* daily3 card is additive — its failure never blocks the board */ }
+        // 2026-07-15 NIGHT-OWL-1 — TOMORROW board: clearly SEPARATED section
+        // (never mixed with today; slate-date doctrine — the date key comes
+        // from the server's tomorrowSlate, the FE never computes slate dates).
+        // Explicit ?date= fetch bypasses the server's fallback, so an empty
+        // tomorrow is honestly empty. Additive: failure never blocks the board.
+        let nightOwlHtml = "";
+        try {
+          const tmr = d.tomorrowSlate;
+          if (tmr && tmr !== d.date) {
+            const rT = await fetch(`${API}/api/ws/top-picks?date=${tmr}&limit=24&_t=${Date.now()}`, { cache: "no-store" });
+            const dT = await rT.json();
+            const tPicks = (dT.picks || []).filter(p => isPreferredBook(p.sportsbook || p.book));
+            const noHead = `<div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <span style="font-size:12px;font-weight:800;letter-spacing:1px;color:#A78BFA;">🌙 TOMORROW — ${escapeHtml(tmr)}</span>
+              <span style="font-size:9px;color:#6B7280;">separate slate · rolls 4 AM ET</span>
+            </div>`;
+            if (tPicks.length) {
+              const noRows = tPicks.slice(0, 12).map(p => {
+                const tRaw = String(p.displayTier || p.tier || "").toUpperCase();
+                return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #241B36;font-size:12px;">
+                  <span style="color:#F9FAFB;"><b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_sideNice(p.side)} ${p.line} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || p.book || "?")}</span></span>
+                  <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.oddsAmerican ?? p.odds)} <span style="color:${_tierColor(tRaw)};font-size:9px;">${escapeHtml(_tierNice(tRaw))}</span></span>
+                </div>`;
+              }).join("");
+              nightOwlHtml = `<div style="background:#150F24;border:1px solid #4C1D95;border-radius:10px;padding:12px;margin-top:14px;">
+                ${noHead}
+                <div style="font-size:10px;color:#9CA3AF;margin:4px 0 2px;">${tPicks.length} early pick${tPicks.length === 1 ? "" : "s"} captured tonight — lines firm up overnight and this board upgrades through the day. Early lines move; re-check before betting.</div>
+                ${noRows}
+                ${tPicks.length > 12 ? `<div style="font-size:9px;color:#6B7280;margin-top:5px;">+${tPicks.length - 12} more on the full board when this slate becomes today</div>` : ""}
+              </div>`;
+            } else {
+              nightOwlHtml = `<div style="background:#150F24;border:1px solid #2E1065;border-radius:10px;padding:12px;margin-top:14px;">
+                ${noHead}
+                <div style="font-size:11px;color:#9CA3AF;margin-top:4px;">No lines for tomorrow on our books yet. Measured: next-day props typically post by ~4 PM ET on off-day eves and ~10 PM ET on game nights (after tonight's last first pitch). This section fills automatically once they appear.</div>
+              </div>`;
+            }
+          }
+        } catch (_) { /* night-owl section is additive — never blocks the board */ }
         // 2026-06-01 Phase Truth-Fix-1C (audit RED #5) — defense-in-depth
         // preferred-books filter. Backend /api/ws/top-picks now filters out
         // off-allowlist books at source, this FE filter is the second-line
@@ -3852,6 +3890,8 @@
               ${stateIcon} ${bs ? bs.states.map((s) => `<div style="margin-bottom:4px;">${escapeHtml(s.reason)}</div>`).join("") : `No top picks available for ${escapeHtml(d.date)} — and the server gave no reason (that itself is a bug; check /status).`}
               ${bs && bs.alert ? `<div style="margin-top:6px;color:#F87171;font-weight:700;">This state is alertable — the watchdog has it.</div>` : ""}
             </div>
+            ${d3html}
+            ${nightOwlHtml}
           </div>`;
           return;
         }
@@ -3880,6 +3920,7 @@
           for (const p of byTier[tier]) html += renderV2Card(p, { compact: true, showWhy: true });
           html += `</div>`;
         }
+        html += nightOwlHtml;
         html += `</div>`;
         main.innerHTML = html;
       } catch (e) {

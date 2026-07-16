@@ -177,6 +177,19 @@ while true; do
     last_trueopen_min="$STAMP"
   fi
 
+  # 2026-07-15 NIGHT-OWL-1 — evening pass at 22:00 ET: captures TOMORROW's opener the night before
+  # (script forward-rolls to the next slate once today's games have started; --evening = future-slate-only,
+  # so it can NEVER overwrite the same-day 6 AM baseline). Same isolation guarantees as the 6 AM pass.
+  if [ "$MIN" -eq 0 ] && [ "$HOUR" -eq 22 ] && [ "$STAMP" != "${last_nightowl_min:-}" ]; then
+    log "captureMlbTrueOpen --evening starting (night-owl next-slate opener)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureMlbTrueOpen.js --evening >> "$LOG" 2>&1; then
+      log "captureMlbTrueOpen --evening OK"
+    else
+      log "captureMlbTrueOpen --evening FAILED (exit $?)"
+    fi
+    last_nightowl_min="$STAMP"
+  fi
+
   # Dedupe — don't fire twice within the same minute
   if [ "$STAMP" = "$last_ran_min" ]; then
     sleep 30

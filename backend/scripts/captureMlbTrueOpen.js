@@ -101,6 +101,20 @@ async function main() {
   const slateDate = slate?.slateDateKey || calendarDateForTimestamp(now)
   if (!events.length) { console.log(`captureMlbTrueOpen: no scheduled MLB events — nothing to capture (slate ${slateDate}).`); return }
 
+  // 2026-07-15 NIGHT-OWL-1 — evening pass (--evening, scheduler 22:00 ET).
+  // Captures the NEXT slate's opener the night before (buildMlbSlateEvents
+  // forward-rolls once today's games have all started). FUTURE-SLATE-ONLY
+  // guard: if the resolved slate is still today's (e.g. late West-Coast games
+  // haven't started yet), skip WITHOUT writing — the evening pass must never
+  // overwrite the 6 AM same-day baseline file. Measured 2026-07-15: next-day
+  // props were posted on our books by 16:00 ET on a break eve and by ~22:00 ET
+  // on normal game nights (first forward-rolled look).
+  const eveningMode = process.argv.includes("--evening")
+  if (eveningMode && slateDate <= calendarDateForTimestamp(now)) {
+    console.log(`captureMlbTrueOpen (--evening): resolved slate ${slateDate} is not a FUTURE slate — skipping (never overwrites the same-day 6 AM baseline).`)
+    return
+  }
+
   const marketsCsv = PITCHER_FAMILIES.join(",")
   const booksCsv = BOOKS.join(",")
   let allRows = []

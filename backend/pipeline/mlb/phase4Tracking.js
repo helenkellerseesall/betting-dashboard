@@ -29,6 +29,38 @@ function dateKeyFromNow(now = Date.now()) {
   return slateDateForTimestamp(now)
 }
 
+// 2026-07-15 NIGHT-OWL-1 — game-date-driven file keying (the pre-agreed "fix A"
+// for the slate-vs-game-date offset, operator-approved direction 2026-06-22).
+// A row belongs to the slate its GAME plays on (slateDateForTimestamp(gameTime)),
+// NOT the slate the generator happened to run on. The evening forward-roll
+// (buildMlbSlateEvents rolls to tomorrow once today's games have all started)
+// scores NEXT-DAY picks through the full canonical path — measured live
+// 2026-07-15: 262 rows for the 07-16 Mets@Phillies game were written into the
+// 07-15 file, first observed 16:00 ET, firming through the evening. With this
+// keying those rows land in THEIR slate's file from the first evening capture:
+// the openOdds baseline becomes the TRUE evening open, the TOMORROW board reads
+// its own date's file, and today's record stays pure (never mixed). Rows with
+// no usable gameTime keep the legacy generation-date key (honest fallback,
+// never guessed).
+function gameSlateDateFor(row, fallbackDate) {
+  const gt = row?.gameTime || row?.commenceTime || row?.commence_time || row?.startTime
+  if (gt) {
+    const ms = new Date(gt).getTime()
+    if (Number.isFinite(ms) && ms > 0) return slateDateForTimestamp(ms)
+  }
+  return fallbackDate
+}
+
+function bucketByGameSlate(rows, fallbackDate) {
+  const buckets = new Map()
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const d = gameSlateDateFor(r, fallbackDate)
+    if (!buckets.has(d)) buckets.set(d, [])
+    buckets.get(d).push(r)
+  }
+  return buckets
+}
+
 function runtimeTrackingDir() {
   return path.join(__dirname, "..", "..", "runtime", "tracking")
 }
@@ -342,7 +374,26 @@ function toTrackedMlbBestEntry(row, { slateDate, timestamp }) {
  */
 function recordMlbBestProps(bestProps, options = {}) {
   const now = Number.isFinite(options?.now) ? Number(options.now) : Date.now()
-  const slateDate = dateKeyFromNow(now)
+  const fallbackDate = dateKeyFromNow(now)
+  // NIGHT-OWL-1 — split incoming rows by their game's slate date; each group
+  // writes to ITS slate's file through the identical body below.
+  const buckets = bucketByGameSlate(Array.isArray(bestProps) ? bestProps : [], fallbackDate)
+  if (buckets.size === 0) buckets.set(fallbackDate, [])
+  let ok = true
+  let added = 0
+  let totalMlbBest = 0
+  const files = []
+  for (const [slateDate, rows] of buckets) {
+    const r = recordMlbBestPropsForDate(rows, { slateDate, now })
+    ok = ok && r.ok
+    added += r.added
+    totalMlbBest += r.totalMlbBest
+    files.push({ slateDate, added: r.added, total: r.totalMlbBest })
+  }
+  return { ok, added, totalMlbBest, files, path: files.length === 1 ? mlbTrackedBestPath(files[0].slateDate) : undefined }
+}
+
+function recordMlbBestPropsForDate(rows, { slateDate, now }) {
   const timestamp = new Date(now).toISOString()
 
   const runtimeDir = runtimeTrackingDir()
@@ -369,7 +420,7 @@ function recordMlbBestProps(bestProps, options = {}) {
     entries: [...entries],
   }
 
-  const incoming = Array.isArray(bestProps) ? bestProps : []
+  const incoming = Array.isArray(rows) ? rows : []
   const seen = new Set(entries.map((e) => legKey(e)))
   let added = 0
 
@@ -562,7 +613,25 @@ function evaluateMlbPerformance(options = {}) {
  */
 function recordMlbDailyPicks(bestRows, options = {}) {
   const now = Number.isFinite(options?.now) ? Number(options.now) : Date.now()
-  const slateDate = dateKeyFromNow(now)
+  const fallbackDate = dateKeyFromNow(now)
+  // NIGHT-OWL-1 — same game-date keying as recordMlbBestProps.
+  const buckets = bucketByGameSlate(Array.isArray(bestRows) ? bestRows : [], fallbackDate)
+  if (buckets.size === 0) buckets.set(fallbackDate, [])
+  let ok = true
+  let added = 0
+  let total = 0
+  const files = []
+  for (const [slateDate, rows] of buckets) {
+    const r = recordMlbDailyPicksForDate(rows, { slateDate, now })
+    ok = ok && r.ok
+    added += r.added
+    total += r.total
+    files.push({ slateDate, added: r.added, total: r.total })
+  }
+  return { ok, added, total, files, path: files.length === 1 ? mlbPicksPath(files[0].slateDate) : undefined }
+}
+
+function recordMlbDailyPicksForDate(rows, { slateDate, now }) {
   const timestamp = new Date(now).toISOString()
 
   const runtimeDir = runtimeTrackingDir()
@@ -580,7 +649,7 @@ function recordMlbDailyPicks(bestRows, options = {}) {
     picks: Array.isArray(existing?.picks) ? existing.picks : [],
   }
 
-  const incoming = Array.isArray(bestRows) ? bestRows : []
+  const incoming = Array.isArray(rows) ? rows : []
   // Avoid duplicates within a single run only.
   const runSeen = new Set()
   let added = 0
@@ -950,7 +1019,49 @@ function leanSlip(slip, date) {
 function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   if (!bestBetsBoard) return
   const board = bestBetsBoard
-  const allPlays = Array.isArray(board.allPlays) ? board.allPlays : []
+  const allPlaysRaw = Array.isArray(board.allPlays) ? board.allPlays : []
+
+  // 2026-07-15 NIGHT-OWL-1 — game-date keying at the record spine. Plays split
+  // by their game's slate date (forward-rolled evening boards carry NEXT-DAY
+  // games); slips key by their EARLIEST leg's game slate. Each date group runs
+  // the identical persist body below against its own file — evening next-day
+  // rows become first-class citizens of TOMORROW's record with the same stamps
+  // (openOdds = the true evening open), and today's file never mixes.
+  const longshotPlaysRaw = Array.isArray(board.longshotPlays) ? board.longshotPlays : []
+  const altPlaysRaw      = Array.isArray(board.altPlays)      ? board.altPlays      : []
+  const hrAltPlaysRaw    = altPlaysRaw.filter((p) => p && p.isHrProp)
+  const playBuckets = bucketByGameSlate([...allPlaysRaw, ...longshotPlaysRaw, ...hrAltPlaysRaw], date)
+
+  const slipsRaw = board.slips || {}
+  const slipRows = []
+  for (const t of ["safe", "balanced", "aggressive", "lotto"]) {
+    for (const s of Array.isArray(slipsRaw[t]) ? slipsRaw[t] : []) {
+      slipRows.push({ ...s, type: s.type || t.toUpperCase() })
+    }
+  }
+  const slipBuckets = new Map()
+  for (const s of slipRows) {
+    const legTimes = (Array.isArray(s.legs) ? s.legs : [])
+      .map((l) => new Date(l?.gameTime || l?.commenceTime || 0).getTime())
+      .filter((t) => Number.isFinite(t) && t > 0)
+    const d = legTimes.length ? slateDateForTimestamp(Math.min(...legTimes)) : date
+    if (!slipBuckets.has(d)) slipBuckets.set(d, [])
+    slipBuckets.get(d).push(s)
+  }
+
+  const allDates = new Set([...playBuckets.keys(), ...slipBuckets.keys()])
+  if (allDates.size === 0) allDates.add(date)
+  for (const d of allDates) {
+    persistTrackedForDate({
+      plays: playBuckets.get(d) || [],
+      slips: slipBuckets.get(d) || [],
+      date: d,
+    })
+  }
+}
+
+function persistTrackedForDate({ plays, slips, date }) {
+  const allPlays = Array.isArray(plays) ? plays : []
 
   // 2026-05-23 — HR capture fix. buildMlbPropClusters routes any play with
   // impliedProb < 0.1 to board.longshotPlays (not board.allPlays). That meant
@@ -963,13 +1074,11 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   //
   // Audit doc: scorecards/lane_scorecard_2026-05-23.md (NO DATA on MLB HR
   // across 19 days of tracked_bets prior to this fix).
-  const longshotPlays = Array.isArray(board.longshotPlays) ? board.longshotPlays : []
-  const altPlays      = Array.isArray(board.altPlays)      ? board.altPlays      : []
-  const hrAltPlays    = altPlays.filter((p) => p && p.isHrProp)
-  const captureExtras = [...longshotPlays, ...hrAltPlays]
+  // (NIGHT-OWL-1: longshot + HR-alt extras are gathered by the caller
+  // persistTrackedToday and arrive pre-merged + pre-bucketed inside `plays`.)
 
   // -------- Bets --------
-  const newBetsUnfiltered = [...allPlays, ...captureExtras].map((p) => leanBet(p, date))
+  const newBetsUnfiltered = allPlays.map((p) => leanBet(p, date))
 
   // 2026-07-10 SETTLE-SPINE-1 — THE BET-#1 ROOT CAUSE. The stale-pick filter
   // below used to run on the MERGED set (existing + new), so every hourly slate
@@ -1058,14 +1167,9 @@ function persistTrackedToday({ bestBetsBoard, date = dateKeyFromNow() } = {}) {
   writeJsonSync(betsPath, Array.from(mergedBetsById.values()))
 
   // -------- Slips --------
-  const slips = board.slips || {}
-  const slipBucket = []
-  for (const t of ["safe", "balanced", "aggressive", "lotto"]) {
-    for (const s of Array.isArray(slips[t]) ? slips[t] : []) {
-      slipBucket.push({ ...s, type: s.type || t.toUpperCase() })
-    }
-  }
-  const newSlips = slipBucket.map((s) => leanSlip(s, date))
+  // (NIGHT-OWL-1: slips arrive pre-typed + pre-bucketed by earliest-leg game
+  // slate from persistTrackedToday.)
+  const newSlips = (Array.isArray(slips) ? slips : []).map((s) => leanSlip(s, date))
   const slipsPath = fileFor(SLIPS_PREFIX, date)
   const existingSlips = Array.isArray(readJsonSafe(slipsPath, []))
     ? readJsonSafe(slipsPath, [])
@@ -1433,6 +1537,8 @@ module.exports = {
   leanBet, // 2026-07-05 G1-Serve-1A test export (pure fn; verifyServedCalibrationInjection stamp-carry assertion)
   readMlbTrackedBestSnapshot,
   recordMlbBestProps,
+  gameSlateDateFor,
+  bucketByGameSlate,
   evaluateMlbPerformance,
   recordMlbDailyPicks,
   evaluateMlbPicks,

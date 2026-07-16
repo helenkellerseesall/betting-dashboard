@@ -70,6 +70,7 @@ const SUITES = [
   "verifyFirstHrCure", // F FIRST-HR CURE (2026-07-11) — play-order settlement (win/loss/void/pending, never box totals), ctx wiring, rules-correction backfill discipline, sysAudit survivorship exclusion + direction copy, statusRoute sign-aware copy, corpus v3 exclusion + retro gate PASS artifact.
   "verifyHonestComms", // BREAK-WINDOW Part 1 (2026-07-14) — empty boards SAY WHY (boardState 4-state classifier via slateGamesEvidence, FE renders reasons), boardServeParity watchdog (record-vs-served divergence = FAIL), games-aware slate-fire recovery, recentDateKeys TZ fix both sports.
   "verifyDaily3", // BREAK-WINDOW Part 3 THE DAILY 3 (2026-07-14) — public-record seed: write-once lock at firstPitch−60min from the SERVED lens (no card if pitch passes unlocked), existing-nightly write-once grading (all-3-decided gate), flat-$1 units + small-sample honesty, /api/ws/daily3 + FE card that never blocks the board.
+  "verifyNightOwl", // BREAK-WINDOW Part 2 NIGHT-OWL BOARD (2026-07-15) — game-date-driven file keying in the three MLB writers (offset fix A: evening forward-rolled next-day picks become first-class citizens of TOMORROW's record, same stamps), trueOpen 22:00 --evening future-slate-only pass, /top-picks tomorrowSlate + FE separated TOMORROW section (never mixed), dry-default migration w/ delta manifest.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
