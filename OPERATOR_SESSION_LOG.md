@@ -7031,3 +7031,5 @@ HEADLINES:
 - THE AUDIT'S MOST IMPORTANT LINE, self-graded: ingestion has never been our binding constraint — selection honesty is; if this roadmap ever competes with N1→G4 or the live record for CB-hours, THE CHAIN WINS.
 
 NEXT_EXPECTED_FROM_PEER: CA triages Phase 0 behind N1/G2; operator runs commit fence; CB gets the rung-depth probe with the Phase-0 fence. PROBE_REFS: docs/research/2026-07-16-full-spectrum-ingestion-audit.md · the-odds-api markets+FAQ [AUTH] · nflverse schedule + load_injuries dead-source [AUTH] · moneypuck data page [AUTH] · .scratch/deeplink_probe.txt headers [REPO] · buildMlbBootstrapSnapshot markets grep [REPO].
+
+## 2026-07-16 01:09 ET — Claude-A [note] — commit 35f854d message says MOONSHOT MAP but its CONTENT is the ingestion-audit log block (operator fence mix-up, verified harmless: no dup content, no data/code touched); audit doc itself landed in b08286b
