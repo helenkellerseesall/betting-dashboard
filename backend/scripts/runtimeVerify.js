@@ -76,6 +76,7 @@ const SUITES = [
   "verifyG2Fitter", // G2-L1 FITTER (2026-07-16, approved scope) — Law-1 extension of the sanctioned negBinomLadder (legacy parity proven numerically, self-tests green, guard tracks new export), weighted MoM (halfLife = L2-chosen parameter; nEff), floors ⇒ honest null, tail cap at maxObserved+1, family map, order robustness, ADDITIVE season gamelog siblings from the same fetch (rolling caches untouched).
   "verifyG2Validator", // G2-L2 VALIDATOR (2026-07-16) — no-lookahead walk-forward (strictly-prior fits), bake-off {10,20,40,none} w/ winner frozen into verdicts JSON, PASS bars (n≥150, max(1.5pp,20%rel)), pitcher n≥12 retest, last-30d slice, Axis-B pending-never-guessed + tail-support skip, read-only doctrine, synthetic e2e through a tmp cache.
   "verifyG2Scanner", // G2-L3 SHADOW SCANNER (2026-07-16) — PASS-families-only from committed verdicts + hard-excluded tb/rbis, frozen constants consumed never re-chosen, FLB margins (max(2pp,1.5×bucket gap), thin⇒worst), tail/floor/pending honesty, named gate tally (14/300/1.5pp/≥0u/split-half), scheduler 17:15+22:20, health line, synthetic e2e (flag/no-flag/settle/pending).
+  "verifyN1Instrument", // N1 GATE INSTRUMENT (2026-07-16, owed since N1 land) — nightly 17:30 dual-scoring of tracked N1 rows through the REAL engines in OFF/ON subprocesses, append-only + idempotent, never-fabricate + pending-never-guessed, the named N1 flip gate verbatim in the tally, scheduler wired.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

@@ -54,7 +54,7 @@ const sched = rd("scripts/scheduler.sh")
 check("scheduler: 10:00 + 17:00 pass block with dedupe var", /-eq 10 \] \|\| \[ "\$HOUR" -eq 17/.test(sched) && /last_ladder_min/.test(sched))
 check("scheduler: 22:05 night-owl pass (tomorrow's opening rungs)", /MIN" -eq 5 \] && \[ "\$HOUR" -eq 22/.test(sched) && /--pass=nightowl/.test(sched) && /last_ladder_no_min/.test(sched))
 const chc = rd("scripts/componentHealthCheck.js")
-check("health: ladderCapture component with honest no-games skip + fail-after-window", /function checkLadderCapture/.test(chc) && /honest skip \(passes fire 10:00\/17:00\/22:05 ET/.test(chc) && /NO ladder pass ran after the 10:00 ET window/.test(chc) && /"ladderCapture"\]/.test(chc))
+check("health: ladderCapture component with honest no-games skip + fail-after-window", /function checkLadderCapture/.test(chc) && /honest skip \(passes fire 10:00\/17:00\/22:05 ET/.test(chc) && /NO ladder pass ran after the 10:00 ET window/.test(chc) && /"ladderCapture"/.test(chc)) // 2026-07-16: membership not tail-anchor (order array grew — rungScan); same lesson as verifyHonestComms
 
 console.log(`verifyLadderCapture: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }

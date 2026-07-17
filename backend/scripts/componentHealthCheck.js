@@ -227,7 +227,31 @@ function checkLadderCapture() {
 }
 checkLadderCapture()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture"]
+// 2026-07-16 G2-L3 — shadow rung-EV scanner health: did it price rungs + how
+// far along is the gate tally? Honest no-games/no-ladders skip; FAIL only when
+// ladders exist for the slate but no scan ran after the 17:15 window.
+function checkRungScan() {
+  try {
+    const slate = currentSlateDateEt()
+    let scan = null
+    try { scan = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_rung_scan_${slate}.json`), "utf8")) } catch (_) {}
+    let ladders = null
+    try { ladders = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_ladders_${slate}.json`), "utf8")) } catch (_) {}
+    const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }))
+    if (scan && scan.summary) {
+      const g = scan.summary.gate || {}
+      return set("rungScan", "green", `Rung scan (SHADOW): ${scan.summary.rungsPriced} rungs priced, ${scan.summary.flagged} flagged · gate ${g.nights ?? 0}/14 nights, ${g.decided ?? 0}/300 decided, ${g.flatUnits ?? 0}u`, "shelf")
+    }
+    if (!ladders || !(ladders.rows || []).length) return set("rungScan", "green", `Rung scan: no ladder store for slate ${slate} yet — honest skip (scans fire 17:15/22:20 ET after capture passes)`, "shelf")
+    if (etHour < 18) return set("rungScan", "not-run", `Rung scan: ladders captured (${ladders.rows.length} rungs) — first scan fires 17:15 ET`, "shelf")
+    return set("rungScan", "fail", `Rung scan: ${ladders.rows.length} captured rungs for ${slate} but NO scan artifact after the 17:15 window — check scheduler`, "shelf")
+  } catch (e) {
+    return set("rungScan", "not-run", `Rung scan: ${String(e?.message || e)}`, "shelf")
+  }
+}
+checkRungScan()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

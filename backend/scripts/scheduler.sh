@@ -201,6 +201,42 @@ while true; do
     last_ladder_no_min="$STAMP"
   fi
 
+  # 2026-07-16 N1 GATE INSTRUMENT — 17:30 ET: dual-scores today's tracked N1-family rows (mean-centered
+  # OFF = served, median-centered ON = shadow) from the real engines; settles prior nights; prints the
+  # named N1 gate tally. Append-only shadow artifacts; the N1 flip window runs on this instrument.
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 17 ] && [ "$STAMP" != "${last_n1dual_min:-}" ]; then
+    log "captureN1DualScores starting (17:30 N1 gate instrument)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureN1DualScores.js >> "$LOG" 2>&1; then
+      log "captureN1DualScores OK"
+    else
+      log "captureN1DualScores FAILED (exit $?)"
+    fi
+    last_n1dual_min="$STAMP"
+  fi
+
+  # 2026-07-16 G2-L3 — SHADOW rung-EV scanner: prices captured ladder rungs against per-player curves
+  # (PASS families only, frozen constants, FLB margins) + settles yesterday's paper flags. 17:15 (post
+  # pre-lock ladder pass) + 22:20 (post night-owl pass, tomorrow's opening rungs). Writes shadow artifacts
+  # + the gate-tally ledger ONLY — nothing bettor-facing until the named operator-gated flip.
+  if [ "$MIN" -eq 15 ] && [ "$HOUR" -eq 17 ] && [ "$STAMP" != "${last_rungscan_min:-}" ]; then
+    log "scanRungEv starting (17:15 shadow scan)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scanRungEv.js >> "$LOG" 2>&1; then
+      log "scanRungEv OK"
+    else
+      log "scanRungEv FAILED (exit $?)"
+    fi
+    last_rungscan_min="$STAMP"
+  fi
+  if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 22 ] && [ "$STAMP" != "${last_rungscan_no_min:-}" ]; then
+    log "scanRungEv starting (22:20 shadow scan — tomorrow's opening rungs)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scanRungEv.js >> "$LOG" 2>&1; then
+      log "scanRungEv nightowl OK"
+    else
+      log "scanRungEv nightowl FAILED (exit $?)"
+    fi
+    last_rungscan_no_min="$STAMP"
+  fi
+
   # 2026-07-15 NIGHT-OWL-1 — evening pass at 22:00 ET: captures TOMORROW's opener the night before
   # (script forward-rolls to the next slate once today's games have started; --evening = future-slate-only,
   # so it can NEVER overwrite the same-day 6 AM baseline). Same isolation guarantees as the 6 AM pass.
