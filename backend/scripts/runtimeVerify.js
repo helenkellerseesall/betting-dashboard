@@ -78,6 +78,7 @@ const SUITES = [
   "verifyG2Scanner", // G2-L3 SHADOW SCANNER (2026-07-16) — PASS-families-only from committed verdicts + hard-excluded tb/rbis, frozen constants consumed never re-chosen, FLB margins (max(2pp,1.5×bucket gap), thin⇒worst), tail/floor/pending honesty, named gate tally (14/300/1.5pp/≥0u/split-half), scheduler 17:15+22:20, health line, synthetic e2e (flag/no-flag/settle/pending).
   "verifyN1Instrument", // N1 GATE INSTRUMENT (2026-07-16, owed since N1 land) — nightly 17:30 dual-scoring of tracked N1 rows through the REAL engines in OFF/ON subprocesses, append-only + idempotent, never-fabricate + pending-never-guessed, the named N1 flip gate verbatim in the tally, scheduler wired.
   "verifyObtainability", // OBTAINABILITY-GATE-1 + CARD-IDENTITY (2026-07-17, the Witt field catch) — committed source-tagged book-format map (DK batter families over_only), unknown-never-restricted helper, under@over_only dropped pre-dedup at the SERVED lens only (record untouched), marketFormat tags, Daily-3 identity fields, FE milestone language + matchup/first-pitch identity on all four surfaces.
+  "verifyStartedGameGate", // DISPLAY PACK (2026-07-17, operator items) — served lens drops started-game picks strict per-request (record untouched, Daily 3 unaffected, fallback consequence documented), games_started honest boardState pointing at TOMORROW, tier labels as chips not link-styled text.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

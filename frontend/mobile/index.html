@@ -3495,6 +3495,14 @@
       return t;
     }
     function _sideNice(s) { return String(s || "").toUpperCase(); }
+    // 2026-07-17 TIER-BADGE (operator display item 2) — tier names are LABELS,
+    // not actions: chip styling (background + uppercase), never bare colored
+    // text that reads as a link/button ("Worth a look" in link-blue).
+    function _tierBadge(tRaw) {
+      const t = String(tRaw || "").toUpperCase();
+      if (!t) return "";
+      return `<span style="font-size:8px;font-weight:700;color:${_tierColor(t)};background:#1F2937;padding:2px 6px;border-radius:8px;letter-spacing:.5px;white-space:nowrap;">${escapeHtml(_tierNice(t).toUpperCase())}</span>`;
+    }
     // 2026-07-17 OBTAINABILITY-GATE-1 — milestone books (DK ladders) sell "2+",
     // not "OVER 1.5"; render the language the app actually shows the operator.
     function _pickLineNice(p) {
@@ -3873,7 +3881,7 @@
                 const tRaw = String(p.displayTier || p.tier || "").toUpperCase();
                 return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #241B36;font-size:12px;">
                   <div style="color:#F9FAFB;"><b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_pickLineNice(p)} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || p.book || "?")}</span>${_gameIdLine(p)}</div>
-                  <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.oddsAmerican ?? p.odds)} <span style="color:${_tierColor(tRaw)};font-size:9px;">${escapeHtml(_tierNice(tRaw))}</span></span>
+                  <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.oddsAmerican ?? p.odds)} ${_tierBadge(tRaw)}</span>
                 </div>`;
               }).join("");
               nightOwlHtml = `<div style="background:#150F24;border:1px solid #4C1D95;border-radius:10px;padding:12px;margin-top:14px;">
@@ -3904,7 +3912,7 @@
           // from the server's evidence classifier), never a bare "no picks".
           const bs = d.boardState || null;
           const stateColor = bs && bs.alert ? "#F87171" : "#FBBF24";
-          const stateIcon = bs && bs.alert ? "🔴" : bs && bs.states?.some((s) => s.state === "no_games") ? "📅" : "⚖️";
+          const stateIcon = bs && bs.alert ? "🔴" : bs && bs.states?.some((s) => s.state === "games_started") ? "🌙" : bs && bs.states?.some((s) => s.state === "no_games") ? "📅" : "⚖️";
           main.innerHTML = `<div style="padding:20px;">
             <div style="background:#141828;border-left:3px solid ${stateColor};border-radius:10px;padding:14px;color:#D1D5DB;font-size:13px;line-height:1.6;">
               ${stateIcon} ${bs ? bs.states.map((s) => `<div style="margin-bottom:4px;">${escapeHtml(s.reason)}</div>`).join("") : `No top picks available for ${escapeHtml(d.date)} — and the server gave no reason (that itself is a bug; check /status).`}

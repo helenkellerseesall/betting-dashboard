@@ -3001,6 +3001,7 @@ router.get("/top-picks", (req, res) => {
     const all = []
     let droppedNonPreferredBook = 0
     let droppedUnpurchasable = 0
+    let droppedStarted = 0
     for (const sport of sports) {
       const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
       for (const b of trackedBets) {
@@ -3011,6 +3012,18 @@ router.get("/top-picks", (req, res) => {
         if (String(b.side || "").toLowerCase().startsWith("u")) {
           const fmt = bookFormatFor(b.sportsbook || b.book, b.statFamily)
           if (fmt && fmt.sides === "over_only") { droppedUnpurchasable++; continue }
+        }
+        // 2026-07-17 STARTED-GAME GATE (operator display item 1) — a pre-game
+        // prop on a started game is not a buyable recommendation. Strict
+        // now >= gameTime (Law-7 style), evaluated PER REQUEST so picks vanish
+        // at first pitch on the next fetch. The RECORD is untouched (rows stay
+        // for grading/CLV; Daily 3 is locked history and reads its own file).
+        // Consequence accepted: the post-midnight fallback board (old dates =
+        // played games) now honestly empties — TOMORROW is the actionable
+        // late-night surface.
+        if (b.gameTime) {
+          const gt = new Date(b.gameTime).getTime()
+          if (Number.isFinite(gt) && Date.now() >= gt) { droppedStarted++; continue }
         }
         all.push({ ...b, sport })
       }
@@ -3153,6 +3166,8 @@ router.get("/top-picks", (req, res) => {
         // OBTAINABILITY-GATE-1 — under-side rows at over_only books, dropped
         // pre-dedup (re-pointed or honestly absent; never recommended).
         droppedUnpurchasable,
+        // STARTED-GAME GATE — picks whose first pitch has passed (per-request).
+        droppedStarted,
       },
       picks,
       // 2026-07-14 HONEST-COMMS (All-Star-night incident) — an empty board must
@@ -3182,6 +3197,11 @@ router.get("/top-picks", (req, res) => {
                 if (evs.length) nextSlate = require("../pipeline/shared/slateDate").slateDateForTimestamp(Math.min(...evs))
               } catch (_) {}
               states.push({ sport: sp, state: "no_games", reason: `No ${sp.toUpperCase()} games on this slate${nextSlate ? ` — next slate ${nextSlate}` : " — next slate date unknown until books post it"}`, nextSlate })
+            } else if (trackedRows > 0 && droppedStarted > 0 && sp === "mlb") {
+              // 2026-07-17 STARTED-GAME GATE — the truthful late-night state:
+              // the board is empty because tonight's games have started, not
+              // because the model found nothing.
+              states.push({ sport: sp, state: "games_started", reason: `Tonight's board is done — ${droppedStarted} remaining pick(s) dropped because their games have started. TOMORROW below is the live surface.`, trackedRows, droppedStarted })
             } else if (trackedRows > 0) {
               states.push({ sport: sp, state: "zero_edge", reason: `${trackedRows} ${sp.toUpperCase()} picks exist on the record but none clear the served lens today (dampened/negative edge after calibration — an honest empty board, not a failure)`, trackedRows, dampenedRejected })
             } else {
