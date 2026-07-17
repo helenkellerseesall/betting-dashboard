@@ -2987,8 +2987,20 @@ router.get("/top-picks", (req, res) => {
 
     const reasoningIdx = {}
     for (const sport of sports) reasoningIdx[sport] = loadReasoningIndex(sport, date)
+    // 2026-07-17 OBTAINABILITY-GATE-1 (the Witt catch: served u1.5 hits @ DK
+    // -203, but the DK app sells hits as 1+/2+/3+ milestones — the under is
+    // vendor-reported yet NOT purchasable). Under-side rows at explicit
+    // over_only book/family pairs are dropped HERE, before best-price dedup —
+    // so a tuple RE-POINTS naturally to the best price among books that
+    // actually sell that side, or vanishes honestly when none do. Unknown
+    // pairs are never guessed into restriction. The RECORD is untouched:
+    // tracked files keep capturing vendor unders for CLV/model truth — only
+    // the recommendation surface is gated. Never recommend an unpurchasable
+    // ticket.
+    const { formatFor: bookFormatFor } = require("../pipeline/shared/bookMarketFormats")
     const all = []
     let droppedNonPreferredBook = 0
+    let droppedUnpurchasable = 0
     for (const sport of sports) {
       const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
       for (const b of trackedBets) {
@@ -2996,6 +3008,10 @@ router.get("/top-picks", (req, res) => {
         const tier = String(b.tier || b.modelTier || "").toUpperCase()
         if (tier === "FADE" || tier === "LONGSHOT") continue
         if (!isPreferredBook(b)) { droppedNonPreferredBook++; continue }
+        if (String(b.side || "").toLowerCase().startsWith("u")) {
+          const fmt = bookFormatFor(b.sportsbook || b.book, b.statFamily)
+          if (fmt && fmt.sides === "over_only") { droppedUnpurchasable++; continue }
+        }
         all.push({ ...b, sport })
       }
     }
@@ -3103,6 +3119,12 @@ router.get("/top-picks", (req, res) => {
         const pph = getPlayerPropHistory({ sport: pick.sport, player: pick.player, statFamily: pick.statFamily || pick.propType, side: pick.side, line: pick.line })
         if (pph) pick.playerPropHistory = pph
       } catch (_) {}
+      // 2026-07-17 OBTAINABILITY-GATE-1 — market-format tag so the FE renders
+      // milestone language ("2+") for ladder books instead of O/U language.
+      try {
+        const fmt = bookFormatFor(pick.sportsbook || pick.book, pick.statFamily)
+        pick.marketFormat = fmt ? fmt.sides : "unverified"
+      } catch (_) { pick.marketFormat = "unverified" }
     }
 
     res.json({
@@ -3128,6 +3150,9 @@ router.get("/top-picks", (req, res) => {
         returned: picks.length,
         dampenedRejected,
         droppedNonPreferredBook,
+        // OBTAINABILITY-GATE-1 — under-side rows at over_only books, dropped
+        // pre-dedup (re-pointed or honestly absent; never recommended).
+        droppedUnpurchasable,
       },
       picks,
       // 2026-07-14 HONEST-COMMS (All-Star-night incident) — an empty board must

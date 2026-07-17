@@ -98,6 +98,10 @@ function maybeLockDaily3() {
           sportsbook: p.sportsbook || p.book, odds: p.oddsAmerican ?? p.odds,
           modelProb: p.modelProb ?? null, tier: p.displayTier || p.tier || null,
           calibVersion: p.calibVersion ?? null, selectionPolicy: p.selectionPolicy ?? p.tierPolicy ?? null,
+          // 2026-07-17 CARD-IDENTITY — the operator never looks up who a
+          // player plays for. Additive; older locked cards render without.
+          team: p.team ?? null, matchup: p.matchup ?? null, gameTime: p.gameTime ?? null,
+          marketFormat: p.marketFormat ?? null,
         }))
         const card = {
           slate, lockedAt: new Date().toISOString(), firstPitchAt: new Date(pitch).toISOString(),

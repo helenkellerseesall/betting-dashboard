@@ -1,0 +1,16 @@
+{
+  "_doc": "Per-book per-family MARKET FORMAT map (OBTAINABILITY-GATE-1, 2026-07-17). sides: 'over_only' = the book's app sells this family as milestone ladders (1+/2+/3+) — vendor-reported UNDER prices are NOT operator-purchasable and must never be recommended; 'two_sided' = true O/U purchasable in-app. ENFORCEMENT RULE: the served lens drops/re-points under-side picks ONLY for explicit over_only entries — unknown book/family pairs are NEVER guessed into restriction (that would wrongly strip real unders). Every entry carries source + verifiedAt; field verification OUTRANKS vendor data (the vendor carried DK u1.5 Witt at -203 that the app would not sell). Extend as field truth accumulates; changing enforcement = changing this file = a commit.",
+  "draftkings": {
+    "hits": { "sides": "over_only", "source": "operator-field", "verifiedAt": "2026-07-17", "note": "THE WITT CATCH: board served u1.5 hits @ -203; DK app sells hits as 1+/2+/3+ milestones only. Vendor under prices exist but are not purchasable." },
+    "totalBases": { "sides": "over_only", "source": "operator-field-extrapolated", "verifiedAt": "2026-07-17", "note": "DK app batter-count format is milestone across the board; vendor unders thin (113/1060). Spot-check on next DK session." },
+    "rbis": { "sides": "over_only", "source": "operator-field-extrapolated+vendor", "verifiedAt": "2026-07-17", "note": "Vendor corroborates: ZERO under rows returned for DK RBIs (524 overs) on the 07-17 snapshot." },
+    "runs": { "sides": "over_only", "source": "operator-field-extrapolated", "verifiedAt": "2026-07-17", "note": "Same DK milestone family class." },
+    "hr": { "sides": "over_only", "source": "structural", "verifiedAt": "2026-07-17", "note": "HR is 1+/2+ milestone everywhere; unders effectively not sold retail." }
+  },
+  "fanduel": {
+    "hits": { "sides": "two_sided", "source": "operator-statement", "verifiedAt": "2026-07-17", "note": "FD sells true O/U hits in-app. NOTE: vendor returns ZERO FD under rows (430 overs, 0 unders on 07-17) — FD unders are purchasable but not line-shoppable from our feed." }
+  },
+  "betmgm": {
+    "hits": { "sides": "two_sided", "source": "operator-statement", "verifiedAt": "2026-07-17", "note": "MGM sells true O/U hits per operator; MGM absent from the 07-17 snapshot entirely (0 rows) — verify coverage separately." }
+  }
+}

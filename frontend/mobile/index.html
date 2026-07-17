@@ -2932,7 +2932,7 @@
       const amer = _slipAmerFromDec(dec);
       const legRows = legs.map((l, i) => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1B2030;">
-          <span style="font-size:12px;color:#F9FAFB;">${escapeHtml(l.player)} <span style="color:#9CA3AF;">${escapeHtml(String(l.side))} ${l.line} ${escapeHtml(String(l.statFamily || ""))} @ ${escapeHtml(l.sportsbook || l.book || "?")}</span></span>
+          <span style="font-size:12px;color:#F9FAFB;">${escapeHtml(l.player)} <span style="color:#9CA3AF;">${_pickLineNice(l)} ${escapeHtml(String(l.statFamily || ""))} @ ${escapeHtml(l.sportsbook || l.book || "?")}${l.matchup ? ` · ${escapeHtml(l.matchup)}` : ""}</span></span>
           <button onclick="window._slipRemove(${i})" style="background:none;border:0;color:#F87171;font-size:15px;cursor:pointer;">×</button>
         </div>`).join("");
       const composeHtml = sameBook && legs.length >= 2 ? _slipComposeAnchor(legs, crossGame) : "";
@@ -3495,6 +3495,25 @@
       return t;
     }
     function _sideNice(s) { return String(s || "").toUpperCase(); }
+    // 2026-07-17 OBTAINABILITY-GATE-1 — milestone books (DK ladders) sell "2+",
+    // not "OVER 1.5"; render the language the app actually shows the operator.
+    function _pickLineNice(p) {
+      const side = String(p?.side || "").toLowerCase();
+      if (p?.marketFormat === "over_only" && side.startsWith("o")) return `${Math.ceil(Number(p.line))}+`;
+      return `${_sideNice(p?.side)} ${p?.line}`;
+    }
+    // 2026-07-17 CARD-IDENTITY — team · matchup · first pitch on every pick
+    // row; the operator never looks up who a player plays for. Renders only
+    // the parts that exist (older rows may lack fields).
+    function _gameIdLine(p) {
+      const bits = [];
+      if (p?.matchup) bits.push(escapeHtml(p.matchup));
+      else if (p?.team) bits.push(escapeHtml(p.team));
+      if (p?.gameTime) {
+        try { bits.push(new Date(p.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"); } catch (_) {}
+      }
+      return bits.length ? `<div style="font-size:9px;color:#6B7280;margin-top:2px;">${bits.join(" · ")}</div>` : "";
+    }
     function _oddsNice(o) {
       const n = Number(o); if (!Number.isFinite(n)) return "—";
       return n > 0 ? `+${n}` : `${n}`;
@@ -3749,7 +3768,8 @@
               <span style="font-size:9px;font-weight:700;color:#9CA3AF;background:#1F2937;padding:2px 7px;border-radius:9px;">${escapeHtml(tierLabel(tier))}${capChip}${starBadge}</span>
             </div>
             <div style="font-size:15px;font-weight:800;color:#F9FAFB;margin-top:6px;line-height:1.15;">${escapeHtml(pick.player || "?")}${pick.team ? ` <span style="font-size:11px;font-weight:500;color:#6B7280;">· ${escapeHtml(pick.team)}</span>` : ""}</div>
-            <div style="font-size:15px;font-weight:700;color:#F9FAFB;margin-top:3px;line-height:1.2;">${_sideNice(pick.side)} ${pick.line} <span style="font-size:11px;font-weight:500;color:#9CA3AF;">${_famNice(pick.statFamily)}</span></div>
+            ${_gameIdLine(pick)}
+            <div style="font-size:15px;font-weight:700;color:#F9FAFB;margin-top:3px;line-height:1.2;">${_pickLineNice(pick)} <span style="font-size:11px;font-weight:500;color:#9CA3AF;">${_famNice(pick.statFamily)}${pick.marketFormat === "over_only" ? " · milestone" : ""}</span></div>
             ${archetypeChip}
             <div style="display:flex;gap:16px;margin-top:9px;align-items:flex-end;">
               <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">MODEL CONF</div><div style="font-size:15px;color:${tierC};font-weight:800;font-family:ui-monospace,monospace;line-height:1.1;">${conf}</div></div>
@@ -3815,7 +3835,7 @@
               ? j3.today.picks.map((p, i) => {
                   const res = j3.today.results ? j3.today.results[i] : null;
                   return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #1B2030;font-size:12px;">
-                    <span style="color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_sideNice(p.side)} ${p.line} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || "?")}</span></span>
+                    <div style="color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_pickLineNice(p)} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || "?")}</span>${_gameIdLine(p)}</div>
                     <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
                   </div>`;
                 }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:5px;">locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))}Z${j3.today.lockLate ? " (late lock)" : ""} · immutable · ${j3.today.picks[0]?.calibVersion ? escapeHtml(j3.today.picks[0].calibVersion) : "unstamped era"}</div>`
@@ -3852,7 +3872,7 @@
               const noRows = tPicks.slice(0, 12).map(p => {
                 const tRaw = String(p.displayTier || p.tier || "").toUpperCase();
                 return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #241B36;font-size:12px;">
-                  <span style="color:#F9FAFB;"><b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_sideNice(p.side)} ${p.line} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || p.book || "?")}</span></span>
+                  <div style="color:#F9FAFB;"><b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_pickLineNice(p)} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || p.book || "?")}</span>${_gameIdLine(p)}</div>
                   <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.oddsAmerican ?? p.odds)} <span style="color:${_tierColor(tRaw)};font-size:9px;">${escapeHtml(_tierNice(tRaw))}</span></span>
                 </div>`;
               }).join("");
