@@ -91,3 +91,13 @@ backend/scripts/*.bak*
 backend/data/mlbLineupCache.json
 backend/data/nbaSeriesStateAuto.json
 backend/storage/*.sqlite
+
+# regenerable data caches (2026-07-21) — rebuilt nightly from free sources
+# (StatsAPI / Statcast / Open-Meteo); not backup-worthy, never red noise.
+backend/data/*.meta.json
+backend/data/mlbBatterGameLogsSeason.json
+backend/data/mlbPitcherGameLogsSeason.json
+backend/data/mlbAirDensity.json
+backend/data/mlbBullpenQuality.json
+backend/data/mlbPitcherFip.json
+backend/data/mlbStatcastQuality.json
