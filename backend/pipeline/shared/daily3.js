@@ -55,6 +55,11 @@ function _playedOnDate(player, family, date) {
     const idx = ["ks", "outs", "hitsAllowed", "walks", "earnedRuns"].includes(String(family)) ? _scratchIdx.pit : _scratchIdx.bat
     const dates = resolvePlayer(idx, player)
     if (!dates) return null // unknown — never guess
+    // 2026-07-21 COVERAGE GUARD: trust "no row" only when the cache has SEEN
+    // PAST the slate (the player's newest cached game > slate). Otherwise a
+    // cache lag is indistinguishable from a scratch ⇒ unknown, stays pending.
+    const newest = dates.reduce((a, b) => (b > a ? b : a), "")
+    if (!(newest > String(date))) return null
     return dates.includes(String(date))
   } catch (_) { return null }
 }
@@ -174,8 +179,14 @@ function gradeDaily3(slate) {
         norm(r.sportsbook) === norm(p.sportsbook))
       const res = t ? String(t.result || "pending").toLowerCase() : "pending"
       if (!["win", "loss", "push", "void"].includes(res)) {
-        // 2026-07-21 void-on-scratch (see _playedOnDate doc above)
-        const slateAgeDays = (Date.now() - new Date(`${slate}T12:00:00Z`).getTime()) / 86400000
+        // 2026-07-21 void-on-scratch (see _playedOnDate doc above).
+        // AGE FIX (07-19 stall root cause): the first cut anchored "2 days" at
+        // noon-UTC of the slate date, so the slate+2 4 AM nightly read 1.83
+        // days and slept through — a full extra day of stall. SLATE-KEY math
+        // instead: the rule arms exactly when the CURRENT slate key is ≥2
+        // calendar days past the card's slate (= the second grading night).
+        const _keyMs = (k) => { const [y, m, d] = String(k).split("-").map(Number); return Date.UTC(y, m - 1, d, 12) }
+        const slateAgeDays = Math.round((_keyMs(currentSlateDateEt()) - _keyMs(slate)) / 86400000)
         if (slateAgeDays >= 2 && _playedOnDate(p.player, p.statFamily, slate) === false) {
           results.push({ ...p, result: "void", units: 0, settleNote: `no appearance on ${slate} — voided per book behavior (scratch rule 2026-07-21)` })
           continue

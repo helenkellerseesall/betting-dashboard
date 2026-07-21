@@ -308,7 +308,23 @@ function checkRungSettles() {
 }
 checkRungSettles()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles"]
+// (d) 2026-07-21 G3-L1 — pair corpus freshness (day-one alarm per doctrine):
+// summary absent or >3 days stale while graded slates advance = RED.
+function checkPairCorpus() {
+  try {
+    const p = path.join(TRACKING, "mlb_pair_corpus_summary.json")
+    if (!fs.existsSync(p)) return set("pairCorpus", "not-run", "Pair corpus: not yet generated (G3-L1 lands, first 05:30 regen follows)", "shelf")
+    const s = JSON.parse(fs.readFileSync(p, "utf8"))
+    const ageDays = (Date.now() - Date.parse(s.generatedAt)) / 86400000
+    const total = Object.values(s.classCounts || {}).reduce((a, b) => a + b, 0)
+    if (ageDays > 3) return set("pairCorpus", "fail", `Pair corpus: STALE ${ageDays.toFixed(1)} days (regen fires 05:30 ET) — L2 fits would read old outcomes`, "shelf")
+    if (!total) return set("pairCorpus", "fail", "Pair corpus: generated but ZERO pairs — extraction broken", "shelf")
+    return set("pairCorpus", "green", `Pair corpus: ${total} pairs across ${Object.keys(s.classCounts).length} classes · ${s.slates} slates · ${ageDays.toFixed(1)}d old`, "shelf")
+  } catch (e) { return set("pairCorpus", "not-run", `Pair corpus: ${String(e?.message || e)}`, "shelf") }
+}
+checkPairCorpus()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

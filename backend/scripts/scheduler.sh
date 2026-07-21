@@ -201,6 +201,19 @@ while true; do
     last_ladder_no_min="$STAMP"
   fi
 
+  # 2026-07-21 G3-L1 — pair-corpus regen at 05:30 ET (after the 4 AM grade + 5 AM audit): re-extracts the
+  # class-tagged settled-pair corpus from the freshly-graded record. Read-only over tracked files;
+  # deterministic; its health line alarms on staleness (ships-with-alarm doctrine).
+  if [ "$MIN" -eq 30 ] && [ "$HOUR" -eq 5 ] && [ "$STAMP" != "${last_paircorpus_min:-}" ]; then
+    log "buildMlbPairCorpus starting (05:30 nightly regen)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/buildMlbPairCorpus.js >> "$LOG" 2>&1; then
+      log "buildMlbPairCorpus OK"
+    else
+      log "buildMlbPairCorpus FAILED (exit $?)"
+    fi
+    last_paircorpus_min="$STAMP"
+  fi
+
   # 2026-07-16 N1 GATE INSTRUMENT — 17:30 ET: dual-scores today's tracked N1-family rows (mean-centered
   # OFF = served, median-centered ON = shadow) from the real engines; settles prior nights; prints the
   # named N1 gate tally. Append-only shadow artifacts; the N1 flip window runs on this instrument.

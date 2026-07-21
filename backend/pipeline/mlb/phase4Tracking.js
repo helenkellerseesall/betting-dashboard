@@ -1220,6 +1220,17 @@ function persistTrackedForDate({ plays, slips, date }) {
  * Synchronous — this runs from a CLI/admin tool, NOT in the live pipeline.
  */
 function applyResults({ date = dateKeyFromNow(), bets = {}, legs = {} } = {}) {
+  // 2026-07-21 RIDER (operator-ordered): a sanctioned manual settle that
+  // unblocks a Daily-3 card triggers an IMMEDIATE card re-grade attempt
+  // instead of waiting for the next nightly. Wrapped + deferred so the rider
+  // can never break the settle itself (fires after this function returns).
+  setImmediate(() => {
+    try {
+      const { gradeDaily3 } = require("../shared/daily3")
+      const d3 = gradeDaily3(date)
+      if (d3?.graded) console.log(`[applyResults] DAILY 3 re-grade rider: ${date} graded, net ${d3.netUnits > 0 ? "+" : ""}${d3.netUnits}u`)
+    } catch (_) { /* rider is best-effort */ }
+  })
   const now = new Date().toISOString()
   const betsPath = fileFor(BETS_PREFIX, date)
   const slipsPath = fileFor(SLIPS_PREFIX, date)

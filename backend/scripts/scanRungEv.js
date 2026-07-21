@@ -101,7 +101,10 @@ function settleFlags(batIdx, pitIdx, today) {
       // recent ⇒ stays PENDING, never guessed. (Measured: all 67 stuck
       // pre-07-20 flags were this class.)
       const ageDays = (Date.parse(today) - Date.parse(f.gameDate)) / 86400000
-      if (pl && ageDays >= 2) {
+      // coverage guard (2026-07-21): only void when the cache has seen PAST
+      // the game date — cache lag must never masquerade as a scratch.
+      const newest = pl ? pl.rows.reduce((a, g) => (g.date > a ? g.date : a), "") : ""
+      if (pl && ageDays >= 2 && newest > String(f.gameDate)) {
         lines.push(JSON.stringify({ type: "settle", id: f.id, settledAt: new Date().toISOString(), outcome: "void", hit: null, units: 0, note: "no appearance — voided per book behavior" }))
         voidedNow++
       }

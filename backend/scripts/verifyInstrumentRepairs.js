@@ -47,11 +47,14 @@ check("validator: Axis B uses the canonical join", /_rp\(idx, r\.player\)/.test(
 // 3. void-on-scratch
 const d3 = rd("pipeline/shared/daily3.js")
 check("daily3: scratch rule — ≥2 days + join-confirmed no-appearance ⇒ void 0u settleNote'd; unknown ⇒ pending", /slateAgeDays >= 2 && _playedOnDate\(p\.player, p\.statFamily, slate\) === false/.test(d3) && /voided per book behavior/.test(d3) && /return null \/\/ unknown — never guess/.test(d3))
+check("daily3: AGE FIX — slate-key math (arms at the second grading night, not noon-UTC drift)", /_keyMs\(currentSlateDateEt\(\)\) - _keyMs\(slate\)/.test(d3) && /slept through/.test(d3))
+check("daily3+ledger: COVERAGE GUARDS — void only when the cache has seen PAST the date", /if \(!\(newest > String\(date\)\)\) return null/.test(d3) && /newest > String\(f\.gameDate\)/.test(fs.readFileSync(path.join(ROOT, "scripts", "scanRungEv.js"), "utf8")))
+check("rider: sanctioned manual settle triggers immediate card re-grade (best-effort, never breaks the settle)", /DAILY 3 re-grade rider/.test(fs.readFileSync(path.join(ROOT, "pipeline", "mlb", "phase4Tracking.js"), "utf8")))
 check("ledger: no-appearance flags void (0u) after ≥2 days; voids EXCLUDED from gate math", /outcome: "void", hit: null, units: 0/.test(scan) && /e\.outcome !== "void"/.test(scan))
 
 // 4. alarms + doctrine
 const chc = rd("scripts/componentHealthCheck.js")
-check("alarms: daily3Grading + n1Instrument + rungSettles all registered", /checkDaily3Grading/.test(chc) && /checkN1Instrument/.test(chc) && /checkRungSettles/.test(chc) && /"daily3Grading", "n1Instrument", "rungSettles"\]/.test(chc))
+check("alarms: daily3Grading + n1Instrument + rungSettles all registered", /checkDaily3Grading/.test(chc) && /checkN1Instrument/.test(chc) && /checkRungSettles/.test(chc) && /"daily3Grading"/.test(chc) && /"n1Instrument"/.test(chc) && /"rungSettles"/.test(chc)) // 2026-07-21: FOURTH tail-anchor instance — and this one was MY OWN hours-old fixture. Membership, never list-tails.
 check("doctrine in source: every new instrument ships WITH its own health line", /every new instrument ships WITH its own health line/.test(chc))
 
 console.log(`verifyInstrumentRepairs: ${pass}/${pass + fail} checks PASS`)

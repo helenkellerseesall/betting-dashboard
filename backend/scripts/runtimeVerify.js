@@ -80,6 +80,7 @@ const SUITES = [
   "verifyObtainability", // OBTAINABILITY-GATE-1 + CARD-IDENTITY (2026-07-17, the Witt field catch) — committed source-tagged book-format map (DK batter families over_only), unknown-never-restricted helper, under@over_only dropped pre-dedup at the SERVED lens only (record untouched), marketFormat tags, Daily-3 identity fields, FE milestone language + matchup/first-pitch identity on all four surfaces.
   "verifyStartedGameGate", // DISPLAY PACK (2026-07-17, operator items) — served lens drops started-game picks strict per-request (record untouched, Daily 3 unaffected, fallback consequence documented), games_started honest boardState pointing at TOMORROW, tier labels as chips not link-styled text.
   "verifyInstrumentRepairs", // INSTRUMENT-REPAIR-PACK (2026-07-21, CA audit) — N1 worker via sync temp file (64KB truncation impossible), canonical playerNameJoin (suffix/diacritic/nickname classes, ambiguity never guesses, frozen flag-ids), void-on-scratch in Daily 3 + ledger (voids excluded from gate math), three instrument alarms + the ships-with-alarm doctrine.
+  "verifyG3PairCorpus", // G3-L1 PAIR CORPUS (2026-07-21, approved scope) — five structural classes + certified-not-assumed cross_game, decided-only median-line reference legs, LCG-deterministic capped sampling, pre/post-flip era slice (report not filter), read-only, 05:30 regen + day-one pairCorpus alarm, synthetic e2e with exact class counts.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
