@@ -81,6 +81,8 @@ const SUITES = [
   "verifyStartedGameGate", // DISPLAY PACK (2026-07-17, operator items) — served lens drops started-game picks strict per-request (record untouched, Daily 3 unaffected, fallback consequence documented), games_started honest boardState pointing at TOMORROW, tier labels as chips not link-styled text.
   "verifyInstrumentRepairs", // INSTRUMENT-REPAIR-PACK (2026-07-21, CA audit) — N1 worker via sync temp file (64KB truncation impossible), canonical playerNameJoin (suffix/diacritic/nickname classes, ambiguity never guesses, frozen flag-ids), void-on-scratch in Daily 3 + ledger (voids excluded from gate math), three instrument alarms + the ships-with-alarm doctrine.
   "verifyG3PairCorpus", // G3-L1 PAIR CORPUS (2026-07-21, approved scope) — five structural classes + certified-not-assumed cross_game, decided-only median-line reference legs, LCG-deterministic capped sampling, pre/post-flip era slice (report not filter), read-only, 05:30 regen + day-one pairCorpus alarm, synthetic e2e with exact class counts.
+  "verifyG3Correlation", // G3-L2 (2026-07-21) — Law-1 --g3 extension of the sanctioned derive script (legacy path + shadow priors untouched), walk-forward 2/3 slate split w/ canonical fitRhoZ, named bars (n≥500/gap≤2pp/Brier/cross-game |ρ|<0.05 certification), era slice, synthetic e2e (recovers ρ, certifies independence, STOPs drift).
+  "verifyG3CureColumns", // G3-L3 (2026-07-21) — pre-registered cure columns on the live ledger: pooled walk-forward blend w (300/family trigger), k=1 median-disagreement dampening, PASS-only copula opposition conditioning w/ sign unit-pinned both directions + abstention, per-column gates + counterfactual kill bar, paper-only.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

@@ -63,6 +63,117 @@ function load() {
   return { files, games, settled }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 2026-07-21 G3-L2 — structural-class fit + PASS-or-STOP validation (--g3).
+// Law 1: EXTENDS this sanctioned derive script; without --g3 the legacy path
+// below runs byte-identical and mlbCorrelationPriors.json semantics are
+// untouched (the live shadow engine's input does NOT change here — engine
+// re-pointing is a later, gated graduation step).
+//
+// Reads the L1 pair corpus (mlb_pair_corpus.jsonl — full history, era-free
+// outcomes per CA answer i). WALK-FORWARD: chronological slate split (first
+// 2/3 train, last 1/3 held-out test — no lookahead). Per class: fit ρ_Z on
+// TRAIN pooled (px, py, pBoth) via the canonical fitRhoZ; validate on TEST
+// with PER-PAIR marginals (served modelProb when finite, else the train-class
+// empirical — hierarchy documented in the report) against the NAMED BARS:
+//   n_test ≥ 500 · pooled |predicted−realized| joint gap ≤ 2pp ·
+//   Brier(copula) ≤ Brier(independence) · cross_game additionally |ρ| < 0.05
+//   to be CERTIFIED_INDEPENDENT (independence is proven, never assumed).
+// ERA SLICE: ρ re-fit pre/post 2026-07-01 reported (stability, not a filter).
+// Outputs: backend/config/g3_correlation_validation.json (committed verdicts)
+//        + docs/audits/<date>-g3-l2-correlation-validation.md.
+// ═══════════════════════════════════════════════════════════════════════════
+const G3 = process.argv.includes("--g3")
+if (G3) {
+  const { copulaJoint } = require("../pipeline/shared/gaussianCopula")
+  const CORPUS = process.env.G3_PAIR_OUT || path.join(TRACKING, "mlb_pair_corpus.jsonl")
+  const OUT_VAL = process.env.G3_VAL_OUT || path.join(__dirname, "..", "config", "g3_correlation_validation.json")
+  const OUT_MD = process.env.G3_VAL_MD || path.join(__dirname, "..", "..", "docs", "audits", `${new Date().toISOString().slice(0, 10)}-g3-l2-correlation-validation.md`)
+  const FLIP = "2026-07-01"
+  const BARS = { minTestN: 500, jointGapPp: 2.0, indepRhoAbs: 0.05 }
+
+  const lines = fs.readFileSync(CORPUS, "utf8").split("\n").filter(Boolean)
+  const slateSet = new Set()
+  for (const l of lines) { const i = l.indexOf('"slate":"'); if (i > 0) slateSet.add(l.slice(i + 9, i + 19)) }
+  const slates = [...slateSet].sort()
+  const splitIdx = Math.floor(slates.length * 2 / 3)
+  const trainSlates = new Set(slates.slice(0, splitIdx))
+  console.log(`G3-L2: ${lines.length} pairs · ${slates.length} slates · train ${splitIdx} / test ${slates.length - splitIdx} (chronological, no lookahead)`)
+
+  // pass 1: per-class pooled stats (train) + era fits + test pair lists
+  const cls = {}
+  const get = (c) => cls[c] || (cls[c] = { train: { n: 0, sx: 0, sy: 0, sb: 0 }, pre: { n: 0, sx: 0, sy: 0, sb: 0 }, post: { n: 0, sx: 0, sy: 0, sb: 0 }, test: [] })
+  for (const l of lines) {
+    let r; try { r = JSON.parse(l) } catch (_) { continue }
+    const o = get(r.cls)
+    const wa = r.a.w, wb = r.b.w
+    const era = r.slate < FLIP ? "pre" : "post"
+    o[era].n++; o[era].sx += wa; o[era].sy += wb; o[era].sb += (wa & wb)
+    if (trainSlates.has(r.slate)) { o.train.n++; o.train.sx += wa; o.train.sy += wb; o.train.sb += (wa & wb) }
+    else o.test.push({ pa: Number.isFinite(r.a.mp) && r.a.mp > 0 && r.a.mp < 1 ? r.a.mp : null, pb: Number.isFinite(r.b.mp) && r.b.mp > 0 && r.b.mp < 1 ? r.b.mp : null, wa, wb })
+  }
+
+  const fitPool = (o) => { if (o.n < 50) return null; const px = o.sx / o.n, py = o.sy / o.n, pb = o.sb / o.n; return { n: o.n, px, py, pb, rhoZ: fitRhoZ(px, py, pb) } }
+  const results = {}
+  for (const [c, o] of Object.entries(cls)) {
+    const train = fitPool(o.train)
+    const pre = fitPool(o.pre)
+    const post = fitPool(o.post)
+    if (!train) { results[c] = { verdict: "STOP", reason: `train pool too thin (${o.train.n})` }; continue }
+    const rho = train.rhoZ
+    let sq = 0, sq0 = 0, sPred = 0, sReal = 0, nT = 0, mpUsed = 0
+    for (const t of o.test) {
+      const pa = t.pa ?? train.px, pb2 = t.pb ?? train.py
+      if (t.pa != null && t.pb != null) mpUsed++
+      const q = copulaJoint(pa, pb2, rho)
+      const q0 = pa * pb2
+      const both = t.wa & t.wb
+      sq += (both - q) * (both - q); sq0 += (both - q0) * (both - q0)
+      sPred += q; sReal += both; nT++
+    }
+    const gap = nT ? Math.abs(sPred / nT - sReal / nT) : null
+    const brierCop = nT ? sq / nT : null
+    const brierInd = nT ? sq0 / nT : null
+    const bars = {
+      n: nT >= BARS.minTestN,
+      gap: gap != null && gap <= BARS.jointGapPp / 100,
+      // Brier bar applies to CORRELATED classes (the copula must EARN its ρ).
+      // For cross_game the comparison is DEGENERATE: at certified ρ≈0 the
+      // copula ≡ the product, so float noise decides (measured: failed by
+      // 2e-6). Independence certification = |ρ| < 0.05 AND gap AND n.
+      ...(c === "cross_game" ? { indep: Math.abs(rho) < BARS.indepRhoAbs } : { brier: brierCop != null && brierCop <= brierInd + 1e-9 }),
+    }
+    const passed = Object.values(bars).every(Boolean)
+    results[c] = {
+      verdict: c === "cross_game" ? (passed ? "CERTIFIED_INDEPENDENT" : "STOP") : (passed ? "PASS" : "STOP"),
+      rhoZ: +rho.toFixed(4), trainN: train.n, testN: nT, mpCoveragePct: nT ? +(100 * mpUsed / nT).toFixed(1) : null,
+      jointGapPp: gap != null ? +(gap * 100).toFixed(2) : null,
+      brierCopula: brierCop != null ? +brierCop.toFixed(6) : null,
+      brierIndep: brierInd != null ? +brierInd.toFixed(6) : null,
+      bars,
+      era: { preRho: pre ? +pre.rhoZ.toFixed(4) : null, postRho: post ? +post.rhoZ.toFixed(4) : null, deltaRho: pre && post ? +(post.rhoZ - pre.rhoZ).toFixed(4) : null },
+      reason: passed ? "all bars clear" : `failed: ${Object.entries(bars).filter(([, v]) => !v).map(([k]) => k).join(", ")}`,
+    }
+    console.log(`  ${c.padEnd(26)} ${results[c].verdict.padEnd(22)} ρ=${(rho >= 0 ? "+" : "") + rho.toFixed(3)} test n=${nT} gap=${results[c].jointGapPp}pp Brier cop/ind=${results[c].brierCopula}/${results[c].brierIndep} eraΔρ=${results[c].era.deltaRho}`)
+  }
+
+  const val = {
+    generatedAt: new Date().toISOString(), version: "g3-l2-v1",
+    method: "walk-forward chronological slate split 2/3-1/3; class rhoZ via canonical fitRhoZ on train pooled (px,py,pBoth); per-pair test marginals = served modelProb when finite in (0,1) else train-class empirical; copulaJoint via the sanctioned gaussianCopula.",
+    bars: BARS, flipDay: FLIP, corpus: { pairs: lines.length, slates: slates.length, trainSlates: splitIdx },
+    results,
+    _doc: "G3-L2 committed verdicts. Consumers (L3 cure columns, L4 parlay pricer) may use ONLY classes with verdict PASS; cross-game parlay math requires CERTIFIED_INDEPENDENT. Engine re-pointing at these fits is a separate gated graduation step; mlbCorrelationPriors.json (the live shadow input) is UNCHANGED by this run.",
+  }
+  fs.writeFileSync(OUT_VAL, JSON.stringify(val, null, 2) + "\n")
+  let md = `# G3-L2 Correlation Validation — ${new Date().toISOString().slice(0, 10)}\n\nWalk-forward (no lookahead): ${splitIdx} train / ${slates.length - splitIdx} held-out slates · ${lines.length} pairs. Bars: n≥${BARS.minTestN} · joint gap ≤${BARS.jointGapPp}pp · copula Brier ≤ independence · cross-game |ρ|<${BARS.indepRhoAbs} for certification. Era slice = report, not filter.\n\n| class | verdict | ρ_Z | test n | gap | Brier cop/ind | era Δρ | mp coverage |\n|---|---|---|---|---|---|---|---|\n`
+  for (const [c, r] of Object.entries(results)) md += `| ${c} | **${r.verdict}** | ${r.rhoZ ?? "—"} | ${r.testN ?? "—"} | ${r.jointGapPp ?? "—"}pp | ${r.brierCopula ?? "—"}/${r.brierIndep ?? "—"} | ${r.era?.deltaRho ?? "—"} | ${r.mpCoveragePct ?? "—"}% |\n`
+  md += `\nSTOP classes are ABSENT from every consumer until a re-run passes. The live shadow priors file is untouched by this validation.\n`
+  fs.mkdirSync(path.dirname(OUT_MD), { recursive: true })
+  fs.writeFileSync(OUT_MD, md)
+  console.log(`wrote ${OUT_VAL} + ${OUT_MD}`)
+  process.exit(0)
+}
+
 const { files, games, settled } = load()
 const agg = new Map()
 for (const g of games.values()) {
