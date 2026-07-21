@@ -14,7 +14,7 @@ let pass = 0, fail = 0; const failures = []
 const check = (l, c) => { if (c) pass++; else { fail++; failures.push(l) } }
 const src = fs.readFileSync(path.join(ROOT, "scripts", "captureN1DualScores.js"), "utf8")
 
-check("real engines both sides: OFF/ON subprocess workers (module-load const, as the runtime reads it)", /N1_WORKER: "1", MLB_N1_MEDIAN: on \? "1" : "0"/.test(src) && /buildMlbHitsToday/.test(src) && /modelProbForSide/.test(src))
+check("real engines both sides: OFF/ON subprocess workers (module-load const, as the runtime reads it)", /N1_WORKER: "1"/.test(src) && /MLB_N1_MEDIAN: on \? "1" : "0"/.test(src) && /buildMlbHitsToday/.test(src) && /modelProbForSide/.test(src)) // 2026-07-21: split anchors — env object gained N1_WORKER_OUT (repair pack)
 check("append-only + idempotent re-runs (already-captured tuples skipped)", /already\.has\(t\)\) continue/.test(src) && /appendFileSync/.test(src))
 check("never fabricate: worker failure ⇒ nothing written; irreproducible tuples skipped honestly", /nothing written \(never fabricate\)/.test(src) && /skipped, never guessed|skipped honestly/.test(src))
 check("settle: graded win/loss rows only — pending never guessed", /\["win", "loss"\]\.includes/.test(src) && /pending — never guessed/.test(src))

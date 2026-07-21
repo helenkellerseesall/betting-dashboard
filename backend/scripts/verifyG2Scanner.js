@@ -35,7 +35,7 @@ check("gate: named thresholds in the tally (14/300/1.5pp/≥0u/split-half)", /ne
 const sched = fs.readFileSync(path.join(ROOT, "scripts", "scheduler.sh"), "utf8")
 check("scheduler: 17:15 + 22:20 fires w/ dedupe vars", /MIN" -eq 15 \] && \[ "\$HOUR" -eq 17/.test(sched) && /MIN" -eq 20 \] && \[ "\$HOUR" -eq 22/.test(sched) && /last_rungscan_min/.test(sched) && /last_rungscan_no_min/.test(sched))
 const chc = fs.readFileSync(path.join(ROOT, "scripts", "componentHealthCheck.js"), "utf8")
-check("health: rungScan line (green w/ gate tally · honest skip · fail-after-window)", /function checkRungScan/.test(chc) && /SHADOW\)/.test(chc) && /"rungScan"\]/.test(chc))
+check("health: rungScan line (green w/ gate tally · honest skip · fail-after-window)", /function checkRungScan/.test(chc) && /SHADOW\)/.test(chc) && /"rungScan"/.test(chc)) // 2026-07-21: membership not tail-anchor — third instance of the lesson; the order array grows
 
 // ── synthetic e2e in tmp (mount untouched) ──
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "g2scan-"))

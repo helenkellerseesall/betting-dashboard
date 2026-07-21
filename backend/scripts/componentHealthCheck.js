@@ -251,7 +251,64 @@ function checkRungScan() {
 }
 checkRungScan()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan"]
+// ── 2026-07-21 INSTRUMENT-REPAIR-PACK: instrument alarms (the meta-fix). ──
+// STANDING DOCTRINE: every new instrument ships WITH its own health line —
+// silent instrument death cost 3 N1 nights + 3 stalled Daily-3 cards before a
+// human audit noticed. These three alarms make silence impossible:
+
+// (a) Daily 3 grading — a LOCKED card still ungraded past its grading night is RED.
+function checkDaily3Grading() {
+  try {
+    const files = fs.readdirSync(TRACKING).filter((f) => /^daily3_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
+    const today = currentSlateDateEt()
+    let stuck = []
+    for (const f of files.slice(-7)) {
+      const d = f.slice(7, 17)
+      if (d >= today) continue // current/future card — grades after its night
+      const c = JSON.parse(fs.readFileSync(path.join(TRACKING, f), "utf8"))
+      const ageDays = (Date.parse(today) - Date.parse(d)) / 86400000
+      if (!c.results && ageDays >= 2) stuck.push(d) // grace: 1 full grading night
+    }
+    if (stuck.length) return set("daily3Grading", "fail", `DAILY 3: ${stuck.length} locked card(s) UNGRADED past their grading night (${stuck.join(", ")}) — grade join or scratch rule stalled`, "wired")
+    return set("daily3Grading", "green", `Daily 3 grading current (${files.length} cards on file)`, "wired")
+  } catch (e) { return set("daily3Grading", "not-run", `Daily 3 grading: ${String(e?.message || e)}`, "wired") }
+}
+checkDaily3Grading()
+
+// (b) N1 instrument — night-file absent on a slate that HAD N1 rows = RED.
+function checkN1Instrument() {
+  try {
+    const today = currentSlateDateEt()
+    const prior = (() => { const [y, m, d] = today.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1, d, 12)); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10) })()
+    let trackedN1 = 0
+    try { trackedN1 = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${prior}.json`), "utf8")).filter((r) => ["hits", "totalBases", "rbis", "runs"].includes(r.statFamily)).length } catch (_) {}
+    const fileExists = fs.existsSync(path.join(TRACKING, `n1_dual_scores_${prior}.jsonl`))
+    if (trackedN1 > 0 && !fileExists) return set("n1Instrument", "fail", `N1 instrument: NO dual-score file for ${prior} despite ${trackedN1} N1-family rows — the 17:30 capture failed; gate window is losing nights`, "wired")
+    if (fileExists) {
+      const n = fs.readFileSync(path.join(TRACKING, `n1_dual_scores_${prior}.jsonl`), "utf8").split("\n").filter(Boolean).length
+      return set("n1Instrument", "green", `N1 instrument: ${prior} captured (${n} dual-scored tuples)`, "wired")
+    }
+    return set("n1Instrument", "green", `N1 instrument: no N1 rows on ${prior} — honest no-op`, "wired")
+  } catch (e) { return set("n1Instrument", "not-run", `N1 instrument: ${String(e?.message || e)}`, "wired") }
+}
+checkN1Instrument()
+
+// (c) Rung ledger settles — zero settles while settleable flags exist on
+// graded slates = RED (the join or the settle pass died).
+function checkRungSettles() {
+  try {
+    const today = currentSlateDateEt()
+    const L = fs.readFileSync(path.join(TRACKING, "rung_flag_ledger.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean)
+    const settled = new Set(L.filter((e) => e.type === "settle").map((e) => e.id))
+    const settleable = L.filter((e) => e.type === "flag" && !settled.has(e.id) && e.gameDate < today && (Date.parse(today) - Date.parse(e.gameDate)) / 86400000 >= 2)
+    if (settleable.length > 25 && settled.size === 0) return set("rungSettles", "fail", `Rung ledger: ${settleable.length} settleable flags, ZERO settles — settle pass dead`, "wired")
+    if (settleable.length > 100) return set("rungSettles", "fail", `Rung ledger: ${settleable.length} flags ≥2 days old remain unsettled (settles exist: ${settled.size}) — join degrading`, "wired")
+    return set("rungSettles", "green", `Rung ledger: ${settled.size} settles on file · ${settleable.length} aged-open (scratch/pending class)`, "wired")
+  } catch (e) { return set("rungSettles", "not-run", `Rung ledger: ${String(e?.message || e)}`, "wired") }
+}
+checkRungSettles()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

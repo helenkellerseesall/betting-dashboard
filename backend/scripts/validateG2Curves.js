@@ -196,11 +196,11 @@ for (const fam of FAMILIES) {
 
 // AXIS B — market-ladder scoreboard (honest about thinness)
 const ladderFiles = fs.existsSync(TRACKING_DIR) ? fs.readdirSync(TRACKING_DIR).filter((f) => /^mlb_ladders_\d{4}-\d{2}-\d{2}\.json$/.test(f)) : []
-const batByName = new Map(Object.entries(batCache.players).map(([k, v]) => [k, { kind: "batter", rows: (v.games || []) }]))
-const pitByName = new Map(Object.entries(pitCache.players).map(([k, v]) => [k, { kind: "pitcher", rows: (v.starts || []) }]))
-const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z ]/g, "").trim()
-const batIdx = new Map([...batByName].map(([k, v]) => [norm(k), v]))
-const pitIdx = new Map([...pitByName].map(([k, v]) => [norm(k), v]))
+// 2026-07-21 INSTRUMENT-REPAIR — canonical cross-source join (playerNameJoin;
+// the local norm missed suffix/diacritic/nickname classes, 10% of players).
+const { buildJoinIndex: _bji, resolvePlayer: _rp } = require("../pipeline/shared/playerNameJoin")
+const batIdx = _bji(Object.entries(batCache.players).map(([k, v]) => [v.fullName || k, { kind: "batter", rows: (v.games || []) }]))
+const pitIdx = _bji(Object.entries(pitCache.players).map(([k, v]) => [v.fullName || k, { kind: "pitcher", rows: (v.starts || []) }]))
 const axisB = { rungRows: 0, joinedCurves: 0, settled: 0, pending: 0, disagreements: 0, usBrier: 0, mktBrier: 0, files: ladderFiles.length }
 for (const f of ladderFiles) {
   const store = rd(path.join(TRACKING_DIR, f))
@@ -216,7 +216,7 @@ for (const f of ladderFiles) {
   }
   for (const r of best.values()) {
     const idx = r.fam === "ks" ? pitIdx : batIdx
-    const pl = idx.get(norm(r.player))
+    const pl = _rp(idx, r.player)
     if (!pl) continue
     const prior = pl.rows.filter((g) => String(g.date) < String(gameDate)).map((g) => ({ date: g.date, stats: g.stats }))
     const minN = r.fam === "ks" ? (verdicts.ks?.effectiveMinN || 8) : 15

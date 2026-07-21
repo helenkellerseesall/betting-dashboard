@@ -61,14 +61,28 @@ if (process.env.N1_WORKER === "1") {
       }
     }
   }
-  console.log("###JSON###" + JSON.stringify(out))
+  // 2026-07-21 REPAIR — the worker previously console.log'd a ~600KB JSON line
+  // then process.exit(0): Node truncates unflushed pipe output at 64KB on exit,
+  // so full-slate nights died with "Unterminated string in JSON at position
+  // 65526" (07-18/20 crashes) and 07-19 parsed a TRUNCATED map (52 tuples,
+  // 6,053 "not reproducible" — the missing tuples were cut off, not missing).
+  // Fix: the worker writes its JSON to a temp file SYNCHRONOUSLY (writeFileSync
+  // completes before exit, any size), parent reads the file.
+  fs.writeFileSync(process.env.N1_WORKER_OUT, JSON.stringify(out))
   process.exit(0)
 }
 
 function runWorker(on) {
-  const r = spawnSync(process.execPath, [__filename], { env: { ...process.env, N1_WORKER: "1", MLB_N1_MEDIAN: on ? "1" : "0" }, encoding: "utf8", timeout: 180000 })
-  const line = String(r.stdout || "").split("\n").find((l) => l.startsWith("###JSON###"))
-  return line ? JSON.parse(line.slice(10)) : null
+  const outFile = path.join(require("os").tmpdir(), `n1worker_${process.pid}_${on ? "on" : "off"}.json`)
+  const r = spawnSync(process.execPath, [__filename], { env: { ...process.env, N1_WORKER: "1", N1_WORKER_OUT: outFile, MLB_N1_MEDIAN: on ? "1" : "0" }, encoding: "utf8", timeout: 180000 })
+  try {
+    const parsed = JSON.parse(fs.readFileSync(outFile, "utf8"))
+    fs.unlinkSync(outFile)
+    return parsed
+  } catch (_) {
+    console.error(`runWorker(${on ? "ON" : "OFF"}) failed: exit=${r.status} stderr=${String(r.stderr || "").slice(0, 300)}`)
+    return null
+  }
 }
 
 // ── capture today's tuples ──

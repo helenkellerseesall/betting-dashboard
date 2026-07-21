@@ -31,6 +31,34 @@ const fileFor = (slate) => path.join(TRACKING, `daily3_${slate}.json`)
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
 
+// 2026-07-21 INSTRUMENT-REPAIR — void-on-scratch. A locked pick whose player
+// never appeared is VOIDED by every book; without this rule one scratched
+// player stalls the all-3-decided gate FOREVER (measured: 07-18/19 cards stuck
+// on Goodman/Stephenson/Witt no-shows). Rule: twin still undecided AND the
+// slate is ≥2 days old AND the canonical name-join says NO appearance that
+// date ⇒ void (0u), settleNote'd. Join misses / cache absence ⇒ stays pending
+// (never guess). Uses the season gamelog caches read-only via the ONE
+// cross-source join (playerNameJoin).
+let _scratchIdx = null
+function _playedOnDate(player, family, date) {
+  try {
+    if (!_scratchIdx) {
+      const { buildJoinIndex } = require("./playerNameJoin")
+      const bat = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "data", "mlbBatterGameLogsSeason.json"), "utf8"))
+      const pit = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "data", "mlbPitcherGameLogsSeason.json"), "utf8"))
+      _scratchIdx = {
+        bat: buildJoinIndex(Object.entries(bat.players || {}).map(([k, v]) => [v.fullName || k, (v.games || []).map((g) => String(g.date))])),
+        pit: buildJoinIndex(Object.entries(pit.players || {}).map(([k, v]) => [v.fullName || k, (v.starts || []).map((g) => String(g.date))])),
+      }
+    }
+    const { resolvePlayer } = require("./playerNameJoin")
+    const idx = ["ks", "outs", "hitsAllowed", "walks", "earnedRuns"].includes(String(family)) ? _scratchIdx.pit : _scratchIdx.bat
+    const dates = resolvePlayer(idx, player)
+    if (!dates) return null // unknown — never guess
+    return dates.includes(String(date))
+  } catch (_) { return null }
+}
+
 /**
  * First pitch (ms) of the slate; null when no games known.
  * PRIMARY: the slate's tracked_best file — written at slate build and KEEPS
@@ -145,7 +173,15 @@ function gradeDaily3(slate) {
         String(r.side).toLowerCase() === String(p.side).toLowerCase() && Number(r.line) === Number(p.line) &&
         norm(r.sportsbook) === norm(p.sportsbook))
       const res = t ? String(t.result || "pending").toLowerCase() : "pending"
-      if (!["win", "loss", "push", "void"].includes(res)) { results.push({ ...p, result: "pending" }); continue }
+      if (!["win", "loss", "push", "void"].includes(res)) {
+        // 2026-07-21 void-on-scratch (see _playedOnDate doc above)
+        const slateAgeDays = (Date.now() - new Date(`${slate}T12:00:00Z`).getTime()) / 86400000
+        if (slateAgeDays >= 2 && _playedOnDate(p.player, p.statFamily, slate) === false) {
+          results.push({ ...p, result: "void", units: 0, settleNote: `no appearance on ${slate} — voided per book behavior (scratch rule 2026-07-21)` })
+          continue
+        }
+        results.push({ ...p, result: "pending" }); continue
+      }
       decided += res === "win" || res === "loss" ? 1 : 0
       const units = res === "win" ? unitProfit(p.odds) : res === "loss" ? -1 : 0
       net += units

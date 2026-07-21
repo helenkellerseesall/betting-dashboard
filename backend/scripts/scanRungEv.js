@@ -52,7 +52,10 @@ const VENDOR_FAM = { batter_hits_alternate: "hits", batter_runs_scored_alternate
 const STAT_KEY = { hits: "hits", runs: "runs", ks: "strikeOuts" }
 
 const rd = (fp) => { try { return JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return null } }
-const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z ]/g, "").trim()
+// 2026-07-21 INSTRUMENT-REPAIR — the ONE cross-source join (playerNameJoin)
+// replaces the local norm that missed 33/334 ladder players (10%: suffix +
+// diacritic + nickname classes; Witt/Acuña/Hernández were silently curve-less).
+const { buildJoinIndex, resolvePlayer } = require("../pipeline/shared/playerNameJoin")
 const impliedOf = (odds) => (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100))
 
 // ── eligibility + margin machinery from the COMMITTED verdicts ──
@@ -86,23 +89,38 @@ function settleFlags(batIdx, pitIdx, today) {
   const open = entries.filter((e) => e.type === "flag" && !settledIds.has(e.id) && e.gameDate < today)
   const lines = []
   let settledNow = 0
+  let voidedNow = 0
   for (const f of open) {
     const idx = f.family === "ks" ? pitIdx : batIdx
-    const pl = idx.get(norm(f.player))
+    const pl = resolvePlayer(idx, f.player)
     const row = pl?.rows.find((g) => String(g.date) === String(f.gameDate))
-    if (!row) continue // no final log yet ⇒ PENDING, never guessed
+    if (!row) {
+      // 2026-07-21 void-on-scratch: player found but NO row on a game date ≥2
+      // days past ⇒ never appeared ⇒ book voids ⇒ settle VOID (0u, excluded
+      // from the gate's decided/gap/units math). Player unresolved OR date
+      // recent ⇒ stays PENDING, never guessed. (Measured: all 67 stuck
+      // pre-07-20 flags were this class.)
+      const ageDays = (Date.parse(today) - Date.parse(f.gameDate)) / 86400000
+      if (pl && ageDays >= 2) {
+        lines.push(JSON.stringify({ type: "settle", id: f.id, settledAt: new Date().toISOString(), outcome: "void", hit: null, units: 0, note: "no appearance — voided per book behavior" }))
+        voidedNow++
+      }
+      continue
+    }
     const hit = Number(row.stats[STAT_KEY[f.family]]) >= f.k ? 1 : 0
     const units = hit ? (f.oddsAmerican > 0 ? f.oddsAmerican / 100 : 100 / Math.abs(f.oddsAmerican)) : -1
     lines.push(JSON.stringify({ type: "settle", id: f.id, settledAt: new Date().toISOString(), hit, units: Math.round(units * 100) / 100 }))
     settledNow++
   }
   if (lines.length) fs.appendFileSync(LEDGER_PATH, lines.join("\n") + "\n")
+  if (voidedNow) console.log(`settleFlags: ${voidedNow} no-appearance flag(s) VOIDED (0u, excluded from gate math)`)
   return settledNow
 }
 function gateTally() {
   const entries = readLedger()
   const flags = new Map(entries.filter((e) => e.type === "flag").map((e) => [e.id, e]))
-  const settles = entries.filter((e) => e.type === "settle" && flags.has(e.id))
+  // voids are settled-but-not-decided: excluded from nights/decided/gap/units
+  const settles = entries.filter((e) => e.type === "settle" && flags.has(e.id) && e.outcome !== "void")
   const nights = [...new Set(settles.map((s) => flags.get(s.id).gameDate))].sort()
   const decided = settles.length
   const statedSum = settles.reduce((a, s) => a + flags.get(s.id).pFair, 0)
@@ -124,7 +142,7 @@ const today = currentSlateDateEt()
 const batCache = rd(path.join(DATA_DIR, "mlbBatterGameLogsSeason.json"))
 const pitCache = rd(path.join(DATA_DIR, "mlbPitcherGameLogsSeason.json"))
 if (!batCache || !pitCache) { console.error("scanRungEv: season caches missing"); process.exit(1) }
-const mkIdx = (cache, key) => new Map(Object.entries(cache.players).map(([k, v]) => [norm(k), { rows: (v[key] || []).map((g) => ({ date: String(g.date), stats: g.stats })).sort((a, b) => (a.date < b.date ? -1 : 1)) }]))
+const mkIdx = (cache, key) => buildJoinIndex(Object.entries(cache.players).map(([k, v]) => [v.fullName || k, { rows: (v[key] || []).map((g) => ({ date: String(g.date), stats: g.stats })).sort((a, b) => (a.date < b.date ? -1 : 1)) }])) // fullName, never the lossy map key
 const batIdx = mkIdx(batCache, "games")
 const pitIdx = mkIdx(pitCache, "starts")
 
@@ -144,14 +162,14 @@ for (const f of ladderFiles) {
     const fam = VENDOR_FAM[r.family]
     if (!fam || !eligible.includes(fam)) continue
     if (String(r.side).toLowerCase() !== "over" || !Number.isFinite(Number(r.line))) continue
-    const key = `${norm(r.player)}|${fam}|${r.line}`
+    const key = `${String(r.player).toLowerCase()}|${fam}|${r.line}`
     const prev = best.get(key)
     if (!prev || Number(r.oddsAmerican) > Number(prev.oddsAmerican)) best.set(key, { ...r, fam })
   }
   const rows = []
   for (const r of best.values()) {
     const idx = r.fam === "ks" ? pitIdx : batIdx
-    const pl = idx.get(norm(r.player))
+    const pl = resolvePlayer(idx, r.player)
     if (!pl) continue
     const prior = pl.rows.filter((g) => g.date < String(gameDate))
     const curve = fitPlayerFamilyCurve(prior, r.fam, { minN: r.fam === "ks" ? ksMinN : 15, halfLife: frozenHalfLife })
@@ -168,7 +186,10 @@ for (const f of ladderFiles) {
     const row = { player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: Math.round(pFair * 10000) / 10000, implied: Math.round(implied * 10000) / 10000, edgePp: Math.round(edge * 1000) / 10, marginPp: Math.round(margin * 1000) / 10, evPer$1: Math.round(ev * 1000) / 1000, flagged, curveN: curve.meta.n, method: curve.meta.method }
     rows.push(row)
     if (flagged) {
-      const id = `${gameDate}|${norm(r.player)}|${r.fam}|${r.line}|${r.book}`
+      // flag-id normalization FROZEN to the original formula (ledger id
+      // continuity — a changed id format would re-flag existing rungs as new)
+      const idNorm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z ]/g, "").trim()
+      const id = `${gameDate}|${idNorm(r.player)}|${r.fam}|${r.line}|${r.book}`
       if (!existingFlagIds.has(id)) {
         newLedgerLines.push(JSON.stringify({ type: "flag", id, gameDate, player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: row.pFair, implied: row.implied, flaggedAt: new Date().toISOString() }))
         existingFlagIds.add(id)
