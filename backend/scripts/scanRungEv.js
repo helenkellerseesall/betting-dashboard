@@ -79,6 +79,78 @@ function bucketGap(family, p) {
 }
 const marginFor = (family, p) => Math.max(0.02, 1.5 * bucketGap(family, p))
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 2026-07-21 G3-L3 — THE PRE-REGISTERED CURE COLUMNS (approved scope; scored
+// on THIS ledger against the SAME gate bars + the counterfactual kill bar).
+// The raw policy is FAILING its own gate (−87u / 5.3pp at registration) —
+// diagnosis: adverse selection. Three cures run as parallel paper columns:
+//   A MARKET-BLEND      p = w·pFair + (1−w)·pMedianImplied. w POOLED, fit
+//                       walk-forward from SETTLED flags only (grid, min
+//                       Brier); per-family w auto-triggers at ≥300 decided
+//                       flags in that family (CA answer ii).
+//   B DISAGREE-DAMPEN   required margin = max(FLB margin, 1.0·|pFair −
+//                       pMedianImplied|) — k=1 PRE-REGISTERED. Big
+//                       disagreement = suspicion, not conviction.
+//   C OPPOSITION-COND   batter rung prob conditioned on the opposing
+//                       starter's K-strength percentile via the Gaussian
+//                       copula conditional with the VALIDATED class ρ —
+//                       consumed from the COMMITTED verdicts JSON and ONLY
+//                       while that class verdict is PASS. Unresolvable
+//                       opponent ⇒ column ABSTAINS (null, never guessed).
+// Ledger rows now record every column's prob + flag; the tally scores each
+// column on the same bars (14 nights / 300 decided / ≤1.5pp / ≥0u /
+// split-half) + COUNTERFACTUAL: share of the raw policy's realized LOSING
+// flags this column declined.
+// ═══════════════════════════════════════════════════════════════════════════
+const { normalCdf, invNormalCdf } = require("../pipeline/shared/gaussianCopula")
+const g3v = rd(path.join(ROOT, "config", "g3_correlation_validation.json"))
+const oppo = g3v?.results?.batter_pitcher_opposition
+const OPPO_ON = !!(oppo && oppo.verdict === "PASS" && Number.isFinite(oppo.rhoZ))
+const OPPO_RHO = OPPO_ON ? oppo.rhoZ : null
+
+function fitBlendW() {
+  // walk-forward by construction: only ALREADY-SETTLED flags inform today's w
+  const entries = readLedger()
+  const flags = new Map(entries.filter((e) => e.type === "flag").map((e) => [e.id, e]))
+  const settles = entries.filter((e) => e.type === "settle" && e.outcome !== "void" && flags.has(e.id))
+  const rows = settles.map((s) => ({ f: flags.get(s.id), hit: s.hit })).filter((x) => Number.isFinite(x.f.pFair) && Number.isFinite(x.f.implied))
+  const fit = (subset) => {
+    if (subset.length < 30) return null
+    let best = { w: 1, brier: Infinity }
+    for (let w = 0; w <= 1.0001; w += 0.05) {
+      let sq = 0
+      for (const x of subset) { const p = w * x.f.pFair + (1 - w) * x.f.implied; sq += (x.hit - p) * (x.hit - p) }
+      const b = sq / subset.length
+      if (b < best.brier) best = { w: Math.round(w * 100) / 100, brier: b }
+    }
+    return best
+  }
+  const pooled = fit(rows) || { w: 1, brier: null, note: "insufficient settles — blend inert (w=1 ⇒ pBlend=pFair)" }
+  const perFamily = {}
+  for (const fam of ["hits", "runs", "ks"]) {
+    const sub = rows.filter((x) => x.f.family === fam)
+    if (sub.length >= 300) perFamily[fam] = fit(sub) // CA answer ii: auto-trigger at 300 decided/family
+  }
+  return { pooled, perFamily, decidedUsed: rows.length }
+}
+const BLEND = fitBlendW()
+const wFor = (fam) => (BLEND.perFamily[fam]?.w ?? BLEND.pooled.w)
+
+function opposingKPercentile(batterPlayer, eventId, ladderKsByEvent, teamIdx, leagueKMeans) {
+  if (!OPPO_ON) return null
+  const batterTeam = resolvePlayer(teamIdx, batterPlayer)
+  if (!batterTeam) return null
+  const starters = ladderKsByEvent.get(eventId) || []
+  const opp = starters.find((s) => { const t = resolvePlayer(teamIdx, s); return t && t !== batterTeam })
+  if (!opp) return null
+  const pl = resolvePlayer(pitIdx, opp)
+  if (!pl) return null
+  const curve = fitPlayerFamilyCurve(pl.rows, "ks", { minN: 8, halfLife: frozenHalfLife })
+  if (!curve) return null
+  const below = leagueKMeans.filter((m) => m < curve.meta.mean).length
+  return leagueKMeans.length >= 20 ? Math.max(0.02, Math.min(0.98, below / leagueKMeans.length)) : null
+}
+
 // ── settle pass (yesterday's flags; pending never guessed) ──
 function readLedger() {
   try { return fs.readFileSync(LEDGER_PATH, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean) } catch (_) { return [] }
@@ -119,9 +191,12 @@ function settleFlags(batIdx, pitIdx, today) {
   if (voidedNow) console.log(`settleFlags: ${voidedNow} no-appearance flag(s) VOIDED (0u, excluded from gate math)`)
   return settledNow
 }
-function gateTally() {
+function gateTally(column = "raw") {
   const entries = readLedger()
-  const flags = new Map(entries.filter((e) => e.type === "flag").map((e) => [e.id, e]))
+  // legacy pre-L3 ledger rows lack rawFlag ⇒ they WERE raw flags (default true);
+  // cure columns exist only on L3-era rows and score only their own flags.
+  const inColumn = (e) => (column === "raw" ? e.rawFlag !== false : e[`flag${column}`] === true)
+  const flags = new Map(entries.filter((e) => e.type === "flag" && inColumn(e)).map((e) => [e.id, e]))
   // voids are settled-but-not-decided: excluded from nights/decided/gap/units
   const settles = entries.filter((e) => e.type === "settle" && flags.has(e.id) && e.outcome !== "void")
   const nights = [...new Set(settles.map((s) => flags.get(s.id).gameDate))].sort()
@@ -137,7 +212,19 @@ function gateTally() {
     const h = (pred) => { const ss = settles.filter((s) => pred(flags.get(s.id).gameDate)); const u = ss.reduce((a, s) => a + s.units, 0); return { n: ss.length, units: Math.round(u * 100) / 100 } }
     halves = { first: h((d) => d < mid), second: h((d) => d >= mid) }
   }
-  return { nights: nights.length, decided, pooledGapPp: gap != null ? Math.round(gap * 1000) / 10 : null, flatUnits: Math.round(units * 100) / 100, halves, gate: { needNights: 14, needDecided: 300, gapBarPp: 1.5, unitsBar: 0 } }
+  // COUNTERFACTUAL KILL BAR (cure columns only): share of the RAW policy's
+  // realized LOSING flags this column DECLINED — a cure must have said no to
+  // the losses, not merely ridden along.
+  let counterfactual = null
+  if (column !== "raw") {
+    const allEntries = readLedger()
+    const rawFlags = new Map(allEntries.filter((e) => e.type === "flag" && e.rawFlag !== false).map((e) => [e.id, e]))
+    const rawLosses = allEntries.filter((e) => e.type === "settle" && e.outcome !== "void" && e.hit === 0 && rawFlags.has(e.id))
+    const declinable = rawLosses.filter((s) => rawFlags.get(s.id)[`flag${column}`] !== undefined)
+    const declined = declinable.filter((s) => rawFlags.get(s.id)[`flag${column}`] === false)
+    counterfactual = declinable.length ? { rawLossesScored: declinable.length, declinedPct: +(100 * declined.length / declinable.length).toFixed(1) } : { rawLossesScored: 0, declinedPct: null }
+  }
+  return { column, nights: nights.length, decided, pooledGapPp: gap != null ? Math.round(gap * 1000) / 10 : null, flatUnits: Math.round(units * 100) / 100, halves, counterfactual, gate: { needNights: 14, needDecided: 300, gapBarPp: 1.5, unitsBar: 0, counterfactualBar: "declines majority of raw losses" } }
 }
 
 // ── main scan ──
@@ -148,6 +235,26 @@ if (!batCache || !pitCache) { console.error("scanRungEv: season caches missing")
 const mkIdx = (cache, key) => buildJoinIndex(Object.entries(cache.players).map(([k, v]) => [v.fullName || k, { rows: (v[key] || []).map((g) => ({ date: String(g.date), stats: g.stats })).sort((a, b) => (a.date < b.date ? -1 : 1)) }])) // fullName, never the lossy map key
 const batIdx = mkIdx(batCache, "games")
 const pitIdx = mkIdx(pitCache, "starts")
+
+// G3-L3 supports: batter-team index (tracked_best of the scanned slates) +
+// league starter K-strength distribution (curve means, computed once).
+const teamIdxEntries = []
+try {
+  for (const f of fs.readdirSync(TRACKING).filter((x) => /^mlb_tracked_best_\d{4}-\d{2}-\d{2}\.json$/.test(x)).slice(-3)) {
+    const tb = rd(path.join(TRACKING, f))
+    for (const e of tb?.entries || []) if (e.player && e.team) teamIdxEntries.push([e.player, e.team])
+  }
+} catch (_) {}
+const teamIdx = buildJoinIndex(teamIdxEntries)
+const leagueKMeans = (() => {
+  const out = []
+  for (const [, v] of Object.entries(pitCache.players)) {
+    const rows = (v.starts || []).map((g) => ({ date: String(g.date), stats: g.stats }))
+    const c = rows.length >= 8 ? fitPlayerFamilyCurve(rows, "ks", { minN: 8, halfLife: frozenHalfLife }) : null
+    if (c) out.push(c.meta.mean)
+  }
+  return out.sort((a, b) => a - b)
+})()
 
 const settledNow = settleFlags(batIdx, pitIdx, today)
 const ladderFiles = (fs.existsSync(TRACKING_DIR) ? fs.readdirSync(TRACKING_DIR) : [])
@@ -161,13 +268,21 @@ for (const f of ladderFiles) {
   const store = rd(path.join(TRACKING_DIR, f))
   const gameDate = store?.gameDate
   const best = new Map()
+  const impliedLists = new Map() // key → all-book implied list (median = the consensus for cures A/B)
+  const ladderKsByEvent = new Map() // eventId → starter names (from the store's own ks rungs)
   for (const r of store?.rows || []) {
+    if (r.family === "pitcher_strikeouts_alternate" && r.eventId) {
+      if (!ladderKsByEvent.has(r.eventId)) ladderKsByEvent.set(r.eventId, [])
+      if (!ladderKsByEvent.get(r.eventId).includes(r.player)) ladderKsByEvent.get(r.eventId).push(r.player)
+    }
     const fam = VENDOR_FAM[r.family]
     if (!fam || !eligible.includes(fam)) continue
     if (String(r.side).toLowerCase() !== "over" || !Number.isFinite(Number(r.line))) continue
     const key = `${String(r.player).toLowerCase()}|${fam}|${r.line}`
+    if (!impliedLists.has(key)) impliedLists.set(key, [])
+    impliedLists.get(key).push(impliedOf(Number(r.oddsAmerican)))
     const prev = best.get(key)
-    if (!prev || Number(r.oddsAmerican) > Number(prev.oddsAmerican)) best.set(key, { ...r, fam })
+    if (!prev || Number(r.oddsAmerican) > Number(prev.oddsAmerican)) best.set(key, { ...r, fam, _key: key })
   }
   const rows = []
   for (const r of best.values()) {
@@ -186,25 +301,48 @@ for (const f of ladderFiles) {
     const dec = Number(r.oddsAmerican) > 0 ? 1 + Number(r.oddsAmerican) / 100 : 1 + 100 / Math.abs(Number(r.oddsAmerican))
     const ev = pFair * (dec - 1) - (1 - pFair)
     const flagged = edge > margin
-    const row = { player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: Math.round(pFair * 10000) / 10000, implied: Math.round(implied * 10000) / 10000, edgePp: Math.round(edge * 1000) / 10, marginPp: Math.round(margin * 1000) / 10, evPer$1: Math.round(ev * 1000) / 1000, flagged, curveN: curve.meta.n, method: curve.meta.method }
+    // ── G3-L3 cure columns (pre-registered; paper-only) ──
+    const impList = (impliedLists.get(r._key) || [implied]).sort((a, b) => a - b)
+    const pMedian = impList[Math.floor(impList.length / 2)]
+    const wA = wFor(r.fam)
+    const pBlend = wA * pFair + (1 - wA) * pMedian
+    const flagA = pBlend - implied > marginFor(r.fam, pBlend)
+    const marginB = Math.max(margin, Math.abs(pFair - pMedian)) // k=1 pre-registered
+    const flagB = edge > marginB
+    let pOppo = null, flagC = false
+    if (OPPO_ON && r.fam !== "ks") {
+      const u = opposingKPercentile(r.player, r.eventId, ladderKsByEvent, teamIdx, leagueKMeans)
+      if (u != null) {
+        // SIGN CONVENTION (gaussianCopula: hit ⟺ Z ≤ Φ⁻¹(p), i.e. LOW latent
+        // = hit): a strong-K starter (high strength percentile u) sits at a
+        // LOW expected latent, so zP = −Φ⁻¹(u). With the validated ρ<0 this
+        // correctly LOWERS batter rung probs against strong-K opposition
+        // (direction unit-pinned in the fixture).
+        const zP = -invNormalCdf(u)
+        pOppo = normalCdf((invNormalCdf(pFair) - OPPO_RHO * zP) / Math.sqrt(1 - OPPO_RHO * OPPO_RHO))
+        flagC = pOppo - implied > marginFor(r.fam, pOppo)
+      }
+    }
+    const cures = { pBlend: +pBlend.toFixed(4), w: wA, pMedian: +pMedian.toFixed(4), marginBPp: +(marginB * 100).toFixed(1), pOppo: pOppo != null ? +pOppo.toFixed(4) : null, flagA, flagB, flagC }
+    const row = { player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: Math.round(pFair * 10000) / 10000, implied: Math.round(implied * 10000) / 10000, edgePp: Math.round(edge * 1000) / 10, marginPp: Math.round(margin * 1000) / 10, evPer$1: Math.round(ev * 1000) / 1000, flagged, cures, curveN: curve.meta.n, method: curve.meta.method }
     rows.push(row)
-    if (flagged) {
+    if (flagged || flagA || flagB || flagC) {
       // flag-id normalization FROZEN to the original formula (ledger id
       // continuity — a changed id format would re-flag existing rungs as new)
       const idNorm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z ]/g, "").trim()
       const id = `${gameDate}|${idNorm(r.player)}|${r.fam}|${r.line}|${r.book}`
       if (!existingFlagIds.has(id)) {
-        newLedgerLines.push(JSON.stringify({ type: "flag", id, gameDate, player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: row.pFair, implied: row.implied, flaggedAt: new Date().toISOString() }))
+        newLedgerLines.push(JSON.stringify({ type: "flag", id, gameDate, player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: row.pFair, implied: row.implied, rawFlag: flagged, flagA, flagB, flagC, pBlend: cures.pBlend, pOppo: cures.pOppo, flaggedAt: new Date().toISOString() }))
         existingFlagIds.add(id)
       }
-      totalFlags++
+      if (flagged) totalFlags++
     }
   }
   const artifact = {
     gameDate, generatedAt: new Date().toISOString(), shadow: true,
     frozenHalfLife, eligibleFamilies: eligible, hardExcluded: HARD_EXCLUDED,
     rows: rows.sort((a, b) => b.evPer$1 - a.evPer$1),
-    summary: { rungsPriced: rows.length, flagged: rows.filter((x) => x.flagged).length, gate: gateTally() },
+    summary: { rungsPriced: rows.length, flagged: rows.filter((x) => x.flagged).length, cureFlags: { A: rows.filter((x) => x.cures?.flagA).length, B: rows.filter((x) => x.cures?.flagB).length, C: rows.filter((x) => x.cures?.flagC).length, oppoEnabled: OPPO_ON, blendW: BLEND.pooled.w, blendDecidedUsed: BLEND.decidedUsed }, gate: gateTally("raw"), cureGates: { A: gateTally("A"), B: gateTally("B"), C: gateTally("C") } },
   }
   const fp = path.join(TRACKING_DIR, `mlb_rung_scan_${gameDate}.json`)
   const tmpFp = `${fp}.tmp.${process.pid}`
@@ -214,6 +352,10 @@ for (const f of ladderFiles) {
   for (const r of rows.filter((x) => x.flagged).slice(0, 8)) console.log(`  FLAG ${r.player} ${r.family} ${r.k}+ @ ${r.book} ${r.oddsAmerican > 0 ? "+" : ""}${r.oddsAmerican} · fair ${(r.pFair * 100).toFixed(1)}% vs implied ${(r.implied * 100).toFixed(1)}% · edge ${r.edgePp}pp (margin ${r.marginPp}pp) · EV ${r.evPer$1 >= 0 ? "+" : ""}${r.evPer$1}/$1 · n=${r.curveN}`)
 }
 if (newLedgerLines.length) { fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true }); fs.appendFileSync(LEDGER_PATH, newLedgerLines.join("\n") + "\n") }
-const tally = gateTally()
-console.log(`gate tally: ${tally.nights}/14 nights · ${tally.decided}/300 decided flags · pooled gap ${tally.pooledGapPp ?? "—"}pp (bar 1.5) · flat-$1 ${tally.flatUnits >= 0 ? "+" : ""}${tally.flatUnits}u (bar ≥0) · settled this run ${settledNow} · SHADOW (operator-gated flip)`)
+const tally = gateTally("raw")
+console.log(`gate tally [raw]: ${tally.nights}/14 nights · ${tally.decided}/300 decided flags · pooled gap ${tally.pooledGapPp ?? "—"}pp (bar 1.5) · flat-$1 ${tally.flatUnits >= 0 ? "+" : ""}${tally.flatUnits}u (bar ≥0) · settled this run ${settledNow} · SHADOW (operator-gated flip)`)
+for (const c of ["A", "B", "C"]) {
+  const t = gateTally(c)
+  console.log(`  cure ${c}: ${t.nights} nights · ${t.decided} decided · gap ${t.pooledGapPp ?? "—"}pp · ${t.flatUnits >= 0 ? "+" : ""}${t.flatUnits}u · counterfactual declined ${t.counterfactual?.declinedPct ?? "—"}% of ${t.counterfactual?.rawLossesScored ?? 0} raw losses${c === "A" ? ` (w=${BLEND.pooled.w} from ${BLEND.decidedUsed} settles)` : c === "C" ? ` (${OPPO_ON ? "ρ=" + OPPO_RHO : "DISABLED — class not PASS"})` : ""}`)
+}
 if (!ladderFiles.length) console.log(`scanRungEv: no ladder stores for ${today}+ — honest no-scan (capture passes fire 10:00/17:00/22:05 ET on game days)`)

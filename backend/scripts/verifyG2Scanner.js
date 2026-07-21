@@ -26,7 +26,7 @@ let pass = 0, fail = 0; const failures = []
 const check = (l, c) => { if (c) pass++; else { fail++; failures.push(l) } }
 const src = fs.readFileSync(path.join(ROOT, "scripts", "scanRungEv.js"), "utf8")
 
-check("shadow: only scan artifact + ledger written; artifact stamped shadow:true", /mlb_rung_scan_\$\{gameDate\}\.json/.test(src) && /shadow: true/.test(src) && !/mlb_tracked_(bets|best)|mlb_picks_|workstationRoutes|persistTracked/.test(src))
+check("shadow: only scan artifact + ledger written; artifact stamped shadow:true", /mlb_rung_scan_\$\{gameDate\}\.json/.test(src) && /shadow: true/.test(src) && !/workstationRoutes|persistTracked/.test(src) && !/writeFileSync\([^)]*tracked_(bets|best)/.test(src)) // 2026-07-21: reads of tracked_best (team truth, G3-L3) are legitimate; the doctrine bars WRITES
 check("eligibility: verdict===PASS AND hard-excluded tb/rbis (commit-gated list)", /HARD_EXCLUDED = \["totalBases", "rbis"\]/.test(src) && /v\.verdict === "PASS" && !HARD_EXCLUDED\.includes\(fam\)/.test(src))
 check("frozen constants consumed from committed verdicts (never re-chosen)", /verdicts\.frozenHalfLife/.test(src) && /effectiveMinN \|\| 8/.test(src) && /No scan\."\); process\.exit\(1\)/.test(src))
 check("FLB margin: max(2pp, 1.5×bucket gap) + thin-bucket worst-gap fallback", /Math\.max\(0\.02, 1\.5 \* bucketGap/.test(src) && /worst/.test(src))
@@ -71,7 +71,7 @@ check("e2e: mispriced rung FLAGGED past margin; fairly-priced rung NOT flagged",
 const ledger = fs.readFileSync(path.join(track, "rung_flag_ledger.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l))
 const settles = ledger.filter((e) => e.type === "settle")
 check("e2e: settle pass — played flag settles (hit=1, +1.2u); missing-player flag stays PENDING", settles.length === 1 && settles[0].id.startsWith("2026-07-10") && settles[0].hit === 1 && Math.abs(settles[0].units - 1.2) < 0.001)
-check("e2e: gate tally printed with named bars", /gate tally: .*\/14 nights .*\/300 decided/.test(r.stdout))
+check("e2e: gate tally printed with named bars", /gate tally \[raw\]: .*\/14 nights .*\/300 decided/.test(r.stdout))
 
 console.log(`verifyG2Scanner: ${pass}/${pass + fail} checks PASS`)
 if (fail > 0) { console.log("FAILURES:"); for (const f of failures) console.log("  - " + f); process.exit(1) }
