@@ -105,12 +105,21 @@ if (G3) {
   const get = (c) => cls[c] || (cls[c] = { train: { n: 0, sx: 0, sy: 0, sb: 0 }, pre: { n: 0, sx: 0, sy: 0, sb: 0 }, post: { n: 0, sx: 0, sy: 0, sb: 0 }, test: [] })
   for (const l of lines) {
     let r; try { r = JSON.parse(l) } catch (_) { continue }
-    const o = get(r.cls)
     const wa = r.a.w, wb = r.b.w
     const era = r.slate < FLIP ? "pre" : "post"
-    o[era].n++; o[era].sx += wa; o[era].sy += wb; o[era].sb += (wa & wb)
-    if (trainSlates.has(r.slate)) { o.train.n++; o.train.sx += wa; o.train.sy += wb; o.train.sb += (wa & wb) }
-    else o.test.push({ pa: Number.isFinite(r.a.mp) && r.a.mp > 0 && r.a.mp < 1 ? r.a.mp : null, pb: Number.isFinite(r.b.mp) && r.b.mp > 0 && r.b.mp < 1 ? r.b.mp : null, wa, wb })
+    // 2026-07-21 FAMILY-PAIR REFINEMENT (approved): same_player pairs ALSO
+    // accumulate into sub-classes keyed by the sorted family pair — the
+    // pooled class STOPPED on marginal heterogeneity (ρ=+0.450 real but too
+    // coarse); each sub-class faces the SAME bars independently. hits×TB is
+    // NESTED (TB contains hits) — flagged in output as mechanical overlap.
+    const clsKeys = [r.cls]
+    if (r.cls === "same_player_multi_family") clsKeys.push(`same_player__${[r.a.f, r.b.f].sort().join("x")}`)
+    for (const ck of clsKeys) {
+      const o = get(ck)
+      o[era].n++; o[era].sx += wa; o[era].sy += wb; o[era].sb += (wa & wb)
+      if (trainSlates.has(r.slate)) { o.train.n++; o.train.sx += wa; o.train.sy += wb; o.train.sb += (wa & wb) }
+      else o.test.push({ pa: Number.isFinite(r.a.mp) && r.a.mp > 0 && r.a.mp < 1 ? r.a.mp : null, pb: Number.isFinite(r.b.mp) && r.b.mp > 0 && r.b.mp < 1 ? r.b.mp : null, wa, wb })
+    }
   }
 
   const fitPool = (o) => { if (o.n < 50) return null; const px = o.sx / o.n, py = o.sy / o.n, pb = o.sb / o.n; return { n: o.n, px, py, pb, rhoZ: fitRhoZ(px, py, pb) } }
@@ -152,6 +161,7 @@ if (G3) {
       brierIndep: brierInd != null ? +brierInd.toFixed(6) : null,
       bars,
       era: { preRho: pre ? +pre.rhoZ.toFixed(4) : null, postRho: post ? +post.rhoZ.toFixed(4) : null, deltaRho: pre && post ? +(post.rhoZ - pre.rhoZ).toFixed(4) : null },
+      ...(c === "same_player__hitsxtotalBases" ? { nested: "MECHANICAL OVERLAP — totalBases contains hits; dependence here is partly definitional, not run-environment" } : {}),
       reason: passed ? "all bars clear" : `failed: ${Object.entries(bars).filter(([, v]) => !v).map(([k]) => k).join(", ")}`,
     }
     console.log(`  ${c.padEnd(26)} ${results[c].verdict.padEnd(22)} ρ=${(rho >= 0 ? "+" : "") + rho.toFixed(3)} test n=${nT} gap=${results[c].jointGapPp}pp Brier cop/ind=${results[c].brierCopula}/${results[c].brierIndep} eraΔρ=${results[c].era.deltaRho}`)

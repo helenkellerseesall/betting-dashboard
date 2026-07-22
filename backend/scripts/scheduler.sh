@@ -250,6 +250,28 @@ while true; do
     last_rungscan_no_min="$STAMP"
   fi
 
+  # 2026-07-21 G3-L4 — shadow parlay pricer: composes cross-game 2-3 leg paper parlays from the rung
+  # scans (certified-independence license enforced in-script) + settles the paper ledger. 17:20 + 22:25
+  # (right after each rung scan). Shadow artifact + ledger only.
+  if [ "$MIN" -eq 20 ] && [ "$HOUR" -eq 17 ] && [ "$STAMP" != "${last_parlayscan_min:-}" ]; then
+    log "scanParlayEv starting (17:20 shadow parlay pricing)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scanParlayEv.js >> "$LOG" 2>&1; then
+      log "scanParlayEv OK"
+    else
+      log "scanParlayEv FAILED (exit $?)"
+    fi
+    last_parlayscan_min="$STAMP"
+  fi
+  if [ "$MIN" -eq 25 ] && [ "$HOUR" -eq 22 ] && [ "$STAMP" != "${last_parlayscan_no_min:-}" ]; then
+    log "scanParlayEv starting (22:25 night-owl parlay pricing)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scanParlayEv.js >> "$LOG" 2>&1; then
+      log "scanParlayEv nightowl OK"
+    else
+      log "scanParlayEv nightowl FAILED (exit $?)"
+    fi
+    last_parlayscan_no_min="$STAMP"
+  fi
+
   # 2026-07-15 NIGHT-OWL-1 — evening pass at 22:00 ET: captures TOMORROW's opener the night before
   # (script forward-rolls to the next slate once today's games have started; --evening = future-slate-only,
   # so it can NEVER overwrite the same-day 6 AM baseline). Same isolation guarantees as the 6 AM pass.

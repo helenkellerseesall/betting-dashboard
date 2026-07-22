@@ -324,7 +324,7 @@ for (const f of ladderFiles) {
       }
     }
     const cures = { pBlend: +pBlend.toFixed(4), w: wA, pMedian: +pMedian.toFixed(4), marginBPp: +(marginB * 100).toFixed(1), pOppo: pOppo != null ? +pOppo.toFixed(4) : null, flagA, flagB, flagC }
-    const row = { player: r.player, family: r.fam, line: Number(r.line), k, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: Math.round(pFair * 10000) / 10000, implied: Math.round(implied * 10000) / 10000, edgePp: Math.round(edge * 1000) / 10, marginPp: Math.round(margin * 1000) / 10, evPer$1: Math.round(ev * 1000) / 1000, flagged, cures, curveN: curve.meta.n, method: curve.meta.method }
+    const row = { player: r.player, family: r.fam, line: Number(r.line), k, eventId: r.eventId || null, book: r.book, oddsAmerican: Number(r.oddsAmerican), pFair: Math.round(pFair * 10000) / 10000, implied: Math.round(implied * 10000) / 10000, edgePp: Math.round(edge * 1000) / 10, marginPp: Math.round(margin * 1000) / 10, evPer$1: Math.round(ev * 1000) / 1000, flagged, cures, curveN: curve.meta.n, method: curve.meta.method }
     rows.push(row)
     if (flagged || flagA || flagB || flagC) {
       // flag-id normalization FROZEN to the original formula (ledger id

@@ -324,7 +324,25 @@ function checkPairCorpus() {
 }
 checkPairCorpus()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus"]
+// (e) 2026-07-21 G3-L4 — parlay pricer day-one alarm: scans exist but no
+// parlay artifact after the 17:20 window = RED; certification-refusal or
+// no-scan days are honest greens.
+function checkParlayScan() {
+  try {
+    const slate = currentSlateDateEt()
+    let art = null
+    try { art = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_parlay_scan_${slate}.json`), "utf8")) } catch (_) {}
+    if (art && art.gate) return set("parlayScan", "green", `Parlay pricer (SHADOW): ${art.candidates} priced, ${art.newLedgered} ledgered · paper gate ${art.gate.nights}/14 nights, ${art.gate.decided}/100 settled, ${art.gate.flatUnits}u`, "shelf")
+    const scanExists = fs.existsSync(path.join(TRACKING, `mlb_rung_scan_${slate}.json`))
+    const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }))
+    if (!scanExists) return set("parlayScan", "green", `Parlay pricer: no rung scan for ${slate} yet — honest upstream no-op`, "shelf")
+    if (etHour < 18) return set("parlayScan", "not-run", `Parlay pricer: rung scan present — first pricing fires 17:20 ET`, "shelf")
+    return set("parlayScan", "fail", `Parlay pricer: rung scan exists for ${slate} but NO parlay artifact after the 17:20 window — check scheduler/certification`, "shelf")
+  } catch (e) { return set("parlayScan", "not-run", `Parlay pricer: ${String(e?.message || e)}`, "shelf") }
+}
+checkParlayScan()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
