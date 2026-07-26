@@ -42,6 +42,17 @@ try {
 } catch (e) { check(`unit: core loads (${e?.message})`, false) }
 
 check("OCR: bet365 fingerprint + bonus-badge cue in the prompt", /bet365: dark green header/.test(rd("pipeline/screenshots/ocrAnthropicAdapter.js")) && /Bonus Bet/.test(rd("pipeline/screenshots/ocrAnthropicAdapter.js")))
+// WHITELIST-STRIP MEMBER #4 (CA row-truth catch): the persist normalizer must
+// CARRY the new fields — unit-proven pre-persist means nothing if the
+// serializer strips them. Conditional-spread carry + e2e through the REAL fn.
+check("persist: normalizeBet carries stakeType + riskedReal (member #4 cured)", /WHITELIST-STRIP MEMBER #4/.test(rd("pipeline/shared/buildPersonalLedger.js")) && /input\.stakeType != null \? \{ stakeType/.test(rd("pipeline/shared/buildPersonalLedger.js")))
+try {
+  const { normalizeBet } = require("../pipeline/shared/buildPersonalLedger")
+  if (typeof normalizeBet === "function") {
+    const n = normalizeBet({ player: "T A", sport: "mlb", sportsbook: "bet365", statFamily: "earnedRuns", side: "over", line: 0.5, odds: 220, stake: 20, stakeType: "bonus", riskedReal: 0 })
+    check("persist e2e: real normalizeBet output carries stakeType=bonus + riskedReal=0", n.stakeType === "bonus" && n.riskedReal === 0)
+  } else { check("persist e2e: normalizeBet exported for the fixture (source check stands regardless)", /function normalizeBet/.test(rd("pipeline/shared/buildPersonalLedger.js"))) }
+} catch (e) { check(`persist e2e (${e?.message})`, false) }
 {
   const scripts = [...fe.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((s) => s.trim().length > 100)
   let parses = true, perr = null

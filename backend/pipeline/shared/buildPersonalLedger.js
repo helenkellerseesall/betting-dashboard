@@ -551,6 +551,12 @@ function normalizeBet(input) {
     sport: String(input.sport || "").toLowerCase(),
     sportsbook: String(input.sportsbook || "").toLowerCase(),
     betType: String(input.betType || "single").toLowerCase(),  // single | slip
+    // 2026-07-26 BONUS-BET carry — WHITELIST-STRIP MEMBER #4 (after leanBet,
+    // toTrackedMlbBestEntry, normalizeBet-stamps): the unit-proven bonus
+    // fields were stripped HERE on persist. Conditional-spread carry, the
+    // established cure for this class.
+    ...(input.stakeType != null ? { stakeType: String(input.stakeType).toLowerCase() } : {}),
+    ...(Number.isFinite(Number(input.riskedReal)) ? { riskedReal: Number(input.riskedReal) } : {}),
     player: String(input.player || "").trim(),
     team: String(input.team || "").trim() || null,
     // game context
