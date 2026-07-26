@@ -84,6 +84,7 @@ const SUITES = [
   "verifyG3Correlation", // G3-L2 (2026-07-21) — Law-1 --g3 extension of the sanctioned derive script (legacy path + shadow priors untouched), walk-forward 2/3 slate split w/ canonical fitRhoZ, named bars (n≥500/gap≤2pp/Brier/cross-game |ρ|<0.05 certification), era slice, synthetic e2e (recovers ρ, certifies independence, STOPs drift).
   "verifyG3CureColumns", // G3-L3 (2026-07-21) — pre-registered cure columns on the live ledger: pooled walk-forward blend w (300/family trigger), k=1 median-disagreement dampening, PASS-only copula opposition conditioning w/ sign unit-pinned both directions + abstention, per-column gates + counterfactual kill bar, paper-only.
   "verifyL4ParlayPricer", // G3-L4 (2026-07-21) — cross-game parlay pricer: certification-license refusal, structural distinct-eventId guard (same-game impossible), blend-primary legs w/ policy labels, void/pending settle semantics, named paper gate verbatim (14/100/3pp/≥0u/operator; G4 unchanged), shadow-only, scheduler+alarm, synthetic e2e incl. exact product pricing.
+  "verifyRecordDecoupling", // RECORD-BOOKS + BONUS-BET (2026-07-26, the unrecordable bet365 win) — record path accepts any real book (bet365/Caesars added; recommendation lens untouched), stakeType cash|bonus w/ riskedReal honesty in P/L + ROI, FE dropdowns + bonus checkbox, OCR bet365 fingerprint, unit: the operator's actual bet accepted with toWin 44 / riskedReal 0.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

@@ -3115,9 +3115,10 @@
         <div style="font-size:10px;color:#FBBF24;margin-top:4px;">Check every field against your slip — OCR can misread. Nothing records until you confirm.</div>
         <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
           <span style="font-size:11px;color:#9CA3AF;">Book</span>
+          <label style="font-size:11px;color:#FBBF24;display:flex;align-items:center;gap:4px;white-space:nowrap;"><input type="checkbox" id="sr-bonus"> bonus/free bet</label>
           <select id="sr-book" style="flex:1;padding:6px;border-radius:6px;border:1px solid ${s.sportsbook ? "#374151" : "#B45309"};background:#0A0E1A;color:#F9FAFB;font-size:12px;">
             <option value="">— pick the book —</option>
-            ${["FanDuel", "DraftKings", "BetMGM", "Hard Rock Bet", "BetRivers", "Fanatics"].map((b) => `<option value="${b}" ${s.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
+            ${["FanDuel", "DraftKings", "BetMGM", "Hard Rock Bet", "BetRivers", "Fanatics", "bet365", "Caesars"].map((b) => `<option value="${b}" ${s.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
           </select>
           <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
           <input id="sr-stake" type="number" min="1" step="1" value="${s.stake ?? 1}" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
@@ -3152,6 +3153,7 @@
       }
       const betDate = document.getElementById("sr-date")?.value || "";
       const stake = Math.max(1, Math.round(Number(document.getElementById("sr-stake")?.value) || 1));
+      const stakeType = document.getElementById("sr-bonus")?.checked ? "bonus" : "cash"; // 2026-07-26 BONUS-BET
       const legs = s.legs.map((_, i) => ({
         player: document.getElementById(`sr-player-${i}`)?.value || "",
         stat:   document.getElementById(`sr-stat-${i}`)?.value || "",
@@ -3162,7 +3164,7 @@
       const mode = legs.length >= 2 ? (document.getElementById("sr-mode")?.value || "parlay") : "single";
       btnEl.disabled = true; btnEl.textContent = "Recording…";
       const results = [];
-      const common = { book, stake, date: betDate || null, force: s.force === true, notes: "recorded from screenshot" };
+      const common = { book, stake, stakeType, date: betDate || null, force: s.force === true, notes: "recorded from screenshot" };
       try {
         if (mode === "parlay") {
           const combined = Number(document.getElementById("sr-combined")?.value);

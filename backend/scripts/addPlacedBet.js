@@ -45,9 +45,19 @@ const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
 const VALID_SPORTS = ["mlb", "nba"]
 // Canonical MLB statFamily tokens — must match tracked_bets rows byte-exactly
 // (verified against runtime/tracking/mlb_tracked_bets_2026-07-05.json).
-const MLB_STAT_TOKENS = ["runs", "hr", "hits", "ks", "rbis", "totalBases"]
+// 2026-07-26 RECORD-DECOUPLING pt.2 — the record vocabulary must cover every
+// family the operator can actually BET (the bet365 win was on earnedRuns:
+// doubly unrecordable — unknown book AND unknown stat). Pitcher families
+// added; the recommendation/scoring vocabulary remains its own concern.
+const MLB_STAT_TOKENS = ["runs", "hr", "hits", "ks", "rbis", "totalBases", "earnedRuns", "outs", "hitsAllowed", "walks"]
 // Known books → the canonical display string tracked rows carry (sportsbook
 // field, verified same file: "FanDuel"/"DraftKings"/"Fanatics"/"Hard Rock Bet").
+// 2026-07-26 RECORD-DECOUPLING (operator field pack): the RECORD accepts any
+// real sportsbook the operator actually bet at (extensible list below); the
+// 6-book RECOMMENDATION universe is a separate, narrower concern (served lens
+// preferred-books + obtainability). A bet the operator placed must NEVER be
+// unrecordable because the book isn't recommended. bet365 added (already on
+// the data allowlist; the operator's first bet365 win was unrecordable).
 const KNOWN_BOOKS = {
 	fanduel: "FanDuel",
 	draftkings: "DraftKings",
@@ -56,9 +66,14 @@ const KNOWN_BOOKS = {
 	hardrock: "Hard Rock Bet",
 	hardrockbet: "Hard Rock Bet",
 	betrivers: "BetRivers",
+	bet365: "bet365",
+	caesars: "Caesars",
 }
 function canonBook(input) {
-	const k = String(input || "").toLowerCase().replace(/[^a-z]/g, "")
+	// 2026-07-26 — keep DIGITS: the old [^a-z] strip turned "bet365" into
+	// "bet" and made the book unrecordable even after listing it. THE actual
+	// root cause of the field catch.
+	const k = String(input || "").toLowerCase().replace(/[^a-z0-9]/g, "")
 	return KNOWN_BOOKS[k] || null
 }
 function canonMlbStat(input) {
@@ -208,11 +223,20 @@ function buildValidatedSingleBet(o = {}) {
 		if (d > todayEt) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be` }
 		today = d
 	}
+	// 2026-07-26 BONUS-BET stake type (operator field pack): stakeType=bonus ⇒
+	// a free-bet credit — the WIN pays winnings WITHOUT stake return and the
+	// LOSS costs $0 real money. riskedReal carries the honest real-money
+	// exposure (stake for cash, 0 for bonus) so P/L + ROI never mix free
+	// credits into real risk. Default cash (legacy rows unchanged).
+	const stakeType = String(o.stakeType || "cash").toLowerCase()
+	if (!["cash", "bonus"].includes(stakeType)) return { ok: false, error: `--stakeType="${o.stakeType}" must be cash or bonus` }
 	const bet = {
 		date: today,
 		sport,
 		sportsbook: book,
 		betType: "single",
+		stakeType,
+		riskedReal: stakeType === "bonus" ? 0 : stake,
 		player,
 		matchup: o.matchup || null,
 		statFamily,
@@ -336,6 +360,9 @@ function makeParlay(args) {
 	// Phase Date-Doctrine-1B — canonical ET slate date (core's date wins — E-FOLLOWUP-2)
 	const today = r.today
 	const toWin = Number((stake * americanOddsToPayoutMultiple(odds)).toFixed(2))
+	// 2026-07-26 BONUS-BET stake type (see single-bet builder doc)
+	const stakeType = String(o.stakeType || "cash").toLowerCase()
+	if (!["cash", "bonus"].includes(stakeType)) return { ok: false, error: `--stakeType="${o.stakeType}" must be cash or bonus` }
 	const legSummary = args.legs.map((l) => `${l.player.split(" ").slice(-1)[0]} ${l.side} ${l.line} ${l.statFamily}`).join(" + ")
 	const parlay = {
 		id: r.id, // 2026-07-07 DEEPLINK-2B — deterministic (was Date.now(): duplicated on re-run)
@@ -352,6 +379,8 @@ function makeParlay(args) {
 		odds,
 		stake,
 		toWin,
+		stakeType,
+		riskedReal: stakeType === "bonus" ? 0 : stake,
 		impliedProb: americanOddsToImpliedProb(odds),
 		decisionType: "placed",
 		realMoney: true,

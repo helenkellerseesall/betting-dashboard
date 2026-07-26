@@ -1946,19 +1946,25 @@ router.get("/ledger/yesterday", (req, res) => {
     // -4% ROI on the bettable subset. Fix: explicit null/undefined check
     // BEFORE Number() conversion. Same logic for stake/toWin (those can be 0
     // legitimately so isFinite check after Number() is still safe).
-    let wins = 0, losses = 0, pushes = 0, pending = 0, staked = 0, profit = 0
+    let wins = 0, losses = 0, pushes = 0, pending = 0, staked = 0, profit = 0, bonusStaked = 0
     for (const p of picks) {
       const stake = Number(p.stake) || 0
       const toWin = Number(p.toWin) || 0
       const hasRealPayout = p.payout != null && Number.isFinite(Number(p.payout))
       const payout = hasRealPayout ? Number(p.payout) : null
-      staked += stake
+      // 2026-07-26 BONUS-BET honesty: free-credit stakes are NOT real risk —
+      // riskedReal (0 for bonus) drives staked/loss/ROI; a bonus WIN's entire
+      // payout is profit (no stake to return); real-money ROI is untouched by
+      // free credits.
+      const risked = p.stakeType === "bonus" ? 0 : (Number.isFinite(Number(p.riskedReal)) ? Number(p.riskedReal) : stake)
+      if (p.stakeType === "bonus") bonusStaked += stake
+      staked += risked
       if (p.result === "win") {
         wins++
-        profit += hasRealPayout ? (payout - stake) : toWin
+        profit += hasRealPayout ? (payout - risked) : toWin
       } else if (p.result === "loss") {
         losses++
-        profit -= stake
+        profit -= risked
       } else if (p.result === "push" || p.result === "void") {
         pushes++
       } else {
@@ -1985,6 +1991,7 @@ router.get("/ledger/yesterday", (req, res) => {
       wins, losses, pushes, pending, settled,
       hitRate: winRate,                                  // semantic: model accuracy
       hypotheticalStaked: Math.round(staked * 100) / 100, // if all $10 stakes — for audit only
+      bonusStaked: Math.round(bonusStaked * 100) / 100, // 2026-07-26 free-credit stakes (NOT real risk; excluded from staked/ROI)
       hypotheticalProfit: Math.round(profit * 100) / 100, // if all $10 stakes — for audit only
       hypotheticalRoi: roi,                              // if all $10 stakes — for audit only
     }
@@ -2228,6 +2235,7 @@ router.post("/place-bet", express.json(), (req, res) => {
       stake:   body.stake,
       player:  body.player,
       date:    body.date || null, // 2026-07-10 E-FOLLOWUP-2 — slip timestamp = true bet date (validated in core)
+      stakeType: body.stakeType || null, // 2026-07-26 BONUS-BET (validated in core; default cash)
       matchup: body.matchup || null,
       notes:   body.notes || "placed via /m execution card",
     })
