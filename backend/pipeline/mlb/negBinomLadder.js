@@ -161,7 +161,12 @@ function round6(x) {
 // ============================================================================
 
 /** Family → game-log stats key (batter logs use `rbi`; pitcher Ks = strikeOuts). */
-const FAMILY_STAT_KEYS = { hits: "hits", totalBases: "totalBases", rbis: "rbi", runs: "runs", ks: "strikeOuts" }
+const FAMILY_STAT_KEYS = { hits: "hits", totalBases: "totalBases", rbis: "rbi", runs: "runs", ks: "strikeOuts",
+  // 2026-07-26 FAMILY EXPANSION — new families enter through the SAME gates:
+  // curves fit from the season logs that already carry these stats, then the
+  // walk-forward validator's PASS-or-STOP bars decide; no board exposure
+  // without a PASS verdict (scanner eligibility reads the verdicts JSON).
+  stolenBases: "stolenBases", doubles: "doubles", triples: "triples" }
 
 /**
  * Weighted method-of-moments fit. counts must be OLDEST-FIRST when halfLife

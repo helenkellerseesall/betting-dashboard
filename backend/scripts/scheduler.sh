@@ -214,6 +214,21 @@ while true; do
     last_paircorpus_min="$STAMP"
   fi
 
+  # 2026-07-26 NIGHTLY CRITIC — 05:40 ET (post-grade, post-corpus): the board's adversary; read-only
+  # missed-winners/ceiling/shown-vs-pool artifact; Sundays also write the weekly plain-English synthesis.
+  if [ "$MIN" -eq 40 ] && [ "$HOUR" -eq 5 ] && [ "$STAMP" != "${last_critic_min:-}" ]; then
+    log "nightlyCritic starting (05:40)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/nightlyCritic.js >> "$LOG" 2>&1; then
+      log "nightlyCritic OK"
+    else
+      log "nightlyCritic FAILED (exit $?)"
+    fi
+    if [ "$(TZ='America/New_York' date +%u)" = "7" ]; then
+      node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/nightlyCritic.js --weekly >> "$LOG" 2>&1 && log "weekly critic OK" || log "weekly critic FAILED"
+    fi
+    last_critic_min="$STAMP"
+  fi
+
   # 2026-07-16 N1 GATE INSTRUMENT — 17:30 ET: dual-scores today's tracked N1-family rows (mean-centered
   # OFF = served, median-centered ON = shadow) from the real engines; settles prior nights; prints the
   # named N1 gate tally. Append-only shadow artifacts; the N1 flip window runs on this instrument.

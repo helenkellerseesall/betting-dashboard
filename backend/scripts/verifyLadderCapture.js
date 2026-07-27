@@ -47,7 +47,7 @@ try {
   }
   const rows = rungRowsFromPayload(payload, {}, { capturedAt: "t", pass: "unit" })
   check("unit: 3 priced rungs kept for one player/family/book; unpriced + base-market dropped", rows.length === 3 && rows.every((r) => r.player === "Juan Soto" && r.family === "batter_total_bases_alternate" && r.book === "fanduel") && new Set(rows.map((r) => r.line)).size === 3)
-  check("unit: 8 ladder market keys, all _alternate, covering batter+pitcher families", LADDER_MARKETS.length === 8 && LADDER_MARKETS.every((k) => k.endsWith("_alternate")) && LADDER_MARKETS.some((k) => k.startsWith("batter_")) && LADDER_MARKETS.some((k) => k.startsWith("pitcher_")))
+  check("unit: ladder market keys ≥8, all _alternate, covering batter+pitcher families", LADDER_MARKETS.length >= 8 && LADDER_MARKETS.every((k) => k.endsWith("_alternate")) && LADDER_MARKETS.some((k) => k.startsWith("batter_")) && LADDER_MARKETS.some((k) => k.startsWith("pitcher_"))) // 2026-07-26: family expansion grows the list — floor not exact-count (the anchor lesson, list-size edition)
 } catch (e) { check(`unit: module loads (${e?.message})`, false) }
 
 const sched = rd("scripts/scheduler.sh")

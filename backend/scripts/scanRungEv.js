@@ -48,8 +48,11 @@ const VERDICTS_PATH = process.env.G2_VERDICTS || path.join(ROOT, "config", "g2_v
 const LEDGER_PATH = process.env.RUNG_LEDGER || path.join(TRACKING_DIR, "rung_flag_ledger.jsonl")
 
 const HARD_EXCLUDED = ["totalBases", "rbis"] // operator-ordered L2 STOPs; commit-gated
-const VENDOR_FAM = { batter_hits_alternate: "hits", batter_runs_scored_alternate: "runs", pitcher_strikeouts_alternate: "ks" }
-const STAT_KEY = { hits: "hits", runs: "runs", ks: "strikeOuts" }
+// 2026-07-26 FAMILY EXPANSION — vendor map covers the new families; actual
+// scan eligibility STILL flows only from PASS verdicts in the committed JSON
+// (a mapped family with a STOP/absent verdict never prices a rung).
+const VENDOR_FAM = { batter_hits_alternate: "hits", batter_runs_scored_alternate: "runs", pitcher_strikeouts_alternate: "ks", batter_stolen_bases_alternate: "stolenBases", batter_doubles_alternate: "doubles", batter_triples_alternate: "triples" }
+const STAT_KEY = { hits: "hits", runs: "runs", ks: "strikeOuts", stolenBases: "stolenBases", doubles: "doubles", triples: "triples" }
 
 const rd = (fp) => { try { return JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return null } }
 // 2026-07-21 INSTRUMENT-REPAIR — the ONE cross-source join (playerNameJoin)

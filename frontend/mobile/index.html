@@ -3951,8 +3951,25 @@
           html += `</div>`;
         }
         html += nightOwlHtml;
+        // 2026-07-26 LADDER LAB (Part 3) — collapsed, honest, read-only.
+        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#818CF8;cursor:pointer;letter-spacing:.5px;">🧪 LADDER LAB — paper engine (NOT BETTABLE) · tap to expand</summary><div id="ladder-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
         html += `</div>`;
         main.innerHTML = html;
+        try {
+          const rl = await fetch(`${API}/api/ws/ladder-lab?_t=${Date.now()}`, { cache: "no-store" });
+          const jl = await rl.json();
+          const el = document.getElementById("ladder-lab-body");
+          if (el && jl.ok) {
+            const g = jl.gates?.raw, cg = jl.gates?.cures;
+            el.innerHTML = `
+              <div style="color:#FBBF24;font-size:10px;margin-bottom:6px;">${escapeHtml(jl.notBettable)}</div>
+              <div>Scanner: ${jl.rungsPriced} rungs priced · ${jl.flags.length} shown flags${g ? ` · raw gate ${g.nights}/14 nights, ${g.decided}/300, ${g.flatUnits}u (gap ${g.pooledGapPp ?? "—"}pp)` : ""}</div>
+              ${cg ? `<div>Cures: A ${cg.A.decided} decided ${cg.A.flatUnits}u · B ${cg.B.decided} ${cg.B.flatUnits}u · C ${cg.C.decided} ${cg.C.flatUnits}u (counterfactual A ${cg.A.counterfactual?.declinedPct ?? "—"}%)</div>` : ""}
+              ${jl.flags.slice(0, 6).map((f) => `<div style="border-top:1px solid #1F2430;padding:3px 0;">${escapeHtml(f.player)} ${f.k}+ ${escapeHtml(f.family)} @ ${escapeHtml(f.book)} ${f.oddsAmerican > 0 ? "+" : ""}${f.oddsAmerican} · fair ${(f.pFair * 100).toFixed(0)}% vs ${(f.implied * 100).toFixed(0)}%</div>`).join("")}
+              ${jl.parlays?.length ? `<div style="margin-top:5px;color:#A78BFA;">Top paper parlays:</div>` + jl.parlays.slice(0, 3).map((p) => `<div style="border-top:1px solid #241B36;padding:3px 0;">EV ${p.ev >= 0 ? "+" : ""}${p.ev}/$1 · pays ${p.dec}x · ${p.legs.map(escapeHtml).join(" + ")}</div>`).join("") : ""}
+              ${jl.parlayGate ? `<div style="margin-top:4px;">Parlay paper gate: ${jl.parlayGate.nights}/14 nights · ${jl.parlayGate.decided}/100 · ${jl.parlayGate.flatUnits}u</div>` : ""}`;
+          } else if (el) el.innerHTML = "no paper artifacts for this slate yet — the lab fills after the 17:15/17:20 scans";
+        } catch (_) { /* lab is additive — never blocks the board */ }
       } catch (e) {
         main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading top picks: ${escapeHtml(String(e?.message || e))}</div>`;
       }

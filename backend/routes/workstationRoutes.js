@@ -2929,6 +2929,28 @@ function buildReasoning(pick, bestEntry) {
  * dedup by player+stat+side+line, sorted by edge-weighted confidence.
  * Each pick is hydrated with a `reasoning` blob from tracked_best.
  */
+// 2026-07-26 LADDER LAB (Part 3) — read-only window over the paper engine:
+// tonight's scanner flags, cure-column standings, top paper parlays, running
+// paper record. NOTHING here is bettable or written anywhere; the operator
+// watches the tail engine earn (or fail) its named gates.
+router.get("/ladder-lab", (req, res) => {
+  try {
+    const slate = currentSlateDateEt()
+    const rd2 = (f) => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "runtime", "tracking", f), "utf8")) } catch (_) { return null } }
+    const scan = rd2(`mlb_rung_scan_${slate}.json`)
+    const parlay = rd2(`mlb_parlay_scan_${slate}.json`)
+    res.json({
+      ok: true, slate, shadow: true,
+      notBettable: "PAPER ONLY — nothing in this section is a recommendation; the engine is earning its gates on record",
+      flags: scan ? scan.rows.filter((r) => r.flagged || r.cures?.flagA || r.cures?.flagB || r.cures?.flagC).slice(0, 12) : [],
+      rungsPriced: scan?.summary?.rungsPriced ?? 0,
+      gates: scan ? { raw: scan.summary.gate, cures: scan.summary.cureGates } : null,
+      parlays: parlay ? parlay.top?.slice(0, 5) : [],
+      parlayGate: parlay?.gate ?? null,
+    })
+  } catch (e) { res.json({ ok: false, error: String(e?.message || e) }) }
+})
+
 router.get("/top-picks", (req, res) => {
   try {
     // 2026-06-01 Phase Date-Doctrine-1A/1B — canonical ET slate date.

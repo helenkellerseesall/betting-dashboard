@@ -62,6 +62,12 @@ const LADDER_MARKETS = [
   "pitcher_strikeouts_alternate",
   "pitcher_hits_allowed_alternate",
   "pitcher_walks_alternate",
+  // 2026-07-26 FAMILY EXPANSION (quota-checked: +3 keys ≈ +45 credits/pass ≈
+  // +135/day at 3 passes — cap 600 holds, measured burn ~80/pass has ample
+  // headroom). New families reach the board ONLY through PASS verdicts.
+  "batter_stolen_bases_alternate",
+  "batter_doubles_alternate",
+  "batter_triples_alternate",
 ]
 // Same request list the live MLB config uses (backend keeps 7+1 for line-shop).
 const BOOKS = ["draftkings", "fanduel", "fanatics", "betmgm", "betrivers", "hardrockbet", "caesars", "bet365"]

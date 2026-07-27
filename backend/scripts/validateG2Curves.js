@@ -51,7 +51,13 @@ const TRACKING_DIR = process.env.G2_TRACKING_DIR || path.join(ROOT, "runtime", "
 const OUT_JSON = process.env.G2_OUT_JSON || path.join(ROOT, "config", "g2_validation.json")
 const OUT_MD = process.env.G2_OUT_MD || path.join(ROOT, "..", "docs", "audits", `${new Date().toISOString().slice(0, 10)}-g2-l2-validation.md`)
 
-const CONFIGS = [{ label: "hl10", halfLife: 10 }, { label: "hl20", halfLife: 20 }, { label: "hl40", halfLife: 40 }, { label: "none", halfLife: null }]
+let CONFIGS = [{ label: "hl10", halfLife: 10 }, { label: "hl20", halfLife: 20 }, { label: "hl40", halfLife: 40 }, { label: "none", halfLife: null }]
+// 2026-07-26 — FROZEN MEANS FROZEN: once the committed verdicts carry a frozen
+// half-life, re-runs validate at THAT constant only (re-choosing silently would
+// violate the freeze's own doctrine; the prior bake-off table carries forward).
+let _priorVal = null
+try { _priorVal = JSON.parse(fs.readFileSync(process.env.G2_OUT_JSON || path.join(__dirname, "..", "config", "g2_validation.json"), "utf8")) } catch (_) {}
+if (_priorVal && _priorVal.frozenLabel) CONFIGS = [{ label: _priorVal.frozenLabel, halfLife: _priorVal.frozenHalfLife }]
 const BUCKETS = [[0, 0.02], [0.02, 0.05], [0.05, 0.10], [0.10, 0.20], [0.20, 0.35], [0.35, 0.50], [0.50, 1.001]]
 const PASS_MIN_N = 150
 const BAKEOFF_MIN_N = 50
@@ -61,8 +67,12 @@ const FAMILIES = [
   { family: "rbis", kind: "batter", minN: 15 },
   { family: "runs", kind: "batter", minN: 15 },
   { family: "ks", kind: "pitcher", minN: 8 },
+  // 2026-07-26 FAMILY EXPANSION — same bars, same gates, day one.
+  { family: "stolenBases", kind: "batter", minN: 15 },
+  { family: "doubles", kind: "batter", minN: 15 },
+  { family: "triples", kind: "batter", minN: 15 },
 ]
-const STAT_KEY = { hits: "hits", totalBases: "totalBases", rbis: "rbi", runs: "runs", ks: "strikeOuts" }
+const STAT_KEY = { hits: "hits", totalBases: "totalBases", rbis: "rbi", runs: "runs", ks: "strikeOuts", stolenBases: "stolenBases", doubles: "doubles", triples: "triples" }
 const VENDOR_FAM = { batter_hits_alternate: "hits", batter_total_bases_alternate: "totalBases", batter_rbis_alternate: "rbis", batter_runs_scored_alternate: "runs", pitcher_strikeouts_alternate: "ks" }
 
 const rd = (fp) => { try { return JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return null } }
@@ -86,11 +96,12 @@ function bucketIdx(p) { for (let i = 0; i < BUCKETS.length; i++) if (p >= BUCKET
 
 /** Walk-forward pairs for one family/config. Returns {pairs, brierSum, n} with
  *  per-pair {p, hit, date} routed into season + last-30d bucket tables. */
-function walkForward(players, family, minN, halfLife, last30Cut) {
+function walkForward(players, family, minN, halfLife, last30Cut, collectPairs = false) {
   const season = BUCKETS.map(() => ({ n: 0, statedSum: 0, hits: 0 }))
   const recent = BUCKETS.map(() => ({ n: 0, statedSum: 0, hits: 0 }))
   let brierSum = 0
   let nPairs = 0
+  const pairs = collectPairs ? [] : null
   const statKey = STAT_KEY[family]
   for (const pl of players) {
     const rows = pl.rows.filter((r) => Number.isFinite(Number(r.stats[statKey])))
@@ -105,12 +116,38 @@ function walkForward(players, family, minN, halfLife, last30Cut) {
         const bi = bucketIdx(p)
         season[bi].n++; season[bi].statedSum += p; season[bi].hits += hit
         if (rows[t].date >= last30Cut) { recent[bi].n++; recent[bi].statedSum += p; recent[bi].hits += hit }
+        if (pairs) pairs.push({ p, hit, date: rows[t].date })
         brierSum += (p - hit) * (p - hit)
         nPairs++
       }
     }
   }
-  return { season, recent, brierSum, nPairs }
+  return { season, recent, brierSum, nPairs, pairs }
+}
+
+// 2026-07-26 TB RE-FIT ATTEMPT (Part 2a): a STOPPED family may attempt ONE
+// bucket-level correction — multipliers fit on the CHRONOLOGICAL FIRST HALF
+// of its walk-forward pairs (realized/stated per stated-prob bucket, n≥150),
+// applied to the SECOND half, judged by the SAME bars. PASS-with-correction
+// re-opens the runbook step; the correction map becomes a committed artifact
+// consumed ONLY via a separate gated re-point diff. Fail ⇒ the STOP stands.
+function bucketCorrectionRefit(pairs) {
+  const sorted = [...pairs].sort((a, b) => (a.date < b.date ? -1 : 1))
+  const mid = sorted[Math.floor(sorted.length / 2)]?.date
+  const fitHalf = sorted.filter((x) => x.date < mid)
+  const testHalf = sorted.filter((x) => x.date >= mid)
+  const fitB = BUCKETS.map(() => ({ n: 0, s: 0, h: 0 }))
+  for (const x of fitHalf) { const b = fitB[bucketIdx(x.p)]; b.n++; b.s += x.p; b.h += x.hit }
+  const mult = fitB.map((b) => (b.n >= 150 && b.s > 0 ? b.h / b.s : 1))
+  const testB = BUCKETS.map(() => ({ n: 0, statedSum: 0, hits: 0 }))
+  let brierSum = 0
+  for (const x of testHalf) {
+    const pc = Math.max(0.0001, Math.min(0.9999, x.p * mult[bucketIdx(x.p)]))
+    const b = testB[bucketIdx(pc)]; b.n++; b.statedSum += pc; b.hits += x.hit
+    brierSum += (pc - x.hit) * (pc - x.hit)
+  }
+  const rows = tableStats(testB)
+  return { rows, verdict: verdictFor(rows), mult: mult.map((m) => +m.toFixed(4)), fitN: fitHalf.length, testN: testHalf.length, brier: testHalf.length ? +(brierSum / testHalf.length).toFixed(6) : null, splitDate: mid }
 }
 
 function tableStats(buckets) {
@@ -190,7 +227,21 @@ for (const fam of FAMILIES) {
     if (v12.verdict === "PASS") v = { verdict: "PASS", reason: `n≥8 STOPPED (${v.reason}) but the CA-approved higher-floor retest at n≥12 PASSES (${v12.reason}) — ks curves require n≥12`, effectiveMinN: 12 }
     else v = { verdict: "STOP", reason: `n≥8 STOP (${v.reason}); retest n≥12 also STOP (${v12.reason})` }
   }
-  verdicts[fam.family] = { ...v, nPairs: res.nPairs, retest }
+  // Part 2a: totalBases STOP triggers the ONE sanctioned bucket-correction
+  // re-fit attempt (chronological half split, same bars; PASS-with-correction
+  // re-opens the runbook step — consumption stays a separate gated diff).
+  let refit = null
+  // 2026-07-26 rbis candidate #1 (operator-approved): the SAME one-shot
+  // bucket-correction attempt, no candidate-stacking — if this fails, the
+  // STOP stands and candidate #2 (opportunity-conditioned marginals) becomes
+  // its own diff.
+  if ((fam.family === "totalBases" || fam.family === "rbis") && v.verdict === "STOP") {
+    const wfP = walkForward(fam.kind === "batter" ? batters : pitchers, fam.family, fam.minN, frozenHalfLife, last30Cut, true)
+    refit = bucketCorrectionRefit(wfP.pairs)
+    if (refit.verdict.verdict === "PASS") v = { verdict: "PASS_WITH_CORRECTION", reason: `raw curve STOP (${v.reason}) but the bucket-corrected re-fit PASSES on the held-out half (${refit.verdict.reason}); correction map committed — consumption requires the gated runbook re-point`, correction: refit.mult }
+    else v = { ...v, reason: `${v.reason}; bucket-correction re-fit ALSO fails (${refit.verdict.reason}) — STOP stands; next candidate is its own diff, never stacked` }
+  }
+  verdicts[fam.family] = { ...v, nPairs: res.nPairs, retest, ...(refit ? { refit: { verdict: refit.verdict.verdict, mult: refit.mult, fitN: refit.fitN, testN: refit.testN, splitDate: refit.splitDate } } : {}) }
   console.log(`  ${fam.family.padEnd(11)} ${v.verdict} — ${v.reason}`)
 }
 

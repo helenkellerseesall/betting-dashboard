@@ -342,7 +342,24 @@ function checkParlayScan() {
 }
 checkParlayScan()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan"]
+// (f) 2026-07-26 NIGHTLY CRITIC day-one alarm: yesterday graded but no critic
+// artifact after the 05:40 window = RED.
+function checkCritic() {
+  try {
+    const today = currentSlateDateEt()
+    const prior = (() => { const [y, m, d] = today.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1, d, 12)); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10) })()
+    const artP = path.join(TRACKING, `critic_${prior}.json`)
+    if (fs.existsSync(artP)) { const c = JSON.parse(fs.readFileSync(artP, "utf8")); return set("criticNightly", "green", `Critic: ${prior} audited — ${c.missedWinners.unitsAtFlat$1}u missed-winner volume, ceiling ${c.ceilingAudit.ratePct}%`, "wired") }
+    let graded = false
+    try { graded = (JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${prior}.json`), "utf8")) || []).some((r) => ["win", "loss"].includes(r.result)) } catch (_) {}
+    const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }))
+    if (graded && etHour >= 6) return set("criticNightly", "fail", `Critic: ${prior} is GRADED but no critic artifact after the 05:40 window — the adversary is asleep`, "wired")
+    return set("criticNightly", graded ? "not-run" : "green", graded ? "Critic: fires 05:40 ET" : `Critic: ${prior} not graded yet — honest wait`, "wired")
+  } catch (e) { return set("criticNightly", "not-run", `Critic: ${String(e?.message || e)}`, "wired") }
+}
+checkCritic()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
