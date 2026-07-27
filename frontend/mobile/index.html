@@ -3784,7 +3784,7 @@
             <div style="display:flex;gap:16px;margin-top:9px;align-items:flex-end;">
               <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">MODEL CONF</div><div style="font-size:15px;color:${tierC};font-weight:800;font-family:ui-monospace,monospace;line-height:1.1;">${conf}</div></div>
               <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">EDGE vs MKT</div><div style="font-size:13px;color:${edgeColor};font-weight:700;font-family:ui-monospace,monospace;line-height:1.1;">${edge}</div></div>
-              <div style="margin-left:auto;text-align:right;"><div style="font-size:8px;color:#6B7280;">PRICE</div><div style="font-size:11px;color:#D1D5DB;margin-top:2px;">${odds} ${book}</div></div>
+              <div style="margin-left:auto;text-align:right;"><div style="font-size:8px;color:#6B7280;">PRICE</div><div style="font-size:11px;color:#D1D5DB;margin-top:2px;">${odds} ${book}</div>${pick.repointed ? `<div style="font-size:8px;color:#FBBF24;">re-pointed (best ${_oddsNice(pick.repointFromOdds)} not sellable · −${pick.repointHaircutPp}pp)</div>` : ""}</div>
             </div>
           </div>
         `;

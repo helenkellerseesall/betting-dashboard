@@ -39,13 +39,18 @@ const rd = (fp) => { try { return JSON.parse(fs.readFileSync(fp, "utf8")) } catc
 const normB = (s) => String(s || "").toLowerCase().replace(/\s+/g, "")
 const unitsOf = (r) => (r.result === "win" ? (Number(r.oddsAmerican) > 0 ? Number(r.oddsAmerican) / 100 : 100 / Math.abs(Number(r.oddsAmerican))) : -1)
 
-function dropReason(r, bestOddsByTuple) {
+function dropReason(r, bestOddsByTuple, sellableTuples) {
   const tier = String(r.tier || r.modelTier || "").toUpperCase()
   if (tier === "FADE" || tier === "LONGSHOT") return "fade_tier"
   if (!PREFERRED.has(normB(r.sportsbook || r.book))) return "non_preferred_book"
   if (String(r.side || "").toLowerCase().startsWith("u")) {
     const fmt = formatFor(r.sportsbook || r.book, r.statFamily)
-    if (fmt && fmt.sides === "over_only") return "unpurchasable_under"
+    // RE-POINT PASS 2 aware: if a VERIFIED-sellable row exists for this tuple,
+    // the lens now re-points it — count as repointed_served, not missed.
+    if (fmt && fmt.sides === "over_only") {
+      const key = `${String(r.player).toLowerCase()}|${r.statFamily}|${r.side}|${r.line}`
+      return sellableTuples && sellableTuples.has(key) ? "repointed_served" : "unpurchasable_under"
+    }
   }
   if (r.modelProbRaw != null && Number(r.edge) < -0.10) return "dampened_edge"
   const key = `${String(r.player).toLowerCase()}|${r.statFamily}|${r.side}|${r.line}`
@@ -58,16 +63,19 @@ function criticSlate(slate) {
   const decided = rows.filter((r) => ["win", "loss"].includes(r.result))
   if (!decided.length) return null
   const bestOddsByTuple = new Map()
+  const sellableTuples = new Set()
   for (const r of decided) {
     const key = `${String(r.player).toLowerCase()}|${r.statFamily}|${r.side}|${r.line}`
     if (!bestOddsByTuple.has(key) || Number(r.oddsAmerican) > bestOddsByTuple.get(key)) bestOddsByTuple.set(key, Number(r.oddsAmerican))
+    const fmt = formatFor(r.sportsbook || r.book, r.statFamily)
+    if (fmt && fmt.sides === "two_sided") sellableTuples.add(key)
   }
   // (a) missed winners
   const missed = {}
   let missedUnits = 0
   const samples = []
   for (const r of decided.filter((x) => x.result === "win")) {
-    const reason = dropReason(r, bestOddsByTuple)
+    const reason = dropReason(r, bestOddsByTuple, sellableTuples)
     if (reason === "served_or_timing") continue
     missed[reason] = (missed[reason] || 0) + 1
     missedUnits += unitsOf(r)
@@ -98,7 +106,7 @@ function criticSlate(slate) {
     if (Number(gameRow.stats[sk]) >= k95) tailExceed++
   }
   // (c) shown vs pool
-  const shownApprox = decided.filter((r) => dropReason(r, bestOddsByTuple) === "served_or_timing")
+  const shownApprox = decided.filter((r) => dropReason(r, bestOddsByTuple, sellableTuples) === "served_or_timing")
   const agg = (set) => { let u = 0, w = 0; for (const r of set) { u += unitsOf(r); if (r.result === "win") w++ } return { n: set.length, units: +u.toFixed(1), winRate: set.length ? +(100 * w / set.length).toFixed(1) : null } }
   return {
     slate, generatedAt: new Date().toISOString(), readOnly: true,

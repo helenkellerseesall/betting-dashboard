@@ -3032,6 +3032,19 @@ router.get("/top-picks", (req, res) => {
     let droppedNonPreferredBook = 0
     let droppedUnpurchasable = 0
     let droppedStarted = 0
+    // 2026-07-26 RE-POINT PASS 2 (critic-evidenced: 50 unpurchasable-under
+    // WINNERS on one slate) — a tuple whose under died at an over_only book
+    // re-points to the best price among VERIFIED-SELLABLE books (explicit
+    // two_sided map entries ONLY — unverified books are never guessed
+    // sellable), even outside the preferred four, with the honest price
+    // haircut shown (the re-pointed price is what the operator actually gets).
+    // HONEST REACH NOTE: today's verified two_sided entries are FD/MGM hits —
+    // and the vendor feed carries no FD/MGM unders, so day-one re-points ≈ 0;
+    // the mechanism's reach grows exactly as the operator field-verifies more
+    // books (Hard Rock hits O/U verification would unlock the measured
+    // 54-winner class). The critic re-measures weekly.
+    const _repointTuples = new Set()
+    let repointedServed = 0
     for (const sport of sports) {
       const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
       for (const b of trackedBets) {
@@ -3041,7 +3054,7 @@ router.get("/top-picks", (req, res) => {
         if (!isPreferredBook(b)) { droppedNonPreferredBook++; continue }
         if (String(b.side || "").toLowerCase().startsWith("u")) {
           const fmt = bookFormatFor(b.sportsbook || b.book, b.statFamily)
-          if (fmt && fmt.sides === "over_only") { droppedUnpurchasable++; continue }
+          if (fmt && fmt.sides === "over_only") { droppedUnpurchasable++; _repointTuples.add(`${sport}|${(b.player || "").toLowerCase()}|${b.statFamily}|${b.side}|${b.line}`); continue }
         }
         // 2026-07-17 STARTED-GAME GATE (operator display item 1) — a pre-game
         // prop on a started game is not a buyable recommendation. Strict
@@ -3058,6 +3071,33 @@ router.get("/top-picks", (req, res) => {
         all.push({ ...b, sport })
       }
     }
+    // RE-POINT PASS 2 resolution: for each tuple that lost rows to the
+    // unpurchasability gate and has NO surviving candidate, admit the best
+    // VERIFIED-two_sided row from the full record (preferred filter bypassed
+    // for re-points — a purchasable price beats an absent pick), annotated
+    // with the haircut vs the dead best price.
+    if (_repointTuples.size) {
+      const surviving = new Set(all.map((p) => `${p.sport}|${(p.player || "").toLowerCase()}|${p.statFamily}|${p.side}|${p.line}`))
+      for (const sport of sports) {
+        const trackedBets = readJsonSafe(fileFor(sport, "tracked_bets", date), []) || []
+        const byTuple = new Map()
+        for (const b of trackedBets) {
+          const tk = `${sport}|${(b.player || "").toLowerCase()}|${b.statFamily}|${b.side}|${b.line}`
+          if (!_repointTuples.has(tk) || surviving.has(tk)) continue
+          const fmt = bookFormatFor(b.sportsbook || b.book, b.statFamily)
+          if (!fmt || fmt.sides !== "two_sided") continue // verified-sellable ONLY
+          if (b.gameTime && Number.isFinite(new Date(b.gameTime).getTime()) && Date.now() >= new Date(b.gameTime).getTime()) continue
+          const prev = byTuple.get(tk)
+          if (!prev || Number(b.oddsAmerican) > Number(prev.oddsAmerican)) byTuple.set(tk, b)
+        }
+        for (const [tk, b] of byTuple) {
+          const deadBest = trackedBets.filter((x) => `${sport}|${(x.player || "").toLowerCase()}|${x.statFamily}|${x.side}|${x.line}` === tk).reduce((a, x) => Math.max(a, Number(x.oddsAmerican) || -Infinity), -Infinity)
+          all.push({ ...b, sport, repointed: true, repointFromOdds: deadBest, repointHaircutPp: +((impliedFromOdds(Number(b.oddsAmerican)) - impliedFromOdds(deadBest)) * 100).toFixed(1) })
+          repointedServed++
+        }
+      }
+    }
+
     // 2026-05-31 (c) — apply calibration dampener BEFORE dedup/sort, so the
     // dampened probability flows through ranking. Picks in families the model
     // is honest about (MLB HR) are unaffected; picks in miscalibrated
@@ -3198,6 +3238,8 @@ router.get("/top-picks", (req, res) => {
         droppedUnpurchasable,
         // STARTED-GAME GATE — picks whose first pitch has passed (per-request).
         droppedStarted,
+        // RE-POINT PASS 2 — unpurchasable-side tuples served via a verified-sellable book.
+        repointedServed,
       },
       picks,
       // 2026-07-14 HONEST-COMMS (All-Star-night incident) — an empty board must

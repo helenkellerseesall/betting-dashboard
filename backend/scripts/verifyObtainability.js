@@ -32,7 +32,7 @@ check("helper: UNKNOWN book/family never restricted (hardrockbet hits · DK pitc
 check("helper: formatFor returns the full source-tagged entry", formatFor("DraftKings", "hits")?.source === "operator-field")
 
 const wr = rd("routes/workstationRoutes.js")
-check("lens: under@over_only dropped PRE-DEDUP + counted + never-recommend doctrine", /droppedUnpurchasable\+\+; continue/.test(wr) && wr.indexOf("droppedUnpurchasable++") < wr.indexOf("const dedup = new Map()") && /droppedUnpurchasable,/.test(wr) && /Never recommend an unpurchasable\s+\/\/ ticket|never recommend an unpurchasable/i.test(wr))
+check("lens: under@over_only dropped PRE-DEDUP + counted + never-recommend doctrine", /droppedUnpurchasable\+\+; _repointTuples/.test(wr) && wr.indexOf("droppedUnpurchasable++") < wr.indexOf("const dedup = new Map()") && /droppedUnpurchasable,/.test(wr) && /never recommend an unpurchasable/i.test(wr)) // 2026-07-26: drop now also stashes the tuple for RE-POINT PASS 2 — same gate, added resolution
 check("lens: served picks tagged marketFormat (unverified when unknown)", /pick\.marketFormat = fmt \? fmt\.sides : "unverified"/.test(wr))
 check("record untouched: phase4Tracking writers unmodified by this gate", !/bookMarketFormats/.test(rd("pipeline/mlb/phase4Tracking.js")))
 
