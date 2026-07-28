@@ -86,6 +86,7 @@ const SUITES = [
   "verifyL4ParlayPricer", // G3-L4 (2026-07-21) — cross-game parlay pricer: certification-license refusal, structural distinct-eventId guard (same-game impossible), blend-primary legs w/ policy labels, void/pending settle semantics, named paper gate verbatim (14/100/3pp/≥0u/operator; G4 unchanged), shadow-only, scheduler+alarm, synthetic e2e incl. exact product pricing.
   "verifyRecordDecoupling", // RECORD-BOOKS + BONUS-BET (2026-07-26, the unrecordable bet365 win) — record path accepts any real book (bet365/Caesars added; recommendation lens untouched), stakeType cash|bonus w/ riskedReal honesty in P/L + ROI, FE dropdowns + bonus checkbox, OCR bet365 fingerprint, unit: the operator's actual bet accepted with toWin 44 / riskedReal 0.
   "verifyCritic", // NIGHTLY CRITIC + RE-POINT PASS 2 (2026-07-26) — read-only adversary w/ static-gate honesty + ceiling bar + weekly synthesis + 05:40/Sunday wiring + alarm; re-point: verified-two_sided-only targets w/ haircut shown, repointed_served attribution split, day-one honest-reach note; synthetic e2e attribution exact.
+  "verifyRecordVisibility", // OPERATOR TRIPLE (2026-07-28) — lifetime MY BETS lens (never ages out; FE history collapse) + betsSurfaceParity/parlaySettle alarms + parlay auto-settle (book-agnostic tuple join, void drop-and-recompute w/ manual-defer, combined-odds win math, rider) + Sunday weekly surface audit (five surfaces vs record truth); e2e settle math exact.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

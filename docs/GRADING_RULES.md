@@ -55,3 +55,6 @@ For a placed bet to auto-settle and auto-CLV, its tuple must MATCH a tracked row
 - book one of: FanDuel, DraftKings, Fanatics, BetMGM, Hard Rock Bet, BetRivers (case-insensitive),
 - same side + line as the board pick.
 Bets outside the board (alt lines, other markets) will NOT auto-settle in v1 — manual settle required. Betting the board's picks exactly is the v1 workflow.
+
+## v2 §10 — PARLAY AUTO-SETTLE (2026-07-28)
+Pending realMoney parlays settle from the RECORD: each leg tuple-joins its graded twin (book-agnostic — outcomes are outcomes). All legs WIN ⇒ parlay WIN at the ticket's COMBINED odds. Any leg LOSS ⇒ LOSS. VOID/PUSH leg ⇒ DROP-AND-RECOMPUTE from per-leg prices (book convention); when legs carry no prices, the settle DEFERS TO MANUAL — computed payouts are never fabricated. All legs void ⇒ VOID, stake returned. Pending legs ⇒ parlay pending, never guessed. Settles are write-once with settleNote provenance; §5 book-authoritative manual settle overrides computed values (e.g. book rounding). Runs 05:35 nightly + immediately via the applyResults rider; the parlaySettle alarm REDs any settleable parlay pending ≥2 nights.

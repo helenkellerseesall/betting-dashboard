@@ -4032,7 +4032,13 @@
             </div>
           </div>
         `;
-        for (const b of bets) {
+        // 2026-07-28 RECORD-VISIBILITY — lifetime lens: recent bets render
+        // open; older-than-7-days collapse into a history section (never
+        // hidden, never aged out).
+        const _cut = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        const recentBets = bets.filter((b) => String(b.date || "") >= _cut);
+        const oldBets = bets.filter((b) => String(b.date || "") < _cut);
+        const _betCardHtml = (b) => {
           // 2026-07-07 FEEDBACK-B — HONEST statuses only: the voided e2e row was
           // rendering PENDING because void/push fell through the old ternary.
           const _ST = { win: ["WON", "#34D399"], loss: ["LOST", "#F87171"], push: ["PUSH", "#9CA3AF"], void: ["VOID", "#9CA3AF"], pending: ["PENDING", "#FBBF24"] };
@@ -4049,7 +4055,7 @@
           const identLine = b.betType === "parlay"
             ? `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">Parlay · ${(b.legs || []).length} legs</div>`
             : `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">${escapeHtml(b.player || "?")} <span style="font-weight:500;color:#D1D5DB;">${_sideNice(b.side)} ${b.line ?? ""} ${_famNice(b.statFamily)}</span></div>`;
-          html += `
+          return `
             <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${resultC};">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
                 <div>
@@ -4068,7 +4074,9 @@
               ${b.notes ? `<div style="margin-top:6px;font-size:10px;color:#6B7280;font-style:italic;">${escapeHtml(b.notes)}</div>` : ""}
             </div>
           `;
-        }
+        };
+        for (const b of recentBets) html += _betCardHtml(b);
+        if (oldBets.length) html += `<details style="margin-top:6px;"><summary style="font-size:11px;color:#9CA3AF;cursor:pointer;">📜 History — ${oldBets.length} older bet${oldBets.length === 1 ? "" : "s"} (full record, never aged out)</summary>${oldBets.map(_betCardHtml).join("")}</details>`;
         html += `</div>`;
         main.innerHTML = html;
       } catch (e) {

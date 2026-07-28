@@ -214,6 +214,24 @@ while true; do
     last_paircorpus_min="$STAMP"
   fi
 
+  # 2026-07-28 PARLAY AUTO-SETTLE — 05:35 ET (post-grade): pending realMoney parlays settle from graded
+  # leg twins (GRADING_RULES v2 §10: void leg = drop-and-recompute). parlaySettle alarm covers misses.
+  if [ "$MIN" -eq 35 ] && [ "$HOUR" -eq 5 ] && [ "$STAMP" != "${last_parlaysettle_min:-}" ]; then
+    log "settleParlaysFromRecord starting (05:35)..."
+    if node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/settleParlaysFromRecord.js >> "$LOG" 2>&1; then
+      log "settleParlaysFromRecord OK"
+    else
+      log "settleParlaysFromRecord FAILED (exit $?)"
+    fi
+    last_parlaysettle_min="$STAMP"
+  fi
+
+  # 2026-07-28 WEEKLY SURFACE AUDIT — Sundays 05:55 ET: every operator-visible surface vs record truth.
+  if [ "$MIN" -eq 55 ] && [ "$HOUR" -eq 5 ] && [ "$(TZ='America/New_York' date +%u)" = "7" ] && [ "$STAMP" != "${last_surfaceaudit_min:-}" ]; then
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/weeklySurfaceAudit.js >> "$LOG" 2>&1 && log "weeklySurfaceAudit OK" || log "weeklySurfaceAudit FAILED"
+    last_surfaceaudit_min="$STAMP"
+  fi
+
   # 2026-07-26 NIGHTLY CRITIC — 05:40 ET (post-grade, post-corpus): the board's adversary; read-only
   # missed-winners/ceiling/shown-vs-pool artifact; Sundays also write the weekly plain-English synthesis.
   if [ "$MIN" -eq 40 ] && [ "$HOUR" -eq 5 ] && [ "$STAMP" != "${last_critic_min:-}" ]; then

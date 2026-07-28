@@ -359,7 +359,36 @@ function checkCritic() {
 }
 checkCritic()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly"]
+// (g) 2026-07-28 RECORD-VISIBILITY parity — any realMoney ledger row absent
+// from the served MY BETS lens = RED (boardServeParity pattern, bets surface).
+function checkBetsParity() {
+  try {
+    const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
+    const real = (ledger.bets || []).filter((b) => (b.decisionType === "placed" || b.realMoney) && Number(b.stake) >= 1 && !["smoke-test", "diag", "verify"].includes(String(b.sportsbook || "").toLowerCase()))
+    const r = spawnSync("curl", ["-s", "-m", "8", "http://127.0.0.1:4000/api/ws/ledger/yesterday"], { encoding: "utf8", timeout: 12000 })
+    if (r.status !== 0 || !r.stdout) return set("betsSurfaceParity", "not-run", "Bets parity: backend unreachable this cycle", "wired")
+    let served; try { served = new Set((JSON.parse(r.stdout).placedBets?.bets || []).map((b) => b.id)) } catch (_) { return set("betsSurfaceParity", "fail", "Bets parity: lens returned unparseable JSON", "wired") }
+    const missing = real.filter((b) => !served.has(b.id))
+    if (missing.length) return set("betsSurfaceParity", "fail", `Bets parity: ${missing.length} realMoney row(s) ABSENT from MY BETS (${missing.slice(0, 2).map((b) => b.id).join(", ")}) — the record must never age out of its surface`, "wired")
+    return set("betsSurfaceParity", "green", `Bets parity: all ${real.length} realMoney rows served (lifetime lens)`, "wired")
+  } catch (e) { return set("betsSurfaceParity", "not-run", `Bets parity: ${String(e?.message || e)}`, "wired") }
+}
+checkBetsParity()
+
+// (h) 2026-07-28 PARLAY SETTLE — a settleable-but-unsettled realMoney parlay
+// past its grading night = RED.
+function checkParlaySettle() {
+  try {
+    const today = currentSlateDateEt()
+    const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
+    const stale = (ledger.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending" && (b.gameDate || b.date) && (Date.parse(today) - Date.parse(b.gameDate || b.date)) / 86400000 >= 2)
+    if (stale.length) return set("parlaySettle", "fail", `Parlay settle: ${stale.length} realMoney parlay(s) still pending ≥2 days past their night (${stale.slice(0, 2).map((b) => b.id).join(", ")}) — auto-settle or leg-grading stalled`, "wired")
+    return set("parlaySettle", "green", "Parlay settle: no stale pending parlays", "wired")
+  } catch (e) { return set("parlaySettle", "not-run", `Parlay settle: ${String(e?.message || e)}`, "wired") }
+}
+checkParlaySettle()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

@@ -2049,14 +2049,14 @@ router.get("/ledger/yesterday", (req, res) => {
       if (!Number.isFinite(stake) || stake < 1) return false  // exclude penny test entries
       return true
     }
-    // Date window: last 14 days inclusive of today — 2026-06-01 Phase Date-Doctrine-1B helper.
-    const fourteenDaysAgo = new Date()
-    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
-    const windowKey = slateDateForTimestamp(fourteenDaysAgo.getTime())
+    // 2026-07-28 RECORD-VISIBILITY (operator doctrine): MY BETS shows ALL
+    // realMoney bets LIFETIME — the record never ages out of its own surface
+    // (the 14-day window silently hid history; the FE collapses old rows
+    // instead). Lifetime totals always full-record. betsSurfaceParity alarms
+    // if any realMoney ledger row is absent from this lens.
     const placedAll = (ledger.bets || [])
       .filter(isPlaced)
       .filter((b) => !sport || b.sport === sport)
-      .filter((b) => b.date && b.date >= windowKey)
     const placedYesterday = placedAll.filter((b) => b.date === yKey)
     const placedToday     = placedAll.filter((b) => b.date === todayKey)
     // Combined rollup spans the full 14-day window now, not just yesterday+today.
@@ -2064,7 +2064,7 @@ router.get("/ledger/yesterday", (req, res) => {
     const placedCombinedRollup = rollupPlaced(placedAll)
     const placedBets = placedAll.length ? {
       ...placedCombinedRollup,  // flat fields for FE backward compat
-      windowDays: 14,
+      windowDays: "lifetime", // 2026-07-28 RECORD-VISIBILITY — full record, never aged out
       yesterdayRollup: rollupPlaced(placedYesterday),
       todayRollup:     rollupPlaced(placedToday),
       bets: placedAll.map((b) => ({

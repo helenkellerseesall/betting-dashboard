@@ -1230,6 +1230,13 @@ function applyResults({ date = dateKeyFromNow(), bets = {}, legs = {} } = {}) {
       const d3 = gradeDaily3(date)
       if (d3?.graded) console.log(`[applyResults] DAILY 3 re-grade rider: ${date} graded, net ${d3.netUnits > 0 ? "+" : ""}${d3.netUnits}u`)
     } catch (_) { /* rider is best-effort */ }
+    try {
+      // 2026-07-28 PARLAY rider: a manual leg settle immediately re-attempts
+      // any pending parlay whose legs it may have completed.
+      const { settleParlays } = require("../../scripts/settleParlaysFromRecord")
+      const ps = settleParlays()
+      if (ps?.settled) console.log(`[applyResults] PARLAY rider: ${ps.settled} parlay(s) auto-settled`)
+    } catch (_) { /* rider is best-effort */ }
   })
   const now = new Date().toISOString()
   const betsPath = fileFor(BETS_PREFIX, date)
