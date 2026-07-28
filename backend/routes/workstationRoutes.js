@@ -3210,6 +3210,87 @@ router.get("/top-picks", (req, res) => {
       } catch (_) { pick.marketFormat = "unverified" }
     }
 
+    // ── 2026-07-28 LINE-FRESHNESS AT SERVE (queued ASK 19:40; the Clement
+    // u1.5 field case: served u1.5 while BetMGM sold only u0.5) ─────────────
+    // Every card that survives the gates is revalidated against the FRESHEST
+    // snapshot via the ONE join authority (captureClosingLines indexes,
+    // reused inside pipeline/shared/lineFreshness.js):
+    //   · exact tuple, odds drifted ≥1.5pp implied → price_drift badge, card
+    //     serves the CURRENT odds (original preserved on the card)
+    //   · tuple gone but market lives at another line → line_moved badge, card
+    //     serves the CURRENT line/odds — so the exec-panel/slip-tray prefill
+    //     records the tuple the book ACTUALLY sells (tuple-identity doctrine;
+    //     record capture already writes per-line rows, so the revalidated bet
+    //     joins its true twin and the dup-guard stays line-scoped)
+    //   · tuple vanished from a FRESH (≤15m) snapshot → suspended deathbed
+    //     warning, never silently served; stale snapshot → honest can't-confirm
+    //   · every card gets an as-of age stamp; staleness is never invisible
+    // Only TODAY's slate revalidates — fallback/tomorrow boards are labeled
+    // (historical_board / future_board), never checked against the wrong
+    // snapshot. Whole pass is fail-open: an error LABELS the cards
+    // (revalidation_error) and logs an event; serving is never blocked.
+    // Events (moved/drift/suspended/error) append to
+    // line_freshness_events.jsonl for the nightly critic + Sunday surface
+    // audit to re-measure. Known-accepted rarity: a moved card can land on a
+    // line another card already serves (both render, provenance badged) —
+    // recording either hits the same line-scoped dup-guard.
+    let lineFreshnessSummary = null
+    try {
+      const lf = require("../pipeline/shared/lineFreshness")
+      const nowMs = Date.now()
+      const lfCounts = { fresh: 0, price_drift: 0, line_moved: 0, suspended: 0, unknown_stale: 0, skipped: 0 }
+      const lfCtxBySport = {}
+      let lfBuildMs = 0
+      for (const pick of picks) {
+        const sp = String(pick.sport || "").toLowerCase()
+        let v
+        if (date !== todayK) {
+          v = { status: "skipped", reason: date > todayK ? "future_board" : "historical_board", asOf: null, ageMinutes: null }
+        } else {
+          if (!(sp in lfCtxBySport)) {
+            lfCtxBySport[sp] = lf.buildRevalidationContext(sp, { now: nowMs })
+            lfBuildMs += lfCtxBySport[sp]?.meta?.tookMs || 0
+          }
+          let ctx = lfCtxBySport[sp]
+          // A snapshot keyed to a DIFFERENT slate cannot testify about this
+          // board (post-22:00 forward-rolls, off-cycle captures) — skip, honestly.
+          if (ctx && ctx.ok && ctx.meta.slateKey && ctx.meta.slateKey !== date) {
+            ctx = { ok: false, reason: "snapshot_slate_mismatch", meta: ctx.meta }
+          }
+          v = lf.revalidatePick(pick, ctx)
+        }
+        lfCounts[v.status] = (lfCounts[v.status] || 0) + 1
+        if (v.status === "line_moved" || v.status === "price_drift") {
+          if (v.current && v.status === "line_moved" && v.current.line != null) pick.line = v.current.line
+          if (v.current && v.current.odds != null) pick.oddsAmerican = v.current.odds
+          if (v.status === "line_moved") v.modelStatsNote = `model conf/edge were computed for the original line ${v.original?.line ?? "?"} — treat them as approximate at the new line`
+        }
+        pick.lineFreshness = v
+        if (v.status === "line_moved" || v.status === "price_drift" || v.status === "suspended") {
+          lf.logFreshnessEvent({
+            slate: date, sport: sp, type: v.status,
+            player: pick.player, statFamily: pick.statFamily, side: pick.side,
+            book: pick.sportsbook || pick.book, marketKey: pick.marketKey || null,
+            original: v.original || null, current: v.current || null,
+            driftPp: v.driftPp ?? null, snapshotAgeMinutes: v.ageMinutes ?? null,
+          })
+        }
+      }
+      const lfAnyCtx = lfCtxBySport.mlb || lfCtxBySport.nba || null
+      lineFreshnessSummary = {
+        revalidated: date === todayK,
+        slateKey: lfAnyCtx?.meta?.slateKey ?? null,
+        snapshotUpdatedAt: lfAnyCtx?.meta?.updatedAt ?? null,
+        snapshotAgeMinutes: lfAnyCtx?.meta?.ageMinutes ?? null,
+        counts: lfCounts,
+        contextBuildMs: lfBuildMs,
+      }
+    } catch (e) {
+      for (const pick of picks) if (!pick.lineFreshness) pick.lineFreshness = { status: "skipped", reason: "revalidation_error" }
+      lineFreshnessSummary = { revalidated: false, error: String(e?.message || e) }
+      try { require("../pipeline/shared/lineFreshness").logFreshnessEvent({ slate: date, type: "error", error: String(e?.message || e) }) } catch (_) {}
+    }
+
     res.json({
       date,
       requestedDate,
@@ -3241,6 +3322,9 @@ router.get("/top-picks", (req, res) => {
         // RE-POINT PASS 2 — unpurchasable-side tuples served via a verified-sellable book.
         repointedServed,
       },
+      // LINE-FRESHNESS AT SERVE — board-level revalidation summary (per-card
+      // verdicts ride each pick.lineFreshness; staleness is never invisible).
+      lineFreshness: lineFreshnessSummary,
       picks,
       // 2026-07-14 HONEST-COMMS (All-Star-night incident) — an empty board must
       // SAY WHY. Distinct states, evidence-classified via the ONE games-evidence

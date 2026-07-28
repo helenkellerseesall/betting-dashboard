@@ -388,7 +388,53 @@ function checkParlaySettle() {
 }
 checkParlaySettle()
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle"]
+// (i) 2026-07-28 LINE-FRESHNESS AT SERVE — the pack's ships-with alarm:
+// RED when the serve pass stops stamping cards, revalidation errored recently,
+// or the snapshot has outlived its REAL refresh cadence during a game window
+// (cards may be serving dead lines — the Clement u1.5 class). PREMISE
+// CORRECTION (measured at build, 2026-07-28): the 5-min close-capture loop
+// READS the snapshot, it does not refresh it — snapshot-mlb.json is written
+// by the HOURLY slate:mlb run, so intra-hour ages up to ~60m are NORMAL. The
+// ASK's literal >15m bar would be RED most of every game night (cry-wolf);
+// the bar here is hourly + grace = >75m, which means the refresher is
+// actually dead. A true 15m bar needs a game-window snapshot refresher
+// (quota-costed — its own ASK). Honest states: backend down ⇒ not-run; empty
+// board ⇒ green (board emptiness is boardServeParity's beat, not ours).
+const LF_GAME_WINDOW_MAX_AGE_MIN = 75
+function checkLineFreshness() {
+  try {
+    const slate = currentSlateDateEt()
+    const L = latestLedger()
+    // Game window = any pick on the CURRENT slate with first pitch between
+    // 4h ago and 30min from now (close-capture keeps snapshots ≤~5m in it).
+    const inWindow = !!(L && L.slate === slate && L.rows.some((r) => {
+      const gt = r.gameTime ? Date.parse(r.gameTime) : null
+      return gt && gt >= now - 4 * 3600e3 && gt <= now + 30 * 60e3
+    }))
+    let ageMin = null
+    try { ageMin = (now - fs.statSync(path.join(BACKEND, "snapshot-mlb.json")).mtimeMs) / 60000 } catch (_) {}
+    let recentErrors = 0
+    try {
+      const lines = fs.readFileSync(path.join(TRACKING, "line_freshness_events.jsonl"), "utf8").split("\n").filter(Boolean).slice(-500)
+      for (const l of lines) { try { const e = JSON.parse(l); if (e.type === "error" && now - Date.parse(e.ts) < 3600e3) recentErrors++ } catch (_) {} }
+    } catch (_) {}
+    const r = spawnSync("curl", ["-s", "-m", "8", "http://127.0.0.1:4000/api/ws/top-picks?limit=20"], { encoding: "utf8", timeout: 12000 })
+    if (r.status !== 0 || !r.stdout) return set("lineFreshness", "not-run", "Line freshness: backend unreachable this cycle", "wired")
+    let j; try { j = JSON.parse(r.stdout) } catch (_) { return set("lineFreshness", "fail", "Line freshness: top-picks returned unparseable JSON", "wired") }
+    const served = Array.isArray(j.picks) ? j.picks.length : 0
+    const summary = j.lineFreshness
+    if (served > 0 && !summary) return set("lineFreshness", "fail", `Line freshness: ${served} cards served WITHOUT the revalidation stamp — the serve pass is not running`, "wired")
+    if (summary && summary.error) return set("lineFreshness", "fail", `Line freshness: revalidation ERRORED at serve (${String(summary.error).slice(0, 100)})`, "wired")
+    if (recentErrors) return set("lineFreshness", "fail", `Line freshness: ${recentErrors} revalidation error event(s) in the last hour — cards are serving stamped-stale`, "wired")
+    if (inWindow && ageMin != null && ageMin > LF_GAME_WINDOW_MAX_AGE_MIN) return set("lineFreshness", "fail", `Line freshness: snapshot ${ageMin.toFixed(0)}m old during a game window (>${LF_GAME_WINDOW_MAX_AGE_MIN}m = the hourly slate refresher is dead) — cards are revalidating against a corpse; check scheduler slate:mlb`, "wired")
+    const c = (summary && summary.counts) || {}
+    const unconfirmed = (c.suspended || 0) + (c.unknown_stale || 0)
+    return set("lineFreshness", "green", `Line freshness: ${served} card(s) stamped (${c.line_moved || 0} moved · ${c.price_drift || 0} drifted · ${unconfirmed} unconfirmed) · snapshot ${ageMin != null ? ageMin.toFixed(0) + "m" : "?"} old${inWindow ? " · game window" : ""}`, "wired")
+  } catch (e) { return set("lineFreshness", "not-run", `Line freshness: ${String(e?.message || e)}`, "wired") }
+}
+checkLineFreshness()
+
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

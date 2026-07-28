@@ -2724,8 +2724,22 @@
     // deterministic id.
     function _renderPlaceBetPanel(p) {
       if (!p || !p.player) return "";
+      // 2026-07-28 LINE-FRESHNESS — the record prefill carries the REVALIDATED
+      // tuple (p.line/p.oddsAmerican were swapped server-side on a move, so the
+      // recorded bet joins its true per-line twin). The panel says so, and a
+      // suspended/unconfirmed market warns BEFORE the money step.
+      const lf = p.lineFreshness || null;
+      let lfPanel = "";
+      if (lf && (lf.status === "suspended" || lf.status === "unknown_stale")) {
+        lfPanel = `<div style="font-size:11px;font-weight:700;color:#FECACA;background:#450A0A;border-left:3px solid #F87171;border-radius:6px;padding:7px 9px;margin-bottom:8px;">⚠ ${escapeHtml(lf.warning || "market may be pulled — verify in app before betting")}</div>`;
+      } else if (lf && lf.status === "line_moved") {
+        lfPanel = `<div style="font-size:10px;color:#FDE68A;background:#451A03;border-left:3px solid #FBBF24;border-radius:6px;padding:6px 9px;margin-bottom:8px;">⇄ This records at the CURRENT line <b>${_sideNice(p.side)} ${p.line}</b> (${_oddsNice(p.oddsAmerican ?? p.odds)}) — the board originally analyzed ${lf.original && lf.original.line != null ? `${_sideNice(p.side)} ${lf.original.line}` : "another line"}${lf.original && lf.original.odds != null ? ` (${_oddsNice(lf.original.odds)})` : ""}. ${escapeHtml(lf.modelStatsNote || "")}</div>`;
+      } else if (lf && lf.status === "price_drift") {
+        lfPanel = `<div style="font-size:10px;color:#BFDBFE;background:#0A1422;border-left:3px solid #60A5FA;border-radius:6px;padding:6px 9px;margin-bottom:8px;">± Price moved since capture — card shows the current ${_oddsNice(p.oddsAmerican ?? p.odds)} (was ${lf.original && lf.original.odds != null ? _oddsNice(lf.original.odds) : "—"}). Your slip is still ground truth.</div>`;
+      }
       return `
         <div style="border-top:1px solid #1B2030;margin-top:10px;padding-top:10px;">
+          ${lfPanel}
           ${_renderOpenInBook(p)}
           <div style="display:flex;gap:8px;">
           <button id="pb-open" onclick="window._pbOpen()"
@@ -3529,6 +3543,35 @@
       return n > 0 ? `+${n}` : `${n}`;
     }
 
+    // ── 2026-07-28 LINE-FRESHNESS AT SERVE — card badges + as-of stamp ──────
+    // Verdicts come ONLY from the server (pick.lineFreshness); the FE never
+    // synthesizes a freshness claim. line_moved/price_drift cards already carry
+    // the CURRENT line/odds (server swapped them; original preserved in the
+    // verdict), so the "I bet this" prefill records the tuple the book sells.
+    function _lfNice(p) {
+      const lf = p && p.lineFreshness;
+      if (!lf) return { badges: "", stamp: "", warn: "" };
+      const orig = lf.original || {};
+      const wasLine = orig.line != null ? `${_sideNice(p.side)} ${orig.line}` : "";
+      const wasOdds = orig.odds != null ? _oddsNice(orig.odds) : "";
+      let badges = "";
+      if (lf.status === "line_moved") {
+        badges = `<span style="font-size:8px;font-weight:700;color:#FBBF24;background:#1F1A0A;padding:2px 6px;border-radius:8px;white-space:nowrap;">⇄ LINE MOVED · was ${escapeHtml(wasLine)} ${escapeHtml(wasOdds)}</span>`;
+      } else if (lf.status === "price_drift") {
+        badges = `<span style="font-size:8px;font-weight:700;color:#60A5FA;background:#0A1422;padding:2px 6px;border-radius:8px;white-space:nowrap;">± PRICE MOVED · was ${escapeHtml(wasOdds)} (${lf.driftPp}pp)</span>`;
+      }
+      const stamp = (lf.ageMinutes != null)
+        ? `<div style="font-size:8px;color:#6B7280;margin-top:1px;">lines as of ${lf.ageMinutes <= 1 ? "now" : Math.round(lf.ageMinutes) + "m ago"}</div>`
+        : (lf.status === "skipped" ? `<div style="font-size:8px;color:#6B7280;margin-top:1px;">not re-checked (${escapeHtml(String(lf.reason || ""))})</div>` : "");
+      let warn = "";
+      if (lf.status === "suspended") {
+        warn = `<div style="font-size:9px;font-weight:700;color:#FECACA;background:#450A0A;border-left:3px solid #F87171;border-radius:5px;padding:4px 7px;margin-top:6px;">⚠ ${escapeHtml(lf.warning || "market may be pulled — verify in app before betting")}</div>`;
+      } else if (lf.status === "unknown_stale") {
+        warn = `<div style="font-size:9px;color:#FDE68A;background:#451A03;border-left:3px solid #FBBF24;border-radius:5px;padding:4px 7px;margin-top:6px;">⚠ ${escapeHtml(lf.warning || "couldn't confirm this line is still up — verify in app")}</div>`;
+      }
+      return { badges, stamp, warn };
+    }
+
     // Format ISO gameTime → "8:00 PM ET"
     function _gameTimeNice(iso) {
       if (!iso) return "";
@@ -3771,6 +3814,7 @@
         const sportColor = pick.sport === "nba" ? "#F97316" : "#34D399";
         const edgeColor = Number(pick.edge) >= 0 ? "#34D399" : "#F87171";
         const capChip = pick.tierCapNote ? ` <span style="font-style:italic;color:#9CA3AF;font-weight:400;">· ${escapeHtml(pick.tierCapNote)}</span>` : "";
+        const lfUi = _lfNice(pick);
         return `
           <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:11px 12px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
             <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -3780,17 +3824,20 @@
             <div style="font-size:15px;font-weight:800;color:#F9FAFB;margin-top:6px;line-height:1.15;">${escapeHtml(pick.player || "?")}${pick.team ? ` <span style="font-size:11px;font-weight:500;color:#6B7280;">· ${escapeHtml(pick.team)}</span>` : ""}</div>
             ${_gameIdLine(pick)}
             <div style="font-size:15px;font-weight:700;color:#F9FAFB;margin-top:3px;line-height:1.2;">${_pickLineNice(pick)} <span style="font-size:11px;font-weight:500;color:#9CA3AF;">${_famNice(pick.statFamily)}${pick.marketFormat === "over_only" ? " · milestone" : ""}</span></div>
+            ${lfUi.badges ? `<div style="margin-top:4px;">${lfUi.badges}</div>` : ""}
             ${archetypeChip}
             <div style="display:flex;gap:16px;margin-top:9px;align-items:flex-end;">
               <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">MODEL CONF</div><div style="font-size:15px;color:${tierC};font-weight:800;font-family:ui-monospace,monospace;line-height:1.1;">${conf}</div></div>
               <div><div style="font-size:8px;color:#6B7280;letter-spacing:.3px;">EDGE vs MKT</div><div style="font-size:13px;color:${edgeColor};font-weight:700;font-family:ui-monospace,monospace;line-height:1.1;">${edge}</div></div>
-              <div style="margin-left:auto;text-align:right;"><div style="font-size:8px;color:#6B7280;">PRICE</div><div style="font-size:11px;color:#D1D5DB;margin-top:2px;">${odds} ${book}</div>${pick.repointed ? `<div style="font-size:8px;color:#FBBF24;">re-pointed (best ${_oddsNice(pick.repointFromOdds)} not sellable · −${pick.repointHaircutPp}pp)</div>` : ""}</div>
+              <div style="margin-left:auto;text-align:right;"><div style="font-size:8px;color:#6B7280;">PRICE</div><div style="font-size:11px;color:#D1D5DB;margin-top:2px;">${odds} ${book}</div>${pick.repointed ? `<div style="font-size:8px;color:#FBBF24;">re-pointed (best ${_oddsNice(pick.repointFromOdds)} not sellable · −${pick.repointHaircutPp}pp)</div>` : ""}${lfUi.stamp}</div>
             </div>
+            ${lfUi.warn}
           </div>
         `;
       }
 
       // Standard (single-column) card — also taps into modal now
+      const lfUiStd = _lfNice(pick);
       return `
         <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${tierC};cursor:pointer;" onclick="${onTap}">
           <div style="display:flex;align-items:center;">
@@ -3800,8 +3847,11 @@
                 <span style="font-size:15px;font-weight:700;color:#F9FAFB;">${escapeHtml(pick.player || "?")}</span>${starBadge}
               </div>
               <div style="font-size:13px;color:#D1D5DB;margin-top:3px;">${_famNice(pick.statFamily)} <b style="color:#F9FAFB;">${_sideNice(pick.side)} ${pick.line}</b></div>
+              ${lfUiStd.badges ? `<div style="margin-top:3px;">${lfUiStd.badges}</div>` : ""}
               ${archetypeChip}
               <div style="font-size:11px;color:#D1D5DB;margin-top:3px;">${odds} @ ${book}</div>
+              ${lfUiStd.stamp}
+              ${lfUiStd.warn}
             </div>
             <div style="text-align:right;font-family:ui-monospace,monospace;">
               <div style="font-size:16px;color:${tierC};font-weight:800;">${conf}</div>
@@ -3934,10 +3984,24 @@
         }
         const fellBackBadge = d.fellBack ? `<div style="font-size:11px;color:#FBBF24;background:#1F1A0A;padding:6px 10px;border-radius:6px;border-left:3px solid #FBBF24;margin-bottom:8px;">📅 No slate yet for ${escapeHtml(d.todayKey || d.requestedDate || "today")} — showing last available date <b>${escapeHtml(d.date)}</b></div>` : "";
         const dampenedBadge = (d.counts?.dampenedRejected > 0) ? `<div style="font-size:11px;color:#60A5FA;background:#0A1422;padding:6px 10px;border-radius:6px;border-left:3px solid #60A5FA;margin-bottom:8px;">⚖ Calibration dampener removed <b>${d.counts.dampenedRejected}</b> pick${d.counts.dampenedRejected===1?'':'s'} (modelProb dropped below implied odds → negative edge after dampening). See GAMES for unfiltered view.</div>` : "";
+        // 2026-07-28 LINE-FRESHNESS — board-level as-of stamp (staleness never
+        // invisible). Server-computed; the FE only renders what it was told.
+        const lfSum = d.lineFreshness || null;
+        const lfHeader = (() => {
+          if (!lfSum) return "";
+          if (lfSum.error) return `<div style="font-size:10px;color:#FBBF24;background:#1F1A0A;padding:4px 8px;border-radius:6px;margin-bottom:8px;">⚠ line re-check failed this refresh — card prices are as captured, verify in app (${escapeHtml(String(lfSum.error).slice(0, 80))})</div>`;
+          if (!lfSum.revalidated) return "";
+          const age = lfSum.snapshotAgeMinutes;
+          const c = lfSum.counts || {};
+          const moved = (c.line_moved || 0) + (c.price_drift || 0);
+          const susp = (c.suspended || 0) + (c.unknown_stale || 0);
+          return `<div style="font-size:10px;color:#6B7280;margin-bottom:8px;">✓ lines re-checked at serve · snapshot ${age != null ? (age <= 1 ? "just now" : Math.round(age) + "m old") : "age unknown"}${moved ? ` · <span style="color:#FBBF24;">${moved} moved</span>` : ""}${susp ? ` · <span style="color:#F87171;">${susp} unconfirmed</span>` : ""}</div>`;
+        })();
         let html = `<div style="padding:8px 10px;">
           ${d3html}
           ${fellBackBadge}
           ${dampenedBadge}
+          ${lfHeader}
           <div style="font-size:11px;color:#6B7280;margin-bottom:8px;">
             ${picks.length} picks · ${byTier.ELITE.length} top tier · ${byTier.STRONG.length} strong · ${byTier.PLAYABLE.length} worth a look · cross-sport ${(d.sportsScanned || []).join("+")}
           </div>`;

@@ -108,11 +108,39 @@ function criticSlate(slate) {
   // (c) shown vs pool
   const shownApprox = decided.filter((r) => dropReason(r, bestOddsByTuple, sellableTuples) === "served_or_timing")
   const agg = (set) => { let u = 0, w = 0; for (const r of set) { u += unitsOf(r); if (r.result === "win") w++ } return { n: set.length, units: +u.toFixed(1), winRate: set.length ? +(100 * w / set.length).toFixed(1) : null } }
+  // (e) 2026-07-28 LINE-FRESHNESS attribution — what did serve-time
+  // revalidation do on this slate, and did serving MOVED lines cost or save
+  // money? Events were logged AT SERVE (the only time serve state is
+  // knowable); the re-measure joins each line_moved event to the graded
+  // record at BOTH lines — record capture writes per-line rows, so the true
+  // twin exists once graded. delta = units(served line) − units(original
+  // line); positive = the move saved money. Pairs with a missing twin are
+  // counted unmeasurable, never guessed. Events file read from TRACKING so
+  // fixture runs (CRITIC_TRACKING_DIR) stay hermetic.
+  const { readFreshnessEvents } = require("../pipeline/shared/lineFreshness")
+  const lfEvents = readFreshnessEvents({ file: path.join(TRACKING, "line_freshness_events.jsonl"), slate })
+  const lfCounts = {}
+  for (const e of lfEvents) lfCounts[e.type] = (lfCounts[e.type] || 0) + 1
+  const normBk = (s) => String(s || "").toLowerCase().replace(/\s+/g, "")
+  const rowAt = (e, line) => {
+    if (line == null) return null
+    const cands = decided.filter((r) => String(r.player).toLowerCase() === String(e.player || "").toLowerCase() && r.statFamily === e.statFamily && String(r.side).toLowerCase() === String(e.side || "").toLowerCase() && String(r.line) === String(line))
+    return cands.find((r) => normBk(r.sportsbook || r.book) === normBk(e.book)) || cands[0] || null
+  }
+  let lfMeasured = 0, lfUnmeasurable = 0, lfDeltaUnits = 0
+  for (const e of lfEvents.filter((x) => x.type === "line_moved")) {
+    const servedRow = e.current && rowAt(e, e.current.line)
+    const origRow = e.original && rowAt(e, e.original.line)
+    if (!servedRow || !origRow) { lfUnmeasurable++; continue }
+    lfMeasured++
+    lfDeltaUnits += unitsOf(servedRow) - unitsOf(origRow)
+  }
   return {
     slate, generatedAt: new Date().toISOString(), readOnly: true,
     missedWinners: { byReason: missed, unitsAtFlat$1: +missedUnits.toFixed(1), samples, note: "static-gate replay; serve timing not retro-knowable — served_or_timing rows excluded, never guessed" },
     ceilingAudit: { checked: tailN, exceeded95th: tailExceed, ratePct: tailN ? +(100 * tailExceed / tailN).toFixed(1) : null, bar: "≤7% healthy (unconditional 95th-pct exceedance ≈5%)" },
     shownVsPool: { shownApprox: agg(shownApprox), pool: agg(decided) },
+    lineFreshness: { events: lfCounts, movedServeDelta: { measured: lfMeasured, unmeasurable: lfUnmeasurable, unitsSavedAtFlat$1: +lfDeltaUnits.toFixed(1) }, note: "delta = units(served line) − units(original line) on graded per-line twins; positive = serving the moved line saved money" },
   }
 }
 
@@ -130,7 +158,21 @@ if (args.includes("--weekly")) {
   let units = 0
   for (const r of reports) { units += r.missedWinners.unitsAtFlat$1; for (const [k, v] of Object.entries(r.missedWinners.byReason)) byReason[k] = (byReason[k] || 0) + v }
   const tails = reports.reduce((a, r) => ({ n: a.n + r.ceilingAudit.checked, x: a.x + r.ceilingAudit.exceeded95th }), { n: 0, x: 0 })
-  const md = `# Weekly Critic — ${today}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
+  // 2026-07-28 LINE-FRESHNESS weekly aggregation (older artifacts lack the
+  // section — guarded, never re-derived).
+  const lfAgg = reports.reduce((a, r) => {
+    const l = r.lineFreshness
+    if (!l) return a
+    for (const [k, v] of Object.entries(l.events || {})) a.events[k] = (a.events[k] || 0) + v
+    a.measured += l.movedServeDelta?.measured || 0
+    a.unmeasurable += l.movedServeDelta?.unmeasurable || 0
+    a.units += l.movedServeDelta?.unitsSavedAtFlat$1 || 0
+    return a
+  }, { events: {}, measured: 0, unmeasurable: 0, units: 0 })
+  const lfLine = Object.keys(lfAgg.events).length
+    ? `\n\nLine-freshness at serve: ${Object.entries(lfAgg.events).map(([k, v]) => `${v} ${k}`).join(" · ")}. Moved-line serves re-measured on graded twins: ${lfAgg.measured} measured (${lfAgg.unmeasurable} unmeasurable) → **${lfAgg.units >= 0 ? "+" : ""}${lfAgg.units.toFixed(1)}u ${lfAgg.units >= 0 ? "saved" : "cost"}** vs serving the dead original line.`
+    : ""
+  const md = `# Weekly Critic — ${today}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}${lfLine}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
   const out = path.join(ROOT, "..", "docs", "audits", `weekly-critic-${today}.md`)
   fs.mkdirSync(path.dirname(out), { recursive: true })
   fs.writeFileSync(out, md)
