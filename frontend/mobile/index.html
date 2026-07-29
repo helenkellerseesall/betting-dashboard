@@ -4052,6 +4052,19 @@
         const pb = d.placedBets || null;
         const bets = pb?.bets || [];
         document.getElementById("myBetsCount").textContent = bets.length;
+        // 2026-07-29 VOID-HIDE (CA display-only ASK, operator GO): void tickets
+        // (stake returned, no P/L) leave the CARD LIST only — the served
+        // payload, the ledger, and both parity watchers (payload-keyed:
+        // componentHealthCheck.js:368, weeklySurfaceAudit.js:36) still carry
+        // them, so the hide can never trip parity. Killed with the cards: the
+        // misleading "→ $X" arrow on dead tickets. ONE-TRUTH COUNT LINE:
+        // the rollup's `pushes` field counts push+void together, so P is
+        // re-derived as pushes minus voids — the voids are described ONCE by
+        // the annotation, true pushes (rare) keep their P. Scope: result
+        // "void" exactly; push cards are real record events and still render.
+        const _isVoid = (b) => String(b.result || "").toLowerCase() === "void";
+        const voidCount = bets.filter(_isVoid).length;
+        const visibleBets = bets.filter((b) => !_isVoid(b));
         if (!bets.length) {
           main.innerHTML = `<div style="padding:24px;color:#9CA3AF;text-align:center;">
             <div style="font-size:28px;margin-bottom:10px;">📝</div>
@@ -4092,7 +4105,7 @@
             </div>
             <div style="font-size:10px;color:#6B7280;margin-top:6px;">$${pb.riskedStaked != null ? pb.riskedStaked : pb.staked} real money risked lifetime${pb.riskedStaked != null && _num(pb.staked) != null && _num(pb.staked) !== _num(pb.riskedStaked) ? ` ($${(_num(pb.staked) - _num(pb.riskedStaked)).toFixed(2)} bonus credits excluded)` : ""}</div>
             <div style="font-size:11px;color:#9CA3AF;margin-top:10px;">
-              ${pb.count} bet${pb.count === 1 ? "" : "s"} · ${pb.pending} pending · ${pb.wins}W ${pb.losses}L${pb.pushes ? ' ' + pb.pushes + 'P' : ''}
+              ${pb.count} bet${pb.count === 1 ? "" : "s"} · ${pb.pending} pending · ${pb.wins}W ${pb.losses}L${(() => { const tp = (Number(pb.pushes) || 0) - voidCount; return tp > 0 ? ' ' + tp + 'P' : ''; })()}${voidCount ? ` · <span style="color:#6B7280;">${voidCount} void hidden (stake returned, no P/L)</span>` : ''}
               ${(() => {
                 // P2a fix 2 — small-sample guard. A −100% ROI on n=2 reads as "system broken."
                 // Below SMALL_SAMPLE_MIN graded bets, suppress hit%/ROI for an honest "not yet meaningful"
@@ -4112,7 +4125,7 @@
         // until the record outgrows FOLD_AT rows, then older rows collapse
         // (never hidden, never aged out).
         const FOLD_AT = 15;
-        const _sorted = [...bets].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.placedAt || "").localeCompare(String(a.placedAt || "")));
+        const _sorted = [...visibleBets].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.placedAt || "").localeCompare(String(a.placedAt || "")));
         const recentBets = _sorted.slice(0, FOLD_AT);
         const oldBets = _sorted.slice(FOLD_AT);
         const _betCardHtml = (b) => {

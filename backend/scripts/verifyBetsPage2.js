@@ -87,6 +87,9 @@ check("ticket: any lost ⇒ LOST · open blocks ⇒ null · all won ⇒ WON · w
   const fe = rd("../frontend/mobile/index.html")
   check("FE: PROFIT(settled) + PENDING(open) header, bonus-credit note, no POTENTIAL-of-the-dead", /PROFIT <span/.test(fe) && /PENDING <span/.test(fe) && /bonus credits excluded/.test(fe) && /a potential that includes dead\s*\n?\s*\/\/ tickets is not a potential/i.test(fe.replace(/\r/g, "")))
   check("FE: fold by COUNT (FOLD_AT=15, newest-first), not age", /FOLD_AT = 15/.test(fe) && /_sorted\.slice\(0, FOLD_AT\)/.test(fe) && !/Date\.now\(\) - 7 \* 86400000/.test(fe))
+  // 2026-07-29 VOID-HIDE (CA ASK) — display-layer only, one-truth count line.
+  check("FE void-hide: voids filtered BEFORE the fold, annotation present, P re-derived so voids are described ONCE", /const visibleBets = bets\.filter\(\(b\) => !_isVoid\(b\)\)/.test(fe) && /\[\.\.\.visibleBets\]\.sort/.test(fe) && /void hidden \(stake returned, no P\/L\)/.test(fe) && /- voidCount; return tp > 0/.test(fe))
+  check("FE void-hide is FE-ONLY: the placedAll lens chain is isPlaced + sport ONLY (no result filter — parity payload-keyed) + FE doc states it", /placedAll = \(ledger\.bets \|\| \[\]\)\s*\n\s*\.filter\(isPlaced\)\s*\n\s*\.filter\(\(b\) => !sport \|\| b\.sport === sport\)/.test(wr) && /parity watchers \(payload-keyed/.test(fe))
   check("FE: live leg chips + effectively-decided ticket + nightly disclaimer, server-asserted only", /LOST \(live\)/.test(fe) && /effectively decided \(losing live\)/.test(fe) && /official grade at the nightly/.test(fe) && /never synthesizes a\s*\n?\s*\/\/ live verdict/i.test(fe.replace(/\r/g, "")))
   const chc = rd("scripts/componentHealthCheck.js")
   const writeIdx = chc.indexOf("fs.writeFileSync(OUT")
