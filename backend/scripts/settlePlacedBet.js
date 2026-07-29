@@ -113,6 +113,20 @@ function main() {
   console.log(`  bet:      ${r.bet.player} ${r.bet.statFamily ?? ""} ${r.bet.side ?? ""} ${r.bet.line ?? ""} @ ${r.bet.sportsbook}`)
   console.log(`  payout:   ${r.bet.payout != null ? `$${r.bet.payout}` : "(none recorded)"}`)
   console.log(`  bankroll: $${r.prevBalance} → $${r.newBalance}`)
+
+  // 2026-07-29 BETS-PAGE PACK 2 (3) — a manually-settled PARLAY immediately
+  // stamps its leg results from the graded record (the 07-27 "WON with
+  // pending legs" card class). Ticket result/payout above are untouched —
+  // legs-only annotation; ungraded twins stay pending, never guessed. The
+  // nightly settleParlaysFromRecord sweep catches any stragglers.
+  if (bet.betType === "parlay" || bet.betType === "slip") {
+    try {
+      const { backfillLegResults } = require("./settleParlaysFromRecord")
+      const b = backfillLegResults({ onlyId: id })
+      if (b.backfilled) console.log(`  legs:     ${b.receipts[0].legResults.join("/")} (${b.receipts[0].stamped} stamped from graded record)`)
+      else console.log(`  legs:     no graded twins yet — the nightly sweep will stamp them (never guessed)`)
+    } catch (e) { console.log(`  legs:     backfill skipped (${String(e?.message || e)})`) }
+  }
   process.exit(0)
 }
 

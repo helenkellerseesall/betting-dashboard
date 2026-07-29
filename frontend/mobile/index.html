@@ -4067,20 +4067,30 @@
           <button onclick="window._srOpen()" style="width:100%;margin-bottom:12px;padding:11px 0;border-radius:10px;border:1px solid #14532D;background:rgba(52,211,153,0.12);color:#34D399;font-size:14px;font-weight:800;cursor:pointer;">
             📷 Record a bet from a slip screenshot
           </button>`;
-        // Summary card
+        // Summary card — 2026-07-29 BETS-PAGE PACK 2 (1): two labeled HONEST
+        // numbers replace the old "POTENTIAL +$151.89" (which summed toWin
+        // across settled losses + voids — a potential that includes dead
+        // tickets is not a potential). PROFIT = settled record, riskedReal-
+        // aware (bonus losses cost $0 real; book payout beats toWin math).
+        // PENDING = open bets only. Server math: pipeline/shared/betRollup.js;
+        // fallbacks keep an older backend payload rendering sanely.
+        const _num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+        const _profit = _num(pb.settledProfit) != null ? _num(pb.settledProfit) : (_num(pb.profit) || 0);
+        const _pendWin = _num(pb.pendingToWin) != null ? _num(pb.pendingToWin) : (_num(pb.toWin) || 0);
+        const _profitC = _profit > 0 ? "#34D399" : _profit < 0 ? "#F87171" : "#9CA3AF";
         html += `
-          <div style="background:#141828;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid #34D399;">
-            <div style="font-size:11px;color:#6B7280;letter-spacing:1px;margin-bottom:6px;">TOTAL EXPOSURE</div>
+          <div style="background:#141828;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid ${_profitC};">
             <div style="display:flex;justify-content:space-between;align-items:baseline;">
               <div>
-                <span style="font-size:22px;font-weight:700;color:#F9FAFB;">$${pb.staked}</span>
-                <span style="font-size:11px;color:#6B7280;margin-left:6px;">staked</span>
+                <div style="font-size:11px;color:#6B7280;letter-spacing:1px;">PROFIT <span style="letter-spacing:0;text-transform:none;">(settled${pb.settled != null ? ", " + pb.settled + " bets" : ""})</span></div>
+                <div style="font-size:22px;font-weight:700;color:${_profitC};font-family:ui-monospace,monospace;">${_profit >= 0 ? "+" : "−"}$${Math.abs(_profit).toFixed(2)}</div>
               </div>
               <div style="text-align:right;">
-                <div style="font-size:11px;color:#6B7280;">POTENTIAL</div>
-                <div style="font-size:18px;color:#34D399;font-family:ui-monospace,monospace;">+$${pb.toWin}</div>
+                <div style="font-size:11px;color:#6B7280;letter-spacing:1px;">PENDING <span style="letter-spacing:0;text-transform:none;">(${pb.pending || 0} open · to win)</span></div>
+                <div style="font-size:18px;color:${(pb.pending || 0) > 0 ? "#FBBF24" : "#6B7280"};font-family:ui-monospace,monospace;">${_pendWin > 0 ? "+$" + _pendWin.toFixed(2) : "—"}</div>
               </div>
             </div>
+            <div style="font-size:10px;color:#6B7280;margin-top:6px;">$${pb.riskedStaked != null ? pb.riskedStaked : pb.staked} real money risked lifetime${pb.riskedStaked != null && _num(pb.staked) != null && _num(pb.staked) !== _num(pb.riskedStaked) ? ` ($${(_num(pb.staked) - _num(pb.riskedStaked)).toFixed(2)} bonus credits excluded)` : ""}</div>
             <div style="font-size:11px;color:#9CA3AF;margin-top:10px;">
               ${pb.count} bet${pb.count === 1 ? "" : "s"} · ${pb.pending} pending · ${pb.wins}W ${pb.losses}L${pb.pushes ? ' ' + pb.pushes + 'P' : ''}
               ${(() => {
@@ -4096,24 +4106,44 @@
             </div>
           </div>
         `;
-        // 2026-07-28 RECORD-VISIBILITY — lifetime lens: recent bets render
-        // open; older-than-7-days collapse into a history section (never
-        // hidden, never aged out).
-        const _cut = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-        const recentBets = bets.filter((b) => String(b.date || "") >= _cut);
-        const oldBets = bets.filter((b) => String(b.date || "") < _cut);
+        // 2026-07-28 RECORD-VISIBILITY lifetime lens · 2026-07-29 PACK 2 (2):
+        // fold by COUNT, not age. The age fold hid a 2-month-old record behind
+        // "History" at 8 total bets — pointless. Newest-first; everything shows
+        // until the record outgrows FOLD_AT rows, then older rows collapse
+        // (never hidden, never aged out).
+        const FOLD_AT = 15;
+        const _sorted = [...bets].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.placedAt || "").localeCompare(String(a.placedAt || "")));
+        const recentBets = _sorted.slice(0, FOLD_AT);
+        const oldBets = _sorted.slice(FOLD_AT);
         const _betCardHtml = (b) => {
           // 2026-07-07 FEEDBACK-B — HONEST statuses only: the voided e2e row was
           // rendering PENDING because void/push fell through the old ternary.
           const _ST = { win: ["WON", "#34D399"], loss: ["LOST", "#F87171"], push: ["PUSH", "#9CA3AF"], void: ["VOID", "#9CA3AF"], pending: ["PENDING", "#FBBF24"] };
           const st = _ST[String(b.result || "pending").toLowerCase()] || _ST.pending;
-          const resultTxt = st[0], resultC = st[1];
-          const legsHtml = (b.legs || []).map((l) => `
+          let resultTxt = st[0], resultC = st[1];
+          // 2026-07-29 PACK 2 (4) — LIVE LEG-DEATH INDICATOR (display-only;
+          // server-computed b.legLive from the sanctioned grading sources).
+          // The FE renders only what the server asserted — never synthesizes a
+          // live verdict. Official grade stays at the nightly.
+          const _LV = { won_unofficial: ["WON (live)", "#34D399"], lost_unofficial: ["LOST (live)", "#F87171"], push_unofficial: ["PUSH (live)", "#9CA3AF"] };
+          const _lv = (b.result || "pending") === "pending" && b.legLive ? b.legLive : null;
+          if (_lv && _lv.ticket === "lost_unofficial") { resultTxt = "PENDING — effectively decided (losing live)"; resultC = "#F87171"; }
+          else if (_lv && _lv.ticket === "won_unofficial") { resultTxt = "PENDING — effectively decided (winning live)"; resultC = "#34D399"; }
+          else if (_lv && _lv.ticket === "decided_mixed_unofficial") { resultTxt = "PENDING — decided (grades at the nightly)"; resultC = "#9CA3AF"; }
+          const legsHtml = (b.legs || []).map((l, _i) => {
+            const settledChip = l.result && l.result !== "pending"
+              ? `<span style="float:right;font-size:10px;color:${(_ST[String(l.result).toLowerCase()] || _ST.pending)[1]};">${(_ST[String(l.result).toLowerCase()] || _ST.pending)[0]}</span>`
+              : "";
+            const liveState = !settledChip && _lv && _lv.legs && _lv.legs[_i] ? _lv.legs[_i] : null;
+            const liveChip = liveState && _LV[liveState.state]
+              ? `<span style="float:right;font-size:10px;color:${_LV[liveState.state][1]};">${_LV[liveState.state][0]}${liveState.statNow != null ? ` · at ${liveState.statNow}` : ""}</span>`
+              : "";
+            return `
             <div style="font-size:12px;color:#D1D5DB;padding:4px 0;border-top:1px solid #1F2937;">
               <span style="color:#9CA3AF;">${escapeHtml(l.player || "")}</span> · ${_famNice(l.statFamily)} ${_sideNice(l.side)} ${l.line}
-              ${l.result ? `<span style="float:right;font-size:10px;color:${(_ST[String(l.result).toLowerCase()] || _ST.pending)[1]};">${(_ST[String(l.result).toLowerCase()] || _ST.pending)[0]}</span>` : ""}
+              ${settledChip || liveChip}
             </div>
-          `).join("");
+          `; }).join("") + (_lv && _lv.legs && _lv.legs.some((x) => _LV[x.state]) ? `<div style="font-size:9px;color:#6B7280;padding-top:3px;">${escapeHtml(_lv.disclaimer || "live read — official grade at the nightly")}</div>` : "");
           // 2026-07-07 FEEDBACK-B — card identity: player/prop/line for singles
           // (parlays show legs below) + slate date; book display canonicalized.
           const identLine = b.betType === "parlay"

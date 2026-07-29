@@ -75,10 +75,62 @@ function settleParlays({ dryRun = false } = {}) {
   return { checked: pending.length, settled: receipts.length, receipts }
 }
 
+/**
+ * 2026-07-29 BETS-PAGE PACK 2 (3) — LEG-RESULTS BACKFILL for SETTLED parlays.
+ *
+ * Field case: the 07-27 ticket was settled WIN via the sanctioned manual path
+ * (book truth 4.33), but manual settle only writes the TICKET — its legs
+ * stayed "pending" on the MY BETS card ("WON with pending legs"). This pass
+ * stamps leg results from their graded twins for parlays that are ALREADY
+ * settled, touching ONLY legs[i].result (+ a legNote provenance line):
+ * result / payout / settledAt / settleNote are NEVER modified — the settled
+ * ticket is immutable (GRADING_RULES §6); this is annotation, not settlement.
+ * Legs whose twin is ungraded stay pending — never guessed. Idempotent: a
+ * second run finds no pending legs and no-ops. Runs in the nightly main below
+ * AND immediately from settlePlacedBet after a manual parlay settle, so the
+ * class cannot recur.
+ *
+ * opts.onlyId — restrict to one bet (the manual-settle hook).
+ */
+function backfillLegResults({ dryRun = false, onlyId = null } = {}) {
+  const L = JSON.parse(fs.readFileSync(LEDGER_PATH, "utf8"))
+  const bets = Array.isArray(L.bets) ? L.bets : []
+  const targets = bets.filter((b) =>
+    (b.betType === "parlay" || b.betType === "slip") &&
+    (b.decisionType === "placed" || b.realMoney) &&
+    b.result && b.result !== "pending" &&
+    Array.isArray(b.legs) && b.legs.some((l) => !l.result || l.result === "pending") &&
+    (!onlyId || b.id === onlyId))
+  const receipts = []
+  for (const p of targets) {
+    const gameDate = p.gameDate || p.date
+    let rows = null
+    try { rows = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${gameDate}.json`), "utf8")) } catch (_) { continue }
+    let stamped = 0
+    const legResults = []
+    for (const leg of p.legs) {
+      if (leg.result && leg.result !== "pending") { legResults.push(leg.result); continue }
+      const twin = rows.find((r) => norm(r.player) === norm(leg.player) && String(r.statFamily) === String(leg.statFamily || leg.stat) && String(r.side).toLowerCase() === String(leg.side).toLowerCase() && Number(r.line) === Number(leg.line) && ["win", "loss", "push", "void"].includes(String(r.result)))
+      if (!twin) { legResults.push("pending"); continue } // ungraded twin — never guessed
+      legResults.push(String(twin.result))
+      if (!dryRun) { leg.result = String(twin.result); leg.legNote = `leg result backfilled from graded record ${new Date().toISOString().slice(0, 10)} (ticket settle untouched)` }
+      stamped++
+    }
+    if (stamped) receipts.push({ id: p.id, gameDate, stamped, legResults })
+  }
+  if (!dryRun && receipts.length) fs.writeFileSync(LEDGER_PATH, JSON.stringify(L, null, 2))
+  return { checked: targets.length, backfilled: receipts.length, receipts }
+}
+
 if (require.main === module) {
-  const r = settleParlays({ dryRun: process.argv.includes("--dry") })
-  console.log(`settleParlaysFromRecord${process.argv.includes("--dry") ? " [DRY]" : ""}: ${r.settled}/${r.checked} pending parlays settled`)
+  const dry = process.argv.includes("--dry")
+  const r = settleParlays({ dryRun: dry })
+  console.log(`settleParlaysFromRecord${dry ? " [DRY]" : ""}: ${r.settled}/${r.checked} pending parlays settled`)
   for (const x of r.receipts) console.log(`  ${x.id} [${x.gameDate}] → ${x.result.toUpperCase()} payout $${x.payout} (legs ${x.legResults.join("/")})`)
   if (!r.checked) console.log("  no pending realMoney parlays — honest no-op")
+  // PACK 2 (3) — nightly leg-results sweep: settled-with-pending-legs strays.
+  const b = backfillLegResults({ dryRun: dry })
+  console.log(`legResultsBackfill${dry ? " [DRY]" : ""}: ${b.backfilled}/${b.checked} settled parlays had legs stamped`)
+  for (const x of b.receipts) console.log(`  ${x.id} [${x.gameDate}] → legs ${x.legResults.join("/")} (${x.stamped} stamped; ticket untouched)`)
 }
-module.exports = { settleParlays }
+module.exports = { settleParlays, backfillLegResults }

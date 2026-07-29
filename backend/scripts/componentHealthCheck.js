@@ -166,17 +166,15 @@ function checkForwardCapture() {
 }
 checkForwardCapture()
 
-// ── write sidecar + console ──
-const summary = { green: 0, stale: 0, fail: 0, "not-run": 0 }
-for (const c of Object.values(components)) summary[c.state] = (summary[c.state] || 0) + 1
-const payload = {
-  generatedAt: nowIso,
-  cadenceNote: "scheduler.sh runs this ~every 15 min (active hours) + post-grade ~4:15 AM. GREEN = ran + passed THIS cycle.",
-  summary,
-  components,
-}
-fs.mkdirSync(TRACKING, { recursive: true })
-fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
+// ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
+// The write used to happen HERE — above every check added since 07-14
+// (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
+// to console but their states NEVER reached component_health.json, so /status
+// showed 9 components while the script asserted 21 — silent instrument death
+// of the alarm surface itself, live in the field for two weeks (found via a
+// 9-component sidecar with lineFreshness ABSENT one cycle after it landed).
+// The single write now sits at the END, after ALL checks. Doctrine addition:
+// the sidecar write is LAST — any new check goes ABOVE it.
 
 // ── 2026-07-14 HONEST-COMMS (b) — board serve-vs-record divergence watchdog ──
 // RED condition (the All-Star-night class): the RECORD has rows for today but
@@ -433,6 +431,18 @@ function checkLineFreshness() {
   } catch (e) { return set("lineFreshness", "not-run", `Line freshness: ${String(e?.message || e)}`, "wired") }
 }
 checkLineFreshness()
+
+// ── write sidecar (LAST — after every check; see relocation note above) ──
+const summary = { green: 0, stale: 0, fail: 0, "not-run": 0 }
+for (const c of Object.values(components)) summary[c.state] = (summary[c.state] || 0) + 1
+const payload = {
+  generatedAt: nowIso,
+  cadenceNote: "scheduler.sh runs this ~every 15 min (active hours) + post-grade ~4:15 AM. GREEN = ran + passed THIS cycle.",
+  summary,
+  components,
+}
+fs.mkdirSync(TRACKING, { recursive: true })
+fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
 const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness"]
 console.log("=== component health (tested-green) " + nowIso + " ===")

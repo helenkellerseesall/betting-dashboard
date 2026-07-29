@@ -1838,7 +1838,7 @@ router.post("/ledger/log", express.json(), (req, res) => {
  * Pure read of the canonical ledger JSON. Picks settled by the nightly
  * orchestrator will already carry result/payout/clvSnapshot fields.
  */
-router.get("/ledger/yesterday", (req, res) => {
+router.get("/ledger/yesterday", async (req, res) => {
   try {
     const sport = req.query.sport ? String(req.query.sport).toLowerCase() : null
     // 2026-05-29 — GRADES truthfulness fix. ?showAll=true bypasses both
@@ -2003,32 +2003,14 @@ router.get("/ledger/yesterday", (req, res) => {
     // 2026-06-01 Phase Date-Doctrine-1B — canonical ET helper.
     const todayKey = currentSlateDateEt()
 
-    function rollupPlaced(bets) {
-      let pwins = 0, plosses = 0, ppushes = 0, ppending = 0, pstaked = 0, pprofit = 0, ptoWin = 0
-      for (const b of bets) {
-        const s = Number(b.stake) || 0
-        const w = Number(b.toWin) || 0
-        pstaked += s
-        ptoWin += w
-        if (b.result === "win")  { pwins++;  pprofit += w }
-        else if (b.result === "loss") { plosses++; pprofit -= s }
-        else if (b.result === "push" || b.result === "void") ppushes++
-        else ppending++
-      }
-      const settledP = pwins + plosses + ppushes
-      const roiP = pstaked > 0 && settledP > 0 ? Math.round((pprofit / pstaked) * 10000) / 10000 : null
-      const hitRateP = (pwins + plosses) > 0 ? Math.round((pwins / (pwins + plosses)) * 10000) / 10000 : null
-      return {
-        count: bets.length,
-        wins: pwins, losses: plosses, pushes: ppushes, pending: ppending,
-        settled: settledP,
-        staked: Math.round(pstaked * 100) / 100,
-        toWin: Math.round(ptoWin * 100) / 100,
-        profit: Math.round(pprofit * 100) / 100,
-        roi: roiP,
-        hitRate: hitRateP,
-      }
-    }
+    // 2026-07-29 BETS-PAGE PACK 2 (1) — header math extracted to the ONE
+    // testable authority (pipeline/shared/betRollup.js). The old inline rollup
+    // summed toWin across settled losses + voids and the FE sold it as
+    // "POTENTIAL +$151.89" — a potential that includes dead tickets is not a
+    // potential. New honest fields: settledProfit (riskedReal-aware,
+    // book-payout-preferred) + pendingToWin (open bets ONLY; the legacy toWin
+    // field is repointed to it so old renderers show the honest number).
+    const { rollupPlaced } = require("../pipeline/shared/betRollup")
     // 2026-06-01 Phase Truth-Fix-1A — MY BETS filter fix (audit RED #7). Two bugs:
     //   (a) isPlaced accepted test entries created by QA tooling with
     //       sportsbook IN (smoke-test, diag, verify) at stake $0.01 each —
@@ -2076,6 +2058,27 @@ router.get("/ledger/yesterday", (req, res) => {
         legs: b.legs || null, notes: b.notes || b.note || null,
       })),
     } : null
+
+    // 2026-07-29 BETS-PAGE PACK 2 (4) — LIVE LEG-DEATH INDICATOR. Display-only
+    // annotation on OPEN parlays: the sanctioned grading sources (statsapi
+    // boxscore + schedule) say which legs are already irreversibly won/lost
+    // ("the game state makes it decided") and whether the whole ticket is
+    // effectively decided. NEVER writes results — official grade stays at the
+    // nightly. Fail-open: any fetch failure ⇒ no annotation, never a blocked
+    // or slowed bets page (60s per-date cache in the module).
+    if (placedBets) {
+      try {
+        const openParlays = placedBets.bets.filter((b) =>
+          (b.betType === "parlay" || b.betType === "slip") &&
+          String(b.result || "pending") === "pending" &&
+          Array.isArray(b.legs) && b.legs.length)
+        if (openParlays.length) {
+          const { assessOpenParlayLegs } = require("../pipeline/shared/parlayLegLiveState")
+          const assessed = await assessOpenParlayLegs(openParlays.map((b) => ({ id: b.id, gameDate: b.date, legs: b.legs })))
+          for (const b of placedBets.bets) if (assessed[b.id]) b.legLive = assessed[b.id]
+        }
+      } catch (_) { /* display-only — never blocks the record surface */ }
+    }
 
     res.json({
       date: yKey,
