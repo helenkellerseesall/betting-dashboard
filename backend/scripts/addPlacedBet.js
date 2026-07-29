@@ -76,9 +76,50 @@ function canonBook(input) {
 	const k = String(input || "").toLowerCase().replace(/[^a-z0-9]/g, "")
 	return KNOWN_BOOKS[k] || null
 }
+// 2026-07-29 INTAKE-FIXES (2) — alias map at THE one owner (both intake cores
+// call canonMlbStat; the CLI, /api/ws/place-bet, and the screenshot flow all
+// ride it). The OCR adapter emitted display names ("Strikeouts") while this
+// validator only took canonical tokens ("ks") — every OCR'd MLB slip failed by
+// construction (the operator's 1:56 AM FanDuel Ks parlay, twice). Aliases are
+// DELIBERATELY conservative: known display names + snake keys + common
+// abbreviations only; combo/unknown names still fail honestly — an alias we
+// guess wrong records a tuple that never settles, which is worse than a loud
+// reject. Normalization: lowercase + strip spaces/underscores/hyphens.
+const MLB_STAT_ALIASES = {
+	strikeouts: "ks", strikeout: "ks", k: "ks", pitcherstrikeouts: "ks", playerpitcherstrikeouts: "ks",
+	totalbases: "totalBases", tb: "totalBases", battertotalbases: "totalBases",
+	homeruns: "hr", homerun: "hr", homers: "hr", batterhomeruns: "hr", hitahr: "hr",
+	rbi: "rbis", batterrbis: "rbis",
+	runsscored: "runs", batterrunsscored: "runs", batterruns: "runs",
+	earnedruns: "earnedRuns", er: "earnedRuns", pitcherearnedruns: "earnedRuns",
+	hitsallowed: "hitsAllowed", pitcherhitsallowed: "hitsAllowed",
+	bb: "walks", baseonballs: "walks", pitcherwalks: "walks",
+	pitcherouts: "outs", outsrecorded: "outs",
+	batterhits: "hits",
+}
 function canonMlbStat(input) {
 	const want = String(input || "").toLowerCase()
-	return MLB_STAT_TOKENS.find((t) => t.toLowerCase() === want) || null
+	const exact = MLB_STAT_TOKENS.find((t) => t.toLowerCase() === want)
+	if (exact) return exact
+	const norm = want.replace(/[\s_\-]+/g, "")
+	if (MLB_STAT_ALIASES[norm]) return MLB_STAT_ALIASES[norm]
+	// normalized form may hit a token directly ("total_bases" → "totalbases")
+	return MLB_STAT_TOKENS.find((t) => t.toLowerCase() === norm) || null
+}
+
+// 2026-07-29 INTAKE-FIXES (1) — the never-future bet-date check must compare
+// against CALENDAR ET today, not the 4 AM slate day. Between midnight and
+// 4 AM ET the slip's true calendar date is "tomorrow" in slate terms, and the
+// old check (d > currentSlateDateEt()) made honest recording IMPOSSIBLE in
+// that window (the operator's 1:56 AM parlay, rejected twice). The slate date
+// stays authoritative everywhere else — including the DEFAULT bet date when
+// no explicit date is given. Pure + exported so the fixture pins the window.
+function calendarDateEt(now = Date.now()) {
+	const p = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now))
+	return p // en-CA formats as YYYY-MM-DD
+}
+function isFutureBetDate(dateStr, calendarEt = calendarDateEt()) {
+	return String(dateStr) > String(calendarEt)
 }
 function reject(msg) {
 	console.error(`[addPlacedBet] REJECTED: ${msg}`)
@@ -215,12 +256,17 @@ function buildValidatedSingleBet(o = {}) {
 	// 2026-07-10 E-FOLLOWUP-2 — optional explicit bet date (screenshot flow: the
 	// slip's placement timestamp is the TRUE bet date). Validated YYYY-MM-DD, never
 	// future; default = canonical ET slate date. Tuple lookup follows this date.
+	// 2026-07-29 INTAKE-FIXES (1) — "future" measured against CALENDAR ET, not
+	// the slate day (see isFutureBetDate doc): a 1:56 AM slip dated today is a
+	// real bet, not a time traveler. Lookup semantics unchanged and CORRECT:
+	// game-date-keyed slate files (night-owl 07-16) mean the calendar-dated bet
+	// joins exactly its own slate's tuples.
 	const todayEt = currentSlateDateEt()
 	let today = todayEt
 	if (o.date != null && String(o.date) !== "") {
 		const d = String(o.date)
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: `--date="${d}" must be YYYY-MM-DD` }
-		if (d > todayEt) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be` }
+		if (isFutureBetDate(d)) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be (calendar ET today: ${calendarDateEt()})` }
 		today = d
 	}
 	// 2026-07-26 BONUS-BET stake type (operator field pack): stakeType=bonus ⇒
@@ -314,12 +360,14 @@ function buildValidatedParlayBet(o = {}, legsIn = []) {
 	if (!book) return { ok: false, error: `--book="${o.book}" is not a known book. Valid: ${[...new Set(Object.values(KNOWN_BOOKS))].join(", ")} (case-insensitive)` }
 
 	// 2026-07-10 E-FOLLOWUP-2 — optional explicit bet date (see single core).
+	// 2026-07-29 INTAKE-FIXES (1) — calendar-ET future check (twin of the
+	// single core; the operator's 1:56 AM parlay hit THIS line).
 	const todayEt = currentSlateDateEt()
 	let today = todayEt
 	if (o.date != null && String(o.date) !== "") {
 		const d = String(o.date)
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: `--date="${d}" must be YYYY-MM-DD` }
-		if (d > todayEt) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be` }
+		if (isFutureBetDate(d)) return { ok: false, error: `--date="${d}" is in the future — a bet date cannot be (calendar ET today: ${calendarDateEt()})` }
 		today = d
 	}
 	const legNotes = []
@@ -445,4 +493,8 @@ module.exports = {
 	canonMlbStat,
 	MLB_STAT_TOKENS,
 	KNOWN_BOOKS,
+	// 2026-07-29 INTAKE-FIXES — fixture exports (pure helpers).
+	MLB_STAT_ALIASES,
+	calendarDateEt,
+	isFutureBetDate,
 }

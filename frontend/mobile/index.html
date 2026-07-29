@@ -3084,8 +3084,22 @@
           p.innerHTML = `<div style="color:#FBBF24;font-size:12px;line-height:1.5;">Couldn't read a betting slip from this image (${escapeHtml(String(json?.error || "no legs parsed"))}). Try a tighter crop of the slip.<br/><button onclick="document.getElementById('sr-panel').style.display='none'" style="margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;cursor:pointer;">close</button></div>`;
           return;
         }
+        // 2026-07-29 INTAKE-FIXES (2) — the vision parser emits DISPLAY stat
+        // names ("Strikeouts"); the validator takes canonical tokens ("ks").
+        // Normalize AT INGEST so the confirm modal shows exactly what
+        // validates (the operator edits what the validator sees — the field's
+        // own placeholder already speaks tokens). UNKNOWN names pass through
+        // untouched for honest human correction, and the backend alias map
+        // (addPlacedBet.canonMlbStat, the ONE validation owner) remains the
+        // authority — this map is a display courtesy, not a second validator.
+        // NBA/other-sport names pass through (NBA is unvalidated off-season).
+        const _srCanonStat = (v) => {
+          const MAP = { strikeouts: "ks", strikeout: "ks", k: "ks", ks: "ks", totalbases: "totalBases", tb: "totalBases", homeruns: "hr", homerun: "hr", homers: "hr", hitahr: "hr", hr: "hr", rbi: "rbis", rbis: "rbis", runsscored: "runs", runs: "runs", earnedruns: "earnedRuns", er: "earnedRuns", hitsallowed: "hitsAllowed", walks: "walks", bb: "walks", baseonballs: "walks", pitcherouts: "outs", outs: "outs", hits: "hits" };
+          const norm = String(v || "").toLowerCase().replace(/[\s_\-]+/g, "");
+          return MAP[norm] || v;
+        };
         window._srState = {
-          legs: json.legs,
+          legs: json.legs.map((l) => ({ ...l, propType: _srCanonStat(l.propType) })),
           // E-FOLLOWUP-2 — book prefills ONLY on a high-confidence fingerprint
           // match; otherwise the dropdown stays empty and demands a human pick
           // (a wrong book corrupts the record — never silently guess).
