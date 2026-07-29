@@ -7320,3 +7320,14 @@ LANDED: feat 3817002 (2 files, 18 insertions; pre-commit matrix 51/51 at commit 
 OWNED: the 02:04 header on the previous block — the clock read 02:00; timestamp was composed alongside the clock check instead of after it. This block's header is substituted from the live clock in the same shell.
 NEW BINDING TURN RULE (operator directive 07-29, saved to shared memory this turn): CB never ends a turn asking the operator for GO or declaring results — commit the log block, hand back to CA; CA verifies and brings the GO checkpoint.
 NO RELOAD NEEDED (FE served from disk per-request); the phone PWA may need a hard refresh. FENCE (guarded commit + push) handed this turn. NEXT: CA re-checks the /m surface in Chrome (void cards gone, one-truth count line, annotation) and brings the operator the verdict.
+
+## 2026-07-29 03:04 ET — Claude-A [Cowork, Fable 5] — CA TRIAGE: OUTSIDE-IN TOP-5 -> DOCKET (operator-approved reading)
+TRIAGE (CC 00:25 outside-in-fire drop; doc read in full off the mount; order confirmed against repo pipes):
+1) CLV-positive-share KPI (XS) — rider on the queued line-velocity layer ASK: critic tracks pct-of-bets-beating-close as a first-class KPI (Spanky bar; target band, not vanity). No standalone pack.
+2) Daily-3 saleability rails (S) — NEXT NEW CB PACK, held until operator quota resets Thu 7/30: lock-time mirror to a public tracker + losses-forward public page + critic-notes feed. Record calendar = marketing calendar (n=300 at 3/day ~ 100 days), so the mirror clock starts early. OPERATOR ERRAND (no build dependency): open Pikkit/Betstamp account. SELL-GATE unchanged: nothing sold before the 90-day CLV/ROI gate.
+3) Bluesky LLM news classifier (S-M) — queued behind rails; bounded ingestion ONLY (news -> player/impact/severity tags -> SCR), never forecasting; its ASK must cost the quota in CONSEQUENCES.
+4) Market-prob-as-prior (M) — the modeling headline and biggest real gap (odds = strongest single predictor, arXiv 2604.17194), but it touches family curves: CA spec owed, timed with the queued CLV-first re-point AFTER gates read green (~early Aug). Era-rule-safe: market prob is exogenous.
+5) F5/derivative attach (M) — sequencing unchanged, with/after G2; CC's documented-pro validation (Voulgaris/Peabody) raises confidence, not priority.
+CONFIRMED NOT-BUILD (CC grades, CA endorses): LLM-as-picker (WC-2026 benchmark: herded, none beat market Brier) · live/in-game (speed we lack) · ensembles (marginal vs calibration hours) · staking schemes as edge.
+STANDING: chain still wins CB-hours; gates accumulate untouched; nothing above jumps a gate.
+NEXT_EXPECTED_FROM_PEER: operator mirror-account errand (anytime) · CA hands CB the rails ASK after Thu reset · CC idle until the velocity layer ships (KPI rider) or a new mandate.
