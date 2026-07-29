@@ -153,6 +153,14 @@ app.use("/m", express.static(path.join(__dirname, "..", "frontend", "mobile")))
 // the running background shit so i can see it myself".
 app.use("/status", express.static(path.join(__dirname, "..", "frontend", "status")))
 
+// 2026-07-29 DAILY3-RAILS R2 — the losses-forward public record page. Single-
+// file HTML over GET /api/ws/daily3/public (read-only). Same static pattern
+// as /m and /status. Truly public only after the operator's Cloudflare Access
+// bypass errand for /daily3 + /api/ws/daily3/public (ASK fc1c189) — until
+// then the tunnel's only-me lock applies and the page renders for the
+// operator alone. Local 127.0.0.1:4000/daily3 always works.
+app.use("/daily3", express.static(path.join(__dirname, "..", "frontend", "daily3")))
+
 console.log("[SERVER-DEBUG] server.js diagnostics patch loaded")
 
 let snapshotLoadedFromDisk = false

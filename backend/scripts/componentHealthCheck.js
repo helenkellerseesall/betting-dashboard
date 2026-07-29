@@ -166,6 +166,27 @@ function checkForwardCapture() {
 }
 checkForwardCapture()
 
+// (j) 2026-07-29 DAILY3-RAILS — receipt-at-lock alarm (ships-with doctrine):
+// a card locked ON/AFTER the rails epoch with no receipt = the receipt writer
+// died silently = RED; a broken chain link = RED (tampering or a partial
+// write). Pre-epoch cards NEVER alarm (labeled era, no backfill — binding).
+function checkDaily3Receipt() {
+  try {
+    const { validateReceiptChain, RAILS_EPOCH } = require("../pipeline/shared/daily3")
+    const RECEIPTS = path.join(BACKEND, "..", "docs", "receipts")
+    const cards = fs.readdirSync(TRACKING).filter((f) => /^daily3_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
+    const newest = cards[cards.length - 1] || null
+    const newestSlate = newest ? newest.slice(7, 17) : null
+    const chain = validateReceiptChain(RECEIPTS)
+    if (!chain.ok) return set("daily3Receipt", "fail", `Daily 3 receipts: CHAIN BROKEN at ${chain.breaks.map((b) => b.slate).join(", ")} — a past receipt or card was altered, or a write was partial`, "wired")
+    if (newestSlate && newestSlate >= RAILS_EPOCH && !fs.existsSync(path.join(RECEIPTS, `daily3_receipt_${newestSlate}.md`))) {
+      return set("daily3Receipt", "fail", `Daily 3 receipts: card ${newestSlate} is LOCKED but has NO receipt — the lock-time writer failed; the public chain has a hole`, "wired")
+    }
+    return set("daily3Receipt", "green", `Daily 3 receipts: chain intact (${chain.checked} link${chain.checked === 1 ? "" : "s"})${newestSlate ? ` · newest card ${newestSlate}${newestSlate < RAILS_EPOCH ? " (pre-receipt era)" : ""}` : " · no cards yet"}`, "wired")
+  } catch (e) { return set("daily3Receipt", "not-run", `Daily 3 receipts: ${String(e?.message || e)}`, "wired") }
+}
+checkDaily3Receipt()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -444,7 +465,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

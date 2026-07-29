@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>THE DAILY 3 — full record, losses forward</title>
+<!--
+  2026-07-29 DAILY3-RAILS R2 — the losses-forward public record page.
+
+  DOCTRINE (binding, from the ASK fc1c189 + CC outside-in §3):
+  · The FULL ledger leads. Every decided card, newest first. There is NO
+    highlight surface on this page and none may ever be added.
+  · LOSSES CARRY THE SAME VISUAL WEIGHT AS WINS — identical font size,
+    identical weight, identical chip shape; only hue differs (red/green at
+    equal saturation). A record you can't lose on isn't a record.
+  · Small-sample honesty note renders verbatim from the server until n≥30.
+  · SELL-GATE: the proving-phase line renders on every load; this page exists
+    to be checked, not to convince. Nothing is for sale before the 90-day gate.
+  · Pre-receipt era cards are labeled as such and NEVER backfilled.
+  · Read-only: this page renders /api/ws/daily3/public and writes nothing.
+-->
+<style>
+  :root { --bg:#0A0E1A; --card:#141828; --line:#1F2937; --txt:#F9FAFB; --dim:#9CA3AF; --dimmer:#6B7280; --win:#34D399; --loss:#F87171; --push:#9CA3AF; --amber:#FBBF24; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:680px; margin:0 auto; padding:16px 12px 48px; }
+  h1 { font-size:18px; letter-spacing:1px; margin:6px 0 2px; }
+  .sub { font-size:11px; color:var(--dimmer); margin-bottom:14px; }
+  .rec { background:var(--card); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .recline { display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  .big { font-size:24px; font-weight:800; font-family:ui-monospace,monospace; }
+  .lbl { font-size:10px; color:var(--dimmer); letter-spacing:1px; }
+  .honesty { font-size:11px; color:var(--dim); margin-top:8px; }
+  .gate { background:#1F1A0A; border-left:3px solid var(--amber); border-radius:8px; padding:10px 12px; font-size:12px; color:#FDE68A; margin-bottom:16px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .chead { display:flex; justify-content:space-between; align-items:baseline; }
+  .slate { font-size:14px; font-weight:800; }
+  .net { font-size:14px; font-weight:800; font-family:ui-monospace,monospace; }
+  .lock { font-size:10px; color:var(--dimmer); margin-top:3px; }
+  .era { font-size:9px; padding:2px 6px; border-radius:8px; background:var(--line); color:var(--dim); }
+  .era.missing { background:#450A0A; color:#FECACA; }
+  .pick { border-top:1px solid var(--line); padding:8px 0; }
+  .prow { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .pname { font-size:13px; font-weight:700; }
+  .pdet { font-size:12px; color:var(--dim); }
+  /* THE RULE MADE CSS: one .chip class — size/weight identical for every result. */
+  .chip { font-size:11px; font-weight:800; padding:2px 8px; border-radius:9px; white-space:nowrap; }
+  .chip.win { color:var(--win); background:rgba(52,211,153,.12); }
+  .chip.loss { color:var(--loss); background:rgba(248,113,113,.12); }
+  .chip.push, .chip.void { color:var(--push); background:rgba(156,163,175,.12); }
+  .chip.pending { color:var(--amber); background:rgba(251,191,36,.12); }
+  .why { font-size:10px; color:var(--dimmer); margin-top:3px; line-height:1.4; }
+  .snote { font-size:10px; color:var(--dim); font-style:italic; margin-top:2px; }
+  details { margin-top:8px; }
+  summary { font-size:10px; color:#818CF8; cursor:pointer; }
+  .critic { font-size:10px; color:var(--dim); padding:6px 0 0; line-height:1.5; }
+  .foot { font-size:10px; color:var(--dimmer); line-height:1.6; margin-top:18px; border-top:1px solid var(--line); padding-top:10px; }
+  .err { color:var(--loss); padding:20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>THE DAILY 3</h1>
+  <div class="sub">full record · losses forward · locked 60 min before first pitch · write-once · flat $1</div>
+  <div id="app">loading the record…</div>
+</div>
+<script>
+(async function () {
+  const app = document.getElementById("app");
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const odds = (o) => { const n = Number(o); return Number.isFinite(n) ? (n > 0 ? "+" + n : String(n)) : "—"; };
+  const et = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET"; } catch (_) { return esc(iso); } };
+  try {
+    const r = await fetch("/api/ws/daily3/public", { cache: "no-store" });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "payload not ok");
+    const rec = d.record || {};
+    const u = rec.netUnitsFlat$1 || 0;
+    let html = `
+      <div class="rec">
+        <div class="recline">
+          <div><div class="lbl">RECORD</div><div class="big">${rec.wins || 0}–${rec.losses || 0}${rec.pushes ? "–" + rec.pushes + "P" : ""}</div></div>
+          <div><div class="lbl">NET (FLAT $1)</div><div class="big" style="color:${u > 0 ? "var(--win)" : u < 0 ? "var(--loss)" : "var(--dim)"};">${u >= 0 ? "+" : ""}${u}u</div></div>
+          <div><div class="lbl">GRADED NIGHTS</div><div class="big">${rec.gradedDays || 0}</div></div>
+        </div>
+        ${rec.honesty ? `<div class="honesty">⚖ ${esc(rec.honesty)}</div>` : (rec.winRate != null ? `<div class="honesty">win rate ${rec.winRate}% over ${rec.decided} decided</div>` : "")}
+        ${d.receiptChain && d.receiptChain.checked ? `<div class="honesty">receipt chain: ${d.receiptChain.ok ? "✓ intact" : "✗ BROKEN"} (${d.receiptChain.checked} link${d.receiptChain.checked === 1 ? "" : "s"})</div>` : ""}
+      </div>
+      <div class="gate">${esc((d.sellGate || {}).line || "PROVING PHASE — nothing is for sale here.")}</div>`;
+    for (const c of d.cards || []) {
+      const era = (c.receipt || {}).era || "pre-receipt";
+      html += `
+      <div class="card">
+        <div class="chead">
+          <div>
+            <span class="slate">${esc(c.slate)}</span>
+            ${era === "receipted" ? `<span class="era">receipt ${esc((c.receipt.cardSha || "").slice(0, 12))}</span>` : era === "missing" ? `<span class="era missing">RECEIPT MISSING</span>` : `<span class="era">pre-receipt era — no lock hash exists; never backfilled</span>`}
+          </div>
+          <span class="net" style="color:${c.netUnits == null ? "var(--amber)" : c.netUnits > 0 ? "var(--win)" : c.netUnits < 0 ? "var(--loss)" : "var(--dim)"};">${c.netUnits == null ? "pending" : (c.netUnits >= 0 ? "+" : "") + c.netUnits + "u"}</span>
+        </div>
+        <div class="lock">locked ${et(c.lockedAt)}${c.lockLate ? " · late lock (stamped honestly)" : ""} · first pitch ${et(c.firstPitchAt)}</div>`;
+      (c.picks || []).forEach((p, i) => {
+        const res = c.results ? c.results[i] : null;
+        const st = res ? String(res.result) : "pending";
+        html += `
+        <div class="pick">
+          <div class="prow">
+            <div>
+              <span class="pname">${esc(p.player)}</span>
+              <span class="pdet">${esc(String(p.side || "").toUpperCase())} ${esc(p.line)} ${esc(p.statFamily)} @ ${esc(p.sportsbook)} ${odds(p.odds)}</span>
+            </div>
+            <span class="chip ${esc(st)}">${esc(st.toUpperCase())}${res && res.units != null && (st === "win" || st === "loss") ? " " + (res.units > 0 ? "+" : "") + res.units + "u" : ""}</span>
+          </div>
+          ${p.why ? `<div class="why">why at lock: ${esc(p.why)}</div>` : ""}
+          ${res && res.settleNote ? `<div class="snote">${esc(res.settleNote)}</div>` : ""}
+          ${res && res.actualValue != null ? `<div class="snote">actual: ${esc(res.actualValue)}</div>` : ""}
+        </div>`;
+      });
+      if (c.critic) {
+        html += `<details><summary>process notes — the nightly critic's read of this slate</summary><div class="critic">
+          ${c.critic.missedWinnerUnits != null ? `slate-wide, the gates left ${c.critic.missedWinnerUnits}u of winners unserved (${esc((c.critic.topDropReasons || []).join(" · "))}) — ` : ""}${c.critic.ceilingPct != null ? `ceiling audit ${c.critic.ceilingPct}% (bar ≤7%). ` : ""}${esc(c.critic.note || "")}
+        </div></details>`;
+      }
+      html += `</div>`;
+    }
+    html += `
+      <div class="foot">
+        Method: the top 3 board picks lock into a write-once file 60 minutes before the slate's first pitch; the nightly grader settles them against the same record everything else settles against; scratched players void per book behavior. Every lock since ${esc(d.railsEpoch)} writes a content-hashed receipt that chains to the previous one — editing any past card breaks every later link. This page shows the whole ledger or nothing.
+      </div>`;
+    app.innerHTML = html;
+  } catch (e) {
+    app.innerHTML = `<div class="err">couldn't load the record: ${esc(e && e.message ? e.message : e)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

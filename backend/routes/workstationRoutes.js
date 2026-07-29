@@ -2320,6 +2320,24 @@ router.get("/daily3", (req, res) => {
 })
 
 /**
+ * 2026-07-29 DAILY3-RAILS R2 — GET /api/ws/daily3/public: the losses-forward
+ * public-record payload (full ledger newest-first, lock provenance + receipt
+ * chain, lock-time whys, critic process notes, sell-gate line). READ-ONLY
+ * over daily3 cards + docs/receipts + critic artifacts; serves NOTHING from
+ * the personal ledger. Consumed by the /daily3 page. NOTE: truly public only
+ * after the operator's Cloudflare Access bypass errand — until then the
+ * tunnel's only-me lock applies (stated in the ASK, fc1c189).
+ */
+router.get("/daily3/public", (req, res) => {
+  try {
+    const { buildDaily3PublicPayload } = require("../pipeline/shared/daily3")
+    res.json({ ok: true, ...buildDaily3PublicPayload() })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) })
+  }
+})
+
+/**
  * 2026-07-07 DEEPLINK-2A — GET /api/ws/deeplink-matrix: serve the operator's
  * verified link matrix (backend/config/deeplinkMatrix.json) to the /m FE.
  * READ-ONLY; fresh read per call (operator edits the file, no restart needed).

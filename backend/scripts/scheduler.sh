@@ -97,6 +97,9 @@ last_ran_min=""
 # even without `set -u`. Was crashing scheduler.sh every ~10 sec for hours
 # = 0 autopilots fired overnight 2026-06-01 → 06-02. ONE missing line of mine.
 last_status_snapshot_min=""
+# 2026-07-29 DAILY3-RAILS — receipt auto-commit dedupe var (same belt-and-
+# suspenders init doctrine as above; an unset var here crashed the loop once).
+last_receipt_commit_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -132,6 +135,20 @@ while true; do
   if [ $((MIN % 15)) -eq 0 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ] && [ "$STAMP" != "${last_health_min:-}" ]; then
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/componentHealthCheck.js >> "$LOG" 2>&1 &
     last_health_min="$STAMP"
+  fi
+
+  # 2026-07-29 DAILY3-RAILS R1 — commit new lock receipts so the tamper-evident
+  # chain rides git history (docs/receipts is TRACKED; backend/runtime is not).
+  # Guarded + no-op-safe per fence doctrine: nothing staged means no commit and
+  # the loop continues either way. Fires at :02/:17/:32/:47 so it trails the
+  # lock tick rather than racing it.
+  if [ $((MIN % 15)) -eq 2 ] && [ "$STAMP" != "${last_receipt_commit_min:-}" ]; then
+    (
+      cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      git add docs/receipts >> "$LOG" 2>&1
+      git diff --cached --quiet -- docs/receipts || git commit -m "receipts: daily3 lock receipt (scheduler auto-commit — chain rides git history)" >> "$LOG" 2>&1
+    ) &
+    last_receipt_commit_min="$STAMP"
   fi
 
   # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once

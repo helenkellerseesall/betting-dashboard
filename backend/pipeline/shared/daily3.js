@@ -24,10 +24,23 @@
 const fs = require("fs")
 const path = require("path")
 const http = require("http")
+const crypto = require("crypto")
 const { currentSlateDateEt } = require("./slateDate")
 
-const TRACKING = path.join(__dirname, "..", "..", "runtime", "tracking")
+// 2026-07-29 DAILY3-RAILS — env overrides exist for HERMETIC FIXTURES ONLY
+// (verifyDaily3Rails); production always uses the canonical paths. Receipts
+// live in docs/receipts (TRACKED — backend/runtime/* is gitignored, so a
+// receipt there could never ride git history; the tamper-evident chain needs
+// commits as its second clock).
+const TRACKING = process.env.DAILY3_TRACKING_DIR || path.join(__dirname, "..", "..", "runtime", "tracking")
+const RECEIPTS = process.env.DAILY3_RECEIPTS_DIR || path.join(__dirname, "..", "..", "..", "docs", "receipts")
+// Cards locked before this slate predate the receipt system — they are shown
+// LABELED "pre-receipt era" and NEVER backfilled with after-the-fact hashes
+// (a retroactive receipt would be exactly the fabrication the chain exists to
+// make impossible). BINDING per operator GO 2026-07-29.
+const RAILS_EPOCH = "2026-07-29"
 const fileFor = (slate) => path.join(TRACKING, `daily3_${slate}.json`)
+const receiptFor = (slate) => path.join(RECEIPTS, `daily3_receipt_${slate}.md`)
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
 
@@ -94,6 +107,108 @@ function firstPitchMs(slate) {
   return times.length ? Math.min(...times) : null
 }
 
+// ── 2026-07-29 DAILY3-RAILS (R1 + R3 lock-side) ──────────────────────────────
+
+/** One plain-English line from a served pick's reasoning blob (R3 lock-time
+ * why). Null when nothing real exists — never a fabricated narrative. */
+function whyLineFromReasoning(reasoning) {
+  try {
+    if (!reasoning || typeof reasoning !== "object") return null
+    const parts = []
+    if (reasoning.l5 && reasoning.l5.value != null) parts.push(`${reasoning.l5.label || "L5"} ${reasoning.l5.value}`)
+    if (reasoning.opp && reasoning.opp.value) parts.push(`${reasoning.opp.label || "opp"}: ${reasoning.opp.value}`)
+    if (reasoning.propSpec && reasoning.propSpec.value != null) parts.push(`${reasoning.propSpec.label || ""} ${reasoning.propSpec.value}`.trim())
+    if (Array.isArray(reasoning.drivers) && reasoning.drivers[0]) parts.push(String(reasoning.drivers[0]))
+    const line = parts.filter(Boolean).join(" · ").slice(0, 220)
+    return line || null
+  } catch (_) { return null }
+}
+
+function sha256File(fp) {
+  return crypto.createHash("sha256").update(fs.readFileSync(fp)).digest("hex")
+}
+
+/** Newest existing receipt for a slate strictly BEFORE `slate` (chain parent). */
+function _prevReceipt(slate, receiptsDir) {
+  try {
+    const fls = fs.readdirSync(receiptsDir)
+      .filter((f) => /^daily3_receipt_\d{4}-\d{2}-\d{2}\.md$/.test(f))
+      .filter((f) => f.slice(15, 25) < String(slate))
+      .sort()
+    return fls.length ? path.join(receiptsDir, fls[fls.length - 1]) : null
+  } catch (_) { return null }
+}
+
+/**
+ * R1 — LOCK-TIME RECEIPT. Write-once, tamper-evident: hashes the card file's
+ * exact bytes + the PREVIOUS receipt's bytes (GENESIS on the first) — editing
+ * any past card or receipt breaks every later link. The receipt is the
+ * automatable proof; the operator's Betstamp tap rides on it but is NEVER a
+ * dependency (binding per operator GO). Failure here never blocks the lock —
+ * it logs loudly and the daily3Receipt alarm goes RED.
+ */
+function writeLockReceipt(card, { trackingDir, receiptsDir } = {}) {
+  const tDir = trackingDir || TRACKING
+  const rDir = receiptsDir || RECEIPTS
+  const rp = path.join(rDir, `daily3_receipt_${card.slate}.md`)
+  if (fs.existsSync(rp)) return { skipped: "exists", path: rp } // write-once
+  const cardPath = path.join(tDir, `daily3_${card.slate}.json`)
+  const cardSha = sha256File(cardPath)
+  const prevPath = _prevReceipt(card.slate, rDir)
+  const prevSha = prevPath ? sha256File(prevPath) : "GENESIS"
+  const et = (iso) => { try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", hour12: true }) + " ET" } catch (_) { return iso } }
+  const pickLine = (p, i) => `${i + 1}. ${p.player} ${String(p.side || "").toUpperCase()} ${p.line} ${p.statFamily} @ ${p.sportsbook} ${Number(p.odds) > 0 ? "+" : ""}${p.odds}`
+  const md = [
+    `# DAILY 3 LOCK RECEIPT — ${card.slate}`,
+    ``,
+    `- locked: ${et(card.lockedAt)} (${card.lockedAt})${card.lockLate ? " · lockLate" : ""}`,
+    `- first pitch: ${et(card.firstPitchAt)} (${card.firstPitchAt})`,
+    `- picks locked ${Math.round((new Date(card.firstPitchAt) - new Date(card.lockedAt)) / 60000)} min before first pitch`,
+    ``,
+    `## Picks (immutable at lock — write-once file, no retroactive edits ever)`,
+    ...card.picks.map(pickLine),
+    ``,
+    `## Chain`,
+    `- card sha256: ${cardSha}`,
+    `- prev receipt sha256: ${prevSha}`,
+    `- doctrine: each receipt hashes the previous — editing ANY past card or receipt breaks every later link. Pre-${RAILS_EPOCH} cards predate receipts and are never backfilled.`,
+    ``,
+    `## Post this (one tap)`,
+    `THE DAILY 3 · ${card.slate} · locked ${et(card.lockedAt)} (T-60 rule)`,
+    ...card.picks.map(pickLine),
+    `record + full ledger (losses forward): /daily3 · receipt hash ${cardSha.slice(0, 12)}`,
+    ``,
+  ].join("\n")
+  fs.mkdirSync(rDir, { recursive: true })
+  const tmp = `${rp}.tmp.${process.pid}`
+  fs.writeFileSync(tmp, md)
+  fs.renameSync(tmp, rp)
+  return { written: true, path: rp, cardSha, prevSha }
+}
+
+/**
+ * Walk the receipt chain and recompute every prev-link. Returns
+ * { ok, checked, breaks: [{slate, expected, actual}] }. Card-hash spot check
+ * included when the card file still exists on disk (runtime files are
+ * ephemeral relative to receipts — absence is NOT a break).
+ */
+function validateReceiptChain(receiptsDir) {
+  const rDir = receiptsDir || RECEIPTS
+  const out = { ok: true, checked: 0, breaks: [] }
+  let fls = []
+  try { fls = fs.readdirSync(rDir).filter((f) => /^daily3_receipt_\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort() } catch (_) { return out }
+  for (let i = 0; i < fls.length; i++) {
+    const fp = path.join(rDir, fls[i])
+    const slate = fls[i].slice(15, 25)
+    out.checked++
+    const txt = fs.readFileSync(fp, "utf8")
+    const stated = (txt.match(/prev receipt sha256: (\S+)/) || [])[1] || null
+    const actual = i === 0 ? "GENESIS" : sha256File(path.join(rDir, fls[i - 1]))
+    if (stated !== actual) { out.ok = false; out.breaks.push({ slate, expected: actual, actual: stated }) }
+  }
+  return out
+}
+
 /** Self-HTTP to the served lens — the EXACT ranking the operator sees. */
 function fetchTopPicks(cb) {
   const req = http.get("http://127.0.0.1:4000/api/ws/top-picks?limit=10", { timeout: 8000 }, (res) => {
@@ -135,6 +250,10 @@ function maybeLockDaily3() {
           // player plays for. Additive; older locked cards render without.
           team: p.team ?? null, matchup: p.matchup ?? null, gameTime: p.gameTime ?? null,
           marketFormat: p.marketFormat ?? null,
+          // 2026-07-29 DAILY3-RAILS R3 — lock-time WHY (from the served
+          // reasoning blob): the record explains itself AT lock, not in
+          // hindsight. Additive; null when nothing real exists.
+          why: whyLineFromReasoning(p.reasoning),
         }))
         const card = {
           slate, lockedAt: new Date().toISOString(), firstPitchAt: new Date(pitch).toISOString(),
@@ -146,6 +265,12 @@ function maybeLockDaily3() {
         fs.writeFileSync(tmp, JSON.stringify(card, null, 2))
         fs.renameSync(tmp, fp)
         console.log(`[daily3] LOCKED ${slate} at ${card.lockedAt} (first pitch ${card.firstPitchAt}${card.lockLate ? ", lockLate" : ""}): ${picks.map((p) => `${p.player} ${p.side} ${p.line} ${p.statFamily}`).join(" | ")}`)
+        // 2026-07-29 DAILY3-RAILS R1 — receipt rides the lock. Failure never
+        // blocks the card; it logs loudly and the daily3Receipt alarm is RED.
+        try {
+          const rr = writeLockReceipt(card)
+          console.log(`[daily3] RECEIPT ${rr.written ? "written" : rr.skipped} ${rr.path}${rr.cardSha ? ` (card ${rr.cardSha.slice(0, 12)} · prev ${String(rr.prevSha).slice(0, 12)})` : ""}`)
+        } catch (re) { console.log(`[daily3] RECEIPT FAILED (card locked fine; alarm will flag): ${re?.message || re}`) }
       } catch (e) { console.log("[daily3] lock failed (non-fatal):", e?.message || e) }
     })
   } catch (e) { console.log("[daily3] tick failed (non-fatal):", e?.message || e) }
@@ -244,4 +369,85 @@ function readDaily3() {
   }
 }
 
-module.exports = { maybeLockDaily3, gradeDaily3, readDaily3, unitProfit, firstPitchMs }
+/**
+ * 2026-07-29 DAILY3-RAILS R2 — the losses-forward public payload. Read-only
+ * over daily3_*.json + receipts + critic_<slate>.json. Serves NOTHING from
+ * the personal ledger (no dollars, no books-linked identity) — picks, odds,
+ * flat-$1 results, lock provenance, process notes. The FULL record, newest
+ * first, every loss as loud as every win. SELL-GATE: a standing proving-phase
+ * line ships in the payload; nothing here sells anything.
+ */
+function buildDaily3PublicPayload({ trackingDir, receiptsDir, criticDir } = {}) {
+  const tDir = trackingDir || TRACKING
+  const rDir = receiptsDir || RECEIPTS
+  const cDir = criticDir || tDir
+  const files = fs.existsSync(tDir) ? fs.readdirSync(tDir).filter((f) => /^daily3_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().reverse() : []
+  const cards = []
+  let wins = 0, losses = 0, pushes = 0, net = 0, gradedDays = 0
+  for (const f of files) {
+    let c = null
+    try { c = JSON.parse(fs.readFileSync(path.join(tDir, f), "utf8")) } catch (_) { continue }
+    const rp = path.join(rDir, `daily3_receipt_${c.slate}.md`)
+    let receipt
+    if (fs.existsSync(rp)) {
+      let txt = ""
+      try { txt = fs.readFileSync(rp, "utf8") } catch (_) {}
+      receipt = {
+        era: "receipted",
+        cardSha: (txt.match(/card sha256: (\S+)/) || [])[1] || null,
+        prevSha: (txt.match(/prev receipt sha256: (\S+)/) || [])[1] || null,
+      }
+    } else {
+      receipt = { era: c.slate < RAILS_EPOCH ? "pre-receipt" : "missing", cardSha: null, prevSha: null }
+    }
+    let critic = null
+    try {
+      const cr = JSON.parse(fs.readFileSync(path.join(cDir, `critic_${c.slate}.json`), "utf8"))
+      const topReasons = Object.entries(cr.missedWinners?.byReason || {}).sort((a, b) => b[1] - a[1]).slice(0, 2)
+      critic = {
+        missedWinnerUnits: cr.missedWinners?.unitsAtFlat$1 ?? null,
+        topDropReasons: topReasons.map(([k, v]) => `${k}: ${v}`),
+        ceilingPct: cr.ceilingAudit?.ratePct ?? null,
+        note: "the nightly adversary's read of the whole slate — what the gates cost, not a victory lap",
+      }
+    } catch (_) {}
+    if (c.results) {
+      gradedDays++
+      for (const r of c.results) {
+        if (r.result === "win") wins++
+        else if (r.result === "loss") losses++
+        else pushes++
+      }
+      net += Number(c.netUnits) || 0
+    }
+    cards.push({
+      slate: c.slate, lockedAt: c.lockedAt, firstPitchAt: c.firstPitchAt, lockLate: !!c.lockLate,
+      gradedAt: c.gradedAt || null, netUnits: c.results ? (Number(c.netUnits) || 0) : null,
+      picks: (c.picks || []).map((p) => ({ player: p.player, statFamily: p.statFamily, side: p.side, line: p.line, sportsbook: p.sportsbook, odds: p.odds, marketFormat: p.marketFormat ?? null, matchup: p.matchup ?? null, why: p.why ?? null })),
+      results: c.results ? c.results.map((r) => ({ result: r.result, units: r.units ?? 0, actualValue: r.actualValue ?? null, settleNote: r.settleNote ?? null })) : null,
+      receipt, critic,
+    })
+  }
+  const decided = wins + losses
+  return {
+    doc: "THE DAILY 3 — full public record, losses forward. Locked T-60 before first pitch, write-once, graded by the nightly, receipt-chained. No highlight reel exists.",
+    generatedAt: new Date().toISOString(),
+    record: {
+      gradedDays, wins, losses, pushes, decided,
+      winRate: decided ? Math.round((wins / decided) * 1000) / 10 : null,
+      netUnitsFlat$1: Math.round(net * 100) / 100,
+      smallSample: decided < 30,
+      honesty: decided < 30 ? `only ${decided} decided picks — win rate and units are not yet meaningful (needs ~30+)` : null,
+    },
+    sellGate: {
+      proving: true,
+      line: "PROVING PHASE — nothing is for sale here. The record must survive its 90-day CLV/ROI gate first; until then this page exists to be checked, not to convince.",
+      decidedTarget: 300,
+    },
+    receiptChain: validateReceiptChain(rDir),
+    railsEpoch: RAILS_EPOCH,
+    cards,
+  }
+}
+
+module.exports = { maybeLockDaily3, gradeDaily3, readDaily3, unitProfit, firstPitchMs, whyLineFromReasoning, writeLockReceipt, validateReceiptChain, sha256File, buildDaily3PublicPayload, RAILS_EPOCH }
