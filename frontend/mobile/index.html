@@ -4034,10 +4034,29 @@
           html += `</div>`;
         }
         html += nightOwlHtml;
-        // 2026-07-26 LADDER LAB (Part 3) — collapsed, honest, read-only.
+        // 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — compact collapsed
+        // section; additive, never blocks the board. Renders the aggregator
+        // sidecar via /api/ws/graduation-board.
+        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#FBBF24;cursor:pointer;letter-spacing:.5px;">🎓 GRADUATION BOARD — caged surfaces' road to bettable · tap to expand</summary><div id="grad-board-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
         html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#818CF8;cursor:pointer;letter-spacing:.5px;">🧪 LADDER LAB — paper engine (NOT BETTABLE) · tap to expand</summary><div id="ladder-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
         html += `</div>`;
         main.innerHTML = html;
+        try {
+          const rg = await fetch(`${API}/api/ws/graduation-board?_t=${Date.now()}`, { cache: "no-store" });
+          const jg = await rg.json();
+          const eg = document.getElementById("grad-board-body");
+          if (eg && jg.ok && jg.generated) {
+            const stalled = jg.stalledRows || [];
+            eg.innerHTML = (stalled.length ? `<div style="color:#F87171;font-weight:700;margin-bottom:5px;">⚠ STALLED: ${stalled.join(", ")} — running but not progressing</div>` : `<div style="color:#34D399;margin-bottom:5px;">all caged surfaces advancing</div>`) +
+              (jg.rows || []).map((r) => {
+                const col = r.status === "stalled" ? "#F87171" : r.status === "queued" ? "#6B7280" : "#FBBF24";
+                const nights = r.examNights && r.examNights.bar != null ? `${r.examNights.have}/${r.examNights.bar}n` : (r.verdict || "");
+                const dec = r.decided && r.decided.bar != null ? ` · ${r.decided.have}/${r.decided.bar}` : "";
+                const u = r.paperUnits != null ? ` · ${typeof r.paperUnits === "number" ? r.paperUnits + "u" : r.paperUnits}` : "";
+                return `<div style="border-top:1px solid #1F2430;padding:3px 0;"><b style="color:${col};">${r.status.toUpperCase()}</b> ${escapeHtml(r.label)} — ${escapeHtml(String(nights))}${escapeHtml(String(dec))}${escapeHtml(String(u))}${r.trend && r.trend.label ? " · " + escapeHtml(r.trend.label) : ""}<div style="font-size:9px;color:#6B7280;">unlock: ${escapeHtml(r.unlock || "")}</div></div>`;
+              }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:4px;">paper units are in-sample shadow numbers — a refusing gate is a working gate</div>`;
+          } else if (eg) eg.innerHTML = "board not generated yet — the aggregator fires after the evening scans";
+        } catch (_) { /* additive — never blocks the board */ }
         try {
           const rl = await fetch(`${API}/api/ws/ladder-lab?_t=${Date.now()}`, { cache: "no-store" });
           const jl = await rl.json();

@@ -187,6 +187,26 @@ function checkDaily3Receipt() {
 }
 checkDaily3Receipt()
 
+// (l) 2026-07-30 GRADUATION BOARD STALL (ASK f5ee1b6, operator directive:
+// "running but not progressing" must scream like "not running") — recomputed
+// from the RAW per-slate artifacts, NEVER from the sidecar this alarm guards.
+// RED when any caged row's exam counters are unchanged across 2 consecutive
+// slates-with-games (N=2 derived from the real 7/25-27 plateau, which this
+// alarm would have caught the morning of 7/27). Family exams count as stalled
+// when the exam artifact is ≥2 games-slates old while wired families sit
+// STOP/absent (the day-one truth: SB/doubles/triples wired 07-26; artifact
+// 07-16). Queued rows exempt.
+function checkGradBoardStall() {
+  try {
+    const gb = require("./graduationBoard")
+    const board = gb.buildBoard({ trackingDir: TRACKING })
+    const stalled = board.stalledRows || []
+    if (stalled.length) return set("gradBoardStall", "fail", `Graduation stall: ${stalled.join(", ")} — exam counters flat across 2+ games-slates; running but not progressing. Named rows need a human (re-run the exam / check the scan chain).`, "wired")
+    return set("gradBoardStall", "green", `Graduation board: ${board.rows.length} caged surfaces all advancing (${board.gamesSlatesSeen} games-slates of history)`, "wired")
+  } catch (e) { return set("gradBoardStall", "not-run", `Graduation stall: ${String(e?.message || e)}`, "wired") }
+}
+checkGradBoardStall()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -504,7 +524,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

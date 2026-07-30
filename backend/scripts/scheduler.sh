@@ -100,6 +100,8 @@ last_status_snapshot_min=""
 # 2026-07-29 DAILY3-RAILS — receipt auto-commit dedupe var (same belt-and-
 # suspenders init doctrine as above; an unset var here crashed the loop once).
 last_receipt_commit_min=""
+# 2026-07-30 GRADUATION BOARD — aggregator dedupe var (same doctrine).
+last_gradboard_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -135,6 +137,17 @@ while true; do
   if [ $((MIN % 15)) -eq 0 ] && [ "$HOUR" -ge 9 ] && [ "$HOUR" -le 23 ] && [ "$STAMP" != "${last_health_min:-}" ]; then
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/componentHealthCheck.js >> "$LOG" 2>&1 &
     last_health_min="$STAMP"
+  fi
+
+  # 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — aggregate the caged-surface
+  # board after the evening scans (17:25, 22:25) + post-grade (05:45), so
+  # /status and /m read fresh rows. Read-only over existing artifacts;
+  # background so it never blocks the loop.
+  if { { [ "$HOUR" -eq 17 ] || [ "$HOUR" -eq 22 ]; } && [ "$MIN" -eq 25 ]; } || { [ "$HOUR" -eq 5 ] && [ "$MIN" -eq 45 ]; }; then
+    if [ "$STAMP" != "${last_gradboard_min:-}" ]; then
+      node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/graduationBoard.js >> "$LOG" 2>&1 &
+      last_gradboard_min="$STAMP"
+    fi
   fi
 
   # 2026-07-29 DAILY3-RAILS R1 — commit new lock receipts so the tamper-evident

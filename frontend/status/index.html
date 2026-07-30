@@ -249,6 +249,14 @@
     </div>
   </details>
 
+  <details class="card" id="cardGraduationBoard">
+    <summary><h2>graduation board</h2><span class="summaryLine" id="sumGraduationBoard">…</span></summary>
+    <div class="cardBody">
+      <div class="legend">Every caged surface's road to bettable, read from the artifacts the nightly already writes. Paper units are IN-SAMPLE shadow numbers — a deeply negative gate is the gate refusing correctly, not money lost. STALLED = exam counters failed to advance across 2 games-slates (named loudly; the stall alarm fires on the same condition, recomputed from raw artifacts).</div>
+      <div id="graduationBoardList">—</div>
+    </div>
+  </details>
+
   <details class="card" id="cardComponentHealth">
     <summary><h2>component health</h2><span class="summaryLine" id="sumComponentHealth">…</span></summary>
     <div class="cardBody">
@@ -937,6 +945,30 @@ function renderG1Readiness(data) {
   _setSummary("sumG1Readiness", (r.forwardCount != null && r.trainThrough) ? (r.forwardCount + "/" + r.forwardNeed + " forward days · " + (r.forwardReady ? "gate ready" : "gate ~" + r.forwardProjectedEval)) : (r.cleanCount + " of " + r.need + " clean"));
 }
 
+// 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — renders data.graduationBoard
+// (the aggregator sidecar via the route; never computed here).
+function renderGraduationBoard(data) {
+  const list = document.getElementById("graduationBoardList");
+  const sum = document.getElementById("sumGraduationBoard");
+  const gb = data.graduationBoard;
+  if (!list || !sum) return;
+  if (!gb || !gb.ok) { sum.textContent = "unreadable"; list.textContent = gb && gb.error ? gb.error : "—"; return; }
+  if (!gb.generated) { sum.textContent = "not generated yet"; list.textContent = gb.note || "—"; return; }
+  const stalled = gb.stalledRows || [];
+  sum.textContent = `${(gb.rows || []).length} caged surfaces · ${stalled.length ? "⚠ STALLED: " + stalled.join(", ") : "all advancing"} · ${gb.ageMinutes}m old`;
+  sum.style.color = stalled.length ? "var(--red)" : "";
+  list.innerHTML = (gb.rows || []).map((r) => {
+    const col = r.status === "stalled" ? "var(--red)" : r.status === "queued" ? "var(--text-faint)" : "var(--amber)";
+    const nights = r.examNights && r.examNights.bar != null ? `${r.examNights.have}/${r.examNights.bar} nights` : (r.verdict ? `verdict ${r.verdict}` : "");
+    const dec = r.decided && r.decided.bar != null ? ` · ${r.decided.have}/${r.decided.bar} ${r.decided.unit || "decided"}` : (r.decided && r.decided.have ? ` · ${r.decided.have}` : "");
+    const units = r.paperUnits != null ? ` · ${typeof r.paperUnits === "number" ? r.paperUnits + "u" : r.paperUnits}` : "";
+    const trend = r.trend && r.trend.label ? ` · ${r.trend.label}` : "";
+    const adv = r.lastAdvance ? ` · last advance ${r.lastAdvance}` : "";
+    const note = r.examNights && r.examNights.note ? `<div style="color:var(--text-faint);font-size:11px;margin-left:14px">${r.examNights.note}</div>` : "";
+    return `<div style="padding:4px 0;border-top:1px solid var(--text-faint)"><span style="color:${col};font-weight:700">${r.status.toUpperCase()}</span> <b>${r.label}</b> — ${nights}${dec}${units}${trend}${adv}<div style="color:var(--text-faint);font-size:11px;margin-left:14px">unlock: ${r.unlock}</div>${note}</div>`;
+  }).join("");
+}
+
 function renderComponentHealth(data) {
   const f = data.componentHealth;
   const list = document.getElementById("componentHealthList");
@@ -1459,6 +1491,7 @@ async function loadStatus() {
     renderSchemaGolden(data);
     renderCommits(data);
     renderComponentHealth(data);
+    renderGraduationBoard(data);
     renderG1Readiness(data);
     renderDrift(data);
     renderUnderHood(data);

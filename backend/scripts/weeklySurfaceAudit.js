@@ -69,7 +69,24 @@ const hc = rd(path.join(TRACKING, "..", "operator", "component_health.json")) ||
 finding("/status", !!hc, hc ? "health payload present + parseable" : "health payload MISSING")
 
 const bad = findings.filter((f) => !f.ok)
-const md = `# Weekly Surface Audit — ${today}\n\n${bad.length ? `**${bad.length} MISMATCH(ES)** — the record and its surfaces disagree:\n\n` : "**All surfaces consistent with record truth.**\n\n"}| surface | status | detail |\n|---|---|---|\n${findings.map((f) => `| ${f.surface} | ${f.ok ? "OK" : "**MISMATCH**"} | ${f.detail} |`).join("\n")}\n\nDoctrine: the operator stops being the QA department by design, not luck — mismatches here are critic-grade findings and get root-caused, never hand-fixed.\n`
+
+// ── 2026-07-30 GRADUATION BOARD + RECEIPTS synthesis (ASK f5ee1b6 — the
+// Sunday note reads off the board; receipts chain verdict rides along) ──
+let gradMd = ""
+try {
+  const { buildBoard } = require("./graduationBoard")
+  const board = buildBoard({})
+  const gRow = (r) => `| ${r.status === "stalled" ? "**STALLED**" : r.status} | ${r.label} | ${r.examNights.bar != null ? r.examNights.have + "/" + r.examNights.bar : (r.verdict || "—")} | ${r.decided.bar != null ? r.decided.have + "/" + r.decided.bar : (r.decided.have || "—")} | ${r.paperUnits != null ? (typeof r.paperUnits === "number" ? r.paperUnits + "u" : r.paperUnits) : "—"} | ${r.trend.label} | ${r.unlock} |`
+  gradMd = `\n## Graduation board (caged → bettable)\n\n${(board.stalledRows || []).length ? `**⚠ STALLED: ${board.stalledRows.join(", ")}** — exam counters flat; named rows need a human.\n\n` : "All caged surfaces advancing.\n\n"}| status | surface | nights | decided | paper units (in-sample) | trend | unlock |\n|---|---|---|---|---|---|---|\n${board.rows.map(gRow).join("\n")}\n`
+} catch (e) { gradMd = `\n## Graduation board\n\nboard unavailable this pass: ${String(e?.message || e)}\n` }
+let receiptsMd = ""
+try {
+  const { validateReceiptChain } = require("../pipeline/shared/daily3")
+  const v = validateReceiptChain()
+  receiptsMd = `\n## Daily 3 receipts\n\nchain ${v.ok ? "✓ INTACT" : "✗ **BROKEN at " + v.breaks.map((b) => b.slate).join(", ") + "**"} · ${v.checked} link(s) on file.\n`
+} catch (e) { receiptsMd = `\n## Daily 3 receipts\n\nchain check unavailable: ${String(e?.message || e)}\n` }
+
+const md = `# Weekly Surface Audit — ${today}\n\n${bad.length ? `**${bad.length} MISMATCH(ES)** — the record and its surfaces disagree:\n\n` : "**All surfaces consistent with record truth.**\n\n"}| surface | status | detail |\n|---|---|---|\n${findings.map((f) => `| ${f.surface} | ${f.ok ? "OK" : "**MISMATCH**"} | ${f.detail} |`).join("\n")}\n${gradMd}${receiptsMd}\nDoctrine: the operator stops being the QA department by design, not luck — mismatches here are critic-grade findings and get root-caused, never hand-fixed.\n`
 const out = path.join(ROOT, "..", "docs", "audits", `surface-audit-${today}.md`)
 fs.mkdirSync(path.dirname(out), { recursive: true })
 fs.writeFileSync(out, md)

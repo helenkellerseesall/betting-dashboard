@@ -1623,6 +1623,21 @@ function sectionForwardClvSlices() {
 // runs the self-tests in-request (keeps /status fast). GREEN here means the component's own
 // check RAN + PASSED this cycle; the section also exposes how stale the run is so the FE can
 // downgrade a green that's gone cold. Anti-fabrication: missing sidecar = not-run, never faked.
+// 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — reads the sidecar the
+// graduationBoard.js aggregator writes (scheduler: post-scan + post-grade).
+// This route NEVER computes the board in-request (doctrine: /status reads
+// sidecars). The stall alarm recomputes from raw artifacts independently.
+function sectionGraduationBoard() {
+  try {
+    const p = path.join(TRACKING_DIR, "graduation_board.json")
+    if (!fs.existsSync(p)) return { ok: true, generated: false, note: "aggregator not run yet — node backend/scripts/graduationBoard.js (scheduler fires it after the 17:15/22:20 scans + post-grade)" }
+    const j = safeReadJson(p)
+    if (!j) return { ok: false, error: "graduation_board.json unreadable/corrupt" }
+    const ageMin = Math.round((Date.now() - fs.statSync(p).mtimeMs) / 60000)
+    return { ok: true, generated: true, ageMinutes: ageMin, ...j }
+  } catch (e) { return { ok: false, error: String(e?.message || e) } }
+}
+
 function sectionComponentHealth() {
   try {
     const p = path.join(TRACKING_DIR, "component_health.json")
@@ -1687,6 +1702,7 @@ router.get("/", (req, res) => {
   out.schemaGolden      = sectionSchemaGolden()
   out.trackedBestToday  = sectionTrackedBestToday()
   out.componentHealth   = sectionComponentHealth()
+  out.graduationBoard   = sectionGraduationBoard()
   out.g1Readiness       = sectionG1Readiness()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
@@ -1723,6 +1739,7 @@ router.post("/snapshot", (req, res) => {
     out.schemaGolden      = sectionSchemaGolden()
     out.trackedBestToday  = sectionTrackedBestToday()
     out.componentHealth   = sectionComponentHealth()
+    out.graduationBoard   = sectionGraduationBoard()
     out.g1Readiness       = sectionG1Readiness()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0

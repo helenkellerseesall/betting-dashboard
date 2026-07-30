@@ -2367,6 +2367,19 @@ router.get("/daily3/public", (req, res) => {
 })
 
 /**
+ * 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — GET /api/ws/graduation-board:
+ * the aggregator sidecar for the /m compact section. READ-ONLY; fresh read
+ * per call (the sidecar is small).
+ */
+router.get("/graduation-board", (req, res) => {
+  try {
+    const p = path.join(TRACKING_DIR, "graduation_board.json")
+    if (!fs.existsSync(p)) return res.json({ ok: true, generated: false, note: "aggregator not run yet" })
+    res.json({ ok: true, generated: true, ...readJsonSafe(p, {}) })
+  } catch (err) { res.json({ ok: false, error: String(err?.message || err) }) }
+})
+
+/**
  * 2026-07-07 DEEPLINK-2A — GET /api/ws/deeplink-matrix: serve the operator's
  * verified link matrix (backend/config/deeplinkMatrix.json) to the /m FE.
  * READ-ONLY; fresh read per call (operator edits the file, no restart needed).
