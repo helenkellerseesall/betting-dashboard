@@ -2041,14 +2041,51 @@ router.get("/ledger/yesterday", async (req, res) => {
       .filter((b) => !sport || b.sport === sport)
     const placedYesterday = placedAll.filter((b) => b.date === yKey)
     const placedToday     = placedAll.filter((b) => b.date === todayKey)
+    // ── 2026-07-30 EFFECTIVE-LOSS LENS (incident ASK 7aae50f, operator
+    // directive) — computed BEFORE the rollups so dead pending tickets stop
+    // counting as winnable in the header. IRREVERSIBLE-ONLY bases: a leg's
+    // graded twin is a LOSS, or the live indicator's over-breach/under-breach
+    // call (lost_unofficial — a counting stat never un-counts). The OFFICIAL
+    // record is untouched: the nightly writes the only real grade; alarm (k)
+    // goes RED if that grade ever contradicts a call logged here. Fail-open:
+    // any error ⇒ empty deadIds ⇒ the lens shows plain pending.
+    let _legLiveById = {}
+    const _deadIds = new Set()
+    try {
+      const _openParlays = placedAll.filter((b) => (b.betType === "parlay" || b.betType === "slip") && String(b.result || "pending") === "pending" && Array.isArray(b.legs) && b.legs.length)
+      if (_openParlays.length) {
+        const { assessOpenParlayLegs } = require("../pipeline/shared/parlayLegLiveState")
+        _legLiveById = await assessOpenParlayLegs(_openParlays.map((b) => ({ id: b.id, gameDate: b.date, legs: b.legs })))
+        const _normP = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+        for (const b of _openParlays) {
+          let basis = null
+          const lv = _legLiveById[b.id]
+          if (lv && Array.isArray(lv.legs) && lv.legs.some((x) => x && x.state === "lost_unofficial")) basis = "live_irreversible_breach"
+          if (!basis) {
+            let rows = []
+            try { rows = JSON.parse(fs.readFileSync(fileFor("mlb", "tracked_bets", b.date), "utf8")) } catch (_) {}
+            if (Array.isArray(rows) && (b.legs || []).some((leg) => rows.find((r) => _normP(r.player) === _normP(leg.player) && String(r.statFamily) === String(leg.statFamily || leg.stat) && String(r.side).toLowerCase() === String(leg.side).toLowerCase() && Number(r.line) === Number(leg.line) && String(r.result) === "loss"))) basis = "graded_twin_loss"
+          }
+          if (basis) {
+            _deadIds.add(b.id)
+            try {
+              const evP = path.join(TRACKING_DIR, "parlay_leg_death_events.jsonl")
+              const existing = fs.existsSync(evP) ? fs.readFileSync(evP, "utf8") : ""
+              if (!existing.includes(`"betId":"${b.id}"`)) fs.appendFileSync(evP, JSON.stringify({ ts: new Date().toISOString(), betId: b.id, ticketCall: "dead", basis }) + "\n")
+            } catch (_) { /* event log never blocks the lens */ }
+          }
+        }
+      }
+    } catch (_) { /* fail-open — no adjustment */ }
     // Combined rollup spans the full 14-day window now, not just yesterday+today.
     // yesterdayRollup / todayRollup remain available for summary cards.
-    const placedCombinedRollup = rollupPlaced(placedAll)
+    const placedCombinedRollup = rollupPlaced(placedAll, { deadIds: _deadIds })
     const placedBets = placedAll.length ? {
       ...placedCombinedRollup,  // flat fields for FE backward compat
       windowDays: "lifetime", // 2026-07-28 RECORD-VISIBILITY — full record, never aged out
-      yesterdayRollup: rollupPlaced(placedYesterday),
-      todayRollup:     rollupPlaced(placedToday),
+      effectiveDeadIds: [..._deadIds], // EFFECTIVE-LOSS LENS — ids the header treats as dead
+      yesterdayRollup: rollupPlaced(placedYesterday, { deadIds: _deadIds }),
+      todayRollup:     rollupPlaced(placedToday, { deadIds: _deadIds }),
       bets: placedAll.map((b) => ({
         id: b.id, date: b.date, sport: b.sport, sportsbook: b.sportsbook,
         betType: b.betType, prop: b.prop, player: b.player, matchup: b.matchup,
@@ -2067,17 +2104,9 @@ router.get("/ledger/yesterday", async (req, res) => {
     // nightly. Fail-open: any fetch failure ⇒ no annotation, never a blocked
     // or slowed bets page (60s per-date cache in the module).
     if (placedBets) {
-      try {
-        const openParlays = placedBets.bets.filter((b) =>
-          (b.betType === "parlay" || b.betType === "slip") &&
-          String(b.result || "pending") === "pending" &&
-          Array.isArray(b.legs) && b.legs.length)
-        if (openParlays.length) {
-          const { assessOpenParlayLegs } = require("../pipeline/shared/parlayLegLiveState")
-          const assessed = await assessOpenParlayLegs(openParlays.map((b) => ({ id: b.id, gameDate: b.date, legs: b.legs })))
-          for (const b of placedBets.bets) if (assessed[b.id]) b.legLive = assessed[b.id]
-        }
-      } catch (_) { /* display-only — never blocks the record surface */ }
+      // legLive already assessed above (single pass — the lens and the card
+      // annotation share one read); attach per card, display-only.
+      for (const b of placedBets.bets) if (_legLiveById[b.id]) b.legLive = _legLiveById[b.id]
     }
 
     res.json({

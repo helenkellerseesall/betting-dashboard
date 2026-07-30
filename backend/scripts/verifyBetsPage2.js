@@ -81,7 +81,9 @@ check("ticket: any lost ⇒ LOST · open blocks ⇒ null · all won ⇒ WON · w
   // ── source anchors ──
   const wr = rd("routes/workstationRoutes.js")
   check("route: rollup extracted to betRollup authority + old inline math gone", /require\("\.\.\/pipeline\/shared\/betRollup"\)/.test(wr) && !/ptoWin \+= w/.test(wr))
-  check("route: legLive attach on OPEN parlays only, async handler, fail-open display-only", /LIVE LEG-DEATH INDICATOR/.test(wr) && /assessOpenParlayLegs/.test(wr) && /ledger\/yesterday", async/.test(wr) && /never blocks the record surface/.test(wr))
+  // 2026-07-30 anchor updated w/ the incident pack: the legLive attach merged
+  // into the effective-loss lens (single assess pass shared by lens + cards).
+  check("route: legLive assessed once (lens+cards share the pass), async handler, fail-open display-only", /assessOpenParlayLegs/.test(wr) && /ledger\/yesterday", async/.test(wr) && /single pass — the lens and the card/.test(wr) && /fail-open — no adjustment/.test(wr))
   const sp = rd("scripts/settlePlacedBet.js")
   check("manual settle: parlay branch calls backfillLegResults immediately (can't-recur)", /backfillLegResults\(\{ onlyId: id \}\)/.test(sp) && /nightly sweep/.test(sp))
   const fe = rd("../frontend/mobile/index.html")

@@ -37,10 +37,23 @@ function riskedOf(b) {
   return Number(b && b.stake) || 0
 }
 
-function rollupPlaced(bets) {
+/**
+ * 2026-07-30 EFFECTIVE-LOSS LENS (incident ASK 7aae50f, operator directive):
+ * opts.deadIds = ids of PENDING bets with an irreversibly-dead leg (graded-
+ * twin loss or live over-breach — irreversible-only, computed by the route,
+ * fail-open). A dead pending ticket stops counting as winnable: excluded
+ * from pendingToWin, counted effectiveDead, and effectiveProfit shows the
+ * header truth (settledProfit minus dead real risk). THE OFFICIAL RECORD IS
+ * UNTOUCHED — the nightly still writes the only real grade; this is the lens
+ * refusing to sell hope on a corpse. Default (no deadIds) = byte-identical
+ * output to before.
+ */
+function rollupPlaced(bets, opts = {}) {
+  const deadIds = opts.deadIds instanceof Set ? opts.deadIds : new Set(opts.deadIds || [])
   let pwins = 0, plosses = 0, ppushes = 0, ppending = 0
   let pstaked = 0, priskedStaked = 0, psettledRisked = 0
   let pprofit = 0, ppendingToWin = 0, ppendingRisked = 0
+  let effectiveDead = 0, effectiveDeadRisked = 0
   for (const b of (Array.isArray(bets) ? bets : [])) {
     const s = Number(b.stake) || 0
     const risked = riskedOf(b)
@@ -51,6 +64,7 @@ function rollupPlaced(bets) {
     if (b.result === "win") { pwins++; psettledRisked += risked; pprofit += hasRealPayout ? Number(b.payout) - risked : w }
     else if (b.result === "loss") { plosses++; psettledRisked += risked; pprofit -= risked }
     else if (b.result === "push" || b.result === "void") { ppushes++; psettledRisked += risked }
+    else if (deadIds.has(b.id)) { ppending++; effectiveDead++; effectiveDeadRisked += risked }
     else { ppending++; ppendingToWin += w; ppendingRisked += risked }
   }
   const settledP = pwins + plosses + ppushes
@@ -71,6 +85,10 @@ function rollupPlaced(bets) {
     profit: r2(pprofit),                 // legacy alias for settledProfit
     roi: roiP,
     hitRate: hitRateP,
+    // EFFECTIVE-LOSS LENS (0 / == settledProfit when no deadIds passed)
+    effectiveDeadCount: effectiveDead,
+    effectiveDeadRisked: r2(effectiveDeadRisked),
+    effectiveProfit: r2(pprofit - effectiveDeadRisked),
   }
 }
 

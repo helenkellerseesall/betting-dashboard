@@ -394,18 +394,57 @@ function checkBetsParity() {
 }
 checkBetsParity()
 
-// (h) 2026-07-28 PARLAY SETTLE — a settleable-but-unsettled realMoney parlay
-// past its grading night = RED.
+// (h) 2026-07-28 PARLAY SETTLE — 2026-07-30 BAR REWRITE (incident 7aae50f):
+// the old ≥2-day grace let a ticket that can NEVER self-settle (twin-less leg,
+// the Clement u0.5 class) sit green for two nights. New bar: a pending
+// realMoney parlay is STALE the moment its slate has GRADED (the slate's
+// tracked file carries win/loss rows — the settle pass had its chance) and
+// the slate is at least 1 day old. No grace for the unsettleable.
 function checkParlaySettle() {
   try {
     const today = currentSlateDateEt()
     const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
-    const stale = (ledger.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending" && (b.gameDate || b.date) && (Date.parse(today) - Date.parse(b.gameDate || b.date)) / 86400000 >= 2)
-    if (stale.length) return set("parlaySettle", "fail", `Parlay settle: ${stale.length} realMoney parlay(s) still pending ≥2 days past their night (${stale.slice(0, 2).map((b) => b.id).join(", ")}) — auto-settle or leg-grading stalled`, "wired")
-    return set("parlaySettle", "green", "Parlay settle: no stale pending parlays", "wired")
+    const pendingP = (ledger.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending" && (b.gameDate || b.date))
+    const stale = pendingP.filter((b) => {
+      const d = b.gameDate || b.date
+      const ageDays = (Date.parse(today) - Date.parse(d)) / 86400000
+      if (ageDays < 1) return false
+      let rows = []
+      try { rows = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${d}.json`), "utf8")) } catch (_) {}
+      const slateGraded = Array.isArray(rows) && rows.some((r) => ["win", "loss"].includes(String(r.result)))
+      return slateGraded || ageDays >= 2 // graded-and-unsettled = stale NOW; ungraded slate still hard-caps at 2 days
+    })
+    if (stale.length) return set("parlaySettle", "fail", `Parlay settle: ${stale.length} realMoney parlay(s) pending past a GRADED slate (${stale.slice(0, 2).map((b) => b.id).join(", ")}) — twin-less leg or settle stall; the finals-fallback should have caught it`, "wired")
+    return set("parlaySettle", "green", `Parlay settle: ${pendingP.length} pending, none past a graded slate`, "wired")
   } catch (e) { return set("parlaySettle", "not-run", `Parlay settle: ${String(e?.message || e)}`, "wired") }
 }
 checkParlaySettle()
+
+// (k) 2026-07-30 LEG-DEATH DISAGREEMENT (incident ASK part E) — an official
+// settle that CONTRADICTS a logged irreversible live call = RED loudly:
+// either the live read or the grader is wrong, and both claim authority a
+// bettor acted on. Events logged by the ledger lens (parlay_leg_death_events
+// .jsonl); irreversible calls only (over-reached / under-breached / graded-
+// twin loss), so a contradiction is never "the game moved on".
+function checkLegDeathDisagreement() {
+  try {
+    const evP = path.join(TRACKING, "parlay_leg_death_events.jsonl")
+    if (!fs.existsSync(evP)) return set("legDeathDisagreement", "green", "Leg-death disagreement: no irreversible calls logged yet", "wired")
+    const events = fs.readFileSync(evP, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean)
+    const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
+    const byId = new Map((ledger.bets || []).map((b) => [b.id, b]))
+    const contradictions = []
+    for (const e of events) {
+      const b = byId.get(e.betId)
+      if (!b || b.result === "pending") continue
+      // the call said the TICKET was effectively dead; a WIN settle contradicts it
+      if (e.ticketCall === "dead" && b.result === "win") contradictions.push(`${e.betId} (called dead ${String(e.ts).slice(0, 10)}, settled WIN)`)
+    }
+    if (contradictions.length) return set("legDeathDisagreement", "fail", `Leg-death disagreement: ${contradictions.length} official settle(s) contradict an irreversible live call — ${contradictions.slice(0, 2).join("; ")} — the live read or the grader is wrong; HUMAN LOOK REQUIRED`, "wired")
+    return set("legDeathDisagreement", "green", `Leg-death disagreement: ${events.length} irreversible call(s) on file, zero contradictions`, "wired")
+  } catch (e) { return set("legDeathDisagreement", "not-run", `Leg-death disagreement: ${String(e?.message || e)}`, "wired") }
+}
+checkLegDeathDisagreement()
 
 // (i) 2026-07-28 LINE-FRESHNESS AT SERVE — the pack's ships-with alarm:
 // RED when the serve pass stops stamping cards, revalidation errored recently,
@@ -465,7 +504,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

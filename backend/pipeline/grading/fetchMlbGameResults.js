@@ -34,8 +34,18 @@ const axios = require("axios")
 const MLB_API_BASE = "https://statsapi.mlb.com/api/v1"
 const REQUEST_TIMEOUT = 12000
 
+// 2026-07-30 INCIDENT ROOT FIX (ASK 7aae50f): NFD diacritic strip added — the
+// old trim+lowercase kept accents, so the finals map keyed "yandy díaz" while
+// tracked rows carry ASCII "yandy diaz" and EVERY accented player's rows
+// silently never graded (289 pending rows on 7/23 alone; the Daily 3 stall;
+// starved CLV/corpus for the whole class). Parity with fetchMlbFirstHr's
+// normName (which always stripped) — one join behavior across grading.
 function normName(v) {
-  return String(v == null ? "" : v).trim().toLowerCase()
+  return String(v == null ? "" : v)
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .toLowerCase()
 }
 
 function toInt(v) {

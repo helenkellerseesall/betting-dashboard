@@ -23,10 +23,50 @@ const path = require("path")
 const ROOT = path.join(__dirname, "..")
 const TRACKING = process.env.PS_TRACKING_DIR || path.join(ROOT, "runtime", "tracking")
 const LEDGER_PATH = process.env.PS_LEDGER || path.join(TRACKING, "personal_ledger.json")
-const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+const norm = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "")
 const decOf = (o) => (Number(o) > 0 ? 1 + Number(o) / 100 : 1 + 100 / Math.abs(Number(o)))
 
-function settleParlays({ dryRun = false } = {}) {
+// ── 2026-07-30 FINALS-FALLBACK (incident ASK 7aae50f, part B) ────────────────
+// A leg with NO graded twin (the Clement u0.5 class: the board never tracked
+// that line) can NEVER settle via the tuple join. Once the slate has graded
+// (its tracked file carries win/loss rows — the grading night ran), such legs
+// grade from the OFFICIAL FINALS the grader already trusts. The finals come
+// from a per-date CACHE FILE (mlb_finals_<date>.json) written by the async
+// prefetch below — settleParlays itself stays SYNC (the phase4Tracking rider
+// calls it synchronously); the rider simply doesn't fire the fallback until
+// the nightly CLI run has prefetched. Never-guess preserved: no cache, or
+// player absent from a young slate ⇒ pending; player absent from finals at
+// slate ≥2 days (scratch-rule mirror) ⇒ leg VOID via drop-and-recompute.
+const finalsPathFor = (date, dir) => path.join(dir || TRACKING, `mlb_finals_${date}.json`)
+function loadFinals(date, dir) {
+  try { return JSON.parse(fs.readFileSync(finalsPathFor(date, dir), "utf8")) } catch (_) { return null }
+}
+async function prefetchFinals(dates, { dir } = {}) {
+  const { fetchMlbGameResults } = require("../pipeline/grading/fetchMlbGameResults")
+  const out = []
+  for (const d of [...new Set(dates)].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x)))) {
+    const fp = finalsPathFor(d, dir)
+    if (fs.existsSync(fp)) { out.push({ date: d, cached: true }); continue }
+    try {
+      const map = await fetchMlbGameResults(d)
+      if (map && map.size) {
+        const tmp = `${fp}.tmp.${process.pid}`
+        fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(map)))
+        fs.renameSync(tmp, fp)
+        out.push({ date: d, fetched: map.size })
+      } else out.push({ date: d, empty: true })
+    } catch (e) { out.push({ date: d, error: String(e?.message || e) }) }
+  }
+  return out
+}
+const _slateAgeDays = (slate) => {
+  const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
+  const k = (x) => { const [y, m, dd] = String(x).split("-").map(Number); return Date.UTC(y, m - 1, dd, 12) }
+  return Math.round((k(currentSlateDateEt()) - k(slate)) / 86400000)
+}
+
+function settleParlays(opts = {}) {
+  const { dryRun = false } = opts
   const L = JSON.parse(fs.readFileSync(LEDGER_PATH, "utf8"))
   const bets = Array.isArray(L.bets) ? L.bets : []
   const pending = bets.filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending" && Array.isArray(b.legs) && b.legs.length)
@@ -35,9 +75,32 @@ function settleParlays({ dryRun = false } = {}) {
     const gameDate = p.gameDate || p.date
     let rows = null
     try { rows = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${gameDate}.json`), "utf8")) } catch (_) { continue }
+    const slateGraded = rows.some((r) => ["win", "loss"].includes(String(r.result)))
+    const finals = slateGraded ? loadFinals(gameDate, opts.finalsDir) : null
+    const { getStatValue } = require("../pipeline/grading/fetchMlbGameResults")
     const legResults = p.legs.map((leg) => {
       const twin = rows.find((r) => norm(r.player) === norm(leg.player) && String(r.statFamily) === String(leg.statFamily || leg.stat) && String(r.side).toLowerCase() === String(leg.side).toLowerCase() && Number(r.line) === Number(leg.line) && ["win", "loss", "push", "void"].includes(String(r.result)))
-      return twin ? String(twin.result) : "pending"
+      if (twin) return String(twin.result)
+      // FINALS-FALLBACK — twin-less leg, slate graded, finals cached.
+      if (!finals) return "pending"
+      const fKey = Object.keys(finals).find((k) => norm(k) === norm(leg.player))
+      const line = Number(leg.line)
+      if (fKey && Number.isFinite(line)) {
+        const val = Number(getStatValue(finals[fKey], leg.statFamily || leg.stat))
+        if (Number.isFinite(val)) {
+          const over = String(leg.side).toLowerCase().startsWith("o")
+          const res = val === line ? "push" : (over === (val > line) ? "win" : "loss")
+          leg.legNote = `graded from official finals (no board twin at this line): actual ${val} vs ${leg.side} ${line}`
+          return res
+        }
+      }
+      // player absent from finals: young slate ⇒ pending (retry); ≥2 days ⇒
+      // no appearance ⇒ VOID per book behavior (scratch-rule mirror).
+      if (!fKey && _slateAgeDays(gameDate) >= 2 && Object.keys(finals).length) {
+        leg.legNote = `no appearance in official finals — leg voided per book behavior (scratch-rule mirror)`
+        return "void"
+      }
+      return "pending"
     })
     if (legResults.includes("pending")) continue // never guessed
     const live = p.legs.filter((_, i) => legResults[i] !== "void" && legResults[i] !== "push")
@@ -124,13 +187,25 @@ function backfillLegResults({ dryRun = false, onlyId = null } = {}) {
 
 if (require.main === module) {
   const dry = process.argv.includes("--dry")
-  const r = settleParlays({ dryRun: dry })
-  console.log(`settleParlaysFromRecord${dry ? " [DRY]" : ""}: ${r.settled}/${r.checked} pending parlays settled`)
-  for (const x of r.receipts) console.log(`  ${x.id} [${x.gameDate}] → ${x.result.toUpperCase()} payout $${x.payout} (legs ${x.legResults.join("/")})`)
-  if (!r.checked) console.log("  no pending realMoney parlays — honest no-op")
-  // PACK 2 (3) — nightly leg-results sweep: settled-with-pending-legs strays.
-  const b = backfillLegResults({ dryRun: dry })
-  console.log(`legResultsBackfill${dry ? " [DRY]" : ""}: ${b.backfilled}/${b.checked} settled parlays had legs stamped`)
-  for (const x of b.receipts) console.log(`  ${x.id} [${x.gameDate}] → legs ${x.legResults.join("/")} (${x.stamped} stamped; ticket untouched)`)
+  ;(async () => {
+    // FINALS-FALLBACK prefetch: cache finals for every pending parlay's date
+    // whose slate has graded (async here in the CLI; settleParlays stays sync
+    // so the phase4Tracking rider's contract is untouched). PS_SKIP_PREFETCH=1
+    // = hermetic fixture mode: pre-written caches only, zero network.
+    if (process.env.PS_SKIP_PREFETCH === "1") { console.log("  finals prefetch SKIPPED (PS_SKIP_PREFETCH=1 — fixture mode)") } else try {
+      const L0 = JSON.parse(fs.readFileSync(LEDGER_PATH, "utf8"))
+      const dates = (L0.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending").map((b) => b.gameDate || b.date)
+      const pf = await prefetchFinals(dates)
+      for (const x of pf) console.log(`  finals[${x.date}]: ${x.cached ? "cached" : x.fetched ? x.fetched + " players fetched" : x.empty ? "empty (games not final?)" : "ERROR " + x.error}`)
+    } catch (e) { console.log(`  finals prefetch skipped: ${e?.message || e}`) }
+    const r = settleParlays({ dryRun: dry })
+    console.log(`settleParlaysFromRecord${dry ? " [DRY]" : ""}: ${r.settled}/${r.checked} pending parlays settled`)
+    for (const x of r.receipts) console.log(`  ${x.id} [${x.gameDate}] → ${x.result.toUpperCase()} payout $${x.payout} (legs ${x.legResults.join("/")})`)
+    if (!r.checked) console.log("  no pending realMoney parlays — honest no-op")
+    // PACK 2 (3) — nightly leg-results sweep: settled-with-pending-legs strays.
+    const b = backfillLegResults({ dryRun: dry })
+    console.log(`legResultsBackfill${dry ? " [DRY]" : ""}: ${b.backfilled}/${b.checked} settled parlays had legs stamped`)
+    for (const x of b.receipts) console.log(`  ${x.id} [${x.gameDate}] → legs ${x.legResults.join("/")} (${x.stamped} stamped; ticket untouched)`)
+  })()
 }
-module.exports = { settleParlays, backfillLegResults }
+module.exports = { settleParlays, backfillLegResults, prefetchFinals, loadFinals }
