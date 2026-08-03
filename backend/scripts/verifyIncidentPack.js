@@ -71,7 +71,10 @@ check("root fix documented at the source (289-row class, FirstHr parity)", /NFD 
 const sp = rd("scripts/settleParlaysFromRecord.js")
 check("fallback: sync settleParlays + async CLI prefetch (rider contract untouched) + provenance notes", /prefetchFinals/.test(sp) && /rider calls it synchronously|rider's contract/.test(sp) && /graded from official finals/.test(sp) && /scratch-rule mirror/.test(sp) && /norm = \(s\) => String\(s \|\| ""\)\.normalize\("NFD"\)/.test(sp))
 const chc = rd("scripts/componentHealthCheck.js")
-check("staleness bar: pending past a GRADED slate = RED now (no grace for the unsettleable) + 2-day hard cap kept", /BAR REWRITE/.test(chc) && /slateGraded \|\| ageDays >= 2/.test(chc) && /No grace for the unsettleable/.test(chc))
+// 2026-08-02 anchor updated w/ VOID-WAIT v3: the bar is now void-aware — a
+// waiting void-candidate ticket is NOT stale until its 2-day window arms
+// (verifyVoidWait owns the v3 behavior tests; this anchor pins presence).
+check("staleness bar: v3 void-aware (waiting state until the window arms; RED only when the rule could act) + bar-rewrite provenance kept", /BAR REWRITE/.test(chc) && /VOID-WAIT v3/.test(chc) && /No grace for the unsettleable/.test(chc))
 check("disagreement alarm registered: dead-call vs WIN-settle contradiction = RED, human look required", /checkLegDeathDisagreement/.test(chc) && /"legDeathDisagreement"/.test(chc) && /HUMAN LOOK REQUIRED/.test(chc) && chc.indexOf("fs.writeFileSync(OUT") > chc.indexOf("checkLegDeathDisagreement()"))
 const wr = rd("routes/workstationRoutes.js")
 check("route: lens computed pre-rollup, irreversible-only bases, deduped jsonl events, fail-open, single legLive pass", /EFFECTIVE-LOSS LENS/.test(wr) && /live_irreversible_breach/.test(wr) && /graded_twin_loss/.test(wr) && /parlay_leg_death_events\.jsonl/.test(wr) && /fail-open — no adjustment/.test(wr) && /deadIds: _deadIds/.test(wr))

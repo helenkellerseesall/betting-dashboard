@@ -208,4 +208,26 @@ if (require.main === module) {
     for (const x of b.receipts) console.log(`  ${x.id} [${x.gameDate}] → legs ${x.legResults.join("/")} (${x.stamped} stamped; ticket untouched)`)
   })()
 }
-module.exports = { settleParlays, backfillLegResults, prefetchFinals, loadFinals }
+/**
+ * 2026-08-02 VOID-WAIT (ASK 70cf06c) — the ONE void-candidacy authority,
+ * shared by the parlaySettle alarm (waiting-vs-stale) and the ledger lens
+ * (effective-win). Per unresolved leg:
+ *   graded twin            ⇒ { state: "graded", result }
+ *   no twin + finals PRESENT + player ABSENT ⇒ { state: "void_candidate" }
+ *     (the book voids no-shows; the scratch-mirror confirms at slate ≥2d)
+ *   anything else          ⇒ { state: "unresolved" } (finals absent ⇒ NEVER
+ *     guessed into candidacy — an absent cache proves nothing)
+ */
+function classifyLegs(bet, rows, finals) {
+  return (bet.legs || []).map((leg) => {
+    const twin = (Array.isArray(rows) ? rows : []).find((r) => norm(r.player) === norm(leg.player) && String(r.statFamily) === String(leg.statFamily || leg.stat) && String(r.side).toLowerCase() === String(leg.side).toLowerCase() && Number(r.line) === Number(leg.line) && ["win", "loss", "push", "void"].includes(String(r.result)))
+    if (twin) return { player: leg.player, state: "graded", result: String(twin.result) }
+    if (finals && Object.keys(finals).length) {
+      const present = Object.keys(finals).some((k) => norm(k) === norm(leg.player))
+      if (!present) return { player: leg.player, state: "void_candidate" }
+    }
+    return { player: leg.player, state: "unresolved" }
+  })
+}
+
+module.exports = { settleParlays, backfillLegResults, prefetchFinals, loadFinals, classifyLegs }

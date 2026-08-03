@@ -50,10 +50,15 @@ function riskedOf(b) {
  */
 function rollupPlaced(bets, opts = {}) {
   const deadIds = opts.deadIds instanceof Set ? opts.deadIds : new Set(opts.deadIds || [])
+  // 2026-08-02 VOID-WAIT (b) — effective-WIN mirror: pending tickets whose
+  // every leg is a graded WIN or a void-candidate. Counted + labeled; their
+  // toWin STAYS in pendingToWin (they remain winnable — the mirror informs,
+  // it never books unearned profit). Official settle remains the only writer.
+  const winIds = opts.winIds instanceof Set ? opts.winIds : new Set(opts.winIds || [])
   let pwins = 0, plosses = 0, ppushes = 0, ppending = 0
   let pstaked = 0, priskedStaked = 0, psettledRisked = 0
   let pprofit = 0, ppendingToWin = 0, ppendingRisked = 0
-  let effectiveDead = 0, effectiveDeadRisked = 0
+  let effectiveDead = 0, effectiveDeadRisked = 0, effectiveWin = 0
   for (const b of (Array.isArray(bets) ? bets : [])) {
     const s = Number(b.stake) || 0
     const risked = riskedOf(b)
@@ -65,7 +70,7 @@ function rollupPlaced(bets, opts = {}) {
     else if (b.result === "loss") { plosses++; psettledRisked += risked; pprofit -= risked }
     else if (b.result === "push" || b.result === "void") { ppushes++; psettledRisked += risked }
     else if (deadIds.has(b.id)) { ppending++; effectiveDead++; effectiveDeadRisked += risked }
-    else { ppending++; ppendingToWin += w; ppendingRisked += risked }
+    else { ppending++; ppendingToWin += w; ppendingRisked += risked; if (winIds.has(b.id)) effectiveWin++ }
   }
   const settledP = pwins + plosses + ppushes
   const r2 = (n) => Math.round(n * 100) / 100
@@ -89,6 +94,7 @@ function rollupPlaced(bets, opts = {}) {
     effectiveDeadCount: effectiveDead,
     effectiveDeadRisked: r2(effectiveDeadRisked),
     effectiveProfit: r2(pprofit - effectiveDeadRisked),
+    effectiveWinCount: effectiveWin,   // VOID-WAIT mirror — informational only
   }
 }
 

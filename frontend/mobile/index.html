@@ -3201,7 +3201,7 @@
             btnEl.disabled = false; btnEl.textContent = "Record this slip exactly as shown above"; return;
           }
           const r = await fetch(`${API}/api/ws/place-bet`, { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "parlay", sport: "mlb", ...common, odds: combined, legs: legs.map((l) => ({ player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line })) }) });
+            body: JSON.stringify({ mode: "parlay", sport: "mlb", ...common, odds: combined, legs: legs.map((l) => ({ player: l.player, stat: l.stat, propType: l.stat, side: l.side, line: l.line, odds: l.odds })) }) });  // 2026-08-02 VOID-WAIT (d) — leg prices persist (the slip shows them; §10 recompute needs them)
           results.push(await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` })));
         } else {
           for (const l of legs) {
@@ -4137,7 +4137,7 @@
                 <div style="font-size:22px;font-weight:700;color:${_profitC};font-family:ui-monospace,monospace;">${_profit >= 0 ? "+" : "−"}$${Math.abs(_profit).toFixed(2)}</div>
               </div>
               <div style="text-align:right;">
-                <div style="font-size:11px;color:#6B7280;letter-spacing:1px;">PENDING <span style="letter-spacing:0;text-transform:none;">(${pb.pending || 0} open · to win)</span></div>
+                <div style="font-size:11px;color:#6B7280;letter-spacing:1px;">PENDING <span style="letter-spacing:0;text-transform:none;">(${pb.pending || 0} open${(_num(pb.effectiveWinCount) || 0) > 0 ? ` · <span style="color:#34D399;">${pb.effectiveWinCount} confirming win</span>` : ""} · to win)</span></div>
                 <div style="font-size:18px;color:${(pb.pending || 0) > 0 ? "#FBBF24" : "#6B7280"};font-family:ui-monospace,monospace;">${_pendWin > 0 ? "+$" + _pendWin.toFixed(2) : "—"}</div>
               </div>
             </div>
@@ -4179,7 +4179,10 @@
           // live verdict. Official grade stays at the nightly.
           const _LV = { won_unofficial: ["WON (live)", "#34D399"], lost_unofficial: ["LOST (live)", "#F87171"], push_unofficial: ["PUSH (live)", "#9CA3AF"] };
           const _lv = (b.result || "pending") === "pending" && b.legLive ? b.legLive : null;
-          if (_lv && _lv.ticket === "lost_unofficial") { resultTxt = "PENDING — effectively decided (losing live)"; resultC = "#F87171"; }
+          // 2026-08-02 VOID-WAIT (b) — effective-WIN mirror, server-asserted.
+          const _isEffWin = (b.result || "pending") === "pending" && Array.isArray(pb.effectiveWinIds) && pb.effectiveWinIds.includes(b.id);
+          if (_isEffWin) { resultTxt = "PENDING — effectively won (confirming void)"; resultC = "#34D399"; }
+          else if (_lv && _lv.ticket === "lost_unofficial") { resultTxt = "PENDING — effectively decided (losing live)"; resultC = "#F87171"; }
           else if (_lv && _lv.ticket === "won_unofficial") { resultTxt = "PENDING — effectively decided (winning live)"; resultC = "#34D399"; }
           else if (_lv && _lv.ticket === "decided_mixed_unofficial") { resultTxt = "PENDING — decided (grades at the nightly)"; resultC = "#9CA3AF"; }
           const legsHtml = (b.legs || []).map((l, _i) => {

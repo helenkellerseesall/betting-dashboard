@@ -2051,6 +2051,7 @@ router.get("/ledger/yesterday", async (req, res) => {
     // any error ⇒ empty deadIds ⇒ the lens shows plain pending.
     let _legLiveById = {}
     const _deadIds = new Set()
+    const _winIds = new Set()  // VOID-WAIT (b) — effective-win mirror ids
     try {
       const _openParlays = placedAll.filter((b) => (b.betType === "parlay" || b.betType === "slip") && String(b.result || "pending") === "pending" && Array.isArray(b.legs) && b.legs.length)
       if (_openParlays.length) {
@@ -2073,19 +2074,44 @@ router.get("/ledger/yesterday", async (req, res) => {
               const existing = fs.existsSync(evP) ? fs.readFileSync(evP, "utf8") : ""
               if (!existing.includes(`"betId":"${b.id}"`)) fs.appendFileSync(evP, JSON.stringify({ ts: new Date().toISOString(), betId: b.id, ticketCall: "dead", basis }) + "\n")
             } catch (_) { /* event log never blocks the lens */ }
+          } else {
+            // 2026-08-02 VOID-WAIT (b) — effective-WIN mirror ("won —
+            // confirming void"): every leg is a graded-twin WIN or a
+            // void-candidate (classifyLegs — the ONE candidacy authority,
+            // shared with the parlaySettle alarm; finals-absent legs are
+            // "unresolved" and DISQUALIFY, never guessed). Informational lens
+            // only; the official settle stays the only writer, and the
+            // bidirectional disagreement alarm polices this call.
+            try {
+              const { classifyLegs, loadFinals } = require("../scripts/settleParlaysFromRecord")
+              let rows2 = []
+              try { rows2 = JSON.parse(fs.readFileSync(fileFor("mlb", "tracked_bets", b.date), "utf8")) } catch (_) {}
+              const cls = classifyLegs(b, rows2, loadFinals(b.date))
+              const hasVoidCand = cls.some((c) => c.state === "void_candidate")
+              const allWinOrVoid = cls.length && cls.every((c) => (c.state === "graded" && c.result === "win") || c.state === "void_candidate")
+              if (hasVoidCand && allWinOrVoid) {
+                _winIds.add(b.id)
+                try {
+                  const evP = path.join(TRACKING_DIR, "parlay_leg_death_events.jsonl")
+                  const existing = fs.existsSync(evP) ? fs.readFileSync(evP, "utf8") : ""
+                  if (!existing.includes(`"betId":"${b.id}","ticketCall":"won_confirming"`)) fs.appendFileSync(evP, JSON.stringify({ ts: new Date().toISOString(), betId: b.id, ticketCall: "won_confirming", basis: "graded_twin_wins_plus_void_candidates" }) + "\n")
+                } catch (_) {}
+              }
+            } catch (_) { /* mirror is optional — never blocks */ }
           }
         }
       }
     } catch (_) { /* fail-open — no adjustment */ }
     // Combined rollup spans the full 14-day window now, not just yesterday+today.
     // yesterdayRollup / todayRollup remain available for summary cards.
-    const placedCombinedRollup = rollupPlaced(placedAll, { deadIds: _deadIds })
+    const placedCombinedRollup = rollupPlaced(placedAll, { deadIds: _deadIds, winIds: _winIds })
     const placedBets = placedAll.length ? {
       ...placedCombinedRollup,  // flat fields for FE backward compat
       windowDays: "lifetime", // 2026-07-28 RECORD-VISIBILITY — full record, never aged out
       effectiveDeadIds: [..._deadIds], // EFFECTIVE-LOSS LENS — ids the header treats as dead
-      yesterdayRollup: rollupPlaced(placedYesterday, { deadIds: _deadIds }),
-      todayRollup:     rollupPlaced(placedToday, { deadIds: _deadIds }),
+      effectiveWinIds: [..._winIds],   // VOID-WAIT (b) — won, confirming void
+      yesterdayRollup: rollupPlaced(placedYesterday, { deadIds: _deadIds, winIds: _winIds }),
+      todayRollup:     rollupPlaced(placedToday, { deadIds: _deadIds, winIds: _winIds }),
       bets: placedAll.map((b) => ({
         id: b.id, date: b.date, sport: b.sport, sportsbook: b.sportsbook,
         betType: b.betType, prop: b.prop, player: b.player, matchup: b.matchup,
@@ -2202,6 +2228,11 @@ router.post("/place-bet", express.json(), (req, res) => {
         })(),
         line: l?.line,
         side: l?.side,
+        // 2026-08-02 VOID-WAIT (d) — PER-LEG PRICE PERSISTENCE. This map used
+        // to DROP leg odds, which made §10 void drop-and-recompute impossible
+        // for every recorded parlay (b62d25d6 deferred to manual for exactly
+        // this). Persist when finite; null stays honest.
+        oddsAmerican: Number.isFinite(Number(l?.odds ?? l?.oddsAmerican)) ? Number(l?.odds ?? l?.oddsAmerican) : null,
       }))
       const pr = buildValidatedParlayBet({
         sport: body.sport, book: body.book || body.sportsbook,

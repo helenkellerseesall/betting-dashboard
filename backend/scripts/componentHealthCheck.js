@@ -425,6 +425,13 @@ function checkParlaySettle() {
     const today = currentSlateDateEt()
     const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
     const pendingP = (ledger.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending" && (b.gameDate || b.date))
+    // 2026-08-02 VOID-WAIT v3 (ASK 70cf06c): an alarm that fires a day before
+    // the rule it polices is ALLOWED to act trains the operator to ignore red
+    // (b62d25d6 sat red-stale a full day before the 2-day void window armed).
+    // A pending parlay whose ONLY unresolved legs are VOID-CANDIDATES (one
+    // authority: classifyLegs) is WAITING, not stale, until the window arms.
+    const { classifyLegs, loadFinals } = require("./settleParlaysFromRecord")
+    const waiting = []
     const stale = pendingP.filter((b) => {
       const d = b.gameDate || b.date
       const ageDays = (Date.parse(today) - Date.parse(d)) / 86400000
@@ -432,10 +439,20 @@ function checkParlaySettle() {
       let rows = []
       try { rows = JSON.parse(fs.readFileSync(path.join(TRACKING, `mlb_tracked_bets_${d}.json`), "utf8")) } catch (_) {}
       const slateGraded = Array.isArray(rows) && rows.some((r) => ["win", "loss"].includes(String(r.result)))
-      return slateGraded || ageDays >= 2 // graded-and-unsettled = stale NOW; ungraded slate still hard-caps at 2 days
+      if (!slateGraded && ageDays < 2) return false
+      if (ageDays < 2 && Array.isArray(b.legs) && b.legs.length) {
+        const cls = classifyLegs(b, rows, loadFinals(d, TRACKING))
+        const unresolved = cls.filter((c) => c.state !== "graded")
+        if (unresolved.length && unresolved.every((c) => c.state === "void_candidate")) {
+          const arms = new Date(Date.parse(d) + 2 * 86400000).toISOString().slice(0, 10)
+          waiting.push(`${b.id} (void-confirming — window arms ${arms})`)
+          return false
+        }
+      }
+      return true // graded slate w/ non-void-candidate unresolved legs, or the window armed and it still didn't move
     })
     if (stale.length) return set("parlaySettle", "fail", `Parlay settle: ${stale.length} realMoney parlay(s) pending past a GRADED slate (${stale.slice(0, 2).map((b) => b.id).join(", ")}) — twin-less leg or settle stall; the finals-fallback should have caught it`, "wired")
-    return set("parlaySettle", "green", `Parlay settle: ${pendingP.length} pending, none past a graded slate`, "wired")
+    return set("parlaySettle", "green", `Parlay settle: ${pendingP.length} pending${waiting.length ? ` · ${waiting.join(" · ")}` : ""}, none past a graded slate the rule could act on`, "wired")
   } catch (e) { return set("parlaySettle", "not-run", `Parlay settle: ${String(e?.message || e)}`, "wired") }
 }
 checkParlaySettle()
@@ -459,6 +476,9 @@ function checkLegDeathDisagreement() {
       if (!b || b.result === "pending") continue
       // the call said the TICKET was effectively dead; a WIN settle contradicts it
       if (e.ticketCall === "dead" && b.result === "win") contradictions.push(`${e.betId} (called dead ${String(e.ts).slice(0, 10)}, settled WIN)`)
+      // 2026-08-02 VOID-WAIT (b) — BIDIRECTIONAL: an effective-win call
+      // contradicted by an official LOSS is the same class of lie.
+      if (e.ticketCall === "won_confirming" && b.result === "loss") contradictions.push(`${e.betId} (called won-confirming ${String(e.ts).slice(0, 10)}, settled LOSS)`)
     }
     if (contradictions.length) return set("legDeathDisagreement", "fail", `Leg-death disagreement: ${contradictions.length} official settle(s) contradict an irreversible live call — ${contradictions.slice(0, 2).join("; ")} — the live read or the grader is wrong; HUMAN LOOK REQUIRED`, "wired")
     return set("legDeathDisagreement", "green", `Leg-death disagreement: ${events.length} irreversible call(s) on file, zero contradictions`, "wired")
