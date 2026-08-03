@@ -247,6 +247,16 @@ for (const fam of FAMILIES) {
 
 // AXIS B — market-ladder scoreboard (honest about thinness)
 const ladderFiles = fs.existsSync(TRACKING_DIR) ? fs.readdirSync(TRACKING_DIR).filter((f) => /^mlb_ladders_\d{4}-\d{2}-\d{2}\.json$/.test(f)) : []
+// 2026-07-30 CRASH FIX (ASK 37a63a6): d7a448e deleted the local `norm` helper
+// while converting the RESOLUTION call site to playerNameJoin — but the
+// best-price KEY-BUILDER below still called it, so every full run since 07-21
+// died ReferenceError here BEFORE the verdicts write (nine days of exam
+// results existed only as stdout scrollback; the graduation board's five red
+// rows were this). Restored as an NFD-diacritic-stripping KEY normalizer
+// (the grading normName class lesson — accented rung names must key
+// consistently); player RESOLUTION stays canonical playerNameJoin, completing
+// the 07-21 repair's actual intent.
+const norm = (s) => String(s == null ? "" : s).normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase()
 // 2026-07-21 INSTRUMENT-REPAIR — canonical cross-source join (playerNameJoin;
 // the local norm missed suffix/diacritic/nickname classes, 10% of players).
 const { buildJoinIndex: _bji, resolvePlayer: _rp } = require("../pipeline/shared/playerNameJoin")
