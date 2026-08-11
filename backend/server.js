@@ -18,6 +18,7 @@ try {
 const express = require("express")
 const cors = require("cors")
 const axios = require("axios")
+const { logOddsUsage } = require("./pipeline/shared/apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 
 const app = express()
 const fs = require("fs")
@@ -1922,6 +1923,7 @@ async function fetchDkScopedEventsForDebug(oddsApiKey) {
     },
     timeout: 15000
   })
+  logOddsUsage(response?.headers, { sport: "nba", endpoint: "odds-api/odds/base", caller: "server.nbaOddsBase" })
 
   return Array.isArray(response?.data) ? response.data : []
 }
@@ -11084,6 +11086,7 @@ async function fetchNbaUnrestrictedSlateEvents() {
       timeout: 15000
     }
   )
+  logOddsUsage(unrestrictedEventsResponse?.headers, { sport: "nba", endpoint: "odds-api/events/list", caller: "server.fetchNbaUnrestrictedSlateEvents" })
 
   const unrestrictedFetchedEvents = Array.isArray(unrestrictedEventsResponse?.data)
     ? unrestrictedEventsResponse.data
@@ -17221,6 +17224,7 @@ async function buildExtraMarketRowsForEvents({ scheduledEvents, oddsApiKey, norm
         },
         timeout: 15000
       })
+      logOddsUsage(extraResponse?.headers, { sport: "nba", endpoint: "odds-api/events/odds/extra", eventId, caller: "server.dkExtraMarkets" })
 
       const eventPayload = extraResponse?.data || null
 

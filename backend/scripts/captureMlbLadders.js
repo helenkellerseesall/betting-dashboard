@@ -46,6 +46,7 @@ const path = require("path")
 const fs = require("fs")
 try { require("dotenv").config({ path: path.join(__dirname, "..", ".env") }) } catch (_) { /* env may come from the LaunchAgent plist */ }
 const axios = require("axios")
+const { logOddsUsage } = require("../pipeline/shared/apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 const { buildMlbSlateEvents } = require("../pipeline/schedule/buildMlbSlateEvents")
 const { slateDateForTimestamp, calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
@@ -103,6 +104,7 @@ async function fetchEventLadderOdds(oddsApiKey, eventId, marketsCsv, booksCsv) {
   })
   try {
     const res = await axios.get(endpoint, { params, timeout: 15000 })
+    logOddsUsage(res.headers, { sport: "mlb", endpoint: "odds-api/events/odds/ladders", eventId, caller: "captureMlbLadders" })
     return { payload: res.data, ...meta(res) }
   } catch (err) {
     const msg = String(err?.response?.data?.message || "")
@@ -110,7 +112,7 @@ async function fetchEventLadderOdds(oddsApiKey, eventId, marketsCsv, booksCsv) {
       const invalid = new Set(msg.split(":").slice(1).join(":").split(",").map((s) => s.trim()).filter(Boolean))
       const kept = marketsCsv.split(",").filter((k) => !invalid.has(k))
       if (kept.length) {
-        try { const r2 = await axios.get(endpoint, { params: { ...params, markets: kept.join(",") }, timeout: 15000 }); return { payload: r2.data, ...meta(r2), droppedMarkets: [...invalid] } } catch (_) {}
+        try { const r2 = await axios.get(endpoint, { params: { ...params, markets: kept.join(",") }, timeout: 15000 }); logOddsUsage(r2.headers, { sport: "mlb", endpoint: "odds-api/events/odds/ladders-retry", eventId, caller: "captureMlbLadders" }); return { payload: r2.data, ...meta(r2), droppedMarkets: [...invalid] } } catch (_) {}
       }
     }
     return { payload: null, cost: 0, remaining: null, error: String(err?.response?.status || err?.message || err) }

@@ -102,6 +102,7 @@ last_status_snapshot_min=""
 last_receipt_commit_min=""
 # 2026-07-30 GRADUATION BOARD — aggregator dedupe var (same doctrine).
 last_gradboard_min=""
+last_g2exam_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -162,6 +163,37 @@ while true; do
       git diff --cached --quiet -- docs/receipts || git commit -m "receipts: daily3 lock receipt (scheduler auto-commit — chain rides git history)" >> "$LOG" 2>&1
     ) &
     last_receipt_commit_min="$STAMP"
+  fi
+
+  # 2026-08-11 G2-EXAM-WEEKLY (GO on ASK 63f24e4) — the family exam was manual
+  # and the stall alarm caught the identical stall TWICE (07-16→08-02 nine
+  # days dark; 08-03→08-11 seven slates). Institutionalize the cure: run the
+  # walk-forward validator every Sunday 06:15 ET (after the 05:35 grade sweep,
+  # before the Sunday weekly audit reads the board), then GUARDED-commit the
+  # verdicts artifact (config/g2_validation.json is TRACKED) on the receipts
+  # precedent — nothing staged means no commit. The same commit sweeps any
+  # untracked docs/audits synthesis files (the Sunday audit writes them;
+  # nothing committed them — the 8/9 pair sat orphaned two days). Exam runs
+  # foreground INSIDE a background subshell so the commit follows the exam
+  # without ever blocking the loop; wall-clock logged (first scheduled run
+  # measures it — unmeasured as of 8/11). A validator crash leaves the
+  # artifact unwritten and gradBoardStall STAYS red — the schedule removes
+  # the human from the loop, never the alarm.
+  DOW=$(TZ='America/New_York' date +%u)
+  if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 6 ] && [ "$MIN" -eq 15 ] && [ "$STAMP" != "${last_g2exam_min:-}" ]; then
+    (
+      cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      log "G2 weekly exam starting (validateG2Curves — Sun 06:15 ET)"
+      EXAM_T0=$(date +%s)
+      if node backend/scripts/validateG2Curves.js >> "$LOG" 2>&1; then
+        log "G2 weekly exam OK ($(( $(date +%s) - EXAM_T0 ))s)"
+      else
+        log "G2 weekly exam FAILED (exit $?) — artifact unwritten; gradBoardStall stays red until a good run"
+      fi
+      git add backend/config/g2_validation.json docs/audits >> "$LOG" 2>&1
+      git diff --cached --quiet -- backend/config/g2_validation.json docs/audits || git commit -m "exam: G2 validator weekly (scheduler auto-run)" >> "$LOG" 2>&1
+    ) &
+    last_g2exam_min="$STAMP"
   fi
 
   # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once

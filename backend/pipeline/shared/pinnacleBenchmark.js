@@ -20,6 +20,7 @@
  *     request per slate ⇒ extra credit cost; enable consciously.
  */
 const axios = require("axios")
+const { logOddsUsage } = require("./apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 const vig = require("./vigStripping")
 
 const ENABLED = String(process.env.PINNACLE_BENCHMARK ?? "0") === "1"
@@ -53,6 +54,7 @@ async function fetchPinnacleGameLines({ oddsApiKey, events, sport = "baseball_ml
         params: { apiKey: oddsApiKey, regions: "eu", markets: GAME_LINE_MARKETS.join(","), oddsFormat: "american" },
         timeout: timeoutMs,
       })
+      logOddsUsage(res.headers, { sport, endpoint: "odds-api/events/odds/pinnacle-eu", eventId, caller: "pinnacleBenchmark" })
       const books = Array.isArray(res.data?.bookmakers) ? res.data.bookmakers : []
       for (const b of books) euBooksSeen.add(_norm(b?.key))
       const pin = books.find((b) => isPinnacle(b?.key))   // GUARD: Pinnacle only — all other eu books dropped here

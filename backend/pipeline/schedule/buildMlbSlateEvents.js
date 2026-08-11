@@ -16,6 +16,7 @@
  */
 
 const axios = require("axios")
+const { logOddsUsage } = require("../shared/apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 const {
   toDetroitDateKey,
   getEventIdForSchedule,
@@ -107,6 +108,7 @@ async function buildMlbSlateEvents({
         timeout: 15000
       }
     )
+    logOddsUsage(response?.headers, { sport: "mlb", endpoint: "odds-api/events/list", caller: "buildMlbSlateEvents" })
     fetchedEvents = Array.isArray(response?.data) ? response.data : []
   }
 

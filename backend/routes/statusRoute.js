@@ -1638,6 +1638,17 @@ function sectionGraduationBoard() {
   } catch (e) { return { ok: false, error: String(e?.message || e) } }
 }
 
+// 2026-08-11 ODDS-QUOTA LEDGER (GO on ASK 63f24e4) — one measured line for
+// the $60/mo question. Tail-window read (2MB), never the whole log; quota
+// fields exist only on entries logged after 2026-08-11, and the rollup says
+// so rather than backfilling a fake history.
+function sectionOddsApiUsage() {
+  try {
+    const { readOddsUsageRollup } = require("../pipeline/shared/apiCallLogger")
+    return readOddsUsageRollup()
+  } catch (e) { return { ok: false, error: String(e?.message || e) } }
+}
+
 function sectionComponentHealth() {
   try {
     const p = path.join(TRACKING_DIR, "component_health.json")
@@ -1703,6 +1714,7 @@ router.get("/", (req, res) => {
   out.trackedBestToday  = sectionTrackedBestToday()
   out.componentHealth   = sectionComponentHealth()
   out.graduationBoard   = sectionGraduationBoard()
+  out.oddsApiUsage      = sectionOddsApiUsage()
   out.g1Readiness       = sectionG1Readiness()
   out.recentCommits     = sectionRecentCommits(5)
   out.meta.elapsedMs    = Date.now() - t0
@@ -1740,6 +1752,7 @@ router.post("/snapshot", (req, res) => {
     out.trackedBestToday  = sectionTrackedBestToday()
     out.componentHealth   = sectionComponentHealth()
     out.graduationBoard   = sectionGraduationBoard()
+    out.oddsApiUsage      = sectionOddsApiUsage()
     out.g1Readiness       = sectionG1Readiness()
     out.recentCommits     = sectionRecentCommits(5)
     out.meta.elapsedMs    = Date.now() - t0

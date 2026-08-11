@@ -32,10 +32,12 @@ fs.writeFileSync(path.join(cfg, "g2_validation.json"), JSON.stringify({ generate
 
 const board = gb.buildBoard({ trackingDir: tmp, configDir: cfg })
 const byKey = Object.fromEntries(board.rows.map((r) => [r.key, r]))
-check("board: all 9 scoped rows present (3 family exams · TB+RBIs re-point · rung · cures · parlay · queued prior)",
-  board.rows.length === 9 && ["fam_sb", "fam_doubles", "fam_triples", "repoint_tb", "repoint_rbis", "rung_gate", "cure_columns", "parlay_gate", "market_prob_prior"].every((k) => byKey[k]))
-check("stall N=2 pinned to the real plateau shape: rung + cures STALLED after two flat games-slates",
-  byKey.rung_gate.status === "stalled" && byKey.cure_columns.status === "stalled" && board.stalledRows.includes("rung_gate"))
+check("board: all 11 scoped rows present (3 family exams · TB+RBIs re-point · rung · cure A/B/C SPLIT · parlay · queued prior)",
+  board.rows.length === 11 && ["fam_sb", "fam_doubles", "fam_triples", "repoint_tb", "repoint_rbis", "rung_gate", "cure_A", "cure_B", "cure_C", "parlay_gate", "market_prob_prior"].every((k) => byKey[k]))
+check("stall N=2 pinned to the real plateau shape: rung + cure_A STALLED after two flat games-slates",
+  byKey.rung_gate.status === "stalled" && byKey.cure_A.status === "stalled" && board.stalledRows.includes("rung_gate"))
+check("PER-COLUMN SPLIT (2026-08-11): a dead column is visible in its OWN row — C shows 0 decided + own stall + clock-restart note; A's advance stays independent (07-25)",
+  byKey.cure_C.decided.have === 0 && byKey.cure_C.status === "stalled" && /RESTARTED AT ZERO 2026-08-11/.test(byKey.cure_C.examNights.note || "") && byKey.cure_A.lastAdvance === "2026-07-25" && byKey.cure_B.status === "stalled")
 check("advancing row stays CAGED (parlay gate moved 6→7 nights)", byKey.parlay_gate.status === "caged")
 check("lastAdvance honest: rung last advanced 2026-07-25", byKey.rung_gate.lastAdvance === "2026-07-25")
 check("never-examined family: absent from artifact ⇒ NOT_EXAMINED + predates-wiring note + stalled",
@@ -69,6 +71,11 @@ const chc = rd("scripts/componentHealthCheck.js")
 check("alarm #24: gradBoardStall recomputes via buildBoard from raw artifacts (never the sidecar), N=2 provenance, registered before the write", /checkGradBoardStall/.test(chc) && /"gradBoardStall"/.test(chc) && /NEVER from the sidecar this alarm guards/.test(chc) && /real 7\/25-27 plateau/.test(chc) && chc.indexOf("fs.writeFileSync(OUT") > chc.indexOf("checkGradBoardStall()"))
 const wa = rd("scripts/weeklySurfaceAudit.js")
 check("Sunday hook: weekly audit gains board synthesis + receipts chain verdict", /Graduation board \(caged → bettable\)/.test(wa) && /buildBoard/.test(wa) && /validateReceiptChain/.test(wa))
+const sc = rd("scripts/scanRungEv.js")
+check("cure-C root fix at source: season-cache teamIdx (batCache+pitCache), the phantom TRACKING readdir gone, no silent catch re-zeroing the index",
+  /for \(const cache of \[batCache, pitCache\]\)/.test(sc) && sc.indexOf("readdirSync(TRACKING)") === -1 && /never quietly zero a column again/.test(sc))
+check("abstain-reason tally: every null branch named + tally rides summary.cureGates.C as abstainsTonight",
+  /oppoAbstains = \{ noBatterTeam: 0, noStarters: 0, noOpp: 0, noPitcherLogs: 0, noCurve: 0, thinLeague: 0, applied: 0 \}/.test(sc) && /abstainsTonight: \{ \.\.\.oppoAbstains \}/.test(sc))
 check("matrix: verifyGraduationBoard registered", /"verifyGraduationBoard"/.test(rd("scripts/runtimeVerify.js")))
 
 console.log(`verifyGraduationBoard: ${pass}/${pass + fail} checks PASS`)

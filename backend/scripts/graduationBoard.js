@@ -133,18 +133,32 @@ function buildBoard({ trackingDir, configDir } = {}) {
     status: isStalled(rungs, rTuple, games) ? "stalled" : "caged",
   })
   const cg = rLast ? rLast.data.summary?.cureGates : null
-  const cTuple = (d) => ["A", "B", "C"].map((k) => (d.summary?.cureGates?.[k] || {}).decided ?? null)
-  rows.push({
-    key: "cure_columns", label: "scanner cure columns A/B/C",
-    examNights: { have: rg.nights ?? 0, bar: 14, note: "ride the rung scan's nights" },
-    decided: { have: cg ? ["A", "B", "C"].map((k) => `${k}:${(cg[k] || {}).decided ?? 0}`).join(" ") : "—", bar: "per-column" },
-    paperUnits: cg ? ["A", "B", "C"].map((k) => `${k}:${(cg[k] || {}).flatUnits ?? 0}u`).join(" ") : null,
-    paperNote: "IN-SAMPLE shadow units per cure column",
-    trend: trendWk(rungs, (d) => Number((d.summary?.cureGates?.A || {}).flatUnits)),
-    lastAdvance: lastAdvance(rungs, cTuple),
-    unlock: UNLOCKS.cures,
-    status: isStalled(rungs, cTuple, games) ? "stalled" : "caged",
-  })
+  // 2026-08-11 PER-COLUMN SPLIT (GO on ASK 63f24e4): the merged A/B/C row hid
+  // a structurally dead column C for 12 days — 0 decided read as "slow", not
+  // "dead". Each column now carries its OWN decided/nights/units/
+  // counterfactual/trend/stall; C states its clock restart honestly. A column
+  // with nothing to show shows that, loudly, in its own row.
+  const CURE_LABELS = { A: "market-blend", B: "consensus-margin", C: "opposition-cond" }
+  for (const col of ["A", "B", "C"]) {
+    const cd = cg ? (cg[col] || {}) : {}
+    const colTuple = (d) => [(d.summary?.cureGates?.[col] || {}).nights ?? null, (d.summary?.cureGates?.[col] || {}).decided ?? null]
+    rows.push({
+      key: `cure_${col}`, label: `scanner cure ${col} (${CURE_LABELS[col]})`,
+      examNights: { have: cd.nights ?? 0, bar: 14, note: col === "C"
+        ? "clock RESTARTED AT ZERO 2026-08-11 — team-join root fixed; the 12 abstain-dead days (07-30→08-11) stay on the record, never backfilled"
+        : "own nights — a column only earns the slates it actually scored" },
+      decided: { have: cd.decided ?? 0, bar: 300 },
+      paperUnits: cd.flatUnits ?? null,
+      paperNote: "IN-SAMPLE shadow units — a refusing gate is a working gate",
+      gapPp: cd.pooledGapPp ?? null,
+      counterfactual: cd.counterfactual ?? null,
+      abstainsTonight: col === "C" ? (cd.abstainsTonight ?? null) : undefined,
+      trend: trendWk(rungs, (d) => Number((d.summary?.cureGates?.[col] || {}).flatUnits)),
+      lastAdvance: lastAdvance(rungs, colTuple),
+      unlock: UNLOCKS.cures,
+      status: isStalled(rungs, colTuple, games) ? "stalled" : "caged",
+    })
+  }
 
   // ── parlay paper gate (mlb_parlay_scan_*) ──
   const parls = artifactSeries(tDir, "mlb_parlay_scan_")

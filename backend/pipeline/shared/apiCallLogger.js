@@ -34,7 +34,9 @@
 const fs   = require("fs")
 const path = require("path")
 
-const LOG_DIR  = path.join(__dirname, "..", "..", "runtime", "market")
+// ODDS_API_LOG_DIR override exists for the hermetic fixture (verifyOddsUsage)
+// — production never sets it.
+const LOG_DIR  = process.env.ODDS_API_LOG_DIR || path.join(__dirname, "..", "..", "runtime", "market")
 const LOG_FILE = path.join(LOG_DIR, "api_call_log.jsonl")
 const SOFT_CAP_BYTES = 50 * 1024 * 1024  // 50 MB safety pause threshold
 
@@ -81,6 +83,12 @@ function logApiCall(meta) {
       status:     meta.status === "error" ? "error" : "ok",
       durationMs: Number.isFinite(meta.durationMs) ? meta.durationMs : null,
       ...(Number.isFinite(meta.httpStatus) ? { httpStatus: Number(meta.httpStatus) } : {}),
+      // 2026-08-11 ODDS-QUOTA LEDGER (GO on ASK 63f24e4): the vendor returns
+      // spend truth on every response; nothing recorded it while the operator
+      // paid $60/mo blind. Optional fields — absent on non-quota entries.
+      ...(Number.isFinite(Number(meta.used)) ? { used: Number(meta.used) } : {}),
+      ...(Number.isFinite(Number(meta.remaining)) ? { remaining: Number(meta.remaining) } : {}),
+      ...(meta.caller     ? { caller: String(meta.caller) } : {}),
       ...(meta.error      ? { error: String(meta.error).slice(0, 220) } : {}),
     }
     fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n")
@@ -107,6 +115,7 @@ async function logApiCallAsync(meta, asyncFn) {
       status:     "ok",
       durationMs: Date.now() - t0,
       httpStatus: Number.isFinite(res?.status) ? res.status : undefined,
+      ...quotaFromHeaders(res?.headers),
     })
     return res
   } catch (err) {
@@ -182,11 +191,101 @@ function summarizeApiCalls(entries) {
   return summary
 }
 
+/**
+ * 2026-08-11 ODDS-QUOTA LEDGER (GO on ASK 63f24e4).
+ * quotaFromHeaders — extract x-requests-used / x-requests-remaining from an
+ * axios headers object (plain, lower-cased keys) OR a fetch Headers instance.
+ * Returns {} when absent/unparseable — never throws, never guesses.
+ */
+function quotaFromHeaders(headers) {
+  try {
+    if (!headers) return {}
+    const get = (k) => (typeof headers.get === "function" ? headers.get(k) : headers[k])
+    const used = Number(get("x-requests-used"))
+    const remaining = Number(get("x-requests-remaining"))
+    const out = {}
+    if (Number.isFinite(used)) out.used = used
+    if (Number.isFinite(remaining)) out.remaining = remaining
+    return out
+  } catch (_) { return {} }
+}
+
+/**
+ * logOddsUsage — one-line quota logging for call sites that hold a raw
+ * response (the logApiCallAsync wrapper captures the same fields itself).
+ * Fail-open and fire-and-forget: must never break or slow an odds fetch.
+ */
+function logOddsUsage(headers, meta) {
+  try {
+    logApiCall({ ...(meta || {}), status: (meta && meta.status) || "ok", ...quotaFromHeaders(headers) })
+  } catch (_) { /* never */ }
+}
+
+/**
+ * readTailLines — read only the last N tail bytes of the log (default 2 MB), drop
+ * the first partial line. The rollup must never re-read a 50 MB file
+ * in-request (that is the exact per-request-whale disease the 8/11 perf
+ * report measured elsewhere).
+ */
+function readTailLines(file, bytes = 2 * 1024 * 1024) {
+  try {
+    const stat = fs.statSync(file)
+    const start = Math.max(0, stat.size - bytes)
+    const fd = fs.openSync(file, "r")
+    const buf = Buffer.alloc(stat.size - start)
+    fs.readSync(fd, buf, 0, buf.length, start)
+    fs.closeSync(fd)
+    const lines = buf.toString("utf8").split("\n").filter(Boolean)
+    if (start > 0 && lines.length) lines.shift() // first line may be partial
+    return lines
+  } catch (_) { return [] }
+}
+
+/**
+ * readOddsUsageRollup — daily+weekly quota rollup for /status.
+ * Days are ET (the slate timezone). calls = every logged odds-api entry counted
+ * that day; remaining = the newest quota reading. Projection is a
+ * straight trailing-7-ET-day average × 30 — a ruler, not a model.
+ */
+function readOddsUsageRollup({ tailBytes = 2 * 1024 * 1024 } = {}) {
+  const lines = readTailLines(LOG_FILE, tailBytes)
+  if (!lines.length) return { ok: false, reason: "no api_call_log entries" }
+  const etDay = (ts) => { try { return new Date(ts).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) } catch (_) { return null } }
+  const byDay = new Map()
+  let latest = null
+  for (const ln of lines) {
+    let e; try { e = JSON.parse(ln) } catch (_) { continue }
+    const d = etDay(e.ts)
+    if (!d) continue
+    if (!byDay.has(d)) byDay.set(d, { date: d, calls: 0, lastRemaining: null })
+    const rec = byDay.get(d)
+    rec.calls++
+    if (Number.isFinite(e.remaining)) { rec.lastRemaining = e.remaining; latest = { ts: e.ts, used: Number.isFinite(e.used) ? e.used : null, remaining: e.remaining } }
+  }
+  const days = Array.from(byDay.values()).sort((a, b) => (a.date < b.date ? -1 : 1))
+  const today = etDay(new Date().toISOString())
+  const trailing7 = days.filter((d) => d.date !== today).slice(-7)
+  const avg7 = trailing7.length ? Math.round(trailing7.reduce((a, d) => a + d.calls, 0) / trailing7.length) : null
+  return {
+    ok: true,
+    latest,
+    today: { date: today, calls: (byDay.get(today) || {}).calls || 0 },
+    days: days.slice(-8),
+    avg7DailyCalls: avg7,
+    projectedMonthlyCalls: avg7 != null ? avg7 * 30 : null,
+    windowNote: "tail-window rollup (last " + Math.round(tailBytes / 1048576) + "MB of log); quota fields appear only on entries logged after 2026-08-11",
+  }
+}
+
 module.exports = {
   logApiCall,
   logApiCallAsync,
   readRecentApiCalls,
   summarizeApiCalls,
+  quotaFromHeaders,
+  logOddsUsage,
+  readTailLines,
+  readOddsUsageRollup,
   // exposed for tests / inspection
   LOG_FILE,
 }

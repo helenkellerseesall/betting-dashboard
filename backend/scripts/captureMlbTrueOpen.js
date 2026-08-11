@@ -29,6 +29,7 @@ const path = require("path")
 const fs = require("fs")
 try { require("dotenv").config({ path: path.join(__dirname, "..", ".env") }) } catch (_) { /* env may come from the LaunchAgent plist */ }
 const axios = require("axios")
+const { logOddsUsage } = require("../pipeline/shared/apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 const { isSportEnabled } = require("../pipeline/shared/seasonGate")
 const { buildMlbSlateEvents } = require("../pipeline/schedule/buildMlbSlateEvents")
 const { calendarDateForTimestamp } = require("../pipeline/shared/slateDate")
@@ -47,6 +48,7 @@ async function fetchEventPitcherOdds(oddsApiKey, eventId, marketsCsv, booksCsv) 
   const params = { apiKey: oddsApiKey, regions: "us", oddsFormat: "american", markets: marketsCsv, bookmakers: booksCsv }
   try {
     const res = await axios.get(endpoint, { params, timeout: 15000 })
+    logOddsUsage(res.headers, { sport: "mlb", endpoint: "odds-api/events/odds/true-open", eventId, caller: "captureMlbTrueOpen" })
     return res.data
   } catch (err) {
     const msg = String(err?.response?.data?.message || "")
@@ -54,7 +56,7 @@ async function fetchEventPitcherOdds(oddsApiKey, eventId, marketsCsv, booksCsv) 
       const invalid = new Set(msg.split(":").slice(1).join(":").split(",").map((s) => s.trim()).filter(Boolean))
       const kept = marketsCsv.split(",").filter((k) => !invalid.has(k))
       if (kept.length) {
-        try { const r2 = await axios.get(endpoint, { params: { ...params, markets: kept.join(",") }, timeout: 15000 }); return r2.data } catch (_) {}
+        try { const r2 = await axios.get(endpoint, { params: { ...params, markets: kept.join(",") }, timeout: 15000 }); logOddsUsage(r2.headers, { sport: "mlb", endpoint: "odds-api/events/odds/true-open-retry", eventId, caller: "captureMlbTrueOpen" }); return r2.data } catch (_) {}
       }
     }
     return { _error: String(err?.response?.status || err?.message || err) }

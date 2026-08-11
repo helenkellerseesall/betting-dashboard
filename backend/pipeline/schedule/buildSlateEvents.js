@@ -1,4 +1,5 @@
 const axios = require("axios")
+const { logOddsUsage } = require("../shared/apiCallLogger") // 2026-08-11 odds-quota ledger (GO 63f24e4)
 const { slateDateForTimestamp } = require("../shared/slateDate")
 
 function getEventIdForSchedule(event) {
@@ -64,6 +65,7 @@ async function buildSlateEvents({
 			},
 			timeout: 15000
 		})
+		logOddsUsage(response?.headers, { sport: "nba", endpoint: "odds-api/events/list", caller: "buildSlateEvents" })
 		fetchedEvents = Array.isArray(response?.data) ? response.data : []
 	}
 

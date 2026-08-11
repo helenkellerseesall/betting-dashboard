@@ -139,19 +139,27 @@ function fitBlendW() {
 const BLEND = fitBlendW()
 const wFor = (fam) => (BLEND.perFamily[fam]?.w ?? BLEND.pooled.w)
 
+// 2026-08-11 ABSTAIN-REASON TALLY (cure-C instrument, GO on ASK 63f24e4):
+// every null return names its branch. A column abstaining 100% by
+// construction hid for 12 days because nothing counted the reasons —
+// the tally makes silent-abstain death visible in the artifact + fixture.
+const oppoAbstains = { noBatterTeam: 0, noStarters: 0, noOpp: 0, noPitcherLogs: 0, noCurve: 0, thinLeague: 0, applied: 0 }
 function opposingKPercentile(batterPlayer, eventId, ladderKsByEvent, teamIdx, leagueKMeans) {
   if (!OPPO_ON) return null
   const batterTeam = resolvePlayer(teamIdx, batterPlayer)
-  if (!batterTeam) return null
+  if (!batterTeam) { oppoAbstains.noBatterTeam++; return null }
   const starters = ladderKsByEvent.get(eventId) || []
+  if (!starters.length) { oppoAbstains.noStarters++; return null }
   const opp = starters.find((s) => { const t = resolvePlayer(teamIdx, s); return t && t !== batterTeam })
-  if (!opp) return null
+  if (!opp) { oppoAbstains.noOpp++; return null }
   const pl = resolvePlayer(pitIdx, opp)
-  if (!pl) return null
+  if (!pl) { oppoAbstains.noPitcherLogs++; return null }
   const curve = fitPlayerFamilyCurve(pl.rows, "ks", { minN: 8, halfLife: frozenHalfLife })
-  if (!curve) return null
+  if (!curve) { oppoAbstains.noCurve++; return null }
+  if (leagueKMeans.length < 20) { oppoAbstains.thinLeague++; return null }
   const below = leagueKMeans.filter((m) => m < curve.meta.mean).length
-  return leagueKMeans.length >= 20 ? Math.max(0.02, Math.min(0.98, below / leagueKMeans.length)) : null
+  oppoAbstains.applied++
+  return Math.max(0.02, Math.min(0.98, below / leagueKMeans.length))
 }
 
 // ── settle pass (yesterday's flags; pending never guessed) ──
@@ -239,15 +247,33 @@ const mkIdx = (cache, key) => buildJoinIndex(Object.entries(cache.players).map((
 const batIdx = mkIdx(batCache, "games")
 const pitIdx = mkIdx(pitCache, "starts")
 
-// G3-L3 supports: batter-team index (tracked_best of the scanned slates) +
+// G3-L3 supports: batter+pitcher team index — SEASON CACHES (2026-08-11
+// cure-C root fix, GO on ASK 63f24e4). TWO-LAYER AUTOPSY, stated honestly:
+// (1) PRIMARY: the old loop read `TRACKING` — a variable that never existed
+//     (only TRACKING_DIR does) — inside a bare try/catch. ReferenceError,
+//     swallowed, teamIdxEntries stayed [], teamIdx EMPTY ⇒ every batter row
+//     abstained at noBatterTeam every night since arming. (The 8/11 ASK's
+//     replay used the correct dir and so measured the INTENDED code — 423
+//     noBatterTeam / 880 noOpp — not the shipped typo; corrected at landing.)
+// (2) SECONDARY (real even without the typo): tracked_best is a PICK index —
+//     starting pitchers rarely make the pick board, so the intended code
+//     still abstained ~100% via noOpp.
+// CURE: build from the season caches the scan already loads — teamName on
+// 258/258 pitchers + 553/553 batters (measured 8/10) — the exact universe
+// the scan can price (no gamelogs ⇒ no curve ⇒ row skipped anyway).
+// tracked_best deliberately NOT merged: buildJoinIndex deletes cross-source
+// value collisions (team-string format drift ⇒ ambiguous ⇒ key dropped), so
+// a merge could only shrink coverage. NO try/catch swallow — a broken cache
+// must crash loudly, never quietly zero a column again. +
 // league starter K-strength distribution (curve means, computed once).
 const teamIdxEntries = []
-try {
-  for (const f of fs.readdirSync(TRACKING).filter((x) => /^mlb_tracked_best_\d{4}-\d{2}-\d{2}\.json$/.test(x)).slice(-3)) {
-    const tb = rd(path.join(TRACKING, f))
-    for (const e of tb?.entries || []) if (e.player && e.team) teamIdxEntries.push([e.player, e.team])
+for (const cache of [batCache, pitCache]) {
+  for (const [ck, cv] of Object.entries(cache.players || {})) {
+    const nm = cv.fullName || ck
+    const tm = cv.teamName || null
+    if (nm && tm) teamIdxEntries.push([nm, tm])
   }
-} catch (_) {}
+}
 const teamIdx = buildJoinIndex(teamIdxEntries)
 const leagueKMeans = (() => {
   const out = []
@@ -345,7 +371,7 @@ for (const f of ladderFiles) {
     gameDate, generatedAt: new Date().toISOString(), shadow: true,
     frozenHalfLife, eligibleFamilies: eligible, hardExcluded: HARD_EXCLUDED,
     rows: rows.sort((a, b) => b.evPer$1 - a.evPer$1),
-    summary: { rungsPriced: rows.length, flagged: rows.filter((x) => x.flagged).length, cureFlags: { A: rows.filter((x) => x.cures?.flagA).length, B: rows.filter((x) => x.cures?.flagB).length, C: rows.filter((x) => x.cures?.flagC).length, oppoEnabled: OPPO_ON, blendW: BLEND.pooled.w, blendDecidedUsed: BLEND.decidedUsed }, gate: gateTally("raw"), cureGates: { A: gateTally("A"), B: gateTally("B"), C: gateTally("C") } },
+    summary: { rungsPriced: rows.length, flagged: rows.filter((x) => x.flagged).length, cureFlags: { A: rows.filter((x) => x.cures?.flagA).length, B: rows.filter((x) => x.cures?.flagB).length, C: rows.filter((x) => x.cures?.flagC).length, oppoEnabled: OPPO_ON, blendW: BLEND.pooled.w, blendDecidedUsed: BLEND.decidedUsed }, gate: gateTally("raw"), cureGates: { A: gateTally("A"), B: gateTally("B"), C: { ...gateTally("C"), abstainsTonight: { ...oppoAbstains } } } },
   }
   const fp = path.join(TRACKING_DIR, `mlb_rung_scan_${gameDate}.json`)
   const tmpFp = `${fp}.tmp.${process.pid}`
@@ -359,6 +385,6 @@ const tally = gateTally("raw")
 console.log(`gate tally [raw]: ${tally.nights}/14 nights · ${tally.decided}/300 decided flags · pooled gap ${tally.pooledGapPp ?? "—"}pp (bar 1.5) · flat-$1 ${tally.flatUnits >= 0 ? "+" : ""}${tally.flatUnits}u (bar ≥0) · settled this run ${settledNow} · SHADOW (operator-gated flip)`)
 for (const c of ["A", "B", "C"]) {
   const t = gateTally(c)
-  console.log(`  cure ${c}: ${t.nights} nights · ${t.decided} decided · gap ${t.pooledGapPp ?? "—"}pp · ${t.flatUnits >= 0 ? "+" : ""}${t.flatUnits}u · counterfactual declined ${t.counterfactual?.declinedPct ?? "—"}% of ${t.counterfactual?.rawLossesScored ?? 0} raw losses${c === "A" ? ` (w=${BLEND.pooled.w} from ${BLEND.decidedUsed} settles)` : c === "C" ? ` (${OPPO_ON ? "ρ=" + OPPO_RHO : "DISABLED — class not PASS"})` : ""}`)
+  console.log(`  cure ${c}: ${t.nights} nights · ${t.decided} decided · gap ${t.pooledGapPp ?? "—"}pp · ${t.flatUnits >= 0 ? "+" : ""}${t.flatUnits}u · counterfactual declined ${t.counterfactual?.declinedPct ?? "—"}% of ${t.counterfactual?.rawLossesScored ?? 0} raw losses${c === "A" ? ` (w=${BLEND.pooled.w} from ${BLEND.decidedUsed} settles)` : c === "C" ? ` (${OPPO_ON ? "ρ=" + OPPO_RHO + " · tonight " + JSON.stringify(oppoAbstains) : "DISABLED — class not PASS"})` : ""}`)
 }
 if (!ladderFiles.length) console.log(`scanRungEv: no ladder stores for ${today}+ — honest no-scan (capture passes fire 10:00/17:00/22:05 ET on game days)`)
