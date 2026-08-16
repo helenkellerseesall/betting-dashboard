@@ -42,7 +42,9 @@ const r = spawnSync(process.execPath, [path.join(ROOT, "scripts", "nightlyCritic
 let art = null
 try { art = JSON.parse(fs.readFileSync(path.join(track, "critic_2026-07-20.json"), "utf8")) } catch (_) {}
 check(`e2e: critic runs (${r.status}) + artifact written`, r.status === 0 && !!art)
-check("e2e: attribution exact — 1 unpurchasable, 1 repointed_served, 1 fade; D-loss in pool only", art && art.missedWinners.byReason.unpurchasable_under === 1 && art.missedWinners.byReason.repointed_served === 1 && art.missedWinners.byReason.fade_tier === 1)
+// 2026-08-15 anchor evolved w/ the fade_tier split (CA queue addition):
+// the synthetic refused row (C Win) is tier FADE ⇒ its bucket is now fade_tag.
+check("e2e: attribution exact — 1 unpurchasable, 1 repointed_served, 1 fade_tag; D-loss in pool only", art && art.missedWinners.byReason.unpurchasable_under === 1 && art.missedWinners.byReason.repointed_served === 1 && art.missedWinners.byReason.fade_tag === 1 && art.missedWinners.byReason.fade_tier === undefined)
 check("e2e: shown-vs-pool computed (pool 5 rows; FD under B in shown set)", art && art.shownVsPool.pool.n === 5 && art.shownVsPool.shownApprox.n >= 1)
 
 console.log(`verifyCritic: ${pass}/${pass + fail} checks PASS`)

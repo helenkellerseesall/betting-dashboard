@@ -41,7 +41,12 @@ const unitsOf = (r) => (r.result === "win" ? (Number(r.oddsAmerican) > 0 ? Numbe
 
 function dropReason(r, bestOddsByTuple, sellableTuples) {
   const tier = String(r.tier || r.modelTier || "").toUpperCase()
-  if (tier === "FADE" || tier === "LONGSHOT") return "fade_tier"
+  // 2026-08-15 FADE-TIER AUDIT §1 (CA queue addition): the single "fade_tier"
+  // bucket contained ZERO FADE rows (3-week census: LONGSHOT 128,589 · FADE
+  // 0) — the label lied, and a real FADE-quality leak would be invisible
+  // inside it. Split. Zero behavior change: both tiers remain refusals.
+  if (tier === "FADE") return "fade_tag"
+  if (tier === "LONGSHOT") return "longshot_tier"
   if (!PREFERRED.has(normB(r.sportsbook || r.book))) return "non_preferred_book"
   if (String(r.side || "").toLowerCase().startsWith("u")) {
     const fmt = formatFor(r.sportsbook || r.book, r.statFamily)
@@ -81,6 +86,32 @@ function criticSlate(slate) {
     missedUnits += unitsOf(r)
     if (samples.length < 5) samples.push(`${r.player} ${r.side} ${r.line} ${r.statFamily} @ ${r.sportsbook} ${Number(r.oddsAmerican) > 0 ? "+" : ""}${r.oddsAmerican} [${reason}]`)
   }
+  // 2026-08-15 FADE-TIER AUDIT §2+§3 (CA queue addition) — NET beside gross.
+  // The missed-winners line counts WINNERS only (survivorship glare); the
+  // refused pool's whole-population net (winners AND losers, flat $1) is what
+  // the bankroll would have seen if the gate opened. Watch segments per §3:
+  // move = closeImpliedProb − openImpliedProb (toward >+0.5pp, away <−0.5pp);
+  // breakevenWinsExpected = Σ implied-at-recorded-odds — the Poisson bar's E.
+  const refused = decided.filter((r) => { const t = String(r.tier || r.modelTier || "").toUpperCase(); return t === "FADE" || t === "LONGSHOT" })
+  const netAgg = () => ({ n: 0, wins: 0, grossWinnerUnits: 0, netUnits: 0 })
+  const addTo = (a, r) => { a.n++; const u = unitsOf(r); if (r.result === "win") { a.wins++; a.grossWinnerUnits += u } a.netUnits += u }
+  const moveOf = (r) => { const o = Number(r.openImpliedProb), c = Number(r.closeImpliedProb); if (!Number.isFinite(o) || !Number.isFinite(c)) return null; const d = c - o; return d > 0.005 ? "toward" : d < -0.005 ? "away" : "flat" }
+  const breakevenProb = (r) => { const o = Number(r.oddsAmerican); if (!Number.isFinite(o) || o === 0) return null; return o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100) }
+  const refusedByFam = {}
+  const refusedTotal = netAgg()
+  const watch = { hrToward: { ...netAgg(), breakevenWinsExpected: 0 }, ksAway: { ...netAgg(), breakevenWinsExpected: 0 } }
+  for (const r of refused) {
+    const fam = String(r.statFamily || "?")
+    refusedByFam[fam] = refusedByFam[fam] || netAgg()
+    addTo(refusedByFam[fam], r)
+    addTo(refusedTotal, r)
+    const mv = moveOf(r)
+    const be = breakevenProb(r)
+    if (fam === "hr" && mv === "toward") { addTo(watch.hrToward, r); if (be != null) watch.hrToward.breakevenWinsExpected += be }
+    if (fam === "ks" && mv === "away") { addTo(watch.ksAway, r); if (be != null) watch.ksAway.breakevenWinsExpected += be }
+  }
+  const finN = (a) => ({ ...a, grossWinnerUnits: +a.grossWinnerUnits.toFixed(1), netUnits: +a.netUnits.toFixed(1), ...(a.breakevenWinsExpected != null ? { breakevenWinsExpected: +a.breakevenWinsExpected.toFixed(2) } : {}) })
+
   // (b) ceiling audit — realized vs curve 95th pct (curves fit strictly prior)
   const bat = rd(path.join(DATA_DIR, "mlbBatterGameLogsSeason.json"))
   const batIdx = bat ? buildJoinIndex(Object.entries(bat.players).map(([k, v]) => [v.fullName || k, (v.games || []).map((g) => ({ date: String(g.date), stats: g.stats }))])) : null
@@ -140,6 +171,8 @@ function criticSlate(slate) {
     missedWinners: { byReason: missed, unitsAtFlat$1: +missedUnits.toFixed(1), samples, note: "static-gate replay; serve timing not retro-knowable — served_or_timing rows excluded, never guessed" },
     ceilingAudit: { checked: tailN, exceeded95th: tailExceed, ratePct: tailN ? +(100 * tailExceed / tailN).toFixed(1) : null, bar: "≤7% healthy (unconditional 95th-pct exceedance ≈5%)" },
     shownVsPool: { shownApprox: agg(shownApprox), pool: agg(decided) },
+    refusedNet: { total: finN(refusedTotal), byFamily: Object.fromEntries(Object.entries(refusedByFam).map(([k, v]) => [k, finN(v)])), note: "whole refused pool (winners AND losers), flat $1 — the NET beside the gross (audit §2)" },
+    watchSegments: { hrToward: finN(watch.hrToward), ksAway: finN(watch.ksAway), note: "audit §3 — refused rows only; move = closeImpliedProb − openImpliedProb, toward >+0.5pp, away <−0.5pp" },
     lineFreshness: { events: lfCounts, movedServeDelta: { measured: lfMeasured, unmeasurable: lfUnmeasurable, unitsSavedAtFlat$1: +lfDeltaUnits.toFixed(1) }, note: "delta = units(served line) − units(original line) on graded per-line twins; positive = serving the moved line saved money" },
   }
 }
@@ -169,11 +202,39 @@ if (args.includes("--weekly")) {
     a.units += l.movedServeDelta?.unitsSavedAtFlat$1 || 0
     return a
   }, { events: {}, measured: 0, unmeasurable: 0, units: 0 })
+  // 2026-08-15 FADE-TIER AUDIT (CA queue addition) — weekly NET table + watch
+  // lines. Cumulative watch numbers recompute STATELESSLY from every critic
+  // artifact on disk that carries watchSegments (epoch = this pack's first
+  // nightly; re-running --weekly can never double-count).
+  const netFam = {}
+  const netTot = { n: 0, wins: 0, grossWinnerUnits: 0, netUnits: 0 }
+  for (const r of reports) {
+    if (!r.refusedNet) continue
+    for (const [f, v] of Object.entries(r.refusedNet.byFamily || {})) {
+      netFam[f] = netFam[f] || { n: 0, wins: 0, grossWinnerUnits: 0, netUnits: 0 }
+      netFam[f].n += v.n; netFam[f].wins += v.wins; netFam[f].grossWinnerUnits += v.grossWinnerUnits; netFam[f].netUnits += v.netUnits
+    }
+    const t = r.refusedNet.total
+    netTot.n += t.n; netTot.wins += t.wins; netTot.grossWinnerUnits += t.grossWinnerUnits; netTot.netUnits += t.netUnits
+  }
+  const netMd = netTot.n
+    ? `\n\nWhole-pool NET of the refused rows (same replay, winners AND losers, flat $1): **${netTot.netUnits >= 0 ? "+" : ""}${netTot.netUnits.toFixed(1)}u across ${netTot.n} refused rows** — the gross line above is survivorship glare; this is what un-gating would have done.\n\n| refused segment | n | win% | gross winner units | NET |\n|---|---|---|---|---|\n${Object.entries(netFam).sort((a, b) => b[1].n - a[1].n).map(([f, v]) => `| ${f} | ${v.n} | ${v.n ? (100 * v.wins / v.n).toFixed(1) : "—"}% | +${v.grossWinnerUnits.toFixed(1)} | **${v.netUnits >= 0 ? "+" : ""}${v.netUnits.toFixed(1)}u** |`).join("\n")}`
+    : ""
+  const allCritics = fs.readdirSync(TRACKING).filter((f) => /^critic_\d{4}-\d{2}-\d{2}\.json$/.test(f)).map((f) => rd(path.join(TRACKING, f))).filter((r) => r && r.watchSegments)
+  const cum = { hrToward: { n: 0, wins: 0, netUnits: 0, breakevenWinsExpected: 0 }, ksAway: { n: 0, wins: 0, netUnits: 0, breakevenWinsExpected: 0 } }
+  for (const r of allCritics) for (const k of ["hrToward", "ksAway"]) { const s = r.watchSegments[k]; if (!s) continue; cum[k].n += s.n; cum[k].wins += s.wins; cum[k].netUnits += s.netUnits; cum[k].breakevenWinsExpected += s.breakevenWinsExpected || 0 }
+  // Promotion bar (audit §3, verbatim): n≥600 cumulative AND NET>0 AND
+  // Poisson ratio ≥1.0 at 90% one-sided — LB90 = (W − 1.2816·√W)/E where
+  // W = wins, E = Σ breakeven-implied win prob at recorded odds.
+  const barOf = (s) => { const W = s.wins, E = s.breakevenWinsExpected; const lb = E > 0 && W > 0 ? (W - 1.2816 * Math.sqrt(W)) / E : null; return { nOk: s.n >= 600, netOk: s.netUnits > 0, lb: lb != null ? +lb.toFixed(2) : null, met: s.n >= 600 && s.netUnits > 0 && lb != null && lb >= 1.0 } }
+  const watchLine = (label, s) => { const b = barOf(s); return `\n- ${label}: cumulative n=${s.n}, wins=${s.wins}${s.n ? ` (${(100 * s.wins / s.n).toFixed(1)}%)` : ""}, NET ${s.netUnits >= 0 ? "+" : ""}${s.netUnits.toFixed(1)}u · bar [n≥600: ${b.nOk ? "MET" : "not met"} · NET>0: ${b.netOk ? "MET" : "not met"} · Poisson LB90 ${b.lb != null ? b.lb : "—"} ≥1.0: ${b.lb != null && b.lb >= 1.0 ? "MET" : "not met"}] → ${b.met ? "**PROMOTION BAR MET — file the gate-adjustment ASK (hard-gated; nothing auto-changes)**" : "CLOSED (no gate change)"}` }
+  const watchMd = `\n\nWatch segments (audit §3 — refused rows; epoch ${allCritics.length} artifact night${allCritics.length === 1 ? "" : "s"} on disk):${watchLine("hr × market-toward", cum.hrToward)}${watchLine("ks × market-away", cum.ksAway)}`
   const lfLine = Object.keys(lfAgg.events).length
     ? `\n\nLine-freshness at serve: ${Object.entries(lfAgg.events).map(([k, v]) => `${v} ${k}`).join(" · ")}. Moved-line serves re-measured on graded twins: ${lfAgg.measured} measured (${lfAgg.unmeasurable} unmeasurable) → **${lfAgg.units >= 0 ? "+" : ""}${lfAgg.units.toFixed(1)}u ${lfAgg.units >= 0 ? "saved" : "cost"}** vs serving the dead original line.`
     : ""
-  const md = `# Weekly Critic — ${today}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}${lfLine}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
-  const out = path.join(ROOT, "..", "docs", "audits", `weekly-critic-${today}.md`)
+  const md = `# Weekly Critic — ${today}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}${netMd}${watchMd}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}${lfLine}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
+  // CRITIC_DOCS_DIR override exists for the hermetic fixture only.
+  const out = path.join(process.env.CRITIC_DOCS_DIR || path.join(ROOT, "..", "docs", "audits"), `weekly-critic-${today}.md`)
   fs.mkdirSync(path.dirname(out), { recursive: true })
   fs.writeFileSync(out, md)
   console.log(`weekly critic → ${out} (${reports.length} nights · ${units.toFixed(1)}u missed-winner volume)`)
