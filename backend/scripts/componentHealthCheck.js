@@ -466,8 +466,17 @@ checkParlaySettle()
 function checkLegDeathDisagreement() {
   try {
     const evP = path.join(TRACKING, "parlay_leg_death_events.jsonl")
-    if (!fs.existsSync(evP)) return set("legDeathDisagreement", "green", "Leg-death disagreement: no irreversible calls logged yet", "wired")
-    const events = fs.readFileSync(evP, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean)
+    const events = fs.existsSync(evP) ? fs.readFileSync(evP, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean) : []
+    // 2026-08-15 SEV-1 8a94621b — BOOK-TRUTH CORRECTIONS feed this alarm:
+    // every one is an auto-settle the BOOK contradicted (the record lied
+    // until a human fixed it). LOUD for 3 days per event (cry-wolf doctrine:
+    // a red nobody can act on trains ignoring red — the root class gets fixed
+    // in the same pack, so the loud window is for CA/operator review, then
+    // the history stays visible in the green line).
+    const ctP = path.join(TRACKING, "book_truth_corrections.jsonl")
+    const corrections = fs.existsSync(ctP) ? fs.readFileSync(ctP, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean) : []
+    const CORR_LOUD_DAYS = 3
+    const recentCorr = corrections.filter((c) => Date.parse(c.ts) > Date.now() - CORR_LOUD_DAYS * 86400000)
     const ledger = JSON.parse(fs.readFileSync(path.join(TRACKING, "personal_ledger.json"), "utf8"))
     const byId = new Map((ledger.bets || []).map((b) => [b.id, b]))
     const contradictions = []
@@ -481,7 +490,8 @@ function checkLegDeathDisagreement() {
       if (e.ticketCall === "won_confirming" && b.result === "loss") contradictions.push(`${e.betId} (called won-confirming ${String(e.ts).slice(0, 10)}, settled LOSS)`)
     }
     if (contradictions.length) return set("legDeathDisagreement", "fail", `Leg-death disagreement: ${contradictions.length} official settle(s) contradict an irreversible live call — ${contradictions.slice(0, 2).join("; ")} — the live read or the grader is wrong; HUMAN LOOK REQUIRED`, "wired")
-    return set("legDeathDisagreement", "green", `Leg-death disagreement: ${events.length} irreversible call(s) on file, zero contradictions`, "wired")
+    if (recentCorr.length) return set("legDeathDisagreement", "fail", `Book-truth corrections (${CORR_LOUD_DAYS}d loud window): ${recentCorr.length} auto-settle(s) the book contradicted — ${recentCorr.slice(-2).map((c) => `${c.id} (${c.prevResult}→${c.newResult}, slip ${c.slipId})`).join("; ")} — HUMAN LOOK: name the grader class that lied`, "wired")
+    return set("legDeathDisagreement", "green", `Leg-death disagreement: ${events.length} irreversible call(s), zero contradictions; ${corrections.length} book-truth correction(s) on file, none in the ${CORR_LOUD_DAYS}d loud window`, "wired")
   } catch (e) { return set("legDeathDisagreement", "not-run", `Leg-death disagreement: ${String(e?.message || e)}`, "wired") }
 }
 checkLegDeathDisagreement()

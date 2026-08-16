@@ -31,7 +31,7 @@
  *     update in one canonical path). No direct ledger writes here.
  */
 
-const { loadLedger, settleBet } = require("../pipeline/shared/buildPersonalLedger")
+const { loadLedger, settleBet, correctSettledBetToBookTruth } = require("../pipeline/shared/buildPersonalLedger")
 
 function parseArgs(argv) {
   const o = {}
@@ -80,6 +80,26 @@ function main() {
   if (!["win", "loss", "push", "void"].includes(result)) {
     console.error(`[settlePlacedBet] REJECTED: --result="${o.result}" invalid. Valid: win, loss, push, void (GRADING_RULES §3)`)
     process.exit(1)
+  }
+
+  // 2026-08-15 SEV-1 8a94621b — BOOK-TRUTH CORRECTION mode: re-settle an
+  // ALREADY-settled realMoney ticket to the slip's truth with provenance.
+  // Usage: --book-correct --id=<id> --result=loss --payout=0 --slip=<slipId>
+  //        [--note=...] [--legs='[{"player":"...","result":"loss","legNote":"..."}]']
+  // The rails live inside correctSettledBetToBookTruth (refuses pending /
+  // non-placed / missing slip). This replaces --force for book corrections —
+  // --force alone would STACK bankroll deltas (measured: the phantom +10
+  // stays); the correction path reverses the prior delta first.
+  if (o["book-correct"]) {
+    let legs
+    try { legs = o.legs ? JSON.parse(o.legs) : undefined } catch (e) { console.error("[settlePlacedBet] --legs is not valid JSON: " + e.message); process.exit(1) }
+    const r = correctSettledBetToBookTruth(id, { result, payout: o.payout != null ? Number(o.payout) : undefined, slipId: o.slip, note: o.note, legs })
+    if (!r.ok) { console.error("[settlePlacedBet] book-correction REJECTED: " + r.reason); process.exit(1) }
+    console.log("[settlePlacedBet] BOOK-TRUTH CORRECTION " + id + ": " + r.correction.prevResult + " (payout " + r.correction.prevPayout + ") → " + result + " (payout " + (r.bet.payout ?? 0) + ")")
+    console.log("  slip:     " + r.correction.slipId)
+    console.log("  bankroll: reversed prior delta " + (r.prevDelta >= 0 ? "+" : "") + r.prevDelta + " → new balance $" + r.newBalance)
+    if (Array.isArray(r.bet.legs)) console.log("  legs:     " + r.bet.legs.map((l) => (l.player + "=" + (l.result || "pending"))).join(" / "))
+    process.exit(0)
   }
 
   // Pre-flight: find the bet and apply the safety rails BEFORE any write.

@@ -71,6 +71,11 @@ function assessLeg(leg, statNow, allFinal) {
   const side = String((leg && leg.side) || "").toLowerCase()
   const val = Number(statNow)
   if (!Number.isFinite(line) || !side || statNow == null || !Number.isFinite(val)) return { state: "open" }
+  // 2026-08-15 SEV-1 8a94621b class: sides are an enum here too. A side
+  // without over/under semantics ("yes" milestone legs) gets NO live read —
+  // the display must never guess either (the effective lens ACTS on these
+  // calls). Open = no claim.
+  if (!(side === "over" || side === "o" || side === "under" || side === "u")) return { state: "open" }
   const over = side.startsWith("o")
   if (over && val > line) return { state: "won_unofficial", statNow: val }
   if (!over && val > line) return { state: "lost_unofficial", statNow: val }

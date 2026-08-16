@@ -1738,6 +1738,20 @@ router.get("/ledger", (req, res) => {
  *     stake?, eventId?, matchup?, modelProb?, modelLine?, edge?,
  *     confidenceTier?, archetype?, decisionType?, note? }
  */
+// 2026-08-15 SEV-1 8a94621b — the one-tap "book says otherwise" path. All
+// semantics live in the canonical correctSettledBetToBookTruth (provenance,
+// delta reversal, correction event feeding the disagreement alarm). This
+// route is a thin door; it fabricates nothing.
+router.post("/ledger/book-correction", express.json(), (req, res) => {
+  try {
+    const { id, result, payout, slipId, note, legs } = req.body || {}
+    const { correctSettledBetToBookTruth } = require("../pipeline/shared/buildPersonalLedger")
+    const r = correctSettledBetToBookTruth(String(id || ""), { result, payout: payout != null ? Number(payout) : undefined, slipId, note, legs })
+    if (!r.ok) return res.status(400).json(r)
+    res.json({ ok: true, id: r.bet.id, result: r.bet.result, payout: r.bet.payout ?? null, newBalance: r.newBalance, correction: r.correction })
+  } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }) }
+})
+
 router.post("/ledger/log", express.json(), (req, res) => {
   try {
     const body = req.body && typeof req.body === "object" ? req.body : {}

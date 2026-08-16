@@ -4215,9 +4215,10 @@
               </div>
               ${identLine}
               <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
-                <span style="font-size:13px;color:#F9FAFB;">$${b.stake} @ ${_oddsNice(b.odds)}</span>
-                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>
+                <span style="font-size:13px;color:#F9FAFB;">${b.stake} @ ${_oddsNice(b.odds)}</span>
+                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ ${b.toWin}</span>
               </div>
+              ${b.result && b.result !== "pending" ? `<div style="margin-top:5px;"><span onclick="bookSaysOtherwise('${b.id}')" style="font-size:10px;color:#F59E0B;cursor:pointer;border-bottom:1px dotted #F59E0B;">⚠ book says otherwise? correct to slip truth</span></div>` : ""}
               ${b.calibVersion ? `<div style="margin-top:4px;font-size:9px;color:#7DD3FC;">stamped ${escapeHtml(b.calibVersion)}${b.modelProb != null ? ` · model ${(b.modelProb * 100).toFixed(1)}%` : ""}</div>` : ""}
               ${legsHtml ? `<div style="margin-top:8px;">${legsHtml}</div>` : ""}
               ${b.notes ? `<div style="margin-top:6px;font-size:10px;color:#6B7280;font-style:italic;">${escapeHtml(b.notes)}</div>` : ""}
@@ -5530,6 +5531,27 @@
     window.addAnalyzeLeg = addAnalyzeLeg;
     window.removeAnalyzeLeg = removeAnalyzeLeg;
     window.submitAnalyze = submitAnalyze;
+    // 2026-08-15 SEV-1 8a94621b — one-tap book-truth correction. All record
+    // semantics live server-side in correctSettledBetToBookTruth (delta
+    // reversal + provenance + alarm event); this flow only collects the slip.
+    async function bookSaysOtherwise(id) {
+      const result = (prompt("Book slip result (win / loss / push / void):") || "").trim().toLowerCase();
+      if (!result) return;
+      if (!["win","loss","push","void"].includes(result)) { alert("Invalid result — win/loss/push/void only."); return; }
+      const payoutRaw = prompt("TOTAL payout the book credited (0 for a loss):", result === "loss" ? "0" : "");
+      if (payoutRaw == null) return;
+      const slipId = (prompt("Book slip ID (required — book truth needs the slip):") || "").trim();
+      if (!slipId) { alert("No slip ID — correction refused. Book truth needs the slip."); return; }
+      const note = prompt("Optional note (what the book said):") || "";
+      try {
+        const r = await fetch(`${API}/api/ws/ledger/book-correction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, result, payout: Number(payoutRaw), slipId, note }) });
+        const d = await r.json();
+        if (!d.ok) { alert("Correction refused: " + (d.reason || d.error || "unknown")); return; }
+        alert("Corrected to book truth: " + String(d.result).toUpperCase() + " · payout $" + d.payout + " · balance $" + d.newBalance + ". The disagreement alarm now carries this event.");
+        render();
+      } catch (e) { alert("Correction failed: " + (e && e.message ? e.message : e)); }
+    }
+    window.bookSaysOtherwise = bookSaysOtherwise;
     window.resetAnalyze = resetAnalyze;
 
     // ─────────────────────────────────────────────────────────────

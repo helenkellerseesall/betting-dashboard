@@ -26,7 +26,10 @@ const { computeClv, buildClvAnalytics, classifyResultVsClv } = require("./buildC
 const { currentSlateDateEt } = require("./slateDate")
 
 const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
-const LEDGER_FILE = path.join(TRACKING_DIR, "personal_ledger.json")
+// PERSONAL_LEDGER_PATH / BOOK_TRUTH_EVENTS_PATH env overrides exist for the
+// hermetic fixtures ONLY (verifyBookTruth) — production never sets them.
+const LEDGER_FILE = process.env.PERSONAL_LEDGER_PATH || path.join(TRACKING_DIR, "personal_ledger.json")
+const BOOK_TRUTH_EVENTS = process.env.BOOK_TRUTH_EVENTS_PATH || path.join(TRACKING_DIR, "book_truth_corrections.jsonl")
 // 2026-05-29 — bumped 2000 → 50000. Old cap dropped 491 of 2491 MLB picks
 // on a single auto-import. With autonomous scheduler.sh firing slate:nba
 // every 30 min and slate:mlb hourly across 2 sports (500-2500 picks each
@@ -915,6 +918,66 @@ function settleBet(id, { result, payout, actualStat, note } = {}, { save = true 
 }
 
 /**
+ * 2026-08-15 SEV-1 8a94621b — BOOK-TRUTH CORRECTION (explicit GO in the
+ * incident directive; record-semantics change). An auto-settled realMoney
+ * ticket the operator's SLIP contradicts gets corrected HERE and only here:
+ *   - reverses the prior settle's bankroll delta EXACTLY as
+ *     computeCurrentBankroll applied it (settleBet alone would stack deltas
+ *     and corrupt the bankroll — measured on 8a94621b: phantom +10 stays),
+ *   - appends provenance to bet.corrections[] (never deletes history),
+ *   - stamps corrected leg results when provided (matched accent-safe),
+ *   - appends a correction EVENT that feeds the legDeathDisagreement alarm
+ *     (every correction is an auto-settle that lied until a human fixed it).
+ * Refuses: non-placed rows, unsettled bets (normal settle path owns those),
+ * missing slipId (book truth requires the slip), invalid result vocabulary.
+ */
+function correctSettledBetToBookTruth(id, { result, payout, slipId, note, legs } = {}, { save = true } = {}) {
+  const ledger = loadLedger()
+  const bet = (ledger.bets || []).find((b) => b && b.id === id)
+  if (!bet) return { ok: false, reason: "not_found" }
+  if (!(bet.decisionType === "placed" || bet.realMoney === true)) return { ok: false, reason: "not_a_placed_bet — model rows settle via grading, never by hand" }
+  if (!bet.result || bet.result === "pending") return { ok: false, reason: "not_settled — pending bets use the normal settle path" }
+  const r = String(result || "").toLowerCase()
+  if (!["win", "loss", "push", "void"].includes(r)) return { ok: false, reason: "invalid_result", valid: ["win", "loss", "push", "void"] }
+  if (!slipId) return { ok: false, reason: "slip_id_required — book truth needs the slip" }
+
+  // reverse the PRIOR settle's delta exactly as computeCurrentBankroll applied it
+  const stake = num(bet.stake) ?? 0
+  const prevR = String(bet.result).toLowerCase()
+  const prevPayout = num(bet.payout ?? bet.cashout ?? null)
+  let prevDelta = 0
+  if (prevR === "win") prevDelta = Number.isFinite(prevPayout) ? prevPayout - stake : (num(bet.toWin) ?? 0)
+  else if (prevR === "loss") prevDelta = -stake
+
+  const correction = { correctedAt: new Date().toISOString(), prevResult: bet.result, prevPayout: bet.payout ?? null, prevSettledAt: bet.settledAt ?? null, source: "book_slip", slipId: String(slipId), ...(note ? { note: String(note).slice(0, 300) } : {}) }
+  bet.corrections = [...(Array.isArray(bet.corrections) ? bet.corrections : []), correction]
+  bet.result = r
+  bet.settledAt = correction.correctedAt
+  if (Number.isFinite(num(payout))) bet.payout = num(payout)
+  else if (r === "loss") bet.payout = 0
+  if (note) bet.note = (bet.note ? bet.note + " | " : "") + String(note).slice(0, 200)
+  if (Array.isArray(legs) && Array.isArray(bet.legs)) {
+    const normN = (v) => String(v == null ? "" : v).normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase()
+    for (const lc of legs) {
+      const leg = bet.legs.find((l) => normN(l.player) === normN(lc.player))
+      if (!leg) continue
+      if (lc.result) leg.result = String(lc.result).toLowerCase()
+      if (lc.legNote) leg.legNote = String(lc.legNote).slice(0, 300)
+    }
+  }
+  ledger.bankroll.current = round2(ledger.bankroll.current - prevDelta)
+  ledger.bankroll.current = computeCurrentBankroll({ bankroll: { current: ledger.bankroll.current } }, bet)
+  ledger.analytics = rebuildAnalytics(ledger.bets, ledger.bankroll.current, ledger.bankroll.initial)
+  ledger.analytics.bankrollCurve = updateBankrollCurve(ledger.analytics.bankrollCurve || [], bet.date, ledger.bankroll.current)
+  ledger.updatedAt = new Date().toISOString()
+  try {
+    fs.appendFileSync(BOOK_TRUTH_EVENTS, JSON.stringify({ ts: correction.correctedAt, id, prevResult: correction.prevResult, prevPayout: correction.prevPayout, newResult: r, newPayout: bet.payout ?? null, slipId: correction.slipId }) + "\n")
+  } catch (_) { /* the event log must never block the record write */ }
+  if (save) saveLedger(ledger)
+  return { ok: true, bet, correction, prevDelta, newBalance: ledger.bankroll.current }
+}
+
+/**
  * Batch-settle multiple bets from a results map: { [id]: "win" | "loss" | ... }
  * Also accepts { actualStat, payout } per entry if passed as object.
  */
@@ -1450,6 +1513,7 @@ module.exports = {
   saveLedger,
   addOrUpdateBet,
   settleBet,
+  correctSettledBetToBookTruth,
   batchSettle,
   batchSettleByFields,
   buildNightlyReport,

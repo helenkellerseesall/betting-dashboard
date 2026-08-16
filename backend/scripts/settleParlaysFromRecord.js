@@ -88,8 +88,20 @@ function settleParlays(opts = {}) {
       if (fKey && Number.isFinite(line)) {
         const val = Number(getStatValue(finals[fKey], leg.statFamily || leg.stat))
         if (Number.isFinite(val)) {
-          const over = String(leg.side).toLowerCase().startsWith("o")
-          const res = val === line ? "push" : (over === (val > line) ? "win" : "loss")
+          // 2026-08-15 SEV-1 8a94621b: side semantics are an ENUM, not a
+          // boolean. The old startsWith("o") collapsed every unknown side into
+          // UNDER math — a "yes 1" SGP milestone leg with actual 0 graded WIN
+          // while the book settled the ticket LOST (slip 20PA06DZUD). The
+          // fallback knows over/under ONLY; any other side is REFUSED to
+          // manual settle. Never-guess restored at the exact branch it broke.
+          const sideTok = String(leg.side).toLowerCase().trim()
+          const isOver = sideTok === "over" || sideTok === "o"
+          const isUnder = sideTok === "under" || sideTok === "u"
+          if (!isOver && !isUnder) {
+            leg.legNote = `finals-fallback REFUSED: side "${leg.side}" has no over/under semantics — manual settle required (never guessed)`
+            return "pending"
+          }
+          const res = val === line ? "push" : (isOver === (val > line) ? "win" : "loss")
           leg.legNote = `graded from official finals (no board twin at this line): actual ${val} vs ${leg.side} ${line}`
           return res
         }
