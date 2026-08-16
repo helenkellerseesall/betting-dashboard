@@ -36,6 +36,7 @@ const UNLOCKS = {
   cures: "per-column gate + counterfactual kill bar (G3-L3)",
   parlay: "14 nights · 100 settled · ≤3pp price error · ≥0u · operator approval",
   marketPrior: "QUEUED — CA spec after gates read green (docket d94d5c9); the board refuses to fake progress on an unstarted experiment",
+  marketPriorCaged: "3 bars, conjunctive (spec §4): shadow Brier(p_final) ≤ Brier(p_market) AND ≤ Brier(p_model) AND CLV-positive share ≥ current selection — operator makes the flip call with the numbers in hand",
 }
 
 function rdJson(fp) { try { return JSON.parse(fs.readFileSync(fp, "utf8")) } catch (_) { return null } }
@@ -177,7 +178,20 @@ function buildBoard({ trackingDir, configDir } = {}) {
   })
 
   // ── market-prob prior (queued — no experiment exists yet) ──
-  rows.push({
+  // 2026-08-16 MARKET-PRIOR SHADOW (GO on the 8/15 ASK): queued→caged the
+  // night the shadow column starts logging (spec §4); progress = shadow
+  // nights toward the 14-night window. No shadow file ⇒ queued, honestly.
+  const mpShadowP = path.join(tDir, "market_prior_shadow.jsonl")
+  let mpNights = 0, mpRows = 0
+  try { const ls = fs.readFileSync(mpShadowP, "utf8").split("\n").filter(Boolean); mpRows = ls.length; mpNights = new Set(ls.map((l) => { try { return JSON.parse(l).slate } catch (_) { return null } }).filter(Boolean)).size } catch (_) {}
+  rows.push(mpRows ? {
+    key: "market_prob_prior", label: "market-prob-as-prior (SHADOW logging)",
+    examNights: { have: mpNights, bar: 14, note: "shadow nights toward the §4 graduation window" },
+    decided: { have: mpRows, bar: null },
+    paperUnits: null, trend: { label: "shadow logging — zero served-surface effect" },
+    unlock: UNLOCKS.marketPriorCaged,
+    status: "caged",
+  } : {
     key: "market_prob_prior", label: "market-prob-as-prior",
     examNights: { have: 0, bar: null }, decided: { have: 0, bar: null },
     paperUnits: null, trend: { label: "n/a" }, unlock: UNLOCKS.marketPrior,

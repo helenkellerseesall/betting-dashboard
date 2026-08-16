@@ -14,8 +14,9 @@ const rd = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), "utf8")
 
 // ── config is the capture authority ──
 const cfg = JSON.parse(rd("config/nflCaptureKeys.json"))
-check("config: 8 base + 3 alt keys, receptions the beachhead, ranks 6-7 excluded, attempts-keys flag documented for CA",
-  cfg.baseMarkets.length === 8 && cfg.altMarkets.length === 3 && cfg.baseMarkets[0] === "player_receptions" && cfg.altMarkets.every((k) => /_alternate$/.test(k)) && /FLAGGED for CA verification/.test(cfg._doc) && !cfg.baseMarkets.some((k) => /tackle|kicker|defense/.test(k)))
+// 2026-08-16 anchor evolved: CA excluded the attempts keys (SPECULATIVE-thin).
+check("config: 6 base + 3 alt keys, receptions the beachhead, attempts/completions EXCLUDED per CA decision (recorded in _doc)",
+  cfg.baseMarkets.length === 6 && cfg.altMarkets.length === 3 && cfg.baseMarkets[0] === "player_receptions" && cfg.altMarkets.every((k) => /_alternate$/.test(k)) && /CA DECISION 2026-08-16: attempts\/completions keys EXCLUDED/.test(cfg._doc) && !cfg.baseMarkets.some((k) => /attempts|tackle|kicker|defense/.test(k)))
 
 // ── hermetic capture run against a stub vendor ──
 const stub = fs.mkdtempSync(path.join(os.tmpdir(), "nflS-"))

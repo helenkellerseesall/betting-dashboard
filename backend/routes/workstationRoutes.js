@@ -3393,6 +3393,18 @@ router.get("/top-picks", (req, res) => {
         counts: lfCounts,
         contextBuildMs: lfBuildMs,
       }
+      // 2026-08-16 MARKET-PRIOR SHADOW TAP (GO on the 8/15 ASK) — append-only
+      // shadow jsonl; the served payload stays BYTE-IDENTICAL (the tap never
+      // mutates picks — fixture-pinned) and can never block serving. Reuses
+      // THIS request's freshness contexts + the ONE join authority.
+      try {
+        if (date === todayK) {
+          const mp = require("../pipeline/shared/marketPrior")
+          const { matchKeyForBet } = require("../scripts/captureClosingLines")
+          const mpCtx = lfCtxBySport.mlb || lfCtxBySport.nba || null
+          mp.shadowTap(picks, mpCtx, { matchKeyForBet }, { slate: date })
+        }
+      } catch (_) { /* shadow never blocks serving */ }
     } catch (e) {
       for (const pick of picks) if (!pick.lineFreshness) pick.lineFreshness = { status: "skipped", reason: "revalidation_error" }
       lineFreshnessSummary = { revalidated: false, error: String(e?.message || e) }

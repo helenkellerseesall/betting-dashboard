@@ -104,6 +104,7 @@ last_receipt_commit_min=""
 last_gradboard_min=""
 last_g2exam_min=""
 last_nfl_capture_min=""
+last_mprior_fit_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -213,6 +214,20 @@ while true; do
   if [ -n "$NFLWIN" ] && [ "$STAMP" != "${last_nfl_capture_min:-}" ]; then
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureNflProps.js "$NFLWIN" >> "$LOG" 2>&1 &
     last_nfl_capture_min="$STAMP"
+  fi
+
+  # 2026-08-16 MARKET-PRIOR w-REFIT (GO on the 8/15 ASK) — Sundays 06:25 ET,
+  # after the 06:15 exam. Forward-only fit (a backward attempt THROWS inside
+  # the module); committed w history rides the receipts-guard pattern.
+  if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 6 ] && [ "$MIN" -eq 25 ] && [ "$STAMP" != "${last_mprior_fit_min:-}" ]; then
+    (
+      cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      log "market-prior w-refit starting (forward-only, Sun 06:25 ET)"
+      node backend/pipeline/shared/marketPrior.js >> "$LOG" 2>&1 || log "market-prior w-refit FAILED (exit $?) — committed w unchanged"
+      git add backend/config/market_prior_w.json >> "$LOG" 2>&1
+      git diff --cached --quiet -- backend/config/market_prior_w.json || git commit -m "fit: market-prior w weekly (forward-only; scheduler auto-run)" >> "$LOG" 2>&1
+    ) &
+    last_mprior_fit_min="$STAMP"
   fi
 
   # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once

@@ -230,6 +230,35 @@ function checkNflCapture() {
 }
 checkNflCapture()
 
+// (26) 2026-08-16 MARKET-PRIOR SHADOW (GO on the 8/15 ASK) — ONE component
+// folding both spec-§5 rails per CA: >20% model-only on the latest slate
+// (the de-vig join is missing pairs) and w-drift >0.15 in one refit.
+function checkMarketPrior() {
+  try {
+    const shadowP = path.join(TRACKING, "market_prior_shadow.jsonl")
+    if (!fs.existsSync(shadowP)) return set("market_prior", "green", "Market-prior shadow: not logging yet — the tap arms on the next served board (kill switch MARKET_PRIOR_OFF honored)", "wired")
+    const lines = fs.readFileSync(shadowP, "utf8").split("\n").filter(Boolean).slice(-5000).map((l) => { try { return JSON.parse(l) } catch (_) { return null } }).filter(Boolean)
+    const slates = [...new Set(lines.map((e) => e.slate).filter(Boolean))].sort()
+    const latest = slates[slates.length - 1]
+    const onSlate = lines.filter((e) => e.slate === latest)
+    const mo = onSlate.filter((e) => /model_only/.test(e.label || "")).length
+    const moPct = onSlate.length ? Math.round(100 * mo / onSlate.length) : 0
+    if (onSlate.length >= 10 && moPct > 20) return set("market_prior", "fail", `Market-prior shadow: ${moPct}% model-only on ${latest} (${mo}/${onSlate.length}) — de-vig join missing pairs; >20% bar (spec §5)`, "wired")
+    let drift = null
+    try {
+      const wj = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "market_prior_w.json"), "utf8"))
+      const h = wj.history || []
+      if (h.length >= 2) {
+        const a = h[h.length - 2].byFamilyBand || {}, b = h[h.length - 1].byFamilyBand || {}
+        for (const k of Object.keys(b)) if (a[k] && Math.abs(b[k].w - a[k].w) > 0.15) drift = `${k}: ${a[k].w}→${b[k].w}`
+      }
+    } catch (_) {}
+    if (drift) return set("market_prior", "fail", `Market-prior w drift >0.15 in one refit (${drift}) — spec §5 drift alarm; HUMAN LOOK before the next fit commits`, "wired")
+    return set("market_prior", "green", `Market-prior shadow: ${lines.length} recent rows over ${slates.length} slate(s); latest ${latest}: ${moPct}% model-only (bar 20%); w drift within 0.15`, "wired")
+  } catch (e) { return set("market_prior", "not-run", `Market-prior: ${String(e?.message || e)}`, "wired") }
+}
+checkMarketPrior()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -577,7 +606,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
