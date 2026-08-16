@@ -103,6 +103,7 @@ last_receipt_commit_min=""
 # 2026-07-30 GRADUATION BOARD — aggregator dedupe var (same doctrine).
 last_gradboard_min=""
 last_g2exam_min=""
+last_nfl_capture_min=""
 
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
@@ -194,6 +195,24 @@ while true; do
       git diff --cached --quiet -- backend/config/g2_validation.json docs/audits || git commit -m "exam: G2 validator weekly (scheduler auto-run)" >> "$LOG" 2>&1
     ) &
     last_g2exam_min="$STAMP"
+  fi
+
+  # 2026-08-15 NFL CAPTURE-FIRST (standing queue; CC eee5b6f, CA triage
+  # 342262e) — capture-only windows on the NFL clock: Wed 10:00 TNF open ·
+  # Thu 09:30 morning open (the MLB-morning analog — early props soft +
+  # low-limit) · Fri 15:30 post-designation · Sun 11:50 pre-kick, all ET.
+  # The script SELF-GATES on seasonsActive.json nfl (ships false) — these
+  # windows fire year-round and no-op honestly until the operator flips the
+  # gate at season start (~Sep); no restart needed. Quota rides the odds
+  # ledger (caller captureNflProps). DOW comes from the G2 block above.
+  NFLWIN=""
+  if [ "$DOW" -eq 3 ] && [ "$HOUR" -eq 10 ] && [ "$MIN" -eq 0 ]; then NFLWIN="wed_tnf_open"; fi
+  if [ "$DOW" -eq 4 ] && [ "$HOUR" -eq 9 ] && [ "$MIN" -eq 30 ]; then NFLWIN="thu_morning_open"; fi
+  if [ "$DOW" -eq 5 ] && [ "$HOUR" -eq 15 ] && [ "$MIN" -eq 30 ]; then NFLWIN="fri_post_designation"; fi
+  if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 11 ] && [ "$MIN" -eq 50 ]; then NFLWIN="sun_prekick"; fi
+  if [ -n "$NFLWIN" ] && [ "$STAMP" != "${last_nfl_capture_min:-}" ]; then
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/captureNflProps.js "$NFLWIN" >> "$LOG" 2>&1 &
+    last_nfl_capture_min="$STAMP"
   fi
 
   # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once

@@ -98,6 +98,7 @@ const SUITES = [
   "verifyOddsUsage", // ODDS-QUOTA LEDGER (2026-08-11, GO 63f24e4) — quota-header capture at every odds-api call site (axios+fetch shapes, wrapper files free), fail-open doctrine, tail-window ET rollup for /status; hermetic via ODDS_API_LOG_DIR.
   "verifyBookTruth", // SEV-1 8a94621b (2026-08-15) — finals-fallback side ENUM (yes-1-actual-0 refused to manual, never guessed), live-state side gate, canonical book-truth correction w/ exact delta reversal + provenance + alarm event; hermetic.
   "verifyCriticNet", // FADE-TIER AUDIT queue addition (2026-08-15, CA §4) — longshot_tier/fade_tag split, per-segment NET beside gross missed-winners, watch-segment promotion bar (n≥600 + NET>0 + Poisson LB90 ≥1.0) printed weekly; hermetic.
+  "verifyNflCapture", // NFL CAPTURE-FIRST (2026-08-15 standing queue; CC eee5b6f) — config-driven 8+3 keys, verbatim-side rows, window idempotency, season-gate honesty, scheduler clocks, alarm #25; hermetic stub vendor.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

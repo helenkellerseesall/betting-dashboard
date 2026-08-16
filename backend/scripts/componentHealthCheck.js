@@ -207,6 +207,29 @@ function checkGradBoardStall() {
 }
 checkGradBoardStall()
 
+// (25) 2026-08-15 NFL CAPTURE-FIRST (standing queue) — the pack's ships-with
+// alarm: a capture that silently stops is invisible until September's paper
+// machinery starts blind. Honest states: sport OFF ⇒ green idle-by-design;
+// sport ON + zero artifacts ⇒ RED (windows never landed one); sport ON +
+// newest artifact older than the widest window gap (4 days) ⇒ RED.
+function checkNflCapture() {
+  try {
+    let enabled = true
+    try { enabled = require("../pipeline/shared/seasonGate").isSportEnabled("nfl") } catch (_) {}
+    if (!enabled) return set("nflCapture", "green", "NFL capture: OFF by season gate (seasonsActive.json nfl=false) — idle by design; flip at season start, windows arm with no restart", "wired")
+    const files = fs.readdirSync(TRACKING).filter((f) => /^nfl_props_capture_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
+    if (!files.length) return set("nflCapture", "fail", "NFL capture: sport ON but ZERO capture artifacts — the Wed/Thu/Fri/Sun windows have not landed one; check scheduler.log for captureNflProps", "wired")
+    const latest = files[files.length - 1]
+    const d = (latest.match(/(\d{4}-\d{2}-\d{2})/) || [])[1]
+    const ageDays = Math.round((Date.now() - Date.parse(d + "T12:00:00Z")) / 86400000)
+    if (ageDays > 4) return set("nflCapture", "fail", `NFL capture: newest artifact ${latest} is ${ageDays}d old — wider than the widest window gap (4d); capture is dead`, "wired")
+    let rows = 0
+    try { rows = (JSON.parse(fs.readFileSync(path.join(TRACKING, latest), "utf8")).rows || []).length } catch (_) {}
+    return set("nflCapture", "green", `NFL capture: ${latest} (${rows} rows, ${ageDays}d old) — inside the window cadence`, "wired")
+  } catch (e) { return set("nflCapture", "not-run", `NFL capture: ${String(e?.message || e)}`, "wired") }
+}
+checkNflCapture()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -554,7 +577,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))
