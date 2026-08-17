@@ -31,6 +31,8 @@ check("component #27 schedulerIdentity: three honest reds (no heartbeat / frozen
   /checkSchedulerIdentity/.test(chc) && /"schedulerIdentity"/.test(chc) && /NO heartbeat file/.test(chc) && /FROZEN/.test(chc) && /RUNNING STALE CODE/.test(chc) && /8\/16 class/.test(chc) && chc.indexOf("fs.writeFileSync(OUT") > chc.indexOf("checkSchedulerIdentity()"))
 check("heartbeat schema is machine-checkable (the standalone snippet proof rides the landing): loadedSha/diskSha/pid/loopStartedAt keys pinned in the writer",
   /"loadedSha":"%s"/.test(sch) && /"diskSha":"%s"/.test(sch) && /"loopStartedAt":"%s"/.test(sch) && /"pid":%s/.test(sch))
+check("heartbeat ts carries an explicit UTC offset (CA rider: a bare local stamp cost a false 4h-stale scare)",
+  /HB_TS=\$\(TZ='America\/New_York' date \+%Y-%m-%dT%H:%M:%S%z\)/.test(sch) && /"\$HB_TS" "\$\$" "\$LOOP_STARTED"/.test(sch))
 check("matrix: verifySchedulerTruth registered", /"verifySchedulerTruth"/.test(rd("scripts/runtimeVerify.js")))
 
 console.log(`verifySchedulerTruth: ${pass}/${pass + fail} checks PASS`)

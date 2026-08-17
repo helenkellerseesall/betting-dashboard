@@ -27,12 +27,17 @@ check("no fit support ⇒ w=1 PURE MARKET with the stamp (spec §2)", nf.w === 1
 check("bands: -200 heavy_fav · -105 fav · +150 plus_short · +300 plus_mid · +800 plus_long", mp.bandOf(-200) === "heavy_fav" && mp.bandOf(-105) === "fav" && mp.bandOf(150) === "plus_short" && mp.bandOf(300) === "plus_mid" && mp.bandOf(800) === "plus_long")
 
 // ── consensus via the real join authority ──
-const snapRow = (book, side, odds) => ({ player: "Test Guy", statFamily: "hits", side, line: 1.5, sportsbook: book, oddsAmerican: odds })
+// 2026-08-17 JOIN INCIDENT evolution: rows are LIVE-SHAPED (marketKey present,
+// exactly like snapshot rows) — the old fixture omitted marketKey on BOTH
+// sides, so the key mismatch that produced a 100% model-only night was
+// invisible to it. Now the e2e REQUIRES the join to resolve.
+const snapRow = (book, side, odds) => ({ player: "Test Guy", statFamily: "hits", side, line: 1.5, sportsbook: book, oddsAmerican: odds, marketKey: "batter_hits" })
 const rows = [snapRow("draftkings", "over", -110), snapRow("draftkings", "under", -110), snapRow("fanduel", "over", -200), snapRow("fanduel", "under", 150), snapRow("betmgm", "over", -110), snapRow("betmgm", "under", -110)]
 const ctx = { ok: true, exactIx: buildPropIndex(rows) }
-const pick = { player: "Test Guy", statFamily: "hits", side: "over", line: 1.5, modelProb: 0.4, oddsAmerican: -110 }
+const pick = { player: "Test Guy", statFamily: "hits", side: "over", line: 1.5, modelProb: 0.4, oddsAmerican: -110, marketKey: "batter_hits" }
 const m1 = mp.marketProbForPick(pick, ctx, { matchKeyForBet })
-check("consensus: median of per-book DE-VIGGED fair probs across 3 two-sided books (=0.5 from the balanced median book)", m1.books === 3 && m1.p === 0.5)
+check("consensus RESOLVES on live-shaped rows: median of 3 two-sided books = 0.5 (an all-model-only night now FAILS here)", m1.books === 3 && m1.p === 0.5)
+check("INCIDENT PINNED: a lookup missing marketKey matches nothing (the 8/16 mechanism) — the join must carry the pick's FULL identity", mp.marketProbForPick({ ...pick, marketKey: undefined }, ctx, { matchKeyForBet }).p === null)
 check("SEV-1 seam: a side without over/under semantics gets NO market prob, named reason", mp.marketProbForPick({ ...pick, side: "yes" }, ctx, { matchKeyForBet }).reason === "no_over_under_semantics")
 check("fail-open: no context ⇒ null + reason, never a guess", mp.marketProbForPick(pick, null, { matchKeyForBet }).reason === "no_context")
 
@@ -44,8 +49,8 @@ check("BYTE-IDENTICAL serve: the tap mutates nothing (deep-compare before/after)
 const shadowLines = fs.readFileSync(process.env.MARKET_PRIOR_SHADOW_PATH, "utf8").trim().split("\n").map((x) => JSON.parse(x))
 check("shadow rows: blended entry carries pModel/pMarket/pFinal/w/provenance; w=1 no-support ⇒ pFinal = pMarket exactly",
   shadowLines[0].label === "blended_shadow" && shadowLines[0].pMarket === 0.5 && shadowLines[0].w === 1 && shadowLines[0].pFinal === 0.5 && /pure market/.test(shadowLines[0].wSource))
-check("fail-open label rides the row: yes-side leg logs model_only — no market consensus, pFinal = pModel",
-  /model_only — no market consensus/.test(shadowLines[1].label) && shadowLines[1].pFinal === 0.3 && tap1.modelOnly === 1)
+check("fail-open label rides the row WITH its reason: yes-side leg logs model_only + reason no_over_under_semantics, pFinal = pModel",
+  /model_only — no market consensus/.test(shadowLines[1].label) && shadowLines[1].pFinal === 0.3 && shadowLines[1].reason === "no_over_under_semantics" && tap1.modelOnly === 1)
 process.env.MARKET_PRIOR_OFF = "1"
 const tap2 = mp.shadowTap(picks, ctx, { matchKeyForBet }, { slate: "2026-08-16" })
 delete process.env.MARKET_PRIOR_OFF
@@ -81,11 +86,14 @@ check("ERA-RULE PIN: marketPrior is imported ONLY by the serve route — zero pi
 const gb = require("./graduationBoard")
 const tmpB = fs.mkdtempSync(path.join(os.tmpdir(), "mpb-"))
 const tmpC = fs.mkdtempSync(path.join(os.tmpdir(), "mpc-"))
-fs.writeFileSync(path.join(tmpB, "market_prior_shadow.jsonl"), ['{"slate":"2026-08-16"}', '{"slate":"2026-08-17"}'].join("\n") + "\n")
+fs.writeFileSync(path.join(tmpB, "market_prior_shadow.jsonl"), [
+  '{"slate":"2026-08-16","label":"blended_shadow"}', '{"slate":"2026-08-16","label":"blended_shadow"}',
+  '{"slate":"2026-08-17","label":"model_only — no market consensus"}', '{"slate":"2026-08-17","label":"model_only — no market consensus"}', '{"slate":"2026-08-17","label":"model_only — no market consensus"}', '{"slate":"2026-08-17","label":"blended_shadow"}',
+].join("\n") + "\n")
 const b1 = gb.buildBoard({ trackingDir: tmpB, configDir: tmpC }).rows.find((r) => r.key === "market_prob_prior")
 const b0 = gb.buildBoard({ trackingDir: fs.mkdtempSync(path.join(os.tmpdir(), "mpe-")), configDir: tmpC }).rows.find((r) => r.key === "market_prob_prior")
-check("board: shadow logging flips queued→CAGED w/ nights toward the 14-bar + the 3-bar unlock verbatim; no shadow ⇒ still queued",
-  b1.status === "caged" && b1.examNights.have === 2 && b1.examNights.bar === 14 && /3 bars, conjunctive/.test(b1.unlock) && b0.status === "queued")
+check("board: caged w/ VOID-FOR-GRADUATION math — the 75%-model-only night is EXCLUDED from nights (1 not 2) and NAMED in the note; no shadow ⇒ still queued (CA rule: no diluted graduation)",
+  b1.status === "caged" && b1.examNights.have === 1 && b1.examNights.bar === 14 && /VOID-for-graduation/.test(b1.examNights.note) && /2026-08-17/.test(b1.examNights.note) && /3 bars, conjunctive/.test(b1.unlock) && b0.status === "queued")
 
 // ── source anchors ──
 const wr = rd("routes/workstationRoutes.js")

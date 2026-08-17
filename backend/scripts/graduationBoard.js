@@ -182,11 +182,20 @@ function buildBoard({ trackingDir, configDir } = {}) {
   // night the shadow column starts logging (spec §4); progress = shadow
   // nights toward the 14-night window. No shadow file ⇒ queued, honestly.
   const mpShadowP = path.join(tDir, "market_prior_shadow.jsonl")
-  let mpNights = 0, mpRows = 0
-  try { const ls = fs.readFileSync(mpShadowP, "utf8").split("\n").filter(Boolean); mpRows = ls.length; mpNights = new Set(ls.map((l) => { try { return JSON.parse(l).slate } catch (_) { return null } }).filter(Boolean)).size } catch (_) {}
+  // 2026-08-17 JOIN INCIDENT rider: a shadow night that was >50% model-only
+  // is VOID-FOR-GRADUATION — it cannot testify about the blend it barely
+  // computed; counting it would dilute the 14-night window (CA rule).
+  let mpNights = 0, mpRows = 0, mpVoidNights = []
+  try {
+    const ls = fs.readFileSync(mpShadowP, "utf8").split("\n").filter(Boolean)
+    mpRows = ls.length
+    const bySlate = new Map()
+    for (const l of ls) { let e; try { e = JSON.parse(l) } catch (_) { continue } if (!e.slate) continue; const s = bySlate.get(e.slate) || { n: 0, mo: 0 }; s.n++; if (/model_only/.test(e.label || "")) s.mo++; bySlate.set(e.slate, s) }
+    for (const [sl, s] of bySlate) { if (s.n && s.mo / s.n > 0.5) mpVoidNights.push(sl); else mpNights++ }
+  } catch (_) {}
   rows.push(mpRows ? {
     key: "market_prob_prior", label: "market-prob-as-prior (SHADOW logging)",
-    examNights: { have: mpNights, bar: 14, note: "shadow nights toward the §4 graduation window" },
+    examNights: { have: mpNights, bar: 14, note: mpVoidNights.length ? `shadow nights toward the §4 window — ${mpVoidNights.length} night(s) VOID-for-graduation (>50% model-only): ${mpVoidNights.join(", ")}` : "shadow nights toward the §4 graduation window" },
     decided: { have: mpRows, bar: null },
     paperUnits: null, trend: { label: "shadow logging — zero served-surface effect" },
     unlock: UNLOCKS.marketPriorCaged,

@@ -56,7 +56,12 @@ function marketProbForPick(pick, ctx, joins) {
     if (!(side === "over" || side === "under")) return { p: null, reason: "no_over_under_semantics" }
     const probs = []
     for (const book of BOOKS) {
-      const q = (s) => ctx.exactIx.get(joins.matchKeyForBet({ player: pick.player, statFamily: pick.statFamily, side: s, line: pick.line, sportsbook: book }))
+      // 2026-08-17 JOIN INCIDENT FIX: the index key ENDS in marketKey; the old
+      // pseudo-bet dropped it, so every lookup carried an empty market and
+      // missed BY CONSTRUCTION (10/10 model-only on 8/16; reproduced live on a
+      // real two-sided tuple). Spread the PICK so marketKey + canonical fields
+      // ride into the key exactly as the freshness pass (which always hit) does.
+      const q = (s) => ctx.exactIx.get(joins.matchKeyForBet({ ...pick, side: s, sportsbook: book, book }))
       const over = q("over"), under = q("under")
       const oOdds = over ? Number(over.oddsAmerican ?? over.odds) : NaN
       const uOdds = under ? Number(under.oddsAmerican ?? under.odds) : NaN
@@ -86,7 +91,7 @@ function shadowTap(picks, ctx, joins, { slate } = {}) {
       const m = marketProbForPick(pick, ctx, joins)
       const { w, source } = wFor(fam, band, wState)
       const pF = m.p != null ? blend(pModel, m.p, w) : pModel
-      lines.push(JSON.stringify({ ts: new Date().toISOString(), slate: slate || null, player: pick.player, family: fam, side: pick.side ?? null, line: pick.line ?? null, odds: Number(pick.oddsAmerican ?? pick.odds), band, pModel: +pModel.toFixed(4), pMarket: m.p != null ? +m.p.toFixed(4) : null, books: m.books || 0, w, wSource: source, pFinal: +pF.toFixed(4), label: m.p != null ? "blended_shadow" : "model_only — no market consensus" }))
+      lines.push(JSON.stringify({ ts: new Date().toISOString(), slate: slate || null, player: pick.player, family: fam, side: pick.side ?? null, line: pick.line ?? null, odds: Number(pick.oddsAmerican ?? pick.odds), band, pModel: +pModel.toFixed(4), pMarket: m.p != null ? +m.p.toFixed(4) : null, books: m.books || 0, w, wSource: source, pFinal: +pF.toFixed(4), label: m.p != null ? "blended_shadow" : "model_only — no market consensus", ...(m.p == null ? { reason: m.reason || "unknown" } : {}) }))
       if (m.p == null) modelOnly++
       logged++
     }

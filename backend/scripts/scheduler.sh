@@ -128,9 +128,13 @@ while true; do
 
   # Heartbeat EVERY cycle — atomic write; component #27 reads it. loadedSha
   # vs diskSha mismatch = running stale code; mtime age = frozen/sleeping loop.
+  # HB_TS carries an explicit UTC offset (CA rider: a bare "T01:15" cost a
+  # false 4h-stale scare in a UTC-context read). STAMP stays minute-bare — it
+  # is the dedupe token, compared only to itself.
+  HB_TS=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S%z)
   DISK_SHA=$(shasum -a 256 "$0" 2>/dev/null | cut -d' ' -f1)
   LAST_LOG_LINE=$(tail -n 1 "$LOG" 2>/dev/null | tr -d '"\\' | cut -c1-160)
-  printf '{"ts":"%s","pid":%s,"loopStartedAt":"%s","loadedSha":"%s","loadedMtime":"%s","diskSha":"%s","lastLogLine":"%s"}\n' "$STAMP" "$$" "$LOOP_STARTED" "$LOADED_SHA" "$LOADED_MTIME" "$DISK_SHA" "$LAST_LOG_LINE" > "$HB_FILE.tmp.$$" && mv "$HB_FILE.tmp.$$" "$HB_FILE"
+  printf '{"ts":"%s","pid":%s,"loopStartedAt":"%s","loadedSha":"%s","loadedMtime":"%s","diskSha":"%s","lastLogLine":"%s"}\n' "$HB_TS" "$$" "$LOOP_STARTED" "$LOADED_SHA" "$LOADED_MTIME" "$DISK_SHA" "$LAST_LOG_LINE" > "$HB_FILE.tmp.$$" && mv "$HB_FILE.tmp.$$" "$HB_FILE"
 
   # Caffeinate watchdog runs EVERY loop, before the dedupe gate, so it fires
   # on every 30s tick regardless of whether a slate is due.
