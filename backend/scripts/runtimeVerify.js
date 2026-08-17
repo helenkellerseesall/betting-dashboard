@@ -102,6 +102,7 @@ const SUITES = [
   "verifyMarketPrior", // MARKET-PRIOR SHADOW v1 (2026-08-16, GO on the 8/15 ASK) — blend math, median de-vig via the ONE join authority, byte-identical serve isolation, kill switch, forward-only fit (backward THROWS), era-rule importer pin, board flip; hermetic.
   "verifySchedulerTruth", // SCHEDULER-TRUTH (2026-08-17 incident) — per-cycle heartbeat (loaded-vs-disk vintage, atomic write), frozen-tick + stale-code + no-heartbeat reds (#27), Sunday catch-up gates w/ done-stamps; the 8/16 sleep-gap class ends here.
   "verifyLongshotLab", // LONGSHOT LAB (2026-08-17, CC §3) — N=3 paper tickets, certified-zone structural constraints, cross-game+trap asserts, write-once locks + chained receipts, twin/rung settles, Poisson band gate + drought benchmark; hermetic.
+  "verifyPerfPack", // FE/PERF perf sub-pack (2026-08-17) — serve-path never awaits refresh, offseason skip, zlib gzip, snapshot twin dedupe, real-money projection w/ fail-open, /boot payload, FE badges/version; hermetic reads + anchors.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

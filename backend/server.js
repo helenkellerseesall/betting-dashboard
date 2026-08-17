@@ -110,6 +110,28 @@ app.use(cors())
 // we'd legitimately receive). Operator hit "PayloadTooLargeError: request
 // entity too large" on iPhone screenshot upload at the OCR endpoint.
 app.use(express.json({ limit: "12mb" }))
+// 2026-08-17 PERF PACK — dependency-free gzip for JSON responses (measured
+// potential: /state 560,199→50,160 B, /games 1,159,176→~90KB; the
+// compression package is not installed and installs are unavailable, so
+// zlib does it directly). res.json bodies ≥1KB only, only when the client
+// accepts gzip; static files untouched (ETag 304s already cover the shell).
+const __zlib = require("zlib")
+app.use((req, res, next) => {
+  if (!String(req.headers["accept-encoding"] || "").includes("gzip")) return next()
+  const _json = res.json.bind(res)
+  res.json = (body) => {
+    try {
+      const s = JSON.stringify(body)
+      if (s.length >= 1024) {
+        const gz = __zlib.gzipSync(s)
+        res.set({ "Content-Encoding": "gzip", "Content-Type": "application/json; charset=utf-8", "Vary": "Accept-Encoding" })
+        return res.send(gz)
+      }
+    } catch (_) { /* fall through to plain json */ }
+    return _json(body)
+  }
+  next()
+})
 app.use("/", mlbRoutes)
 app.use("/api/ws", require("./routes/workstationRoutes"))
 
@@ -11140,6 +11162,10 @@ async function loadMlbReplaySnapshotFromDisk() {
     if (!Array.isArray(snapshot.events)) snapshot.events = []
     if (!Array.isArray(snapshot.rawOddsEvents)) snapshot.rawOddsEvents = []
     if (!Array.isArray(snapshot.rows)) snapshot.rows = []
+    // 2026-08-17 PERF PACK: the on-disk twin props array is no longer
+    // persisted — re-alias IN MEMORY (zero disk cost) for any consumer
+    // still reading .props.
+    if (!Array.isArray(snapshot.props)) snapshot.props = snapshot.rows
 
     // Normalize diagnostics
     if (!snapshot.diagnostics || typeof snapshot.diagnostics !== "object") snapshot.diagnostics = {}
@@ -11159,10 +11185,19 @@ async function saveMlbReplaySnapshotToDisk(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return
 
   try {
+    // 2026-08-17 PERF PACK: data.props was a byte-for-byte TWIN of data.rows
+    // (~35MB × 2 = ~70MB of the 74MB file — measured, deep-equal verified in
+    // the 8/11 maintenance pack). Persist rows ONLY; every reader falls back
+    // rows||props (canonical chain) and the loader re-aliases in memory.
+    let toWrite = snapshot
+    if (Array.isArray(snapshot.props) && Array.isArray(snapshot.rows) && snapshot.props.length === snapshot.rows.length) {
+      const { props: _dupProps, ...rest } = snapshot
+      toWrite = rest
+    }
     await fs.promises.writeFile(
       MLB_REPLAY_SNAPSHOT_PATH,
       JSON.stringify({
-        data: snapshot,
+        data: toWrite,
         savedAt: Date.now()
       })
     )

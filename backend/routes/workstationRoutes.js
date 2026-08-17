@@ -683,17 +683,22 @@ router.get("/state", async (req, res) => {
     console.log("[WS-PROBE] /state entry sport=%s date=%s", sport, date)
     const key = `state:${sport}:${date}`
 
-    // 2026-05-26 — Auto-refresh stale NBA snapshot before serving. Reads the
-    // freshness from disk first; if stale, fires /refresh-snapshot and waits
-    // (the existing 60s response cache is invalidated for this key so the
-    // post-refresh data is rebuilt, not served from stale memo).
+    // 2026-08-17 PERF PACK (measured root R1: 18.277s cold /state?sport=nba
+    // ON LOCALHOST — this block AWAITED an upstream odds refresh, ceiling
+    // 120s, and the FE's Promise.all pinned the whole hydrate behind it).
+    // The serve path NEVER awaits a refresh again: offseason (seasonsActive
+    // nba=false) skips entirely; in-season a stale snapshot fires the
+    // refresh in the BACKGROUND — THIS request serves disk truth (stamped
+    // stale by lineFreshness), the NEXT request gets fresh data.
     try {
-      const { freshness: preFreshness } =
-        readSnapshotRowsWithFreshness(sport, { context: "ws_state_pre_refresh_check" })
-      const refreshed = await maybeTriggerNbaSnapshotRefresh(sport, preFreshness)
-      if (refreshed) {
-        cache.delete(key)
-        console.log("[WS-AUTO-REFRESH] cache invalidated for", key)
+      let nbaOn = true
+      try { nbaOn = require("../pipeline/shared/seasonGate").isSportEnabled("nba") } catch (_) {}
+      if (sport === "nba" && nbaOn) {
+        const { freshness: preFreshness } =
+          readSnapshotRowsWithFreshness(sport, { context: "ws_state_pre_refresh_check" })
+        maybeTriggerNbaSnapshotRefresh(sport, preFreshness)
+          .then((refreshed) => { if (refreshed) { cache.delete(key); console.log("[WS-AUTO-REFRESH] background refresh done — cache invalidated for", key) } })
+          .catch((e) => console.warn("[WS-AUTO-REFRESH] background refresh failed (non-fatal):", e?.message || e))
       }
     } catch (e) {
       console.warn("[WS-AUTO-REFRESH] pre-check failed (non-fatal):", e?.message || e)
@@ -2050,7 +2055,13 @@ router.get("/ledger/yesterday", async (req, res) => {
     // (the 14-day window silently hid history; the FE collapses old rows
     // instead). Lifetime totals always full-record. betsSurfaceParity alarms
     // if any realMoney ledger row is absent from this lens.
-    const placedAll = (ledger.bets || [])
+    // 2026-08-17 PERF PACK: placed rows read the REAL-MONEY PROJECTION
+    // (~KBs, regenerated on every canonical save) instead of the 50k system
+    // ring (63,544,642-byte parse per tab visit, measured 8/11); fail-open
+    // to the full ledger lives inside loadRealLedger. GRADES' system picks
+    // keep the ring — they need it.
+    const realLedger = (mods.ledger.loadRealLedger ? mods.ledger.loadRealLedger() : null)
+    const placedAll = (((realLedger && realLedger.bets) || ledger.bets) || [])
       .filter(isPlaced)
       .filter((b) => !sport || b.sport === sport)
     const placedYesterday = placedAll.filter((b) => b.date === yKey)
@@ -3041,6 +3052,27 @@ function buildReasoning(pick, bestEntry) {
 // tonight's scanner flags, cure-column standings, top paper parlays, running
 // paper record. NOTHING here is bettable or written anywhere; the operator
 // watches the tail engine earn (or fail) its named gates.
+// 2026-08-17 PERF PACK — ONE tiny boot payload (<1KB): tab badges + seasons
+// + version, served instantly, so the FE shows numbers before the heavy
+// /state pair lands. Counts are HONEST: exact from the warm state memo when
+// present; null when cold (the FE keeps the badge blank rather than fake 0);
+// 0 only for a season-gated-off sport.
+router.get("/boot", (req, res) => {
+  try {
+    const todayB = currentSlateDateEt()
+    let seasons = { mlb: true, nba: true }
+    try { const sg = require("../pipeline/shared/seasonGate"); seasons = { mlb: sg.isSportEnabled("mlb"), nba: sg.isSportEnabled("nba") } } catch (_) {}
+    const counts = {}
+    for (const sp of ["mlb", "nba"]) {
+      const hit = cache.get(`state:${sp}:${todayB}`)
+      counts[sp] = hit && hit.v && Array.isArray(hit.v.candidates) ? hit.v.candidates.length : (seasons[sp] === false ? 0 : null)
+    }
+    let pendingBets = null
+    try { const rl = require("../pipeline/shared/buildPersonalLedger").loadRealLedger(); pendingBets = (rl.bets || []).filter((b) => b.result === "pending").length } catch (_) {}
+    res.json({ ok: true, seasons, counts, pendingBets, ...(_computeVersion()) })
+  } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }) }
+})
+
 // 2026-08-17 LONGSHOT LAB (standing queue; CC design §3) — read-only door to
 // the nightly paper artifacts. PAPER ONLY; the §3 bar is in the payload.
 router.get("/lab", (req, res) => {

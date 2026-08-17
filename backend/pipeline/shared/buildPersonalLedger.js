@@ -30,6 +30,7 @@ const TRACKING_DIR = path.join(__dirname, "..", "..", "runtime", "tracking")
 // hermetic fixtures ONLY (verifyBookTruth) — production never sets them.
 const LEDGER_FILE = process.env.PERSONAL_LEDGER_PATH || path.join(TRACKING_DIR, "personal_ledger.json")
 const BOOK_TRUTH_EVENTS = process.env.BOOK_TRUTH_EVENTS_PATH || path.join(TRACKING_DIR, "book_truth_corrections.jsonl")
+const REAL_LEDGER_FILE = process.env.REAL_LEDGER_PATH || path.join(TRACKING_DIR, "personal_real_ledger.json")
 // 2026-05-29 — bumped 2000 → 50000. Old cap dropped 491 of 2491 MLB picks
 // on a single auto-import. With autonomous scheduler.sh firing slate:nba
 // every 30 min and slate:mlb hourly across 2 sports (500-2500 picks each
@@ -813,7 +814,25 @@ function saveLedger(ledger) {
     // Mirror full bets array to SQLite — upsertManyLedgerBets is idempotent
     _mirrorAllBetsToSqlite(ledger.bets)
   }
+  // 2026-08-17 PERF PACK — REAL-MONEY PROJECTION: derived, regenerated on
+  // EVERY canonical save (settles/corrections/adds all pass through here, so
+  // it cannot go stale via any canonical path). The canonical write above is
+  // UNTOUCHED; the projection lets MY BETS/rollup read ~17 rows instead of
+  // parsing the 50k system ring (63MB) per tab visit. Never blocks the save.
+  try {
+    const real = (ledger.bets || []).filter((b) => b && (b.decisionType === "placed" || b.realMoney === true))
+    writeJsonSync(REAL_LEDGER_FILE, { updatedAt: new Date().toISOString(), projection: true, bankroll: ledger.bankroll || null, bets: real })
+  } catch (_) { /* projection must never block the canonical save */ }
   return ok
+}
+
+/** Read the real-money projection; FAIL-OPEN to a full-ledger filter when the
+ *  projection is missing/corrupt (correct always beats fast). */
+function loadRealLedger() {
+  const p = readJsonSafe(REAL_LEDGER_FILE, null)
+  if (p && Array.isArray(p.bets)) return { ...p, source: "projection" }
+  const full = loadLedger()
+  return { updatedAt: full.updatedAt || null, projection: false, bankroll: full.bankroll || null, bets: (full.bets || []).filter((b) => b && (b.decisionType === "placed" || b.realMoney === true)), source: "full_ledger_fallback" }
 }
 
 /**
@@ -1510,6 +1529,7 @@ function batchSetClosingLinesByFields(entries = [], { save = true } = {}) {
 
 module.exports = {
   loadLedger,
+  loadRealLedger,
   saveLedger,
   addOrUpdateBet,
   settleBet,

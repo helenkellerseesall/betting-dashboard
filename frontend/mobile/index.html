@@ -1497,8 +1497,9 @@
       // hidden legacy tabs. New v2 tab counts are fetched lazily per-tab.
       const _mlbCountEl = document.getElementById("mlbCount");
       const _nbaCountEl = document.getElementById("nbaCount");
-      if (_mlbCountEl) _mlbCountEl.textContent = allowedCount(state.data.mlb);
-      if (_nbaCountEl) _nbaCountEl.textContent = allowedCount(state.data.nba);
+      // PERF PACK: don't stomp the /boot provisional badge with a pre-state 0
+      if (_mlbCountEl && (state.data.mlb || !_mlbCountEl.textContent)) _mlbCountEl.textContent = allowedCount(state.data.mlb);
+      if (_nbaCountEl && (state.data.nba || !_nbaCountEl.textContent)) _nbaCountEl.textContent = allowedCount(state.data.nba);
       const pCountEl = document.getElementById("parlayCount");
       if (pCountEl) {
         pCountEl.textContent = state.parlay.length;
@@ -5602,7 +5603,11 @@
         } catch (_) {}
       }
 
-      await Promise.all([fetchSport("mlb"), fetchSport("nba")]);
+      // 2026-08-17 PERF PACK: season-gated sports are SKIPPED (offseason NBA
+      // was 400KB + a background-refresh trigger per boot for zero rows).
+      const _on = state.seasons || { mlb: true, nba: true };
+      await Promise.all(["mlb", "nba"].filter((s) => _on[s] !== false).map((s) => fetchSport(s)));
+      for (const s of ["mlb", "nba"]) if (_on[s] === false && !state.data[s]) state.data[s] = { offSeason: true, candidates: [] };
       state.lastFetchAt = Date.now();
       state.fetching = false;
       btn.classList.remove("spinning");
@@ -5635,7 +5640,27 @@
     // re-pull) then runs in the BACKGROUND via refresh() — it no longer gates
     // the first paint. Tabs that need /state (SLIPS) already guard null state
     // and fill in once the background fetch lands.
+    // 2026-08-17 PERF PACK — tiny /boot payload first: badges + seasons +
+    // build stamp land in one sub-KB round trip; the heavy /state pair then
+    // fills exact numbers. Honest: a cold backend returns null counts and
+    // the badge stays blank, never a fake zero.
+    async function _bootBadges() {
+      try {
+        const r = await fetch(`${API}/api/ws/boot?_t=${Date.now()}`, { cache: "no-store" });
+        const d = await r.json();
+        if (!d || !d.ok) return;
+        state.seasons = d.seasons || null;
+        const m = document.getElementById("mlbCount"), n = document.getElementById("nbaCount");
+        if (m && d.counts && d.counts.mlb != null && !state.data.mlb) m.textContent = d.counts.mlb;
+        if (n && d.counts && d.counts.nba != null && !state.data.nba) n.textContent = d.counts.nba;
+        if (d.commitShort && !document.getElementById("buildStamp")) {
+          const lu = document.getElementById("lastUpdate");
+          if (lu) lu.insertAdjacentHTML("afterend", `<span id="buildStamp" style="font-size:9px;color:#4B5563;margin-left:6px;" title="backend commit">${d.commitShort}</span>`);
+        }
+      } catch (_) { /* boot is additive */ }
+    }
     render();
+    _bootBadges();
     refresh(false);
 
     // Periodic "X seconds ago" tick for the header
