@@ -278,6 +278,32 @@ function checkSchedulerIdentity() {
 }
 checkSchedulerIdentity()
 
+// (28) 2026-08-17 LONGSHOT LAB — the pack's ships-with alarm. lab_gate.json
+// is rewritten on EVERY lab pass (run heartbeat); honest states: mlb OFF or
+// no tracked slates ⇒ idle; gate stale >26h while slates flow ⇒ RED (the
+// 17:40 pass is dead); pending tickets ≥2 slates old ⇒ RED (settle stuck).
+function checkLongshotLab() {
+  try {
+    let mlbOn = true
+    try { mlbOn = require("../pipeline/shared/seasonGate").isSportEnabled("mlb") } catch (_) {}
+    if (!mlbOn) return set("longshotLab", "green", "Longshot Lab: mlb OFF — idle by design", "wired")
+    const gateP = path.join(TRACKING, "lab_gate.json")
+    if (!fs.existsSync(gateP)) return set("longshotLab", "green", "Longshot Lab: not started yet — first 17:40 pass writes lab_gate.json", "wired")
+    const ageH = (Date.now() - fs.statSync(gateP).mtimeMs) / 3600000
+    if (ageH > 26) return set("longshotLab", "fail", `Longshot Lab: gate readout ${ageH.toFixed(1)}h stale — the 17:40 pass is not running (write-once means silence is a DEAD pass, not a locked one)`, "wired")
+    const today = currentSlateDateEt()
+    let stuck = 0
+    for (const f of fs.readdirSync(TRACKING).filter((x) => /^lab_tickets_\d{4}-\d{2}-\d{2}\.json$/.test(x))) {
+      const art = JSON.parse(fs.readFileSync(path.join(TRACKING, f), "utf8"))
+      const age = Math.round((Date.parse(today + "T12:00:00Z") - Date.parse(art.slate + "T12:00:00Z")) / 86400000)
+      if (age >= 2 && (art.tickets || []).some((t) => t.result === "pending")) stuck++
+    }
+    if (stuck) return set("longshotLab", "fail", `Longshot Lab: ${stuck} artifact(s) ≥2 slates old still carry pending tickets — the settle join is stuck; never-guess means these need eyes, not silence`, "wired")
+    return set("longshotLab", "green", `Longshot Lab: gate fresh (${ageH.toFixed(1)}h), no stuck settles`, "wired")
+  } catch (e) { return set("longshotLab", "not-run", `Longshot Lab: ${String(e?.message || e)}`, "wired") }
+}
+checkLongshotLab()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -625,7 +651,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior", "schedulerIdentity"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior", "schedulerIdentity", "longshotLab"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

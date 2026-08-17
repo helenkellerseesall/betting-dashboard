@@ -79,8 +79,13 @@ check("w history committed: current + history entries with asOf/decidedUsed prov
 const importers = []
 const walk = (dir) => { for (const f of fs.readdirSync(path.join(ROOT, dir))) { const rel = path.join(dir, f); const full = path.join(ROOT, rel); const st = fs.statSync(full); if (st.isDirectory()) { if (!/node_modules/.test(f)) walk(rel) } else if (/\.js$/.test(f) && rel !== path.join("pipeline", "shared", "marketPrior.js") && !/^verify/.test(f) && /require\([^)]*marketPrior/.test(fs.readFileSync(full, "utf8"))) importers.push(rel.replace(/\\/g, "/")) } }
 walk("pipeline"); walk("routes"); walk("scripts"); walk("ml")
-check("ERA-RULE PIN: marketPrior is imported ONLY by the serve route — zero pipeline/scripts/ml importers, so p_market can never feed calibration inputs",
-  importers.length === 1 && importers[0] === "routes/workstationRoutes.js")
+// 2026-08-17 anchor evolved w/ the Longshot Lab: the Lab is a PAPER pricing
+// consumer (same class as the serve route). The era rule guards CALIBRATION —
+// the pin stays: zero pipeline/ or ml/ importers, and every consumer is on
+// the named allow-list.
+const ALLOWED = new Set(["routes/workstationRoutes.js", "scripts/longshotLab.js"])
+check("ERA-RULE PIN: every marketPrior importer is a named PRICING consumer (serve route + Lab) — zero pipeline/ml importers, so p_market can never feed calibration inputs",
+  importers.every((i) => ALLOWED.has(i)) && importers.length === ALLOWED.size && !importers.some((i) => /^pipeline\/|^ml\//.test(i)))
 
 // ── board flip ──
 const gb = require("./graduationBoard")

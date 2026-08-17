@@ -105,6 +105,7 @@ last_gradboard_min=""
 last_g2exam_min=""
 last_nfl_capture_min=""
 last_mprior_fit_min=""
+last_lab_min=""
 
 # 2026-08-17 SCHEDULER-TRUTH (incident): capture the vintage this PROCESS
 # loaded, ONCE at start — the per-cycle heartbeat compares it to the file on
@@ -263,6 +264,16 @@ while true; do
       git diff --cached --quiet -- backend/config/market_prior_w.json || git commit -m "fit: market-prior w weekly (forward-only; scheduler auto-run)" >> "$LOG" 2>&1
     ) &
     last_mprior_fit_min="$STAMP"
+  fi
+
+  # 2026-08-17 LONGSHOT LAB (standing queue; CC §3) — nightly build+lock at
+  # 17:40 ET, after the 17:20 scans feed candidates and rung flags. The
+  # artifact is WRITE-ONCE (a second tick is a no-op) and every run settles
+  # prior tickets + refreshes the gate readout. Paper only, forever, until
+  # the printed bar clears and the OPERATOR flips.
+  if [ "$HOUR" -eq 17 ] && [ "$MIN" -eq 40 ] && [ "$STAMP" != "${last_lab_min:-}" ]; then
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/longshotLab.js >> "$LOG" 2>&1 &
+    last_lab_min="$STAMP"
   fi
 
   # Phase Status-ComponentHealth-2A (2026-06-18) — Pinnacle GAME-LINE benchmark capture, once

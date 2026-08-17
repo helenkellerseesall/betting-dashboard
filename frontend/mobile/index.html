@@ -4039,6 +4039,7 @@
         // sidecar via /api/ws/graduation-board.
         html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#FBBF24;cursor:pointer;letter-spacing:.5px;">🎓 GRADUATION BOARD — caged surfaces' road to bettable · tap to expand</summary><div id="grad-board-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
         html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#818CF8;cursor:pointer;letter-spacing:.5px;">🧪 LADDER LAB — paper engine (NOT BETTABLE) · tap to expand</summary><div id="ladder-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
+        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#F472B6;cursor:pointer;letter-spacing:.5px;">🎰 LONGSHOT LAB — 3 paper tickets nightly (NOT BETTABLE) · tap to expand</summary><div id="longshot-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
         html += `</div>`;
         main.innerHTML = html;
         try {
@@ -4072,6 +4073,22 @@
               ${jl.parlayGate ? `<div style="margin-top:4px;">Parlay paper gate: ${jl.parlayGate.nights}/14 nights · ${jl.parlayGate.decided}/100 · ${jl.parlayGate.flatUnits}u</div>` : ""}`;
           } else if (el) el.innerHTML = "no paper artifacts for this slate yet — the lab fills after the 17:15/17:20 scans";
         } catch (_) { /* lab is additive — never blocks the board */ }
+        // 2026-08-17 LONGSHOT LAB — paper tickets + gate + drought benchmark,
+        // losses-forward. Additive; never blocks the board.
+        try {
+          const rLab = await fetch(`${API}/api/ws/lab?_t=${Date.now()}`, { cache: "no-store" });
+          const jLab = await rLab.json();
+          const eLab = document.getElementById("longshot-lab-body");
+          if (eLab && jLab.ok) {
+            const t = jLab.tonight;
+            const tix = t && t.tickets && t.tickets.length
+              ? t.tickets.map((k) => `<div style="border-top:1px solid #331B2E;padding:4px 0;"><b style="color:${k.kind === "experimental" ? "#FBBF24" : "#F472B6"};">${k.kind.toUpperCase()}</b> ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican} · p=${(k.pTicket * 100).toFixed(2)}% · $${k.stake} paper · ${k.result !== "pending" ? `<b>${escapeHtml(String(k.result).toUpperCase())}</b>` : "locked"}<div style="font-size:10px;color:#9CA3AF;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${escapeHtml(l.statFamily)} (${escapeHtml(l.priced)})`).join(" × ")}</div></div>`).join("")
+              : `<div style="padding:4px 0;color:#6B7280;">no card tonight — no eligible certified legs ≥T-60 (honest no-card beats a forced one)</div>`;
+            const gates = jLab.gate ? Object.entries(jLab.gate).map(([band, g]) => `<div style="border-top:1px solid #241B36;padding:3px 0;"><b>${band}</b>: ${g.nights}n · ${g.decided} decided · ${g.wins}w vs ${g.expectedWins} expected (LB ${g.poissonRatioLB ?? "—"}) · ${g.flatUnits >= 0 ? "+" : ""}${g.flatUnits}u — <b style="color:${g.barMet === "NOT MET" ? "#F87171" : "#FBBF24"};">${escapeHtml(g.barMet)}</b><div style="font-size:9px;color:#6B7280;">expected worst drought (${escapeHtml(g.drought.band)}): ${escapeHtml(g.drought.edgedLongest)} straight WITH a real edge — ${escapeHtml(g.drought.note)}</div></div>`).join("") : "";
+            const losses = (jLab.recent || []).map((s) => `<span style="margin-right:8px;color:${s.units > 0 ? "#34D399" : s.units < 0 ? "#F87171" : "#9CA3AF"};">${s.slate.slice(5)} ${s.kind[0].toUpperCase()}: ${s.units > 0 ? "+" : ""}${s.units}u</span>`).join("");
+            eLab.innerHTML = `<div style="color:#F472B6;font-size:10px;margin-bottom:5px;">PAPER ONLY — flip is the OPERATOR's, never automatic. Bar: ${escapeHtml((jLab.gate && jLab.gate.workhorse && jLab.gate.workhorse.bar) || "")}</div>${tix}${gates}${losses ? `<div style="font-size:10px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${losses}</div>` : ""}`;
+          } else if (eLab) eLab.innerHTML = "lab not built yet — the 17:40 pass locks tonight's tickets";
+        } catch (_) { /* additive */ }
       } catch (e) {
         main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading top picks: ${escapeHtml(String(e?.message || e))}</div>`;
       }

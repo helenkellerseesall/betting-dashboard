@@ -3041,6 +3041,21 @@ function buildReasoning(pick, bestEntry) {
 // tonight's scanner flags, cure-column standings, top paper parlays, running
 // paper record. NOTHING here is bettable or written anywhere; the operator
 // watches the tail engine earn (or fail) its named gates.
+// 2026-08-17 LONGSHOT LAB (standing queue; CC design §3) — read-only door to
+// the nightly paper artifacts. PAPER ONLY; the §3 bar is in the payload.
+router.get("/lab", (req, res) => {
+  try {
+    const slate = currentSlateDateEt()
+    const rdT = (f) => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "runtime", "tracking", f), "utf8")) } catch (_) { return null } }
+    const tonight = rdT(`lab_tickets_${slate}.json`)
+    const gate = rdT("lab_gate.json")
+    let recent = []
+    try { recent = fs.readFileSync(path.join(__dirname, "..", "runtime", "tracking", "lab_ledger.jsonl"), "utf8").split("\n").filter(Boolean).slice(-20).map((l) => JSON.parse(l)) } catch (_) {}
+    recent.sort((a, b) => (a.result === "loss" ? 0 : 1) - (b.result === "loss" ? 0 : 1)) // losses-forward
+    res.json({ ok: true, slate, paperOnly: true, tonight, gate: (gate && gate.gate) || null, recent })
+  } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }) }
+})
+
 router.get("/ladder-lab", (req, res) => {
   try {
     const slate = currentSlateDateEt()
