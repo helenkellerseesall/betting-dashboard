@@ -106,6 +106,18 @@ last_g2exam_min=""
 last_nfl_capture_min=""
 last_mprior_fit_min=""
 
+# 2026-08-17 SCHEDULER-TRUTH (incident): capture the vintage this PROCESS
+# loaded, ONCE at start — the per-cycle heartbeat compares it to the file on
+# disk, so "which script is running" is never a guess again. Evidence class:
+# restarts on 8/11+8/15 DID load new vintages, but every fence echoed success
+# unconditionally and nothing could prove which loop ran; the 8/16 miss was a
+# SLEEP GAP (log dark 00:00→13:01 ET), not vintage — the heartbeat's tick age
+# exposes both failure modes.
+LOADED_SHA=$(shasum -a 256 "$0" 2>/dev/null | cut -d' ' -f1)
+LOADED_MTIME=$(stat -f %m "$0" 2>/dev/null || stat -c %Y "$0" 2>/dev/null)
+LOOP_STARTED=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)
+HB_FILE=/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/scheduler_heartbeat.json
+
 while true; do
   STAMP=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M)
   HOUR_RAW=$(TZ='America/New_York' date +%H)
@@ -113,6 +125,12 @@ while true; do
   # Strip leading zero for arithmetic comparisons (bash treats 09 as octal)
   HOUR=$((10#$HOUR_RAW))
   MIN=$((10#$MIN_RAW))
+
+  # Heartbeat EVERY cycle — atomic write; component #27 reads it. loadedSha
+  # vs diskSha mismatch = running stale code; mtime age = frozen/sleeping loop.
+  DISK_SHA=$(shasum -a 256 "$0" 2>/dev/null | cut -d' ' -f1)
+  LAST_LOG_LINE=$(tail -n 1 "$LOG" 2>/dev/null | tr -d '"\\' | cut -c1-160)
+  printf '{"ts":"%s","pid":%s,"loopStartedAt":"%s","loadedSha":"%s","loadedMtime":"%s","diskSha":"%s","lastLogLine":"%s"}\n' "$STAMP" "$$" "$LOOP_STARTED" "$LOADED_SHA" "$LOADED_MTIME" "$DISK_SHA" "$LAST_LOG_LINE" > "$HB_FILE.tmp.$$" && mv "$HB_FILE.tmp.$$" "$HB_FILE"
 
   # Caffeinate watchdog runs EVERY loop, before the dedupe gate, so it fires
   # on every 30s tick regardless of whether a slate is due.
@@ -182,7 +200,18 @@ while true; do
   # artifact unwritten and gradBoardStall STAYS red — the schedule removes
   # the human from the loop, never the alarm.
   DOW=$(TZ='America/New_York' date +%u)
-  if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 6 ] && [ "$MIN" -eq 15 ] && [ "$STAMP" != "${last_g2exam_min:-}" ]; then
+  # 2026-08-17 SCHEDULER-TRUTH: minute-exact gate REPLACED by catch-up window
+  # + done-stamp. The 8/16 exam missed because the Mac slept 00:00→13:01 ET
+  # and the loop never saw 06:15. Now any Sunday tick ≥06:00 with no stamp
+  # for today runs it — a 13:01 wake self-heals the same day. Stamp touches
+  # BEFORE the attempt (a failed exam does not retry every 30s; the stall
+  # alarm stays the backstop). High-frequency and time-SENSITIVE windows
+  # (NFL captures — a 6-hour-late "open" is not the open) stay minute-exact
+  # by design; a missed capture window is honestly missed.
+  TODAY_ET=$(TZ='America/New_York' date +%Y-%m-%d)
+  G2_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/g2exam_done_$TODAY_ET"
+  if [ "$DOW" -eq 7 ] && [ "$HOUR" -ge 6 ] && [ ! -f "$G2_STAMP_FILE" ]; then
+    touch "$G2_STAMP_FILE"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
       log "G2 weekly exam starting (validateG2Curves — Sun 06:15 ET)"
@@ -219,7 +248,9 @@ while true; do
   # 2026-08-16 MARKET-PRIOR w-REFIT (GO on the 8/15 ASK) — Sundays 06:25 ET,
   # after the 06:15 exam. Forward-only fit (a backward attempt THROWS inside
   # the module); committed w history rides the receipts-guard pattern.
-  if [ "$DOW" -eq 7 ] && [ "$HOUR" -eq 6 ] && [ "$MIN" -eq 25 ] && [ "$STAMP" != "${last_mprior_fit_min:-}" ]; then
+  MP_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/mpriorfit_done_$TODAY_ET"
+  if [ "$DOW" -eq 7 ] && [ "$HOUR" -ge 6 ] && [ ! -f "$MP_STAMP_FILE" ]; then
+    touch "$MP_STAMP_FILE"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
       log "market-prior w-refit starting (forward-only, Sun 06:25 ET)"

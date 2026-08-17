@@ -259,6 +259,25 @@ function checkMarketPrior() {
 }
 checkMarketPrior()
 
+// (27) 2026-08-17 SCHEDULER-TRUTH — loop identity is EVIDENCE, never a guess.
+// Reads the per-cycle heartbeat. Three honest reds: no heartbeat (pre-
+// heartbeat loop or dead — one restart adopts it), frozen tick (sleep gap or
+// crash — the 8/16 class: minute-exact windows in the gap were LOST), and
+// loaded-vs-disk sha mismatch (running stale code — the exact lie the 8/16
+// incident report assumed but could not prove).
+function checkSchedulerIdentity() {
+  try {
+    const hb = path.join(TRACKING, "scheduler_heartbeat.json")
+    if (!fs.existsSync(hb)) return set("schedulerIdentity", "fail", "Scheduler identity: NO heartbeat file — the running loop predates the heartbeat (or none runs); one restart adopts it. Which-script-is-running must never be a guess (8/16 incident)", "wired")
+    const ageMin = Math.round((Date.now() - fs.statSync(hb).mtimeMs) / 60000)
+    const j = JSON.parse(fs.readFileSync(hb, "utf8"))
+    if (ageMin > 5) return set("schedulerIdentity", "fail", `Scheduler identity: heartbeat FROZEN ${ageMin}m (pid ${j.pid}, started ${j.loopStartedAt}) — sleep gap or dead loop; minute-exact windows inside the gap were LOST (8/16 class)`, "wired")
+    if (j.loadedSha && j.diskSha && j.loadedSha !== j.diskSha) return set("schedulerIdentity", "fail", `Scheduler identity: RUNNING STALE CODE — pid ${j.pid} loaded a vintage that no longer matches scheduler.sh on disk; restart to adopt edits`, "wired")
+    return set("schedulerIdentity", "green", `Scheduler identity: pid ${j.pid} · started ${j.loopStartedAt} · vintage matches disk · tick ${ageMin}m ago`, "wired")
+  } catch (e) { return set("schedulerIdentity", "not-run", `Scheduler identity: ${String(e?.message || e)}`, "wired") }
+}
+checkSchedulerIdentity()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -606,7 +625,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior", "schedulerIdentity"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

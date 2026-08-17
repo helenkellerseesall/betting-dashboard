@@ -100,6 +100,7 @@ const SUITES = [
   "verifyCriticNet", // FADE-TIER AUDIT queue addition (2026-08-15, CA §4) — longshot_tier/fade_tag split, per-segment NET beside gross missed-winners, watch-segment promotion bar (n≥600 + NET>0 + Poisson LB90 ≥1.0) printed weekly; hermetic.
   "verifyNflCapture", // NFL CAPTURE-FIRST (2026-08-15 standing queue; CC eee5b6f) — config-driven 8+3 keys, verbatim-side rows, window idempotency, season-gate honesty, scheduler clocks, alarm #25; hermetic stub vendor.
   "verifyMarketPrior", // MARKET-PRIOR SHADOW v1 (2026-08-16, GO on the 8/15 ASK) — blend math, median de-vig via the ONE join authority, byte-identical serve isolation, kill switch, forward-only fit (backward THROWS), era-rule importer pin, board flip; hermetic.
+  "verifySchedulerTruth", // SCHEDULER-TRUTH (2026-08-17 incident) — per-cycle heartbeat (loaded-vs-disk vintage, atomic write), frozen-tick + stale-code + no-heartbeat reds (#27), Sunday catch-up gates w/ done-stamps; the 8/16 sleep-gap class ends here.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

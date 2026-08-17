@@ -4215,8 +4215,8 @@
               </div>
               ${identLine}
               <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
-                <span style="font-size:13px;color:#F9FAFB;">${b.stake} @ ${_oddsNice(b.odds)}</span>
-                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ ${b.toWin}</span>
+                <span style="font-size:13px;color:#F9FAFB;">$${b.stake} @ ${_oddsNice(b.odds)}</span>
+                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>
               </div>
               ${b.result && b.result !== "pending" ? `<div style="margin-top:5px;"><span onclick="bookSaysOtherwise('${b.id}')" style="font-size:10px;color:#F59E0B;cursor:pointer;border-bottom:1px dotted #F59E0B;">⚠ book says otherwise? correct to slip truth</span></div>` : ""}
               ${b.calibVersion ? `<div style="margin-top:4px;font-size:9px;color:#7DD3FC;">stamped ${escapeHtml(b.calibVersion)}${b.modelProb != null ? ` · model ${(b.modelProb * 100).toFixed(1)}%` : ""}</div>` : ""}
