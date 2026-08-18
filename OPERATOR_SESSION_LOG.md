@@ -7833,3 +7833,41 @@ BUILT (all display-layer; zero record/serve-semantics):
 FIXTURES: verifyUxDisplayPack NEW 11/11 · verifyBetSlipDrawer evolved 17/17 · FULL MATRIX 68/68 (65→68 across tonight's three landings).
 
 UX SUB-PACK COMPLETE (drawer 5a59fc9 + this landing). NEXT: hand back to CA — verify on a real phone: (i) drawer flows (tap legs on GAMES/Daily3 → copy-legs → record), (ii) a settled win card shows "paid $X" matching the ledger payout field digit-for-digit, (iii) GRADES groups + framing, (iv) search/edges filter, (v) ⋯ menu, (vi) the palette verdict for iteration 2. THEN per standing queue: STAKING-POLICY pack (terms pinned at 40b8e3f). Outstanding on operator fences: scheduler kickstart (fires the 8/16 G2-exam makeup + Mac-side surface audit via the new week-keyed catch-up; #27 flags stale loop meanwhile), backend kickstart (broken-family containment serves after it; #29 flags meanwhile), push backlog (now ~15 commits) rides CA's fence. First Lab card still expected at the next 17:40 pass — its tap-to-bet button is CA-verification material when it appears.
+
+## Claude-A — 2026-08-18 ~18:05 ET — first Lab card verified live + first honest blended shadow night + finds for CB queue
+
+- VERIFIED (Chrome, /m): Lab section renders all 3 tickets (locked 21:40:04Z, paperOnly): WORKHORSE +1456 p=17.89% (Ruiz runs o0.5 × Ohtani hits u1.5 × Simpson runs o0.5), WORKHORSE +546 p=30.74%, EXPERIMENTAL +3000 p=10.91% (Harrison ks o10.5). PAPER ONLY banner, per-band flip bar, drought benchmarks, and NOT MET gate readouts (1n/≥90) all display. Receipt auto-committed (heartbeat lastLogLine: lab_receipt_2026-08-18.md).
+- VERIFIED shadow blending: 1,093 rows for 8/18 — 833 blended (76.2%), 260 model-only (23.8%). First honest graduation night is ON. Note 23.8% model-only exceeds the 20% alarm bar — expect that alarm; night is NOT void (<50%).
+- VERIFIED drawer from Lab: "slip these 3 legs" → drawer shows the 3 legs, combined ≈ +1456 marked display-only, Copy legs present, multi-book warning fired correctly (DK + Hard Rock legs).
+- FIND 1 (bug, one repro): with Lab legs just added and the board mid-refresh, tapping "clear slip" froze the /m renderer hard (unresponsive to input + screenshot ≥30s); only a full reload recovered it. Repro: /m → expand Lab → slip these 3 legs → view → clear slip while board shows "Loading top picks…". Queue: drawer actions must never wedge on a board refresh.
+- FIND 2 (measurement honesty): workhorse ticket 1 spans TWO books (DK + Hard Rock). A parlay lives at one book, so the +1456 cross-book best-line price is not placeable as a single slip; a paper record built on cross-book prices overstates placeable reality. CB: audit + ASK — constrain workhorse construction to single-book, or log bestSingleBook odds per ticket alongside bestCrossBook and grade the Lab record on bestSingleBook.
+- NIT: ticket JSON band field prints undefined.
+- NIT: all 7 Lab legs tagged (model_only) at 17:40 lock while the 21:50 shadow shows 76% blend coverage. CB: confirm the Lab pricer consumes pMarket where available; if these thin plus-odds markets truly lack de-viggable pairs, the label is correct — say which it is.
+- QUESTION: slip did not survive the recovery reload (empty after). If in-memory only, iPhone PWA reloads will eat half-built slips — consider persisting.
+- Heartbeat healthy: pid 55555, loadedSha==diskSha, loop 17:27:53. Operator still owes Pikkit handle + bet365 decision. Standing queue continues; record/grading hard-gate unchanged.
+
+## Claude-A — 2026-08-18 ~18:20 ET — ITERATION-2 DESIGN BRIEF (operator verdict in hand) — CB next pack
+
+OPERATOR VERDICT on current /m (his words, near-verbatim): "confusing... no clue what any of it means... cluttered and listed in a way that looks like old blogs and 4chan/reddit comments. i want something that looks like an official ios app." He also misread the LADDER LAB scanner rungs as our picks ("I'd NEVER bet 4 hits in a game") — engine telemetry rendered at content level made the control group look like recommendations. Treat that misread as the core design failure this pack fixes.
+
+OPERATOR DECISIONS (via CA, AskUserQuestion, binding for this pack):
+1. HOME = "TONIGHT" VIEW: Daily 3 card + Longshot Lab tickets + record strip. Nothing else on the landing screen. Full picks board, games, grades, slips move behind tabs.
+2. ENGINE INTERNALS → SEPARATE PAGE: ladder lab / scanner rungs / paper parlays / gate telemetry / graduation board / cure columns all move to an "engine room" page reachable only via the ⋯ overflow. Never on home, never adjacent to product.
+
+DESIGN DIRECTION:
+- iOS-native feel: real cards (rounded, depth, spacing), consistent type scale, no walls of mono text on product surfaces.
+- Plain-English microcopy on product surfaces: no "Poisson LB", "counterfactual", "cure columns", "p=17.89%", "LB —". Translate (e.g. "model gives this ~18%", "gate: night 1 of 90"). Engine page may keep dense form.
+- HONESTY RAILS NON-NEGOTIABLE, restyle not remove: PAPER / NOT BETTABLE badges on Lab tickets, locked/immutable stamps, losses shown as loudly as wins, provenance, drought expectations (rewritten plain: "even a winning +2000 program can lose 100 straight — expected, not broken").
+- Fold in from my 18:05 block: FIND 1 clear-slip renderer freeze, slip persistence across reloads question, band=undefined nit, Lab model_only question.
+
+SCOPE: frontend/mobile only, zero record/grading/receipt semantics → standing-queue eligible. CB: audit, drop a consequences note in the log, build, verify in Chrome yourself at 375px width (iPhone), hand back to CA. CA will re-verify with Chrome + operator eyeballs.
+
+## Claude-A — 2026-08-18 ~18:25 ET — operator answers logged
+- Pikkit handle: @xandyland (for the public proof stack; CB queue: surface/link it where the record is shown when appropriate).
+- bet365 decision: PLAY DOWN the $45.42 (not withdrawing). Reminder standing: bets there are machine-blind (no line-shop/CLV/revalidation) and still count against the nightly 5u cap; Pikkit sync is the only record path for that book.
+- Standing queue continues; CB's next pack = iteration-2 design brief (18:20 block).
+
+## Claude-A — 2026-08-18 ~18:35 ET — backendVintage false-alarm diagnosed + push needed
+- backendVintage reads FAIL, but verified false alarm BY DESIGN: served stamp 6386eff, HEAD 54f530f, and the only commits between are scheduler auto-commits (receipts + exam artifacts) — git diff 6386eff..HEAD on backend/ + frontend/ code paths is EMPTY. No restart needed. CB nit (queue): #29 must compare served SHA against last commit touching code paths only (exclude docs/receipts, docs/audits, backend/config exam artifacts, runtime) or it will cry wolf every night after the receipts auto-commit, and alarm fatigue kills alarms.
+- 3 commits ahead of origin (receipts chain + exam) — push fence handed to operator; receipts' public verifiability rides origin.
+- legDeathDisagreement FAIL is the known loud window, expires ~23:00 ET tonight. pinnacleSidecar/boardServeParity/betsSurfaceParity/lineFreshness not-run = cycles pending since 17:27 restart; expect green by morning.
