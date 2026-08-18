@@ -17,8 +17,21 @@ check("vintage captured ONCE pre-loop (the running process's truth, not the file
   /LOADED_SHA=\$\(shasum -a 256 "\$0"/.test(sch) && sch.indexOf("LOADED_SHA=") < sch.indexOf("while true; do"))
 check("heartbeat EVERY cycle: atomic tmp+mv write, disk sha recomputed, log-line quote/backslash guarded",
   /DISK_SHA=\$\(shasum -a 256 "\$0"/.test(sch) && /"\$HB_FILE\.tmp\.\$\$" && mv "\$HB_FILE\.tmp\.\$\$" "\$HB_FILE"/.test(sch) && /tr -d '"\\\\'/.test(sch))
-check("catch-up gates: BOTH weekly blocks fire on any Sunday tick ≥06:00 without today's stamp (wake self-heals) + stamp-before-attempt doctrine",
-  /G2_STAMP_FILE=.*g2exam_done_\$TODAY_ET/.test(sch) && /MP_STAMP_FILE=.*mpriorfit_done_\$TODAY_ET/.test(sch) && (sch.match(/-ge 6 \] && \[ ! -f /g) || []).length === 2 && /touch "\$G2_STAMP_FILE"/.test(sch) && /a failed exam does not retry every 30s/.test(sch))
+// EVOLVED 2026-08-18 (SUNDAY CATCH-UP EXTENSION, CA pack): the original
+// TODAY-keyed Sunday-only gates could not heal a Sunday dark ALL day — the
+// 8/16 blackout left weekly critic + surface audit with NO receipts, ever.
+// Now ALL FOUR weekly blocks ride WEEK-keyed stamps (this week's Sunday)
+// firing any tick >=06:00; prior anchors (TODAY_ET stamps, count===2)
+// retired with this provenance.
+check("catch-up gates: ALL FOUR weekly blocks (G2 exam, w-refit, surface audit, weekly critic) fire ANY tick >=06:00 without the WEEK's stamp + stamp-before-attempt on each",
+  /g2exam_done_\$WEEK_SUN/.test(sch) && /mpriorfit_done_\$WEEK_SUN/.test(sch) && /surfaceaudit_done_\$WEEK_SUN/.test(sch) && /weeklycritic_done_\$WEEK_SUN/.test(sch) && (sch.match(/-ge 6 \] && \[ ! -f /g) || []).length === 4 && /touch "\$G2_STAMP_FILE"/.test(sch) && /touch "\$MP_STAMP_FILE"/.test(sch) && /touch "\$SA_STAMP_FILE"/.test(sch) && /touch "\$WC_STAMP_FILE"/.test(sch) && /a failed exam does not retry every 30s/.test(sch))
+check("WEEK_SUN is node-derived from TODAY_ET anchored 17:00Z (portable across BSD/GNU date, DST-proof) and the 8/16 blackout class is named at source",
+  /WEEK_SUN=\$\(node -e/.test(sch) && /T17:00:00Z/.test(sch) && /getUTCDay/.test(sch) && /8\/16 blackout class/.test(sch))
+check("weekday makeups window the MISSED week: critic catch-up passes --asof \"$WEEK_SUN\"; both new blocks guarded-commit docs/audits (orphan-receipt class closed)",
+  /--weekly --asof "\$WEEK_SUN"/.test(sch) && /receipts: weekly critic \(scheduler auto-run, week \$WEEK_SUN\)/.test(sch) && /receipts: weekly surface audit \(scheduler auto-run, week \$WEEK_SUN\)/.test(sch))
+const critic = rd("scripts/nightlyCritic.js")
+check("critic --asof: window computed from asofMs, filename+header keyed to asofDay w/ makeup provenance, generatedAt stays the real clock, no-asof unchanged (asofDay falls back to today)",
+  /const asofMs = asof \? Date\.parse\(asof \+ "T17:00:00Z"\) : Date\.now\(\)/.test(critic) && /slateDateForTimestamp\(asofMs - i \* 86400000\)/.test(critic) && /weekly-critic-\$\{asofDay\}\.md/.test(critic) && /makeup run/.test(critic) && /const asofDay = asof \|\| today/.test(critic))
 check("time-SENSITIVE windows stay minute-exact BY DESIGN (a late open-capture is not the open)",
   /stay minute-exact/.test(sch) && /-eq 9 \] && \[ "\$MIN" -eq 30/.test(sch))
 check("incident provenance in the file: sleep-gap evidence + fences-echoed-success class named",

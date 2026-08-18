@@ -214,8 +214,20 @@ while true; do
   # (NFL captures — a 6-hour-late "open" is not the open) stay minute-exact
   # by design; a missed capture window is honestly missed.
   TODAY_ET=$(TZ='America/New_York' date +%Y-%m-%d)
-  G2_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/g2exam_done_$TODAY_ET"
-  if [ "$DOW" -eq 7 ] && [ "$HOUR" -ge 6 ] && [ ! -f "$G2_STAMP_FILE" ]; then
+  # 2026-08-18 SUNDAY CATCH-UP EXTENSION — week key = this week's Sunday.
+  # Weekly stamps are keyed to the WEEK, not the day, so a Sunday that is
+  # dark ALL day (the 8/16 blackout class — weekly critic + surface audit
+  # left NO receipts and Sunday-only gates could never heal them) self-heals
+  # on ANY later tick that week. HOUR>=6 keeps makeups clear of the 05:xx
+  # grade-sweep window. Derived in node from TODAY_ET anchored at 17:00Z
+  # (midday ET both EDT/EST): pure UTC arithmetic — no BSD/GNU date split,
+  # no DST edge. getUTCDay: Sun=0..Sat=6 = exact days-back to Sunday.
+  WEEK_SUN=$(node -e 'const d=new Date(process.argv[1]+"T17:00:00Z");const s=new Date(d.getTime()-d.getUTCDay()*86400000);console.log(s.toISOString().slice(0,10))' "$TODAY_ET")
+  # 2026-08-18: stamp now WEEK-keyed (g2exam_done_$WEEK_SUN) and the gate
+  # fires ANY day of the week the stamp is missing — a fully-dark Sunday
+  # heals Monday morning instead of never.
+  G2_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/g2exam_done_$WEEK_SUN"
+  if [ "$HOUR" -ge 6 ] && [ ! -f "$G2_STAMP_FILE" ]; then
     touch "$G2_STAMP_FILE"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
@@ -253,8 +265,8 @@ while true; do
   # 2026-08-16 MARKET-PRIOR w-REFIT (GO on the 8/15 ASK) — Sundays 06:25 ET,
   # after the 06:15 exam. Forward-only fit (a backward attempt THROWS inside
   # the module); committed w history rides the receipts-guard pattern.
-  MP_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/mpriorfit_done_$TODAY_ET"
-  if [ "$DOW" -eq 7 ] && [ "$HOUR" -ge 6 ] && [ ! -f "$MP_STAMP_FILE" ]; then
+  MP_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/mpriorfit_done_$WEEK_SUN"
+  if [ "$HOUR" -ge 6 ] && [ ! -f "$MP_STAMP_FILE" ]; then
     touch "$MP_STAMP_FILE"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
@@ -368,10 +380,22 @@ while true; do
     last_parlaysettle_min="$STAMP"
   fi
 
-  # 2026-07-28 WEEKLY SURFACE AUDIT — Sundays 05:55 ET: every operator-visible surface vs record truth.
-  if [ "$MIN" -eq 55 ] && [ "$HOUR" -eq 5 ] && [ "$(TZ='America/New_York' date +%u)" = "7" ] && [ "$STAMP" != "${last_surfaceaudit_min:-}" ]; then
-    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/weeklySurfaceAudit.js >> "$LOG" 2>&1 && log "weeklySurfaceAudit OK" || log "weeklySurfaceAudit FAILED"
-    last_surfaceaudit_min="$STAMP"
+  # 2026-07-28 WEEKLY SURFACE AUDIT — every operator-visible surface vs record
+  # truth. 2026-08-18: minute-exact Sunday 05:55 gate REPLACED by the
+  # week-keyed catch-up (8/16 left NO audit receipt; nothing could heal it).
+  # The audit reads CURRENT surfaces, so a weekday makeup is honestly dated
+  # by its run day — an 8/16 surface view is unobservable after the fact.
+  # Guarded commit sweeps the receipt (the docs/audits orphan class — the
+  # 8/9 pair sat untracked nine days).
+  SA_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/surfaceaudit_done_$WEEK_SUN"
+  if [ "$HOUR" -ge 6 ] && [ ! -f "$SA_STAMP_FILE" ]; then
+    touch "$SA_STAMP_FILE"
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/weeklySurfaceAudit.js >> "$LOG" 2>&1 && log "weeklySurfaceAudit OK (week $WEEK_SUN)" || log "weeklySurfaceAudit FAILED"
+    (
+      cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      git add docs/audits >> "$LOG" 2>&1
+      git diff --cached --quiet -- docs/audits || git commit -m "receipts: weekly surface audit (scheduler auto-run, week $WEEK_SUN)" >> "$LOG" 2>&1
+    )
   fi
 
   # 2026-07-26 NIGHTLY CRITIC — 05:40 ET (post-grade, post-corpus): the board's adversary; read-only
@@ -383,10 +407,24 @@ while true; do
     else
       log "nightlyCritic FAILED (exit $?)"
     fi
-    if [ "$(TZ='America/New_York' date +%u)" = "7" ]; then
-      node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/nightlyCritic.js --weekly >> "$LOG" 2>&1 && log "weekly critic OK" || log "weekly critic FAILED"
-    fi
     last_critic_min="$STAMP"
+  fi
+
+  # 2026-08-18 WEEKLY CRITIC CATCH-UP — moved OUT of the 05:40 minute-exact
+  # block (the 8/16 blackout left no weekly-critic receipt; the minute gate
+  # could never heal it). Week-keyed stamp; --asof pins the WINDOW to the
+  # week's Sunday so a weekday makeup synthesizes the MISSED week, not a
+  # shifted 7 days. On an actual Sunday --asof equals today — same output
+  # as the old gate. Guarded commit sweeps the receipt.
+  WC_STAMP_FILE="/Users/andrewmoore/Projects/betting-dashboard/.scratch/weeklycritic_done_$WEEK_SUN"
+  if [ "$HOUR" -ge 6 ] && [ ! -f "$WC_STAMP_FILE" ]; then
+    touch "$WC_STAMP_FILE"
+    node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/nightlyCritic.js --weekly --asof "$WEEK_SUN" >> "$LOG" 2>&1 && log "weekly critic OK (week $WEEK_SUN)" || log "weekly critic FAILED"
+    (
+      cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      git add docs/audits >> "$LOG" 2>&1
+      git diff --cached --quiet -- docs/audits || git commit -m "receipts: weekly critic (scheduler auto-run, week $WEEK_SUN)" >> "$LOG" 2>&1
+    )
   fi
 
   # 2026-07-16 N1 GATE INSTRUMENT — 17:30 ET: dual-scores today's tracked N1-family rows (mean-centered

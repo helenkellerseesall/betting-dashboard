@@ -181,9 +181,21 @@ function criticSlate(slate) {
 const today = currentSlateDateEt()
 const args = process.argv.slice(2)
 if (args.includes("--weekly")) {
+  // 2026-08-18 SUNDAY CATCH-UP EXTENSION — --asof YYYY-MM-DD runs the weekly
+  // synthesis AS OF that slate date: window = the 7 slates before it, filename
+  // + header keyed to it. This is how a WEEKDAY makeup of a missed Sunday
+  // produces last week's receipt instead of a shifted window. NOT fake-dating:
+  // the artifact is labeled by the window it covers; generatedAt (below) stays
+  // the real run clock. Omitted ⇒ today, byte-identical to prior behavior.
+  const _asofIx = args.indexOf("--asof")
+  const asof = _asofIx !== -1 ? String(args[_asofIx + 1] || "") : null
+  if (asof && !/^\d{4}-\d{2}-\d{2}$/.test(asof)) { console.error("--asof must be YYYY-MM-DD"); process.exit(1) }
+  // 17:00Z = midday ET in both EDT and EST — safely inside slate date asof.
+  const asofMs = asof ? Date.parse(asof + "T17:00:00Z") : Date.now()
+  const asofDay = asof || today
   const reports = []
   for (let i = 1; i <= 7; i++) {
-    const d = slateDateForTimestamp(Date.now() - i * 86400000)
+    const d = slateDateForTimestamp(asofMs - i * 86400000)
     const r = rd(path.join(TRACKING, `critic_${d}.json`)) || criticSlate(d)
     if (r) reports.push(r)
   }
@@ -232,9 +244,9 @@ if (args.includes("--weekly")) {
   const lfLine = Object.keys(lfAgg.events).length
     ? `\n\nLine-freshness at serve: ${Object.entries(lfAgg.events).map(([k, v]) => `${v} ${k}`).join(" · ")}. Moved-line serves re-measured on graded twins: ${lfAgg.measured} measured (${lfAgg.unmeasurable} unmeasurable) → **${lfAgg.units >= 0 ? "+" : ""}${lfAgg.units.toFixed(1)}u ${lfAgg.units >= 0 ? "saved" : "cost"}** vs serving the dead original line.`
     : ""
-  const md = `# Weekly Critic — ${today}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}${netMd}${watchMd}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}${lfLine}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
+  const md = `# Weekly Critic — ${asofDay}${asof ? " (makeup run " + today + ")" : ""}\n\nMONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **${units >= 0 ? "+" : ""}${units.toFixed(1)}u of winning rows never reached the served board.**\n\n| gate | winners dropped |\n|---|---|\n${Object.entries(byReason).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} |`).join("\n")}${netMd}${watchMd}\n\nCeiling audit: ${tails.x}/${tails.n} outcomes (${tails.n ? (100 * tails.x / tails.n).toFixed(1) : "—"}%) exceeded the curves' 95th percentile — bar ≤7%.\n\nShown-vs-pool per night: ${reports.map((r) => `${r.slate}: shown ${r.shownVsPool.shownApprox.units}u/${r.shownVsPool.shownApprox.n} vs pool ${r.shownVsPool.pool.units}u/${r.shownVsPool.pool.n}`).join(" · ")}${lfLine}\n\nHONEST LIMITS: drop reasons replay STATIC gates only (serve timing is not retro-knowable); a "missed winner" is not automatically a mistake — some gates exist to refuse variance. The question this report keeps asking: which refusals are discipline, and which are leaks.\n`
   // CRITIC_DOCS_DIR override exists for the hermetic fixture only.
-  const out = path.join(process.env.CRITIC_DOCS_DIR || path.join(ROOT, "..", "docs", "audits"), `weekly-critic-${today}.md`)
+  const out = path.join(process.env.CRITIC_DOCS_DIR || path.join(ROOT, "..", "docs", "audits"), `weekly-critic-${asofDay}.md`)
   fs.mkdirSync(path.dirname(out), { recursive: true })
   fs.writeFileSync(out, md)
   console.log(`weekly critic → ${out} (${reports.length} nights · ${units.toFixed(1)}u missed-winner volume)`)
