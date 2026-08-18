@@ -32,6 +32,53 @@ check("read: net units WITH win rate + small-sample honesty under 30 decided", /
 
 check("wiring: server 1-min lock tick", /maybeLockDaily3, 60 \* 1000/.test(rd("server.js")))
 check("wiring: nightly grade hook (mlb, non-dry)", /gradeDaily3\(date\)/.test(rd("scripts/runHistoricalGrade.js")))
+
+// ── 2026-08-18 FINALS-ABSENCE (GO on the 08b31a1 mini-ASK) — the Lockridge
+// 8/15 shape pinned EXACTLY: graded loss + graded win + a no-appearance pick
+// whose gamelog guard cannot conclude, resolved by a PRESENT finals cache.
+{
+  const os = require("os")
+  const { spawnSync } = require("child_process")
+  const T = fs.mkdtempSync(path.join(os.tmpdir(), "d3fa-"))
+  const R = fs.mkdtempSync(path.join(os.tmpdir(), "d3fr-"))
+  const oldSlate = "2026-08-01" // ≥2 days old always
+  fs.writeFileSync(path.join(T, `daily3_${oldSlate}.json`), JSON.stringify({ slate: oldSlate, lockedAt: oldSlate + "T16:00:00Z", picks: [
+    { player: "L Loser", statFamily: "hits", side: "under", line: 1.5, odds: -110, sportsbook: "BetMGM" },
+    { player: "W Winner", statFamily: "hits", side: "under", line: 1.5, odds: 120, sportsbook: "BetMGM" },
+    { player: "S Scratch", statFamily: "runs", side: "over", line: 0.5, odds: 150, sportsbook: "BetMGM" },
+  ] }))
+  fs.writeFileSync(path.join(T, `mlb_tracked_bets_${oldSlate}.json`), JSON.stringify([
+    { player: "L Loser", statFamily: "hits", side: "under", line: 1.5, sportsbook: "BetMGM", result: "loss", actualValue: 2 },
+    { player: "W Winner", statFamily: "hits", side: "under", line: 1.5, sportsbook: "BetMGM", result: "win", actualValue: 0 },
+    { player: "S Scratch", statFamily: "runs", side: "over", line: 0.5, sportsbook: "BetMGM" }, // pending forever — the scratch class
+  ]))
+  const finals = {}
+  for (let i = 0; i < 60; i++) finals["player " + i] = { _batting: { hits: 1 } } // PRESENT + ≥50, Scratch ABSENT
+  fs.writeFileSync(path.join(T, `mlb_finals_${oldSlate}.json`), JSON.stringify(finals))
+  const env = { ...process.env, DAILY3_TRACKING_DIR: T, DAILY3_RECEIPTS_DIR: R }
+  const r = spawnSync(process.execPath, ["-e", `
+    const d3 = require(${JSON.stringify(path.join(ROOT, "pipeline", "shared", "daily3"))})
+    console.log(JSON.stringify(d3.gradeDaily3("${oldSlate}")))
+  `], { env, encoding: "utf8", timeout: 30000 })
+  let out = null; try { out = JSON.parse(r.stdout.trim().split("\n").pop()) } catch (_) {}
+  const card = JSON.parse(fs.readFileSync(path.join(T, `daily3_${oldSlate}.json`), "utf8"))
+  const res = (card.results || []).map((x) => x.result)
+  check(`FINALS-ABSENCE e2e (exit ${r.status}): the Lockridge shape grades 1-1-1V — loss + win + VOID from a PRESENT 60-player cache the player is absent from`,
+    r.status === 0 && res.length === 3 && res[0] === "loss" && res[1] === "win" && res[2] === "void" && /voided per book behavior/.test(card.results[2].settleNote || ""))
+  // never-guess guards: thin cache proves nothing ⇒ pick stays pending
+  const T2 = fs.mkdtempSync(path.join(os.tmpdir(), "d3ft-"))
+  fs.writeFileSync(path.join(T2, `daily3_${oldSlate}.json`), JSON.stringify({ slate: oldSlate, lockedAt: oldSlate + "T16:00:00Z", picks: [ { player: "S Scratch", statFamily: "runs", side: "over", line: 0.5, odds: 150, sportsbook: "BetMGM" } ] }))
+  fs.writeFileSync(path.join(T2, `mlb_tracked_bets_${oldSlate}.json`), JSON.stringify([{ player: "S Scratch", statFamily: "runs", side: "over", line: 0.5, sportsbook: "BetMGM" }]))
+  fs.writeFileSync(path.join(T2, `mlb_finals_${oldSlate}.json`), JSON.stringify({ "only one": {} }))
+  const r2 = spawnSync(process.execPath, ["-e", `
+    const d3 = require(${JSON.stringify(path.join(ROOT, "pipeline", "shared", "daily3"))})
+    console.log(JSON.stringify(d3.gradeDaily3("${oldSlate}")))
+  `], { env: { ...process.env, DAILY3_TRACKING_DIR: T2, DAILY3_RECEIPTS_DIR: R }, encoding: "utf8", timeout: 30000 })
+  check("never-guess guard: a THIN finals cache (<50 players) proves nothing — card stays pending",
+    /picks_still_pending/.test(r2.stdout))
+  check("source: evidence doctrine at the branch (absence provable ONLY from a present cache; SEV-1 extends never weakens; accent-safe)",
+    /provable ONLY from the cache's PRESENCE/.test(rd("pipeline/shared/daily3.js")) && /keys\.length >= 50/.test(rd("pipeline/shared/daily3.js")) && /normalize\("NFD"\)/.test(rd("pipeline/shared/daily3.js")))
+}
 check("wiring: GET /api/ws/daily3 read-only route", /router\.get\("\/daily3"/.test(rd("routes/workstationRoutes.js")))
 const fe = rd("../frontend/mobile/index.html")
 check("FE: DAILY 3 card above the board; failure never blocks the board; units + record line", /THE DAILY 3/.test(fe) && /daily3 card is additive — its failure never blocks the board/.test(fe) && /at flat \$1/.test(fe))

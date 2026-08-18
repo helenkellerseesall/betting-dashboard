@@ -55,6 +55,25 @@ const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "")
 let _scratchIdx = null
 function _playedOnDate(player, family, date) {
   try {
+    // 2026-08-18 FINALS-ABSENCE branch (GO on the 08b31a1 mini-ASK — the
+    // classifyLegs evidence rule, CA-verified): a PRESENT official finals
+    // cache proves an appearance question the gamelog coverage-guard cannot —
+    // absence is provable ONLY from the cache's PRESENCE, never from its
+    // absence (SEV-1 discipline extends, never weakens). A thin/partial
+    // cache (<50 players) proves nothing. Accent-safe join (the normName
+    // class lesson). Falls through to the gamelog path on any doubt.
+    try {
+      const fp = path.join(TRACKING, `mlb_finals_${date}.json`)
+      if (fs.existsSync(fp)) {
+        const finals = JSON.parse(fs.readFileSync(fp, "utf8"))
+        const keys = Object.keys(finals)
+        if (keys.length >= 50) {
+          const nfd = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase()
+          if (keys.some((k) => nfd(k) === nfd(player))) return true   // appeared — played
+          return false                                                // PRESENT cache, ABSENT player ⇒ proven no-appearance
+        }
+      }
+    } catch (_) { /* doubt ⇒ gamelog path */ }
     if (!_scratchIdx) {
       const { buildJoinIndex } = require("./playerNameJoin")
       const bat = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "data", "mlbBatterGameLogsSeason.json"), "utf8"))
