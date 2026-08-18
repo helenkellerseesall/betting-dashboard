@@ -1,11 +1,47 @@
 {
-  "_doc": "DEEPLINK verified matrix (2026-07-07, DEEPLINK-2A/2B). THE kill-switch for every operator-facing betslip link on /m: a book renders its single-leg 'open in <book>' anchor ONLY when enabled=true, and composed multi-leg slip links ONLY when enabled=true AND multiStatus is 'confirmed' or 'verified'. ALL BOOKS SHIP DISABLED — the operator flips each book to enabled:true after a real phone tap proves the link opens the right slip (record the verdict in OPERATOR_SESSION_LOG). {state} placeholders (BetMGM/BetRivers) substitute from the per-book state field — a link with an unfilled placeholder NEVER renders. multiStatus values: 'confirmed' (official docs — BetMGM comma-combo), 'verified' (operator phone-tap passed), 'unverified' (template exists, untested — composition BLOCKED), 'none' (no link surface — Fanatics, record-only). Matrix empty/disabled = no links anywhere; the slip tray and bet recording work regardless (recording NEVER depends on linking). Source doctrine: docs/research/2026-07-07-multileg-betslip-links.md + .scratch/deeplink_probe.txt.",
-  "books": {
-    "fanduel":     { "enabled": false, "state": null, "singleStatus": "vendor-live", "multiStatus": "unverified" },
-    "draftkings":  { "enabled": false, "state": null, "singleStatus": "vendor-live", "multiStatus": "unverified" },
-    "betmgm":      { "enabled": false, "state": null, "singleStatus": "vendor-template", "multiStatus": "confirmed" },
-    "hardrockbet": { "enabled": false, "state": null, "singleStatus": "vendor-live", "multiStatus": "unverified" },
-    "betrivers":   { "enabled": false, "state": null, "singleStatus": "vendor-template", "multiStatus": "unverified" },
-    "fanatics":    { "enabled": false, "state": null, "singleStatus": "none", "multiStatus": "none" }
+ "_doc": "DEEPLINK verified matrix (2026-07-07, DEEPLINK-2A/2B). THE kill-switch for every operator-facing betslip link on /m: a book renders its single-leg 'open in <book>' anchor ONLY when enabled=true, and composed multi-leg slip links ONLY when enabled=true AND multiStatus is 'confirmed' or 'verified'. ALL BOOKS SHIP DISABLED — the operator flips each book to enabled:true after a real phone tap proves the link opens the right slip (record the verdict in OPERATOR_SESSION_LOG). {state} placeholders (BetMGM/BetRivers) substitute from the per-book state field — a link with an unfilled placeholder NEVER renders. multiStatus values: 'confirmed' (official docs — BetMGM comma-combo), 'verified' (operator phone-tap passed), 'unverified' (template exists, untested — composition BLOCKED), 'none' (no link surface — Fanatics, record-only). Matrix empty/disabled = no links anywhere; the slip tray and bet recording work regardless (recording NEVER depends on linking). Source doctrine: docs/research/2026-07-07-multileg-betslip-links.md + .scratch/deeplink_probe.txt. homeUrl (2026-08-18, bet-slip drawer): NAVIGATION-ONLY class — the book's public home page, carrying zero slip state. Used by the drawer's copy-legs fallback ('copy legs → open the app → search'). Renders WITHOUT the enabled flag because a home page cannot open a wrong slip; the enabled/multiStatus kill-switches still govern every slip-state link exactly as above.",
+ "books": {
+  "fanduel": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "vendor-live",
+   "multiStatus": "unverified",
+   "homeUrl": "https://sportsbook.fanduel.com"
+  },
+  "draftkings": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "vendor-live",
+   "multiStatus": "unverified",
+   "homeUrl": "https://sportsbook.draftkings.com"
+  },
+  "betmgm": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "vendor-template",
+   "multiStatus": "confirmed",
+   "homeUrl": "https://sports.betmgm.com"
+  },
+  "hardrockbet": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "vendor-live",
+   "multiStatus": "unverified",
+   "homeUrl": "https://app.hardrock.bet"
+  },
+  "betrivers": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "vendor-template",
+   "multiStatus": "unverified",
+   "homeUrl": "https://www.betrivers.com"
+  },
+  "fanatics": {
+   "enabled": false,
+   "state": null,
+   "singleStatus": "none",
+   "multiStatus": "none",
+   "homeUrl": "https://sportsbook.fanatics.com"
   }
+ }
 }

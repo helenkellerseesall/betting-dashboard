@@ -709,8 +709,10 @@
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
       <button class="tab" data-sport="analyze">ANALYZE <span class="tab-count" id="analyzeCount">📸</span></button>
       <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
-      <button class="tab" data-sport="parlay">PARLAY <span class="tab-count" id="parlayCount">0</span></button>
-      <!-- legacy MLB/NBA tabs hidden — accessible via dev console: data-sport=mlb|nba. PARLAY un-hidden 2026-06-15 (cash-out/hedge surface). -->
+      <!-- 2026-08-18 UX SUB-PACK: PARLAY tab RETIRED — the bottom bet-slip
+           drawer (slip-bar/slip-panel, fed by every + button) replaces it.
+           renderParlay stays DORMANT in source (games-browser precedent).
+           legacy MLB/NBA tabs hidden — accessible via dev console: data-sport=mlb|nba. -->
     </div>
   </header>
 
@@ -917,7 +919,10 @@
     }
     function addLeg(c, sport) {
       if (isLegInParlay(c)) return;
-      // Capture only the fields we need; full row is too big for localStorage at scale
+      if (state.parlay.length >= 6) { alert("Bet slip is full (6 legs max)"); return; }
+      // Capture only the fields we need; full row is too big for localStorage at scale.
+      // 2026-08-18 drawer: betLink/betSid/eventId/marketKey preserved when present —
+      // the compose deep-links need them; absent fields stay null (copy-legs covers).
       state.parlay.push({
         player: c.player, team: c.team || null,
         matchup: c.matchup || null, sport,
@@ -927,21 +932,26 @@
         oddsAmerican: c.oddsAmerican ?? c.odds,
         sportsbook: c.sportsbook || c.book,
         book: c.sportsbook || c.book,
+        betLink: c.betLink || null, betSid: c.betSid || null,
+        eventId: c.eventId || null, marketKey: c.marketKey || null,
         addedAt: Date.now(),
       });
       saveParlay();
+      if (typeof _slipRenderBar === "function") _slipRenderBar();
       render();
     }
     function removeLeg(idx) {
       state.parlay.splice(idx, 1);
       saveParlay();
+      if (typeof _slipRenderBar === "function") _slipRenderBar();
       render();
     }
     function clearParlay() {
       if (state.parlay.length === 0) return;
-      if (!confirm(`Clear all ${state.parlay.length} legs from your parlay?`)) return;
-      state.parlay = [];
+      if (!confirm(`Clear all ${state.parlay.length} legs from your slip?`)) return;
+      state.parlay.length = 0; // mutate, never reassign — _slipTray aliases this array
       saveParlay();
+      if (typeof _slipRenderBar === "function") _slipRenderBar();
       render();
     }
     window.addLegFromCard = function (idx, sport) {
@@ -955,6 +965,19 @@
     };
     window.removeLegFromParlay = removeLeg;
     window.clearParlayConfirm = clearParlay;
+    // 2026-08-18 UX SUB-PACK — tap-to-bet from the Daily 3 card and Lab
+    // tickets (day one, per operator). Both route through the ONE addLeg
+    // path (dedupe/cap/persist/drawer refresh). MLB-only surfaces.
+    window._d3Add = function (i) {
+      const p = (window._d3Cache || [])[i];
+      if (!p) return;
+      addLeg({ player: p.player, statFamily: p.statFamily, propType: p.statFamily, side: p.side, line: p.line, odds: p.odds, oddsAmerican: p.odds, sportsbook: p.sportsbook, book: p.sportsbook }, "mlb");
+    };
+    window._labAdd = function (ti) {
+      const t = (window._labCache || [])[ti];
+      if (!t || !Array.isArray(t.legs)) return;
+      for (const l of t.legs) addLeg({ player: l.player, statFamily: l.statFamily, propType: l.statFamily, side: l.side || "over", line: l.line, odds: l.oddsAmerican, oddsAmerican: l.oddsAmerican, sportsbook: l.sportsbook, book: l.sportsbook, eventId: l.eventId || null, marketKey: l.marketKey || null }, "mlb");
+    };
 
     // Odds math — American → decimal multiplier → combined American
     function americanToDecimal(am) {
@@ -1549,7 +1572,10 @@
       // Parlay tab early-out — its own renderer, doesn't share the
       // freshness/buckets pipeline.
       if (sport === "parlay") {
-        renderParlay(main);
+        // 2026-08-18 — tab retired; anything still routing here gets the drawer.
+        _slipRenderBar();
+        if (state.parlay.length) window._slipOpenPanel && setTimeout(() => window._slipOpenPanel(), 50);
+        renderParlay(main); // DORMANT view kept renderable for dev-console use
         return;
       }
       // Analyze tab — Flow A: paste/type a slip from X/Discord, get verdict.
@@ -2904,22 +2930,50 @@
     }
 
     // ── slip tray (cross-game multi-leg; 2B) ─────────────────────────────────
-    window._slipTray = [];
+    // 2026-08-18 UX SUB-PACK (bet-slip drawer) — ONE slip authority: the
+    // legacy state.parlay array and the drawer tray are the SAME array (an
+    // alias, never a copy). Every + button that fed the retired PARLAY tab
+    // now feeds the drawer, and persistence (edge:parlay:v1) carries over
+    // with zero migration. NEVER reassign either name (breaks the alias) —
+    // mutate with push/splice/length=0 only.
+    window._slipTray = state.parlay;
     window._slipAdd = function () {
       const p = window._pbCurrentPick;
       if (!p) return;
-      const key = `${p.player}|${p.statFamily}|${p.side}|${p.line}|${p.sportsbook || p.book}`;
-      if (window._slipTray.some((x) => x._key === key)) { _slipRenderBar(); return; }
-      if (window._slipTray.length >= 6) { alert("Slip tray is full (6 legs max)"); return; }
-      window._slipTray.push({ ...p, _key: key });
-      _slipRenderBar();
+      // 2026-08-18 drawer consolidation — one add path (dedupe/cap/persist/render
+      // all live in addLeg; the drawer bar refreshes there too).
+      addLeg(p, p.sport || "mlb");
       document.getElementById("v2-modal")?.classList.remove("open");
     };
     window._slipRemove = function (i) {
       window._slipTray.splice(i, 1);
+      saveParlay();
       _slipRenderBar();
       window._slipShowPanel && document.getElementById("slip-panel") && window._slipOpenPanel();
+      render();
     };
+    window._slipClear = function () { clearParlay(); };
+    // Copy-legs fallback (2026-08-18 drawer) — the workhorse while every book
+    // ships deep-links DISABLED in the matrix: copies a plain-text slip for
+    // pasting/searching inside the book app. Clipboard API with a textarea
+    // fallback for older iOS.
+    window._slipCopyLegs = function (btn) {
+      const legs = window._slipTray;
+      if (!legs.length) return;
+      const lines = legs.map((l) => `${l.player} ${String(l.side || "").toUpperCase()} ${l.line} ${l.statFamily || l.propType} @ ${l.sportsbook || l.book || "?"} (${Number(l.oddsAmerican ?? l.odds) > 0 ? "+" : ""}${l.oddsAmerican ?? l.odds})`);
+      const text = lines.join("\n");
+      const done = () => { if (btn) { btn.textContent = "Copied ✓"; setTimeout(() => { btn.textContent = "📋 Copy legs"; }, 1600); } };
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done).catch(() => _slipCopyFallback(text, done)); }
+      else _slipCopyFallback(text, done);
+    };
+    function _slipCopyFallback(text, done) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta); done();
+      } catch (_) { /* copy unavailable — legs remain visible in the panel */ }
+    }
     function _slipEnsureBar() {
       let bar = document.getElementById("slip-bar");
       if (!bar) {
@@ -2969,6 +3023,7 @@
           ${legRows}
           <div style="font-size:11px;color:#9CA3AF;margin-top:8px;">combined ≈ ${amer || "—"} (display only — the book's slip price is authoritative)</div>
           ${composeHtml}
+          ${!composeHtml ? `<button onclick="window._slipCopyLegs(this)" style="display:block;width:100%;text-align:center;margin-top:8px;padding:9px 0;border-radius:8px;border:1px solid #374151;background:#1F2937;color:#F9FAFB;font-size:12px;font-weight:700;cursor:pointer;">📋 Copy legs</button>${_slipHomeAnchor(legs)}` : `<button onclick="window._slipCopyLegs(this)" style="display:block;width:100%;text-align:center;margin-top:6px;padding:7px 0;border-radius:8px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">📋 Copy legs</button>`}
           ${mixNote}
           ${sameBook && legs.length >= 2 ? `
           <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
@@ -2979,7 +3034,7 @@
           </div>
           <button onclick="window._slipRecord(this)" style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">I bet this parlay — record it</button>` : ""}
           <div id="slip-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
-          <button onclick="window._slipTray=[];_slipRenderBar();" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
+          <button onclick="window._slipClear()" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
         </div>`;
     };
     // Per-book multi-leg composition — CC's verified templates ONLY
@@ -3013,6 +3068,23 @@
       if (!url) return "";
       return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:8px;padding:9px 0;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.10);color:#A78BFA;font-size:12px;font-weight:700;text-decoration:none;">↗ Open slip in ${escapeHtml(bookDisplay)} (${legs.length} legs)</a>`;
     }
+    // Navigation-only book link (2026-08-18 drawer): opens the book HOME page
+    // when legs share one book but no verified compose link exists — pairs
+    // with copy-legs ("copy, open the app, search"). Reads homeUrl from the
+    // deeplink matrix; navigation-only (no slip state), so it renders without
+    // the enabled flag — it cannot open a wrong slip. Absent field = no link.
+    function _slipHomeAnchor(legs) {
+      if (!legs.length) return "";
+      const books = [...new Set(legs.map((l) => _dlBookKey(l.sportsbook || l.book)))];
+      if (books.length !== 1) return "";
+      const cfg = (window._dlMatrix || {})[books[0]];
+      const display = legs[0].sportsbook || legs[0].book || books[0];
+      if (!cfg || !cfg.homeUrl) return "";
+      return `<a href="${escapeHtml(cfg.homeUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;text-align:center;margin-top:6px;padding:8px 0;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.10);color:#A78BFA;font-size:12px;font-weight:700;text-decoration:none;">↗ Open ${escapeHtml(display)} (then paste/search the copied legs)</a>`;
+    }
+    // Boot: persisted slip legs surface immediately (the drawer replaces the
+    // PARLAY tab — without this a reload hid a non-empty slip).
+    _slipRenderBar();
     window._slipRecord = async function (btnEl) {
       const legs = window._slipTray;
       const out = document.getElementById("slip-result");
@@ -3913,6 +3985,7 @@
           const r3 = await fetch(`${API}/api/ws/daily3?_t=${Date.now()}`, { cache: "no-store" });
           const j3 = await r3.json();
           if (j3 && j3.ok) {
+            window._d3Cache = (j3.today && j3.today.picks) || []; // drawer tap-to-bet
             const rec = j3.record || {};
             const recLine = rec.decided > 0
               ? `${rec.wins}-${rec.losses}${rec.pushes ? "-" + rec.pushes + "P" : ""} · <b style="color:${rec.netUnits >= 0 ? "#34D399" : "#F87171"};">${rec.netUnits >= 0 ? "+" : ""}${rec.netUnits}u</b> at flat $1${rec.smallSample ? ` · <span style="color:#6B7280;">${escapeHtml(rec.honesty || "small sample")}</span>` : ` · ${rec.winRate}% over ${rec.days} days`}`
@@ -3923,7 +3996,7 @@
                   const res = j3.today.results ? j3.today.results[i] : null;
                   return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #1B2030;font-size:12px;">
                     <div style="color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_pickLineNice(p)} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || "?")}</span>${_gameIdLine(p)}</div>
-                    <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
+                    <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${(!res || res.result === "pending") ? `<button onclick="window._d3Add(${i});event.stopPropagation();" title="Add to bet slip" style="margin-right:6px;padding:0 7px;border-radius:5px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:12px;font-weight:800;cursor:pointer;">+</button>` : ""}${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
                   </div>`;
                 }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:5px;">locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))}Z${j3.today.lockLate ? " (late lock)" : ""} · immutable · ${j3.today.picks[0]?.calibVersion ? escapeHtml(j3.today.picks[0].calibVersion) : "unstamped era"}</div>`
               : `<div style="font-size:12px;color:#9CA3AF;padding:6px 0;">${j3.firstPitchAt ? `Today's 3 lock 60 min before first pitch (${escapeHtml(new Date(j3.firstPitchAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }))} ET).` : "No games this slate — no card today."}</div>`;
@@ -4094,8 +4167,9 @@
           const eLab = document.getElementById("longshot-lab-body");
           if (eLab && jLab.ok) {
             const t = jLab.tonight;
+            window._labCache = (t && t.tickets) || []; // drawer tap-to-bet
             const tix = t && t.tickets && t.tickets.length
-              ? t.tickets.map((k) => `<div style="border-top:1px solid #331B2E;padding:4px 0;"><b style="color:${k.kind === "experimental" ? "#FBBF24" : "#F472B6"};">${k.kind.toUpperCase()}</b> ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican} · p=${(k.pTicket * 100).toFixed(2)}% · $${k.stake} paper · ${k.result !== "pending" ? `<b>${escapeHtml(String(k.result).toUpperCase())}</b>` : "locked"}<div style="font-size:10px;color:#9CA3AF;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${escapeHtml(l.statFamily)} (${escapeHtml(l.priced)})`).join(" × ")}</div></div>`).join("")
+              ? t.tickets.map((k, ti) => `<div style="border-top:1px solid #331B2E;padding:4px 0;"><b style="color:${k.kind === "experimental" ? "#FBBF24" : "#F472B6"};">${k.kind.toUpperCase()}</b> ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican} · p=${(k.pTicket * 100).toFixed(2)}% · $${k.stake} paper · ${k.result !== "pending" ? `<b>${escapeHtml(String(k.result).toUpperCase())}</b>` : "locked"}<div style="font-size:10px;color:#9CA3AF;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${escapeHtml(l.statFamily)} (${escapeHtml(l.priced)})`).join(" × ")}</div>${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="margin-top:4px;padding:3px 10px;border-radius:6px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:10px;font-weight:800;cursor:pointer;">⊕ slip these ${k.legs.length} legs</button>` : ""}</div>`).join("")
               : `<div style="padding:4px 0;color:#6B7280;">no card tonight — no eligible certified legs ≥T-60 (honest no-card beats a forced one)</div>`;
             const gates = jLab.gate ? Object.entries(jLab.gate).map(([band, g]) => `<div style="border-top:1px solid #241B36;padding:3px 0;"><b>${band}</b>: ${g.nights}n · ${g.decided} decided · ${g.wins}w vs ${g.expectedWins} expected (LB ${g.poissonRatioLB ?? "—"}) · ${g.flatUnits >= 0 ? "+" : ""}${g.flatUnits}u — <b style="color:${g.barMet === "NOT MET" ? "#F87171" : "#FBBF24"};">${escapeHtml(g.barMet)}</b><div style="font-size:9px;color:#6B7280;">expected worst drought (${escapeHtml(g.drought.band)}): ${escapeHtml(g.drought.edgedLongest)} straight WITH a real edge — ${escapeHtml(g.drought.note)}</div></div>`).join("") : "";
             const losses = (jLab.recent || []).map((s) => `<span style="margin-right:8px;color:${s.units > 0 ? "#34D399" : s.units < 0 ? "#F87171" : "#9CA3AF"};">${s.slate.slice(5)} ${s.kind[0].toUpperCase()}: ${s.units > 0 ? "+" : ""}${s.units}u</span>`).join("");

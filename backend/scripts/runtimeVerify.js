@@ -104,6 +104,7 @@ const SUITES = [
   "verifyLongshotLab", // LONGSHOT LAB (2026-08-17, CC §3) — N=3 paper tickets, certified-zone structural constraints, cross-game+trap asserts, write-once locks + chained receipts, twin/rung settles, Poisson band gate + drought benchmark; hermetic.
   "verifyPerfPack", // FE/PERF perf sub-pack (2026-08-17) — serve-path never awaits refresh, offseason skip, zlib gzip, snapshot twin dedupe, real-money projection w/ fail-open, /boot payload, FE badges/version; hermetic reads + anchors.
   "verifyBrokenFamilies", // BROKEN-FAMILY CONTAINMENT (2026-08-18 addendum) — ONE evidence-cited authority (mlb rbis+outs), serve-layer only: /top-picks drop + loud counter, /games tier/conf suppression w/ raw lines kept, stale-lane override, featured drop, FE BROKEN pill; importer walk proves record/write paths untouched; lifted only by a recalibration ASK.
+  "verifyBetSlipDrawer", // UX SUB-PACK drawer (2026-08-18) — PARLAY tab retired for the bottom bet-slip drawer: ONE aliased slip array (mutate-only), every + button feeds it, Daily3/Lab tap-to-bet, copy-legs + navigation-only homeUrl fallback, deeplink kill-switches proven intact, FE parse + money-literal guards.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }
