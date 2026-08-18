@@ -74,8 +74,11 @@ check("record: _slipRecord still posts mode parlay to /api/ws/place-bet and REFU
 let parses = true
 try { for (const m of fe.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]) } catch (_) { parses = false }
 check("FE inline script parses (new Function)", parses && fe.length > 100000)
-check("money literals intact — the $-corruption class stays dead (exactly one $${b.stake} and one $${b.toWin})",
-  fe.split("$${b.stake}").length - 1 === 1 && fe.split("$${b.toWin}").length - 1 === 1)
+// EVOLVED same-day (UX-2 toWin fix): settled LOSS cards now render "−$${b.stake}"
+// — a second DELIBERATE stake literal. The guard pins the exact census (2 stake,
+// 1 toWin) so silent $-stripping still fails loudly.
+check("money literals intact — the $-corruption class stays dead (exactly two $${b.stake} incl. the loss line, one $${b.toWin})",
+  fe.split("$${b.stake}").length - 1 === 2 && fe.split("$${b.toWin}").length - 1 === 1)
 
 console.log(`\nverifyBetSlipDrawer: ${pass}/${pass + fail} checks passed`)
 if (fail) { console.log("FAILURES:"); for (const f of failures) console.log("  ✗ " + f); process.exit(1) }

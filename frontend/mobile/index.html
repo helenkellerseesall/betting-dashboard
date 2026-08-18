@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Edge">
-  <meta name="theme-color" content="#0A0E1A">
+  <meta name="theme-color" content="#0B0C10">
   <style>
     /* ───────────────────────────────────────────────────────────────
        Edge — bettor-native mobile PWA v0.1
@@ -18,7 +18,7 @@
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0; padding: 0;
-      background: #0A0E1A;
+      background: #0B0C10;
       color: #E5E7EB;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
       font-size: 15px;
@@ -30,7 +30,7 @@
     /* ── Header ─────────────────────────────────────────────────── */
     header {
       position: sticky; top: 0; z-index: 10;
-      background: linear-gradient(180deg, #0F1424 0%, #0A0E1A 100%);
+      background: linear-gradient(180deg, #0F1424 0%, #0B0C10 100%);
       border-bottom: 1px solid #1F2937;
       padding: max(env(safe-area-inset-top), 8px) 16px 0;
     }
@@ -73,7 +73,7 @@
     }
     .tab {
       flex: 1; padding: 10px 12px;
-      background: #141828; border: 1px solid transparent; color: #9CA3AF;
+      background: #15161C; border: 1px solid transparent; color: #9CA3AF;
       border-radius: 10px; font-size: 14px; font-weight: 600;
       cursor: pointer; transition: all 0.15s ease;
       display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -84,30 +84,30 @@
       font-weight: 700;
     }
     .tab.active {
-      background: linear-gradient(135deg, #1E293B 0%, #141828 100%);
+      background: linear-gradient(135deg, #1E293B 0%, #15161C 100%);
       border-color: #FBBF24; color: #FBBF24;
     }
     .tab.active .tab-count {
-      background: #FBBF24; color: #0A0E1A;
+      background: #FBBF24; color: #0B0C10;
     }
     /* 2026-05-30 FE v2 tab colors */
     .tab[data-sport="top"].active { border-color: #FBBF24; color: #FBBF24; }
-    .tab[data-sport="top"].active .tab-count { background: #FBBF24; color: #0A0E1A; }
+    .tab[data-sport="top"].active .tab-count { background: #FBBF24; color: #0B0C10; }
     .tab[data-sport="mybets"].active { border-color: #34D399; color: #34D399; }
-    .tab[data-sport="mybets"].active .tab-count { background: #34D399; color: #0A0E1A; }
+    .tab[data-sport="mybets"].active .tab-count { background: #34D399; color: #0B0C10; }
     .tab[data-sport="games"].active { border-color: #38BDF8; color: #38BDF8; }
-    .tab[data-sport="games"].active .tab-count { background: #38BDF8; color: #0A0E1A; }
+    .tab[data-sport="games"].active .tab-count { background: #38BDF8; color: #0B0C10; }
     /* Legacy colors preserved for hidden tabs */
     .tab[data-sport="mlb"].active { border-color: #34D399; color: #34D399; }
-    .tab[data-sport="mlb"].active .tab-count { background: #34D399; color: #0A0E1A; }
+    .tab[data-sport="mlb"].active .tab-count { background: #34D399; color: #0B0C10; }
     .tab[data-sport="nba"].active { border-color: #F97316; color: #F97316; }
-    .tab[data-sport="nba"].active .tab-count { background: #F97316; color: #0A0E1A; }
+    .tab[data-sport="nba"].active .tab-count { background: #F97316; color: #0B0C10; }
     .tab[data-sport="parlay"].active { border-color: #A78BFA; color: #A78BFA; }
-    .tab[data-sport="parlay"].active .tab-count { background: #A78BFA; color: #0A0E1A; }
-    .tab[data-sport="parlay"] .tab-count.has-legs { background: #A78BFA; color: #0A0E1A; }
+    .tab[data-sport="parlay"].active .tab-count { background: #A78BFA; color: #0B0C10; }
+    .tab[data-sport="parlay"] .tab-count.has-legs { background: #A78BFA; color: #0B0C10; }
     .tab[data-sport="analyze"].active { border-color: #38BDF8; color: #38BDF8; }
     .tab[data-sport="grades"].active { border-color: #FBBF24; color: #FBBF24; }
-    .tab[data-sport="grades"].active .tab-count { background: #FBBF24; color: #0A0E1A; }
+    .tab[data-sport="grades"].active .tab-count { background: #FBBF24; color: #0B0C10; }
 
     /* ── Analyze tab ────────────────────────────────────────── */
     .analyze-intro {
@@ -133,11 +133,11 @@
     }
     .meta-row select, .meta-row input {
       flex: 1; padding: 8px 10px;
-      background: #141828; border: 1px solid #1F2937; color: #E5E7EB;
+      background: #15161C; border: 1px solid #1F2937; color: #E5E7EB;
       border-radius: 8px; font-size: 13px; font-family: inherit;
     }
     .leg-form {
-      background: #141828; border: 1px solid #1F2937; border-radius: 10px;
+      background: #15161C; border: 1px solid #1F2937; border-radius: 10px;
       padding: 10px; margin-bottom: 8px;
       position: relative;
     }
@@ -156,7 +156,7 @@
     .leg-form-remove:hover { color: #F87171; }
     .leg-form input, .leg-form select {
       width: 100%; padding: 6px 8px; margin-bottom: 6px;
-      background: #0A0E1A; border: 1px solid #1F2937; color: #E5E7EB;
+      background: #0B0C10; border: 1px solid #1F2937; color: #E5E7EB;
       border-radius: 6px; font-size: 12px; font-family: inherit;
     }
     .leg-form input::placeholder { color: #4B5563; }
@@ -179,7 +179,7 @@
     .add-leg-form-btn:hover { background: rgba(56, 189, 248, 0.15); }
     .analyze-submit-btn {
       background: linear-gradient(135deg, #38BDF8 0%, #0284C7 100%);
-      border-color: #0284C7; color: #0A0E1A;
+      border-color: #0284C7; color: #0B0C10;
       font-size: 15px;
       letter-spacing: 0.5px;
     }
@@ -190,7 +190,7 @@
 
     /* Verdict card */
     .verdict-card {
-      background: linear-gradient(180deg, #11202E 0%, #141828 100%);
+      background: linear-gradient(180deg, #11202E 0%, #15161C 100%);
       border: 1px solid rgba(56, 189, 248, 0.4);
       border-radius: 14px; padding: 14px;
       margin-bottom: 12px;
@@ -242,7 +242,7 @@
     }
     .add-leg-btn:hover, .add-leg-btn:active { background: rgba(167, 139, 250, 0.25); }
     .add-leg-btn.added {
-      background: #A78BFA; border-color: #A78BFA; color: #0A0E1A;
+      background: #A78BFA; border-color: #A78BFA; color: #0B0C10;
     }
     /* card needs relative positioning for the absolute button */
     .card { position: relative; }
@@ -259,7 +259,7 @@
       background-clip: text; font-weight: 800;
     }
     .parlay-summary {
-      background: linear-gradient(180deg, #1A1424 0%, #141828 100%);
+      background: linear-gradient(180deg, #1A1424 0%, #15161C 100%);
       border: 1px solid rgba(167, 139, 250, 0.4);
       border-radius: 14px; padding: 14px;
       margin-bottom: 12px;
@@ -306,12 +306,12 @@
     .cashout-card .co-sub { font-size: 11px; color: #9CA3AF; line-height: 1.45; margin-bottom: 10px; }
     .cashout-card .co-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
     .cashout-card .co-row > label { font-size: 12px; color: #C7CCD6; }
-    .cashout-card input { background: #0A0E1A; border: 1px solid #2A2F45; border-radius: 8px; color: #E5E7EB; padding: 7px 9px; font-size: 13px; width: 130px; text-align: right; font-family: inherit; }
+    .cashout-card input { background: #0B0C10; border: 1px solid #2A2F45; border-radius: 8px; color: #E5E7EB; padding: 7px 9px; font-size: 13px; width: 130px; text-align: right; font-family: inherit; }
     .cashout-card .co-legs { margin: 8px 0; }
     .cashout-card .co-leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #C7CCD6; padding: 5px 0; border-bottom: 1px solid #1A1F33; }
     .cashout-card .co-leg input { width: auto; }
     .cashout-card .co-leg em { margin-left: auto; color: #6B7280; font-style: normal; font-size: 11px; }
-    .cashout-card .co-btn { width: 100%; margin-top: 10px; background: #A78BFA; color: #0A0E1A; border: none; border-radius: 8px; padding: 11px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .cashout-card .co-btn { width: 100%; margin-top: 10px; background: #A78BFA; color: #0B0C10; border: none; border-radius: 8px; padding: 11px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
     .cashout-card .co-btn:active { opacity: 0.85; }
     .co-result { margin-top: 12px; }
     .co-result .co-big { font-size: 22px; font-weight: 800; color: #34D399; }
@@ -323,7 +323,7 @@
     .co-err { color: #F87171; font-size: 12px; }
 
     .parlay-leg {
-      background: #141828; border: 1px solid #1F2937;
+      background: #15161C; border: 1px solid #1F2937;
       border-radius: 10px; padding: 10px 12px;
       margin-bottom: 8px;
       display: flex; align-items: center; gap: 10px;
@@ -375,7 +375,7 @@
     .freshness {
       font-size: 11px; padding: 6px 10px; border-radius: 8px;
       margin-bottom: 10px; display: flex; justify-content: space-between;
-      background: #141828; border: 1px solid #1F2937;
+      background: #15161C; border: 1px solid #1F2937;
       color: #9CA3AF;
     }
     .freshness.fresh { color: #6EE7B7; }
@@ -403,7 +403,7 @@
     .conviction-card {
       border: 1px solid #B45309 !important;
       box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.15);
-      background: linear-gradient(180deg, #1A1424 0%, #141828 100%) !important;
+      background: linear-gradient(180deg, #1A1424 0%, #15161C 100%) !important;
     }
     .conviction-card .tier-pill {
       box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
@@ -497,7 +497,7 @@
 
     /* ── Play card ─────────────────────────────────────────────── */
     .card {
-      background: linear-gradient(180deg, #141828 0%, #11151F 100%);
+      background: linear-gradient(180deg, #15161C 0%, #11151F 100%);
       border: 1px solid #1F2937;
       border-radius: 14px;
       padding: 12px 14px;
@@ -534,9 +534,9 @@
       text-transform: uppercase;
       flex-shrink: 0; margin-left: 8px;
     }
-    .tier-elite    { background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%); color: #0A0E1A; }
-    .tier-best     { background: linear-gradient(135deg, #34D399 0%, #10B981 100%); color: #0A0E1A; }
-    .tier-strong   { background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%); color: #0A0E1A; }
+    .tier-elite    { background: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%); color: #0B0C10; }
+    .tier-best     { background: linear-gradient(135deg, #34D399 0%, #10B981 100%); color: #0B0C10; }
+    .tier-strong   { background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%); color: #0B0C10; }
     .tier-good     { background: #374151; color: #D1D5DB; }
     .tier-unknown  { background: #1F2937; color: #6B7280; border: 1px dashed #374151; }
 
@@ -707,7 +707,8 @@
       <button class="tab" data-sport="slips">SLIPS <span class="tab-count" id="slipsCount">—</span></button>
       <button class="tab" data-sport="mybets">MY BETS <span class="tab-count" id="myBetsCount">0</span></button>
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
-      <button class="tab" data-sport="analyze">ANALYZE <span class="tab-count" id="analyzeCount">📸</span></button>
+      <!-- 2026-08-18 UX-2: ANALYZE parked behind the ⋯ menu (operator order) -->
+      <button class="tab" data-sport="__more" onclick="window._moreMenu(event)" style="flex:0 0 auto;min-width:44px;">⋯</button>
       <button class="tab" data-sport="grades">GRADES <span class="tab-count" id="gradesCount">—</span></button>
       <!-- 2026-08-18 UX SUB-PACK: PARLAY tab RETIRED — the bottom bet-slip
            drawer (slip-bar/slip-panel, fed by every + button) replaces it.
@@ -1888,14 +1889,14 @@
           <button onclick="setTabMode('${sport}', 'games')" style="
             flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700;
             letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
-            background: ${isGames ? "linear-gradient(135deg, #1E293B 0%, #141828 100%)" : "transparent"};
+            background: ${isGames ? "linear-gradient(135deg, #1E293B 0%, #15161C 100%)" : "transparent"};
             border: 1px solid ${isGames ? "#FBBF24" : "#1F2937"};
             color: ${isGames ? "#FBBF24" : "#6B7280"};
             border-radius: 8px;">Tonight's Games</button>
           <button onclick="setTabMode('${sport}', 'sharp')" style="
             flex: 1; padding: 8px 12px; font-size: 12px; font-weight: 700;
             letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
-            background: ${isSharp ? "linear-gradient(135deg, #1E293B 0%, #141828 100%)" : "transparent"};
+            background: ${isSharp ? "linear-gradient(135deg, #1E293B 0%, #15161C 100%)" : "transparent"};
             border: 1px solid ${isSharp ? "#FBBF24" : "#1F2937"};
             color: ${isSharp ? "#FBBF24" : "#6B7280"};
             border-radius: 8px;">Sharp Plays</button>
@@ -1982,17 +1983,42 @@
       }
       const todaySlate = currentSlateDateEt();
       const titleOf = { nba: "🏀 NBA", mlb: "⚾ MLB" };
+      // 2026-08-18 UX-2 — search + edges-only filter. Search matches player /
+      // team / matchup (diacritic-insensitive). Edges-only keeps players with
+      // at least one positive-edge joined prop — a BROKEN-family row can never
+      // qualify (its edge is suppressed server-side). Filtering is honest
+      // subsetting of the same payload; counts show what was hidden.
+      const _f = state.gamesFilter || (state.gamesFilter = { q: "", edgesOnly: false });
+      const _fnorm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const _q = _fnorm(_f.q.trim());
+      const _pHasEdge = (p) => Object.values(p.propGroups || {}).some((arr) => (arr || []).some((e) => Number(e.edge) > 0));
+      const _pMatch = (p, g) => !_q || _fnorm(p.player).includes(_q) || _fnorm(p.team).includes(_q) || _fnorm(g.matchup).includes(_q);
       let html = `<div style="padding:8px 12px;">`;
+      html += `<div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+        <input id="games-search" type="search" placeholder="Search player / team…" value="${escapeHtml(_f.q)}" oninput="window._gamesSearch(this.value)"
+               style="flex:1;padding:9px 12px;border-radius:9px;border:1px solid #26262E;background:#15161C;color:#F9FAFB;font-size:13px;outline:none;" />
+        <button onclick="window._gamesEdgesToggle()" style="padding:9px 12px;border-radius:9px;border:1px solid ${_f.edgesOnly ? "#14532D" : "#26262E"};background:${_f.edgesOnly ? "rgba(52,211,153,0.14)" : "#15161C"};color:${_f.edgesOnly ? "#34D399" : "#9CA3AF"};font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">⚙ edges${_f.edgesOnly ? " ✓" : ""}</button>
+      </div>`;
       let gamesShown = 0;
+      let hiddenPlayers = 0;
+      const filtering = !!(_q || _f.edgesOnly);
       for (const sport of sports) {
         const data = state.games[sport];
         if (!data || data._error || !Array.isArray(data.games) || data.games.length === 0) continue;
         html += `<div class="v2-sport-header" style="font-size:12px;font-weight:700;letter-spacing:0.5px;color:#9CA3AF;margin:10px 0 8px 0;">${titleOf[sport] || sport.toUpperCase()} · ${data.games.length} game${data.games.length === 1 ? "" : "s"}</div>`;
         for (const g of data.games) {
+          let gv = g;
+          if (filtering) {
+            const kept = (g.players || []).filter((p) => _pMatch(p, g) && (!_f.edgesOnly || _pHasEdge(p)));
+            hiddenPlayers += (g.players || []).length - kept.length;
+            if (!kept.length) continue;
+            gv = { ...g, players: kept };
+          }
           gamesShown++;
-          html += renderGameCard(g, sport, { todaySlate });
+          html += renderGameCard(gv, sport, { todaySlate });
         }
       }
+      if (filtering && hiddenPlayers) html += `<div style="font-size:10px;color:#6B7280;padding:4px 2px;">${hiddenPlayers} player${hiddenPlayers === 1 ? "" : "s"} hidden by ${_q ? "search" : ""}${_q && _f.edgesOnly ? " + " : ""}${_f.edgesOnly ? "edges-only" : ""} — clear the filter to see everything.</div>`;
       if (gamesShown === 0) {
         main.innerHTML = `<div class="empty" style="padding:20px;color:#9CA3AF;">No games on the slate right now.<br><span style="font-size:11px;color:#6B7280;">Try refreshing the slate (↻) if you expected games.</span></div>`;
         const gc0 = document.getElementById("gamesCount"); if (gc0) gc0.textContent = "0";
@@ -2003,6 +2029,23 @@
       const gc = document.getElementById("gamesCount"); if (gc) gc.textContent = String(gamesShown);
     }
 
+    // 2026-08-18 UX-2 — search/filter handlers. Debounced re-render with
+    // caret restore so typing on iOS never loses the keyboard.
+    window._gamesSearch = function (v) {
+      state.gamesFilter = state.gamesFilter || { q: "", edgesOnly: false };
+      state.gamesFilter.q = String(v || "");
+      clearTimeout(window.__gamesSearchT);
+      window.__gamesSearchT = setTimeout(() => {
+        render();
+        const el = document.getElementById("games-search");
+        if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (_) {} }
+      }, 250);
+    };
+    window._gamesEdgesToggle = function () {
+      state.gamesFilter = state.gamesFilter || { q: "", edgesOnly: false };
+      state.gamesFilter.edgesOnly = !state.gamesFilter.edgesOnly;
+      render();
+    };
     function renderGameCard(g, sport, opts = {}) {
       const players = Array.isArray(g.players) ? g.players : [];
       const matchupTxt = g.matchup || `${g.awayTeam || ""} @ ${g.homeTeam || ""}` || "Game";
@@ -2120,7 +2163,7 @@
       const caret = isExpanded ? "▾" : "▸";
 
       return `
-        <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
+        <div style="background: #15161C; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
           <div onclick="togglePlayerExpand('${escapeHtml(playerKey).replace(/'/g, "\\'")}')"
                style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
             <span style="color: #6B7280; font-size: 12px; min-width: 12px;">${caret}</span>
@@ -2315,7 +2358,7 @@
                     style="margin-left: auto; width: 24px; height: 24px; border-radius: 50%;
                            background: ${inParlay ? "#A78BFA" : "rgba(167, 139, 250, 0.12)"};
                            border: 1px solid rgba(167, 139, 250, 0.35);
-                           color: ${inParlay ? "#0A0E1A" : "#A78BFA"};
+                           color: ${inParlay ? "#0B0C10" : "#A78BFA"};
                            font-size: 13px; font-weight: 700; line-height: 1; cursor: pointer;
                            display: flex; align-items: center; justify-content: center;">${inParlay ? "✓" : "+"}</button>
           </div>
@@ -2643,7 +2686,7 @@
       }
 
       const summaryHtml = `
-        <div style="padding: 12px 14px; margin-bottom: 12px; background: #141828; border-radius: 12px;">
+        <div style="padding: 12px 14px; margin-bottom: 12px; background: #15161C; border-radius: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
             <div style="font-size: 12px; color: #9CA3AF; letter-spacing: 0.5px;">LAST NIGHT · ${escapeHtml(d.date || "—")}</div>
             <div style="font-size: 11px; color: #6B7280;">${tr.count} logged</div>
@@ -2707,7 +2750,11 @@
         return;
       }
 
-      const pickHtml = d.picks.map(p => {
+      // 2026-08-18 UX-2 — grouped GRADES with control-group framing: the flat
+      // mixed list buried results. Every pick here is the MODEL's nightly test
+      // (tracked whether or not money moved) — the framing line says so, and
+      // real money explicitly lives in MY BETS.
+      const _gradeCard = (p) => {
         const resultColor = p.result === "win" ? "#34D399"
                           : p.result === "loss" ? "#F87171"
                           : p.result === "push" ? "#9CA3AF"
@@ -2727,7 +2774,7 @@
           ? `<span style="color: #9CA3AF;">actual: <span style="color: #F9FAFB; font-family: ui-monospace, monospace;">${p.actualStat}</span></span>`
           : "";
         return `
-          <div style="background: #141828; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
+          <div style="background: #15161C; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px;">
             <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;">
               <span style="font-size: 13px; font-weight: 700; color: #F9FAFB; flex: 1; min-width: 0;">${escapeHtml(p.player || "Unknown")}</span>
               <span style="font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
@@ -2747,7 +2794,21 @@
             ${actualTxt ? `<div style="font-size: 11px; margin-top: 4px;">${actualTxt}</div>` : ""}
           </div>
         `;
-      }).join("");
+      };
+      const _res = (p) => String(p.result || "pending").toLowerCase();
+      const _wins = d.picks.filter((p) => _res(p) === "win");
+      const _losses = d.picks.filter((p) => _res(p) === "loss");
+      const _pushes = d.picks.filter((p) => _res(p) === "push" || _res(p) === "void");
+      const _pend = d.picks.filter((p) => !["win", "loss", "push", "void"].includes(_res(p)));
+      const _grp = (label, arr, color, open) => arr.length
+        ? `<details ${open ? "open" : ""} style="margin-bottom:8px;"><summary style="font-size:12px;font-weight:800;color:${color};letter-spacing:0.5px;cursor:pointer;padding:6px 2px;">${label} · ${arr.length}</summary>${arr.map(_gradeCard).join("")}</details>`
+        : "";
+      const framingHtml = `<div style="font-size:10px;color:#6B7280;margin:0 2px 10px 2px;line-height:1.5;">CONTROL GROUP — every pick the model graded last night, bet or not. This is the system's test sheet, not your money; your real bets live in MY BETS.</div>`;
+      const pickHtml = framingHtml
+        + _grp("✅ WINS", _wins, "#34D399", true)
+        + _grp("❌ LOSSES", _losses, "#F87171", true)
+        + _grp("⏳ PENDING", _pend, "#FBBF24", false)
+        + _grp("➖ PUSH / VOID", _pushes, "#9CA3AF", false);
 
       main.innerHTML = healthShell + summaryHtml + gradeBtns + pickHtml;
     }
@@ -2786,7 +2847,7 @@
             💵 I bet this
           </button>
           <button onclick="window._slipAdd()"
-            style="flex:0 0 auto;padding:9px 14px;border-radius:8px;border:1px solid #1E3A8A;background:rgba(96,165,250,0.10);color:#60A5FA;font-size:13px;font-weight:700;cursor:pointer;">
+            style="flex:0 0 auto;padding:9px 14px;border-radius:8px;border:1px solid #2A2B33;background:rgba(96,165,250,0.10);color:#60A5FA;font-size:13px;font-weight:700;cursor:pointer;">
             ＋ Slip
           </button>
           </div>
@@ -2796,16 +2857,16 @@
               ${[1, 2, 5].map((v) => `<button onclick="window._pbStake(${v})" style="padding:6px 12px;border-radius:6px;border:1px solid #374151;background:#1F2937;color:#F9FAFB;font-size:12px;font-weight:700;cursor:pointer;">${v}</button>`).join("")}
               <input id="pb-stake" type="number" inputmode="numeric" min="1" step="1" value="1"
                 oninput="window._pbStake(null)"
-                style="width:58px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+                style="width:58px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
             </div>
             <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
               <span style="font-size:11px;color:#9CA3AF;">Odds I got</span>
               <input id="pb-odds" type="number" inputmode="numeric" value="${Number(p.oddsAmerican ?? p.odds) || ""}"
-                style="width:74px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+                style="width:74px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
               <span style="font-size:9px;color:#6B7280;">card price ${_oddsNice(p.oddsAmerican ?? p.odds)} — your slip is ground truth; edit if the book gave a different price</span>
             </div>
             <button id="pb-confirm" onclick="window._pbConfirm(this)"
-              style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">
+              style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0B0C10;font-size:13px;font-weight:800;cursor:pointer;">
               Confirm — record $<span id="pb-amt">1</span> bet
             </button>
             <div id="pb-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
@@ -3019,7 +3080,7 @@
       const composeHtml = sameBook && legs.length >= 2 ? _slipComposeAnchor(legs, crossGame) : "";
       const mixNote = !sameBook && legs.length >= 2 ? `<div style="font-size:10px;color:#FBBF24;margin-top:6px;">Legs span multiple books — a parlay lives at one book. Remove mismatched legs to record/open as one slip.</div>` : "";
       panel.innerHTML = `
-        <div style="background:#141828;border:1px solid #334155;border-radius:10px;margin-top:6px;padding:12px;">
+        <div style="background:#15161C;border:1px solid #334155;border-radius:10px;margin-top:6px;padding:12px;">
           ${legRows}
           <div style="font-size:11px;color:#9CA3AF;margin-top:8px;">combined ≈ ${amer || "—"} (display only — the book's slip price is authoritative)</div>
           ${composeHtml}
@@ -3029,10 +3090,10 @@
           <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
             <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
             ${[1, 2, 5].map((v) => `<button onclick="document.getElementById('slip-stake').value=${v}" style="padding:5px 10px;border-radius:6px;border:1px solid #374151;background:#1F2937;color:#F9FAFB;font-size:11px;font-weight:700;cursor:pointer;">${v}</button>`).join("")}
-            <input id="slip-stake" type="number" inputmode="numeric" min="1" step="1" value="1" style="width:52px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:11px;text-align:center;" />
-            <input id="slip-odds" type="number" inputmode="numeric" placeholder="book odds" title="the combined odds YOUR book shows on the slip" style="width:84px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:11px;text-align:center;" />
+            <input id="slip-stake" type="number" inputmode="numeric" min="1" step="1" value="1" style="width:52px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:11px;text-align:center;" />
+            <input id="slip-odds" type="number" inputmode="numeric" placeholder="book odds" title="the combined odds YOUR book shows on the slip" style="width:84px;padding:5px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:11px;text-align:center;" />
           </div>
-          <button onclick="window._slipRecord(this)" style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">I bet this parlay — record it</button>` : ""}
+          <button onclick="window._slipRecord(this)" style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0B0C10;font-size:13px;font-weight:800;cursor:pointer;">I bet this parlay — record it</button>` : ""}
           <div id="slip-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
           <button onclick="window._slipClear()" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
         </div>`;
@@ -3206,17 +3267,17 @@
       if (!s) return;
       const multi = s.legs.length >= 2;
       const legRows = s.legs.map((l, i) => `
-        <div style="background:#141828;border-radius:8px;padding:10px;margin-top:8px;">
+        <div style="background:#15161C;border-radius:8px;padding:10px;margin-top:8px;">
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <input id="sr-player-${i}" value="${escapeHtml(l.player || "")}" placeholder="player" style="flex:2 1 120px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
-            <input id="sr-stat-${i}" value="${escapeHtml(l.propType || "")}" placeholder="stat (hits/totalBases/…)" style="flex:2 1 110px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+            <input id="sr-player-${i}" value="${escapeHtml(l.player || "")}" placeholder="player" style="flex:2 1 120px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;" />
+            <input id="sr-stat-${i}" value="${escapeHtml(l.propType || "")}" placeholder="stat (hits/totalBases/…)" style="flex:2 1 110px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;" />
           </div>
           <div style="display:flex;gap:6px;margin-top:6px;">
-            <select id="sr-side-${i}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+            <select id="sr-side-${i}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;">
               ${["over", "under", "yes", "no"].map((v) => `<option value="${v}" ${String(l.side || "").toLowerCase() === v ? "selected" : ""}>${v}</option>`).join("")}
             </select>
-            <input id="sr-line-${i}" type="number" step="0.5" value="${l.line ?? ""}" placeholder="line" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
-            <input id="sr-odds-${i}" type="number" value="${l.odds ?? ""}" placeholder="odds" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+            <input id="sr-line-${i}" type="number" step="0.5" value="${l.line ?? ""}" placeholder="line" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
+            <input id="sr-odds-${i}" type="number" value="${l.odds ?? ""}" placeholder="odds" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
             <button onclick="window._srState.legs.splice(${i},1);window._srRenderConfirm();" style="flex:0 0 auto;background:none;border:0;color:#F87171;font-size:15px;cursor:pointer;">×</button>
           </div>
         </div>`).join("");
@@ -3229,31 +3290,31 @@
         <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
           <span style="font-size:11px;color:#9CA3AF;">Book</span>
           <label style="font-size:11px;color:#FBBF24;display:flex;align-items:center;gap:4px;white-space:nowrap;"><input type="checkbox" id="sr-bonus"> bonus/free bet</label>
-          <select id="sr-book" style="flex:1;padding:6px;border-radius:6px;border:1px solid ${s.sportsbook ? "#374151" : "#B45309"};background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+          <select id="sr-book" style="flex:1;padding:6px;border-radius:6px;border:1px solid ${s.sportsbook ? "#374151" : "#B45309"};background:#0B0C10;color:#F9FAFB;font-size:12px;">
             <option value="">— pick the book —</option>
             ${["FanDuel", "DraftKings", "BetMGM", "Hard Rock Bet", "BetRivers", "Fanatics", "bet365", "Caesars"].map((b) => `<option value="${b}" ${s.sportsbook === b ? "selected" : ""}>${b}</option>`).join("")}
           </select>
           <span style="font-size:11px;color:#9CA3AF;">Stake $</span>
-          <input id="sr-stake" type="number" min="1" step="1" value="${s.stake ?? 1}" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+          <input id="sr-stake" type="number" min="1" step="1" value="${s.stake ?? 1}" style="width:56px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
         </div>
         ${!s.sportsbook && s.bookGuess ? `<div style="font-size:10px;color:#FBBF24;margin-top:4px;">Fingerprint guess: ${escapeHtml(s.bookGuess)} (low confidence) — pick it yourself, the record keys on the book.</div>` : ""}
         <div style="display:flex;gap:6px;align-items:center;margin-top:8px;">
           <span style="font-size:11px;color:#9CA3AF;">Bet date</span>
-          <input id="sr-date" type="date" value="${escapeHtml(s.placedAtDate || currentSlateDateEt())}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;" />
+          <input id="sr-date" type="date" value="${escapeHtml(s.placedAtDate || currentSlateDateEt())}" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;" />
           <span style="font-size:9px;color:#6B7280;">${s.placedAtDate ? "from the slip's timestamp" : "no timestamp on slip — defaulted to today"}</span>
         </div>
         ${legRows}
         ${multi ? `
         <div style="display:flex;gap:6px;align-items:center;margin-top:10px;">
           <span style="font-size:11px;color:#9CA3AF;">Record as</span>
-          <select id="sr-mode" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;">
+          <select id="sr-mode" style="flex:1;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;">
             <option value="parlay" selected>one parlay (${s.legs.length} legs)</option>
             <option value="singles">separate singles</option>
           </select>
           <span style="font-size:11px;color:#9CA3AF;">Combined odds</span>
-          <input id="sr-combined" type="number" value="${s.combinedOdds ?? ""}" placeholder="+450" style="width:76px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0A0E1A;color:#F9FAFB;font-size:12px;text-align:center;" />
+          <input id="sr-combined" type="number" value="${s.combinedOdds ?? ""}" placeholder="+450" style="width:76px;padding:6px;border-radius:6px;border:1px solid #374151;background:#0B0C10;color:#F9FAFB;font-size:12px;text-align:center;" />
         </div>` : ""}
-        <button id="sr-confirm" onclick="window._srConfirm(this)" style="width:100%;margin-top:12px;padding:10px 0;border-radius:8px;border:0;background:#34D399;color:#0A0E1A;font-size:13px;font-weight:800;cursor:pointer;">Record ${multi ? "this slip" : "this bet"} exactly as shown above</button>
+        <button id="sr-confirm" onclick="window._srConfirm(this)" style="width:100%;margin-top:12px;padding:10px 0;border-radius:8px;border:0;background:#34D399;color:#0B0C10;font-size:13px;font-weight:800;cursor:pointer;">Record ${multi ? "this slip" : "this bet"} exactly as shown above</button>
         <div id="sr-result" style="margin-top:8px;font-size:11px;line-height:1.5;"></div>`;
     };
     window._srConfirm = async function (btnEl) {
@@ -3325,7 +3386,7 @@
     // /api/ws/deeplink-verdict — taps become recorded data, no transcription.
     if (/[?&]dev=1/.test(location.search)) {
       const devBtn = document.createElement("div");
-      devBtn.innerHTML = `<button onclick="window._tlOpen()" style="position:fixed;left:10px;bottom:64px;z-index:70;padding:8px 12px;border-radius:8px;border:1px solid #4C1D95;background:#1E1B4B;color:#A78BFA;font-size:12px;font-weight:700;cursor:pointer;">🧪 TEST LINKS</button><div id="tl-panel" style="position:fixed;left:10px;right:10px;bottom:110px;z-index:70;display:none;max-height:60vh;overflow-y:auto;background:#141828;border:1px solid #334155;border-radius:10px;padding:12px;"></div>`;
+      devBtn.innerHTML = `<button onclick="window._tlOpen()" style="position:fixed;left:10px;bottom:64px;z-index:70;padding:8px 12px;border-radius:8px;border:1px solid #4C1D95;background:#1E1B4B;color:#A78BFA;font-size:12px;font-weight:700;cursor:pointer;">🧪 TEST LINKS</button><div id="tl-panel" style="position:fixed;left:10px;right:10px;bottom:110px;z-index:70;display:none;max-height:60vh;overflow-y:auto;background:#15161C;border:1px solid #334155;border-radius:10px;padding:12px;"></div>`;
       document.body.appendChild(devBtn);
     }
     window._tlOpen = async function () {
@@ -3404,7 +3465,7 @@
           if (btnEl) {
             btnEl.textContent = "✓";
             btnEl.style.background = "#FBBF24";
-            btnEl.style.color = "#0A0E1A";
+            btnEl.style.color = "#0B0C10";
             setTimeout(() => {
               if (!btnEl) return;
               btnEl.textContent = originalLabel || "L";
@@ -3451,7 +3512,7 @@
                  value="${escapeHtml(searchState.q || "")}"
                  oninput="onSearchInput('${sport}', this.value)"
                  style="width: 100%; padding: 10px 12px;
-                        background: #141828; border: 1px solid ${searchState.q ? "#38BDF8" : "#1F2937"};
+                        background: #15161C; border: 1px solid ${searchState.q ? "#38BDF8" : "#1F2937"};
                         color: #E5E7EB; border-radius: 10px; font-size: 14px;
                         font-family: inherit; box-sizing: border-box;
                         transition: border-color 0.15s ease;" />
@@ -3762,7 +3823,7 @@
       _ms.textContent = `
         #v2-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9999; display: none; }
         #v2-modal.open { display: block; }
-        #v2-modal .inner { position: absolute; background: #141828; width: 320px; max-width: 92vw; max-height: 70vh; overflow-y: auto; border-radius: 12px; padding: 16px; border: 1px solid #2A3142; box-shadow: 0 14px 40px rgba(0,0,0,0.75); }
+        #v2-modal .inner { position: absolute; background: #15161C; width: 320px; max-width: 92vw; max-height: 70vh; overflow-y: auto; border-radius: 12px; padding: 16px; border: 1px solid #2A3142; box-shadow: 0 14px 40px rgba(0,0,0,0.75); }
         #v2-modal .close { float: right; background: transparent; border: 0; color: #D1D5DB; font-size: 22px; cursor: pointer; padding: 0 8px; line-height: 1; }
         #v2-modal .hdr { font-size: 16px; font-weight: 700; color: #F9FAFB; margin-bottom: 4px; }
         #v2-modal .sub { font-size: 13px; color: #D1D5DB; margin-bottom: 4px; }
@@ -3915,7 +3976,7 @@
         const capChip = pick.tierCapNote ? ` <span style="font-style:italic;color:#9CA3AF;font-weight:400;">· ${escapeHtml(pick.tierCapNote)}</span>` : "";
         const lfUi = _lfNice(pick);
         return `
-          <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:11px 12px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
+          <div class="v2-card" id="${cardId}" style="background:#15161C;border-radius:10px;padding:11px 12px;border-left:4px solid ${tierC};display:flex;flex-direction:column;cursor:pointer;" onclick="${onTap}">
             <div style="display:flex;align-items:center;justify-content:space-between;">
               <span style="font-size:10px;font-weight:600;color:${sportColor};letter-spacing:.5px;">${(pick.sport || "").toUpperCase()}</span>
               <span style="font-size:9px;font-weight:700;color:#9CA3AF;background:#1F2937;padding:2px 7px;border-radius:9px;">${escapeHtml(tierLabel(tier))}${capChip}${starBadge}</span>
@@ -3938,7 +3999,7 @@
       // Standard (single-column) card — also taps into modal now
       const lfUiStd = _lfNice(pick);
       return `
-        <div class="v2-card" id="${cardId}" style="background:#141828;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${tierC};cursor:pointer;" onclick="${onTap}">
+        <div class="v2-card" id="${cardId}" style="background:#15161C;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${tierC};cursor:pointer;" onclick="${onTap}">
           <div style="display:flex;align-items:center;">
             <div style="flex:1;min-width:0;">
               <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
@@ -4002,7 +4063,7 @@
               : `<div style="font-size:12px;color:#9CA3AF;padding:6px 0;">${j3.firstPitchAt ? `Today's 3 lock 60 min before first pitch (${escapeHtml(new Date(j3.firstPitchAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }))} ET).` : "No games this slate — no card today."}</div>`;
             const histLine = (j3.history || []).filter((c) => c.results).slice(0, 7).map((c) => `<span style="margin-right:8px;color:${(c.netUnits || 0) >= 0 ? "#34D399" : "#F87171"};">${c.slate.slice(5)}: ${c.netUnits >= 0 ? "+" : ""}${c.netUnits}u</span>`).join("");
             d3html = `
-              <div style="background:#10182B;border:1px solid #1E3A8A;border-radius:10px;padding:12px;margin-bottom:12px;">
+              <div style="background:#14151B;border:1px solid #2A2B33;border-radius:10px;padding:12px;margin-bottom:12px;">
                 <div style="display:flex;justify-content:space-between;align-items:baseline;">
                   <span style="font-size:12px;font-weight:800;letter-spacing:1px;color:#60A5FA;">🎯 THE DAILY 3</span>
                   <span style="font-size:10px;color:#9CA3AF;">${recLine}</span>
@@ -4071,7 +4132,7 @@
           const stateColor = bs && bs.alert ? "#F87171" : "#FBBF24";
           const stateIcon = bs && bs.alert ? "🔴" : bs && bs.states?.some((s) => s.state === "games_started") ? "🌙" : bs && bs.states?.some((s) => s.state === "no_games") ? "📅" : "⚖️";
           main.innerHTML = `<div style="padding:20px;">
-            <div style="background:#141828;border-left:3px solid ${stateColor};border-radius:10px;padding:14px;color:#D1D5DB;font-size:13px;line-height:1.6;">
+            <div style="background:#15161C;border-left:3px solid ${stateColor};border-radius:10px;padding:14px;color:#D1D5DB;font-size:13px;line-height:1.6;">
               ${stateIcon} ${bs ? bs.states.map((s) => `<div style="margin-bottom:4px;">${escapeHtml(s.reason)}</div>`).join("") : `No top picks available for ${escapeHtml(d.date)} — and the server gave no reason (that itself is a bug; check /status).`}
               ${bs && bs.alert ? `<div style="margin-top:6px;color:#F87171;font-weight:700;">This state is alertable — the watchdog has it.</div>` : ""}
             </div>
@@ -4234,7 +4295,7 @@
         const _pendWin = _num(pb.pendingToWin) != null ? _num(pb.pendingToWin) : (_num(pb.toWin) || 0);
         const _profitC = _profit > 0 ? "#34D399" : _profit < 0 ? "#F87171" : "#9CA3AF";
         html += `
-          <div style="background:#141828;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid ${_profitC};">
+          <div style="background:#15161C;border-radius:10px;padding:14px;margin-bottom:14px;border-left:3px solid ${_profitC};">
             <div style="display:flex;justify-content:space-between;align-items:baseline;">
               <div>
                 <div style="font-size:11px;color:#6B7280;letter-spacing:1px;">PROFIT <span style="letter-spacing:0;text-transform:none;">(settled${pb.settled != null ? ", " + pb.settled + " bets" : ""})</span></div>
@@ -4309,7 +4370,7 @@
             ? `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">Parlay · ${(b.legs || []).length} legs</div>`
             : `<div style="margin-top:6px;font-size:14px;font-weight:700;color:#F9FAFB;">${escapeHtml(b.player || "?")} <span style="font-weight:500;color:#D1D5DB;">${_sideNice(b.side)} ${b.line ?? ""} ${_famNice(b.statFamily)}</span></div>`;
           return `
-            <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${resultC};">
+            <div style="background:#15161C;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${resultC};">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
                 <div>
                   <span style="font-size:11px;background:#1F2937;color:#9CA3AF;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${b.betType || "single"} · ${escapeHtml(b.sportsbook || "?")}</span>
@@ -4320,7 +4381,20 @@
               ${identLine}
               <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
                 <span style="font-size:13px;color:#F9FAFB;">$${b.stake} @ ${_oddsNice(b.odds)}</span>
-                <span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>
+                ${(() => {
+                  // 2026-08-18 UX-2 (D1 from the item-3 report): the "→ $toWin"
+                  // arrow was unconditional — a settled card kept advertising the
+                  // ORIGINAL potential (b62d25d6: card said $2.90, book paid $2.52
+                  // after a void recompute; a LOST ticket still showed an arrow).
+                  // Settled cards now render BOOK TRUTH from the payout field;
+                  // toWin remains the honest label ONLY while pending.
+                  const res = String(b.result || "pending").toLowerCase();
+                  const pay = Number(b.payout);
+                  if (res === "pending") return `<span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">→ $${b.toWin}</span>`;
+                  if (res === "win") return `<span style="font-size:13px;color:#34D399;font-family:ui-monospace,monospace;">paid $${Number.isFinite(pay) ? pay : b.toWin}</span>`;
+                  if (res === "push" || res === "void") return `<span style="font-size:13px;color:#9CA3AF;font-family:ui-monospace,monospace;">stake returned</span>`;
+                  return `<span style="font-size:13px;color:#6B7280;font-family:ui-monospace,monospace;">−$${b.stake}</span>`;
+                })()}
               </div>
               ${b.result && b.result !== "pending" ? `<div style="margin-top:5px;"><span onclick="bookSaysOtherwise('${b.id}')" style="font-size:10px;color:#F59E0B;cursor:pointer;border-bottom:1px dotted #F59E0B;">⚠ book says otherwise? correct to slip truth</span></div>` : ""}
               ${b.calibVersion ? `<div style="margin-top:4px;font-size:9px;color:#7DD3FC;">stamped ${escapeHtml(b.calibVersion)}${b.modelProb != null ? ` · model ${(b.modelProb * 100).toFixed(1)}%` : ""}</div>` : ""}
@@ -4487,7 +4561,7 @@
       const corr = _num(slip.correlationScore);
 
       return `
-        <div style="background:#141828;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${badgeColor};">
+        <div style="background:#15161C;border-radius:10px;padding:12px;margin-bottom:10px;border-left:3px solid ${badgeColor};">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
             <span style="font-size:11px;background:#1F2937;color:#9CA3AF;padding:2px 6px;border-radius:4px;text-transform:uppercase;">${escapeHtml((slip._sport || "").toUpperCase())} · ${(slip.legs || []).length} legs · ${escapeHtml(bookName || "?")}</span>
             <span style="font-size:11px;font-weight:700;color:${badgeColor};">${badgeText}</span>
@@ -4502,17 +4576,17 @@
           <div data-slot="ladder-rungs"></div>
           <div style="margin-top:10px;display:flex;gap:8px;">
             ${bookUrl
-              ? `<a href="${bookUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;font-size:12px;color:#0A0E1A;background:#FBBF24;padding:8px;border-radius:6px;text-decoration:none;font-weight:600;">Open ${escapeHtml(bookName)} ↗</a>`
+              ? `<a href="${bookUrl}" target="_blank" rel="noopener" style="flex:1;text-align:center;font-size:12px;color:#0B0C10;background:#FBBF24;padding:8px;border-radius:6px;text-decoration:none;font-weight:600;">Open ${escapeHtml(bookName)} ↗</a>`
               : `<span style="flex:1;text-align:center;font-size:12px;color:#6B7280;padding:8px;">${escapeHtml(bookName || "")}</span>`}
             <button id="copybtn-${idx}" onclick="copySlipLegs(${idx})" style="flex:1;font-size:12px;color:#D1D5DB;background:#1F2937;padding:8px;border-radius:6px;border:none;cursor:pointer;">Copy legs</button>
           </div>
           <div style="margin-top:10px;border-top:1px solid #1F2937;padding-top:8px;">
             <div onclick="(function(b){var o=b.nextElementSibling;var open=o.style.display==='none';o.style.display=open?'block':'none';b.querySelector('.scchev').textContent=open?'▾':'▸';if(open)slipCashout(${idx});})(this)" style="font-size:12px;color:#A78BFA;cursor:pointer;font-weight:600;">💸 Cash-out / Hedge <span class="scchev">▸</span></div>
             <div style="display:none;margin-top:8px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:11px;color:#9CA3AF;">Stake $</span><input type="number" min="1" value="10" data-sc-stake="${idx}" oninput="slipCashout(${idx})" style="width:70px;background:#0A0E1A;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:11px;color:#9CA3AF;">Stake $</span><input type="number" min="1" value="10" data-sc-stake="${idx}" oninput="slipCashout(${idx})" style="width:70px;background:#0B0C10;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
               <div style="font-size:10px;color:#6B7280;margin-bottom:4px;">tap a leg the moment it HITS:</div>
               ${(slip.legs || []).map((l, li) => `<label style="display:flex;align-items:center;gap:7px;font-size:11px;color:#C7CCD6;padding:3px 0;"><input type="checkbox" data-sc-leg="${idx}" data-sc-li="${li}" onchange="slipCashout(${idx})"><span>${escapeHtml(l.player || "?")} ${_famNice(l.statFamily || l.propType)} ${_sideNice(l.side)} ${l.line == null ? "" : l.line} <span style="color:#6B7280;">${_oddsNice(l.odds)}</span></span></label>`).join("")}
-              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="font-size:11px;color:#9CA3AF;">Hedge final-leg odds <span style="color:#6B7280;">(optional)</span></span><input data-sc-hedge="${idx}" placeholder="-120" oninput="slipCashout(${idx})" style="width:80px;background:#0A0E1A;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><span style="font-size:11px;color:#9CA3AF;">Hedge final-leg odds <span style="color:#6B7280;">(optional)</span></span><input data-sc-hedge="${idx}" placeholder="-120" oninput="slipCashout(${idx})" style="width:80px;background:#0B0C10;border:1px solid #2A2F45;border-radius:6px;color:#E5E7EB;padding:5px 7px;font-size:12px;text-align:right;"></div>
               <div id="sc-result-${idx}" style="margin-top:8px;"></div>
             </div>
           </div>
@@ -4632,7 +4706,7 @@
             const gameId = `game-${gi}`;
             const timeStr = _gameTimeNice(g.gameTime);
             html += `
-              <div style="background:#141828;border-radius:10px;margin-bottom:10px;">
+              <div style="background:#15161C;border-radius:10px;margin-bottom:10px;">
                 <div style="padding:12px;cursor:pointer;" onclick="document.getElementById('${gameId}').classList.toggle('open');this.querySelector('.gchev').textContent=document.getElementById('${gameId}').classList.contains('open')?'▾':'▸';">
                   <div style="display:flex;align-items:center;">
                     <div style="flex:1;min-width:0;">
@@ -4908,7 +4982,7 @@
       // available via parseAndPopulate() as a fallback handler (no UI).
       const ocrStatus = state.analyze.ocrStatus || "";
       const ocrHtml = `
-        <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.5); background: linear-gradient(180deg, #11202E 0%, #141828 100%);">
+        <div class="leg-form" style="border-color: rgba(56, 189, 248, 0.5); background: linear-gradient(180deg, #11202E 0%, #15161C 100%);">
           <div class="leg-form-title" style="margin-bottom: 6px;">📸 Drop a screenshot (Claude Vision OCR)</div>
           <!-- Phase Screenshot-FE-Ingest-Fix-1A: multi-file. Drop as many as you want;
                each one is OCR'd + auto-submitted sequentially. -->
@@ -5705,12 +5779,32 @@
     // Tab switching
     document.querySelectorAll(".tab").forEach(tab => {
       tab.addEventListener("click", () => {
+        if (tab.dataset.sport === "__more") return; // ⋯ menu handles itself
         document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
         tab.classList.add("active");
         state.activeSport = tab.dataset.sport;
         render();
       });
     });
+    // 2026-08-18 UX-2 — the ⋯ menu: rarely-used surfaces park here instead of
+    // spending tab-bar width (ANALYZE first, per operator order).
+    window._moreMenu = function (ev) {
+      ev && ev.stopPropagation();
+      let m = document.getElementById("more-menu");
+      if (m) { m.remove(); return; }
+      m = document.createElement("div");
+      m.id = "more-menu";
+      m.style.cssText = "position:fixed;right:10px;bottom:112px;z-index:70;background:#15161C;border:1px solid #26262E;border-radius:12px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.55);min-width:170px;";
+      m.innerHTML = `<button onclick="window._moreGo('analyze')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#F9FAFB;font-size:13px;font-weight:700;cursor:pointer;">📸 Analyze a slip screenshot</button>`;
+      document.body.appendChild(m);
+      setTimeout(() => document.addEventListener("click", function _c(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener("click", _c); } }), 0);
+    };
+    window._moreGo = function (sport) {
+      const m = document.getElementById("more-menu"); if (m) m.remove();
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      state.activeSport = sport;
+      render();
+    };
 
     // v0.1.5: cheap fetch only on initial load — operator 2026-05-21 caught
     // that force-refreshing on every PWA open would burn ~80 odds-API calls
