@@ -70,7 +70,17 @@ function stampSharpPlaysCalibration(c, sport) {
   }
   const neg = SPM_STEP1_NET_NEGATIVE[sport] && SPM_STEP1_NET_NEGATIVE[sport][fam]
   if (neg) c.historicallyBelowBreakeven = { realizedEdgePp: neg.realizedEdgePp, source: neg.source }
+  // 2026-08-18 BROKEN-FAMILY CONTAINMENT — additive stamp only (existing
+  // fields untouched per the 2026-06-09 additive regression doctrine). The FE
+  // renders BROKEN + suppresses tier/confidence claims for stamped rows.
+  const _bfs = brokenFamilyStamp(sport, fam)
+  if (_bfs) c.brokenFamily = _bfs
 }
+// 2026-08-18 BROKEN-FAMILY CONTAINMENT — the ONE serve-layer authority for
+// families the model is proven wrong on (mlb rbis + outs). Evidence-cited
+// list; lifted only when a recalibration ASK passes. Serve-layer only —
+// records, grading, and write-time tiers untouched.
+const { isBrokenFamily, brokenFamilyInfo, brokenFamilyStamp } = require("../pipeline/shared/brokenFamilies")
 const { isAllowedBook, canonicalBookName } = require("../pipeline/shared/sportsbookAllowlist")
 // Phase Sport-Identity-Integrity-1A (2026-05-17): canonical sport-identity
 // resolver. ONE authoritative alias map. Every sport input (mlb /
@@ -1077,6 +1087,15 @@ router.get("/state", async (req, res) => {
       for (const arr of [candidates, discoveryCandidates, featured]) {
         if (Array.isArray(arr)) for (const c of arr) stampSharpPlaysCalibration(c, sport)
       }
+      // 2026-08-18 BROKEN-FAMILY CONTAINMENT — featured is a recommendation
+      // surface (the trust anchor); a proven-broken family is never featured.
+      // Display pools (candidates/discovery) keep their rows, stamped, with
+      // tier/confidence suppressed at render. In-place so the payload key
+      // wiring below is untouched.
+      if (Array.isArray(featured)) {
+        const _featKept = featured.filter((c) => !c || !c.brokenFamily)
+        if (_featKept.length !== featured.length) { featured.length = 0; featured.push(..._featKept) }
+      }
 
       return {
         sport,
@@ -1492,7 +1511,27 @@ router.get("/games", (req, res) => {
     function _laneFor(sport, fam) {
       const key = `${sport}|${fam}`
       if (_laneCache.has(key)) return _laneCache.get(key)
+      // 2026-08-18 BROKEN-FAMILY CONTAINMENT — the brokenFamilies authority
+      // OVERRIDES the lane_calibration.json file for listed families: the file
+      // was found stale (generatedAt 2026-05-23) in this addendum diagnosis,
+      // so the badge must not depend on it. File stats are merged when present
+      // (historic context), but status/badge come from the live authority.
+      const _bf = brokenFamilyInfo(sport, fam)
       const verdict = resolveLaneCalibration(sport, fam)
+      if (_bf) {
+        const forced = {
+          status:           "broken",
+          badge:            laneStatusBadge("broken"),
+          hitRate:          verdict?.hitRate ?? null,
+          modelAvg:         verdict?.modelAvg ?? null,
+          roi:              verdict?.roi ?? null,
+          sample:           verdict?.sample ?? 0,
+          calibrationDelta: verdict?.calibrationDelta ?? null,
+          brokenAuthority:  { evidence: _bf.evidence, until: _bf.until },
+        }
+        _laneCache.set(key, forced)
+        return forced
+      }
       if (!verdict) { _laneCache.set(key, null); return null }
       const badge = laneStatusBadge(verdict.status)
       const out = {
@@ -1526,6 +1565,9 @@ router.get("/games", (req, res) => {
 
           // Calibration overlay
           const cal = _laneFor(sport, fam)
+          // BROKEN-FAMILY CONTAINMENT (2026-08-18) — raw lines/odds still
+          // display; tier + model-prob + edge (the confidence claims) do not.
+          const famBroken = isBrokenFamily(sport, fam)
           if (cal) {
             for (const e of arr) e.laneCalibration = cal
             familyCalibration[fam] = cal
@@ -1541,7 +1583,7 @@ router.get("/games", (req, res) => {
             // Look up model probability via tracked_bets join
             const key = `${String(p.player||"").toLowerCase().trim()}|${canonFamily(fam)}|${e.side}|${e.line ?? ""}`
             const m = modelProbLookup.get(key)
-            if (m) {
+            if (m && !famBroken) {
               e.modelProb = Number.isFinite(m.modelProb) ? m.modelProb : null
               e.edge      = Number.isFinite(m.edge)      ? m.edge      : null
               e.tier      = m.tier || null
@@ -3187,6 +3229,8 @@ router.get("/top-picks", (req, res) => {
     let droppedNonPreferredBook = 0
     let droppedUnpurchasable = 0
     let droppedStarted = 0
+    // BROKEN-FAMILY CONTAINMENT (2026-08-18) — see brokenFamilies.js
+    let droppedBrokenFamily = 0
     // 2026-07-26 RE-POINT PASS 2 (critic-evidenced: 50 unpurchasable-under
     // WINNERS on one slate) — a tuple whose under died at an over_only book
     // re-points to the best price among VERIFIED-SELLABLE books (explicit
@@ -3206,6 +3250,10 @@ router.get("/top-picks", (req, res) => {
         if (shouldRejectByOperatorPolicy(b)) continue
         const tier = String(b.tier || b.modelTier || "").toUpperCase()
         if (tier === "FADE" || tier === "LONGSHOT") continue
+        // 2026-08-18 BROKEN-FAMILY CONTAINMENT — a family the model is proven
+        // wrong on is never recommended, whatever tier it earned. Counted in
+        // the response meta (no silent caps). Record files untouched.
+        if (isBrokenFamily(sport, b.statFamily)) { droppedBrokenFamily++; continue }
         if (!isPreferredBook(b)) { droppedNonPreferredBook++; continue }
         if (String(b.side || "").toLowerCase().startsWith("u")) {
           const fmt = bookFormatFor(b.sportsbook || b.book, b.statFamily)
@@ -3486,6 +3534,9 @@ router.get("/top-picks", (req, res) => {
         droppedUnpurchasable,
         // STARTED-GAME GATE — picks whose first pitch has passed (per-request).
         droppedStarted,
+        // BROKEN-FAMILY CONTAINMENT — picks in proven-broken families (mlb
+        // rbis/outs), dropped pre-dedup. See brokenFamilies.js for evidence.
+        droppedBrokenFamily,
         // RE-POINT PASS 2 — unpurchasable-side tuples served via a verified-sellable book.
         repointedServed,
       },
@@ -3603,6 +3654,9 @@ router.get("/games-browser", (req, res) => {
         if (shouldRejectByOperatorPolicy(b)) continue
         const tier = String(b.tier || b.modelTier || "").toUpperCase()
         if (tier === "FADE" || tier === "LONGSHOT") continue
+        // BROKEN-FAMILY CONTAINMENT mirror (2026-08-18) — keeps this dormant
+        // browser consistent with /top-picks if ever resurrected.
+        if (isBrokenFamily(sport, b.statFamily)) continue
         allPicks.push({ ...b, sport })
         const key = `${sport}|${b.eventId || b.matchup}`
         if (!games.has(key)) {

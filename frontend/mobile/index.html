@@ -1110,6 +1110,11 @@
       if (c && c.historicallyBelowBreakeven) {
         notes.push({ type: "warn", text: "⚠ family historically below break-even" });
       }
+      // 2026-08-18 BROKEN-FAMILY CONTAINMENT — backend-stamped only; the FE
+      // never decides brokenness itself.
+      if (c && c.brokenFamily) {
+        notes.push({ type: "warn", text: "🚫 model BROKEN on this family — no tier, no confidence claim. Do not bet." });
+      }
       if (sport === "mlb") {
         if (c.lineupSpot == null && c.plateAppearancesProxy == null && /hitter|over/i.test(c.side || "")) {
           notes.push({ type: "pending", text: "lineups pending" });
@@ -1266,6 +1271,11 @@
       const tierCapHtml = c.tierCapNote
         ? `<span style="font-size:9px;color:#9CA3AF;font-style:italic;margin-left:4px;">${escapeHtml(c.tierCapNote)}</span>`
         : "";
+      // 2026-08-18 BROKEN-FAMILY CONTAINMENT — backend-stamped c.brokenFamily
+      // (brokenFamilies.js authority; mlb rbis/outs). FE never invents this.
+      // BROKEN pill replaces the tier pill; the edge bar (a confidence claim)
+      // is suppressed. Raw prop line, odds, and book still display.
+      const isBrokenFam = !!(c && c.brokenFamily);
       const convClass = isConv ? "conviction-card" : "";
       const book = c.sportsbook || c.book || "—";
       const bookCls = bookClass(book);
@@ -1433,7 +1443,9 @@
                 ${c.matchup ? `· ${escapeHtml(c.matchup)}` : ""}
               </div>
             </div>
-            <div class="tier-pill ${tier}">${tierTxt}</div>${tierCapHtml}
+            ${isBrokenFam
+              ? `<div class="tier-pill" style="background:rgba(248,113,113,0.18);color:#F87171;" title="${escapeHtml((c.brokenFamily && c.brokenFamily.tip) || "Model is proven wrong on this prop family.")}">BROKEN</div>`
+              : `<div class="tier-pill ${tier}">${tierTxt}</div>${tierCapHtml}`}
           </div>
 
           <div class="prop-line">
@@ -1447,7 +1459,7 @@
             ${lineShopChip}
           </div>
 
-          ${ep != null ? `
+          ${(ep != null && !isBrokenFam) ? `
           <div class="edge-row">
             <div class="edge-bar"><div class="edge-fill ${edgeHuge ? "huge" : ""}" style="width:${edgeWidth}%"></div></div>
             <div class="edge-pct">+${ep}%</div>
