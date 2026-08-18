@@ -304,6 +304,37 @@ function checkLongshotLab() {
 }
 checkLongshotLab()
 
+// (29) 2026-08-17 RESTART-GAP pack — the SERVER's vintage on /status. sysAudit
+// has been alerting on stale backends hourly, but into drift_alerts.log —
+// and Backend-AutoRecovery fires on DEATH only (measured: 8/16-17 stale-code
+// REDs at 17:01/20:01/21:01 → nothing; one timeout → instant restart). The
+// backend served pre-f1eac7f code ~20h and no /status surface screamed.
+// Honest nuance: HEAD moves with every receipts auto-commit — stale means
+// SERVED CODE changed since boot (git diff boot..HEAD limited to backend/ +
+// frontend/), not merely a new commit hash.
+function checkBackendVintage() {
+  try {
+    const bootP = path.join(__dirname, "..", "runtime", "backend_boot.json")
+    if (!fs.existsSync(bootP)) return set("backendVintage", "not-run", "Backend vintage: no boot stamp yet (pre-perf-pack backend)", "wired")
+    const boot = JSON.parse(fs.readFileSync(bootP, "utf8"))
+    const { execSync } = require("child_process")
+    const repo = path.join(__dirname, "..", "..")
+    const head = execSync("git rev-parse HEAD", { cwd: repo, timeout: 3000 }).toString().trim()
+    if (boot.commit && head && boot.commit !== head) {
+      let servedDiff = ""
+      try { servedDiff = execSync(`git diff --name-only ${boot.commit}..HEAD -- backend/ frontend/`, { cwd: repo, timeout: 4000 }).toString().trim() } catch (_) { servedDiff = "diff_unavailable" }
+      if (servedDiff) {
+        const ageMin = Math.round((Date.now() - Date.parse(boot.bootAt)) / 60000)
+        const nFiles = servedDiff === "diff_unavailable" ? "?" : servedDiff.split("\n").length
+        return set("backendVintage", "fail", `Backend vintage: serving ${String(boot.commit).slice(0, 7)} but HEAD ${head.slice(0, 7)} changed ${nFiles} served file(s) (booted ${ageMin}m ago) — STALE SERVER; run restartBackend.sh (AutoRecovery fires on death only)`, "wired")
+      }
+      return set("backendVintage", "green", `Backend vintage: serving ${boot.commitShort}; HEAD moved (${head.slice(0, 7)}) but zero served-code files changed — no restart needed`, "wired")
+    }
+    return set("backendVintage", "green", `Backend vintage: serving ${boot.commitShort} == HEAD (pid ${boot.pid}, booted ${boot.bootAt})`, "wired")
+  } catch (e) { return set("backendVintage", "not-run", `Backend vintage: ${String(e?.message || e)}`, "wired") }
+}
+checkBackendVintage()
+
 // ── sidecar write RELOCATED (2026-07-29 BETS-PAGE PACK 2 audit finding) ──
 // The write used to happen HERE — above every check added since 07-14
 // (boardServeParity → lineFreshness, 12 alarms). Those checks ran and printed
@@ -651,7 +682,7 @@ const payload = {
 fs.mkdirSync(TRACKING, { recursive: true })
 fs.writeFileSync(OUT, JSON.stringify(payload, null, 2))
 
-const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior", "schedulerIdentity", "longshotLab"]
+const order = ["devigAnalytics", "cashoutHedge", "pinnacleBenchmarkSelfTest", "shadowStack", "pinnacleSidecar", "forwardClvTracker", "closingLineCapture", "contextPersistence", "forwardCapture", "boardServeParity", "ladderCapture", "rungScan", "daily3Grading", "n1Instrument", "rungSettles", "pairCorpus", "parlayScan", "criticNightly", "betsSurfaceParity", "parlaySettle", "lineFreshness", "daily3Receipt", "legDeathDisagreement", "gradBoardStall", "nflCapture", "market_prior", "schedulerIdentity", "longshotLab", "backendVintage"]
 console.log("=== component health (tested-green) " + nowIso + " ===")
 for (const k of order) { const c = components[k]; if (!c) continue; console.log(`  ${k.padEnd(26)} ${c.state.toUpperCase().padEnd(8)} ${c.reason}`) }
 console.log("summary: " + JSON.stringify(summary))

@@ -33,6 +33,10 @@ check("heartbeat schema is machine-checkable (the standalone snippet proof rides
   /"loadedSha":"%s"/.test(sch) && /"diskSha":"%s"/.test(sch) && /"loopStartedAt":"%s"/.test(sch) && /"pid":%s/.test(sch))
 check("heartbeat ts carries an explicit UTC offset (CA rider: a bare local stamp cost a false 4h-stale scare)",
   /HB_TS=\$\(TZ='America\/New_York' date \+%Y-%m-%dT%H:%M:%S%z\)/.test(sch) && /"\$HB_TS" "\$\$" "\$LOOP_STARTED"/.test(sch))
+// 2026-08-17 RESTART-GAP addition — the SERVER-vintage twin of #27.
+const chc29 = rd("scripts/componentHealthCheck.js")
+check("component #29 backendVintage: boot-stamp vs HEAD limited to SERVED files (receipts commits never cry wolf), death-only AutoRecovery gap named, registered before the write",
+  /checkBackendVintage/.test(chc29) && /"backendVintage"/.test(chc29) && /git diff --name-only/.test(chc29) && /AutoRecovery fires on death only/.test(chc29) && /zero served-code files changed/.test(chc29) && chc29.indexOf("fs.writeFileSync(OUT") > chc29.indexOf("checkBackendVintage()"))
 check("matrix: verifySchedulerTruth registered", /"verifySchedulerTruth"/.test(rd("scripts/runtimeVerify.js")))
 
 console.log(`verifySchedulerTruth: ${pass}/${pass + fail} checks PASS`)
