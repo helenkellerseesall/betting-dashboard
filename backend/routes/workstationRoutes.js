@@ -2440,7 +2440,37 @@ router.post("/place-bet", express.json(), (req, res) => {
 router.get("/daily3", (req, res) => {
   try {
     const { readDaily3 } = require("../pipeline/shared/daily3")
-    res.json({ ok: true, ...readDaily3() })
+    const payload = readDaily3()
+    // 2026-08-19 WHY-RESTORATION (pack item 0) — ADDITIVE enrichment of
+    // TODAY's card picks only: join each pick to its tracked row (today's
+    // file, tuple incl. book with book-less fallback) and attach the factor
+    // fields the operator asked for (wind/park/platoon/lineup/totals/tags —
+    // measured 75-92% populated), the prop-specific displayBundle, the
+    // reasoning blurb, and per-player history. Existing builders only, zero
+    // new modeling. Any failure serves the card WITHOUT the why (additive).
+    try {
+      if (payload && payload.today && Array.isArray(payload.today.picks)) {
+        const slate = payload.today.slate || currentSlateDateEt()
+        const rows = readJsonSafe(fileFor("mlb", "tracked_bets", slate), []) || []
+        const _n = (v) => String(v ?? "").toLowerCase().trim()
+        const FACTOR_KEYS = ["windDirectionTag", "temperatureF", "hrFactor", "hrEnvironmentTag", "isPlatoonAdvantage", "lineupSpot", "impliedTeamTotal", "gameTotal", "contextualTags", "matchup", "team", "modelProb", "impliedProb", "edge", "oddsAmerican", "tier"]
+        const tupleEq = (b, p, withBook) =>
+          _n(b.player) === _n(p.player) && _n(b.statFamily) === _n(p.statFamily) &&
+          _n(b.side) === _n(p.side) && String(Number(b.line)) === String(Number(p.line)) &&
+          (!withBook || _n(b.sportsbook) === _n(p.sportsbook))
+        payload.today.picks = payload.today.picks.map((p) => {
+          const row = rows.find((b) => tupleEq(b, p, true)) || rows.find((b) => tupleEq(b, p, false))
+          if (!row) return { ...p, why: null } // honest null — no invented factors
+          const e = { ...p, sport: "mlb" }
+          for (const k of FACTOR_KEYS) if (row[k] != null && e[k] == null) e[k] = row[k]
+          try { const asm = require("../pipeline/mlb/assembleMlbPickStatBacking").assembleMlbPickDisplayBundle(e); if (asm) e.displayBundle = asm } catch (_) {}
+          try { e.reasoning = buildReasoning(e, null) } catch (_) {}
+          try { const pph = getPlayerPropHistory({ sport: "mlb", player: e.player, statFamily: e.statFamily, side: e.side, line: e.line }); if (pph) e.playerPropHistory = pph } catch (_) {}
+          return e
+        })
+      }
+    } catch (_) { /* additive — the card never blocks on its why */ }
+    res.json({ ok: true, ...payload })
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err?.message || err) })
   }
@@ -2462,6 +2492,78 @@ router.get("/daily3/public", (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err?.message || err) })
   }
+})
+
+/**
+ * 2026-08-19 WHAT'S WINNING (CA 01:3x block; operator: "turn winners into
+ * bets BEFORE they win") — READ-ONLY aggregation over existing authorities:
+ * the graded-pick corpus (buildHitRateByTier reader — served-tier picks
+ * grouped family × side × odds-band, flat-$1 NET + 7-day trend), the critic
+ * artifacts (watch segments w/ promotion-bar distance + refused-pool control
+ * group, stateless cumulative — same math as the weekly critic), and the Lab
+ * gate file. EVERY row carries n and NET units — gross-only numbers are the
+ * bait this page exists to kill. 10-min cache; zero record semantics.
+ */
+let _wwCache = { at: 0, data: null }
+router.get("/whats-winning", (req, res) => {
+  try {
+    const now = Date.now()
+    if (_wwCache.data && now - _wwCache.at < 10 * 60 * 1000) return res.json(_wwCache.data)
+    const { _buildGradedPicks } = require("../pipeline/tracking/buildHitRateByTier")
+    const { bandOf } = require("../pipeline/shared/marketPrior")
+    const corpus = _buildGradedPicks("mlb", TRACKING_DIR) || { picks: [] }
+    const unitsOf = (p) => p.win ? (p.medAm > 0 ? p.medAm / 100 : 100 / Math.abs(p.medAm)) : -1
+    // American odds are ALWAYS <=-100 or >=+100. A handful of old rows carry
+    // garbage medAm (e.g. -0.5) whose 100/|odds| payout explodes to 200u and
+    // poisons a whole segment (caught in the build probe: hits/under/fav read
+    // +506u; real math ~-20u). Gated + COUNTED — never silently dropped.
+    const validAm = (am) => Number.isFinite(am) && Math.abs(am) >= 100
+    let droppedBadOdds = 0
+    const SERVED_TIERS = new Set(["ELITE", "STRONG", "PLAYABLE"])
+    const dates = [...new Set(corpus.picks.map((p) => p.date))].sort()
+    const last7 = new Set(dates.slice(-7)), prior7 = new Set(dates.slice(-14, -7))
+    const segs = new Map()
+    for (const p of corpus.picks) {
+      if (!SERVED_TIERS.has(p.tier)) continue // the board's own output = what was recommendable
+      if (!validAm(p.medAm)) { droppedBadOdds++; continue }
+      const band = bandOf(p.medAm)
+      const key = `${p.fam}|${p.side}|${band}`
+      let s = segs.get(key)
+      if (!s) { s = { family: p.fam, side: p.side, band, n: 0, wins: 0, netUnits: 0, _l7: 0, _p7: 0 }; segs.set(key, s) }
+      const u = unitsOf(p)
+      s.n++; s.wins += p.win; s.netUnits += u
+      if (last7.has(p.date)) s._l7 += u
+      else if (prior7.has(p.date)) s._p7 += u
+    }
+    const MIN_SEG_N = 10 // floor stated in the payload — never a silent cap
+    const smallSegs = [...segs.values()].filter((s) => s.n < MIN_SEG_N).length
+    const served = [...segs.values()].filter((s) => s.n >= MIN_SEG_N)
+      .map((s) => ({ family: s.family, side: s.side, band: s.band, n: s.n, wins: s.wins, winPct: +(100 * s.wins / s.n).toFixed(1), netUnits: +s.netUnits.toFixed(1), last7Units: +s._l7.toFixed(1), trend: s._l7 - s._p7 > 0.5 ? "up" : s._l7 - s._p7 < -0.5 ? "down" : "flat" }))
+      .sort((a, b) => b.netUnits - a.netUnits)
+    // watch segments + refused pool — stateless cumulative over critic artifacts
+    const cum = { hrToward: { n: 0, wins: 0, netUnits: 0, breakevenWinsExpected: 0 }, ksAway: { n: 0, wins: 0, netUnits: 0, breakevenWinsExpected: 0 } }
+    const refFam = {}
+    try {
+      for (const f of require("fs").readdirSync(TRACKING_DIR).filter((x) => /^critic_\d{4}-\d{2}-\d{2}\.json$/.test(x))) {
+        const r = readJsonSafe(path.join(TRACKING_DIR, f), null)
+        if (!r) continue
+        if (r.watchSegments) for (const k of ["hrToward", "ksAway"]) { const s = r.watchSegments[k]; if (s) { cum[k].n += s.n || 0; cum[k].wins += s.wins || 0; cum[k].netUnits += s.netUnits || 0; cum[k].breakevenWinsExpected += s.breakevenWinsExpected || 0 } }
+        if (r.refusedNet && r.refusedNet.byFamily) for (const [fam, v] of Object.entries(r.refusedNet.byFamily)) { refFam[fam] = refFam[fam] || { n: 0, wins: 0, netUnits: 0 }; refFam[fam].n += v.n || 0; refFam[fam].wins += v.wins || 0; refFam[fam].netUnits += v.netUnits || 0 }
+      }
+    } catch (_) {}
+    const WATCH_LABELS = { hrToward: "HR overs where the market moved TOWARD us", ksAway: "K overs where the market moved AWAY" }
+    const watch = Object.entries(cum).map(([k, s]) => {
+      const W = s.wins, E = s.breakevenWinsExpected
+      const lb = E > 0 && W > 0 ? +(((W - 1.2816 * Math.sqrt(W)) / E)).toFixed(2) : null
+      return { key: k, label: WATCH_LABELS[k] || k, n: s.n, wins: s.wins, netUnits: +s.netUnits.toFixed(1), bar: { needN: 600, haveN: s.n, netOk: s.netUnits > 0, lb, lbNeeded: 1.0 }, distance: s.n >= 600 ? (s.netUnits > 0 ? (lb != null && lb >= 1 ? "BAR MET — gate-adjustment ASK fires" : "needs Poisson LB ≥1.0") : "needs NET > 0") : `${600 - s.n} more decided picks of data` }
+    })
+    const refused = Object.entries(refFam).map(([fam, v]) => ({ family: fam, n: v.n, winPct: v.n ? +(100 * v.wins / v.n).toFixed(1) : null, netUnits: +v.netUnits.toFixed(1) })).sort((a, b) => b.n - a.n)
+    let lab = null
+    try { const g = readJsonSafe(path.join(TRACKING_DIR, "lab_gate.json"), null); if (g && g.gate) lab = Object.entries(g.gate).map(([band, s]) => ({ band, nights: s.nights, decided: s.decided, netUnits: s.flatUnits, distance: `night ${s.nights} of 90 · ${s.decided}/250 decided` })) } catch (_) {}
+    const out = { ok: true, generatedAt: new Date().toISOString(), windowDates: dates.length, minSegmentN: MIN_SEG_N, segmentsBelowFloor: smallSegs, droppedBadOdds, served, watch, lab, refused, doctrine: "Hindsight winners are not foresight bets; segments that win NET are. The refused pool is the control group — it losing is the gates working." }
+    _wwCache = { at: now, data: out }
+    res.json(out)
+  } catch (err) { res.status(500).json({ ok: false, error: String(err?.message || err) }) }
 })
 
 /**

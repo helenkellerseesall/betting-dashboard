@@ -106,6 +106,7 @@ const SUITES = [
   "verifyBrokenFamilies", // BROKEN-FAMILY CONTAINMENT (2026-08-18 addendum) — ONE evidence-cited authority (mlb rbis+outs), serve-layer only: /top-picks drop + loud counter, /games tier/conf suppression w/ raw lines kept, stale-lane override, featured drop, FE BROKEN pill; importer walk proves record/write paths untouched; lifted only by a recalibration ASK.
   "verifyBetSlipDrawer", // UX SUB-PACK drawer (2026-08-18) — PARLAY tab retired for the bottom bet-slip drawer: ONE aliased slip array (mutate-only), every + button feeds it, Daily3/Lab tap-to-bet, copy-legs + navigation-only homeUrl fallback, deeplink kill-switches proven intact, FE parse + money-literal guards.
   "verifyUxDisplayPack", // UX SUB-PACK landing 2 (2026-08-18) — settled-card payout truth (D1), GRADES grouped w/ control-group framing, GAMES search + edges-only, ANALYZE parked behind ⋯, iOS-clean iteration 1 (navy neutralized); FE parse guard.
+  "verifyWhyWinning", // WHY-RESTORATION + WHATS-WINNING pack (2026-08-19) — per-pick WHY on every surface (factors from existing fields, /daily3 additive enrichment, modal upgrade), whats-winning read-only aggregation (n+NET every row, odds sanity gate), Lab lock-vs-slip microcopy, hr_parlay class w/ band constraint + FIND-2 bestSingleBook grading.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

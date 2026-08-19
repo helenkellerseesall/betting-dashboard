@@ -236,4 +236,6 @@ function describeTierFamily(sport, tier, family, opts = {}) {
   return { ...hit, earned: !!d && _earnedCache.get(cacheKey).set.has(k) }
 }
 
-module.exports = { computeHitRateByTier, getEarnedTierFamilySet, isTierFamilyEarned, describeTierFamily, MIN_MEANINGFUL_N }
+// _buildGradedPicks exported 2026-08-19 (WHAT'S WINNING board) — read-only
+// reuse of the ONE graded-corpus reader; no second corpus authority exists.
+module.exports = { computeHitRateByTier, getEarnedTierFamilySet, isTierFamilyEarned, describeTierFamily, MIN_MEANINGFUL_N, _buildGradedPicks }

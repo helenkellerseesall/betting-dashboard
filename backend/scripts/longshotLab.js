@@ -47,6 +47,10 @@ const impliedOf = (am) => { const o = Number(am); return o > 0 ? 100 / (o + 100)
 const DROUGHT = {
   workhorse: { band: "+500–+2000", breakevenLongest: "31–117", edgedLongest: "27–101", note: "expected LONGEST losing streak in a 300-ticket season (doc §2) — a 100-straight run at +2000 is the EXPECTED worst stretch WITH a real edge" },
   experimental: { band: "+2000–+10000", breakevenLongest: "117–573", edgedLongest: "101–498", note: "droughts can exceed the whole season; a fair +10000 program has ~5% chance of ZERO wins in 300 (doc §2)" },
+  // hr_parlay (2026-08-19): doc §2 drought ranges are a function of PRICE,
+  // not family — a 3-5 leg HR ticket lands in the same +2000-+10000 band as
+  // experimental, so those measured ranges apply verbatim. Cited, not invented.
+  hr_parlay: { band: "+2000–+10000 (combined)", breakevenLongest: "117–573", edgedLongest: "101–498", note: "same doc-§2 price band as experimental — long droughts are the EXPECTED texture of HR parlays, not a broken signal" },
 }
 // §3 bar, verbatim — printed on every surface
 const BAR = "per band: ≥90 nights AND ≥250 decided AND realized÷expected wins ≥0.85 (Poisson LB) AND flat units >0 AND CLV-positive share ≥ house bar AND the pricer gate cleared on the same window — flip = OPERATOR, never automatic"
@@ -144,7 +148,86 @@ function buildTickets(slate) {
     experimental = { kind: "experimental", band: mpm.bandOf(Number(f.oddsAmerican)), legs: [{ player: f.player, statFamily: f.family, side: "over", line: f.line, k: f.k, oddsAmerican: Number(f.oddsAmerican), sportsbook: f.book, flagId: f.id, gameTime: f._gt, pModel: +Number(f.pFair).toFixed(4), pMarket: null, w: 1, wSource: mpm.wFor(f.family, mpm.bandOf(f.oddsAmerican)).source, pFinal: +Number(f.pFair).toFixed(4), priced: "model_only" }], oddsAmerican: Number(f.oddsAmerican), decimal: +decOf(f.oddsAmerican).toFixed(2), pTicket: +Number(f.pFair).toFixed(5), stake: 1, result: "pending" }
     break
   }
-  return { workhorse, experimental }
+  // ── FIND-2 (CA 01:0x triage): bestSingleBook — the best ONE-book combined
+  // price across books carrying ALL legs. A parlay lives at one book; the
+  // cross-book best-line price is not placeable as a single slip, so the
+  // flip gate grades on THIS number (display may show both). null when no
+  // single book carries every leg — stated, never guessed.
+  const bestSingleBookOf = (legs) => {
+    const tupleRows = legs.map((l) => rows.filter((r) =>
+      String(r.player).toLowerCase() === String(l.player).toLowerCase() &&
+      String(r.statFamily) === String(l.statFamily) &&
+      String(r.side).toLowerCase() === String(l.side || "over").toLowerCase() &&
+      Number(r.line) === Number(l.line) && Number.isFinite(Number(r.oddsAmerican))))
+    const books = [...new Set(tupleRows.flat().map((r) => String(r.sportsbook)))]
+    let best = null
+    for (const bk of books) {
+      let dec = 1, ok = true
+      for (const rowsForLeg of tupleRows) {
+        const atBook = rowsForLeg.filter((r) => String(r.sportsbook) === bk)
+        if (!atBook.length) { ok = false; break }
+        dec *= decOf(Math.max(...atBook.map((r) => Number(r.oddsAmerican))))
+      }
+      if (ok && (!best || dec > best.decimal)) best = { book: bk, decimal: +dec.toFixed(2), oddsAmerican: amOfDec(dec) }
+    }
+    return best
+  }
+  for (const t of workhorse) t.bestSingleBook = bestSingleBookOf(t.legs)
+  if (experimental) experimental.bestSingleBook = { book: experimental.legs[0].sportsbook, decimal: experimental.decimal, oddsAmerican: experimental.oddsAmerican } // single leg — its book IS the single book
+
+  // ── hr_parlay (2026-08-19, pack item 3 — the operator's MLB endgame track):
+  // nightly 3-5 leg HR-over paper ticket. Certification for this class =
+  // calibration-era rows (calibVersion-stamped + finite modelProb) at served
+  // tiers — hr is deliberately NOT in the G2 PASS map; this track exists to
+  // build the evidence that could flip the hr band (currently w=1, market-
+  // owned). Same cross-game + opposition asserts; blend-priced (market-owned
+  // where the join resolves, honest model_only elsewhere); own band record.
+  let hrParlay = null
+  {
+    const hrPool = rows.filter((r) =>
+      String(r.statFamily) === "hr" &&
+      ["ELITE", "STRONG", "PLAYABLE"].includes(String(r.tier || "").toUpperCase()) &&
+      r.calibVersion && Number.isFinite(Number(r.modelProb)) &&
+      Number.isFinite(Number(r.oddsAmerican)) && Math.abs(Number(r.oddsAmerican)) >= 100 &&
+      ["over", "yes"].includes(String(r.side || "").toLowerCase()) &&
+      r.eventId && r.gameTime && Date.parse(r.gameTime) >= cutoff)
+      .map((r) => ({ ...r, _b: blendLeg(r, ctx, mp, joins) }))
+      .map((r) => ({ ...r, _edge: r._b.pFinal - impliedOf(r.oddsAmerican) }))
+      .sort((a, b) => b._edge - a._edge)
+    // Price band: the ticket must land in +2000..+10000 combined (dec 21..101)
+    // — the operator's stated structure ("$5-10 on a 3-5 leg hr bet can net
+    // hundreds") AND the doc-§2 band the drought citation applies to. Greedy
+    // by edge, skipping legs that would blow past the ceiling; below-floor or
+    // under 3 legs = honest no-ticket.
+    // Two passes: edge-greedy first (best legs when they fit), then a
+    // fit-seeking fallback ordered by shortest odds (edge-greedy loads up on
+    // long legs and can overshoot the ceiling before reaching 3 — proven in
+    // the build probe). Either pass must land 3-5 legs inside dec 21..101.
+    const tryBuild = (ordered) => {
+      const legs = []
+      const usedEvents = new Set()
+      let dec = 1
+      for (const r of ordered) {
+        if (usedEvents.has(r.eventId)) continue
+        if (legs.length >= 5) break
+        const nd = dec * decOf(r.oddsAmerican)
+        if (nd > 101) continue // would leave the +10000 ceiling — skip, try a shorter leg
+        legs.push(r); usedEvents.add(r.eventId); dec = nd
+      }
+      return legs.length >= 3 && dec >= 21 && dec <= 101 ? { legs, dec } : null
+    }
+    const built = tryBuild(hrPool) || tryBuild([...hrPool].sort((a, b) => Number(a.oddsAmerican) - Number(b.oddsAmerican)))
+    if (built) {
+      const legs = built.legs
+      const dec = built.dec
+      const L = legs.map(mkLeg)
+      oppositionTrapAssert(L)
+      const p = L.reduce((a, l) => a * l.pFinal, 1)
+      hrParlay = { kind: "hr_parlay", band: mp.bandOf(amOfDec(dec)), legs: L, oddsAmerican: amOfDec(dec), decimal: +dec.toFixed(2), pTicket: +p.toFixed(5), stake: 1, result: "pending" }
+      hrParlay.bestSingleBook = bestSingleBookOf(L)
+    }
+  }
+  return { workhorse, experimental, hrParlay }
 }
 
 function settlePrior(gate) {
@@ -166,12 +249,16 @@ function settlePrior(gate) {
         const twin = rows.find((r) => norm(r.player) === norm(l.player) && r.statFamily === l.statFamily && String(r.side).toLowerCase() === String(l.side).toLowerCase() && Number(r.line) === Number(l.line) && ["win", "loss", "push", "void"].includes(String(r.result)))
         return twin ? String(twin.result) : "pending"
       })
+      // FIND-2: paper payouts grade on the PLACEABLE price (bestSingleBook)
+      // when the ticket logged one; older locked tickets grade exactly as
+      // locked (their bestSingleBook is absent by construction).
+      const gradeDec = (t.bestSingleBook && Number.isFinite(Number(t.bestSingleBook.decimal))) ? Number(t.bestSingleBook.decimal) : t.decimal
       if (legRes.some((r) => r === "loss")) { t.result = "loss"; t.payout = 0 }
-      else if (legRes.every((r) => r === "win")) { t.result = "win"; t.payout = +(t.stake * t.decimal).toFixed(2) }
+      else if (legRes.every((r) => r === "win")) { t.result = "win"; t.payout = +(t.stake * gradeDec).toFixed(2) }
       else if (legRes.every((r) => ["win", "void", "push"].includes(r)) && legRes.some((r) => r !== "win")) { t.result = "void_mixed_manual"; t.payout = null } // recompute needs per-leg prices — defer, never guess
       else continue
       t.legResults = legRes; t.settledAt = new Date(NOW).toISOString(); changed = true
-      settles.push({ slate: art.slate, kind: t.kind, result: t.result, units: t.result === "win" ? +(t.stake * (t.decimal - 1)).toFixed(2) : t.result === "loss" ? -t.stake : 0 })
+      settles.push({ slate: art.slate, kind: t.kind, result: t.result, units: t.result === "win" ? +(t.stake * (gradeDec - 1)).toFixed(2) : t.result === "loss" ? -t.stake : 0 })
     }
     if (changed) fs.writeFileSync(p, JSON.stringify(art, null, 1))
   }
@@ -180,14 +267,17 @@ function settlePrior(gate) {
 }
 
 function gateReadout() {
-  const bands = { workhorse: { nights: new Set(), decided: 0, wins: 0, expWins: 0, units: 0 }, experimental: { nights: new Set(), decided: 0, wins: 0, expWins: 0, units: 0 } }
+  const bands = { workhorse: { nights: new Set(), decided: 0, wins: 0, expWins: 0, units: 0 }, experimental: { nights: new Set(), decided: 0, wins: 0, expWins: 0, units: 0 }, hr_parlay: { nights: new Set(), decided: 0, wins: 0, expWins: 0, units: 0 } }
   for (const f of fs.readdirSync(TRACKING).filter((x) => /^lab_tickets_\d{4}-\d{2}-\d{2}\.json$/.test(x))) {
     const art = rdJ(path.join(TRACKING, f), null)
     if (!art) continue
     for (const t of art.tickets || []) {
       const b = bands[t.kind]; if (!b) continue
       b.nights.add(art.slate)
-      if (["win", "loss"].includes(t.result)) { b.decided++; b.expWins += t.pTicket; if (t.result === "win") { b.wins++; b.units += t.stake * (t.decimal - 1) } else b.units -= t.stake }
+      // FIND-2: the flip gate grades on the placeable single-book price when
+      // the ticket logged one; locked-past tickets keep their locked math.
+      const gDec = (t.bestSingleBook && Number.isFinite(Number(t.bestSingleBook.decimal))) ? Number(t.bestSingleBook.decimal) : t.decimal
+      if (["win", "loss"].includes(t.result)) { b.decided++; b.expWins += t.pTicket; if (t.result === "win") { b.wins++; b.units += t.stake * (gDec - 1) } else b.units -= t.stake }
     }
   }
   const out = {}
@@ -213,8 +303,8 @@ function main() {
   if (fs.existsSync(artPath)) {
     console.log(`longshotLab [${slate}]: tickets already LOCKED (write-once) — ${settles.length} prior settle(s) this pass`)
   } else {
-    const { workhorse, experimental } = buildTickets(slate)
-    const tickets = [...workhorse, ...(experimental ? [experimental] : [])]
+    const { workhorse, experimental, hrParlay } = buildTickets(slate)
+    const tickets = [...workhorse, ...(experimental ? [experimental] : []), ...(hrParlay ? [hrParlay] : [])]
     if (!tickets.length) { console.log(`longshotLab [${slate}]: no eligible legs ≥T-60 with map support — NO CARD tonight (honest)`) }
     else {
       // marketCtx stamp (2026-08-18): the lock names its own pricing context —
@@ -224,7 +314,7 @@ function main() {
       const art = { slate, lockedAt: new Date(NOW).toISOString(), paperOnly: true, bar: BAR, marketCtx: _mc ? { ok: !!_mc.ok, reason: _mc.reason || null, rowCount: _mc.meta?.rowCount ?? null, ageMinutes: _mc.meta?.ageMinutes ?? null } : { ok: false, reason: "skipped_or_null", rowCount: null, ageMinutes: null }, tickets }
       fs.writeFileSync(artPath, JSON.stringify(art, null, 1))
       writeReceipt(slate, art)
-      console.log(`longshotLab [${slate}]: LOCKED ${workhorse.length} workhorse + ${experimental ? 1 : 0} experimental (write-once; receipt chained)`)
+      console.log(`longshotLab [${slate}]: LOCKED ${workhorse.length} workhorse + ${experimental ? 1 : 0} experimental + ${hrParlay ? 1 : 0} hr_parlay (write-once; receipt chained)`)
       for (const t of tickets) console.log(`  ${t.kind}: ${t.oddsAmerican > 0 ? "+" : ""}${t.oddsAmerican} p=${t.pTicket} · ${t.legs.map((l) => `${l.player} ${l.statFamily} (${l.priced})`).join(" × ")}`)
     }
   }

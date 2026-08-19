@@ -1001,6 +1001,28 @@
       if (!p) return;
       addLeg({ player: p.player, statFamily: p.statFamily, propType: p.statFamily, side: p.side, line: p.line, odds: p.odds, oddsAmerican: p.odds, sportsbook: p.sportsbook, book: p.sportsbook }, "mlb");
     };
+    window._d3Why = function (i, el) {
+      const p = (window._d3Cache || [])[i];
+      if (!p) return;
+      if (p.why === null && !p.reasoning && !p.windDirectionTag) { _slipToast("No why on file for this pick tonight"); return; }
+      window._v2OpenModal(p, el);
+    };
+    // Lab per-leg why — data already on the leg (pModel/pMarket/w/priced).
+    window._labWhy = function (ti, el) {
+      const t = (window._labCache || [])[ti];
+      if (!t) return;
+      const ex = document.getElementById("lab-why-" + ti);
+      if (ex) { ex.remove(); return; }
+      const d = document.createElement("div");
+      d.id = "lab-why-" + ti;
+      d.style.cssText = "margin-top:6px;padding:8px 10px;border-radius:9px;background:#1B1C22;font-size:11px;color:#D1D5DB;line-height:1.6;";
+      d.innerHTML = t.legs.map((l) => {
+        const imp = Number(l.oddsAmerican) > 0 ? 100 / (Number(l.oddsAmerican) + 100) : Math.abs(Number(l.oddsAmerican)) / (Math.abs(Number(l.oddsAmerican)) + 100);
+        const src = l.priced === "blended" ? `model ${Math.round((l.pModel || 0) * 100)}% blended with the market ${Math.round((l.pMarket || 0) * 100)}% (weight ${l.w != null ? l.w : "?"})` : `model ${Math.round((l.pModel || 0) * 100)}% — no two-sided market to lean on (model only)`;
+        return `<b style="color:#F9FAFB;">${escapeHtml(l.player)}</b> ${escapeHtml(String(l.side || "over"))} ${l.line}: ${src}; the price implies ${Math.round(imp * 100)}%.`;
+      }).join("<br/>");
+      if (el && el.parentNode) el.parentNode.appendChild(d);
+    };
     window._labAdd = function (ti) {
       const t = (window._labCache || [])[ti];
       if (!t || !Array.isArray(t.legs)) return;
@@ -1579,6 +1601,10 @@
       }
       if (sport === "engine") {
         renderEngineRoom(main);
+        return;
+      }
+      if (sport === "winning") {
+        renderWhatsWinning(main);
         return;
       }
       if (sport === "top") {
@@ -3916,6 +3942,8 @@
           <div class="mu">${escapeHtml(p.matchup || "")} · ${odds} @ ${book} · ${tierBadge}</div>
           <div class="mu" style="margin-top:4px;"><span style="color:#7DD3FC;">${conf} model confidence</span> · <span style="color:#34D399;">${edge} edge vs market</span></div>
           ${pphLine}
+          ${_whyLead(p)}
+          ${_whyFactorLines(p)}
           ${sigHtml}
           ${_renderReasoning(p.reasoning)}
           ${_renderBookOptions(p.bookOptions)}
@@ -3946,6 +3974,54 @@
         inner.style.width = innerW + "px";
       } catch (e) { console.error("modal open failed", e); }
     };
+
+    // ── 2026-08-19 WHY-RESTORATION (pack item 0) ─────────────────────────
+    // The operator's factors, rendered plain from fields ALREADY on every
+    // pick (wind/park/platoon/lineup/totals/tags — 75-92% populated on
+    // tracked rows; renderer lost them in the 06-09 consolidation). Omit-
+    // not-fabricate: a missing field renders NOTHING, never a placeholder.
+    function _whyWind(tag) {
+      const t = String(tag || "");
+      if (/^out/.test(t)) return "blowing OUT " + t.replace(/^out_?t?o?_?/, "to ").replace(/_/g, " ") + " — carries fly balls";
+      if (/^in/.test(t)) return "blowing IN " + t.replace(/^in_?f?r?o?m?_?/, "from ").replace(/_/g, " ") + " — knocks down fly balls";
+      if (/cross/.test(t)) return t === "cross" ? "crosswind" : "crosswind " + t.replace(/^cross_?/, "").replace(/_/g, " ");
+      return t.replace(/_/g, " ");
+    }
+    const _WHY_TAGS = {
+      PARK_HR_FRIENDLY: "HR-friendly park", PARK_HR_TOUGH: "HR-tough park",
+      WIND_OUT: "wind blowing out", WIND_IN: "wind blowing in",
+      HOT_AIR_CARRY: "hot air — ball carries", COLD_AIR_DEAD: "cold air — ball dies",
+      PLATOON_OPP: "platoon edge (opposite-hand pitcher)", PLATOON_SAME: "same-hand pitcher (harder)",
+      HIGH_TOTAL: "high-scoring game expected", LOW_TOTAL: "low-scoring game expected",
+    };
+    function _whyFactorLines(p) {
+      const rows = [];
+      const add = (icon, txt) => rows.push(`<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;font-size:12px;color:#D1D5DB;"><span style="flex:0 0 auto;">${icon}</span><span>${txt}</span></div>`);
+      if (p.windDirectionTag) add("💨", `Wind ${escapeHtml(_whyWind(p.windDirectionTag))}${p.temperatureF != null ? ` · ${escapeHtml(String(p.temperatureF))}°F` : ""}`);
+      else if (p.temperatureF != null) add("🌡", `${escapeHtml(String(p.temperatureF))}°F at first pitch`);
+      if (p.hrFactor != null && Number.isFinite(Number(p.hrFactor))) add("🏟", `Park HR factor ×${Number(p.hrFactor).toFixed(2)} ${Number(p.hrFactor) >= 1.1 ? "(HR-friendly)" : Number(p.hrFactor) <= 0.9 ? "(HR-tough)" : "(neutral)"}`);
+      if (p.isPlatoonAdvantage === true) add("🤝", "Platoon edge — faces the opposite-hand pitcher");
+      else if (p.isPlatoonAdvantage === false) add("⚔️", "No platoon edge — same-hand pitcher");
+      if (p.lineupSpot != null) add("📋", `Batting ${escapeHtml(String(p.lineupSpot))}${{1:"st",2:"nd",3:"rd"}[p.lineupSpot] || "th"} tonight`);
+      if (p.impliedTeamTotal != null || p.gameTotal != null) add("📈", `${p.impliedTeamTotal != null ? `team implied ${escapeHtml(String(p.impliedTeamTotal))} runs` : ""}${p.impliedTeamTotal != null && p.gameTotal != null ? " · " : ""}${p.gameTotal != null ? `game total ${escapeHtml(String(p.gameTotal))}` : ""}`);
+      const tags = Array.isArray(p.contextualTags) ? p.contextualTags.filter((t) => !_WHY_TAGS[t] || rows.length < 8).map((t) => _WHY_TAGS[t] || String(t).toLowerCase().replace(/_/g, " ")) : [];
+      const chips = tags.slice(0, 5).map((t) => `<span style="font-size:10px;padding:2px 7px;border-radius:5px;background:#24252C;color:#9CA3AF;margin-right:4px;">${escapeHtml(t)}</span>`).join("");
+      if (!rows.length && !chips) return "";
+      return `<div style="border-top:1px solid #1F2937;margin-top:9px;padding-top:7px;"><div style="font-size:10px;color:#6B7280;letter-spacing:0.8px;margin-bottom:3px;">CONDITIONS</div>${rows.join("")}${chips ? `<div style="margin-top:5px;">${chips}</div>` : ""}</div>`;
+    }
+    // Why this pick / this book / this price — composed from fields already
+    // on the pick. No number is invented; absent inputs drop their sentence.
+    function _whyLead(p) {
+      const s = [];
+      const mp = Number(p.modelProb), ip = Number(p.impliedProb ?? (Number(p.oddsAmerican ?? p.odds) > 0 ? 100 / (Number(p.oddsAmerican ?? p.odds) + 100) : Math.abs(Number(p.oddsAmerican ?? p.odds)) / (Math.abs(Number(p.oddsAmerican ?? p.odds)) + 100)));
+      if (Number.isFinite(mp) && Number.isFinite(ip)) s.push(`<b style="color:#F9FAFB;">Why this pick:</b> the model gives it ~${Math.round(mp * 100)}%; the price implies ${Math.round(ip * 100)}% — that ${Math.max(0, Math.round((mp - ip) * 100))}-point gap is the edge.`);
+      const bk = p.sportsbook || p.book;
+      if (bk) s.push(`<b style="color:#F9FAFB;">Why ${escapeHtml(bk)}:</b> ${Array.isArray(p.bookOptions) && p.bookOptions.length > 1 ? "best price of the " + p.bookOptions.length + " books carrying this line" : p.lineShop && p.lineShop.bestBook ? "best available price across your books" : "the book carrying this line at capture"}.`);
+      const od = _oddsNice(p.oddsAmerican ?? p.odds);
+      if (od !== "—") s.push(`<b style="color:#F9FAFB;">Why this price:</b> ${od} pays $${(Number(p.oddsAmerican ?? p.odds) > 0 ? (Number(p.oddsAmerican ?? p.odds) / 100).toFixed(2) : (100 / Math.abs(Number(p.oddsAmerican ?? p.odds))).toFixed(2))} per $1 — worth it only if the model\u2019s number is real. Its record is on GRADES.`);
+      if (!s.length) return "";
+      return `<div style="font-size:12px;color:#D1D5DB;line-height:1.65;margin-top:8px;border-top:1px solid #1F2937;padding-top:8px;">${s.join("<br/>")}</div>`;
+    }
 
     // 2026-06-10 Card v2 — the "won X%" line, PER-PLAYER first. Ladder:
     //   1. pick.playerPropHistory (THIS player's own rate on THIS line) — "Langeliers:
@@ -4244,8 +4320,8 @@
           const body = j3.today
             ? j3.today.picks.map((p, i) => {
                 const res = j3.today.results ? j3.today.results[i] : null;
-                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #24252C;">
-                  <div style="font-size:14px;color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b><div style="font-size:12px;color:#9CA3AF;margin-top:2px;">${_pickLineNice(p)} ${_famNice(p.statFamily)} — ${escapeHtml(p.sportsbook || "?")}${_gameIdLine(p)}</div></div>
+                return `<div onclick="window._d3Why(${i}, this)" style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #24252C;cursor:pointer;">
+                  <div style="font-size:14px;color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="font-size:10px;color:#4C5563;">tap for why ▸</span><div style="font-size:12px;color:#9CA3AF;margin-top:2px;">${_pickLineNice(p)} ${_famNice(p.statFamily)} — ${escapeHtml(p.sportsbook || "?")}${_gameIdLine(p)}</div></div>
                   <span style="font-family:ui-monospace,monospace;font-size:13px;color:#D1D5DB;white-space:nowrap;">${(!res || res.result === "pending") ? `<button onclick="window._d3Add(${i});event.stopPropagation();" title="Add to bet slip" style="margin-right:8px;padding:2px 9px;border-radius:7px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:13px;font-weight:800;cursor:pointer;">+</button>` : ""}${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
                 </div>`;
               }).join("") + `<div class="ios-cap" style="margin-top:8px;">🔒 Locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))} UTC — can't be changed after lock${j3.today.lockLate ? " (locked late)" : ""}${j3.today.picks[0]?.calibVersion ? ` · ${escapeHtml(j3.today.picks[0].calibVersion)}` : ""}</div>`
@@ -4269,14 +4345,14 @@
             ? t.tickets.map((k, ti) => {
                 const resChip = k.result !== "pending"
                   ? `<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;background:${k.result === "win" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)"};color:${k.result === "win" ? "#34D399" : "#F87171"};">${escapeHtml(String(k.result).toUpperCase())}</span>`
-                  : `<span class="ios-cap">locked</span>`;
+                  : `<span class="ios-cap" title="This ticket is OUR frozen paper record — it settles as-is whatever you do.">🔒 paper record — frozen at 5:40</span>`;
                 return `<div style="padding:9px 0;border-top:1px solid #24252C;">
                   <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="font-size:14px;font-weight:700;color:#F9FAFB;">Pays ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican}<span class="ios-cap" style="margin-left:8px;">model gives this ~${Math.round(k.pTicket * 100)}%</span></span>
+                    <span style="font-size:14px;font-weight:700;color:#F9FAFB;">${k.kind === "hr_parlay" ? `<span style="font-size:9px;font-weight:800;letter-spacing:0.5px;padding:2px 6px;border-radius:5px;background:rgba(251,191,36,0.15);color:#FBBF24;margin-right:6px;">HR PARLAY</span>` : k.kind === "experimental" ? `<span style="font-size:9px;font-weight:800;letter-spacing:0.5px;padding:2px 6px;border-radius:5px;background:rgba(129,140,248,0.15);color:#818CF8;margin-right:6px;">LONG SHOT</span>` : ""}Pays ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican}<span class="ios-cap" style="margin-left:8px;">model gives this ~${Math.round(k.pTicket * 100)}%${k.bestSingleBook && k.bestSingleBook.book ? ` · placeable at ${escapeHtml(k.bestSingleBook.book)} ${k.bestSingleBook.oddsAmerican > 0 ? "+" : ""}${k.bestSingleBook.oddsAmerican}` : ""}</span></span>
                     ${resChip}
                   </div>
                   <div style="font-size:12px;color:#9CA3AF;margin-top:4px;line-height:1.5;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${_famNice(l.statFamily)} — ${escapeHtml(l.sportsbook || "?")}`).join("<br/>")}</div>
-                  ${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="margin-top:6px;padding:5px 12px;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:11px;font-weight:800;cursor:pointer;">⊕ add ${k.legs.length} legs to slip</button>` : ""}
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="padding:5px 12px;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:11px;font-weight:800;cursor:pointer;">⊕ copy legs to your slip</button>` : ""}<button onclick="window._labWhy(${ti}, this);event.stopPropagation();" style="padding:5px 10px;border-radius:8px;border:1px solid #26262E;background:none;color:#9CA3AF;font-size:11px;font-weight:700;cursor:pointer;">why these legs ▸</button></div>${k.result === "pending" ? `<div class="ios-cap" style="margin-top:3px;">copying legs is YOUR call — these are paper-test tickets, not graduated picks</div>` : ""}
                 </div>`;
               }).join("")
             : `<div style="font-size:13px;color:#9CA3AF;padding:8px 0;">No tickets tonight — none of the qualifying plays cleared the bar. An honest empty night beats a forced card.</div>`;
@@ -4297,7 +4373,8 @@
         } else labCardHtml = `<div class="ios-card"><div class="ios-card-head"><span class="ios-title">🎰 Longshot tickets</span><span class="ios-badge-paper">PAPER</span></div><div style="font-size:13px;color:#9CA3AF;padding:8px 0;">Tonight's tickets lock at 5:40 PM ET.</div></div>`;
       } catch (_) { /* additive */ }
       const recStrip = (d3RecHtml || labRecHtml) ? `<div class="ios-card" style="padding:10px 16px;">${d3RecHtml}${labRecHtml}</div>` : "";
-      main.innerHTML = `<div style="padding:10px 12px;">${d3CardHtml}${labCardHtml}${recStrip}</div>`;
+      const wwEntry = `<div class="ios-card" style="padding:12px 16px;cursor:pointer;" onclick="window._moreGo('winning')"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="ios-title" style="font-size:15px;">📈 What\u2019s winning</span><span class="ios-cap">the pattern leaderboard ▸</span></div><div class="ios-cap" style="margin-top:3px;">which bets actually make money, which are still earning trust, and what the gates refused</div></div>`;
+      main.innerHTML = `<div style="padding:10px 12px;">${d3CardHtml}${labCardHtml}${wwEntry}${recStrip}</div>`;
     }
 
     // ── 2026-08-18 ITERATION-2 — ENGINE ROOM (⋯ menu only) ──────────────────
@@ -4363,6 +4440,40 @@
           eLab.innerHTML = `<div style="color:#F472B6;font-size:10px;margin-bottom:5px;">PAPER ONLY — flip is the OPERATOR's, never automatic. Bar: ${escapeHtml((jLab.gate && jLab.gate.workhorse && jLab.gate.workhorse.bar) || "")}</div>${tix}${gates}${losses ? `<div style="font-size:10px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${losses}</div>` : ""}`;
         } else if (eLab) eLab.innerHTML = "lab not built yet — the 17:40 pass locks tonight's tickets";
       } catch (_) { /* additive */ }
+    }
+
+    // ── 2026-08-19 WHAT'S WINNING (pack item 1) — the pattern leaderboard ──
+    // "Turn winners into bets BEFORE they win": graduated/served segments on
+    // top, watch segments with bar-distance in the middle, the refused-pool
+    // control group on the bottom (it losing = the gates earning their keep).
+    // Every row shows n + NET units. Plain English; read-only payload.
+    const _wwSide = (s) => s === "over" ? "overs" : s === "under" ? "unders" : s;
+    const _wwBand = (b) => ({ heavy_fav: "heavy favorites", fav: "favorites", plus_short: "small underdogs", plus_mid: "mid longshots", plus_long: "big longshots" })[b] || b;
+    const _wwArrow = (t) => t === "up" ? `<span style="color:#34D399;">▲</span>` : t === "down" ? `<span style="color:#F87171;">▼</span>` : `<span style="color:#6B7280;">→</span>`;
+    async function renderWhatsWinning(main) {
+      main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Reading the record…</div>`;
+      try {
+        const j = await (await fetch(`${API}/api/ws/whats-winning?_t=${Date.now()}`, { cache: "no-store" })).json();
+        if (!j.ok) throw new Error(j.error || "payload not ok");
+        const segRow = (s) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid #24252C;">
+          <div style="font-size:13px;color:#F9FAFB;">${_famNice(s.family)} ${_wwSide(s.side)} <span style="color:#9CA3AF;">at ${_wwBand(s.band)}</span><div class="ios-cap" style="margin-top:1px;">${s.wins} of ${s.n} · ${s.winPct}% · last 7 days ${s.last7Units >= 0 ? "+" : ""}${s.last7Units}u</div></div>
+          <span style="font-family:ui-monospace,monospace;font-size:14px;font-weight:700;color:${s.netUnits > 0 ? "#34D399" : s.netUnits < 0 ? "#F87171" : "#9CA3AF"};">${s.netUnits >= 0 ? "+" : ""}${s.netUnits}u ${_wwArrow(s.trend)}</span>
+        </div>`;
+        const winners = j.served.filter((s) => s.netUnits > 0), losers = j.served.filter((s) => s.netUnits <= 0);
+        const watchRows = (j.watch || []).map((w) => `<div style="padding:8px 0;border-top:1px solid #24252C;">
+          <div style="display:flex;justify-content:space-between;"><span style="font-size:13px;color:#F9FAFB;">${escapeHtml(w.label)}</span><span style="font-family:ui-monospace,monospace;font-size:13px;font-weight:700;color:${w.netUnits > 0 ? "#34D399" : "#F87171"};">${w.netUnits >= 0 ? "+" : ""}${w.netUnits}u</span></div>
+          <div class="ios-cap" style="margin-top:2px;">${w.wins} of ${w.n} so far · to graduate: ${escapeHtml(w.distance)}</div>
+        </div>`).join("");
+        const labRows = (j.lab || []).map((l) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #24252C;font-size:12px;"><span style="color:#D1D5DB;">${escapeHtml(l.band)} tickets</span><span class="ios-cap">${escapeHtml(l.distance)} · ${l.netUnits >= 0 ? "+" : ""}${l.netUnits}u paper</span></div>`).join("");
+        const refRows = (j.refused || []).map((r) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #24252C;font-size:12px;"><span style="color:#9CA3AF;">${_famNice(r.family)} <span class="ios-cap">${r.n} refused · ${r.winPct != null ? r.winPct + "% win" : ""}</span></span><span style="font-family:ui-monospace,monospace;color:${r.netUnits < 0 ? "#6B7280" : "#FBBF24"};">${r.netUnits >= 0 ? "+" : ""}${r.netUnits}u</span></div>`).join("");
+        main.innerHTML = `<div style="padding:10px 12px;">
+          <div class="ios-card"><div class="ios-title">📈 What\u2019s winning</div><div class="ios-cap" style="margin-top:4px;line-height:1.5;">${escapeHtml(j.doctrine)}</div><div class="ios-cap" style="margin-top:2px;">${j.windowDates} nights of graded record · flat $1 per pick · ${j.segmentsBelowFloor} tiny segments (under ${j.minSegmentN} picks) not shown${j.droppedBadOdds ? ` · ${j.droppedBadOdds} corrupt-odds rows excluded` : ""}</div></div>
+          <div class="ios-card"><div class="ios-card-head"><span class="ios-title" style="font-size:15px;">Board segments that WIN</span><span class="ios-cap">NET after losses</span></div>${winners.length ? winners.map(segRow).join("") : `<div class="ios-cap" style="padding:8px 0;">no positive-NET segments at the floor yet</div>`}</div>
+          <div class="ios-card"><div class="ios-card-head"><span class="ios-title" style="font-size:15px;">Board segments that LOSE</span><span class="ios-cap">shown just as loud</span></div>${losers.map(segRow).join("")}</div>
+          <div class="ios-card"><div class="ios-card-head"><span class="ios-title" style="font-size:15px;">⏳ Watch list — building toward bettable</span></div>${watchRows || `<div class="ios-cap" style="padding:8px 0;">no watch segments yet</div>`}${labRows}</div>
+          <div class="ios-card"><div class="ios-card-head"><span class="ios-title" style="font-size:15px;">🚧 Refused pool — the control group</span></div><div class="ios-cap" style="margin-bottom:4px;">picks the gates blocked; this pool LOSING is the gates working</div>${refRows}</div>
+        </div>`;
+      } catch (e) { main.innerHTML = `<div style="padding:20px;color:#F87171;">What\u2019s-winning board failed to load: ${escapeHtml(String(e?.message || e))}</div>`; }
     }
 
     // ── MY BETS renderer ────────────────────────────────────────────────
@@ -5919,6 +6030,7 @@
       m.id = "more-menu";
       m.style.cssText = "position:fixed;right:10px;bottom:112px;z-index:70;background:#15161C;border:1px solid #26262E;border-radius:12px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.55);min-width:170px;";
       m.innerHTML = `<button onclick="window._moreGo('analyze')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#F9FAFB;font-size:13px;font-weight:700;cursor:pointer;">📸 Analyze a slip screenshot</button>
+        <button onclick="window._moreGo('winning')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#F9FAFB;font-size:13px;font-weight:700;cursor:pointer;">📈 What\u2019s winning</button>
         <button onclick="window._moreGo('engine')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#9CA3AF;font-size:13px;font-weight:700;cursor:pointer;">🔧 Engine room <span style="font-size:10px;color:#6B7280;">(internals — not picks)</span></button>`;
       document.body.appendChild(m);
       setTimeout(() => document.addEventListener("click", function _c(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener("click", _c); } }), 0);
