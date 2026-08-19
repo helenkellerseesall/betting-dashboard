@@ -70,9 +70,14 @@
 
     .sport-tabs {
       display: flex; gap: 4px; padding-bottom: 8px;
+      /* 2026-08-18 iteration-2 375px fix: the tab row scrolls within itself
+         (iOS segmented pattern) — never the page. scrollbar hidden. */
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      max-width: 100%;
     }
+    .sport-tabs::-webkit-scrollbar { display: none; }
     .tab {
-      flex: 1; padding: 10px 12px;
+      flex: 0 0 auto; padding: 10px 12px;
       background: #15161C; border: 1px solid transparent; color: #9CA3AF;
       border-radius: 10px; font-size: 14px; font-weight: 600;
       cursor: pointer; transition: all 0.15s ease;
@@ -703,7 +708,8 @@
            uses this to paste/upload a slip (own or someone else's) and get a
            tail-or-bail verdict from the engine.
            Legacy MLB/NBA/PARLAY tabs remain hidden, available via dev console. -->
-      <button class="tab active" data-sport="top">TOP PICKS <span class="tab-count" id="topCount">—</span></button>
+      <button class="tab active" data-sport="tonight">TONIGHT</button>
+      <button class="tab" data-sport="top">PICKS <span class="tab-count" id="topCount">—</span></button>
       <button class="tab" data-sport="slips">SLIPS <span class="tab-count" id="slipsCount">—</span></button>
       <button class="tab" data-sport="mybets">MY BETS <span class="tab-count" id="myBetsCount">0</span></button>
       <button class="tab" data-sport="games">GAMES <span class="tab-count" id="gamesCount">—</span></button>
@@ -799,13 +805,33 @@
     const MAX_PLAYS = 15;
     const REFRESH_MIN_INTERVAL_MS = 5000;
 
+    // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
+    // namespaced so future versions can migrate without colliding.
+    // 2026-08-18 TDZ FIX (CA 18:05 find, root-caused): this block lived BELOW
+    // `let state` — loadParlay() at state-init hit PARLAY_STORAGE_KEY in the
+    // temporal dead zone, threw ReferenceError, and the catch returned [] on
+    // EVERY boot. Persistence never worked; saves succeeded, loads were
+    // always empty. Declaration order was the entire bug.
+    const PARLAY_STORAGE_KEY = "edge:parlay:v1";
+    function loadParlay() {
+      try {
+        const raw = localStorage.getItem(PARLAY_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) { return []; }
+    }
+    function saveParlay() {
+      try { localStorage.setItem(PARLAY_STORAGE_KEY, JSON.stringify(state.parlay || [])); } catch (_) {}
+    }
+
     let state = {
       // 2026-06-09 FE consolidation — land on the curated TOP PICKS view by
       // default (matches the .active nav highlight on the TOP PICKS button).
       // Was "mlb", which routed /m to the legacy MLB sport-tab in "games" mode
       // (Tonight's Games + Sharp toggle) while the nav highlighted TOP PICKS —
       // the desync that made the whole surface read as the wrong screen.
-      activeSport: "top",
+      activeSport: "tonight",  // 2026-08-18 ITERATION-2 — home = TONIGHT
       data: { mlb: null, nba: null },
       lastFetchAt: null,
       fetching: false,
@@ -888,20 +914,7 @@
       return null;  // unknown — let backend decide
     }
 
-    // v0.2.0: Parlay storage. Keep it small + portable. localStorage key
-    // namespaced so future versions can migrate without colliding.
-    const PARLAY_STORAGE_KEY = "edge:parlay:v1";
-    function loadParlay() {
-      try {
-        const raw = localStorage.getItem(PARLAY_STORAGE_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (_) { return []; }
-    }
-    function saveParlay() {
-      try { localStorage.setItem(PARLAY_STORAGE_KEY, JSON.stringify(state.parlay || [])); } catch (_) {}
-    }
+    // (parlay storage block MOVED above state init — 2026-08-18 TDZ fix)
 
     // Stable per-candidate signature so add/remove and "is this leg already in?"
     // work even after a refresh changes the surrounding ordering.
@@ -920,7 +933,7 @@
     }
     function addLeg(c, sport) {
       if (isLegInParlay(c)) return;
-      if (state.parlay.length >= 6) { alert("Bet slip is full (6 legs max)"); return; }
+      if (state.parlay.length >= 6) { _slipToast("Bet slip is full (6 legs max)"); return; }
       // Capture only the fields we need; full row is too big for localStorage at scale.
       // 2026-08-18 drawer: betLink/betSid/eventId/marketKey preserved when present —
       // the compose deep-links need them; absent fields stay null (copy-legs covers).
@@ -947,13 +960,27 @@
       if (typeof _slipRenderBar === "function") _slipRenderBar();
       render();
     }
+    // 2026-08-18 FIND-1 FIX — NO native dialogs anywhere in the drawer path.
+    // confirm()/alert() are browser-modal: they block every page event (the
+    // exact "renderer frozen ≥30s" CA hit under Chrome automation) and read
+    // as un-iOS besides. Destructive actions use a two-tap arm instead.
+    function _slipToast(msg) {
+      try {
+        let t = document.getElementById("slip-toast");
+        if (!t) { t = document.createElement("div"); t.id = "slip-toast"; document.body.appendChild(t); }
+        t.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:130px;z-index:80;background:#24252C;color:#F9FAFB;font-size:12px;font-weight:700;padding:9px 16px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,0.5);";
+        t.textContent = msg;
+        clearTimeout(window.__slipToastT);
+        window.__slipToastT = setTimeout(() => { t.remove(); }, 1900);
+      } catch (_) {}
+    }
     function clearParlay() {
       if (state.parlay.length === 0) return;
-      if (!confirm(`Clear all ${state.parlay.length} legs from your slip?`)) return;
       state.parlay.length = 0; // mutate, never reassign — _slipTray aliases this array
       saveParlay();
       if (typeof _slipRenderBar === "function") _slipRenderBar();
       render();
+      _slipToast("Slip cleared");
     }
     window.addLegFromCard = function (idx, sport) {
       const payload = state.data[sport];
@@ -1546,6 +1573,14 @@
       state._renderedIndex = {};
 
       // ── 2026-05-30 FE v2 tab routing ──────────────────────────────────
+      if (sport === "tonight") {
+        renderTonight(main);
+        return;
+      }
+      if (sport === "engine") {
+        renderEngineRoom(main);
+        return;
+      }
       if (sport === "top") {
         renderTopPicks(main);
         return;
@@ -3013,7 +3048,18 @@
       window._slipShowPanel && document.getElementById("slip-panel") && window._slipOpenPanel();
       render();
     };
-    window._slipClear = function () { clearParlay(); };
+    window._slipClear = function (btn) {
+      // two-tap arm (never a blocking confirm): first tap arms for 2.5s
+      if (btn && !btn.dataset.armed) {
+        btn.dataset.armed = "1";
+        const orig = btn.textContent;
+        btn.textContent = "tap again to clear " + state.parlay.length + " legs";
+        btn.style.color = "#F87171";
+        setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = orig; btn.style.color = "#9CA3AF"; } }, 4000);
+        return;
+      }
+      clearParlay();
+    };
     // Copy-legs fallback (2026-08-18 drawer) — the workhorse while every book
     // ships deep-links DISABLED in the matrix: copies a plain-text slip for
     // pasting/searching inside the book app. Clipboard API with a textarea
@@ -3095,7 +3141,7 @@
           </div>
           <button onclick="window._slipRecord(this)" style="width:100%;margin-top:8px;padding:9px 0;border-radius:8px;border:0;background:#34D399;color:#0B0C10;font-size:13px;font-weight:800;cursor:pointer;">I bet this parlay — record it</button>` : ""}
           <div id="slip-result" style="margin-top:8px;font-size:11px;line-height:1.45;"></div>
-          <button onclick="window._slipClear()" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
+          <button onclick="window._slipClear(this)" style="width:100%;margin-top:8px;padding:6px 0;border-radius:6px;border:1px solid #374151;background:none;color:#9CA3AF;font-size:11px;cursor:pointer;">clear slip</button>
         </div>`;
     };
     // Per-book multi-leg composition — CC's verified templates ONLY
@@ -4030,7 +4076,16 @@
         .v2-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
         .v2-sport-section { margin-bottom: 18px; }
         .v2-sport-header { font-size: 11px; color: #9CA3AF; letter-spacing: 2px; font-weight: 600; padding: 8px 2px; border-bottom: 1px solid #1F2937; margin-bottom: 8px; }
-        .v2-prop-divider { border-top: 1px dashed #1F2937; }`;
+        .v2-prop-divider { border-top: 1px dashed #1F2937; }
+        /* 2026-08-18 ITERATION-2 — iOS card language (product surfaces) */
+        .ios-card { background: #15161C; border: 1px solid #24252C; border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.45); overflow: hidden; max-width: 100%; }
+        .ios-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 8px; }
+        .ios-title { font-size: 17px; font-weight: 700; color: #F9FAFB; letter-spacing: -0.2px; }
+        .ios-cap { font-size: 11px; color: #6B7280; }
+        .ios-badge-paper { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 3px 8px; border-radius: 6px; background: rgba(244,114,182,0.15); color: #F472B6; white-space: nowrap; }
+        .ios-stat { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; }
+        .ios-stat-label { font-size: 11px; color: #6B7280; letter-spacing: 0.8px; }
+        .ios-stat-value { font-size: 14px; font-weight: 700; font-family: ui-monospace, monospace; }`;
       document.head.appendChild(_s);
     }
 
@@ -4040,39 +4095,10 @@
       try {
         const r = await fetch(`${API}/api/ws/top-picks?limit=50`);
         const d = await r.json();
-        // 2026-07-14 THE DAILY 3 — the track-record lens renders ABOVE the board.
+        // 2026-08-18 ITERATION-2 — the Daily 3 card moved to the TONIGHT home
+        // view (operator decision via CA). d3html stays declared so the empty-
+        // board branch renders without it.
         let d3html = "";
-        try {
-          const r3 = await fetch(`${API}/api/ws/daily3?_t=${Date.now()}`, { cache: "no-store" });
-          const j3 = await r3.json();
-          if (j3 && j3.ok) {
-            window._d3Cache = (j3.today && j3.today.picks) || []; // drawer tap-to-bet
-            const rec = j3.record || {};
-            const recLine = rec.decided > 0
-              ? `${rec.wins}-${rec.losses}${rec.pushes ? "-" + rec.pushes + "P" : ""} · <b style="color:${rec.netUnits >= 0 ? "#34D399" : "#F87171"};">${rec.netUnits >= 0 ? "+" : ""}${rec.netUnits}u</b> at flat $1${rec.smallSample ? ` · <span style="color:#6B7280;">${escapeHtml(rec.honesty || "small sample")}</span>` : ` · ${rec.winRate}% over ${rec.days} days`}`
-              : `record starts with the first graded card`;
-            const _stIcon = (x) => x === "win" ? "✅" : x === "loss" ? "❌" : x === "push" ? "➖" : x === "void" ? "⚪" : "⏳";
-            const cardBody = j3.today
-              ? j3.today.picks.map((p, i) => {
-                  const res = j3.today.results ? j3.today.results[i] : null;
-                  return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #1B2030;font-size:12px;">
-                    <div style="color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b> <span style="color:#9CA3AF;">${_pickLineNice(p)} ${_famNice(p.statFamily)} @ ${escapeHtml(p.sportsbook || "?")}</span>${_gameIdLine(p)}</div>
-                    <span style="font-family:ui-monospace,monospace;color:#D1D5DB;">${(!res || res.result === "pending") ? `<button onclick="window._d3Add(${i});event.stopPropagation();" title="Add to bet slip" style="margin-right:6px;padding:0 7px;border-radius:5px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:12px;font-weight:800;cursor:pointer;">+</button>` : ""}${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
-                  </div>`;
-                }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:5px;">locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))}Z${j3.today.lockLate ? " (late lock)" : ""} · immutable · ${j3.today.picks[0]?.calibVersion ? escapeHtml(j3.today.picks[0].calibVersion) : "unstamped era"}</div>`
-              : `<div style="font-size:12px;color:#9CA3AF;padding:6px 0;">${j3.firstPitchAt ? `Today's 3 lock 60 min before first pitch (${escapeHtml(new Date(j3.firstPitchAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }))} ET).` : "No games this slate — no card today."}</div>`;
-            const histLine = (j3.history || []).filter((c) => c.results).slice(0, 7).map((c) => `<span style="margin-right:8px;color:${(c.netUnits || 0) >= 0 ? "#34D399" : "#F87171"};">${c.slate.slice(5)}: ${c.netUnits >= 0 ? "+" : ""}${c.netUnits}u</span>`).join("");
-            d3html = `
-              <div style="background:#14151B;border:1px solid #2A2B33;border-radius:10px;padding:12px;margin-bottom:12px;">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;">
-                  <span style="font-size:12px;font-weight:800;letter-spacing:1px;color:#60A5FA;">🎯 THE DAILY 3</span>
-                  <span style="font-size:10px;color:#9CA3AF;">${recLine}</span>
-                </div>
-                ${cardBody}
-                ${histLine ? `<div style="font-size:9px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${histLine}</div>` : ""}
-              </div>`;
-          }
-        } catch (_) { /* daily3 card is additive — its failure never blocks the board */ }
         // 2026-07-15 NIGHT-OWL-1 — TOMORROW board: clearly SEPARATED section
         // (never mixed with today; slate-date doctrine — the date key comes
         // from the server's tomorrowSlate, the FE never computes slate dates).
@@ -4149,7 +4175,7 @@
           if (byTier[t]) byTier[t].push(p);
         }
         const fellBackBadge = d.fellBack ? `<div style="font-size:11px;color:#FBBF24;background:#1F1A0A;padding:6px 10px;border-radius:6px;border-left:3px solid #FBBF24;margin-bottom:8px;">📅 No slate yet for ${escapeHtml(d.todayKey || d.requestedDate || "today")} — showing last available date <b>${escapeHtml(d.date)}</b></div>` : "";
-        const dampenedBadge = (d.counts?.dampenedRejected > 0) ? `<div style="font-size:11px;color:#60A5FA;background:#0A1422;padding:6px 10px;border-radius:6px;border-left:3px solid #60A5FA;margin-bottom:8px;">⚖ Calibration dampener removed <b>${d.counts.dampenedRejected}</b> pick${d.counts.dampenedRejected===1?'':'s'} (modelProb dropped below implied odds → negative edge after dampening). See GAMES for unfiltered view.</div>` : "";
+        const dampenedBadge = (d.counts?.dampenedRejected > 0) ? `<div style="font-size:11px;color:#60A5FA;background:#0A1422;padding:6px 10px;border-radius:6px;border-left:3px solid #60A5FA;margin-bottom:8px;">⚖ ${d.counts.dampenedRejected} pick${d.counts.dampenedRejected===1?'':'s'} hidden — the model's confidence didn't survive its own track-record check. Everything still shows on GAMES.</div>` : "";
         // 2026-07-28 LINE-FRESHNESS — board-level as-of stamp (staleness never
         // invisible). Server-computed; the FE only renders what it was told.
         const lfSum = d.lineFreshness || null;
@@ -4181,65 +4207,162 @@
           html += `</div>`;
         }
         html += nightOwlHtml;
-        // 2026-07-30 GRADUATION BOARD (ASK f5ee1b6) — compact collapsed
-        // section; additive, never blocks the board. Renders the aggregator
-        // sidecar via /api/ws/graduation-board.
-        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#FBBF24;cursor:pointer;letter-spacing:.5px;">🎓 GRADUATION BOARD — caged surfaces' road to bettable · tap to expand</summary><div id="grad-board-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
-        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#818CF8;cursor:pointer;letter-spacing:.5px;">🧪 LADDER LAB — paper engine (NOT BETTABLE) · tap to expand</summary><div id="ladder-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
-        html += `<div style="margin-top:14px;"><details><summary style="font-size:11px;color:#F472B6;cursor:pointer;letter-spacing:.5px;">🎰 LONGSHOT LAB — 3 paper tickets nightly (NOT BETTABLE) · tap to expand</summary><div id="longshot-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
+        // 2026-08-18 ITERATION-2 — graduation board / ladder lab / longshot lab
+        // telemetry moved to the ENGINE ROOM page (⋯ menu). Engine internals
+        // never render at content level on product surfaces again — the
+        // operator misread scanner rungs as picks, and that misread is the
+        // design failure this pack fixes.
         html += `</div>`;
         main.innerHTML = html;
-        try {
-          const rg = await fetch(`${API}/api/ws/graduation-board?_t=${Date.now()}`, { cache: "no-store" });
-          const jg = await rg.json();
-          const eg = document.getElementById("grad-board-body");
-          if (eg && jg.ok && jg.generated) {
-            const stalled = jg.stalledRows || [];
-            eg.innerHTML = (stalled.length ? `<div style="color:#F87171;font-weight:700;margin-bottom:5px;">⚠ STALLED: ${stalled.join(", ")} — running but not progressing</div>` : `<div style="color:#34D399;margin-bottom:5px;">all caged surfaces advancing</div>`) +
-              (jg.rows || []).map((r) => {
-                const col = r.status === "stalled" ? "#F87171" : r.status === "queued" ? "#6B7280" : "#FBBF24";
-                const nights = r.examNights && r.examNights.bar != null ? `${r.examNights.have}/${r.examNights.bar}n` : (r.verdict || "");
-                const dec = r.decided && r.decided.bar != null ? ` · ${r.decided.have}/${r.decided.bar}` : "";
-                const u = r.paperUnits != null ? ` · ${typeof r.paperUnits === "number" ? r.paperUnits + "u" : r.paperUnits}` : "";
-                return `<div style="border-top:1px solid #1F2430;padding:3px 0;"><b style="color:${col};">${r.status.toUpperCase()}</b> ${escapeHtml(r.label)} — ${escapeHtml(String(nights))}${escapeHtml(String(dec))}${escapeHtml(String(u))}${r.trend && r.trend.label ? " · " + escapeHtml(r.trend.label) : ""}<div style="font-size:9px;color:#6B7280;">unlock: ${escapeHtml(r.unlock || "")}</div></div>`;
-              }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:4px;">paper units are in-sample shadow numbers — a refusing gate is a working gate</div>`;
-          } else if (eg) eg.innerHTML = "board not generated yet — the aggregator fires after the evening scans";
-        } catch (_) { /* additive — never blocks the board */ }
-        try {
-          const rl = await fetch(`${API}/api/ws/ladder-lab?_t=${Date.now()}`, { cache: "no-store" });
-          const jl = await rl.json();
-          const el = document.getElementById("ladder-lab-body");
-          if (el && jl.ok) {
-            const g = jl.gates?.raw, cg = jl.gates?.cures;
-            el.innerHTML = `
-              <div style="color:#FBBF24;font-size:10px;margin-bottom:6px;">${escapeHtml(jl.notBettable)}</div>
-              <div>Scanner: ${jl.rungsPriced} rungs priced · ${jl.flags.length} shown flags${g ? ` · raw gate ${g.nights}/14 nights, ${g.decided}/300, ${g.flatUnits}u (gap ${g.pooledGapPp ?? "—"}pp)` : ""}</div>
-              ${cg ? `<div>Cures: A ${cg.A.decided} decided ${cg.A.flatUnits}u · B ${cg.B.decided} ${cg.B.flatUnits}u · C ${cg.C.decided} ${cg.C.flatUnits}u (counterfactual A ${cg.A.counterfactual?.declinedPct ?? "—"}%)</div>` : ""}
-              ${jl.flags.slice(0, 6).map((f) => `<div style="border-top:1px solid #1F2430;padding:3px 0;">${escapeHtml(f.player)} ${f.k}+ ${escapeHtml(f.family)} @ ${escapeHtml(f.book)} ${f.oddsAmerican > 0 ? "+" : ""}${f.oddsAmerican} · fair ${(f.pFair * 100).toFixed(0)}% vs ${(f.implied * 100).toFixed(0)}%</div>`).join("")}
-              ${jl.parlays?.length ? `<div style="margin-top:5px;color:#A78BFA;">Top paper parlays:</div>` + jl.parlays.slice(0, 3).map((p) => `<div style="border-top:1px solid #241B36;padding:3px 0;">EV ${p.ev >= 0 ? "+" : ""}${p.ev}/$1 · pays ${p.dec}x · ${p.legs.map(escapeHtml).join(" + ")}</div>`).join("") : ""}
-              ${jl.parlayGate ? `<div style="margin-top:4px;">Parlay paper gate: ${jl.parlayGate.nights}/14 nights · ${jl.parlayGate.decided}/100 · ${jl.parlayGate.flatUnits}u</div>` : ""}`;
-          } else if (el) el.innerHTML = "no paper artifacts for this slate yet — the lab fills after the 17:15/17:20 scans";
-        } catch (_) { /* lab is additive — never blocks the board */ }
-        // 2026-08-17 LONGSHOT LAB — paper tickets + gate + drought benchmark,
-        // losses-forward. Additive; never blocks the board.
-        try {
-          const rLab = await fetch(`${API}/api/ws/lab?_t=${Date.now()}`, { cache: "no-store" });
-          const jLab = await rLab.json();
-          const eLab = document.getElementById("longshot-lab-body");
-          if (eLab && jLab.ok) {
-            const t = jLab.tonight;
-            window._labCache = (t && t.tickets) || []; // drawer tap-to-bet
-            const tix = t && t.tickets && t.tickets.length
-              ? t.tickets.map((k, ti) => `<div style="border-top:1px solid #331B2E;padding:4px 0;"><b style="color:${k.kind === "experimental" ? "#FBBF24" : "#F472B6"};">${k.kind.toUpperCase()}</b> ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican} · p=${(k.pTicket * 100).toFixed(2)}% · $${k.stake} paper · ${k.result !== "pending" ? `<b>${escapeHtml(String(k.result).toUpperCase())}</b>` : "locked"}<div style="font-size:10px;color:#9CA3AF;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${escapeHtml(l.statFamily)} (${escapeHtml(l.priced)})`).join(" × ")}</div>${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="margin-top:4px;padding:3px 10px;border-radius:6px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:10px;font-weight:800;cursor:pointer;">⊕ slip these ${k.legs.length} legs</button>` : ""}</div>`).join("")
-              : `<div style="padding:4px 0;color:#6B7280;">no card tonight — no eligible certified legs ≥T-60 (honest no-card beats a forced one)</div>`;
-            const gates = jLab.gate ? Object.entries(jLab.gate).map(([band, g]) => `<div style="border-top:1px solid #241B36;padding:3px 0;"><b>${band}</b>: ${g.nights}n · ${g.decided} decided · ${g.wins}w vs ${g.expectedWins} expected (LB ${g.poissonRatioLB ?? "—"}) · ${g.flatUnits >= 0 ? "+" : ""}${g.flatUnits}u — <b style="color:${g.barMet === "NOT MET" ? "#F87171" : "#FBBF24"};">${escapeHtml(g.barMet)}</b><div style="font-size:9px;color:#6B7280;">expected worst drought (${escapeHtml(g.drought.band)}): ${escapeHtml(g.drought.edgedLongest)} straight WITH a real edge — ${escapeHtml(g.drought.note)}</div></div>`).join("") : "";
-            const losses = (jLab.recent || []).map((s) => `<span style="margin-right:8px;color:${s.units > 0 ? "#34D399" : s.units < 0 ? "#F87171" : "#9CA3AF"};">${s.slate.slice(5)} ${s.kind[0].toUpperCase()}: ${s.units > 0 ? "+" : ""}${s.units}u</span>`).join("");
-            eLab.innerHTML = `<div style="color:#F472B6;font-size:10px;margin-bottom:5px;">PAPER ONLY — flip is the OPERATOR's, never automatic. Bar: ${escapeHtml((jLab.gate && jLab.gate.workhorse && jLab.gate.workhorse.bar) || "")}</div>${tix}${gates}${losses ? `<div style="font-size:10px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${losses}</div>` : ""}`;
-          } else if (eLab) eLab.innerHTML = "lab not built yet — the 17:40 pass locks tonight's tickets";
-        } catch (_) { /* additive */ }
+
       } catch (e) {
         main.innerHTML = `<div style="padding:20px;color:#F87171;">Error loading top picks: ${escapeHtml(String(e?.message || e))}</div>`;
       }
+    }
+
+
+    // ── 2026-08-18 ITERATION-2 — TONIGHT (home) ─────────────────────────────
+    // Operator decisions via CA (binding): home shows the Daily 3 card, the
+    // Longshot Lab tickets, and the record strip. NOTHING else. Product
+    // surfaces speak plain English; every honesty rail stays (PAPER badges,
+    // lock stamps, losses shown as loudly as wins, provenance) — restyled,
+    // never removed. Dense telemetry lives in the Engine Room (⋯ menu).
+    async function renderTonight(main) {
+      main.innerHTML = `<div class="loading" style="padding:20px;color:#9CA3AF;">Loading tonight…</div>`;
+      let d3CardHtml = "", d3RecHtml = "", labCardHtml = "", labRecHtml = "";
+      // Daily 3 — the locked product card
+      try {
+        const r3 = await fetch(`${API}/api/ws/daily3?_t=${Date.now()}`, { cache: "no-store" });
+        const j3 = await r3.json();
+        if (j3 && j3.ok) {
+          window._d3Cache = (j3.today && j3.today.picks) || []; // drawer tap-to-bet
+          const rec = j3.record || {};
+          d3RecHtml = rec.decided > 0
+            ? `<div class="ios-stat"><span class="ios-stat-label">DAILY 3 RECORD</span><span class="ios-stat-value" style="color:${rec.netUnits >= 0 ? "#34D399" : "#F87171"};">${rec.wins}–${rec.losses}${rec.pushes ? "–" + rec.pushes + " push" : ""} · ${rec.netUnits >= 0 ? "+" : ""}${rec.netUnits} units</span></div>`
+            : `<div class="ios-stat"><span class="ios-stat-label">DAILY 3 RECORD</span><span class="ios-stat-value" style="color:#9CA3AF;">starts with the first graded card</span></div>`;
+          const _stIcon = (x) => x === "win" ? "✅" : x === "loss" ? "❌" : x === "push" ? "➖" : x === "void" ? "⚪" : "⏳";
+          const body = j3.today
+            ? j3.today.picks.map((p, i) => {
+                const res = j3.today.results ? j3.today.results[i] : null;
+                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #24252C;">
+                  <div style="font-size:14px;color:#F9FAFB;">${_stIcon(res ? res.result : "pending")} <b>${escapeHtml(p.player)}</b><div style="font-size:12px;color:#9CA3AF;margin-top:2px;">${_pickLineNice(p)} ${_famNice(p.statFamily)} — ${escapeHtml(p.sportsbook || "?")}${_gameIdLine(p)}</div></div>
+                  <span style="font-family:ui-monospace,monospace;font-size:13px;color:#D1D5DB;white-space:nowrap;">${(!res || res.result === "pending") ? `<button onclick="window._d3Add(${i});event.stopPropagation();" title="Add to bet slip" style="margin-right:8px;padding:2px 9px;border-radius:7px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:13px;font-weight:800;cursor:pointer;">+</button>` : ""}${_oddsNice(p.odds)}${res && res.units != null ? ` <span style="color:${res.units > 0 ? "#34D399" : res.units < 0 ? "#F87171" : "#9CA3AF"};">${res.units > 0 ? "+" : ""}${res.units}u</span>` : ""}</span>
+                </div>`;
+              }).join("") + `<div class="ios-cap" style="margin-top:8px;">🔒 Locked ${escapeHtml((j3.today.lockedAt || "").slice(11, 16))} UTC — can't be changed after lock${j3.today.lockLate ? " (locked late)" : ""}${j3.today.picks[0]?.calibVersion ? ` · ${escapeHtml(j3.today.picks[0].calibVersion)}` : ""}</div>`
+            : `<div style="font-size:13px;color:#9CA3AF;padding:8px 0;">${j3.firstPitchAt ? `Tonight's 3 picks lock 60 minutes before first pitch (${escapeHtml(new Date(j3.firstPitchAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }))} ET).` : "No games tonight — no card."}</div>`;
+          const hist = (j3.history || []).filter((c) => c.results).slice(0, 7).map((c) => `<span style="margin-right:10px;color:${(c.netUnits || 0) >= 0 ? "#34D399" : "#F87171"};">${c.slate.slice(5)}: ${c.netUnits >= 0 ? "+" : ""}${c.netUnits}u</span>`).join("");
+          d3CardHtml = `<div class="ios-card">
+            <div class="ios-card-head"><span class="ios-title">🎯 The Daily 3</span><span class="ios-cap">3 picks a night · every result kept</span></div>
+            ${body}
+            ${hist ? `<div class="ios-cap" style="margin-top:6px;overflow-x:auto;white-space:nowrap;">${hist}</div>` : ""}
+          </div>`;
+        }
+      } catch (_) { /* additive — home never blocks on one card */ }
+      // Longshot Lab — paper tickets, plain English, honesty rails restyled
+      try {
+        const rLab = await fetch(`${API}/api/ws/lab?_t=${Date.now()}`, { cache: "no-store" });
+        const jLab = await rLab.json();
+        if (jLab && jLab.ok) {
+          const t = jLab.tonight;
+          window._labCache = (t && t.tickets) || []; // drawer tap-to-bet
+          const tix = t && t.tickets && t.tickets.length
+            ? t.tickets.map((k, ti) => {
+                const resChip = k.result !== "pending"
+                  ? `<span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;background:${k.result === "win" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)"};color:${k.result === "win" ? "#34D399" : "#F87171"};">${escapeHtml(String(k.result).toUpperCase())}</span>`
+                  : `<span class="ios-cap">locked</span>`;
+                return `<div style="padding:9px 0;border-top:1px solid #24252C;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:14px;font-weight:700;color:#F9FAFB;">Pays ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican}<span class="ios-cap" style="margin-left:8px;">model gives this ~${Math.round(k.pTicket * 100)}%</span></span>
+                    ${resChip}
+                  </div>
+                  <div style="font-size:12px;color:#9CA3AF;margin-top:4px;line-height:1.5;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${_famNice(l.statFamily)} — ${escapeHtml(l.sportsbook || "?")}`).join("<br/>")}</div>
+                  ${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="margin-top:6px;padding:5px 12px;border-radius:8px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:11px;font-weight:800;cursor:pointer;">⊕ add ${k.legs.length} legs to slip</button>` : ""}
+                </div>`;
+              }).join("")
+            : `<div style="font-size:13px;color:#9CA3AF;padding:8px 0;">No tickets tonight — none of the qualifying plays cleared the bar. An honest empty night beats a forced card.</div>`;
+          const g = jLab.gate && jLab.gate.workhorse;
+          const nightsLine = g ? `Paper test: night ${g.nights} of 90 — these stay pretend-money until the test passes. Turning them real is Andrew's call, never automatic.` : "";
+          const droughtLine = g && g.drought ? `Even a winning longshot program can lose ${escapeHtml(String(g.drought.edgedLongest))} in a row — expected, not broken.` : "";
+          let units = 0;
+          for (const b of Object.values(jLab.gate || {})) units += Number(b.flatUnits) || 0;
+          labRecHtml = `<div class="ios-stat"><span class="ios-stat-label">LONGSHOTS (PAPER)</span><span class="ios-stat-value" style="color:${units >= 0 ? "#34D399" : "#F87171"};">${units >= 0 ? "+" : ""}${units.toFixed(1)} units pretend</span></div>`;
+          const losses = (jLab.recent || []).map((s) => `<span style="margin-right:10px;color:${s.units > 0 ? "#34D399" : s.units < 0 ? "#F87171" : "#9CA3AF"};">${s.slate.slice(5)}: ${s.units > 0 ? "+" : ""}${s.units}u</span>`).join("");
+          labCardHtml = `<div class="ios-card">
+            <div class="ios-card-head"><span class="ios-title">🎰 Longshot tickets</span><span class="ios-badge-paper">PAPER — NOT REAL BETS</span></div>
+            ${tix}
+            ${nightsLine ? `<div class="ios-cap" style="margin-top:8px;">${nightsLine}</div>` : ""}
+            ${droughtLine ? `<div class="ios-cap" style="margin-top:4px;">${droughtLine}</div>` : ""}
+            ${losses ? `<div class="ios-cap" style="margin-top:6px;overflow-x:auto;white-space:nowrap;">${losses}</div>` : ""}
+          </div>`;
+        } else labCardHtml = `<div class="ios-card"><div class="ios-card-head"><span class="ios-title">🎰 Longshot tickets</span><span class="ios-badge-paper">PAPER</span></div><div style="font-size:13px;color:#9CA3AF;padding:8px 0;">Tonight's tickets lock at 5:40 PM ET.</div></div>`;
+      } catch (_) { /* additive */ }
+      const recStrip = (d3RecHtml || labRecHtml) ? `<div class="ios-card" style="padding:10px 16px;">${d3RecHtml}${labRecHtml}</div>` : "";
+      main.innerHTML = `<div style="padding:10px 12px;">${d3CardHtml}${labCardHtml}${recStrip}</div>`;
+    }
+
+    // ── 2026-08-18 ITERATION-2 — ENGINE ROOM (⋯ menu only) ──────────────────
+    // The system's test benches: scanner rungs, paper parlays, gate telemetry,
+    // graduation board. Dense forms allowed here BY DESIGN — this page is
+    // labeled as internals so telemetry can never again read as picks.
+    async function renderEngineRoom(main) {
+      let html = `<div style="padding:10px 12px;">
+        <div class="ios-card" style="border-left:3px solid #F87171;">
+          <div class="ios-title">🔧 Engine room</div>
+          <div style="font-size:12px;color:#9CA3AF;margin-top:4px;line-height:1.5;">Internal telemetry — the system testing itself. <b style="color:#F87171;">Nothing on this page is a pick.</b> Rungs, paper parlays, and gate read-outs are the control group; the product lives on TONIGHT.</div>
+        </div>`;
+      html += `<div style="margin-top:14px;"><details open><summary style="font-size:11px;color:#FBBF24;cursor:pointer;letter-spacing:.5px;">🎓 GRADUATION BOARD — caged surfaces' road to bettable · tap to expand</summary><div id="grad-board-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
+      html += `<div style="margin-top:14px;"><details open><summary style="font-size:11px;color:#818CF8;cursor:pointer;letter-spacing:.5px;">🧪 LADDER LAB — paper engine (NOT BETTABLE) · tap to expand</summary><div id="ladder-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
+      html += `<div style="margin-top:14px;"><details open><summary style="font-size:11px;color:#F472B6;cursor:pointer;letter-spacing:.5px;">🎰 LONGSHOT LAB — 3 paper tickets nightly (NOT BETTABLE) · tap to expand</summary><div id="longshot-lab-body" style="padding:8px 2px;font-size:11px;color:#9CA3AF;">loading…</div></details></div>`;
+      html += `</div>`;
+      main.innerHTML = html;
+              try {
+        const rg = await fetch(`${API}/api/ws/graduation-board?_t=${Date.now()}`, { cache: "no-store" });
+        const jg = await rg.json();
+        const eg = document.getElementById("grad-board-body");
+        if (eg && jg.ok && jg.generated) {
+          const stalled = jg.stalledRows || [];
+          eg.innerHTML = (stalled.length ? `<div style="color:#F87171;font-weight:700;margin-bottom:5px;">⚠ STALLED: ${stalled.join(", ")} — running but not progressing</div>` : `<div style="color:#34D399;margin-bottom:5px;">all caged surfaces advancing</div>`) +
+            (jg.rows || []).map((r) => {
+              const col = r.status === "stalled" ? "#F87171" : r.status === "queued" ? "#6B7280" : "#FBBF24";
+              const nights = r.examNights && r.examNights.bar != null ? `${r.examNights.have}/${r.examNights.bar}n` : (r.verdict || "");
+              const dec = r.decided && r.decided.bar != null ? ` · ${r.decided.have}/${r.decided.bar}` : "";
+              const u = r.paperUnits != null ? ` · ${typeof r.paperUnits === "number" ? r.paperUnits + "u" : r.paperUnits}` : "";
+              return `<div style="border-top:1px solid #1F2430;padding:3px 0;"><b style="color:${col};">${r.status.toUpperCase()}</b> ${escapeHtml(r.label)} — ${escapeHtml(String(nights))}${escapeHtml(String(dec))}${escapeHtml(String(u))}${r.trend && r.trend.label ? " · " + escapeHtml(r.trend.label) : ""}<div style="font-size:9px;color:#6B7280;">unlock: ${escapeHtml(r.unlock || "")}</div></div>`;
+            }).join("") + `<div style="font-size:9px;color:#6B7280;margin-top:4px;">paper units are in-sample shadow numbers — a refusing gate is a working gate</div>`;
+        } else if (eg) eg.innerHTML = "board not generated yet — the aggregator fires after the evening scans";
+      } catch (_) { /* additive — never blocks the board */ }
+      try {
+        const rl = await fetch(`${API}/api/ws/ladder-lab?_t=${Date.now()}`, { cache: "no-store" });
+        const jl = await rl.json();
+        const el = document.getElementById("ladder-lab-body");
+        if (el && jl.ok) {
+          const g = jl.gates?.raw, cg = jl.gates?.cures;
+          el.innerHTML = `
+            <div style="color:#FBBF24;font-size:10px;margin-bottom:6px;">${escapeHtml(jl.notBettable)}</div>
+            <div>Scanner: ${jl.rungsPriced} rungs priced · ${jl.flags.length} shown flags${g ? ` · raw gate ${g.nights}/14 nights, ${g.decided}/300, ${g.flatUnits}u (gap ${g.pooledGapPp ?? "—"}pp)` : ""}</div>
+            ${cg ? `<div>Cures: A ${cg.A.decided} decided ${cg.A.flatUnits}u · B ${cg.B.decided} ${cg.B.flatUnits}u · C ${cg.C.decided} ${cg.C.flatUnits}u (counterfactual A ${cg.A.counterfactual?.declinedPct ?? "—"}%)</div>` : ""}
+            ${jl.flags.slice(0, 6).map((f) => `<div style="border-top:1px solid #1F2430;padding:3px 0;">${escapeHtml(f.player)} ${f.k}+ ${escapeHtml(f.family)} @ ${escapeHtml(f.book)} ${f.oddsAmerican > 0 ? "+" : ""}${f.oddsAmerican} · fair ${(f.pFair * 100).toFixed(0)}% vs ${(f.implied * 100).toFixed(0)}%</div>`).join("")}
+            ${jl.parlays?.length ? `<div style="margin-top:5px;color:#A78BFA;">Top paper parlays:</div>` + jl.parlays.slice(0, 3).map((p) => `<div style="border-top:1px solid #241B36;padding:3px 0;">EV ${p.ev >= 0 ? "+" : ""}${p.ev}/$1 · pays ${p.dec}x · ${p.legs.map(escapeHtml).join(" + ")}</div>`).join("") : ""}
+            ${jl.parlayGate ? `<div style="margin-top:4px;">Parlay paper gate: ${jl.parlayGate.nights}/14 nights · ${jl.parlayGate.decided}/100 · ${jl.parlayGate.flatUnits}u</div>` : ""}`;
+        } else if (el) el.innerHTML = "no paper artifacts for this slate yet — the lab fills after the 17:15/17:20 scans";
+      } catch (_) { /* lab is additive — never blocks the board */ }
+      // 2026-08-17 LONGSHOT LAB — paper tickets + gate + drought benchmark,
+      // losses-forward. Additive; never blocks the board.
+      try {
+        const rLab = await fetch(`${API}/api/ws/lab?_t=${Date.now()}`, { cache: "no-store" });
+        const jLab = await rLab.json();
+        const eLab = document.getElementById("longshot-lab-body");
+        if (eLab && jLab.ok) {
+          const t = jLab.tonight;
+          window._labCache = (t && t.tickets) || []; // drawer tap-to-bet
+          const tix = t && t.tickets && t.tickets.length
+            ? t.tickets.map((k, ti) => `<div style="border-top:1px solid #331B2E;padding:4px 0;"><b style="color:${k.kind === "experimental" ? "#FBBF24" : "#F472B6"};">${k.kind.toUpperCase()}</b> ${k.oddsAmerican > 0 ? "+" : ""}${k.oddsAmerican} · p=${(k.pTicket * 100).toFixed(2)}% · $${k.stake} paper · ${k.result !== "pending" ? `<b>${escapeHtml(String(k.result).toUpperCase())}</b>` : "locked"}<div style="font-size:10px;color:#9CA3AF;">${k.legs.map((l) => `${escapeHtml(l.player)} ${escapeHtml(String(l.side || "over"))} ${l.line} ${escapeHtml(l.statFamily)} (${escapeHtml(l.priced)})`).join(" × ")}</div>${k.result === "pending" ? `<button onclick="window._labAdd(${ti});event.stopPropagation();" style="margin-top:4px;padding:3px 10px;border-radius:6px;border:1px solid #4C1D95;background:rgba(167,139,250,0.12);color:#A78BFA;font-size:10px;font-weight:800;cursor:pointer;">⊕ slip these ${k.legs.length} legs</button>` : ""}</div>`).join("")
+            : `<div style="padding:4px 0;color:#6B7280;">no card tonight — no eligible certified legs ≥T-60 (honest no-card beats a forced one)</div>`;
+          const gates = jLab.gate ? Object.entries(jLab.gate).map(([band, g]) => `<div style="border-top:1px solid #241B36;padding:3px 0;"><b>${band}</b>: ${g.nights}n · ${g.decided} decided · ${g.wins}w vs ${g.expectedWins} expected (LB ${g.poissonRatioLB ?? "—"}) · ${g.flatUnits >= 0 ? "+" : ""}${g.flatUnits}u — <b style="color:${g.barMet === "NOT MET" ? "#F87171" : "#FBBF24"};">${escapeHtml(g.barMet)}</b><div style="font-size:9px;color:#6B7280;">expected worst drought (${escapeHtml(g.drought.band)}): ${escapeHtml(g.drought.edgedLongest)} straight WITH a real edge — ${escapeHtml(g.drought.note)}</div></div>`).join("") : "";
+          const losses = (jLab.recent || []).map((s) => `<span style="margin-right:8px;color:${s.units > 0 ? "#34D399" : s.units < 0 ? "#F87171" : "#9CA3AF"};">${s.slate.slice(5)} ${s.kind[0].toUpperCase()}: ${s.units > 0 ? "+" : ""}${s.units}u</span>`).join("");
+          eLab.innerHTML = `<div style="color:#F472B6;font-size:10px;margin-bottom:5px;">PAPER ONLY — flip is the OPERATOR's, never automatic. Bar: ${escapeHtml((jLab.gate && jLab.gate.workhorse && jLab.gate.workhorse.bar) || "")}</div>${tix}${gates}${losses ? `<div style="font-size:10px;margin-top:5px;overflow-x:auto;white-space:nowrap;">${losses}</div>` : ""}`;
+        } else if (eLab) eLab.innerHTML = "lab not built yet — the 17:40 pass locks tonight's tickets";
+      } catch (_) { /* additive */ }
     }
 
     // ── MY BETS renderer ────────────────────────────────────────────────
@@ -4446,8 +4569,8 @@
       const text = [header, ...lines].join("\n");
       const done = () => { const b = document.getElementById("copybtn-" + idx); if (b) { const o = b.textContent; b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = o; }, 1500); } };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(() => alert("Copy failed — select the legs manually.\n\n" + text));
-      } else { alert(text); }
+        navigator.clipboard.writeText(text).then(done).catch(() => _slipCopyFallback(text, done));
+      } else { _slipCopyFallback(text, done); }
     };
 
     function renderSlips(main) {
@@ -5795,7 +5918,8 @@
       m = document.createElement("div");
       m.id = "more-menu";
       m.style.cssText = "position:fixed;right:10px;bottom:112px;z-index:70;background:#15161C;border:1px solid #26262E;border-radius:12px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,0.55);min-width:170px;";
-      m.innerHTML = `<button onclick="window._moreGo('analyze')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#F9FAFB;font-size:13px;font-weight:700;cursor:pointer;">📸 Analyze a slip screenshot</button>`;
+      m.innerHTML = `<button onclick="window._moreGo('analyze')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#F9FAFB;font-size:13px;font-weight:700;cursor:pointer;">📸 Analyze a slip screenshot</button>
+        <button onclick="window._moreGo('engine')" style="display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:8px;background:none;color:#9CA3AF;font-size:13px;font-weight:700;cursor:pointer;">🔧 Engine room <span style="font-size:10px;color:#6B7280;">(internals — not picks)</span></button>`;
       document.body.appendChild(m);
       setTimeout(() => document.addEventListener("click", function _c(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener("click", _c); } }), 0);
     };

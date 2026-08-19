@@ -84,7 +84,7 @@ const _ctxCache = new Map() // sport → { mtimeMs, ctx }
  * ok:false ⇒ revalidation must be skipped (absent/empty/unparseable snapshot
  * or build exceeded BAILOUT_MS); cards still get the age stamp when known.
  */
-function buildRevalidationContext(sport, { snapshotPath, now } = {}) {
+function buildRevalidationContext(sport, { snapshotPath, now, allowSlowBuild } = {}) {
   const t0 = Date.now()
   const nowMs = Number.isFinite(now) ? now : t0
   const sp = String(sport || "").toLowerCase()
@@ -133,7 +133,12 @@ function buildRevalidationContext(sport, { snapshotPath, now } = {}) {
     },
   }
   _ctxCache.set(cacheKey, { mtimeMs, ctx })
-  if (ctx.meta.tookMs > BAILOUT_MS) {
+  // 2026-08-18 LAB-PRICING FIX — allowSlowBuild: BATCH callers (longshotLab)
+  // opt out of the serve-latency bailout. The bailout exists to protect
+  // REQUEST time; a batch lock that can wait 2s inheriting it silently priced
+  // 7/7 legs model_only on 8/18 while 5 had blendable pairs on the slate.
+  // Serve path passes nothing — default behavior byte-identical.
+  if (ctx.meta.tookMs > BAILOUT_MS && !allowSlowBuild) {
     // Build succeeded but blew the budget — cache it (next request is warm and
     // FAST), but tell THIS caller to serve stamped-stale rather than continue
     // spending request time. Served-but-labeled beats blocked.

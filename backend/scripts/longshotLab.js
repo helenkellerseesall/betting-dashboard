@@ -58,7 +58,10 @@ function passFamilies() {
 
 function marketCtx() {
   if (process.env.LAB_SKIP_MARKET === "1") return null
-  try { return require("../pipeline/shared/lineFreshness").buildRevalidationContext("mlb", { now: NOW }) } catch (_) { return null }
+  // 2026-08-18: allowSlowBuild — the Lab is a batch lock, not a serve request
+  // (the 250ms serve bailout silently un-priced 8/18's legs). Errors are no
+  // longer swallowed to null-with-no-trace: the catch returns a named ctx.
+  try { return require("../pipeline/shared/lineFreshness").buildRevalidationContext("mlb", { now: NOW, allowSlowBuild: true }) } catch (e) { return { ok: false, reason: "ctx_error: " + String(e && e.message || e), meta: {} } }
 }
 
 function blendLeg(row, ctx, mp, joins) {
@@ -68,7 +71,8 @@ function blendLeg(row, ctx, mp, joins) {
   if (ctx && joins) { const m = mp.marketProbForPick(row, ctx, joins); pMarket = m.p; books = m.books || 0 }
   const { w, source } = mp.wFor(String(row.statFamily || row.family), band)
   const pFinal = pMarket != null ? mp.blend(pModel, pMarket, w) : pModel
-  return { pModel: +pModel.toFixed(4), pMarket: pMarket != null ? +pMarket.toFixed(4) : null, books, w, wSource: source, pFinal: +pFinal.toFixed(4), priced: pMarket != null ? "blended" : "model_only" }
+  // band returned since 2026-08-18 (CA nit: printed undefined downstream)
+  return { band, pModel: +pModel.toFixed(4), pMarket: pMarket != null ? +pMarket.toFixed(4) : null, books, w, wSource: source, pFinal: +pFinal.toFixed(4), priced: pMarket != null ? "blended" : "model_only" }
 }
 
 function oppositionTrapAssert(legs) {
@@ -118,7 +122,7 @@ function buildTickets(slate) {
       const L = legs.map(mkLeg)
       oppositionTrapAssert(L)
       const p = L.reduce((a, l) => a * l.pFinal, 1)
-      workhorse.push({ kind: "workhorse", legs: L, oddsAmerican: amOfDec(dec), decimal: +dec.toFixed(2), pTicket: +p.toFixed(5), stake: 1, result: "pending" })
+      workhorse.push({ kind: "workhorse", band: mp.bandOf(amOfDec(dec)), legs: L, oddsAmerican: amOfDec(dec), decimal: +dec.toFixed(2), pTicket: +p.toFixed(5), stake: 1, result: "pending" })
       legs.forEach((r) => usedLegs.add(`${r.player}|${r.statFamily}|${r.side}|${r.line}`))
     }
   }
@@ -137,7 +141,7 @@ function buildTickets(slate) {
   let experimental = null
   for (const f of flags.map((f) => ({ ...f, _gt: resolvePlayer(gameTimeByPlayer, f.player) })).filter((f) => f._gt && Date.parse(f._gt) >= cutoff)
     .map((f) => ({ ...f, _ev: Number(f.pFair) * (decOf(f.oddsAmerican) - 1) - (1 - Number(f.pFair)) })).sort((a, b) => b._ev - a._ev)) {
-    experimental = { kind: "experimental", legs: [{ player: f.player, statFamily: f.family, side: "over", line: f.line, k: f.k, oddsAmerican: Number(f.oddsAmerican), sportsbook: f.book, flagId: f.id, gameTime: f._gt, pModel: +Number(f.pFair).toFixed(4), pMarket: null, w: 1, wSource: mpm.wFor(f.family, mpm.bandOf(f.oddsAmerican)).source, pFinal: +Number(f.pFair).toFixed(4), priced: "model_only" }], oddsAmerican: Number(f.oddsAmerican), decimal: +decOf(f.oddsAmerican).toFixed(2), pTicket: +Number(f.pFair).toFixed(5), stake: 1, result: "pending" }
+    experimental = { kind: "experimental", band: mpm.bandOf(Number(f.oddsAmerican)), legs: [{ player: f.player, statFamily: f.family, side: "over", line: f.line, k: f.k, oddsAmerican: Number(f.oddsAmerican), sportsbook: f.book, flagId: f.id, gameTime: f._gt, pModel: +Number(f.pFair).toFixed(4), pMarket: null, w: 1, wSource: mpm.wFor(f.family, mpm.bandOf(f.oddsAmerican)).source, pFinal: +Number(f.pFair).toFixed(4), priced: "model_only" }], oddsAmerican: Number(f.oddsAmerican), decimal: +decOf(f.oddsAmerican).toFixed(2), pTicket: +Number(f.pFair).toFixed(5), stake: 1, result: "pending" }
     break
   }
   return { workhorse, experimental }
@@ -213,7 +217,11 @@ function main() {
     const tickets = [...workhorse, ...(experimental ? [experimental] : [])]
     if (!tickets.length) { console.log(`longshotLab [${slate}]: no eligible legs ≥T-60 with map support — NO CARD tonight (honest)`) }
     else {
-      const art = { slate, lockedAt: new Date(NOW).toISOString(), paperOnly: true, bar: BAR, tickets }
+      // marketCtx stamp (2026-08-18): the lock names its own pricing context —
+      // a degraded night (bailout/error/absent snapshot) can never again read
+      // as "the markets were thin" without evidence. ok/reason/rowCount/age.
+      const _mc = marketCtx()
+      const art = { slate, lockedAt: new Date(NOW).toISOString(), paperOnly: true, bar: BAR, marketCtx: _mc ? { ok: !!_mc.ok, reason: _mc.reason || null, rowCount: _mc.meta?.rowCount ?? null, ageMinutes: _mc.meta?.ageMinutes ?? null } : { ok: false, reason: "skipped_or_null", rowCount: null, ageMinutes: null }, tickets }
       fs.writeFileSync(artPath, JSON.stringify(art, null, 1))
       writeReceipt(slate, art)
       console.log(`longshotLab [${slate}]: LOCKED ${workhorse.length} workhorse + ${experimental ? 1 : 0} experimental (write-once; receipt chained)`)

@@ -322,7 +322,12 @@ function checkBackendVintage() {
     const head = execSync("git rev-parse HEAD", { cwd: repo, timeout: 3000 }).toString().trim()
     if (boot.commit && head && boot.commit !== head) {
       let servedDiff = ""
-      try { servedDiff = execSync(`git diff --name-only ${boot.commit}..HEAD -- backend/ frontend/`, { cwd: repo, timeout: 4000 }).toString().trim() } catch (_) { servedDiff = "diff_unavailable" }
+      // 2026-08-18 (CA nit, 18:35 block): CODE PATHS ONLY. The scheduler's own
+      // auto-commits (weekly exam artifact, Sunday w-fit, runtime state) are
+      // NOT served code — counting them fired a nightly false STALE-SERVER
+      // alarm after every receipts commit, and alarm fatigue kills alarms.
+      // docs/receipts + docs/audits already sit outside the pathspec.
+      try { servedDiff = execSync(`git diff --name-only ${boot.commit}..HEAD -- backend/ frontend/ ":(exclude)backend/runtime/" ":(exclude)backend/.scratch/" ":(exclude)backend/config/g2_validation.json" ":(exclude)backend/config/market_prior_w.json"`, { cwd: repo, timeout: 4000 }).toString().trim() } catch (_) { servedDiff = "diff_unavailable" }
       if (servedDiff) {
         const ageMin = Math.round((Date.now() - Date.parse(boot.bootAt)) / 60000)
         const nFiles = servedDiff === "diff_unavailable" ? "?" : servedDiff.split("\n").length

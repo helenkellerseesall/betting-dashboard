@@ -23,8 +23,12 @@ check("persistence: same key edge:parlay:v1 (legs survive the upgrade, zero migr
   fe.includes('const PARLAY_STORAGE_KEY = "edge:parlay:v1"') && /Boot: persisted slip legs surface immediately/.test(fe))
 
 // ── 2. one add path ──
-check("addLeg: 6-leg cap + deeplink fields preserved (betLink/betSid/eventId/marketKey) + persist + drawer bar + card re-render",
-  fe.includes('if (state.parlay.length >= 6) { alert("Bet slip is full (6 legs max)"); return; }') &&
+// EVOLVED 2026-08-18 (FIND-1): native alert() left the drawer — a browser
+// modal blocks every page event (the frozen-renderer class CA hit). The cap
+// now speaks through the non-blocking toast.
+check("addLeg: 6-leg cap via non-blocking toast (NO native dialogs in the drawer) + deeplink fields + persist + drawer bar + card re-render",
+  fe.includes('if (state.parlay.length >= 6) { _slipToast("Bet slip is full (6 legs max)"); return; }') &&
+  !/confirm\(`Clear all/.test(fe) && /function _slipToast/.test(fe) &&
   fe.includes("betLink: c.betLink || null, betSid: c.betSid || null,") &&
   /saveParlay\(\);\n      if \(typeof _slipRenderBar === "function"\) _slipRenderBar\(\);\n      render\(\);\n    \}/.test(fe))
 check("modal path delegates: _slipAdd calls addLeg (its old private push/dedupe body gone)",

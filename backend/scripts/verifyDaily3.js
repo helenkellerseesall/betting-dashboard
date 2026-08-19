@@ -81,7 +81,11 @@ check("wiring: nightly grade hook (mlb, non-dry)", /gradeDaily3\(date\)/.test(rd
 }
 check("wiring: GET /api/ws/daily3 read-only route", /router\.get\("\/daily3"/.test(rd("routes/workstationRoutes.js")))
 const fe = rd("../frontend/mobile/index.html")
-check("FE: DAILY 3 card above the board; failure never blocks the board; units + record line", /THE DAILY 3/.test(fe) && /daily3 card is additive — its failure never blocks the board/.test(fe) && /at flat \$1/.test(fe))
+// EVOLVED 2026-08-18 (ITERATION-2, operator decision via CA): the Daily 3 card
+// moved from the board to the TONIGHT home view; the record line lives on the
+// home record strip. Prior anchors (THE DAILY 3 header, board-additive comment,
+// "at flat $1" phrasing) retired with this provenance.
+check("FE: Daily 3 card is the TONIGHT home lead; home never blocks on one card; record strip carries the record", /The Daily 3/.test(fe) && /additive — home never blocks on one card/.test(fe) && /DAILY 3 RECORD/.test(fe))
 {
   const scripts = [...fe.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((s) => s.trim().length > 100)
   let parses = true, perr = null
