@@ -107,6 +107,7 @@ const SUITES = [
   "verifyBetSlipDrawer", // UX SUB-PACK drawer (2026-08-18) — PARLAY tab retired for the bottom bet-slip drawer: ONE aliased slip array (mutate-only), every + button feeds it, Daily3/Lab tap-to-bet, copy-legs + navigation-only homeUrl fallback, deeplink kill-switches proven intact, FE parse + money-literal guards.
   "verifyUxDisplayPack", // UX SUB-PACK landing 2 (2026-08-18) — settled-card payout truth (D1), GRADES grouped w/ control-group framing, GAMES search + edges-only, ANALYZE parked behind ⋯, iOS-clean iteration 1 (navy neutralized); FE parse guard.
   "verifyWhyWinning", // WHY-RESTORATION + WHATS-WINNING pack (2026-08-19) — per-pick WHY on every surface (factors from existing fields, /daily3 additive enrichment, modal upgrade), whats-winning read-only aggregation (n+NET every row, odds sanity gate), Lab lock-vs-slip microcopy, hr_parlay class w/ band constraint + FIND-2 bestSingleBook grading.
+  "verifyServeStall", // SERVE-STALL incident (2026-08-24) — refresh routes answer 202 + background ingest (held-connection class dead), wait=1 escape, mutex intact, /version precomputed, console timestamps, FE honest toast + delayed refetch; live receipts: 14ms kick, 4ms version-during-refresh.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

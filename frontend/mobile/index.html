@@ -5987,13 +5987,21 @@
       const btn = document.getElementById("refreshBtn");
       btn.classList.add("spinning");
 
-      // If forceRefresh: hit /refresh-snapshot endpoints first
+      // If forceRefresh: kick the refresh endpoints. 2026-08-24 SERVE-STALL
+      // FIX: these now answer in milliseconds (202 refreshStarted) and ingest
+      // in the background — the board serves stamped-stale immediately and a
+      // delayed refetch (~25s) picks up the fresh prices. The old flow held
+      // TWO connections open for the whole ingest and starved the browser's
+      // 6-per-origin pool (the "everything pending incl. /version" stall).
       if (forceRefresh) {
         try {
           await Promise.allSettled([
             fetch(`${API}/refresh-snapshot?sport=baseball_mlb`).catch(() => {}),
             fetch(`${API}/refresh-snapshot/hard-reset`).catch(() => {}),
           ]);
+          if (typeof _slipToast === "function") _slipToast("Refreshing prices in the background — board updates shortly");
+          clearTimeout(window.__bgRefreshT);
+          window.__bgRefreshT = setTimeout(() => { refresh(false); }, 25000);
         } catch (_) {}
       }
 

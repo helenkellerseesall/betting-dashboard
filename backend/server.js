@@ -1,4 +1,14 @@
 require("dotenv").config({ path: require("path").join(__dirname, ".env") })
+// 2026-08-24 SERVE-STALL observability — the 571MB backend log had NO
+// timestamps; root-causing the stall window from it required inference.
+// Every console line now carries an ISO stamp. Wrap-once guard for reloads.
+if (!global.__consoleStamped) {
+  global.__consoleStamped = true
+  for (const _m of ["log", "warn", "error"]) {
+    const _orig = console[_m].bind(console)
+    console[_m] = (...a) => _orig(`[${new Date().toISOString()}]`, ...a)
+  }
+}
 
 // Session BC — Longitudinal Table Creation Path Audit fix.
 // EAGERLY open + verify the canonical SQLite DB at boot so the [DB-BOOT]
@@ -19575,6 +19585,14 @@ app.get("/refresh-snapshot", async (req, res) => {
   __refreshInProgress = true
   __refreshInProgressStartedAt = Date.now()   // Phase Race-1 watchdog (2026-05-14)
   __refreshMutexStuckLogged = false
+  // 2026-08-24 SERVE-STALL FIX — the ENTIRE existing body (unchanged) now runs
+  // as __runRefresh(res). Default: respond 202 immediately and run it in the
+  // background against a logging sink — a serve connection is NEVER held open
+  // for the ingest (the held-connection class starved the browser's 6-per-
+  // origin pool; even /version queued client-side). ?wait=1 preserves the old
+  // synchronous behavior for fences/scripts. Mutex/cooldown semantics intact —
+  // release stays in the finally inside the body.
+  const __runRefresh = async (res) => {
   try {
     // Existing refresh logic below (do not change)
     __lastRefreshTime = Date.now()
@@ -19658,10 +19676,18 @@ app.get("/refresh-snapshot", async (req, res) => {
     __refreshMutexStuckLogged = false
     console.log("[REFRESH GUARD]", { skipped: false })
   }
+  } // end __runRefresh (2026-08-24 serve-stall fix)
+  if (String(req?.query?.wait || "") === "1") return __runRefresh(res)
+  res.status(202).json({ ok: true, refreshStarted: true, stampedStale: true, note: "serve continues on the stamped-stale snapshot; prices update in place when the background ingest lands" })
+  const __sink = { status: () => __sink, json: (x) => { try { console.log("[REFRESH BG DONE]", JSON.stringify(x).slice(0, 240)) } catch (_) {} return __sink } }
+  __runRefresh(__sink).catch((e) => console.log("[REFRESH BG FAILED]", e?.message || e))
 })
 
 app.get("/refresh-snapshot/hard-reset", async (req, res) => {
   console.log("[SNAPSHOT-DEBUG] START refresh-snapshot-hard-reset")
+  // 2026-08-24 SERVE-STALL FIX — same doctrine as /refresh-snapshot: answer
+  // now, rebuild in the background; ?wait=1 keeps the synchronous path.
+  const __hrRun = async (res) => {
   try {
     resetFragileFilterAdjustedLogCount()
     const replayModeRequested = isNbaOddsReplayRequest(req)
@@ -19752,6 +19778,11 @@ app.get("/refresh-snapshot/hard-reset", async (req, res) => {
       details: error.response?.data || error.message
     })
   }
+  } // end __hrRun (2026-08-24 serve-stall fix)
+  if (String(req?.query?.wait || "") === "1") return __hrRun(res)
+  res.status(202).json({ ok: true, refreshStarted: true, stampedStale: true, note: "hard reset running in the background" })
+  const __hrSink = { status: () => __hrSink, json: (x) => { try { console.log("[HARD-RESET BG DONE]", JSON.stringify(x).slice(0, 240)) } catch (_) {} return __hrSink } }
+  __hrRun(__hrSink).catch((e) => console.log("[HARD-RESET BG FAILED]", e?.message || e))
 })
 
 

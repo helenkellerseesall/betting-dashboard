@@ -3903,6 +3903,9 @@ function _computeVersion() {
   }
   return _VERSION_CACHE
 }
+// 2026-08-24 SERVE-STALL: precomputed at module load — no request ever pays
+// the execSync; the handler is a pure memory read, unconditionally.
+_computeVersion()
 router.get("/version", (req, res) => res.json(_computeVersion()))
 
 /**
