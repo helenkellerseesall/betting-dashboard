@@ -32,7 +32,12 @@ fs.writeFileSync(path.join(T, `mlb_tracked_bets_${slate}.json`), JSON.stringify(
 fs.writeFileSync(path.join(T, "rung_flag_ledger.jsonl"), [
   JSON.stringify({ type: "flag", id: "fxNew", gameDate: slate, player: "F Lag", family: "hits", line: 7.5, k: 8, book: "draftkings", oddsAmerican: 2500, pFair: 0.02 }),
   JSON.stringify({ type: "flag", id: "fxOld", gameDate: ySlate, player: "F Lag", family: "hits", line: 6.5, k: 7, book: "draftkings", oddsAmerican: 3000, pFair: 0.03 }),
-  JSON.stringify({ type: "settle", id: "fxOld", result: "loss" }),
+  // EVOLVED 2026-08-24 (incident b): the REAL rung-ledger settle shape is
+  // {hit: 0|1, units} — the old result-shaped synthetic verified an
+  // assumption, not the authority, and the field mismatch stuck four nights
+  // of experimentals. Both shapes now covered.
+  JSON.stringify({ type: "settle", id: "fxOld", hit: 0, units: -1 }),
+  JSON.stringify({ type: "settle", id: "fxLegacy", result: "loss" }),
 ].join("\n") + "\n")
 // yesterday's locked artifact: a workhorse w/ winning twins + the fxOld experimental
 fs.writeFileSync(path.join(T, `mlb_tracked_bets_${ySlate}.json`), JSON.stringify([

@@ -207,6 +207,19 @@ if (require.main === module) {
     if (process.env.PS_SKIP_PREFETCH === "1") { console.log("  finals prefetch SKIPPED (PS_SKIP_PREFETCH=1 — fixture mode)") } else try {
       const L0 = JSON.parse(fs.readFileSync(LEDGER_PATH, "utf8"))
       const dates = (L0.bets || []).filter((b) => (b.betType === "parlay" || b.betType === "slip") && (b.decisionType === "placed" || b.realMoney) && b.result === "pending").map((b) => b.gameDate || b.date)
+      // 2026-08-24 INCIDENT (a): the finals cache is a SHARED grading authority
+      // but its date list was gated on pending placed parlays — a week with no
+      // operator bets fetched NOTHING and starved the daily3 finals-absence
+      // branch (Wilson 8/18 stuck the card 5 days). Every UNGRADED daily3 card
+      // date joins the prefetch set. Read-only extension; the ONE fetch
+      // authority (fetchMlbGameResults) unchanged.
+      try {
+        const trkDir = path.dirname(LEDGER_PATH)
+        for (const f of fs.readdirSync(trkDir).filter((x) => /^daily3_\d{4}-\d{2}-\d{2}\.json$/.test(x))) {
+          const card = JSON.parse(fs.readFileSync(path.join(trkDir, f), "utf8"))
+          if (card && !card.results && Array.isArray(card.picks)) dates.push((f.match(/(\d{4}-\d{2}-\d{2})/) || [])[1])
+        }
+      } catch (_) { /* additive — parlay prefetch never blocks on daily3 scan */ }
       const pf = await prefetchFinals(dates)
       for (const x of pf) console.log(`  finals[${x.date}]: ${x.cached ? "cached" : x.fetched ? x.fetched + " players fetched" : x.empty ? "empty (games not final?)" : "ERROR " + x.error}`)
     } catch (e) { console.log(`  finals prefetch skipped: ${e?.message || e}`) }

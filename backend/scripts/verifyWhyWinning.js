@@ -74,6 +74,24 @@ check("FIND-2: settle AND gate grade on bestSingleBook when present; locked-past
 check("FE: kind chips (HR PARLAY / LONG SHOT) + placeable single-book price shown beside the cross-book price",
   /HR PARLAY<\/span>/.test(fe) && /placeable at \$\{escapeHtml\(k\.bestSingleBook\.book\)\}/.test(fe))
 
+// ── incident pack 2026-08-24 ──
+const sch = rd("scripts/scheduler.sh")
+const spr = rd("scripts/settleParlaysFromRecord.js")
+check("(a) finals prefetch dates include every UNGRADED daily3 card (shared authority no longer gated on personal parlays)",
+  /UNGRADED daily3 card/i.test(spr) && spr.includes("daily3_\\d{4}") && /if \(card && !card\.results && Array\.isArray\(card\.picks\)\) dates\.push/.test(spr))
+check("(b) settlePrior accepts the rung authority's REAL {hit} shape (and legacy result)",
+  /s\.hit === 1 \? "win" : s\.hit === 0 \? "loss" : "pending"/.test(lab) && /not \{result\}/.test(lab))
+check("(c) daily3 lock-liveness: scheduler curls the serve lens every ~10 min in the 16-21 ET window (lock-on-read gets a guaranteed reader)",
+  /daily3 liveness touch/.test(sch) && /-ge 16 \] && \[ "\$HOUR" -lt 21/.test(sch) && /MIN % 10/.test(sch) && /api\/ws\/daily3/.test(sch))
+check("(d) stale-lock hygiene: clear_stale_git_locks (>10 min age-gated) defined once and called before ALL FIVE auto-commit sites",
+  (sch.match(/clear_stale_git_locks/g) || []).length === 6 && /AGE" -gt 600/.test(sch) && /index\.lock/.test(sch) && /HEAD\.lock/.test(sch))
+check("(e) hr_parlay: tier gate GONE (structurally empty — every hr row is LONGSHOT by odds class), positive post-blend edge in, absence stamps reason+funnel on the artifact",
+  !/\["ELITE", "STRONG", "PLAYABLE"\]\.includes\(String\(r\.tier \|\| ""\)\.toUpperCase\(\)\) &&\n      r\.calibVersion/.test(lab) &&
+  /hrPool = _hrBlend\.filter\(\(r\) => r\._edge > 0\)/.test(lab) && /hrParlayAbsent = \{ reason, funnel: hrFunnel \}/.test(lab) &&
+  /hrParlayAbsent: hrParlayAbsent \|\| null/.test(lab))
+check("(f) FE: honest-null bestSingleBook renders 'no single book carries all legs' instead of nothing",
+  /no single book carries all legs — copy legs and shop it/.test(fe))
+
 // ── integrity ──
 let parses = true
 try { for (const m of fe.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]) } catch (_) { parses = false }

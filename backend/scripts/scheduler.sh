@@ -50,6 +50,21 @@ done
 cd /Users/andrewmoore/Projects/betting-dashboard/backend
 
 LOG=/Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler.log
+
+# 2026-08-24 INCIDENT (d) — a stale .git/index.lock (died mid-commit 8/19)
+# blocked EVERY auto-commit for 4 days. Before any scheduler git write, clear
+# lock files older than 10 minutes (a live commit is never clobbered; the Mac
+# can rm). The fence rule is now a scheduler rule.
+clear_stale_git_locks() {
+  for LCK in /Users/andrewmoore/Projects/betting-dashboard/.git/index.lock /Users/andrewmoore/Projects/betting-dashboard/.git/HEAD.lock; do
+    if [ -f "$LCK" ]; then
+      AGE=$(( $(date +%s) - $(stat -f %m "$LCK" 2>/dev/null || echo 0) ))
+      if [ "$AGE" -gt 600 ]; then
+        rm -f "$LCK" && log "cleared stale git lock $(basename $LCK) (${AGE}s old) before auto-commit"
+      fi
+    fi
+  done
+}
 mkdir -p "$(dirname "$LOG")"
 
 log() {
@@ -185,6 +200,7 @@ while true; do
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
       git add docs/receipts >> "$LOG" 2>&1
+      clear_stale_git_locks
       git diff --cached --quiet -- docs/receipts || git commit -m "receipts: daily3 lock receipt (scheduler auto-commit — chain rides git history)" >> "$LOG" 2>&1
     ) &
     last_receipt_commit_min="$STAMP"
@@ -238,6 +254,7 @@ while true; do
       else
         log "G2 weekly exam FAILED (exit $?) — artifact unwritten; gradBoardStall stays red until a good run"
       fi
+      clear_stale_git_locks
       git add backend/config/g2_validation.json docs/audits >> "$LOG" 2>&1
       git diff --cached --quiet -- backend/config/g2_validation.json docs/audits || git commit -m "exam: G2 validator weekly (scheduler auto-run)" >> "$LOG" 2>&1
     ) &
@@ -273,6 +290,7 @@ while true; do
       log "market-prior w-refit starting (forward-only, Sun 06:25 ET)"
       node backend/pipeline/shared/marketPrior.js >> "$LOG" 2>&1 || log "market-prior w-refit FAILED (exit $?) — committed w unchanged"
       git add backend/config/market_prior_w.json >> "$LOG" 2>&1
+      clear_stale_git_locks
       git diff --cached --quiet -- backend/config/market_prior_w.json || git commit -m "fit: market-prior w weekly (forward-only; scheduler auto-run)" >> "$LOG" 2>&1
     ) &
     last_mprior_fit_min="$STAMP"
@@ -393,9 +411,21 @@ while true; do
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/weeklySurfaceAudit.js >> "$LOG" 2>&1 && log "weeklySurfaceAudit OK (week $WEEK_SUN)" || log "weeklySurfaceAudit FAILED"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      clear_stale_git_locks
       git add docs/audits >> "$LOG" 2>&1
       git diff --cached --quiet -- docs/audits || git commit -m "receipts: weekly surface audit (scheduler auto-run, week $WEEK_SUN)" >> "$LOG" 2>&1
     )
+  fi
+
+  # 2026-08-24 INCIDENT (c) — DAILY3 LOCK LIVENESS: the card locks ON READ
+  # from the served lens; on 8/19 the backend flapped, the operator was at
+  # work, nobody fetched /daily3 in the T-60 window, and NO CARD ever locked.
+  # The scheduler is now the guaranteed reader: every ~10 min inside
+  # 16:00-21:00 ET, one curl through the normal serve path. Read-only; when
+  # the backend is down this no-ops silently (BACKEND-DOWN alarms own that).
+  if [ "$HOUR" -ge 16 ] && [ "$HOUR" -lt 21 ] && [ $(( MIN % 10 )) -eq 0 ] && [ "$STAMP" != "${last_d3touch_min:-}" ]; then
+    curl -s -m 8 "http://127.0.0.1:4000/api/ws/daily3" > /dev/null 2>&1 && log "daily3 liveness touch OK (lock-on-read window)" || true
+    last_d3touch_min="$STAMP"
   fi
 
   # 2026-07-26 NIGHTLY CRITIC — 05:40 ET (post-grade, post-corpus): the board's adversary; read-only
@@ -422,6 +452,7 @@ while true; do
     node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/nightlyCritic.js --weekly --asof "$WEEK_SUN" >> "$LOG" 2>&1 && log "weekly critic OK (week $WEEK_SUN)" || log "weekly critic FAILED"
     (
       cd /Users/andrewmoore/Projects/betting-dashboard || exit 0
+      clear_stale_git_locks
       git add docs/audits >> "$LOG" 2>&1
       git diff --cached --quiet -- docs/audits || git commit -m "receipts: weekly critic (scheduler auto-run, week $WEEK_SUN)" >> "$LOG" 2>&1
     )

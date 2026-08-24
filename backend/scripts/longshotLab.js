@@ -184,16 +184,20 @@ function buildTickets(slate) {
   // where the join resolves, honest model_only elsewhere); own band record.
   let hrParlay = null
   {
-    const hrPool = rows.filter((r) =>
-      String(r.statFamily) === "hr" &&
-      ["ELITE", "STRONG", "PLAYABLE"].includes(String(r.tier || "").toUpperCase()) &&
-      r.calibVersion && Number.isFinite(Number(r.modelProb)) &&
-      Number.isFinite(Number(r.oddsAmerican)) && Math.abs(Number(r.oddsAmerican)) >= 100 &&
-      ["over", "yes"].includes(String(r.side || "").toLowerCase()) &&
-      r.eventId && r.gameTime && Date.parse(r.gameTime) >= cutoff)
-      .map((r) => ({ ...r, _b: blendLeg(r, ctx, mp, joins) }))
-      .map((r) => ({ ...r, _edge: r._b.pFinal - impliedOf(r.oddsAmerican) }))
-      .sort((a, b) => b._edge - a._edge)
+    // 2026-08-24 INCIDENT (e): the served-tier gate was structurally empty —
+    // EVERY hr row EVERY night is tier LONGSHOT by odds class (measured
+    // 466-876/night, zero PLAYABLE+ survivors, four straight nights). The
+    // certification is now calibration-era + POSITIVE POST-BLEND EDGE
+    // (pFinal − implied > 0, the same blend that prices the ticket) — no
+    // tier gate on a family whose tiers cannot occur. Funnel counts stamp
+    // the artifact on absent nights (see hrParlayAbsent below).
+    const _hrAll = rows.filter((r) => String(r.statFamily) === "hr")
+    const _hrCalib = _hrAll.filter((r) => r.calibVersion && Number.isFinite(Number(r.modelProb)))
+    const _hrOdds = _hrCalib.filter((r) => Number.isFinite(Number(r.oddsAmerican)) && Math.abs(Number(r.oddsAmerican)) >= 100 && ["over", "yes"].includes(String(r.side || "").toLowerCase()))
+    const _hrLive = _hrOdds.filter((r) => r.eventId && r.gameTime && Date.parse(r.gameTime) >= cutoff)
+    const _hrBlend = _hrLive.map((r) => ({ ...r, _b: blendLeg(r, ctx, mp, joins) })).map((r) => ({ ...r, _edge: r._b.pFinal - impliedOf(r.oddsAmerican) }))
+    const hrPool = _hrBlend.filter((r) => r._edge > 0).sort((a, b) => b._edge - a._edge)
+    var hrFunnel = { hrRows: _hrAll.length, calibrated: _hrCalib.length, oddsAndSide: _hrOdds.length, preGame: _hrLive.length, positiveEdge: hrPool.length }
     // Price band: the ticket must land in +2000..+10000 combined (dec 21..101)
     // — the operator's stated structure ("$5-10 on a 3-5 leg hr bet can net
     // hundreds") AND the doc-§2 band the drought citation applies to. Greedy
@@ -227,7 +231,18 @@ function buildTickets(slate) {
       hrParlay.bestSingleBook = bestSingleBookOf(L)
     }
   }
-  return { workhorse, experimental, hrParlay }
+  // (e) absence must explain itself: reason + funnel ride out of the builder
+  var hrParlayAbsent = null
+  if (!hrParlay) {
+    const reason = hrFunnel.hrRows === 0 ? "no hr rows on the slate"
+      : hrFunnel.calibrated === 0 ? "no calibration-era hr rows (calibVersion + modelProb)"
+      : hrFunnel.preGame === 0 ? "no pre-game hr rows left at T-60"
+      : hrFunnel.positiveEdge === 0 ? "no positive post-blend-edge hr overs tonight"
+      : hrFunnel.positiveEdge < 3 ? `only ${hrFunnel.positiveEdge} positive-edge leg(s) — need 3`
+      : "3+ legs exist but no 3-5 leg combination fits the +2000..+10000 band"
+    hrParlayAbsent = { reason, funnel: hrFunnel }
+  }
+  return { workhorse, experimental, hrParlay, hrParlayAbsent }
 }
 
 function settlePrior(gate) {
@@ -245,7 +260,16 @@ function settlePrior(gate) {
     for (const t of art.tickets) {
       if (t.result !== "pending") continue
       const legRes = t.legs.map((l) => {
-        if (l.flagId) { const s = rungSettles.get(l.flagId); return s ? String(s.result) : "pending" }
+        if (l.flagId) {
+          // 2026-08-24 INCIDENT (b): the rung ledger's settle entries carry
+          // {hit: 0|1}, not {result} — reading .result made every experimental
+          // "undefined" and stuck them pending forever (8/18-21). Accept both
+          // shapes; the authority's field is hit.
+          const s = rungSettles.get(l.flagId)
+          if (!s) return "pending"
+          if (s.result != null) return String(s.result)
+          return s.hit === 1 ? "win" : s.hit === 0 ? "loss" : "pending"
+        }
         const twin = rows.find((r) => norm(r.player) === norm(l.player) && r.statFamily === l.statFamily && String(r.side).toLowerCase() === String(l.side).toLowerCase() && Number(r.line) === Number(l.line) && ["win", "loss", "push", "void"].includes(String(r.result)))
         return twin ? String(twin.result) : "pending"
       })
@@ -303,7 +327,7 @@ function main() {
   if (fs.existsSync(artPath)) {
     console.log(`longshotLab [${slate}]: tickets already LOCKED (write-once) — ${settles.length} prior settle(s) this pass`)
   } else {
-    const { workhorse, experimental, hrParlay } = buildTickets(slate)
+    const { workhorse, experimental, hrParlay, hrParlayAbsent } = buildTickets(slate)
     const tickets = [...workhorse, ...(experimental ? [experimental] : []), ...(hrParlay ? [hrParlay] : [])]
     if (!tickets.length) { console.log(`longshotLab [${slate}]: no eligible legs ≥T-60 with map support — NO CARD tonight (honest)`) }
     else {
@@ -311,7 +335,7 @@ function main() {
       // a degraded night (bailout/error/absent snapshot) can never again read
       // as "the markets were thin" without evidence. ok/reason/rowCount/age.
       const _mc = marketCtx()
-      const art = { slate, lockedAt: new Date(NOW).toISOString(), paperOnly: true, bar: BAR, marketCtx: _mc ? { ok: !!_mc.ok, reason: _mc.reason || null, rowCount: _mc.meta?.rowCount ?? null, ageMinutes: _mc.meta?.ageMinutes ?? null } : { ok: false, reason: "skipped_or_null", rowCount: null, ageMinutes: null }, tickets }
+      const art = { slate, lockedAt: new Date(NOW).toISOString(), paperOnly: true, bar: BAR, hrParlayAbsent: hrParlayAbsent || null, marketCtx: _mc ? { ok: !!_mc.ok, reason: _mc.reason || null, rowCount: _mc.meta?.rowCount ?? null, ageMinutes: _mc.meta?.ageMinutes ?? null } : { ok: false, reason: "skipped_or_null", rowCount: null, ageMinutes: null }, tickets }
       fs.writeFileSync(artPath, JSON.stringify(art, null, 1))
       writeReceipt(slate, art)
       console.log(`longshotLab [${slate}]: LOCKED ${workhorse.length} workhorse + ${experimental ? 1 : 0} experimental + ${hrParlay ? 1 : 0} hr_parlay (write-once; receipt chained)`)
