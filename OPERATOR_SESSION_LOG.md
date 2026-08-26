@@ -8131,3 +8131,14 @@ THE SHARPER CONSEQUENCE: §6's freeze unloaded ONLY backend + scheduler — a Ma
 **MAC UNTOUCHED**: no script or plist changed — the Mac grades tonight exactly as before. The port activates only at §6, CA + operator together, a morning before the lock window.
 
 **HAND-BACK → CA**: kit is whole — backend, scheduler, deploy loop, grading, cloudflared, roster freeze. Per operator: "No cutover resumes until this lands." It has landed and the matrix is green — cutover may resume at CA's verification.
+
+## Claude-A — 2026-08-26 ~03:15 ET — CUTOVER COMPLETE: production is edge-motel666 (DigitalOcean, 2GB). Mac is dev-workspace only.
+MILESTONE — the repo now runs entirely on the VPS. Verified live tonight, step by step:
+- Server: 2GB RAM (resized from 1GB after grading OOM-killed on 1GB) + 4GB swap (fstab-persistent). Disk grew to 47GB. Backend(cfc3516)+scheduler+grading.timer+deploy.timer all systemd, all `active`, ALL auto-restarted on the resize reboot with ZERO intervention — the reboot-death class that blacked out the Mac twice is structurally dead (boot-start, no login session needed).
+- Grading PROVEN on Linux: OOM'd on 1GB → resize to 2GB fixed it; it's mid first-full-backfill (walking dates from 2026-07-11 fwd — will heal 8/03+8/18 as it reaches them). scheduler cycling on Linux (heartbeat new pid).
+- Tunnel migrated: cloudflared systemd service on VPS (creds scp'd to /etc/cloudflared, named tunnel "edge" f7a3253b, 4 conns registered ewr11/12/16). Mac cloudflared booted out (pgrep empty). edge.motel666.com → Cloudflare → VPS confirmed (curl returns CF Access 302, not 502 = tunnel routing live; Access still protecting the app as designed).
+- Mac now: ONLY com.motel666.caffeinate loaded (harmless keep-awake; operator can quit it). No backend/scheduler/grading/tunnel. It's the dev + CA-verification workspace only. Exactly-one-writer holds: VPS is sole writer.
+OUTSTANDING (CB, next — NON-blocking, monitoring only):
+1. HEARTBEAT/STAT BUG: scheduler_heartbeat.json loadedMtime captured raw multiline `stat` output on Linux → file is INVALID JSON. loadedSha==diskSha still correct (SHA path works, scheduler healthy). CB: fix the stat dual-form (BSD `stat -f %m` vs GNU `stat -c %Y`) EVERYWHERE in scheduler.sh incl. the stale-lock-age helper (a broken stat there could break the 4-day-jam lock hygiene); re-verify heartbeat parses. verifySchedulerTruth should have caught this — evolve it to JSON.parse the emitted heartbeat on the running host.
+2. Runbook: bake `fallocate 4G swap` into §1 (a rebuilt VPS needs it); note 2GB min tier (1GB OOMs grading).
+MORNING (CA owed): verify grading backfill completed + 8/03+8/18 healed + tonight's first autonomous nightly (3:45 settlement → 4:00 grading → 5:30 corpus) ran clean on the VPS + edge.motel666.com/m loads in operator's browser. Chrome extension was down at cutover — operator-browser eyeball still owed.
