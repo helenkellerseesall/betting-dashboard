@@ -57,5 +57,28 @@ check("restartBackend is host-aware: no-launchctl branch -> systemctl restart be
   /if ! command -v launchctl/.test(rbs) && /systemctl restart betting-backend/.test(rbs) &&
   rbs.indexOf("command -v launchctl") < rbs.indexOf('PLIST="$HOME/Library/LaunchAgents'))
 
+// ── 2026-08-26 grading-gap extension: cutover caught the hole — the kit had
+// NO grading owner on the server (grading lives in the separate
+// com.motel666.grading-nightly LaunchAgent, and scheduler.sh refuses it by
+// doctrine). Pins keep the port + the roster-wide freeze from regressing.
+const gs = rd("deploy/systemd/betting-grading.service")
+const gt = rd("deploy/systemd/betting-grading.timer")
+check("grading unit: Type=oneshot running autopilots/grading-nightly.sh via the path shim, ET timezone, header keeps Grading-Single-Owner-1A (owner changes HOST, never moves into scheduler)",
+  /Type=oneshot/.test(gs) && /ExecStart=\/bin\/bash \/Users\/andrewmoore\/Projects\/betting-dashboard\/backend\/scripts\/autopilots\/grading-nightly\.sh/.test(gs) &&
+  /Environment=TZ=America\/New_York/.test(gs) && /GRADING-SINGLE-OWNER-1A/i.test(gs))
+check("grading unit: g1ReadinessCheck rider (the one non-redundant piece of the unported audit-nightly agent), failure-tolerated ExecStart=- so a g1 hiccup never fails the grade",
+  /ExecStart=-\/usr\/bin\/node .*g1ReadinessCheck\.js/.test(gs))
+check("grading timer: 04:00 daily + Persistent=true (a 4 AM missed to downtime fires at boot — a late grade beats no grade, the 8/03 stuck-card class)",
+  /OnCalendar=\*-\*-\* 04:00:00/.test(gt) && /Persistent=true/.test(gt) && /WantedBy=timers\.target/.test(gt))
+check("runbook: grading unit both INSTALLED (§5 cp) and ENABLED (§6) — the exact two lines whose absence was the gap",
+  /betting-grading\.service deploy\/systemd\/betting-grading\.timer \/etc\/systemd\/system\//.test(rb) &&
+  /systemctl enable --now betting-backend betting-scheduler betting-deploy\.timer betting-grading\.timer/.test(rb))
+check("runbook: §6 bootout covers the FULL launchd roster (grading-nightly + audit-nightly + populator-chain + slates) and gates on MUST-print-NOTHING — a surviving Mac grading-nightly at 4 AM would split-brain the graded RECORD",
+  /for A in backend scheduler grading-nightly audit-nightly populator-chain slate-mlb-hourly slate-nba-30min/.test(rb) &&
+  /MUST print NOTHING/.test(rb) && /split-brain/.test(rb))
+check("doctrine intact: scheduler.sh still refuses grading ownership — the Do-NOT-re-add comment stands and no LIVE grading:backfill-all invocation exists (comment mentions don't count)",
+  /Do NOT re-add a grading trigger/.test(sch) &&
+  !sch.split("\n").some((l) => /npm run grading:backfill-all/.test(l) && !/^\s*#/.test(l)))
+
 console.log(`\nverifyMigrationKit: ${pass}/${pass + fail} checks passed`)
 if (fail) { console.log("FAILURES:"); for (const f of failures) console.log("  ✗ " + f); process.exit(1) }

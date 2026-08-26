@@ -1,0 +1,19 @@
+# betting-grading.service — nightly grading, ported from the Mac's
+# com.motel666.grading-nightly LaunchAgent (4:00 AM ET, npm run
+# grading:backfill-all via autopilots/grading-nightly.sh — the script is
+# already Linux-portable: explicit TZ, PATH incl. /usr/bin, repo path via the
+# runbook's shim). GRADING-SINGLE-OWNER-1A HOLDS: grading stays out of
+# scheduler.sh; the single owner just changes host. The second ExecStart is
+# the g1ReadinessCheck rider inherited from the (unported, otherwise-
+# redundant) audit-nightly agent — "-" prefix = its failure never fails the
+# grade. Fired by betting-grading.timer.
+[Unit]
+Description=betting-dashboard nightly grading (grading:backfill-all + g1 readiness rider)
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/Users/andrewmoore/Projects/betting-dashboard/backend
+ExecStart=/bin/bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/autopilots/grading-nightly.sh
+ExecStart=-/usr/bin/node /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/g1ReadinessCheck.js
+Environment=TZ=America/New_York

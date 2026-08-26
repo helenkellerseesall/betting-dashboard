@@ -54,7 +54,7 @@ rsync -az /Users/andrewmoore/Projects/betting-dashboard/backend/snapshot-mlb.jso
 ## §5 — Install units WITHOUT enabling writes (warm, safe)
 ```
 cd /opt/betting-dashboard
-cp deploy/systemd/betting-backend.service deploy/systemd/betting-scheduler.service deploy/systemd/betting-deploy.service deploy/systemd/betting-deploy.timer /etc/systemd/system/
+cp deploy/systemd/betting-backend.service deploy/systemd/betting-scheduler.service deploy/systemd/betting-deploy.service deploy/systemd/betting-deploy.timer deploy/systemd/betting-grading.service deploy/systemd/betting-grading.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl start betting-backend        # start ONCE, no enable — smoke test only
 curl -s http://127.0.0.1:4000/api/ws/version   # expect commit json
@@ -69,15 +69,17 @@ curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloud
 Order is the whole point. Do not reorder.
 1. **Freeze the Mac (operator, on the Mac):**
 ```
-launchctl bootout gui/$(id -u)/com.motel666.backend
-launchctl bootout gui/$(id -u)/com.motel666.scheduler
-launchctl list | grep motel666   # expect: neither backend nor scheduler
+for A in backend scheduler grading-nightly audit-nightly populator-chain slate-mlb-hourly slate-nba-30min; do
+  launchctl bootout gui/$(id -u)/com.motel666.$A 2>/dev/null && echo "unloaded $A"
+done
+launchctl list | grep motel666   # MUST print NOTHING — a surviving grading-nightly
+                                 # would split-brain the graded RECORD at 4 AM
 ```
 2. **Final receipts push (Mac):** `cd ~/Projects/betting-dashboard && git add -A docs/ && git commit -m "cutover: final Mac receipts" ; git push origin stable-nba-engine`
 3. **Final data delta (operator, Mac):** re-run BOTH rsync lines from §4 (fast now).
 4. **Start the VPS writer (VPS):**
 ```
-systemctl enable --now betting-backend betting-scheduler betting-deploy.timer
+systemctl enable --now betting-backend betting-scheduler betting-deploy.timer betting-grading.timer
 ```
 5. **Verify (VPS) — all three must pass before touching the tunnel:**
 ```

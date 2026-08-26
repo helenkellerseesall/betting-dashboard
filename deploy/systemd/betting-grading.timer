@@ -1,0 +1,13 @@
+# betting-grading.timer — 4:00 AM daily in the HOST timezone (runbook §1 sets
+# timedatectl America/New_York — same wall-clock as the Mac LaunchAgent).
+# Persistent=true: a 4 AM missed to downtime fires at boot — a late grade
+# beats no grade (the 8/03 stuck-card class).
+[Unit]
+Description=betting-dashboard nightly grading at 4:00 AM ET
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
