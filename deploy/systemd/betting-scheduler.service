@@ -1,0 +1,22 @@
+# betting-scheduler.service — scheduler.sh as a systemd unit.
+# Same script text as the Mac: the runbook creates
+# /Users/andrewmoore/Projects/betting-dashboard as a symlink to the real
+# clone (55 hardcoded paths; REPO_ROOT refactor queued post-cutover).
+# Restart=always keeps the loop alive; the loop's own heartbeat + #27 keep
+# it honest.
+[Unit]
+Description=betting-dashboard scheduler loop
+After=network-online.target betting-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/Users/andrewmoore/Projects/betting-dashboard
+ExecStart=/bin/bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/scheduler.sh
+Restart=always
+RestartSec=15
+Environment=TZ=America/New_York
+
+[Install]
+WantedBy=multi-user.target

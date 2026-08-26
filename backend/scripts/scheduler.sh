@@ -58,7 +58,7 @@ LOG=/Users/andrewmoore/Projects/betting-dashboard/.scratch/scheduler.log
 clear_stale_git_locks() {
   for LCK in /Users/andrewmoore/Projects/betting-dashboard/.git/index.lock /Users/andrewmoore/Projects/betting-dashboard/.git/HEAD.lock; do
     if [ -f "$LCK" ]; then
-      AGE=$(( $(date +%s) - $(stat -f %m "$LCK" 2>/dev/null || echo 0) ))
+      AGE=$(( $(date +%s) - $(stat -f %m "$LCK" 2>/dev/null || stat -c %Y "$LCK" 2>/dev/null || echo 0) ))
       if [ "$AGE" -gt 600 ]; then
         rm -f "$LCK" && log "cleared stale git lock $(basename $LCK) (${AGE}s old) before auto-commit"
       fi
@@ -129,7 +129,7 @@ last_lab_min=""
 # unconditionally and nothing could prove which loop ran; the 8/16 miss was a
 # SLEEP GAP (log dark 00:00→13:01 ET), not vintage — the heartbeat's tick age
 # exposes both failure modes.
-LOADED_SHA=$(shasum -a 256 "$0" 2>/dev/null | cut -d' ' -f1)
+LOADED_SHA=$( (shasum -a 256 "$0" 2>/dev/null || sha256sum "$0" 2>/dev/null) | cut -d' ' -f1)
 LOADED_MTIME=$(stat -f %m "$0" 2>/dev/null || stat -c %Y "$0" 2>/dev/null)
 LOOP_STARTED=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)
 HB_FILE=/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/tracking/scheduler_heartbeat.json
@@ -148,7 +148,7 @@ while true; do
   # false 4h-stale scare in a UTC-context read). STAMP stays minute-bare — it
   # is the dedupe token, compared only to itself.
   HB_TS=$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S%z)
-  DISK_SHA=$(shasum -a 256 "$0" 2>/dev/null | cut -d' ' -f1)
+  DISK_SHA=$( (shasum -a 256 "$0" 2>/dev/null || sha256sum "$0" 2>/dev/null) | cut -d' ' -f1)
   LAST_LOG_LINE=$(tail -n 1 "$LOG" 2>/dev/null | tr -d '"\\' | cut -c1-160)
   printf '{"ts":"%s","pid":%s,"loopStartedAt":"%s","loadedSha":"%s","loadedMtime":"%s","diskSha":"%s","lastLogLine":"%s"}\n' "$HB_TS" "$$" "$LOOP_STARTED" "$LOADED_SHA" "$LOADED_MTIME" "$DISK_SHA" "$LAST_LOG_LINE" > "$HB_FILE.tmp.$$" && mv "$HB_FILE.tmp.$$" "$HB_FILE"
 

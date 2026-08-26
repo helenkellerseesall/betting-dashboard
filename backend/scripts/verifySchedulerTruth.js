@@ -14,9 +14,11 @@ const rd = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), "utf8")
 
 const sch = rd("scripts/scheduler.sh")
 check("vintage captured ONCE pre-loop (the running process's truth, not the file's)",
-  /LOADED_SHA=\$\(shasum -a 256 "\$0"/.test(sch) && sch.indexOf("LOADED_SHA=") < sch.indexOf("while true; do"))
+  // EVOLVED 2026-08-26 (migration kit): sha capture is now dual-form
+  // (shasum || sha256sum) so the SAME script runs on macOS and the VPS.
+  /LOADED_SHA=\$\( \(shasum -a 256 "\$0" 2>\/dev\/null \|\| sha256sum "\$0"/.test(sch) && sch.indexOf("LOADED_SHA=") < sch.indexOf("while true; do"))
 check("heartbeat EVERY cycle: atomic tmp+mv write, disk sha recomputed, log-line quote/backslash guarded",
-  /DISK_SHA=\$\(shasum -a 256 "\$0"/.test(sch) && /"\$HB_FILE\.tmp\.\$\$" && mv "\$HB_FILE\.tmp\.\$\$" "\$HB_FILE"/.test(sch) && /tr -d '"\\\\'/.test(sch))
+  /DISK_SHA=\$\( \(shasum -a 256 "\$0" 2>\/dev\/null \|\| sha256sum "\$0"/.test(sch) && /"\$HB_FILE\.tmp\.\$\$" && mv "\$HB_FILE\.tmp\.\$\$" "\$HB_FILE"/.test(sch) && /tr -d '"\\\\'/.test(sch))
 // EVOLVED 2026-08-18 (SUNDAY CATCH-UP EXTENSION, CA pack): the original
 // TODAY-keyed Sunday-only gates could not heal a Sunday dark ALL day — the
 // 8/16 blackout left weekly critic + surface audit with NO receipts, ever.

@@ -15,6 +15,20 @@
 # Usage:  bash backend/scripts/restartBackend.sh
 
 set -u
+# 2026-08-26 MIGRATION — HOST-AWARE: on Linux (no launchctl) the restart
+# authority is systemd; the Mac path below is byte-identical to before. The
+# scheduler's self-heal resurrector therefore works on both hosts unchanged.
+if ! command -v launchctl > /dev/null 2>&1; then
+  echo "restartBackend: linux host — systemctl restart betting-backend"
+  sudo -n systemctl restart betting-backend 2>/dev/null || systemctl restart betting-backend
+  for i in $(seq 1 20); do
+    sleep 1
+    RESP="$(curl -fsS -m 2 "http://127.0.0.1:4000/api/ws/version" 2>/dev/null || true)"
+    if [ -n "$RESP" ]; then echo "version endpoint responded: $(echo "$RESP" | head -c 200)"; exit 0; fi
+  done
+  echo "ERROR: backend did not answer /version within 20s of systemctl restart"
+  exit 1
+fi
 PLIST="$HOME/Library/LaunchAgents/com.motel666.backend.plist"
 LABEL="com.motel666.backend"
 PORT=4000

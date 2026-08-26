@@ -1,0 +1,10 @@
+# betting-deploy.service — one deploy-pull pass (fired by betting-deploy.timer).
+[Unit]
+Description=betting-dashboard deploy pull (git ff-only + restart on code change)
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/Users/andrewmoore/Projects/betting-dashboard
+ExecStart=/bin/bash /Users/andrewmoore/Projects/betting-dashboard/deploy/vps-deploy-pull.sh
+Environment=TZ=America/New_York

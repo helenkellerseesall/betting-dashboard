@@ -1,0 +1,13 @@
+# betting-deploy.timer — every 5 minutes. This retires the operator's
+# restart-fence chore: land on origin, the VPS picks it up within ~5 min and
+# bounces only what changed.
+[Unit]
+Description=betting-dashboard deploy pull every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,25 @@
+# betting-backend.service — the Node backend as a systemd unit.
+# launchd equivalences: WantedBy=multi-user.target = RunAtLoad at BOOT (better
+# than launchd's at-login — no user session needed); Restart=always +
+# RestartSec=10 = KeepAlive + ThrottleInterval 10. Logs -> journald
+# (journalctl -u betting-backend); server.js stamps ISO timestamps itself.
+# Install (runbook §4): cp to /etc/systemd/system/ && systemctl daemon-reload
+#   && systemctl enable --now betting-backend
+[Unit]
+Description=betting-dashboard backend (node server.js, port 4000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/Users/andrewmoore/Projects/betting-dashboard/backend
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+Environment=TZ=America/New_York
+Environment=NODE_ENV=production
+# .env is read by the app itself from backend/.env (moved by operator scp)
+
+[Install]
+WantedBy=multi-user.target
