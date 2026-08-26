@@ -108,6 +108,7 @@ const SUITES = [
   "verifyUxDisplayPack", // UX SUB-PACK landing 2 (2026-08-18) — settled-card payout truth (D1), GRADES grouped w/ control-group framing, GAMES search + edges-only, ANALYZE parked behind ⋯, iOS-clean iteration 1 (navy neutralized); FE parse guard.
   "verifyWhyWinning", // WHY-RESTORATION + WHATS-WINNING pack (2026-08-19) — per-pick WHY on every surface (factors from existing fields, /daily3 additive enrichment, modal upgrade), whats-winning read-only aggregation (n+NET every row, odds sanity gate), Lab lock-vs-slip microcopy, hr_parlay class w/ band constraint + FIND-2 bestSingleBook grading.
   "verifyServeStall", // SERVE-STALL incident (2026-08-24) — refresh routes answer 202 + background ingest (held-connection class dead), wait=1 escape, mutex intact, /version precomputed, console timestamps, FE honest toast + delayed refetch; live receipts: 14ms kick, 4ms version-during-refresh.
+  "verifySelfHeal", // SELF-HEAL pack (2026-08-26) — restartBackend bootstraps not-loaded agents pre-kickstart, scheduler per-cycle serve-lens probe w/ bounded resurrection + drift stamp, DARK NIGHTS 8/24+8/25 stamped on the public record and provably never backfilled.
 ]
 
 function pad(s, n) { return String(s).padEnd(n) }

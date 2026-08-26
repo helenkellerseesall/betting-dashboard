@@ -28,7 +28,16 @@ check("daily3 unaffected: no lens/started filtering added to the locked-card mod
 try {
   const { currentSlateDateEt } = require("../pipeline/shared/slateDate")
   const slate = currentSlateDateEt()
-  const rows = JSON.parse(fs.readFileSync(path.join(ROOT, "runtime", "tracking", `mlb_tracked_bets_${slate}.json`), "utf8"))
+  // EVOLVED 2026-08-26 (self-heal pack): the probe hard-required yesterday's
+  // tracked file and broke on DARK NIGHTS (8/25: machine down, no slate file —
+  // the fixture punished the honesty stamp). Falls back to the most recent
+  // existing tracked file; the probe tests gate LOGIC, not machine uptime.
+  let _probeFile = path.join(ROOT, "runtime", "tracking", `mlb_tracked_bets_${slate}.json`)
+  if (!fs.existsSync(_probeFile)) {
+    const cands = fs.readdirSync(path.join(ROOT, "runtime", "tracking")).filter((f) => /^mlb_tracked_bets_\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()
+    _probeFile = path.join(ROOT, "runtime", "tracking", cands[cands.length - 1])
+  }
+  const rows = JSON.parse(fs.readFileSync(_probeFile, "utf8"))
   const started = rows.filter((b) => b.gameTime && Number.isFinite(new Date(b.gameTime).getTime()) && Date.now() >= new Date(b.gameTime).getTime()).length
   console.log(`  [real-data] slate ${slate}: ${rows.length} record rows · ${started} have started games (these now drop from the lens; record keeps all ${rows.length})`)
   check("real-data: predicate evaluates on the live slate file (counts printed above)", Number.isFinite(started))

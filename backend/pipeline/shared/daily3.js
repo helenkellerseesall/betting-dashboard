@@ -448,9 +448,20 @@ function buildDaily3PublicPayload({ trackingDir, receiptsDir, criticDir } = {}) 
     })
   }
   const decided = wins + losses
+  // 2026-08-26 SELF-HEAL PACK — DARK NIGHTS: dates the machine itself was down
+  // (no lock ever fired). Write-once means NO retroactive locks, ever — the
+  // record instead carries the gap with its reason, from the authoritative
+  // stamp file (runtime/tracking/dark_nights.json). Absent file = no dark
+  // nights claimed.
+  let darkNights = []
+  try {
+    const dn = JSON.parse(fs.readFileSync(path.join(tDir, "dark_nights.json"), "utf8"))
+    if (Array.isArray(dn.nights)) darkNights = dn.nights
+  } catch (_) {}
   return {
     doc: "THE DAILY 3 — full public record, losses forward. Locked T-60 before first pitch, write-once, graded by the nightly, receipt-chained. No highlight reel exists.",
     generatedAt: new Date().toISOString(),
+    darkNights,
     record: {
       gradedDays, wins, losses, pushes, decided,
       winRate: decided ? Math.round((wins / decided) * 1000) / 10 : null,

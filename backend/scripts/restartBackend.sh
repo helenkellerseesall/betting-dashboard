@@ -27,6 +27,19 @@ fi
 OLD_PID="$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $2; exit}')"
 echo "OLD pid on port ${PORT}: ${OLD_PID:-<none>}"
 
+# 2026-08-26 SELF-HEAL — kickstart only works on a LOADED agent; after BOTH
+# reboot incidents the launchd log shows ZERO launch attempts in the boot
+# window (RunAtLoad never fired = agent not loaded/disabled at login). So:
+# ensure loaded + enabled FIRST, then kickstart.
+if ! launchctl print "gui/$UID/${LABEL}" > /dev/null 2>&1; then
+  echo "agent NOT LOADED in gui/$UID — bootstrapping from $PLIST"
+  launchctl enable "gui/$UID/${LABEL}" 2>&1 | sed 's/^/launchctl-enable: /'
+  launchctl bootstrap "gui/$UID" "$PLIST" 2>&1 | sed 's/^/launchctl-bootstrap: /'
+  if ! launchctl print "gui/$UID/${LABEL}" > /dev/null 2>&1; then
+    echo "bootstrap failed — falling back to legacy load -w"
+    launchctl load -w "$PLIST" 2>&1 | sed 's/^/launchctl-load: /'
+  fi
+fi
 # Force restart. launchctl kickstart -k = kill then start.
 launchctl kickstart -k "gui/$UID/${LABEL}" 2>&1 | sed 's/^/launchctl: /'
 KICK_RC=$?

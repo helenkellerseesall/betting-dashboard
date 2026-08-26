@@ -417,6 +417,32 @@ while true; do
     )
   fi
 
+  # 2026-08-26 SELF-HEAL — PER-CYCLE SERVE-LENS PROBE (extends the
+  # Backend-AutoRecovery doctrine beyond the hourly sysAudit path): the
+  # scheduler survives reboots, the backend agent has now failed to auto-
+  # start at login TWICE — so the survivor resurrects the casualty. Three
+  # consecutive unreachable cycles (~90s) fire restartBackend.sh, which now
+  # bootstraps a not-loaded agent before kickstarting. Shares the existing
+  # 900s rate-limit lock; every fire stamps drift_alerts.
+  if curl -s -m 5 -o /dev/null "http://127.0.0.1:4000/api/ws/version"; then
+    serve_lens_misses=0
+  else
+    serve_lens_misses=$(( ${serve_lens_misses:-0} + 1 ))
+    if [ "$serve_lens_misses" -ge 3 ]; then
+      RECOVERY_LOCK2="/Users/andrewmoore/Projects/betting-dashboard/.scratch/.auto_recovery_lock"
+      LAST_R=$(cat "$RECOVERY_LOCK2" 2>/dev/null || echo 0)
+      NOW_R=$(date +%s)
+      if [ $(( NOW_R - LAST_R )) -ge 900 ]; then
+        log "SERVE-LENS DEAD ${serve_lens_misses} consecutive cycles — resurrecting backend (Self-Heal 2026-08-26)"
+        bash /Users/andrewmoore/Projects/betting-dashboard/backend/scripts/restartBackend.sh >> "$LOG" 2>&1
+        RES_RC=$?
+        echo "$NOW_R" > "$RECOVERY_LOCK2"
+        echo "[$(TZ="America/New_York" date "+%Y-%m-%d %H:%M:%S ET")] SELF-HEAL - serve lens dead ${serve_lens_misses} cycles - restartBackend exit=${RES_RC}" >> "/Users/andrewmoore/Projects/betting-dashboard/backend/runtime/audits/drift_alerts.log"
+        serve_lens_misses=0
+      fi
+    fi
+  fi
+
   # 2026-08-24 INCIDENT (c) — DAILY3 LOCK LIVENESS: the card locks ON READ
   # from the served lens; on 8/19 the backend flapped, the operator was at
   # work, nobody fetched /daily3 in the T-60 window, and NO CARD ever locked.
