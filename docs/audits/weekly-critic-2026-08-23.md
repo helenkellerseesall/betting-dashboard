@@ -1,4 +1,4 @@
-# Weekly Critic — 2026-08-23 (makeup run 2026-08-23)
+# Weekly Critic — 2026-08-23 (makeup run 2026-08-26)
 
 MONEY LEFT ON THE TABLE (7 graded nights, flat $1, static-gate replay): **+24950.8u of winning rows never reached the served board.**
 

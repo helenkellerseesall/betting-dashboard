@@ -103,7 +103,7 @@ function gameDateFromSurviving(trackingDir, slateLabel) {
  * @param {Date}   [opts.now]         — clock (default real now); slate boundary derived from it
  * @returns {object} readiness data (ok:true) or { ok:false, error }
  */
-function computeG1Readiness(opts = {}) {
+function _computeG1ReadinessRaw(opts = {}) {
   const trackingDir = opts.trackingDir || path.join(__dirname, "..", "..", "runtime", "tracking")
   const nowMs = (opts.now || new Date()).getTime()
   const currentSlate = slateDateForTimestamp(nowMs)   // 4 AM ET boundary
@@ -225,6 +225,19 @@ function computeG1Readiness(opts = {}) {
     verdict, verdictText,
     perDay,
   }
+}
+
+// [CA 2026-09-01 perf] this re-parses ~600MB of tracked-bets JSON per call and was called constantly by the
+// /status file-watch recompute, pegging the 1-core box and freezing serving. Memoize with a TTL; the stat
+// barely changes night-to-night. Explicit opts (tests) bypass the cache.
+let __g1Cache=null, __g1CacheAt=0
+const __G1_TTL_MS=30*60*1000
+function computeG1Readiness(opts={}){
+  if(opts&&(opts.now||opts.trackingDir))return _computeG1ReadinessRaw(opts)
+  const n=Date.now()
+  if(__g1Cache&&(n-__g1CacheAt)<__G1_TTL_MS)return __g1Cache
+  __g1Cache=_computeG1ReadinessRaw(opts);__g1CacheAt=n
+  return __g1Cache
 }
 
 module.exports = { computeG1Readiness, FREEZE, TARGET, NEED, CLEAN_FLOOR }
