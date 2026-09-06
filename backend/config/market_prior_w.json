@@ -1,75 +1,70 @@
 {
  "current": {
-  "asOf": "2026-08-30",
-  "fittedAt": "2026-08-30T10:01:08.457Z",
+  "asOf": "2026-09-06",
+  "fittedAt": "2026-09-06T10:01:02.878Z",
   "byFamilyBand": {
-   "hits|plus_long": {
-    "w": 0.95,
-    "brier": 0.048809,
-    "decided": 60132
-   },
-   "ks|plus_long": {
-    "w": 1,
-    "brier": 0.062227,
-    "decided": 8351
-   },
-   "runs|plus_long": {
-    "w": 0.1,
-    "brier": 0.047649,
-    "decided": 39182
-   },
-   "rbis|plus_long": {
-    "w": 0,
-    "brier": 0.045236,
-    "decided": 48943
-   },
-   "totalBases|plus_long": {
-    "w": 0.2,
-    "brier": 0.047938,
-    "decided": 71997
-   },
    "hits|heavy_fav": {
-    "w": 0.6,
-    "brier": 0.21132,
-    "decided": 4026
+    "w": 0.65,
+    "brier": 0.214457,
+    "decided": 3491
    },
    "hr|plus_long": {
     "w": 1,
-    "brier": 0.043043,
-    "decided": 25892
+    "brier": 0.043118,
+    "decided": 25442
+   },
+   "ks|plus_long": {
+    "w": 1,
+    "brier": 0.058226,
+    "decided": 8011
+   },
+   "runs|plus_long": {
+    "w": 0.1,
+    "brier": 0.049712,
+    "decided": 39962
+   },
+   "rbis|plus_long": {
+    "w": 0,
+    "brier": 0.045014,
+    "decided": 46635
+   },
+   "hits|plus_long": {
+    "w": 0.9,
+    "brier": 0.049998,
+    "decided": 57716
+   },
+   "totalBases|plus_long": {
+    "w": 0.25,
+    "brier": 0.048188,
+    "decided": 68443
+   },
+   "ks|heavy_fav": {
+    "w": 0.2,
+    "brier": 0.218138,
+    "decided": 510
    },
    "runs|plus_short": {
     "w": 1,
-    "brier": 0.227277,
-    "decided": 4052
-   },
-   "ks|heavy_fav": {
-    "w": 0,
-    "brier": 0.203726,
-    "decided": 536
-   },
-   "ks|fav": {
-    "w": 1,
-    "brier": 0.261928,
-    "decided": 303
+    "brier": 0.229594,
+    "decided": 4006
    },
    "outs|plus_short": {
-    "w": 0.65,
-    "brier": 0.244617,
-    "decided": 600
+    "w": 1,
+    "brier": 0.23673,
+    "decided": 608
    },
    "hits|plus_short": {
     "w": 1,
-    "brier": 0.244131,
-    "decided": 1149
+    "brier": 0.244871,
+    "decided": 1091
    },
    "hits|fav": {
     "w": 1,
-    "brier": 0.248394,
-    "decided": 1587
+    "brier": 0.248733,
+    "decided": 1508
    }
   },
-  "decidedUsed": 267329,
+  "decidedUsed": 258229,
   "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
  },
  "history": [
@@ -426,6 +421,74 @@
     }
    },
    "decidedUsed": 267329,
+   "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
+  },
+  {
+   "asOf": "2026-09-06",
+   "fittedAt": "2026-09-06T10:01:02.878Z",
+   "byFamilyBand": {
+    "hits|heavy_fav": {
+     "w": 0.65,
+     "brier": 0.214457,
+     "decided": 3491
+    },
+    "hr|plus_long": {
+     "w": 1,
+     "brier": 0.043118,
+     "decided": 25442
+    },
+    "ks|plus_long": {
+     "w": 1,
+     "brier": 0.058226,
+     "decided": 8011
+    },
+    "runs|plus_long": {
+     "w": 0.1,
+     "brier": 0.049712,
+     "decided": 39962
+    },
+    "rbis|plus_long": {
+     "w": 0,
+     "brier": 0.045014,
+     "decided": 46635
+    },
+    "hits|plus_long": {
+     "w": 0.9,
+     "brier": 0.049998,
+     "decided": 57716
+    },
+    "totalBases|plus_long": {
+     "w": 0.25,
+     "brier": 0.048188,
+     "decided": 68443
+    },
+    "ks|heavy_fav": {
+     "w": 0.2,
+     "brier": 0.218138,
+     "decided": 510
+    },
+    "runs|plus_short": {
+     "w": 1,
+     "brier": 0.229594,
+     "decided": 4006
+    },
+    "outs|plus_short": {
+     "w": 1,
+     "brier": 0.23673,
+     "decided": 608
+    },
+    "hits|plus_short": {
+     "w": 1,
+     "brier": 0.244871,
+     "decided": 1091
+    },
+    "hits|fav": {
+     "w": 1,
+     "brier": 0.248733,
+     "decided": 1508
+    }
+   },
+   "decidedUsed": 258229,
    "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
   }
  ]
