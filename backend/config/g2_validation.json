@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T10:02:09.042Z",
+  "generatedAt": "2026-09-13T10:03:14.866Z",
   "version": "g2-l2-v1",
   "frozenHalfLife": null,
   "frozenLabel": "none",
@@ -525,14 +525,14 @@
     ]
   },
   "axisB": {
-    "rungRows": 1547174,
-    "joinedCurves": 215679,
+    "rungRows": 1745514,
+    "joinedCurves": 245194,
     "settled": 154256,
-    "pending": 61423,
+    "pending": 90938,
     "disagreements": 93600,
     "usBrier": 13929.528800401442,
     "mktBrier": 13712.750166575635,
-    "files": 51
+    "files": 58
   },
   "bars": {
     "passMinN": 150,
