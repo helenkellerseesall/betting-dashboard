@@ -1,65 +1,65 @@
 {
  "current": {
-  "asOf": "2026-09-27",
-  "fittedAt": "2026-09-27T10:01:10.820Z",
+  "asOf": "2026-10-04",
+  "fittedAt": "2026-10-04T10:00:50.274Z",
   "byFamilyBand": {
    "hits|heavy_fav": {
     "w": 1,
-    "brier": 0.229526,
-    "decided": 1907
+    "brier": 0.226958,
+    "decided": 1511
    },
-   "ks|plus_long": {
-    "w": 1,
-    "brier": 0.05749,
-    "decided": 6040
+   "hits|fav": {
+    "w": 0.85,
+    "brier": 0.246068,
+    "decided": 834
    },
    "hr|plus_long": {
     "w": 1,
-    "brier": 0.043037,
-    "decided": 23339
+    "brier": 0.04353,
+    "decided": 20097
+   },
+   "ks|plus_long": {
+    "w": 1,
+    "brier": 0.056728,
+    "decided": 4875
    },
    "runs|plus_long": {
-    "w": 0.15,
-    "brier": 0.056063,
-    "decided": 34217
-   },
-   "totalBases|plus_long": {
     "w": 0.35,
-    "brier": 0.052008,
-    "decided": 53027
-   },
-   "hits|plus_long": {
-    "w": 1,
-    "brier": 0.052216,
-    "decided": 46547
+    "brier": 0.055982,
+    "decided": 28226
    },
    "rbis|plus_long": {
     "w": 0,
-    "brier": 0.048335,
-    "decided": 35285
+    "brier": 0.047714,
+    "decided": 29342
+   },
+   "hits|plus_long": {
+    "w": 0.95,
+    "brier": 0.049556,
+    "decided": 38787
+   },
+   "totalBases|plus_long": {
+    "w": 0.3,
+    "brier": 0.051051,
+    "decided": 43690
    },
    "runs|plus_short": {
     "w": 1,
-    "brier": 0.235358,
-    "decided": 2904
+    "brier": 0.237868,
+    "decided": 2356
    },
    "outs|plus_short": {
     "w": 1,
-    "brier": 0.229405,
-    "decided": 516
+    "brier": 0.225713,
+    "decided": 449
    },
    "hits|plus_short": {
     "w": 1,
-    "brier": 0.244139,
-    "decided": 523
-   },
-   "hits|fav": {
-    "w": 0.9,
-    "brier": 0.245959,
-    "decided": 984
+    "brier": 0.244479,
+    "decided": 390
    }
   },
-  "decidedUsed": 205984,
+  "decidedUsed": 171093,
   "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
  },
  "history": [
@@ -678,6 +678,69 @@
     }
    },
    "decidedUsed": 205984,
+   "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
+  },
+  {
+   "asOf": "2026-10-04",
+   "fittedAt": "2026-10-04T10:00:50.274Z",
+   "byFamilyBand": {
+    "hits|heavy_fav": {
+     "w": 1,
+     "brier": 0.226958,
+     "decided": 1511
+    },
+    "hits|fav": {
+     "w": 0.85,
+     "brier": 0.246068,
+     "decided": 834
+    },
+    "hr|plus_long": {
+     "w": 1,
+     "brier": 0.04353,
+     "decided": 20097
+    },
+    "ks|plus_long": {
+     "w": 1,
+     "brier": 0.056728,
+     "decided": 4875
+    },
+    "runs|plus_long": {
+     "w": 0.35,
+     "brier": 0.055982,
+     "decided": 28226
+    },
+    "rbis|plus_long": {
+     "w": 0,
+     "brier": 0.047714,
+     "decided": 29342
+    },
+    "hits|plus_long": {
+     "w": 0.95,
+     "brier": 0.049556,
+     "decided": 38787
+    },
+    "totalBases|plus_long": {
+     "w": 0.3,
+     "brier": 0.051051,
+     "decided": 43690
+    },
+    "runs|plus_short": {
+     "w": 1,
+     "brier": 0.237868,
+     "decided": 2356
+    },
+    "outs|plus_short": {
+     "w": 1,
+     "brier": 0.225713,
+     "decided": 449
+    },
+    "hits|plus_short": {
+     "w": 1,
+     "brier": 0.244479,
+     "decided": 390
+    }
+   },
+   "decidedUsed": 171093,
    "note": "forward-only grid min-Brier (w step 0.05) on graded tracked rows < asOf; market proxy = close implied (vig-in) — shadow column carries the true de-vigged p_market; segments <300 decided run w=1"
   }
  ]
